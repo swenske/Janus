@@ -113,14 +113,39 @@ plus every real address this process can see on its own network
 interfaces - with `--network host`, that's the host's actual LAN
 address(es) directly, no extra configuration needed. Pass
 `-advertise-address YOUR.IP.OR.HOSTNAME` (comma-separated for more than
-one) only if you're *not* using `--network host` and this process can't
-otherwise see the address a node or browser will actually reach it
-through (Docker bridge networking's own internal IP is a real example -
-a self-registering node's plain `net/http` client, unlike a browser,
-can't click through a hostname/SAN mismatch, so it would refuse the
-handshake outright without this). Only read the first time the identity
-is generated - delete `<data-dir>/dashboard-identity.{crt,key}` and
-restart to regenerate it after changing this.
+one; also settable as the `JANUS_CONTROLLER_ADVERTISE_ADDRESS`
+environment variable, more natural for a Compose `environment:` block
+than overriding the container's command - an explicit flag still wins
+if both are given) only if you're *not* using `--network host` and this
+process can't otherwise see the address a node or browser will actually
+reach it through (Docker bridge networking's own internal IP is a real
+example - a self-registering node's plain `net/http` client, unlike a
+browser, can't click through a hostname/SAN mismatch, so it would
+refuse the handshake outright without this). Only read the first time
+the identity is generated - delete
+`<data-dir>/dashboard-identity.{crt,key}` and restart to regenerate it
+after changing this.
+
+The main UI's own port (`-addr`, default `:8080`) is similarly settable
+via the `JANUS_CONTROLLER_ADDR` environment variable (same `":port"`
+format) - to run it on the standard HTTPS port instead:
+
+```yaml
+services:
+  janus-controller:
+    image: swenske/janus-controller
+    container_name: janus-controller
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      JANUS_CONTROLLER_ADDR: ":443"
+      JANUS_CONTROLLER_ADVERTISE_ADDRESS: "controller.example.com"
+    volumes:
+      - janus-controller-data:/data
+
+volumes:
+  janus-controller-data:
+```
 
 To use your own certificate instead (a Let's Encrypt one, or one from
 an internal CA) - modifiable at any time, unlike the auto-generated

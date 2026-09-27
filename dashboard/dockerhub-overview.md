@@ -60,6 +60,15 @@ certificate is generated on first run, so your browser will ask you to
 click through a trust warning once, the same as it would for any
 self-hosted admin tool) and set the admin password on first visit.
 
+Two environment variables tune this without overriding the container's
+command - handy for a Compose `environment:` block:
+
+- `JANUS_CONTROLLER_ADDR` - the main port, e.g. `:443` to use the
+  standard HTTPS port instead of `:8080`.
+- `JANUS_CONTROLLER_ADVERTISE_ADDRESS` - a hostname (or comma-separated
+  list) to add to the TLS certificate's SAN list, e.g. a real DNS name
+  you'll reach this Controller through.
+
 To use your own certificate instead of the auto-generated one, mount it
 in and pass `-tls-cert`/`-tls-key`:
 
