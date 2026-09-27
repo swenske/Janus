@@ -34,6 +34,7 @@ import (
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/nocloud"
 )
 
 const daemonPath = "/sbin/janusd"
@@ -310,6 +311,74 @@ func seedPersistentHaproxyCfg(dir string) {
 	}
 }
 
+// seedControllerFromNoCloud is the external, delivered-at-boot
+// complement to internal/diskseed's embedded-at-image-generation-time
+// approach (see internal/nocloud's own package doc for the full
+// reasoning and the Talos precedent behind both) - a locally-attached
+// volume labeled "cidata"/"CIDATA" can carry controller_address/
+// controller_ca_cert for a shared, generic image that was never seeded
+// at all. Runs after mountState so /etc/janus/controller is already
+// the real, writable, bind-mounted STATE directory - a plain
+// os.WriteFile here, unlike internal/diskseed's own go-diskfs dance,
+// since this is a genuinely mounted filesystem now, not a raw disk file
+// being patched cold.
+//
+// Never overwrites an already-provisioned config (LifecycleService.
+// Install or internal/diskseed.SeedController already ran) - checked by
+// a plain os.Stat, the same "don't clobber what's already there"
+// philosophy both of those already apply on the writing side. Scans
+// virtio-blk whole-disk devices only (internal/nocloud.ScanBlockDevices),
+// excluding this node's own boot disk (internal/bootslot.Disk off
+// /proc/cmdline, same resolution resolveStateDevice already trusts) -
+// non-fatal at every step, same tolerant pattern as everything else in
+// this file: the overwhelming majority of boots have no such volume
+// attached at all, and that's not an error.
+func seedControllerFromNoCloud() {
+	const addressPath = "/etc/janus/controller/address"
+	if _, err := os.Stat(addressPath); err == nil {
+		return // already provisioned (Install or diskseed) - never overwrite
+	}
+
+	var bootDisk string
+	if cmdline, err := os.ReadFile("/proc/cmdline"); err == nil {
+		if dataDev, ok := bootslot.DataDevice(string(cmdline)); ok {
+			bootDisk, _ = bootslot.Disk(dataDev)
+		}
+	}
+
+	candidates, err := nocloud.ScanBlockDevices(bootDisk)
+	if err != nil {
+		fmt.Printf("init: nocloud: scan block devices: %v\n", err)
+		return
+	}
+	volume, err := nocloud.FindVolume(candidates)
+	if err != nil {
+		if err != nocloud.ErrNotFound {
+			fmt.Printf("init: nocloud: find volume: %v\n", err)
+		}
+		return
+	}
+	cfg, err := nocloud.Read(volume)
+	if err != nil {
+		fmt.Printf("init: nocloud: read %s: %v\n", volume, err)
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(addressPath), 0o755); err != nil {
+		fmt.Printf("init: nocloud: mkdir %s: %v\n", filepath.Dir(addressPath), err)
+		return
+	}
+	if err := os.WriteFile(addressPath, []byte(cfg.ControllerAddress), 0o644); err != nil {
+		fmt.Printf("init: nocloud: write %s: %v\n", addressPath, err)
+		return
+	}
+	if err := os.WriteFile("/etc/janus/controller/ca.crt", cfg.ControllerCACert, 0o644); err != nil {
+		fmt.Printf("init: nocloud: write /etc/janus/controller/ca.crt: %v\n", err)
+		return
+	}
+	fmt.Printf("init: nocloud: seeded controller config from %s\n", volume)
+}
+
 // resolveStateDevice figures out where the STATE partition/drive
 // actually is for *this* boot - see mountState's doc comment for the
 // two shapes it distinguishes between. Never fails outright: any
@@ -478,6 +547,7 @@ func main() {
 	mountEphemeral()
 	writeResolvConf()
 	mountState()
+	seedControllerFromNoCloud()
 	pendingMarker := checkBootCommit()
 
 	release, err := os.ReadFile("/proc/sys/kernel/osrelease")

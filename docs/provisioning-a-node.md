@@ -1,17 +1,22 @@
 # Provisionner un nouveau node auto-enregistré
 
-Deux méthodes pour créer un node Janus qui s'auto-enregistre auprès d'un
-Controller déjà en place (voir `CLAUDE.md`'s "Point 2 suite" pour le
-design du self-registration).
+Trois méthodes pour créer un node Janus qui s'auto-enregistre auprès
+d'un Controller déjà en place (voir `CLAUDE.md`'s "Point 2 suite" pour
+le design du self-registration).
 
-- **Méthode 1 - image partagée + `seed-controller`** : recommandée dès
-  qu'on provisionne plusieurs nodes pour le même environnement/Controller
-  (le cas visé par le futur site compagnon). Une seule image générique,
-  jamais reconstruite par node.
+- **Méthode 1 - image partagée + `seed-controller`** : recommandée pour
+  plusieurs nodes qui partagent le même environnement/Controller. Une
+  seule image générique, seedée une fois, jamais reconstruite par node.
 - **Méthode 2 - `Install` par node** : le chemin complet, utile pour un
   seul node ponctuel, ou si le rootfs lui-même doit être différent
   d'un node à l'autre (versions/contenu différents - `Install` écrit le
   rootfs en plus de la config).
+- **Méthode 3 - volume NoCloud (`cidata`)** : recommandée quand
+  Terraform (ou tout autre outil d'IaC) pilote déjà le provisioning -
+  l'image reste totalement générique et partagée (jamais touchée), et
+  c'est un petit volume à part, généré par le même outil qui génère déjà
+  du cloud-init pour vos autres VMs, qui porte la config. Pas de commande
+  `janusctl` à lancer du tout côté node.
 
 ## Méthode 1 : image partagée + `seed-controller` (recommandée)
 
@@ -241,7 +246,81 @@ scripter l'approbation.
 rm -rf /tmp/provision
 ```
 
-## Récupérer les identifiants PKI d'un node (les deux méthodes)
+## Méthode 3 : volume NoCloud (`cidata`)
+
+Principe : au boot, `rootfs/init` scanne les disques virtio-blk attachés
+(hors son propre disque de boot) à la recherche d'un volume (ISO9660 ou
+vfat) étiqueté `cidata`/`CIDATA` - exactement la convention "NoCloud" de
+cloud-init, celle que Talos Linux lui-même réutilise pour sa propre
+config machine. **Le contenu n'est pas du vrai cloud-init** (`#cloud-
+config`, `write_files`, etc.) - juste du JSON minimal Janus
+(`controller_address`/`controller_ca_cert`), dans un fichier `user-data`
+à la racine du volume. N'importe quel outil qui sait déjà générer un
+disque cloud-init pour vos autres VMs (provider Terraform
+libvirt/Proxmox/OpenStack, `cloud-localds`, etc.) sait déjà produire ce
+volume - seul le contenu change.
+
+L'image du node reste **totalement générique et partagée** - rien n'est
+jamais écrit dedans pour ce mécanisme, contrairement aux méthodes 1/2.
+
+### Construire le volume à la main (exemple avec `mtools`)
+
+```sh
+truncate -s 1M cidata.img
+mkfs.vfat -F 12 -n cidata cidata.img
+
+cat > user-data <<EOF
+{"controller_address":"<CONTROLLER_HOST>:8443","controller_ca_cert":"$(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read()))' controller-ca.crt | sed 's/^"//;s/"$//')"}
+EOF
+mcopy -i cidata.img user-data ::user-data
+```
+
+Attacher `cidata.img` comme un disque virtio-blk supplémentaire à la VM
+(en plus du disque système, qui reste l'image générique inchangée), puis
+démarrer normalement - le node lit le volume, écrit
+`controller/address`/`controller/ca.crt` sur sa propre partition STATE,
+et s'auto-enregistre.
+
+### Récupération à distance (`seedfrom`)
+
+Au lieu d'un `user-data` complet en local, le volume peut ne contenir
+qu'un `meta-data` pointant vers une URL (vraie fonctionnalité cloud-init
+NoCloud, reprise telle quelle) :
+
+```json
+{"seedfrom": "https://exemple.interne/janus/user-data"}
+```
+
+Trois modes de confiance possibles pour cette récupération, choisis
+automatiquement selon ce qui est fourni (voir `internal/nocloud` pour le
+détail) :
+
+| `meta-data` contient... | URL | Comportement |
+|---|---|---|
+| `seedfrom_ca_cert` (PEM) | doit être `https://` | vérifié *uniquement* contre ce CA (extension propre à Janus, pas du cloud-init standard) |
+| rien de plus | `https://` | vérifié contre le trust store système (comportement HTTPS standard) |
+| rien de plus | `http://` | aucune vérification, en clair (façon PXE `talos.config=`) |
+
+### Terraform (exemple conceptuel)
+
+```hcl
+data "cloudinit_config" "janus_seed" {
+  gzip          = false
+  base64        = false
+  part {
+    content_type = "application/json"
+    content      = jsonencode({
+      controller_address  = "controller.example.com:8443"
+      controller_ca_cert  = file("controller-ca.crt")
+    })
+  }
+}
+# ... attacher le résultat comme un disque cloud-init au provider utilisé
+# (libvirt_cloudinit_disk, proxmox cicustom, etc.) - le contenu ci-dessus
+# devient le user-data du volume cidata, peu importe le provider.
+```
+
+## Récupérer les identifiants PKI d'un node (les trois méthodes)
 
 Utile pour un accès direct `janusctl`/navigateur (vue par-node) en plus
 du Controller. Les identifiants sont sur la partition STATE (partition 6

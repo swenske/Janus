@@ -19,7 +19,8 @@ GEN_DIR := gen
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
-	qemu-dashboard-test dashboard-image
+	qemu-dashboard-test dashboard-image ca-certificates seed-controller-test \
+	nocloud-seed-test
 
 all: build
 
@@ -156,11 +157,19 @@ selinux-policy:
 	mkdir -p $(BUILD_DIR)/selinux
 	docker build --target export -o $(BUILD_DIR)/selinux selinux
 
-rootfs-build: init daemon-static haproxy-build selinux-policy
+# internal/nocloud's seedfrom "mode B" (verify against the system trust
+# store) needs a real CA bundle to exist on the rootfs at all - see
+# ca-certificates/Dockerfile's own comment for why nothing else in this
+# project has needed one until now.
+ca-certificates:
+	mkdir -p $(BUILD_DIR)/ca-certificates
+	docker build --target export -o $(BUILD_DIR)/ca-certificates ca-certificates
+
+rootfs-build: init daemon-static haproxy-build selinux-policy ca-certificates
 	mkdir -p $(BUILD_DIR)/rootfs
 	./rootfs/assemble.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/init $(BUILD_DIR)/janusd \
 		$(BUILD_DIR)/haproxy rootfs/base/etc/haproxy/haproxy.cfg \
-		$(BUILD_DIR)/selinux/janus.policy
+		$(BUILD_DIR)/selinux/janus.policy $(BUILD_DIR)/ca-certificates/ca-certificates.crt
 
 # Phase 3 cont'd: boots the kernel directly from rootfs-build's
 # squashfs+dm-verity image via the "dm-mod.create=" cmdline parameter
@@ -383,6 +392,16 @@ qemu-self-register-test: build dashboard-build rootfs-build
 # qemu-self-register-test's own Install-time-provisioned disk does.
 seed-controller-test: build dashboard-build rootfs-build
 	./hack/janusctl-seed-controller-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
+
+# NoCloud/cidata follow-up: proves internal/nocloud + rootfs/init's
+# seedControllerFromNoCloud - a disk Installed with NO Controller at
+# all, booted alongside a *separate*, locally-attached "cidata"-labeled
+# volume, self-registers on its own using controller_address/
+# controller_ca_cert read from that volume - the external,
+# delivered-at-boot complement to seed-controller-test's embedded-at-
+# generation-time approach (see internal/nocloud's own package doc).
+nocloud-seed-test: build dashboard-build rootfs-build
+	./hack/nocloud-seed-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
 # Phase 3 cont'd: assembles a real Unified Kernel Image (UKI) - kernel +
 # exact boot cmdline, one PE/COFF executable - via `ukify`

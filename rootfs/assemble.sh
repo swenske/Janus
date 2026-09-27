@@ -5,7 +5,7 @@
 # PATH - neither needs root privileges for this (only mounting/verifying
 # a *live* dm-verity device does).
 #
-# Usage: rootfs/assemble.sh <out-dir> <init-bin> <janusd-bin> <haproxy-bin> <haproxy-cfg> <selinux-policy>
+# Usage: rootfs/assemble.sh <out-dir> <init-bin> <janusd-bin> <haproxy-bin> <haproxy-cfg> <selinux-policy> <ca-bundle>
 #
 # Writes to <out-dir>:
 #   rootfs.squashfs   - the read-only root filesystem image
@@ -24,23 +24,30 @@ set -euo pipefail
 # `apt-get install cryptsetup-bin` having just run cleanly in the same job.
 export PATH="$PATH:/usr/sbin:/sbin"
 
-USAGE="usage: $0 <out-dir> <init-bin> <janusd-bin> <haproxy-bin> <haproxy-cfg> <selinux-policy>"
+USAGE="usage: $0 <out-dir> <init-bin> <janusd-bin> <haproxy-bin> <haproxy-cfg> <selinux-policy> <ca-bundle>"
 OUT_DIR="${1:?$USAGE}"
 INIT_BIN="${2:?$USAGE}"
 DAEMON_BIN="${3:?$USAGE}"
 HAPROXY_BIN="${4:?$USAGE}"
 HAPROXY_CFG="${5:?$USAGE}"
 SELINUX_POLICY="${6:?$USAGE}"
+CA_BUNDLE="${7:?$USAGE}"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-mkdir -p "$WORKDIR"/{proc,sys,dev,run,var,tmp,sbin,usr/local/sbin,etc/haproxy,etc/selinux}
+mkdir -p "$WORKDIR"/{proc,sys,dev,run,var,tmp,sbin,usr/local/sbin,etc/haproxy,etc/selinux,etc/ssl/certs}
 install -m 0755 "$INIT_BIN" "$WORKDIR/sbin/init"
 install -m 0755 "$DAEMON_BIN" "$WORKDIR/sbin/janusd"
 install -m 0755 "$HAPROXY_BIN" "$WORKDIR/usr/local/sbin/haproxy"
 install -m 0644 "$HAPROXY_CFG" "$WORKDIR/etc/haproxy/haproxy.cfg"
 install -m 0644 "$SELINUX_POLICY" "$WORKDIR/etc/selinux/janus.policy"
+# internal/nocloud's seedfrom "mode B" - a plain HTTPS client verifying
+# against the system trust store - needs this to exist somewhere Go's
+# own x509.SystemCertPool() looks by default; /etc/ssl/certs/
+# ca-certificates.crt is Debian/Ubuntu's own convention and one of the
+# fixed paths Go's stdlib checks.
+install -m 0644 "$CA_BUNDLE" "$WORKDIR/etc/ssl/certs/ca-certificates.crt"
 # /run, /var, /tmp stay empty in the image itself; Phase 3's ephemeral
 # overlay (not implemented yet) is what makes them writable on a booted
 # node.
