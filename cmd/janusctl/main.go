@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/diskseed"
 	"github.com/swenske/Janus/internal/pki"
 )
 
@@ -42,6 +43,16 @@ func main() {
 	if flag.NArg() == 0 {
 		usage()
 		os.Exit(2)
+	}
+
+	// "image" subcommands operate directly on a disk file offline -
+	// unlike every other command here, they need no running janusd/gRPC
+	// connection at all (that's the entire point, see internal/diskseed's
+	// own package doc) - dispatched before dial() so a missing/
+	// unreachable -endpoint never gets in the way.
+	if flag.Arg(0) == "image" {
+		runImage(flag.Args()[1:])
+		return
 	}
 
 	conn, err := dial(*endpoint, *caFile, *certFile, *keyFile)
@@ -116,6 +127,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] DISK BUNDLE_DIR  partition a blank DISK from scratch and write a release bundle (image/release/assemble.sh) to both A/B slots - does not reboot anything; -controller-address/-controller-ca make the installed node self-register with that Controller on first boot")
 	fmt.Fprintln(os.Stderr, "  lifecycle rollback         switch the ESP to the other A/B slot's staged UKI and reboot into it")
 	fmt.Fprintln(os.Stderr, "  lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] BUNDLE_DIR  write a release bundle (image/release/assemble.sh) to the inactive slot, switch, and reboot into it - with -wait-for-health, reverts and reboots back automatically if the new slot never stays up long enough to confirm healthy")
+	fmt.Fprintln(os.Stderr, "  image seed-controller -controller-address HOST:PORT -controller-ca FILE DISK  write controller self-registration config directly onto an already-built DISK's existing STATE partition - no janusd/gRPC needed, doesn't touch partitioning or the rootfs (raw disk images only; qemu-img convert a qcow2 to raw first, see docs/provisioning-a-node.md)")
 }
 
 func ctx() (context.Context, context.CancelFunc) {
@@ -361,6 +373,43 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl lifecycle: unknown subcommand %q\n", sub)
+		usage()
+		os.Exit(2)
+	}
+}
+
+// runImage handles "image" subcommands - unlike every other command in
+// this file, these never take a *grpc.ClientConn: they operate directly
+// on a disk file offline, no janusd involved at all (see
+// internal/diskseed's own package doc for why this exists).
+func runImage(args []string) {
+	if len(args) == 0 {
+		usage()
+		os.Exit(2)
+	}
+
+	switch sub := args[0]; sub {
+	case "seed-controller":
+		fs := flag.NewFlagSet("image seed-controller", flag.ExitOnError)
+		controllerAddress := fs.String("controller-address", "", "address of a Controller (Janus Controller's node self-registration port, see dashboard/backend/register.go) for the node to announce itself to on first boot - required")
+		controllerCA := fs.String("controller-ca", "", "path to the Controller's CA certificate (PEM) - the node uses this to verify it's talking to the real Controller before ever sending it a credential; required")
+		_ = fs.Parse(args[1:])
+		if fs.NArg() != 1 || *controllerAddress == "" || *controllerCA == "" {
+			fmt.Fprintln(os.Stderr, "usage: janusctl image seed-controller -controller-address HOST:PORT -controller-ca FILE DISK")
+			os.Exit(2)
+		}
+		disk := fs.Arg(0)
+		caCert, err := os.ReadFile(*controllerCA)
+		if err != nil {
+			log.Fatalf("seed-controller: read -controller-ca %s: %v", *controllerCA, err)
+		}
+		if err := diskseed.SeedController(disk, *controllerAddress, caCert); err != nil {
+			log.Fatalf("seed-controller: %v", err)
+		}
+		fmt.Printf("wrote controller self-registration config to %s's STATE partition\n", disk)
+
+	default:
+		fmt.Fprintf(os.Stderr, "janusctl image: unknown subcommand %q\n", sub)
 		usage()
 		os.Exit(2)
 	}

@@ -373,6 +373,17 @@ lifecycle-install-test: build rootfs-build
 qemu-self-register-test: build dashboard-build rootfs-build
 	./hack/qemu-self-register-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
+# Scaling-provisioning follow-up: proves `janusctl image seed-controller`
+# (internal/diskseed) - writes controller_address/controller_ca_cert
+# directly onto an already-built disk's existing STATE partition, no
+# janusd/gRPC round trip at all - by Installing a disk with NO
+# Controller config (the shape a shared, generic, downloadable image
+# actually has), seeding it offline, and confirming it still
+# self-registers with a real dashboardd on first boot, same as
+# qemu-self-register-test's own Install-time-provisioned disk does.
+seed-controller-test: build dashboard-build rootfs-build
+	./hack/janusctl-seed-controller-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
+
 # Phase 3 cont'd: assembles a real Unified Kernel Image (UKI) - kernel +
 # exact boot cmdline, one PE/COFF executable - via `ukify`
 # (systemd-ukify), and a FAT32 ESP image with it installed at the
