@@ -17,3 +17,4 @@
 
 # buf/protoc-gen-go local tool cache, if built into the repo instead of GOBIN.
 /.tmp/
+.local-scratch/

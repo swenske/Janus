@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -96,6 +97,66 @@ func mountEphemeral() {
 	if err := os.WriteFile(seedCfg, cfgBytes, cfgMode); err != nil {
 		fmt.Printf("init: write %s: %v\n", seedCfg, err)
 	}
+}
+
+// parsePnpNameservers extracts "nameserver <ip>" lines from
+// /proc/net/pnp's own content - see writeResolvConf's doc comment for
+// why this exists. Kept pure/dependency-free so it has a real unit test
+// without needing a real kernel-DHCP boot to produce that file.
+func parsePnpNameservers(pnp []byte) []string {
+	var out []string
+	for _, line := range strings.Split(string(pnp), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "nameserver" {
+			out = append(out, fields[1])
+		}
+	}
+	return out
+}
+
+// writeResolvConf writes /etc/resolv.conf from whatever nameserver(s) the
+// kernel's own IP_PNP DHCP client (ip=dhcp) recorded in /proc/net/pnp -
+// found genuinely missing, not anticipated: kernel-builtin DHCP only
+// ever configures the interface's address/netmask/gateway, it has no
+// mechanism to write a resolver file anywhere, and nothing here ever
+// did either, since no prior boot had a reason to resolve a hostname at
+// all. A real alpha deployment (VM 223 on a real VLAN, real DHCP
+// server, real internal DNS) provisioned with a Controller *hostname*
+// (LifecycleService.Install's controller_address) and its self-
+// registration attempt failed outright with "dial udp: lookup
+// ...: read udp [::1]:53: read: connection refused" - Go's resolver
+// falling back to a loopback nameserver with nothing listening on it.
+// Every QEMU-based self-register test in this project
+// (hack/qemu-self-register-test.sh) dials its Controller by IP
+// (10.0.2.2, QEMU usermode networking's own fixed gateway address) and
+// so never exercised hostname resolution at all - exactly why no
+// existing test ever caught this. Has to run after mountEphemeral
+// overmounts /etc with a writable tmpfs, same ordering constraint
+// mountState's own pki//haproxy/ writes have. Missing/empty
+// /proc/net/pnp (no IP_PNP, or DHCP never completed) is non-fatal, same
+// tolerant pattern every other optional step in this file uses: logged,
+// /etc/resolv.conf simply stays absent, and any later hostname lookup
+// fails the same way it always did before this existed.
+func writeResolvConf() {
+	pnp, err := os.ReadFile("/proc/net/pnp")
+	if err != nil {
+		fmt.Printf("init: read /proc/net/pnp: %v\n", err)
+		return
+	}
+	nameservers := parsePnpNameservers(pnp)
+	if len(nameservers) == 0 {
+		fmt.Println("init: no DHCP-provided nameserver in /proc/net/pnp, leaving /etc/resolv.conf absent")
+		return
+	}
+	var sb strings.Builder
+	for _, ns := range nameservers {
+		sb.WriteString("nameserver " + ns + "\n")
+	}
+	if err := os.WriteFile("/etc/resolv.conf", []byte(sb.String()), 0o644); err != nil {
+		fmt.Printf("init: write /etc/resolv.conf: %v\n", err)
+		return
+	}
+	fmt.Printf("init: wrote /etc/resolv.conf with %d nameserver(s) from /proc/net/pnp\n", len(nameservers))
 }
 
 // mountState mounts the pre-formatted, persistent STATE partition (see
@@ -415,6 +476,7 @@ func main() {
 	mount("devtmpfs", "/dev", "devtmpfs")
 	hardenSysctls()
 	mountEphemeral()
+	writeResolvConf()
 	mountState()
 	pendingMarker := checkBootCommit()
 
