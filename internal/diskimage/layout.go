@@ -43,6 +43,20 @@ const (
 	// to sgdisk to cross-check), but there's no reason to diverge from
 	// a well-established default either.
 	AlignSectors = 2048
+
+	// GPTBackupSectors is the space the GPT spec reserves at the very
+	// end of the disk for the backup header (1 sector) and backup
+	// partition array (32 sectors, for the standard 128-entry table
+	// github.com/diskfs/go-diskfs's gpt.Table writes) - 33 sectors
+	// total. STATE must leave this untouched, not claim it as part of
+	// its own "whatever's left" sizing - found by a real `sgdisk -p`
+	// warning ("Secondary partition table overlaps the last partition
+	// by 33 blocks") against a genuinely Install-produced disk, not by
+	// inspection: every partition Compute ever laid out filled the
+	// disk right to its last byte, silently corrupting the backup GPT
+	// copy underneath STATE's own filesystem data on every real
+	// Install this project has ever run.
+	GPTBackupSectors = 33
 )
 
 // Layout is the sector-aligned start/end (inclusive, matching GPT's own
@@ -92,9 +106,10 @@ func Compute(diskBytes int64) (*Layout, error) {
 	l.BHashStart, l.BHashEnd = next(HashMB)
 
 	usedBytes := int64(cur) * SectorSize
-	remaining := diskBytes - usedBytes
+	reservedBytes := int64(GPTBackupSectors) * SectorSize
+	remaining := diskBytes - usedBytes - reservedBytes
 	if remaining < mb(MinStateMB) {
-		minTotalMB := float64(usedBytes+mb(MinStateMB)) / 1024 / 1024
+		minTotalMB := float64(usedBytes+reservedBytes+mb(MinStateMB)) / 1024 / 1024
 		return nil, fmt.Errorf("disk is too small: only %d bytes would be left for STATE (need at least %dMiB) - disk must be at least %.1fMiB total", remaining, MinStateMB, minTotalMB)
 	}
 	l.StateStart = cur

@@ -50,6 +50,24 @@ func TestComputeTypicalDisk(t *testing.T) {
 	}
 }
 
+func TestComputeLeavesRoomForBackupGPT(t *testing.T) {
+	// A real Install-produced disk once left STATE running right up to
+	// the very last sector, silently overlapping (and corrupting) the
+	// GPT spec's own backup header+partition-array at the end of the
+	// disk - caught by a real sgdisk -p warning against an actual
+	// installed disk, not by inspection.
+	diskBytes := int64(2 * 1024 * 1024 * 1024)
+	l, err := Compute(diskBytes)
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+	diskSectors := uint64(diskBytes / SectorSize)
+	freeAfterState := (diskSectors - 1) - l.StateEnd
+	if freeAfterState < GPTBackupSectors {
+		t.Fatalf("only %d sectors free after STATE, want at least %d (GPTBackupSectors) left for the backup GPT header+table", freeAfterState, GPTBackupSectors)
+	}
+}
+
 func TestComputeTooSmall(t *testing.T) {
 	// Barely bigger than the four fixed boot partitions + ESP alone -
 	// nowhere near enough left for MinStateMB.
