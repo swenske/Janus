@@ -20,7 +20,8 @@ GEN_DIR := gen
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
 	qemu-dashboard-test dashboard-image ca-certificates seed-controller-test \
-	nocloud-seed-test kvm-image vmware-image
+	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
+	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test
 
 all: build
 
@@ -255,6 +256,47 @@ kvm-image: kernel-build rootfs-build state-image
 vmware-image: kernel-build rootfs-build state-image
 	./image/vmware/assemble.sh $(BUILD_DIR)/janus.vmdk $(BUILD_DIR)/bzImage \
 		$(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/state.img A
+
+# Bare-metal Machine tranche: hybrid ISO/GPT installer/maintenance-mode
+# medium (no A/B, no STATE - ephemeral), bootable both via a real
+# El Torito EFI path and as a raw disk (dd'd to USB). Requires xorriso
+# on top of uki-image's own tools (ukify, mtools/dosfstools).
+iso-image: kernel-build rootfs-build
+	./image/iso/assemble.sh $(BUILD_DIR)/janus.iso $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs
+
+# Proves iso-image's hybrid ISO boots under real OVMF as a raw GPT disk
+# - see hack/qemu-iso-boot-test.sh. Requires OVMF (package: ovmf).
+qemu-iso-boot-test: iso-image
+	./hack/qemu-iso-boot-test.sh $(BUILD_DIR)/janus.iso
+
+# Same ISO, this time with a real release bundle embedded (image/
+# release/assemble.sh's own output) so it's actually useful for a real
+# LifecycleService.Install call with nothing else reachable from the
+# host - see image/iso/assemble.sh's own [release-bundle-dir] arg and
+# hack/qemu-iso-install-test.sh. This is the artifact actually meant
+# for distribution, not plain iso-image above (which is what the boot
+# test itself uses, kept bundle-free/faster to build).
+iso-image-with-bundle: kernel-build rootfs-build
+	./image/release/assemble.sh $(BUILD_DIR)/release $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs
+	./image/iso/assemble.sh $(BUILD_DIR)/janus.iso $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs $(BUILD_DIR)/release
+
+# Bare-metal Machine tranche cont'd: proves a node booted from the ISO
+# with an embedded release bundle (image/iso/assemble.sh's own optional
+# [release-bundle-dir] arg) can call LifecycleService.Install using
+# only what's already on the medium (/etc/janus/release) - no bundle
+# reachable from the host at all. Builds its own bundle+ISO internally,
+# see hack/qemu-iso-install-test.sh. Requires janusctl built (`build`)
+# and OVMF.
+qemu-iso-install-test: build kernel-build rootfs-build
+	./hack/qemu-iso-install-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BIN_DIR)/janusctl
+
+# Bare-metal Machine tranche cont'd: proves the network-delivery half
+# of PXE/iPXE boot - see image/pxe/README.md for the full story
+# (native PXE/HTTP Boot vs. the iPXE fallback this test actually
+# exercises, and its own documented "known limitation"). Requires the
+# `ipxe` Debian package and OVMF.
+qemu-pxe-fetch-test: kernel-build rootfs-build
+	./hack/qemu-pxe-fetch-test.sh $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs
 
 # Phase 3 cont'd: proves both A/B slots of disk-image's single GPT disk
 # are actually, independently bootable via QEMU's own -kernel/-append

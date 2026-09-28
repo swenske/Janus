@@ -402,6 +402,46 @@ func resolveStateDevice() string {
 	return device
 }
 
+// mountReleaseBundle mounts image/iso/assemble.sh's embedded release
+// bundle - present only on the Bare-metal Machine installer/
+// maintenance-mode ISO, always partition 1 on that image's own fixed
+// layout (1:ISO9660 release bundle, 2:ESP, 3:DATA, 4:HASH - a
+// different convention from image/disk/assemble.sh's, see that
+// script's own header) - read-only, at a fixed path janusd's own
+// LifecycleService.Install can be pointed at directly as BUNDLE_DIR.
+// Same tolerant pattern as mountState: any other image shape either
+// has no partition 1 at all, or (image/disk's own ESP, a FAT
+// filesystem) fails the "iso9660" mount outright - both non-fatal,
+// falling back to simply not having this path populated, exactly as
+// if this function didn't exist.
+func mountReleaseBundle() {
+	cmdline, err := os.ReadFile("/proc/cmdline")
+	if err != nil {
+		fmt.Printf("init: release bundle: read /proc/cmdline: %v\n", err)
+		return
+	}
+	dataDev, ok := bootslot.DataDevice(string(cmdline))
+	if !ok {
+		return
+	}
+	disk, ok := bootslot.Disk(dataDev)
+	if !ok {
+		return
+	}
+	const target = "/etc/janus/release"
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		fmt.Printf("init: mkdir %s: %v\n", target, err)
+		return
+	}
+	// Unlike mount()/mountData()'s other callers, iso9660 refuses an
+	// implicit read-write mount outright (EACCES) - it never supports
+	// writing at all, so MS_RDONLY has to be passed explicitly rather
+	// than left to the filesystem driver to assume.
+	if err := syscall.Mount(disk+"1", target, "iso9660", syscall.MS_RDONLY, ""); err != nil {
+		fmt.Printf("init: mount iso9660 on %s: %v\n", target, err)
+	}
+}
+
 func bindMount(src, dst string) {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		fmt.Printf("init: mkdir %s: %v\n", dst, err)
@@ -547,6 +587,7 @@ func main() {
 	mountEphemeral()
 	writeResolvConf()
 	mountState()
+	mountReleaseBundle()
 	seedControllerFromNoCloud()
 	pendingMarker := checkBootCommit()
 

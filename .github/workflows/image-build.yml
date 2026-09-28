@@ -38,7 +38,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq qemu-system-x86 qemu-utils squashfs-tools cryptsetup-bin e2fsprogs gdisk \
-            ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware
+            ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware xorriso ipxe
 
       # dashboard/frontend (Vite 8) needs Node >=20.19 - Debian's own
       # default `nodejs` apt package version isn't reliably that recent,
@@ -387,6 +387,32 @@ jobs:
       - name: UKI boots under real UEFI firmware (Phase 3 cont'd)
         run: make qemu-uefi-boot-test
 
+      # Bare-metal Machine tranche (docs/companion-site-builder-scope.md):
+      # image/iso/assemble.sh's hybrid ISO/GPT installer/maintenance-mode
+      # medium, booted as a raw disk under real OVMF (the realistic
+      # "dd'd to USB" case - see that script's own header for why a
+      # real optical/El Torito boot isn't what's tested here). See
+      # hack/qemu-iso-boot-test.sh.
+      - name: Hybrid installer ISO boots under real UEFI firmware (Bare-metal tranche)
+        run: make qemu-iso-boot-test
+
+      # Bare-metal Machine tranche cont'd: proves the ISO's own embedded
+      # release bundle (image/iso/assemble.sh's optional
+      # [release-bundle-dir] arg) is real - a node booted from it can
+      # call LifecycleService.Install using only /etc/janus/release,
+      # no bundle reachable from the host at all. See
+      # hack/qemu-iso-install-test.sh.
+      - name: Installer ISO's embedded release bundle installs a real disk (Bare-metal tranche)
+        run: make qemu-iso-install-test
+
+      # Bare-metal Machine tranche cont'd: proves only the network-
+      # delivery half of PXE/iPXE boot (a real iPXE DHCPs and fetches
+      # the real Janus UKI via TFTP at the correct byte size) - see
+      # image/pxe/README.md for the full story, including why a full
+      # boot isn't asserted here.
+      - name: iPXE DHCPs and fetches the real Janus UKI via TFTP (Bare-metal tranche)
+        run: make qemu-pxe-fetch-test
+
       # Phase 3 cont'd: the ESP now lives on image/disk/assemble.sh's
       # single GPT disk too (partition 1, ahead of both A/B slots) - the
       # real, complete, single-disk shape a deployed node would have.
@@ -699,6 +725,24 @@ jobs:
           path: build/janus.vmdk
           retention-days: 30
 
+      # Bare-metal Machine tranche: same disk-image content again, this
+      # time as the hybrid installer/maintenance-mode ISO (image/iso/
+      # assemble.sh), with a real release bundle embedded (iso-image-
+      # with-bundle, not the plain boot-test-only iso-image target) so
+      # it's actually usable for a real LifecycleService.Install call
+      # with nothing else reachable from the host - already proven
+      # above (hack/qemu-iso-install-test.sh).
+      - name: Build an alpha bare-metal installer ISO
+        run: |
+          make iso-image-with-bundle
+          ls -lh build/janus.iso
+      - name: Upload the alpha installer ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: janus-alpha-iso-${{ github.sha }}
+          path: build/janus.iso
+          retention-days: 30
+
       # User-requested: publish the dashboard image to the maintainer's
       # own Docker Hub - deferred ever since the Dockerfile itself
       # landed, until the rename decision settled (see dashboard/
@@ -760,8 +804,8 @@ jobs:
           short-description: "Web UI to manage Janus nodes: self-registration, live stats, HAProxy config - HTTPS-only"
           readme-filepath: dashboard/dockerhub-overview.md
 
-      # TODO(Phase 3 cont'd): image/iso, plus a real OVA (OVF descriptor
-      # + tar) on top of image/vmware's bare VMDK. Upload to a GitHub
-      # Release once a version scheme exists.
+      # TODO(Phase 3 cont'd): a real OVA (OVF descriptor + tar) on top
+      # of image/vmware's bare VMDK. Upload to a GitHub Release once a
+      # version scheme exists.
       # TODO(Phase 5): pkgs/bird, pkgs/keepalived, pkgs/nftables - built
       # only into images that opt in via declarative configuration.
