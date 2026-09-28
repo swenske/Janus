@@ -127,7 +127,8 @@ EOF
 V2_ROOTFS="$WORKDIR/rootfs-v2"
 mkdir -p "$V2_ROOTFS"
 "$SELF_DIR/../rootfs/assemble.sh" "$V2_ROOTFS" "$BUILD_DIR/init" "$BUILD_DIR/janusd" \
-  "$BUILD_DIR/haproxy" "$WORKDIR/haproxy-v2.cfg" "$BUILD_DIR/selinux/janus.policy"
+  "$BUILD_DIR/haproxy" "$WORKDIR/haproxy-v2.cfg" "$BUILD_DIR/selinux/janus.policy" \
+  "$BUILD_DIR/ca-certificates/ca-certificates.crt"
 
 V2_BUNDLE="$WORKDIR/bundle-v2"
 "$SELF_DIR/../image/release/assemble.sh" "$V2_BUNDLE" "$KERNEL" "$V2_ROOTFS"
