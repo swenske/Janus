@@ -21,7 +21,8 @@ GEN_DIR := gen
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
 	qemu-dashboard-test dashboard-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
-	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test
+	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
+	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test
 
 all: build
 
@@ -94,6 +95,33 @@ initramfs: init
 # (see hack/qemu-run.sh). Requires qemu-system-x86_64 on PATH.
 qemu-boot-test: kernel-build initramfs
 	./hack/qemu-run.sh $(BUILD_DIR)/bzImage $(BUILD_DIR)/initramfs.cpio.gz
+
+# Single Board Computer tranche: cross-builds the aarch64/BCM2711 kernel
+# Image + Raspberry Pi 4 device tree from kernel/configs/janus_rpi4_defconfig
+# via kernel/Dockerfile's "export-arm64" stage, pulled out to build/rpi4/.
+rpi4-kernel-build:
+	mkdir -p $(BUILD_DIR)/rpi4
+	docker build --target export-arm64 --build-arg KERNEL_VERSION=$(KERNEL_VERSION) \
+		--build-arg ARCH=arm64 --build-arg CROSS_COMPILE=aarch64-linux-gnu- \
+		--build-arg DEFCONFIG=janus_rpi4_defconfig --build-arg MAKE_TARGETS="Image dtbs" \
+		-o $(BUILD_DIR)/rpi4 kernel
+
+# Cross-builds rootfs/init for arm64 (same static Go PID 1, just a
+# different GOARCH - no source changes needed).
+rpi4-init:
+	mkdir -p $(BUILD_DIR)/rpi4
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" \
+		-o $(BUILD_DIR)/rpi4/init ./rootfs/init
+
+rpi4-initramfs: rpi4-init
+	./hack/build-initramfs.sh $(BUILD_DIR)/rpi4/init $(BUILD_DIR)/rpi4/initramfs.cpio.gz
+
+# Single Board Computer tranche's own Phase-1-equivalent boot-proof:
+# boots the aarch64 kernel + Pi 4 dtb + initramfs under QEMU's raspi4b
+# machine, checking for rootfs/init's success marker on the console (see
+# hack/qemu-raspi4-boot-test.sh). Requires qemu-system-aarch64 on PATH.
+qemu-raspi4-boot-test: rpi4-kernel-build rpi4-initramfs
+	./hack/qemu-raspi4-boot-test.sh $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/rpi4/bcm2711-rpi-4-b.dtb $(BUILD_DIR)/rpi4/initramfs.cpio.gz
 
 # Builds a fully static (musl, via Alpine's own toolchain - see pkgs/
 # haproxy/Dockerfile) haproxy binary with OpenSSL and pulls it out to

@@ -38,7 +38,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq qemu-system-x86 qemu-utils squashfs-tools cryptsetup-bin e2fsprogs gdisk \
-            ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware xorriso ipxe
+            ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware xorriso ipxe \
+            qemu-system-arm crossbuild-essential-arm64
 
       # dashboard/frontend (Vite 8) needs Node >=20.19 - Debian's own
       # default `nodejs` apt package version isn't reliably that recent,
@@ -412,6 +413,17 @@ jobs:
       # boot isn't asserted here.
       - name: iPXE DHCPs and fetches the real Janus UKI via TFTP (Bare-metal tranche)
         run: make qemu-pxe-fetch-test
+
+      # Single Board Computer tranche's own Phase-1-equivalent boot-
+      # proof (see docs/companion-site-builder-scope.md): a minimal
+      # aarch64/BCM2711 kernel (kernel/configs/janus_rpi4_defconfig)
+      # boots rootfs/init (GOARCH=arm64) as PID 1 under QEMU's raspi4b
+      # machine - console-only verification (no PCIe/Ethernet emulation
+      # in raspi4b at all), the same bar Talos itself uses for real
+      # Raspberry Pi hardware. Real hardware (SD/MMC, USB, Ethernet,
+      # UEFI firmware) is not yet covered.
+      - name: Raspberry Pi 4 (aarch64/BCM2711) console boot (Single Board Computer tranche)
+        run: make qemu-raspi4-boot-test
 
       # Phase 3 cont'd: the ESP now lives on image/disk/assemble.sh's
       # single GPT disk too (partition 1, ahead of both A/B slots) - the

@@ -40,7 +40,11 @@ can provision a target disk using nothing but the medium itself. PXE/HTTP
 Boot is documented (`image/pxe/README.md`) - native PXE/HTTP Boot loads
 the same image directly on real hardware; an iPXE fallback path is
 also documented for firmware without that stack, with a known,
-firmware-specific limitation. See
+firmware-specific limitation. A Raspberry Pi 4/5 (aarch64/BCM2711) port
+has its first proven increment: a minimal kernel boots `rootfs/init`
+as PID 1 under QEMU's `raspi4b` machine (`make qemu-raspi4-boot-test`),
+though real hardware support (SD/MMC, USB, Ethernet, UEFI firmware) is
+not yet built - see `docs/companion-site-builder-scope.md`. See
 [`docs/architecture.md`](docs/architecture.md) for the design and roadmap,
 and [`docs/api-routes.md`](docs/api-routes.md) for the gRPC API catalog.
 Nothing here is published or versioned for general use yet.
