@@ -31,8 +31,16 @@ Optional network features, opt-in per node: BGP via
 > this repository refers strictly to the upstream software.
 
 **Status: early alpha.** Real bootable images exist (kernel hardening,
-dm-verity, A/B updates, Secure Boot, SELinux enforcing by default) and an
-unsigned alpha qcow2 is built on every image workflow run - see
+dm-verity, A/B updates, Secure Boot, SELinux enforcing by default), built
+and boot-tested on every image workflow run: an unsigned qcow2 for
+Proxmox/generic KVM-libvirt, a VMDK for VMware/ESXi, and a hybrid
+ISO/GPT installer/maintenance-mode medium (bootable via USB or optical
+media) with a real release bundle embedded, so `LifecycleService.Install`
+can provision a target disk using nothing but the medium itself. PXE/HTTP
+Boot is documented (`image/pxe/README.md`) - native PXE/HTTP Boot loads
+the same image directly on real hardware; an iPXE fallback path is
+also documented for firmware without that stack, with a known,
+firmware-specific limitation. See
 [`docs/architecture.md`](docs/architecture.md) for the design and roadmap,
 and [`docs/api-routes.md`](docs/api-routes.md) for the gRPC API catalog.
 Nothing here is published or versioned for general use yet.
