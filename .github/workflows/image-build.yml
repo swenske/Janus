@@ -41,18 +41,6 @@ jobs:
             ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware xorriso ipxe \
             qemu-system-arm crossbuild-essential-arm64
 
-      # Single Board Computer tranche cont'd: rpi4-haproxy-build (below)
-      # builds pkgs/haproxy/Dockerfile under --platform=linux/arm64 -
-      # unlike the kernel/janusd arm64 builds, which cross-compile
-      # natively (aarch64-linux-gnu-gcc, GOARCH=arm64), Alpine's own
-      # musl build-base has to actually *run* as arm64 to produce a
-      # correct static binary, which needs QEMU user-mode emulation
-      # registered via binfmt_misc first - idempotent (safe to run every
-      # dispatch, takes seconds once already registered), same reasoning
-      # every other tool-install step here always runs unconditionally.
-      - name: Register QEMU binfmt handlers for arm64 Docker builds
-        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
-
       # dashboard/frontend (Vite 8) needs Node >=20.19 - Debian's own
       # default `nodejs` apt package version isn't reliably that recent,
       # so NodeSource's own setup script is used instead of a plain

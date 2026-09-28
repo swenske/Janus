@@ -1,8 +1,56 @@
 # syntax=docker/dockerfile:1
 #
-# TODO(Phase 1): build a musl-based cross/native toolchain used to compile
-# every other pkgs/* component statically against musl instead of glibc.
-# No version pinned yet in ../../versions.mk - add one before implementing
-# this stage. Placeholder only, not yet buildable for real.
+# Builds a real aarch64-linux-musl cross-toolchain (musl-cross-make) -
+# GCC + binutils + musl libc, targeting arm64 from an amd64 build host,
+# no QEMU/emulation involved anywhere in this build. Exports just the
+# toolchain (FROM scratch) via `docker build --target export -o <dir>`,
+# same pattern as kernel/Dockerfile and selinux/Dockerfile.
+#
+# Single Board Computer tranche follow-up: pkgs/haproxy's own arm64
+# path (see its own Dockerfile) needs this - a first attempt cross-
+# built haproxy for arm64 by running `docker build --platform=linux/
+# arm64` against the *existing*, unmodified pkgs/haproxy/Dockerfile,
+# letting QEMU user-mode emulation (registered via `docker run
+# --privileged tonistiigi/binfmt --install arm64`) run Alpine's own
+# musl build-base *as* arm64. That worked locally, but failed outright
+# on the self-hosted runner specifically with "exec format error" -
+# confirmed (`systemd-detect-virt` on the runner itself) that it's an
+# LXC container, and a nested `docker run --privileged`'s own
+# binfmt_misc registration silently doesn't take effect from inside
+# that confinement (`/proc/sys/fs/binfmt_misc/qemu-aarch64` never
+# actually appears there, despite the registration command itself
+# reporting success) - not fixable with more privilege flags from
+# inside the LXC, since the limitation is the LXC/host boundary itself,
+# not anything Docker controls. A genuine cross-compiler avoids the
+# problem entirely: it's a normal amd64 program, no emulation needed
+# at any point, ever - confirmed by a real local build+haproxy-link
+# test *before* writing this file (~5 minutes for the whole toolchain,
+# well within CI budget).
+#
+# See versions.mk for why MUSL_CROSS_MAKE_REF is a commit, not a
+# version tag (upstream has none).
 
-FROM scratch
+ARG MUSL_CROSS_MAKE_REF
+
+FROM debian:trixie-slim AS fetch
+ARG MUSL_CROSS_MAKE_REF
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN git clone https://github.com/richfelker/musl-cross-make.git \
+    && cd musl-cross-make && git checkout "${MUSL_CROSS_MAKE_REF}"
+
+FROM debian:trixie-slim AS build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential wget bzip2 xz-utils ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src/musl-cross-make
+COPY --from=fetch /src/musl-cross-make .
+RUN echo 'TARGET = aarch64-linux-musl' > config.mak \
+    && echo 'OUTPUT = /out' >> config.mak \
+    && make -j"$(nproc)" \
+    && make install
+
+FROM scratch AS export
+COPY --from=build /out /

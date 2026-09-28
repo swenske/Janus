@@ -23,7 +23,8 @@ GEN_DIR := gen
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
-	rpi4-daemon-static rpi4-haproxy-build rpi4-initramfs-full qemu-raspi4-daemon-test
+	rpi4-daemon-static musl-toolchain-arm64 rpi4-haproxy-build rpi4-initramfs-full \
+	qemu-raspi4-daemon-test
 
 all: build
 
@@ -132,18 +133,29 @@ rpi4-daemon-static:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" \
 		-o $(BUILD_DIR)/rpi4/janusd ./cmd/janusd
 
-# Builds a fully static arm64 haproxy binary the *same* way haproxy-build
-# does for amd64 - pkgs/haproxy/Dockerfile, completely unmodified, just
-# built under --platform=linux/arm64 so Alpine's own musl build-base
-# stage runs natively as arm64 instead of amd64. Needs the host's Docker
-# to actually be able to run arm64 containers at all - if `docker run
-# --rm --platform=linux/arm64 alpine:3.22 uname -m` doesn't print
-# "aarch64", register QEMU's binfmt handler first: `docker run
-# --privileged --rm tonistiigi/binfmt --install arm64` (a one-time,
-# host-level setup step, not part of this repo's own build).
-rpi4-haproxy-build:
+# Builds the real aarch64-linux-musl cross-toolchain pkgs/haproxy's own
+# arm64 path needs - see pkgs/musl-toolchain/Dockerfile's own header for
+# why this exists (QEMU-user-mode-emulated cross-platform Docker builds
+# don't work on the self-hosted runner - it's an LXC container).
+musl-toolchain-arm64:
+	mkdir -p $(BUILD_DIR)/musl-toolchain-arm64
+	docker build --target export --build-arg MUSL_CROSS_MAKE_REF=$(MUSL_CROSS_MAKE_REF) \
+		-o $(BUILD_DIR)/musl-toolchain-arm64 pkgs/musl-toolchain
+
+# Builds a fully static arm64 haproxy binary via a genuine cross-
+# toolchain (pkgs/haproxy/Dockerfile's own "export-arm64" target, fed
+# musl-toolchain-arm64's output as an external build context) - no
+# QEMU/emulation anywhere, a normal amd64 build producing an arm64
+# binary. zlib/OpenSSL are cross-compiled from source too (no prebuilt
+# static aarch64-musl libs to lean on the way Alpine's apk packages
+# cover the native amd64 path).
+rpi4-haproxy-build: musl-toolchain-arm64
 	mkdir -p $(BUILD_DIR)/rpi4
-	docker build --platform=linux/arm64 --target export --build-arg HAPROXY_VERSION=$(HAPROXY_VERSION) \
+	docker build --target export-arm64 \
+		--build-arg HAPROXY_VERSION=$(HAPROXY_VERSION) \
+		--build-arg ZLIB_VERSION=$(ZLIB_VERSION) \
+		--build-arg OPENSSL_VERSION=$(OPENSSL_VERSION) \
+		--build-context musltoolchain=$(BUILD_DIR)/musl-toolchain-arm64 \
 		-o $(BUILD_DIR)/rpi4 pkgs/haproxy
 
 # The Single Board Computer tranche's own Phase-2-equivalent: init +
