@@ -20,7 +20,7 @@ GEN_DIR := gen
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
 	qemu-dashboard-test dashboard-image ca-certificates seed-controller-test \
-	nocloud-seed-test
+	nocloud-seed-test kvm-image vmware-image
 
 all: build
 
@@ -240,6 +240,20 @@ disk-image: kernel-build rootfs-build state-image
 # image/kvm-proxmox/assemble.sh.
 proxmox-image: kernel-build rootfs-build state-image
 	./image/kvm-proxmox/assemble.sh $(BUILD_DIR)/janus.qcow2 $(BUILD_DIR)/bzImage \
+		$(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/state.img A
+
+# Same conversion as proxmox-image, but as its own artifact for a
+# generic libvirt/KVM deployment (virt-install), not Proxmox's `qm`
+# import flow. See image/kvm/assemble.sh and image/kvm/README.md.
+kvm-image: kernel-build rootfs-build state-image
+	./image/kvm/assemble.sh $(BUILD_DIR)/janus-kvm.qcow2 $(BUILD_DIR)/bzImage \
+		$(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/state.img A
+
+# disk-image's raw GPT disk converted to a streamOptimized VMDK -
+# VMware/ESXi's own native disk format. See image/vmware/assemble.sh
+# and image/vmware/README.md.
+vmware-image: kernel-build rootfs-build state-image
+	./image/vmware/assemble.sh $(BUILD_DIR)/janus.vmdk $(BUILD_DIR)/bzImage \
 		$(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/state.img A
 
 # Phase 3 cont'd: proves both A/B slots of disk-image's single GPT disk

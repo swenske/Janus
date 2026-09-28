@@ -1,6 +1,6 @@
 # Full Janus image build: kernel, pkgs/*, rootfs assembly, and the
 # per-target disk images (image/disk, image/iso, image/kvm-proxmox,
-# image/vmware). Runs on the self-hosted runner - this is the heavy,
+# image/kvm, image/vmware). Runs on the self-hosted runner - this is the heavy,
 # long-running, Docker-and-toolchain-dependent job, kept strictly separate
 # from ci.yml (GitHub-hosted, safe for forks).
 #
@@ -672,6 +672,33 @@ jobs:
           path: build/janus.qcow2
           retention-days: 30
 
+      # Same disk-image content, packaged for the other two
+      # Virtualized Platform targets closest to what already exists
+      # (see docs/companion-site-builder-scope.md) - generic libvirt/
+      # KVM (image/kvm/assemble.sh) and VMware/ESXi
+      # (image/vmware/assemble.sh, streamOptimized VMDK). Both unsigned,
+      # same reasoning as the Proxmox image above.
+      - name: Build an alpha generic KVM/libvirt image (qcow2)
+        run: |
+          make kvm-image
+          ls -lh build/janus-kvm.qcow2
+      - name: Upload the alpha KVM/libvirt image
+        uses: actions/upload-artifact@v4
+        with:
+          name: janus-alpha-kvm-${{ github.sha }}
+          path: build/janus-kvm.qcow2
+          retention-days: 30
+      - name: Build an alpha VMware/ESXi image (VMDK)
+        run: |
+          make vmware-image
+          ls -lh build/janus.vmdk
+      - name: Upload the alpha VMware/ESXi image
+        uses: actions/upload-artifact@v4
+        with:
+          name: janus-alpha-vmware-${{ github.sha }}
+          path: build/janus.vmdk
+          retention-days: 30
+
       # User-requested: publish the dashboard image to the maintainer's
       # own Docker Hub - deferred ever since the Dockerfile itself
       # landed, until the rename decision settled (see dashboard/
@@ -733,7 +760,8 @@ jobs:
           short-description: "Web UI to manage Janus nodes: self-registration, live stats, HAProxy config - HTTPS-only"
           readme-filepath: dashboard/dockerhub-overview.md
 
-      # TODO(Phase 3 cont'd): image/iso, image/vmware, upload artifacts
-      # to a GitHub Release once a version scheme exists.
+      # TODO(Phase 3 cont'd): image/iso, plus a real OVA (OVF descriptor
+      # + tar) on top of image/vmware's bare VMDK. Upload to a GitHub
+      # Release once a version scheme exists.
       # TODO(Phase 5): pkgs/bird, pkgs/keepalived, pkgs/nftables - built
       # only into images that opt in via declarative configuration.

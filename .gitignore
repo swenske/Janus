@@ -18,3 +18,6 @@
 # buf/protoc-gen-go local tool cache, if built into the repo instead of GOBIN.
 /.tmp/
 .local-scratch/
+
+# User-requested: never commit this - local planning note only.
+/docs/companion-site-builder-scope.md
