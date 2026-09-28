@@ -22,7 +22,8 @@ GEN_DIR := gen
 	qemu-dashboard-test dashboard-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
-	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test
+	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
+	rpi4-daemon-static rpi4-haproxy-build rpi4-initramfs-full qemu-raspi4-daemon-test
 
 all: build
 
@@ -122,6 +123,49 @@ rpi4-initramfs: rpi4-init
 # hack/qemu-raspi4-boot-test.sh). Requires qemu-system-aarch64 on PATH.
 qemu-raspi4-boot-test: rpi4-kernel-build rpi4-initramfs
 	./hack/qemu-raspi4-boot-test.sh $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/rpi4/bcm2711-rpi-4-b.dtb $(BUILD_DIR)/rpi4/initramfs.cpio.gz
+
+# Cross-builds janusd for arm64 - CGO_ENABLED=0, same reasoning as
+# daemon-static's own amd64 build (pure Go, no libc dependency either
+# way).
+rpi4-daemon-static:
+	mkdir -p $(BUILD_DIR)/rpi4
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" \
+		-o $(BUILD_DIR)/rpi4/janusd ./cmd/janusd
+
+# Builds a fully static arm64 haproxy binary the *same* way haproxy-build
+# does for amd64 - pkgs/haproxy/Dockerfile, completely unmodified, just
+# built under --platform=linux/arm64 so Alpine's own musl build-base
+# stage runs natively as arm64 instead of amd64. Needs the host's Docker
+# to actually be able to run arm64 containers at all - if `docker run
+# --rm --platform=linux/arm64 alpine:3.22 uname -m` doesn't print
+# "aarch64", register QEMU's binfmt handler first: `docker run
+# --privileged --rm tonistiigi/binfmt --install arm64` (a one-time,
+# host-level setup step, not part of this repo's own build).
+rpi4-haproxy-build:
+	mkdir -p $(BUILD_DIR)/rpi4
+	docker build --platform=linux/arm64 --target export --build-arg HAPROXY_VERSION=$(HAPROXY_VERSION) \
+		-o $(BUILD_DIR)/rpi4 pkgs/haproxy
+
+# The Single Board Computer tranche's own Phase-2-equivalent: init +
+# janusd + haproxy, all arm64, in one initramfs - mirrors
+# initramfs-full's exact amd64 shape (same embedded-file convention:
+# src:dest pairs, see hack/build-initramfs.sh).
+rpi4-initramfs-full: rpi4-init rpi4-daemon-static rpi4-haproxy-build
+	./hack/build-initramfs.sh $(BUILD_DIR)/rpi4/init $(BUILD_DIR)/rpi4/initramfs-full.cpio.gz \
+		$(BUILD_DIR)/rpi4/janusd:sbin/janusd \
+		$(BUILD_DIR)/rpi4/haproxy:usr/local/sbin/haproxy \
+		rootfs/base/etc/haproxy/haproxy.cfg:etc/haproxy/haproxy.cfg
+
+# Single Board Computer tranche's own Phase-2-equivalent boot-proof:
+# boots the same full init+janusd+haproxy stack qemu-network-test proves
+# on amd64, but console-verified only (see hack/qemu-raspi4-daemon-
+# test.sh's own header for why: QEMU's raspi4b machine emulates neither
+# PCIe nor BCM GENET Ethernet, so there's no network path to curl over
+# at all on this machine type - a real HTTP check has to wait for either
+# real Pi hardware or accepting the generic aarch64 "virt" machine
+# instead, a decision deliberately not made here).
+qemu-raspi4-daemon-test: rpi4-kernel-build rpi4-initramfs-full
+	./hack/qemu-raspi4-daemon-test.sh $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/rpi4/bcm2711-rpi-4-b.dtb $(BUILD_DIR)/rpi4/initramfs-full.cpio.gz
 
 # Builds a fully static (musl, via Alpine's own toolchain - see pkgs/
 # haproxy/Dockerfile) haproxy binary with OpenSSL and pulls it out to

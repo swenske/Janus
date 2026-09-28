@@ -41,6 +41,18 @@ jobs:
             ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware xorriso ipxe \
             qemu-system-arm crossbuild-essential-arm64
 
+      # Single Board Computer tranche cont'd: rpi4-haproxy-build (below)
+      # builds pkgs/haproxy/Dockerfile under --platform=linux/arm64 -
+      # unlike the kernel/janusd arm64 builds, which cross-compile
+      # natively (aarch64-linux-gnu-gcc, GOARCH=arm64), Alpine's own
+      # musl build-base has to actually *run* as arm64 to produce a
+      # correct static binary, which needs QEMU user-mode emulation
+      # registered via binfmt_misc first - idempotent (safe to run every
+      # dispatch, takes seconds once already registered), same reasoning
+      # every other tool-install step here always runs unconditionally.
+      - name: Register QEMU binfmt handlers for arm64 Docker builds
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
+
       # dashboard/frontend (Vite 8) needs Node >=20.19 - Debian's own
       # default `nodejs` apt package version isn't reliably that recent,
       # so NodeSource's own setup script is used instead of a plain
@@ -424,6 +436,24 @@ jobs:
       # UEFI firmware) is not yet covered.
       - name: Raspberry Pi 4 (aarch64/BCM2711) console boot (Single Board Computer tranche)
         run: make qemu-raspi4-boot-test
+
+      # Single Board Computer tranche's own Phase-2-equivalent: the
+      # same init+janusd+haproxy stack qemu-network-test proves on
+      # amd64, now cross-built for arm64 (static janusd via GOARCH=arm64,
+      # static haproxy via pkgs/haproxy/Dockerfile under
+      # --platform=linux/arm64 - see the binfmt registration step
+      # above) and boot-proved under QEMU raspi4b - console-verified
+      # only, not the real HTTP check qemu-network-test does, since
+      # raspi4b emulates neither PCIe nor BCM GENET Ethernet at all (see
+      # hack/qemu-raspi4-daemon-test.sh's own header for the full
+      # reasoning). Confirms janusd's own gRPC listener actually binds
+      # (PKI bootstrap succeeds) and haproxy actually starts under its
+      # supervision - CONFIG_NET/INET/UNIX/PACKET all needed adding to
+      # kernel/configs/janus_rpi4_defconfig for this, entirely absent
+      # from the Phase-1-equivalent boot-proof above (which never
+      # touched a socket at all).
+      - name: Raspberry Pi 4 (aarch64/BCM2711) janusd+haproxy boot (Single Board Computer tranche)
+        run: make qemu-raspi4-daemon-test
 
       # Phase 3 cont'd: the ESP now lives on image/disk/assemble.sh's
       # single GPT disk too (partition 1, ahead of both A/B slots) - the
