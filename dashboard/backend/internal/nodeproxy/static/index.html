@@ -81,6 +81,40 @@
   <button type="submit">Upload</button>
 </form>
 
+<h2>Update</h2>
+<p>
+  No automatic "a new version is available" detection yet (needs real,
+  tagged releases to compare against - see docs/
+  companion-site-builder-scope.md) - supply the update target directly:
+  either a URL the node fetches itself, or upload a release bundle's 4
+  files here to relay them to the node (for a node that can't reach the
+  URL directly).
+</p>
+<p>
+  <label><input type="radio" name="update-mode" value="url" checked /> URL (node fetches it itself)</label>
+  &nbsp;
+  <label><input type="radio" name="update-mode" value="upload" /> Upload bundle files (relayed through this dashboard)</label>
+</p>
+<form class="inline" id="update-url-fields">
+  <input id="update-url-reference" placeholder="https://.../release-bundle" required style="flex:1" />
+  <input id="update-url-sha256" placeholder="rootfs.squashfs sha256 (optional)" />
+</form>
+<div id="update-upload-fields" style="display:none">
+  <div class="inline"><label style="width:9rem">rootfs.squashfs</label><input type="file" id="update-file-squashfs" /></div>
+  <div class="inline"><label style="width:9rem">rootfs.verity</label><input type="file" id="update-file-verity" /></div>
+  <div class="inline"><label style="width:9rem">uki-a.efi</label><input type="file" id="update-file-uki-a" /></div>
+  <div class="inline"><label style="width:9rem">uki-b.efi</label><input type="file" id="update-file-uki-b" /></div>
+  <div class="inline"><input id="update-upload-sha256" placeholder="rootfs.squashfs sha256 (optional)" /></div>
+</div>
+<div class="inline">
+  <label><input type="checkbox" id="update-wait-for-health" checked /> Wait for health, auto-revert if the new slot never comes up healthy</label>
+  <input id="update-health-timeout" type="number" min="0" placeholder="health timeout, seconds (default 60)" style="width:16rem" />
+</div>
+<div class="inline">
+  <button type="button" class="danger" id="update-submit">Launch update</button>
+  <span id="update-result"></span>
+</div>
+
 <script>
 // This is the *entire* per-node dashboard view - deliberately plain
 // HTML/JS, no build step, no framework: it fetches this node's own
@@ -340,6 +374,64 @@ async function loadOnce() {
     showError(err)
   }
 }
+
+document.querySelectorAll('input[name="update-mode"]').forEach((el) => {
+  el.addEventListener('change', () => {
+    const mode = document.querySelector('input[name="update-mode"]:checked').value
+    document.getElementById('update-url-fields').style.display = mode === 'url' ? '' : 'none'
+    document.getElementById('update-upload-fields').style.display = mode === 'upload' ? '' : 'none'
+  })
+})
+
+document.getElementById('update-submit').addEventListener('click', async () => {
+  const resultEl = document.getElementById('update-result')
+  const mode = document.querySelector('input[name="update-mode"]:checked').value
+  const waitForHealth = document.getElementById('update-wait-for-health').checked
+  const healthTimeoutSeconds = parseInt(document.getElementById('update-health-timeout').value || '0', 10) || 0
+
+  if (!confirm('This writes a new rootfs to the inactive slot and reboots the node once it\'s written. Continue?')) return
+
+  resultEl.textContent = 'Working… (this can take a while, especially uploading a bundle)'
+  resultEl.className = ''
+  try {
+    let result
+    if (mode === 'url') {
+      const reference = document.getElementById('update-url-reference').value
+      if (!reference) throw new Error('a URL is required')
+      result = await api('/api/lifecycle/upgrade-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reference,
+          sha256: document.getElementById('update-url-sha256').value,
+          wait_for_health: waitForHealth,
+          health_timeout_seconds: healthTimeoutSeconds,
+        }),
+      })
+    } else {
+      const files = {
+        rootfs_squashfs: document.getElementById('update-file-squashfs').files[0],
+        rootfs_verity: document.getElementById('update-file-verity').files[0],
+        uki_a: document.getElementById('update-file-uki-a').files[0],
+        uki_b: document.getElementById('update-file-uki-b').files[0],
+      }
+      for (const [field, file] of Object.entries(files)) {
+        if (!file) throw new Error(`missing file: ${field}`)
+      }
+      const form = new FormData()
+      for (const [field, file] of Object.entries(files)) form.append(field, file)
+      form.append('sha256', document.getElementById('update-upload-sha256').value)
+      form.append('wait_for_health', String(waitForHealth))
+      form.append('health_timeout_seconds', String(healthTimeoutSeconds))
+      result = await api('/api/lifecycle/upgrade-upload', { method: 'POST', body: form })
+    }
+    resultEl.textContent = `${result.stage}: ${result.message}`
+    resultEl.className = 'ok'
+  } catch (err) {
+    resultEl.textContent = String(err)
+    resultEl.className = 'error'
+  }
+})
 
 refreshAll()
 loadOnce()
