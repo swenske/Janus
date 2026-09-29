@@ -586,6 +586,17 @@ jobs:
       - name: LifecycleService.Upgrade installs a genuinely new rootfs for real (Phase 3 cont'd)
         run: make qemu-lifecycle-upgrade-test
 
+      # Node-initiated-fetch follow-up: the same proof, but
+      # Source.Reference is a real http:// URL instead of a local path -
+      # proves Upgrade's new fetchBundleFile URL branch works over a
+      # real network fetch (a host-side python3 http.server), one half
+      # of the real remote-update design (the node fetches directly;
+      # the other half, a controller-relayed push for nodes that can't
+      # dial out, is separate work). See
+      # hack/qemu-lifecycle-upgrade-url-test.sh.
+      - name: LifecycleService.Upgrade fetches a release bundle over real HTTP
+        run: make qemu-lifecycle-upgrade-url-test
+
       # Phase 3 cont'd: wait_for_health is real, confirmed against
       # HAProxy's own stats socket, not just janusd process
       # survival. A pending "boot pending confirmation" marker

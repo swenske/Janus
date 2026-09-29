@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,7 +52,50 @@ type Lifecycle struct {
 const (
 	upgradeMaxDataBytes = 64 * 1024 * 1024
 	upgradeMaxHashBytes = 4 * 1024 * 1024
+
+	// upgradeFetchTimeout bounds a single file's HTTPS download - long
+	// enough for a real release bundle's own squashfs over a modest
+	// link, short enough that a hung/stalled download doesn't leave
+	// this streaming RPC (and its caller) blocked indefinitely.
+	upgradeFetchTimeout = 5 * time.Minute
 )
+
+// fetchBundleFile reads one named file (e.g. "rootfs.squashfs") from a
+// release bundle - bundleRef is either a local directory (the original,
+// still-supported shape - image/release/assemble.sh's own output, or a
+// controller-relayed UploadReleaseBundle staging directory, see that
+// RPC's own doc comment) or an "http://"/"https://" base URL, in which
+// case the node fetches the file itself directly - completing the
+// design ImageSource.reference's own proto comment already described
+// ("OCI reference or HTTPS URL") but which Upgrade never implemented
+// until now, local-path-only. TLS is verified against the system trust
+// store (Go's own x509.SystemCertPool(), populated from /etc/ssl/certs/
+// ca-certificates.crt - see ca-certificates/Dockerfile's own doc
+// comment for why that bundle exists on this rootfs at all) - no
+// pinning, unlike internal/nocloud's own seedfrom modes: a real release
+// URL is always the public internet (GitHub Releases) with a
+// well-known CA, not an operator-supplied arbitrary endpoint.
+func fetchBundleFile(ctx context.Context, bundleRef, filename string) ([]byte, error) {
+	if strings.HasPrefix(bundleRef, "http://") || strings.HasPrefix(bundleRef, "https://") {
+		url := strings.TrimSuffix(bundleRef, "/") + "/" + filename
+		fetchCtx, cancel := context.WithTimeout(ctx, upgradeFetchTimeout)
+		defer cancel()
+		req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("build request for %s: %w", url, err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("GET %s: %w", url, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("GET %s: unexpected status %s", url, resp.Status)
+		}
+		return io.ReadAll(resp.Body)
+	}
+	return os.ReadFile(filepath.Join(bundleRef, filename))
+}
 
 // bootContext is what both Rollback and Upgrade need to know about the
 // disk they're running from: which slot is active, which slot they
@@ -143,16 +188,22 @@ func (l *Lifecycle) Rollback(_ context.Context, _ *emptypb.Empty) (*janusv1alpha
 }
 
 // Upgrade writes a new rootfs to the currently-inactive A/B slot from a
-// local "release bundle" directory (image/release/assemble.sh) -
-// req.Source.Reference is that directory's path for now. Real OCI/HTTPS
-// distribution (what the proto comment and ImageSource's own field docs
-// describe) isn't implemented - this project has no image registry or
-// release-signing key infrastructure yet, and building either is a
-// distinct, separate concern from the actual upgrade mechanics this
-// proves: writing new content into the inactive slot without disturbing
-// STATE or the currently-running slot, then switching and rebooting into
-// it, the same way LifecycleService.Rollback does for a slot switch with
-// no new content.
+// "release bundle" (image/release/assemble.sh's own output shape:
+// rootfs.squashfs, rootfs.verity, uki-a.efi, uki-b.efi) -
+// req.Source.Reference is either a local directory (the original shape -
+// a path on this node's own filesystem, e.g. a bundle staged there by
+// some other means for network topologies where this node can't dial
+// out at all) or an "http://"/"https://" base URL, in which case this
+// node fetches each file itself (fetchBundleFile, above) - completing
+// the real HTTPS distribution the proto comment always described,
+// feeding real GitHub Releases once those exist. No image-registry/OCI
+// support, and no code-signing beyond the existing sha256 check - real
+// signing is flagged as a later hardening step, not blocking a first
+// alpha release flow. The actual upgrade mechanics
+// this proves are unchanged either way: writing new content into the
+// inactive slot without disturbing STATE or the currently-running slot,
+// then switching and rebooting into it, the same way
+// LifecycleService.Rollback does for a slot switch with no new content.
 //
 // wait_for_health, when true, writes a persistent "boot pending
 // confirmation" marker to STATE (internal/bootcommit) before switching
@@ -174,9 +225,9 @@ func (l *Lifecycle) Rollback(_ context.Context, _ *emptypb.Empty) (*janusv1alpha
 // crashing too fast, or too often, to ever get a chance to run that
 // check at all.
 func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alpha1.LifecycleService_UpgradeServer) error {
-	bundleDir := req.GetSource().GetReference()
-	if bundleDir == "" {
-		return status.Errorf(codes.InvalidArgument, "source.reference is required - a local release bundle directory (see image/release/assemble.sh); real OCI/HTTPS distribution isn't implemented yet")
+	bundleRef := req.GetSource().GetReference()
+	if bundleRef == "" {
+		return status.Errorf(codes.InvalidArgument, "source.reference is required - a local release bundle directory or an http(s):// URL (see image/release/assemble.sh)")
 	}
 
 	send := func(stage string, progress float64, message string) error {
@@ -188,37 +239,40 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return err
 	}
 
-	if err := send("verifying", 0.1, fmt.Sprintf("reading release bundle at %s", bundleDir)); err != nil {
+	ctx := stream.Context()
+	verb := "reading"
+	if strings.HasPrefix(bundleRef, "http://") || strings.HasPrefix(bundleRef, "https://") {
+		verb = "downloading"
+	}
+	if err := send("verifying", 0.1, fmt.Sprintf("%s release bundle at %s", verb, bundleRef)); err != nil {
 		return err
 	}
 
-	squashfsPath := filepath.Join(bundleDir, "rootfs.squashfs")
-	squashfs, err := os.ReadFile(squashfsPath)
+	squashfs, err := fetchBundleFile(ctx, bundleRef, "rootfs.squashfs")
 	if err != nil {
-		return status.Errorf(codes.FailedPrecondition, "read %s: %v", squashfsPath, err)
+		return status.Errorf(codes.FailedPrecondition, "rootfs.squashfs: %v", err)
 	}
 	if len(squashfs) > upgradeMaxDataBytes {
-		return status.Errorf(codes.FailedPrecondition, "%s is %d bytes, exceeds the %d-byte BOOT-*-DATA partition size", squashfsPath, len(squashfs), upgradeMaxDataBytes)
+		return status.Errorf(codes.FailedPrecondition, "rootfs.squashfs is %d bytes, exceeds the %d-byte BOOT-*-DATA partition size", len(squashfs), upgradeMaxDataBytes)
 	}
 	if want := req.GetSource().GetSha256(); want != "" {
 		if got := sha256Hex(squashfs); got != want {
-			return status.Errorf(codes.FailedPrecondition, "%s sha256 %s doesn't match requested %s", squashfsPath, got, want)
+			return status.Errorf(codes.FailedPrecondition, "rootfs.squashfs sha256 %s doesn't match requested %s", got, want)
 		}
 	}
 
-	verityPath := filepath.Join(bundleDir, "rootfs.verity")
-	verity, err := os.ReadFile(verityPath)
+	verity, err := fetchBundleFile(ctx, bundleRef, "rootfs.verity")
 	if err != nil {
-		return status.Errorf(codes.FailedPrecondition, "read %s: %v", verityPath, err)
+		return status.Errorf(codes.FailedPrecondition, "rootfs.verity: %v", err)
 	}
 	if len(verity) > upgradeMaxHashBytes {
-		return status.Errorf(codes.FailedPrecondition, "%s is %d bytes, exceeds the %d-byte BOOT-*-HASH partition size", verityPath, len(verity), upgradeMaxHashBytes)
+		return status.Errorf(codes.FailedPrecondition, "rootfs.verity is %d bytes, exceeds the %d-byte BOOT-*-HASH partition size", len(verity), upgradeMaxHashBytes)
 	}
 
-	ukiPath := filepath.Join(bundleDir, fmt.Sprintf("uki-%s.efi", strings.ToLower(bc.targetSlot)))
-	uki, err := os.ReadFile(ukiPath)
+	ukiName := fmt.Sprintf("uki-%s.efi", strings.ToLower(bc.targetSlot))
+	uki, err := fetchBundleFile(ctx, bundleRef, ukiName)
 	if err != nil {
-		return status.Errorf(codes.FailedPrecondition, "read %s: %v - does this bundle include a UKI for slot %s? (see image/release/assemble.sh)", ukiPath, err, bc.targetSlot)
+		return status.Errorf(codes.FailedPrecondition, "%s: %v - does this bundle include a UKI for slot %s? (see image/release/assemble.sh)", ukiName, err, bc.targetSlot)
 	}
 
 	targetDataDev, _ := bootslot.SlotDataDevice(bc.disk, bc.targetSlot)
@@ -266,7 +320,7 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		if err := os.WriteFile(stagedPath, uki, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", stagedPath, err)
 		}
-		activePath := filepath.Join(espswitch.Mountpoint, "EFI", "BOOT", "BOOTX64.EFI")
+		activePath := filepath.Join(espswitch.Mountpoint, "EFI", "BOOT", espswitch.BootFilename)
 		if err := os.WriteFile(activePath, uki, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", activePath, err)
 		}

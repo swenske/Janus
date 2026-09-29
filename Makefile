@@ -17,6 +17,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test \
+	qemu-lifecycle-upgrade-url-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
 	qemu-dashboard-test dashboard-image local-dev-image ca-certificates seed-controller-test \
@@ -604,6 +605,14 @@ qemu-secureboot-test: kernel-build rootfs-build
 # hack/qemu-lifecycle-upgrade-test.sh.
 qemu-lifecycle-upgrade-test: build disk-image
 	./hack/qemu-lifecycle-upgrade-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl
+
+# Node-initiated-fetch follow-up: the same proof as
+# qemu-lifecycle-upgrade-test, but Source.Reference is a real
+# http:// URL (a host-side python3 http.server) instead of a local
+# path - proves LifecycleService.Upgrade's new fetchBundleFile URL
+# branch actually works over a real network fetch. Requires python3.
+qemu-lifecycle-upgrade-url-test: build disk-image
+	./hack/qemu-lifecycle-upgrade-url-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl
 
 # Phase 3 cont'd: proves LifecycleService.Upgrade's wait_for_health -
 # a healthy new slot confirms (Supervisor.OnStable -> internal/
