@@ -1,5 +1,5 @@
 // Package espswitch mounts the ESP and makes a given A/B slot's
-// already-staged Unified Kernel Image the one \EFI\BOOT\BOOTX64.EFI
+// already-staged Unified Kernel Image the one \EFI\BOOT\<BootFilename>
 // actually boots - a plain file copy, no PE manipulation, no build
 // tooling, ever, on the node: the target OS has no package manager and
 // can never shell out to ukify/sbsign itself, which is exactly why
@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 )
 
@@ -29,6 +30,25 @@ import (
 // already makes a fresh tmpfs on every boot - nothing pre-existing
 // there needs preserving.
 const Mountpoint = "/run/janus/esp"
+
+// BootFilename is the UEFI-spec removable-media fallback name this
+// binary's own architecture boots from (see image/uki/esp-image.sh's
+// own doc comment: BOOTX64.EFI for x86_64, BOOTAA64.EFI for aarch64 -
+// firmware looks for its own architecture's exact name and nothing
+// else). Derived from runtime.GOARCH rather than a flag/env var - this
+// package only ever runs inside rootfs/init or janusd, both built for
+// one specific target architecture at a time (see the Makefile's
+// GOARCH=arm64 cross-builds), so there's no scenario where the running
+// binary's own architecture and the firmware it booted under would
+// disagree.
+var BootFilename = defaultBootFilename()
+
+func defaultBootFilename() string {
+	if runtime.GOARCH == "arm64" {
+		return "BOOTAA64.EFI"
+	}
+	return "BOOTX64.EFI"
+}
 
 // ErrUKINotStaged distinguishes "the target slot's UKI was never
 // staged there" (image/disk/activate-slot.sh never ran for this disk -
@@ -77,7 +97,7 @@ func Activate(espDevice, slot string) error {
 		return fmt.Errorf("read staged UKI for slot %s (%s): %w", slot, src, err)
 	}
 
-	dst := filepath.Join(Mountpoint, "EFI", "BOOT", "BOOTX64.EFI")
+	dst := filepath.Join(Mountpoint, "EFI", "BOOT", BootFilename)
 	if err := os.WriteFile(dst, staged, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", dst, err)
 	}

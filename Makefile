@@ -25,7 +25,9 @@ GEN_DIR := gen
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
 	rpi4-daemon-static musl-toolchain-arm64 rpi4-haproxy-build rpi4-initramfs-full \
 	qemu-raspi4-daemon-test qemu-arm64-network-test rpi4-rootfs-build \
-	systemd-stub-arm64 rpi4-uki-image qemu-arm64-uefi-boot-test
+	systemd-stub-arm64 rpi4-uki-image qemu-arm64-uefi-boot-test \
+	pi4-firmware pi5-firmware pi4-sdcard-image pi5-sdcard-image \
+	pi4-sdcard-image-test pi5-sdcard-image-test
 
 all: build
 
@@ -238,6 +240,52 @@ rpi4-uki-image: rpi4-kernel-build rpi4-rootfs-build systemd-stub-arm64
 # Requires AAVMF (package: qemu-efi-aarch64).
 qemu-arm64-uefi-boot-test: rpi4-uki-image
 	./hack/qemu-arm64-uefi-boot-test.sh $(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rpi4/rootfs/esp.img
+
+# Real Raspberry Pi 4/5 hardware follow-up: fetches each board's own
+# real, pinned UEFI firmware release (versions.mk - see image/rpi-uefi/
+# assemble.sh's own header for the real maturity gap between the two).
+pi4-firmware:
+	./image/rpi-uefi/fetch-firmware.sh \
+		"https://github.com/pftf/RPi4/releases/download/$(PFTF_RPI4_UEFI_VERSION)/RPi4_UEFI_Firmware_$(PFTF_RPI4_UEFI_VERSION).zip" \
+		$(PFTF_RPI4_UEFI_SHA256) $(BUILD_DIR)/rpi-uefi/pi4-firmware
+
+pi5-firmware:
+	./image/rpi-uefi/fetch-firmware.sh \
+		"https://github.com/NumberOneGit/rpi5-uefi/releases/download/$(RPI5_UEFI_VERSION)/RPI5_D0.zip" \
+		$(RPI5_UEFI_SHA256) $(BUILD_DIR)/rpi-uefi/pi5-firmware
+
+# Real Raspberry Pi 4/5 hardware follow-up: the actual, flashable
+# SD-card images - image/rpi-uefi/assemble.sh's own header has the full
+# design (why one combined firmware+ESP partition, the Pi4-vs-Pi5
+# maturity/driver-support gap). Shares rpi4-rootfs-build/rpi4-kernel-
+# build/state-image with every other arm64 target - the rootfs/kernel
+# content is identical for both boards, only the firmware partition and
+# ESP boot filename differ. Requires sgdisk, mtools/dosfstools, ukify.
+pi4-sdcard-image: rpi4-kernel-build rpi4-rootfs-build systemd-stub-arm64 state-image pi4-firmware
+	mkdir -p $(BUILD_DIR)/rpi-uefi
+	UKIFY_STUB=$(BUILD_DIR)/systemd-stub-arm64/linuxaa64.efi.stub \
+	./image/rpi-uefi/assemble.sh $(BUILD_DIR)/rpi-uefi/pi4-disk.img \
+		$(BUILD_DIR)/rpi-uefi/pi4-firmware $(BUILD_DIR)/rpi4/Image \
+		$(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rootfs/state.img
+
+pi5-sdcard-image: rpi4-kernel-build rpi4-rootfs-build systemd-stub-arm64 state-image pi5-firmware
+	mkdir -p $(BUILD_DIR)/rpi-uefi
+	UKIFY_STUB=$(BUILD_DIR)/systemd-stub-arm64/linuxaa64.efi.stub \
+	./image/rpi-uefi/assemble.sh $(BUILD_DIR)/rpi-uefi/pi5-disk.img \
+		$(BUILD_DIR)/rpi-uefi/pi5-firmware $(BUILD_DIR)/rpi4/Image \
+		$(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rootfs/state.img
+
+# Real Raspberry Pi 4/5 hardware follow-up: structural verification
+# only - no real Pi4/Pi5 hardware exists in this environment (or in
+# CI) to actually boot-test either image, see hack/
+# rpi-sdcard-image-test.sh's own header for exactly what is and isn't
+# proven this way, and image/rpi-uefi/assemble.sh's own header for why
+# a real hardware test is the only way to close that gap.
+pi4-sdcard-image-test: pi4-sdcard-image
+	./hack/rpi-sdcard-image-test.sh $(BUILD_DIR)/rpi-uefi/pi4-disk.img RPI_EFI.fd
+
+pi5-sdcard-image-test: pi5-sdcard-image
+	./hack/rpi-sdcard-image-test.sh $(BUILD_DIR)/rpi-uefi/pi5-disk.img RPI_EFI.fd
 
 # Builds a fully static (musl, via Alpine's own toolchain - see pkgs/
 # haproxy/Dockerfile) haproxy binary with OpenSSL and pulls it out to

@@ -16,6 +16,7 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/bootslot"
 	"github.com/swenske/Janus/internal/diskimage"
+	"github.com/swenske/Janus/internal/espswitch"
 )
 
 // Install writes a full Janus image to a blank disk for the first
@@ -37,7 +38,7 @@ import (
 // Both A/B slots get identical content - there's no "other slot" to
 // leave untouched yet, the same starting point image/disk/assemble.sh
 // itself produces at build time. Slot A is made active by default
-// (written to \EFI\BOOT\BOOTX64.EFI); nothing here reboots anything -
+// (written to \EFI\BOOT\<espswitch.BootFilename>); nothing here reboots anything -
 // the disk Install just wrote isn't necessarily the one this node
 // booted from (see req.Disk's own field comment - it's a caller-chosen
 // target), so getting a machine to actually boot from it is the
@@ -183,8 +184,12 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 		return status.Errorf(codes.Internal, "%v", err)
 	}
 	// Slot A active by default - the same starting point image/disk/
-	// assemble.sh's own default ACTIVE_SLOT produces.
-	if err := writeFSFile(espFS, "/EFI/BOOT/BOOTX64.EFI", ukiA); err != nil {
+	// assemble.sh's own default ACTIVE_SLOT produces. Uses
+	// espswitch.BootFilename (BOOTX64.EFI/BOOTAA64.EFI, chosen by this
+	// binary's own build architecture) rather than hardcoding the x86
+	// name - the same fix Rollback's own espswitch.Activate already
+	// needed for the identical reason.
+	if err := writeFSFile(espFS, "/EFI/BOOT/"+espswitch.BootFilename, ukiA); err != nil {
 		return status.Errorf(codes.Internal, "%v", err)
 	}
 

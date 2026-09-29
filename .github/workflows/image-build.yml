@@ -794,6 +794,41 @@ jobs:
           path: build/janus.iso
           retention-days: 30
 
+      # Real Raspberry Pi 4/5 hardware follow-up (user-requested: "je
+      # testerai sur une Pi4 et Pi5" - a real, flashable image for the
+      # user's own hardware test). Only structurally verified here (see
+      # hack/rpi-sdcard-image-test.sh's own header for exactly why no
+      # real boot test is possible in this - or any - CI environment,
+      # or even locally, without real Pi4/Pi5 hardware): a real GPT
+      # partition table, a genuinely readable firmware+ESP partition
+      # with every expected file present, and real squashfs/dm-verity/
+      # ext4 content at each partition's own offset. image/rpi-uefi/
+      # assemble.sh's own header has the full design and the real
+      # Pi4-vs-Pi5 firmware/kernel-driver maturity gap this reflects -
+      # the Pi5 image is expected to prove firmware/kernel boot at best,
+      # not a working networked appliance (RP1's own SD/Ethernet
+      # drivers don't exist in mainline Linux yet).
+      - name: Build and verify the Raspberry Pi 4 SD card image
+        run: |
+          make pi4-sdcard-image-test
+          ls -lh build/rpi-uefi/pi4-disk.img
+      - name: Upload the Raspberry Pi 4 SD card image
+        uses: actions/upload-artifact@v4
+        with:
+          name: janus-alpha-rpi4-${{ github.sha }}
+          path: build/rpi-uefi/pi4-disk.img
+          retention-days: 30
+      - name: Build and verify the Raspberry Pi 5 SD card image
+        run: |
+          make pi5-sdcard-image-test
+          ls -lh build/rpi-uefi/pi5-disk.img
+      - name: Upload the Raspberry Pi 5 SD card image
+        uses: actions/upload-artifact@v4
+        with:
+          name: janus-alpha-rpi5-${{ github.sha }}
+          path: build/rpi-uefi/pi5-disk.img
+          retention-days: 30
+
       # User-requested: publish the dashboard image to the maintainer's
       # own Docker Hub - deferred ever since the Dockerfile itself
       # landed, until the rename decision settled (see dashboard/
