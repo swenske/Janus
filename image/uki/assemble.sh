@@ -35,6 +35,27 @@
 # before - Secure Boot enforcement is opt-in at the firmware/vars level
 # (see image/secureboot/), not something every other boot test in this
 # project needs to care about.
+#
+# UKIFY_STUB (env var, optional): explicit path to the sd-stub PE
+# binary `ukify` should embed - needed for arm64 (see
+# systemd-stub-arm64/Dockerfile's own doc comment for why the build
+# host's own `ukify` install can't find an aarch64 stub on its own,
+# only its native amd64 one). Left unset for every amd64 caller, which
+# keeps relying on `ukify`'s own auto-detection off the kernel's
+# architecture, exactly as before.
+#
+# UKI_CONSOLE (env var, optional, default ttyS0): the serial console
+# name baked into the cmdline - x86 targets (QEMU's isa-serial/OVMF)
+# use ttyS0, but the Single Board Computer tranche's aarch64 targets
+# (QEMU's raspi4b/virt machines, PL011 UART) need ttyAMA0 instead - a
+# genuinely different device name, not a default every caller can share.
+#
+# UKI_SELINUX_ENFORCING (env var, optional, default 1): whether
+# `enforcing=1` is appended - left off for the Single Board Computer
+# tranche's aarch64 targets, whose kernel config has no
+# CONFIG_SECURITY_SELINUX at all yet (Phase 4 cont'd's SELinux work is
+# x86-only so far) - baking in a claim of enforcement the kernel can't
+# even act on would be misleading, not just harmless.
 set -euo pipefail
 
 OUT="${1:?usage: $0 <out.efi> <bzImage> <rootfs-dir> <data-device> <hash-device> [signing-key] [signing-cert]}"
@@ -60,8 +81,10 @@ trap 'rm -f "$CMDLINE_FILE"' EXIT
   # permissive one) - this UKI-baked cmdline is what makes enforcing the
   # real, permanent default in practice, since there's no boot menu to
   # add it from later.
-  printf 'console=ttyS0 panic=-1 dm-mod.create="%s" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp enforcing=1' \
-    "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")"
+  enforcing_arg=""
+  [ "${UKI_SELINUX_ENFORCING:-1}" = "1" ] && enforcing_arg=" enforcing=1"
+  printf 'console=%s panic=-1 dm-mod.create="%s" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp%s' \
+    "${UKI_CONSOLE:-ttyS0}" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$enforcing_arg"
 } > "$CMDLINE_FILE"
 
 mkdir -p "$(dirname "$OUT")"
@@ -74,6 +97,9 @@ UKIFY_ARGS=(
 )
 if [ -n "$SIGNING_KEY" ] && [ -n "$SIGNING_CERT" ]; then
   UKIFY_ARGS+=(--secureboot-private-key="$SIGNING_KEY" --secureboot-certificate="$SIGNING_CERT")
+fi
+if [ -n "${UKIFY_STUB:-}" ]; then
+  UKIFY_ARGS+=(--stub="$UKIFY_STUB")
 fi
 ukify "${UKIFY_ARGS[@]}"
 

@@ -39,7 +39,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq qemu-system-x86 qemu-utils squashfs-tools cryptsetup-bin e2fsprogs gdisk \
             ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware xorriso ipxe \
-            qemu-system-arm crossbuild-essential-arm64
+            qemu-system-arm crossbuild-essential-arm64 qemu-efi-aarch64
 
       # dashboard/frontend (Vite 8) needs Node >=20.19 - Debian's own
       # default `nodejs` apt package version isn't reliably that recent,
@@ -451,6 +451,18 @@ jobs:
       # hack/qemu-arm64-network-test.sh's own header.
       - name: arm64 janusd+haproxy real HTTP over virtio-net (Single Board Computer tranche)
         run: make qemu-arm64-network-test
+
+      # Single Board Computer tranche, UEFI/UKI: the full squashfs+dm-
+      # verity+UEFI/UKI chain, proven on aarch64 too - a real arm64
+      # Unified Kernel Image booted under real AAVMF/edk2-aarch64
+      # firmware on QEMU's generic "virt" machine, no -kernel/-append
+      # shortcut at all. See hack/qemu-arm64-uefi-boot-test.sh's own
+      # header for the three arch-specific gaps this closed (no aarch64
+      # sd-stub on an amd64 build host, BOOTAA64.EFI vs. BOOTX64.EFI,
+      # ttyAMA0 vs. ttyS0 + no SELinux support in this kernel config
+      # yet).
+      - name: arm64 UEFI/UKI boot under real AAVMF firmware (Single Board Computer tranche)
+        run: make qemu-arm64-uefi-boot-test
 
       # Phase 3 cont'd: the ESP now lives on image/disk/assemble.sh's
       # single GPT disk too (partition 1, ahead of both A/B slots) - the

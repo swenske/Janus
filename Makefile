@@ -24,7 +24,8 @@ GEN_DIR := gen
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
 	rpi4-daemon-static musl-toolchain-arm64 rpi4-haproxy-build rpi4-initramfs-full \
-	qemu-raspi4-daemon-test qemu-arm64-network-test
+	qemu-raspi4-daemon-test qemu-arm64-network-test rpi4-rootfs-build \
+	systemd-stub-arm64 rpi4-uki-image qemu-arm64-uefi-boot-test
 
 all: build
 
@@ -187,6 +188,56 @@ qemu-raspi4-daemon-test: rpi4-kernel-build rpi4-initramfs-full
 # qemu-arm64-network-test.sh's own header for the full reasoning.
 qemu-arm64-network-test: rpi4-kernel-build rpi4-initramfs-full
 	./hack/qemu-arm64-network-test.sh $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/rpi4/initramfs-full.cpio.gz
+
+# Single Board Computer tranche, UEFI/UKI prep: the arm64 squashfs+dm-
+# verity rootfs - the exact same rootfs/assemble.sh amd64 already uses,
+# just fed arm64 binaries. selinux-policy/ca-certificates are reused
+# as-is, not rebuilt per architecture - a compiled SELinux policy binary
+# isn't CPU-architecture-specific (it's kernel-LSM-version-specific),
+# and the CA bundle is plain PEM text either way. The policy is a
+# harmless no-op here regardless: kernel/configs/janus_rpi4_defconfig
+# has no CONFIG_SECURITY_SELINUX at all yet (Phase 4 cont'd's SELinux
+# work is x86-only so far), so rootfs/init's loadSELinuxPolicy just logs
+# and moves on, same tolerant pattern as a missing STATE drive.
+rpi4-rootfs-build: rpi4-init rpi4-daemon-static rpi4-haproxy-build selinux-policy ca-certificates
+	mkdir -p $(BUILD_DIR)/rpi4/rootfs
+	./rootfs/assemble.sh $(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rpi4/init $(BUILD_DIR)/rpi4/janusd \
+		$(BUILD_DIR)/rpi4/haproxy rootfs/base/etc/haproxy/haproxy.cfg \
+		$(BUILD_DIR)/selinux/janus.policy $(BUILD_DIR)/ca-certificates/ca-certificates.crt
+
+# Single Board Computer tranche, UEFI/UKI prep: exports systemd's
+# aarch64 sd-stub (linuxaa64.efi.stub) - see systemd-stub-arm64/
+# Dockerfile's own header for why this can't just be apt-installed on
+# the build host directly.
+systemd-stub-arm64:
+	mkdir -p $(BUILD_DIR)/systemd-stub-arm64
+	docker build --target export -o $(BUILD_DIR)/systemd-stub-arm64 systemd-stub-arm64
+
+# Single Board Computer tranche: the aarch64 equivalent of uki-image -
+# same ukify-based assembly, but UKIFY_STUB points at the fetched
+# aarch64 sd-stub (the host's own ukify has no native aarch64 stub to
+# auto-detect), UKI_CONSOLE=ttyAMA0 (PL011, not the x86 ttyS0),
+# UKI_SELINUX_ENFORCING=0 (no SELinux support in this kernel config at
+# all yet), and the ESP's boot file is BOOTAA64.EFI, not BOOTX64.EFI -
+# a genuinely different UEFI-spec fallback name per architecture, not a
+# build option (image/uki/esp-image.sh's own doc comment). root's
+# data/hash devices are /dev/vdb+/dev/vdc, same reasoning as the amd64
+# uki-image target: the ESP itself takes the vda slot once attached.
+rpi4-uki-image: rpi4-kernel-build rpi4-rootfs-build systemd-stub-arm64
+	UKIFY_STUB=$(BUILD_DIR)/systemd-stub-arm64/linuxaa64.efi.stub \
+	UKI_CONSOLE=ttyAMA0 \
+	UKI_SELINUX_ENFORCING=0 \
+	./image/uki/assemble.sh $(BUILD_DIR)/rpi4/rootfs/janus.efi $(BUILD_DIR)/rpi4/Image \
+		$(BUILD_DIR)/rpi4/rootfs /dev/vdb /dev/vdc
+	./image/uki/esp-image.sh $(BUILD_DIR)/rpi4/rootfs/esp.img $(BUILD_DIR)/rpi4/rootfs/janus.efi 64 BOOTAA64.EFI
+
+# Single Board Computer tranche: proves the arm64 UKI actually boots
+# under *real* UEFI firmware (AAVMF/edk2-aarch64) on QEMU's generic
+# "virt" machine - the aarch64 analog of qemu-uefi-boot-test, no
+# -kernel/-append shortcut at all. See hack/qemu-arm64-uefi-boot-test.sh.
+# Requires AAVMF (package: qemu-efi-aarch64).
+qemu-arm64-uefi-boot-test: rpi4-uki-image
+	./hack/qemu-arm64-uefi-boot-test.sh $(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rpi4/rootfs/esp.img
 
 # Builds a fully static (musl, via Alpine's own toolchain - see pkgs/
 # haproxy/Dockerfile) haproxy binary with OpenSSL and pulls it out to
