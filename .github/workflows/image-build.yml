@@ -15,7 +15,12 @@
 name: Image Build
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Publish a real, permanent GitHub Release tagged with this version (e.g. v2026.09.29) once everything builds - leave empty to just build/test without publishing anything (the default, matches every dispatch before this input existed)'
+        required: false
+        type: string
 
 concurrency:
   group: image-build
@@ -27,6 +32,13 @@ jobs:
     # cache), matching swenske/gotochanger's release.yml convention. Never
     # used for pull_request-triggered jobs - see ci.yml.
     runs-on: [self-hosted, docker, haproxyos]
+    # contents: write is only for the optional "Publish a real GitHub
+    # Release" step at the very end (gated on release_version being
+    # set) - every other step here only ever reads the repo or writes
+    # to unrelated third-party services (Docker Hub), needing nothing
+    # beyond the default token permissions.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -910,8 +922,71 @@ jobs:
           short-description: "Web UI to manage Janus nodes: self-registration, live stats, HAProxy config - HTTPS-only"
           readme-filepath: dashboard/dockerhub-overview.md
 
+      # Remote-update Phase 4: a real, permanent, tagged GitHub Release -
+      # unlike every artifact uploaded above (30-day workflow-artifact
+      # retention), this is what closes the actual gap Phase 4 exists
+      # to close: LifecycleService.Upgrade's node-initiated http(s)://
+      # fetch mode (internal/api/lifecycle.go's fetchBundleFile) needs a
+      # real, permanent URL to point at, and a future controller-side
+      # "is a newer version available" check (remote-update Phase 5's
+      # own remaining scope - see docs/companion-site-builder-scope.md)
+      # needs something real to compare against. Manual-dispatch-gated
+      # (an empty release_version input just skips this step entirely -
+      # every dispatch before this input existed behaves identically)
+      # - never automatic, the same "a human decides when to publish"
+      # discipline the Docker Hub push and Secure Boot signing steps
+      # above already follow, and this whole workflow's own
+      # workflow_dispatch-only trigger already enforces at a coarser
+      # grain.
+      #
+      # Versioned CalVer-style (vYYYY.MM.DD, an optional -N suffix for a
+      # same-day second release) rather than semver - nothing about
+      # this project has an API-stability contract yet to reason
+      # "major/minor/patch" bumps against, and CalVer sorts correctly
+      # both lexicographically and via `git describe` (already this
+      # project's own VERSION ldflags source, see the top-level
+      # Makefile) with no extra tooling.
+      #
+      # amd64 only, deliberately - not every artifact built above:
+      # image/release/assemble.sh's own fixed-filename output
+      # (rootfs.squashfs/rootfs.verity/uki-a.efi/uki-b.efi, already
+      # built above as a side effect of the ISO-with-bundle step) is
+      # exactly what fetchBundleFile expects directly under a release's
+      # own base download URL, so these specific filenames are never
+      # renamed here. arm64/Pi's own equivalent bundle isn't published
+      # yet: LifecycleService.Upgrade has never actually been proven
+      # end to end on that architecture (only the Pi SD card images'
+      # own *structural* checks exist so far - see image/rpi-uefi/'s
+      # own bullet) - publishing an unverified arm64 upgrade path would
+      # be actively worse than not having one at all. The Pi4/Pi5 disk
+      # images themselves are still attached below as fresh-install
+      # artifacts (like the qcow2/vmdk/iso already are) - only the
+      # *release-bundle* half is amd64-only, since that's the one
+      # fetchBundleFile actually reads by these exact filenames.
+      - name: Publish a real GitHub Release
+        if: ${{ inputs.release_version != '' }}
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release_version }}
+          target_commitish: ${{ github.sha }}
+          name: Janus ${{ inputs.release_version }}
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            build/release/rootfs.squashfs
+            build/release/rootfs.squashfs.sha256
+            build/release/rootfs.verity
+            build/release/uki-a.efi
+            build/release/uki-b.efi
+            build/janus.qcow2
+            build/janus-kvm.qcow2
+            build/janus.vmdk
+            build/janus.iso
+            build/rpi-uefi/pi4-disk.img
+            build/rpi-uefi/pi5-disk.img
+
       # TODO(Phase 3 cont'd): a real OVA (OVF descriptor + tar) on top
-      # of image/vmware's bare VMDK. Upload to a GitHub Release once a
-      # version scheme exists.
+      # of image/vmware's bare VMDK - once built, add build/janus.ova
+      # to the release step's own files: list above.
       # TODO(Phase 5): pkgs/bird, pkgs/keepalived, pkgs/nftables - built
       # only into images that opt in via declarative configuration.
