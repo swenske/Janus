@@ -52,6 +52,16 @@ type Lifecycle struct {
 const (
 	upgradeMaxDataBytes = 64 * 1024 * 1024
 	upgradeMaxHashBytes = 4 * 1024 * 1024
+	// uki-a.efi/uki-b.efi have no size check in fetchBundleFile itself
+	// (read once into memory and used immediately) - this one's for
+	// UploadReleaseFile specifically, which writes straight to
+	// persistent STATE storage without ever holding the whole file in
+	// memory, so it needs its own cap to keep a buggy/malicious caller
+	// from filling STATE's own fixed partition size (image/disk/
+	// assemble.sh's STATE_MB) via an unbounded stream. Generous
+	// compared to every UKI actually built by this project so far
+	// (~9-10MiB).
+	uploadMaxUKIBytes = 32 * 1024 * 1024
 
 	// upgradeFetchTimeout bounds a single file's HTTPS download - long
 	// enough for a real release bundle's own squashfs over a modest
@@ -60,10 +70,41 @@ const (
 	upgradeFetchTimeout = 5 * time.Minute
 )
 
+// releaseStagingDir is where UploadReleaseFile writes uploaded release-
+// bundle files - a fixed subdirectory directly on the raw STATE mount
+// (rootfs/init/main.go's mountState mounts STATE wholesale at
+// /etc/.state; see its own doc comment for why - most of it is reached
+// through narrower per-purpose bind mounts like /etc/janus/pki, but
+// this project's own QEMU upgrade tests already established the
+// convention of writing ad hoc release-bundle content directly under
+// /etc/.state/<name> - see hack/qemu-lifecycle-upgrade-test.sh's own
+// "upgrade/" directory). A var, not a const, so a test can point it
+// elsewhere, same convention internal/bootcommit.Dir/internal/
+// selfregister.Dir already use.
+var releaseStagingDir = "/etc/.state/upgrade-incoming"
+
+// releaseFileMaxBytes returns the byte cap for a given release-bundle
+// filename, or 0 if the name isn't one of the fixed four this project's
+// release bundles ever contain (image/release/assemble.sh's own
+// output) - UploadReleaseFile refuses anything else outright, so a
+// caller can never stage an arbitrary filename onto persistent storage.
+func releaseFileMaxBytes(filename string) int64 {
+	switch filename {
+	case "rootfs.squashfs":
+		return upgradeMaxDataBytes
+	case "rootfs.verity":
+		return upgradeMaxHashBytes
+	case "uki-a.efi", "uki-b.efi":
+		return uploadMaxUKIBytes
+	default:
+		return 0
+	}
+}
+
 // fetchBundleFile reads one named file (e.g. "rootfs.squashfs") from a
 // release bundle - bundleRef is either a local directory (the original,
 // still-supported shape - image/release/assemble.sh's own output, or a
-// controller-relayed UploadReleaseBundle staging directory, see that
+// controller-relayed UploadReleaseFile staging directory, see that
 // RPC's own doc comment) or an "http://"/"https://" base URL, in which
 // case the node fetches the file itself directly - completing the
 // design ImageSource.reference's own proto comment already described
@@ -340,4 +381,88 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 
 	scheduleReboot()
 	return nil
+}
+
+// UploadReleaseFile is the controller-relay half of the two update
+// modes this project supports side by side (the other, node-initiated
+// one is fetchBundleFile's own http(s):// branch, above) - for network
+// topologies where a node can't dial out to fetch a bundle itself at
+// all (a real, user-raised constraint: some load-balancer deployments
+// sit behind a network boundary that only ever permits inbound
+// connections). The controller already dials *into* this node for
+// every other RPC, so relaying a bundle's bytes needs no new direction
+// of connection, just a way to carry more data than a single unary
+// message comfortably holds - hence client-streaming rather than a
+// plain unary RPC with a bytes field.
+//
+// Writes straight to releaseStagingDir, one call per file, refusing any
+// filename outside the fixed release-bundle set (releaseFileMaxBytes)
+// so a caller can never stage arbitrary content under an arbitrary
+// name. Never touches an A/B slot or reboots anything itself - purely a
+// file transfer; the caller still has to make a separate Upgrade call
+// afterward with source.reference set to the returned staging_dir,
+// reusing 100% of Upgrade's own already-verified writing/slot-switching/
+// health-check logic unchanged.
+func (l *Lifecycle) UploadReleaseFile(stream janusv1alpha1.LifecycleService_UploadReleaseFileServer) error {
+	first, err := stream.Recv()
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "receive first message: %v", err)
+	}
+
+	filename := first.GetFilename()
+	maxBytes := releaseFileMaxBytes(filename)
+	if maxBytes == 0 {
+		return status.Errorf(codes.InvalidArgument, "invalid filename %q - must be one of rootfs.squashfs, rootfs.verity, uki-a.efi, uki-b.efi", filename)
+	}
+
+	if err := os.MkdirAll(releaseStagingDir, 0o700); err != nil {
+		return status.Errorf(codes.Internal, "mkdir %s: %v", releaseStagingDir, err)
+	}
+	destPath := filepath.Join(releaseStagingDir, filename)
+	f, err := os.Create(destPath)
+	if err != nil {
+		return status.Errorf(codes.Internal, "create %s: %v", destPath, err)
+	}
+	defer f.Close()
+
+	var written int64
+	writeChunk := func(chunk []byte) error {
+		if len(chunk) == 0 {
+			return nil
+		}
+		written += int64(len(chunk))
+		if written > maxBytes {
+			return status.Errorf(codes.FailedPrecondition, "%s exceeds the %d-byte limit for this file", filename, maxBytes)
+		}
+		_, err := f.Write(chunk)
+		return err
+	}
+
+	if err := writeChunk(first.GetChunk()); err != nil {
+		os.Remove(destPath)
+		return err
+	}
+	for {
+		msg, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			os.Remove(destPath)
+			return status.Errorf(codes.Internal, "receive %s: %v", filename, err)
+		}
+		if err := writeChunk(msg.GetChunk()); err != nil {
+			os.Remove(destPath)
+			return err
+		}
+	}
+
+	if err := f.Sync(); err != nil {
+		return status.Errorf(codes.Internal, "sync %s: %v", destPath, err)
+	}
+
+	return stream.SendAndClose(&janusv1alpha1.UploadReleaseFileResponse{
+		StagingDir:   releaseStagingDir,
+		BytesWritten: uint64(written),
+	})
 }

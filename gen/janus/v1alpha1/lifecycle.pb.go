@@ -24,8 +24,12 @@ const (
 
 type ImageSource struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// OCI reference or HTTPS URL of the image to install/upgrade to,
-	// signed and verified against the project's release key before use.
+	// A local directory on this node's own filesystem (e.g. a
+	// UploadReleaseFile staging_dir), or an "http://"/"https://" base URL
+	// this node fetches "rootfs.squashfs"/"rootfs.verity"/
+	// "uki-<slot>.efi" from itself. Signature verification beyond the
+	// sha256 check below isn't implemented yet - flagged as a later
+	// hardening step.
 	Reference     string `protobuf:"bytes,1,opt,name=reference,proto3" json:"reference,omitempty"`
 	Sha256        string `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -391,6 +395,119 @@ func (x *RollbackResponse) GetActiveSlot() string {
 	return ""
 }
 
+type UploadReleaseFileRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Set on the first message of the stream only (ignored on later
+	// ones) - must be one of "rootfs.squashfs", "rootfs.verity",
+	// "uki-a.efi", "uki-b.efi", refused otherwise so a caller can't stage
+	// an arbitrary filename onto persistent storage.
+	Filename string `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
+	// Raw file bytes, in order - present on every message, including the
+	// first if it also carries data. No fixed chunk size is required;
+	// a few hundred KiB to a few MiB per message is reasonable.
+	Chunk         []byte `protobuf:"bytes,2,opt,name=chunk,proto3" json:"chunk,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadReleaseFileRequest) Reset() {
+	*x = UploadReleaseFileRequest{}
+	mi := &file_janus_v1alpha1_lifecycle_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadReleaseFileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadReleaseFileRequest) ProtoMessage() {}
+
+func (x *UploadReleaseFileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_lifecycle_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadReleaseFileRequest.ProtoReflect.Descriptor instead.
+func (*UploadReleaseFileRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_lifecycle_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *UploadReleaseFileRequest) GetFilename() string {
+	if x != nil {
+		return x.Filename
+	}
+	return ""
+}
+
+func (x *UploadReleaseFileRequest) GetChunk() []byte {
+	if x != nil {
+		return x.Chunk
+	}
+	return nil
+}
+
+type UploadReleaseFileResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Pass this directly as a later UpgradeRequest.source.reference,
+	// once every file that Upgrade call will need has been uploaded.
+	StagingDir    string `protobuf:"bytes,1,opt,name=staging_dir,json=stagingDir,proto3" json:"staging_dir,omitempty"`
+	BytesWritten  uint64 `protobuf:"varint,2,opt,name=bytes_written,json=bytesWritten,proto3" json:"bytes_written,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadReleaseFileResponse) Reset() {
+	*x = UploadReleaseFileResponse{}
+	mi := &file_janus_v1alpha1_lifecycle_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadReleaseFileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadReleaseFileResponse) ProtoMessage() {}
+
+func (x *UploadReleaseFileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_lifecycle_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadReleaseFileResponse.ProtoReflect.Descriptor instead.
+func (*UploadReleaseFileResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_lifecycle_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *UploadReleaseFileResponse) GetStagingDir() string {
+	if x != nil {
+		return x.StagingDir
+	}
+	return ""
+}
+
+func (x *UploadReleaseFileResponse) GetBytesWritten() uint64 {
+	if x != nil {
+		return x.BytesWritten
+	}
+	return 0
+}
+
 var File_janus_v1alpha1_lifecycle_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
@@ -418,11 +535,19 @@ const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\amessage\x18\x03 \x01(\tR\amessage\"3\n" +
 	"\x10RollbackResponse\x12\x1f\n" +
 	"\vactive_slot\x18\x01 \x01(\tR\n" +
-	"activeSlot2\xf4\x01\n" +
+	"activeSlot\"L\n" +
+	"\x18UploadReleaseFileRequest\x12\x1a\n" +
+	"\bfilename\x18\x01 \x01(\tR\bfilename\x12\x14\n" +
+	"\x05chunk\x18\x02 \x01(\fR\x05chunk\"a\n" +
+	"\x19UploadReleaseFileResponse\x12\x1f\n" +
+	"\vstaging_dir\x18\x01 \x01(\tR\n" +
+	"stagingDir\x12#\n" +
+	"\rbytes_written\x18\x02 \x01(\x04R\fbytesWritten2\xe0\x02\n" +
 	"\x10LifecycleService\x12L\n" +
 	"\aInstall\x12\x1e.janus.v1alpha1.InstallRequest\x1a\x1f.janus.v1alpha1.InstallResponse0\x01\x12L\n" +
 	"\aUpgrade\x12\x1e.janus.v1alpha1.UpgradeRequest\x1a\x1f.janus.v1alpha1.UpgradeResponse0\x01\x12D\n" +
-	"\bRollback\x12\x16.google.protobuf.Empty\x1a .janus.v1alpha1.RollbackResponseB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
+	"\bRollback\x12\x16.google.protobuf.Empty\x1a .janus.v1alpha1.RollbackResponse\x12j\n" +
+	"\x11UploadReleaseFile\x12(.janus.v1alpha1.UploadReleaseFileRequest\x1a).janus.v1alpha1.UploadReleaseFileResponse(\x01B;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
 
 var (
 	file_janus_v1alpha1_lifecycle_proto_rawDescOnce sync.Once
@@ -436,27 +561,31 @@ func file_janus_v1alpha1_lifecycle_proto_rawDescGZIP() []byte {
 	return file_janus_v1alpha1_lifecycle_proto_rawDescData
 }
 
-var file_janus_v1alpha1_lifecycle_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_janus_v1alpha1_lifecycle_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_janus_v1alpha1_lifecycle_proto_goTypes = []any{
-	(*ImageSource)(nil),      // 0: janus.v1alpha1.ImageSource
-	(*InstallRequest)(nil),   // 1: janus.v1alpha1.InstallRequest
-	(*InstallResponse)(nil),  // 2: janus.v1alpha1.InstallResponse
-	(*UpgradeRequest)(nil),   // 3: janus.v1alpha1.UpgradeRequest
-	(*UpgradeResponse)(nil),  // 4: janus.v1alpha1.UpgradeResponse
-	(*RollbackResponse)(nil), // 5: janus.v1alpha1.RollbackResponse
-	(*emptypb.Empty)(nil),    // 6: google.protobuf.Empty
+	(*ImageSource)(nil),               // 0: janus.v1alpha1.ImageSource
+	(*InstallRequest)(nil),            // 1: janus.v1alpha1.InstallRequest
+	(*InstallResponse)(nil),           // 2: janus.v1alpha1.InstallResponse
+	(*UpgradeRequest)(nil),            // 3: janus.v1alpha1.UpgradeRequest
+	(*UpgradeResponse)(nil),           // 4: janus.v1alpha1.UpgradeResponse
+	(*RollbackResponse)(nil),          // 5: janus.v1alpha1.RollbackResponse
+	(*UploadReleaseFileRequest)(nil),  // 6: janus.v1alpha1.UploadReleaseFileRequest
+	(*UploadReleaseFileResponse)(nil), // 7: janus.v1alpha1.UploadReleaseFileResponse
+	(*emptypb.Empty)(nil),             // 8: google.protobuf.Empty
 }
 var file_janus_v1alpha1_lifecycle_proto_depIdxs = []int32{
 	0, // 0: janus.v1alpha1.InstallRequest.source:type_name -> janus.v1alpha1.ImageSource
 	0, // 1: janus.v1alpha1.UpgradeRequest.source:type_name -> janus.v1alpha1.ImageSource
 	1, // 2: janus.v1alpha1.LifecycleService.Install:input_type -> janus.v1alpha1.InstallRequest
 	3, // 3: janus.v1alpha1.LifecycleService.Upgrade:input_type -> janus.v1alpha1.UpgradeRequest
-	6, // 4: janus.v1alpha1.LifecycleService.Rollback:input_type -> google.protobuf.Empty
-	2, // 5: janus.v1alpha1.LifecycleService.Install:output_type -> janus.v1alpha1.InstallResponse
-	4, // 6: janus.v1alpha1.LifecycleService.Upgrade:output_type -> janus.v1alpha1.UpgradeResponse
-	5, // 7: janus.v1alpha1.LifecycleService.Rollback:output_type -> janus.v1alpha1.RollbackResponse
-	5, // [5:8] is the sub-list for method output_type
-	2, // [2:5] is the sub-list for method input_type
+	8, // 4: janus.v1alpha1.LifecycleService.Rollback:input_type -> google.protobuf.Empty
+	6, // 5: janus.v1alpha1.LifecycleService.UploadReleaseFile:input_type -> janus.v1alpha1.UploadReleaseFileRequest
+	2, // 6: janus.v1alpha1.LifecycleService.Install:output_type -> janus.v1alpha1.InstallResponse
+	4, // 7: janus.v1alpha1.LifecycleService.Upgrade:output_type -> janus.v1alpha1.UpgradeResponse
+	5, // 8: janus.v1alpha1.LifecycleService.Rollback:output_type -> janus.v1alpha1.RollbackResponse
+	7, // 9: janus.v1alpha1.LifecycleService.UploadReleaseFile:output_type -> janus.v1alpha1.UploadReleaseFileResponse
+	6, // [6:10] is the sub-list for method output_type
+	2, // [2:6] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
 	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name
@@ -473,7 +602,7 @@ func file_janus_v1alpha1_lifecycle_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_lifecycle_proto_rawDesc), len(file_janus_v1alpha1_lifecycle_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

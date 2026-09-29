@@ -127,6 +127,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] DISK BUNDLE_DIR  partition a blank DISK from scratch and write a release bundle (image/release/assemble.sh) to both A/B slots - does not reboot anything; -controller-address/-controller-ca make the installed node self-register with that Controller on first boot")
 	fmt.Fprintln(os.Stderr, "  lifecycle rollback         switch the ESP to the other A/B slot's staged UKI and reboot into it")
 	fmt.Fprintln(os.Stderr, "  lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] BUNDLE_DIR  write a release bundle (image/release/assemble.sh) to the inactive slot, switch, and reboot into it - with -wait-for-health, reverts and reboots back automatically if the new slot never stays up long enough to confirm healthy")
+	fmt.Fprintln(os.Stderr, "  lifecycle upload-release BUNDLE_DIR  stream a local release bundle's 4 files to this node's own staging storage, for a node that can't dial out to fetch one itself - prints the staging path to pass as BUNDLE_DIR to a later 'lifecycle upgrade'")
 	fmt.Fprintln(os.Stderr, "  image seed-controller -controller-address HOST:PORT -controller-ca FILE DISK  write controller self-registration config directly onto an already-built DISK's existing STATE partition - no janusd/gRPC needed, doesn't touch partitioning or the rootfs (raw disk images only; qemu-img convert a qcow2 to raw first, see docs/provisioning-a-node.md)")
 }
 
@@ -370,6 +371,69 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			}
 			fmt.Printf("[%s %.0f%%] %s\n", resp.GetStage(), resp.GetProgress()*100, resp.GetMessage())
 		}
+
+	case "upload-release":
+		fs := flag.NewFlagSet("lifecycle upload-release", flag.ExitOnError)
+		_ = fs.Parse(args[1:])
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle upload-release BUNDLE_DIR")
+			os.Exit(2)
+		}
+		bundleDir := fs.Arg(0)
+
+		client := janusv1alpha1.NewLifecycleServiceClient(conn)
+		const chunkSize = 512 * 1024
+		var stagingDir string
+		for _, name := range []string{"rootfs.squashfs", "rootfs.verity", "uki-a.efi", "uki-b.efi"} {
+			path := filepath.Join(bundleDir, name)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				log.Fatalf("UploadReleaseFile: read %s: %v", path, err)
+			}
+
+			c, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			stream, err := client.UploadReleaseFile(c)
+			if err != nil {
+				cancel()
+				log.Fatalf("UploadReleaseFile: %s: %v", name, err)
+			}
+
+			// A Send() failure mid-stream (e.g. the server rejecting an
+			// oversized file and closing its own end early) only ever
+			// surfaces as a generic io.EOF here - the real status error
+			// is only retrievable via CloseAndRecv(), never from Send()
+			// itself (a real, easy-to-miss gRPC client-streaming
+			// gotcha, confirmed by a real oversized-file test producing
+			// exactly this: Send returned a bare "EOF" while the
+			// server's own actual FailedPrecondition message was only
+			// visible via CloseAndRecv). So a Send() error here just
+			// stops sending further chunks and falls through to the
+			// same CloseAndRecv() call below, rather than reporting the
+			// meaningless EOF directly.
+			sentFilename := false
+			for offset := 0; offset < len(data); offset += chunkSize {
+				req := &janusv1alpha1.UploadReleaseFileRequest{Chunk: data[offset:min(offset+chunkSize, len(data))]}
+				if !sentFilename {
+					req.Filename = name
+					sentFilename = true
+				}
+				if err := stream.Send(req); err != nil {
+					break
+				}
+			}
+			if !sentFilename {
+				_ = stream.Send(&janusv1alpha1.UploadReleaseFileRequest{Filename: name})
+			}
+
+			resp, err := stream.CloseAndRecv()
+			cancel()
+			if err != nil {
+				log.Fatalf("UploadReleaseFile: %s: %v", name, err)
+			}
+			stagingDir = resp.GetStagingDir()
+			fmt.Printf("Uploaded %s (%d bytes)\n", name, resp.GetBytesWritten())
+		}
+		fmt.Printf("Release bundle staged at %s - pass this as the source to 'janusctl lifecycle upgrade'\n", stagingDir)
 
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl lifecycle: unknown subcommand %q\n", sub)

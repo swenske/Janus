@@ -69,9 +69,10 @@ var requiredRoles = map[string][]string{
 
 	// LifecycleService - installing/upgrading/rolling back the machine
 	// is always privileged, no reader carve-out.
-	"/janus.v1alpha1.LifecycleService/Install":  adminOnly,
-	"/janus.v1alpha1.LifecycleService/Upgrade":  adminOnly,
-	"/janus.v1alpha1.LifecycleService/Rollback": adminOnly,
+	"/janus.v1alpha1.LifecycleService/Install":           adminOnly,
+	"/janus.v1alpha1.LifecycleService/Upgrade":           adminOnly,
+	"/janus.v1alpha1.LifecycleService/Rollback":          adminOnly,
+	"/janus.v1alpha1.LifecycleService/UploadReleaseFile": adminOnly, // writes to persistent STATE storage, same trust level as Upgrade itself
 
 	// HAProxyService
 	"/janus.v1alpha1.HAProxyService/GetConfig":         adminOrReader,

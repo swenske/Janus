@@ -20,9 +20,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LifecycleService_Install_FullMethodName  = "/janus.v1alpha1.LifecycleService/Install"
-	LifecycleService_Upgrade_FullMethodName  = "/janus.v1alpha1.LifecycleService/Upgrade"
-	LifecycleService_Rollback_FullMethodName = "/janus.v1alpha1.LifecycleService/Rollback"
+	LifecycleService_Install_FullMethodName           = "/janus.v1alpha1.LifecycleService/Install"
+	LifecycleService_Upgrade_FullMethodName           = "/janus.v1alpha1.LifecycleService/Upgrade"
+	LifecycleService_Rollback_FullMethodName          = "/janus.v1alpha1.LifecycleService/Rollback"
+	LifecycleService_UploadReleaseFile_FullMethodName = "/janus.v1alpha1.LifecycleService/UploadReleaseFile"
 )
 
 // LifecycleServiceClient is the client API for LifecycleService service.
@@ -55,6 +56,17 @@ type LifecycleServiceClient interface {
 	// Rollback switches the bootloader default back to the other A/B slot
 	// and reboots, without needing a new image.
 	Rollback(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*RollbackResponse, error)
+	// UploadReleaseFile streams one release-bundle file (one of
+	// "rootfs.squashfs", "rootfs.verity", "uki-a.efi", "uki-b.efi" - the
+	// fixed set image/release/assemble.sh produces) to a local staging
+	// area on this node, for network topologies where the node can't
+	// dial out to fetch a bundle itself (see UpgradeRequest.source's own
+	// doc comment for the alternative, node-initiated http(s):// fetch
+	// mode). Call once per file the upcoming Upgrade call will need, then
+	// call Upgrade itself with source.reference set to the returned
+	// staging_dir. Never triggers an upgrade by itself - purely a file
+	// transfer.
+	UploadReleaseFile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UploadReleaseFileRequest, UploadReleaseFileResponse], error)
 }
 
 type lifecycleServiceClient struct {
@@ -113,6 +125,19 @@ func (c *lifecycleServiceClient) Rollback(ctx context.Context, in *emptypb.Empty
 	return out, nil
 }
 
+func (c *lifecycleServiceClient) UploadReleaseFile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UploadReleaseFileRequest, UploadReleaseFileResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &LifecycleService_ServiceDesc.Streams[2], LifecycleService_UploadReleaseFile_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[UploadReleaseFileRequest, UploadReleaseFileResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type LifecycleService_UploadReleaseFileClient = grpc.ClientStreamingClient[UploadReleaseFileRequest, UploadReleaseFileResponse]
+
 // LifecycleServiceServer is the server API for LifecycleService service.
 // All implementations must embed UnimplementedLifecycleServiceServer
 // for forward compatibility.
@@ -143,6 +168,17 @@ type LifecycleServiceServer interface {
 	// Rollback switches the bootloader default back to the other A/B slot
 	// and reboots, without needing a new image.
 	Rollback(context.Context, *emptypb.Empty) (*RollbackResponse, error)
+	// UploadReleaseFile streams one release-bundle file (one of
+	// "rootfs.squashfs", "rootfs.verity", "uki-a.efi", "uki-b.efi" - the
+	// fixed set image/release/assemble.sh produces) to a local staging
+	// area on this node, for network topologies where the node can't
+	// dial out to fetch a bundle itself (see UpgradeRequest.source's own
+	// doc comment for the alternative, node-initiated http(s):// fetch
+	// mode). Call once per file the upcoming Upgrade call will need, then
+	// call Upgrade itself with source.reference set to the returned
+	// staging_dir. Never triggers an upgrade by itself - purely a file
+	// transfer.
+	UploadReleaseFile(grpc.ClientStreamingServer[UploadReleaseFileRequest, UploadReleaseFileResponse]) error
 	mustEmbedUnimplementedLifecycleServiceServer()
 }
 
@@ -161,6 +197,9 @@ func (UnimplementedLifecycleServiceServer) Upgrade(*UpgradeRequest, grpc.ServerS
 }
 func (UnimplementedLifecycleServiceServer) Rollback(context.Context, *emptypb.Empty) (*RollbackResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Rollback not implemented")
+}
+func (UnimplementedLifecycleServiceServer) UploadReleaseFile(grpc.ClientStreamingServer[UploadReleaseFileRequest, UploadReleaseFileResponse]) error {
+	return status.Error(codes.Unimplemented, "method UploadReleaseFile not implemented")
 }
 func (UnimplementedLifecycleServiceServer) mustEmbedUnimplementedLifecycleServiceServer() {}
 func (UnimplementedLifecycleServiceServer) testEmbeddedByValue()                          {}
@@ -223,6 +262,13 @@ func _LifecycleService_Rollback_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LifecycleService_UploadReleaseFile_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(LifecycleServiceServer).UploadReleaseFile(&grpc.GenericServerStream[UploadReleaseFileRequest, UploadReleaseFileResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type LifecycleService_UploadReleaseFileServer = grpc.ClientStreamingServer[UploadReleaseFileRequest, UploadReleaseFileResponse]
+
 // LifecycleService_ServiceDesc is the grpc.ServiceDesc for LifecycleService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -245,6 +291,11 @@ var LifecycleService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Upgrade",
 			Handler:       _LifecycleService_Upgrade_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "UploadReleaseFile",
+			Handler:       _LifecycleService_UploadReleaseFile_Handler,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "janus/v1alpha1/lifecycle.proto",

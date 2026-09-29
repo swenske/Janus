@@ -592,10 +592,19 @@ jobs:
       # real network fetch (a host-side python3 http.server), one half
       # of the real remote-update design (the node fetches directly;
       # the other half, a controller-relayed push for nodes that can't
-      # dial out, is separate work). See
+      # dial out, is right below). See
       # hack/qemu-lifecycle-upgrade-url-test.sh.
       - name: LifecycleService.Upgrade fetches a release bundle over real HTTP
         run: make qemu-lifecycle-upgrade-url-test
+
+      # Controller-relay follow-up: the other half - a real
+      # LifecycleService.UploadReleaseFile call streams the release
+      # bundle to a live node over the same mTLS connection every other
+      # RPC already uses, then a real Upgrade call installs it - proves
+      # a node with zero outbound connectivity can still be updated.
+      # See hack/qemu-lifecycle-upgrade-relay-test.sh.
+      - name: LifecycleService.UploadReleaseFile relays a release bundle to a live node
+        run: make qemu-lifecycle-upgrade-relay-test
 
       # Phase 3 cont'd: wait_for_health is real, confirmed against
       # HAProxy's own stats socket, not just janusd process
