@@ -1,4 +1,185 @@
+# Janus kernel config for Raspberry Pi 4/5 (BCM2711/BCM2712), aarch64.
+# Single Board Computer tranche (docs/companion-site-builder-scope.md).
+# Proven: rootfs/init (GOARCH=arm64) boots as PID 1 and prints
+# JANUS_INIT_BOOT_OK under QEMU's raspi4b machine (see
+# hack/qemu-raspi4-boot-test.sh) - the direct aarch64 analog of the
+# original x86 Phase 1 boot-proof milestone. Real hardware (SD/MMC boot
+# media, USB, BCM GENET ethernet, the pftf/RPi4 UEFI firmware) is NOT
+# yet covered - this is deliberately scoped to the smallest provable
+# console-boot increment first, mirroring how x86 Phase 1 began.
 #
+# Built from `make ARCH=arm64 allnoconfig` (NOT upstream's own broad
+# `defconfig`, which enables every ARM SoC vendor's drivers at once and
+# turned out to actively crash under QEMU's raspi4b machine - see
+# below) plus exactly the symbols needed for that boot. Regenerate via
+# `make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig` after
+# hand-editing, same convention as ../janus_defconfig (x86_64) -
+# deliberately the FULL resolved config (every symbol explicit), not a
+# compact savedefconfig diff, for the same reason documented there: a
+# diff format resolves unlisted symbols against the kernel's own
+# defconfig-derived defaults, which would silently re-enable drivers
+# allnoconfig turned off.
+#
+# fragment.config (the union merged onto allnoconfig to get here):
+#
+#   # BCM2711 SoC platform - CONFIG_ARCH_BCM2835 is gated behind a
+#   # `menuconfig ARCH_BCM` bool, the exact same "gating menu" Kconfig
+#   # trap as x86's own CONFIG_VIRTIO_BLK needing CONFIG_BLK_DEV=y first
+#   # (see ../janus_defconfig's own header) - both are needed explicitly.
+#   CONFIG_ARCH_BCM=y CONFIG_ARCH_BCM2835=y
+#
+#   # boot-proof baseline (console, initramfs, devtmpfs, binfmt_elf) -
+#   # CONFIG_BINFMT_ELF is off by default under allnoconfig; without it
+#   # *any* ELF binary (including this project's own Go rootfs/init)
+#   # fails to exec as PID 1 with ENOEXEC ("Failed to execute /init
+#   # (error -8)") - found by a real boot, not assumed from x86's own
+#   # fragment already listing it (allnoconfig's defaults differ per arch).
+#   CONFIG_ARM_AMBA=y CONFIG_SERIAL_AMBA_PL011=y
+#   CONFIG_SERIAL_AMBA_PL011_CONSOLE=y CONFIG_SMP=y
+#   CONFIG_BLK_DEV_INITRD=y CONFIG_DEVTMPFS=y CONFIG_DEVTMPFS_MOUNT=y
+#   CONFIG_TMPFS=y CONFIG_PROC_FS=y CONFIG_SYSFS=y
+#   CONFIG_COMPAT_32BIT_TIME=y CONFIG_BINFMT_ELF=y
+#
+# Two real, previously-undiscovered QEMU raspi4b emulation gaps found
+# empirically (a real boot crashing with "Internal error: synchronous
+# external abort" - a genuine bus fault, not a Kconfig gap), neither
+# fixable by a driver Kconfig change alone without losing real-hardware
+# functionality entirely:
+#
+#   # The "AON" L2 interrupt controller at 0x7ef00100 (brcm,l2-intc,
+#   # compatible "brcm,bcm2711-l2-intc") is used only for HDMI/DVP/VEC
+#   # display-adjacent interrupts - QEMU's raspi4b doesn't model this
+#   # MMIO region at all, and probing it panics the boot
+#   # (brcmstb_l2_intc_probe). This headless reverse-proxy appliance has
+#   # no display driver at all, so it's disabled outright, not just for
+#   # QEMU - real hardware doesn't need it for this project's use case.
+#   CONFIG_BRCMSTB_L2_IRQ is not set (default y for ARCH_BCM2835,
+#   explicitly disabled: `scripts/config --disable BRCMSTB_L2_IRQ`)
+#
+#   # The generic `clk_disable_unused` initcall (runs once at boot,
+#   # walking the FULL registered clock tree to gate off anything
+#   # unused) also hit a real external abort probing some BCM2835
+#   # clock-gate register QEMU doesn't emulate (clk_gate_is_enabled).
+#   # NOT a Kconfig fix - this isn't a specific driver, it's a generic
+#   # kernel initcall - fixed via the well-known `clk_ignore_unused`
+#   # kernel command-line parameter instead (see
+#   # hack/qemu-raspi4-boot-test.sh), which skips the walk entirely.
+#
+# (i2c-brcmstb also externally-aborted the same way under upstream's
+# broad defconfig - moot here since starting from allnoconfig never
+# enables CONFIG_I2C's subsystem menu in the first place.)
+#
+# Phase-2-equivalent follow-up: janusd needs a real TCP listen socket
+# for its own gRPC server (and haproxy needs AF_UNIX for its stats
+# socket) even with no NIC/route anywhere on this machine type -
+# CONFIG_NET was entirely unset (Phase 1's boot proof never touched a
+# socket at all), so the very first bind() failed outright with
+# "socket: function not implemented" (ENOSYS - the socket(2) syscall
+# itself, not a permission or routing problem) on a real boot, not
+# assumed ahead of time. Added CONFIG_NET/INET/UNIX/PACKET=y (`scripts/
+# config --enable NET --enable INET --enable UNIX --enable PACKET` then
+# `make ARCH=arm64 olddefconfig`, the same fragment-then-resolve
+# discipline as everything else in this file) - verified via the same
+# full-resolved-config-diff discipline ../janus_defconfig's own KSPP/
+# SELinux blocks already established: CONFIG_NET=y pulls in the entire
+# Networking-options menu becoming *visible*, but almost everything in
+# it still resolves to "not set" (no netfilter, no bridging, no
+# NETDEVICES - correctly so, there is no NIC driver here at all and
+# none is needed for a loopback-only gRPC listener); the only real
+# auto-selected dependents are CONFIG_IPV6=y (kernel's own INET
+# default), CONFIG_TCP_CONG_CUBIC=y, and CONFIG_BPF=y (NET's own hard
+# kernel-internal dependency, unrelated to bpf(2) being usable from
+# userspace). See hack/qemu-raspi4-daemon-test.sh for the real boot
+# proof (janusd's own "listening on ... (mTLS required)" line and
+# haproxy's own startup banner both appearing on the console).
+#
+# Phase-3-equivalent follow-up: QEMU's raspi4b machine emulates neither
+# PCIe nor BCM GENET Ethernet at all, so no test on that machine type
+# could ever give real HTTP proof the way x86's own qemu-network-test
+# does - every rpi4 test so far has had to document that as a known,
+# accepted limitation. Rather than waiting on real Pi hardware (or BCM
+# GENET driver work) to close that gap, this same defconfig ALSO boots
+# under QEMU's generic aarch64 "virt" machine - a synthetic board with
+# no Pi-specific hardware at all, but real virtio-net/virtio-blk over a
+# real PCIe root complex, giving genuine end-to-end network proof back.
+# Not a replacement for real Pi hardware support (no BCM2711-specific
+# driver is exercised this way at all) - a deliberately separate,
+# narrower goal: prove the *janusd/haproxy/dm-verity/rootfs* pipeline
+# itself works on aarch64 for real, decoupled from Pi-specific hardware
+# enablement, which stays its own, later effort.
+#
+# Added CONFIG_PCI/PCI_HOST_GENERIC (virt's own PCIe host bridge),
+# CONFIG_VIRTIO_PCI+VIRTIO_MMIO (either transport `-M virt` might use,
+# confirmed empirically which one QEMU actually picks rather than
+# guessing), CONFIG_VIRTIO_NET, and CONFIG_VIRTIO_BLK (for a later
+# dm-verity root, added now since it's the same category of change and
+# worth resolving in one pass, matching this file's own established
+# "one clean full-diff per change" discipline). Two gating-menu traps,
+# the *same* class already documented above for CONFIG_ARCH_BCM and in
+# ../janus_defconfig for CONFIG_VIRTIO_BLK - a first attempt enabling
+# just CONFIG_VIRTIO_NET/CONFIG_VIRTIO_BLK directly had `olddefconfig`
+# silently reset both back to "not set", because their own parent
+# menus (CONFIG_NETDEVICES, CONFIG_BLK_DEV) were still off and
+# `olddefconfig` never auto-enables an invisible menu's own gate: fixed
+# by enabling CONFIG_NETDEVICES/CONFIG_BLK_DEV explicitly too, found by
+# checking the actual resolved output, not assumed. Verified via the
+# same full-resolved-config-diff discipline as every other addition
+# here: the newly-visible NET_VENDOR_*/WLAN_VENDOR_* symbols are all
+# just organizational submenu gates (harmless, Kconfig's own default
+# for an entered-but-otherwise-empty vendor menu) - no actual per-chip
+# NIC/WLAN driver got enabled, only VIRTIO_NET/VIRTIO_BLK themselves.
+# CONFIG_IP_PNP/CONFIG_IP_PNP_DHCP were *also* needed (a two-line diff,
+# found right after the above: the virtio-net PCI device enumerated
+# fine - `pci 0000:00:01.0: [1af4:1000]` - but a real boot logged
+# "Unknown kernel command line parameters ip=dhcp, will be passed to
+# user space", since the kernel didn't recognize `ip=dhcp` as a
+# parameter at all without IP_PNP built in) - see hack/
+# qemu-arm64-network-test.sh for the real HTTP-200 proof this
+# unblocked.
+#
+# NOTE (2026-09-29): a documentation mistake, caught and fixed here -
+# the IP_PNP addition immediately above was originally applied by
+# copying `make olddefconfig`'s raw output straight over this file
+# (`cp janus_rpi4_defconfig.new janus_rpi4_defconfig`), which silently
+# discarded this entire custom header block down to this note, even
+# though the resolved *config itself* was never affected (confirmed
+# against git history: every CONFIG_* line survived correctly, only
+# the leading comment block was lost) - the real commit that landed
+# this hole is `6ba0233`. Every earlier change in this file properly
+# merged a header addition with `make olddefconfig`'s own output (see
+# each paragraph's own "regenerate via" convention); this one skipped
+# that step. Reconstructed from this conversation's own prior turns
+# (the exact text had already been written once, just never
+# correctly saved) rather than rewritten from memory, and the
+# "always merge header + resolved output, never blind-copy .new over
+# the original" rule is now the one being followed for every change
+# below this note too.
+#
+# Bare-metal-equivalent follow-up (aarch64 UEFI/UKI, Single Board
+# Computer tranche cont'd): the arm64 kernel `Image` binary is already
+# a directly-runnable UEFI PE/COFF executable on its own once
+# CONFIG_EFI_STUB=y is set (unlike x86, arm64 has no separate
+# "handover protocol" concept at all - CONFIG_EFI_HANDOVER_PROTOCOL
+# doesn't even exist as a Kconfig symbol for this arch, confirmed
+# empirically rather than assumed from x86's own defconfig). Added
+# CONFIG_ACPI/EFI/EFI_STUB (UEFI boot itself), CONFIG_MD/BLK_DEV_DM/
+# DM_INIT/DM_VERITY (dm-verity root), CONFIG_EXT4_FS (the persistent
+# STATE partition), CONFIG_MISC_FILESYSTEMS+SQUASHFS+SQUASHFS_XZ (the
+# read-only rootfs) and CONFIG_CRYPTO_SHA256 (dm-verity's own hash
+# algorithm) - matching ../janus_defconfig's own equivalent additions
+# symbol-for-symbol where they overlap. SQUASHFS hit the *exact* same
+# gating-menu trap already documented in ../janus_defconfig's own
+# header (CONFIG_MISC_FILESYSTEMS must be enabled first, or
+# `olddefconfig` drops the whole menu silently) - found by checking the
+# resolved output missing SQUASHFS entirely on the first attempt, not
+# assumed from the x86 precedent alone. Verified via the same
+# full-resolved-config-diff discipline as every prior addition: ACPI
+# pulled in CPU_IDLE/THERMAL/DMI/PNP-ACPI as real, expected dependents
+# (the same shape x86's own ACPI enablement already documented), EFI
+# pulled in EFI_GENERIC_STUB/EFI_ARMSTUB_DTB_LOADER/EFI_EARLYCON (all
+# arm64-specific EFI-stub plumbing, expected), and nothing unrelated
+# came along either time.
+##
 # Automatically generated file; DO NOT EDIT.
 # Linux/arm64 6.18.53 Kernel Configuration
 #
@@ -464,9 +645,12 @@ CONFIG_CC_HAVE_STACKPROTECTOR_SYSREG=y
 #
 # Boot options
 #
+# CONFIG_ARM64_ACPI_PARKING_PROTOCOL is not set
 CONFIG_CMDLINE=""
-# CONFIG_EFI is not set
+CONFIG_EFI_STUB=y
+CONFIG_EFI=y
 # CONFIG_COMPRESSED_INSTALL is not set
+CONFIG_DMI=y
 # end of Boot options
 
 #
@@ -474,6 +658,8 @@ CONFIG_CMDLINE=""
 #
 # CONFIG_SUSPEND is not set
 # CONFIG_PM is not set
+CONFIG_CPU_PM=y
+CONFIG_ARCH_HIBERNATION_POSSIBLE=y
 CONFIG_ARCH_SUSPEND_POSSIBLE=y
 # end of Power management options
 
@@ -484,7 +670,16 @@ CONFIG_ARCH_SUSPEND_POSSIBLE=y
 #
 # CPU Idle
 #
-# CONFIG_CPU_IDLE is not set
+CONFIG_CPU_IDLE=y
+CONFIG_CPU_IDLE_GOV_LADDER=y
+# CONFIG_CPU_IDLE_GOV_MENU is not set
+# CONFIG_CPU_IDLE_GOV_TEO is not set
+
+#
+# ARM CPU Idle Drivers
+#
+# CONFIG_ARM_PSCI_CPUIDLE is not set
+# end of ARM CPU Idle Drivers
 # end of CPU Idle
 
 #
@@ -494,6 +689,44 @@ CONFIG_ARCH_SUSPEND_POSSIBLE=y
 # end of CPU Frequency scaling
 # end of CPU Power Management
 
+CONFIG_ARCH_SUPPORTS_ACPI=y
+CONFIG_ACPI=y
+CONFIG_ACPI_GENERIC_GSI=y
+CONFIG_ACPI_CCA_REQUIRED=y
+CONFIG_ACPI_THERMAL_LIB=y
+# CONFIG_ACPI_DEBUGGER is not set
+CONFIG_ACPI_SPCR_TABLE=y
+# CONFIG_ACPI_FPDT is not set
+# CONFIG_ACPI_EC is not set
+CONFIG_ACPI_AC=y
+CONFIG_ACPI_BATTERY=y
+CONFIG_ACPI_BUTTON=y
+CONFIG_ACPI_FAN=y
+# CONFIG_ACPI_DOCK is not set
+CONFIG_ACPI_PROCESSOR_IDLE=y
+CONFIG_ACPI_MCFG=y
+CONFIG_ACPI_PROCESSOR=y
+CONFIG_ACPI_THERMAL=y
+CONFIG_ACPI_CUSTOM_DSDT_FILE=""
+CONFIG_ARCH_HAS_ACPI_TABLE_UPGRADE=y
+CONFIG_ACPI_TABLE_UPGRADE=y
+CONFIG_ACPI_DEBUG=y
+# CONFIG_ACPI_PCI_SLOT is not set
+# CONFIG_ACPI_CONTAINER is not set
+# CONFIG_ACPI_HED is not set
+# CONFIG_ACPI_BGRT is not set
+CONFIG_ACPI_REDUCED_HARDWARE_ONLY=y
+CONFIG_HAVE_ACPI_APEI=y
+# CONFIG_ACPI_APEI is not set
+# CONFIG_ACPI_CONFIGFS is not set
+# CONFIG_ACPI_PFRUT is not set
+CONFIG_ACPI_IORT=y
+CONFIG_ACPI_GTDT=y
+CONFIG_ACPI_APMT=y
+CONFIG_ACPI_PPTT=y
+# CONFIG_ACPI_FFH is not set
+# CONFIG_PMIC_OPREGION is not set
+CONFIG_ACPI_PRMT=y
 # CONFIG_VIRTUALIZATION is not set
 CONFIG_HAVE_LIVEPATCH=y
 CONFIG_CPU_MITIGATIONS=y
@@ -595,6 +828,7 @@ CONFIG_STRICT_KERNEL_RWX=y
 CONFIG_ARCH_HAS_STRICT_MODULE_RWX=y
 CONFIG_HAVE_ARCH_COMPILER_H=y
 CONFIG_HAVE_ARCH_PREL32_RELOCATIONS=y
+CONFIG_ARCH_USE_MEMREMAP_PROT=y
 CONFIG_ARCH_HAS_RELR=y
 # CONFIG_RELR is not set
 CONFIG_ARCH_HAS_MEM_ENCRYPT=y
@@ -619,6 +853,7 @@ CONFIG_FUNCTION_ALIGNMENT_4B=y
 CONFIG_FUNCTION_ALIGNMENT=4
 CONFIG_CC_HAS_MIN_FUNCTION_ALIGNMENT=y
 CONFIG_CC_HAS_SANE_FUNCTION_ALIGNMENT=y
+CONFIG_HAVE_ARCH_GET_SECUREBOOT=y
 # end of General architecture-dependent options
 
 CONFIG_RT_MUTEXES=y
@@ -639,6 +874,9 @@ CONFIG_BLOCK=y
 CONFIG_MSDOS_PARTITION=y
 CONFIG_EFI_PARTITION=y
 # end of Partition Types
+
+CONFIG_BLOCK_HOLDER_DEPRECATED=y
+CONFIG_BLK_MQ_STACKING=y
 
 #
 # IO Schedulers
@@ -968,6 +1206,7 @@ CONFIG_PCI_ECAM=y
 # CONFIG_PCI_PRI is not set
 # CONFIG_PCI_PASID is not set
 # CONFIG_PCIE_TPH is not set
+CONFIG_PCI_LABEL=y
 # CONFIG_PCI_DYNAMIC_OF_NODES is not set
 CONFIG_VGA_ARB=y
 CONFIG_VGA_ARB_MAX_GPUS=16
@@ -1086,9 +1325,34 @@ CONFIG_GENERIC_ARCH_TOPOLOGY=y
 # end of ARM System Control and Management Interface Protocol
 
 # CONFIG_ARM_SDE_INTERFACE is not set
+CONFIG_DMIID=y
+# CONFIG_DMI_SYSFS is not set
 # CONFIG_FW_CFG_SYSFS is not set
+# CONFIG_SYSFB_SIMPLEFB is not set
 # CONFIG_ARM_FFA_TRANSPORT is not set
 # CONFIG_GOOGLE_FIRMWARE is not set
+
+#
+# EFI (Extensible Firmware Interface) Support
+#
+CONFIG_EFI_ESRT=y
+CONFIG_EFI_PARAMS_FROM_FDT=y
+CONFIG_EFI_RUNTIME_WRAPPERS=y
+CONFIG_EFI_GENERIC_STUB=y
+# CONFIG_EFI_ZBOOT is not set
+CONFIG_EFI_ARMSTUB_DTB_LOADER=y
+# CONFIG_EFI_BOOTLOADER_CONTROL is not set
+# CONFIG_EFI_CAPSULE_LOADER is not set
+# CONFIG_EFI_TEST is not set
+# CONFIG_RESET_ATTACK_MITIGATION is not set
+# CONFIG_EFI_DISABLE_PCI_DMA is not set
+CONFIG_EFI_EARLYCON=y
+CONFIG_EFI_CUSTOM_SSDT_OVERLAYS=y
+# CONFIG_EFI_DISABLE_RUNTIME is not set
+# CONFIG_EFI_COCO_SECRET is not set
+# CONFIG_OVMF_DEBUG_LOG is not set
+# end of EFI (Extensible Firmware Interface) Support
+
 CONFIG_ARM_PSCI_FW=y
 
 #
@@ -1120,6 +1384,13 @@ CONFIG_OF_IRQ=y
 CONFIG_OF_RESERVED_MEM=y
 # CONFIG_OF_OVERLAY is not set
 # CONFIG_PARPORT is not set
+CONFIG_PNP=y
+CONFIG_PNP_DEBUG_MESSAGES=y
+
+#
+# Protocols
+#
+CONFIG_PNPACPI=y
 CONFIG_BLK_DEV=y
 # CONFIG_BLK_DEV_NULL_BLK is not set
 # CONFIG_BLK_DEV_PCIESSD_MTIP32XX is not set
@@ -1188,7 +1459,39 @@ CONFIG_SCSI_MOD=y
 # end of SCSI device support
 
 # CONFIG_ATA is not set
-# CONFIG_MD is not set
+CONFIG_MD=y
+# CONFIG_BLK_DEV_MD is not set
+# CONFIG_BCACHE is not set
+CONFIG_BLK_DEV_DM_BUILTIN=y
+CONFIG_BLK_DEV_DM=y
+# CONFIG_DM_DEBUG is not set
+CONFIG_DM_BUFIO=y
+# CONFIG_DM_DEBUG_BLOCK_MANAGER_LOCKING is not set
+# CONFIG_DM_UNSTRIPED is not set
+# CONFIG_DM_CRYPT is not set
+# CONFIG_DM_SNAPSHOT is not set
+# CONFIG_DM_THIN_PROVISIONING is not set
+# CONFIG_DM_CACHE is not set
+# CONFIG_DM_WRITECACHE is not set
+# CONFIG_DM_EBS is not set
+# CONFIG_DM_ERA is not set
+# CONFIG_DM_CLONE is not set
+# CONFIG_DM_MIRROR is not set
+# CONFIG_DM_RAID is not set
+# CONFIG_DM_ZERO is not set
+# CONFIG_DM_MULTIPATH is not set
+# CONFIG_DM_DELAY is not set
+# CONFIG_DM_DUST is not set
+CONFIG_DM_INIT=y
+# CONFIG_DM_UEVENT is not set
+# CONFIG_DM_FLAKEY is not set
+CONFIG_DM_VERITY=y
+# CONFIG_DM_VERITY_VERIFY_ROOTHASH_SIG is not set
+# CONFIG_DM_VERITY_FEC is not set
+# CONFIG_DM_SWITCH is not set
+# CONFIG_DM_LOG_WRITES is not set
+# CONFIG_DM_INTEGRITY is not set
+# CONFIG_DM_VDO is not set
 # CONFIG_TARGET_CORE is not set
 # CONFIG_FUSION is not set
 
@@ -1339,6 +1642,7 @@ CONFIG_NET_VENDOR_MELLANOX=y
 # CONFIG_MLX5_CORE is not set
 # CONFIG_MLXSW_CORE is not set
 # CONFIG_MLXFW is not set
+# CONFIG_MLXBF_GIGE is not set
 CONFIG_NET_VENDOR_META=y
 CONFIG_NET_VENDOR_MICREL=y
 # CONFIG_KS8851_MLL is not set
@@ -1483,6 +1787,7 @@ CONFIG_WLAN_VENDOR_QUANTENNA=y
 # end of Wireless WAN
 
 # CONFIG_VMXNET3 is not set
+# CONFIG_FUJITSU_ES is not set
 CONFIG_NET_FAILOVER=y
 # CONFIG_ISDN is not set
 
@@ -1611,6 +1916,7 @@ CONFIG_PINCTRL=y
 CONFIG_PINMUX=y
 CONFIG_PINCONF=y
 CONFIG_GENERIC_PINCONF=y
+# CONFIG_PINCTRL_AMD is not set
 # CONFIG_PINCTRL_MICROCHIP_SGPIO is not set
 # CONFIG_PINCTRL_OCELOT is not set
 # CONFIG_PINCTRL_SINGLE is not set
@@ -1626,6 +1932,7 @@ CONFIG_GPIOLIB_LEGACY=y
 CONFIG_GPIOLIB=y
 CONFIG_GPIOLIB_FASTPATH_LIMIT=512
 CONFIG_OF_GPIO=y
+CONFIG_GPIO_ACPI=y
 CONFIG_GPIOLIB_IRQCHIP=y
 CONFIG_GPIO_CDEV=y
 CONFIG_GPIO_CDEV_V1=y
@@ -1635,6 +1942,7 @@ CONFIG_GPIO_CDEV_V1=y
 #
 # CONFIG_GPIO_74XX_MMIO is not set
 # CONFIG_GPIO_ALTERA is not set
+# CONFIG_GPIO_AMDPT is not set
 # CONFIG_GPIO_BRCMSTB is not set
 # CONFIG_GPIO_CADENCE is not set
 # CONFIG_GPIO_DWAPB is not set
@@ -1705,7 +2013,28 @@ CONFIG_POWER_SUPPLY=y
 # CONFIG_CHARGER_LT3651 is not set
 # CONFIG_BATTERY_GOLDFISH is not set
 # CONFIG_HWMON is not set
-# CONFIG_THERMAL is not set
+CONFIG_THERMAL=y
+# CONFIG_THERMAL_NETLINK is not set
+# CONFIG_THERMAL_STATISTICS is not set
+CONFIG_THERMAL_EMERGENCY_POWEROFF_DELAY_MS=0
+CONFIG_THERMAL_OF=y
+CONFIG_THERMAL_DEFAULT_GOV_STEP_WISE=y
+# CONFIG_THERMAL_DEFAULT_GOV_FAIR_SHARE is not set
+# CONFIG_THERMAL_DEFAULT_GOV_USER_SPACE is not set
+# CONFIG_THERMAL_GOV_FAIR_SHARE is not set
+CONFIG_THERMAL_GOV_STEP_WISE=y
+# CONFIG_THERMAL_GOV_BANG_BANG is not set
+# CONFIG_THERMAL_GOV_USER_SPACE is not set
+# CONFIG_CPU_THERMAL is not set
+# CONFIG_THERMAL_EMULATION is not set
+# CONFIG_THERMAL_MMIO is not set
+
+#
+# Broadcom thermal drivers
+#
+# CONFIG_BCM2835_THERMAL is not set
+# end of Broadcom thermal drivers
+
 # CONFIG_WATCHDOG is not set
 CONFIG_SSB_POSSIBLE=y
 # CONFIG_SSB is not set
@@ -1730,6 +2059,7 @@ CONFIG_MFD_CORE=y
 # CONFIG_MFD_SYSCON is not set
 # CONFIG_MFD_TQMX86 is not set
 # CONFIG_MFD_VX855 is not set
+# CONFIG_MFD_LS2K_BMC_CORE is not set
 # end of Multifunction device drivers
 
 # CONFIG_REGULATOR is not set
@@ -1850,6 +2180,7 @@ CONFIG_CLK_BCM2835=y
 # Clock Source drivers
 #
 CONFIG_TIMER_OF=y
+CONFIG_TIMER_ACPI=y
 CONFIG_TIMER_PROBE=y
 CONFIG_CLKSRC_MMIO=y
 CONFIG_ARM_ARCH_TIMER=y
@@ -1898,6 +2229,7 @@ CONFIG_ARM_TIMER_SP804=y
 #
 # fujitsu SoC drivers
 #
+# CONFIG_A64FX_DIAG is not set
 # end of fujitsu SoC drivers
 
 #
@@ -2048,8 +2380,16 @@ CONFIG_RESET_SIMPLE=y
 CONFIG_DCACHE_WORD_ACCESS=y
 # CONFIG_VALIDATE_FS_PARSER is not set
 CONFIG_FS_IOMAP=y
+CONFIG_BUFFER_HEAD=y
 # CONFIG_EXT2_FS is not set
-# CONFIG_EXT4_FS is not set
+CONFIG_EXT4_FS=y
+CONFIG_EXT4_USE_FOR_EXT2=y
+# CONFIG_EXT4_FS_POSIX_ACL is not set
+# CONFIG_EXT4_FS_SECURITY is not set
+# CONFIG_EXT4_DEBUG is not set
+CONFIG_JBD2=y
+# CONFIG_JBD2_DEBUG is not set
+CONFIG_FS_MBCACHE=y
 # CONFIG_JFS_FS is not set
 # CONFIG_XFS_FS is not set
 # CONFIG_GFS2_FS is not set
@@ -2110,9 +2450,47 @@ CONFIG_ARCH_SUPPORTS_HUGETLBFS=y
 # CONFIG_HUGETLBFS is not set
 CONFIG_ARCH_HAS_GIGANTIC_PAGE=y
 # CONFIG_CONFIGFS_FS is not set
+CONFIG_EFIVAR_FS=y
 # end of Pseudo filesystems
 
-# CONFIG_MISC_FILESYSTEMS is not set
+CONFIG_MISC_FILESYSTEMS=y
+# CONFIG_ORANGEFS_FS is not set
+# CONFIG_ADFS_FS is not set
+# CONFIG_AFFS_FS is not set
+# CONFIG_HFS_FS is not set
+# CONFIG_HFSPLUS_FS is not set
+# CONFIG_BEFS_FS is not set
+# CONFIG_BFS_FS is not set
+# CONFIG_EFS_FS is not set
+# CONFIG_CRAMFS is not set
+CONFIG_SQUASHFS=y
+CONFIG_SQUASHFS_FILE_CACHE=y
+# CONFIG_SQUASHFS_FILE_DIRECT is not set
+CONFIG_SQUASHFS_DECOMP_SINGLE=y
+# CONFIG_SQUASHFS_CHOICE_DECOMP_BY_MOUNT is not set
+CONFIG_SQUASHFS_COMPILE_DECOMP_SINGLE=y
+# CONFIG_SQUASHFS_COMPILE_DECOMP_MULTI is not set
+# CONFIG_SQUASHFS_COMPILE_DECOMP_MULTI_PERCPU is not set
+CONFIG_SQUASHFS_XATTR=y
+# CONFIG_SQUASHFS_COMP_CACHE_FULL is not set
+CONFIG_SQUASHFS_ZLIB=y
+# CONFIG_SQUASHFS_LZ4 is not set
+# CONFIG_SQUASHFS_LZO is not set
+CONFIG_SQUASHFS_XZ=y
+# CONFIG_SQUASHFS_ZSTD is not set
+# CONFIG_SQUASHFS_4K_DEVBLK_SIZE is not set
+# CONFIG_SQUASHFS_EMBEDDED is not set
+CONFIG_SQUASHFS_FRAGMENT_CACHE_SIZE=3
+# CONFIG_VXFS_FS is not set
+# CONFIG_MINIX_FS is not set
+# CONFIG_OMFS_FS is not set
+# CONFIG_HPFS_FS is not set
+# CONFIG_QNX4FS_FS is not set
+# CONFIG_QNX6FS_FS is not set
+# CONFIG_ROMFS_FS is not set
+# CONFIG_PSTORE is not set
+# CONFIG_UFS_FS is not set
+# CONFIG_EROFS_FS is not set
 CONFIG_NETWORK_FILESYSTEMS=y
 # CONFIG_NFS_FS is not set
 # CONFIG_CEPH_FS is not set
@@ -2120,7 +2498,57 @@ CONFIG_NETWORK_FILESYSTEMS=y
 # CONFIG_SMB_SERVER is not set
 # CONFIG_CODA_FS is not set
 # CONFIG_AFS_FS is not set
-# CONFIG_NLS is not set
+CONFIG_NLS=y
+CONFIG_NLS_DEFAULT="iso8859-1"
+# CONFIG_NLS_CODEPAGE_437 is not set
+# CONFIG_NLS_CODEPAGE_737 is not set
+# CONFIG_NLS_CODEPAGE_775 is not set
+# CONFIG_NLS_CODEPAGE_850 is not set
+# CONFIG_NLS_CODEPAGE_852 is not set
+# CONFIG_NLS_CODEPAGE_855 is not set
+# CONFIG_NLS_CODEPAGE_857 is not set
+# CONFIG_NLS_CODEPAGE_860 is not set
+# CONFIG_NLS_CODEPAGE_861 is not set
+# CONFIG_NLS_CODEPAGE_862 is not set
+# CONFIG_NLS_CODEPAGE_863 is not set
+# CONFIG_NLS_CODEPAGE_864 is not set
+# CONFIG_NLS_CODEPAGE_865 is not set
+# CONFIG_NLS_CODEPAGE_866 is not set
+# CONFIG_NLS_CODEPAGE_869 is not set
+# CONFIG_NLS_CODEPAGE_936 is not set
+# CONFIG_NLS_CODEPAGE_950 is not set
+# CONFIG_NLS_CODEPAGE_932 is not set
+# CONFIG_NLS_CODEPAGE_949 is not set
+# CONFIG_NLS_CODEPAGE_874 is not set
+# CONFIG_NLS_ISO8859_8 is not set
+# CONFIG_NLS_CODEPAGE_1250 is not set
+# CONFIG_NLS_CODEPAGE_1251 is not set
+# CONFIG_NLS_ASCII is not set
+# CONFIG_NLS_ISO8859_1 is not set
+# CONFIG_NLS_ISO8859_2 is not set
+# CONFIG_NLS_ISO8859_3 is not set
+# CONFIG_NLS_ISO8859_4 is not set
+# CONFIG_NLS_ISO8859_5 is not set
+# CONFIG_NLS_ISO8859_6 is not set
+# CONFIG_NLS_ISO8859_7 is not set
+# CONFIG_NLS_ISO8859_9 is not set
+# CONFIG_NLS_ISO8859_13 is not set
+# CONFIG_NLS_ISO8859_14 is not set
+# CONFIG_NLS_ISO8859_15 is not set
+# CONFIG_NLS_KOI8_R is not set
+# CONFIG_NLS_KOI8_U is not set
+# CONFIG_NLS_MAC_ROMAN is not set
+# CONFIG_NLS_MAC_CELTIC is not set
+# CONFIG_NLS_MAC_CENTEURO is not set
+# CONFIG_NLS_MAC_CROATIAN is not set
+# CONFIG_NLS_MAC_CYRILLIC is not set
+# CONFIG_NLS_MAC_GAELIC is not set
+# CONFIG_NLS_MAC_GREEK is not set
+# CONFIG_NLS_MAC_ICELAND is not set
+# CONFIG_NLS_MAC_INUIT is not set
+# CONFIG_NLS_MAC_ROMANIAN is not set
+# CONFIG_NLS_MAC_TURKISH is not set
+# CONFIG_NLS_UTF8 is not set
 # CONFIG_UNICODE is not set
 CONFIG_IO_WQ=y
 # end of File systems
@@ -2137,6 +2565,7 @@ CONFIG_PROC_MEM_ALWAYS_FORCE=y
 # CONFIG_SECURITY is not set
 # CONFIG_SECURITYFS is not set
 # CONFIG_STATIC_USERMODEHELPER is not set
+# CONFIG_IMA_SECURE_AND_OR_TRUSTED_BOOT is not set
 CONFIG_DEFAULT_SECURITY_DAC=y
 
 #
@@ -2176,7 +2605,184 @@ CONFIG_RANDSTRUCT_NONE=y
 # end of Kernel hardening options
 # end of Security options
 
-# CONFIG_CRYPTO is not set
+CONFIG_CRYPTO=y
+
+#
+# Crypto core or helper
+#
+CONFIG_CRYPTO_ALGAPI=y
+CONFIG_CRYPTO_ALGAPI2=y
+CONFIG_CRYPTO_HASH=y
+CONFIG_CRYPTO_HASH2=y
+# CONFIG_CRYPTO_USER is not set
+# CONFIG_CRYPTO_NULL is not set
+# CONFIG_CRYPTO_PCRYPT is not set
+# CONFIG_CRYPTO_CRYPTD is not set
+# CONFIG_CRYPTO_AUTHENC is not set
+# CONFIG_CRYPTO_KRB5ENC is not set
+# end of Crypto core or helper
+
+#
+# Public-key cryptography
+#
+# CONFIG_CRYPTO_RSA is not set
+# CONFIG_CRYPTO_DH is not set
+# CONFIG_CRYPTO_ECDH is not set
+# CONFIG_CRYPTO_ECDSA is not set
+# CONFIG_CRYPTO_ECRDSA is not set
+# end of Public-key cryptography
+
+#
+# Block ciphers
+#
+# CONFIG_CRYPTO_AES is not set
+# CONFIG_CRYPTO_AES_TI is not set
+# CONFIG_CRYPTO_ARIA is not set
+# CONFIG_CRYPTO_BLOWFISH is not set
+# CONFIG_CRYPTO_CAMELLIA is not set
+# CONFIG_CRYPTO_CAST5 is not set
+# CONFIG_CRYPTO_CAST6 is not set
+# CONFIG_CRYPTO_DES is not set
+# CONFIG_CRYPTO_FCRYPT is not set
+# CONFIG_CRYPTO_SERPENT is not set
+# CONFIG_CRYPTO_SM4_GENERIC is not set
+# CONFIG_CRYPTO_TWOFISH is not set
+# end of Block ciphers
+
+#
+# Length-preserving ciphers and modes
+#
+# CONFIG_CRYPTO_ADIANTUM is not set
+# CONFIG_CRYPTO_CHACHA20 is not set
+# CONFIG_CRYPTO_CBC is not set
+# CONFIG_CRYPTO_CTR is not set
+# CONFIG_CRYPTO_CTS is not set
+# CONFIG_CRYPTO_ECB is not set
+# CONFIG_CRYPTO_HCTR2 is not set
+# CONFIG_CRYPTO_LRW is not set
+# CONFIG_CRYPTO_PCBC is not set
+# CONFIG_CRYPTO_XTS is not set
+# end of Length-preserving ciphers and modes
+
+#
+# AEAD (authenticated encryption with associated data) ciphers
+#
+# CONFIG_CRYPTO_AEGIS128 is not set
+# CONFIG_CRYPTO_CHACHA20POLY1305 is not set
+# CONFIG_CRYPTO_CCM is not set
+# CONFIG_CRYPTO_GCM is not set
+# CONFIG_CRYPTO_SEQIV is not set
+# CONFIG_CRYPTO_ECHAINIV is not set
+# CONFIG_CRYPTO_ESSIV is not set
+# end of AEAD (authenticated encryption with associated data) ciphers
+
+#
+# Hashes, digests, and MACs
+#
+# CONFIG_CRYPTO_BLAKE2B is not set
+# CONFIG_CRYPTO_CMAC is not set
+# CONFIG_CRYPTO_GHASH is not set
+# CONFIG_CRYPTO_HMAC is not set
+# CONFIG_CRYPTO_MD4 is not set
+# CONFIG_CRYPTO_MD5 is not set
+# CONFIG_CRYPTO_MICHAEL_MIC is not set
+# CONFIG_CRYPTO_RMD160 is not set
+# CONFIG_CRYPTO_SHA1 is not set
+CONFIG_CRYPTO_SHA256=y
+# CONFIG_CRYPTO_SHA512 is not set
+# CONFIG_CRYPTO_SHA3 is not set
+# CONFIG_CRYPTO_SM3_GENERIC is not set
+# CONFIG_CRYPTO_STREEBOG is not set
+# CONFIG_CRYPTO_WP512 is not set
+# CONFIG_CRYPTO_XCBC is not set
+# CONFIG_CRYPTO_XXHASH is not set
+# end of Hashes, digests, and MACs
+
+#
+# CRCs (cyclic redundancy checks)
+#
+# CONFIG_CRYPTO_CRC32C is not set
+# CONFIG_CRYPTO_CRC32 is not set
+# end of CRCs (cyclic redundancy checks)
+
+#
+# Compression
+#
+# CONFIG_CRYPTO_DEFLATE is not set
+# CONFIG_CRYPTO_LZO is not set
+# CONFIG_CRYPTO_842 is not set
+# CONFIG_CRYPTO_LZ4 is not set
+# CONFIG_CRYPTO_LZ4HC is not set
+# CONFIG_CRYPTO_ZSTD is not set
+# end of Compression
+
+#
+# Random number generation
+#
+# CONFIG_CRYPTO_ANSI_CPRNG is not set
+# CONFIG_CRYPTO_DRBG_MENU is not set
+# CONFIG_CRYPTO_JITTERENTROPY is not set
+# end of Random number generation
+
+#
+# Userspace interface
+#
+# CONFIG_CRYPTO_USER_API_HASH is not set
+# CONFIG_CRYPTO_USER_API_SKCIPHER is not set
+# CONFIG_CRYPTO_USER_API_RNG is not set
+# CONFIG_CRYPTO_USER_API_AEAD is not set
+# end of Userspace interface
+
+# CONFIG_CRYPTO_NHPOLY1305_NEON is not set
+
+#
+# Accelerated Cryptographic Algorithms for CPU (arm64)
+#
+# CONFIG_CRYPTO_GHASH_ARM64_CE is not set
+# CONFIG_CRYPTO_SHA3_ARM64 is not set
+# CONFIG_CRYPTO_SM3_NEON is not set
+# CONFIG_CRYPTO_SM3_ARM64_CE is not set
+# CONFIG_CRYPTO_POLYVAL_ARM64_CE is not set
+# CONFIG_CRYPTO_AES_ARM64 is not set
+# CONFIG_CRYPTO_AES_ARM64_CE is not set
+# CONFIG_CRYPTO_AES_ARM64_CE_BLK is not set
+# CONFIG_CRYPTO_AES_ARM64_NEON_BLK is not set
+# CONFIG_CRYPTO_AES_ARM64_BS is not set
+# CONFIG_CRYPTO_SM4_ARM64_CE is not set
+# CONFIG_CRYPTO_SM4_ARM64_CE_BLK is not set
+# CONFIG_CRYPTO_SM4_ARM64_NEON_BLK is not set
+# CONFIG_CRYPTO_AES_ARM64_CE_CCM is not set
+# CONFIG_CRYPTO_SM4_ARM64_CE_CCM is not set
+# CONFIG_CRYPTO_SM4_ARM64_CE_GCM is not set
+# end of Accelerated Cryptographic Algorithms for CPU (arm64)
+
+CONFIG_CRYPTO_HW=y
+# CONFIG_CRYPTO_DEV_CCP is not set
+# CONFIG_CRYPTO_DEV_NITROX_CNN55XX is not set
+# CONFIG_CRYPTO_DEV_QAT_DH895xCC is not set
+# CONFIG_CRYPTO_DEV_QAT_C3XXX is not set
+# CONFIG_CRYPTO_DEV_QAT_C62X is not set
+# CONFIG_CRYPTO_DEV_QAT_4XXX is not set
+# CONFIG_CRYPTO_DEV_QAT_420XX is not set
+# CONFIG_CRYPTO_DEV_QAT_DH895xCCVF is not set
+# CONFIG_CRYPTO_DEV_QAT_C3XXXVF is not set
+# CONFIG_CRYPTO_DEV_QAT_C62XVF is not set
+# CONFIG_CRYPTO_DEV_VIRTIO is not set
+# CONFIG_CRYPTO_DEV_SAFEXCEL is not set
+# CONFIG_CRYPTO_DEV_CCREE is not set
+# CONFIG_CRYPTO_DEV_HISI_SEC is not set
+# CONFIG_CRYPTO_DEV_HISI_SEC2 is not set
+# CONFIG_CRYPTO_DEV_HISI_ZIP is not set
+# CONFIG_CRYPTO_DEV_HISI_HPRE is not set
+# CONFIG_CRYPTO_DEV_HISI_TRNG is not set
+# CONFIG_CRYPTO_DEV_AMLOGIC_GXL is not set
+
+#
+# Certificates for signature checking
+#
+# end of Certificates for signature checking
+
+# CONFIG_CRYPTO_KRB5 is not set
 
 #
 # Library routines
@@ -2194,6 +2800,7 @@ CONFIG_ARCH_USE_CMPXCHG_LOCKREF=y
 CONFIG_ARCH_HAS_FAST_MULTIPLIER=y
 CONFIG_ARCH_USE_SYM_ANNOTATIONS=y
 # CONFIG_INDIRECT_PIO is not set
+CONFIG_CRC16=y
 CONFIG_CRC32=y
 CONFIG_CRC32_ARCH=y
 CONFIG_CRC_OPTIMIZATIONS=y
@@ -2201,6 +2808,7 @@ CONFIG_CRC_OPTIMIZATIONS=y
 #
 # Crypto library routines
 #
+CONFIG_CRYPTO_LIB_UTILS=y
 CONFIG_CRYPTO_LIB_POLY1305_RSIZE=9
 CONFIG_CRYPTO_LIB_SHA1=y
 CONFIG_CRYPTO_LIB_SHA1_ARCH=y
@@ -2264,9 +2872,13 @@ CONFIG_NLATTR=y
 # CONFIG_IRQ_POLL is not set
 CONFIG_DIMLIB=y
 CONFIG_LIBFDT=y
+CONFIG_UCS2_STRING=y
 CONFIG_HAVE_GENERIC_VDSO=y
 CONFIG_GENERIC_GETTIMEOFDAY=y
 CONFIG_VDSO_GETRANDOM=y
+CONFIG_FONT_SUPPORT=y
+CONFIG_FONT_8x16=y
+CONFIG_FONT_AUTOSELECT=y
 CONFIG_SG_POOL=y
 CONFIG_ARCH_STACKWALK=y
 CONFIG_STACKDEPOT=y
@@ -2277,6 +2889,7 @@ CONFIG_SBITMAP=y
 
 CONFIG_GENERIC_IOREMAP=y
 CONFIG_GENERIC_LIB_DEVMEM_IS_ALLOWED=y
+CONFIG_FIRMWARE_TABLE=y
 
 #
 # Kernel hacking
