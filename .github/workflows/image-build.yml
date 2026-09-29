@@ -826,7 +826,7 @@ jobs:
         if: ${{ env.DOCKERHUB_TOKEN != '' }}
         env:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@v5
         with:
           username: swenske
           password: ${{ secrets.DOCKERHUB_TOKEN }}
