@@ -19,7 +19,7 @@ GEN_DIR := gen
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
-	qemu-dashboard-test dashboard-image ca-certificates seed-controller-test \
+	qemu-dashboard-test dashboard-image local-dev-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
@@ -563,6 +563,15 @@ qemu-dashboard-test: dashboard-build disk-image
 # itself.
 dashboard-image:
 	docker build -f dashboard/Dockerfile -t janus-controller .
+
+# "Local Platform" tranche: a real janusd+haproxy pair as an ordinary
+# Docker container, for fast local iteration - see local-dev/
+# Dockerfile's own header for the full design and local-dev/README.md
+# for how to run it. Run from the repo root (not local-dev/), same
+# reasoning as dashboard-image above: the build context needs
+# build/janusd and build/haproxy alongside local-dev/ itself.
+local-dev-image: daemon-static haproxy-build
+	docker build -f local-dev/Dockerfile -t janus-local-dev .
 
 # Phase 3 cont'd: proves Secure Boot signing/enforcement actually works,
 # both directions - a UKI signed with a throwaway test key (image/

@@ -24,6 +24,18 @@
 #
 # TODO: signature verification for the downloaded tarballs - not wired
 # up yet. See ../../docs/architecture.md.
+#
+# USE_PROMEX=1 (both paths): HAProxy's own Prometheus metrics exporter
+# (`http-request use-service prometheus-exporter`) is a real, separate
+# build-time addon (addons/promex/), not something any USE_OPENSSL/
+# USE_ZLIB/USE_PTHREAD_PSHARED combination pulls in - found on a real
+# deployed alpha node (10.1.0.123), not anticipated: `ApplyConfig`
+# rejected a config trying to use it with "'prometheus-exporter' unknown
+# service name", confirmed by grepping this exact HAProxy version's own
+# Makefile (`USE_PROMEX : enable the Prometheus exporter`, `addons/
+# promex/service-prometheus.o`) rather than assumed from HAProxy's own
+# generic documentation. No new library/CFLAGS needed - the Makefile's
+# own `PROMEX_CFLAGS` is set automatically once `USE_PROMEX` is truthy.
 
 ARG HAPROXY_VERSION
 ARG ZLIB_VERSION
@@ -46,7 +58,7 @@ RUN apk add --no-cache build-base linux-headers zlib-dev zlib-static \
 COPY --from=fetch /src/haproxy-${HAPROXY_VERSION} /src/haproxy-${HAPROXY_VERSION}
 WORKDIR /src/haproxy-${HAPROXY_VERSION}
 RUN make -j"$(nproc)" TARGET=linux-musl \
-    USE_OPENSSL=1 USE_ZLIB=1 USE_PTHREAD_PSHARED=1 \
+    USE_OPENSSL=1 USE_ZLIB=1 USE_PTHREAD_PSHARED=1 USE_PROMEX=1 \
     LDFLAGS=-static \
     && strip haproxy \
     && ./haproxy -vv
@@ -103,7 +115,7 @@ WORKDIR /src
 COPY --from=fetch /src/haproxy-${HAPROXY_VERSION} /src/haproxy-${HAPROXY_VERSION}
 WORKDIR /src/haproxy-${HAPROXY_VERSION}
 RUN make -j"$(nproc)" TARGET=linux-musl CC=aarch64-linux-musl-gcc \
-    USE_OPENSSL=1 USE_ZLIB=1 USE_PTHREAD_PSHARED=1 \
+    USE_OPENSSL=1 USE_ZLIB=1 USE_PTHREAD_PSHARED=1 USE_PROMEX=1 \
     LDFLAGS="-static -L${SYSROOT}/lib" CFLAGS="-I${SYSROOT}/include" \
     && aarch64-linux-musl-strip haproxy
 
