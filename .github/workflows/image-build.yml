@@ -443,6 +443,15 @@ jobs:
       - name: Raspberry Pi 4 (aarch64/BCM2711) janusd+haproxy boot (Single Board Computer tranche)
         run: make qemu-raspi4-daemon-test
 
+      # Single Board Computer tranche Phase-3-equivalent: the same
+      # aarch64 kernel/initramfs, booted instead under QEMU's generic
+      # "virt" machine (real virtio-net-pci, no Pi-specific hardware at
+      # all) - closes the real-HTTP-proof gap raspi4b can never close
+      # (no PCIe/Ethernet emulation there at all). See
+      # hack/qemu-arm64-network-test.sh's own header.
+      - name: arm64 janusd+haproxy real HTTP over virtio-net (Single Board Computer tranche)
+        run: make qemu-arm64-network-test
+
       # Phase 3 cont'd: the ESP now lives on image/disk/assemble.sh's
       # single GPT disk too (partition 1, ahead of both A/B slots) - the
       # real, complete, single-disk shape a deployed node would have.

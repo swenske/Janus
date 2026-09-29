@@ -24,7 +24,7 @@ GEN_DIR := gen
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
 	rpi4-daemon-static musl-toolchain-arm64 rpi4-haproxy-build rpi4-initramfs-full \
-	qemu-raspi4-daemon-test
+	qemu-raspi4-daemon-test qemu-arm64-network-test
 
 all: build
 
@@ -175,9 +175,18 @@ rpi4-initramfs-full: rpi4-init rpi4-daemon-static rpi4-haproxy-build
 # PCIe nor BCM GENET Ethernet, so there's no network path to curl over
 # at all on this machine type - a real HTTP check has to wait for either
 # real Pi hardware or accepting the generic aarch64 "virt" machine
-# instead, a decision deliberately not made here).
+# instead, a decision made in the next target below).
 qemu-raspi4-daemon-test: rpi4-kernel-build rpi4-initramfs-full
 	./hack/qemu-raspi4-daemon-test.sh $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/rpi4/bcm2711-rpi-4-b.dtb $(BUILD_DIR)/rpi4/initramfs-full.cpio.gz
+
+# Single Board Computer tranche Phase-3-equivalent: the *same* aarch64
+# kernel/initramfs, booted instead under QEMU's generic "virt" machine
+# (real virtio-net-pci over a real PCIe root complex, no Pi-specific
+# hardware at all) - real HTTP 200 verified, closing the network-proof
+# gap qemu-raspi4-daemon-test can never close on raspi4b. See hack/
+# qemu-arm64-network-test.sh's own header for the full reasoning.
+qemu-arm64-network-test: rpi4-kernel-build rpi4-initramfs-full
+	./hack/qemu-arm64-network-test.sh $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/rpi4/initramfs-full.cpio.gz
 
 # Builds a fully static (musl, via Alpine's own toolchain - see pkgs/
 # haproxy/Dockerfile) haproxy binary with OpenSSL and pulls it out to
