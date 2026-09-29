@@ -743,7 +743,7 @@ jobs:
           make proxmox-image
           ls -lh build/janus.qcow2
       - name: Upload the alpha Proxmox VM image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: janus-alpha-${{ github.sha }}
           path: build/janus.qcow2
@@ -760,7 +760,7 @@ jobs:
           make kvm-image
           ls -lh build/janus-kvm.qcow2
       - name: Upload the alpha KVM/libvirt image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: janus-alpha-kvm-${{ github.sha }}
           path: build/janus-kvm.qcow2
@@ -770,7 +770,7 @@ jobs:
           make vmware-image
           ls -lh build/janus.vmdk
       - name: Upload the alpha VMware/ESXi image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: janus-alpha-vmware-${{ github.sha }}
           path: build/janus.vmdk
@@ -788,7 +788,7 @@ jobs:
           make iso-image-with-bundle
           ls -lh build/janus.iso
       - name: Upload the alpha installer ISO
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: janus-alpha-iso-${{ github.sha }}
           path: build/janus.iso
@@ -813,7 +813,7 @@ jobs:
           make pi4-sdcard-image-test
           ls -lh build/rpi-uefi/pi4-disk.img
       - name: Upload the Raspberry Pi 4 SD card image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: janus-alpha-rpi4-${{ github.sha }}
           path: build/rpi-uefi/pi4-disk.img
@@ -823,7 +823,7 @@ jobs:
           make pi5-sdcard-image-test
           ls -lh build/rpi-uefi/pi5-disk.img
       - name: Upload the Raspberry Pi 5 SD card image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: janus-alpha-rpi5-${{ github.sha }}
           path: build/rpi-uefi/pi5-disk.img
