@@ -85,3 +85,8 @@ docker run -d \
 
 - `latest` - the most recent build from `main`.
 - `<git-sha>` - a specific commit, for pinning.
+- `<release-version>` (e.g. `v2026.09.29`) - matches a real, tagged
+  [GitHub Release](https://github.com/swenske/Janus/releases) - only
+  pushed for a run that actually cuts one, so this tag may lag behind
+  `latest` between releases. ⚠️ Alpha software - see the release notes
+  themselves for the same warning.

@@ -879,6 +879,17 @@ jobs:
       # second secret to manage.
       - name: Build the dashboard Docker image
         run: make dashboard-image
+      # User-flagged real gap (2026-09-29, alongside remote-update Phase
+      # 4): only `latest`/`<git-sha>` were ever pushed - no tag on
+      # Docker Hub ever corresponded to a real release version, even
+      # once those started existing (the v2026.09.29 GitHub Release
+      # this same run cuts below has no Docker Hub counterpart without
+      # this). `docker tag`/`push` a third tag, `swenske/janus-
+      # controller:${{ inputs.release_version }}`, whenever this run is
+      # also cutting a real release - conditioned on the *same*
+      # `release_version` input Phase 4 already added, not a new one,
+      # so the two stay in lockstep by construction rather than by
+      # convention.
       - name: Push the dashboard image to Docker Hub
         if: ${{ env.DOCKERHUB_TOKEN != '' }}
         env:
@@ -890,6 +901,10 @@ jobs:
           docker tag janus-controller swenske/janus-controller:${{ github.sha }}
           docker push swenske/janus-controller:latest
           docker push swenske/janus-controller:${{ github.sha }}
+          if [ -n "${{ inputs.release_version }}" ]; then
+            docker tag janus-controller swenske/janus-controller:${{ inputs.release_version }}
+            docker push swenske/janus-controller:${{ inputs.release_version }}
+          fi
           docker logout
 
       # User-requested: the repository page itself (hub.docker.com/r/

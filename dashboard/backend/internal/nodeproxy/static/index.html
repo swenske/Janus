@@ -83,12 +83,16 @@
 
 <h2>Update</h2>
 <p>
-  No automatic "a new version is available" detection yet (needs real,
-  tagged releases to compare against - see docs/
-  companion-site-builder-scope.md) - supply the update target directly:
-  either a URL the node fetches itself, or upload a release bundle's 4
-  files here to relay them to the node (for a node that can't reach the
-  URL directly).
+  See "Latest release" under System above for this node's own status
+  against the newest published release. Click "Use latest release"
+  below to pre-fill the URL fetch mode with it, or supply an update
+  target directly: either any URL the node fetches itself, or upload a
+  release bundle's 4 files here to relay them to the node (for a node
+  that can't reach the URL directly).
+</p>
+<p>
+  <button type="button" id="update-use-latest">Use latest release</button>
+  <span id="update-use-latest-status"></span>
 </p>
 <p>
   <label><input type="radio" name="update-mode" value="url" checked /> URL (node fetches it itself)</label>
@@ -147,13 +151,37 @@ function showError(err) {
   document.getElementById('error').textContent = String(err)
 }
 
+// Populated by refreshSystem() below, read by the "Use latest release"
+// button in the Update section - fetched once per refresh cycle
+// (REFRESH_MS), not re-fetched on click, since /api/latest-release is
+// already cached server-side for several minutes at a time anyway.
+let latestRelease = null
+
 async function refreshSystem() {
   const info = await api('/api/info')
+
+  let latestReleaseRow = row('Latest release', '(unknown)')
+  try {
+    latestRelease = await api('/api/latest-release')
+    const match = info.version === latestRelease.tag_name
+    latestReleaseRow = row(
+      'Latest release',
+      `<a href="${latestRelease.html_url}" target="_blank" rel="noopener">${latestRelease.tag_name}</a> ` +
+        (match
+          ? '<span class="ok">(this node is on it)</span>'
+          : '<span class="error">(different from this node\'s own version)</span>')
+    )
+  } catch (err) {
+    latestRelease = null
+    latestReleaseRow = row('Latest release', `<span class="error">unavailable: ${err}</span>`)
+  }
+
   document.getElementById('version').innerHTML =
     row('Version', info.version) +
     row('Go version', info.go_version) +
     row('Kernel version', info.kernel_version) +
-    row('Active slot', info.active_slot || '(not an A/B boot)')
+    row('Active slot', info.active_slot || '(not an A/B boot)') +
+    latestReleaseRow
 
   document.getElementById('memory').innerHTML =
     row('Total', bytesToMiB(info.memory.total_bytes)) +
@@ -381,6 +409,22 @@ document.querySelectorAll('input[name="update-mode"]').forEach((el) => {
     document.getElementById('update-url-fields').style.display = mode === 'url' ? '' : 'none'
     document.getElementById('update-upload-fields').style.display = mode === 'upload' ? '' : 'none'
   })
+})
+
+document.getElementById('update-use-latest').addEventListener('click', () => {
+  const statusEl = document.getElementById('update-use-latest-status')
+  if (!latestRelease) {
+    statusEl.textContent = 'latest release info not available - check the error under System above'
+    statusEl.className = 'error'
+    return
+  }
+  document.querySelector('input[name="update-mode"][value="url"]').checked = true
+  document.getElementById('update-url-fields').style.display = ''
+  document.getElementById('update-upload-fields').style.display = 'none'
+  document.getElementById('update-url-reference').value = latestRelease.bundle_base_url
+  document.getElementById('update-url-sha256').value = latestRelease.sha256
+  statusEl.textContent = `filled in from ${latestRelease.tag_name} - review below, then Launch update`
+  statusEl.className = 'ok'
 })
 
 document.getElementById('update-submit').addEventListener('click', async () => {
