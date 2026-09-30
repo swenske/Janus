@@ -90,6 +90,13 @@ func (s *Service) Kick() {
 
 // WaitSynced waits for the first successful exchange, up to timeout.
 func (s *Service) WaitSynced(timeout time.Duration) bool {
+	// Checked first on its own: with a short timeout, a select over both
+	// would pick at random when both are ready.
+	select {
+	case <-s.synced:
+		return true
+	default:
+	}
 	select {
 	case <-s.synced:
 		return true
