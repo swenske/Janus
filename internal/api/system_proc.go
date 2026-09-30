@@ -268,7 +268,7 @@ type procInfo struct {
 }
 
 func (s *System) Processes(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.ProcessesResponse, error) {
-	procs, err := readProcesses()
+	procs, err := readProcesses(true)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "read processes: %v", err)
 	}
@@ -284,7 +284,7 @@ func (s *System) Processes(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.
 // Stats sums Processes per managed service - a reload briefly leaves an
 // old haproxy process finishing its connections next to the new one.
 func (s *System) Stats(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.StatsResponse, error) {
-	procs, err := readProcesses()
+	procs, err := readProcesses(false)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "read processes: %v", err)
 	}
@@ -311,7 +311,11 @@ func (s *System) Stats(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Stat
 	return resp, nil
 }
 
-func readProcesses() ([]procInfo, error) {
+// readProcesses reads every process's /proc/<pid>/stat, and with
+// withCommand its cmdline too. Stats - polled by the Controller's live
+// charts as often as every second - only needs the process name, which
+// stat already carries, so it skips the second read per process.
+func readProcesses(withCommand bool) ([]procInfo, error) {
 	uptimeData, err := os.ReadFile("/proc/uptime")
 	if err != nil {
 		return nil, err
@@ -341,9 +345,11 @@ func readProcesses() ([]procInfo, error) {
 			continue
 		}
 		p.pid = int32(pid)
-		p.command = "[" + p.comm + "]" // kernel threads have no cmdline
-		if cmdline, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil && len(cmdline) > 0 {
-			p.command = strings.TrimSpace(strings.ReplaceAll(string(cmdline), "\x00", " "))
+		if withCommand {
+			p.command = "[" + p.comm + "]" // kernel threads have no cmdline
+			if cmdline, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil && len(cmdline) > 0 {
+				p.command = strings.TrimSpace(strings.ReplaceAll(string(cmdline), "\x00", " "))
+			}
 		}
 		out = append(out, p)
 	}
