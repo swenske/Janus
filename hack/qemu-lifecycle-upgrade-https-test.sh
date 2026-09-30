@@ -63,8 +63,10 @@ RELEASE_SHA256="$(curl -fsSL "$RELEASE_URL/rootfs.squashfs.sha256" | awk '{print
 [[ "$RELEASE_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "couldn't read a sha256 from $RELEASE_URL/rootfs.squashfs.sha256"
 
 curl -fsSL -o "$WORKDIR/uki-b.efi" "$RELEASE_URL/uki-b.efi"
-objcopy -O binary --only-section=.cmdline "$WORKDIR/uki-b.efi" "$WORKDIR/uki-b.cmdline"
-RELEASE_HASH="$(tr -d '\0' <"$WORKDIR/uki-b.cmdline" | grep -oE 'sha256 [0-9a-f]{64}' | awk '{print $2}')"
+# The UKI's .cmdline section is plain text inside the PE file - grepped
+# directly rather than extracted with objcopy, which the self-hosted
+# runner doesn't have.
+RELEASE_HASH="$(grep -aoE 'verity 1 /dev/vda4 /dev/vda5 [0-9 ]+ sha256 [0-9a-f]{64}' "$WORKDIR/uki-b.efi" | head -1 | awk '{print $NF}')"
 [ -n "$RELEASE_HASH" ] || fail "couldn't read the root hash out of $JANUS_RELEASE_TAG's uki-b.efi .cmdline section"
 
 V1_HASH="$(cat "$BUILD_DIR/rootfs/rootfs.roothash")"
