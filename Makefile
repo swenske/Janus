@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-extensions-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-extensions-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -721,6 +721,12 @@ qemu-system-api-test: build disk-image
 # of real HAProxy traffic over mTLS, the pcap parsed independently.
 qemu-packet-capture-test: build disk-image
 	./hack/qemu-packet-capture-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# The node's Prometheus exporter on a real enforcing node: Janus's own
+# metrics with real values, moved through the API, persisted across a
+# reboot, disabled (docs/metrics.md).
+qemu-metrics-test: build disk-image
+	./hack/qemu-metrics-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
 # The same proof over https:// against a real published GitHub Release,
 # verified against the node's own bundled CA trust store (requires

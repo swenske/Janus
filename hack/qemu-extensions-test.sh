@@ -31,7 +31,7 @@ SCHEMATIC_FILE="${5:?}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BOOT_TIMEOUT_SECS="${QEMU_EXT_BOOT_TIMEOUT:-90}"
 BASE_PORT="${QEMU_EXT_TEST_PORT:-18600}"
-P_HTTP=$BASE_PORT P_GRPC=$((BASE_PORT + 1)) P_METRICS=$((BASE_PORT + 2))
+P_HTTP=$BASE_PORT P_GRPC=$((BASE_PORT + 1)) P_METRICS=$((BASE_PORT + 2)) P_JANUS=$((BASE_PORT + 3))
 MARKER="JANUS_INIT_BOOT_OK"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -88,7 +88,7 @@ qemu-system-x86_64 \
   -drive if=pflash,format=raw,file="$WORKDIR/OVMF_VARS.fd" \
   -drive file="$DISK",format=raw,if=virtio \
   -nographic -display none -m 512M -monitor none \
-  -netdev "user,id=net0,hostfwd=tcp::${P_HTTP}-:8080,hostfwd=tcp::${P_GRPC}-:9505,hostfwd=tcp::${P_METRICS}-:9100" \
+  -netdev "user,id=net0,hostfwd=tcp::${P_HTTP}-:8080,hostfwd=tcp::${P_GRPC}-:9505,hostfwd=tcp::${P_METRICS}-:9100,hostfwd=tcp::${P_JANUS}-:10056" \
   -device virtio-net-pci,netdev=net0 \
   -device virtio-serial \
   -chardev "socket,path=$WORKDIR/qga.sock,server=on,wait=off,id=qga0" \
@@ -152,6 +152,12 @@ check "node_exporter: disk statistics" '^node_disk_reads_completed_total\{device
 check "node_exporter: STATE filesystem" 'node_filesystem_size_bytes\{.*mountpoint="/etc/.state"' "$m"
 check "node_exporter: network statistics" '^node_network_receive_bytes_total\{device="eth0"\}' "$m"
 check "node_exporter logs captured" 'Starting node_exporter' "$(ctl system logs node-exporter)"
+# Janus's own exporter reports the extensions and their services.
+jm="$(curl -s -m 5 "http://127.0.0.1:${P_JANUS}/metrics" || true)"
+check "janus exporter: the image's extensions" '^janus_extension_info\{extension="node-exporter",version="[0-9.]+"\} 1$' "$jm"
+check "janus exporter: the schematic" "^janus_build_info\\{.*schematic=\"$SCHEMATIC_ID\"\\} 1$" "$jm"
+check "janus exporter: node-exporter running" '^janus_service_state\{service="node-exporter",extension="node-exporter",state="running"\} 1$' "$jm"
+check "janus exporter: the guest agent running" '^janus_service_state\{service="qemu-guest-agent",extension="qemu-guest-agent",state="running"\} 1$' "$jm"
 
 ctl system service stop node-exporter >/dev/null || fail "ServiceStop node-exporter"
 wait_service node-exporter stopped

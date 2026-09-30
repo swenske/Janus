@@ -651,6 +651,12 @@ jobs:
       - name: SystemService.PacketCapture captures real traffic
         run: make qemu-packet-capture-test
 
+      # The node's own Prometheus exporter on a real enforcing node: real
+      # values, moved through the API, persisted across a reboot. See
+      # hack/qemu-metrics-test.sh and docs/metrics.md.
+      - name: The Janus exporter serves the node's own metrics
+        run: make qemu-metrics-test
+
       # Every other SystemService/HAProxyService/NetworkService method on
       # a real enforcing node, ending with janusd restart, reboot, reset
       # and shutdown. See hack/qemu-system-api-test.sh.

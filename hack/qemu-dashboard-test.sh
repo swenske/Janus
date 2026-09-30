@@ -568,6 +568,7 @@ expect_json /api/system/services 'any(s["id"] == "haproxy" and s["state"] == "ru
 # A default-schematic node's update comes from GitHub Releases; whether
 # GitHub answers from here isn't what's under test, the node's side is.
 expect_json /api/update-check 'd["default_schematic"] and d["schematic_id"] == "a055fbb697e2d0abb0c5911e7702b07040f49eb71befeaf9b90495a905327f47" and d["arch"] == "amd64" and d["extensions"] == [] and d["source"] == "github" and d["state"] in ("ready", "unavailable") and d["version"]' "update check"
+expect_json /api/system/metrics-config 'd["config"]["enabled"] and d["config"]["port"] == 10056 and d["listening"] and d["is_default"]' "exporter config"
 expect_json /api/system/processes 'any(p["pid"] == 1 for p in d["processes"])' "processes"
 expect_json /api/system/mounts 'any(m["mounted_on"] == "/etc/.state" for m in d["mounts"])' "mounts"
 expect_json /api/system/netstat 'any(c["local_address"].endswith(":9505") and c["state"] == "LISTEN" for c in d["connections"])' "netstat"
