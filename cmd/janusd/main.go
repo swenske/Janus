@@ -29,6 +29,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/api"
@@ -166,11 +167,11 @@ func main() {
 	go selfRegisterIfConfigured(pkiBootstrap.CA, hostname, *addr)
 
 	tlsConfig := pkiBootstrap.CA.ServerTLSConfig(pkiBootstrap.ServerCert)
-	srv := grpc.NewServer(
+	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.UnaryInterceptor(api.UnaryAuthInterceptor),
 		grpc.StreamInterceptor(api.StreamAuthInterceptor),
-	)
+	)...)
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr})
@@ -188,6 +189,37 @@ func main() {
 	if err := srv.Serve(lis); err != nil {
 		fmt.Fprintln(os.Stderr, "serve:", err)
 		os.Exit(1)
+	}
+}
+
+// Connection limits for the gRPC server.
+//
+// Several RPCs stream until the client cancels: Events, Logs and Dmesg
+// with follow, and PacketCapture without duration_seconds. A client that
+// vanishes without closing its TCP connection (host powered off, network
+// cut, NAT entry expired) never cancels, and without keepalive the
+// server would only notice after the kernel's TCP timeouts - hours -
+// with the stream, or the capture, running all that time. The server
+// pings a connection it hasn't heard from for keepaliveTime and drops it
+// if the ping isn't answered within keepaliveTimeout, cancelling its
+// streams. gRPC clients (janusctl, the Controller) answer pings on their
+// own; no client-side change is needed.
+//
+// maxConcurrentStreams bounds what one connection can hold open at
+// once. The Controller multiplexes every open browser page for a node
+// over one connection (a few followed streams per page), so this is
+// sized well above that, as a guard against runaway clients rather than
+// a limit legitimate use should meet.
+const (
+	keepaliveTime        = 2 * time.Minute
+	keepaliveTimeout     = 20 * time.Second
+	maxConcurrentStreams = 256
+)
+
+func connectionOptions(pingAfter, pingTimeout time.Duration) []grpc.ServerOption {
+	return []grpc.ServerOption{
+		grpc.KeepaliveParams(keepalive.ServerParameters{Time: pingAfter, Timeout: pingTimeout}),
+		grpc.MaxConcurrentStreams(maxConcurrentStreams),
 	}
 }
 
