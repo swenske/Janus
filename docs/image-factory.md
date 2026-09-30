@@ -25,7 +25,9 @@ network interfaces, filesystems and CPUs, filesystem freeze and thaw,
 shutdown. The commands that would run programs or read and write files on
 the node (`guest-exec`, `guest-file-*`, `guest-set-user-password`,
 `guest-ssh-*`) are disabled - they would be a shell by another name. In
-Proxmox, enable the agent in the VM's options (**QEMU Guest Agent**).
+Proxmox, enable the agent in the VM's options (**QEMU Guest Agent**);
+until the VM has the agent's channel, the service shows as `waiting`
+rather than failing.
 
 **node-exporter** listens on every address, without authentication, like
 a stock node_exporter; restrict who can reach port 9100 in your network.
@@ -86,7 +88,10 @@ curl https://janus.sw-servers.net/api/v1/updates/<schematic-id>?arch=amd64
 
 gives the newest release built for that schematic - the base URL of its
 update bundle (what `janusctl lifecycle upgrade` and the Controller's
-Update page take) and its sha256 - or starts building it. When a new
+Update page take) and its sha256 - or starts building it. The
+Controller's **Update** page asks it for each node with extensions
+(`dashboardd -image-factory`, this site by default), and offers the
+update once it's built. When a new
 release comes out, the site builds the update bundle of every schematic
 it has already served, so a node with extensions finds its update ready
 like one without.

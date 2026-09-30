@@ -54,6 +54,16 @@ theme toggle:
 - **System** - network (hostname, interfaces, VLANs, DNS, NTP), services,
   update, access (client certificates), power
 
+Updates follow the node's image schematic (`GET /api/update-check`,
+`nodeproxy/update.go`): a node with the default schematic gets the
+newest GitHub release; a node with extensions gets the newest release
+the image factory has built from its schematic (`dashboardd
+-image-factory`, janus.sw-servers.net by default), shown as "building"
+until it's ready - never a plain release, which would drop its
+extensions. The Update page shows the node's schematic and extensions,
+and installing a bundle from another schematic takes an explicit
+checkbox (`allow_schematic_change`).
+
 A new feature goes into the group matching what the operator is trying
 to do, not into whichever page has room. A page that grows several
 distinct concerns gets tabs (as HAProxy does) rather than a longer

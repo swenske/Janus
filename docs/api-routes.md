@@ -31,7 +31,7 @@ are also technically non-mutating).
 
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
-| `Version` | | ✅ | Daemon version, Go version, kernel version, active A/B slot, image schematic ID and extensions ([image-factory.md](image-factory.md)) - connectivity check |
+| `Version` | | ✅ | Daemon version, Go version, kernel version, active A/B slot, architecture, image schematic ID and extensions ([image-factory.md](image-factory.md)) - connectivity check |
 | `Hostname` | | ✅ | `janusctl system hostname` |
 | `Reboot` | | ✅ | Soft-stops HAProxy (in-flight connections get 5s), syncs, reboots - both modes are a full firmware reboot (no kexec) |
 | `Shutdown` | | ✅ | Same graceful stop, then powers off |
@@ -52,7 +52,7 @@ are also technically non-mutating).
 | `Netstat` | | ✅ | `/proc/net/{tcp,tcp6,udp,udp6}` - IPv4-mapped addresses shown as IPv4 |
 | `Mounts` | | ✅ | `/proc/self/mounts` + `statfs` sizes |
 | `Processes` | | ✅ | Every process: pid, command line, CPU, RSS |
-| `ServiceList` | | ✅ | `janusd`, `haproxy` and the services of the image's extensions (`node-exporter`, `qemu-guest-agent`...), with state and health (HAProxy healthy = answers on its stats socket) |
+| `ServiceList` | | ✅ | `janusd`, `haproxy` and the services of the image's extensions (`node-exporter`, `qemu-guest-agent`...), with state and health (HAProxy healthy = answers on its stats socket; an extension service waiting for a device, like the QEMU guest agent's virtio port, is `waiting`) |
 | `ServiceStart` / `Stop` / `Restart` | | ✅ | `haproxy`: start; soft stop (finishes in-flight connections, 10s, then SIGTERM); restart = seamless reload. `janusd`: restart = `Restart`, stop refused (node would be unreachable). Extension services: stop (SIGTERM, then SIGKILL after 10s) keeps them stopped until started again |
 | `List` | server | ✅ | Directory listing (optionally recursive), symlinks not followed, per-entry errors inline |
 | `Read` | server | ✅ | One file's content; devices refused |
