@@ -81,6 +81,26 @@ service SystemService {
   // GenerateClientConfiguration issues a short-lived client certificate
   // for mTLS bootstrap (see internal/pki).
   rpc GenerateClientConfiguration(GenerateClientConfigurationRequest) returns (GenerateClientConfigurationResponse);
+
+  // The node's Prometheus exporter (docs/metrics.md): Janus's own
+  // metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
+  // extension services, time sync, SELinux - over plain HTTP, on by
+  // default on port 10056. Set applies at once and persists; a port that
+  // can't be bound is refused and the exporter stays as it was.
+  rpc MetricsConfigGet(google.protobuf.Empty) returns (MetricsConfigResponse);
+  rpc MetricsConfigSet(MetricsConfig) returns (MetricsConfigResponse);
+}
+
+message MetricsConfig {
+  bool enabled = 1;
+  uint32 port = 2; // 0 = the default, 10056
+}
+
+message MetricsConfigResponse {
+  MetricsConfig config = 1;
+  bool is_default = 2; // nothing was ever set
+  bool listening = 3;
+  string error = 4; // why the exporter isn't listening as configured, if it isn't
 }
 
 message VersionResponse {

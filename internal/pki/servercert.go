@@ -39,6 +39,22 @@ func NewServerCert(ca *CA, dir string, initial tls.Certificate) *ServerCert {
 	return s
 }
 
+// NotAfter is the current certificate's expiry (zero if it can't be read).
+func (s *ServerCert) NotAfter() time.Time {
+	c := s.cur.Load()
+	if c.Leaf != nil {
+		return c.Leaf.NotAfter
+	}
+	if len(c.Certificate) == 0 {
+		return time.Time{}
+	}
+	leaf, err := x509.ParseCertificate(c.Certificate[0])
+	if err != nil {
+		return time.Time{}
+	}
+	return leaf.NotAfter
+}
+
 // GetCertificate is the tls.Config hook.
 func (s *ServerCert) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	return s.cur.Load(), nil

@@ -52,6 +52,8 @@ const (
 	SystemService_MetaWrite_FullMethodName                   = "/janus.v1alpha1.SystemService/MetaWrite"
 	SystemService_MetaDelete_FullMethodName                  = "/janus.v1alpha1.SystemService/MetaDelete"
 	SystemService_GenerateClientConfiguration_FullMethodName = "/janus.v1alpha1.SystemService/GenerateClientConfiguration"
+	SystemService_MetricsConfigGet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigGet"
+	SystemService_MetricsConfigSet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigSet"
 )
 
 // SystemServiceClient is the client API for SystemService service.
@@ -124,6 +126,13 @@ type SystemServiceClient interface {
 	// GenerateClientConfiguration issues a short-lived client certificate
 	// for mTLS bootstrap (see internal/pki).
 	GenerateClientConfiguration(ctx context.Context, in *GenerateClientConfigurationRequest, opts ...grpc.CallOption) (*GenerateClientConfigurationResponse, error)
+	// The node's Prometheus exporter (docs/metrics.md): Janus's own
+	// metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
+	// extension services, time sync, SELinux - over plain HTTP, on by
+	// default on port 10056. Set applies at once and persists; a port that
+	// can't be bound is refused and the exporter stays as it was.
+	MetricsConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
+	MetricsConfigSet(ctx context.Context, in *MetricsConfig, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
 }
 
 type systemServiceClient struct {
@@ -535,6 +544,26 @@ func (c *systemServiceClient) GenerateClientConfiguration(ctx context.Context, i
 	return out, nil
 }
 
+func (c *systemServiceClient) MetricsConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MetricsConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MetricsConfigResponse)
+	err := c.cc.Invoke(ctx, SystemService_MetricsConfigGet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) MetricsConfigSet(ctx context.Context, in *MetricsConfig, opts ...grpc.CallOption) (*MetricsConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MetricsConfigResponse)
+	err := c.cc.Invoke(ctx, SystemService_MetricsConfigSet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SystemServiceServer is the server API for SystemService service.
 // All implementations must embed UnimplementedSystemServiceServer
 // for forward compatibility.
@@ -605,6 +634,13 @@ type SystemServiceServer interface {
 	// GenerateClientConfiguration issues a short-lived client certificate
 	// for mTLS bootstrap (see internal/pki).
 	GenerateClientConfiguration(context.Context, *GenerateClientConfigurationRequest) (*GenerateClientConfigurationResponse, error)
+	// The node's Prometheus exporter (docs/metrics.md): Janus's own
+	// metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
+	// extension services, time sync, SELinux - over plain HTTP, on by
+	// default on port 10056. Set applies at once and persists; a port that
+	// can't be bound is refused and the exporter stays as it was.
+	MetricsConfigGet(context.Context, *emptypb.Empty) (*MetricsConfigResponse, error)
+	MetricsConfigSet(context.Context, *MetricsConfig) (*MetricsConfigResponse, error)
 	mustEmbedUnimplementedSystemServiceServer()
 }
 
@@ -710,6 +746,12 @@ func (UnimplementedSystemServiceServer) MetaDelete(context.Context, *MetaDeleteR
 }
 func (UnimplementedSystemServiceServer) GenerateClientConfiguration(context.Context, *GenerateClientConfigurationRequest) (*GenerateClientConfigurationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GenerateClientConfiguration not implemented")
+}
+func (UnimplementedSystemServiceServer) MetricsConfigGet(context.Context, *emptypb.Empty) (*MetricsConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MetricsConfigGet not implemented")
+}
+func (UnimplementedSystemServiceServer) MetricsConfigSet(context.Context, *MetricsConfig) (*MetricsConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MetricsConfigSet not implemented")
 }
 func (UnimplementedSystemServiceServer) mustEmbedUnimplementedSystemServiceServer() {}
 func (UnimplementedSystemServiceServer) testEmbeddedByValue()                       {}
@@ -1245,6 +1287,42 @@ func _SystemService_GenerateClientConfiguration_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemService_MetricsConfigGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).MetricsConfigGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_MetricsConfigGet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).MetricsConfigGet(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_MetricsConfigSet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MetricsConfig)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).MetricsConfigSet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_MetricsConfigSet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).MetricsConfigSet(ctx, req.(*MetricsConfig))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SystemService_ServiceDesc is the grpc.ServiceDesc for SystemService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1343,6 +1421,14 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GenerateClientConfiguration",
 			Handler:    _SystemService_GenerateClientConfiguration_Handler,
+		},
+		{
+			MethodName: "MetricsConfigGet",
+			Handler:    _SystemService_MetricsConfigGet_Handler,
+		},
+		{
+			MethodName: "MetricsConfigSet",
+			Handler:    _SystemService_MetricsConfigSet_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

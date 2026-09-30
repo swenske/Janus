@@ -40,6 +40,7 @@ var systemUsage = []string{
 	"system netstat                        TCP/UDP sockets",
 	"system mounts                         mounted filesystems",
 	"system services                       managed services and their health",
+	"system metrics [-enable|-disable] [-port N]  the node's Prometheus exporter: show or change (docs/metrics.md)",
 	"system service start|stop|restart ID  control a managed service (haproxy; janusd: restart only)",
 	"system ls [-r] PATH                   list a directory (-r: recursive)",
 	"system cat PATH                       print a file",
@@ -235,6 +236,48 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", m.GetFilesystem(), m.GetMountedOn(), humanBytes(m.GetSizeBytes()), humanBytes(m.GetAvailableBytes()), mode)
 		}
 		tw.Flush()
+
+	case "metrics":
+		fs := flag.NewFlagSet("system metrics", flag.ExitOnError)
+		enable := fs.Bool("enable", false, "turn the exporter on")
+		disable := fs.Bool("disable", false, "turn the exporter off")
+		port := fs.Uint("port", 0, "serve on this port (default 10056)")
+		_ = fs.Parse(args)
+		c, cancel := ctx()
+		defer cancel()
+		resp, err := client.MetricsConfigGet(c, &emptypb.Empty{})
+		check("MetricsConfigGet", err)
+		if *enable || *disable || *port != 0 {
+			if *enable && *disable {
+				fmt.Fprintln(os.Stderr, "-enable and -disable together")
+				os.Exit(2)
+			}
+			cfg := resp.GetConfig()
+			req := &janusv1alpha1.MetricsConfig{Enabled: cfg.GetEnabled(), Port: cfg.GetPort()}
+			if *enable {
+				req.Enabled = true
+			}
+			if *disable {
+				req.Enabled = false
+			}
+			if *port != 0 {
+				req.Port = uint32(*port)
+			}
+			resp, err = client.MetricsConfigSet(c, req)
+			check("MetricsConfigSet", err)
+		}
+		cfg := resp.GetConfig()
+		switch {
+		case !cfg.GetEnabled():
+			fmt.Println("Exporter: disabled")
+		case resp.GetListening():
+			fmt.Printf("Exporter: http://<node>:%d/metrics\n", cfg.GetPort())
+		default:
+			fmt.Printf("Exporter: enabled on port %d, but not listening: %s\n", cfg.GetPort(), resp.GetError())
+		}
+		if resp.GetIsDefault() {
+			fmt.Println("(default settings)")
+		}
 
 	case "services":
 		c, cancel := ctx()

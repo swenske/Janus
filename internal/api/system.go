@@ -17,6 +17,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/pki"
@@ -53,6 +54,9 @@ type System struct {
 	// Extensions runs the services of the image's optional extensions.
 	// Nil or empty for an image without any.
 	Extensions *extensions.Manager
+
+	// Exporter serves the node's Prometheus metrics (MetricsConfig*).
+	Exporter *exporter.Server
 }
 
 func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.VersionResponse, error) {

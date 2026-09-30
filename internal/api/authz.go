@@ -66,6 +66,8 @@ var requiredRoles = map[string][]string{
 	"/janus.v1alpha1.SystemService/MetaWrite":                   adminOnly,
 	"/janus.v1alpha1.SystemService/MetaDelete":                  adminOnly,
 	"/janus.v1alpha1.SystemService/GenerateClientConfiguration": adminOnly, // issuing credentials is itself a privileged operation
+	"/janus.v1alpha1.SystemService/MetricsConfigGet":            adminOrReader,
+	"/janus.v1alpha1.SystemService/MetricsConfigSet":            adminOnly,
 
 	// LifecycleService - installing/upgrading/rolling back the machine
 	// is always privileged, no reader carve-out.

@@ -251,6 +251,16 @@ func mountState() {
 	} else {
 		bindMount(netDir, "/etc/janus/network")
 	}
+
+	// config/: janusd's other persistent settings - the exporter's
+	// (internal/exporter.Dir), the optional modules' configurations.
+	// Absent files mean the defaults.
+	cfgDir := filepath.Join(stateRoot, "config")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		fmt.Printf("init: mkdir %s: %v\n", cfgDir, err)
+	} else {
+		bindMount(cfgDir, "/etc/janus/config")
+	}
 }
 
 func seedPersistentHaproxyCfg(dir string) {

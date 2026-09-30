@@ -38,8 +38,10 @@ import (
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/haproxy"
+	"github.com/swenske/Janus/internal/kmsgwatch"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/pki"
@@ -66,7 +68,10 @@ func main() {
 	haproxySock := flag.String("haproxy-stats-socket", "/run/janus/haproxy-admin.sock", "path to haproxy's stats socket (must match the 'stats socket' line in haproxy-config)")
 	haproxyChrootDir := flag.String("haproxy-chroot-dir", "/var/empty", "directory haproxy chroots into after binding listeners and dropping privileges (must match the 'chroot' line in haproxy-config); created here since this rootfs has no package manager to have provisioned it")
 	manageHost := flag.Bool("manage-host", false, "this janusd runs a Janus node: it configures the node's network, hostname and clock (internal/netmgr, internal/timesync). Off, they're only reported - never set this on a machine whose network janusd mustn't touch")
+	configDir := flag.String("config-dir", exporter.Dir, "directory for janusd's persistent settings (the exporter's, the optional modules'); a node's is on STATE")
 	flag.Parse()
+	started := time.Now()
+	exporter.Dir = *configDir
 
 	if *showVersion {
 		fmt.Println("janusd " + version)
@@ -260,13 +265,31 @@ func main() {
 		}
 	}()
 
+	// The node's own Prometheus exporter (internal/exporter). The kernel
+	// log and STATE are only this node's to report when janusd runs it.
+	metrics := &metricsSources{version: version, started: started, ca: pkiBootstrap.CA, serverCert: serverCert,
+		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc}
+	if *manageHost {
+		metrics.kmsg = &kmsgwatch.Counts{}
+		metrics.statePath = "/etc/.state"
+		go kmsgwatch.Watch("/dev/kmsg", metrics.kmsg)
+	}
+	exp := exporter.New(metrics.collectors()...)
+	expCfg, _, err := exporter.Load()
+	if err != nil {
+		log.Printf("exporter: %v - using the defaults", err)
+	}
+	if err := exp.Apply(expCfg); err != nil {
+		log.Printf("exporter: %v", err)
+	}
+
 	tlsConfig := pkiBootstrap.CA.ServerTLSConfigFor(serverCert)
 	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
-		grpc.UnaryInterceptor(api.UnaryAuthInterceptor),
-		grpc.StreamInterceptor(api.StreamAuthInterceptor),
+		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
+		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc})
