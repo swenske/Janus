@@ -114,6 +114,7 @@ func main() {
 		store:                 st,
 		pending:               pendingStore,
 		auth:                  authStore,
+		loginLimiter:          auth.NewLoginLimiter(),
 		serverCert:            serverCert,
 		listeners:             map[string]*nodeproxy.Listener{},
 		suggestedRegisterAddr: suggestRegisterAddress(*advertiseAddresses, *registerAddr),
@@ -168,10 +169,11 @@ func main() {
 }
 
 type app struct {
-	store      *store.Store
-	pending    *pending.Store
-	auth       *auth.Store
-	serverCert tls.Certificate
+	store        *store.Store
+	pending      *pending.Store
+	auth         *auth.Store
+	loginLimiter *auth.LoginLimiter
+	serverCert   tls.Certificate
 	// suggestedRegisterAddr is handleControllerInfo's best guess at the
 	// address a node should be given as -controller-address at
 	// provisioning time - see suggestRegisterAddress's own doc comment.

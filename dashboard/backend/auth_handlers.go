@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"math"
+	"net"
 	"net/http"
+	"strconv"
 )
 
 const sessionCookieName = "janus_session"
@@ -40,6 +43,20 @@ func (a *app) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	// Throttled per client address (see auth.LoginLimiter), checked
+	// before anything else so a locked-out address costs no bcrypt work.
+	// Behind a reverse proxy every request shares the proxy's address,
+	// making this effectively a global limit.
+	client, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		client = r.RemoteAddr
+	}
+	if ok, wait := a.loginLimiter.Allow(client); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+		http.Error(w, "too many failed attempts - try again later", http.StatusTooManyRequests)
+		return
+	}
+
 	var req struct {
 		Password string `json:"password"`
 	}
@@ -48,12 +65,14 @@ func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !a.auth.Verify(req.Password) {
+		a.loginLimiter.Fail(client)
 		// Deliberately generic - not "wrong password" vs "no such
 		// account" (there's only ever one account anyway), no point
 		// giving an attacker anything to distinguish.
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
+	a.loginLimiter.Succeed(client)
 	a.startSession(w)
 }
 

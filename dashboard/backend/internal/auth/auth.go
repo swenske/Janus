@@ -122,8 +122,18 @@ func (s *Store) NewSession() (string, error) {
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 
+	now := time.Now()
 	s.mu.Lock()
-	s.sessions[token] = time.Now().Add(sessionTTL)
+	// A session that's never presented again (browser closed, cookie
+	// dropped) would otherwise stay here until the process restarts -
+	// ValidSession only prunes what it's asked about. Sweeping here keeps
+	// the map bounded by the sessions created within one sessionTTL.
+	for t, expiry := range s.sessions {
+		if now.After(expiry) {
+			delete(s.sessions, t)
+		}
+	}
+	s.sessions[token] = now.Add(sessionTTL)
 	s.mu.Unlock()
 	return token, nil
 }
