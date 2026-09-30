@@ -19,7 +19,8 @@ DEPLOY_KEY="${2:?usage: $0 <upload-public-key> <deploy-public-key>}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 apt-get update -qq
-apt-get install -y -qq rsync curl sudo
+# python3: rrsync is a Python script.
+apt-get install -y -qq rsync python3 curl sudo
 
 for u in janus-site janus-upload janus-deploy; do
   id "$u" >/dev/null 2>&1 || useradd --system --create-home --home-dir "/var/lib/$u" --shell /bin/sh "$u"
