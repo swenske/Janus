@@ -2,6 +2,8 @@ module github.com/swenske/Janus
 
 go 1.26.0
 
+toolchain go1.26.8
+
 require (
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/foxboron/go-uefi v0.0.0-20251010190908-d29549a44f29
