@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -82,28 +83,35 @@ func fileInfo(path, rel string, info fs.FileInfo) *janusv1alpha1.FileInfo {
 	}
 }
 
-// Read streams one file's content. Block and character devices are
-// refused - reading a disk device raw isn't what this is for.
+// Read streams one file's content. Only regular files are read: block
+// and character devices (reading a disk raw isn't what this is for),
+// FIFOs (a read with no writer would block the call forever) and sockets
+// are refused. The file is opened non-blocking and its type checked on
+// the open descriptor, so it can't be swapped for something else between
+// the check and the read.
 func (s *System) Read(req *janusv1alpha1.ReadRequest, stream janusv1alpha1.SystemService_ReadServer) error {
 	path, err := cleanAbs(req.GetPath())
 	if err != nil {
 		return err
 	}
-	info, err := os.Stat(path)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "%v", err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return status.Errorf(codes.NotFound, "%v", err)
+		}
+		return status.Errorf(codes.PermissionDenied, "%v", err)
 	}
-	if info.IsDir() {
-		return status.Errorf(codes.InvalidArgument, "%s is a directory - use List or Copy", path)
-	}
-	if info.Mode()&(fs.ModeDevice|fs.ModeCharDevice) != 0 {
-		return status.Errorf(codes.PermissionDenied, "%s is a device - not readable through this API", path)
-	}
-	f, err := os.Open(path)
+	defer f.Close()
+	info, err := f.Stat()
 	if err != nil {
 		return status.Errorf(codes.Internal, "%v", err)
 	}
-	defer f.Close()
+	switch mode := info.Mode(); {
+	case mode.IsDir():
+		return status.Errorf(codes.InvalidArgument, "%s is a directory - use List or Copy", path)
+	case !mode.IsRegular():
+		return status.Errorf(codes.PermissionDenied, "%s is not a regular file (%s) - not readable through this API", path, mode.Type())
+	}
 	buf := make([]byte, fileChunk)
 	for {
 		n, err := f.Read(buf)

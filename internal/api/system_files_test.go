@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -115,6 +117,29 @@ func TestRead(t *testing.T) {
 	}
 	if _, err := readAll(t, s, filepath.Join(root, "missing")); status.Code(err) != codes.NotFound {
 		t.Errorf("Read(missing) = %v", err)
+	}
+	if got, err := readAll(t, s, filepath.Join(root, "link")); err != nil || got != "alpha" {
+		t.Errorf("Read(symlink to a file) = %q, %v", got, err)
+	}
+	// Kernel pseudo-files are regular files of size 0 - still readable.
+	if got, err := readAll(t, s, "/proc/self/stat"); err != nil || got == "" {
+		t.Errorf("Read(/proc/self/stat) = %q, %v", got, err)
+	}
+
+	// A FIFO with no writer used to block Read forever in open(2).
+	fifo := filepath.Join(root, "fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := readAll(t, s, fifo); done <- err }()
+	select {
+	case err := <-done:
+		if status.Code(err) != codes.PermissionDenied {
+			t.Errorf("Read(fifo) = %v, want PermissionDenied", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Read(fifo) blocked")
 	}
 }
 
