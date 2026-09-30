@@ -3,6 +3,7 @@ syntax = "proto3";
 package janus.v1alpha1;
 
 import "google/protobuf/empty.proto";
+import "janus/v1alpha1/network.proto";
 
 option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
 
@@ -89,6 +90,11 @@ message InstallRequest {
   // is deliberately no trust-on-first-use fallback.
   string controller_address = 3;
   bytes controller_ca_cert = 4;
+  // Optional: the installed node's network configuration (hostname,
+  // interfaces, VLANs, DNS, NTP), written onto the new STATE filesystem
+  // and in effect from its first boot. Unset: the defaults (DHCP on
+  // every Ethernet interface).
+  NetworkConfig network_config = 5;
 }
 
 message InstallResponse {

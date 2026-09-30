@@ -21,6 +21,202 @@ service NetworkService {
 
   rpc FirewallList(google.protobuf.Empty) returns (FirewallListResponse);
   rpc FirewallApplyRuleset(FirewallApplyRulesetRequest) returns (FirewallApplyRulesetResponse);
+
+  // The node's own network configuration: hostname, interfaces (physical
+  // and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
+  // modules above, always available.
+  rpc NetworkConfigGet(google.protobuf.Empty) returns (NetworkConfigGetResponse);
+  // Applies a configuration on trial: the node switches to it at once,
+  // but keeps it only if NetworkConfigConfirm arrives within the confirm
+  // window - otherwise it reverts to the previous configuration by
+  // itself. A configuration that cuts the caller off therefore undoes
+  // itself. Only a confirmed configuration is written to persistent
+  // storage, so a reboot during the trial also comes back on the
+  // previous one. The stream ends once the configuration is applied and
+  // awaiting confirmation.
+  rpc NetworkConfigApply(NetworkConfigApplyRequest) returns (stream NetworkConfigApplyResponse);
+  // Confirms the configuration on trial. Accepted only over a connection
+  // that reaches the node on an address the new configuration keeps -
+  // proof that it's still reachable - and refused over one whose local
+  // address the trial removed.
+  rpc NetworkConfigConfirm(google.protobuf.Empty) returns (NetworkConfigConfirmResponse);
+  // What's actually in effect: links, addresses, DHCP leases, routes,
+  // resolvers, hostname and clock synchronization.
+  rpc NetworkStatus(google.protobuf.Empty) returns (NetworkStatusResponse);
+}
+
+// NetworkConfig is the node's whole network configuration. It's also the
+// document given at creation time (InstallRequest.network_config,
+// `janusctl image seed`, NoCloud user-data), as this message's JSON form.
+message NetworkConfig {
+  // Empty: the hostname DHCP provides, else "janus-" followed by the
+  // last three bytes of the first Ethernet interface's MAC address.
+  string hostname = 1;
+  // Empty: the interfaces stay as the kernel's boot-time DHCP left them
+  // (see ADDRESSING_MODE_DHCP). Otherwise exactly what's listed is
+  // configured; a physical interface not listed is left down, unless it's
+  // the parent of a listed VLAN (then up, no address).
+  repeated NetworkInterface interfaces = 2;
+  NetworkDNS dns = 3;
+  NetworkNTP ntp = 4;
+}
+
+enum AddressingMode {
+  // What the kernel's DHCP client (ip=dhcp) obtained at boot: IPv4
+  // address, gateway, DNS, domain, NTP servers and hostname. The default
+  // when unset. The kernel configures a single interface - the first to
+  // get an answer - so this mode applies to that interface only, and the
+  // lease is never renewed (a userspace DHCP client with renewal, and
+  // DHCP on any interface, are a planned improvement).
+  ADDRESSING_MODE_DHCP = 0;
+  // Only the addresses and gateways given.
+  ADDRESSING_MODE_STATIC = 1;
+  // Link up, no address - e.g. a VLAN parent carrying only tagged traffic.
+  ADDRESSING_MODE_NONE = 2;
+  // Link down.
+  ADDRESSING_MODE_DISABLED = 3;
+}
+
+message NetworkInterface {
+  // Kernel name: "eth0", or the name a VLAN is created with ("eth0.100").
+  string name = 1;
+  // Physical interfaces only: match by MAC address ("52:54:00:12:34:56")
+  // instead of name - names depend on probe order, MACs don't. When
+  // set, the interface is renamed to name.
+  string mac = 2;
+  // Set for a VLAN interface, created on top of its parent.
+  NetworkVLAN vlan = 3;
+  AddressingMode mode = 4;
+  // Static mode: addresses in CIDR form, IPv4 or IPv6 ("192.0.2.10/24").
+  repeated string addresses = 5;
+  // Static mode: default gateways. Empty: no default route through this
+  // interface.
+  string gateway = 6;
+  string gateway6 = 7;
+  // 0 leaves the MTU unchanged.
+  uint32 mtu = 8;
+  // Metric of this interface's default routes, DHCP or static. 0:
+  // automatic (1024 plus the position in interfaces), so the first
+  // listed interface is preferred.
+  uint32 route_metric = 9;
+}
+
+message NetworkVLAN {
+  // Parent interface name, as listed in NetworkConfig.interfaces or an
+  // existing physical interface.
+  string parent = 1;
+  uint32 id = 2; // 1-4094
+}
+
+message NetworkDNS {
+  // Empty: the resolvers DHCP provided at boot.
+  repeated string servers = 1;
+  // Empty: the domain DHCP provides, if any.
+  repeated string search = 2;
+}
+
+message NetworkNTP {
+  // Up to two "host" or "host:port". Empty: the servers DHCP provided at
+  // boot, else pool.ntp.org.
+  repeated string servers = 1;
+}
+
+message NetworkConfigGetResponse {
+  NetworkConfig config = 1;
+  // True when nothing was ever configured and the defaults are in effect.
+  bool is_default = 2;
+}
+
+message NetworkConfigApplyRequest {
+  NetworkConfig config = 1;
+  // How long the node waits for NetworkConfigConfirm. 0: 30 seconds.
+  // At most 300.
+  uint32 confirm_timeout_seconds = 2;
+}
+
+message NetworkConfigApplyResponse {
+  // "validating", "applying", then "awaiting-confirmation" (the last
+  // message).
+  string stage = 1;
+  string message = 2;
+  // With awaiting-confirmation: the node's addresses under the new
+  // configuration (CIDR), and when it reverts without a confirmation.
+  repeated string addresses = 3;
+  int64 revert_at_unix = 4;
+}
+
+message NetworkConfigConfirmResponse {
+  // The address, of those the configuration keeps, the confirmation
+  // arrived on.
+  string confirmed_via = 1;
+}
+
+message NetworkStatusResponse {
+  string hostname = 1;
+  repeated NetworkInterfaceStatus interfaces = 2;
+  repeated NetworkRoute routes = 3;
+  repeated string dns_servers = 4;
+  repeated string dns_search = 5;
+  TimeStatus time = 6;
+  // A configuration is on trial, reverting at trial_revert_at_unix
+  // unless confirmed.
+  bool trial_pending = 7;
+  int64 trial_revert_at_unix = 8;
+  // False when this janusd doesn't manage the node's network, hostname
+  // and clock (it runs outside a Janus node - a development container,
+  // say): everything above is then observed only, interface modes
+  // aren't known, and NetworkConfigApply is refused.
+  bool managed = 9;
+}
+
+message NetworkInterfaceStatus {
+  string name = 1;
+  string kind = 2; // "physical", "vlan", "loopback"
+  string mac = 3;
+  uint32 mtu = 4;
+  bool up = 5;      // administratively up
+  bool carrier = 6; // link detected
+  repeated string addresses = 7; // CIDR
+  AddressingMode mode = 8;
+  DHCPLease dhcp = 9; // the boot-time lease, on the interface that holds it
+  string vlan_parent = 10;
+  uint32 vlan_id = 11;
+}
+
+message DHCPLease {
+  string address = 1; // CIDR
+  string server = 2;
+  string router = 3;
+  repeated string dns_servers = 4;
+  repeated string ntp_servers = 5;
+  string domain = 6;
+  string hostname = 7;
+  // Not reported by the kernel's boot-time client: 0.
+  int64 obtained_unix = 8;
+  int64 expires_unix = 9;
+}
+
+message NetworkRoute {
+  string destination = 1; // CIDR, "default" for 0.0.0.0/0 and ::/0
+  string gateway = 2;
+  string interface = 3;
+  uint32 metric = 4;
+}
+
+message TimeStatus {
+  bool synchronized = 1;
+  // Servers in use, and where they came from: "configured", "dhcp" or
+  // "default".
+  repeated string servers = 2;
+  string source = 3;
+  // Last successful exchange.
+  string last_server = 4;
+  int64 last_sync_unix = 5;
+  // Correction measured at that sync: server time minus the node's
+  // clock (positive: the node was behind).
+  int64 offset_ns = 6;
+  uint32 stratum = 7;
+  string error = 8; // last failure, if the last attempt failed
 }
 
 // ModuleState is shared by every optional module's status response so a

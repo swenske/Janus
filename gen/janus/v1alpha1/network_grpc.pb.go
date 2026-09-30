@@ -26,6 +26,10 @@ const (
 	NetworkService_VRRPApplyConfig_FullMethodName      = "/janus.v1alpha1.NetworkService/VRRPApplyConfig"
 	NetworkService_FirewallList_FullMethodName         = "/janus.v1alpha1.NetworkService/FirewallList"
 	NetworkService_FirewallApplyRuleset_FullMethodName = "/janus.v1alpha1.NetworkService/FirewallApplyRuleset"
+	NetworkService_NetworkConfigGet_FullMethodName     = "/janus.v1alpha1.NetworkService/NetworkConfigGet"
+	NetworkService_NetworkConfigApply_FullMethodName   = "/janus.v1alpha1.NetworkService/NetworkConfigApply"
+	NetworkService_NetworkConfigConfirm_FullMethodName = "/janus.v1alpha1.NetworkService/NetworkConfigConfirm"
+	NetworkService_NetworkStatus_FullMethodName        = "/janus.v1alpha1.NetworkService/NetworkStatus"
 )
 
 // NetworkServiceClient is the client API for NetworkService service.
@@ -45,6 +49,27 @@ type NetworkServiceClient interface {
 	VRRPApplyConfig(ctx context.Context, in *VRRPApplyConfigRequest, opts ...grpc.CallOption) (*VRRPApplyConfigResponse, error)
 	FirewallList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallListResponse, error)
 	FirewallApplyRuleset(ctx context.Context, in *FirewallApplyRulesetRequest, opts ...grpc.CallOption) (*FirewallApplyRulesetResponse, error)
+	// The node's own network configuration: hostname, interfaces (physical
+	// and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
+	// modules above, always available.
+	NetworkConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkConfigGetResponse, error)
+	// Applies a configuration on trial: the node switches to it at once,
+	// but keeps it only if NetworkConfigConfirm arrives within the confirm
+	// window - otherwise it reverts to the previous configuration by
+	// itself. A configuration that cuts the caller off therefore undoes
+	// itself. Only a confirmed configuration is written to persistent
+	// storage, so a reboot during the trial also comes back on the
+	// previous one. The stream ends once the configuration is applied and
+	// awaiting confirmation.
+	NetworkConfigApply(ctx context.Context, in *NetworkConfigApplyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NetworkConfigApplyResponse], error)
+	// Confirms the configuration on trial. Accepted only over a connection
+	// that reaches the node on an address the new configuration keeps -
+	// proof that it's still reachable - and refused over one whose local
+	// address the trial removed.
+	NetworkConfigConfirm(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkConfigConfirmResponse, error)
+	// What's actually in effect: links, addresses, DHCP leases, routes,
+	// resolvers, hostname and clock synchronization.
+	NetworkStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkStatusResponse, error)
 }
 
 type networkServiceClient struct {
@@ -115,6 +140,55 @@ func (c *networkServiceClient) FirewallApplyRuleset(ctx context.Context, in *Fir
 	return out, nil
 }
 
+func (c *networkServiceClient) NetworkConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkConfigGetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NetworkConfigGetResponse)
+	err := c.cc.Invoke(ctx, NetworkService_NetworkConfigGet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) NetworkConfigApply(ctx context.Context, in *NetworkConfigApplyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NetworkConfigApplyResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &NetworkService_ServiceDesc.Streams[0], NetworkService_NetworkConfigApply_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[NetworkConfigApplyRequest, NetworkConfigApplyResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type NetworkService_NetworkConfigApplyClient = grpc.ServerStreamingClient[NetworkConfigApplyResponse]
+
+func (c *networkServiceClient) NetworkConfigConfirm(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkConfigConfirmResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NetworkConfigConfirmResponse)
+	err := c.cc.Invoke(ctx, NetworkService_NetworkConfigConfirm_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) NetworkStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NetworkStatusResponse)
+	err := c.cc.Invoke(ctx, NetworkService_NetworkStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NetworkServiceServer is the server API for NetworkService service.
 // All implementations must embed UnimplementedNetworkServiceServer
 // for forward compatibility.
@@ -132,6 +206,27 @@ type NetworkServiceServer interface {
 	VRRPApplyConfig(context.Context, *VRRPApplyConfigRequest) (*VRRPApplyConfigResponse, error)
 	FirewallList(context.Context, *emptypb.Empty) (*FirewallListResponse, error)
 	FirewallApplyRuleset(context.Context, *FirewallApplyRulesetRequest) (*FirewallApplyRulesetResponse, error)
+	// The node's own network configuration: hostname, interfaces (physical
+	// and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
+	// modules above, always available.
+	NetworkConfigGet(context.Context, *emptypb.Empty) (*NetworkConfigGetResponse, error)
+	// Applies a configuration on trial: the node switches to it at once,
+	// but keeps it only if NetworkConfigConfirm arrives within the confirm
+	// window - otherwise it reverts to the previous configuration by
+	// itself. A configuration that cuts the caller off therefore undoes
+	// itself. Only a confirmed configuration is written to persistent
+	// storage, so a reboot during the trial also comes back on the
+	// previous one. The stream ends once the configuration is applied and
+	// awaiting confirmation.
+	NetworkConfigApply(*NetworkConfigApplyRequest, grpc.ServerStreamingServer[NetworkConfigApplyResponse]) error
+	// Confirms the configuration on trial. Accepted only over a connection
+	// that reaches the node on an address the new configuration keeps -
+	// proof that it's still reachable - and refused over one whose local
+	// address the trial removed.
+	NetworkConfigConfirm(context.Context, *emptypb.Empty) (*NetworkConfigConfirmResponse, error)
+	// What's actually in effect: links, addresses, DHCP leases, routes,
+	// resolvers, hostname and clock synchronization.
+	NetworkStatus(context.Context, *emptypb.Empty) (*NetworkStatusResponse, error)
 	mustEmbedUnimplementedNetworkServiceServer()
 }
 
@@ -159,6 +254,18 @@ func (UnimplementedNetworkServiceServer) FirewallList(context.Context, *emptypb.
 }
 func (UnimplementedNetworkServiceServer) FirewallApplyRuleset(context.Context, *FirewallApplyRulesetRequest) (*FirewallApplyRulesetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FirewallApplyRuleset not implemented")
+}
+func (UnimplementedNetworkServiceServer) NetworkConfigGet(context.Context, *emptypb.Empty) (*NetworkConfigGetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method NetworkConfigGet not implemented")
+}
+func (UnimplementedNetworkServiceServer) NetworkConfigApply(*NetworkConfigApplyRequest, grpc.ServerStreamingServer[NetworkConfigApplyResponse]) error {
+	return status.Error(codes.Unimplemented, "method NetworkConfigApply not implemented")
+}
+func (UnimplementedNetworkServiceServer) NetworkConfigConfirm(context.Context, *emptypb.Empty) (*NetworkConfigConfirmResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method NetworkConfigConfirm not implemented")
+}
+func (UnimplementedNetworkServiceServer) NetworkStatus(context.Context, *emptypb.Empty) (*NetworkStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method NetworkStatus not implemented")
 }
 func (UnimplementedNetworkServiceServer) mustEmbedUnimplementedNetworkServiceServer() {}
 func (UnimplementedNetworkServiceServer) testEmbeddedByValue()                        {}
@@ -289,6 +396,71 @@ func _NetworkService_FirewallApplyRuleset_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NetworkService_NetworkConfigGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).NetworkConfigGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_NetworkConfigGet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).NetworkConfigGet(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_NetworkConfigApply_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(NetworkConfigApplyRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(NetworkServiceServer).NetworkConfigApply(m, &grpc.GenericServerStream[NetworkConfigApplyRequest, NetworkConfigApplyResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type NetworkService_NetworkConfigApplyServer = grpc.ServerStreamingServer[NetworkConfigApplyResponse]
+
+func _NetworkService_NetworkConfigConfirm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).NetworkConfigConfirm(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_NetworkConfigConfirm_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).NetworkConfigConfirm(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_NetworkStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).NetworkStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_NetworkStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).NetworkStatus(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NetworkService_ServiceDesc is the grpc.ServiceDesc for NetworkService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -320,7 +492,25 @@ var NetworkService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "FirewallApplyRuleset",
 			Handler:    _NetworkService_FirewallApplyRuleset_Handler,
 		},
+		{
+			MethodName: "NetworkConfigGet",
+			Handler:    _NetworkService_NetworkConfigGet_Handler,
+		},
+		{
+			MethodName: "NetworkConfigConfirm",
+			Handler:    _NetworkService_NetworkConfigConfirm_Handler,
+		},
+		{
+			MethodName: "NetworkStatus",
+			Handler:    _NetworkService_NetworkStatus_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "NetworkConfigApply",
+			Handler:       _NetworkService_NetworkConfigApply_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "janus/v1alpha1/network.proto",
 }

@@ -98,6 +98,10 @@ var requiredRoles = map[string][]string{
 	"/janus.v1alpha1.NetworkService/VRRPApplyConfig":      adminOnly,
 	"/janus.v1alpha1.NetworkService/FirewallList":         adminOrReader,
 	"/janus.v1alpha1.NetworkService/FirewallApplyRuleset": adminOnly,
+	"/janus.v1alpha1.NetworkService/NetworkConfigGet":     adminOrReader, // no secrets in it
+	"/janus.v1alpha1.NetworkService/NetworkConfigApply":   adminOnly,
+	"/janus.v1alpha1.NetworkService/NetworkConfigConfirm": adminOnly,
+	"/janus.v1alpha1.NetworkService/NetworkStatus":        adminOrReader,
 }
 
 // UnaryAuthInterceptor enforces requiredRoles for unary RPCs.

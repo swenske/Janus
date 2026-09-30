@@ -118,8 +118,13 @@ type InstallRequest struct {
 	// is deliberately no trust-on-first-use fallback.
 	ControllerAddress string `protobuf:"bytes,3,opt,name=controller_address,json=controllerAddress,proto3" json:"controller_address,omitempty"`
 	ControllerCaCert  []byte `protobuf:"bytes,4,opt,name=controller_ca_cert,json=controllerCaCert,proto3" json:"controller_ca_cert,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Optional: the installed node's network configuration (hostname,
+	// interfaces, VLANs, DNS, NTP), written onto the new STATE filesystem
+	// and in effect from its first boot. Unset: the defaults (DHCP on
+	// every Ethernet interface).
+	NetworkConfig *NetworkConfig `protobuf:"bytes,5,opt,name=network_config,json=networkConfig,proto3" json:"network_config,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InstallRequest) Reset() {
@@ -176,6 +181,13 @@ func (x *InstallRequest) GetControllerAddress() string {
 func (x *InstallRequest) GetControllerCaCert() []byte {
 	if x != nil {
 		return x.ControllerCaCert
+	}
+	return nil
+}
+
+func (x *InstallRequest) GetNetworkConfig() *NetworkConfig {
+	if x != nil {
+		return x.NetworkConfig
 	}
 	return nil
 }
@@ -531,16 +543,17 @@ var File_janus_v1alpha1_lifecycle_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\n" +
-	"\x1ejanus/v1alpha1/lifecycle.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\"\x86\x01\n" +
+	"\x1ejanus/v1alpha1/lifecycle.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cjanus/v1alpha1/network.proto\"\x86\x01\n" +
 	"\vImageSource\x12\x1c\n" +
 	"\treference\x18\x01 \x01(\tR\treference\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12A\n" +
-	"\x1dinsecure_skip_signature_check\x18\x03 \x01(\bR\x1ainsecureSkipSignatureCheck\"\xb6\x01\n" +
+	"\x1dinsecure_skip_signature_check\x18\x03 \x01(\bR\x1ainsecureSkipSignatureCheck\"\xfc\x01\n" +
 	"\x0eInstallRequest\x123\n" +
 	"\x06source\x18\x01 \x01(\v2\x1b.janus.v1alpha1.ImageSourceR\x06source\x12\x12\n" +
 	"\x04disk\x18\x02 \x01(\tR\x04disk\x12-\n" +
 	"\x12controller_address\x18\x03 \x01(\tR\x11controllerAddress\x12,\n" +
-	"\x12controller_ca_cert\x18\x04 \x01(\fR\x10controllerCaCert\"]\n" +
+	"\x12controller_ca_cert\x18\x04 \x01(\fR\x10controllerCaCert\x12D\n" +
+	"\x0enetwork_config\x18\x05 \x01(\v2\x1d.janus.v1alpha1.NetworkConfigR\rnetworkConfig\"]\n" +
 	"\x0fInstallResponse\x12\x14\n" +
 	"\x05stage\x18\x01 \x01(\tR\x05stage\x12\x1a\n" +
 	"\bprogress\x18\x02 \x01(\x01R\bprogress\x12\x18\n" +
@@ -591,24 +604,26 @@ var file_janus_v1alpha1_lifecycle_proto_goTypes = []any{
 	(*RollbackResponse)(nil),          // 5: janus.v1alpha1.RollbackResponse
 	(*UploadReleaseFileRequest)(nil),  // 6: janus.v1alpha1.UploadReleaseFileRequest
 	(*UploadReleaseFileResponse)(nil), // 7: janus.v1alpha1.UploadReleaseFileResponse
-	(*emptypb.Empty)(nil),             // 8: google.protobuf.Empty
+	(*NetworkConfig)(nil),             // 8: janus.v1alpha1.NetworkConfig
+	(*emptypb.Empty)(nil),             // 9: google.protobuf.Empty
 }
 var file_janus_v1alpha1_lifecycle_proto_depIdxs = []int32{
 	0, // 0: janus.v1alpha1.InstallRequest.source:type_name -> janus.v1alpha1.ImageSource
-	0, // 1: janus.v1alpha1.UpgradeRequest.source:type_name -> janus.v1alpha1.ImageSource
-	1, // 2: janus.v1alpha1.LifecycleService.Install:input_type -> janus.v1alpha1.InstallRequest
-	3, // 3: janus.v1alpha1.LifecycleService.Upgrade:input_type -> janus.v1alpha1.UpgradeRequest
-	8, // 4: janus.v1alpha1.LifecycleService.Rollback:input_type -> google.protobuf.Empty
-	6, // 5: janus.v1alpha1.LifecycleService.UploadReleaseFile:input_type -> janus.v1alpha1.UploadReleaseFileRequest
-	2, // 6: janus.v1alpha1.LifecycleService.Install:output_type -> janus.v1alpha1.InstallResponse
-	4, // 7: janus.v1alpha1.LifecycleService.Upgrade:output_type -> janus.v1alpha1.UpgradeResponse
-	5, // 8: janus.v1alpha1.LifecycleService.Rollback:output_type -> janus.v1alpha1.RollbackResponse
-	7, // 9: janus.v1alpha1.LifecycleService.UploadReleaseFile:output_type -> janus.v1alpha1.UploadReleaseFileResponse
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	8, // 1: janus.v1alpha1.InstallRequest.network_config:type_name -> janus.v1alpha1.NetworkConfig
+	0, // 2: janus.v1alpha1.UpgradeRequest.source:type_name -> janus.v1alpha1.ImageSource
+	1, // 3: janus.v1alpha1.LifecycleService.Install:input_type -> janus.v1alpha1.InstallRequest
+	3, // 4: janus.v1alpha1.LifecycleService.Upgrade:input_type -> janus.v1alpha1.UpgradeRequest
+	9, // 5: janus.v1alpha1.LifecycleService.Rollback:input_type -> google.protobuf.Empty
+	6, // 6: janus.v1alpha1.LifecycleService.UploadReleaseFile:input_type -> janus.v1alpha1.UploadReleaseFileRequest
+	2, // 7: janus.v1alpha1.LifecycleService.Install:output_type -> janus.v1alpha1.InstallResponse
+	4, // 8: janus.v1alpha1.LifecycleService.Upgrade:output_type -> janus.v1alpha1.UpgradeResponse
+	5, // 9: janus.v1alpha1.LifecycleService.Rollback:output_type -> janus.v1alpha1.RollbackResponse
+	7, // 10: janus.v1alpha1.LifecycleService.UploadReleaseFile:output_type -> janus.v1alpha1.UploadReleaseFileResponse
+	7, // [7:11] is the sub-list for method output_type
+	3, // [3:7] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_janus_v1alpha1_lifecycle_proto_init() }
@@ -616,6 +631,7 @@ func file_janus_v1alpha1_lifecycle_proto_init() {
 	if File_janus_v1alpha1_lifecycle_proto != nil {
 		return
 	}
+	file_janus_v1alpha1_network_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
