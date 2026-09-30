@@ -187,7 +187,7 @@ echo "Relay upload OK: v2 release bundle streamed to the live node's own staging
 # --- now call Upgrade against that staging path, exactly like local-
 # path mode already works ---
 V2_SHA256="$(cat "$V2_BUNDLE/rootfs.squashfs.sha256")"
-UPGRADE_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle upgrade -sha256 "$V2_SHA256" "$STAGING_DIR")"
+UPGRADE_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle upgrade -insecure-skip-signature-check -sha256 "$V2_SHA256" "$STAGING_DIR")"
 echo "$UPGRADE_OUT"
 if ! echo "$UPGRADE_OUT" | grep -qi "rebooting"; then
   echo "Upgrade relay test FAILED: janusctl lifecycle upgrade never reached the 'rebooting' stage" >&2

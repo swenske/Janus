@@ -119,9 +119,14 @@ for f in ca.crt admin.crt admin.key; do
 done
 
 # --- the node fetches the real release over https:// itself ---
+# -insecure-skip-signature-check: every release published before
+# 2026-09-30 carries unsigned UKIs (see docs/security-audit-2026-09-30.md,
+# #14). Drop it once the newest release is signed with the key in
+# image/secureboot/production-cert.pem - this test then proves the whole
+# chain, the node's own signature check on a real release included.
 set +e
 UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" \
-  lifecycle upgrade -sha256 "$RELEASE_SHA256" "$RELEASE_URL" 2>&1)"
+  lifecycle upgrade -insecure-skip-signature-check -sha256 "$RELEASE_SHA256" "$RELEASE_URL" 2>&1)"
 UPGRADE_RC=$?
 set -e
 echo "$UPGRADE_OUT"

@@ -53,7 +53,7 @@
 #          *other* "broken" bundle above only ever exercises rootfs/
 #          init's own Supervisor-level backstop (janusd itself never
 #          running at all), a different, complementary failure mode.
-#   3. calls `janusctl lifecycle upgrade -wait-for-health
+#   3. calls `janusctl lifecycle upgrade -insecure-skip-signature-check -wait-for-health
 #      -health-timeout 5` with the "good" bundle - the guest reboots
 #      into slot B for real, and after health-timeout-plus-a-margin, the
 #      console must show "bootcommit: confirmed healthy" and the kernel
@@ -261,7 +261,7 @@ CTL_ARGS=(-endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$
 # Part 1: a healthy upgrade confirms and never reverts.
 # =========================================================================
 GOOD_SHA256="$(cat "$GOOD_BUNDLE/rootfs.squashfs.sha256")"
-GOOD_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle upgrade -wait-for-health -health-timeout "$HEALTH_TIMEOUT_SECS" -sha256 "$GOOD_SHA256" /etc/.state/upgrade-good)"
+GOOD_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle upgrade -insecure-skip-signature-check -wait-for-health -health-timeout "$HEALTH_TIMEOUT_SECS" -sha256 "$GOOD_SHA256" /etc/.state/upgrade-good)"
 echo "$GOOD_OUT"
 if ! echo "$GOOD_OUT" | grep -qi "rebooting"; then
   echo "Upgrade health test FAILED: the 'good' upgrade never reached the 'rebooting' stage" >&2
@@ -304,7 +304,7 @@ echo "Part 1 OK: healthy upgrade confirmed, no revert, still live on slot B"
 # Part 2: an unhealthy upgrade reverts and reboots back automatically.
 # =========================================================================
 BROKEN_SHA256="$(cat "$BROKEN_BUNDLE/rootfs.squashfs.sha256")"
-BROKEN_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle upgrade -wait-for-health -health-timeout "$HEALTH_TIMEOUT_SECS" -sha256 "$BROKEN_SHA256" /etc/.state/upgrade-broken)"
+BROKEN_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle upgrade -insecure-skip-signature-check -wait-for-health -health-timeout "$HEALTH_TIMEOUT_SECS" -sha256 "$BROKEN_SHA256" /etc/.state/upgrade-broken)"
 echo "$BROKEN_OUT"
 if ! echo "$BROKEN_OUT" | grep -qi "rebooting"; then
   echo "Upgrade health test FAILED: the 'broken' upgrade never reached the 'rebooting' stage" >&2
@@ -347,7 +347,7 @@ echo "Part 2 OK: unhealthy upgrade auto-reverted to slot B (not a fixed fallback
 # already covered.
 # =========================================================================
 HAPROXY_BROKEN_SHA256="$(cat "$HAPROXY_BROKEN_BUNDLE/rootfs.squashfs.sha256")"
-HAPROXY_BROKEN_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle upgrade -wait-for-health -health-timeout "$HEALTH_TIMEOUT_SECS" -sha256 "$HAPROXY_BROKEN_SHA256" /etc/.state/upgrade-haproxy-broken)"
+HAPROXY_BROKEN_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle upgrade -insecure-skip-signature-check -wait-for-health -health-timeout "$HEALTH_TIMEOUT_SECS" -sha256 "$HAPROXY_BROKEN_SHA256" /etc/.state/upgrade-haproxy-broken)"
 echo "$HAPROXY_BROKEN_OUT"
 if ! echo "$HAPROXY_BROKEN_OUT" | grep -qi "rebooting"; then
   echo "Upgrade health test FAILED: the 'haproxy-broken' upgrade never reached the 'rebooting' stage" >&2

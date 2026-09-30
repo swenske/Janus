@@ -101,6 +101,20 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "read %s: %v", ukiBPath, err)
 	}
+	// Both slots' UKIs get written, so both must be trusted - checked
+	// before the disk is touched (see checkUKISignature).
+	var signature string
+	for _, u := range []struct {
+		name string
+		data []byte
+	}{{"uki-a.efi", ukiA}, {"uki-b.efi", ukiB}} {
+		if signature, err = checkUKISignature(req.GetSource(), u.name, u.data); err != nil {
+			return err
+		}
+	}
+	if err := send("verifying", 0.1, "uki-a.efi, uki-b.efi: "+signature); err != nil {
+		return err
+	}
 	if len(squashfs) > diskimage.DataMB*1024*1024 {
 		return status.Errorf(codes.FailedPrecondition, "%s is %d bytes, exceeds the %d-byte BOOT-*-DATA partition size", squashfsPath, len(squashfs), diskimage.DataMB*1024*1024)
 	}
@@ -196,7 +210,7 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 
 	syscall.Sync()
 
-	events.Publish("lifecycle.install", map[string]any{"disk": diskPath, "controller": req.GetControllerAddress()})
+	events.Publish("lifecycle.install", map[string]any{"disk": diskPath, "controller": req.GetControllerAddress(), "signature": signature})
 	return send("done", 1.0, fmt.Sprintf("installed to %s (slot A active) - reboot the machine into it when ready", diskPath))
 }
 

@@ -117,7 +117,7 @@ NATIVE_CTL_ARGS=(-endpoint "127.0.0.1:${NATIVE_GRPC_PORT}" -ca "$PKI_DIR/ca.crt"
 DISK="$WORKDIR/generic-disk.img"
 truncate -s "${DISK_MB}M" "$DISK"
 
-INSTALL_OUT="$(sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -sha256 "$SHA256" "$DISK" "$BUNDLE")"
+INSTALL_OUT="$(sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" "$DISK" "$BUNDLE")"
 echo "$INSTALL_OUT"
 if ! echo "$INSTALL_OUT" | grep -qi '\[done '; then
   echo "seed-controller test FAILED: Install never reached the 'done' stage" >&2

@@ -27,13 +27,25 @@ type ImageSource struct {
 	// A local directory on this node's own filesystem (e.g. a
 	// UploadReleaseFile staging_dir), or an "http://"/"https://" base URL
 	// this node fetches "rootfs.squashfs"/"rootfs.verity"/
-	// "uki-<slot>.efi" from itself. Signature verification beyond the
-	// sha256 check below isn't implemented yet - flagged as a later
-	// hardening step.
-	Reference     string `protobuf:"bytes,1,opt,name=reference,proto3" json:"reference,omitempty"`
-	Sha256        string `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// "uki-<slot>.efi" from itself.
+	//
+	// Before anything is written, every UKI taken from the bundle must
+	// carry an Authenticode signature from a release signing certificate
+	// built into janusd (internal/releasetrust). The UKI's command line
+	// holds the rootfs's dm-verity root hash, so a verified UKI
+	// authenticates the whole bundle, whatever transport or relay it came
+	// through.
+	Reference string `protobuf:"bytes,1,opt,name=reference,proto3" json:"reference,omitempty"`
+	// Optional sha256 of rootfs.squashfs - an early consistency check,
+	// not the authentication (see above).
+	Sha256 string `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	// Accept a UKI that isn't signed by a trusted release certificate.
+	// For development and test bundles only: without the signature
+	// check, whoever can alter the bundle on its way to the node (an
+	// http:// mirror, a compromised download) controls what it boots.
+	InsecureSkipSignatureCheck bool `protobuf:"varint,3,opt,name=insecure_skip_signature_check,json=insecureSkipSignatureCheck,proto3" json:"insecure_skip_signature_check,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *ImageSource) Reset() {
@@ -78,6 +90,13 @@ func (x *ImageSource) GetSha256() string {
 		return x.Sha256
 	}
 	return ""
+}
+
+func (x *ImageSource) GetInsecureSkipSignatureCheck() bool {
+	if x != nil {
+		return x.InsecureSkipSignatureCheck
+	}
+	return false
 }
 
 type InstallRequest struct {
@@ -512,10 +531,11 @@ var File_janus_v1alpha1_lifecycle_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\n" +
-	"\x1ejanus/v1alpha1/lifecycle.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\"C\n" +
+	"\x1ejanus/v1alpha1/lifecycle.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\"\x86\x01\n" +
 	"\vImageSource\x12\x1c\n" +
 	"\treference\x18\x01 \x01(\tR\treference\x12\x16\n" +
-	"\x06sha256\x18\x02 \x01(\tR\x06sha256\"\xb6\x01\n" +
+	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12A\n" +
+	"\x1dinsecure_skip_signature_check\x18\x03 \x01(\bR\x1ainsecureSkipSignatureCheck\"\xb6\x01\n" +
 	"\x0eInstallRequest\x123\n" +
 	"\x06source\x18\x01 \x01(\v2\x1b.janus.v1alpha1.ImageSourceR\x06source\x12\x12\n" +
 	"\x04disk\x18\x02 \x01(\tR\x04disk\x12-\n" +

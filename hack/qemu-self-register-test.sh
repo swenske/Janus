@@ -177,7 +177,7 @@ NATIVE_CTL_ARGS=(-endpoint "127.0.0.1:${NATIVE_GRPC_PORT}" -ca "$PKI_DIR/ca.crt"
 BLANK_DISK="$WORKDIR/blank-disk.img"
 truncate -s "${DISK_MB}M" "$BLANK_DISK"
 
-INSTALL_OUT="$(sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -sha256 "$SHA256" \
+INSTALL_OUT="$(sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
   -controller-address "${QEMU_HOST_GATEWAY}:${DASHBOARD_REGISTER_PORT}" -controller-ca "$CONTROLLER_CA" \
   "$BLANK_DISK" "$BUNDLE")"
 echo "$INSTALL_OUT"

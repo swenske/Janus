@@ -123,7 +123,7 @@ CTL_ARGS=(-endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$
 
 # --- the actual point of this test: Install using only what's already
 # on the booted ISO, no bundle reachable from the host at all.
-INSTALL_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle install -sha256 "$SHA256" /dev/vdb /etc/janus/release 2>&1)" || {
+INSTALL_OUT="$("$CTL" "${CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" /dev/vdb /etc/janus/release 2>&1)" || {
   echo "ISO install test FAILED: janusctl lifecycle install failed:" >&2
   echo "$INSTALL_OUT" >&2
   exit 1

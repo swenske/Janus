@@ -22,6 +22,7 @@ import (
 	"github.com/swenske/Janus/internal/bootslot"
 	"github.com/swenske/Janus/internal/espswitch"
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/releasetrust"
 )
 
 // Lifecycle implements janusv1alpha1.LifecycleServiceServer.
@@ -139,6 +140,26 @@ func fetchBundleFile(ctx context.Context, bundleRef, filename string) ([]byte, e
 	return os.ReadFile(filepath.Join(bundleRef, filename))
 }
 
+// verifyUKI is internal/releasetrust.VerifyUKI - a var so tests can
+// substitute it.
+var verifyUKI = releasetrust.VerifyUKI
+
+// checkUKISignature refuses a UKI that isn't signed by a trusted release
+// key (internal/releasetrust - which also explains why checking the UKI
+// authenticates the whole bundle), unless src explicitly opts out for a
+// development bundle. Returns a short description of what was decided,
+// for progress messages and events.
+func checkUKISignature(src *janusv1alpha1.ImageSource, name string, uki []byte) (string, error) {
+	if src.GetInsecureSkipSignatureCheck() {
+		log.Printf("lifecycle: %s: signature check skipped at the caller's request (insecure_skip_signature_check)", name)
+		return "signature check skipped (insecure_skip_signature_check)", nil
+	}
+	if err := verifyUKI(uki); err != nil {
+		return "", status.Errorf(codes.FailedPrecondition, "%s: %v - only bundles signed with a Janus release key are installed; for a development bundle, set insecure_skip_signature_check", name, err)
+	}
+	return "signature verified", nil
+}
+
 // bootContext is what both Rollback and Upgrade need to know about the
 // disk they're running from: which slot is active, which slot they
 // should target instead, and where the ESP is. Resolved once from
@@ -251,9 +272,9 @@ func (l *Lifecycle) Rollback(_ context.Context, _ *emptypb.Empty) (*janusv1alpha
 // node fetches each file itself (fetchBundleFile, above) - completing
 // the real HTTPS distribution the proto comment always described,
 // feeding real GitHub Releases once those exist. No image-registry/OCI
-// support, and no code-signing beyond the existing sha256 check - real
-// signing is flagged as a later hardening step, not blocking a first
-// alpha release flow. The actual upgrade mechanics
+// support. Whatever the source, the target slot's UKI must be signed by
+// a trusted release key (checkUKISignature, internal/releasetrust) -
+// checked first, before anything else is fetched or written. The actual upgrade mechanics
 // this proves are unchanged either way: writing new content into the
 // inactive slot without disturbing STATE or the currently-running slot,
 // then switching and rebooting into it, the same way
@@ -302,6 +323,22 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return err
 	}
 
+	// The UKI first: it's what authenticates the bundle (its signed
+	// command line pins the rootfs's dm-verity root hash), so a bundle
+	// that isn't trusted is refused before the rootfs is even downloaded.
+	ukiName := fmt.Sprintf("uki-%s.efi", strings.ToLower(bc.targetSlot))
+	uki, err := fetchBundleFile(ctx, bundleRef, ukiName)
+	if err != nil {
+		return status.Errorf(codes.FailedPrecondition, "%s: %v - does this bundle include a UKI for slot %s? (see image/release/assemble.sh)", ukiName, err, bc.targetSlot)
+	}
+	signature, err := checkUKISignature(req.GetSource(), ukiName, uki)
+	if err != nil {
+		return err
+	}
+	if err := send("verifying", 0.2, fmt.Sprintf("%s: %s", ukiName, signature)); err != nil {
+		return err
+	}
+
 	squashfs, err := fetchBundleFile(ctx, bundleRef, "rootfs.squashfs")
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "rootfs.squashfs: %v", err)
@@ -321,12 +358,6 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	}
 	if len(verity) > upgradeMaxHashBytes {
 		return status.Errorf(codes.FailedPrecondition, "rootfs.verity is %d bytes, exceeds the %d-byte BOOT-*-HASH partition size", len(verity), upgradeMaxHashBytes)
-	}
-
-	ukiName := fmt.Sprintf("uki-%s.efi", strings.ToLower(bc.targetSlot))
-	uki, err := fetchBundleFile(ctx, bundleRef, ukiName)
-	if err != nil {
-		return status.Errorf(codes.FailedPrecondition, "%s: %v - does this bundle include a UKI for slot %s? (see image/release/assemble.sh)", ukiName, err, bc.targetSlot)
 	}
 
 	targetDataDev, _ := bootslot.SlotDataDevice(bc.disk, bc.targetSlot)
@@ -392,7 +423,7 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return err
 	}
 
-	events.Publish("lifecycle.upgrade", map[string]any{"from": bc.currentSlot, "to": bc.targetSlot, "source": req.GetSource().GetReference(), "wait_for_health": req.GetWaitForHealth()})
+	events.Publish("lifecycle.upgrade", map[string]any{"from": bc.currentSlot, "to": bc.targetSlot, "source": req.GetSource().GetReference(), "wait_for_health": req.GetWaitForHealth(), "signature": signature})
 	scheduleReboot()
 	return nil
 }

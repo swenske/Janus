@@ -190,7 +190,7 @@ done
 # this is the one line that actually differs from
 # hack/qemu-lifecycle-upgrade-test.sh's own equivalent call ---
 V2_SHA256="$(cat "$V2_BUNDLE/rootfs.squashfs.sha256")"
-UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -sha256 "$V2_SHA256" "$BUNDLE_URL")"
+UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -insecure-skip-signature-check -sha256 "$V2_SHA256" "$BUNDLE_URL")"
 echo "$UPGRADE_OUT"
 if ! echo "$UPGRADE_OUT" | grep -qi "downloading"; then
   echo "Upgrade URL test FAILED: janusctl lifecycle upgrade never reported a 'downloading' stage - did fetchBundleFile take the local-path branch instead of the URL one?" >&2

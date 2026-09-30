@@ -49,6 +49,8 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 			SHA256               string `json:"sha256"`
 			WaitForHealth        bool   `json:"wait_for_health"`
 			HealthTimeoutSeconds uint32 `json:"health_timeout_seconds"`
+			// Development bundles only - see ImageSource's own field.
+			InsecureSkipSignatureCheck bool `json:"insecure_skip_signature_check"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
@@ -64,7 +66,7 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 			return
 		}
 
-		runUpgrade(w, r, janusv1alpha1.NewLifecycleServiceClient(conn), req.Reference, req.SHA256, req.WaitForHealth, req.HealthTimeoutSeconds)
+		runUpgrade(w, r, janusv1alpha1.NewLifecycleServiceClient(conn), &janusv1alpha1.ImageSource{Reference: req.Reference, Sha256: req.SHA256, InsecureSkipSignatureCheck: req.InsecureSkipSignatureCheck}, req.WaitForHealth, req.HealthTimeoutSeconds)
 	})
 
 	mux.HandleFunc("/api/lifecycle/upgrade-upload", func(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +115,7 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 	var sha256Value string
 	var waitForHealth bool
 	var healthTimeoutSeconds uint32
+	var insecureSkipSignatureCheck bool
 	var stagingDir string
 	seen := map[string]bool{}
 
@@ -131,6 +134,8 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 			sha256Value = readFormValue(part)
 		case "wait_for_health":
 			waitForHealth = readFormValue(part) == "true"
+		case "insecure_skip_signature_check":
+			insecureSkipSignatureCheck = readFormValue(part) == "true"
 		case "health_timeout_seconds":
 			if n, err := strconv.Atoi(readFormValue(part)); err == nil && n > 0 {
 				healthTimeoutSeconds = uint32(n)
@@ -156,7 +161,7 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 		}
 	}
 
-	runUpgrade(w, r, client, stagingDir, sha256Value, waitForHealth, healthTimeoutSeconds)
+	runUpgrade(w, r, client, &janusv1alpha1.ImageSource{Reference: stagingDir, Sha256: sha256Value, InsecureSkipSignatureCheck: insecureSkipSignatureCheck}, waitForHealth, healthTimeoutSeconds)
 }
 
 func readFormValue(part *multipart.Part) string {
@@ -215,12 +220,12 @@ func relayReleaseFile(ctx context.Context, client janusv1alpha1.LifecycleService
 // the intermediate stages, and Upgrade's own connection dies with the
 // node's reboot regardless, well before any health confirmation or
 // possible revert (see internal/api/lifecycle.go's own doc comment).
-func runUpgrade(w http.ResponseWriter, r *http.Request, client janusv1alpha1.LifecycleServiceClient, reference, sha256Value string, waitForHealth bool, healthTimeoutSeconds uint32) {
+func runUpgrade(w http.ResponseWriter, r *http.Request, client janusv1alpha1.LifecycleServiceClient, source *janusv1alpha1.ImageSource, waitForHealth bool, healthTimeoutSeconds uint32) {
 	ctx, cancel := context.WithTimeout(r.Context(), upgradeUploadTimeout)
 	defer cancel()
 
 	stream, err := client.Upgrade(ctx, &janusv1alpha1.UpgradeRequest{
-		Source:               &janusv1alpha1.ImageSource{Reference: reference, Sha256: sha256Value},
+		Source:               source,
 		WaitForHealth:        waitForHealth,
 		HealthTimeoutSeconds: healthTimeoutSeconds,
 	})

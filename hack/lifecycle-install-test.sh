@@ -197,7 +197,7 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
   -keyout "$WORKDIR/controller-ca.key" -out "$WORKDIR/controller-ca.crt" -days 1 -nodes -subj "/CN=test Controller CA" >/dev/null 2>&1
 CONTROLLER_ADDRESS="10.20.30.40:8443"
 
-INSTALL_OUT="$(sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -sha256 "$SHA256" \
+INSTALL_OUT="$(sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
   -controller-address "$CONTROLLER_ADDRESS" -controller-ca "$WORKDIR/controller-ca.crt" \
   "$BLANK_DISK" "$BUNDLE")"
 echo "$INSTALL_OUT"
@@ -212,7 +212,7 @@ echo "Part 1 OK: Install partitioned a blank file from scratch and wrote a full 
 # own InstallRequest doc comment: no trust-on-first-use allowed) -
 # checked against janusctl's own client-side validation, which fails
 # before even dialing janusd.
-if sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -sha256 "$SHA256" \
+if sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
   -controller-address "$CONTROLLER_ADDRESS" "$WORKDIR/unused-disk.img" "$BUNDLE" 2>"$WORKDIR/no-ca-denied.log"; then
   echo "Install test FAILED: -controller-address without -controller-ca should be refused" >&2
   exit 1
@@ -249,7 +249,7 @@ done
 echo "Part 2 OK: partition table verified independently via sgdisk"
 
 # --- Install onto an already-installed disk must be refused ---
-if sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -sha256 "$SHA256" "$BLANK_DISK" "$BUNDLE" 2>"$WORKDIR/reinstall-denied.log"; then
+if sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" "$BLANK_DISK" "$BUNDLE" 2>"$WORKDIR/reinstall-denied.log"; then
   echo "Install test FAILED: a second Install onto the already-installed disk succeeded, want a refusal" >&2
   exit 1
 fi
@@ -314,7 +314,7 @@ BOOTED_CTL_ARGS=(-endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -
 
 # --- Install targeting the disk this instance is currently booted
 # from (/dev/vda - the only drive attached) must be refused ---
-if "$CTL" "${BOOTED_CTL_ARGS[@]}" lifecycle install -sha256 "$SHA256" /dev/vda /etc/.state 2>"$WORKDIR/self-install-denied.log"; then
+if "$CTL" "${BOOTED_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" /dev/vda /etc/.state 2>"$WORKDIR/self-install-denied.log"; then
   echo "Install test FAILED: Install against this node's own boot disk (/dev/vda) succeeded, want a refusal" >&2
   exit 1
 fi

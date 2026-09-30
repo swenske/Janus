@@ -52,11 +52,23 @@ message ImageSource {
   // A local directory on this node's own filesystem (e.g. a
   // UploadReleaseFile staging_dir), or an "http://"/"https://" base URL
   // this node fetches "rootfs.squashfs"/"rootfs.verity"/
-  // "uki-<slot>.efi" from itself. Signature verification beyond the
-  // sha256 check below isn't implemented yet - flagged as a later
-  // hardening step.
+  // "uki-<slot>.efi" from itself.
+  //
+  // Before anything is written, every UKI taken from the bundle must
+  // carry an Authenticode signature from a release signing certificate
+  // built into janusd (internal/releasetrust). The UKI's command line
+  // holds the rootfs's dm-verity root hash, so a verified UKI
+  // authenticates the whole bundle, whatever transport or relay it came
+  // through.
   string reference = 1;
+  // Optional sha256 of rootfs.squashfs - an early consistency check,
+  // not the authentication (see above).
   string sha256 = 2;
+  // Accept a UKI that isn't signed by a trusted release certificate.
+  // For development and test bundles only: without the signature
+  // check, whoever can alter the bundle on its way to the node (an
+  // http:// mirror, a compromised download) controls what it boots.
+  bool insecure_skip_signature_check = 3;
 }
 
 message InstallRequest {

@@ -22,6 +22,7 @@ export default function Update() {
   const [files, setFiles] = useState({})
   const [waitHealth, setWaitHealth] = useState(true)
   const [timeout, setTimeoutS] = useState('')
+  const [allowUnsigned, setAllowUnsigned] = useState(false)
   const [following, setFollowing] = useState(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
@@ -51,13 +52,18 @@ export default function Update() {
           ) : (
             <p className="muted">No automatic revert: the node stays on the new slot whatever happens.</p>
           )}
+          {allowUnsigned && (
+            <p>
+              <strong>The bundle's signature won't be checked.</strong> Whoever could alter it on its way to the node controls what the node boots - only for a development build you produced yourself.
+            </p>
+          )}
         </>
       ),
       action: 'Install and reboot',
       danger: true,
     })
     if (!ok) return
-    const health = { wait_for_health: waitHealth, health_timeout_seconds: Number(timeout) || 0 }
+    const health = { wait_for_health: waitHealth, health_timeout_seconds: Number(timeout) || 0, insecure_skip_signature_check: allowUnsigned }
     const result = await run(async () => {
       if (mode === 'url') return postJSON('/api/lifecycle/upgrade-url', { reference, sha256: sha, ...health })
       const form = new FormData()
@@ -65,6 +71,7 @@ export default function Update() {
       form.append('sha256', sha)
       form.append('wait_for_health', String(waitHealth))
       form.append('health_timeout_seconds', String(Number(timeout) || 0))
+      form.append('insecure_skip_signature_check', String(allowUnsigned))
       const resp = await fetch('/api/lifecycle/upgrade-upload', { method: 'POST', body: form })
       if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
       return resp.json()
@@ -163,6 +170,12 @@ export default function Update() {
             </label>
             {waitHealth && <input type="number" min={0} style={{ width: '9rem' }} placeholder="timeout (60 s)" value={timeout} onChange={(e) => setTimeoutS(e.target.value)} />}
           </div>
+          <label className="check">
+            <input type="checkbox" checked={allowUnsigned} onChange={(e) => setAllowUnsigned(e.target.checked)} /> Accept a bundle not signed with a Janus release key (insecure - development builds only)
+          </label>
+          <p className="muted small" style={{ margin: 0 }}>
+            The node checks the release signature before writing anything; the sha256 above is only an early consistency check.
+          </p>
           <div>
             <button className="danger solid" disabled={busy || !ready || !!following || !v?.active_slot} onClick={launch}>
               <Rocket size={15} /> {busy ? (mode === 'upload' ? 'Uploading…' : 'Installing…') : 'Install and reboot…'}

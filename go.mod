@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/diskfs/go-diskfs v1.9.4
+	github.com/foxboron/go-uefi v0.0.0-20251010190908-d29549a44f29
 	golang.org/x/crypto v0.57.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sys v0.48.0
@@ -19,8 +20,10 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkg/xattr v0.4.12 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
+	github.com/spf13/afero v1.9.3 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect

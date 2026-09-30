@@ -60,6 +60,21 @@ back automatically (`Rollback`) - no manual intervention needed.
 - The squashfs rootfs is mounted through **dm-verity**, so any tampering
   with the on-disk image (not just the boot chain) is detected at mount
   time, not silently trusted.
+- **Updates are authenticated on the node, before anything is written**,
+  whether or not its firmware enforces Secure Boot. `Upgrade` and
+  `Install` refuse a bundle whose UKI isn't signed by a release
+  certificate built into `janusd` (`internal/releasetrust`, a copy of
+  `image/secureboot/production-cert.pem`). The UKI's signed command line
+  pins the rootfs's dm-verity root hash, so verifying the UKI
+  authenticates the whole bundle, whatever transport or relay it came
+  through. `ImageSource.insecure_skip_signature_check` opts out, for
+  development and test bundles only.
+- **Release pipeline:** the bundle a GitHub Release publishes is the one
+  signed in CI (`iso-image-with-bundle` with `SIGNING_KEY`/
+  `SIGNING_CERT`), and publication fails if its UKIs don't verify against
+  the production certificate. Rotating the key means adding the new
+  certificate to `internal/releasetrust/certs/` and keeping the old one
+  until every node trusts the new one.
 
 ## mTLS / PKI
 

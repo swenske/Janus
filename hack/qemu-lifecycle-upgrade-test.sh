@@ -260,7 +260,32 @@ done
 # readable from the host running janusctl), so the sha256 is passed
 # explicitly instead, computed from the real, host-local bundle. ---
 V2_SHA256="$(cat "$V2_BUNDLE/rootfs.squashfs.sha256")"
-UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -sha256 "$V2_SHA256" "$GUEST_BUNDLE_PATH")"
+
+# --- first without -insecure-skip-signature-check: this bundle's UKIs
+# are unsigned, so the node must refuse it before writing anything, and
+# must not reboot (internal/releasetrust, checked in Upgrade before any
+# write). ---
+set +e
+REFUSED_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -sha256 "$V2_SHA256" "$GUEST_BUNDLE_PATH" 2>&1)"
+REFUSED_RC=$?
+set -e
+echo "$REFUSED_OUT"
+if [ "$REFUSED_RC" -eq 0 ] || ! echo "$REFUSED_OUT" | grep -q "isn't signed"; then
+  echo "Upgrade test FAILED: an unsigned bundle wasn't refused (exit $REFUSED_RC)" >&2
+  exit 1
+fi
+if echo "$REFUSED_OUT" | grep -qi "writing-data\|switching-slot\|rebooting"; then
+  echo "Upgrade test FAILED: the refused upgrade got as far as writing or rebooting" >&2
+  exit 1
+fi
+sleep 5 # longer than Upgrade's own delayed reboot (replyGrace)
+if [ "$(grep -c "$MARKER" "$A_LOG")" -ne 1 ]; then
+  echo "Upgrade test FAILED: the node rebooted after refusing an unsigned bundle" >&2
+  exit 1
+fi
+echo "Unsigned bundle refused without the opt-out, nothing written, no reboot"
+
+UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -insecure-skip-signature-check -sha256 "$V2_SHA256" "$GUEST_BUNDLE_PATH")"
 echo "$UPGRADE_OUT"
 if ! echo "$UPGRADE_OUT" | grep -qi "rebooting"; then
   echo "Upgrade test FAILED: janusctl lifecycle upgrade never reached the 'rebooting' stage" >&2
