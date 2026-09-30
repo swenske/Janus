@@ -27,13 +27,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/nocloud"
 )
 
@@ -118,66 +118,6 @@ func mountEphemeral() {
 var etcSeedFiles = []string{
 	"/etc/haproxy/haproxy.cfg",
 	"/etc/ssl/certs/ca-certificates.crt",
-}
-
-// parsePnpNameservers extracts "nameserver <ip>" lines from
-// /proc/net/pnp's own content - see writeResolvConf's doc comment for
-// why this exists. Kept pure/dependency-free so it has a real unit test
-// without needing a real kernel-DHCP boot to produce that file.
-func parsePnpNameservers(pnp []byte) []string {
-	var out []string
-	for _, line := range strings.Split(string(pnp), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 2 && fields[0] == "nameserver" {
-			out = append(out, fields[1])
-		}
-	}
-	return out
-}
-
-// writeResolvConf writes /etc/resolv.conf from whatever nameserver(s) the
-// kernel's own IP_PNP DHCP client (ip=dhcp) recorded in /proc/net/pnp -
-// found genuinely missing, not anticipated: kernel-builtin DHCP only
-// ever configures the interface's address/netmask/gateway, it has no
-// mechanism to write a resolver file anywhere, and nothing here ever
-// did either, since no prior boot had a reason to resolve a hostname at
-// all. A real alpha deployment (VM 223 on a real VLAN, real DHCP
-// server, real internal DNS) provisioned with a Controller *hostname*
-// (LifecycleService.Install's controller_address) and its self-
-// registration attempt failed outright with "dial udp: lookup
-// ...: read udp [::1]:53: read: connection refused" - Go's resolver
-// falling back to a loopback nameserver with nothing listening on it.
-// Every QEMU-based self-register test in this project
-// (hack/qemu-self-register-test.sh) dials its Controller by IP
-// (10.0.2.2, QEMU usermode networking's own fixed gateway address) and
-// so never exercised hostname resolution at all - exactly why no
-// existing test ever caught this. Has to run after mountEphemeral
-// overmounts /etc with a writable tmpfs, same ordering constraint
-// mountState's own pki//haproxy/ writes have. Missing/empty
-// /proc/net/pnp (no IP_PNP, or DHCP never completed) is non-fatal, same
-// tolerant pattern every other optional step in this file uses: logged,
-// /etc/resolv.conf simply stays absent, and any later hostname lookup
-// fails the same way it always did before this existed.
-func writeResolvConf() {
-	pnp, err := os.ReadFile("/proc/net/pnp")
-	if err != nil {
-		fmt.Printf("init: read /proc/net/pnp: %v\n", err)
-		return
-	}
-	nameservers := parsePnpNameservers(pnp)
-	if len(nameservers) == 0 {
-		fmt.Println("init: no DHCP-provided nameserver in /proc/net/pnp, leaving /etc/resolv.conf absent")
-		return
-	}
-	var sb strings.Builder
-	for _, ns := range nameservers {
-		sb.WriteString("nameserver " + ns + "\n")
-	}
-	if err := os.WriteFile("/etc/resolv.conf", []byte(sb.String()), 0o644); err != nil {
-		fmt.Printf("init: write /etc/resolv.conf: %v\n", err)
-		return
-	}
-	fmt.Printf("init: wrote /etc/resolv.conf with %d nameserver(s) from /proc/net/pnp\n", len(nameservers))
 }
 
 // mountState mounts the pre-formatted, persistent STATE partition (see
@@ -300,6 +240,17 @@ func mountState() {
 	} else {
 		bindMount(ctrlDir, "/etc/janus/controller")
 	}
+
+	// network/: the node's confirmed network configuration
+	// (internal/netconfig.Dir - a literal here too), written by janusd on
+	// NetworkConfigConfirm, or at provisioning time (Install, `janusctl
+	// image seed`, NoCloud). Absent: the defaults (kernel boot DHCP).
+	netDir := filepath.Join(stateRoot, "network")
+	if err := os.MkdirAll(netDir, 0o755); err != nil {
+		fmt.Printf("init: mkdir %s: %v\n", netDir, err)
+	} else {
+		bindMount(netDir, "/etc/janus/network")
+	}
 }
 
 func seedPersistentHaproxyCfg(dir string) {
@@ -331,32 +282,38 @@ func seedPersistentHaproxyCfg(dir string) {
 	}
 }
 
-// seedControllerFromNoCloud is the external, delivered-at-boot
-// complement to internal/diskseed's embedded-at-image-generation-time
-// approach (see internal/nocloud's own package doc for the full
-// reasoning and the Talos precedent behind both) - a locally-attached
-// volume labeled "cidata"/"CIDATA" can carry controller_address/
-// controller_ca_cert for a shared, generic image that was never seeded
-// at all. Runs after mountState so /etc/janus/controller is already
-// the real, writable, bind-mounted STATE directory - a plain
-// os.WriteFile here, unlike internal/diskseed's own go-diskfs dance,
-// since this is a genuinely mounted filesystem now, not a raw disk file
-// being patched cold.
+// seedFromNoCloud is the external, delivered-at-boot complement to
+// internal/diskseed's embedded-at-image-generation-time approach (see
+// internal/nocloud's own package doc for the full reasoning and the
+// Talos precedent behind both) - a locally-attached volume labeled
+// "cidata"/"CIDATA" can carry a Controller (controller_address/
+// controller_ca_cert) and a network configuration for a shared, generic
+// image that was never seeded at all. Runs after mountState so
+// /etc/janus/controller and /etc/janus/network are already the real,
+// writable, bind-mounted STATE directories - plain file writes here,
+// unlike internal/diskseed's own go-diskfs dance, since this is a
+// genuinely mounted filesystem now, not a raw disk file being patched
+// cold. Before janusd starts, so the network configuration applies from
+// this very boot.
 //
-// Never overwrites an already-provisioned config (LifecycleService.
-// Install or internal/diskseed.SeedController already ran) - checked by
-// a plain os.Stat, the same "don't clobber what's already there"
-// philosophy both of those already apply on the writing side. Scans
-// virtio-blk whole-disk devices only (internal/nocloud.ScanBlockDevices),
-// excluding this node's own boot disk (internal/bootslot.Disk off
-// /proc/cmdline, same resolution resolveStateDevice already trusts) -
-// non-fatal at every step, same tolerant pattern as everything else in
-// this file: the overwhelming majority of boots have no such volume
-// attached at all, and that's not an error.
-func seedControllerFromNoCloud() {
+// Never overwrites what's already provisioned (by Install, diskseed, an
+// earlier NoCloud boot, or - for the network - a confirmed
+// NetworkConfigApply): each part is only written if absent, the same
+// "don't clobber what's already there" philosophy the other paths apply
+// on the writing side. Scans virtio-blk whole-disk devices only
+// (internal/nocloud.ScanBlockDevices), excluding this node's own boot
+// disk (internal/bootslot.Disk off /proc/cmdline, same resolution
+// resolveStateDevice already trusts) - non-fatal at every step, same
+// tolerant pattern as everything else in this file: the overwhelming
+// majority of boots have no such volume attached at all, and that's not
+// an error.
+func seedFromNoCloud() {
 	const addressPath = "/etc/janus/controller/address"
-	if _, err := os.Stat(addressPath); err == nil {
-		return // already provisioned (Install or diskseed) - never overwrite
+	_, err := os.Stat(addressPath)
+	haveController := err == nil
+	haveNetwork := netconfig.Exists()
+	if haveController && haveNetwork {
+		return
 	}
 
 	var bootDisk string
@@ -384,6 +341,17 @@ func seedControllerFromNoCloud() {
 		return
 	}
 
+	if !haveNetwork && cfg.Network != nil {
+		if err := netconfig.Save(cfg.Network); err != nil {
+			fmt.Printf("init: nocloud: save the network configuration: %v\n", err)
+		} else {
+			fmt.Printf("init: nocloud: seeded network config from %s\n", volume)
+		}
+	}
+
+	if haveController || cfg.ControllerAddress == "" {
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(addressPath), 0o755); err != nil {
 		fmt.Printf("init: nocloud: mkdir %s: %v\n", filepath.Dir(addressPath), err)
 		return
@@ -526,6 +494,13 @@ func hardenSysctls() {
 		// connections from the internet as a reverse proxy/load
 		// balancer, exactly the exposure tcp_syncookies protects.
 		"/proc/sys/net/ipv4/tcp_syncookies": "1",
+		// Not hardening, but a network sysctl every node needs: when an
+		// interface's primary IPv4 address is removed (janusd moving it
+		// to another one in the same subnet), promote a secondary rather
+		// than delete them all with it - the kernel's default, which a
+		// real reconfiguration hit (internal/netmgr).
+		"/proc/sys/net/ipv4/conf/all/promote_secondaries":     "1",
+		"/proc/sys/net/ipv4/conf/default/promote_secondaries": "1",
 		// VFS-level protections against following an attacker-created
 		// hardlink/symlink in a world-writable sticky directory - no
 		// such directory actually exists on this rootfs today, but this
@@ -605,10 +580,11 @@ func main() {
 	mount("devtmpfs", "/dev", "devtmpfs")
 	hardenSysctls()
 	mountEphemeral()
-	writeResolvConf()
+	// /etc/resolv.conf, like the rest of the network, is janusd's
+	// (internal/netmgr): the kernel's boot DHCP resolvers by default.
 	mountState()
 	mountReleaseBundle()
-	seedControllerFromNoCloud()
+	seedFromNoCloud()
 	pendingMarker := checkBootCommit()
 
 	release, err := os.ReadFile("/proc/sys/kernel/osrelease")
@@ -648,8 +624,10 @@ func startDaemon(pendingMarker *bootcommit.Marker) {
 	fmt.Println("JANUS_INIT_BOOT_OK")
 
 	sv := &Supervisor{
-		Path:       daemonPath,
-		Args:       []string{"-addr", ":9505"},
+		Path: daemonPath,
+		// -manage-host: janusd owns this node's network, hostname and
+		// clock (off by default, for janusd run anywhere else).
+		Args:       []string{"-addr", ":9505", "-manage-host"},
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
 		MinBackoff: 1 * time.Second,

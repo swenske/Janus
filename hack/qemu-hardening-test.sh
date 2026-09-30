@@ -45,6 +45,8 @@ declare -A EXPECTED=(
   ["/proc/sys/net/ipv4/icmp_echo_ignore_broadcasts"]="1"
   ["/proc/sys/net/ipv4/icmp_ignore_bogus_error_responses"]="1"
   ["/proc/sys/net/ipv4/tcp_syncookies"]="1"
+  ["/proc/sys/net/ipv4/conf/all/promote_secondaries"]="1"
+  ["/proc/sys/net/ipv4/conf/default/promote_secondaries"]="1"
 )
 
 LOG="$(mktemp)"
