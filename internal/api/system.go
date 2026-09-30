@@ -43,16 +43,16 @@ func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Ve
 	return &janusv1alpha1.VersionResponse{
 		Version:       s.BuildVersion,
 		GoVersion:     runtime.Version(),
-		KernelVersion: readKernelVersion(),
-		ActiveSlot:    currentActiveSlot(),
+		KernelVersion: KernelVersion(),
+		ActiveSlot:    CurrentActiveSlot(),
 	}, nil
 }
 
-// readKernelVersion reads /proc/sys/kernel/osrelease (e.g. "6.18.53") -
+// KernelVersion reads /proc/sys/kernel/osrelease (e.g. "6.18.53") -
 // the same value `uname -r` reports, simpler to read than parsing
 // /proc/version's full free-form string. Empty on any read error - this
 // field is informational, never worth failing Version over.
-func readKernelVersion() string {
+func KernelVersion() string {
 	data, err := os.ReadFile("/proc/sys/kernel/osrelease")
 	if err != nil {
 		return ""
@@ -60,13 +60,13 @@ func readKernelVersion() string {
 	return strings.TrimSpace(string(data))
 }
 
-// currentActiveSlot best-effort resolves which A/B slot this boot came
+// CurrentActiveSlot best-effort resolves which A/B slot this boot came
 // from, the same way internal/api/lifecycle.go's resolveBootContext
 // does - but never errors: an initramfs-only test boot, or any other
 // non-A/B boot, legitimately has no slot to report, and that's not a
 // reason to fail Version (unlike Rollback, which genuinely can't
 // proceed without one).
-func currentActiveSlot() string {
+func CurrentActiveSlot() string {
 	cmdline, err := os.ReadFile("/proc/cmdline")
 	if err != nil {
 		return ""

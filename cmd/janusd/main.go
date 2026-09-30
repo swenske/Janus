@@ -119,7 +119,9 @@ func main() {
 	// boot without needing an API call first. Not fatal: a dev build
 	// without the haproxy binary in place should still serve the gRPC
 	// API for everything else.
+	haproxyRunning := true
 	if err := haproxyMgr.Reload(); err != nil {
+		haproxyRunning = false
 		log.Printf("haproxy: initial start failed (continuing without it): %v", err)
 	}
 
@@ -157,6 +159,14 @@ func main() {
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
+	printMOTD(motdInfo{
+		Version:        version,
+		KernelVersion:  api.KernelVersion(),
+		ActiveSlot:     api.CurrentActiveSlot(),
+		APIAddresses:   apiAddresses(*addr, pki.LocalIPs()),
+		HAProxyRunning: haproxyRunning,
+		FirstBoot:      pkiBootstrap.AdminIssued,
+	})
 	if err := srv.Serve(lis); err != nil {
 		fmt.Fprintln(os.Stderr, "serve:", err)
 		os.Exit(1)
