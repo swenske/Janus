@@ -209,7 +209,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  pki generate-client-config [-role os:admin|os:reader] DIR  issue a new client certificate, write ca.crt/client.crt/client.key to DIR")
 	fmt.Fprintln(os.Stderr, "  lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] [-network-config FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR  partition a blank DISK from scratch and write a release bundle (image/release/assemble.sh) to both A/B slots - does not reboot anything; -controller-address/-controller-ca make the installed node self-register with that Controller on first boot")
 	fmt.Fprintln(os.Stderr, "  lifecycle rollback         switch the ESP to the other A/B slot's staged UKI and reboot into it")
-	fmt.Fprintln(os.Stderr, "  lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] BUNDLE_DIR  write a release bundle (image/release/assemble.sh), whose UKIs must be signed by a Janus release key, to the inactive slot, switch, and reboot into it - with -wait-for-health, reverts and reboots back automatically if the new slot never stays up long enough to confirm healthy")
+	fmt.Fprintln(os.Stderr, "  lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] BUNDLE_DIR  write a release bundle (image/release/assemble.sh), whose UKIs must be signed by a Janus release key, to the inactive slot, switch, and reboot into it - with -wait-for-health, reverts and reboots back automatically if the new slot never stays up long enough to confirm healthy")
 	fmt.Fprintln(os.Stderr, "  lifecycle upload-release BUNDLE_DIR  stream a local release bundle's 4 files to this node's own staging storage, for a node that can't dial out to fetch one itself - prints the staging path to pass as BUNDLE_DIR to a later 'lifecycle upgrade'")
 	fmt.Fprintln(os.Stderr, "  image seed-network -config FILE DISK  write a network configuration onto an already-built DISK's STATE partition, offline, applied from the node's first boot (raw disk images only)")
 	fmt.Fprintln(os.Stderr, "  image seed-controller -controller-address HOST:PORT -controller-ca FILE DISK  write controller self-registration config directly onto an already-built DISK's existing STATE partition - no janusd/gRPC needed, doesn't touch partitioning or the rootfs (raw disk images only; qemu-img convert a qcow2 to raw first, see docs/provisioning-a-node.md)")
@@ -230,6 +230,12 @@ func runVersion(conn *grpc.ClientConn) {
 		log.Fatalf("Version: %v", err)
 	}
 	fmt.Println("Node:", resp.GetVersion())
+	if resp.GetSchematicId() != "" {
+		fmt.Println("Image schematic:", resp.GetSchematicId())
+	}
+	for _, e := range resp.GetExtensions() {
+		fmt.Printf("Extension: %s %s\n", e.GetName(), e.GetVersion())
+	}
 }
 
 // runSystem is the dashboard's own planned single-node fetch, bundled
@@ -437,9 +443,10 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		waitForHealth := fs.Bool("wait-for-health", false, "revert and reboot back to the current slot automatically if the new slot doesn't stay up long enough to confirm healthy (see -health-timeout) - the revert itself happens on the node, not over this call, which still returns as soon as it reboots")
 		healthTimeout := fs.Uint("health-timeout", 0, "seconds the new slot's janusd has to keep running before it's considered healthy and the upgrade is confirmed; 0 uses the node's own default (60s) - only meaningful with -wait-for-health")
 		insecureSkip := fs.Bool("insecure-skip-signature-check", false, "accept UKIs not signed by a Janus release key - development bundles only: without the check, whoever can alter the bundle on its way to the node controls what it boots")
+		allowSchematic := fs.Bool("allow-schematic-change", false, "accept a bundle built from another image schematic than the node's own - without it, an update that would drop the node's extensions is refused")
 		_ = fs.Parse(args[1:])
 		if fs.NArg() != 1 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] BUNDLE_DIR")
+			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] BUNDLE_DIR")
 			os.Exit(2)
 		}
 		bundleDir := fs.Arg(0)
@@ -459,7 +466,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		c, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		stream, err := janusv1alpha1.NewLifecycleServiceClient(conn).Upgrade(c, &janusv1alpha1.UpgradeRequest{
-			Source:               &janusv1alpha1.ImageSource{Reference: bundleDir, Sha256: sum, InsecureSkipSignatureCheck: *insecureSkip},
+			Source:               &janusv1alpha1.ImageSource{Reference: bundleDir, Sha256: sum, InsecureSkipSignatureCheck: *insecureSkip, AllowSchematicChange: *allowSchematic},
 			WaitForHealth:        *waitForHealth,
 			HealthTimeoutSeconds: uint32(*healthTimeout),
 		})

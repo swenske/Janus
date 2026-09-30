@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"debug/pe"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +25,7 @@ import (
 	"github.com/swenske/Janus/internal/espswitch"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/releasetrust"
+	"github.com/swenske/Janus/internal/schematic"
 )
 
 // Lifecycle implements janusv1alpha1.LifecycleServiceServer.
@@ -158,6 +161,54 @@ func checkUKISignature(src *janusv1alpha1.ImageSource, name string, uki []byte) 
 		return "", status.Errorf(codes.FailedPrecondition, "%s: %v - only bundles signed with a Janus release key are installed; for a development bundle, set insecure_skip_signature_check", name, err)
 	}
 	return "signature verified", nil
+}
+
+// ukiCmdline returns the kernel command line a UKI carries (its .cmdline
+// PE section).
+func ukiCmdline(uki []byte) (string, error) {
+	f, err := pe.NewFile(bytes.NewReader(uki))
+	if err != nil {
+		return "", fmt.Errorf("not a PE image: %w", err)
+	}
+	defer f.Close()
+	sec := f.Section(".cmdline")
+	if sec == nil {
+		return "", errors.New("no .cmdline section")
+	}
+	data, err := sec.Data()
+	if err != nil {
+		return "", fmt.Errorf("read .cmdline: %w", err)
+	}
+	return strings.TrimSpace(strings.TrimRight(string(data), "\x00")), nil
+}
+
+// checkSchematic refuses a UKI built from another image schematic than
+// the node's (see internal/schematic): a node built with an extension
+// must not lose it to an update built without it. src can allow the
+// change explicitly. Returns what was decided, for progress messages.
+func checkSchematic(src *janusv1alpha1.ImageSource, nodeCmdline string, uki []byte) (string, error) {
+	cmdline, err := ukiCmdline(uki)
+	if err != nil {
+		return "", status.Errorf(codes.FailedPrecondition, "UKI: %v", err)
+	}
+	target, ok := schematic.FromCmdline(cmdline)
+	if !ok {
+		return "", status.Error(codes.FailedPrecondition, "the UKI's janus.schematic= isn't a valid schematic ID")
+	}
+	current, ok := schematic.FromCmdline(nodeCmdline)
+	if !ok {
+		return "", status.Error(codes.FailedPrecondition, "this node's own janus.schematic= isn't a valid schematic ID")
+	}
+	switch {
+	case target == current:
+		return "same image schematic (" + target[:12] + ")", nil
+	case src.GetAllowSchematicChange():
+		log.Printf("lifecycle: schematic change %s -> %s allowed by the caller", current[:12], target[:12])
+		return fmt.Sprintf("image schematic changes from %s to %s (allowed)", current[:12], target[:12]), nil
+	}
+	return "", status.Errorf(codes.FailedPrecondition,
+		"this bundle is built from image schematic %s, but the node runs schematic %s: it would not keep the node's extensions. Use the update built for schematic %s (janus.sw-servers.net), or set allow_schematic_change to switch",
+		target[:12], current[:12], current)
 }
 
 // bootContext is what both Rollback and Upgrade need to know about the
@@ -336,6 +387,19 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return err
 	}
 	if err := send("verifying", 0.2, fmt.Sprintf("%s: %s", ukiName, signature)); err != nil {
+		return err
+	}
+	// The same schematic, so the node keeps its extensions: the UKI's
+	// command line, now authenticated, names the one it was built from.
+	nodeCmdline, err := os.ReadFile("/proc/cmdline")
+	if err != nil {
+		return status.Errorf(codes.Internal, "read /proc/cmdline: %v", err)
+	}
+	schematicMsg, err := checkSchematic(req.GetSource(), string(nodeCmdline), uki)
+	if err != nil {
+		return err
+	}
+	if err := send("verifying", 0.22, fmt.Sprintf("%s: %s", ukiName, schematicMsg)); err != nil {
 		return err
 	}
 
