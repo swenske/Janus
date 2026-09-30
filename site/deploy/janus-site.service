@@ -4,8 +4,11 @@
 # HAProxy, which forwards to :8080 with X-Forwarded-For.
 [Unit]
 Description=Janus companion site (janus.sw-servers.net)
-After=network-online.target
-Wants=network-online.target
+# network.target, not network-online.target: the site only listens, and
+# reaches GitHub lazily. The container's network is ifupdown's, so
+# network-online pulled in systemd-networkd-wait-online, which waited
+# its full 2 minutes on every start before failing.
+After=network.target
 
 [Service]
 User=janus-site
