@@ -57,7 +57,7 @@ are also technically non-mutating).
 | `List` | server | ⬜ | Scoped, read-only file listing - no shell |
 | `Read` | server | ⬜ | Scoped, read-only file content |
 | `Copy` | server | ⬜ | Tar stream of a path |
-| `PacketCapture` | server | ⬜ | tcpdump-equivalent over gRPC |
+| `PacketCapture` | server | ✅ | tcpdump-equivalent over gRPC: pcap stream, kernel-side filter - see [packet-capture.md](packet-capture.md) |
 | `MetaWrite` / `MetaDelete` | | ⬜ | META partition key/value entries |
 | `GenerateClientConfiguration` | | ✅ | Issue an mTLS client cert (`internal/pki`) - 1 year validity, no rotation flow yet |
 

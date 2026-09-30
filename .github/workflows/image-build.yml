@@ -639,6 +639,11 @@ jobs:
       - name: LifecycleService.Upgrade fetches a real GitHub Release over HTTPS
         run: make qemu-lifecycle-upgrade-https-test
 
+      # SystemService.PacketCapture on a real enforcing node, plus the
+      # janusd console banner. See hack/qemu-packet-capture-test.sh.
+      - name: SystemService.PacketCapture captures real traffic
+        run: make qemu-packet-capture-test
+
       # Controller-relay follow-up: the other half - a real
       # LifecycleService.UploadReleaseFile call streams the release
       # bundle to a live node over the same mTLS connection every other

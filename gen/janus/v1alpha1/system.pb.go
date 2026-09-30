@@ -2308,12 +2308,23 @@ func (x *CopyRequest) GetRootPath() string {
 }
 
 type PacketCaptureRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Interface     string                 `protobuf:"bytes,1,opt,name=interface,proto3" json:"interface,omitempty"`
-	BpfFilter     string                 `protobuf:"bytes,2,opt,name=bpf_filter,json=bpfFilter,proto3" json:"bpf_filter,omitempty"`
-	Promiscuous   bool                   `protobuf:"varint,3,opt,name=promiscuous,proto3" json:"promiscuous,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Network interface to capture on (e.g. "eth0", "lo"). Required.
+	Interface string `protobuf:"bytes,1,opt,name=interface,proto3" json:"interface,omitempty"`
+	// tcpdump-style filter expression (e.g. "tcp port 443 and not host
+	// 10.0.0.1"), compiled to classic BPF on the node and attached in the
+	// kernel, so non-matching packets never leave it. Empty captures
+	// everything.
+	BpfFilter   string `protobuf:"bytes,2,opt,name=bpf_filter,json=bpfFilter,proto3" json:"bpf_filter,omitempty"`
+	Promiscuous bool   `protobuf:"varint,3,opt,name=promiscuous,proto3" json:"promiscuous,omitempty"`
+	// Bytes kept per packet; 0 means 65535.
+	SnapLen uint32 `protobuf:"varint,4,opt,name=snap_len,json=snapLen,proto3" json:"snap_len,omitempty"`
+	// Stop after this many seconds, flushing every captured packet before
+	// the stream ends normally. 0 means run until the client cancels (the
+	// last ~200ms of packets may then be lost with the cancellation).
+	DurationSeconds uint32 `protobuf:"varint,5,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PacketCaptureRequest) Reset() {
@@ -2365,6 +2376,20 @@ func (x *PacketCaptureRequest) GetPromiscuous() bool {
 		return x.Promiscuous
 	}
 	return false
+}
+
+func (x *PacketCaptureRequest) GetSnapLen() uint32 {
+	if x != nil {
+		return x.SnapLen
+	}
+	return 0
+}
+
+func (x *PacketCaptureRequest) GetDurationSeconds() uint32 {
+	if x != nil {
+		return x.DurationSeconds
+	}
+	return 0
 }
 
 type MetaWriteRequest struct {
@@ -2726,12 +2751,14 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\vReadRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\"*\n" +
 	"\vCopyRequest\x12\x1b\n" +
-	"\troot_path\x18\x01 \x01(\tR\brootPath\"u\n" +
+	"\troot_path\x18\x01 \x01(\tR\brootPath\"\xbb\x01\n" +
 	"\x14PacketCaptureRequest\x12\x1c\n" +
 	"\tinterface\x18\x01 \x01(\tR\tinterface\x12\x1d\n" +
 	"\n" +
 	"bpf_filter\x18\x02 \x01(\tR\tbpfFilter\x12 \n" +
-	"\vpromiscuous\x18\x03 \x01(\bR\vpromiscuous\":\n" +
+	"\vpromiscuous\x18\x03 \x01(\bR\vpromiscuous\x12\x19\n" +
+	"\bsnap_len\x18\x04 \x01(\rR\asnapLen\x12)\n" +
+	"\x10duration_seconds\x18\x05 \x01(\rR\x0fdurationSeconds\":\n" +
 	"\x10MetaWriteRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\rR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\"%\n" +

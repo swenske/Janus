@@ -67,6 +67,10 @@ service SystemService {
   rpc List(ListRequest) returns (stream FileInfo);
   rpc Read(ReadRequest) returns (stream Data);
   rpc Copy(CopyRequest) returns (stream Data);
+  // PacketCapture streams a live capture as a pcap file (classic
+  // libpcap format, microsecond timestamps), split across Data
+  // messages - concatenate them to get a file tcpdump/Wireshark read
+  // directly. Runs for duration_seconds, or until the client cancels.
   rpc PacketCapture(PacketCaptureRequest) returns (stream Data);
 
   // MetaWrite/MetaDelete manage small key/value entries on the META
@@ -307,9 +311,20 @@ message CopyRequest {
 }
 
 message PacketCaptureRequest {
+  // Network interface to capture on (e.g. "eth0", "lo"). Required.
   string interface = 1;
+  // tcpdump-style filter expression (e.g. "tcp port 443 and not host
+  // 10.0.0.1"), compiled to classic BPF on the node and attached in the
+  // kernel, so non-matching packets never leave it. Empty captures
+  // everything.
   string bpf_filter = 2;
   bool promiscuous = 3;
+  // Bytes kept per packet; 0 means 65535.
+  uint32 snap_len = 4;
+  // Stop after this many seconds, flushing every captured packet before
+  // the stream ends normally. 0 means run until the client cancels (the
+  // last ~200ms of packets may then be lost with the cancellation).
+  uint32 duration_seconds = 5;
 }
 
 message MetaWriteRequest {

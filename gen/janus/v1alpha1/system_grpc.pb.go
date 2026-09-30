@@ -112,6 +112,10 @@ type SystemServiceClient interface {
 	List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileInfo], error)
 	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
 	Copy(ctx context.Context, in *CopyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
+	// PacketCapture streams a live capture as a pcap file (classic
+	// libpcap format, microsecond timestamps), split across Data
+	// messages - concatenate them to get a file tcpdump/Wireshark read
+	// directly. Runs for duration_seconds, or until the client cancels.
 	PacketCapture(ctx context.Context, in *PacketCaptureRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
 	// MetaWrite/MetaDelete manage small key/value entries on the META
 	// partition (outside the immutable rootfs) - install-time metadata,
@@ -590,6 +594,10 @@ type SystemServiceServer interface {
 	List(*ListRequest, grpc.ServerStreamingServer[FileInfo]) error
 	Read(*ReadRequest, grpc.ServerStreamingServer[Data]) error
 	Copy(*CopyRequest, grpc.ServerStreamingServer[Data]) error
+	// PacketCapture streams a live capture as a pcap file (classic
+	// libpcap format, microsecond timestamps), split across Data
+	// messages - concatenate them to get a file tcpdump/Wireshark read
+	// directly. Runs for duration_seconds, or until the client cancels.
 	PacketCapture(*PacketCaptureRequest, grpc.ServerStreamingServer[Data]) error
 	// MetaWrite/MetaDelete manage small key/value entries on the META
 	// partition (outside the immutable rootfs) - install-time metadata,

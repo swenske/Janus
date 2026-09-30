@@ -12,8 +12,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -105,11 +107,76 @@ func dial(endpoint, caFile, certFile, keyFile string) (*grpc.ClientConn, error) 
 	return conn, nil
 }
 
+// runPcap streams SystemService.PacketCapture's pcap bytes to a file or
+// stdout until -duration elapses or the user interrupts.
+func runPcap(conn *grpc.ClientConn, args []string) {
+	fs := flag.NewFlagSet("system pcap", flag.ExitOnError)
+	iface := fs.String("i", "", "interface to capture on (required, e.g. eth0)")
+	filter := fs.String("f", "", "tcpdump-style filter expression (see docs/packet-capture.md for the supported subset)")
+	promisc := fs.Bool("promisc", false, "put the interface in promiscuous mode for the capture's duration")
+	snapLen := fs.Uint("snaplen", 0, "bytes kept per packet (0 = 65535)")
+	duration := fs.Duration("duration", 0, "stop after this long, rounded up to whole seconds (0 = until interrupted)")
+	out := fs.String("o", "-", "output pcap file, - for stdout")
+	_ = fs.Parse(args)
+	if *iface == "" || fs.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "usage: janusctl system pcap -i IFACE [-f FILTER] [-promisc] [-snaplen N] [-duration D] [-o FILE]")
+		os.Exit(2)
+	}
+
+	var w io.Writer = os.Stdout
+	if *out != "-" {
+		f, err := os.Create(*out)
+		if err != nil {
+			log.Fatalf("create %s: %v", *out, err)
+		}
+		defer f.Close()
+		w = f
+	}
+
+	// -duration is enforced by the node itself (duration_seconds), so it
+	// flushes its last packets and ends the stream cleanly; Ctrl-C is the
+	// only client-side stop.
+	c, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	seconds := uint32((*duration + time.Second - 1) / time.Second)
+
+	stream, err := janusv1alpha1.NewSystemServiceClient(conn).PacketCapture(c, &janusv1alpha1.PacketCaptureRequest{
+		Interface:       *iface,
+		BpfFilter:       *filter,
+		Promiscuous:     *promisc,
+		SnapLen:         uint32(*snapLen),
+		DurationSeconds: seconds,
+	})
+	if err != nil {
+		log.Fatalf("PacketCapture: %v", err)
+	}
+	var total int
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			// Our own deadline or Ctrl-C ending the stream is the normal
+			// way a capture stops, not a failure.
+			if err == io.EOF || c.Err() != nil {
+				break
+			}
+			log.Fatalf("PacketCapture: %v", err)
+		}
+		if _, err := w.Write(msg.GetBytes()); err != nil {
+			log.Fatalf("write: %v", err)
+		}
+		total += len(msg.GetBytes())
+	}
+	if *out != "-" {
+		fmt.Fprintf(os.Stderr, "wrote %d bytes to %s\n", total, *out)
+	}
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: janusctl [-endpoint host:port] <command>")
 	fmt.Fprintln(os.Stderr, "commands:")
 	fmt.Fprintln(os.Stderr, "  version                    print janusctl's own version and the connected node's version")
 	fmt.Fprintln(os.Stderr, "  system info                print version/kernel/active slot + memory/CPU/load/disk stats (the dashboard's own single-node fetch)")
+	fmt.Fprintln(os.Stderr, "  system pcap -i IFACE [-f FILTER] [-promisc] [-snaplen N] [-duration D] [-o FILE]  live packet capture as a pcap file (stdout by default - pipe into tcpdump -r - or wireshark -k -i -); see docs/packet-capture.md")
 	fmt.Fprintln(os.Stderr, "  haproxy show-info          HAProxy version/uptime/connections (stats socket)")
 	fmt.Fprintln(os.Stderr, "  haproxy stats              raw 'show stat' CSV from the stats socket")
 	fmt.Fprintln(os.Stderr, "  haproxy get-config         print the currently active haproxy.cfg")
@@ -153,6 +220,10 @@ func runVersion(conn *grpc.ClientConn) {
 // design (Point 2 in the rebranding plan): one HTTP request per node
 // view will call the same set of RPCs this prints.
 func runSystem(conn *grpc.ClientConn, args []string) {
+	if len(args) > 0 && args[0] == "pcap" {
+		runPcap(conn, args[1:])
+		return
+	}
 	if len(args) == 0 || args[0] != "info" {
 		usage()
 		os.Exit(2)
