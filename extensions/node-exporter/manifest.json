@@ -1,0 +1,36 @@
+{
+  "name": "node-exporter",
+  "description": "Prometheus node_exporter: the node's CPU, memory, disk, filesystem and network metrics on :9100/metrics.",
+  "homepage": "https://github.com/prometheus/node_exporter",
+  "arches": ["amd64", "arm64"],
+  "services": [
+    {
+      "id": "node-exporter",
+      "description": "Prometheus host metrics on :9100/metrics",
+      "path": "/usr/local/sbin/node_exporter",
+      "args": [
+        "--web.listen-address=:9100",
+        "--collector.disable-defaults",
+        "--collector.cpu",
+        "--collector.diskstats",
+        "--collector.filefd",
+        "--collector.filesystem",
+        "--collector.loadavg",
+        "--collector.meminfo",
+        "--collector.netdev",
+        "--collector.netstat",
+        "--collector.os",
+        "--collector.pressure",
+        "--collector.sockstat",
+        "--collector.stat",
+        "--collector.time",
+        "--collector.timex",
+        "--collector.uname",
+        "--collector.vmstat"
+      ]
+    }
+  ],
+  "selinux_labels": {
+    "usr/local/sbin/node_exporter": "node_exporter_exec_t"
+  }
+}

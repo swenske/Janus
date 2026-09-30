@@ -83,8 +83,20 @@ trap 'rm -f "$CMDLINE_FILE"' EXIT
   # add it from later.
   enforcing_arg=""
   [ "${UKI_SELINUX_ENFORCING:-1}" = "1" ] && enforcing_arg=" enforcing=1"
-  printf 'console=%s panic=-1 dm-mod.create="%s" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp%s' \
-    "${UKI_CONSOLE:-ttyS0}" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$enforcing_arg"
+  # JANUS_SCHEMATIC: the image schematic's ID (internal/schematic), for an
+  # image built with extensions. Signed with the rest of the cmdline, it's
+  # how the node knows its schematic and how Upgrade keeps it. Unset: the
+  # default schematic (no extension), as in every image built before.
+  schematic_arg=""
+  if [ -n "${JANUS_SCHEMATIC:-}" ]; then
+    if ! [[ "$JANUS_SCHEMATIC" =~ ^[0-9a-f]{64}$ ]]; then
+      echo "JANUS_SCHEMATIC must be a 64-character hex schematic ID, got: $JANUS_SCHEMATIC" >&2
+      exit 1
+    fi
+    schematic_arg=" janus.schematic=$JANUS_SCHEMATIC"
+  fi
+  printf 'console=%s panic=-1 dm-mod.create="%s" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp%s%s' \
+    "${UKI_CONSOLE:-ttyS0}" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$enforcing_arg" "$schematic_arg"
 } > "$CMDLINE_FILE"
 
 mkdir -p "$(dirname "$OUT")"

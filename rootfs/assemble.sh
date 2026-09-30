@@ -48,6 +48,58 @@ install -m 0644 "$SELINUX_POLICY" "$WORKDIR/etc/selinux/janus.policy"
 # ca-certificates.crt is Debian/Ubuntu's own convention and one of the
 # fixed paths Go's stdlib checks.
 install -m 0644 "$CA_BUNDLE" "$WORKDIR/etc/ssl/certs/ca-certificates.crt"
+
+# Optional, by environment (the 7 positional arguments above are shared by
+# many callers that don't need these):
+#   JANUS_SHUTDOWN_BIN  /sbin/shutdown (rootfs/shutdown) - what the QEMU
+#                       guest agent runs for a clean shutdown
+#   JANUS_EXTENSIONS    space-separated extension tars (hack/extpack),
+#                       layered onto the rootfs
+#   JANUS_VERSION       for /usr/lib/os-release's VERSION_ID
+PSEUDO=(
+  -p "var/empty D 0 0000 0 0"
+  -p "sbin/init x security.selinux=system_u:object_r:init_exec_t"
+  -p "sbin/janusd x security.selinux=system_u:object_r:janusd_exec_t"
+  -p "usr/local/sbin/haproxy x security.selinux=system_u:object_r:haproxy_exec_t"
+)
+if [ -n "${JANUS_SHUTDOWN_BIN:-}" ]; then
+  install -m 0755 "$JANUS_SHUTDOWN_BIN" "$WORKDIR/sbin/shutdown"
+  PSEUDO+=(-p "sbin/shutdown x security.selinux=system_u:object_r:shutdown_exec_t")
+fi
+
+# /usr/lib/os-release, not /etc/os-release: /etc is a tmpfs on a running
+# node, and readers (qemu-ga, node_exporter) fall back to /usr/lib.
+mkdir -p "$WORKDIR/usr/lib"
+{
+  echo 'NAME="Janus"'
+  echo 'ID=janus'
+  echo "PRETTY_NAME=\"Janus${JANUS_VERSION:+ $JANUS_VERSION}\""
+  [ -n "${JANUS_VERSION:-}" ] && echo "VERSION_ID=${JANUS_VERSION#v}"
+  echo 'HOME_URL="https://janus.sw-servers.net"'
+} > "$WORKDIR/usr/lib/os-release"
+
+# Extensions: each tar is the extension's file tree, its manifest under
+# usr/lib/janus/extensions/, and a .janus-labels file ("path type" lines)
+# giving the SELinux types of its files. An extension may only add files,
+# never replace one of the base system's or another extension's.
+for ext in ${JANUS_EXTENSIONS:-}; do
+  while IFS= read -r entry; do
+    case "$entry" in */) continue ;; esac
+    if [ -e "$WORKDIR/$entry" ] && [ "$entry" != ".janus-labels" ]; then
+      echo "extension $ext would replace $entry" >&2
+      exit 1
+    fi
+  done < <(tar -tf "$ext")
+  tar -xf "$ext" -C "$WORKDIR" --no-same-owner
+  if [ -f "$WORKDIR/.janus-labels" ]; then
+    while read -r path type; do
+      [ -n "$path" ] || continue
+      PSEUDO+=(-p "$path x security.selinux=system_u:object_r:$type")
+    done < "$WORKDIR/.janus-labels"
+    rm -f "$WORKDIR/.janus-labels"
+  fi
+  echo "Layered extension $(basename "$ext")"
+done
 # /run, /var, /tmp stay empty in the image itself; Phase 3's ephemeral
 # overlay (not implemented yet) is what makes them writable on a booted
 # node.
@@ -88,10 +140,7 @@ mkdir -p "$OUT_DIR"
 # root-mode issue above: it silently vanished from the built image,
 # `mksquashfs` only warned "Could not open ... skipping").
 mksquashfs "$WORKDIR" "$OUT_DIR/rootfs.squashfs" -noappend -comp xz -all-root -root-mode 0755 \
-  -p "var/empty D 0 0000 0 0" \
-  -p "sbin/init x security.selinux=system_u:object_r:init_exec_t" \
-  -p "sbin/janusd x security.selinux=system_u:object_r:janusd_exec_t" \
-  -p "usr/local/sbin/haproxy x security.selinux=system_u:object_r:haproxy_exec_t"
+  "${PSEUDO[@]}"
 
 veritysetup format "$OUT_DIR/rootfs.squashfs" "$OUT_DIR/rootfs.verity" > "$OUT_DIR/rootfs.verity.info"
 grep "^Root hash:" "$OUT_DIR/rootfs.verity.info" | awk '{print $3}' > "$OUT_DIR/rootfs.roothash"

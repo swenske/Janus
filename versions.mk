@@ -32,6 +32,18 @@ ZLIB_VERSION        := 1.3.1
 OPENSSL_VERSION     := 3.5.4
 
 # Optional network features (Phase 5) - versions TBD.
+# Optional extensions (extensions/<name>/, see docs/image-factory.md).
+# node_exporter: upstream's static release binaries, sha256 from its own
+# sha256sums.txt, per architecture.
+NODE_EXPORTER_VERSION      := 1.12.1
+NODE_EXPORTER_SHA256_amd64 := b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63
+NODE_EXPORTER_SHA256_arm64 := ad35b605f9954b9f1ffddf5ba054bdc5a98d790b9eae5291e1eeb83f1ecbd0e7
+# QEMU source for qemu-ga: sha256 of the tarball, pinned after checking its
+# GPG signature (release key CEACC9E15534EBABB82D3FA03353C9CEF108B584,
+# Michael Roth).
+QEMU_VERSION := 11.1.2
+QEMU_SHA256  := 731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016
+
 BIRD_VERSION       :=
 KEEPALIVED_VERSION :=
 

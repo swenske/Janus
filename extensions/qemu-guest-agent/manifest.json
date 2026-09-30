@@ -1,0 +1,23 @@
+{
+  "name": "qemu-guest-agent",
+  "description": "QEMU guest agent for Proxmox and other KVM hypervisors: reports the node's addresses and OS, freezes filesystems for consistent backups, and lets the hypervisor shut the node down cleanly. Commands that would run programs or touch files on the node are disabled.",
+  "homepage": "https://www.qemu.org/docs/master/interop/qemu-ga.html",
+  "arches": ["amd64"],
+  "services": [
+    {
+      "id": "qemu-guest-agent",
+      "description": "QEMU guest agent on the virtio-serial port org.qemu.guest_agent.0",
+      "path": "/usr/local/sbin/qemu-ga",
+      "args": [
+        "--method=virtio-serial",
+        "--path=/dev/virtio-ports/org.qemu.guest_agent.0",
+        "--statedir=/run",
+        "--pidfile=/run/qemu-ga.pid",
+        "--allow-rpcs=guest-sync,guest-sync-delimited,guest-ping,guest-info,guest-get-time,guest-get-timezone,guest-get-osinfo,guest-get-host-name,guest-network-get-interfaces,guest-get-fsinfo,guest-get-vcpus,guest-fsfreeze-status,guest-fsfreeze-freeze,guest-fsfreeze-freeze-list,guest-fsfreeze-thaw,guest-shutdown"
+      ]
+    }
+  ],
+  "selinux_labels": {
+    "usr/local/sbin/qemu-ga": "qemu_ga_exec_t"
+  }
+}

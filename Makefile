@@ -11,6 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 schematic-catalog qemu-extensions-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -91,6 +92,52 @@ init:
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" \
 		-o $(BUILD_DIR)/init ./rootfs/init
+
+# /sbin/shutdown: signals PID 1 for a clean power-off or reboot (what the
+# QEMU guest agent runs) - see rootfs/shutdown.
+shutdown-bin:
+	mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" \
+		-o $(BUILD_DIR)/shutdown ./rootfs/shutdown
+
+# --- Optional extensions (extensions/<name>/, docs/image-factory.md) ---
+# Each builds its file tree with its Dockerfile, then hack/extpack packs it
+# with its manifest into build/extensions/extension-<name>-<arch>.tar.
+EXT_DIR := $(BUILD_DIR)/extensions
+
+extension-node-exporter-%:
+	rm -rf $(EXT_DIR)/tree-node-exporter-$*
+	docker build --target export --build-arg ARCH=$* \
+		--build-arg NODE_EXPORTER_VERSION=$(NODE_EXPORTER_VERSION) \
+		--build-arg NODE_EXPORTER_SHA256=$(NODE_EXPORTER_SHA256_$*) \
+		-o $(EXT_DIR)/tree-node-exporter-$* extensions/node-exporter
+	go run ./hack/extpack pack -name node-exporter -arch $* -version $(NODE_EXPORTER_VERSION) \
+		-tree $(EXT_DIR)/tree-node-exporter-$* -out $(EXT_DIR)/extension-node-exporter-$*.tar
+
+extension-qemu-guest-agent-amd64:
+	rm -rf $(EXT_DIR)/tree-qemu-guest-agent-amd64
+	docker build --target export --build-arg QEMU_VERSION=$(QEMU_VERSION) \
+		--build-arg QEMU_SHA256=$(QEMU_SHA256) \
+		-o $(EXT_DIR)/tree-qemu-guest-agent-amd64 extensions/qemu-guest-agent
+	go run ./hack/extpack pack -name qemu-guest-agent -arch amd64 -version $(QEMU_VERSION) \
+		-tree $(EXT_DIR)/tree-qemu-guest-agent-amd64 -out $(EXT_DIR)/extension-qemu-guest-agent-amd64.tar
+
+extensions-amd64: extension-node-exporter-amd64 extension-qemu-guest-agent-amd64
+extensions-arm64: extension-node-exporter-arm64
+
+# The extensions a release can build a schematic with.
+schematic-catalog:
+	mkdir -p $(EXT_DIR)
+	go run ./hack/extpack catalog -release $(VERSION) -out $(EXT_DIR)/schematic-catalog.json \
+		node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION)
+
+# SCHEMATIC=path/to/schematic.json builds the rootfs with that schematic's
+# extensions (already built: make extensions-amd64) and puts its ID into
+# every UKI's signed command line. Unset: the default schematic.
+ifneq ($(SCHEMATIC),)
+JANUS_SCHEMATIC := $(shell go run ./hack/extpack id -schematic $(SCHEMATIC))
+export JANUS_SCHEMATIC
+endif
 
 # Packages build/init into build/initramfs.cpio.gz (see hack/build-initramfs.sh).
 initramfs: init
@@ -359,8 +406,10 @@ ca-certificates:
 	mkdir -p $(BUILD_DIR)/ca-certificates
 	docker build --target export -o $(BUILD_DIR)/ca-certificates ca-certificates
 
-rootfs-build: init daemon-static haproxy-build selinux-policy ca-certificates
+rootfs-build: init shutdown-bin daemon-static haproxy-build selinux-policy ca-certificates
 	mkdir -p $(BUILD_DIR)/rootfs
+	layers="$$($(if $(SCHEMATIC),go run ./hack/extpack layers -schematic $(SCHEMATIC) -arch amd64 -dir $(EXT_DIR),true))" && \
+	JANUS_SHUTDOWN_BIN=$(BUILD_DIR)/shutdown JANUS_VERSION=$(VERSION) JANUS_EXTENSIONS="$$layers" \
 	./rootfs/assemble.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/init $(BUILD_DIR)/janusd \
 		$(BUILD_DIR)/haproxy rootfs/base/etc/haproxy/haproxy.cfg \
 		$(BUILD_DIR)/selinux/janus.policy $(BUILD_DIR)/ca-certificates/ca-certificates.crt
@@ -633,6 +682,15 @@ qemu-lifecycle-upgrade-url-test: build disk-image
 # see the script's header.
 qemu-network-config-test: build kernel-build disk-image
 	./hack/qemu-network-config-test.sh $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# Optional extensions and image schematics end to end (node_exporter, the
+# QEMU guest agent, the schematic in the signed cmdline, Upgrade keeping
+# it, clean power-off from the hypervisor) - see the script's header.
+qemu-extensions-test: SCHEMATIC = hack/testdata/schematic-all-extensions.json
+qemu-extensions-test: build extensions-amd64
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	JANUS_SCHEMATIC=$$(go run ./hack/extpack id -schematic $(SCHEMATIC)) \
+	./hack/qemu-extensions-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl $(SCHEMATIC)
 
 qemu-system-api-test: build disk-image
 	./hack/qemu-system-api-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
