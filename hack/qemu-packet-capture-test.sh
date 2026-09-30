@@ -88,7 +88,7 @@ import struct, sys
 data = open(sys.argv[1], "rb").read()
 magic, major, minor, _, _, snap, link = struct.unpack("<IHHiIII", data[:24])
 assert (magic, major, minor, link) == (0xa1b2c3d4, 2, 4, 1), "bad pcap header"
-off, n, syns, http_ok = 24, 0, 0, 0
+off, n, syns, http_ok = 24, 0, set(), set()
 while off < len(data):
     _, _, incl, orig = struct.unpack("<IIII", data[off:off + 16])
     pkt = data[off + 16:off + 16 + incl]
@@ -100,13 +100,15 @@ while off < len(data):
     l4 = 14 + ihl
     sport, dport = struct.unpack(">HH", pkt[l4:l4 + 4])
     assert 8080 in (sport, dport), f"packet {n}: ports {sport}->{dport} don't match 'tcp port 8080'"
+    # Counted per connection (client port), not per packet: a slow
+    # runner can retransmit a SYN or a response.
     if dport == 8080 and pkt[l4 + 13] & 0x02:
-        syns += 1
-    if b"HTTP/1.1 200" in pkt:
-        http_ok += 1
+        syns.add(sport)
+    if sport == 8080 and b"HTTP/1.1 200" in pkt:
+        http_ok.add(dport)
 assert off == len(data), "trailing garbage after the last record"
-assert syns == 3, f"expected 3 SYNs to :8080, saw {syns}"
-assert http_ok == 3, f"expected 3 HTTP 200 responses, saw {http_ok}"
+assert len(syns) == 3, f"expected 3 connections to :8080, saw {len(syns)}"
+assert http_ok == syns, f"expected an HTTP 200 on each of {sorted(syns)}, saw {sorted(http_ok)}"
 print(f"pcap OK: {n} packets, all tcp port 8080, 3 handshakes, 3 HTTP 200 responses")
 EOF
 
