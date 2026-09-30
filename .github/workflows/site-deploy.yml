@@ -1,0 +1,56 @@
+name: Site Deploy
+
+# Builds and deploys janus.sw-servers.net (site/) to its container, CT 222,
+# from the self-hosted runner. The frontend's built assets are committed
+# (site/backend/static, like the Controller's), so this only builds Go.
+# Deploying needs SITE_DEPLOY_KEY and the SITE_DEPLOY_TARGET/SITE_HOST_KEY
+# variables - see site/deploy/setup-ct.sh.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - internal/schematic/**
+      - dashboard/frontend/src/shared/**
+      - .github/workflows/site-deploy.yml
+  workflow_dispatch:
+
+concurrency:
+  group: site-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, docker, haproxyos]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test ./site/... ./internal/schematic/...
+      - name: Build
+        run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o build/janus-site ./site/backend
+      - name: Deploy
+        env:
+          SITE_DEPLOY_KEY: ${{ secrets.SITE_DEPLOY_KEY }}
+          SITE_DEPLOY_TARGET: ${{ vars.SITE_DEPLOY_TARGET }}
+          SITE_HOST_KEY: ${{ vars.SITE_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SITE_DEPLOY_KEY" ] || [ -z "$SITE_DEPLOY_TARGET" ]; then
+            echo "::warning::SITE_DEPLOY_KEY or SITE_DEPLOY_TARGET isn't set - built, not deployed"
+            exit 0
+          fi
+          D="$(mktemp -d)"
+          trap 'rm -rf "$D"' EXIT
+          printf '%s\n' "$SITE_DEPLOY_KEY" > "$D/key"
+          chmod 600 "$D/key"
+          printf '%s\n' "$SITE_HOST_KEY" > "$D/known_hosts"
+          SSH="ssh -i $D/key -o UserKnownHostsFile=$D/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes"
+          rsync -t --chmod=F755 -e "$SSH" build/janus-site "$SITE_DEPLOY_TARGET:janus-site"
+          $SSH "$SITE_DEPLOY_TARGET" activate

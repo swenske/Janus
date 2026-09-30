@@ -1,0 +1,33 @@
+# janus.sw-servers.net - the Janus companion site (site/backend).
+# Installed by site/deploy/setup-ct.sh; the binary is deployed by
+# .github/workflows/site-deploy.yml. TLS is terminated by the front-end
+# HAProxy, which forwards to :8080 with X-Forwarded-For.
+[Unit]
+Description=Janus companion site (janus.sw-servers.net)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=janus-site
+Group=janus-site
+UMask=0002
+ExecStart=/srv/janus-site/bin/janus-site -addr :8080 -data-dir /srv/janus-site/data -public-url https://janus.sw-servers.net -github-token-file /etc/janus-site/github-token
+Restart=always
+RestartSec=2
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+ReadWritePaths=/srv/janus-site/data
+
+[Install]
+WantedBy=multi-user.target

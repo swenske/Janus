@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 schematic-catalog schematic-inputs qemu-extensions-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-extensions-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -617,6 +617,16 @@ dashboard-frontend-build:
 dashboard-build: dashboard-frontend-build
 	mkdir -p $(BIN_DIR)
 	go build -trimpath -o $(BIN_DIR)/dashboardd ./dashboard/backend
+
+# The companion site, janus.sw-servers.net (site/): frontend built into
+# site/backend/static (committed, like the Controller's), then the Go
+# binary. Deployed by .github/workflows/site-deploy.yml.
+site-frontend-build:
+	cd site/frontend && npm ci && npm run build
+
+site-build: site-frontend-build
+	mkdir -p $(BIN_DIR)
+	go build -trimpath -o $(BIN_DIR)/janus-site ./site/backend
 
 # Dashboard prep, tranche 2: proves the dashboard backend's whole
 # add-node/list/per-node-mTLS-relay/delete/restart-persistence flow

@@ -1,0 +1,26 @@
+#!/bin/sh
+# Swaps in the binary site-deploy.yml uploaded (bin/incoming/janus-site),
+# restarts the service, and puts the previous binary back if the new one
+# doesn't answer its health check. The only command janus-deploy may run
+# as root (see setup-ct.sh's sudoers entry).
+set -eu
+BIN=/srv/janus-site/bin
+NEW="$BIN/incoming/janus-site"
+[ -f "$NEW" ] || { echo "no $NEW" >&2; exit 1; }
+[ -f "$BIN/janus-site" ] && cp -p "$BIN/janus-site" "$BIN/janus-site.prev"
+install -o root -g root -m 0755 "$NEW" "$BIN/janus-site"
+rm -f "$NEW"
+systemctl restart janus-site
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -fsS -m 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+    echo "janus-site is up"
+    exit 0
+  fi
+  sleep 1
+done
+echo "the new janus-site doesn't answer - rolling back" >&2
+if [ -f "$BIN/janus-site.prev" ]; then
+  install -o root -g root -m 0755 "$BIN/janus-site.prev" "$BIN/janus-site"
+  systemctl restart janus-site
+fi
+exit 1
