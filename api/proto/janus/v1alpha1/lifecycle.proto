@@ -70,6 +70,11 @@ message ImageSource {
   // check, whoever can alter the bundle on its way to the node (an
   // http:// mirror, a compromised download) controls what it boots.
   bool insecure_skip_signature_check = 3;
+  // Accept a bundle built from another image schematic than the node's
+  // own (its UKI's janus.schematic= differs). Off, Upgrade refuses: a
+  // node built with an extension must not lose it to an update built
+  // without it. See docs/image-factory.md.
+  bool allow_schematic_change = 4;
 }
 
 message InstallRequest {

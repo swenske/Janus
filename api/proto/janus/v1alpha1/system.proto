@@ -92,6 +92,19 @@ message VersionResponse {
   // "A" or "B" - empty if this boot isn't from a recognized A/B slot
   // (e.g. an initramfs-only test boot, see internal/bootslot).
   string active_slot = 6;
+  // The image schematic this node booted (see docs/image-factory.md): the
+  // ID from its signed kernel command line - the default schematic's for
+  // an image without optional extensions - and the extensions the image
+  // carries.
+  string schematic_id = 7;
+  repeated ExtensionInfo extensions = 8;
+}
+
+// An optional extension built into the node's image.
+message ExtensionInfo {
+  string name = 1;
+  string version = 2;
+  string description = 3;
 }
 
 message HostnameResponse {
@@ -281,6 +294,10 @@ message ServiceInfo {
   string id = 1;
   string state = 2;  // e.g. "running", "stopped", "failed"
   string health = 3; // e.g. "healthy", "unhealthy", "unknown"
+  // The optional extension providing this service; empty for janusd and
+  // haproxy.
+  string extension = 4;
+  string description = 5;
 }
 
 message ServiceListResponse {
