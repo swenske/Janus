@@ -50,7 +50,7 @@ fail() {
 }
 
 # --- resolve the release to upgrade to (list endpoint, not /latest:
-# every Janus release is a prerelease, which /latest excludes) ---
+# /latest skips pre-releases, which the first releases were) ---
 if [ -z "${JANUS_RELEASE_TAG:-}" ]; then
   JANUS_RELEASE_TAG="$(curl -fsSL -H 'Accept: application/vnd.github+json' \
     "https://api.github.com/repos/$REPO/releases" |

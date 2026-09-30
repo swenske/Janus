@@ -29,11 +29,9 @@ import (
 	"time"
 )
 
-// githubReleasesURL lists (not /latest, which excludes prereleases -
-// every Janus release is deliberately prerelease:true, see image-
-// build.yml's own "Publish a real GitHub Release" step, so /latest
-// would find nothing at all) this project's own releases, newest
-// first - GitHub's own documented ordering for this endpoint.
+// githubReleasesURL lists this project's releases, newest first -
+// GitHub's documented ordering for this endpoint. Not /latest: that one
+// skips pre-releases, which every release up to v2026.09.30-2 was.
 const githubReleasesURL = "https://api.github.com/repos/swenske/Janus/releases"
 
 // releaseCacheTTL bounds how long a fetched result is reused before
