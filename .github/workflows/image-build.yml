@@ -665,6 +665,18 @@ jobs:
       - name: Network configuration, VLAN, NTP and trial/revert
         run: make qemu-network-config-test
 
+      # Optional extensions (node_exporter, the QEMU guest agent) built
+      # into an image from a schematic: the schematic in the signed
+      # cmdline, the services under janusd and SELinux enforcing, Upgrade
+      # keeping the schematic, a clean power-off from the hypervisor. See
+      # hack/qemu-extensions-test.sh. It leaves build/rootfs built with
+      # extensions, so the next step puts the default image back.
+      - name: Optional extensions and image schematics
+        run: make qemu-extensions-test
+
+      - name: Rebuild the default image after the extensions test
+        run: make disk-image
+
       # Controller-relay follow-up: the other half - a real
       # LifecycleService.UploadReleaseFile call streams the release
       # bundle to a live node over the same mTLS connection every other
