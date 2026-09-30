@@ -1,0 +1,180 @@
+name: Schematic Build
+
+# Builds the images of one custom image schematic for one release and
+# architecture - started by janus.sw-servers.net (site/backend) when a
+# visitor or a node asks for an image that doesn't exist yet, and
+# uploaded there. The images are assembled from the build inputs the
+# release published (kernel, base rootfs tree, extension packs): nothing
+# is rebuilt, the binaries are the release's own. The update bundle is
+# signed with the release key, like a release's. See docs/image-factory.md.
+#
+# The run name is what the site matches runs by: keep it in sync with
+# site/backend's runName.
+run-name: schematic ${{ inputs.schematic_id }} ${{ inputs.version }} ${{ inputs.arch }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release to build from (e.g. v2026.10.02)'
+        required: true
+        type: string
+      arch:
+        description: 'amd64 or arm64'
+        required: true
+        type: string
+        default: amd64
+      schematic:
+        description: 'The schematic, canonical JSON (e.g. {"customization":{"extensions":["node-exporter"]}})'
+        required: true
+        type: string
+      schematic_id:
+        description: "The schematic's ID - checked against the schematic"
+        required: true
+        type: string
+      source_run:
+        description: 'Testing: take the build inputs from this image-build run (its "schematic-inputs" artifact) instead of the release'
+        required: false
+        type: string
+
+concurrency:
+  group: schematic-${{ inputs.schematic_id }}-${{ inputs.version }}-${{ inputs.arch }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: [self-hosted, docker, haproxyos]
+    timeout-minutes: 90
+    steps:
+      - name: Check the request
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ inputs.arch }}
+          SCHEMATIC_ID: ${{ inputs.schematic_id }}
+          SOURCE_RUN: ${{ inputs.source_run }}
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$ ]] || { echo "::error::invalid version $VERSION"; exit 1; }
+          [[ "$ARCH" == amd64 || "$ARCH" == arm64 ]] || { echo "::error::invalid architecture $ARCH"; exit 1; }
+          [[ "$SCHEMATIC_ID" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::invalid schematic ID"; exit 1; }
+          [[ -z "$SOURCE_RUN" || "$SOURCE_RUN" =~ ^[0-9]+$ ]] || { echo "::error::invalid source_run"; exit 1; }
+
+      # The release's own scripts and extension definitions, so an image
+      # of an older release is assembled the way that release was. A test
+      # build from a run's artifact uses the workflow's own commit.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_run == '' && inputs.version || github.sha }}
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Write the schematic
+        env:
+          SCHEMATIC: ${{ inputs.schematic }}
+          SCHEMATIC_ID: ${{ inputs.schematic_id }}
+        run: |
+          mkdir -p build/schematic
+          printf '%s' "$SCHEMATIC" > build/schematic/schematic.json
+          id="$(go run ./hack/extpack id -schematic build/schematic/schematic.json)"
+          [ "$id" = "$SCHEMATIC_ID" ] || { echo "::error::the schematic's ID is $id, not $SCHEMATIC_ID"; exit 1; }
+
+      - name: Fetch the release's build inputs
+        if: ${{ inputs.source_run == '' }}
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ inputs.arch }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          IN=build/schematic/inputs
+          mkdir -p "$IN"
+          base="https://github.com/$REPO/releases/download/$VERSION"
+          for f in schematic-catalog.json "kernel-$ARCH" "rootfs-base-$ARCH.tar"; do
+            curl -fsSL -o "$IN/$f" "$base/$f" || { echo "::error::$VERSION has no $f - it predates custom schematics"; exit 1; }
+          done
+          for ext in $(python3 -c 'import json; print(" ".join(json.load(open("build/schematic/schematic.json"))["customization"].get("extensions", [])))'); do
+            curl -fsSL -o "$IN/extension-$ext-$ARCH.tar" "$base/extension-$ext-$ARCH.tar" \
+              || { echo "::error::$VERSION doesn't publish $ext for $ARCH"; exit 1; }
+          done
+          ls -l "$IN"
+
+      - name: Fetch a test run's build inputs
+        if: ${{ inputs.source_run != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: schematic-inputs
+          path: build/schematic/inputs
+          run-id: ${{ inputs.source_run }}
+          github-token: ${{ github.token }}
+
+      - name: Build the images
+        env:
+          SECUREBOOT_SIGNING_KEY: ${{ secrets.SECUREBOOT_SIGNING_KEY }}
+          JANUS_VERSION: ${{ inputs.version }}
+          ARCH: ${{ inputs.arch }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SECUREBOOT_SIGNING_KEY" ]; then
+            echo "::error::SECUREBOOT_SIGNING_KEY isn't set - refusing to build an unsigned update bundle"
+            exit 1
+          fi
+          KEY="$(mktemp)"
+          trap 'rm -f "$KEY"' EXIT
+          printf '%s' "$SECUREBOOT_SIGNING_KEY" > "$KEY"
+          ./image/schematic/build.sh build/schematic/inputs "$ARCH" build/schematic/schematic.json build/schematic/out \
+            "$KEY" image/secureboot/production-cert.pem
+          ls -lh build/schematic/out
+
+      - name: Boot test
+        if: ${{ inputs.arch == 'amd64' }}
+        run: ./hack/qemu-schematic-smoke-test.sh build/schematic/out/disk.img build/schematic/schematic.json
+
+      # To janus.sw-servers.net: a restricted user (rrsync, write-only into
+      # the images directory) receives the files, manifest.json last - the
+      # site treats a build as complete once its manifest is there.
+      - name: Upload to the site
+        env:
+          SITE_UPLOAD_KEY: ${{ secrets.SITE_UPLOAD_KEY }}
+          SITE_UPLOAD_TARGET: ${{ vars.SITE_UPLOAD_TARGET }}
+          SITE_HOST_KEY: ${{ vars.SITE_HOST_KEY }}
+          SCHEMATIC_ID: ${{ inputs.schematic_id }}
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ inputs.arch }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SITE_UPLOAD_KEY" ] || [ -z "$SITE_UPLOAD_TARGET" ]; then
+            echo "::warning::SITE_UPLOAD_KEY or SITE_UPLOAD_TARGET isn't set - the images are only kept as this run's artifact"
+            exit 0
+          fi
+          D="$(mktemp -d)"
+          trap 'rm -rf "$D"' EXIT
+          printf '%s\n' "$SITE_UPLOAD_KEY" > "$D/key"
+          chmod 600 "$D/key"
+          printf '%s\n' "$SITE_HOST_KEY" > "$D/known_hosts"
+          SSH="ssh -i $D/key -o UserKnownHostsFile=$D/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes"
+          dest="$SCHEMATIC_ID/$VERSION/$ARCH/"
+          rsync -rtp --chmod=D2775,F664 --mkpath --exclude disk.img --exclude manifest.json -e "$SSH" \
+            build/schematic/out/ "$SITE_UPLOAD_TARGET:$dest"
+          rsync -tp --chmod=F664 -e "$SSH" build/schematic/out/manifest.json "$SITE_UPLOAD_TARGET:$dest"
+          echo "Uploaded to $SITE_UPLOAD_TARGET:$dest"
+
+      - name: Keep the images as an artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: schematic-${{ inputs.schematic_id }}-${{ inputs.version }}-${{ inputs.arch }}
+          path: |
+            build/schematic/out/
+            !build/schematic/out/disk.img
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: rm -rf build/schematic

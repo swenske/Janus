@@ -677,6 +677,20 @@ jobs:
       - name: Rebuild the default image after the extensions test
         run: make disk-image
 
+      # What custom schematics are built from (image/schematic/build.sh,
+      # .github/workflows/schematic-build.yml): per architecture, the
+      # kernel, the base rootfs tree and the extension packs, plus the
+      # catalog - published with a release, kept as an artifact otherwise
+      # (schematic-build's source_run input builds from it, for testing).
+      - name: Build inputs for custom schematics
+        run: make schematic-inputs
+      - name: Upload the schematic build inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: schematic-inputs
+          path: build/inputs/
+          retention-days: 14
+
       # Controller-relay follow-up: the other half - a real
       # LifecycleService.UploadReleaseFile call streams the release
       # bundle to a live node over the same mTLS connection every other
@@ -1096,6 +1110,12 @@ jobs:
             build/janus.iso
             build/rpi-uefi/pi4-disk.img
             build/rpi-uefi/pi5-disk.img
+            build/inputs/schematic-catalog.json
+            build/inputs/kernel-amd64
+            build/inputs/kernel-arm64
+            build/inputs/rootfs-base-amd64.tar
+            build/inputs/rootfs-base-arm64.tar
+            build/inputs/extension-*.tar
 
       # TODO(Phase 3 cont'd): a real OVA (OVF descriptor + tar) on top
       # of image/vmware's bare VMDK - once built, add build/janus.ova
