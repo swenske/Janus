@@ -152,3 +152,46 @@ func TestSupervision(t *testing.T) {
 	}
 	_ = m.StopService("long")
 }
+
+func TestWaitFor(t *testing.T) {
+	dev := filepath.Join(t.TempDir(), "virtio-port")
+	logs := &syncBuf{}
+	m := NewManagerWithTiming([]Manifest{
+		{Name: "ext", Version: "1", Services: []Service{{ID: "agent", Path: "/bin/sh", Args: []string{"-c", "echo up; exec sleep 60"}, WaitFor: []string{dev}}}},
+	}, func(string) io.Writer { return logs }, Timing{MinBackoff: 50 * time.Millisecond, MaxBackoff: 200 * time.Millisecond, StableAfter: time.Hour, StopTimeout: 2 * time.Second, WaitPoll: 30 * time.Millisecond})
+	m.Start()
+	defer func() { _ = m.StopService("agent") }()
+
+	st := waitState(t, m, "agent", "waiting")
+	if st.LastError != "waiting for "+dev || st.Restarts != 0 {
+		t.Fatalf("waiting state %+v", st)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if st, _ := m.State("agent"); st.State != "waiting" || st.Restarts != 0 || logs.String() != "" {
+		t.Fatalf("a waiting service started or counted restarts: %+v, output %q", st, logs.String())
+	}
+	if err := os.WriteFile(dev, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, m, "agent", "running")
+
+	// Stopped while waiting: stopped, not waiting.
+	if err := os.Remove(dev); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RestartService("agent"); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, m, "agent", "waiting")
+	if err := m.StopService("agent"); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, m, "agent", "stopped")
+}
+
+func TestWaitForMustBeAbsolute(t *testing.T) {
+	m := Manifest{Name: "ext", Version: "1", Services: []Service{{ID: "s", Path: "/bin/true", WaitFor: []string{"dev/x"}}}}
+	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "wait_for") {
+		t.Fatalf("Validate = %v", err)
+	}
+}

@@ -1,10 +1,12 @@
 package extensions
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -16,13 +18,14 @@ import (
 // Timing is the supervision timing: the backoff between restarts of a
 // service that exits grows from MinBackoff to MaxBackoff while it keeps
 // failing, and resets once it has run StableAfter. A stopped service gets
-// StopTimeout to exit after SIGTERM, before SIGKILL.
+// StopTimeout to exit after SIGTERM, before SIGKILL. A service waiting for
+// its WaitFor paths checks again every WaitPoll.
 type Timing struct {
-	MinBackoff, MaxBackoff, StableAfter, StopTimeout time.Duration
+	MinBackoff, MaxBackoff, StableAfter, StopTimeout, WaitPoll time.Duration
 }
 
 // DefaultTiming is what NewManager uses.
-var DefaultTiming = Timing{MinBackoff: time.Second, MaxBackoff: 30 * time.Second, StableAfter: 10 * time.Second, StopTimeout: 10 * time.Second}
+var DefaultTiming = Timing{MinBackoff: time.Second, MaxBackoff: 30 * time.Second, StableAfter: 10 * time.Second, StopTimeout: 10 * time.Second, WaitPoll: 2 * time.Second}
 
 // Manager runs the services of every extension in the image. Services
 // start with the Manager and are restarted whenever they exit, until
@@ -38,7 +41,7 @@ type ServiceState struct {
 	ID          string
 	Extension   string
 	Description string
-	State       string // "running", "stopped", "restarting"
+	State       string // "running", "stopped", "restarting", "waiting" (for a WaitFor path)
 	Restarts    int
 	LastError   string
 }
@@ -55,6 +58,7 @@ type service struct {
 	exited   chan struct{} // closed when the current process exits
 	restarts int
 	lastErr  string
+	waiting  string // the WaitFor path it waits for
 	wake     chan struct{}
 }
 
@@ -167,6 +171,8 @@ func (m *Manager) State(id string) (ServiceState, error) {
 	switch {
 	case s.cmd != nil:
 		st.State = "running"
+	case s.want && s.waiting != "":
+		st.State = "waiting"
 	case s.want:
 		st.State = "restarting"
 	default:
@@ -199,6 +205,10 @@ func (s *service) run() {
 				break
 			}
 			<-s.wake
+		}
+		if !s.ready() {
+			s.sleep(cmp.Or(t.WaitPoll, time.Second))
+			continue
 		}
 
 		cmd := exec.Command(s.def.Path, s.def.Args...)
@@ -250,6 +260,32 @@ func (s *service) run() {
 		s.sleep(backoff)
 		backoff = min(backoff*2, t.MaxBackoff)
 	}
+}
+
+// ready reports whether every WaitFor path exists, logging when the
+// service starts or stops waiting.
+func (s *service) ready() bool {
+	missing := ""
+	for _, p := range s.def.WaitFor {
+		if _, err := os.Stat(p); err != nil {
+			missing = p
+			break
+		}
+	}
+	s.mu.Lock()
+	was := s.waiting
+	s.waiting = missing
+	if missing != "" {
+		s.lastErr = "waiting for " + missing
+	}
+	s.mu.Unlock()
+	switch {
+	case missing != "" && was != missing:
+		log.Printf("extensions: %s waits for %s", s.def.ID, missing)
+	case missing == "" && was != "":
+		log.Printf("extensions: %s: %s is there", s.def.ID, was)
+	}
+	return missing == ""
 }
 
 // sleep waits d, or until a Start/Stop pokes the service.

@@ -14,7 +14,8 @@
         "--statedir=/run",
         "--pidfile=/run/qemu-ga.pid",
         "--allow-rpcs=guest-sync,guest-sync-delimited,guest-ping,guest-info,guest-get-time,guest-get-timezone,guest-get-osinfo,guest-get-host-name,guest-network-get-interfaces,guest-get-fsinfo,guest-get-vcpus,guest-fsfreeze-status,guest-fsfreeze-freeze,guest-fsfreeze-freeze-list,guest-fsfreeze-thaw,guest-shutdown"
-      ]
+      ],
+      "wait_for": ["/dev/virtio-ports/org.qemu.guest_agent.0"]
     }
   ],
   "selinux_labels": {

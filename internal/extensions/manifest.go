@@ -52,6 +52,11 @@ type Service struct {
 	Description string   `json:"description,omitempty"`
 	Path        string   `json:"path"`
 	Args        []string `json:"args,omitempty"`
+	// WaitFor lists paths that must exist before the service starts -
+	// a device the hypervisor may not provide, like the QEMU guest
+	// agent's virtio port. Until they do, the service is "waiting",
+	// not failing.
+	WaitFor []string `json:"wait_for,omitempty"`
 }
 
 var (
@@ -77,6 +82,11 @@ func (m *Manifest) Validate() error {
 		seen[s.ID] = true
 		if !path.IsAbs(s.Path) || path.Clean(s.Path) != s.Path {
 			return fmt.Errorf("extension %s: service %s: path %q must be absolute and clean", m.Name, s.ID, s.Path)
+		}
+		for _, w := range s.WaitFor {
+			if !path.IsAbs(w) || path.Clean(w) != w {
+				return fmt.Errorf("extension %s: service %s: wait_for path %q must be absolute and clean", m.Name, s.ID, w)
+			}
 		}
 	}
 	for p, t := range m.Labels {

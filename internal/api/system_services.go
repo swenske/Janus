@@ -42,6 +42,8 @@ func (s *System) extensionInfo(id string) (*janusv1alpha1.ServiceInfo, error) {
 		health = "healthy"
 	case "restarting":
 		health = "unhealthy"
+	case "waiting":
+		health = "waiting"
 	}
 	return &janusv1alpha1.ServiceInfo{Id: id, State: st.State, Health: health, Extension: st.Extension, Description: st.Description}, nil
 }
