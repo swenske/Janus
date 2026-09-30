@@ -1,0 +1,146 @@
+// Command janus-site serves janus.sw-servers.net: the landing page, the
+// image builder (a React SPA, built into static/ and embedded), and the
+// image factory API behind it - schematics, the extension catalog of each
+// release, custom builds (run by the schematic-build workflow on the
+// project's runner, which uploads its results here), downloads, and the
+// update lookup nodes and Controllers use. See docs/image-factory.md.
+package main
+
+import (
+	"context"
+	"embed"
+	"flag"
+	"io/fs"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+)
+
+//go:embed all:static
+var staticFiles embed.FS
+
+func main() {
+	addr := flag.String("addr", ":8080", "listen address (plain HTTP: TLS is terminated by the front end)")
+	dataDir := flag.String("data-dir", "/srv/janus-site/data", "schematics and built images")
+	publicURL := flag.String("public-url", "https://janus.sw-servers.net", "the site's public URL, for links in API answers")
+	repo := flag.String("repo", "swenske/Janus", "GitHub repository")
+	githubAPI := flag.String("github-api", "https://api.github.com", "GitHub API base URL")
+	tokenFile := flag.String("github-token-file", "", "file holding a GitHub token allowed to start the schematic-build workflow (Actions: read and write); without it, custom builds can't be started")
+	keep := flag.Int("keep-versions", 3, "built versions kept per schematic")
+	flag.Parse()
+
+	token := ""
+	if *tokenFile != "" {
+		data, err := os.ReadFile(*tokenFile)
+		if err != nil {
+			log.Fatalf("read -github-token-file: %v", err)
+		}
+		token = strings.TrimSpace(string(data))
+	}
+	st, err := newStore(*dataDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	a := &app{store: st, gh: newGitHub(*githubAPI, *repo, token, "schematic-build.yml"), publicURL: strings.TrimRight(*publicURL, "/"), repo: *repo, builds: newBuildLimiter()}
+
+	mux := http.NewServeMux()
+	a.routes(mux)
+	static, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		log.Fatal(err)
+	}
+	mux.Handle("/", spa(static))
+
+	go a.maintain(context.Background(), *keep)
+
+	srv := &http.Server{Addr: *addr, Handler: securityHeaders(mux), ReadHeaderTimeout: 10 * time.Second}
+	log.Printf("janus-site listening on %s (data in %s, token: %v)", *addr, *dataDir, token != "")
+	log.Fatal(srv.ListenAndServe())
+}
+
+// spa serves the built frontend, and index.html for its client-side
+// routes (/builder...).
+func spa(static fs.FS) http.Handler {
+	files := http.FileServerFS(static)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if name != "" {
+			if _, err := fs.Stat(static, name); err != nil {
+				r2 := r.Clone(r.Context())
+				r2.URL.Path = "/"
+				files.ServeHTTP(w, r2)
+				return
+			}
+		}
+		if strings.HasPrefix(name, "assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
+		files.ServeHTTP(w, r)
+	})
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// maintain runs the site's periodic work: when a release appears, build
+// its update bundle for every schematic already in use, so nodes find
+// their update ready; and drop old builds.
+func (a *app) maintain(ctx context.Context, keep int) {
+	for {
+		a.prebuild(ctx)
+		if err := a.store.Prune(keep, compareVersions); err != nil {
+			log.Printf("prune: %v", err)
+		}
+		time.Sleep(15 * time.Minute)
+	}
+}
+
+func (a *app) prebuild(ctx context.Context) {
+	rels, err := a.gh.Releases(ctx)
+	if err != nil {
+		return
+	}
+	var latest *release
+	for i := range rels {
+		if rels[i].Schematics {
+			latest = &rels[i]
+			break
+		}
+	}
+	if latest == nil {
+		return
+	}
+	ids, err := a.store.SchematicIDs()
+	if err != nil {
+		return
+	}
+	for _, id := range ids {
+		if !a.inUse(id) {
+			continue
+		}
+		st, sc, _, err := a.status(ctx, id, latest.Version, "amd64")
+		if err != nil || st.State != "none" {
+			continue
+		}
+		if err := a.startBuild(ctx, sc, latest.Version, "amd64", "prebuild", false); err != nil {
+			log.Printf("prebuild %s %s: %v", id, latest.Version, err)
+		}
+	}
+}
+
+// inUse reports whether a schematic was ever built: only those get their
+// updates built ahead of time.
+func (a *app) inUse(id string) bool {
+	entries, err := os.ReadDir(a.store.dir + "/images/" + id)
+	return err == nil && len(entries) > 0
+}
