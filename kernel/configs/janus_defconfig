@@ -165,6 +165,13 @@
 #   # kernel's own un-customized CONFIG_LSM default uses.
 #   CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,selinux,ipe,bpf"
 #
+# Node network configuration (2026-09-30): nodes can have several
+# interfaces and 802.1Q VLANs, configured by janusd over rtnetlink.
+# `scripts/config --enable VLAN_8021Q` then olddefconfig; the full
+# resolved diff is exactly VLAN_8021Q=y plus its GVRP/MVRP options
+# staying off (no dynamic VLAN registration protocols).
+#   CONFIG_VLAN_8021Q=y
+#
 # Deliberately the FULL resolved config (every symbol explicit), not a
 # compact savedefconfig diff: a diff format resolves unlisted symbols
 # against the kernel's own defconfig-derived defaults, which would
@@ -1041,7 +1048,9 @@ CONFIG_NET_PTP_CLASSIFY=y
 # CONFIG_L2TP is not set
 # CONFIG_BRIDGE is not set
 # CONFIG_NET_DSA is not set
-# CONFIG_VLAN_8021Q is not set
+CONFIG_VLAN_8021Q=y
+# CONFIG_VLAN_8021Q_GVRP is not set
+# CONFIG_VLAN_8021Q_MVRP is not set
 # CONFIG_LLC2 is not set
 # CONFIG_ATALK is not set
 # CONFIG_X25 is not set

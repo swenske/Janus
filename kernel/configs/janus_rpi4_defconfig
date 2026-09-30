@@ -242,6 +242,13 @@
 # mean abandoning this project's pinned-mainline-kernel build story for
 # at least this one board - a real, standing decision point, not
 # silently decided here.
+# Node network configuration (2026-09-30): nodes can have several
+# interfaces and 802.1Q VLANs, configured by janusd over rtnetlink.
+# `scripts/config --enable VLAN_8021Q` then olddefconfig; the full
+# resolved diff is exactly VLAN_8021Q=y plus its GVRP/MVRP options
+# staying off (no dynamic VLAN registration protocols).
+#   CONFIG_VLAN_8021Q=y
+#
 ##
 #
 # Automatically generated file; DO NOT EDIT.
@@ -1180,7 +1187,9 @@ CONFIG_IPV6_NDISC_NODETYPE=y
 # CONFIG_L2TP is not set
 # CONFIG_BRIDGE is not set
 # CONFIG_NET_DSA is not set
-# CONFIG_VLAN_8021Q is not set
+CONFIG_VLAN_8021Q=y
+# CONFIG_VLAN_8021Q_GVRP is not set
+# CONFIG_VLAN_8021Q_MVRP is not set
 # CONFIG_LLC2 is not set
 # CONFIG_ATALK is not set
 # CONFIG_X25 is not set
