@@ -59,6 +59,21 @@ jobs:
 
       - run: go test ./... -race -cover
 
+  # Known vulnerabilities in the Go toolchain and dependencies that this
+  # code actually reaches (govulncheck's default, call-graph-based mode -
+  # a vulnerable module that's only required, never called, is reported
+  # but doesn't fail the job). Needs no secret, safe for fork PRs.
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
   build:
     runs-on: ubuntu-latest
     steps:
