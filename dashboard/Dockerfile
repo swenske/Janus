@@ -10,14 +10,15 @@
 # exactly what a real deploy expects without needing a Node.js toolchain
 # in this image's own build stage.
 #
-# No system CA bundle needed in the final image: dashboardd never
-# dials anything over public-CA-verified TLS - every gRPC call it makes
-# goes to a registered node's own gRPC server, verified against that
-# node's own CA cert stored in the registry (see dashboard/backend/
-# internal/nodeproxy's package doc comment), never the system trust
-# store. CGO_ENABLED=0 keeps the binary static so a bare FROM scratch
-# final stage can actually run it - confirmed locally (`docker build`
-# + `docker run` against a real node) before this file was trusted.
+# Node gRPC calls never use the system trust store - each is verified
+# against that node's own CA cert from the registry (see dashboard/
+# backend/internal/nodeproxy's package doc comment). The CA bundle below
+# is for the one public-internet call dashboardd makes: GitHub's release
+# API (nodeproxy/release.go, "Latest release" detection), which failed
+# with "x509: certificate signed by unknown authority" on the real
+# deployed container while this image shipped no bundle at all.
+# CGO_ENABLED=0 keeps the binary static so a bare FROM scratch final
+# stage can actually run it.
 FROM golang:1.26-trixie AS build
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -28,6 +29,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/dashboardd ./dashb
 
 FROM scratch AS export
 COPY --from=build /out/dashboardd /dashboardd
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 # /data is the persistent volume (node registry + this dashboard's own
 # TLS identity - see dashboard/backend/main.go's own -data-dir default)
 # - declared here so a bare `docker run` without an explicit -v still
