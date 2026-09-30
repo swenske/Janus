@@ -69,6 +69,40 @@ func Start(node *store.Node, dashboardServerCert tls.Certificate) (*Listener, er
 		MinVersion:   tls.VersionTLS13,
 	}
 
+	handler, err := newHandler(node)
+	if err != nil {
+		return nil, err
+	}
+
+	addr := fmt.Sprintf(":%d", node.Port)
+	ln, err := tls.Listen("tcp", addr, tlsConfig)
+	if err != nil {
+		return nil, fmt.Errorf("node %s: listen on %s: %w", node.ID, addr, err)
+	}
+
+	srv := &http.Server{Handler: handler}
+	go func() {
+		// ErrServerClosed is the expected outcome of Stop() below, not a
+		// real failure - nothing else to do with a listener error after
+		// the fact except let it die; the node just stops being
+		// reachable through the dashboard until re-added.
+		_ = srv.Serve(ln)
+	}()
+
+	return &Listener{node: node, server: srv}, nil
+}
+
+// newHandler is everything a per-node listener serves, behind CSRF
+// protection. The browser attaches the client certificate that opens
+// this origin to *any* request aimed at it, including one a page from
+// another site triggers - so the certificate alone doesn't prove the
+// operator meant the request. http.CrossOriginProtection rejects
+// cross-origin browser requests with a non-safe method (every endpoint
+// that changes something: power, services, config, maps, certificates,
+// upgrades...); GET stays open, since a cross-origin page can't read the
+// response. Requests from non-browser clients (curl, scripts) carry
+// neither Sec-Fetch-Site nor Origin and are unaffected.
+func newHandler(node *store.Node) (http.Handler, error) {
 	view, err := fs.Sub(staticFiles, "static")
 	if err != nil {
 		return nil, fmt.Errorf("static assets: %w", err)
@@ -88,22 +122,20 @@ func Start(node *store.Node, dashboardServerCert tls.Certificate) (*Listener, er
 	registerSystemRoutes(mux, node)
 	mux.Handle("/", http.FileServerFS(view))
 
-	addr := fmt.Sprintf(":%d", node.Port)
-	ln, err := tls.Listen("tcp", addr, tlsConfig)
-	if err != nil {
-		return nil, fmt.Errorf("node %s: listen on %s: %w", node.ID, addr, err)
+	return http.NewCrossOriginProtection().Handler(mux), nil
+}
+
+// sameOriginOrDirect reports whether a browser request came from this
+// origin's own page or was typed/bookmarked by the user - for the rare
+// GET that has a side effect (starting a packet capture), which
+// http.CrossOriginProtection deliberately leaves alone. Non-browser
+// clients send no Sec-Fetch-Site and pass.
+func sameOriginOrDirect(r *http.Request) bool {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "", "same-origin", "none":
+		return true
 	}
-
-	srv := &http.Server{Handler: mux}
-	go func() {
-		// ErrServerClosed is the expected outcome of Stop() below, not a
-		// real failure - nothing else to do with a listener error after
-		// the fact except let it die; the node just stops being
-		// reachable through the dashboard until re-added.
-		_ = srv.Serve(ln)
-	}()
-
-	return &Listener{node: node, server: srv}, nil
+	return false
 }
 
 // Stop shuts this node's listener down - used both for explicit node

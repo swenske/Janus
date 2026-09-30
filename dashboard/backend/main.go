@@ -151,8 +151,13 @@ func main() {
 	mux.Handle("/", http.FileServerFS(spa))
 
 	srv := &http.Server{
-		Addr:      *addr,
-		Handler:   mux,
+		Addr: *addr,
+		// The session cookie's SameSite=Strict already keeps it off
+		// cross-site requests, but not off same-site ones (another port
+		// or subdomain of the same host) - refuse any non-safe request
+		// from another origin outright, the same protection every
+		// per-node listener has (see nodeproxy.newHandler).
+		Handler:   http.NewCrossOriginProtection().Handler(mux),
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{serverCert}},
 	}
 	log.Printf("dashboardd listening on %s (HTTPS only)", *addr)

@@ -37,6 +37,12 @@ func registerPcapRoutes(mux *http.ServeMux, node *store.Node) {
 // The node leaves out its connection to this dashboard (the one carrying
 // the capture) unless include_own_stream is set.
 func handlePcap(w http.ResponseWriter, r *http.Request, node *store.Node) {
+	// A GET, but not a harmless one: it starts a capture on the node,
+	// promiscuous mode included - see sameOriginOrDirect.
+	if !sameOriginOrDirect(r) {
+		http.Error(w, "cross-origin request refused", http.StatusForbidden)
+		return
+	}
 	q := r.URL.Query()
 	iface := q.Get("interface")
 	if iface == "" {
