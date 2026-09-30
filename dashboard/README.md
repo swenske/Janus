@@ -27,6 +27,8 @@ and provisioning. Each node then has its own page, with a sidebar:
   until it's back.
 
 Light and dark themes follow the system, or can be chosen per browser.
+Design principles and how to verify a UI change:
+[`docs/controller-ui.md`](../docs/controller-ui.md).
 
 See the local `docs/plan` history (rebranding/dashboard/client-native
 initiative) for the full architecture and why it's shaped the way it
