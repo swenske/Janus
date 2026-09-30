@@ -650,6 +650,14 @@ jobs:
       - name: SystemService observability, files, services and machine control
         run: make qemu-system-api-test
 
+      # The node's network configuration on a real enforcing node: an
+      # offline-seeded config (MAC rename, static address, 802.1Q VLAN),
+      # NTP over that VLAN setting a 2020 clock, trials confirmed and
+      # reverted, persistence across a reboot. See
+      # hack/qemu-network-config-test.sh.
+      - name: Network configuration, VLAN, NTP and trial/revert
+        run: make qemu-network-config-test
+
       # Controller-relay follow-up: the other half - a real
       # LifecycleService.UploadReleaseFile call streams the release
       # bundle to a live node over the same mTLS connection every other

@@ -17,7 +17,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
 	qemu-dashboard-test dashboard-image local-dev-image ca-certificates seed-controller-test \
@@ -627,6 +627,13 @@ qemu-lifecycle-upgrade-url-test: build disk-image
 # Every SystemService/HAProxyService/NetworkService method beyond the
 # lifecycle ones, on a real enforcing node - including janusd restart,
 # reboot, reset and shutdown.
+# The node's network configuration end to end (offline seed, MAC rename,
+# static address, 802.1Q VLAN, NTP over that VLAN setting a 2020 clock,
+# confirmed/reverted trials, persistence) on a real enforcing boot -
+# see the script's header.
+qemu-network-config-test: build kernel-build disk-image
+	./hack/qemu-network-config-test.sh $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
 qemu-system-api-test: build disk-image
 	./hack/qemu-system-api-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
