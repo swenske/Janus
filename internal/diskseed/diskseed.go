@@ -40,6 +40,9 @@ import (
 	diskfs "github.com/diskfs/go-diskfs"
 	diskpkg "github.com/diskfs/go-diskfs/disk"
 	"github.com/diskfs/go-diskfs/filesystem"
+
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/netconfig"
 )
 
 // SeedController writes address/caCertPEM onto diskPath's existing
@@ -108,6 +111,43 @@ func SeedController(diskPath, address string, caCertPEM []byte) error {
 	}
 
 	return nil
+}
+
+// SeedNetwork writes a network configuration onto an already-built
+// disk's STATE partition (network/config.json - see
+// internal/netconfig), offline, the same way SeedController writes a
+// Controller: so a generic image can boot straight into, say, a static
+// address on a network without DHCP. Refuses an invalid configuration,
+// and a disk already seeded with one (same go-diskfs reasons as
+// SeedController).
+func SeedNetwork(diskPath string, cfg *janusv1alpha1.NetworkConfig) error {
+	if err := netconfig.Validate(cfg); err != nil {
+		return err
+	}
+	data, err := netconfig.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	d, err := diskfs.Open(diskPath, diskfs.WithOpenMode(diskfs.ReadWrite))
+	if err != nil {
+		return fmt.Errorf("open %s: %w", diskPath, err)
+	}
+	partIndex, err := findStatePartition(d)
+	if err != nil {
+		return fmt.Errorf("%s: %w", diskPath, err)
+	}
+	fs, err := d.GetFilesystem(partIndex)
+	if err != nil {
+		return fmt.Errorf("open STATE filesystem: %w", err)
+	}
+	path := "network/" + netconfig.FileName
+	if _, err := fs.OpenFile(path, os.O_RDONLY); err == nil {
+		return fmt.Errorf("%s is already seeded with a network config - re-run against a fresh, unseeded image instead of patching this one in place", diskPath)
+	}
+	if err := fs.Mkdir("network"); err != nil {
+		return fmt.Errorf("mkdir STATE network/: %w", err)
+	}
+	return writeFSFile(fs, path, data)
 }
 
 func findStatePartition(d *diskpkg.Disk) (int, error) {

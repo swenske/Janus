@@ -339,28 +339,6 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 	return true
 }
 
-func runNetwork(conn *grpc.ClientConn, args []string) {
-	if len(args) != 1 || args[0] != "status" {
-		usage()
-		os.Exit(2)
-	}
-	client := janusv1alpha1.NewNetworkServiceClient(conn)
-	c, cancel := ctx()
-	defer cancel()
-	state := func(st janusv1alpha1.ModuleState, err error) string {
-		if err != nil {
-			return status.Convert(err).Message()
-		}
-		return strings.ToLower(strings.TrimPrefix(st.String(), "MODULE_STATE_"))
-	}
-	bgp, err := client.BGPStatus(c, &emptypb.Empty{})
-	fmt.Println("bgp (bird):         ", state(bgp.GetState(), err))
-	vrrp, err := client.VRRPStatus(c, &emptypb.Empty{})
-	fmt.Println("vrrp (keepalived):  ", state(vrrp.GetState(), err))
-	fw, err := client.FirewallList(c, &emptypb.Empty{})
-	fmt.Println("firewall (nftables):", state(fw.GetState(), err))
-}
-
 func check(what string, err error) {
 	if err != nil {
 		log.Fatalf("%s: %v", what, err)

@@ -100,6 +100,26 @@ func TestReadLocalUserData(t *testing.T) {
 	}
 }
 
+func TestParseUserDataNetwork(t *testing.T) {
+	cfg, err := parseUserData([]byte(`{"network": {"hostname": "lb1", "interfaces": [{"name": "eth0", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.0.2.10/24"], "gateway": "192.0.2.1"}], "ntp": {"servers": ["ntp.example.net"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ControllerAddress != "" || cfg.Network.GetHostname() != "lb1" || cfg.Network.GetInterfaces()[0].GetGateway() != "192.0.2.1" || cfg.Network.GetNtp().GetServers()[0] != "ntp.example.net" {
+		t.Errorf("parsed %+v", cfg)
+	}
+	for name, doc := range map[string]string{
+		"empty":             `{}`,
+		"invalid network":   `{"network": {"hostname": "not a hostname"}}`,
+		"unknown field":     `{"network": {"hostnam": "lb1"}}`,
+		"controller halves": `{"controller_ca_cert": "pem", "network": {}}`,
+	} {
+		if _, err := parseUserData([]byte(doc)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
 func TestReadRejectsIncompleteUserData(t *testing.T) {
 	path := buildVolume(t, "cidata", map[string]string{
 		"user-data": `{"controller_address":"h:1"}`, // missing controller_ca_cert

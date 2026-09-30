@@ -110,7 +110,7 @@ expect "Logs janusd" 'listening on :9505' ctl system logs janusd
 expect "Logs haproxy" 'NOTICE' ctl system logs haproxy
 expect "ServiceList" '^haproxy +running +healthy' ctl system services
 expect "BackendList" '^BACKEND' ctl haproxy backends
-expect "NetworkService reports modules not in the image" 'bgp \(bird\): +not_enabled' ctl network status
+expect "NetworkService reports modules not in the image" 'bgp \(bird\): +not_enabled' ctl network modules
 
 # --- service control ---
 ctl system service restart haproxy >/dev/null || fail "ServiceRestart haproxy failed"

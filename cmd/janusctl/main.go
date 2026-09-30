@@ -24,6 +24,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/diskseed"
+	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/pki"
 )
 
@@ -75,7 +76,9 @@ func main() {
 	case "lifecycle":
 		runLifecycle(conn, flag.Args()[1:])
 	case "network":
-		runNetwork(conn, flag.Args()[1:])
+		runNetwork(conn, *endpoint, func(ep string) (*grpc.ClientConn, error) {
+			return dial(ep, *caFile, *certFile, *keyFile)
+		}, flag.Args()[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl: unknown command %q\n", cmd)
 		usage()
@@ -184,7 +187,11 @@ func usage() {
 	for _, line := range systemUsage {
 		fmt.Fprintln(os.Stderr, "  "+line)
 	}
-	fmt.Fprintln(os.Stderr, "  network status             optional modules (bird, keepalived, nftables) and whether this image has them")
+	fmt.Fprintln(os.Stderr, "  network status             hostname, interfaces, addresses, boot DHCP lease, routes, DNS, clock synchronization")
+	fmt.Fprintln(os.Stderr, "  network get                the network configuration, as JSON (the format apply, Install and NoCloud take)")
+	fmt.Fprintln(os.Stderr, "  network apply [-timeout 30s] [-no-confirm] FILE  apply a configuration on trial, then confirm it over the node's new address - unconfirmed, the node reverts by itself")
+	fmt.Fprintln(os.Stderr, "  network confirm            confirm the configuration on trial (over an address it keeps)")
+	fmt.Fprintln(os.Stderr, "  network modules            optional modules (bird, keepalived, nftables) and whether this image has them")
 	fmt.Fprintln(os.Stderr, "  haproxy backends           backends, their servers, addresses and states")
 	fmt.Fprintln(os.Stderr, "  haproxy show-info          HAProxy version/uptime/connections (stats socket)")
 	fmt.Fprintln(os.Stderr, "  haproxy stats              raw 'show stat' CSV from the stats socket")
@@ -200,10 +207,11 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  haproxy cert-upload [-crt-list PATH] [-sni host1,host2] NAME FILE  upload a PEM cert+key bundle as NAME, optionally binding it into crt-list PATH")
 	fmt.Fprintln(os.Stderr, "  haproxy cert-delete [-crt-list PATH] NAME  delete a certificate (unbinding from crt-list PATH first if given)")
 	fmt.Fprintln(os.Stderr, "  pki generate-client-config [-role os:admin|os:reader] DIR  issue a new client certificate, write ca.crt/client.crt/client.key to DIR")
-	fmt.Fprintln(os.Stderr, "  lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR  partition a blank DISK from scratch and write a release bundle (image/release/assemble.sh) to both A/B slots - does not reboot anything; -controller-address/-controller-ca make the installed node self-register with that Controller on first boot")
+	fmt.Fprintln(os.Stderr, "  lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] [-network-config FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR  partition a blank DISK from scratch and write a release bundle (image/release/assemble.sh) to both A/B slots - does not reboot anything; -controller-address/-controller-ca make the installed node self-register with that Controller on first boot")
 	fmt.Fprintln(os.Stderr, "  lifecycle rollback         switch the ESP to the other A/B slot's staged UKI and reboot into it")
 	fmt.Fprintln(os.Stderr, "  lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] BUNDLE_DIR  write a release bundle (image/release/assemble.sh), whose UKIs must be signed by a Janus release key, to the inactive slot, switch, and reboot into it - with -wait-for-health, reverts and reboots back automatically if the new slot never stays up long enough to confirm healthy")
 	fmt.Fprintln(os.Stderr, "  lifecycle upload-release BUNDLE_DIR  stream a local release bundle's 4 files to this node's own staging storage, for a node that can't dial out to fetch one itself - prints the staging path to pass as BUNDLE_DIR to a later 'lifecycle upgrade'")
+	fmt.Fprintln(os.Stderr, "  image seed-network -config FILE DISK  write a network configuration onto an already-built DISK's STATE partition, offline, applied from the node's first boot (raw disk images only)")
 	fmt.Fprintln(os.Stderr, "  image seed-controller -controller-address HOST:PORT -controller-ca FILE DISK  write controller self-registration config directly onto an already-built DISK's existing STATE partition - no janusd/gRPC needed, doesn't touch partitioning or the rootfs (raw disk images only; qemu-img convert a qcow2 to raw first, see docs/provisioning-a-node.md)")
 }
 
@@ -351,10 +359,11 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		sha256Flag := fs.String("sha256", "", "expected sha256 of BUNDLE_DIR/rootfs.squashfs (defaults to reading BUNDLE_DIR/rootfs.squashfs.sha256, if present - see image/release/assemble.sh)")
 		controllerAddress := fs.String("controller-address", "", "address of a Controller (Janus Controller's node self-registration port, see dashboard/backend/register.go) for the installed node to announce itself to on first boot - if unset, the node never self-registers. Requires -controller-ca.")
 		controllerCA := fs.String("controller-ca", "", "path to the Controller's CA certificate (PEM) - the installed node uses this to verify it's talking to the real Controller before ever sending it a credential; required whenever -controller-address is set")
+		networkConfig := fs.String("network-config", "", "path to a network configuration (JSON, as `janusctl network get` prints it) the installed node applies from its first boot - default: kernel boot DHCP")
 		insecureSkip := fs.Bool("insecure-skip-signature-check", false, "accept UKIs not signed by a Janus release key - development bundles only: without the check, whoever can alter the bundle on its way to the node controls what it boots")
 		_ = fs.Parse(args[1:])
 		if fs.NArg() != 2 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR")
+			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] [-network-config FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR")
 			os.Exit(2)
 		}
 		disk, bundleDir := fs.Arg(0), fs.Arg(1)
@@ -375,6 +384,16 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			}
 			controllerCACert = data
 		}
+		var netCfg *janusv1alpha1.NetworkConfig
+		if *networkConfig != "" {
+			data, err := os.ReadFile(*networkConfig)
+			if err != nil {
+				log.Fatalf("Install: read -network-config: %v", err)
+			}
+			if netCfg, err = netconfig.Parse(data); err != nil {
+				log.Fatalf("Install: -network-config %s: %v", *networkConfig, err)
+			}
+		}
 
 		// Longer than Upgrade's own 60s - Install writes the full
 		// rootfs to *both* A/B slots plus builds the ESP and STATE
@@ -387,6 +406,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			Disk:              disk,
 			ControllerAddress: *controllerAddress,
 			ControllerCaCert:  controllerCACert,
+			NetworkConfig:     netCfg,
 		})
 		if err != nil {
 			log.Fatalf("Install: %v", err)
@@ -556,6 +576,27 @@ func runImage(args []string) {
 			log.Fatalf("seed-controller: %v", err)
 		}
 		fmt.Printf("wrote controller self-registration config to %s's STATE partition\n", disk)
+
+	case "seed-network":
+		fs := flag.NewFlagSet("image seed-network", flag.ExitOnError)
+		config := fs.String("config", "", "path to the network configuration (JSON, as `janusctl network get` prints it) - required")
+		_ = fs.Parse(args[1:])
+		if fs.NArg() != 1 || *config == "" {
+			fmt.Fprintln(os.Stderr, "usage: janusctl image seed-network -config FILE DISK")
+			os.Exit(2)
+		}
+		data, err := os.ReadFile(*config)
+		if err != nil {
+			log.Fatalf("seed-network: read -config: %v", err)
+		}
+		cfg, err := netconfig.Parse(data)
+		if err != nil {
+			log.Fatalf("seed-network: %s: %v", *config, err)
+		}
+		if err := diskseed.SeedNetwork(fs.Arg(0), cfg); err != nil {
+			log.Fatalf("seed-network: %v", err)
+		}
+		fmt.Printf("wrote the network configuration to %s's STATE partition\n", fs.Arg(0))
 
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl image: unknown subcommand %q\n", sub)

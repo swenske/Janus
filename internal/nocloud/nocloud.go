@@ -8,7 +8,7 @@
 // own research notes) - and, like Talos, this package does NOT
 // implement real cloud-init semantics (#cloud-config, write_files,
 // runcmd, ...) at all: user-data here is Janus's own minimal JSON
-// schema (controller_address/controller_ca_cert), not a real
+// schema (controller_address/controller_ca_cert, network), not a real
 // cloud-init document. Reusing the discovery convention (label +
 // filenames) is what matters - it's what every Terraform provider that
 // already generates a cloud-init volume (libvirt, Proxmox, OpenStack,
@@ -46,6 +46,9 @@ import (
 
 	diskfs "github.com/diskfs/go-diskfs"
 	"github.com/diskfs/go-diskfs/filesystem"
+
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/netconfig"
 )
 
 // ErrNotFound is returned by FindVolume when no candidate device
@@ -53,19 +56,25 @@ import (
 // boots (no NoCloud volume attached at all), not a real error.
 var ErrNotFound = errors.New("no cidata volume found")
 
-// Config is what a NoCloud volume's user-data resolves to - the exact
-// two fields internal/api/install.go's InstallRequest and
-// internal/diskseed.SeedController already write directly onto STATE;
-// rootfs/init writes these same two files itself once this package
-// finds them here instead.
+// Config is what a NoCloud volume's user-data resolves to - the same
+// provisioning internal/api/install.go's InstallRequest and
+// internal/diskseed already write directly onto STATE; rootfs/init
+// writes it itself once this package finds it here instead. Each part is
+// optional (nil/empty when absent), but user-data must carry at least
+// one.
 type Config struct {
 	ControllerAddress string
 	ControllerCACert  []byte
+	// The node's network configuration (internal/netconfig), as
+	// user-data's "network" object - the NetworkConfig message's JSON
+	// form, as `janusctl network get` prints it.
+	Network *janusv1alpha1.NetworkConfig
 }
 
 type userData struct {
-	ControllerAddress string `json:"controller_address"`
-	ControllerCACert  string `json:"controller_ca_cert"`
+	ControllerAddress string          `json:"controller_address"`
+	ControllerCACert  string          `json:"controller_ca_cert"`
+	Network           json.RawMessage `json:"network"`
 }
 
 type metaData struct {
@@ -162,14 +171,34 @@ func Read(devicePath string) (*Config, error) {
 		}
 	}
 
+	return parseUserData(raw)
+}
+
+func parseUserData(raw []byte) (*Config, error) {
 	var ud userData
 	if err := json.Unmarshal(raw, &ud); err != nil {
 		return nil, fmt.Errorf("parse user-data: %w", err)
 	}
-	if ud.ControllerAddress == "" || ud.ControllerCACert == "" {
-		return nil, fmt.Errorf("user-data is missing controller_address/controller_ca_cert")
+	cfg := &Config{}
+	switch {
+	case ud.ControllerAddress != "" && ud.ControllerCACert != "":
+		cfg.ControllerAddress, cfg.ControllerCACert = ud.ControllerAddress, []byte(ud.ControllerCACert)
+	case ud.ControllerAddress != "" || ud.ControllerCACert != "":
+		// No trust on first use: a Controller address is only usable with
+		// the CA to verify it against.
+		return nil, errors.New("user-data: controller_address and controller_ca_cert go together")
 	}
-	return &Config{ControllerAddress: ud.ControllerAddress, ControllerCACert: []byte(ud.ControllerCACert)}, nil
+	if len(ud.Network) > 0 && string(ud.Network) != "null" {
+		n, err := netconfig.Parse(ud.Network)
+		if err != nil {
+			return nil, fmt.Errorf("user-data: network: %w", err)
+		}
+		cfg.Network = n
+	}
+	if cfg.ControllerAddress == "" && cfg.Network == nil {
+		return nil, errors.New("user-data has neither controller_address/controller_ca_cert nor network")
+	}
+	return cfg, nil
 }
 
 func readMetaData(fs filesystem.FileSystem) (*metaData, error) {

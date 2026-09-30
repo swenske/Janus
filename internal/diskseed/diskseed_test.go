@@ -9,6 +9,9 @@ import (
 	"github.com/diskfs/go-diskfs/disk"
 	"github.com/diskfs/go-diskfs/filesystem"
 	"github.com/diskfs/go-diskfs/partition/gpt"
+
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/netconfig"
 )
 
 // buildTestDisk creates a minimal disk with a single GPT partition
@@ -45,6 +48,11 @@ func buildTestDisk(t *testing.T) string {
 
 func readBack(t *testing.T, diskPath, name string) []byte {
 	t.Helper()
+	return readPath(t, diskPath, "controller/"+name)
+}
+
+func readPath(t *testing.T, diskPath, path string) []byte {
+	t.Helper()
 	d, err := diskfs.Open(diskPath, diskfs.WithOpenMode(diskfs.ReadOnly))
 	if err != nil {
 		t.Fatalf("re-open disk: %v", err)
@@ -53,11 +61,11 @@ func readBack(t *testing.T, diskPath, name string) []byte {
 	if err != nil {
 		t.Fatalf("GetFilesystem: %v", err)
 	}
-	f, err := fs.OpenFile("controller/"+name, os.O_RDONLY)
+	f, err := fs.OpenFile(path, os.O_RDONLY)
 	if err != nil {
-		t.Fatalf("open controller/%s: %v", name, err)
+		t.Fatalf("open %s: %v", path, err)
 	}
-	buf := make([]byte, 4096)
+	buf := make([]byte, 16384)
 	n, _ := f.Read(buf)
 	return buf[:n]
 }
@@ -117,5 +125,36 @@ func TestSeedControllerRejectsDiskWithNoStatePartition(t *testing.T) {
 
 	if err := SeedController(path, "host:8443", []byte("ca")); err == nil {
 		t.Error("expected an error against a disk with no partition table at all")
+	}
+}
+
+func TestSeedNetwork(t *testing.T) {
+	path := buildTestDisk(t)
+	cfg, err := netconfig.Parse([]byte(`{"hostname": "lb1", "interfaces": [
+		{"name": "eth0", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.0.2.10/24"], "gateway": "192.0.2.1"},
+		{"name": "eth0.100", "vlan": {"parent": "eth0", "id": 100}, "mode": "ADDRESSING_MODE_STATIC", "addresses": ["10.100.0.5/24"]}
+	], "dns": {"servers": ["192.0.2.53"]}, "ntp": {"servers": ["ntp1.example.net", "ntp2.example.net:1123"]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SeedNetwork(path, &janusv1alpha1.NetworkConfig{Hostname: "-bad-"}); err == nil {
+		t.Error("an invalid configuration was seeded")
+	}
+	if err := SeedNetwork(path, cfg); err != nil {
+		t.Fatalf("SeedNetwork: %v", err)
+	}
+	got, err := netconfig.Parse(readPath(t, path, "network/"+netconfig.FileName))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !netconfig.Equal(got, cfg) {
+		t.Errorf("read back %v, want %v", got, cfg)
+	}
+	if err := SeedNetwork(path, cfg); err == nil {
+		t.Error("a second seed was accepted")
+	}
+	// The Controller can still be seeded next to it.
+	if err := SeedController(path, "controller.example.com:8443", []byte("ca")); err != nil {
+		t.Errorf("SeedController after SeedNetwork: %v", err)
 	}
 }

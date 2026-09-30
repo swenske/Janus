@@ -18,6 +18,7 @@ import (
 	"github.com/swenske/Janus/internal/diskimage"
 	"github.com/swenske/Janus/internal/espswitch"
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/netconfig"
 )
 
 // Install writes a full Janus image to a blank disk for the first
@@ -62,6 +63,12 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 	}
 	if req.GetControllerAddress() != "" && len(req.GetControllerCaCert()) == 0 {
 		return status.Errorf(codes.InvalidArgument, "controller_ca_cert is required whenever controller_address is set - the node has to already know which CA to trust before it ever dials the Controller")
+	}
+
+	if nc := req.GetNetworkConfig(); nc != nil {
+		if err := netconfig.Validate(nc); err != nil {
+			return status.Errorf(codes.InvalidArgument, "network_config: %v", err)
+		}
 	}
 
 	send := func(stage string, progress float64, message string) error {
@@ -178,6 +185,9 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 	if err := writeControllerConfig(stateFS, req); err != nil {
 		return err
 	}
+	if err := writeNetworkConfig(stateFS, req.GetNetworkConfig()); err != nil {
+		return err
+	}
 
 	if err := send("writing-esp", 0.8, "building the ESP"); err != nil {
 		return err
@@ -285,6 +295,27 @@ func writeFSFile(fs filesystem.FileSystem, path string, data []byte) error {
 	}
 	if _, err := f.Write(data); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// writeNetworkConfig writes the node's network configuration onto the
+// new STATE filesystem, at network/config.json - where rootfs/init
+// bind-mounts internal/netconfig.Dir from, so janusd applies it from the
+// node's first boot. Nil writes nothing: the defaults (kernel boot DHCP).
+func writeNetworkConfig(fs filesystem.FileSystem, cfg *janusv1alpha1.NetworkConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	data, err := netconfig.Marshal(cfg)
+	if err != nil {
+		return status.Errorf(codes.Internal, "encode network_config: %v", err)
+	}
+	if err := fs.Mkdir("network"); err != nil { // no leading slash - see writeControllerConfig
+		return status.Errorf(codes.Internal, "mkdir STATE network/: %v", err)
+	}
+	if err := writeFSFile(fs, "network/"+netconfig.FileName, data); err != nil {
+		return status.Errorf(codes.Internal, "%v", err)
 	}
 	return nil
 }
