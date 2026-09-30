@@ -109,9 +109,45 @@ func main() {
 			return netconfig.EffectiveNTP(cfg, netMgr.DHCPNTPServers())
 		},
 	})
+	// HAProxy first: it needs neither the clock nor the PKI, and a node
+	// that waits for NTP below must still serve traffic meanwhile.
+	// haproxy needs its pid-file/stats-socket directory (and this
+	// daemon's own runtime dir in general) to exist - the target OS has
+	// no package manager / installer to have created it ahead of time,
+	// so this is the one place that responsibility can live.
+	if err := os.MkdirAll(filepath.Dir(*haproxyPid), 0o755); err != nil {
+		log.Fatalf("mkdir %s: %v", filepath.Dir(*haproxyPid), err)
+	}
+
+	// The chroot jail haproxy.cfg's `chroot` directive points into.
+	// Nothing is ever accessed inside it after the chroot() call (every
+	// file haproxy needs - config, maps, ACLs, certs - is opened before
+	// it drops privileges), so it's created empty and inaccessible on
+	// purpose: mode 0000, not even readable by its own owner.
+	if err := os.MkdirAll(*haproxyChrootDir, 0o000); err != nil {
+		log.Fatalf("mkdir %s: %v", *haproxyChrootDir, err)
+	}
+
+	haproxyMgr := haproxy.NewManager(*haproxyBin, *haproxyCfg, *haproxyPid, *haproxySock)
+	haproxyMgr.Output = &ring.LineWriter{Ring: serviceLogs["haproxy"]}
+
+	// Start haproxy from whatever config is already on disk (the
+	// bootstrap default at first boot - see rootfs/base/etc/haproxy -
+	// or the last config ApplyConfig wrote), so a node runs HAProxy from
+	// boot without needing an API call first. Not fatal: a dev build
+	// without the haproxy binary in place should still serve the gRPC
+	// API for everything else.
+	haproxyRunning := true
+	if err := haproxyMgr.Reload(); err != nil {
+		haproxyRunning = false
+		log.Printf("haproxy: initial start failed (continuing without it): %v", err)
+	}
+
 	if *manageHost {
 		go timeSvc.Run(context.Background())
-		if !pki.Bootstrapped(*pkiDir) && time.Now().Before(clockFloor) {
+		// No global address, no NTP server to reach (a board without a
+		// network): nothing to wait for.
+		if !pki.Bootstrapped(*pkiDir) && time.Now().Before(clockFloor) && hasGlobalAddress() {
 			waitForClock(timeSvc)
 		}
 	}
@@ -153,38 +189,6 @@ func main() {
 	lis, err := net.Listen("tcp", *addr)
 	if err != nil {
 		log.Fatalf("listen on %s: %v", *addr, err)
-	}
-
-	// haproxy needs its pid-file/stats-socket directory (and this
-	// daemon's own runtime dir in general) to exist - the target OS has
-	// no package manager / installer to have created it ahead of time,
-	// so this is the one place that responsibility can live.
-	if err := os.MkdirAll(filepath.Dir(*haproxyPid), 0o755); err != nil {
-		log.Fatalf("mkdir %s: %v", filepath.Dir(*haproxyPid), err)
-	}
-
-	// The chroot jail haproxy.cfg's `chroot` directive points into.
-	// Nothing is ever accessed inside it after the chroot() call (every
-	// file haproxy needs - config, maps, ACLs, certs - is opened before
-	// it drops privileges), so it's created empty and inaccessible on
-	// purpose: mode 0000, not even readable by its own owner.
-	if err := os.MkdirAll(*haproxyChrootDir, 0o000); err != nil {
-		log.Fatalf("mkdir %s: %v", *haproxyChrootDir, err)
-	}
-
-	haproxyMgr := haproxy.NewManager(*haproxyBin, *haproxyCfg, *haproxyPid, *haproxySock)
-	haproxyMgr.Output = &ring.LineWriter{Ring: serviceLogs["haproxy"]}
-
-	// Start haproxy from whatever config is already on disk (the
-	// bootstrap default at first boot - see rootfs/base/etc/haproxy -
-	// or the last config ApplyConfig wrote), so a node runs HAProxy from
-	// boot without needing an API call first. Not fatal: a dev build
-	// without the haproxy binary in place should still serve the gRPC
-	// API for everything else.
-	haproxyRunning := true
-	if err := haproxyMgr.Reload(); err != nil {
-		haproxyRunning = false
-		log.Printf("haproxy: initial start failed (continuing without it): %v", err)
 	}
 
 	// If rootfs/init's checkBootCommit left a pending wait_for_health
@@ -269,6 +273,17 @@ func refreshServerCert(s *pki.ServerCert) {
 // battery-backed clock (a Raspberry Pi boots in 1970) and hasn't
 // synchronized yet.
 var clockFloor = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// hasGlobalAddress reports whether the node has any global unicast
+// address - some way to reach an NTP server at all.
+func hasGlobalAddress() bool {
+	for _, ip := range pki.LocalIPs() {
+		if ip.IsGlobalUnicast() {
+			return true
+		}
+	}
+	return false
+}
 
 // waitForClock holds a first boot whose clock is obviously wrong until
 // it's synchronized, since the certificates generated next are dated by
