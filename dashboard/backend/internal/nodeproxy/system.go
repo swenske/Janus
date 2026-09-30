@@ -501,7 +501,9 @@ func handleMetrics(w http.ResponseWriter, r *http.Request, node *store.Node) {
 	out := metricsSample{TimeMs: time.Now().UnixMilli(), Errors: map[string]string{}}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	fetches := 0 // "unreachable" means every fetch below failed, however many there are
 	fetch := func(name string, call func() error) {
+		fetches++
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -519,7 +521,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request, node *store.Node) {
 	fetch("services", func() (err error) { out.Services, err = sys.Stats(ctx, empty); return })
 	fetch("haproxy", func() (err error) { out.HAProxy, err = hap.ShowInfo(ctx, empty); return })
 	wg.Wait()
-	if len(out.Errors) == 6 {
+	if len(out.Errors) == fetches {
 		http.Error(w, "node unreachable: "+out.Errors["system"], http.StatusBadGateway)
 		return
 	}

@@ -201,14 +201,25 @@ func scheduleReboot() {
 // (CONFIG_EFI_PARTITION), so this needs no offset math of its own, unlike
 // image/disk/assemble.sh's build-time `dd seek=` (which operates on a
 // plain disk image file with no partition-aware block devices at all).
+//
+// Synced and closed explicitly, errors included: a write error the
+// block layer only reports at fsync/close time must fail the Upgrade
+// before the ESP is switched to this slot, not be discarded by a
+// deferred Close.
 func writePartitionFile(device string, data []byte) error {
 	f, err := os.OpenFile(device, os.O_WRONLY, 0)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = f.Write(data)
-	return err
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return fmt.Errorf("sync: %w", err)
+	}
+	return f.Close()
 }
 
 func (l *Lifecycle) Rollback(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.RollbackResponse, error) {
