@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build --config vite.node.config.js",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:node": "vite build --config vite.node.config.js"
   },
   "dependencies": {
+    "lucide-react": "^1.49.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

@@ -1,12 +1,32 @@
 # Janus Controller
 
-A web UI for managing one or more Janus nodes: register a node by
-name/address, view its stats (RAM/CPU/disk, active boot slot,
-kernel/HAProxy version), and drive its config (apply a new HAProxy
-config, manage maps/ACLs/certificates, drain/ready/maint individual
-backend servers), update it to a new release, and capture its live
-traffic as a downloadable `.pcap` (see
-[`docs/packet-capture.md`](../docs/packet-capture.md)).
+A web UI for managing one or more Janus nodes. The node list shows each
+node's live status at a glance (online, version and available update,
+HAProxy health, boot slot, uptime), handles self-registration approvals,
+and provisioning. Each node then has its own page, with a sidebar:
+
+- **Monitoring** - an overview, live charts (CPU, memory, load, network,
+  HAProxy requests/connections/rates; refresh selectable from 1 s to
+  30 s or off, history kept while the page is open), processes, network
+  interfaces and sockets, mounts, disk I/O and a disk-usage explorer.
+- **Logs** - HAProxy's and janusd's output, the node's event log, and the
+  kernel log (dmesg), all streamed live, with filter, pause, download.
+- **Apps** - HAProxy: status and the full `show stat` table, backends
+  (ready/drain/maint per server), a configuration editor (validate, diff
+  against the running config, apply seamlessly), maps and ACLs,
+  certificates; service start/stop/restart/reload. BGP (bird), VRRP
+  (keepalived) and firewall (nftables) pages show whether the node's
+  image includes them.
+- **Tools** - packet capture to a `.pcap` download (see
+  [`docs/packet-capture.md`](../docs/packet-capture.md)), and a
+  read-only file browser (preview, download a file or a folder as .tar).
+- **System** - services, A/B updates (from a URL or relayed through the
+  Controller, with automatic revert), issuing reader/admin client
+  certificates (.pfx or PEM), and power: restart janusd (HAProxy keeps
+  serving), reboot, shut down, reset - with the page following the node
+  until it's back.
+
+Light and dark themes follow the system, or can be chosen per browser.
 
 See the local `docs/plan` history (rebranding/dashboard/client-native
 initiative) for the full architecture and why it's shaped the way it
@@ -36,13 +56,18 @@ make dashboard-image      # from the repo root - builds dashboard/Dockerfile
 ```
 
 This builds a single, self-contained image (`janus-controller`,
-`FROM scratch` - see `Dockerfile`'s own comment for why no system CA
-bundle or shell is needed inside it). It does **not** rebuild the
-frontend SPA from source - `dashboard/backend/static` is already
-committed (same convention `gen/janus/v1alpha1` uses), so this
-build needs no Node.js toolchain. If you've changed `dashboard/frontend`
-source, run `make dashboard-frontend-build` first and commit the
-result before building the image.
+`FROM scratch` plus a CA bundle for GitHub release detection - see
+`Dockerfile`'s own comment). It does **not** rebuild the frontend from
+source: both pages' builds are committed (same convention
+`gen/janus/v1alpha1` uses), so this build needs no Node.js toolchain.
+
+`dashboard/frontend` holds both pages: the node list (`index.html`,
+`src/App.jsx`, built into `dashboard/backend/static`) and each node's own
+page (`node/index.html`, `src/node/`, built with `vite.node.config.js`
+into `dashboard/backend/internal/nodeproxy/static`); `src/shared/` is the
+theme and UI primitives they share. If you've changed any of it, run
+`make dashboard-frontend-build` (`npm ci && npm run build`, both pages)
+and commit the result before building the image.
 
 ## Run
 

@@ -1,255 +1,160 @@
-import { useEffect, useRef, useState } from 'react'
+import { ArrowUpRight, Check, ChevronDown, Copy, LogOut, Plus, RefreshCw, Rocket, Server, ShieldCheck, Trash2, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Logo, ThemeToggle } from './shared/theme.jsx'
+import { Badge, Card, ErrorBox, stateTone, useConfirm, useToast } from './shared/ui.jsx'
 
-// dashboardd serves this SPA and the /api/nodes REST API on the same
-// origin (its own -addr, e.g. :8080) - see dashboard/backend/main.go -
-// so every call here is a plain same-origin fetch, no CORS needed.
-// Each *node's own* dashboard view lives on a completely different
-// origin (its own allocated port, see dashboard/backend/internal/
-// nodeproxy) - that's a full page navigation (openNode below), not
-// something this SPA fetches into itself: that per-node origin requires
-// a TLS client certificate the browser negotiates per origin, and a
-// self-signed server certificate the user has to click through once -
-// neither of those works transparently from a background fetch() call
-// on a different origin.
+// dashboardd serves this SPA and its REST API on the same origin (its own
+// -addr) - see dashboard/backend/main.go. Each *node's own* page lives on
+// a different origin (its own allocated port, see dashboard/backend/
+// internal/nodeproxy): opening it is a full navigation, not a fetch - that
+// origin needs a TLS client certificate the browser negotiates per origin.
 function openNode(node) {
-  const url = `https://${window.location.hostname}:${node.port}/`
-  window.open(url, '_blank', 'noopener,noreferrer')
+  window.open(`https://${window.location.hostname}:${node.port}/`, '_blank', 'noopener,noreferrer')
 }
 
-// Logo reuses public/favicon.svg (brand/favicon/favicon.svg) rather
-// than a separate light/dark <picture> pair - that file already
-// self-adapts to the browser's color scheme via an embedded
-// prefers-color-scheme media query in its own <style>, so a plain
-// <img> is enough here.
-function Logo({ size = 28 }) {
-  return <img src="/favicon.svg" alt="" width={size} height={size} className="logo" />
+async function call(path, opts) {
+  const resp = await fetch(path, opts)
+  const text = await resp.text()
+  if (!resp.ok) throw new Error(text.trim() || `${resp.status} ${resp.statusText}`)
+  return text ? JSON.parse(text) : null
 }
 
-function NodeList({ nodes, onRemove, busy }) {
-  if (nodes.length === 0) {
-    return <p className="empty">No nodes registered yet - add one below.</p>
-  }
+function uptime(bootUnix) {
+  if (!bootUnix) return ''
+  let s = Math.max(0, Math.floor(Date.now() / 1000 - bootUnix))
+  const d = Math.floor(s / 86400)
+  s -= d * 86400
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s - h * 3600) / 60)
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`
+}
+
+// --- node cards ---
+
+function NodeCard({ node, status, onRemove }) {
+  const st = status
+  const reachable = st?.reachable
   return (
-    <table className="nodes">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Address</th>
-          <th>Port</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {nodes.map((n) => (
-          <tr key={n.id}>
-            <td>{n.name}</td>
-            <td>{n.address}</td>
-            <td>{n.port}</td>
-            <td className="actions">
-              <button onClick={() => openNode(n)}>Open dashboard</button>
-              <button
-                className="danger"
-                disabled={busy}
-                onClick={() => onRemove(n.id)}
-              >
-                Remove
-              </button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <section className="card node-card">
+      <div className="spread" style={{ alignItems: 'flex-start' }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="node-card-name">{node.name}</div>
+          <div className="muted small mono">{node.address}</div>
+        </div>
+        {!st ? <Badge>checking…</Badge> : reachable ? <Badge tone="ok" dot>online</Badge> : <Badge tone="danger" dot>unreachable</Badge>}
+      </div>
+      {st && !reachable && <div className="error-box small">{st.error || 'no answer'}</div>}
+      {reachable && (
+        <dl className="kv small">
+          <dt>Host</dt>
+          <dd className="mono">{st.hostname}</dd>
+          <dt>Version</dt>
+          <dd>
+            <span className="mono">{st.version}</span>
+            {st.update_available && (
+              <>
+                {' '}
+                <Badge tone="accent">
+                  <Rocket size={11} /> {st.latest_release}
+                </Badge>
+              </>
+            )}
+          </dd>
+          <dt>HAProxy</dt>
+          <dd>
+            <Badge tone={stateTone(st.haproxy_state)} dot>
+              {st.haproxy_state || '–'}
+            </Badge>{' '}
+            {st.haproxy_health && <Badge tone={stateTone(st.haproxy_health)}>{st.haproxy_health}</Badge>}
+          </dd>
+          <dt>Slot · uptime</dt>
+          <dd>
+            {st.active_slot ? `slot ${st.active_slot}` : 'no A/B'} · {uptime(st.boot_time_unix)}
+          </dd>
+        </dl>
+      )}
+      <div className="row" style={{ marginTop: 'auto' }}>
+        <button className="primary" onClick={() => openNode(node)}>
+          Open <ArrowUpRight size={15} />
+        </button>
+        <span className="grow" />
+        <button className="ghost small danger" onClick={() => onRemove(node)} title="Remove from this Controller">
+          <Trash2 size={14} /> Remove
+        </button>
+      </div>
+    </section>
   )
 }
 
 // PendingList is the Tailscale-style admission queue: a node announced
-// itself (see dashboard/backend/register.go's own doc comment for why
-// that's a dedicated TLS port, not this one) but isn't reachable until
-// a human approves it here - never fully automatic.
+// itself (see dashboard/backend/register.go) but isn't reachable until a
+// human approves it here - never fully automatic.
 function PendingList({ pending, onApprove, onReject, busy }) {
-  if (pending.length === 0) {
-    return null
-  }
+  if (!pending.length) return null
   return (
-    <>
-      <h2>Pending nodes</h2>
-      <table className="nodes">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Address</th>
-            <th>Announced</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {pending.map((p) => (
-            <tr key={p.id}>
-              <td>{p.name}</td>
-              <td>{p.address}</td>
-              <td>{new Date(p.announced_at).toLocaleString()}</td>
-              <td className="actions">
-                <button disabled={busy} onClick={() => onApprove(p.id)}>
-                  Approve
-                </button>
-                <button className="danger" disabled={busy} onClick={() => onReject(p.id)}>
-                  Reject
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
+    <Card title={`Waiting for approval (${pending.length})`} icon={ShieldCheck} className="pending">
+      <div className="stack" style={{ gap: '0.5rem' }}>
+        {pending.map((p) => (
+          <div key={p.id} className="spread pending-row">
+            <div>
+              <strong>{p.name}</strong> <span className="muted mono small">{p.address}</span>
+              <div className="muted small">announced {new Date(p.announced_at).toLocaleString()}</div>
+            </div>
+            <div className="row">
+              <button className="primary small" disabled={busy} onClick={() => onApprove(p.id)}>
+                <Check size={14} /> Approve
+              </button>
+              <button className="small danger" disabled={busy} onClick={() => onReject(p.id)}>
+                <X size={14} /> Reject
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
   )
 }
 
-// copyToClipboard tries the Clipboard API first - unavailable in a
-// non-secure context (this SPA's own :8080 port is plain HTTP by
-// design, see dashboard/backend/main.go's own package doc comment, and
-// browsers only expose navigator.clipboard on https:// or localhost) -
-// and falls back to selecting the given textarea/input's text so the
-// user can still copy it with Ctrl+C/Cmd+C manually.
-async function copyToClipboard(ref) {
-  const text = ref.current?.value ?? ''
-  try {
-    if (navigator.clipboard) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // fall through to the select-and-let-the-user-copy fallback below
-  }
-  ref.current?.select()
-  return false
-}
+// --- add node ---
 
-// ProvisionInfo surfaces what an operator needs to provision a new node
-// with this Controller (`janusctl lifecycle install`'s own
-// -controller-address/-controller-ca flags, see cmd/janusctl's usage) -
-// GET /api/controller-info returns this dashboard's own suggested
-// address (best-effort, see suggestRegisterAddress's own doc comment
-// server-side - always worth double-checking against the real network
-// before use) and its TLS identity CA cert (the same one a provisioned
-// node verifies before ever sending it anything - no trust-on-first-use).
-function ProvisionInfo() {
-  const [info, setInfo] = useState(null)
-  const [error, setError] = useState(null)
-  const [copied, setCopied] = useState('')
-  const addressRef = useRef(null)
-  const caRef = useRef(null)
-  const commandRef = useRef(null)
+const emptyPfx = { name: '', address: '', pfx_password: '' }
+const emptyPem = { name: '', address: '', ca_cert_pem: '', bootstrap_cert_pem: '', bootstrap_key_pem: '' }
 
-  useEffect(() => {
-    fetch('/api/controller-info')
-      .then((resp) => {
-        if (!resp.ok) throw new Error('failed to load')
-        return resp.json()
-      })
-      .then(setInfo)
-      .catch((err) => setError(err.message))
-  }, [])
-
-  if (error || !info) return null
-
-  const address = info.address || 'YOUR-CONTROLLER-ADDRESS'
-  const command = `janusctl lifecycle install -controller-address ${address} -controller-ca controller-ca.crt DISK BUNDLE_DIR`
-
-  async function copy(ref, label) {
-    const ok = await copyToClipboard(ref)
-    setCopied(ok ? `${label} copied` : `select the ${label.toLowerCase()} text and press Ctrl+C/Cmd+C`)
-    setTimeout(() => setCopied(''), 4000)
-  }
-
-  return (
-    <details className="add-node">
-      <summary>Provision a new node</summary>
-      {!info.address && (
-        <p className="hint">
-          No address could be guessed automatically - set -advertise-address on dashboardd, or
-          just fill one in below yourself before copying the command.
-        </p>
-      )}
-      <label>
-        Controller address
-        <input ref={addressRef} readOnly value={address} onClick={() => copy(addressRef, 'Address')} />
-      </label>
-      <label>
-        Controller CA certificate
-        <textarea ref={caRef} readOnly rows={6} value={info.ca_cert_pem} onClick={() => copy(caRef, 'CA certificate')} />
-      </label>
-      <label>
-        Command (fill in DISK and BUNDLE_DIR, and save the CA certificate above as
-        controller-ca.crt first)
-        <textarea ref={commandRef} readOnly rows={2} value={command} onClick={() => copy(commandRef, 'Command')} />
-      </label>
-      {copied && <p className="hint">{copied}</p>}
-    </details>
-  )
-}
-
-const emptyPfxForm = { name: '', address: '', pfx_password: '' }
-const emptyPemForm = {
-  name: '',
-  address: '',
-  ca_cert_pem: '',
-  bootstrap_cert_pem: '',
-  bootstrap_key_pem: '',
-}
-
-// Two ways to hand the dashboard a one-time bootstrap admin credential
-// for a node - see dashboard/backend/main.go's parseAddNodeRequest.
-// .pfx upload is the default: the same file a user already imported
-// into their OS certificate store to view a node's own per-node page
-// (see dashboard/README.md) - no PEM text to copy/paste at all, a hard
-// cryptographic requirement (this dashboard needs its own private key
-// to keep talking to the node - a browser can never hand over a
-// private key, only prove it holds one - see nodeproxy's own package
-// doc) that .pfx upload gets as close to "just pick your cert" as that
-// requirement allows. Paste-PEM stays available as a fallback for a
-// script/CI caller with raw PEM files already in hand (hack/
-// qemu-dashboard-test.sh drives that path directly).
-function AddNodeForm({ onAdded }) {
+// Two ways to hand the Controller a one-time bootstrap admin credential
+// for a node - see dashboard/backend/main.go's parseAddNodeRequest. .pfx
+// upload is the default (the same file already imported into the browser
+// to open a node's page); paste-PEM stays for scripts with PEM files in
+// hand (hack/qemu-dashboard-test.sh drives that path).
+function AddNodeForm({ onAdded, onClose }) {
   const [mode, setMode] = useState('pfx')
-  const [pfxForm, setPfxForm] = useState(emptyPfxForm)
-  const [pfxFile, setPfxFile] = useState(null)
-  const [pemForm, setPemForm] = useState(emptyPemForm)
+  const [pfx, setPfx] = useState(emptyPfx)
+  const [file, setFile] = useState(null)
+  const [pem, setPem] = useState(emptyPem)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-
-  const setPfx = (field) => (e) => setPfxForm({ ...pfxForm, [field]: e.target.value })
-  const setPem = (field) => (e) => setPemForm({ ...pemForm, [field]: e.target.value })
+  const toast = useToast()
 
   async function submit(e) {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      let resp
       if (mode === 'pfx') {
-        if (!pfxFile) throw new Error('choose a .pfx file')
+        if (!file) throw new Error('choose a .pfx file')
         const body = new FormData()
-        body.set('name', pfxForm.name)
-        body.set('address', pfxForm.address)
-        body.set('pfx_password', pfxForm.pfx_password)
-        body.set('pfx', pfxFile)
-        // No Content-Type header here on purpose - fetch sets the
-        // multipart boundary itself from the FormData body, and
-        // setting it manually would omit that boundary.
-        resp = await fetch('/api/nodes', { method: 'POST', body })
+        body.set('name', pfx.name)
+        body.set('address', pfx.address)
+        body.set('pfx_password', pfx.pfx_password)
+        body.set('pfx', file)
+        // No Content-Type: fetch sets the multipart boundary itself.
+        await call('/api/nodes', { method: 'POST', body })
       } else {
-        resp = await fetch('/api/nodes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(pemForm),
-        })
+        await call('/api/nodes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pem) })
       }
-      if (!resp.ok) {
-        throw new Error(await resp.text())
-      }
-      setPfxForm(emptyPfxForm)
-      setPfxFile(null)
-      setPemForm(emptyPemForm)
+      toast(`Added ${mode === 'pfx' ? pfx.name : pem.name}`)
+      setPfx(emptyPfx)
+      setFile(null)
+      setPem(emptyPem)
       onAdded()
     } catch (err) {
       setError(err.message)
@@ -259,111 +164,179 @@ function AddNodeForm({ onAdded }) {
   }
 
   return (
-    <form className="add-node" onSubmit={submit}>
-      <h2>Add a node</h2>
-      <div className="mode-toggle">
-        <label>
-          <input type="radio" checked={mode === 'pfx'} onChange={() => setMode('pfx')} />
-          Upload .pfx (recommended)
-        </label>
-        <label>
-          <input type="radio" checked={mode === 'pem'} onChange={() => setMode('pem')} />
-          Paste PEM (scripts/CI)
-        </label>
-      </div>
-
-      {mode === 'pfx' ? (
-        <>
-          <label>
-            Name
-            <input value={pfxForm.name} onChange={setPfx('name')} required />
+    <Card title="Add a node" icon={Plus} actions={<button className="ghost icon" onClick={onClose} aria-label="Close"><X size={16} /></button>}>
+      <form className="stack" onSubmit={submit}>
+        <div className="row">
+          <label className="check">
+            <input type="radio" checked={mode === 'pfx'} onChange={() => setMode('pfx')} /> Upload .pfx (recommended)
           </label>
-          <label>
-            Address (host:port, the node&apos;s real gRPC endpoint - default :9505)
-            <input value={pfxForm.address} onChange={setPfx('address')} required placeholder="10.0.0.5:9505" />
+          <label className="check">
+            <input type="radio" checked={mode === 'pem'} onChange={() => setMode('pem')} /> Paste PEM (scripts/CI)
           </label>
-          <label>
-            Bootstrap credential (.pfx)
-            <span className="hint">
-              The same file you imported into your browser/OS to view a node&apos;s own page -
-              must include the node&apos;s ca.crt bundled in (openssl pkcs12 -export -certfile
-              ca.crt ...). Used once, immediately, to issue this dashboard&apos;s own dedicated
-              credential - never stored.
-            </span>
-            <input
-              type="file"
-              accept=".pfx,.p12"
-              onChange={(e) => setPfxFile(e.target.files?.[0] ?? null)}
-              required
-            />
-          </label>
-          <label>
-            .pfx password
-            <input type="password" value={pfxForm.pfx_password} onChange={setPfx('pfx_password')} />
-          </label>
-        </>
-      ) : (
-        <>
-          <label>
-            Name
-            <input value={pemForm.name} onChange={setPem('name')} required />
-          </label>
-          <label>
-            Address (host:port, the node&apos;s real gRPC endpoint - default :9505)
-            <input value={pemForm.address} onChange={setPem('address')} required placeholder="10.0.0.5:9505" />
-          </label>
-          <label>
-            CA certificate (the node&apos;s own ca.crt - not sensitive)
-            <textarea value={pemForm.ca_cert_pem} onChange={setPem('ca_cert_pem')} required rows={4} />
-          </label>
-          <label>
-            Bootstrap admin certificate
-            <span className="hint">
-              Used once, immediately, to issue this dashboard&apos;s own dedicated credential -
-              never stored (see dashboard/backend/internal/nodeproxy&apos;s own design notes).
-            </span>
-            <textarea value={pemForm.bootstrap_cert_pem} onChange={setPem('bootstrap_cert_pem')} required rows={4} />
-          </label>
-          <label>
-            Bootstrap admin key
-            <textarea value={pemForm.bootstrap_key_pem} onChange={setPem('bootstrap_key_pem')} required rows={4} />
-          </label>
-        </>
-      )}
-
-      {error && <p className="error">{error}</p>}
-      <button type="submit" disabled={busy}>
-        {busy ? 'Adding…' : 'Add node'}
-      </button>
-    </form>
+        </div>
+        {mode === 'pfx' ? (
+          <>
+            <div className="grid grid-2">
+              <label className="field">
+                <span>Name</span>
+                <input value={pfx.name} onChange={(e) => setPfx({ ...pfx, name: e.target.value })} required />
+              </label>
+              <label className="field">
+                <span>gRPC address (host:port, default port 9505)</span>
+                <input value={pfx.address} onChange={(e) => setPfx({ ...pfx, address: e.target.value })} required placeholder="10.0.0.5:9505" />
+              </label>
+              <label className="field">
+                <span>Bootstrap credential (.pfx, with the node's CA bundled)</span>
+                <input type="file" accept=".pfx,.p12" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required />
+              </label>
+              <label className="field">
+                <span>.pfx password</span>
+                <input type="password" value={pfx.pfx_password} onChange={(e) => setPfx({ ...pfx, pfx_password: e.target.value })} />
+              </label>
+            </div>
+            <p className="muted small" style={{ margin: 0 }}>
+              Used once, immediately, to issue this Controller its own dedicated credential - never stored. A .pfx must include the node's ca.crt (
+              <code>openssl pkcs12 -export -certfile ca.crt …</code>).
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="grid grid-2">
+              <label className="field">
+                <span>Name</span>
+                <input value={pem.name} onChange={(e) => setPem({ ...pem, name: e.target.value })} required />
+              </label>
+              <label className="field">
+                <span>gRPC address (host:port)</span>
+                <input value={pem.address} onChange={(e) => setPem({ ...pem, address: e.target.value })} required placeholder="10.0.0.5:9505" />
+              </label>
+            </div>
+            <label className="field">
+              <span>CA certificate (the node's ca.crt - not sensitive)</span>
+              <textarea rows={4} value={pem.ca_cert_pem} onChange={(e) => setPem({ ...pem, ca_cert_pem: e.target.value })} required />
+            </label>
+            <div className="grid grid-2">
+              <label className="field">
+                <span>Bootstrap admin certificate</span>
+                <textarea rows={4} value={pem.bootstrap_cert_pem} onChange={(e) => setPem({ ...pem, bootstrap_cert_pem: e.target.value })} required />
+              </label>
+              <label className="field">
+                <span>Bootstrap admin key</span>
+                <textarea rows={4} value={pem.bootstrap_key_pem} onChange={(e) => setPem({ ...pem, bootstrap_key_pem: e.target.value })} required />
+              </label>
+            </div>
+          </>
+        )}
+        <ErrorBox error={error} />
+        <div>
+          <button className="primary" type="submit" disabled={busy}>
+            {busy ? 'Adding…' : 'Add node'}
+          </button>
+        </div>
+      </form>
+    </Card>
   )
 }
 
-// SetupForm is forced on the very first visit, before anything else in
-// the app is reachable (see dashboard/backend/internal/auth's own doc
-// comment) - a single admin password, no username, since this is a
-// single-operator tool.
+function CopyField({ label, value, inputRef, rows, onCopy }) {
+  return (
+    <label className="field">
+      <span className="spread">
+        {label}
+        <button type="button" className="small ghost" onClick={() => onCopy(inputRef, label)}>
+          <Copy size={13} /> Copy
+        </button>
+      </span>
+      {rows ? <textarea ref={inputRef} readOnly rows={rows} value={value} /> : <input ref={inputRef} readOnly value={value} className="mono" />}
+    </label>
+  )
+}
+
+// ProvisionInfo hands an operator what `janusctl lifecycle install`'s
+// -controller-address/-controller-ca need, so a new node self-registers
+// with this Controller (GET /api/controller-info - the address is a
+// best-effort suggestion, check it against the real network).
+function ProvisionInfo() {
+  const [info, setInfo] = useState(null)
+  const [open, setOpen] = useState(false)
+  const toast = useToast()
+  const refs = { address: useRef(null), ca: useRef(null), command: useRef(null) }
+  useEffect(() => {
+    call('/api/controller-info').then(setInfo).catch(() => {})
+  }, [])
+  if (!info) return null
+  const address = info.address || 'YOUR-CONTROLLER-ADDRESS'
+  const command = `janusctl lifecycle install -controller-address ${address} -controller-ca controller-ca.crt DISK BUNDLE_DIR`
+  const copy = async (ref, label) => {
+    try {
+      await navigator.clipboard.writeText(ref.current.value)
+      toast(`${label} copied`)
+    } catch {
+      ref.current.select()
+      toast(`Select the ${label.toLowerCase()} and press Ctrl+C`, 'warn')
+    }
+  }
+  return (
+    <Card
+      title="Provision new nodes with this Controller"
+      icon={Server}
+      actions={
+        <button className="small ghost" onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Show'} <ChevronDown size={14} style={{ transform: open ? 'rotate(180deg)' : undefined }} />
+        </button>
+      }
+    >
+      <p className="muted" style={{ margin: 0 }}>
+        A node installed with this Controller's address and CA announces itself on first boot and shows up above for approval.
+      </p>
+      {open && (
+        <div className="stack" style={{ marginTop: '0.8rem' }}>
+          {!info.address && <div className="notice warn">No address could be guessed - set -advertise-address on dashboardd, or fill it in yourself.</div>}
+          <CopyField label="Controller address" value={address} inputRef={refs.address} onCopy={copy} />
+          <CopyField label="Controller CA certificate (save as controller-ca.crt)" value={info.ca_cert_pem} inputRef={refs.ca} rows={5} onCopy={copy} />
+          <CopyField label="Install command (fill in DISK and BUNDLE_DIR)" value={command} inputRef={refs.command} rows={2} onCopy={copy} />
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// --- auth ---
+
+function AuthScreen({ title, children }) {
+  return (
+    <div className="auth-screen">
+      <div className="auth-box card">
+        <div className="auth-brand">
+          <Logo size={44} />
+          <div>
+            <h1>Janus Controller</h1>
+            <div className="muted">{title}</div>
+          </div>
+        </div>
+        {children}
+      </div>
+      <div className="auth-theme">
+        <ThemeToggle />
+      </div>
+    </div>
+  )
+}
+
+// SetupForm is forced on the very first visit (see dashboard/backend/
+// internal/auth): one admin password, no username - a single-operator tool.
 function SetupForm({ onDone }) {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-
   async function submit(e) {
     e.preventDefault()
-    if (password !== confirm) {
-      setError('passwords do not match')
-      return
-    }
+    if (password !== confirm) return setError('passwords do not match')
     setBusy(true)
     setError(null)
     try {
-      const resp = await fetch('/api/auth/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      })
-      if (!resp.ok) throw new Error(await resp.text())
+      await call('/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
       onDone()
     } catch (err) {
       setError(err.message)
@@ -371,32 +344,23 @@ function SetupForm({ onDone }) {
       setBusy(false)
     }
   }
-
   return (
-    <main className="auth-screen">
-      <div className="brand centered">
-        <Logo size={48} />
-        <h1>Janus Controller</h1>
-      </div>
-      <form className="add-node" onSubmit={submit}>
-        <h2>Set the admin password</h2>
-        <p className="hint">
-          First run - choose a password for this Controller. There is one admin account.
-        </p>
-        <label>
-          Password (at least 8 characters)
+    <AuthScreen title="First run - set the admin password">
+      <form className="stack" onSubmit={submit}>
+        <label className="field">
+          <span>Password (at least 8 characters)</span>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoFocus />
         </label>
-        <label>
-          Confirm password
+        <label className="field">
+          <span>Confirm password</span>
           <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={8} />
         </label>
-        {error && <p className="error">{error}</p>}
-        <button type="submit" disabled={busy}>
+        <ErrorBox error={error} />
+        <button className="primary" type="submit" disabled={busy}>
           {busy ? 'Setting up…' : 'Set password and continue'}
         </button>
       </form>
-    </main>
+    </AuthScreen>
   )
 }
 
@@ -404,18 +368,12 @@ function LoginForm({ onDone }) {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-
   async function submit(e) {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      const resp = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      })
-      if (!resp.ok) throw new Error(await resp.text())
+      await call('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
       onDone()
     } catch (err) {
       setError(err.message)
@@ -423,148 +381,176 @@ function LoginForm({ onDone }) {
       setBusy(false)
     }
   }
-
   return (
-    <main className="auth-screen">
-      <div className="brand centered">
-        <Logo size={48} />
-        <h1>Janus Controller</h1>
-      </div>
-      <form className="add-node" onSubmit={submit}>
-        <h2>Sign in</h2>
-        <label>
-          Password
+    <AuthScreen title="Sign in">
+      <form className="stack" onSubmit={submit}>
+        <label className="field">
+          <span>Password</span>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus />
         </label>
-        {error && <p className="error">{error}</p>}
-        <button type="submit" disabled={busy}>
+        <ErrorBox error={error} />
+        <button className="primary" type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
-    </main>
+    </AuthScreen>
   )
 }
 
-// AuthGate calls /api/auth/status once on load and renders whichever
-// screen that says to - the setup form, the login form, or the real
-// app (children). Re-checked after a successful setup/login rather
-// than just trusting the client-side action, since that's what the
-// server itself decided, not a local assumption.
+// AuthGate renders setup, login, or the app - whatever /api/auth/status
+// says, re-checked after each setup/login rather than assumed.
 function AuthGate({ children }) {
-  const [status, setStatus] = useState(null) // null while loading
+  const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
-
-  async function refreshStatus() {
-    try {
-      const resp = await fetch('/api/auth/status')
-      if (!resp.ok) throw new Error(await resp.text())
-      setStatus(await resp.json())
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
+  const refreshStatus = useCallback(() => {
+    call('/api/auth/status').then(setStatus).catch((err) => setError(err.message))
+  }, [])
   useEffect(() => {
     refreshStatus()
-  }, [])
-
-  if (error) return <p className="error">{error}</p>
-  if (!status) return <p>Loading…</p>
+  }, [refreshStatus])
+  if (error) return <div className="auth-screen"><ErrorBox error={error} /></div>
+  if (!status) return null
   if (status.setup_required) return <SetupForm onDone={refreshStatus} />
   if (!status.authenticated) return <LoginForm onDone={refreshStatus} />
   return children
 }
 
+// --- main ---
+
+const STATUS_EVERY = 15000
+
 function MainApp() {
-  const [nodes, setNodes] = useState([])
+  const [nodes, setNodes] = useState(null)
   const [pending, setPending] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [statuses, setStatuses] = useState({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [adding, setAdding] = useState(false)
+  const confirm = useConfirm()
+  const toast = useToast()
 
-  async function refresh() {
-    setLoading(true)
+  const refresh = useCallback(async () => {
     try {
-      const [nodesResp, pendingResp] = await Promise.all([fetch('/api/nodes'), fetch('/api/pending')])
-      if (!nodesResp.ok) throw new Error(await nodesResp.text())
-      if (!pendingResp.ok) throw new Error(await pendingResp.text())
-      setNodes((await nodesResp.json()) ?? [])
-      setPending((await pendingResp.json()) ?? [])
+      const [n, p] = await Promise.all([call('/api/nodes'), call('/api/pending')])
+      setNodes(n ?? [])
+      setPending(p ?? [])
       setError(null)
     } catch (err) {
       setError(err.message)
-    } finally {
-      setLoading(false)
     }
-  }
+  }, [])
+  const refreshStatus = useCallback(() => {
+    call('/api/nodes/status')
+      .then((s) => setStatuses(s || {}))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     refresh()
-  }, [])
+    refreshStatus()
+    const t = setInterval(() => {
+      refresh()
+      refreshStatus()
+    }, STATUS_EVERY)
+    return () => clearInterval(t)
+  }, [refresh, refreshStatus])
 
-  async function remove(id) {
+  const act = async (fn, success) => {
     setBusy(true)
     try {
-      const resp = await fetch(`/api/nodes/${id}`, { method: 'DELETE' })
-      if (!resp.ok) throw new Error(await resp.text())
+      await fn()
+      if (success) toast(success)
       await refresh()
+      refreshStatus()
     } catch (err) {
-      setError(err.message)
+      toast(err, 'danger')
     } finally {
       setBusy(false)
     }
   }
-
-  async function approve(id) {
-    setBusy(true)
-    try {
-      const resp = await fetch(`/api/pending/${id}/approve`, { method: 'POST' })
-      if (!resp.ok) throw new Error(await resp.text())
-      await refresh()
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
+  const remove = async (node) => {
+    const ok = await confirm({
+      title: `Remove ${node.name}?`,
+      body: <p>The Controller forgets this node and its credential. The node itself keeps running untouched; you can add it again later.</p>,
+      action: 'Remove',
+      danger: true,
+    })
+    if (ok) act(() => call(`/api/nodes/${node.id}`, { method: 'DELETE' }), `Removed ${node.name}`)
   }
-
-  async function reject(id) {
-    setBusy(true)
-    try {
-      const resp = await fetch(`/api/pending/${id}/reject`, { method: 'POST' })
-      if (!resp.ok) throw new Error(await resp.text())
-      await refresh()
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function logout() {
+  const approve = (id) => act(() => call(`/api/pending/${id}/approve`, { method: 'POST' }), 'Node approved')
+  const reject = (id) => act(() => call(`/api/pending/${id}/reject`, { method: 'POST' }), 'Registration rejected')
+  const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
-    // A full reload is simplest here: AuthGate's own state doesn't
-    // otherwise know a logout just happened, and a reload re-runs its
-    // status check from scratch.
     window.location.reload()
   }
 
+  const values = Object.values(statuses)
+  const online = values.filter((s) => s.reachable).length
+  const down = values.filter((s) => !s.reachable).length
+  const updates = values.filter((s) => s.update_available).length
+
   return (
-    <main>
-      <div className="header-row">
-        <div className="brand">
-          <Logo />
-          <h1>Janus Controller</h1>
+    <div className="main-page">
+      <header className="topbar">
+        <div className="row" style={{ gap: '0.6rem' }}>
+          <Logo size={26} />
+          <div>
+            <div className="node-name">Janus Controller</div>
+            <div className="muted small">{nodes ? `${nodes.length} node${nodes.length === 1 ? '' : 's'}` : '…'}</div>
+          </div>
         </div>
-        <button onClick={logout}>Log out</button>
-      </div>
-      {error && <p className="error">{error}</p>}
-      {!loading && <PendingList pending={pending} onApprove={approve} onReject={reject} busy={busy} />}
-      <h2>Nodes</h2>
-      {loading ? <p>Loading…</p> : <NodeList nodes={nodes} onRemove={remove} busy={busy} />}
-      <AddNodeForm onAdded={refresh} />
-      <ProvisionInfo />
-    </main>
+        <div className="row">
+          {online > 0 && <Badge tone="ok" dot>{online} online</Badge>}
+          {down > 0 && <Badge tone="danger" dot>{down} unreachable</Badge>}
+          {updates > 0 && <Badge tone="accent">{updates} update{updates === 1 ? '' : 's'} available</Badge>}
+          {pending.length > 0 && <Badge tone="warn">{pending.length} pending</Badge>}
+        </div>
+        <span className="grow" />
+        <button className="ghost icon" title="Refresh" onClick={() => { refresh(); refreshStatus() }}>
+          <RefreshCw size={16} />
+        </button>
+        <ThemeToggle />
+        <button className="ghost" onClick={logout}>
+          <LogOut size={15} /> Log out
+        </button>
+      </header>
+      <main className="content">
+        <div className="stack">
+          {error && <ErrorBox error={error} />}
+          <PendingList pending={pending} onApprove={approve} onReject={reject} busy={busy} />
+          <div className="spread">
+            <h1>Nodes</h1>
+            {!adding && (
+              <button className="primary" onClick={() => setAdding(true)}>
+                <Plus size={15} /> Add node
+              </button>
+            )}
+          </div>
+          {adding && (
+            <AddNodeForm
+              onAdded={() => {
+                setAdding(false)
+                refresh()
+                refreshStatus()
+              }}
+              onClose={() => setAdding(false)}
+            />
+          )}
+          {nodes && nodes.length === 0 && !adding && (
+            <div className="card empty">
+              No node yet. <button className="small" onClick={() => setAdding(true)}>Add one</button> with its admin certificate, or provision new ones to self-register
+              (below).
+            </div>
+          )}
+          <div className="node-grid">
+            {(nodes || []).map((n) => (
+              <NodeCard key={n.id} node={n} status={statuses[n.id]} onRemove={remove} />
+            ))}
+          </div>
+          <ProvisionInfo />
+        </div>
+      </main>
+    </div>
   )
 }
 
