@@ -4,6 +4,7 @@ import Chart from '../components/Chart.jsx'
 import { Badge, Card, Meter, PageHeader, Stat, stateTone } from '../../shared/ui.jsx'
 import { bytes, compact, dateTime, duration, num, percent, rate } from '../format.js'
 import { useMetrics, usePoll, useSSE } from '../hooks.jsx'
+import { UpdateBadge } from './Update.jsx'
 
 const WINDOW = 5 * 60 * 1000
 
@@ -48,12 +49,12 @@ export default function Overview() {
   const { points, latest } = useMetrics()
   const overview = usePoll('/api/system/overview', { every: 30000 })
   const services = usePoll('/api/system/services')
-  const release = usePoll('/api/latest-release', { every: 600000 })
+  const check = usePoll('/api/update-check', { every: 120000 })
 
   const v = overview.data?.version
   const hap = latest?.hap
   const uptime = latest?.bootTime ? Date.now() / 1000 - latest.bootTime : undefined
-  const updateAvailable = v?.version && release.data?.tag_name && v.version !== release.data.tag_name
+  const uc = check.data
 
   return (
     <>
@@ -147,8 +148,8 @@ export default function Overview() {
           </div>
         </Card>
         <Card title="Release" icon={Archive} actions={<a href="#/system/update">Update</a>}>
-          {release.error ? (
-            <div className="muted small">Latest release unavailable: {String(release.error.message)}</div>
+          {check.error ? (
+            <div className="muted small">Update check unavailable: {String(check.error.message)}</div>
           ) : (
             <div className="stack" style={{ gap: '0.5rem' }}>
               <div className="spread">
@@ -157,9 +158,17 @@ export default function Overview() {
               </div>
               <div className="spread">
                 <span className="muted">Latest</span>
-                <span className="mono">{release.data?.tag_name || '…'}</span>
+                <span className="mono">{uc ? uc.latest || '–' : '…'}</span>
               </div>
-              {v?.version && release.data && (updateAvailable ? <Badge tone="accent">Update available</Badge> : <Badge tone="ok">Up to date</Badge>)}
+              {uc?.extensions?.length > 0 && (
+                <div className="spread">
+                  <span className="muted">Extensions</span>
+                  <span className="small">{uc.extensions.join(', ')}</span>
+                </div>
+              )}
+              <div>
+                <UpdateBadge uc={uc} />
+              </div>
             </div>
           )}
         </Card>

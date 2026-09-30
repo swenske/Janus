@@ -565,6 +565,9 @@ expect_json() { # expect_json PATH PYTHON-ASSERTION-ON-d DESCRIPTION
 expect_json /api/metrics 'd["system"]["cpu_total_ticks"] > 0 and d["memory"]["total_bytes"] > 0 and d["haproxy"]["version"] and any(x["id"] == "haproxy" for x in d["services"]["processes"])' "metrics aggregate"
 expect_json /api/system/overview 'd["hostname"] and d["version"]["active_slot"] == "A" and d["system"]["boot_time_unix"] > 0' "system overview"
 expect_json /api/system/services 'any(s["id"] == "haproxy" and s["state"] == "running" and s["health"] == "healthy" for s in d["services"])' "services"
+# A default-schematic node's update comes from GitHub Releases; whether
+# GitHub answers from here isn't what's under test, the node's side is.
+expect_json /api/update-check 'd["default_schematic"] and d["schematic_id"] == "a055fbb697e2d0abb0c5911e7702b07040f49eb71befeaf9b90495a905327f47" and d["arch"] == "amd64" and d["extensions"] == [] and d["source"] == "github" and d["state"] in ("ready", "unavailable") and d["version"]' "update check"
 expect_json /api/system/processes 'any(p["pid"] == 1 for p in d["processes"])' "processes"
 expect_json /api/system/mounts 'any(m["mounted_on"] == "/etc/.state" for m in d["mounts"])' "mounts"
 expect_json /api/system/netstat 'any(c["local_address"].endswith(":9505") and c["state"] == "LISTEN" for c in d["connections"])' "netstat"

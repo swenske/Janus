@@ -51,6 +51,9 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 			HealthTimeoutSeconds uint32 `json:"health_timeout_seconds"`
 			// Development bundles only - see ImageSource's own field.
 			InsecureSkipSignatureCheck bool `json:"insecure_skip_signature_check"`
+			// Install a bundle built from another image schematic - see
+			// ImageSource's own field.
+			AllowSchematicChange bool `json:"allow_schematic_change"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
@@ -66,7 +69,7 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 			return
 		}
 
-		runUpgrade(w, r, janusv1alpha1.NewLifecycleServiceClient(conn), &janusv1alpha1.ImageSource{Reference: req.Reference, Sha256: req.SHA256, InsecureSkipSignatureCheck: req.InsecureSkipSignatureCheck}, req.WaitForHealth, req.HealthTimeoutSeconds)
+		runUpgrade(w, r, janusv1alpha1.NewLifecycleServiceClient(conn), &janusv1alpha1.ImageSource{Reference: req.Reference, Sha256: req.SHA256, InsecureSkipSignatureCheck: req.InsecureSkipSignatureCheck, AllowSchematicChange: req.AllowSchematicChange}, req.WaitForHealth, req.HealthTimeoutSeconds)
 	})
 
 	mux.HandleFunc("/api/lifecycle/upgrade-upload", func(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +118,7 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 	var sha256Value string
 	var waitForHealth bool
 	var healthTimeoutSeconds uint32
-	var insecureSkipSignatureCheck bool
+	var insecureSkipSignatureCheck, allowSchematicChange bool
 	var stagingDir string
 	seen := map[string]bool{}
 
@@ -136,6 +139,8 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 			waitForHealth = readFormValue(part) == "true"
 		case "insecure_skip_signature_check":
 			insecureSkipSignatureCheck = readFormValue(part) == "true"
+		case "allow_schematic_change":
+			allowSchematicChange = readFormValue(part) == "true"
 		case "health_timeout_seconds":
 			if n, err := strconv.Atoi(readFormValue(part)); err == nil && n > 0 {
 				healthTimeoutSeconds = uint32(n)
@@ -161,7 +166,7 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 		}
 	}
 
-	runUpgrade(w, r, client, &janusv1alpha1.ImageSource{Reference: stagingDir, Sha256: sha256Value, InsecureSkipSignatureCheck: insecureSkipSignatureCheck}, waitForHealth, healthTimeoutSeconds)
+	runUpgrade(w, r, client, &janusv1alpha1.ImageSource{Reference: stagingDir, Sha256: sha256Value, InsecureSkipSignatureCheck: insecureSkipSignatureCheck, AllowSchematicChange: allowSchematicChange}, waitForHealth, healthTimeoutSeconds)
 }
 
 func readFormValue(part *multipart.Part) string {

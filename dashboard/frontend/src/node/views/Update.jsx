@@ -1,4 +1,4 @@
-import { Archive, ExternalLink, Rocket, Upload as UploadIcon } from 'lucide-react'
+import { Archive, ExternalLink, Puzzle, Rocket, Upload as UploadIcon } from 'lucide-react'
 import { useState } from 'react'
 import { ApiError, postJSON } from '../api.js'
 import { Badge, Card, PageHeader, Tabs, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
@@ -14,7 +14,7 @@ const FILES = [
 ]
 
 export default function Update() {
-  const release = usePoll('/api/latest-release', { every: 600000 })
+  const check = usePoll('/api/update-check', { every: 60000 })
   const overview = usePoll('/api/system/overview', { every: 0 })
   const [mode, setMode] = useState('url')
   const [reference, setReference] = useState('')
@@ -23,18 +23,18 @@ export default function Update() {
   const [waitHealth, setWaitHealth] = useState(true)
   const [timeout, setTimeoutS] = useState('')
   const [allowUnsigned, setAllowUnsigned] = useState(false)
+  const [allowSchematic, setAllowSchematic] = useState(false)
   const [following, setFollowing] = useState(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
   const toast = useToast()
 
   const v = overview.data?.version
-  const rel = release.data
-  const updateAvailable = v?.version && rel?.tag_name && v.version !== rel.tag_name
+  const uc = check.data
   const useLatest = () => {
     setMode('url')
-    setReference(rel.bundle_base_url)
-    setSha(rel.sha256 || '')
+    setReference(uc.bundle_base_url)
+    setSha(uc.sha256 || '')
   }
 
   const launch = async () => {
@@ -57,13 +57,18 @@ export default function Update() {
               <strong>The bundle's signature won't be checked.</strong> Whoever could alter it on its way to the node controls what the node boots - only for a development build you produced yourself.
             </p>
           )}
+          {allowSchematic && (
+            <p>
+              <strong>The bundle may be built from another image schematic:</strong> the node then boots with that schematic's extensions, and loses the ones it doesn't have.
+            </p>
+          )}
         </>
       ),
       action: 'Install and reboot',
       danger: true,
     })
     if (!ok) return
-    const health = { wait_for_health: waitHealth, health_timeout_seconds: Number(timeout) || 0, insecure_skip_signature_check: allowUnsigned }
+    const health = { wait_for_health: waitHealth, health_timeout_seconds: Number(timeout) || 0, insecure_skip_signature_check: allowUnsigned, allow_schematic_change: allowSchematic }
     const result = await run(async () => {
       if (mode === 'url') return postJSON('/api/lifecycle/upgrade-url', { reference, sha256: sha, ...health })
       const form = new FormData()
@@ -72,6 +77,7 @@ export default function Update() {
       form.append('wait_for_health', String(waitHealth))
       form.append('health_timeout_seconds', String(Number(timeout) || 0))
       form.append('insecure_skip_signature_check', String(allowUnsigned))
+      form.append('allow_schematic_change', String(allowSchematic))
       const resp = await fetch('/api/lifecycle/upgrade-upload', { method: 'POST', body: form })
       if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
       return resp.json()
@@ -107,23 +113,64 @@ export default function Update() {
             <dd className="mono">{v?.version || '…'}</dd>
             <dt>Active slot</dt>
             <dd>{v?.active_slot ? <Badge tone="info">slot {v.active_slot}</Badge> : <span className="muted">not an A/B boot - updates need an installed node</span>}</dd>
+            <dt>Image schematic</dt>
+            <dd>
+              {uc ? (
+                <span className="mono" title={uc.schematic_id}>
+                  {uc.schematic_id.slice(0, 12)}
+                  {uc.default_schematic && <span className="muted"> (default)</span>}
+                </span>
+              ) : (
+                '…'
+              )}
+            </dd>
+            <dt>Extensions</dt>
+            <dd>
+              {uc?.extensions?.length ? (
+                <span className="row" style={{ gap: '0.35rem', flexWrap: 'wrap' }}>
+                  {uc.extensions.map((e) => (
+                    <Badge key={e} tone="accent">
+                      <Puzzle size={11} /> {e}
+                    </Badge>
+                  ))}
+                </span>
+              ) : (
+                <span className="muted">none</span>
+              )}
+            </dd>
           </dl>
+          {uc && !uc.default_schematic && (
+            <p className="muted small" style={{ marginBottom: 0 }}>
+              Updates must be built from this schematic, so the node keeps its extensions: they come from the image factory, not the plain GitHub release.
+            </p>
+          )}
         </Card>
-        <Card title="Latest release" icon={Rocket} actions={rel?.html_url && <a href={rel.html_url} target="_blank" rel="noreferrer">Release notes <ExternalLink size={12} /></a>}>
-          {release.error ? (
-            <div className="muted">Unavailable: {String(release.error.message)}</div>
-          ) : !rel ? (
+        <Card
+          title={uc && !uc.default_schematic ? 'Latest update for this schematic' : 'Latest release'}
+          icon={Rocket}
+          actions={uc?.release_url && (
+            <a href={uc.release_url} target="_blank" rel="noreferrer">
+              Release notes <ExternalLink size={12} />
+            </a>
+          )}
+        >
+          {check.error ? (
+            <div className="muted">Unavailable: {String(check.error.message)}</div>
+          ) : !uc ? (
             <div className="muted">…</div>
           ) : (
             <div className="stack">
               <div className="spread">
-                <span className="mono">{rel.tag_name}</span>
-                {updateAvailable ? <Badge tone="accent">Update available</Badge> : <Badge tone="ok">Up to date</Badge>}
+                <span className="mono">{uc.latest || '–'}</span>
+                <UpdateBadge uc={uc} />
               </div>
-              {rel.published_at && <div className="muted small">Published {dateTime(Date.parse(rel.published_at))}</div>}
+              {uc.published_at && <div className="muted small">Published {dateTime(Date.parse(uc.published_at))}</div>}
+              {uc.message && <div className={uc.state === 'building' ? 'muted small' : 'small'}>{uc.message}</div>}
+              {uc.state === 'building' && <div className="muted small">The image factory is building it - this page checks again every minute.</div>}
+              <div className="muted small">Source: {uc.source === 'github' ? 'GitHub Releases' : 'image factory'}</div>
               <div>
-                <button className="primary small" onClick={useLatest}>
-                  Use this release
+                <button className="primary small" onClick={useLatest} disabled={uc.state !== 'ready' || !uc.bundle_base_url}>
+                  Use this update
                 </button>
               </div>
             </div>
@@ -173,6 +220,9 @@ export default function Update() {
           <label className="check">
             <input type="checkbox" checked={allowUnsigned} onChange={(e) => setAllowUnsigned(e.target.checked)} /> Accept a bundle not signed with a Janus release key (insecure - development builds only)
           </label>
+          <label className="check">
+            <input type="checkbox" checked={allowSchematic} onChange={(e) => setAllowSchematic(e.target.checked)} /> Accept a bundle built from another image schematic (changes the node's extensions)
+          </label>
           <p className="muted small" style={{ margin: 0 }}>
             The node checks the release signature before writing anything; the sha256 above is only an early consistency check.
           </p>
@@ -185,4 +235,13 @@ export default function Update() {
       </Card>
     </>
   )
+}
+
+// UpdateBadge is the update state of a node, from /api/update-check.
+export function UpdateBadge({ uc }) {
+  if (!uc) return null
+  if (uc.state === 'building') return <Badge tone="info">Building</Badge>
+  if (uc.state === 'failed') return <Badge tone="danger">Build failed</Badge>
+  if (uc.state !== 'ready') return <Badge tone="warn">Unavailable</Badge>
+  return uc.update_available ? <Badge tone="accent">Update available</Badge> : <Badge tone="ok">Up to date</Badge>
 }

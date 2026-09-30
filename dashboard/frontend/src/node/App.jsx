@@ -127,7 +127,7 @@ export default function App() {
   const { latest, error } = useMetrics()
   const node = usePoll('/api/node', { every: 0 })
   const modules = usePoll('/api/network/modules', { every: 0 })
-  const release = usePoll('/api/latest-release', { every: 600000 })
+  const check = usePoll('/api/update-check', { every: 120000 })
   const overview = usePoll('/api/system/overview', { every: 60000 })
 
   useEffect(() => setNavOpen(false), [route])
@@ -137,8 +137,8 @@ export default function App() {
   }, [name])
 
   const version = overview.data?.version?.version
-  const latestTag = release.data?.tag_name
-  const updateAvailable = version && latestTag && version !== latestTag
+  const latestTag = check.data?.latest
+  const updateAvailable = check.data?.state === 'ready' && check.data?.update_available
   const hap = latest?.hap
   const View = current.view
 

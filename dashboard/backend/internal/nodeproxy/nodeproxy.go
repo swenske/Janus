@@ -118,6 +118,7 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	registerOpsRoutes(mux, node)
 	registerLifecycleRoutes(mux, node)
 	registerReleaseRoutes(mux)
+	registerUpdateRoutes(mux, node)
 	registerPcapRoutes(mux, node)
 	registerSystemRoutes(mux, node)
 	registerNetworkRoutes(mux, node, st)

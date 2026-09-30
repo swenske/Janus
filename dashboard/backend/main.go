@@ -85,7 +85,9 @@ func main() {
 	advertiseAddresses := flag.String("advertise-address", envOr("JANUS_CONTROLLER_ADVERTISE_ADDRESS", ""), "comma-separated extra IPs/hostnames to add to this dashboard's TLS identity certificate, alongside loopback and this host's own local IPs (see loadOrCreateDashboardIdentity) - needed whenever a node or browser reaches -addr/-register-addr/the per-node ports through an address this process can't see on its own network interfaces (Docker bridge networking's host-side published port, a NAT/port-forwarded address, ...); only used the first time the identity is generated (or ignored entirely if -tls-cert/-tls-key are set), since it's cached to -data-dir afterward - delete <data-dir>/dashboard-identity.{crt,key} to regenerate after changing this; also settable via JANUS_CONTROLLER_ADVERTISE_ADDRESS, same reasoning as JANUS_CONTROLLER_ADDR above")
 	tlsCertFile := flag.String("tls-cert", "", "path to a PEM certificate for this dashboard's own TLS identity (used for -addr, -register-addr, and every per-node listener) - if set, together with -tls-key, replaces the auto-generated self-signed one entirely; both flags must be set together")
 	tlsKeyFile := flag.String("tls-key", "", "path to the PEM private key matching -tls-cert")
+	imageFactory := flag.String("image-factory", envOr("JANUS_CONTROLLER_IMAGE_FACTORY", nodeproxy.ImageFactoryURL), "image factory that builds and serves the updates of nodes whose image has optional extensions (docs/image-factory.md) - empty to disable, in which case such nodes have no update source; nodes with the default schematic update from GitHub Releases either way; also settable via JANUS_CONTROLLER_IMAGE_FACTORY")
 	flag.Parse()
+	nodeproxy.ImageFactoryURL = *imageFactory
 
 	st, err := store.Open(*dataDir)
 	if err != nil {
