@@ -23,20 +23,28 @@ commits séparés par thème (`f3b4376` à `f581851`). #5 a été corrigé
 selon l'option A, choisie par l'utilisateur. Chaque section concernée porte un paragraphe **Corrigé**
 qui décrit la correction et sa vérification.
 
-**Rotation de la clé de signature : faite, sauf deux points.**
-L'ancien certificat portait `CN=HAProxyOS Secure Boot signing key`,
-généré avant le renommage du projet. La nouvelle clé
-(`CN=Janus Secure Boot signing key`, RSA 4096, empreinte SHA-256
-`D0:D8:91:EF:…:1D:FF:0F`) a été générée hors du dépôt. Son certificat
-remplace `image/secureboot/production-cert.pem` et est embarqué dans
-`internal/releasetrust/certs/`. Le secret `SECUREBOOT_SIGNING_KEY` a été
-remplacé le 2026-09-30 à 16:06 UTC, et la copie locale de la clé
-privée a été supprimée. Reste à faire :
+**Rotation de la clé de signature : terminée.** L'ancien certificat
+portait `CN=HAProxyOS Secure Boot signing key`, généré avant le
+renommage du projet. La nouvelle clé (`CN=Janus Secure Boot signing
+key`, RSA 4096, empreinte SHA-256 `D0:D8:91:EF:…:1D:FF:0F`) a été générée
+hors du dépôt, sauvegardée, mise dans le secret `SECUREBOOT_SIGNING_KEY`
+le 2026-09-30, puis sa copie locale supprimée. Son certificat remplace
+`image/secureboot/production-cert.pem` et est embarqué dans
+`internal/releasetrust/certs/`. Le run `image-build` 36745534311 l'a
+prouvé : son étape ISO a signé les deux UKI avec le secret et `sbverify`
+les a validés contre le nouveau certificat.
 
-- confirmer la correspondance secret/certificat par le premier run
-  d'`image-build.yml` après le push. Son étape ISO vérifie la signature
-  avec `sbverify`, et un secret GitHub ne peut pas être relu pour le
-  vérifier autrement.
+**Régression corrigée après le push.** Le commit de dépendances
+(`f3b4376`) avait laissé `go mod tidy` réécrire la directive `go 1.26` en
+`go 1.26.0`. `setup-go`, qui lit `go.mod`, a alors installé exactement
+Go 1.26.0 au lieu du dernier 1.26.x. Le lint a échoué (`buf` exige
+≥ 1.26.7), et `vulncheck` a signalé des failles de la bibliothèque
+standard corrigées en 1.26.6 (`net/url`, `html/template`, `crypto/tls`),
+que les binaires d'`image-build.yml` auraient embarquées. Corrigé par
+`toolchain go1.26.8` dans `go.mod` (`6e8edb1`), que `setup-go` utilise en
+priorité ; la CI est repassée au vert. Le run `image-build` 36745534311,
+lancé avant, a compilé `janusd` avec Go 1.26.0 : ses artefacts de
+vérification ne doivent pas servir de livrable.
 
 Nouveaux constats de cette passe, tous deux ouverts : #15 (rootfs
 différent pour chaque artefact d'un même run CI) et #16 (bundle
@@ -628,16 +636,14 @@ Faits : #1 à #14, et le job CI `vulncheck`.
 
 Restant :
 
-1. **Fin de la rotation de la clé** : vérifier que l'étape ISO du
-   premier run `image-build.yml` après le push passe.
-2. Publier une première Release signée, puis retirer l'opt-out de
+1. Publier une première Release signée, puis retirer l'opt-out de
    `qemu-lifecycle-upgrade-https-test`.
-3. #16 : vérifier l'arbre dm-verity contre le root hash signé avant de
+2. #16 : vérifier l'arbre dm-verity contre le root hash signé avant de
    basculer.
-4. #15 : rendre le rootfs reproductible, ou le construire une seule fois
+3. #15 : rendre le rootfs reproductible, ou le construire une seule fois
    par run.
-5. Remonter grpc en ≥ 1.85.0 dès sa sortie stable (voir #1).
-6. Relancer toute la suite QEMU avant une release : les chemins
+4. Remonter grpc en ≥ 1.85.0 dès sa sortie stable (voir #1).
+5. Relancer toute la suite QEMU avant une release : les chemins
    `Upgrade`/`Install` et le Controller ont changé.
 
 ## Comment rejouer les vérifications
