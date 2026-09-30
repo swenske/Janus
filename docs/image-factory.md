@@ -66,7 +66,63 @@ built with an extension can't lose it to an update built without it. To
 change a node's extensions on purpose, pass `-allow-schematic-change`
 (`janusctl lifecycle upgrade`) - or reinstall.
 
-## Building an image with extensions
+## Getting an image: janus.sw-servers.net
+
+The companion site's **Image builder** (<https://janus.sw-servers.net/builder>)
+walks through the choices - platform, release, extensions - and gives
+the schematic's ID, its YAML and the download links:
+
+- the **default schematic** downloads straight from the GitHub Release;
+- any other is built on demand, the first time someone asks for it, from
+  the build inputs that release published (below). It takes a few
+  minutes; the page follows the build and offers the files when it's
+  done. Built images stay available, for the latest releases.
+
+The same service answers nodes' update questions, per schematic:
+
+```sh
+curl https://janus.sw-servers.net/api/v1/updates/<schematic-id>?arch=amd64
+```
+
+gives the newest release built for that schematic - the base URL of its
+update bundle (what `janusctl lifecycle upgrade` and the Controller's
+Update page take) and its sha256 - or starts building it. When a new
+release comes out, the site builds the update bundle of every schematic
+it has already served, so a node with extensions finds its update ready
+like one without.
+
+### How a custom image is built
+
+Every release publishes, for each architecture, what a schematic's image
+is made of - nothing is compiled again for a schematic, and every node
+runs the release's own binaries:
+
+| Asset | Content |
+|---|---|
+| `kernel-<arch>` | the release's kernel |
+| `rootfs-base-<arch>.tar` | the base system tree: `init`, `janusd`, HAProxy, the SELinux policy, the CA bundle, ... with the SELinux types of its executables |
+| `extension-<name>-<arch>.tar` | each extension's files, manifest and SELinux types |
+| `schematic-catalog.json` | the extensions the release offers, and for which architectures |
+
+The site starts `.github/workflows/schematic-build.yml` on the project's
+runner, which checks the schematic against that catalog, layers the
+extensions onto the base tree (`rootfs/assemble-from-base.sh`, refusing
+any extension that would replace a file), writes the squashfs and its
+dm-verity tree, signs the update bundle's UKIs with the release key -
+the key never leaves the runner - builds the disk, ISO and SD card images
+(`image/schematic/build.sh`), boots the amd64 disk under UEFI with SELinux
+enforcing (`hack/qemu-schematic-smoke-test.sh`), and uploads everything
+to the site with a manifest listing each file's sha256.
+
+`image/schematic/build.sh` works locally too, from a release's assets or
+from `make schematic-inputs` (the same files, built from the tree):
+
+```sh
+make schematic-inputs     # build/inputs/
+image/schematic/build.sh build/inputs amd64 my-schematic.json out/
+```
+
+## Building an image with extensions from source
 
 ```sh
 make extensions-amd64                         # build the extensions (Docker)
