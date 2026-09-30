@@ -62,6 +62,7 @@ func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Ve
 		KernelVersion: KernelVersion(),
 		ActiveSlot:    CurrentActiveSlot(),
 		SchematicId:   CurrentSchematic(),
+		Arch:          runtime.GOARCH,
 	}
 	if s.Extensions != nil {
 		for _, m := range s.Extensions.Manifests() {

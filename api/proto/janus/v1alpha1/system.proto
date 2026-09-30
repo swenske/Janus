@@ -98,6 +98,9 @@ message VersionResponse {
   // carries.
   string schematic_id = 7;
   repeated ExtensionInfo extensions = 8;
+  // The node's CPU architecture, as Go names it ("amd64", "arm64") - which
+  // release bundles fit it.
+  string arch = 9;
 }
 
 // An optional extension built into the node's image.

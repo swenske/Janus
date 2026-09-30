@@ -134,8 +134,11 @@ type VersionResponse struct {
 	// ID from its signed kernel command line - the default schematic's for
 	// an image without optional extensions - and the extensions the image
 	// carries.
-	SchematicId   string           `protobuf:"bytes,7,opt,name=schematic_id,json=schematicId,proto3" json:"schematic_id,omitempty"`
-	Extensions    []*ExtensionInfo `protobuf:"bytes,8,rep,name=extensions,proto3" json:"extensions,omitempty"`
+	SchematicId string           `protobuf:"bytes,7,opt,name=schematic_id,json=schematicId,proto3" json:"schematic_id,omitempty"`
+	Extensions  []*ExtensionInfo `protobuf:"bytes,8,rep,name=extensions,proto3" json:"extensions,omitempty"`
+	// The node's CPU architecture, as Go names it ("amd64", "arm64") - which
+	// release bundles fit it.
+	Arch          string `protobuf:"bytes,9,opt,name=arch,proto3" json:"arch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -224,6 +227,13 @@ func (x *VersionResponse) GetExtensions() []*ExtensionInfo {
 		return x.Extensions
 	}
 	return nil
+}
+
+func (x *VersionResponse) GetArch() string {
+	if x != nil {
+		return x.Arch
+	}
+	return ""
 }
 
 // An optional extension built into the node's image.
@@ -2739,7 +2749,7 @@ var File_janus_v1alpha1_system_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\n" +
-	"\x1bjanus/v1alpha1/system.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1bjanus/v1alpha1/common.proto\"\xb2\x02\n" +
+	"\x1bjanus/v1alpha1/system.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1bjanus/v1alpha1/common.proto\"\xc6\x02\n" +
 	"\x0fVersionResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x1d\n" +
 	"\n" +
@@ -2754,7 +2764,8 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\fschematic_id\x18\a \x01(\tR\vschematicId\x12=\n" +
 	"\n" +
 	"extensions\x18\b \x03(\v2\x1d.janus.v1alpha1.ExtensionInfoR\n" +
-	"extensions\"_\n" +
+	"extensions\x12\x12\n" +
+	"\x04arch\x18\t \x01(\tR\x04arch\"_\n" +
 	"\rExtensionInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12 \n" +

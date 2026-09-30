@@ -230,6 +230,9 @@ func runVersion(conn *grpc.ClientConn) {
 		log.Fatalf("Version: %v", err)
 	}
 	fmt.Println("Node:", resp.GetVersion())
+	if resp.GetArch() != "" {
+		fmt.Println("Architecture:", resp.GetArch())
+	}
 	if resp.GetSchematicId() != "" {
 		fmt.Println("Image schematic:", resp.GetSchematicId())
 	}
