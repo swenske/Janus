@@ -325,6 +325,11 @@ message PacketCaptureRequest {
   // the stream ends normally. 0 means run until the client cancels (the
   // last ~200ms of packets may then be lost with the cancellation).
   uint32 duration_seconds = 5;
+  // By default the node leaves out the TCP connection carrying this very
+  // capture (both directions, exact endpoints) - on the interface that
+  // carries it, it would otherwise be most of what gets captured. Set
+  // this to capture it anyway.
+  bool include_own_stream = 6;
 }
 
 message MetaWriteRequest {

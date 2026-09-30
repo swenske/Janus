@@ -87,16 +87,17 @@
   (open it in Wireshark or tcpdump). The filter uses tcpdump syntax -
   <code>ip</code> <code>ip6</code> <code>arp</code> <code>tcp</code> <code>udp</code> <code>icmp</code> <code>icmp6</code>,
   <code>[src|dst] host / net / port / portrange</code>, <code>and</code> <code>or</code> <code>not</code>, parentheses.
-  Keep <code>not port 9505</code> in it, or the capture mostly records its own stream.
+  The node automatically leaves out the connection carrying this capture.
 </p>
 <form class="inline" id="pcap-form">
   <input id="pcap-interface" value="eth0" required style="width:6rem" title="interface" />
-  <input id="pcap-filter" value="not port 9505" placeholder="filter (empty = everything)" style="flex:1" title="filter" />
+  <input id="pcap-filter" placeholder="filter, e.g. tcp port 443 (empty = everything)" style="flex:1" title="filter" />
   <input id="pcap-duration" type="number" min="1" max="300" value="10" required style="width:5rem" title="duration, seconds (max 300)" /> s
 </form>
 <div class="inline">
   <input id="pcap-snaplen" type="number" min="0" placeholder="snaplen (default: all)" style="width:12rem" title="bytes kept per packet" />
   <label><input type="checkbox" id="pcap-promisc" /> Promiscuous mode</label>
+  <label title="The capture then captures itself: every batch it sends is captured again, so it grows very fast (about 18 MB in 3 seconds in testing). For debugging the API only."><input type="checkbox" id="pcap-include-own" /> Include this capture's own stream (debugging only: grows very fast)</label>
 </div>
 <div class="inline">
   <button type="button" id="pcap-submit">Capture &amp; download .pcap</button>
@@ -470,6 +471,7 @@ document.getElementById('pcap-submit').addEventListener('click', async () => {
   const snaplen = document.getElementById('pcap-snaplen').value
   if (snaplen) params.set('snaplen', snaplen)
   if (document.getElementById('pcap-promisc').checked) params.set('promisc', 'true')
+  if (document.getElementById('pcap-include-own').checked) params.set('include_own_stream', 'true')
 
   button.disabled = true
   resultEl.className = ''

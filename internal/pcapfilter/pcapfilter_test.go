@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -87,10 +88,12 @@ var allPackets = []pkt{tcpIn8080, tcpOut8080, tcpOpts8080, tcpFrag8080, tcp443, 
 
 // filterCases lists, for each expression, exactly which packets must
 // match - every other packet in allPackets must be dropped.
-var filterCases = []struct {
+type filterCase struct {
 	expr  string
 	match []pkt
-}{
+}
+
+var filterCases = []filterCase{
 	{"ip", []pkt{tcpIn8080, tcpOut8080, tcpOpts8080, tcpFrag8080, tcp443, tcp22, udp8080, dnsQuery, dnsReply, sctp9000, icmp4, otherHosts}},
 	{"ip6", []pkt{tcp6In8080, udp6DNS, icmp6}},
 	{"arp", []pkt{arpReq}},
@@ -207,14 +210,20 @@ func TestTokenize(t *testing.T) {
 	}
 }
 
-// TestAgainstTcpdump checks every filterCases expression against real
-// tcpdump/libpcap on the same frames, when tcpdump is installed - the
-// reference implementation, not just this package's own expectations.
+// TestAgainstTcpdump checks every filterCases/exclusionCases expression
+// against real tcpdump/libpcap on the same frames, when tcpdump is
+// installed - the reference implementation, not just this package's own
+// expectations.
 func TestAgainstTcpdump(t *testing.T) {
 	tcpdump, err := exec.LookPath("tcpdump")
 	if err != nil {
 		t.Skip("tcpdump not installed")
 	}
+	crossCheck(t, tcpdump, allPackets, filterCases)
+	crossCheck(t, tcpdump, connPackets, exclusionCases)
+}
+
+func crossCheck(t *testing.T, tcpdump string, packets []pkt, cases []filterCase) {
 	file := filepath.Join(t.TempDir(), "all.pcap")
 	var buf bytes.Buffer
 	hdr := make([]byte, 24)
@@ -224,7 +233,7 @@ func TestAgainstTcpdump(t *testing.T) {
 	binary.LittleEndian.PutUint32(hdr[16:], 65535)
 	binary.LittleEndian.PutUint32(hdr[20:], 1)
 	buf.Write(hdr)
-	for i, p := range allPackets {
+	for i, p := range packets {
 		f := p.frame()
 		rec := make([]byte, 16)
 		binary.LittleEndian.PutUint32(rec[0:], uint32(i+1))
@@ -237,7 +246,7 @@ func TestAgainstTcpdump(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, tc := range filterCases {
+	for _, tc := range cases {
 		out, err := exec.Command(tcpdump, "-nn", "-tt", "-r", file, tc.expr).CombinedOutput()
 		if err != nil {
 			t.Errorf("tcpdump %q: %v\n%s", tc.expr, err, out)
@@ -246,7 +255,7 @@ func TestAgainstTcpdump(t *testing.T) {
 		got := map[int]bool{}
 		for _, line := range strings.Split(string(out), "\n") {
 			// -tt prints the epoch timestamp first; each frame's
-			// timestamp is its 1-based index in allPackets.
+			// timestamp is its 1-based index in packets.
 			sec, _, _ := strings.Cut(strings.Fields(line + " x")[0], ".")
 			if n, err := strconv.Atoi(sec); err == nil {
 				got[n-1] = true
@@ -256,9 +265,109 @@ func TestAgainstTcpdump(t *testing.T) {
 		for _, p := range tc.match {
 			want[p.name] = true
 		}
-		for i, p := range allPackets {
+		for i, p := range packets {
 			if got[i] != want[p.name] {
 				t.Errorf("%q, %s: tcpdump matched=%v, this package's expectation=%v", tc.expr, p.name, got[i], want[p.name])
+			}
+		}
+	}
+}
+
+// --- connection exclusion ---
+
+var (
+	ownConn      = TCPConn{A: netip.MustParseAddrPort("10.0.2.2:50000"), B: netip.MustParseAddrPort("10.0.2.15:9505")}
+	grpcOwnIn    = pkt{name: "own capture stream, client > node", proto: protoTCP, src: "10.0.2.2", dst: "10.0.2.15", srcPort: 50000, dstPort: 9505}
+	grpcOwnOut   = pkt{name: "own capture stream, node > client", proto: protoTCP, src: "10.0.2.15", dst: "10.0.2.2", srcPort: 9505, dstPort: 50000}
+	grpcOther    = pkt{name: "another gRPC connection, same client host", proto: protoTCP, src: "10.0.2.2", dst: "10.0.2.15", srcPort: 50001, dstPort: 9505}
+	grpcSamePort = pkt{name: "another host reusing the client port", proto: protoTCP, src: "10.0.2.3", dst: "10.0.2.15", srcPort: 50000, dstPort: 9505}
+	udpLookalike = pkt{name: "udp with the same 4-tuple", proto: protoUDP, src: "10.0.2.2", dst: "10.0.2.15", srcPort: 50000, dstPort: 9505}
+
+	ownConn6    = TCPConn{A: netip.MustParseAddrPort("[fd00::2]:50000"), B: netip.MustParseAddrPort("[fd00::15]:9505")}
+	grpc6OwnIn  = pkt{name: "own capture stream over IPv6", ipv6: true, proto: protoTCP, src: "fd00::2", dst: "fd00::15", srcPort: 50000, dstPort: 9505}
+	grpc6OwnOut = pkt{name: "own capture stream over IPv6, reply", ipv6: true, proto: protoTCP, src: "fd00::15", dst: "fd00::2", srcPort: 9505, dstPort: 50000}
+	grpc6Other  = pkt{name: "another IPv6 gRPC connection", ipv6: true, proto: protoTCP, src: "fd00::2", dst: "fd00::15", srcPort: 50001, dstPort: 9505}
+)
+
+var connPackets = append([]pkt{grpcOwnIn, grpcOwnOut, grpcOther, grpcSamePort, udpLookalike, grpc6OwnIn, grpc6OwnOut, grpc6Other}, allPackets...)
+
+func except(drop ...pkt) []pkt {
+	skip := map[string]bool{}
+	for _, p := range drop {
+		skip[p.name] = true
+	}
+	var out []pkt
+	for _, p := range connPackets {
+		if !skip[p.name] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// Written-out equivalents of excluding ownConn/ownConn6 - checked against
+// real tcpdump, then TestCompileExclusion checks Compile's exclude
+// argument behaves exactly like them.
+const (
+	ownConnExpr  = "not (tcp and ((src host 10.0.2.2 and src port 50000 and dst host 10.0.2.15 and dst port 9505) or (src host 10.0.2.15 and src port 9505 and dst host 10.0.2.2 and dst port 50000)))"
+	ownConn6Expr = "not (tcp and ((src host fd00::2 and src port 50000 and dst host fd00::15 and dst port 9505) or (src host fd00::15 and src port 9505 and dst host fd00::2 and dst port 50000)))"
+)
+
+var exclusionCases = []filterCase{
+	{ownConnExpr, except(grpcOwnIn, grpcOwnOut)},
+	{ownConn6Expr, except(grpc6OwnIn, grpc6OwnOut)},
+	{"port 9505 and " + ownConnExpr, []pkt{grpcOther, grpcSamePort, udpLookalike, grpc6OwnIn, grpc6OwnOut, grpc6Other}},
+}
+
+func TestCompileExclusion(t *testing.T) {
+	cases := []struct {
+		expr    string
+		exclude []TCPConn
+		same    string
+	}{
+		{"", []TCPConn{ownConn}, ownConnExpr},
+		{"", []TCPConn{ownConn6}, ownConn6Expr},
+		{"port 9505", []TCPConn{ownConn}, "port 9505 and " + ownConnExpr},
+		{"", []TCPConn{ownConn, ownConn6}, ownConnExpr + " and " + ownConn6Expr},
+		// An IPv4-mapped IPv6 peer (a dual-stack listener) is the same connection.
+		{"", []TCPConn{{A: netip.MustParseAddrPort("[::ffff:10.0.2.2]:50000"), B: netip.MustParseAddrPort("[::ffff:10.0.2.15]:9505")}}, ownConnExpr},
+		// Exclusion must not change how the user's own expression groups.
+		{"udp or tcp and port 9505", []TCPConn{ownConn}, "(udp or tcp and port 9505) and " + ownConnExpr},
+	}
+	for _, tc := range cases {
+		got, err := Compile(tc.expr, 65535, tc.exclude...)
+		if err != nil {
+			t.Fatalf("Compile(%q, %v): %v", tc.expr, tc.exclude, err)
+		}
+		want, err := Compile(tc.same, 65535)
+		if err != nil {
+			t.Fatalf("Compile(%q): %v", tc.same, err)
+		}
+		for _, p := range connPackets {
+			if g, w := run(t, got, p), run(t, want, p); g != w {
+				t.Errorf("expr %q excluding %v, %s: matched=%v, but %q matched=%v", tc.expr, tc.exclude, p.name, g, tc.same, w)
+			}
+		}
+	}
+
+	if _, err := Compile("", 65535, TCPConn{}); err == nil {
+		t.Error("an invalid connection compiled without error")
+	}
+}
+
+func TestExclusionCasesSemantics(t *testing.T) {
+	for _, tc := range exclusionCases {
+		prog, err := Compile(tc.expr, 65535)
+		if err != nil {
+			t.Fatalf("compile %q: %v", tc.expr, err)
+		}
+		want := map[string]bool{}
+		for _, p := range tc.match {
+			want[p.name] = true
+		}
+		for _, p := range connPackets {
+			if got := run(t, prog, p); got != want[p.name] {
+				t.Errorf("%q, %s: matched=%v, want %v", tc.expr, p.name, got, want[p.name])
 			}
 		}
 	}

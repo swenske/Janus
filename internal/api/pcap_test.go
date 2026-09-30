@@ -1,9 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/binary"
+	"net"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc/peer"
 )
 
 func TestCompilePcapFilter(t *testing.T) {
@@ -38,5 +42,24 @@ func TestPcapFraming(t *testing.T) {
 
 	if htons(0x0003) != 0x0300 {
 		t.Errorf("htons(0x0003) = %#x", htons(0x0003))
+	}
+}
+
+func TestOwnStream(t *testing.T) {
+	ctx := peer.NewContext(context.Background(), &peer.Peer{
+		Addr:      &net.TCPAddr{IP: net.ParseIP("172.16.1.10"), Port: 51234},
+		LocalAddr: &net.TCPAddr{IP: net.ParseIP("172.16.1.78"), Port: 9505},
+	})
+	conn, ok := ownStream(ctx)
+	if !ok || conn.A.String() != "172.16.1.10:51234" || conn.B.String() != "172.16.1.78:9505" {
+		t.Fatalf("ownStream = %v, %v", conn, ok)
+	}
+	if _, ok := ownStream(context.Background()); ok {
+		t.Error("ownStream found a connection in a context without a peer")
+	}
+
+	// An empty filter still gets a program when there's a stream to exclude.
+	if prog, err := compilePcapFilter("", conn); err != nil || len(prog) == 0 {
+		t.Errorf(`compilePcapFilter("", own stream) = %d instructions, %v`, len(prog), err)
 	}
 }

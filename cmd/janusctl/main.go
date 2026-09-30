@@ -114,12 +114,13 @@ func runPcap(conn *grpc.ClientConn, args []string) {
 	iface := fs.String("i", "", "interface to capture on (required, e.g. eth0)")
 	filter := fs.String("f", "", "tcpdump-style filter expression (see docs/packet-capture.md for the supported subset)")
 	promisc := fs.Bool("promisc", false, "put the interface in promiscuous mode for the capture's duration")
+	includeOwn := fs.Bool("include-own-stream", false, "also capture this capture's own gRPC connection (left out by default; it feeds back on itself and grows very fast)")
 	snapLen := fs.Uint("snaplen", 0, "bytes kept per packet (0 = 65535)")
 	duration := fs.Duration("duration", 0, "stop after this long, rounded up to whole seconds (0 = until interrupted)")
 	out := fs.String("o", "-", "output pcap file, - for stdout")
 	_ = fs.Parse(args)
 	if *iface == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "usage: janusctl system pcap -i IFACE [-f FILTER] [-promisc] [-snaplen N] [-duration D] [-o FILE]")
+		fmt.Fprintln(os.Stderr, "usage: janusctl system pcap -i IFACE [-f FILTER] [-promisc] [-include-own-stream] [-snaplen N] [-duration D] [-o FILE]")
 		os.Exit(2)
 	}
 
@@ -141,11 +142,12 @@ func runPcap(conn *grpc.ClientConn, args []string) {
 	seconds := uint32((*duration + time.Second - 1) / time.Second)
 
 	stream, err := janusv1alpha1.NewSystemServiceClient(conn).PacketCapture(c, &janusv1alpha1.PacketCaptureRequest{
-		Interface:       *iface,
-		BpfFilter:       *filter,
-		Promiscuous:     *promisc,
-		SnapLen:         uint32(*snapLen),
-		DurationSeconds: seconds,
+		Interface:        *iface,
+		BpfFilter:        *filter,
+		Promiscuous:      *promisc,
+		SnapLen:          uint32(*snapLen),
+		DurationSeconds:  seconds,
+		IncludeOwnStream: *includeOwn,
 	})
 	if err != nil {
 		log.Fatalf("PacketCapture: %v", err)
@@ -176,7 +178,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "commands:")
 	fmt.Fprintln(os.Stderr, "  version                    print janusctl's own version and the connected node's version")
 	fmt.Fprintln(os.Stderr, "  system info                print version/kernel/active slot + memory/CPU/load/disk stats (the dashboard's own single-node fetch)")
-	fmt.Fprintln(os.Stderr, "  system pcap -i IFACE [-f FILTER] [-promisc] [-snaplen N] [-duration D] [-o FILE]  live packet capture as a pcap file (stdout by default - pipe into tcpdump -r - or wireshark -k -i -); see docs/packet-capture.md")
+	fmt.Fprintln(os.Stderr, "  system pcap -i IFACE [-f FILTER] [-promisc] [-include-own-stream] [-snaplen N] [-duration D] [-o FILE]  live packet capture as a pcap file (stdout by default - pipe into tcpdump -r - or wireshark -k -i -); see docs/packet-capture.md")
 	fmt.Fprintln(os.Stderr, "  haproxy show-info          HAProxy version/uptime/connections (stats socket)")
 	fmt.Fprintln(os.Stderr, "  haproxy stats              raw 'show stat' CSV from the stats socket")
 	fmt.Fprintln(os.Stderr, "  haproxy get-config         print the currently active haproxy.cfg")

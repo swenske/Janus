@@ -119,6 +119,31 @@ assert len(complete) >= 3, f"expected 3 complete HTTP exchanges, saw {len(comple
 print(f"pcap OK: {n} packets, all tcp port 8080, {len(complete)} complete HTTP exchanges")
 EOF
 
+# With no filter at all, the capture must leave out its own gRPC stream
+# by default - and only with -include-own-stream bring it back.
+count_9505() {
+  python3 - "$1" <<'PYEOF'
+import struct, sys
+data = open(sys.argv[1], "rb").read()
+off, n = 24, 0
+while off < len(data):
+    incl = struct.unpack("<I", data[off + 8:off + 12])[0]
+    pkt = data[off + 16:off + 16 + incl]
+    off += 16 + incl
+    if struct.unpack(">H", pkt[12:14])[0] == 0x0800 and pkt[23] == 6:
+        l4 = 14 + (pkt[14] & 0x0f) * 4
+        n += 9505 in struct.unpack(">HH", pkt[l4:l4 + 4])
+print(n)
+PYEOF
+}
+ctl system pcap -i eth0 -duration 2s -o "$WORKDIR/own-excluded.pcap" || fail "unfiltered capture failed"
+ctl system pcap -i eth0 -duration 2s -include-own-stream -o "$WORKDIR/own-included.pcap" || fail "-include-own-stream capture failed"
+excluded="$(count_9505 "$WORKDIR/own-excluded.pcap")"
+included="$(count_9505 "$WORKDIR/own-included.pcap")"
+[ "$excluded" -eq 0 ] || fail "an unfiltered capture still holds $excluded packets of its own gRPC stream"
+[ "$included" -gt 0 ] || fail "-include-own-stream captured no gRPC packets at all"
+echo "Own-stream exclusion OK: 0 packets of the capture's own stream by default, $included with -include-own-stream"
+
 if grep -q "avc:.*denied" "$LOG"; then
   grep "avc:.*denied" "$LOG" >&2
   fail "SELinux denials during the capture"

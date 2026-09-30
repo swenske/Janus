@@ -22,7 +22,7 @@ janusctl -endpoint 172.16.1.78:9505 -ca ca.crt -cert admin.crt -key admin.key \
 Watch live in Wireshark (output goes to stdout when `-o` isn't given):
 
 ```sh
-janusctl ... system pcap -i eth0 -f 'not port 9505' | wireshark -k -i -
+janusctl ... system pcap -i eth0 | wireshark -k -i -
 ```
 
 Or read it as text with a local tcpdump:
@@ -40,6 +40,7 @@ janusctl ... system pcap -i eth0 -f 'host 10.1.0.50' | tcpdump -nn -r -
 | `-duration D` | until Ctrl-C | Stop after `D` (e.g. `30s`, `5m`), rounded up to whole seconds. |
 | `-snaplen N` | 65535 | Bytes kept per packet (max 262144). `-snaplen 128` keeps just the headers. |
 | `-promisc` | off | Put the interface in promiscuous mode for the capture only. |
+| `-include-own-stream` | off | Also capture the gRPC connection carrying this capture (see below). |
 | `-o FILE` | `-` (stdout) | Where to write the pcap file. |
 
 `-duration` is enforced by the node itself: it flushes every packet it
@@ -53,8 +54,10 @@ soon as the capture ends, even if the client disconnects abruptly.
 ### From the Janus Controller
 
 Each node's page in the Controller has a **Packet capture** section:
-interface, filter (pre-filled with `not port 9505`), duration, optional
-snaplen and promiscuous mode, and a **Capture & download .pcap** button.
+interface, filter, duration, optional snaplen, promiscuous mode and
+"include this capture's own stream", and a **Capture & download .pcap**
+button. There, the "own stream" left out is the Controller's connection
+to the node.
 The Controller relays the capture from the node with its own service
 credential and your browser saves the result as
 `janus-<node>-<interface>-<UTC time>.pcap`.
@@ -107,10 +110,19 @@ tcpdump/libpcap when it's installed (`TestAgainstTcpdump`).
 
 ## Things to know
 
-- **Exclude your own capture stream.** Capturing on the interface that
-  carries the gRPC connection without a filter also captures the capture
-  itself - in practice most of the packets. Add `not port 9505` (or a
-  more specific filter).
+- **The capture leaves itself out.** The TCP connection carrying the
+  capture would otherwise be most of what gets captured on its interface
+  (every batch sent generates more packets to capture). The node knows
+  that connection's exact endpoints - client address and port as the node
+  sees them, so behind the Controller or a NAT it's still the right one -
+  and adds its exclusion to the kernel filter automatically, in both
+  directions. Only that one connection disappears: other gRPC clients
+  talking to the node at the same time (a colleague's `janusctl`, the
+  Controller refreshing a page) stay visible. Pass `-include-own-stream`
+  (`include_own_stream` in the API) to capture it anyway, e.g. to debug
+  the API itself - but keep it short: the capture then captures itself,
+  every batch it sends is captured again, and it grows very fast (about
+  18 MB in 3 seconds in testing, against a few KB without it).
 - Only Ethernet interfaces and loopback are supported, the pcap link type
   is always Ethernet (`LINKTYPE_ETHERNET`).
 - Timestamps are taken by `janusd` when it reads each packet, with
@@ -133,5 +145,5 @@ The pcap file format is the classic libpcap one (little-endian, version
 concatenating their bytes gives the file.
 
 With other gRPC clients, call `janus.v1alpha1.SystemService/PacketCapture`
-with `interface`, `bpf_filter`, `promiscuous`, `snap_len` and
-`duration_seconds`, and write every received `Data.bytes` to a file in order.
+with `interface`, `bpf_filter`, `promiscuous`, `snap_len`,
+`duration_seconds` and `include_own_stream`, and write every received `Data.bytes` to a file in order.

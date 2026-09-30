@@ -1,15 +1,18 @@
 package api
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 
 	"golang.org/x/net/bpf"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
@@ -57,7 +60,13 @@ func (s *System) PacketCapture(req *janusv1alpha1.PacketCaptureRequest, stream j
 		return status.Errorf(codes.InvalidArgument, "snap_len %d exceeds the %d-byte maximum", snapLen, pcapMaxSnapLen)
 	}
 
-	prog, err := compilePcapFilter(req.GetBpfFilter())
+	var exclude []pcapfilter.TCPConn
+	if !req.GetIncludeOwnStream() {
+		if conn, ok := ownStream(stream.Context()); ok {
+			exclude = append(exclude, conn)
+		}
+	}
+	prog, err := compilePcapFilter(req.GetBpfFilter(), exclude...)
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "bpf_filter %q: %v", req.GetBpfFilter(), err)
 	}
@@ -153,14 +162,36 @@ func openCaptureSocket(ifindex int, prog []unix.SockFilter, promiscuous bool) (i
 	return fd, nil
 }
 
+// ownStream is the TCP connection carrying this RPC, as the node sees it
+// - so behind the Controller or a NAT it's still exactly this stream.
+func ownStream(ctx context.Context) (pcapfilter.TCPConn, bool) {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return pcapfilter.TCPConn{}, false
+	}
+	remote, rok := p.Addr.(*net.TCPAddr)
+	local, lok := p.LocalAddr.(*net.TCPAddr)
+	if !rok || !lok {
+		return pcapfilter.TCPConn{}, false
+	}
+	return pcapfilter.TCPConn{A: unmapped(remote.AddrPort()), B: unmapped(local.AddrPort())}, true
+}
+
+// unmapped turns ::ffff:a.b.c.d back into a.b.c.d - net.TCPAddr keeps
+// IPv4 addresses in 16-byte form.
+func unmapped(ap netip.AddrPort) netip.AddrPort {
+	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
+}
+
 // compilePcapFilter turns a tcpdump-style expression (see
-// internal/pcapfilter for the supported subset) into the classic BPF
-// program SO_ATTACH_FILTER takes. An empty expression means no filter.
-func compilePcapFilter(expr string) ([]unix.SockFilter, error) {
-	if expr == "" {
+// internal/pcapfilter for the supported subset), minus any excluded
+// connections, into the classic BPF program SO_ATTACH_FILTER takes. An
+// empty expression with nothing to exclude means no filter at all.
+func compilePcapFilter(expr string, exclude ...pcapfilter.TCPConn) ([]unix.SockFilter, error) {
+	if expr == "" && len(exclude) == 0 {
 		return nil, nil
 	}
-	ins, err := pcapfilter.Compile(expr, pcapMaxSnapLen)
+	ins, err := pcapfilter.Compile(expr, pcapMaxSnapLen, exclude...)
 	if err != nil {
 		return nil, err
 	}

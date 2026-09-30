@@ -535,7 +535,24 @@ bad_filter="$(curl -sk "${DASH_CERT[@]}" -w ' %{http_code}' "${NODE_BASE}/api/pc
 case "$bad_filter" in *"unsupported filter keyword"*" 400") ;; *) echo "Dashboard test FAILED: an unsupported filter should be a 400 with the node's message, got: $bad_filter" >&2; exit 1 ;; esac
 no_duration="$(curl -sk "${DASH_CERT[@]}" -o /dev/null -w '%{http_code}' "${NODE_BASE}/api/pcap?interface=eth0")"
 [ "$no_duration" = "400" ] || { echo "Dashboard test FAILED: a capture with no duration should be refused (400), got $no_duration" >&2; exit 1; }
-echo "PacketCapture relay OK: .pcap download with real HTTP traffic, bad filter and unbounded capture refused"
+# Unfiltered, the node leaves out its own connection to this dashboard.
+curl -sk "${DASH_CERT[@]}" -o "$WORKDIR/relay-own.pcap" "${NODE_BASE}/api/pcap?interface=eth0&duration=2"
+own_packets="$(python3 - "$WORKDIR/relay-own.pcap" <<'PYEOF'
+import struct, sys
+data = open(sys.argv[1], "rb").read()
+off, n = 24, 0
+while off < len(data):
+    incl = struct.unpack("<I", data[off + 8:off + 12])[0]
+    pkt = data[off + 16:off + 16 + incl]
+    off += 16 + incl
+    if struct.unpack(">H", pkt[12:14])[0] == 0x0800 and pkt[23] == 6:
+        l4 = 14 + (pkt[14] & 0x0f) * 4
+        n += 9505 in struct.unpack(">HH", pkt[l4:l4 + 4])
+print(n)
+PYEOF
+)"
+[ "$own_packets" -eq 0 ] || { echo "Dashboard test FAILED: an unfiltered relayed capture holds $own_packets packets of the dashboard's own stream" >&2; exit 1; }
+echo "PacketCapture relay OK: .pcap download with real HTTP traffic, own stream left out, bad filter and unbounded capture refused"
 
 GETCFG="$(curl -sk "${DASH_CERT[@]}" "${NODE_BASE}/api/haproxy/config")"
 ORIG_SHA256="$(echo "$GETCFG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])')"

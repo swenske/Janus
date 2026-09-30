@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -51,21 +52,42 @@ const (
 	protoSCTP   = 132
 )
 
+// TCPConn is one TCP connection, by its two endpoints.
+type TCPConn struct {
+	A, B netip.AddrPort
+}
+
 // Compile returns a BPF program that returns accept for a matching
-// packet and 0 otherwise. An empty expression is an error: callers
-// wanting no filter should not attach one.
-func Compile(expr string, accept uint32) ([]bpf.Instruction, error) {
-	toks := tokenize(expr)
-	if len(toks) == 0 {
+// packet and 0 otherwise. Packets of any connection in exclude, in
+// either direction, never match - applied as a tree, not by rewriting
+// expr, so it can't change how expr itself parses. An empty expr with
+// no exclusions is an error: callers wanting no filter should not
+// attach one.
+func Compile(expr string, accept uint32, exclude ...TCPConn) ([]bpf.Instruction, error) {
+	var root node
+	if toks := tokenize(expr); len(toks) > 0 {
+		p := &parser{toks: toks}
+		n, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if p.pos != len(p.toks) {
+			return nil, fmt.Errorf("unexpected %q", p.toks[p.pos])
+		}
+		root = n
+	} else if len(exclude) == 0 {
 		return nil, errors.New("empty filter expression")
 	}
-	p := &parser{toks: toks}
-	root, err := p.parseExpr()
-	if err != nil {
-		return nil, err
-	}
-	if p.pos != len(p.toks) {
-		return nil, fmt.Errorf("unexpected %q", p.toks[p.pos])
+	for _, c := range exclude {
+		n, err := connNode(c)
+		if err != nil {
+			return nil, err
+		}
+		if root == nil {
+			root = notNode{n}
+		} else {
+			root = andNode{notNode{n}, root}
+		}
 	}
 
 	var b builder
@@ -76,6 +98,36 @@ func Compile(expr string, accept uint32) ([]bpf.Instruction, error) {
 	b.mark(rejectL)
 	b.emit(bpf.RetConstant{Val: 0})
 	return b.resolve()
+}
+
+// connNode matches both directions of one TCP connection - the same
+// thing as "tcp and ((src host A and src port a and dst host B and dst
+// port b) or (src host B and src port b and dst host A and dst port a))".
+func connNode(c TCPConn) (node, error) {
+	a, b := hostNet(c.A.Addr()), hostNet(c.B.Addr())
+	if a == nil || b == nil {
+		return nil, fmt.Errorf("invalid connection endpoints %v <-> %v", c.A, c.B)
+	}
+	dir := func(src, dst *net.IPNet, sp, dp uint16) node {
+		return andNode{andNode{andNode{
+			addrNode{net: src, dir: "src"},
+			portNode{lo: uint32(sp), hi: uint32(sp), dir: "src"}},
+			addrNode{net: dst, dir: "dst"}},
+			portNode{lo: uint32(dp), hi: uint32(dp), dir: "dst"}}
+	}
+	return andNode{protoNode{"tcp"}, orNode{
+		dir(a, b, c.A.Port(), c.B.Port()),
+		dir(b, a, c.B.Port(), c.A.Port()),
+	}}, nil
+}
+
+func hostNet(addr netip.Addr) *net.IPNet {
+	if !addr.IsValid() {
+		return nil
+	}
+	addr = addr.Unmap()
+	ip := net.IP(addr.AsSlice())
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(addr.BitLen(), addr.BitLen())}
 }
 
 // --- lexer / parser ---

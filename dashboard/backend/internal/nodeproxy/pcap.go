@@ -33,7 +33,9 @@ func registerPcapRoutes(mux *http.ServeMux, node *store.Node) {
 }
 
 // handlePcap relays SystemService.PacketCapture as a .pcap file download:
-// GET /api/pcap?interface=eth0&filter=...&duration=10[&snaplen=N][&promisc=true].
+// GET /api/pcap?interface=eth0&filter=...&duration=10[&snaplen=N][&promisc=true][&include_own_stream=true].
+// The node leaves out its connection to this dashboard (the one carrying
+// the capture) unless include_own_stream is set.
 func handlePcap(w http.ResponseWriter, r *http.Request, node *store.Node) {
 	q := r.URL.Query()
 	iface := q.Get("interface")
@@ -64,11 +66,12 @@ func handlePcap(w http.ResponseWriter, r *http.Request, node *store.Node) {
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(duration)*time.Second+30*time.Second)
 	defer cancel()
 	stream, err := janusv1alpha1.NewSystemServiceClient(conn).PacketCapture(ctx, &janusv1alpha1.PacketCaptureRequest{
-		Interface:       iface,
-		BpfFilter:       q.Get("filter"),
-		Promiscuous:     q.Get("promisc") == "true",
-		SnapLen:         uint32(snapLen),
-		DurationSeconds: uint32(duration),
+		Interface:        iface,
+		BpfFilter:        q.Get("filter"),
+		Promiscuous:      q.Get("promisc") == "true",
+		SnapLen:          uint32(snapLen),
+		DurationSeconds:  uint32(duration),
+		IncludeOwnStream: q.Get("include_own_stream") == "true",
 	})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("PacketCapture: %v", err), http.StatusBadGateway)
