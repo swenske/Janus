@@ -9,6 +9,8 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/netmgr"
+	"github.com/swenske/Janus/internal/timesync"
 )
 
 // Network implements janusv1alpha1.NetworkServiceServer for the optional
@@ -17,8 +19,13 @@ import (
 // isn't there (every image today), status RPCs report
 // MODULE_STATE_NOT_ENABLED and apply RPCs are refused. Management of a
 // module that is present isn't built yet and says so.
+//
+// It also serves the node's own network configuration (netconfig.go),
+// through Net and Time.
 type Network struct {
 	janusv1alpha1.UnimplementedNetworkServiceServer
+	Net  *netmgr.Manager
+	Time *timesync.Service
 }
 
 // moduleBinaries is where each module's daemon lives in an image that

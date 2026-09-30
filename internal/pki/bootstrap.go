@@ -46,6 +46,13 @@ type Bootstrap struct {
 	AdminKeyPEM  []byte
 }
 
+// Bootstrapped reports whether dir already holds a node CA - false on a
+// node's first boot, before LoadOrBootstrap generates one.
+func Bootstrapped(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, caCertFile))
+	return err == nil
+}
+
 // LoadOrBootstrap loads an existing PKI from dir, or generates a brand
 // new CA + server certificate (for hostname/extra SANs) + initial admin
 // client certificate if dir is empty.
@@ -56,13 +63,13 @@ func LoadOrBootstrap(dir, hostname string, extraIPs []net.IP) (*Bootstrap, error
 
 	caCertPath := filepath.Join(dir, caCertFile)
 	if _, err := os.Stat(caCertPath); err == nil {
-		return load(dir)
+		return load(dir, hostname, extraIPs)
 	}
 
 	return bootstrap(dir, hostname, extraIPs)
 }
 
-func load(dir string) (*Bootstrap, error) {
+func load(dir, hostname string, extraIPs []net.IP) (*Bootstrap, error) {
 	caCertPEM, err := os.ReadFile(filepath.Join(dir, caCertFile))
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", caCertFile, err)
@@ -78,7 +85,25 @@ func load(dir string) (*Bootstrap, error) {
 
 	serverCert, err := tls.LoadX509KeyPair(filepath.Join(dir, serverCertFile), filepath.Join(dir, serverKeyFile))
 	if err != nil {
-		return nil, fmt.Errorf("load server certificate: %w", err)
+		// The CA is what identifies the node; its server certificate can
+		// always be reissued from it. A missing or mismatched pair (e.g.
+		// a power cut between ServerCert.Refresh's two renames) must not
+		// leave the node without its API.
+		certPEM, keyPEM, ierr := ca.Issue(IssueOptions{
+			CommonName:  hostname,
+			DNSNames:    []string{hostname, "localhost"},
+			IPAddresses: append([]net.IP{net.ParseIP("127.0.0.1")}, extraIPs...),
+			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		})
+		if ierr != nil {
+			return nil, fmt.Errorf("load server certificate: %v; reissue: %w", err, ierr)
+		}
+		if werr := writeFiles(dir, file{serverKeyFile, keyPEM, 0o600}, file{serverCertFile, certPEM, 0o644}); werr != nil {
+			return nil, werr
+		}
+		if serverCert, err = tls.X509KeyPair(certPEM, keyPEM); err != nil {
+			return nil, err
+		}
 	}
 
 	return &Bootstrap{CA: ca, ServerCert: serverCert}, nil

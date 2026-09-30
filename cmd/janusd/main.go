@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -37,9 +38,12 @@ import (
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/haproxy"
+	"github.com/swenske/Janus/internal/netconfig"
+	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/selfregister"
+	"github.com/swenske/Janus/internal/timesync"
 )
 
 // version is set via -ldflags "-X main.version=..." by the release build
@@ -59,11 +63,57 @@ func main() {
 	haproxyPid := flag.String("haproxy-pid", "/run/janus/haproxy.pid", "path to haproxy's pid file")
 	haproxySock := flag.String("haproxy-stats-socket", "/run/janus/haproxy-admin.sock", "path to haproxy's stats socket (must match the 'stats socket' line in haproxy-config)")
 	haproxyChrootDir := flag.String("haproxy-chroot-dir", "/var/empty", "directory haproxy chroots into after binding listeners and dropping privileges (must match the 'chroot' line in haproxy-config); created here since this rootfs has no package manager to have provisioned it")
+	manageHost := flag.Bool("manage-host", false, "this janusd runs a Janus node: it configures the node's network, hostname and clock (internal/netmgr, internal/timesync). Off, they're only reported - never set this on a machine whose network janusd mustn't touch")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("janusd " + version)
 		return
+	}
+
+	// Captured for SystemService.Logs from the start - except the
+	// one-time PKI print below, so the admin private key never sits in
+	// memory where an API client could read it back.
+	serviceLogs := map[string]*ring.Ring[string]{
+		"janusd":  ring.New[string](serviceLogLines),
+		"haproxy": ring.New[string](serviceLogLines),
+	}
+	captured := io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"]})
+	log.SetOutput(captured)
+
+	// Network, hostname and clock come first: the node's certificates
+	// are issued for its hostname and addresses, and dated by its clock.
+	var serverCert *pki.ServerCert // set once the PKI is loaded
+	var timeSvc *timesync.Service
+	netMgr := netmgr.New(netmgr.Options{
+		Manage: *manageHost,
+		OnChange: func() {
+			// The addresses or hostname may have changed: the server
+			// certificate must cover them, and the NTP servers may have.
+			if serverCert != nil {
+				refreshServerCert(serverCert)
+			}
+			if timeSvc != nil {
+				timeSvc.Kick()
+			}
+		},
+	})
+	if err := netMgr.Start(); err != nil {
+		log.Printf("netmgr: the stored network configuration can't apply (%v) - running on the defaults this boot", err)
+		events.Publish("network.fallback", map[string]string{"error": err.Error()})
+	}
+	timeSvc = timesync.New(timesync.Options{
+		Manage: *manageHost,
+		Servers: func() ([]string, string) {
+			cfg, _ := netMgr.Config()
+			return netconfig.EffectiveNTP(cfg, netMgr.DHCPNTPServers())
+		},
+	})
+	if *manageHost {
+		go timeSvc.Run(context.Background())
+		if !pki.Bootstrapped(*pkiDir) && time.Now().Before(clockFloor) {
+			waitForClock(timeSvc)
+		}
 	}
 
 	hostname, err := os.Hostname()
@@ -76,6 +126,7 @@ func main() {
 		log.Fatalf("pki: %v", err)
 	}
 	if pkiBootstrap.AdminIssued {
+		log.SetOutput(os.Stderr) // console only - see serviceLogs above
 		log.Printf("pki: first boot - generated a new CA and admin client certificate in %s", *pkiDir)
 		// The CA cert isn't secret (it only lets a client verify the
 		// server's identity, not authenticate as anyone) - printed
@@ -95,16 +146,8 @@ func main() {
 		// still there if the node loses power before some later,
 		// unrelated sync happens to occur.
 		syscall.Sync()
+		log.SetOutput(captured)
 	}
-
-	// Captured for SystemService.Logs from here on - after the one-time
-	// PKI print above, so the admin private key never sits in memory
-	// where an API client could read it back.
-	serviceLogs := map[string]*ring.Ring[string]{
-		"janusd":  ring.New[string](serviceLogLines),
-		"haproxy": ring.New[string](serviceLogLines),
-	}
-	log.SetOutput(io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"]}))
 	events.Publish("janusd.started", map[string]string{"version": version})
 
 	lis, err := net.Listen("tcp", *addr)
@@ -166,7 +209,18 @@ func main() {
 	// at all.
 	go selfRegisterIfConfigured(pkiBootstrap.CA, hostname, *addr)
 
-	tlsConfig := pkiBootstrap.CA.ServerTLSConfig(pkiBootstrap.ServerCert)
+	// The server certificate follows the node's addresses and hostname
+	// (reissued on a change - see netMgr's OnChange above) and is renewed
+	// before it expires.
+	serverCert = pki.NewServerCert(pkiBootstrap.CA, *pkiDir, pkiBootstrap.ServerCert)
+	refreshServerCert(serverCert)
+	go func() {
+		for range time.Tick(12 * time.Hour) {
+			refreshServerCert(serverCert)
+		}
+	}()
+
+	tlsConfig := pkiBootstrap.CA.ServerTLSConfigFor(serverCert)
 	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.UnaryInterceptor(api.UnaryAuthInterceptor),
@@ -175,7 +229,7 @@ func main() {
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr})
-	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{})
+	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
 	printMOTD(motdInfo{
@@ -189,6 +243,44 @@ func main() {
 	if err := srv.Serve(lis); err != nil {
 		fmt.Fprintln(os.Stderr, "serve:", err)
 		os.Exit(1)
+	}
+}
+
+// refreshServerCert reissues the server certificate if the node's
+// hostname or addresses changed, or it nears expiry.
+func refreshServerCert(s *pki.ServerCert) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return
+	}
+	reissued, err := s.Refresh(hostname, pki.LocalIPs())
+	if err != nil {
+		log.Printf("pki: reissue the server certificate: %v", err)
+		return
+	}
+	if reissued {
+		syscall.Sync()
+		log.Printf("pki: server certificate reissued for %s and the node's current addresses", hostname)
+		events.Publish("pki.server_cert_reissued", map[string]string{"hostname": hostname})
+	}
+}
+
+// clockFloor: a clock before this can't be right - the node has no
+// battery-backed clock (a Raspberry Pi boots in 1970) and hasn't
+// synchronized yet.
+var clockFloor = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// waitForClock holds a first boot whose clock is obviously wrong until
+// it's synchronized, since the certificates generated next are dated by
+// it: a CA "valid" from 1970 to 1980 is expired for every client. A
+// clock that's merely a little off (a battery-backed one) doesn't wait:
+// certificates are backdated an hour anyway. Bounded: a node without NTP
+// access still has to come up, with a warning.
+func waitForClock(t *timesync.Service) {
+	const wait = 2 * time.Minute
+	log.Printf("timesync: first boot and the clock reads %s - waiting up to %s for NTP before generating certificates", time.Now().UTC().Format(time.RFC3339), wait)
+	if !t.WaitSynced(wait) {
+		log.Printf("timesync: WARNING: no NTP server answered - the certificates generated now carry the date %s and clients will refuse them; give the node NTP access, then reset it", time.Now().UTC().Format(time.DateOnly))
 	}
 }
 

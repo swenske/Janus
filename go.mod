@@ -5,10 +5,12 @@ go 1.26.0
 toolchain go1.26.8
 
 require (
+	github.com/beevik/ntp v1.6.0
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/foxboron/go-uefi v0.0.0-20251010190908-d29549a44f29
+	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.59.0
 	golang.org/x/sys v0.48.0
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
@@ -27,6 +29,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/spf13/afero v1.9.3 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
+	github.com/vishvananda/netns v0.0.5 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 )
