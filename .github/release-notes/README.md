@@ -1,0 +1,14 @@
+# Release notes
+
+Each release has hand-written notes here, named after its version
+(`v2026.09.30-3.md`), committed before the release is cut:
+`image-build.yml` refuses to start a release without them. The
+published body is an alpha warning, then this file, then GitHub's
+"Full Changelog" link.
+
+Structure: a short **Highlights** section first, then one section per
+theme (🌐 network, 🖥️ Controller, 🔒 security, 🐛 fixes, ⚠️ upgrade
+notes...), each with an emoji. Write for an operator: what changed for
+them and what they have to do, not how it was built. Build them from
+`git log <previous tag>..HEAD`, whose `<theme>: message` subjects give
+the grouping.

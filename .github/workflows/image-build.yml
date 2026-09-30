@@ -63,6 +63,13 @@ jobs:
             exit 1
           fi
           echo "VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
+          # Every release gets hand-written notes, structured by theme -
+          # checked here, before an hour of building, not at publish time.
+          notes=".github/release-notes/$RELEASE_VERSION.md"
+          if ! [ -s "$notes" ]; then
+            echo "::error::no release notes at $notes - write them (see .github/release-notes/README.md) and commit them before cutting $RELEASE_VERSION" >&2
+            exit 1
+          fi
 
       - uses: actions/setup-go@v7
         with:
@@ -1036,6 +1043,20 @@ jobs:
               || { echo "::error::$uki isn't signed with the production key - refusing to publish (is SECUREBOOT_SIGNING_KEY set, and does it match image/secureboot/production-cert.pem?)"; exit 1; }
           done
 
+      # The alpha warning, then this version's hand-written notes; the
+      # action appends GitHub's generated "Full Changelog" link.
+      - name: Assemble the release notes
+        if: ${{ inputs.release_version != '' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          {
+            echo '> [!WARNING]'
+            echo '> **Alpha software.** Janus is under active early development: expect breaking changes, incomplete features and rough edges. Not yet recommended for production use.'
+            echo
+            cat ".github/release-notes/$RELEASE_VERSION.md"
+          } > build/release-notes.md
+
       - name: Publish a real GitHub Release
         if: ${{ inputs.release_version != '' }}
         uses: softprops/action-gh-release@v3
@@ -1046,12 +1067,8 @@ jobs:
           # A full release marked as the latest, not a pre-release: a
           # pre-release is never "Latest", so the repository's home page
           # showed no release at all - only "3 tags". The alpha status is
-          # stated in the name above and the body below instead (which
-          # generate_release_notes: true prepends to).
-          body: |
-            ⚠️ **Alpha software.** Janus is under active early
-            development: expect breaking changes, incomplete features,
-            and rough edges. Not yet recommended for production use.
+          # stated in the name above and at the top of the notes.
+          body_path: build/release-notes.md
           prerelease: false
           make_latest: "true"
           generate_release_notes: true
