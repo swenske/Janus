@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -16,13 +17,57 @@ import (
 // finishing) gets before haproxy is terminated.
 const haproxyStopTimeout = 10 * time.Second
 
-// ServiceList reports the managed services: janusd itself and haproxy.
-// Optional modules (bird, keepalived) appear once an image ships them.
+// ServiceList reports the managed services: janusd itself, haproxy, and
+// the services of the image's optional extensions.
 func (s *System) ServiceList(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.ServiceListResponse, error) {
-	return &janusv1alpha1.ServiceListResponse{Services: []*janusv1alpha1.ServiceInfo{s.janusdInfo(), s.haproxyInfo()}}, nil
+	list := []*janusv1alpha1.ServiceInfo{s.janusdInfo(), s.haproxyInfo()}
+	if s.Extensions != nil {
+		for _, id := range s.Extensions.ServiceIDs() {
+			if info, err := s.extensionInfo(id); err == nil {
+				list = append(list, info)
+			}
+		}
+	}
+	return &janusv1alpha1.ServiceListResponse{Services: list}, nil
+}
+
+func (s *System) extensionInfo(id string) (*janusv1alpha1.ServiceInfo, error) {
+	st, err := s.Extensions.State(id)
+	if err != nil {
+		return nil, err
+	}
+	health := "unknown"
+	switch st.State {
+	case "running":
+		health = "healthy"
+	case "restarting":
+		health = "unhealthy"
+	}
+	return &janusv1alpha1.ServiceInfo{Id: id, State: st.State, Health: health, Extension: st.Extension, Description: st.Description}, nil
+}
+
+// extensionCall runs a start/stop/restart on an extension service, if id
+// is one.
+func (s *System) extensionCall(id string, call func(string) error) (*janusv1alpha1.ServiceResponse, bool, error) {
+	if s.Extensions == nil || !s.Extensions.Has(id) {
+		return nil, false, nil
+	}
+	if err := call(id); err != nil {
+		return nil, true, status.Errorf(codes.Internal, "%s: %v", id, err)
+	}
+	info, err := s.extensionInfo(id)
+	if err != nil {
+		return nil, true, status.Errorf(codes.Internal, "%s: %v", id, err)
+	}
+	return &janusv1alpha1.ServiceResponse{Service: info}, true, nil
 }
 
 func (s *System) ServiceStart(_ context.Context, req *janusv1alpha1.ServiceRequest) (*janusv1alpha1.ServiceResponse, error) {
+	if s.Extensions != nil {
+		if resp, ok, err := s.extensionCall(req.GetId(), s.Extensions.StartService); ok {
+			return resp, err
+		}
+	}
 	switch req.GetId() {
 	case "janusd":
 		return &janusv1alpha1.ServiceResponse{Service: s.janusdInfo()}, nil
@@ -38,13 +83,18 @@ func (s *System) ServiceStart(_ context.Context, req *janusv1alpha1.ServiceReque
 		}
 		return &janusv1alpha1.ServiceResponse{Service: s.haproxyInfo()}, nil
 	}
-	return nil, unknownService(req.GetId())
+	return nil, s.unknownService(req.GetId())
 }
 
 // ServiceStop soft-stops haproxy: it stops accepting connections and
 // finishes the ones in flight (up to haproxyStopTimeout). janusd can't be
 // stopped - the node would be unreachable; see Restart instead.
 func (s *System) ServiceStop(_ context.Context, req *janusv1alpha1.ServiceRequest) (*janusv1alpha1.ServiceResponse, error) {
+	if s.Extensions != nil {
+		if resp, ok, err := s.extensionCall(req.GetId(), s.Extensions.StopService); ok {
+			return resp, err
+		}
+	}
 	switch req.GetId() {
 	case "janusd":
 		return nil, status.Error(codes.FailedPrecondition, "stopping janusd would leave the node unreachable - use Restart to restart it")
@@ -58,13 +108,18 @@ func (s *System) ServiceStop(_ context.Context, req *janusv1alpha1.ServiceReques
 		events.Publish("service.stopped", map[string]string{"id": "haproxy"})
 		return &janusv1alpha1.ServiceResponse{Service: s.haproxyInfo()}, nil
 	}
-	return nil, unknownService(req.GetId())
+	return nil, s.unknownService(req.GetId())
 }
 
 // ServiceRestart restarts haproxy seamlessly (a new process takes over
 // the listening sockets, the old one finishes its connections), or
 // starts it if it was stopped. For janusd it's the same as Restart.
 func (s *System) ServiceRestart(ctx context.Context, req *janusv1alpha1.ServiceRequest) (*janusv1alpha1.ServiceResponse, error) {
+	if s.Extensions != nil {
+		if resp, ok, err := s.extensionCall(req.GetId(), s.Extensions.RestartService); ok {
+			return resp, err
+		}
+	}
 	switch req.GetId() {
 	case "janusd":
 		if _, err := s.Restart(ctx, &emptypb.Empty{}); err != nil {
@@ -81,7 +136,7 @@ func (s *System) ServiceRestart(ctx context.Context, req *janusv1alpha1.ServiceR
 		events.Publish("service.restarted", map[string]string{"id": "haproxy"})
 		return &janusv1alpha1.ServiceResponse{Service: s.haproxyInfo()}, nil
 	}
-	return nil, unknownService(req.GetId())
+	return nil, s.unknownService(req.GetId())
 }
 
 func (s *System) janusdInfo() *janusv1alpha1.ServiceInfo {
@@ -111,10 +166,10 @@ func (s *System) needHAProxy() error {
 	return nil
 }
 
-func unknownService(id string) error {
-	switch id {
-	case "bird", "keepalived":
-		return status.Errorf(codes.NotFound, "%s isn't in this node's image", id)
+func (s *System) unknownService(id string) error {
+	managed := []string{"janusd", "haproxy"}
+	if s.Extensions != nil {
+		managed = append(managed, s.Extensions.ServiceIDs()...)
 	}
-	return status.Errorf(codes.NotFound, "unknown service %q (managed services: janusd, haproxy)", id)
+	return status.Errorf(codes.NotFound, "no service %q on this node (managed services: %s) - optional extensions are chosen when the image is built", id, strings.Join(managed, ", "))
 }

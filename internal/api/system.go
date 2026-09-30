@@ -17,9 +17,11 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/ring"
+	"github.com/swenske/Janus/internal/schematic"
 )
 
 // System implements janusv1alpha1.SystemServiceServer. Every method it
@@ -47,15 +49,40 @@ type System struct {
 	// HAProxy is the supervised haproxy, for the service-control and
 	// Stats RPCs.
 	HAProxy *haproxy.Manager
+
+	// Extensions runs the services of the image's optional extensions.
+	// Nil or empty for an image without any.
+	Extensions *extensions.Manager
 }
 
 func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.VersionResponse, error) {
-	return &janusv1alpha1.VersionResponse{
+	resp := &janusv1alpha1.VersionResponse{
 		Version:       s.BuildVersion,
 		GoVersion:     runtime.Version(),
 		KernelVersion: KernelVersion(),
 		ActiveSlot:    CurrentActiveSlot(),
-	}, nil
+		SchematicId:   CurrentSchematic(),
+	}
+	if s.Extensions != nil {
+		for _, m := range s.Extensions.Manifests() {
+			resp.Extensions = append(resp.Extensions, &janusv1alpha1.ExtensionInfo{Name: m.Name, Version: m.Version, Description: m.Description})
+		}
+	}
+	return resp, nil
+}
+
+// CurrentSchematic is the image schematic this node booted, from its
+// signed kernel command line; empty if it can't be read.
+func CurrentSchematic() string {
+	cmdline, err := os.ReadFile("/proc/cmdline")
+	if err != nil {
+		return ""
+	}
+	id, ok := schematic.FromCmdline(string(cmdline))
+	if !ok {
+		return ""
+	}
+	return id
 }
 
 // KernelVersion reads /proc/sys/kernel/osrelease (e.g. "6.18.53") -

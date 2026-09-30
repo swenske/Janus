@@ -24,6 +24,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -37,6 +38,7 @@ import (
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/netmgr"
@@ -143,6 +145,40 @@ func main() {
 		log.Printf("haproxy: initial start failed (continuing without it): %v", err)
 	}
 
+	// The image's optional extensions (internal/extensions): their
+	// services start with HAProxy, before the NTP wait and the PKI, for
+	// the same reason.
+	extManifests, err := extensions.Load(extensions.Dir)
+	if err != nil {
+		log.Printf("extensions: %v - no extension service started", err)
+		extManifests = nil
+	}
+	extMgr := extensions.NewManager(extManifests, func(id string) io.Writer {
+		serviceLogs[id] = ring.New[string](serviceLogLines)
+		return io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs[id]})
+	})
+	extMgr.Start()
+
+	// SIGTERM is rootfs/init asking janusd to stop before a power-off or
+	// reboot (/sbin/shutdown, e.g. from the QEMU guest agent): HAProxy is
+	// soft-stopped like the Shutdown RPC does, the extension services
+	// stopped, then janusd exits and init takes the machine down.
+	stopSignals := make(chan os.Signal, 1)
+	signal.Notify(stopSignals, syscall.SIGTERM)
+	go func() {
+		<-stopSignals
+		log.Printf("janusd: SIGTERM - stopping HAProxy and extension services")
+		extMgr.StopAll()
+		if err := haproxyMgr.Stop(5 * time.Second); err != nil {
+			log.Printf("haproxy: stop: %v", err)
+		}
+		syscall.Sync()
+		os.Exit(0)
+	}()
+	for _, m := range extManifests {
+		log.Printf("extensions: %s %s", m.Name, m.Version)
+	}
+
 	if *manageHost {
 		go timeSvc.Run(context.Background())
 		// No global address, no NTP server to reach (a board without a
@@ -230,7 +266,7 @@ func main() {
 		grpc.UnaryInterceptor(api.UnaryAuthInterceptor),
 		grpc.StreamInterceptor(api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc})
