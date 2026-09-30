@@ -85,7 +85,19 @@ are also technically non-mutating).
 | `ACLUpdate` | | ✅ | Runtime ACL pattern values - file-backed only (`acl ... -f <path>`), same delete-then-add upsert reasoning |
 | `CertificateList` / `Upload` / `Delete` | | ✅ | HAProxy's cert store (`new`/`set`/`commit`/`del ssl cert`), plus optional binding into a `crt-list` already referenced by a `bind ... ssl crt-list <path>` in the running config (`add`/`del ssl crt-list`, with SNI filters) - `CertificateList` reports each cert's `Used`/`Unused` status |
 
-## NetworkService (optional modules)
+## NetworkService
+
+The node's own network configuration - see
+[network-configuration.md](network-configuration.md):
+
+| Method | Streaming | Status | Purpose |
+|---|---|---|---|
+| `NetworkConfigGet` | | ✅ | The configuration in effect (hostname, interfaces and VLANs, DNS, NTP), and whether it's the default |
+| `NetworkConfigApply` | server | ✅ | Applies a configuration **on trial**: reverts by itself unless confirmed in time (30 s default); streams `validating`, `applying`, `awaiting-confirmation` |
+| `NetworkConfigConfirm` | | ✅ | Keeps and saves the trial - only over a connection to an address the new configuration keeps |
+| `NetworkStatus` | | ✅ | Links, addresses, boot DHCP lease, routes, resolvers, hostname, clock synchronization |
+
+Optional modules:
 
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|

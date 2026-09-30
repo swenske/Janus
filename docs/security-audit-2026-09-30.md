@@ -50,6 +50,24 @@ Nouveaux constats de cette passe, tous deux ouverts : #15 (rootfs
 différent pour chaque artefact d'un même run CI) et #16 (bundle
 incohérent qui peut rendre un nœud injoignable).
 
+**Points ouverts notés pendant l'ajout de la configuration réseau**
+(même jour, hors numérotation) :
+
+- **DHCP noyau sans renouvellement.** `ip=dhcp` configure une seule
+  interface au démarrage et ne renouvelle jamais le bail. Un nœud dont
+  le serveur DHCP ne réserve pas l'adresse garde un bail expiré. Un
+  client DHCP en espace utilisateur, avec renouvellement, est l'amélioration
+  prévue (voir `docs/network-configuration.md`).
+- **NTP non authentifié.** `janusd` interroge ses serveurs en SNTP. Un
+  attaquant sur le chemin peut décaler l'horloge, donc les dates des
+  certificats émis au premier démarrage. NTS serait la réponse, à un
+  coût bien plus élevé.
+- **Certificats clients sans renouvellement.** Le certificat serveur du
+  nœud est désormais réémis 30 jours avant expiration, mais les
+  certificats clients (admin, service du Controller) restent valables
+  un an sans mécanisme de renouvellement : les premiers nœuds déployés
+  les perdront vers septembre 2027.
+
 Vérification globale après correction : `go build`, `go vet`,
 `golangci-lint` (0 problème), `go test -race ./...` et `govulncheck`
 (0 vulnérabilité atteinte, code de sortie 0) passent. Les corrections

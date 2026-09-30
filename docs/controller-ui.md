@@ -51,7 +51,8 @@ theme toggle:
 - **Apps** - HAProxy (with its own tabs), then optional modules (bird,
   keepalived, nftables), marked "n/a" when the image doesn't ship them
 - **Tools** - packet capture, files
-- **System** - services, update, access (client certificates), power
+- **System** - network (hostname, interfaces, VLANs, DNS, NTP), services,
+  update, access (client certificates), power
 
 A new feature goes into the group matching what the operator is trying
 to do, not into whichever page has room. A page that grows several
@@ -89,6 +90,10 @@ scroll.
 - **Errors are shown as the node reports them** - relays pass the gRPC
   status message and a matching HTTP status - and never as a broken
   download: a stream's first message is awaited before headers are sent.
+- **Changes that can cut the node off are trials**: System › Network
+  applies on trial and the Controller confirms by reaching the node
+  again (recording its new address if it moved); unconfirmed, the node
+  reverts by itself. The outcome stays on the page, not only in a toast.
 - Every async action goes through `useAction`: disabled buttons while
   busy, a toast on success, the real error on failure.
 - Explain the non-obvious once, near the control (what a soft stop does,

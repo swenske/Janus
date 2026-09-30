@@ -80,8 +80,10 @@ back automatically (`Rollback`) - no manual intervention needed.
 
 Every gRPC call is authenticated with a client certificate - there is no
 unauthenticated endpoint (`internal/pki`, implemented in Phase 2). Each
-node maintains its own self-signed Ed25519 CA (10-year validity), and
-issues itself a server certificate for the gRPC listener. On first boot
+node maintains its own self-signed ECDSA P-256 CA (10-year validity),
+and issues itself a server certificate for the gRPC listener - reissued
+whenever the node's addresses or hostname change, and renewed 30 days
+before it expires. On first boot
 it also issues an initial admin client certificate and prints it once
 (there's no shell to retrieve it later) - the trust anchor a real
 deployment would instead hand out through `LifecycleService.Install`'s
@@ -131,6 +133,25 @@ of arbitrary command execution. Janus follows the same approach - see
 `docs/api-routes.md` for the full catalog, derived directly from Talos's
 own `machine.proto`/`lifecycle.proto` (verified against
 `siderolabs/talos` on GitHub, not reconstructed from memory).
+
+## Network configuration and time
+
+A node's hostname, interfaces (physical and 802.1Q VLANs, static or the
+kernel's boot DHCP lease), resolvers and NTP servers are one declarative
+document (`internal/netconfig`), applied by `janusd` itself over rtnetlink
+(`internal/netmgr`) - no `ip`, no network daemon. A change is applied **on
+trial** and reverted automatically unless confirmed over an address it
+keeps, so a mistake can't strand a node that has no console; only a
+confirmed configuration reaches STATE. The node's TLS server certificate
+is reissued when its addresses or hostname change. `janusd` is also the
+NTP client (`internal/timesync`, SNTP + `adjtimex`), and a first boot
+whose clock is obviously wrong (no RTC) waits for NTP before generating
+its certificates. See [network-configuration.md](network-configuration.md).
+
+Known limitation, planned improvement: DHCP is the kernel's own
+(`ip=dhcp`), done once at boot on a single interface and never renewed.
+A userspace DHCP client with lease renewal, and DHCP on any interface,
+would lift both limits.
 
 ## Optional network features
 
