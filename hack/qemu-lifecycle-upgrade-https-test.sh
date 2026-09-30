@@ -119,14 +119,12 @@ for f in ca.crt admin.crt admin.key; do
 done
 
 # --- the node fetches the real release over https:// itself ---
-# -insecure-skip-signature-check: every release published before
-# 2026-09-30 carries unsigned UKIs (see docs/security-audit-2026-09-30.md,
-# #14). Drop it once the newest release is signed with the key in
-# image/secureboot/production-cert.pem - this test then proves the whole
-# chain, the node's own signature check on a real release included.
+# No signature opt-out: the newest release (v2026.09.30-3 onwards) is
+# signed with the key in image/secureboot/production-cert.pem, so this
+# proves the whole chain, the node's own signature check included.
 set +e
 UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" \
-  lifecycle upgrade -insecure-skip-signature-check -sha256 "$RELEASE_SHA256" "$RELEASE_URL" 2>&1)"
+  lifecycle upgrade -sha256 "$RELEASE_SHA256" "$RELEASE_URL" 2>&1)"
 UPGRADE_RC=$?
 set -e
 echo "$UPGRADE_OUT"
@@ -135,6 +133,7 @@ if echo "$UPGRADE_OUT" | grep -qi "x509\|certificate"; then
 fi
 [ "$UPGRADE_RC" -eq 0 ] || fail "janusctl lifecycle upgrade exited $UPGRADE_RC"
 echo "$UPGRADE_OUT" | grep -qi "downloading release bundle at https://" || fail "Upgrade never reported downloading over https://"
+echo "$UPGRADE_OUT" | grep -q "uki-[ab].efi: signature verified" || fail "Upgrade never reported verifying the release's UKI signature"
 echo "$UPGRADE_OUT" | grep -qi "rebooting" || fail "Upgrade never reached the 'rebooting' stage"
 
 wait_http_and_marker 2 "$REBOOT_TIMEOUT_SECS" || fail "no healthy HTTP 200 after the upgrade reboot within ${REBOOT_TIMEOUT_SECS}s"
