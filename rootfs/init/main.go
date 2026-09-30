@@ -78,26 +78,46 @@ func mountEphemeral() {
 	mount("tmpfs", "/run", "tmpfs")
 	mount("tmpfs", "/tmp", "tmpfs")
 
-	const seedCfg = "/etc/haproxy/haproxy.cfg"
-	cfgBytes, readErr := os.ReadFile(seedCfg)
-	cfgMode := os.FileMode(0o644)
-	if info, err := os.Stat(seedCfg); err == nil {
-		cfgMode = info.Mode().Perm()
+	type seedFile struct {
+		path string
+		data []byte
+		mode os.FileMode
+	}
+	var seeds []seedFile
+	for _, path := range etcSeedFiles {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Printf("init: read %s before /etc overlay: %v\n", path, err)
+			continue
+		}
+		mode := os.FileMode(0o644)
+		if info, err := os.Stat(path); err == nil {
+			mode = info.Mode().Perm()
+		}
+		seeds = append(seeds, seedFile{path, data, mode})
 	}
 
 	mount("tmpfs", "/etc", "tmpfs")
 
-	if readErr != nil {
-		fmt.Printf("init: read %s before /etc overlay: %v\n", seedCfg, readErr)
-		return
+	for _, f := range seeds {
+		if err := os.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
+			fmt.Printf("init: mkdir %s: %v\n", filepath.Dir(f.path), err)
+			continue
+		}
+		if err := os.WriteFile(f.path, f.data, f.mode); err != nil {
+			fmt.Printf("init: write %s: %v\n", f.path, err)
+		}
 	}
-	if err := os.MkdirAll(filepath.Dir(seedCfg), 0o755); err != nil {
-		fmt.Printf("init: mkdir %s: %v\n", filepath.Dir(seedCfg), err)
-		return
-	}
-	if err := os.WriteFile(seedCfg, cfgBytes, cfgMode); err != nil {
-		fmt.Printf("init: write %s: %v\n", seedCfg, err)
-	}
+}
+
+// etcSeedFiles are the squashfs-backed files under /etc that must stay
+// visible after mountEphemeral's tmpfs overmount. The CA bundle was
+// silently hidden by that overmount on every real boot until a real
+// https:// Upgrade on a deployed node failed with "certificate signed by
+// unknown authority" - every earlier URL-fetch test used plain http://.
+var etcSeedFiles = []string{
+	"/etc/haproxy/haproxy.cfg",
+	"/etc/ssl/certs/ca-certificates.crt",
 }
 
 // parsePnpNameservers extracts "nameserver <ip>" lines from

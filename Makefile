@@ -17,7 +17,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
 	qemu-dashboard-test dashboard-image local-dev-image ca-certificates seed-controller-test \
@@ -613,6 +613,12 @@ qemu-lifecycle-upgrade-test: build disk-image
 # branch actually works over a real network fetch. Requires python3.
 qemu-lifecycle-upgrade-url-test: build disk-image
 	./hack/qemu-lifecycle-upgrade-url-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl
+
+# The same proof over https:// against a real published GitHub Release,
+# verified against the node's own bundled CA trust store (requires
+# outbound internet).
+qemu-lifecycle-upgrade-https-test: build disk-image
+	./hack/qemu-lifecycle-upgrade-https-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR) $(BIN_DIR)/janusctl
 
 # Controller-relay follow-up: the same proof, but the release bundle
 # reaches the node via a real LifecycleService.UploadReleaseFile call
