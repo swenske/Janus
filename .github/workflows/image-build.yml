@@ -759,46 +759,6 @@ jobs:
       - name: janusd self-registers with a Controller on first boot (Point 2 suite tranche 5)
         run: make qemu-self-register-test
 
-      # Phase 3 cont'd: real Secure Boot key management - no HSM in this
-      # project's threat model (single maintainer, self-hosted CI), so
-      # the simplest thing that's still meaningfully safer than
-      # committing a key to git: the private key lives only as a GitHub
-      # Actions encrypted secret (SECUREBOOT_SIGNING_KEY), generated
-      # once, offline, by image/secureboot/gen-production-key.sh - never
-      # by CI itself, unlike gen-test-key.sh's deliberately-fresh-every-
-      # run throwaway key. The matching certificate isn't sensitive (it
-      # has to be enrolled into every node's firmware db anyway) and is
-      # committed straight into the repo at image/secureboot/
-      # production-cert.pem. This step only runs when the secret exists
-      # (skipped entirely on a fork PR or before the one-time key
-      # ceremony happens) - decodes it to a step-scoped temp file,
-      # signs both slots' UKIs with it via image/release/assemble.sh's
-      # existing optional signing-key/signing-cert args (no new signing
-      # code needed - Upgrade's own release-bundle tooling already takes
-      # them), independently verifies the signatures with sbverify
-      # against the committed certificate, and removes the temp key
-      # file itself immediately after (a trap, so it's gone even if a
-      # step above it fails).
-      - name: Build a real, production-signed release bundle (Phase 3 cont'd)
-        # The `secrets` context isn't allowed directly in a step's own
-        # `if:` (the workflow fails to parse at all otherwise -
-        # confirmed the hard way via a real `workflow_dispatch` call
-        # rejected with "Unrecognized named-value: 'secrets'", not
-        # assumed from docs) - env: on this same step *is* visible to
-        # its own if:, so the secret is routed through env first.
-        if: ${{ env.SECUREBOOT_SIGNING_KEY != '' }}
-        env:
-          SECUREBOOT_SIGNING_KEY: ${{ secrets.SECUREBOOT_SIGNING_KEY }}
-        run: |
-          set -euo pipefail
-          KEY="$(mktemp)"
-          trap 'rm -f "$KEY"' EXIT
-          printf '%s' "$SECUREBOOT_SIGNING_KEY" > "$KEY"
-          ./image/release/assemble.sh build/release-signed build/bzImage build/rootfs "$KEY" image/secureboot/production-cert.pem
-          sbverify --cert image/secureboot/production-cert.pem build/release-signed/uki-a.efi
-          sbverify --cert image/secureboot/production-cert.pem build/release-signed/uki-b.efi
-          echo "Both slots' UKIs are validly signed with the production key and verify against image/secureboot/production-cert.pem"
-
       # First real, deployable artifact: image/disk/assemble.sh's single
       # GPT disk (ESP + both A/B slots + STATE - the exact same shape
       # every UEFI boot test above already proved works end to end,
@@ -856,9 +816,46 @@ jobs:
       # it's actually usable for a real LifecycleService.Install call
       # with nothing else reachable from the host - already proven
       # above (hack/qemu-iso-install-test.sh).
-      - name: Build an alpha bare-metal installer ISO
+      #
+      # Its build/release is also the bundle the GitHub Release step
+      # publishes, so this is where it's signed - see the Makefile's
+      # iso-image-with-bundle comment for why a separately built bundle
+      # can't be signed instead (every target reruns rootfs-build, and
+      # mksquashfs isn't byte-reproducible, so another bundle's UKIs carry
+      # a different dm-verity root hash). A signed bundle used to be built
+      # in its own step and then discarded, while the Release published
+      # this unsigned one.
+      #
+      # Secure Boot key management - no HSM in this project's threat
+      # model (single maintainer, self-hosted CI): the private key lives
+      # only as a GitHub Actions encrypted secret (SECUREBOOT_SIGNING_KEY),
+      # generated once, offline, by image/secureboot/gen-production-key.sh;
+      # its certificate isn't sensitive and is committed at image/
+      # secureboot/production-cert.pem. Without the secret (a fork, or
+      # before the key ceremony) the bundle is built unsigned, and the
+      # "Require a signed release bundle" step below refuses to publish it.
+      # The key is written to a step-scoped temp file removed by a trap,
+      # and both UKIs are verified with sbverify against the committed
+      # certificate.
+      - name: Build an alpha bare-metal installer ISO (signed release bundle)
+        # The `secrets` context isn't allowed directly in a step's own
+        # `if:`, and isn't needed here - env: is readable from run:.
+        env:
+          SECUREBOOT_SIGNING_KEY: ${{ secrets.SECUREBOOT_SIGNING_KEY }}
         run: |
-          make iso-image-with-bundle
+          set -euo pipefail
+          if [ -n "$SECUREBOOT_SIGNING_KEY" ]; then
+            KEY="$(mktemp)"
+            trap 'rm -f "$KEY"' EXIT
+            printf '%s' "$SECUREBOOT_SIGNING_KEY" > "$KEY"
+            make iso-image-with-bundle SIGNING_KEY="$KEY" SIGNING_CERT=image/secureboot/production-cert.pem
+            sbverify --cert image/secureboot/production-cert.pem build/release/uki-a.efi
+            sbverify --cert image/secureboot/production-cert.pem build/release/uki-b.efi
+            echo "Release bundle UKIs signed and verified against image/secureboot/production-cert.pem"
+          else
+            echo "::warning::SECUREBOOT_SIGNING_KEY isn't set - release bundle left unsigned (can't be published as a release)"
+            make iso-image-with-bundle
+          fi
           ls -lh build/janus.iso
       - name: Upload the alpha installer ISO
         uses: actions/upload-artifact@v7
@@ -1019,6 +1016,18 @@ jobs:
       # artifacts (like the qcow2/vmdk/iso already are) - only the
       # *release-bundle* half is amd64-only, since that's the one
       # fetchBundleFile actually reads by these exact filenames.
+      # Nodes verify an Upgrade bundle's UKI signature against this same
+      # certificate, so an unsigned or wrongly signed bundle must never be
+      # published - fail here rather than ship one.
+      - name: Require a signed release bundle
+        if: ${{ inputs.release_version != '' }}
+        run: |
+          set -euo pipefail
+          for uki in build/release/uki-a.efi build/release/uki-b.efi; do
+            sbverify --cert image/secureboot/production-cert.pem "$uki" \
+              || { echo "::error::$uki isn't signed with the production key - refusing to publish (is SECUREBOOT_SIGNING_KEY set, and does it match image/secureboot/production-cert.pem?)"; exit 1; }
+          done
+
       - name: Publish a real GitHub Release
         if: ${{ inputs.release_version != '' }}
         uses: softprops/action-gh-release@v3

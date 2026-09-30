@@ -469,8 +469,18 @@ qemu-iso-boot-test: iso-image
 # hack/qemu-iso-install-test.sh. This is the artifact actually meant
 # for distribution, not plain iso-image above (which is what the boot
 # test itself uses, kept bundle-free/faster to build).
+#
+# Its $(BUILD_DIR)/release is also the bundle a GitHub Release publishes
+# (image-build.yml), so it's the one that has to be signed: pass
+# SIGNING_KEY=<key.pem> SIGNING_CERT=<cert.pem> to sign both UKIs (left
+# unsigned when unset). Signing a separately built bundle instead
+# doesn't work - rootfs-build reruns for every target and mksquashfs
+# isn't byte-reproducible, so another bundle's UKIs carry a different
+# dm-verity root hash than this rootfs.squashfs.
+SIGNING_KEY ?=
+SIGNING_CERT ?=
 iso-image-with-bundle: kernel-build rootfs-build
-	./image/release/assemble.sh $(BUILD_DIR)/release $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs
+	./image/release/assemble.sh $(BUILD_DIR)/release $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs "$(SIGNING_KEY)" "$(SIGNING_CERT)"
 	./image/iso/assemble.sh $(BUILD_DIR)/janus.iso $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs $(BUILD_DIR)/release
 
 # Bare-metal Machine tranche cont'd: proves a node booted from the ISO
