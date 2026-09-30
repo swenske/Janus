@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -52,6 +53,20 @@ type Supervisor struct {
 	// relies on.
 	GiveUpAfter time.Duration
 	OnGiveUp    func()
+
+	// stopping makes Run return once the child exits instead of
+	// restarting it (Stop), and pid is the current child's.
+	stopping atomic.Bool
+	pid      atomic.Int64
+}
+
+// Stop ends supervision: Run returns once the current child exits,
+// without restarting it. The child is sent sig, if one is running.
+func (s *Supervisor) Stop(sig syscall.Signal) {
+	s.stopping.Store(true)
+	if pid := s.pid.Load(); pid > 0 {
+		_ = syscall.Kill(int(pid), sig)
+	}
 }
 
 // Run starts Path and restarts it every time it exits, forever. Never
@@ -64,7 +79,13 @@ func (s *Supervisor) Run() {
 		giveUpDeadline = time.Now().Add(s.GiveUpAfter)
 	}
 	for {
+		if s.stopping.Load() {
+			return
+		}
 		_, backoff = s.runOnce(backoff)
+		if s.stopping.Load() {
+			return
+		}
 		if !giveUpDeadline.IsZero() && !time.Now().Before(giveUpDeadline) {
 			if s.OnGiveUp != nil {
 				s.OnGiveUp()
@@ -87,6 +108,8 @@ func (s *Supervisor) runOnce(backoff time.Duration) (pid int, nextBackoff time.D
 	if pid < 0 {
 		return -1, s.growBackoff(backoff)
 	}
+	s.pid.Store(int64(pid))
+	defer s.pid.Store(0)
 
 	for {
 		var ws syscall.WaitStatus

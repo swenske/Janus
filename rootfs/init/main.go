@@ -578,6 +578,7 @@ func main() {
 	mount("sysfs", "/sys", "sysfs")
 	loadSELinuxPolicy()
 	mount("devtmpfs", "/dev", "devtmpfs")
+	linkVirtioPorts()
 	hardenSysctls()
 	mountEphemeral()
 	// /etc/resolv.conf, like the rest of the network, is janusd's
@@ -660,7 +661,13 @@ func startDaemon(pendingMarker *bootcommit.Marker) {
 		sv.OnGiveUp = func() { giveUpBootCommit(pendingMarker) }
 	}
 
+	done := make(chan struct{})
+	handlePowerSignals(sv, done)
 	sv.Run()
+	close(done)
+	// Run only returns when a power action or a boot-commit revert is
+	// under way; PID 1 must never exit.
+	select {}
 }
 
 // giveUpBootCommit is Supervisor's OnGiveUp hook, wired up only when

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -165,6 +166,45 @@ func TestSupervisorGiveUpAfterStopsRestarting(t *testing.T) {
 
 	if atomic.LoadInt32(&fired) != 1 {
 		t.Fatalf("OnGiveUp fired %d times, want exactly 1", fired)
+	}
+}
+
+// TestSupervisorStopEndsSupervision: Stop signals the running child and
+// Run returns once it exits, without restarting it - the power-off path
+// (/sbin/shutdown -> PID 1 -> janusd stopped gracefully). Placed before
+// TestSupervisorGiveUpAfterUnsetNeverGivesUp, whose Run never returns and
+// would compete for the wait4(-1).
+func TestSupervisorStopEndsSupervision(t *testing.T) {
+	sleepPath := lookPath(t, "sleep")
+	s := &Supervisor{
+		Path:        sleepPath,
+		Args:        []string{"60"},
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+		MinBackoff:  5 * time.Millisecond,
+		MaxBackoff:  10 * time.Millisecond,
+		StableAfter: time.Hour,
+	}
+	done := make(chan struct{})
+	go func() {
+		s.Run()
+		close(done)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for s.pid.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the child never started")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.Stop(syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run didn't return after Stop")
+	}
+	if s.pid.Load() != 0 {
+		t.Error("a child is still recorded after Run returned")
 	}
 }
 
