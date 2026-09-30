@@ -172,6 +172,12 @@
 # staying off (no dynamic VLAN registration protocols).
 #   CONFIG_VLAN_8021Q=y
 #
+# QEMU guest agent extension (2026-10-01): its channel is a virtio-serial
+# port. `scripts/config --enable VIRTIO_CONSOLE` then olddefconfig; the
+# full resolved diff is exactly VIRTIO_CONSOLE=y plus HVC_DRIVER=y, which
+# it selects.
+#   CONFIG_VIRTIO_CONSOLE=y
+#
 # Deliberately the FULL resolved config (every symbol explicit), not a
 # compact savedefconfig diff: a diff format resolves unlisted symbols
 # against the kernel's own defconfig-derived defaults, which would
@@ -1754,8 +1760,9 @@ CONFIG_SERIAL_CORE_CONSOLE=y
 # CONFIG_N_GSM is not set
 # CONFIG_NOZOMI is not set
 # CONFIG_NULL_TTY is not set
+CONFIG_HVC_DRIVER=y
 # CONFIG_SERIAL_DEV_BUS is not set
-# CONFIG_VIRTIO_CONSOLE is not set
+CONFIG_VIRTIO_CONSOLE=y
 # CONFIG_IPMI_HANDLER is not set
 # CONFIG_HW_RANDOM is not set
 # CONFIG_APPLICOM is not set
