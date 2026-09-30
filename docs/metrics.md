@@ -1,0 +1,131 @@
+# Metrics: the Janus exporter
+
+Every node serves its own Prometheus metrics: what only Janus knows about
+the node - certificate expiry, which slot it booted, pending upgrades,
+HAProxy as janusd runs it, extension services, time sync, SELinux. It
+doesn't repeat what other exporters already give:
+
+| Exporter | Where | What |
+|---|---|---|
+| **Janus** (this page) | built into every node, `:10056/metrics` | the node as Janus manages it |
+| HAProxy | your HAProxy configuration (below) | frontends, backends, servers, traffic |
+| [node-exporter](image-factory.md#extensions) | optional extension, `:9100/metrics` | CPU, memory, disks, filesystems, network |
+
+## Turning it on and off
+
+The exporter is **on by default**, plain HTTP on port **10056** - the
+first port free after the [Prometheus exporters' default
+allocations](https://github.com/prometheus/prometheus/wiki/Default-port-allocations).
+Its settings are kept on the node across reboots and upgrades:
+
+```sh
+janusctl system metrics                  # show
+janusctl system metrics -port 10100      # move it
+janusctl system metrics -disable         # turn it off
+janusctl system metrics -enable
+```
+
+In the Controller: **Monitoring › Metrics**, *Prometheus exporter* card.
+A port that can't be bound is refused, and the exporter stays where it
+was.
+
+Like node_exporter, it has no authentication: anyone who reaches the port
+can read the metrics (versions, certificate names and expiry dates, API
+call counts - no secrets). Restrict who reaches it in your network, or
+with the node's firewall.
+
+```yaml
+scrape_configs:
+  - job_name: janus
+    static_configs:
+      - targets: ['node1.example.net:10056', 'node2.example.net:10056']
+```
+
+## Metrics
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `janus_build_info` | gauge | `version`, `go_version`, `arch`, `schematic` | Always 1: the release and [image schematic](image-factory.md) the node runs |
+| `janus_extension_info` | gauge | `extension`, `version` | Always 1, per extension in the image |
+| `janus_boot_info` | gauge | `slot`, `kernel` | Always 1: the A/B slot booted, and the kernel |
+| `janus_daemon_start_time_seconds` | gauge | | When janusd started - it changes when janusd restarts |
+| `janus_upgrade_pending_confirmation` | gauge | | 1 while an upgrade waits for its health confirmation; the node reverts if it doesn't come |
+| `janus_certificate_expiry_timestamp_seconds` | gauge | `source`, `certificate`, `cn` | When a certificate expires: the node API's CA and server certificates (`source="api"`), and every certificate HAProxy has loaded (`source="haproxy"`, by file or store name) |
+| `janus_haproxy_up` | gauge | | 1 if HAProxy answers on its stats socket - HAProxy's own metrics can't report it down |
+| `janus_haproxy_starts_total` | counter | | HAProxy processes janusd started, reloads included |
+| `janus_haproxy_reloads_total` | counter | | Seamless reloads |
+| `janus_haproxy_unexpected_exits_total` | counter | | HAProxy processes that exited without being stopped or replaced - crashes |
+| `janus_haproxy_config_applies_total` | counter | `result` (`accepted`, `rejected`) | Configurations applied through the API |
+| `janus_haproxy_config_last_apply_timestamp_seconds` | gauge | | When the last configuration was applied through the API |
+| `janus_service_state` | gauge | `service`, `extension`, `state` | 1 for the current state (`running`, `waiting`, `restarting`, `stopped`) of each extension service |
+| `janus_service_restarts_total` | counter | `service`, `extension` | Times an extension service exited and was restarted |
+| `janus_time_synchronized` | gauge | | 1 once janusd's NTP client has set the clock |
+| `janus_time_last_sync_timestamp_seconds` | gauge | | Last NTP synchronization |
+| `janus_time_offset_seconds` | gauge | | The clock offset measured then |
+| `janus_time_stratum` | gauge | | The server's stratum |
+| `janus_network_trial_pending` | gauge | | 1 while a network configuration is on trial (it reverts unless confirmed) |
+| `janus_network_trial_revert_timestamp_seconds` | gauge | | When it reverts, while on trial |
+| `janus_selinux_enforcing` | gauge | | 1 if SELinux is enforcing |
+| `janus_selinux_denials_total` | counter | | SELinux denials in the kernel log since boot - there should be none |
+| `janus_kernel_oom_kills_total` | counter | | Processes the kernel killed for lack of memory since boot |
+| `janus_state_filesystem_errors` | gauge | | Errors the kernel recorded on STATE (PKI, configuration) - it should be 0 |
+| `janus_api_requests_total` | counter | `method`, `code` | Calls to the node's API since janusd started, refused ones included |
+
+A metric that doesn't apply is absent rather than 0: no NTP
+synchronization yet, no configuration applied yet, no extension.
+
+## Alerts
+
+```yaml
+groups:
+  - name: janus
+    rules:
+      - alert: JanusCertificateExpiresSoon
+        expr: janus_certificate_expiry_timestamp_seconds - time() < 14 * 86400
+        labels: {severity: warning}
+        annotations:
+          summary: '{{ $labels.certificate }} ({{ $labels.cn }}) on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}'
+      - alert: JanusHAProxyDown
+        expr: janus_haproxy_up == 0
+        for: 1m
+        labels: {severity: critical}
+      - alert: JanusHAProxyCrashed
+        expr: increase(janus_haproxy_unexpected_exits_total[15m]) > 0
+        labels: {severity: warning}
+      - alert: JanusExtensionServiceDown
+        expr: janus_service_state{state="restarting"} == 1
+        for: 5m
+        labels: {severity: warning}
+      - alert: JanusSELinuxDenials
+        expr: increase(janus_selinux_denials_total[1h]) > 0
+        labels: {severity: warning}
+      - alert: JanusOOMKill
+        expr: increase(janus_kernel_oom_kills_total[1h]) > 0
+        labels: {severity: warning}
+      - alert: JanusStateErrors
+        expr: janus_state_filesystem_errors > 0
+        labels: {severity: critical}
+      - alert: JanusClockNotSynchronized
+        expr: janus_time_synchronized == 0 or time() - janus_time_last_sync_timestamp_seconds > 3600
+        for: 15m
+        labels: {severity: warning}
+      - alert: JanusUpgradeUnconfirmed
+        expr: janus_upgrade_pending_confirmation == 1
+        for: 10m
+        labels: {severity: warning}
+      - alert: JanusAPIRefusals
+        expr: sum by (instance) (increase(janus_api_requests_total{code=~"PermissionDenied|Unauthenticated"}[15m])) > 10
+        labels: {severity: warning}
+```
+
+## HAProxy's own metrics
+
+Janus's HAProxy is built with its Prometheus exporter. Serve it from any
+frontend of your configuration:
+
+```
+frontend prometheus
+  bind :8405
+  http-request use-service prometheus-exporter if { path /metrics }
+  no log
+```

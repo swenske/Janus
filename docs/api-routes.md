@@ -60,6 +60,8 @@ are also technically non-mutating).
 | `PacketCapture` | server | ✅ | tcpdump-equivalent over gRPC: pcap stream, kernel-side filter - see [packet-capture.md](packet-capture.md) |
 | `MetaWrite` / `MetaDelete` | | ⬜ | META partition key/value entries - Janus has no META partition |
 | `GenerateClientConfiguration` | | ✅ | Issue an mTLS client cert (`internal/pki`) - 1 year validity, no rotation flow yet |
+| `MetricsConfigGet` | | ✅ | The node's Prometheus exporter settings, and whether it's listening ([metrics.md](metrics.md)) |
+| `MetricsConfigSet` | | ✅ | Turn the exporter on/off, move it to another port - applied at once, persisted; a port that can't be bound is refused |
 
 ## LifecycleService
 
