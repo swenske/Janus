@@ -96,6 +96,21 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 			return nil, status.Errorf(codes.InvalidArgument, "unknown action %q (want start, stop or restart)", r.PathValue("action"))
 		})
 	})
+	mux.HandleFunc("GET /api/system/metrics-config", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
+		return c.MetricsConfigGet(ctx, empty)
+	}))
+	mux.HandleFunc("POST /api/system/metrics-config", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Enabled bool   `json:"enabled"`
+			Port    uint32 `json:"port"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		unary(w, r, node, unaryTimeout, func(ctx context.Context, conn *grpc.ClientConn) (any, error) {
+			return janusv1alpha1.NewSystemServiceClient(conn).MetricsConfigSet(ctx, &janusv1alpha1.MetricsConfig{Enabled: req.Enabled, Port: req.Port})
+		})
+	})
 	mux.HandleFunc("POST /api/system/power", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Action    string `json:"action"` // reboot, shutdown, restart, reset

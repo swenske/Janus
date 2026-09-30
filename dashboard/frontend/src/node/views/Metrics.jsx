@@ -1,6 +1,7 @@
 import { Activity, Cpu, Gauge, MemoryStick, Network, Shuffle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import Chart from '../components/Chart.jsx'
+import ExporterCard from './Exporter.jsx'
 import { Card, PageHeader } from '../../shared/ui.jsx'
 import { bytes, compact, rate } from '../format.js'
 import { useMetrics, useRefresh } from '../hooks.jsx'
@@ -134,6 +135,9 @@ export default function Metrics() {
             ]}
           />
         </Card>
+      </div>
+      <div style={{ marginTop: '1rem' }}>
+        <ExporterCard />
       </div>
     </>
   )
