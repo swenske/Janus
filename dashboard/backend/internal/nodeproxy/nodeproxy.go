@@ -79,6 +79,7 @@ func Start(node *store.Node, dashboardServerCert tls.Certificate) (*Listener, er
 	registerOpsRoutes(mux, node)
 	registerLifecycleRoutes(mux, node)
 	registerReleaseRoutes(mux)
+	registerPcapRoutes(mux, node)
 	mux.Handle("/", http.FileServerFS(view))
 
 	addr := fmt.Sprintf(":%d", node.Port)

@@ -8,7 +8,8 @@ A web UI for managing one or more [Janus](https://github.com/swenske/Janus)
 nodes: register a node by name/address (or let it self-register), view
 its stats (RAM/CPU/disk, active boot slot, kernel/HAProxy version), and
 drive its config (apply a new HAProxy config, manage maps/ACLs/
-certificates, drain/ready/maint individual backend servers).
+certificates, drain/ready/maint individual backend servers), update it
+to a new release, and download a live packet capture (`.pcap`).
 
 Your browser authenticates to *this dashboard* per node using a TLS
 client certificate issued by that node's own PKI (never uploaded -

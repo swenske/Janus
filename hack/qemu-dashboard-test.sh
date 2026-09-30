@@ -506,6 +506,37 @@ HAPROXY_INFO="$(curl -sk "${DASH_CERT[@]}" "${NODE_BASE}/api/haproxy/info")"
 echo "$HAPROXY_INFO" | grep -q '"version"' || { echo "Dashboard test FAILED: /api/haproxy/info missing version: $HAPROXY_INFO" >&2; exit 1; }
 echo "ShowInfo relay OK: $HAPROXY_INFO"
 
+# PacketCapture relay (nodeproxy/pcap.go): a bounded capture comes back
+# as a .pcap download holding the HTTP traffic generated meanwhile, and a
+# bad request fails with a real HTTP error instead of a broken file.
+( sleep 1; for _ in 1 2; do curl -s -o /dev/null "http://127.0.0.1:${HOST_HTTP_PORT}/"; done ) &
+PCAP_CURL_PID=$!
+pcap_code="$(curl -sk "${DASH_CERT[@]}" -D "$WORKDIR/pcap-headers.txt" -o "$WORKDIR/relay.pcap" -w '%{http_code}' "${NODE_BASE}/api/pcap?interface=eth0&filter=tcp%20port%208080&duration=3")"
+wait "$PCAP_CURL_PID"
+[ "$pcap_code" = "200" ] || { echo "Dashboard test FAILED: /api/pcap returned $pcap_code: $(cat "$WORKDIR/relay.pcap")" >&2; exit 1; }
+grep -qi '^content-disposition: attachment; filename="janus-.*-eth0-.*\.pcap"' "$WORKDIR/pcap-headers.txt" || { echo "Dashboard test FAILED: /api/pcap isn't served as a .pcap attachment: $(cat "$WORKDIR/pcap-headers.txt")" >&2; exit 1; }
+python3 - "$WORKDIR/relay.pcap" <<'PYEOF' || { echo "Dashboard test FAILED: the relayed pcap doesn't hold the captured HTTP traffic" >&2; exit 1; }
+import struct, sys
+data = open(sys.argv[1], "rb").read()
+assert struct.unpack("<I", data[:4])[0] == 0xa1b2c3d4, "not a pcap file"
+off, n, ok = 24, 0, 0
+while off < len(data):
+    incl = struct.unpack("<I", data[off + 8:off + 12])[0]
+    pkt = data[off + 16:off + 16 + incl]
+    off += 16 + incl
+    n += 1
+    l4 = 14 + (pkt[14] & 0x0f) * 4
+    assert pkt[23] == 6 and 8080 in struct.unpack(">HH", pkt[l4:l4 + 4]), f"packet {n} doesn't match 'tcp port 8080'"
+    ok += b"HTTP/1.1 200" in pkt
+assert ok >= 2, f"expected 2 HTTP 200 responses, saw {ok}"
+print(f"relayed pcap: {n} packets, all tcp port 8080, {ok} HTTP 200 responses")
+PYEOF
+bad_filter="$(curl -sk "${DASH_CERT[@]}" -w ' %{http_code}' "${NODE_BASE}/api/pcap?interface=eth0&filter=tcp%5B13%5D&duration=1")"
+case "$bad_filter" in *"unsupported filter keyword"*" 400") ;; *) echo "Dashboard test FAILED: an unsupported filter should be a 400 with the node's message, got: $bad_filter" >&2; exit 1 ;; esac
+no_duration="$(curl -sk "${DASH_CERT[@]}" -o /dev/null -w '%{http_code}' "${NODE_BASE}/api/pcap?interface=eth0")"
+[ "$no_duration" = "400" ] || { echo "Dashboard test FAILED: a capture with no duration should be refused (400), got $no_duration" >&2; exit 1; }
+echo "PacketCapture relay OK: .pcap download with real HTTP traffic, bad filter and unbounded capture refused"
+
 GETCFG="$(curl -sk "${DASH_CERT[@]}" "${NODE_BASE}/api/haproxy/config")"
 ORIG_SHA256="$(echo "$GETCFG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])')"
 [ -n "$ORIG_SHA256" ] || { echo "Dashboard test FAILED: /api/haproxy/config missing sha256: $GETCFG" >&2; exit 1; }

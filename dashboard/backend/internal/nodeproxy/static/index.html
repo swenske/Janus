@@ -14,7 +14,7 @@
   h3 { font-size: 0.95rem; margin: 1rem 0 0.5rem; }
   .error { color: #b3261e; white-space: pre-wrap; }
   .ok { color: #2e7d32; }
-  form.inline { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+  .inline { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
   input, select, textarea { font-family: ui-monospace, monospace; font-size: 0.85rem; padding: 0.3rem; }
   textarea { width: 100%; box-sizing: border-box; }
   button { cursor: pointer; }
@@ -80,6 +80,28 @@
   <textarea id="cert-pem" rows="6" placeholder="PEM cert + key (+ chain)" required></textarea>
   <button type="submit">Upload</button>
 </form>
+
+<h2>Packet capture</h2>
+<p>
+  Captures live traffic on the node and downloads it as a .pcap file
+  (open it in Wireshark or tcpdump). The filter uses tcpdump syntax -
+  <code>ip</code> <code>ip6</code> <code>arp</code> <code>tcp</code> <code>udp</code> <code>icmp</code> <code>icmp6</code>,
+  <code>[src|dst] host / net / port / portrange</code>, <code>and</code> <code>or</code> <code>not</code>, parentheses.
+  Keep <code>not port 9505</code> in it, or the capture mostly records its own stream.
+</p>
+<form class="inline" id="pcap-form">
+  <input id="pcap-interface" value="eth0" required style="width:6rem" title="interface" />
+  <input id="pcap-filter" value="not port 9505" placeholder="filter (empty = everything)" style="flex:1" title="filter" />
+  <input id="pcap-duration" type="number" min="1" max="300" value="10" required style="width:5rem" title="duration, seconds (max 300)" /> s
+</form>
+<div class="inline">
+  <input id="pcap-snaplen" type="number" min="0" placeholder="snaplen (default: all)" style="width:12rem" title="bytes kept per packet" />
+  <label><input type="checkbox" id="pcap-promisc" /> Promiscuous mode</label>
+</div>
+<div class="inline">
+  <button type="button" id="pcap-submit">Capture &amp; download .pcap</button>
+  <span id="pcap-result"></span>
+</div>
 
 <h2>Update</h2>
 <p>
@@ -425,6 +447,58 @@ document.getElementById('update-use-latest').addEventListener('click', () => {
   document.getElementById('update-url-sha256').value = latestRelease.sha256
   statusEl.textContent = `filled in from ${latestRelease.tag_name} - review below, then Launch update`
   statusEl.className = 'ok'
+})
+
+// The whole capture is buffered in the browser before being saved - that
+// bounds it to what fits in memory, which the 300s duration cap keeps
+// reasonable; fetching it (instead of navigating to the URL) is what lets
+// a bad filter show up here as an error instead of as a download.
+document.getElementById('pcap-submit').addEventListener('click', async () => {
+  const resultEl = document.getElementById('pcap-result')
+  const button = document.getElementById('pcap-submit')
+  const duration = parseInt(document.getElementById('pcap-duration').value, 10)
+  if (!(duration >= 1 && duration <= 300)) {
+    resultEl.textContent = 'duration must be between 1 and 300 seconds'
+    resultEl.className = 'error'
+    return
+  }
+  const params = new URLSearchParams({
+    interface: document.getElementById('pcap-interface').value,
+    filter: document.getElementById('pcap-filter').value,
+    duration: String(duration),
+  })
+  const snaplen = document.getElementById('pcap-snaplen').value
+  if (snaplen) params.set('snaplen', snaplen)
+  if (document.getElementById('pcap-promisc').checked) params.set('promisc', 'true')
+
+  button.disabled = true
+  resultEl.className = ''
+  let remaining = duration
+  resultEl.textContent = `Capturing… ${remaining}s`
+  const timer = setInterval(() => {
+    remaining = Math.max(0, remaining - 1)
+    resultEl.textContent = remaining > 0 ? `Capturing… ${remaining}s` : 'Finishing…'
+  }, 1000)
+  try {
+    const resp = await fetch('/api/pcap?' + params)
+    if (!resp.ok) throw new Error(await resp.text())
+    const blob = await resp.blob()
+    const disposition = resp.headers.get('Content-Disposition') || ''
+    const name = (disposition.match(/filename="([^"]+)"/) || [])[1] || 'capture.pcap'
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = name
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(link.href), 60000)
+    resultEl.textContent = `Downloaded ${name} (${(blob.size / 1024).toFixed(1)} KiB)`
+    resultEl.className = 'ok'
+  } catch (err) {
+    resultEl.textContent = String(err.message || err).trim()
+    resultEl.className = 'error'
+  } finally {
+    clearInterval(timer)
+    button.disabled = false
+  }
 })
 
 document.getElementById('update-submit').addEventListener('click', async () => {

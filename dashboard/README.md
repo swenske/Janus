@@ -4,7 +4,9 @@ A web UI for managing one or more Janus nodes: register a node by
 name/address, view its stats (RAM/CPU/disk, active boot slot,
 kernel/HAProxy version), and drive its config (apply a new HAProxy
 config, manage maps/ACLs/certificates, drain/ready/maint individual
-backend servers).
+backend servers), update it to a new release, and capture its live
+traffic as a downloadable `.pcap` (see
+[`docs/packet-capture.md`](../docs/packet-capture.md)).
 
 See the local `docs/plan` history (rebranding/dashboard/client-native
 initiative) for the full architecture and why it's shaped the way it

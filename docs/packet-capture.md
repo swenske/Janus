@@ -50,6 +50,23 @@ cancellation.
 Promiscuous mode is tied to the capture: the kernel turns it back off as
 soon as the capture ends, even if the client disconnects abruptly.
 
+### From the Janus Controller
+
+Each node's page in the Controller has a **Packet capture** section:
+interface, filter (pre-filled with `not port 9505`), duration, optional
+snaplen and promiscuous mode, and a **Capture & download .pcap** button.
+The Controller relays the capture from the node with its own service
+credential and your browser saves the result as
+`janus-<node>-<interface>-<UTC time>.pcap`.
+
+The duration is required there (1 to 300 seconds): a browser download
+has no Ctrl-C, so every capture is bounded, and the node ends it itself
+once every packet is flushed. A bad filter or an unknown interface shows
+up as an error next to the button, not as a broken file. The whole
+capture is held in the browser's memory until it's saved, so on a busy
+node prefer a precise filter or a small snaplen over a long unfiltered
+capture.
+
 ## Filter language
 
 Filters use tcpdump's syntax, restricted to the subset below. Anything
