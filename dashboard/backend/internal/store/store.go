@@ -24,13 +24,25 @@ import (
 // dashboard's own dedicated credential for this node - never the user's
 // personal one.
 type Node struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Address        string `json:"address"` // the node's own real gRPC ip:port
-	Port           int    `json:"port"`    // this dashboard's per-node listener port
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Address is the node's own real gRPC ip:port. Set it only before
+	// the node is added; afterwards read it with Addr and change it with
+	// Store.SetAddress - a network reconfiguration can move a node.
+	Address        string `json:"address"`
+	Port           int    `json:"port"` // this dashboard's per-node listener port
 	CACertPEM      []byte `json:"-"`
 	ServiceCertPEM []byte `json:"-"`
 	ServiceKeyPEM  []byte `json:"-"`
+
+	mu sync.Mutex // guards Address once the node is in a Store
+}
+
+// Addr is the node's current gRPC address.
+func (n *Node) Addr() string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.Address
 }
 
 // meta is Node's on-disk, non-secret half - the cert/key material lives
@@ -181,6 +193,32 @@ func (s *Store) Add(node *Node) error {
 	s.mu.Lock()
 	s.nodes[id] = node
 	s.mu.Unlock()
+	return nil
+}
+
+// SetAddress records that a node is now reached at addr - after a
+// network reconfiguration moved it.
+func (s *Store) SetAddress(id, addr string) error {
+	s.mu.Lock()
+	n, ok := s.nodes[id]
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("no such node %q", id)
+	}
+	metaBytes, err := json.Marshal(meta{ID: n.ID, Name: n.Name, Address: addr, Port: n.Port})
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(s.dir, "nodes", id, "meta.json")
+	if err := os.WriteFile(path+".tmp", metaBytes, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(path+".tmp", path); err != nil {
+		return err
+	}
+	n.mu.Lock()
+	n.Address = addr
+	n.mu.Unlock()
 	return nil
 }
 

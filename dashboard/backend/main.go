@@ -187,7 +187,7 @@ type app struct {
 }
 
 func (a *app) startListener(n *store.Node) error {
-	l, err := nodeproxy.Start(n, a.serverCert)
+	l, err := nodeproxy.Start(n, a.serverCert, a.store)
 	if err != nil {
 		return err
 	}
@@ -282,7 +282,7 @@ func (a *app) handleNodes(w http.ResponseWriter, r *http.Request) {
 		}
 		var out []nodeView
 		for _, n := range a.store.List() {
-			out = append(out, nodeView{ID: n.ID, Name: n.Name, Address: n.Address, Port: n.Port})
+			out = append(out, nodeView{ID: n.ID, Name: n.Name, Address: n.Addr(), Port: n.Port})
 		}
 		writeJSON(w, http.StatusOK, out)
 

@@ -56,7 +56,7 @@ type Listener struct {
 // Start begins serving node's dashboard view on its own allocated port
 // immediately - callers should treat a returned error as "this node's
 // listener never came up", not something to retry inline.
-func Start(node *store.Node, dashboardServerCert tls.Certificate) (*Listener, error) {
+func Start(node *store.Node, dashboardServerCert tls.Certificate, st *store.Store) (*Listener, error) {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(node.CACertPEM) {
 		return nil, fmt.Errorf("node %s: no valid certificates in stored ca.crt", node.ID)
@@ -69,7 +69,7 @@ func Start(node *store.Node, dashboardServerCert tls.Certificate) (*Listener, er
 		MinVersion:   tls.VersionTLS13,
 	}
 
-	handler, err := newHandler(node)
+	handler, err := newHandler(node, st)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func Start(node *store.Node, dashboardServerCert tls.Certificate) (*Listener, er
 // upgrades...); GET stays open, since a cross-origin page can't read the
 // response. Requests from non-browser clients (curl, scripts) carry
 // neither Sec-Fetch-Site nor Origin and are unaffected.
-func newHandler(node *store.Node) (http.Handler, error) {
+func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	view, err := fs.Sub(staticFiles, "static")
 	if err != nil {
 		return nil, fmt.Errorf("static assets: %w", err)
@@ -113,13 +113,14 @@ func newHandler(node *store.Node) (http.Handler, error) {
 		handleInfo(w, r, node)
 	})
 	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
-		writeJSONBody(w, http.StatusOK, map[string]string{"id": node.ID, "name": node.Name, "address": node.Address})
+		writeJSONBody(w, http.StatusOK, map[string]string{"id": node.ID, "name": node.Name, "address": node.Addr()})
 	})
 	registerOpsRoutes(mux, node)
 	registerLifecycleRoutes(mux, node)
 	registerReleaseRoutes(mux)
 	registerPcapRoutes(mux, node)
 	registerSystemRoutes(mux, node)
+	registerNetworkRoutes(mux, node, st)
 	mux.Handle("/", http.FileServerFS(view))
 
 	return http.NewCrossOriginProtection().Handler(mux), nil
@@ -169,7 +170,7 @@ func dialNode(node *store.Node) (*grpc.ClientConn, error) {
 	// coming back, not after gRPC's default backoff (up to 2 minutes).
 	backoffCfg := backoff.DefaultConfig
 	backoffCfg.MaxDelay = 5 * time.Second
-	c, err := grpc.NewClient(node.Address,
+	c, err := grpc.NewClient(node.Addr(),
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: backoffCfg, MinConnectTimeout: 5 * time.Second}))
 	if err != nil {

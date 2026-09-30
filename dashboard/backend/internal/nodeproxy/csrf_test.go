@@ -16,7 +16,7 @@ import (
 // check fails at the dial with 502 - never a 403.
 func TestPerNodeCSRF(t *testing.T) {
 	node := &store.Node{ID: "csrf-test", Name: "n", Address: "127.0.0.1:1", CACertPEM: []byte("not a certificate")}
-	h, err := newHandler(node)
+	h, err := newHandler(node, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

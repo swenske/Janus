@@ -256,17 +256,43 @@ function CopyField({ label, value, inputRef, rows, onCopy }) {
 // -controller-address/-controller-ca need, so a new node self-registers
 // with this Controller (GET /api/controller-info - the address is a
 // best-effort suggestion, check it against the real network).
+// An example network configuration for the provisioning panel - the
+// NetworkConfig message's JSON form (see docs/network-configuration.md).
+const NETWORK_EXAMPLE = `{
+  "hostname": "lb1",
+  "interfaces": [
+    {"name": "eth0", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.0.2.10/24"], "gateway": "192.0.2.1"},
+    {"name": "eth1", "mode": "ADDRESSING_MODE_NONE"},
+    {"name": "eth1.100", "vlan": {"parent": "eth1", "id": 100}, "mode": "ADDRESSING_MODE_STATIC", "addresses": ["10.100.0.5/24"]}
+  ],
+  "dns": {"servers": ["192.0.2.53"]},
+  "ntp": {"servers": ["ntp1.example.net", "ntp2.example.net"]}
+}`
+
 function ProvisionInfo() {
   const [info, setInfo] = useState(null)
   const [open, setOpen] = useState(false)
+  const [network, setNetwork] = useState('')
   const toast = useToast()
-  const refs = { address: useRef(null), ca: useRef(null), command: useRef(null) }
+  const refs = { address: useRef(null), ca: useRef(null), command: useRef(null), seed: useRef(null), nocloud: useRef(null) }
   useEffect(() => {
     call('/api/controller-info').then(setInfo).catch(() => {})
   }, [])
   if (!info) return null
   const address = info.address || 'YOUR-CONTROLLER-ADDRESS'
-  const command = `janusctl lifecycle install -controller-address ${address} -controller-ca controller-ca.crt DISK BUNDLE_DIR`
+  let netCfg = null
+  let netError = null
+  if (network.trim()) {
+    try {
+      netCfg = JSON.parse(network)
+    } catch (err) {
+      netError = err.message
+    }
+  }
+  const netFlag = netCfg ? ' -network-config network.json' : ''
+  const command = `janusctl lifecycle install -controller-address ${address} -controller-ca controller-ca.crt${netFlag} DISK BUNDLE_DIR`
+  const seed = `janusctl image seed-controller -controller-address ${address} -controller-ca controller-ca.crt DISK.raw${netCfg ? '\njanusctl image seed-network -config network.json DISK.raw' : ''}`
+  const nocloud = JSON.stringify({ controller_address: address, controller_ca_cert: info.ca_cert_pem, ...(netCfg ? { network: netCfg } : {}) }, null, 2)
   const copy = async (ref, label) => {
     try {
       await navigator.clipboard.writeText(ref.current.value)
@@ -294,7 +320,29 @@ function ProvisionInfo() {
           {!info.address && <div className="notice warn">No address could be guessed - set -advertise-address on dashboardd, or fill it in yourself.</div>}
           <CopyField label="Controller address" value={address} inputRef={refs.address} onCopy={copy} />
           <CopyField label="Controller CA certificate (save as controller-ca.crt)" value={info.ca_cert_pem} inputRef={refs.ca} rows={5} onCopy={copy} />
+          <div className="field">
+            <div className="spread">
+              <label htmlFor="provision-network" className="field-label">
+                Network configuration (optional - without one, the node takes the kernel&apos;s DHCP lease at boot, and NTP from DHCP or pool.ntp.org)
+              </label>
+              <button className="small ghost" type="button" onClick={() => setNetwork(NETWORK_EXAMPLE)}>
+                Example
+              </button>
+            </div>
+            <textarea
+              id="provision-network"
+              className="mono"
+              rows={network ? 10 : 2}
+              spellCheck={false}
+              placeholder="save as network.json"
+              value={network}
+              onChange={(e) => setNetwork(e.target.value)}
+            />
+            {netError && <span className="small" style={{ color: 'var(--danger)' }}>Not valid JSON: {netError}</span>}
+          </div>
           <CopyField label="Install command (fill in DISK and BUNDLE_DIR)" value={command} inputRef={refs.command} rows={2} onCopy={copy} />
+          <CopyField label="Or seed an already-built raw image offline" value={seed} inputRef={refs.seed} rows={2} onCopy={copy} />
+          <CopyField label="Or NoCloud user-data (a cidata-labeled volume attached at first boot)" value={nocloud} inputRef={refs.nocloud} rows={6} onCopy={copy} />
         </div>
       )}
     </Card>

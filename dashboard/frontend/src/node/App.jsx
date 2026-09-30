@@ -4,6 +4,7 @@ import {
   Archive,
   BarChart3,
   Boxes,
+  Cable,
   Cpu,
   FolderOpen,
   HardDrive,
@@ -35,6 +36,7 @@ import Logs from './views/Logs.jsx'
 import Metrics from './views/Metrics.jsx'
 import Module from './views/Module.jsx'
 import NetworkView from './views/Network.jsx'
+import NetworkConfig from './views/NetworkConfig.jsx'
 import Overview from './views/Overview.jsx'
 import PowerView from './views/Power.jsx'
 import Processes from './views/Processes.jsx'
@@ -80,6 +82,7 @@ const NAV = [
   {
     group: 'System',
     items: [
+      { path: '/system/network', label: 'Network', icon: Cable, view: NetworkConfig },
       { path: '/system/services', label: 'Services', icon: Server, view: Services },
       { path: '/system/update', label: 'Update', icon: Archive, view: Update },
       { path: '/system/access', label: 'Access', icon: KeyRound, view: Access },
