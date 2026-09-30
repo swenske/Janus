@@ -81,20 +81,43 @@ func parseCertField(detail []byte, field string) string {
 // subsequent "commit" is the authoritative result, so that's what's
 // checked here.
 func (m *Manager) CertificateUpload(name string, pemBundle []byte, crtList string, sni []string) error {
+	certArg, err := cliToken("certificate name", name)
+	if err != nil {
+		return err
+	}
+	listArg := ""
+	if crtList != "" {
+		if listArg, err = cliToken("crt-list", crtList); err != nil {
+			return err
+		}
+	}
+	sniArgs := make([]string, 0, len(sni))
+	for _, s := range sni {
+		a, err := cliToken("sni", s)
+		if err != nil {
+			return err
+		}
+		sniArgs = append(sniArgs, a)
+	}
+	payload, err := cliPayload("PEM bundle", pemBundle)
+	if err != nil {
+		return err
+	}
+
 	// Ignore the result: "already exists" just means we're updating a
 	// cert that's already in the store, which is fine.
-	_, _ = m.statsCommand("new ssl cert " + name)
+	_, _ = m.statsCommand("new ssl cert " + certArg)
 
-	if _, err := m.statsCommand("set ssl cert " + name + " <<\n" + string(pemBundle)); err != nil {
+	if _, err := m.statsCommand("set ssl cert " + certArg + " <<\n" + payload); err != nil {
 		return fmt.Errorf("stage certificate: %w", err)
 	}
 
-	commitOut, err := m.statsCommand("commit ssl cert " + name)
+	commitOut, err := m.statsCommand("commit ssl cert " + certArg)
 	if err != nil {
 		return err
 	}
 	if !strings.Contains(string(commitOut), "Success!") {
-		_, _ = m.statsCommand("abort ssl cert " + name)
+		_, _ = m.statsCommand("abort ssl cert " + certArg)
 		return fmt.Errorf("commit certificate %s: %s", name, strings.TrimSpace(string(commitOut)))
 	}
 
@@ -102,9 +125,9 @@ func (m *Manager) CertificateUpload(name string, pemBundle []byte, crtList strin
 		return nil
 	}
 
-	addCmd := "add ssl crt-list " + crtList + " " + name
-	if len(sni) > 0 {
-		addCmd += " " + strings.Join(sni, " ")
+	addCmd := "add ssl crt-list " + listArg + " " + certArg
+	if len(sniArgs) > 0 {
+		addCmd += " " + strings.Join(sniArgs, " ")
 	}
 	addOut, err := m.statsCommand(addCmd)
 	if err != nil {
@@ -126,11 +149,19 @@ func (m *Manager) CertificateUpload(name string, pemBundle []byte, crtList strin
 // wasn't in that crt-list to begin with, unbinding is a harmless no-op,
 // same reasoning as the delete-then-add upsert in runtime_maps.go.
 func (m *Manager) CertificateDelete(name, crtList string) error {
+	certArg, err := cliToken("certificate name", name)
+	if err != nil {
+		return err
+	}
 	if crtList != "" {
-		_, _ = m.statsCommand("del ssl crt-list " + crtList + " " + name)
+		listArg, err := cliToken("crt-list", crtList)
+		if err != nil {
+			return err
+		}
+		_, _ = m.statsCommand("del ssl crt-list " + listArg + " " + certArg)
 	}
 
-	out, err := m.statsCommand("del ssl cert " + name)
+	out, err := m.statsCommand("del ssl cert " + certArg)
 	if err != nil {
 		return err
 	}

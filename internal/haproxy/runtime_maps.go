@@ -47,7 +47,11 @@ func (m *Manager) MapList() ([]string, error) {
 // Each line of output is "<internal-id> <key> <value...>" - the value is
 // everything after the key, rejoined, since it may itself contain spaces.
 func (m *Manager) MapGet(mapName string) (map[string]string, error) {
-	out, err := m.statsCommand("show map " + mapName)
+	name, err := cliToken("map", mapName)
+	if err != nil {
+		return nil, err
+	}
+	out, err := m.statsCommand("show map " + name)
 	if err != nil {
 		return nil, err
 	}
@@ -83,11 +87,23 @@ func parseMapEntries(out string) (map[string]string, error) {
 // allowed to fail (the key not existing yet is the normal case for a
 // fresh entry, not an error).
 func (m *Manager) MapUpdate(mapName, key, value string, del bool) error {
-	if del {
-		return mustEmpty(m.statsCommand(fmt.Sprintf("del map %s %s", mapName, key)))
+	name, err := cliToken("map", mapName)
+	if err != nil {
+		return err
 	}
-	_, _ = m.statsCommand(fmt.Sprintf("del map %s %s", mapName, key))
-	return mustEmpty(m.statsCommand(fmt.Sprintf("add map %s %s %s", mapName, key, value)))
+	k, err := cliToken("key", key)
+	if err != nil {
+		return err
+	}
+	v, err := cliText("value", value)
+	if err != nil {
+		return err
+	}
+	if del {
+		return mustEmpty(m.statsCommand(fmt.Sprintf("del map %s %s", name, k)))
+	}
+	_, _ = m.statsCommand(fmt.Sprintf("del map %s %s", name, k))
+	return mustEmpty(m.statsCommand(fmt.Sprintf("add map %s %s %s", name, k, v)))
 }
 
 // ACLUpdate deletes or upserts a single ACL pattern value. Same
@@ -95,11 +111,19 @@ func (m *Manager) MapUpdate(mapName, key, value string, del bool) error {
 // value list (no key), and "add acl" would otherwise create a duplicate
 // entry if the value is already present.
 func (m *Manager) ACLUpdate(aclName, value string, del bool) error {
-	if del {
-		return mustEmpty(m.statsCommand(fmt.Sprintf("del acl %s %s", aclName, value)))
+	name, err := cliToken("acl", aclName)
+	if err != nil {
+		return err
 	}
-	_, _ = m.statsCommand(fmt.Sprintf("del acl %s %s", aclName, value))
-	return mustEmpty(m.statsCommand(fmt.Sprintf("add acl %s %s", aclName, value)))
+	v, err := cliText("value", value)
+	if err != nil {
+		return err
+	}
+	if del {
+		return mustEmpty(m.statsCommand(fmt.Sprintf("del acl %s %s", name, v)))
+	}
+	_, _ = m.statsCommand(fmt.Sprintf("del acl %s %s", name, v))
+	return mustEmpty(m.statsCommand(fmt.Sprintf("add acl %s %s", name, v)))
 }
 
 // mustEmpty treats a non-empty (after trimming) response from a runtime

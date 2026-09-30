@@ -311,7 +311,19 @@ func (m *Manager) ShowStat() ([]byte, error) {
 // SetServerState runs the stats socket's "set server <backend>/<server>
 // state <ready|drain|maint>" command.
 func (m *Manager) SetServerState(backend, server, state string) error {
-	return mustEmpty(m.statsCommand(fmt.Sprintf("set server %s/%s state %s", backend, server, state)))
+	b, err := cliToken("backend", backend)
+	if err != nil {
+		return err
+	}
+	s, err := cliToken("server", server)
+	if err != nil {
+		return err
+	}
+	st, err := cliToken("state", state)
+	if err != nil {
+		return err
+	}
+	return mustEmpty(m.statsCommand(fmt.Sprintf("set server %s/%s state %s", b, s, st)))
 }
 
 func (m *Manager) statsCommand(cmd string) ([]byte, error) {

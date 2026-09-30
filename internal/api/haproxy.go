@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -99,9 +100,12 @@ func (h *HAProxy) ServerSetState(_ context.Context, req *janusv1alpha1.ServerSet
 		janusv1alpha1.ServerSetStateRequest_STATE_DRAIN: "drain",
 		janusv1alpha1.ServerSetStateRequest_STATE_MAINT: "maint",
 	}[req.GetState()]
+	if state == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "state must be READY, DRAIN or MAINT, got %s", req.GetState())
+	}
 
 	if err := h.Manager.SetServerState(req.GetBackend(), req.GetServer(), state); err != nil {
-		return nil, err
+		return nil, haproxyError(err)
 	}
 	events.Publish("haproxy.server.state", map[string]string{"backend": req.GetBackend(), "server": req.GetServer(), "state": state})
 	return &emptypb.Empty{}, nil
@@ -118,14 +122,14 @@ func (h *HAProxy) MapList(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.M
 func (h *HAProxy) MapGet(_ context.Context, req *janusv1alpha1.MapGetRequest) (*janusv1alpha1.MapGetResponse, error) {
 	entries, err := h.Manager.MapGet(req.GetMap())
 	if err != nil {
-		return nil, err
+		return nil, haproxyError(err)
 	}
 	return &janusv1alpha1.MapGetResponse{Entries: entries}, nil
 }
 
 func (h *HAProxy) MapUpdate(_ context.Context, req *janusv1alpha1.MapUpdateRequest) (*emptypb.Empty, error) {
 	if err := h.Manager.MapUpdate(req.GetMap(), req.GetKey(), req.GetValue(), req.GetDelete()); err != nil {
-		return nil, err
+		return nil, haproxyError(err)
 	}
 	events.Publish("haproxy.map.updated", map[string]any{"map": req.GetMap(), "key": req.GetKey(), "delete": req.GetDelete()})
 	return &emptypb.Empty{}, nil
@@ -133,7 +137,7 @@ func (h *HAProxy) MapUpdate(_ context.Context, req *janusv1alpha1.MapUpdateReque
 
 func (h *HAProxy) ACLUpdate(_ context.Context, req *janusv1alpha1.ACLUpdateRequest) (*emptypb.Empty, error) {
 	if err := h.Manager.ACLUpdate(req.GetAcl(), req.GetValue(), req.GetDelete()); err != nil {
-		return nil, err
+		return nil, haproxyError(err)
 	}
 	events.Publish("haproxy.acl.updated", map[string]any{"acl": req.GetAcl(), "value": req.GetValue(), "delete": req.GetDelete()})
 	return &emptypb.Empty{}, nil
@@ -153,7 +157,7 @@ func (h *HAProxy) CertificateList(_ context.Context, _ *emptypb.Empty) (*janusv1
 
 func (h *HAProxy) CertificateUpload(_ context.Context, req *janusv1alpha1.CertificateUploadRequest) (*emptypb.Empty, error) {
 	if err := h.Manager.CertificateUpload(req.GetName(), req.GetPemBundle(), req.GetCrtList(), req.GetSni()); err != nil {
-		return nil, err
+		return nil, haproxyError(err)
 	}
 	events.Publish("haproxy.certificate.uploaded", map[string]any{"name": req.GetName(), "crt_list": req.GetCrtList(), "sni": req.GetSni()})
 	return &emptypb.Empty{}, nil
@@ -161,10 +165,20 @@ func (h *HAProxy) CertificateUpload(_ context.Context, req *janusv1alpha1.Certif
 
 func (h *HAProxy) CertificateDelete(_ context.Context, req *janusv1alpha1.CertificateDeleteRequest) (*emptypb.Empty, error) {
 	if err := h.Manager.CertificateDelete(req.GetName(), req.GetCrtList()); err != nil {
-		return nil, err
+		return nil, haproxyError(err)
 	}
 	events.Publish("haproxy.certificate.deleted", map[string]string{"name": req.GetName(), "crt_list": req.GetCrtList()})
 	return &emptypb.Empty{}, nil
+}
+
+// haproxyError turns an argument internal/haproxy refused before
+// reaching the stats socket into codes.InvalidArgument; anything else is
+// returned unchanged.
+func haproxyError(err error) error {
+	if errors.Is(err, haproxy.ErrInvalidArgument) {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	return err
 }
 
 // BackendList reads the stats socket's "show stat": every backend, with
