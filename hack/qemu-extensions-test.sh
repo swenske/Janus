@@ -50,7 +50,10 @@ fail() {
   exit 1
 }
 check() { # check "description" "grep -E pattern" "text"
-  echo "$3" | grep -Eq "$2" || fail "$1: /$2/ not found in:
+  # A here-string, not echo | grep -q: grep -q exits at its first match,
+  # and with pipefail an echo still writing a large text (the metrics)
+  # then fails the pipeline with SIGPIPE - a match reported as missing.
+  grep -Eq "$2" <<<"$3" || fail "$1: /$2/ not found in:
 $3"
   echo "  ok: $1"
 }
