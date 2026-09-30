@@ -17,6 +17,7 @@ type CertInfo struct {
 	Name     string
 	NotAfter string // RFC3339, or the raw HAProxy string if it didn't parse
 	Status   string // "Used" or "Unused", straight from HAProxy
+	Subject  string // as HAProxy prints it, e.g. "/CN=www.example.com"
 }
 
 // CertificateList runs "show ssl cert" for the name list, then
@@ -38,7 +39,7 @@ func (m *Manager) CertificateList() ([]CertInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		certs = append(certs, CertInfo{Name: name, NotAfter: parseNotAfter(detail), Status: parseCertField(detail, "Status")})
+		certs = append(certs, CertInfo{Name: name, NotAfter: parseNotAfter(detail), Status: parseCertField(detail, "Status"), Subject: parseCertField(detail, "Subject")})
 	}
 	return certs, nil
 }

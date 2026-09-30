@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -38,7 +39,23 @@ type Manager struct {
 
 	mu  sync.Mutex
 	cur *process
+
+	counters Counters
 }
+
+// Counters are what the Manager has done since janusd started, for the
+// node's exporter.
+type Counters struct {
+	Starts          atomic.Uint64 // processes started, reloads included
+	Reloads         atomic.Uint64 // seamless reloads (-sf)
+	UnexpectedExits atomic.Uint64 // a process that exited without being stopped or replaced
+	ApplyAccepted   atomic.Uint64
+	ApplyRejected   atomic.Uint64
+	LastApplyUnix   atomic.Int64 // last accepted Apply
+}
+
+// Counters returns the Manager's counters.
+func (m *Manager) Counters() *Counters { return &m.counters }
 
 // process is one started haproxy; done closes once it has exited and
 // been reaped.
@@ -105,8 +122,11 @@ func (m *Manager) Validate(cfg []byte) (bool, []string) {
 // untouched, process untouched) if cfg is invalid.
 func (m *Manager) Apply(cfg []byte) ([]string, error) {
 	if ok, errs := m.Validate(cfg); !ok {
+		m.counters.ApplyRejected.Add(1)
 		return errs, fmt.Errorf("invalid config")
 	}
+	m.counters.ApplyAccepted.Add(1)
+	m.counters.LastApplyUnix.Store(time.Now().Unix())
 	if err := os.WriteFile(m.ConfigPath, cfg, 0o644); err != nil {
 		return nil, fmt.Errorf("write config: %w", err)
 	}
@@ -136,8 +156,10 @@ func (m *Manager) startOrReload() error {
 	defer m.mu.Unlock()
 
 	args := []string{"-f", m.ConfigPath}
+	reload := false
 	if old := m.previousPID(); old > 0 {
 		args = append(args, "-sf", strconv.Itoa(old))
+		reload = true
 	}
 
 	cmd := exec.Command(m.BinaryPath, args...)
@@ -148,6 +170,10 @@ func (m *Manager) startOrReload() error {
 	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start haproxy: %w", err)
+	}
+	m.counters.Starts.Add(1)
+	if reload {
+		m.counters.Reloads.Add(1)
 	}
 	// Every started process is waited on, including the ones a later
 	// seamless reload (-sf) replaces - otherwise each would stay a zombie
@@ -163,6 +189,8 @@ func (m *Manager) startOrReload() error {
 			reason = "stopped"
 		case m.cur != p:
 			reason = "replaced by a reload"
+		default:
+			m.counters.UnexpectedExits.Add(1)
 		}
 		m.mu.Unlock()
 		exit := ""
