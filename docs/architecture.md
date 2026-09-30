@@ -153,6 +153,17 @@ Known limitation, planned improvement: DHCP is the kernel's own
 A userspace DHCP client with lease renewal, and DHCP on any interface,
 would lift both limits.
 
+## Optional extensions and image schematics
+
+Optional software - today node_exporter and the QEMU guest agent - is
+chosen per image, not installed on a node: an **image schematic** names
+the extensions, and the build layers them onto the read-only rootfs.
+The schematic's ID is written into the signed kernel command line, so a
+node knows its schematic and `Upgrade` refuses an update built from
+another one - a node keeps its extensions. `janusd` supervises the
+extensions' services, each in its own SELinux domain. See
+[image-factory.md](image-factory.md).
+
 ## Optional network features
 
 `bird` (BGP) and `keepalived` (VRRP) are opt-in per node, selected in the
