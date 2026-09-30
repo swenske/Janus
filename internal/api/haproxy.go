@@ -81,10 +81,15 @@ func (h *HAProxy) ShowInfo(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.
 		return nil, err
 	}
 	return &janusv1alpha1.ShowInfoResponse{
-		Version:            info.Version,
-		UptimeSeconds:      info.UptimeSeconds,
-		CurrentConnections: info.CurrentConnections,
-		MaxConnections:     info.MaxConnections,
+		Version:               info.Version,
+		UptimeSeconds:         info.UptimeSeconds,
+		CurrentConnections:    info.CurrentConnections,
+		MaxConnections:        info.MaxConnections,
+		CumulativeConnections: info.CumulativeConnections,
+		CumulativeRequests:    info.CumulativeRequests,
+		ConnectionRate:        info.ConnectionRate,
+		SessionRate:           info.SessionRate,
+		IdlePercent:           info.IdlePercent,
 	}, nil
 }
 

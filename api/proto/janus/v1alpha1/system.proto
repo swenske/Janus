@@ -169,14 +169,23 @@ message StatsResponse {
 
 message ProcessStat {
   string id = 1;
+  // Average over the processes' lifetime, like ps(1).
   double cpu_percent = 2;
   uint64 memory_bytes = 3;
+  // Cumulative CPU time - the current rate is the difference between two
+  // samples.
+  double cpu_seconds = 4;
 }
 
 message SystemStatResponse {
   uint64 boot_time_unix = 1;
   uint64 context_switches = 2;
   uint64 processes_created = 3;
+  // Cumulative CPU time across all CPUs, in USER_HZ ticks (/proc/stat's
+  // "cpu" line) - utilization is 1 - d(idle)/d(total) between samples.
+  uint64 cpu_total_ticks = 4;
+  // Idle plus iowait ticks.
+  uint64 cpu_idle_ticks = 5;
 }
 
 message MemoryResponse {

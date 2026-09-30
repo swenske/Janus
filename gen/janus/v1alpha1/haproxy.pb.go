@@ -427,8 +427,17 @@ type ShowInfoResponse struct {
 	UptimeSeconds      uint64                 `protobuf:"varint,2,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
 	CurrentConnections uint32                 `protobuf:"varint,3,opt,name=current_connections,json=currentConnections,proto3" json:"current_connections,omitempty"`
 	MaxConnections     uint32                 `protobuf:"varint,4,opt,name=max_connections,json=maxConnections,proto3" json:"max_connections,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Totals since HAProxy started - rate over time is the difference
+	// between two samples.
+	CumulativeConnections uint64 `protobuf:"varint,5,opt,name=cumulative_connections,json=cumulativeConnections,proto3" json:"cumulative_connections,omitempty"`
+	CumulativeRequests    uint64 `protobuf:"varint,6,opt,name=cumulative_requests,json=cumulativeRequests,proto3" json:"cumulative_requests,omitempty"`
+	// HAProxy's own per-second rates, over the last second.
+	ConnectionRate uint32 `protobuf:"varint,7,opt,name=connection_rate,json=connectionRate,proto3" json:"connection_rate,omitempty"`
+	SessionRate    uint32 `protobuf:"varint,8,opt,name=session_rate,json=sessionRate,proto3" json:"session_rate,omitempty"`
+	// Share of the last second HAProxy's threads spent idle, 0-100.
+	IdlePercent   uint32 `protobuf:"varint,9,opt,name=idle_percent,json=idlePercent,proto3" json:"idle_percent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ShowInfoResponse) Reset() {
@@ -485,6 +494,41 @@ func (x *ShowInfoResponse) GetCurrentConnections() uint32 {
 func (x *ShowInfoResponse) GetMaxConnections() uint32 {
 	if x != nil {
 		return x.MaxConnections
+	}
+	return 0
+}
+
+func (x *ShowInfoResponse) GetCumulativeConnections() uint64 {
+	if x != nil {
+		return x.CumulativeConnections
+	}
+	return 0
+}
+
+func (x *ShowInfoResponse) GetCumulativeRequests() uint64 {
+	if x != nil {
+		return x.CumulativeRequests
+	}
+	return 0
+}
+
+func (x *ShowInfoResponse) GetConnectionRate() uint32 {
+	if x != nil {
+		return x.ConnectionRate
+	}
+	return 0
+}
+
+func (x *ShowInfoResponse) GetSessionRate() uint32 {
+	if x != nil {
+		return x.SessionRate
+	}
+	return 0
+}
+
+func (x *ShowInfoResponse) GetIdlePercent() uint32 {
+	if x != nil {
+		return x.IdlePercent
 	}
 	return 0
 }
@@ -1225,12 +1269,17 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"/\n" +
 	"\x14HAProxyStatsResponse\x12\x17\n" +
-	"\araw_csv\x18\x01 \x01(\fR\x06rawCsv\"\xad\x01\n" +
+	"\araw_csv\x18\x01 \x01(\fR\x06rawCsv\"\x84\x03\n" +
 	"\x10ShowInfoResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12%\n" +
 	"\x0euptime_seconds\x18\x02 \x01(\x04R\ruptimeSeconds\x12/\n" +
 	"\x13current_connections\x18\x03 \x01(\rR\x12currentConnections\x12'\n" +
-	"\x0fmax_connections\x18\x04 \x01(\rR\x0emaxConnections\"V\n" +
+	"\x0fmax_connections\x18\x04 \x01(\rR\x0emaxConnections\x125\n" +
+	"\x16cumulative_connections\x18\x05 \x01(\x04R\x15cumulativeConnections\x12/\n" +
+	"\x13cumulative_requests\x18\x06 \x01(\x04R\x12cumulativeRequests\x12'\n" +
+	"\x0fconnection_rate\x18\a \x01(\rR\x0econnectionRate\x12!\n" +
+	"\fsession_rate\x18\b \x01(\rR\vsessionRate\x12!\n" +
+	"\fidle_percent\x18\t \x01(\rR\vidlePercent\"V\n" +
 	"\aBackend\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x127\n" +
 	"\aservers\x18\x02 \x03(\v2\x1d.janus.v1alpha1.BackendServerR\aservers\"S\n" +

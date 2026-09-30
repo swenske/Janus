@@ -46,6 +46,18 @@ func parseProcStat(content string) *janusv1alpha1.SystemStatResponse {
 	resp := &janusv1alpha1.SystemStatResponse{}
 	for _, line := range strings.Split(content, "\n") {
 		f := strings.Fields(line)
+		if len(f) >= 9 && f[0] == "cpu" {
+			// user nice system idle iowait irq softirq steal [guest
+			// guest_nice] - guest time is already counted in user.
+			for i, v := range f[1:9] {
+				n, _ := strconv.ParseUint(v, 10, 64)
+				resp.CpuTotalTicks += n
+				if i == 3 || i == 4 {
+					resp.CpuIdleTicks += n
+				}
+			}
+			continue
+		}
 		if len(f) != 2 {
 			continue
 		}
@@ -251,6 +263,7 @@ type procInfo struct {
 	comm       string
 	command    string
 	cpuPercent float64
+	cpuSeconds float64
 	rssBytes   uint64
 }
 
@@ -286,6 +299,7 @@ func (s *System) Stats(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Stat
 			byID[p.comm] = st
 		}
 		st.CpuPercent += p.cpuPercent
+		st.CpuSeconds += p.cpuSeconds
 		st.MemoryBytes += p.rssBytes
 	}
 	resp := &janusv1alpha1.StatsResponse{}
@@ -357,5 +371,5 @@ func parsePidStat(content string, uptime float64, pageSize uint64) (procInfo, bo
 	if elapsed > 0 {
 		cpu = 100 * cpuSeconds / elapsed
 	}
-	return procInfo{comm: content[open+1 : closing], cpuPercent: cpu, rssBytes: n(21) * pageSize}, true
+	return procInfo{comm: content[open+1 : closing], cpuPercent: cpu, cpuSeconds: cpuSeconds, rssBytes: n(21) * pageSize}, true
 }

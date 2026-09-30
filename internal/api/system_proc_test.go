@@ -10,9 +10,13 @@ import (
 // Fixtures below are real /proc content captured from a Linux 6.18 host.
 
 func TestParseProcStat(t *testing.T) {
-	got := parseProcStat("cpu  1 2 3\nctxt 22602863\nbtime 1790747957\nprocesses 98229\nprocs_running 2\n")
+	got := parseProcStat("cpu  100 5 50 800 20 3 2 1 7 0\ncpu0 50 2 25 400 10 1 1 0 3 0\nctxt 22602863\nbtime 1790747957\nprocesses 98229\nprocs_running 2\n")
 	if got.BootTimeUnix != 1790747957 || got.ContextSwitches != 22602863 || got.ProcessesCreated != 98229 {
 		t.Errorf("parseProcStat = %+v", got)
+	}
+	// Total = first 8 fields (guest is already inside user); idle = idle+iowait.
+	if got.CpuTotalTicks != 981 || got.CpuIdleTicks != 820 {
+		t.Errorf("cpu ticks = %d total, %d idle; want 981, 820", got.CpuTotalTicks, got.CpuIdleTicks)
 	}
 }
 
@@ -99,7 +103,7 @@ func TestParsePidStat(t *testing.T) {
 	if !ok {
 		t.Fatal("parsePidStat failed")
 	}
-	if p.comm != "my (weird) proc" || p.rssBytes != 460*4096 {
+	if p.comm != "my (weird) proc" || p.rssBytes != 460*4096 || p.cpuSeconds != 4 {
 		t.Errorf("parsePidStat = %+v", p)
 	}
 	// 4s of CPU (400 ticks) over 20s alive (started at tick 1000 = 10s, uptime 30s).

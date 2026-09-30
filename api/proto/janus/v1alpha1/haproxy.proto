@@ -85,6 +85,15 @@ message ShowInfoResponse {
   uint64 uptime_seconds = 2;
   uint32 current_connections = 3;
   uint32 max_connections = 4;
+  // Totals since HAProxy started - rate over time is the difference
+  // between two samples.
+  uint64 cumulative_connections = 5;
+  uint64 cumulative_requests = 6;
+  // HAProxy's own per-second rates, over the last second.
+  uint32 connection_rate = 7;
+  uint32 session_rate = 8;
+  // Share of the last second HAProxy's threads spent idle, 0-100.
+  uint32 idle_percent = 9;
 }
 
 message Backend {

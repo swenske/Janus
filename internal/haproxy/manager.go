@@ -246,10 +246,15 @@ func (m *Manager) Stop(timeout time.Duration) error {
 
 // Info is the subset of `show info` this package parses.
 type Info struct {
-	Version            string
-	UptimeSeconds      uint64
-	CurrentConnections uint32
-	MaxConnections     uint32
+	Version               string
+	UptimeSeconds         uint64
+	CurrentConnections    uint32
+	MaxConnections        uint32
+	CumulativeConnections uint64
+	CumulativeRequests    uint64
+	ConnectionRate        uint32
+	SessionRate           uint32
+	IdlePercent           uint32
 }
 
 // ShowInfo runs the stats socket's "show info" command.
@@ -258,26 +263,42 @@ func (m *Manager) ShowInfo() (*Info, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseShowInfo(string(out)), nil
+}
+
+// parseShowInfo reads "show info"'s "Key: value" lines. Key names are
+// HAProxy's own, case included ("Maxconn", not "MaxConn").
+func parseShowInfo(out string) *Info {
 	info := &Info{}
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		key, value, ok := strings.Cut(line, ": ")
 		if !ok {
 			continue
 		}
+		u64 := func() uint64 { v, _ := strconv.ParseUint(value, 10, 64); return v }
+		u32 := func() uint32 { v, _ := strconv.ParseUint(value, 10, 32); return uint32(v) }
 		switch key {
 		case "Version":
 			info.Version = value
 		case "Uptime_sec":
-			info.UptimeSeconds, _ = strconv.ParseUint(value, 10, 64)
+			info.UptimeSeconds = u64()
 		case "CurrConns":
-			v, _ := strconv.ParseUint(value, 10, 32)
-			info.CurrentConnections = uint32(v)
-		case "MaxConn":
-			v, _ := strconv.ParseUint(value, 10, 32)
-			info.MaxConnections = uint32(v)
+			info.CurrentConnections = u32()
+		case "Maxconn":
+			info.MaxConnections = u32()
+		case "CumConns":
+			info.CumulativeConnections = u64()
+		case "CumReq":
+			info.CumulativeRequests = u64()
+		case "ConnRate":
+			info.ConnectionRate = u32()
+		case "SessRate":
+			info.SessionRate = u32()
+		case "Idle_pct":
+			info.IdlePercent = u32()
 		}
 	}
-	return info, nil
+	return info
 }
 
 // ShowStat runs the stats socket's "show stat" command, returning the

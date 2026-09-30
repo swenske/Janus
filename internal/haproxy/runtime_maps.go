@@ -51,10 +51,23 @@ func (m *Manager) MapGet(mapName string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseMapEntries(string(out))
+}
 
+// parseMapEntries reads "show map <name>" output. Every entry line starts
+// with HAProxy's internal id ("0x..."); anything else is HAProxy's error
+// message (e.g. "Unknown map identifier...") - returned as an error
+// rather than mistaken for an entry.
+func parseMapEntries(out string) (map[string]string, error) {
 	entries := map[string]string{}
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if !strings.HasPrefix(fields[0], "0x") {
+			return nil, fmt.Errorf("%s", strings.TrimSpace(out))
+		}
 		if len(fields) < 3 {
 			continue
 		}
