@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 schematic-catalog qemu-extensions-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 schematic-catalog schematic-inputs qemu-extensions-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -130,6 +130,18 @@ schematic-catalog:
 	mkdir -p $(EXT_DIR)
 	go run ./hack/extpack catalog -release $(VERSION) -out $(EXT_DIR)/schematic-catalog.json \
 		node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION)
+
+# What a release publishes so custom schematics can be built from it
+# without rebuilding anything (image/schematic/build.sh): per
+# architecture, the kernel, the base rootfs tree and the extension packs,
+# plus the catalog. Into build/inputs/.
+schematic-inputs: kernel-build rpi4-kernel-build extensions-amd64 extensions-arm64 schematic-catalog
+	rm -rf $(BUILD_DIR)/inputs && mkdir -p $(BUILD_DIR)/inputs
+	JANUS_EXPORT_BASE=$(CURDIR)/$(BUILD_DIR)/inputs/rootfs-base-amd64.tar $(MAKE) rootfs-build
+	JANUS_EXPORT_BASE=$(CURDIR)/$(BUILD_DIR)/inputs/rootfs-base-arm64.tar $(MAKE) rpi4-rootfs-build
+	cp $(BUILD_DIR)/bzImage $(BUILD_DIR)/inputs/kernel-amd64
+	cp $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/inputs/kernel-arm64
+	cp $(EXT_DIR)/extension-*.tar $(EXT_DIR)/schematic-catalog.json $(BUILD_DIR)/inputs/
 
 # SCHEMATIC=path/to/schematic.json builds the rootfs with that schematic's
 # extensions (already built: make extensions-amd64) and puts its ID into
@@ -251,7 +263,7 @@ qemu-arm64-network-test: rpi4-kernel-build rpi4-initramfs-full
 # and moves on, same tolerant pattern as a missing STATE drive.
 rpi4-rootfs-build: rpi4-init rpi4-daemon-static rpi4-haproxy-build selinux-policy ca-certificates
 	mkdir -p $(BUILD_DIR)/rpi4/rootfs
-	./rootfs/assemble.sh $(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rpi4/init $(BUILD_DIR)/rpi4/janusd \
+	JANUS_VERSION=$(VERSION) ./rootfs/assemble.sh $(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rpi4/init $(BUILD_DIR)/rpi4/janusd \
 		$(BUILD_DIR)/rpi4/haproxy rootfs/base/etc/haproxy/haproxy.cfg \
 		$(BUILD_DIR)/selinux/janus.policy $(BUILD_DIR)/ca-certificates/ca-certificates.crt
 

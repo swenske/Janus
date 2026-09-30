@@ -56,15 +56,22 @@ install -m 0644 "$CA_BUNDLE" "$WORKDIR/etc/ssl/certs/ca-certificates.crt"
 #   JANUS_EXTENSIONS    space-separated extension tars (hack/extpack),
 #                       layered onto the rootfs
 #   JANUS_VERSION       for /usr/lib/os-release's VERSION_ID
-PSEUDO=(
-  -p "var/empty D 0 0000 0 0"
-  -p "sbin/init x security.selinux=system_u:object_r:init_exec_t"
-  -p "sbin/janusd x security.selinux=system_u:object_r:janusd_exec_t"
-  -p "usr/local/sbin/haproxy x security.selinux=system_u:object_r:haproxy_exec_t"
-)
+#   JANUS_EXPORT_BASE   also write the base tree (before extensions) to
+#                       this tar: a release publishes it, and an image
+#                       for another schematic is built from it without
+#                       rebuilding anything (rootfs/assemble-from-base.sh)
+
+# The SELinux types of the base system's executables (see
+# layer-and-squash.sh for why they're set this way): kept in the tree as
+# .janus-labels, so an exported base carries them too.
+{
+  echo "sbin/init init_exec_t"
+  echo "sbin/janusd janusd_exec_t"
+  echo "usr/local/sbin/haproxy haproxy_exec_t"
+} > "$WORKDIR/.janus-labels"
 if [ -n "${JANUS_SHUTDOWN_BIN:-}" ]; then
   install -m 0755 "$JANUS_SHUTDOWN_BIN" "$WORKDIR/sbin/shutdown"
-  PSEUDO+=(-p "sbin/shutdown x security.selinux=system_u:object_r:shutdown_exec_t")
+  echo "sbin/shutdown shutdown_exec_t" >> "$WORKDIR/.janus-labels"
 fi
 
 # /usr/lib/os-release, not /etc/os-release: /etc is a tmpfs on a running
@@ -78,72 +85,9 @@ mkdir -p "$WORKDIR/usr/lib"
   echo 'HOME_URL="https://janus.sw-servers.net"'
 } > "$WORKDIR/usr/lib/os-release"
 
-# Extensions: each tar is the extension's file tree, its manifest under
-# usr/lib/janus/extensions/, and a .janus-labels file ("path type" lines)
-# giving the SELinux types of its files. An extension may only add files,
-# never replace one of the base system's or another extension's.
-for ext in ${JANUS_EXTENSIONS:-}; do
-  while IFS= read -r entry; do
-    case "$entry" in */) continue ;; esac
-    if [ -e "$WORKDIR/$entry" ] && [ "$entry" != ".janus-labels" ]; then
-      echo "extension $ext would replace $entry" >&2
-      exit 1
-    fi
-  done < <(tar -tf "$ext")
-  tar -xf "$ext" -C "$WORKDIR" --no-same-owner
-  if [ -f "$WORKDIR/.janus-labels" ]; then
-    while read -r path type; do
-      [ -n "$path" ] || continue
-      PSEUDO+=(-p "$path x security.selinux=system_u:object_r:$type")
-    done < "$WORKDIR/.janus-labels"
-    rm -f "$WORKDIR/.janus-labels"
-  fi
-  echo "Layered extension $(basename "$ext")"
-done
-# /run, /var, /tmp stay empty in the image itself; Phase 3's ephemeral
-# overlay (not implemented yet) is what makes them writable on a booted
-# node.
+if [ -n "${JANUS_EXPORT_BASE:-}" ]; then
+  tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf "$JANUS_EXPORT_BASE" -C "$WORKDIR" .
+  echo "Exported the base tree to $JANUS_EXPORT_BASE"
+fi
 
-# Phase 4 cont'd (SELinux): the only three files on this rootfs whose
-# type actually needs to be more specific than selinux/policy.conf's own
-# fs_use_xattr default (squashfs_t) - the three real executables, so
-# rootfs/init's own domain transitions (init_t -> janusd_t ->
-# haproxy_t) have something to key off. Labeled via mksquashfs's own
-# pseudo-file `x` action (below), not a plain `setfattr` on the source
-# tree before mksquashfs runs, which turned out not to work at all here:
-# a real setfattr call on $WORKDIR (mktemp -d's default, tmpfs-backed
-# under WSL2) reports success and even reads back correctly with a
-# direct getfattr - but mksquashfs itself, run either as the build user
-# or as root, never picks the xattr up into the image regardless (traced
-# with an isolated single-file reproduction, `-xattrs-include` didn't
-# help either - mksquashfs's own directory-tree xattr scan just doesn't
-# see it). The pseudo-file mechanism sidesteps that scan entirely, the
-# same reason /var/empty's own mode-0000 pseudo-entry below already
-# exists instead of a real chmod'd directory in $WORKDIR: mksquashfs
-# sets the attribute directly while writing the image, rather than
-# reading it back off a real inode first.
-mkdir -p "$OUT_DIR"
-# -all-root: every file/dir owned by uid=gid=0 regardless of who's
-# running this script - there's no /etc/passwd on the target to resolve
-# any other owner against, and a build run by a non-root developer must
-# still produce a root-owned image.
-# -root-mode 0755: mktemp -d's default 0700 on $WORKDIR would otherwise
-# become the squashfs root directory's own mode (caught by mounting the
-# very first build of this script and inspecting it - `ls` on the
-# mounted root as non-root failed outright).
-#
-# The chroot jail (see cmd/janusd's -haproxy-chroot-dir) is added as
-# a pseudo file entry - mode 0000, not even readable by its own owner -
-# rather than a real mkdir+chmod 000 in $WORKDIR: a genuinely
-# unreadable/unenterable directory can't be read back by mksquashfs
-# itself when it isn't running as root (caught the same way as the
-# root-mode issue above: it silently vanished from the built image,
-# `mksquashfs` only warned "Could not open ... skipping").
-mksquashfs "$WORKDIR" "$OUT_DIR/rootfs.squashfs" -noappend -comp xz -all-root -root-mode 0755 \
-  "${PSEUDO[@]}"
-
-veritysetup format "$OUT_DIR/rootfs.squashfs" "$OUT_DIR/rootfs.verity" > "$OUT_DIR/rootfs.verity.info"
-grep "^Root hash:" "$OUT_DIR/rootfs.verity.info" | awk '{print $3}' > "$OUT_DIR/rootfs.roothash"
-
-echo "Wrote $OUT_DIR/{rootfs.squashfs,rootfs.verity,rootfs.roothash}"
-echo "Root hash: $(cat "$OUT_DIR/rootfs.roothash")"
+"$(dirname "$0")/layer-and-squash.sh" "$WORKDIR" "$OUT_DIR"

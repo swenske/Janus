@@ -19,6 +19,11 @@
 // id prints a schematic's ID (the default schematic's without -schematic);
 // layers prints the extension tars (in DIR) a schematic needs for ARCH,
 // checking each exists and is built for ARCH.
+//
+//	extpack check -schematic FILE -catalog FILE -arch ARCH [-id ID]
+//
+// check verifies a schematic against a release's catalog - and, with
+// -id, that it is the schematic with that ID.
 package main
 
 import (
@@ -54,6 +59,8 @@ func main() {
 		schematicID(os.Args[2:])
 	case "layers":
 		layers(os.Args[2:])
+	case "check":
+		check(os.Args[2:])
 	default:
 		log.Fatalf("unknown command %q", os.Args[1])
 	}
@@ -282,4 +289,33 @@ func layers(args []string) {
 		out = append(out, tarPath)
 	}
 	fmt.Println(strings.Join(out, " "))
+}
+
+func check(args []string) {
+	fl := flag.NewFlagSet("check", flag.ExitOnError)
+	file := fl.String("schematic", "", "schematic JSON")
+	catalogFile := fl.String("catalog", "", "schematic-catalog.json")
+	arch := fl.String("arch", "", "architecture")
+	id := fl.String("id", "", "expected schematic ID")
+	_ = fl.Parse(args)
+	if *catalogFile == "" || *arch == "" {
+		fl.Usage()
+		os.Exit(2)
+	}
+	sc := loadSchematic(*file)
+	if *id != "" && sc.ID() != *id {
+		log.Fatalf("the schematic's ID is %s, not %s", sc.ID(), *id)
+	}
+	data, err := os.ReadFile(*catalogFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	c, err := schematic.ParseCatalog(data)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := c.Check(sc, *arch); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("schematic %s: ok for %s %s\n", sc.ID(), c.Version, *arch)
 }
