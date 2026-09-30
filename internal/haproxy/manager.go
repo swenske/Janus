@@ -11,14 +11,18 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/swenske/Janus/internal/events"
 )
 
 // Manager supervises one HAProxy process instance.
@@ -28,8 +32,30 @@ type Manager struct {
 	PidPath         string
 	StatsSocketPath string
 
+	// Output, if set, also receives HAProxy's stdout/stderr (alongside
+	// janusd's own), for SystemService.Logs.
+	Output io.Writer
+
 	mu  sync.Mutex
-	cmd *exec.Cmd
+	cur *process
+}
+
+// process is one started haproxy; done closes once it has exited and
+// been reaped.
+type process struct {
+	cmd      *exec.Cmd
+	done     chan struct{}
+	err      error
+	stopping bool // set by Stop, under Manager.mu
+}
+
+func (p *process) exited() bool {
+	select {
+	case <-p.done:
+		return true
+	default:
+		return false
+	}
 }
 
 func NewManager(binaryPath, configPath, pidPath, statsSocketPath string) *Manager {
@@ -109,20 +135,112 @@ func (m *Manager) startOrReload() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	args := []string{"-f", m.ConfigPath, "-p", m.PidPath}
-	if oldPID, err := os.ReadFile(m.PidPath); err == nil {
-		if pid := strings.TrimSpace(string(oldPID)); pid != "" {
-			args = append(args, "-sf", pid)
-		}
+	args := []string{"-f", m.ConfigPath}
+	if old := m.previousPID(); old > 0 {
+		args = append(args, "-sf", strconv.Itoa(old))
 	}
 
 	cmd := exec.Command(m.BinaryPath, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if m.Output != nil {
+		cmd.Stdout = io.MultiWriter(os.Stdout, m.Output)
+		cmd.Stderr = io.MultiWriter(os.Stderr, m.Output)
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start haproxy: %w", err)
 	}
-	m.cmd = cmd
+	// Every started process is waited on, including the ones a later
+	// seamless reload (-sf) replaces - otherwise each would stay a zombie
+	// under janusd for as long as it runs.
+	p := &process{cmd: cmd, done: make(chan struct{})}
+	go func() {
+		p.err = cmd.Wait()
+		close(p.done) // before taking mu: Stop holds it while waiting on done
+		m.mu.Lock()
+		reason := "exited on its own"
+		switch {
+		case p.stopping:
+			reason = "stopped"
+		case m.cur != p:
+			reason = "replaced by a reload"
+		}
+		m.mu.Unlock()
+		exit := ""
+		if p.err != nil {
+			exit = p.err.Error()
+		}
+		events.Publish("haproxy.exited", map[string]any{"pid": cmd.Process.Pid, "reason": reason, "exit": exit})
+	}()
+	m.cur = p
+	// HAProxy itself only writes its -p pid file in daemon or
+	// master-worker mode, never in the foreground mode used here - so
+	// janusd writes it, for a restarted janusd to find the running
+	// haproxy and take it over with -sf.
+	if err := os.WriteFile(m.PidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
+		log.Printf("haproxy: write %s: %v", m.PidPath, err)
+	}
+	events.Publish("haproxy.started", map[string]any{"pid": cmd.Process.Pid, "args": args})
+	return nil
+}
+
+// previousPID is the haproxy a new one must take over from (-sf): the one
+// this Manager started, or - right after janusd restarted - the one
+// recorded in PidPath, if that pid really is still a haproxy process
+// (never signal a pid the kernel has since handed to something else).
+// Called with mu held.
+func (m *Manager) previousPID() int {
+	if m.cur != nil && !m.cur.exited() {
+		return m.cur.cmd.Process.Pid
+	}
+	data, err := os.ReadFile(m.PidPath)
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	comm, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	if err != nil || strings.TrimSpace(string(comm)) != filepath.Base(m.BinaryPath) {
+		return 0
+	}
+	return pid
+}
+
+// Running reports whether the most recently started haproxy is still
+// running - the one serving traffic, ignoring any older process still
+// finishing its connections after a reload.
+func (m *Manager) Running() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cur != nil && !m.cur.exited()
+}
+
+// Stop soft-stops haproxy (SIGUSR1: stop accepting, finish in-flight
+// connections), escalating to SIGTERM if it hasn't exited after timeout.
+func (m *Manager) Stop(timeout time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cur == nil || m.cur.exited() {
+		return nil
+	}
+	p := m.cur
+	p.stopping = true
+	if err := p.cmd.Process.Signal(syscall.SIGUSR1); err != nil {
+		return fmt.Errorf("signal haproxy: %w", err)
+	}
+	select {
+	case <-p.done:
+	case <-time.After(timeout):
+		_ = p.cmd.Process.Signal(syscall.SIGTERM)
+		select {
+		case <-p.done:
+		case <-time.After(5 * time.Second):
+			return fmt.Errorf("haproxy (pid %d) didn't exit after SIGTERM", p.cmd.Process.Pid)
+		}
+	}
+	// A stale pid would make the next start pass "-sf <dead pid>".
+	_ = os.Remove(m.PidPath)
 	return nil
 }
 
