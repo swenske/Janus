@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -33,14 +34,20 @@ import (
 	"github.com/swenske/Janus/internal/api"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
+	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/pki"
+	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/selfregister"
 )
 
 // version is set via -ldflags "-X main.version=..." by the release build
 // (see Makefile), left as "dev" for local builds.
 var version = "dev"
+
+// serviceLogLines is how many lines of each service's output
+// SystemService.Logs keeps in memory.
+const serviceLogLines = 5000
 
 func main() {
 	showVersion := flag.Bool("version", false, "print the daemon version and exit")
@@ -89,6 +96,16 @@ func main() {
 		syscall.Sync()
 	}
 
+	// Captured for SystemService.Logs from here on - after the one-time
+	// PKI print above, so the admin private key never sits in memory
+	// where an API client could read it back.
+	serviceLogs := map[string]*ring.Ring[string]{
+		"janusd":  ring.New[string](serviceLogLines),
+		"haproxy": ring.New[string](serviceLogLines),
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"]}))
+	events.Publish("janusd.started", map[string]string{"version": version})
+
 	lis, err := net.Listen("tcp", *addr)
 	if err != nil {
 		log.Fatalf("listen on %s: %v", *addr, err)
@@ -112,6 +129,7 @@ func main() {
 	}
 
 	haproxyMgr := haproxy.NewManager(*haproxyBin, *haproxyCfg, *haproxyPid, *haproxySock)
+	haproxyMgr.Output = &ring.LineWriter{Ring: serviceLogs["haproxy"]}
 
 	// Start haproxy from whatever config is already on disk (the
 	// bootstrap default at first boot - see rootfs/base/etc/haproxy -
@@ -153,7 +171,7 @@ func main() {
 		grpc.UnaryInterceptor(api.UnaryAuthInterceptor),
 		grpc.StreamInterceptor(api.StreamAuthInterceptor),
 	)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{})
@@ -206,6 +224,7 @@ func confirmBootHealth(marker *bootcommit.Marker, mgr *haproxy.Manager) {
 			}
 			syscall.Sync()
 			log.Printf("bootcommit: rebooting to complete the revert to slot %s", marker.RevertTo)
+			events.Publish("bootcommit.reverted", map[string]string{"slot": marker.Slot, "revert_to": marker.RevertTo})
 			return syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART)
 		},
 		healthPollInterval, healthStableChecks, defaultHealthTimeout)
@@ -220,6 +239,7 @@ func confirmBootHealth(marker *bootcommit.Marker, mgr *haproxy.Manager) {
 	}
 	if confirmed {
 		log.Printf("bootcommit: confirmed healthy for slot %s", marker.Slot)
+		events.Publish("bootcommit.confirmed", map[string]string{"slot": marker.Slot})
 	}
 	// !confirmed && err == nil: the revert (and reboot) succeeded -
 	// nothing further to do, the machine is already on its way down.
@@ -257,6 +277,7 @@ func selfRegisterIfConfigured(ca *pki.CA, hostname, grpcAddr string) {
 	log.Printf("selfregister: announcing to Controller at %s as %s (%s)", cfg.Address, hostname, advertiseAddr)
 	if err := selfregister.Register(cfg, ca, hostname, advertiseAddr); err != nil {
 		log.Printf("selfregister: registration failed, will retry on next boot: %v", err)
+		events.Publish("selfregister.failed", map[string]string{"controller": cfg.Address, "error": err.Error()})
 		return
 	}
 	if err := selfregister.MarkRegistered(selfregister.Dir); err != nil {
@@ -264,4 +285,5 @@ func selfRegisterIfConfigured(ca *pki.CA, hostname, grpcAddr string) {
 		return
 	}
 	log.Printf("selfregister: successfully announced to Controller at %s, awaiting approval", cfg.Address)
+	events.Publish("selfregister.announced", map[string]string{"controller": cfg.Address})
 }

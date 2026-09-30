@@ -64,10 +64,9 @@ const (
 // file/network RPCs that replace an interactive shell. See
 // docs/api-routes.md for the full design rationale.
 //
-// Every method implemented so far in internal/api returns
-// codes.Unimplemented - this contract is deliberately defined ahead of its
-// implementation so the wire format is stable from day one (see plan
-// Phase 0). Implementations land service by service in later phases.
+// The contract was defined ahead of its implementation so the wire format
+// is stable from day one; docs/api-routes.md tracks which methods are
+// implemented - the rest return codes.Unimplemented.
 type SystemServiceClient interface {
 	Version(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*VersionResponse, error)
 	Hostname(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HostnameResponse, error)
@@ -546,10 +545,9 @@ func (c *systemServiceClient) GenerateClientConfiguration(ctx context.Context, i
 // file/network RPCs that replace an interactive shell. See
 // docs/api-routes.md for the full design rationale.
 //
-// Every method implemented so far in internal/api returns
-// codes.Unimplemented - this contract is deliberately defined ahead of its
-// implementation so the wire format is stable from day one (see plan
-// Phase 0). Implementations land service by service in later phases.
+// The contract was defined ahead of its implementation so the wire format
+// is stable from day one; docs/api-routes.md tracks which methods are
+// implemented - the rest return codes.Unimplemented.
 type SystemServiceServer interface {
 	Version(context.Context, *emptypb.Empty) (*VersionResponse, error)
 	Hostname(context.Context, *emptypb.Empty) (*HostnameResponse, error)

@@ -32,33 +32,33 @@ are also technically non-mutating).
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
 | `Version` | | ✅ | Daemon version, Go version, kernel version, active A/B slot - connectivity check |
-| `Hostname` | | ⬜ | |
-| `Reboot` | | ⬜ | Power-cycle the machine |
-| `Shutdown` | | ⬜ | |
-| `Restart` | | ⬜ | Restart `janusd` in place (not the machine) |
-| `Reset` | | ⬜ | Wipe STATE/EPHEMERAL and reboot |
-| `ApplyConfiguration` | server | ⬜ | Apply declarative config (`internal/config`), auto/no-reboot/reboot/try modes |
-| `Events` | server | ⬜ | Internal event log |
-| `Dmesg` | server | ⬜ | Kernel ring buffer |
-| `Logs` | server | ⬜ | Managed-service logs |
-| `Stats` | | ⬜ | Per-process CPU/memory |
-| `SystemStat` | | ⬜ | Boot time, context switches |
+| `Hostname` | | ✅ | `janusctl system hostname` |
+| `Reboot` | | ✅ | Soft-stops HAProxy (in-flight connections get 5s), syncs, reboots - both modes are a full firmware reboot (no kexec) |
+| `Shutdown` | | ✅ | Same graceful stop, then powers off |
+| `Restart` | | ✅ | Restarts `janusd` only: rootfs/init starts it again and it takes the running HAProxy over with a seamless reload - HAProxy keeps serving throughout. Refused when `janusd` is PID 1 (e.g. `local-dev`), where nothing would start it again |
+| `Reset` | | ✅ | `wipe_state` empties the persistent STATE partition (PKI, applied config, Controller registration, pending boot confirmation) and reboots: a new CA/admin certificate is printed on the console, current certificates stop working. A/B slots and ESP untouched. `wipe_ephemeral` alone just reboots (everything ephemeral is tmpfs) |
+| `ApplyConfiguration` | server | ⬜ | Apply declarative config (`internal/config`), auto/no-reboot/reboot/try modes - no declarative machine config model exists yet |
+| `Events` | server | ✅ | In-memory event log (`internal/events`, last 1000): janusd start, HAProxy started/exited (with why: reload, stop, or on its own), config applied/rejected, reloads, server state, maps/ACLs/certificates, services, upgrades/rollbacks/installs, boot confirmation/revert, self-registration, packet captures, reboot/shutdown/restart/reset. Backlog after `since_id`, then follows. Restarts empty with janusd |
+| `Dmesg` | server | ✅ | `/dev/kmsg`, formatted like `dmesg`; `follow` keeps streaming |
+| `Logs` | server | ✅ | `janusd` (its log, captured after the one-time PKI print so no private key is kept) or `haproxy` (stdout/stderr) - last 5000 lines in memory, `tail_lines`, `follow` |
+| `Stats` | | ✅ | CPU (lifetime average, like `ps`) and RSS of `janusd` and `haproxy`, summed over processes |
+| `SystemStat` | | ✅ | `/proc/stat`: boot time, context switches, processes created |
 | `Memory` | | ✅ | `/proc/meminfo` |
 | `CPUInfo` | | ✅ | `/proc/cpuinfo` |
 | `LoadAvg` | | ✅ | `/proc/loadavg` |
 | `DiskStats` | | ✅ | `/proc/diskstats` |
-| `DiskUsage` | server | ⬜ | |
-| `NetworkDeviceStats` | | ⬜ | |
-| `Netstat` | | ⬜ | |
-| `Mounts` | | ⬜ | |
-| `Processes` | | ⬜ | |
-| `ServiceList` | | ⬜ | Managed services: `haproxy`, `bird`, `keepalived`, `janusd` |
-| `ServiceStart` / `Stop` / `Restart` | | ⬜ | |
-| `List` | server | ⬜ | Scoped, read-only file listing - no shell |
-| `Read` | server | ⬜ | Scoped, read-only file content |
-| `Copy` | server | ⬜ | Tar stream of a path |
+| `DiskUsage` | server | ✅ | Apparent size of each path; `recursive` adds one entry per directory (deepest first). Doesn't descend into `/proc`, `/sys`, `/dev` |
+| `NetworkDeviceStats` | | ✅ | `/proc/net/dev`: bytes and errors per interface |
+| `Netstat` | | ✅ | `/proc/net/{tcp,tcp6,udp,udp6}` - IPv4-mapped addresses shown as IPv4 |
+| `Mounts` | | ✅ | `/proc/self/mounts` + `statfs` sizes |
+| `Processes` | | ✅ | Every process: pid, command line, CPU, RSS |
+| `ServiceList` | | ✅ | `janusd` and `haproxy` with state and health (HAProxy healthy = answers on its stats socket); optional modules appear once an image ships them |
+| `ServiceStart` / `Stop` / `Restart` | | ✅ | `haproxy`: start; soft stop (finishes in-flight connections, 10s, then SIGTERM); restart = seamless reload. `janusd`: restart = `Restart`, stop refused (node would be unreachable) |
+| `List` | server | ✅ | Directory listing (optionally recursive), symlinks not followed, per-entry errors inline |
+| `Read` | server | ✅ | One file's content; devices refused |
+| `Copy` | server | ✅ | Tar stream of a file or tree (regular files, directories, symlinks); `/proc` and `/sys` refused (use `Read`) |
 | `PacketCapture` | server | ✅ | tcpdump-equivalent over gRPC: pcap stream, kernel-side filter - see [packet-capture.md](packet-capture.md) |
-| `MetaWrite` / `MetaDelete` | | ⬜ | META partition key/value entries |
+| `MetaWrite` / `MetaDelete` | | ⬜ | META partition key/value entries - Janus has no META partition |
 | `GenerateClientConfiguration` | | ✅ | Issue an mTLS client cert (`internal/pki`) - 1 year validity, no rotation flow yet |
 
 ## LifecycleService
@@ -79,7 +79,7 @@ are also technically non-mutating).
 | `Reload` | | ✅ | Seamless reload of the current config |
 | `Stats` | | ✅ | Proxy of the HAProxy stats socket `show stat` (raw CSV) |
 | `ShowInfo` | | ✅ | Proxy of `show info` (version/uptime/connections) |
-| `BackendList` | | ⬜ | |
+| `BackendList` | | ✅ | Every backend with its servers, addresses and states (from `show stat`, parsed by column name) |
 | `ServerSetState` | | ✅ | Runtime enable/drain/maint a backend server |
 | `MapList` / `MapGet` / `MapUpdate` | | ✅ | Runtime maps - file-backed only (`map(<path>)` in the running config); upsert is delete-then-add since `set map` doesn't create missing keys |
 | `ACLUpdate` | | ✅ | Runtime ACL pattern values - file-backed only (`acl ... -f <path>`), same delete-then-add upsert reasoning |
@@ -89,9 +89,9 @@ are also technically non-mutating).
 
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
-| `BGPStatus` / `BGPApplyConfig` | | ⬜ | bird - reports `MODULE_STATE_NOT_ENABLED` if bird isn't in this node's image |
-| `VRRPStatus` / `VRRPApplyConfig` | | ⬜ | keepalived, same not-enabled convention |
-| `FirewallList` / `FirewallApplyRuleset` | | ⬜ | nftables, same not-enabled convention |
+| `BGPStatus` / `BGPApplyConfig` | | ✅ (not-enabled) | bird - `MODULE_STATE_NOT_ENABLED` and apply refused (`FailedPrecondition`) when bird isn't in the image, which is every image today; answers `Unimplemented` if the binary is present, since its management isn't built yet |
+| `VRRPStatus` / `VRRPApplyConfig` | | ✅ (not-enabled) | keepalived, same convention |
+| `FirewallList` / `FirewallApplyRuleset` | | ✅ (not-enabled) | nftables, same convention |
 
 ## Deliberately not present
 

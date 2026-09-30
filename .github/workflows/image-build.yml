@@ -644,6 +644,12 @@ jobs:
       - name: SystemService.PacketCapture captures real traffic
         run: make qemu-packet-capture-test
 
+      # Every other SystemService/HAProxyService/NetworkService method on
+      # a real enforcing node, ending with janusd restart, reboot, reset
+      # and shutdown. See hack/qemu-system-api-test.sh.
+      - name: SystemService observability, files, services and machine control
+        run: make qemu-system-api-test
+
       # Controller-relay follow-up: the other half - a real
       # LifecycleService.UploadReleaseFile call streams the release
       # bundle to a live node over the same mTLS connection every other

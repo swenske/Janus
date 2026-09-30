@@ -588,14 +588,11 @@ AFTER_GARBAGE_SHA256="$(curl -sk "${DASH_CERT[@]}" "${NODE_BASE}/api/haproxy/con
 [ "$AFTER_GARBAGE_SHA256" = "$ORIG_SHA256" ] || { echo "Dashboard test FAILED: running config changed after a rejected apply (was $ORIG_SHA256, now $AFTER_GARBAGE_SHA256)" >&2; exit 1; }
 echo "ApplyConfig rejection OK: garbage config refused with a real error message, running config untouched"
 
-# BackendList isn't implemented yet (falls through to
-# UnimplementedHAProxyServiceServer - see internal/api/haproxy.go's own
-# doc comment) - the relay must surface that as a real error, not a
-# fake empty success.
-BACKENDS_CODE="$(curl -sk "${DASH_CERT[@]}" -o /tmp/backends-resp.$$ -w '%{http_code}' "${NODE_BASE}/api/haproxy/backends")"
-[ "$BACKENDS_CODE" = "502" ] && grep -q "Unimplemented" /tmp/backends-resp.$$ || { echo "Dashboard test FAILED: BackendList relay didn't surface Unimplemented (code=$BACKENDS_CODE): $(cat /tmp/backends-resp.$$)" >&2; rm -f /tmp/backends-resp.$$; exit 1; }
-rm -f /tmp/backends-resp.$$
-echo "BackendList relay OK: correctly surfaces the real not-yet-implemented error"
+# BackendList: the bootstrap config has no backend, so a real success
+# with an empty list (protojson drops the empty repeated field: {}).
+BACKENDS_CODE="$(curl -sk "${DASH_CERT[@]}" -o "$WORKDIR/backends-resp.json" -w '%{http_code}' "${NODE_BASE}/api/haproxy/backends")"
+[ "$BACKENDS_CODE" = "200" ] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("backends", []) == []' "$WORKDIR/backends-resp.json" || { echo "Dashboard test FAILED: BackendList relay (code=$BACKENDS_CODE): $(cat "$WORKDIR/backends-resp.json")" >&2; exit 1; }
+echo "BackendList relay OK: real (empty) backend list for the bootstrap config"
 
 # The bootstrap config declares no file-backed maps - MapList must
 # relay a genuinely empty list (protojson's omitempty drops an empty

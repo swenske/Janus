@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/pcapfilter"
 )
 
@@ -76,6 +77,8 @@ func (s *System) PacketCapture(req *janusv1alpha1.PacketCaptureRequest, stream j
 		return status.Errorf(codes.Internal, "open capture socket on %s: %v", iface.Name, err)
 	}
 	defer unix.Close(fd)
+	events.Publish("pcap.started", map[string]any{"interface": iface.Name, "filter": req.GetBpfFilter(), "duration_seconds": req.GetDurationSeconds(), "promiscuous": req.GetPromiscuous()})
+	defer events.Publish("pcap.finished", map[string]string{"interface": iface.Name})
 
 	buf := pcapGlobalHeader(snapLen, pcapLinkTypeEther)
 	lastFlush := time.Now()

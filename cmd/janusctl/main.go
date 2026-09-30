@@ -74,6 +74,8 @@ func main() {
 		runPKI(conn, flag.Args()[1:])
 	case "lifecycle":
 		runLifecycle(conn, flag.Args()[1:])
+	case "network":
+		runNetwork(conn, flag.Args()[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl: unknown command %q\n", cmd)
 		usage()
@@ -179,6 +181,11 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  version                    print janusctl's own version and the connected node's version")
 	fmt.Fprintln(os.Stderr, "  system info                print version/kernel/active slot + memory/CPU/load/disk stats (the dashboard's own single-node fetch)")
 	fmt.Fprintln(os.Stderr, "  system pcap -i IFACE [-f FILTER] [-promisc] [-include-own-stream] [-snaplen N] [-duration D] [-o FILE]  live packet capture as a pcap file (stdout by default - pipe into tcpdump -r - or wireshark -k -i -); see docs/packet-capture.md")
+	for _, line := range systemUsage {
+		fmt.Fprintln(os.Stderr, "  "+line)
+	}
+	fmt.Fprintln(os.Stderr, "  network status             optional modules (bird, keepalived, nftables) and whether this image has them")
+	fmt.Fprintln(os.Stderr, "  haproxy backends           backends, their servers, addresses and states")
 	fmt.Fprintln(os.Stderr, "  haproxy show-info          HAProxy version/uptime/connections (stats socket)")
 	fmt.Fprintln(os.Stderr, "  haproxy stats              raw 'show stat' CSV from the stats socket")
 	fmt.Fprintln(os.Stderr, "  haproxy get-config         print the currently active haproxy.cfg")
@@ -224,6 +231,9 @@ func runVersion(conn *grpc.ClientConn) {
 func runSystem(conn *grpc.ClientConn, args []string) {
 	if len(args) > 0 && args[0] == "pcap" {
 		runPcap(conn, args[1:])
+		return
+	}
+	if len(args) > 0 && args[0] != "info" && runSystemCommand(conn, args[0], args[1:]) {
 		return
 	}
 	if len(args) == 0 || args[0] != "info" {
@@ -579,6 +589,22 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 			log.Fatalf("Stats: %v", err)
 		}
 		os.Stdout.Write(resp.GetRawCsv())
+
+	case "backends":
+		c, cancel := ctx()
+		defer cancel()
+		resp, err := client.BackendList(c, &emptypb.Empty{})
+		check("BackendList", err)
+		tw := table("BACKEND", "SERVER", "ADDRESS", "STATE")
+		for _, b := range resp.GetBackends() {
+			if len(b.GetServers()) == 0 {
+				fmt.Fprintf(tw, "%s	-	-	-\n", b.GetName())
+			}
+			for _, sv := range b.GetServers() {
+				fmt.Fprintf(tw, "%s	%s	%s	%s\n", b.GetName(), sv.GetName(), sv.GetAddress(), sv.GetState())
+			}
+		}
+		tw.Flush()
 
 	case "get-config":
 		c, cancel := ctx()

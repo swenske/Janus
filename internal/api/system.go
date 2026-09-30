@@ -1,7 +1,7 @@
 // Package api implements the Janus gRPC control-plane services
 // declared in api/proto/janus/v1alpha1. Every service is registered
-// from day one (see cmd/janusd); methods return codes.Unimplemented
-// until their owning phase lands (see docs/architecture.md's roadmap).
+// from day one (see cmd/janusd); a method not implemented yet returns
+// codes.Unimplemented (see docs/api-routes.md).
 package api
 
 import (
@@ -17,7 +17,9 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/pki"
+	"github.com/swenske/Janus/internal/ring"
 )
 
 // System implements janusv1alpha1.SystemServiceServer. Every method it
@@ -37,6 +39,14 @@ type System struct {
 	// bootstrapping the very first one (that comes from the admin
 	// certificate LoadOrBootstrap prints on first boot).
 	CA *pki.CA
+
+	// Logs holds each managed service's captured output, by service id
+	// ("janusd", "haproxy") - see Logs.
+	ServiceLogs map[string]*ring.Ring[string]
+
+	// HAProxy is the supervised haproxy, for the service-control and
+	// Stats RPCs.
+	HAProxy *haproxy.Manager
 }
 
 func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.VersionResponse, error) {

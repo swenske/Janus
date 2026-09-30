@@ -17,6 +17,7 @@ import (
 	"github.com/swenske/Janus/internal/bootslot"
 	"github.com/swenske/Janus/internal/diskimage"
 	"github.com/swenske/Janus/internal/espswitch"
+	"github.com/swenske/Janus/internal/events"
 )
 
 // Install writes a full Janus image to a blank disk for the first
@@ -195,6 +196,7 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 
 	syscall.Sync()
 
+	events.Publish("lifecycle.install", map[string]any{"disk": diskPath, "controller": req.GetControllerAddress()})
 	return send("done", 1.0, fmt.Sprintf("installed to %s (slot A active) - reboot the machine into it when ready", diskPath))
 }
 

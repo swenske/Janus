@@ -17,7 +17,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
 	qemu-dashboard-test dashboard-image local-dev-image ca-certificates seed-controller-test \
@@ -613,6 +613,12 @@ qemu-lifecycle-upgrade-test: build disk-image
 # branch actually works over a real network fetch. Requires python3.
 qemu-lifecycle-upgrade-url-test: build disk-image
 	./hack/qemu-lifecycle-upgrade-url-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl
+
+# Every SystemService/HAProxyService/NetworkService method beyond the
+# lifecycle ones, on a real enforcing node - including janusd restart,
+# reboot, reset and shutdown.
+qemu-system-api-test: build disk-image
+	./hack/qemu-system-api-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
 # SystemService.PacketCapture on a real enforcing node: a filtered capture
 # of real HAProxy traffic over mTLS, the pcap parsed independently.

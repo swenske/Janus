@@ -21,6 +21,7 @@ import (
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootslot"
 	"github.com/swenske/Janus/internal/espswitch"
+	"github.com/swenske/Janus/internal/events"
 )
 
 // Lifecycle implements janusv1alpha1.LifecycleServiceServer.
@@ -186,7 +187,7 @@ func resolveBootContext() (*bootContext, error) {
 // the caller.
 func scheduleReboot() {
 	go func() {
-		time.Sleep(2 * time.Second)
+		time.Sleep(replyGrace)
 		syscall.Sync()
 		if err := syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART); err != nil {
 			log.Printf("lifecycle: reboot: %v", err)
@@ -223,6 +224,7 @@ func (l *Lifecycle) Rollback(_ context.Context, _ *emptypb.Empty) (*janusv1alpha
 		return nil, status.Errorf(codes.Internal, "%v", err)
 	}
 
+	events.Publish("lifecycle.rollback", map[string]string{"from": bc.currentSlot, "to": bc.targetSlot})
 	scheduleReboot()
 
 	return &janusv1alpha1.RollbackResponse{ActiveSlot: bc.targetSlot}, nil
@@ -379,6 +381,7 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return err
 	}
 
+	events.Publish("lifecycle.upgrade", map[string]any{"from": bc.currentSlot, "to": bc.targetSlot, "source": req.GetSource().GetReference(), "wait_for_health": req.GetWaitForHealth()})
 	scheduleReboot()
 	return nil
 }
@@ -461,6 +464,7 @@ func (l *Lifecycle) UploadReleaseFile(stream janusv1alpha1.LifecycleService_Uplo
 		return status.Errorf(codes.Internal, "sync %s: %v", destPath, err)
 	}
 
+	events.Publish("lifecycle.release_file.uploaded", map[string]any{"filename": filename, "bytes": written})
 	return stream.SendAndClose(&janusv1alpha1.UploadReleaseFileResponse{
 		StagingDir:   releaseStagingDir,
 		BytesWritten: uint64(written),
