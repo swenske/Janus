@@ -24,9 +24,11 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/types/known/emptypb"
 
@@ -76,10 +78,14 @@ func Start(node *store.Node, dashboardServerCert tls.Certificate) (*Listener, er
 	mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
 		handleInfo(w, r, node)
 	})
+	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONBody(w, http.StatusOK, map[string]string{"id": node.ID, "name": node.Name, "address": node.Address})
+	})
 	registerOpsRoutes(mux, node)
 	registerLifecycleRoutes(mux, node)
 	registerReleaseRoutes(mux)
 	registerPcapRoutes(mux, node)
+	registerSystemRoutes(mux, node)
 	mux.Handle("/", http.FileServerFS(view))
 
 	addr := fmt.Sprintf(":%d", node.Port)
@@ -104,19 +110,50 @@ func Start(node *store.Node, dashboardServerCert tls.Certificate) (*Listener, er
 // removal and (in a future slice) restarting a listener after its
 // service credential is rotated.
 func (l *Listener) Stop(ctx context.Context) error {
-	return l.server.Shutdown(ctx)
+	err := l.server.Shutdown(ctx)
+	closeNodeConn(l.node.ID)
+	return err
 }
 
-// dialNode opens a real gRPC connection to node using its own stored
+// conns holds one long-lived gRPC connection per node (keyed by node
+// ID), shared by every handler: live views poll every second, and a
+// fresh TLS handshake per request would dominate that. grpc.ClientConn
+// multiplexes concurrent calls and reconnects on its own.
+var conns sync.Map
+
+// dialNode returns node's shared gRPC connection, using its own stored
 // service credential - never the browser's client certificate (see the
 // package doc comment for why that's not just a design choice but a
-// cryptographic impossibility).
+// cryptographic impossibility). Callers must not Close it.
 func dialNode(node *store.Node) (*grpc.ClientConn, error) {
+	if c, ok := conns.Load(node.ID); ok {
+		return c.(*grpc.ClientConn), nil
+	}
 	tlsConfig, err := pki.ClientTLSConfig(node.CACertPEM, node.ServiceCertPEM, node.ServiceKeyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("build TLS config: %w", err)
 	}
-	return grpc.NewClient(node.Address, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	// A rebooting node should be reachable again within seconds of
+	// coming back, not after gRPC's default backoff (up to 2 minutes).
+	backoffCfg := backoff.DefaultConfig
+	backoffCfg.MaxDelay = 5 * time.Second
+	c, err := grpc.NewClient(node.Address,
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithConnectParams(grpc.ConnectParams{Backoff: backoffCfg, MinConnectTimeout: 5 * time.Second}))
+	if err != nil {
+		return nil, err
+	}
+	if existing, loaded := conns.LoadOrStore(node.ID, c); loaded {
+		c.Close()
+		return existing.(*grpc.ClientConn), nil
+	}
+	return c, nil
+}
+
+func closeNodeConn(nodeID string) {
+	if c, ok := conns.LoadAndDelete(nodeID); ok {
+		c.(*grpc.ClientConn).Close()
+	}
 }
 
 // infoResponse is the dashboard's single-node view payload - the same
@@ -163,7 +200,6 @@ func handleInfo(w http.ResponseWriter, r *http.Request, node *store.Node) {
 		http.Error(w, fmt.Sprintf("dial node: %v", err), http.StatusBadGateway)
 		return
 	}
-	defer conn.Close()
 
 	client := janusv1alpha1.NewSystemServiceClient(conn)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)

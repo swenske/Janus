@@ -143,6 +143,7 @@ func main() {
 	mux.HandleFunc("/api/auth/login", app.handleAuthLogin)
 	mux.HandleFunc("/api/auth/logout", app.handleAuthLogout)
 	mux.HandleFunc("/api/nodes", app.requireAuth(app.handleNodes))
+	mux.HandleFunc("GET /api/nodes/status", app.requireAuth(app.handleNodesStatus))
 	mux.HandleFunc("/api/nodes/", app.requireAuth(app.handleNode))
 	mux.HandleFunc("/api/pending", app.requireAuth(app.handlePendingList))
 	mux.HandleFunc("/api/pending/", app.requireAuth(app.handlePendingAction))
@@ -386,6 +387,31 @@ func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 // two simultaneous add-node requests racing for the same port (fine for
 // a first slice: this dashboard is a single operator's own tool, not a
 // multi-tenant service).
+// handleNodesStatus reports every registered node's live status, queried
+// concurrently with a short timeout so one unreachable node can't stall
+// the node list.
+func (a *app) handleNodesStatus(w http.ResponseWriter, r *http.Request) {
+	nodes := a.store.List()
+	out := make(map[string]nodeproxy.NodeStatus, len(nodes))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, n := range nodes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+			defer cancel()
+			st := nodeproxy.Status(ctx, n)
+			mu.Lock()
+			out[n.ID] = st
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
 func (a *app) allocatePort() (int, error) {
 	used := a.store.UsedPorts()
 	for p := portRangeStart; p <= portRangeEnd; p++ {

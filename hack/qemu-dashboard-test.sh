@@ -554,6 +554,57 @@ PYEOF
 [ "$own_packets" -eq 0 ] || { echo "Dashboard test FAILED: an unfiltered relayed capture holds $own_packets packets of the dashboard's own stream" >&2; exit 1; }
 echo "PacketCapture relay OK: .pcap download with real HTTP traffic, own stream left out, bad filter and unbounded capture refused"
 
+# --- the node page's relays (nodeproxy/system.go) against the real node ---
+jget() { curl -sk "${DASH_CERT[@]}" -w '\n%{http_code}' "${NODE_BASE}$1"; }
+expect_json() { # expect_json PATH PYTHON-ASSERTION-ON-d DESCRIPTION
+  local out code body
+  out="$(jget "$1")"; code="${out##*$'\n'}"; body="${out%$'\n'*}"
+  [ "$code" = "200" ] || { echo "Dashboard test FAILED: $3: GET $1 -> $code: $body" >&2; exit 1; }
+  python3 -c "import json,sys; d=json.loads(sys.argv[1]); assert $2, d" "$body" >/dev/null 2>&1 || { echo "Dashboard test FAILED: $3: GET $1 returned $body" >&2; exit 1; }
+}
+expect_json /api/metrics 'd["system"]["cpu_total_ticks"] > 0 and d["memory"]["total_bytes"] > 0 and d["haproxy"]["version"] and any(x["id"] == "haproxy" for x in d["services"]["processes"])' "metrics aggregate"
+expect_json /api/system/overview 'd["hostname"] and d["version"]["active_slot"] == "A" and d["system"]["boot_time_unix"] > 0' "system overview"
+expect_json /api/system/services 'any(s["id"] == "haproxy" and s["state"] == "running" and s["health"] == "healthy" for s in d["services"])' "services"
+expect_json /api/system/processes 'any(p["pid"] == 1 for p in d["processes"])' "processes"
+expect_json /api/system/mounts 'any(m["mounted_on"] == "/etc/.state" for m in d["mounts"])' "mounts"
+expect_json /api/system/netstat 'any(c["local_address"].endswith(":9505") and c["state"] == "LISTEN" for c in d["connections"])' "netstat"
+expect_json /api/network/modules 'd["bgp"]["state"] == "not_enabled"' "network modules"
+expect_json '/api/files/list?path=/etc/haproxy' 'any(f["relative_name"] == "haproxy.cfg" for f in d)' "files list"
+expect_json '/api/files/du?path=/etc/haproxy' 'int(d[0]["size_bytes"]) > 0' "disk usage"
+expect_json /api/haproxy/stats '"pxname" in d["columns"] and len(d["rows"]) > 0' "haproxy stats"
+curl -sk "${DASH_CERT[@]}" "${NODE_BASE}/api/files/read?path=/etc/haproxy/haproxy.cfg" | grep -q '^frontend ' || { echo "Dashboard test FAILED: files/read didn't return haproxy.cfg" >&2; exit 1; }
+curl -sk "${DASH_CERT[@]}" -o "$WORKDIR/etc-haproxy.tar" "${NODE_BASE}/api/files/copy?path=/etc/haproxy"
+tar tf "$WORKDIR/etc-haproxy.tar" | grep -qx 'haproxy/haproxy.cfg' || { echo "Dashboard test FAILED: files/copy isn't a tar holding haproxy/haproxy.cfg" >&2; exit 1; }
+dev_code="$(curl -sk "${DASH_CERT[@]}" -o /dev/null -w '%{http_code}' "${NODE_BASE}/api/files/read?path=/dev/vda")"
+[ "$dev_code" = "403" ] || { echo "Dashboard test FAILED: reading /dev/vda through the relay answered $dev_code, want 403" >&2; exit 1; }
+valid="$(python3 -c 'import json,sys; print(json.dumps({"config": open(sys.argv[1]).read()}))' <(curl -sk "${DASH_CERT[@]}" "${NODE_BASE}/api/haproxy/config" | python3 -c 'import json,sys; print(json.load(sys.stdin)["config"], end="")'))"
+curl -sk "${DASH_CERT[@]}" -H 'Content-Type: application/json' -d "$valid" "${NODE_BASE}/api/haproxy/validate" | grep -q '"valid":true' || { echo "Dashboard test FAILED: the running config didn't validate through the relay" >&2; exit 1; }
+curl -sk "${DASH_CERT[@]}" -X POST "${NODE_BASE}/api/haproxy/reload" | grep -q '"success":true' || { echo "Dashboard test FAILED: reload through the relay" >&2; exit 1; }
+curl -sk "${DASH_CERT[@]}" -H 'Content-Type: application/json' -d '{"role":"os:reader","format":"pfx","password":"pw","name":"t"}' -o "$WORKDIR/reader.pfx" "${NODE_BASE}/api/pki/client"
+openssl pkcs12 -in "$WORKDIR/reader.pfx" -passin pass:pw -nokeys -clcerts 2>/dev/null | openssl x509 -noout -subject | grep -q 'O *= *os:reader' || { echo "Dashboard test FAILED: the issued .pfx isn't a reader certificate for this node" >&2; exit 1; }
+# Live streams: each must deliver real content over Server-Sent Events.
+timeout 5 curl -skN "${DASH_CERT[@]}" "${NODE_BASE}/api/stream/dmesg" > "$WORKDIR/dmesg.sse" || true
+grep -q '^data: .*Linux version' "$WORKDIR/dmesg.sse" || { echo "Dashboard test FAILED: the dmesg stream didn't carry the kernel log: $(head -c 400 "$WORKDIR/dmesg.sse")" >&2; exit 1; }
+timeout 4 curl -skN "${DASH_CERT[@]}" "${NODE_BASE}/api/stream/logs?id=janusd&tail=50" > "$WORKDIR/logs.sse" || true
+grep -q '^data: .*listening on' "$WORKDIR/logs.sse" || { echo "Dashboard test FAILED: the janusd log stream: $(head -c 400 "$WORKDIR/logs.sse")" >&2; exit 1; }
+timeout 4 curl -skN "${DASH_CERT[@]}" "${NODE_BASE}/api/stream/events" > "$WORKDIR/events.sse" || true
+grep -q '"type":"haproxy.reloaded"' "$WORKDIR/events.sse" || { echo "Dashboard test FAILED: the event stream didn't show the reload just made: $(head -c 400 "$WORKDIR/events.sse")" >&2; exit 1; }
+# Fleet status on the main port: the real node online, on slot A.
+curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/nodes/status" | python3 -c 'import json,sys; d=json.load(sys.stdin); s=d[sys.argv[1]]; assert s["reachable"] and s["active_slot"] == "A" and s["haproxy_health"] == "healthy", s' "$NODE_ID" \
+  || { echo "Dashboard test FAILED: /api/nodes/status for the real node" >&2; exit 1; }
+# janusd restart through the relay: the shared gRPC connection must
+# reconnect on its own once the node is back.
+restart_code="$(curl -sk "${DASH_CERT[@]}" -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{"action":"restart"}' "${NODE_BASE}/api/system/power")"
+[ "$restart_code" = "200" ] || { echo "Dashboard test FAILED: janusd restart through the relay answered $restart_code" >&2; exit 1; }
+sleep 4
+back=""
+for _ in $(seq 1 20); do
+  if curl -sk "${DASH_CERT[@]}" "${NODE_BASE}/api/system/overview" | grep -q '"hostname"'; then back=1; break; fi
+  sleep 1
+done
+[ -n "$back" ] || { echo "Dashboard test FAILED: the relay never reconnected after janusd restarted" >&2; exit 1; }
+echo "Node page relays OK: metrics, system views, files (read/list/du/tar, device refused), HAProxy stats/validate/reload, .pfx issuance, SSE streams (dmesg/logs/events), fleet status, and a janusd restart the shared connection recovered from"
+
 GETCFG="$(curl -sk "${DASH_CERT[@]}" "${NODE_BASE}/api/haproxy/config")"
 ORIG_SHA256="$(echo "$GETCFG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])')"
 [ -n "$ORIG_SHA256" ] || { echo "Dashboard test FAILED: /api/haproxy/config missing sha256: $GETCFG" >&2; exit 1; }

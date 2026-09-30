@@ -193,7 +193,6 @@ func handleApplyConfig(w http.ResponseWriter, r *http.Request, node *store.Node)
 		http.Error(w, fmt.Sprintf("dial node: %v", err), http.StatusBadGateway)
 		return
 	}
-	defer conn.Close()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -250,7 +249,6 @@ func withHAProxyClient(w http.ResponseWriter, r *http.Request, node *store.Node,
 		http.Error(w, fmt.Sprintf("dial node: %v", err), http.StatusBadGateway)
 		return
 	}
-	defer conn.Close()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()

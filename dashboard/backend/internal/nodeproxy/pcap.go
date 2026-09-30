@@ -61,7 +61,6 @@ func handlePcap(w http.ResponseWriter, r *http.Request, node *store.Node) {
 		http.Error(w, fmt.Sprintf("dial node: %v", err), http.StatusBadGateway)
 		return
 	}
-	defer conn.Close()
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(duration)*time.Second+30*time.Second)
 	defer cancel()

@@ -63,7 +63,6 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 			http.Error(w, fmt.Sprintf("dial node: %v", err), http.StatusBadGateway)
 			return
 		}
-		defer conn.Close()
 
 		runUpgrade(w, r, janusv1alpha1.NewLifecycleServiceClient(conn), req.Reference, req.SHA256, req.WaitForHealth, req.HealthTimeoutSeconds)
 	})
@@ -106,7 +105,6 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 		http.Error(w, fmt.Sprintf("dial node: %v", err), http.StatusBadGateway)
 		return
 	}
-	defer conn.Close()
 	client := janusv1alpha1.NewLifecycleServiceClient(conn)
 
 	ctx, cancel := context.WithTimeout(r.Context(), upgradeUploadTimeout)
