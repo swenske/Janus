@@ -54,6 +54,8 @@ const (
 	SystemService_GenerateClientConfiguration_FullMethodName = "/janus.v1alpha1.SystemService/GenerateClientConfiguration"
 	SystemService_MetricsConfigGet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigGet"
 	SystemService_MetricsConfigSet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigSet"
+	SystemService_NodeExporterConfigGet_FullMethodName       = "/janus.v1alpha1.SystemService/NodeExporterConfigGet"
+	SystemService_NodeExporterConfigSet_FullMethodName       = "/janus.v1alpha1.SystemService/NodeExporterConfigSet"
 )
 
 // SystemServiceClient is the client API for SystemService service.
@@ -133,6 +135,13 @@ type SystemServiceClient interface {
 	// can't be bound is refused and the exporter stays as it was.
 	MetricsConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
 	MetricsConfigSet(ctx context.Context, in *MetricsConfig, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
+	// The prometheus-node-exporter extension's settings (docs/metrics.md):
+	// whether node_exporter runs, the address and port it listens on, and
+	// its collectors, from a fixed list. Set restarts node_exporter with
+	// them and persists them. FailedPrecondition when the image doesn't
+	// have the extension.
+	NodeExporterConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NodeExporterConfigResponse, error)
+	NodeExporterConfigSet(ctx context.Context, in *NodeExporterConfig, opts ...grpc.CallOption) (*NodeExporterConfigResponse, error)
 }
 
 type systemServiceClient struct {
@@ -564,6 +573,26 @@ func (c *systemServiceClient) MetricsConfigSet(ctx context.Context, in *MetricsC
 	return out, nil
 }
 
+func (c *systemServiceClient) NodeExporterConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NodeExporterConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NodeExporterConfigResponse)
+	err := c.cc.Invoke(ctx, SystemService_NodeExporterConfigGet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) NodeExporterConfigSet(ctx context.Context, in *NodeExporterConfig, opts ...grpc.CallOption) (*NodeExporterConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NodeExporterConfigResponse)
+	err := c.cc.Invoke(ctx, SystemService_NodeExporterConfigSet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SystemServiceServer is the server API for SystemService service.
 // All implementations must embed UnimplementedSystemServiceServer
 // for forward compatibility.
@@ -641,6 +670,13 @@ type SystemServiceServer interface {
 	// can't be bound is refused and the exporter stays as it was.
 	MetricsConfigGet(context.Context, *emptypb.Empty) (*MetricsConfigResponse, error)
 	MetricsConfigSet(context.Context, *MetricsConfig) (*MetricsConfigResponse, error)
+	// The prometheus-node-exporter extension's settings (docs/metrics.md):
+	// whether node_exporter runs, the address and port it listens on, and
+	// its collectors, from a fixed list. Set restarts node_exporter with
+	// them and persists them. FailedPrecondition when the image doesn't
+	// have the extension.
+	NodeExporterConfigGet(context.Context, *emptypb.Empty) (*NodeExporterConfigResponse, error)
+	NodeExporterConfigSet(context.Context, *NodeExporterConfig) (*NodeExporterConfigResponse, error)
 	mustEmbedUnimplementedSystemServiceServer()
 }
 
@@ -752,6 +788,12 @@ func (UnimplementedSystemServiceServer) MetricsConfigGet(context.Context, *empty
 }
 func (UnimplementedSystemServiceServer) MetricsConfigSet(context.Context, *MetricsConfig) (*MetricsConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MetricsConfigSet not implemented")
+}
+func (UnimplementedSystemServiceServer) NodeExporterConfigGet(context.Context, *emptypb.Empty) (*NodeExporterConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method NodeExporterConfigGet not implemented")
+}
+func (UnimplementedSystemServiceServer) NodeExporterConfigSet(context.Context, *NodeExporterConfig) (*NodeExporterConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method NodeExporterConfigSet not implemented")
 }
 func (UnimplementedSystemServiceServer) mustEmbedUnimplementedSystemServiceServer() {}
 func (UnimplementedSystemServiceServer) testEmbeddedByValue()                       {}
@@ -1323,6 +1365,42 @@ func _SystemService_MetricsConfigSet_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemService_NodeExporterConfigGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).NodeExporterConfigGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_NodeExporterConfigGet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).NodeExporterConfigGet(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_NodeExporterConfigSet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NodeExporterConfig)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).NodeExporterConfigSet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_NodeExporterConfigSet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).NodeExporterConfigSet(ctx, req.(*NodeExporterConfig))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SystemService_ServiceDesc is the grpc.ServiceDesc for SystemService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1429,6 +1507,14 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MetricsConfigSet",
 			Handler:    _SystemService_MetricsConfigSet_Handler,
+		},
+		{
+			MethodName: "NodeExporterConfigGet",
+			Handler:    _SystemService_NodeExporterConfigGet_Handler,
+		},
+		{
+			MethodName: "NodeExporterConfigSet",
+			Handler:    _SystemService_NodeExporterConfigSet_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

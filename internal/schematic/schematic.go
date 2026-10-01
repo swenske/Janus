@@ -39,7 +39,7 @@ type Schematic struct {
 }
 
 type Customization struct {
-	// Extensions to include, by name ("node-exporter"). Order and
+	// Extensions to include, by name ("prometheus-node-exporter"). Order and
 	// duplicates don't matter: Normalize sorts and deduplicates.
 	Extensions []string `json:"extensions,omitempty"`
 }

@@ -8,8 +8,10 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -41,6 +43,7 @@ var systemUsage = []string{
 	"system mounts                         mounted filesystems",
 	"system services                       managed services and their health",
 	"system metrics [-enable|-disable] [-port N]  the node's Prometheus exporter: show or change (docs/metrics.md)",
+	"system node-exporter [-enable|-disable] [-address IP] [-port N] [-collectors a,b,c]  prometheus-node-exporter's settings: show or change (docs/metrics.md)",
 	"system service start|stop|restart ID  control a managed service (haproxy; janusd: restart only)",
 	"system ls [-r] PATH                   list a directory (-r: recursive)",
 	"system cat PATH                       print a file",
@@ -275,6 +278,78 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 		default:
 			fmt.Printf("Exporter: enabled on port %d, but not listening: %s\n", cfg.GetPort(), resp.GetError())
 		}
+		if resp.GetIsDefault() {
+			fmt.Println("(default settings)")
+		}
+
+	case "node-exporter":
+		fs := flag.NewFlagSet("system node-exporter", flag.ExitOnError)
+		enable := fs.Bool("enable", false, "run node_exporter")
+		disable := fs.Bool("disable", false, "stop node_exporter, and keep it stopped")
+		address := fs.String("address", "", "listen on this address only (\"*\" for every address)")
+		port := fs.Uint("port", 0, "listen on this port (default 9100)")
+		collectors := fs.String("collectors", "", "the collectors to run, comma-separated (\"default\" for the default ones)")
+		_ = fs.Parse(args)
+		c, cancel := ctx()
+		defer cancel()
+		resp, err := client.NodeExporterConfigGet(c, &emptypb.Empty{})
+		check("NodeExporterConfigGet", err)
+		if *enable || *disable || *address != "" || *port != 0 || *collectors != "" {
+			if *enable && *disable {
+				fmt.Fprintln(os.Stderr, "-enable and -disable together")
+				os.Exit(2)
+			}
+			cfg := resp.GetConfig()
+			req := &janusv1alpha1.NodeExporterConfig{Enabled: cfg.GetEnabled(), Address: cfg.GetAddress(), Port: cfg.GetPort(), Collectors: cfg.GetCollectors()}
+			if *enable || *disable {
+				req.Enabled = *enable
+			}
+			switch *address {
+			case "":
+			case "*":
+				req.Address = ""
+			default:
+				req.Address = *address
+			}
+			if *port != 0 {
+				req.Port = uint32(*port)
+			}
+			switch *collectors {
+			case "":
+			case "default":
+				req.Collectors = nil
+			default:
+				req.Collectors = strings.Split(*collectors, ",")
+			}
+			resp, err = client.NodeExporterConfigSet(c, req)
+			check("NodeExporterConfigSet", err)
+		}
+		cfg := resp.GetConfig()
+		addr := cfg.GetAddress()
+		if addr == "" {
+			addr = "<node>"
+		}
+		if cfg.GetEnabled() {
+			fmt.Printf("node_exporter: http://%s/metrics (%s)\n", net.JoinHostPort(addr, strconv.Itoa(int(cfg.GetPort()))), resp.GetState())
+		} else {
+			fmt.Printf("node_exporter: disabled (%s)\n", resp.GetState())
+		}
+		if resp.GetError() != "" {
+			fmt.Println("Error:", resp.GetError())
+		}
+		on := map[string]bool{}
+		for _, n := range cfg.GetCollectors() {
+			on[n] = true
+		}
+		tw := table("COLLECTOR", "", "DESCRIPTION")
+		for _, k := range resp.GetAvailableCollectors() {
+			mark := ""
+			if on[k.GetName()] {
+				mark = "on"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", k.GetName(), mark, k.GetDescription())
+		}
+		tw.Flush()
 		if resp.GetIsDefault() {
 			fmt.Println("(default settings)")
 		}

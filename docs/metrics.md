@@ -9,7 +9,7 @@ doesn't repeat what other exporters already give:
 |---|---|---|
 | **Janus** (this page) | built into every node, `:10056/metrics` | the node as Janus manages it |
 | HAProxy | your HAProxy configuration (below) | frontends, backends, servers, traffic |
-| [node-exporter](image-factory.md#extensions) | optional extension, `:9100/metrics` | CPU, memory, disks, filesystems, network |
+| [prometheus-node-exporter](#the-node-exporter) | optional extension, `:9100/metrics` | CPU, memory, disks, filesystems, network |
 
 ## Turning it on and off
 
@@ -25,7 +25,7 @@ janusctl system metrics -disable         # turn it off
 janusctl system metrics -enable
 ```
 
-In the Controller: **Monitoring › Metrics**, *Prometheus exporter* card.
+In the Controller: **Apps › Janus exporter**.
 A port that can't be bound is refused, and the exporter stays where it
 was.
 
@@ -40,6 +40,33 @@ scrape_configs:
     static_configs:
       - targets: ['node1.example.net:10056', 'node2.example.net:10056']
 ```
+
+## The node exporter
+
+A node built with the `prometheus-node-exporter` extension
+([image-factory.md](image-factory.md)) also runs Prometheus's
+node_exporter: the host's CPU, memory, disks, filesystems and network.
+Its settings are kept on the node, like the Janus exporter's: whether it
+runs, the address and port it listens on (every address and **9100** by
+default), and its collectors - from a fixed list, each one known to work
+on a Janus node. The default ones: `cpu`, `diskstats`, `filefd`,
+`filesystem`, `loadavg`, `meminfo`, `netdev`, `netstat`, `os`,
+`pressure`, `sockstat`, `stat`, `time`, `timex`, `uname`, `vmstat`. More
+can be turned on: `arp`, `conntrack`, `cpufreq`, `dmi`, `entropy`,
+`interrupts`, `netclass`, `nvme`, `softirqs`, `softnet`,
+`thermal_zone`, `udp_queues`.
+
+```sh
+janusctl system node-exporter                                  # show
+janusctl system node-exporter -address 192.0.2.10 -port 9200   # listen elsewhere
+janusctl system node-exporter -collectors cpu,meminfo,netdev,softnet
+janusctl system node-exporter -collectors default
+janusctl system node-exporter -disable                         # stop it, and keep it stopped
+```
+
+In the Controller: **Apps › Node exporter**. A change restarts
+node_exporter with it. Like a stock node_exporter, it has no
+authentication: restrict who reaches the port.
 
 ## Metrics
 

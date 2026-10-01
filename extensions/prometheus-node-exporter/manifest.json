@@ -1,11 +1,12 @@
 {
-  "name": "node-exporter",
+  "name": "prometheus-node-exporter",
+  "replaces": ["node-exporter"],
   "description": "Prometheus node_exporter: the node's CPU, memory, disk, filesystem and network metrics on :9100/metrics.",
   "homepage": "https://github.com/prometheus/node_exporter",
   "arches": ["amd64", "arm64"],
   "services": [
     {
-      "id": "node-exporter",
+      "id": "prometheus-node-exporter",
       "description": "Prometheus host metrics on :9100/metrics",
       "path": "/usr/local/sbin/node_exporter",
       "args": [

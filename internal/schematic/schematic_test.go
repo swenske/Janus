@@ -114,3 +114,37 @@ func TestCatalogCheck(t *testing.T) {
 		t.Errorf("default schematic: %v", err)
 	}
 }
+
+func TestCatalogMigrate(t *testing.T) {
+	c, err := ParseCatalog([]byte(`{"version":"v2","extensions":[
+		{"name":"prometheus-node-exporter","arches":["amd64"],"replaces":["node-exporter"]},
+		{"name":"qemu-guest-agent","arches":["amd64"]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := &Schematic{Customization: Customization{Extensions: []string{"qemu-guest-agent", "node-exporter"}}}
+	m, renamed := c.Migrate(old)
+	if got := m.Extensions(); len(got) != 2 || got[0] != "prometheus-node-exporter" || got[1] != "qemu-guest-agent" {
+		t.Fatalf("migrated = %v", got)
+	}
+	if len(renamed) != 1 || renamed["node-exporter"] != "prometheus-node-exporter" {
+		t.Fatalf("renamed = %v", renamed)
+	}
+	if err := c.Check(m, "amd64"); err != nil {
+		t.Fatalf("the migrated schematic doesn't build: %v", err)
+	}
+	if m.ID() == old.ID() {
+		t.Fatal("a rename must give another schematic")
+	}
+
+	// Nothing to rename: the same schematic; an unknown name stays.
+	cur := &Schematic{Customization: Customization{Extensions: []string{"prometheus-node-exporter", "unknown"}}}
+	m, renamed = c.Migrate(cur)
+	if len(renamed) != 0 || m.ID() != cur.ID() {
+		t.Fatalf("migrated %v -> %v (%v)", cur.Extensions(), m.Extensions(), renamed)
+	}
+
+	if _, err := ParseCatalog([]byte(`{"version":"v2","extensions":[{"name":"a","replaces":["Not Valid"]}]}`)); err == nil {
+		t.Fatal("an invalid former name was accepted")
+	}
+}

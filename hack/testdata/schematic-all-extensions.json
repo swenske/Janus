@@ -1,1 +1,1 @@
-{"customization":{"extensions":["node-exporter","qemu-guest-agent"]}}
+{"customization":{"extensions":["prometheus-node-exporter","qemu-guest-agent"]}}

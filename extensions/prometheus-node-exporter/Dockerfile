@@ -21,7 +21,7 @@ RUN name="node_exporter-${NODE_EXPORTER_VERSION}.linux-${ARCH}" \
     && echo "${NODE_EXPORTER_SHA256}  ne.tar.gz" | sha256sum -c - \
     && tar xzf ne.tar.gz \
     && install -D -m 0755 "${name}/node_exporter" /out/usr/local/sbin/node_exporter \
-    && install -D -m 0644 "${name}/LICENSE" /out/usr/share/licenses/node-exporter/LICENSE
+    && install -D -m 0644 "${name}/LICENSE" /out/usr/share/licenses/prometheus-node-exporter/LICENSE
 
 FROM scratch AS export
 COPY --from=fetch /out/ /

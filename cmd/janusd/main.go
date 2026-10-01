@@ -47,6 +47,7 @@ import (
 	"github.com/swenske/Janus/internal/kmsgwatch"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/netmgr"
+	"github.com/swenske/Janus/internal/nodeexporter"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/selfregister"
@@ -77,6 +78,7 @@ func main() {
 	flag.Parse()
 	started := time.Now()
 	exporter.Dir = *configDir
+	nodeexporter.Dir = *configDir
 
 	if *showVersion {
 		fmt.Println("janusd " + version)
@@ -211,6 +213,16 @@ func main() {
 			log.Printf("bgp: %v", err)
 		}
 		go bgpMgr.KeepGate(haproxyHealthy, time.Second, nil)
+	}
+	// prometheus-node-exporter runs as its saved settings say.
+	if extMgr.Has(nodeexporter.ServiceID) {
+		cfg, _, err := nodeexporter.Load()
+		if err != nil {
+			log.Printf("node-exporter: %v - running the defaults", err)
+		}
+		if err := extMgr.Configure(nodeexporter.ServiceID, nodeexporter.Args(cfg), cfg.Enabled); err != nil {
+			log.Printf("node-exporter: %v", err)
+		}
 	}
 	extMgr.Start()
 

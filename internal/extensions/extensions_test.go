@@ -2,6 +2,7 @@ package extensions
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -193,5 +194,62 @@ func TestWaitForMustBeAbsolute(t *testing.T) {
 	m := Manifest{Name: "ext", Version: "1", Services: []Service{{ID: "s", Path: "/bin/true", WaitFor: []string{"dev/x"}}}}
 	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "wait_for") {
 		t.Fatalf("Validate = %v", err)
+	}
+}
+
+func TestConfigure(t *testing.T) {
+	logs := &syncBuf{}
+	m := NewManagerWithTiming([]Manifest{
+		{Name: "ext", Version: "1", Services: []Service{{ID: "svc", Path: "/bin/sh", Args: []string{"-c", "echo run:$0; exec sleep 60", "default"}}}},
+	}, func(string) io.Writer { return logs }, Timing{MinBackoff: 50 * time.Millisecond, MaxBackoff: 200 * time.Millisecond, StableAfter: time.Hour, StopTimeout: 2 * time.Second})
+	defer func() { _ = m.StopService("svc") }()
+
+	// Disabled before Start: it doesn't start.
+	if err := m.Configure("svc", []string{"-c", "echo run:$0; exec sleep 60", "first"}, false); err != nil {
+		t.Fatal(err)
+	}
+	m.Start()
+	time.Sleep(200 * time.Millisecond)
+	if st, _ := m.State("svc"); st.State != "disabled" || logs.String() != "" {
+		t.Fatalf("a disabled service: %+v, output %q", st, logs.String())
+	}
+
+	// Enabled: it runs with the configured arguments.
+	if err := m.Configure("svc", []string{"-c", "echo run:$0; exec sleep 60", "first"}, true); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, m, "svc", "running")
+	waitOutput(t, logs, "run:first")
+
+	// New arguments: restarted with them - not a crash.
+	if err := m.Configure("svc", []string{"-c", "echo run:$0; exec sleep 60", "second"}, true); err != nil {
+		t.Fatal(err)
+	}
+	waitOutput(t, logs, "run:second")
+	if st, _ := m.State("svc"); st.State != "running" || st.Restarts != 0 {
+		t.Fatalf("after new arguments: %+v", st)
+	}
+
+	// Disabled again: stopped, and reported as disabled.
+	if err := m.Configure("svc", []string{"-c", "echo run:$0; exec sleep 60", "second"}, false); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, m, "svc", "disabled")
+	if err := m.StartService("svc"); !errors.Is(err, ErrDisabled) {
+		t.Errorf("starting a disabled service: %v", err)
+	}
+	if err := m.Configure("nope", nil, true); !IsNoService(err) {
+		t.Errorf("unknown service: %v", err)
+	}
+}
+
+func waitOutput(t *testing.T, b *syncBuf, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(b.String(), want) {
+		if time.Now().After(deadline) {
+			t.Fatalf("output %q never contained %q", b.String(), want)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

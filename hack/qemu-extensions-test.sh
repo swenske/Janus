@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Optional extensions and image schematics, end to end, on a real UEFI
 # boot (the UKI's own signed command line, SELinux enforcing baked in) of
-# a disk built with SCHEMATIC={node-exporter, qemu-guest-agent}:
+# a disk built with SCHEMATIC={prometheus-node-exporter, qemu-guest-agent}:
 #
 #   - the node knows its schematic (janus.schematic= in its signed
 #     cmdline) and reports it with its extensions (janusctl version);
@@ -31,7 +31,7 @@ SCHEMATIC_FILE="${5:?}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BOOT_TIMEOUT_SECS="${QEMU_EXT_BOOT_TIMEOUT:-90}"
 BASE_PORT="${QEMU_EXT_TEST_PORT:-18600}"
-P_HTTP=$BASE_PORT P_GRPC=$((BASE_PORT + 1)) P_METRICS=$((BASE_PORT + 2)) P_JANUS=$((BASE_PORT + 3))
+P_HTTP=$BASE_PORT P_GRPC=$((BASE_PORT + 1)) P_METRICS=$((BASE_PORT + 2)) P_JANUS=$((BASE_PORT + 3)) P_ALT=$((BASE_PORT + 4))
 MARKER="JANUS_INIT_BOOT_OK"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -88,7 +88,7 @@ qemu-system-x86_64 \
   -drive if=pflash,format=raw,file="$WORKDIR/OVMF_VARS.fd" \
   -drive file="$DISK",format=raw,if=virtio \
   -nographic -display none -m 512M -monitor none \
-  -netdev "user,id=net0,hostfwd=tcp::${P_HTTP}-:8080,hostfwd=tcp::${P_GRPC}-:9505,hostfwd=tcp::${P_METRICS}-:9100,hostfwd=tcp::${P_JANUS}-:10056" \
+  -netdev "user,id=net0,hostfwd=tcp::${P_HTTP}-:8080,hostfwd=tcp::${P_GRPC}-:9505,hostfwd=tcp::${P_METRICS}-:9100,hostfwd=tcp::${P_JANUS}-:10056,hostfwd=tcp::${P_ALT}-:9200" \
   -device virtio-net-pci,netdev=net0 \
   -device virtio-serial \
   -chardev "socket,path=$WORKDIR/qga.sock,server=on,wait=off,id=qga0" \
@@ -116,9 +116,25 @@ extract_pki() {
 ctl() { "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
 qga() { python3 "$HERE/qga-client.py" "$WORKDIR/qga.sock" "$@"; }
 metrics() { curl -s -m 5 "http://127.0.0.1:${P_METRICS}/metrics" || true; }
+metrics_alt() { curl -s -m 5 "http://127.0.0.1:${P_ALT}/metrics" || true; } # node_exporter moved to :9200
+wait_metrics_alt() {
+  local deadline=$((SECONDS + 30))
+  until grep -q '^node_uname_info' <<<"$(metrics_alt)"; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "node_exporter never served metrics on :9200: $(ctl system node-exporter 2>&1)"
+    sleep 1
+  done
+}
+# HTTP 200 doesn't mean the API is up: janusd starts HAProxy before it.
+wait_api() {
+  local deadline=$((SECONDS + 60))
+  until ctl version >/dev/null 2>&1; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "janusd's API never answered: $(ctl version 2>&1)"
+    sleep 1
+  done
+}
 wait_metrics() {
   local deadline=$((SECONDS + 30))
-  until metrics | grep -q '^node_uname_info'; do
+  until grep -q '^node_uname_info' <<<"$(metrics)"; do
     [ "$SECONDS" -lt "$deadline" ] || fail "node_exporter never served metrics"
     sleep 1
   done
@@ -140,9 +156,9 @@ echo "Boot 1 OK (UEFI, enforcing)"
 check "the signed cmdline carries the schematic" "Kernel command line: .*janus\.schematic=$SCHEMATIC_ID" "$(cat "$LOG")"
 v="$(ctl version)"
 check "janusd reports the schematic" "^Image schematic: $SCHEMATIC_ID$" "$v"
-check "janusd reports node-exporter" '^Extension: node-exporter ' "$v"
+check "janusd reports prometheus-node-exporter" '^Extension: prometheus-node-exporter ' "$v"
 check "janusd reports qemu-guest-agent" '^Extension: qemu-guest-agent ' "$v"
-wait_service node-exporter running
+wait_service prometheus-node-exporter running
 wait_service qemu-guest-agent running
 echo "  ok: both extension services running"
 wait_metrics
@@ -151,7 +167,7 @@ check "node_exporter: OS info from /usr/lib/os-release" 'node_os_info\{.*name="J
 check "node_exporter: disk statistics" '^node_disk_reads_completed_total\{device="vda"\}' "$m"
 check "node_exporter: STATE filesystem" 'node_filesystem_size_bytes\{.*mountpoint="/etc/.state"' "$m"
 check "node_exporter: network statistics" '^node_network_receive_bytes_total\{device="eth0"\}' "$m"
-check "node_exporter logs captured" 'Starting node_exporter' "$(ctl system logs node-exporter)"
+check "node_exporter logs captured" 'Starting node_exporter' "$(ctl system logs prometheus-node-exporter)"
 # janusd reads every /proc/<pid> for Processes and Stats (the
 # Controller's metrics): the extensions' processes must be there too.
 ps_out="$(ctl system ps)"
@@ -159,17 +175,49 @@ check "node_exporter listed by Processes" 'node_exporter' "$ps_out"
 check "qemu-ga listed by Processes" 'qemu-ga' "$ps_out"
 # Janus's own exporter reports the extensions and their services.
 jm="$(curl -s -m 5 "http://127.0.0.1:${P_JANUS}/metrics" || true)"
-check "janus exporter: the image's extensions" '^janus_extension_info\{extension="node-exporter",version="[0-9.]+"\} 1$' "$jm"
+check "janus exporter: the image's extensions" '^janus_extension_info\{extension="prometheus-node-exporter",version="[0-9.]+"\} 1$' "$jm"
 check "janus exporter: the schematic" "^janus_build_info\\{.*schematic=\"$SCHEMATIC_ID\"\\} 1$" "$jm"
-check "janus exporter: node-exporter running" '^janus_service_state\{service="node-exporter",extension="node-exporter",state="running"\} 1$' "$jm"
+check "janus exporter: prometheus-node-exporter running" '^janus_service_state\{service="prometheus-node-exporter",extension="prometheus-node-exporter",state="running"\} 1$' "$jm"
 check "janus exporter: the guest agent running" '^janus_service_state\{service="qemu-guest-agent",extension="qemu-guest-agent",state="running"\} 1$' "$jm"
 
-ctl system service stop node-exporter >/dev/null || fail "ServiceStop node-exporter"
-wait_service node-exporter stopped
+ctl system service stop prometheus-node-exporter >/dev/null || fail "ServiceStop prometheus-node-exporter"
+wait_service prometheus-node-exporter stopped
 [ -z "$(metrics)" ] || fail "node_exporter still answers after ServiceStop"
-ctl system service start node-exporter >/dev/null || fail "ServiceStart node-exporter"
+ctl system service start prometheus-node-exporter >/dev/null || fail "ServiceStart prometheus-node-exporter"
 wait_metrics
 echo "  ok: extension service stopped and started through the API"
+
+# --- node_exporter's settings (NodeExporterConfigSet) ------------------
+all="$(ctl system node-exporter | awk '$1 ~ /^[a-z_]+$/ {print $1}' | paste -sd, -)"
+check "the settings list the optional collectors" 'softnet' "$all"
+ctl system node-exporter -port 9200 -collectors "$all" >/dev/null || fail "NodeExporterConfigSet: $(ctl system node-exporter -port 9200 -collectors "$all" 2>&1)"
+wait_metrics_alt
+[ -z "$(metrics)" ] || fail "node_exporter still answers on :9100 after moving to :9200"
+ma="$(metrics_alt)"
+# Every collector the settings offer must work on a Janus node: what it
+# reads is in the kernel and allowed by the SELinux policy (the AVC
+# check at the end covers the latter).
+for c in ${all//,/ }; do
+  check "collector $c works" "^node_scrape_collector_success\\{collector=\"$c\"\\} 1\$" "$ma"
+done
+check "every collector on: softnet" '^node_softnet_processed_total\{' "$ma"
+check "every collector on: netclass" '^node_network_carrier\{device="eth0"\}' "$ma"
+check "every collector on: pressure (PSI)" '^node_pressure_cpu_waiting_seconds_total ' "$ma"
+ctl system node-exporter -disable >/dev/null || fail "disabling node_exporter"
+wait_service prometheus-node-exporter disabled
+[ -z "$(metrics_alt)$(metrics)" ] || fail "node_exporter answers while disabled"
+if out="$(ctl system service start prometheus-node-exporter 2>&1)"; then
+  fail "a service disabled by its settings was started: $out"
+fi
+check "starting it by hand is refused" 'disabled by its settings' "$out"
+# Kept across the reboot below: on, :9200, softnet on top of the defaults.
+ctl system node-exporter -enable -collectors default >/dev/null || fail "re-enabling node_exporter"
+defaults="$(ctl system node-exporter | awk '$1 ~ /^[a-z_]+$/ && $2 == "on" {print $1}' | paste -sd, -)"
+ctl system node-exporter -collectors "$defaults,softnet" >/dev/null || fail "adding softnet to the defaults"
+wait_metrics_alt
+check "back on with fewer collectors: entropy is off" '^node_softnet_processed_total\{' "$(metrics_alt)"
+if grep -q '^node_entropy_available_bits ' <<<"$(metrics_alt)"; then fail "the entropy collector still runs after being turned off"; fi
+echo "  ok: node_exporter's settings - port, every collector, disabled, back on"
 
 # --- the guest agent --------------------------------------------------
 deadline=$((SECONDS + 30))
@@ -198,12 +246,16 @@ check "an update dropping the extensions is refused" "built from image schematic
 out="$(ctl lifecycle upgrade -insecure-skip-signature-check -sha256 "$SAME_SHA" /etc/.state/same 2>&1)" || fail "same-schematic upgrade: $out"
 check "an update from the same schematic is accepted" 'same image schematic' "$out"
 wait_boot 2
+wait_api
 check "slot B booted" 'Kernel command line: .*PARTLABEL=BOOT-B-DATA' "$(awk "/$MARKER/{n++} n>=1" "$LOG")"
 v="$(ctl version)"
 check "after the upgrade: same schematic" "^Image schematic: $SCHEMATIC_ID$" "$v"
-wait_service node-exporter running
+wait_service prometheus-node-exporter running
+wait_metrics_alt
+check "node_exporter's settings survived the reboot" '^node_softnet_processed_total\{' "$(metrics_alt)"
+ctl system node-exporter -port 9100 -collectors default >/dev/null || fail "back to the default settings"
 wait_metrics
-echo "  ok: after the upgrade, the extensions still run"
+echo "  ok: after the upgrade, the extensions still run, node_exporter as it was set"
 
 # --- clean power-off requested by the hypervisor ----------------------
 deadline=$((SECONDS + 30))
@@ -220,7 +272,7 @@ done
 QEMU_PID=""
 tail="$(awk "/$MARKER/{n++} n>=2" "$LOG")"
 check "init got the power-off request" 'init: power-off requested' "$tail"
-check "janusd stopped HAProxy and the extensions first" 'extensions: stopped node-exporter' "$tail"
+check "janusd stopped HAProxy and the extensions first" 'extensions: stopped prometheus-node-exporter' "$tail"
 check "the kernel powered down" 'reboot: Power down' "$tail"
 
 if grep -q "avc:.*denied" "$LOG"; then

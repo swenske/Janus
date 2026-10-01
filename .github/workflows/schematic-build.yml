@@ -25,7 +25,7 @@ on:
         type: string
         default: amd64
       schematic:
-        description: 'The schematic, canonical JSON (e.g. {"customization":{"extensions":["node-exporter"]}})'
+        description: 'The schematic, canonical JSON (e.g. {"customization":{"extensions":["prometheus-node-exporter"]}})'
         required: true
         type: string
       schematic_id:

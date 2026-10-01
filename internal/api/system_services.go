@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/extensions"
 )
 
 // haproxyStopTimeout is how long a soft stop (in-flight connections
@@ -55,6 +57,9 @@ func (s *System) extensionCall(id string, call func(string) error) (*janusv1alph
 		return nil, false, nil
 	}
 	if err := call(id); err != nil {
+		if errors.Is(err, extensions.ErrDisabled) {
+			return nil, true, status.Errorf(codes.FailedPrecondition, "%s: %v - enable it in its settings", id, err)
+		}
 		return nil, true, status.Errorf(codes.Internal, "%s: %v", id, err)
 	}
 	info, err := s.extensionInfo(id)

@@ -10,11 +10,18 @@ built from a schematic keeps it through its updates.
 
 | Name | Architectures | What it adds |
 |---|---|---|
-| `node-exporter` | amd64, arm64 | Prometheus [node_exporter](https://github.com/prometheus/node_exporter): CPU, memory, disk, filesystem and network metrics on `:9100/metrics` |
+| `prometheus-node-exporter` | amd64, arm64 | Prometheus [node_exporter](https://github.com/prometheus/node_exporter): CPU, memory, disk, filesystem and network metrics on `:9100/metrics` |
 | `qemu-guest-agent` | amd64 | The [QEMU guest agent](https://www.qemu.org/docs/master/interop/qemu-ga.html), for Proxmox and other KVM hypervisors: the node's addresses and OS in the hypervisor's UI, filesystem freeze for consistent backups, clean shutdown from the hypervisor |
 | `nftables` | amd64, arm64 | A firewall: the node's nftables ruleset managed through the API and the Controller, applied on trial with an automatic revert, named sets editable live - see [firewall.md](firewall.md) |
 | `keepalived` | amd64, arm64 | VRRP: virtual IPs shared by several nodes, moved when one fails or its HAProxy stops answering - see [vrrp.md](vrrp.md) |
 | `bird` | amd64, arm64 | BGP, OSPF, BFD with BIRD 2: announce the node's addresses - an anycast address withdrawn while HAProxy doesn't answer - see [bgp.md](bgp.md) |
+
+`prometheus-node-exporter` was called `node-exporter` up to v2026.10.01-2.
+A node built with the old name isn't stuck on it: the image factory
+offers it the newest release built with the new name - the same
+extensions, a new schematic. The Controller shows that update as a
+rename, to install with the schematic change accepted; with janusctl,
+pass `-allow-schematic-change`.
 
 An extension is built into the read-only rootfs: there is no installing or
 removing one on a running node. `janusd` runs its services - restarting
@@ -32,13 +39,15 @@ Proxmox, enable the agent in the VM's options (**QEMU Guest Agent**);
 until the VM has the agent's channel, the service shows as `waiting`
 rather than failing.
 
-**node-exporter** listens on every address, without authentication, like
-a stock node_exporter; restrict who can reach port 9100 in your network.
+**prometheus-node-exporter** listens on every address, port 9100, without
+authentication, like a stock node_exporter: restrict who can reach it.
+Its address, port and collectors are settings - see
+[metrics.md](metrics.md#the-node-exporter).
 
 ## The schematic
 
 ```json
-{"customization": {"extensions": ["node-exporter", "qemu-guest-agent"]}}
+{"customization": {"extensions": ["prometheus-node-exporter", "qemu-guest-agent"]}}
 ```
 
 The same, as shown in YAML:
@@ -46,7 +55,7 @@ The same, as shown in YAML:
 ```yaml
 customization:
   extensions:
-    - node-exporter
+    - prometheus-node-exporter
     - qemu-guest-agent
 ```
 
@@ -146,7 +155,7 @@ image/schematic/build.sh build/inputs amd64 my-schematic.json out/
 
 ```sh
 make extensions-amd64                         # build the extensions (Docker)
-echo '{"customization":{"extensions":["node-exporter"]}}' > my-schematic.json
+echo '{"customization":{"extensions":["prometheus-node-exporter"]}}' > my-schematic.json
 make disk-image SCHEMATIC=my-schematic.json   # or proxmox-image, iso-image, ...
 go run ./hack/extpack id -schematic my-schematic.json   # its ID
 ```

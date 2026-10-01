@@ -580,7 +580,7 @@ out="$(jpost /api/factory/update '{"extensions":["Not Valid!"]}')"; code="${out#
 [ "$code" = "400" ] || { echo "Dashboard test FAILED: an invalid extension name should be refused with 400, got $code: ${out%$'\n'*}" >&2; exit 1; }
 out="$(jget /api/factory/catalog)"; code="${out##*$'\n'}"; body="${out%$'\n'*}"
 if [ "$code" = "200" ]; then
-  python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["version"] and any(e["name"] == "node-exporter" and e["arches"] for e in d["extensions"])' "$body" 2>/dev/null ||
+  python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["version"] and d["extensions"] and all(e["name"] and e["arches"] for e in d["extensions"])' "$body" 2>/dev/null ||
     { echo "Dashboard test FAILED: extension catalog: $body" >&2; exit 1; }
 elif [ "$code" = "502" ] && grep -q "image factory" <<<"$body"; then
   echo "  (extension catalog: the image factory isn't reachable from here: $body)"

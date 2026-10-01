@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -41,7 +42,7 @@ type ServiceState struct {
 	ID          string
 	Extension   string
 	Description string
-	State       string // "running", "stopped", "restarting", "waiting" (for a WaitFor path)
+	State       string // "running", "stopped", "restarting", "waiting" (for a WaitFor path), "disabled" (by its settings)
 	Restarts    int
 	LastError   string
 }
@@ -53,6 +54,8 @@ type service struct {
 	logs   io.Writer
 
 	mu       sync.Mutex
+	started  bool // Start ran
+	disabled bool // Configure turned it off: Start leaves it stopped
 	want     bool
 	cmd      *exec.Cmd
 	exited   chan struct{} // closed when the current process exits
@@ -94,11 +97,15 @@ func (m *Manager) Start() {
 	for _, id := range m.order {
 		s := m.services[id]
 		s.mu.Lock()
-		s.want = true
+		s.started = true
+		s.want = !s.disabled
 		s.mu.Unlock()
 		go s.run()
 	}
 }
+
+// ErrDisabled is StartService on a service its settings turned off.
+var ErrDisabled = errors.New("the service is disabled by its settings")
 
 // StartService starts a stopped service.
 func (m *Manager) StartService(id string) error {
@@ -107,6 +114,10 @@ func (m *Manager) StartService(id string) error {
 		return errNoService
 	}
 	s.mu.Lock()
+	if s.disabled {
+		s.mu.Unlock()
+		return ErrDisabled
+	}
 	s.want = true
 	s.mu.Unlock()
 	s.poke()
@@ -151,6 +162,35 @@ func (m *Manager) StopAll() {
 	wg.Wait()
 }
 
+// Configure sets the arguments a service runs with and whether it runs
+// at all - its settings, kept by the caller. Before Start, it's how the
+// service starts (or doesn't); after, a running service is restarted
+// with the new arguments, or stopped.
+func (m *Manager) Configure(id string, args []string, enabled bool) error {
+	s, ok := m.services[id]
+	if !ok {
+		return errNoService
+	}
+	s.mu.Lock()
+	changed := !slices.Equal(s.def.Args, args)
+	s.def.Args = slices.Clone(args)
+	s.disabled = !enabled
+	started := s.started
+	s.mu.Unlock()
+	if !started {
+		return nil
+	}
+	if !enabled || changed {
+		if err := m.StopService(id); err != nil {
+			return err
+		}
+	}
+	if enabled {
+		return m.StartService(id)
+	}
+	return nil
+}
+
 // RestartService stops then starts a service.
 func (m *Manager) RestartService(id string) error {
 	if err := m.StopService(id); err != nil {
@@ -175,6 +215,8 @@ func (m *Manager) State(id string) (ServiceState, error) {
 		st.State = "waiting"
 	case s.want:
 		st.State = "restarting"
+	case s.disabled:
+		st.State = "disabled"
 	default:
 		st.State = "stopped"
 	}
@@ -230,7 +272,10 @@ func (s *service) run() {
 			continue
 		}
 
-		cmd := exec.Command(s.def.Path, s.def.Args...)
+		s.mu.Lock()
+		args := slices.Clone(s.def.Args) // Configure may change them
+		s.mu.Unlock()
+		cmd := exec.Command(s.def.Path, args...)
 		cmd.Stdout, cmd.Stderr = s.logs, s.logs
 		started := time.Now()
 		if err := cmd.Start(); err != nil {

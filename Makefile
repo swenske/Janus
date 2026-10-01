@@ -105,14 +105,14 @@ shutdown-bin:
 # with its manifest into build/extensions/extension-<name>-<arch>.tar.
 EXT_DIR := $(BUILD_DIR)/extensions
 
-extension-node-exporter-%:
-	rm -rf $(EXT_DIR)/tree-node-exporter-$*
+extension-prometheus-node-exporter-%:
+	rm -rf $(EXT_DIR)/tree-prometheus-node-exporter-$*
 	docker build --target export --build-arg ARCH=$* \
 		--build-arg NODE_EXPORTER_VERSION=$(NODE_EXPORTER_VERSION) \
 		--build-arg NODE_EXPORTER_SHA256=$(NODE_EXPORTER_SHA256_$*) \
-		-o $(EXT_DIR)/tree-node-exporter-$* extensions/node-exporter
-	go run ./hack/extpack pack -name node-exporter -arch $* -version $(NODE_EXPORTER_VERSION) \
-		-tree $(EXT_DIR)/tree-node-exporter-$* -out $(EXT_DIR)/extension-node-exporter-$*.tar
+		-o $(EXT_DIR)/tree-prometheus-node-exporter-$* extensions/prometheus-node-exporter
+	go run ./hack/extpack pack -name prometheus-node-exporter -arch $* -version $(NODE_EXPORTER_VERSION) \
+		-tree $(EXT_DIR)/tree-prometheus-node-exporter-$* -out $(EXT_DIR)/extension-prometheus-node-exporter-$*.tar
 
 extension-qemu-guest-agent-amd64:
 	rm -rf $(EXT_DIR)/tree-qemu-guest-agent-amd64
@@ -173,14 +173,14 @@ extension-bird-arm64: musl-toolchain-arm64
 	go run ./hack/extpack pack -name bird -arch arm64 -version $(BIRD_VERSION) \
 		-tree $(EXT_DIR)/tree-bird-arm64 -out $(EXT_DIR)/extension-bird-arm64.tar
 
-extensions-amd64: extension-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-keepalived-amd64 extension-bird-amd64
-extensions-arm64: extension-node-exporter-arm64 extension-nftables-arm64 extension-keepalived-arm64 extension-bird-arm64
+extensions-amd64: extension-prometheus-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-keepalived-amd64 extension-bird-amd64
+extensions-arm64: extension-prometheus-node-exporter-arm64 extension-nftables-arm64 extension-keepalived-arm64 extension-bird-arm64
 
 # The extensions a release can build a schematic with.
 schematic-catalog:
 	mkdir -p $(EXT_DIR)
 	go run ./hack/extpack catalog -release $(VERSION) -out $(EXT_DIR)/schematic-catalog.json \
-		node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION) keepalived=$(KEEPALIVED_VERSION) bird=$(BIRD_VERSION)
+		prometheus-node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION) keepalived=$(KEEPALIVED_VERSION) bird=$(BIRD_VERSION)
 
 # What a release publishes so custom schematics can be built from it
 # without rebuilding anything (image/schematic/build.sh): per

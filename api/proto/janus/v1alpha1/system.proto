@@ -89,11 +89,40 @@ service SystemService {
   // can't be bound is refused and the exporter stays as it was.
   rpc MetricsConfigGet(google.protobuf.Empty) returns (MetricsConfigResponse);
   rpc MetricsConfigSet(MetricsConfig) returns (MetricsConfigResponse);
+
+  // The prometheus-node-exporter extension's settings (docs/metrics.md):
+  // whether node_exporter runs, the address and port it listens on, and
+  // its collectors, from a fixed list. Set restarts node_exporter with
+  // them and persists them. FailedPrecondition when the image doesn't
+  // have the extension.
+  rpc NodeExporterConfigGet(google.protobuf.Empty) returns (NodeExporterConfigResponse);
+  rpc NodeExporterConfigSet(NodeExporterConfig) returns (NodeExporterConfigResponse);
 }
 
 message MetricsConfig {
   bool enabled = 1;
   uint32 port = 2; // 0 = the default, 10056
+}
+
+message NodeExporterConfig {
+  bool enabled = 1;
+  string address = 2; // to listen on - empty for every address
+  uint32 port = 3; // 0 = the default, 9100
+  repeated string collectors = 4; // empty = the default ones
+}
+
+message NodeExporterCollector {
+  string name = 1;
+  string description = 2;
+  bool default = 3; // runs unless the settings say otherwise
+}
+
+message NodeExporterConfigResponse {
+  NodeExporterConfig config = 1; // collectors always listed
+  bool is_default = 2; // nothing was ever set
+  repeated NodeExporterCollector available_collectors = 3;
+  string state = 4; // the service's: "running", "disabled", "restarting"...
+  string error = 5; // its last error, when it isn't running as set
 }
 
 message MetricsConfigResponse {

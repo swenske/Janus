@@ -37,7 +37,10 @@ type Manifest struct {
 	Description string `json:"description"`
 	Homepage    string `json:"homepage,omitempty"`
 	// Arches the extension is built for ("amd64", "arm64").
-	Arches   []string  `json:"arches,omitempty"`
+	Arches []string `json:"arches,omitempty"`
+	// Replaces lists the names the extension had before, for the
+	// catalog: a node built with one is offered this one instead.
+	Replaces []string  `json:"replaces,omitempty"`
 	Services []Service `json:"services,omitempty"`
 	// Labels gives the SELinux type of files the extension installs, by
 	// path in the rootfs ("usr/local/sbin/node_exporter":
@@ -73,6 +76,11 @@ func (m *Manifest) Validate() error {
 	}
 	if strings.TrimSpace(m.Version) == "" {
 		return fmt.Errorf("extension %s: no version", m.Name)
+	}
+	for _, old := range m.Replaces {
+		if !schematic.ValidName(old) || old == m.Name {
+			return fmt.Errorf("extension %s: former name %q is invalid", m.Name, old)
+		}
 	}
 	seen := map[string]bool{}
 	for _, s := range m.Services {

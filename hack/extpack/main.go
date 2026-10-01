@@ -231,7 +231,7 @@ func catalog(args []string) {
 		if err := m.Validate(); err != nil {
 			log.Fatal(err)
 		}
-		c.Extensions = append(c.Extensions, schematic.CatalogEntry{Name: m.Name, Version: m.Version, Description: m.Description, Arches: m.Arches, Homepage: m.Homepage})
+		c.Extensions = append(c.Extensions, schematic.CatalogEntry{Name: m.Name, Version: m.Version, Description: m.Description, Arches: m.Arches, Homepage: m.Homepage, Replaces: m.Replaces})
 	}
 	if len(c.Extensions) == 0 {
 		log.Fatal(errors.New("no extension given"))
