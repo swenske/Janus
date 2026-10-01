@@ -121,13 +121,24 @@ jobs:
           roothash="$(cat build/rootfs/rootfs.roothash)"
           veritysetup verify build/rootfs/rootfs.squashfs build/rootfs/rootfs.verity "$roothash"
 
-          cp build/rootfs/rootfs.squashfs /tmp/tampered.squashfs
-          printf '\xFF' | dd of=/tmp/tampered.squashfs bs=1 seek=500000 count=1 conv=notrunc status=none
-          if veritysetup verify /tmp/tampered.squashfs build/rootfs/rootfs.verity "$roothash" 2>/tmp/tamper-check.log; then
+          # Own temp files: the runner's instances share /tmp. The byte is
+          # flipped, not overwritten with a constant - the squashfs differs
+          # every build (janusd's version is in it), and a constant that was
+          # already there tampered nothing (run 36933469653).
+          tampered="$(mktemp)" check="$(mktemp)"
+          trap 'rm -f "$tampered" "$check"' EXIT
+          cp build/rootfs/rootfs.squashfs "$tampered"
+          b="$(od -An -tu1 -j 500000 -N 1 "$tampered" | tr -d ' ')"
+          printf "\\x$(printf %02x $((b ^ 0xFF)))" | dd of="$tampered" bs=1 seek=500000 count=1 conv=notrunc status=none
+          if cmp -s build/rootfs/rootfs.squashfs "$tampered"; then
+            echo "the tampered copy is identical to the image" >&2
+            exit 1
+          fi
+          if veritysetup verify "$tampered" build/rootfs/rootfs.verity "$roothash" 2>"$check"; then
             echo "expected a tampered image to fail verification, it passed" >&2
             exit 1
           fi
-          grep -q "Verification failed" /tmp/tamper-check.log || { echo "expected a verification-failed message, got:" >&2; cat /tmp/tamper-check.log >&2; exit 1; }
+          grep -q "Verification failed" "$check" || { echo "expected a verification-failed message, got:" >&2; cat "$check" >&2; exit 1; }
 
       # Phase 3, second slice: boots the kernel directly from that
       # squashfs+dm-verity image via the "dm-mod.create=" cmdline
