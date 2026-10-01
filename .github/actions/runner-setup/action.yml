@@ -19,7 +19,7 @@ runs:
       # Several jobs share a machine: installed once, and never two apt
       # runs at a time (dpkg's lock would fail the second one).
       run: |
-        pkgs="qemu-system-x86 qemu-utils squashfs-tools cryptsetup-bin e2fsprogs gdisk
+        pkgs="make qemu-system-x86 qemu-utils squashfs-tools cryptsetup-bin e2fsprogs gdisk
           ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware xorriso ipxe
           qemu-system-arm crossbuild-essential-arm64 qemu-efi-aarch64 unzip"
         dpkg -s $pkgs >/dev/null 2>&1 || sudo flock /var/lock/janus-runner-setup.lock sh -c "
