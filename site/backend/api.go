@@ -424,6 +424,11 @@ type update struct {
 	State     string `json:"state"` // ready, building, failed, unavailable
 	Message   string `json:"message,omitempty"`
 	UpToDate  bool   `json:"up_to_date"`
+	// Renamed is set when the newest release offers some of the
+	// schematic's extensions under a new name (old -> new): the update is
+	// built from the migrated schematic, Schematic, not the one asked
+	// about - installing it is a schematic change.
+	Renamed map[string]string `json:"renamed,omitempty"`
 }
 
 func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
@@ -451,6 +456,7 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var target *release
+	targetSC, renamed := sc, map[string]string(nil)
 	for i := range rels { // newest first
 		rel := &rels[i]
 		if id == schematic.DefaultID() {
@@ -464,8 +470,15 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		c, err := a.gh.Catalog(r.Context(), rel.Version)
-		if err == nil && c != nil && c.Check(sc, arch) == nil {
+		if err != nil || c == nil {
+			continue
+		}
+		if c.Check(sc, arch) == nil {
 			target = rel
+			break
+		}
+		if m, rn := c.Migrate(sc); len(rn) > 0 && c.Check(m, arch) == nil {
+			target, targetSC, renamed = rel, m, rn
 			break
 		}
 	}
@@ -473,8 +486,15 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no release offers this schematic's extensions")
 		return
 	}
-	up := update{Schematic: id, Version: target.Version, ReleaseURL: target.URL}
-	up.UpToDate = r.URL.Query().Get("from") == target.Version
+	if renamed != nil {
+		if _, err := a.store.PutSchematic(targetSC); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		id = targetSC.ID()
+	}
+	up := update{Schematic: id, Version: target.Version, ReleaseURL: target.URL, Renamed: renamed}
+	up.UpToDate = r.URL.Query().Get("from") == target.Version && renamed == nil
 
 	if id == schematic.DefaultID() {
 		up.State = "ready"
@@ -499,7 +519,7 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 		}
 	case "none", "failed":
 		// A node asking for its update is reason enough to build it.
-		if err := a.startBuild(r.Context(), sc, target.Version, arch, clientIP(r), st.State == "failed"); err != nil {
+		if err := a.startBuild(r.Context(), targetSC, target.Version, arch, clientIP(r), st.State == "failed"); err != nil {
 			up.Message = err.Error()
 		} else {
 			up.State = "building"

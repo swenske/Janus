@@ -10,12 +10,15 @@ import (
 	"context"
 	"embed"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/swenske/Janus/internal/schematic"
 )
 
 //go:embed all:static
@@ -129,6 +132,11 @@ func (a *app) prebuild(ctx context.Context) {
 			continue
 		}
 		st, sc, _, err := a.status(ctx, id, latest.Version, "amd64")
+		if err == nil && st.State == "unavailable" {
+			// The release may offer the schematic's extensions under new
+			// names: build the migrated schematic its nodes will be offered.
+			st, sc, err = a.migrated(ctx, sc, latest.Version)
+		}
 		if err != nil || st.State != "none" {
 			continue
 		}
@@ -136,6 +144,25 @@ func (a *app) prebuild(ctx context.Context) {
 			log.Printf("prebuild %s %s: %v", id, latest.Version, err)
 		}
 	}
+}
+
+// migrated is the status of sc migrated to the extension names of
+// version's catalog (schematic.Catalog.Migrate), stored - an error when
+// nothing was renamed or the result can't be built.
+func (a *app) migrated(ctx context.Context, sc *schematic.Schematic, version string) (*imageStatus, *schematic.Schematic, error) {
+	c, err := a.gh.Catalog(ctx, version)
+	if err != nil || c == nil {
+		return nil, nil, fmt.Errorf("no catalog for %s", version)
+	}
+	m, renamed := c.Migrate(sc)
+	if len(renamed) == 0 || c.Check(m, "amd64") != nil {
+		return nil, nil, fmt.Errorf("%s offers no migration of %s", version, sc.ID())
+	}
+	if _, err := a.store.PutSchematic(m); err != nil {
+		return nil, nil, err
+	}
+	st, msc, _, err := a.status(ctx, m.ID(), version, "amd64")
+	return st, msc, err
 }
 
 // inUse reports whether a schematic was ever built: only those get their

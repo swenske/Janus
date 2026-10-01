@@ -21,6 +21,7 @@ type fakeGitHub struct {
 	mu         sync.Mutex
 	dispatches []map[string]string
 	runs       []map[string]any
+	catalog    string // v2026.10.02's schematic-catalog.json, if not the default one
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
@@ -40,6 +41,10 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		})
 	})
 	mux.HandleFunc("GET /dl/v2026.10.02/schematic-catalog.json", func(w http.ResponseWriter, _ *http.Request) {
+		if f.catalog != "" {
+			_, _ = io.WriteString(w, f.catalog)
+			return
+		}
 		_, _ = io.WriteString(w, `{"version":"v2026.10.02","extensions":[
 			{"name":"node-exporter","version":"1.12.1","description":"metrics","arches":["amd64","arm64"]},
 			{"name":"qemu-guest-agent","version":"11.1.2","description":"agent","arches":["amd64"]}]}`)
@@ -302,5 +307,51 @@ func TestPrune(t *testing.T) {
 	}
 	if strings.Join(got, ",") != "v2026.09.30-10,v2026.10.01" {
 		t.Errorf("kept %v", got)
+	}
+}
+
+// renamedCatalog is v2026.10.02 offering node-exporter under a new name.
+const renamedCatalog = `{"version":"v2026.10.02","extensions":[
+	{"name":"prometheus-node-exporter","version":"1.12.1","description":"metrics","arches":["amd64","arm64"],"replaces":["node-exporter"]},
+	{"name":"qemu-guest-agent","version":"11.1.2","description":"agent","arches":["amd64"]}]}`
+
+func TestUpdateMigratesRenamedExtensions(t *testing.T) {
+	a, gh, srv := newTestApp(t)
+	gh.catalog = renamedCatalog
+	old, _ := schematic.Parse([]byte(`{"customization":{"extensions":["node-exporter","qemu-guest-agent"]}}`))
+	oldID, _ := a.store.PutSchematic(old)
+	want, _ := schematic.Parse([]byte(`{"customization":{"extensions":["prometheus-node-exporter","qemu-guest-agent"]}}`))
+
+	var up update
+	if code := call(t, "GET", srv.URL+"/api/v1/updates/"+oldID+"?from=v2026.10.02", "", &up); code != http.StatusOK {
+		t.Fatalf("updates: %d", code)
+	}
+	if up.Schematic != want.ID() || up.Renamed["node-exporter"] != "prometheus-node-exporter" || up.Version != "v2026.10.02" {
+		t.Fatalf("update = %+v", up)
+	}
+	if up.UpToDate {
+		t.Error("a rename isn't up to date, even on the same release")
+	}
+	if up.State != "building" || len(gh.dispatches) != 1 || !strings.Contains(gh.dispatches[0]["schematic"], "prometheus-node-exporter") {
+		t.Fatalf("update %+v, dispatches %v", up, gh.dispatches)
+	}
+	if _, err := a.store.Schematic(want.ID()); err != nil {
+		t.Fatalf("the migrated schematic isn't stored: %v", err)
+	}
+}
+
+func TestPrebuildMigratesRenamedExtensions(t *testing.T) {
+	a, gh, _ := newTestApp(t)
+	gh.catalog = renamedCatalog
+	old, _ := schematic.Parse([]byte(`{"customization":{"extensions":["node-exporter"]}}`))
+	oldID, _ := a.store.PutSchematic(old)
+	// In use: an image of it was built for an older release.
+	dir := filepath.Join(a.store.dir, "images", oldID, "v2026.10.01-2")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a.prebuild(t.Context())
+	if len(gh.dispatches) != 1 || !strings.Contains(gh.dispatches[0]["schematic"], `"prometheus-node-exporter"`) {
+		t.Fatalf("dispatches = %v", gh.dispatches)
 	}
 }
