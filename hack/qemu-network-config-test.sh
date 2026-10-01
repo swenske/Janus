@@ -87,6 +87,7 @@ qemu-system-x86_64 -accel kvm -accel tcg \
   -append "console=ttyS0 panic=-1 dm-mod.create=\"$("$HERE/dm-verity-cmdline.sh" "$ROOTFS_DIR" /dev/vda2 /dev/vda3)\" root=/dev/dm-0 rootfstype=squashfs ro ip=:::::eth0:dhcp enforcing=1" \
   -nographic -display none -m 512M \
   -rtc base=2020-01-01T00:00:00 \
+  -cpu qemu64,-kvmclock \
   -drive file="$DISK",format=raw,if=virtio \
   -netdev "user,id=net0,hostfwd=tcp::${P_HTTP}-:8080,hostfwd=tcp::${P_GRPC}-:9505" \
   -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:01 \
