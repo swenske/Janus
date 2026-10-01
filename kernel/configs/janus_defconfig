@@ -235,6 +235,15 @@
 # remapping on, lazy), CPU_FREQ with schedutil and the Intel/AMD pstate
 # drivers, TREE_RCU, I2C (NIC sensors) - nothing unrelated.
 #
+# prometheus-node-exporter (2026-10-01): what its collectors read, found
+# by turning every one on under QEMU (node_scrape_collector_success 0) -
+# PSI (/proc/pressure, the default "pressure" collector: it never
+# reported anything before), DMIID (/sys/class/dmi/id, the "dmi"
+# collector) and NF_CONNTRACK_PROCFS (the conntrack table's statistics).
+# `scripts/config --enable`, olddefconfig: the full resolved diff is
+# exactly those three (PSI_DEFAULT_DISABLED stays unset).
+#   CONFIG_PSI=y CONFIG_DMIID=y CONFIG_NF_CONNTRACK_PROCFS=y
+#
 # Deliberately the FULL resolved config (every symbol explicit), not a
 # compact savedefconfig diff: a diff format resolves unlisted symbols
 # against the kernel's own defconfig-derived defaults, which would
@@ -375,7 +384,8 @@ CONFIG_TICK_CPU_ACCOUNTING=y
 # CONFIG_IRQ_TIME_ACCOUNTING is not set
 # CONFIG_BSD_PROCESS_ACCT is not set
 # CONFIG_TASKSTATS is not set
-# CONFIG_PSI is not set
+CONFIG_PSI=y
+# CONFIG_PSI_DEFAULT_DISABLED is not set
 # end of CPU/Task time and stats accounting
 
 CONFIG_CPU_ISOLATION=y
@@ -1252,7 +1262,7 @@ CONFIG_NETFILTER_CONNCOUNT=y
 # CONFIG_NF_CONNTRACK_MARK is not set
 # CONFIG_NF_CONNTRACK_SECMARK is not set
 # CONFIG_NF_CONNTRACK_ZONES is not set
-# CONFIG_NF_CONNTRACK_PROCFS is not set
+CONFIG_NF_CONNTRACK_PROCFS=y
 # CONFIG_NF_CONNTRACK_EVENTS is not set
 # CONFIG_NF_CONNTRACK_TIMEOUT is not set
 # CONFIG_NF_CONNTRACK_TIMESTAMP is not set
@@ -1549,7 +1559,7 @@ CONFIG_GENERIC_CPU_VULNERABILITIES=y
 
 # CONFIG_EDD is not set
 CONFIG_FIRMWARE_MEMMAP=y
-# CONFIG_DMIID is not set
+CONFIG_DMIID=y
 # CONFIG_DMI_SYSFS is not set
 CONFIG_DMI_SCAN_MACHINE_NON_EFI_FALLBACK=y
 # CONFIG_ISCSI_IBFT is not set

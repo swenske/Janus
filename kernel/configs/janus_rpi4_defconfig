@@ -267,6 +267,13 @@
 #   CONFIG_IP_MULTICAST=y
 #   CONFIG_TCP_MD5SIG=y
 #
+# prometheus-node-exporter (2026-10-01): PSI (the default "pressure"
+# collector) and NF_CONNTRACK_PROCFS (conntrack's statistics), like
+# janus_defconfig - the full resolved diff is exactly those two
+# (olddefconfig with CROSS_COMPILE=aarch64-linux-gnu-; DMIID has no DMI
+# to describe here).
+#   CONFIG_PSI=y CONFIG_NF_CONNTRACK_PROCFS=y
+#
 ##
 #
 # Automatically generated file; DO NOT EDIT.
@@ -380,7 +387,8 @@ CONFIG_TICK_CPU_ACCOUNTING=y
 # CONFIG_IRQ_TIME_ACCOUNTING is not set
 # CONFIG_BSD_PROCESS_ACCT is not set
 # CONFIG_TASKSTATS is not set
-# CONFIG_PSI is not set
+CONFIG_PSI=y
+# CONFIG_PSI_DEFAULT_DISABLED is not set
 # end of CPU/Task time and stats accounting
 
 # CONFIG_CPU_ISOLATION is not set
@@ -1227,7 +1235,7 @@ CONFIG_NF_LOG_SYSLOG=y
 CONFIG_NETFILTER_CONNCOUNT=y
 # CONFIG_NF_CONNTRACK_MARK is not set
 # CONFIG_NF_CONNTRACK_ZONES is not set
-# CONFIG_NF_CONNTRACK_PROCFS is not set
+CONFIG_NF_CONNTRACK_PROCFS=y
 # CONFIG_NF_CONNTRACK_EVENTS is not set
 # CONFIG_NF_CONNTRACK_TIMEOUT is not set
 # CONFIG_NF_CONNTRACK_TIMESTAMP is not set
