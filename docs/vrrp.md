@@ -33,13 +33,20 @@ vrrp_instance VI_1 {
 }
 ```
 
-- **HAProxy's health**: janusd checks every 2 seconds that HAProxy answers
-  on its stats socket - and isn't being stopped: a soft stop closes the
-  listeners before the process exits - and writes `0` or `1` into
+- **HAProxy's health**: janusd checks every 2 seconds - and at once when
+  HAProxy starts, stops or exits - that HAProxy answers on its stats
+  socket and isn't being stopped, and writes `0` or `1` into
   `/run/janus/keepalived/haproxy-health`. Tracked with `weight 0`, a `1`
   puts the instance in FAULT: the node gives its virtual IPs up until
   HAProxy answers again. keepalived can't run scripts on a Janus node
   (there's no shell) - this file is how it follows HAProxy.
+- **A deliberate stop drains first**: stopping HAProxy (`janusctl system
+  service stop haproxy`), rebooting or shutting the node down, and the
+  reboot that ends an update or a rollback all mark HAProxy unhealthy at
+  once - the node gives its virtual IPs up - then keep its listeners open
+  for `janusd -haproxy-drain` (2 seconds) before the soft stop: the
+  traffic has moved to another node before any connection is refused. A
+  rolling update therefore needs no manual step to keep the service up.
 - The interface needs an address of its own on the VRRP network - set it
   with the [network configuration](network-configuration.md).
 - With the [firewall](firewall.md), accept VRRP: `ip protocol 112 accept`

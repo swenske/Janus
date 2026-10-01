@@ -36,12 +36,19 @@ protocol bgp upstream {
 - **HAProxy's health**: every protocol whose name starts with
   `haproxy_` is kept down while this node's HAProxy doesn't answer - on
   its stats socket, and from the moment janusd begins stopping it. janusd
-  checks every second and disables those protocols over BIRD's control
-  socket; once HAProxy answers again, it enables the ones it disabled. A
+  checks every second - and at once when HAProxy starts, stops or exits -
+  and disables those protocols over BIRD's control socket; once HAProxy
+  answers again, it enables the ones it disabled. A
   `haproxy_*` static protocol therefore takes its routes - and the BGP
   announcements exporting them - off the network while HAProxy can't
   serve them. A `haproxy_*` BGP session would itself go down. A protocol
   your `bird.conf` disables (`disabled;`) is left alone.
+- **A deliberate stop drains first**: stopping HAProxy, rebooting or
+  shutting the node down, and the reboot that ends an update or a
+  rollback withdraw the `haproxy_*` routes at once, then keep HAProxy's
+  listeners open for `janusd -haproxy-drain` (2 seconds) before the soft
+  stop - the routers have moved the traffic before any connection is
+  refused.
 - The anycast address must also be an address of the node, for HAProxy to
   receive its traffic: add it to an interface (as a `/32`) with the
   [network configuration](network-configuration.md), and bind HAProxy to it.
