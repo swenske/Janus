@@ -831,7 +831,10 @@ jobs:
   publish:
     name: Images and release
     needs: [test-boot, test-lifecycle, test-api, test-network, test-hardware]
-    runs-on: [self-hosted, docker, janus]
+    # Only on runners labeled janus-publish: what this job builds is
+    # published (and its release bundle signed) - never from a machine
+    # that isn't trusted to build bit-exact (docs/ci-runners.md).
+    runs-on: [self-hosted, docker, janus, janus-publish]
     # contents: write is only for the optional "Publish a real GitHub
     # Release" step at the very end (gated on release_version being
     # set).

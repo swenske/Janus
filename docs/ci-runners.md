@@ -23,6 +23,10 @@ self-hosted runners, labeled `self-hosted, docker, janus`.
   4 s with KVM against 13 s emulated. arm64 guests are always emulated.
 - **Tests that share host paths** (the native janusd and HAProxy ones)
   are all in `test-api`, so two of them never run at once.
+- **What gets published is built only on trusted runners**: `publish`,
+  `schematic-build.yml` (images users download, signed) and
+  `site-deploy.yml` also need the label `janus-publish`. A runner without
+  it only ever runs test jobs: at worst a problem on it fails a test.
 
 A full run takes about 6 minutes, against 25 when it was one job,
 emulated.
@@ -33,10 +37,10 @@ Each machine is an unprivileged LXC container on a Proxmox host and runs
 several runner instances - one job each - named `<machine>`,
 `<machine>-2`, `<machine>-3`...
 
-| Machine | Instances | Size |
-|---|---|---|
-| `janus-runner01` | 5 | 12 cores, 24 GB, 64 GB disk |
-| `janus-runner02` | 2 | 8 cores, 12 GB, 64 GB disk - paused, see below |
+| Machine | Instances | Labels | Size |
+|---|---|---|---|
+| `janus-runner01` | 5 | `docker`, `janus`, `janus-publish` | 12 cores, 24 GB, 64 GB disk |
+| `janus-runner02` | 2 | `docker`, `janus` - tests only, see below | 8 cores, 12 GB, 64 GB disk |
 
 **Instances on a machine never share a port.** Each instance's `.env`
 (next to its `config.sh`) sets `JANUS_TEST_PORT_OFFSET` - 0, 2000, 4000,
@@ -44,17 +48,12 @@ several runner instances - one job each - named `<machine>`,
 18080-19530 with no offset, so instances must stay 2000 apart; the
 highest offset must keep ports below 32768 (Linux's ephemeral range).
 
-`janus-runner02` is paused (its two services stopped and disabled, the
-container kept): its host's memory flips bits - corrupted downloads that
-had passed their checksum, compilers crashing with `fatal error: fault`,
-random segfaults on the host. A runner there would make tests fail at
-random and could publish corrupted images. Restart its services once
-the host's memory has passed a memory test:
-
-```sh
-sudo systemctl enable --now actions.runner.swenske-Janus.janus-runner02.service \
-  actions.runner.swenske-Janus.janus-runner02-2.service
-```
+`janus-runner02` runs tests only: its host's memory has been flipping
+bits (corrupted downloads that had passed their checksum, compilers
+crashing with `fatal error: fault`, a host that ended up hanging), so
+nothing it builds is ever published. Its container was rebuilt from
+scratch after the host's crash. Give it `janus-publish` only once the
+host's memory has passed a memory test.
 
 ## Setting up a runner machine
 

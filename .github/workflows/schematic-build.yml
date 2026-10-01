@@ -47,7 +47,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: [self-hosted, docker, janus]
+    # janus-publish runners only: it builds and signs images users download (docs/ci-runners.md).
+    runs-on: [self-hosted, docker, janus, janus-publish]
     timeout-minutes: 90
     steps:
       - name: Check the request

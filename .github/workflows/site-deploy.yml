@@ -25,7 +25,8 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, docker, janus]
+    # janus-publish runners only: it builds and deploys the site's binary (docs/ci-runners.md).
+    runs-on: [self-hosted, docker, janus, janus-publish]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
