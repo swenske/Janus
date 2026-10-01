@@ -72,6 +72,10 @@ func (f *fakeStatsSocket) serve(conn net.Conn) {
 	switch {
 	case strings.HasPrefix(cmd, "commit ssl cert"), strings.HasPrefix(cmd, "add ssl crt-list"):
 		_, _ = conn.Write([]byte("Success!\n"))
+	case strings.HasPrefix(cmd, "set ssl cert "):
+		// HAProxy 3.4's own reply.
+		name, _, _ := strings.Cut(strings.TrimPrefix(cmd, "set ssl cert "), " ")
+		_, _ = conn.Write([]byte("Transaction created for certificate " + name + "!\n\n"))
 	case strings.HasPrefix(cmd, "del ssl cert"):
 		_, _ = conn.Write([]byte("Certificate deleted!\n"))
 	case strings.HasPrefix(cmd, "show map "):

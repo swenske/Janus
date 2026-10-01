@@ -15,7 +15,7 @@ func TestParseShowInfo(t *testing.T) {
 	got := parseShowInfo(string(data))
 	want := Info{
 		Version: "3.4.0-64a335366", UptimeSeconds: 1, CurrentConnections: 0, MaxConnections: 524259,
-		CumulativeConnections: 4, CumulativeRequests: 4, ConnectionRate: 3, SessionRate: 3, IdlePercent: 100,
+		CumulativeConnections: 4, CumulativeRequests: 4, ConnectionRate: 3, SessionRate: 3, IdlePercent: 100, Pid: 150096,
 	}
 	if *got != want {
 		t.Errorf("parseShowInfo =\n%+v, want\n%+v", *got, want)

@@ -109,8 +109,15 @@ func (m *Manager) CertificateUpload(name string, pemBundle []byte, crtList strin
 	// cert that's already in the store, which is fine.
 	_, _ = m.statsCommand("new ssl cert " + certArg)
 
-	if _, err := m.statsCommand("set ssl cert " + certArg + " <<\n" + payload); err != nil {
+	setOut, err := m.statsCommand("set ssl cert " + certArg + " <<\n" + payload)
+	if err != nil {
 		return fmt.Errorf("stage certificate: %w", err)
+	}
+	// "Transaction created for certificate x!" or "Transaction updated
+	// ..." - anything else (another certificate's transaction still open,
+	// an unreadable bundle) means nothing was staged.
+	if !strings.Contains(string(setOut), "Transaction created") && !strings.Contains(string(setOut), "Transaction updated") {
+		return fmt.Errorf("stage certificate %s: %s", name, strings.TrimSpace(string(setOut)))
 	}
 
 	commitOut, err := m.statsCommand("commit ssl cert " + certArg)

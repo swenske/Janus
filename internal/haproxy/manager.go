@@ -208,7 +208,28 @@ func (m *Manager) startOrReload() error {
 		log.Printf("haproxy: write %s: %v", m.PidPath, err)
 	}
 	events.Publish("haproxy.started", map[string]any{"pid": cmd.Process.Pid, "args": args})
+	m.waitAnswering(p)
 	return nil
+}
+
+// takeoverTimeout bounds how long a start or reload waits for the new
+// process to answer on the stats socket.
+const takeoverTimeout = 5 * time.Second
+
+// waitAnswering waits until p is the process answering on the stats
+// socket (or it exits, or takeoverTimeout passes). Right after a reload
+// the old process can still answer: runtime commands sent then would
+// reach it - a certificate staged in the old process and committed in
+// the new one fails with "No ongoing transaction", seen on the CI runner.
+// Called with mu held.
+func (m *Manager) waitAnswering(p *process) {
+	deadline := time.Now().Add(takeoverTimeout)
+	for time.Now().Before(deadline) && !p.exited() {
+		if out, err := m.statsCommand("show info"); err == nil && parseShowInfo(string(out)).Pid == p.cmd.Process.Pid {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 // previousPID is the haproxy a new one must take over from (-sf): the one
@@ -283,6 +304,7 @@ type Info struct {
 	ConnectionRate        uint32
 	SessionRate           uint32
 	IdlePercent           uint32
+	Pid                   int // the process answering
 }
 
 // ShowInfo runs the stats socket's "show info" command.
@@ -308,6 +330,8 @@ func parseShowInfo(out string) *Info {
 		switch key {
 		case "Version":
 			info.Version = value
+		case "Pid":
+			info.Pid = int(u64())
 		case "Uptime_sec":
 			info.UptimeSeconds = u64()
 		case "CurrConns":
