@@ -453,9 +453,11 @@ jobs:
       # Host-level check of the gRPC API surface itself (ApplyConfig/
       # ShowInfo/...) - faster than going through QEMU for this, and
       # exercises paths (ApplyConfig's seamless reload) the network boot
-      # test above doesn't touch.
+      # test doesn't touch. The two steps below run janusd and HAProxy
+      # straight from bin/ and build/: built here, since no make target
+      # in this job does it before them.
       - name: Build control-plane binaries
-        run: make build
+        run: make build haproxy-build
 
       - name: HAProxy gRPC API integration test (mTLS)
         run: |
