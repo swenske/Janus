@@ -680,6 +680,13 @@ jobs:
       - name: Optional extensions and image schematics
         run: make qemu-extensions-test
 
+      # The firewall (nftables extension) on a real enforcing node: a
+      # ruleset checked, applied on trial and confirmed over a new
+      # connection, filtering for real; a lockout reverted by itself; sets
+      # edited live and kept across a reboot. See hack/qemu-firewall-test.sh.
+      - name: Firewall - nftables ruleset on trial, live sets
+        run: make qemu-firewall-test
+
       - name: Rebuild the default image after the extensions test
         run: make disk-image
 
