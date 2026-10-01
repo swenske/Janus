@@ -67,7 +67,14 @@ KEEPALIVED_SHA256  := 6afd95ddb7d3e0d3b8b8e5b3a489144131b61a01b06d29e883d0c44acc
 QEMU_VERSION := 11.1.2
 QEMU_SHA256  := 731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016
 
-BIRD_VERSION       :=
+# BIRD for the BGP extension: the 2.x branch, single-threaded and still
+# maintained - BIRD 3.3.2 (multithreaded) aborted on an assertion
+# (birdloop_inside, nest/proto.c) when reconfigured with a protocol
+# disabled from its CLI, which janusd's HAProxy gate does. BIRD doesn't
+# sign its releases: this tarball (bird.nic.cz) matches FreeBSD ports'
+# pinned sha256 and size for the same version.
+BIRD_VERSION := 2.19.2
+BIRD_SHA256  := aff89abba3b92b7637bd57e0168b8d7ae887747f160ada4973378ad72f5f3660
 
 # Real Raspberry Pi 4/5 hardware follow-up (2026-09-29): the SBBR-
 # compliant (UEFI+ACPI) firmware image/rpi-uefi/assemble.sh bundles

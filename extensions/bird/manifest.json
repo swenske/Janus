@@ -1,0 +1,23 @@
+{
+  "name": "bird",
+  "description": "BGP (and OSPF, BFD, static routes) with BIRD: announce the node's addresses to the network - an anycast address withdrawn while HAProxy doesn't answer. bird.conf managed through the API and the Controller, validated by BIRD before it's applied.",
+  "homepage": "https://bird.nic.cz",
+  "arches": ["amd64", "arm64"],
+  "services": [
+    {
+      "id": "bird",
+      "description": "Routing protocols of /run/janus/bird/bird.conf",
+      "path": "/usr/local/sbin/bird",
+      "args": [
+        "-f",
+        "-c", "/run/janus/bird/bird.conf",
+        "-s", "/run/janus/bird/bird.ctl",
+        "-P", "/run/janus/bird/bird.pid"
+      ],
+      "wait_for": ["/run/janus/bird/bird.conf"]
+    }
+  ],
+  "selinux_labels": {
+    "usr/local/sbin/bird": "bird_exec_t"
+  }
+}

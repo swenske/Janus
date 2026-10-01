@@ -35,6 +35,10 @@ type Module struct {
 	// CheckArgs are the arguments that make Binary check the file at
 	// path; a nonzero exit means it's refused, its output says why.
 	CheckArgs func(path string) []string
+	// Runtime, if set, turns the saved configuration into the one the
+	// daemon reads (bird.conf gains a log statement when it has none).
+	// What's checked and saved is the operator's text, unchanged.
+	Runtime func(config string) string
 }
 
 // Available reports whether the daemon is in the image.
@@ -124,7 +128,14 @@ func (m *Module) Save(config string) error {
 	if err := writeAtomic(Dir, m.File, []byte(config), true); err != nil {
 		return err
 	}
-	return writeAtomic(m.RunDir, m.File, []byte(config), false)
+	return writeAtomic(m.RunDir, m.File, []byte(m.runtime(config)), false)
+}
+
+func (m *Module) runtime(config string) string {
+	if m.Runtime == nil {
+		return config
+	}
+	return m.Runtime(config)
 }
 
 // Boot copies the saved configuration where the daemon reads it, if
@@ -137,7 +148,7 @@ func (m *Module) Boot() error {
 	if err != nil || isDefault {
 		return err
 	}
-	return writeAtomic(m.RunDir, m.File, []byte(config), false)
+	return writeAtomic(m.RunDir, m.File, []byte(m.runtime(config)), false)
 }
 
 func writeAtomic(dir, name string, data []byte, sync bool) error {

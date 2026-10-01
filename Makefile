@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-extensions-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-extensions-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -157,14 +157,30 @@ extension-keepalived-arm64: musl-toolchain-arm64
 	go run ./hack/extpack pack -name keepalived -arch arm64 -version $(KEEPALIVED_VERSION) \
 		-tree $(EXT_DIR)/tree-keepalived-arm64 -out $(EXT_DIR)/extension-keepalived-arm64.tar
 
-extensions-amd64: extension-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-keepalived-amd64
-extensions-arm64: extension-node-exporter-arm64 extension-nftables-arm64 extension-keepalived-arm64
+BIRD_BUILD_ARGS = --build-arg BIRD_VERSION=$(BIRD_VERSION) --build-arg BIRD_SHA256=$(BIRD_SHA256)
+
+extension-bird-amd64:
+	rm -rf $(EXT_DIR)/tree-bird-amd64
+	docker build --target export $(BIRD_BUILD_ARGS) -o $(EXT_DIR)/tree-bird-amd64 extensions/bird
+	go run ./hack/extpack pack -name bird -arch amd64 -version $(BIRD_VERSION) \
+		-tree $(EXT_DIR)/tree-bird-amd64 -out $(EXT_DIR)/extension-bird-amd64.tar
+
+extension-bird-arm64: musl-toolchain-arm64
+	rm -rf $(EXT_DIR)/tree-bird-arm64
+	docker build --target export-arm64 $(BIRD_BUILD_ARGS) \
+		--build-context musltoolchain=$(BUILD_DIR)/musl-toolchain-arm64 \
+		-o $(EXT_DIR)/tree-bird-arm64 extensions/bird
+	go run ./hack/extpack pack -name bird -arch arm64 -version $(BIRD_VERSION) \
+		-tree $(EXT_DIR)/tree-bird-arm64 -out $(EXT_DIR)/extension-bird-arm64.tar
+
+extensions-amd64: extension-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-keepalived-amd64 extension-bird-amd64
+extensions-arm64: extension-node-exporter-arm64 extension-nftables-arm64 extension-keepalived-arm64 extension-bird-arm64
 
 # The extensions a release can build a schematic with.
 schematic-catalog:
 	mkdir -p $(EXT_DIR)
 	go run ./hack/extpack catalog -release $(VERSION) -out $(EXT_DIR)/schematic-catalog.json \
-		node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION) keepalived=$(KEEPALIVED_VERSION)
+		node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION) keepalived=$(KEEPALIVED_VERSION) bird=$(BIRD_VERSION)
 
 # What a release publishes so custom schematics can be built from it
 # without rebuilding anything (image/schematic/build.sh): per
