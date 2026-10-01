@@ -38,6 +38,23 @@ OPENSSL_VERSION     := 3.5.4
 NODE_EXPORTER_VERSION      := 1.12.1
 NODE_EXPORTER_SHA256_amd64 := b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63
 NODE_EXPORTER_SHA256_arm64 := ad35b605f9954b9f1ffddf5ba054bdc5a98d790b9eae5291e1eeb83f1ecbd0e7
+# nftables for the firewall extension: netfilter.org release tarballs,
+# sha256 pinned after checking their GPG signatures - libnftnl and
+# nftables by the Netfilter Core Team key
+# 8C5F7146A1757A65E2422A94D70D1A666ACF2B21 (certified by its predecessor
+# 37D964ACC04981C75500FB9BD55D978A8A1420E4, which signed libmnl 1.0.5;
+# also the key Debian's nftables package pins).
+LIBMNL_VERSION   := 1.0.5
+LIBMNL_SHA256    := 274b9b919ef3152bfb3da3a13c950dd60d6e2bcd54230ffeca298d03b40d0525
+LIBNFTNL_VERSION := 1.3.2
+LIBNFTNL_SHA256  := c97abc3409f8fa396b4462b2bb7f147a3a47a4ddc97cfa0b2f18890c9cfde8b0
+NFTABLES_VERSION := 1.1.7
+NFTABLES_SHA256  := a6fbf060d8d4fff001517a2b94f356bb4366bfbf0ba366366f9d27cc38caa58f
+# jansson, for nft's JSON output: signed by its author, Petri Lehtinen
+# (B5D6953E6D5059ED7ADA0F2FD3657D24D058434C).
+JANSSON_VERSION  := 2.15.1
+JANSSON_SHA256   := 0c7114dc0b2d22a670724a1f95922029d7077c19dbf79a584cb8084d2f267f2f
+
 # QEMU source for qemu-ga: sha256 of the tarball, pinned after checking its
 # GPG signature (release key CEACC9E15534EBABB82D3FA03353C9CEF108B584,
 # Michael Roth).

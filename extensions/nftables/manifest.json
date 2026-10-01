@@ -1,0 +1,9 @@
+{
+  "name": "nftables",
+  "description": "Firewall: the node's nftables ruleset, managed through the API and the Controller - validated before it's applied, applied on trial with an automatic revert if it cuts the node off, kept across reboots. Named sets (block lists, allow lists) are editable live, without reloading the ruleset.",
+  "homepage": "https://netfilter.org/projects/nftables/",
+  "arches": ["amd64", "arm64"],
+  "selinux_labels": {
+    "usr/local/sbin/nft": "nft_exec_t"
+  }
+}

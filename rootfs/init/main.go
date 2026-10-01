@@ -87,7 +87,9 @@ func mountEphemeral() {
 	for _, path := range etcSeedFiles {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			fmt.Printf("init: read %s before /etc overlay: %v\n", path, err)
+			if !os.IsNotExist(err) || !etcOptionalFiles[path] {
+				fmt.Printf("init: read %s before /etc overlay: %v\n", path, err)
+			}
 			continue
 		}
 		mode := os.FileMode(0o644)
@@ -118,7 +120,11 @@ func mountEphemeral() {
 var etcSeedFiles = []string{
 	"/etc/haproxy/haproxy.cfg",
 	"/etc/ssl/certs/ca-certificates.crt",
+	"/etc/services", // from the nftables extension: service names in rulesets
 }
+
+// etcOptionalFiles are seed files an image may not have.
+var etcOptionalFiles = map[string]bool{"/etc/services": true}
 
 // mountState mounts the pre-formatted, persistent STATE partition (see
 // rootfs/state-image.sh) once at /mnt/state, then bind-mounts its pki/

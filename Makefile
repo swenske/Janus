@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-extensions-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-extensions-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -122,14 +122,33 @@ extension-qemu-guest-agent-amd64:
 	go run ./hack/extpack pack -name qemu-guest-agent -arch amd64 -version $(QEMU_VERSION) \
 		-tree $(EXT_DIR)/tree-qemu-guest-agent-amd64 -out $(EXT_DIR)/extension-qemu-guest-agent-amd64.tar
 
-extensions-amd64: extension-node-exporter-amd64 extension-qemu-guest-agent-amd64
-extensions-arm64: extension-node-exporter-arm64
+NFTABLES_BUILD_ARGS = --build-arg LIBMNL_VERSION=$(LIBMNL_VERSION) --build-arg LIBMNL_SHA256=$(LIBMNL_SHA256) \
+	--build-arg LIBNFTNL_VERSION=$(LIBNFTNL_VERSION) --build-arg LIBNFTNL_SHA256=$(LIBNFTNL_SHA256) \
+	--build-arg NFTABLES_VERSION=$(NFTABLES_VERSION) --build-arg NFTABLES_SHA256=$(NFTABLES_SHA256) \
+	--build-arg JANSSON_VERSION=$(JANSSON_VERSION) --build-arg JANSSON_SHA256=$(JANSSON_SHA256)
+
+extension-nftables-amd64:
+	rm -rf $(EXT_DIR)/tree-nftables-amd64
+	docker build --target export $(NFTABLES_BUILD_ARGS) -o $(EXT_DIR)/tree-nftables-amd64 extensions/nftables
+	go run ./hack/extpack pack -name nftables -arch amd64 -version $(NFTABLES_VERSION) \
+		-tree $(EXT_DIR)/tree-nftables-amd64 -out $(EXT_DIR)/extension-nftables-amd64.tar
+
+extension-nftables-arm64: musl-toolchain-arm64
+	rm -rf $(EXT_DIR)/tree-nftables-arm64
+	docker build --target export-arm64 $(NFTABLES_BUILD_ARGS) \
+		--build-context musltoolchain=$(BUILD_DIR)/musl-toolchain-arm64 \
+		-o $(EXT_DIR)/tree-nftables-arm64 extensions/nftables
+	go run ./hack/extpack pack -name nftables -arch arm64 -version $(NFTABLES_VERSION) \
+		-tree $(EXT_DIR)/tree-nftables-arm64 -out $(EXT_DIR)/extension-nftables-arm64.tar
+
+extensions-amd64: extension-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64
+extensions-arm64: extension-node-exporter-arm64 extension-nftables-arm64
 
 # The extensions a release can build a schematic with.
 schematic-catalog:
 	mkdir -p $(EXT_DIR)
 	go run ./hack/extpack catalog -release $(VERSION) -out $(EXT_DIR)/schematic-catalog.json \
-		node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION)
+		node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION)
 
 # What a release publishes so custom schematics can be built from it
 # without rebuilding anything (image/schematic/build.sh): per
@@ -713,6 +732,13 @@ qemu-extensions-test: build extensions-amd64
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
 	JANUS_SCHEMATIC=$$(go run ./hack/extpack id -schematic $(SCHEMATIC)) \
 	./hack/qemu-extensions-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl $(SCHEMATIC)
+
+# The firewall (nftables extension) on a real enforcing node - see the
+# script's header.
+qemu-firewall-test: SCHEMATIC = hack/testdata/schematic-firewall.json
+qemu-firewall-test: build extension-nftables-amd64
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	./hack/qemu-firewall-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
 qemu-system-api-test: build disk-image
 	./hack/qemu-system-api-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
