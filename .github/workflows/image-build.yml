@@ -1003,6 +1003,11 @@ jobs:
       # second secret to manage.
       - name: Build the dashboard Docker image
         run: make dashboard-image
+      # The Controller updating itself (janus-controller-updater), with
+      # real Docker Compose set up the way dashboard/README.md documents
+      # it - before anything is published.
+      - name: Controller self-update test (Docker Compose)
+        run: make controller-self-update-test
       # User-flagged real gap (2026-09-29, alongside remote-update Phase
       # 4): only `latest`/`<git-sha>` were ever pushed - no tag on
       # Docker Hub ever corresponded to a real release version, even
@@ -1028,6 +1033,15 @@ jobs:
           if [ -n "${{ inputs.release_version }}" ]; then
             docker tag janus-controller swenske/janus-controller:${{ inputs.release_version }}
             docker push swenske/janus-controller:${{ inputs.release_version }}
+            # The release names the exact image it ships: a Controller
+            # updating itself (dashboard/updater) runs it pinned to this
+            # digest, whatever later happens to the tag.
+            digest=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' swenske/janus-controller:${{ inputs.release_version }} | sed -n 's|^swenske/janus-controller@||p' | head -1)
+            image="swenske/janus-controller:${{ inputs.release_version }}@$digest"
+            [[ "$image" =~ ^swenske/janus-controller:v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?@sha256:[0-9a-f]{64}$ ]] \
+              || { echo "::error::no digest for the pushed Controller image: $image"; exit 1; }
+            mkdir -p build/release
+            echo "$image" > build/release/controller-image.txt
           fi
           docker logout
 
@@ -1149,6 +1163,7 @@ jobs:
             build/release/rootfs.verity
             build/release/uki-a.efi
             build/release/uki-b.efi
+            build/release/controller-image.txt
             build/janus.qcow2
             build/janus-kvm.qcow2
             build/janus.vmdk
