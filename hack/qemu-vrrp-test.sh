@@ -21,7 +21,7 @@ export PATH="$PATH:/usr/sbin:/sbin"
 SRC_DISK="${1:?usage: $0 <disk.img> <janusctl-bin>}"
 CTL_BIN="${2:?usage: $0 <disk.img> <janusctl-bin>}"
 TIMEOUT="${QEMU_VRRP_TIMEOUT:-90}"
-BASE="${QEMU_VRRP_BASE_PORT:-18500}"
+BASE="${QEMU_VRRP_BASE_PORT:-$((18500 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MCAST="${QEMU_VRRP_MCAST:-230.0.0.$((RANDOM % 200 + 20)):$((20000 + RANDOM % 20000))}"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
@@ -47,7 +47,7 @@ node() {
   local n=$1 i=$2
   cp "$SRC_DISK" "$WORKDIR/$n.img"
   cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/$n.vars"
-  qemu-system-x86_64 \
+  qemu-system-x86_64 -accel kvm -accel tcg \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$WORKDIR/$n.vars" \
     -drive file="$WORKDIR/$n.img",format=raw,if=virtio \

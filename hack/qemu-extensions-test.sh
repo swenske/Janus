@@ -30,7 +30,7 @@ CTL_BIN="${4:?}"
 SCHEMATIC_FILE="${5:?}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BOOT_TIMEOUT_SECS="${QEMU_EXT_BOOT_TIMEOUT:-90}"
-BASE_PORT="${QEMU_EXT_TEST_PORT:-18600}"
+BASE_PORT="${QEMU_EXT_TEST_PORT:-$((18600 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 P_HTTP=$BASE_PORT P_GRPC=$((BASE_PORT + 1)) P_METRICS=$((BASE_PORT + 2)) P_JANUS=$((BASE_PORT + 3)) P_ALT=$((BASE_PORT + 4))
 MARKER="JANUS_INIT_BOOT_OK"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
@@ -83,7 +83,7 @@ SAME_SHA="$(cut -d' ' -f1 "$WORKDIR/bundle-same/rootfs.squashfs.sha256")"
 echo "  ok: bundles injected (schematic $SCHEMATIC_ID and the default one)"
 
 cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/OVMF_VARS.fd"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$WORKDIR/OVMF_VARS.fd" \
   -drive file="$DISK",format=raw,if=virtio \

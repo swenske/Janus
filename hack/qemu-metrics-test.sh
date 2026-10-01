@@ -18,10 +18,10 @@ export PATH="$PATH:/usr/sbin:/sbin"
 SRC_DISK="${1:?usage: $0 <disk.img> <janusctl-bin>}"
 CTL_BIN="${2:?usage: $0 <disk.img> <janusctl-bin>}"
 HTTP_TIMEOUT_SECS="${QEMU_METRICS_HTTP_TIMEOUT:-60}"
-P_HTTP="${QEMU_METRICS_HTTP_PORT:-18301}"
-P_GRPC="${QEMU_METRICS_GRPC_PORT:-18302}"
-P_METRICS="${QEMU_METRICS_PORT:-18303}"
-P_METRICS2="${QEMU_METRICS_PORT2:-18304}"
+P_HTTP="${QEMU_METRICS_HTTP_PORT:-$((18301 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+P_GRPC="${QEMU_METRICS_GRPC_PORT:-$((18302 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+P_METRICS="${QEMU_METRICS_PORT:-$((18303 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+P_METRICS2="${QEMU_METRICS_PORT2:-$((18304 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -46,7 +46,7 @@ DISK="$WORKDIR/disk.img"
 cp "$SRC_DISK" "$DISK"
 cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/OVMF_VARS.fd"
 # No -no-reboot: the node reboots itself in the middle of the test.
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$WORKDIR/OVMF_VARS.fd" \
   -drive file="$DISK",format=raw,if=virtio \

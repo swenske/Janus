@@ -45,8 +45,8 @@ DISK="${1:?usage: $0 <disk.img> <janusctl-bin>}"
 CTL="${2:?usage: $0 <disk.img> <janusctl-bin>}"
 HTTP_TIMEOUT_SECS="${QEMU_ROLLBACK_HTTP_TIMEOUT:-40}"
 REBOOT_TIMEOUT_SECS="${QEMU_ROLLBACK_REBOOT_TIMEOUT:-60}"
-HOST_HTTP_PORT="${QEMU_ROLLBACK_HTTP_PORT:-18090}"
-HOST_GRPC_PORT="${QEMU_ROLLBACK_GRPC_PORT:-18091}"
+HOST_HTTP_PORT="${QEMU_ROLLBACK_HTTP_PORT:-$((18090 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+HOST_GRPC_PORT="${QEMU_ROLLBACK_GRPC_PORT:-$((18091 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MARKER="JANUS_INIT_BOOT_OK"
 FIRST_BOOT_MSG="pki: first boot - generated a new CA"
 
@@ -70,7 +70,7 @@ trap cleanup EXIT
 OVMF_VARS="$WORKDIR/OVMF_VARS.fd"
 cp "$OVMF_VARS_TEMPLATE" "$OVMF_VARS"
 LOG="$WORKDIR/console.log"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$OVMF_VARS" \
   -drive file="$DISK",format=raw,if=virtio \

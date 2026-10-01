@@ -14,13 +14,13 @@ set -euo pipefail
 
 KERNEL="${1:?usage: $0 <bzImage> <initramfs.cpio.gz>}"
 INITRD="${2:?usage: $0 <bzImage> <initramfs.cpio.gz>}"
-HOST_PORT="${QEMU_NET_TEST_PORT:-18080}"
+HOST_PORT="${QEMU_NET_TEST_PORT:-$((18080 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 TIMEOUT_SECS="${QEMU_NET_TEST_TIMEOUT:-30}"
 
 LOG="$(mktemp)"
 trap 'rm -f "$LOG"; [ -n "${QEMU_PID:-}" ] && kill "$QEMU_PID" 2>/dev/null || true' EXIT
 
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -kernel "$KERNEL" \
   -initrd "$INITRD" \
   -append "console=ttyS0 panic=-1 ip=dhcp" \

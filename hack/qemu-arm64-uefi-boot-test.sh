@@ -39,7 +39,7 @@ set -euo pipefail
 ROOTFS_DIR="${1:?usage: $0 <rootfs-dir> <esp.img>}"
 ESP="${2:?usage: $0 <rootfs-dir> <esp.img>}"
 HTTP_TIMEOUT_SECS="${QEMU_UEFI_HTTP_TIMEOUT:-40}"
-HOST_PORT="${QEMU_UEFI_TEST_PORT:-18087}"
+HOST_PORT="${QEMU_UEFI_TEST_PORT:-$((18087 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MARKER="JANUS_INIT_BOOT_OK"
 
 AAVMF_CODE="${AAVMF_CODE:-/usr/share/AAVMF/AAVMF_CODE.fd}"

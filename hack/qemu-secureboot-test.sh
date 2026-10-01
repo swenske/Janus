@@ -59,7 +59,7 @@ VERITY="$ROOTFS_DIR/rootfs.verity"
 # writes the console log to $2.
 boot() {
   local esp="$1" log="$2"
-  timeout "${BOOT_TIMEOUT_SECS}" qemu-system-x86_64 \
+  timeout "${BOOT_TIMEOUT_SECS}" qemu-system-x86_64 -accel kvm -accel tcg \
     -machine q35,smm=on \
     -global driver=cfi.pflash01,property=secure,value=on \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \

@@ -16,9 +16,9 @@ export PATH="$PATH:/usr/sbin:/sbin"
 SRC_DISK="${1:?usage: $0 <disk.img> <janusctl-bin>}"
 CTL_BIN="${2:?usage: $0 <disk.img> <janusctl-bin>}"
 TIMEOUT="${QEMU_FIREWALL_TIMEOUT:-60}"
-P_HTTP="${QEMU_FIREWALL_HTTP_PORT:-18401}"
-P_GRPC="${QEMU_FIREWALL_GRPC_PORT:-18402}"
-P_METRICS="${QEMU_FIREWALL_METRICS_PORT:-18403}"
+P_HTTP="${QEMU_FIREWALL_HTTP_PORT:-$((18401 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+P_GRPC="${QEMU_FIREWALL_GRPC_PORT:-$((18402 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+P_METRICS="${QEMU_FIREWALL_METRICS_PORT:-$((18403 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -40,7 +40,7 @@ fail() {
 DISK="$WORKDIR/disk.img"
 cp "$SRC_DISK" "$DISK"
 cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/OVMF_VARS.fd"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$WORKDIR/OVMF_VARS.fd" \
   -drive file="$DISK",format=raw,if=virtio \

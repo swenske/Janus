@@ -28,7 +28,7 @@ set -euo pipefail
 
 KERNEL="${1:?usage: $0 <Image> <initramfs.cpio.gz>}"
 INITRD="${2:?usage: $0 <Image> <initramfs.cpio.gz>}"
-HOST_PORT="${QEMU_ARM64_NET_TEST_PORT:-18180}"
+HOST_PORT="${QEMU_ARM64_NET_TEST_PORT:-$((18180 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 TIMEOUT_SECS="${QEMU_ARM64_NET_TEST_TIMEOUT:-30}"
 
 LOG="$(mktemp)"

@@ -14,8 +14,8 @@ export PATH="$PATH:/usr/sbin:/sbin"
 DISK="${1:?usage: $0 <disk.img> <janusctl-bin>}"
 CTL_BIN="${2:?usage: $0 <disk.img> <janusctl-bin>}"
 HTTP_TIMEOUT_SECS="${QEMU_PCAP_HTTP_TIMEOUT:-40}"
-HOST_PORT_8080="${QEMU_PCAP_TEST_PORT:-18198}"
-HOST_GRPC_PORT="${QEMU_PCAP_GRPC_PORT:-18199}"
+HOST_PORT_8080="${QEMU_PCAP_TEST_PORT:-$((18198 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+HOST_GRPC_PORT="${QEMU_PCAP_GRPC_PORT:-$((18199 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -37,7 +37,7 @@ fail() {
 }
 
 cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/OVMF_VARS.fd"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$WORKDIR/OVMF_VARS.fd" \
   -drive file="$DISK",format=raw,if=virtio \

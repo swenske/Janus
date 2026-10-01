@@ -34,7 +34,7 @@ CTL="$(cd "$(dirname "$3")" && pwd)/$(basename "$3")"
 DASHBOARDD="$(cd "$(dirname "$4")" && pwd)/$(basename "$4")"
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-BASE="${QEMU_BAREMETAL_BASE_PORT:-18700}"
+BASE="${QEMU_BAREMETAL_BASE_PORT:-$((18700 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 HTTP_PORT=$((BASE)) GRPC_PORT=$((BASE + 1)) DASH_PORT=$((BASE + 2)) REG_PORT=$((BASE + 3))
 TIMEOUT="${QEMU_BAREMETAL_TIMEOUT:-120}"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
@@ -78,7 +78,7 @@ boot() {
   shift
   LOG="$WORKDIR/$name.log"
   cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/$name.vars"
-  qemu-system-x86_64 -machine q35 -m 1024 -display none -vga std \
+  qemu-system-x86_64 -accel kvm -accel tcg -machine q35 -m 1024 -display none -vga std \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$WORKDIR/$name.vars" \
     -monitor "unix:$WORKDIR/$name.mon,server,nowait" \

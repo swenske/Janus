@@ -20,7 +20,7 @@ set -euo pipefail
 
 ISO="${1:?usage: $0 <iso-file>}"
 HTTP_TIMEOUT_SECS="${QEMU_ISO_HTTP_TIMEOUT:-40}"
-HOST_PORT="${QEMU_ISO_TEST_PORT:-18100}"
+HOST_PORT="${QEMU_ISO_TEST_PORT:-$((18100 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MARKER="JANUS_INIT_BOOT_OK"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
@@ -40,7 +40,7 @@ OVMF_VARS="$WORKDIR/OVMF_VARS.fd"
 cp "$OVMF_VARS_TEMPLATE" "$OVMF_VARS"
 
 LOG="$WORKDIR/iso-boot.log"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$OVMF_VARS" \
   -drive file="$ISO",format=raw,if=virtio \

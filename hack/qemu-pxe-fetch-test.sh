@@ -64,7 +64,7 @@ OVMF_VARS="$WORKDIR/OVMF_VARS.fd"
 cp "$OVMF_VARS_TEMPLATE" "$OVMF_VARS"
 
 LOG="$WORKDIR/pxe-fetch.log"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$OVMF_VARS" \
   -drive file="$WORKDIR/ipxe-esp.img",format=raw,if=virtio \

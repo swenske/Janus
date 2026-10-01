@@ -14,7 +14,7 @@ MARKER="JANUS_INIT_BOOT_OK"
 LOG="$(mktemp)"
 trap 'rm -f "$LOG"' EXIT
 
-timeout "${TIMEOUT_SECS}" qemu-system-x86_64 \
+timeout "${TIMEOUT_SECS}" qemu-system-x86_64 -accel kvm -accel tcg \
   -kernel "$KERNEL" \
   -initrd "$INITRD" \
   -append "console=ttyS0 panic=-1" \

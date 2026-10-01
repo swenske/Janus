@@ -43,8 +43,8 @@ CTL="$(cd "$(dirname "$CTL_REL")" && pwd)/$(basename "$CTL_REL")"
 
 TARGET_DISK_MB="${ISO_INSTALL_TEST_DISK_MB:-512}"
 HTTP_TIMEOUT_SECS="${ISO_INSTALL_TEST_HTTP_TIMEOUT:-40}"
-HOST_PORT="${ISO_INSTALL_TEST_PORT:-18103}"
-HOST_GRPC_PORT="${ISO_INSTALL_TEST_GRPC_PORT:-18104}"
+HOST_PORT="${ISO_INSTALL_TEST_PORT:-$((18103 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+HOST_GRPC_PORT="${ISO_INSTALL_TEST_GRPC_PORT:-$((18104 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -75,7 +75,7 @@ OVMF_VARS="$WORKDIR/OVMF_VARS.fd"
 cp "$OVMF_VARS_TEMPLATE" "$OVMF_VARS"
 
 LOG="$WORKDIR/iso-install.log"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$OVMF_VARS" \
   -drive file="$ISO",format=raw,if=virtio \

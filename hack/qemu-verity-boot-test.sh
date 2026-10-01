@@ -43,7 +43,7 @@ KERNEL="${1:?usage: $0 <bzImage> <rootfs-dir>}"
 ROOTFS_DIR="${2:?usage: $0 <bzImage> <rootfs-dir>}"
 BOOT_TIMEOUT_SECS="${QEMU_VERITY_BOOT_TIMEOUT:-30}"
 HTTP_TIMEOUT_SECS="${QEMU_VERITY_HTTP_TIMEOUT:-30}"
-HOST_PORT="${QEMU_VERITY_TEST_PORT:-18082}"
+HOST_PORT="${QEMU_VERITY_TEST_PORT:-$((18082 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MARKER="JANUS_INIT_BOOT_OK"
 
 SQUASHFS="$ROOTFS_DIR/rootfs.squashfs"
@@ -63,7 +63,7 @@ trap cleanup EXIT
 
 # --- 1. real image, over the network, must actually serve HTTP ---
 GOOD_LOG="$WORKDIR/good.log"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -kernel "$KERNEL" \
   -append "console=ttyS0 panic=-1 dm-mod.create=\"$(dm_table)\" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp" \
   -nographic -no-reboot -display none -m 256M \
@@ -115,7 +115,7 @@ cp "$SQUASHFS" "$TAMPERED"
 printf '\xFF' | dd of="$TAMPERED" bs=1 seek=0 count=1 conv=notrunc status=none
 
 TAMPER_LOG="$WORKDIR/tampered.log"
-timeout "${BOOT_TIMEOUT_SECS}" qemu-system-x86_64 \
+timeout "${BOOT_TIMEOUT_SECS}" qemu-system-x86_64 -accel kvm -accel tcg \
   -kernel "$KERNEL" \
   -append "console=ttyS0 panic=-1 dm-mod.create=\"$(dm_table)\" root=/dev/dm-0 rootfstype=squashfs ro" \
   -nographic -no-reboot -m 256M \

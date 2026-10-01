@@ -60,8 +60,8 @@ KERNEL="${1:?usage: $0 <bzImage> <rootfs-dir> <state-image>}"
 ROOTFS_DIR="${2:?usage: $0 <bzImage> <rootfs-dir> <state-image>}"
 STATE_IMAGE="${3:?usage: $0 <bzImage> <rootfs-dir> <state-image>}"
 HTTP_TIMEOUT_SECS="${QEMU_STATE_HTTP_TIMEOUT:-30}"
-HOST_PORT_8080="${QEMU_STATE_TEST_PORT:-18083}"
-HOST_PORT_8081="${QEMU_STATE_TEST_PORT2:-18084}"
+HOST_PORT_8080="${QEMU_STATE_TEST_PORT:-$((18083 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+HOST_PORT_8081="${QEMU_STATE_TEST_PORT2:-$((18084 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 FIRST_BOOT_MSG="pki: first boot - generated a new CA"
 
 SQUASHFS="$ROOTFS_DIR/rootfs.squashfs"
@@ -92,7 +92,7 @@ boot_and_wait_http() {
   local want_host_port="$HOST_PORT_8080"
   [ "$want_port" = "8081" ] && want_host_port="$HOST_PORT_8081"
 
-  qemu-system-x86_64 \
+  qemu-system-x86_64 -accel kvm -accel tcg \
     -kernel "$KERNEL" \
     -append "console=ttyS0 panic=-1 dm-mod.create=\"$(dm_table)\" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp" \
     -nographic -no-reboot -display none -m 256M \

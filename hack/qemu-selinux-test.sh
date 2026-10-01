@@ -69,7 +69,7 @@ boot_and_check() {
   local label="$1" extra_cmdline="$2" host_port="$3"
   local log="$WORKDIR/$label.log"
 
-  qemu-system-x86_64 \
+  qemu-system-x86_64 -accel kvm -accel tcg \
     -kernel "$KERNEL" \
     -append "console=ttyS0 panic=-1 dm-mod.create=\"$(dm_table)\" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp $extra_cmdline" \
     -nographic -no-reboot -display none -m 256M \
@@ -112,7 +112,7 @@ boot_and_check() {
   echo "SELinux test OK ($label): policy loaded, HTTP 200, zero AVC denials"
 }
 
-boot_and_check permissive "" 18091
-boot_and_check enforcing "enforcing=1" 18092
+boot_and_check permissive "" $((18091 + ${JANUS_TEST_PORT_OFFSET:-0}))
+boot_and_check enforcing "enforcing=1" $((18092 + ${JANUS_TEST_PORT_OFFSET:-0}))
 
 echo "SELinux policy test OK: the real, hand-written policy loads and mediates a full boot to a working HTTP 200, with zero denials, both permissively (the shipped default) and with enforcing=1 (proving the rule set is actually complete, not just quiet)"

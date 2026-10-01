@@ -88,9 +88,9 @@ CTL="$(cd "$(dirname "$CTL_REL")" && pwd)/$(basename "$CTL_REL")"
 # tmpfs (RAM-backed, often much smaller than real disk space).
 DISK_MB="${INSTALL_TEST_DISK_MB:-512}"
 HTTP_TIMEOUT_SECS="${INSTALL_TEST_HTTP_TIMEOUT:-40}"
-HOST_PORT="${INSTALL_TEST_PORT:-18097}"
-HOST_GRPC_PORT="${INSTALL_TEST_GRPC_PORT:-18098}"
-NATIVE_PORT="${INSTALL_TEST_NATIVE_GRPC_PORT:-19507}"
+HOST_PORT="${INSTALL_TEST_PORT:-$((18097 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+HOST_GRPC_PORT="${INSTALL_TEST_GRPC_PORT:-$((18098 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+NATIVE_PORT="${INSTALL_TEST_NATIVE_GRPC_PORT:-$((19507 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MARKER="JANUS_INIT_BOOT_OK"
 FIRST_BOOT_MSG="pki: first boot - generated a new CA"
 
@@ -269,7 +269,7 @@ kill_native_haproxy
 LOG="$WORKDIR/console.log"
 OVMF_VARS="$WORKDIR/vars.fd"
 cp "$OVMF_VARS_TEMPLATE" "$OVMF_VARS"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$OVMF_VARS" \
   -drive file="$BLANK_DISK",format=raw,if=virtio \

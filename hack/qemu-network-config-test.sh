@@ -33,7 +33,7 @@ ROOTFS_DIR="${2:?}"
 SRC_DISK="${3:?}"
 CTL_BIN="${4:?}"
 BOOT_TIMEOUT_SECS="${QEMU_NET_BOOT_TIMEOUT:-150}"
-BASE_PORT="${QEMU_NET_TEST_PORT:-18300}"
+BASE_PORT="${QEMU_NET_TEST_PORT:-$((18300 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 P_HTTP=$BASE_PORT P_GRPC=$((BASE_PORT + 1)) P_B10=$((BASE_PORT + 2)) P_B20=$((BASE_PORT + 3)) P_VLAN=$((BASE_PORT + 4))
 MARKER="JANUS_INIT_BOOT_OK"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -82,7 +82,7 @@ python3 "$HERE/vlan-ntp-responder.py" "$P_VLAN" 100 10.100.0.1 "$RLOG" &
 RESP_PID=$!
 for _ in $(seq 50); do grep -q listening "$RLOG" 2>/dev/null && break; sleep 0.1; done
 
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -kernel "$KERNEL" \
   -append "console=ttyS0 panic=-1 dm-mod.create=\"$("$HERE/dm-verity-cmdline.sh" "$ROOTFS_DIR" /dev/vda2 /dev/vda3)\" root=/dev/dm-0 rootfstype=squashfs ro ip=:::::eth0:dhcp enforcing=1" \
   -nographic -display none -m 512M \

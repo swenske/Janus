@@ -31,7 +31,7 @@ set -euo pipefail
 ROOTFS_DIR="${1:?usage: $0 <rootfs-dir> <esp.img>}"
 ESP="${2:?usage: $0 <rootfs-dir> <esp.img>}"
 HTTP_TIMEOUT_SECS="${QEMU_UEFI_HTTP_TIMEOUT:-40}"
-HOST_PORT="${QEMU_UEFI_TEST_PORT:-18086}"
+HOST_PORT="${QEMU_UEFI_TEST_PORT:-$((18086 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MARKER="JANUS_INIT_BOOT_OK"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
@@ -56,7 +56,7 @@ OVMF_VARS="$WORKDIR/OVMF_VARS.fd"
 cp "$OVMF_VARS_TEMPLATE" "$OVMF_VARS"
 
 LOG="$WORKDIR/uefi-boot.log"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$OVMF_VARS" \
   -drive file="$ESP",format=raw,if=virtio \

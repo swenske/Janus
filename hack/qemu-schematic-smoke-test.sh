@@ -13,7 +13,7 @@ set -euo pipefail
 SRC_DISK="${1:?usage: $0 <disk.img> <schematic.json>}"
 SCHEMATIC_FILE="${2:?}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PORT="${QEMU_SMOKE_PORT:-18650}"
+PORT="${QEMU_SMOKE_PORT:-$((18650 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 TIMEOUT="${QEMU_SMOKE_TIMEOUT:-90}"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -36,7 +36,7 @@ ID="$(cd "$HERE/.." && go run ./hack/extpack id -schematic "$SCHEMATIC_FILE")"
 EXTENSIONS="$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["customization"].get("extensions", [])))' "$SCHEMATIC_FILE")"
 cp "$SRC_DISK" "$WORKDIR/disk.img"
 cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/OVMF_VARS.fd"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$WORKDIR/OVMF_VARS.fd" \
   -drive file="$WORKDIR/disk.img",format=raw,if=virtio \

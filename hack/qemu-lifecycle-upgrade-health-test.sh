@@ -91,8 +91,8 @@ CTL="${4:?usage: $0 <disk.img> <bzImage> <build-dir> <janusctl-bin>}"
 HTTP_TIMEOUT_SECS="${QEMU_UPGRADE_HEALTH_HTTP_TIMEOUT:-40}"
 REBOOT_TIMEOUT_SECS="${QEMU_UPGRADE_HEALTH_REBOOT_TIMEOUT:-60}"
 HEALTH_TIMEOUT_SECS="${QEMU_UPGRADE_HEALTH_TIMEOUT:-5}"
-HOST_PORT_8080="${QEMU_UPGRADE_HEALTH_TEST_PORT:-18095}"
-HOST_GRPC_PORT="${QEMU_UPGRADE_HEALTH_GRPC_PORT:-18096}"
+HOST_PORT_8080="${QEMU_UPGRADE_HEALTH_TEST_PORT:-$((18095 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+HOST_GRPC_PORT="${QEMU_UPGRADE_HEALTH_GRPC_PORT:-$((18096 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MARKER="JANUS_INIT_BOOT_OK"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
@@ -153,7 +153,7 @@ boot_disk() {
   local ovmf_vars="$WORKDIR/OVMF_VARS-$(basename "$log").fd"
   cp "$OVMF_VARS_TEMPLATE" "$ovmf_vars"
 
-  qemu-system-x86_64 \
+  qemu-system-x86_64 -accel kvm -accel tcg \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$ovmf_vars" \
     -drive file="$DISK",format=raw,if=virtio \

@@ -35,7 +35,7 @@ DISK="${1:?usage: $0 <disk.img> <bzImage> <rootfs-dir>}"
 KERNEL="${2:?usage: $0 <disk.img> <bzImage> <rootfs-dir>}"
 ROOTFS_DIR="${3:?usage: $0 <disk.img> <bzImage> <rootfs-dir>}"
 HTTP_TIMEOUT_SECS="${QEMU_UEFI_AB_HTTP_TIMEOUT:-40}"
-HOST_PORT="${QEMU_UEFI_AB_TEST_PORT:-18089}"
+HOST_PORT="${QEMU_UEFI_AB_TEST_PORT:-$((18089 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MARKER="JANUS_INIT_BOOT_OK"
 FIRST_BOOT_MSG="pki: first boot - generated a new CA"
 
@@ -60,7 +60,7 @@ boot_disk() {
   local ovmf_vars="$WORKDIR/OVMF_VARS-$(basename "$log").fd"
   cp "$OVMF_VARS_TEMPLATE" "$ovmf_vars"
 
-  qemu-system-x86_64 \
+  qemu-system-x86_64 -accel kvm -accel tcg \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$ovmf_vars" \
     -drive file="$DISK",format=raw,if=virtio \

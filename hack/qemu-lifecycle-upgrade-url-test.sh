@@ -31,9 +31,9 @@ BUILD_DIR="${3:?usage: $0 <disk.img> <bzImage> <build-dir> <janusctl-bin>}"
 CTL="${4:?usage: $0 <disk.img> <bzImage> <build-dir> <janusctl-bin>}"
 HTTP_TIMEOUT_SECS="${QEMU_UPGRADE_HTTP_TIMEOUT:-40}"
 REBOOT_TIMEOUT_SECS="${QEMU_UPGRADE_REBOOT_TIMEOUT:-60}"
-HOST_PORT_8080="${QEMU_UPGRADE_TEST_PORT:-18192}"
-HOST_GRPC_PORT="${QEMU_UPGRADE_GRPC_PORT:-18194}"
-BUNDLE_HTTP_PORT="${QEMU_UPGRADE_BUNDLE_HTTP_PORT:-18195}"
+HOST_PORT_8080="${QEMU_UPGRADE_TEST_PORT:-$((18192 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+HOST_GRPC_PORT="${QEMU_UPGRADE_GRPC_PORT:-$((18194 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+BUNDLE_HTTP_PORT="${QEMU_UPGRADE_BUNDLE_HTTP_PORT:-$((18195 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MARKER="JANUS_INIT_BOOT_OK"
 FIRST_BOOT_MSG="pki: first boot - generated a new CA"
 
@@ -105,7 +105,7 @@ boot_disk() {
   local ovmf_vars="$WORKDIR/OVMF_VARS-$(basename "$log").fd"
   cp "$OVMF_VARS_TEMPLATE" "$ovmf_vars"
 
-  qemu-system-x86_64 \
+  qemu-system-x86_64 -accel kvm -accel tcg \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$ovmf_vars" \
     -drive file="$DISK",format=raw,if=virtio \

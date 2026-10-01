@@ -85,11 +85,11 @@ DASHBOARDD="$(cd "$(dirname "$DASHBOARDD_REL")" && pwd)/$(basename "$DASHBOARDD_
 DISK_MB="${SELFREG_TEST_DISK_MB:-512}"
 HTTP_TIMEOUT_SECS="${SELFREG_TEST_HTTP_TIMEOUT:-40}"
 REGISTER_TIMEOUT_SECS="${SELFREG_TEST_REGISTER_TIMEOUT:-30}"
-HOST_HTTP_PORT="${SELFREG_TEST_HOST_HTTP_PORT:-18140}"
-HOST_GRPC_PORT="${SELFREG_TEST_HOST_GRPC_PORT:-18141}"
-NATIVE_GRPC_PORT="${SELFREG_TEST_NATIVE_GRPC_PORT:-19510}"
-DASHBOARD_ADDR_PORT="${SELFREG_TEST_DASHBOARD_ADDR_PORT:-18142}"
-DASHBOARD_REGISTER_PORT="${SELFREG_TEST_DASHBOARD_REGISTER_PORT:-18143}"
+HOST_HTTP_PORT="${SELFREG_TEST_HOST_HTTP_PORT:-$((18140 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+HOST_GRPC_PORT="${SELFREG_TEST_HOST_GRPC_PORT:-$((18141 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+NATIVE_GRPC_PORT="${SELFREG_TEST_NATIVE_GRPC_PORT:-$((19510 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+DASHBOARD_ADDR_PORT="${SELFREG_TEST_DASHBOARD_ADDR_PORT:-$((18142 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+DASHBOARD_REGISTER_PORT="${SELFREG_TEST_DASHBOARD_REGISTER_PORT:-$((18143 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 QEMU_HOST_GATEWAY="10.0.2.2" # QEMU usermode/slirp's fixed host-gateway address, reachable from any guest without extra config
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
@@ -200,7 +200,7 @@ echo "Part 2 OK: Install wrote a Controller-provisioned image"
 LOG="$WORKDIR/console.log"
 OVMF_VARS="$WORKDIR/vars.fd"
 cp "$OVMF_VARS_TEMPLATE" "$OVMF_VARS"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$OVMF_VARS" \
   -drive file="$BLANK_DISK",format=raw,if=virtio \
@@ -330,7 +330,7 @@ QEMU_PID=""
 LOG2="$WORKDIR/console2.log"
 OVMF_VARS2="$WORKDIR/vars2.fd"
 cp "$OVMF_VARS_TEMPLATE" "$OVMF_VARS2"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$OVMF_VARS2" \
   -drive file="$BLANK_DISK",format=raw,if=virtio \

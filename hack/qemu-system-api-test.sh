@@ -15,8 +15,8 @@ export PATH="$PATH:/usr/sbin:/sbin"
 DISK="${1:?usage: $0 <disk.img> <janusctl-bin>}"
 CTL_BIN="${2:?usage: $0 <disk.img> <janusctl-bin>}"
 BOOT_TIMEOUT_SECS="${QEMU_API_BOOT_TIMEOUT:-60}"
-HOST_PORT_8080="${QEMU_API_TEST_PORT:-18200}"
-HOST_GRPC_PORT="${QEMU_API_GRPC_PORT:-18201}"
+HOST_PORT_8080="${QEMU_API_TEST_PORT:-$((18200 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+HOST_GRPC_PORT="${QEMU_API_GRPC_PORT:-$((18201 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MARKER="JANUS_INIT_BOOT_OK"
 FIRST_BOOT_MSG="pki: first boot - generated a new CA"
 
@@ -42,7 +42,7 @@ fail() {
 # No -no-reboot: Reboot and Reset must reboot the guest inside this same
 # QEMU process, and Shutdown must make it exit.
 cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/OVMF_VARS.fd"
-qemu-system-x86_64 \
+qemu-system-x86_64 -accel kvm -accel tcg \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$WORKDIR/OVMF_VARS.fd" \
   -drive file="$DISK",format=raw,if=virtio \
