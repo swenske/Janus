@@ -1,8 +1,9 @@
 # Provisionner un nouveau node auto-enregistré
 
-Trois méthodes pour créer un node Janus qui s'auto-enregistre auprès
-d'un Controller déjà en place (voir `CLAUDE.md`'s "Point 2 suite" pour
-le design du self-registration).
+Quatre méthodes pour créer un node Janus qui s'auto-enregistre auprès
+d'un Controller déjà en place : au premier démarrage, le node envoie au
+Controller un certificat de service qu'il vient de créer, et il apparaît
+dans les approbations en attente.
 
 - **Méthode 1 - image partagée + `seed-controller`** : recommandée pour
   plusieurs nodes qui partagent le même environnement/Controller. Une
@@ -17,6 +18,13 @@ le design du self-registration).
   c'est un petit volume à part, généré par le même outil qui génère déjà
   du cloud-init pour vos autres VMs, qui porte la config. Pas de commande
   `janusctl` à lancer du tout côté node.
+- **Méthode 4 - l'ISO d'installation** : pour une machine physique (clé
+  USB) ou une VM installée depuis un média. L'ISO démarre un Janus
+  temporaire qui installe le disque de la machine, déjà configuré avec le
+  Controller.
+
+Les adresse et certificat CA du Controller se trouvent dans son panneau
+**Provision a new node** (ou `GET /api/controller-info`).
 
 ## Méthode 1 : image partagée + `seed-controller` (recommandée)
 
@@ -248,9 +256,10 @@ rm -rf /tmp/provision
 
 ## Méthode 3 : volume NoCloud (`cidata`)
 
-Principe : au boot, `rootfs/init` scanne les disques virtio-blk attachés
-(hors son propre disque de boot) à la recherche d'un volume (ISO9660 ou
-vfat) étiqueté `cidata`/`CIDATA` - exactement la convention "NoCloud" de
+Principe : au boot, `rootfs/init` scanne les disques attachés - virtio,
+SCSI/SATA/USB, NVMe, et les lecteurs CD-ROM (hors son propre disque de
+boot) - à la recherche d'un volume (ISO9660 ou vfat) étiqueté
+`cidata`/`CIDATA` - exactement la convention "NoCloud" de
 cloud-init, celle que Talos Linux lui-même réutilise pour sa propre
 config machine. **Le contenu n'est pas du vrai cloud-init** (`#cloud-
 config`, `write_files`, etc.) - juste du JSON minimal Janus
@@ -275,8 +284,11 @@ EOF
 mcopy -i cidata.img user-data ::user-data
 ```
 
-Attacher `cidata.img` comme un disque virtio-blk supplémentaire à la VM
-(en plus du disque système, qui reste l'image générique inchangée), puis
+Attacher `cidata.img` comme un disque supplémentaire à la VM (en plus du
+disque système, qui reste l'image générique inchangée) - ou un ISO9660
+`cidata` comme CD-ROM, ce que fait le lecteur cloud-init de Proxmox
+(`xorriso -as mkisofs -V cidata -J -r -o cidata.iso <dossier avec
+user-data>`) - puis
 démarrer normalement - le node lit le volume, écrit
 `controller/address`/`controller/ca.crt` sur sa propre partition STATE,
 et s'auto-enregistre.
@@ -320,7 +332,105 @@ data "cloudinit_config" "janus_seed" {
 # devient le user-data du volume cidata, peu importe le provider.
 ```
 
-## Récupérer les identifiants PKI d'un node (les trois méthodes)
+## Méthode 4 : l'ISO d'installation
+
+Principe : l'ISO (`janus.iso` des releases, ou celle d'un schéma de
+[janus.sw-servers.net](https://janus.sw-servers.net)) démarre un Janus
+**temporaire**, sans partition STATE, qui embarque le bundle signé de sa
+release (`/etc/janus/release`). Depuis votre poste, `janusctl lifecycle
+install` lui fait installer le disque de la machine, avec l'adresse et le
+CA du Controller. C'est le disque installé qui s'annonce au Controller, à
+son premier démarrage - jamais l'ISO.
+
+### 1. Démarrer sur l'ISO
+
+- **Machine physique** : copier l'ISO sur une clé USB (`dd
+  if=janus.iso of=/dev/sdX bs=4M conv=fsync`) et démarrer dessus en
+  UEFI, Secure Boot désactivé (ou avec le certificat de Janus enrôlé).
+- **VM** : attacher l'ISO comme **disque** (Proxmox : `qm importdisk
+  <vmid> janus.iso <stockage>`, puis démarrer sur ce disque), avec le
+  disque cible vierge à côté.
+- **Pas comme CD/DVD** (lecteur optique, lecteur CD-ROM d'une VM, média
+  virtuel « CD » d'un iDRAC/iLO) : la racine de l'ISO est une partition
+  de son image disque, qu'un lecteur optique n'expose pas. Les médias
+  virtuels qui présentent l'image comme un disque amovible
+  (« removable disk », « USB key ») fonctionnent.
+
+La console - série, et écran - affiche une fois le certificat CA, le
+certificat admin et la clé de cette instance temporaire : copiez-les
+(`ca.crt`, `admin.crt`, `admin.key`). Ils ne servent qu'à piloter
+l'installation.
+
+### 2. Trouver le disque cible
+
+```sh
+CTL="janusctl -endpoint <IP-de-la-machine>:9505 -ca ca.crt -cert admin.crt -key admin.key"
+$CTL system mounts | grep /etc/janus/release   # le disque de l'ISO (ex. /dev/sdb1 -> /dev/sdb)
+$CTL system info                               # les disques vus par le noyau
+```
+
+Le disque cible est l'autre : `/dev/sda`, `/dev/nvme0n1`... `Install`
+refuse le disque d'où l'ISO a démarré, et un disque qui porte déjà un
+Janus.
+
+### 3. Installer
+
+```sh
+$CTL lifecycle install \
+  -controller-address <CONTROLLER_HOST>:8443 -controller-ca controller-ca.crt \
+  [-network-config net.json] \
+  -sha256 "$(curl -sL https://github.com/swenske/Janus/releases/download/<VERSION>/rootfs.squashfs.sha256)" \
+  /dev/nvme0n1 /etc/janus/release
+```
+
+- Les chemins sont ceux de la machine (`/dev/nvme0n1`,
+  `/etc/janus/release`), pas ceux de votre poste.
+- `-sha256` : `janusctl` ne peut pas lire le bundle sur la machine pour le
+  trouver lui-même ; sans lui, ce contrôle est sauté. La signature du
+  bundle est vérifiée dans tous les cas. Pour une ISO du site, c'est le
+  sha256 de `rootfs.squashfs` listé avec les fichiers de l'image.
+- `-network-config` : une [configuration réseau](network-configuration.md)
+  appliquée dès le premier démarrage (DHCP sinon).
+- La sortie se termine par `[done 100%]`.
+
+### 4. Démarrer le disque installé
+
+Éteindre, **retirer la clé USB** (ou détacher l'ISO), démarrer sur le
+disque installé. Au premier démarrage il crée sa propre PKI - affichée
+une fois sur la console, à conserver - et s'annonce au Controller.
+
+### 5. Approuver
+
+Le node apparaît dans **Pending approvals** du Controller : **Approve**.
+Il ne s'annonce qu'une fois (un marqueur sur STATE le retient), même
+après un redémarrage.
+
+Variante : installer sans `-controller-*`, et attacher au premier
+démarrage du disque installé un volume `cidata` (méthode 3).
+
+## Matériel physique
+
+Les images démarrent quel que soit le nom du disque : leurs UKI désignent
+les partitions par label GPT (`PARTLABEL=BOOT-A-DATA`...), et le noyau les
+attend (`dm-mod.waitfor`) - virtio (`/dev/vda`), SATA/SAS/USB
+(`/dev/sda`), NVMe (`/dev/nvme0n1`).
+
+- **Disques** : AHCI (SATA), NVMe, USB, virtio-blk et virtio-scsi
+  (contrôleur par défaut de Proxmox), VMware pvscsi, contrôleurs RAID/HBA
+  Broadcom MegaRAID (Dell PERC), Broadcom/LSI SAS (mpt3sas), Microchip
+  SmartPQI (HPE).
+- **Cartes réseau** : Intel e1000, e1000e, igb, igc, ixgbe, i40e ;
+  Realtek r8169 ; Broadcom tg3, bnxt ; Mellanox ConnectX-4 et suivantes
+  (mlx5) ; VMware vmxnet3 ; virtio. Aucun fichier de firmware n'est
+  embarqué : une carte qui en exige un (Intel ice, Broadcom bnx2x...)
+  n'est pas prise en charge.
+- **Processeurs** : tous les cœurs (SMP, jusqu'à 512), x2APIC, NUMA.
+- **Console** : l'écran (framebuffer UEFI) et le port série `ttyS0` -
+  identifiants du premier démarrage compris.
+- Une seule installation de Janus par machine : deux disques Janus
+  porteraient les mêmes labels.
+
+## Récupérer les identifiants PKI d'un node (toutes les méthodes)
 
 Utile pour un accès direct `janusctl`/navigateur (vue par-node) en plus
 du Controller. Les identifiants sont sur la partition STATE (partition 6

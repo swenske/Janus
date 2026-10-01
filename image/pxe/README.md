@@ -1,14 +1,13 @@
 # image/pxe
 
-No new build artifact here - PXE/HTTP Boot just delivers the exact
-same UKI `image/uki/assemble.sh` already produces (the one every other
-UEFI test in this project boots from local media) over the network
-instead of from an ESP/USB/ISO. The only difference from the ESP case
-is the device paths baked into the UKI's own `dm-mod.create=` cmdline:
-a PXE-booted node has no local ESP taking a drive slot first, so
-rebuild the UKI with `/dev/vda`/`/dev/vdb` (or whatever the real
-target's first two local block devices are) instead of the
-`/dev/vdb`/`/dev/vdc` convention `hack/qemu-uefi-boot-test.sh` uses.
+No new build artifact here - PXE/HTTP Boot just delivers a UKI
+`image/uki/assemble.sh` already produces over the network instead of
+from an ESP/USB/ISO. A release's own `uki-a.efi` names its root
+partitions by GPT label (`PARTLABEL=BOOT-A-DATA`/`BOOT-A-HASH`), so served
+as is it boots slot A of whatever Janus disk the machine has - NVMe,
+SATA, virtio - with no rebuild, provided slot A holds that release's
+rootfs (the UKI carries its root hash). (A node booted this way still updates
+its local ESP on Upgrade/Rollback; the PXE server decides what boots.)
 
 ## Serving it - native PXE/HTTP Boot (recommended)
 

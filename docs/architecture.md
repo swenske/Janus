@@ -164,6 +164,33 @@ another one - a node keeps its extensions. `janusd` supervises the
 extensions' services, each in its own SELinux domain. See
 [image-factory.md](image-factory.md).
 
+## Bare metal
+
+The images aren't tied to QEMU's virtio devices. The UKIs name their
+root partitions by GPT label - `dm-mod.create="... verity 1
+PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH ..."` plus `dm-mod.waitfor=`
+for the same two, so a USB or NVMe disk that appears late is waited for;
+the kernel resolves labels itself (`early_lookup_bdev`). The same disk
+therefore boots as `/dev/vda`, `/dev/sda` or `/dev/nvme0n1`.
+`internal/bootslot` resolves the label back to the partition the verity
+root is mapped from (the one with a device-mapper holder, in sysfs) and
+derives STATE, the ESP and the other slot from it as before;
+`WholeDisk` gives `/dev/nvme0n1` where the partition prefix is
+`/dev/nvme0n1p`. The installer ISO uses labels of its own
+(`JANUS-ISO-DATA`/`-HASH`) so that, while it installs a disk, it never
+mounts the new disk's `BOOT-A-*` instead of its own. One consequence: one
+Janus installation per machine - two would carry the same labels.
+
+The x86 kernel carries what common servers and PCs need: SMP (512 CPUs),
+x2APIC with interrupt remapping, NUMA, MSI-X; AHCI, NVMe, USB storage,
+virtio-scsi, pvscsi, MegaRAID, mpt3sas, SmartPQI; Intel (e1000 to i40e),
+Realtek r8169, Broadcom tg3/bnxt, Mellanox mlx5 and vmxnet3 NICs - none
+needs a firmware file, none is shipped. The console is the screen (EFI
+framebuffer) and the serial port: `rootfs/init` copies userspace output
+- janusd's motd and first-boot credentials included - to `/dev/tty0`,
+best effort, never holding the serial console back. Proven by
+`hack/qemu-baremetal-test.sh`.
+
 ## Optional network features
 
 `bird` (BGP, [bgp.md](bgp.md)), `keepalived` (VRRP, [vrrp.md](vrrp.md))
