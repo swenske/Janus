@@ -122,6 +122,7 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	registerPcapRoutes(mux, node)
 	registerSystemRoutes(mux, node)
 	registerNetworkRoutes(mux, node, st)
+	registerFirewallRoutes(mux, node)
 	mux.Handle("/", http.FileServerFS(view))
 
 	return http.NewCrossOriginProtection().Handler(mux), nil

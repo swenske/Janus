@@ -1,54 +1,9 @@
 import { CheckCircle2, Download, FileCode2, RotateCcw, Upload } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getJSON, postJSON } from '../../api.js'
 import { Badge, Card, ErrorBox, Loading, useAction, useConfirm, useToast } from '../../../shared/ui.jsx'
+import { DiffView, Editor } from '../../components/Editor.jsx'
 import { hunks, lineDiff } from '../../diff.js'
-
-function Editor({ value, onChange }) {
-  const gutter = useRef(null)
-  const lines = value.split('\n').length
-  return (
-    <div className="editor">
-      <div className="editor-gutter" ref={gutter}>
-        {Array.from({ length: lines }, (_, i) => (
-          <div key={i}>{i + 1}</div>
-        ))}
-      </div>
-      <textarea
-        value={value}
-        spellCheck={false}
-        rows={Math.min(40, Math.max(18, lines + 1))}
-        onChange={(e) => onChange(e.target.value)}
-        onScroll={(e) => {
-          if (gutter.current) gutter.current.scrollTop = e.target.scrollTop
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Tab') {
-            e.preventDefault()
-            const t = e.target
-            const { selectionStart: s, selectionEnd: end } = t
-            onChange(value.slice(0, s) + '    ' + value.slice(end))
-            requestAnimationFrame(() => {
-              t.selectionStart = t.selectionEnd = s + 4
-            })
-          }
-        }}
-      />
-    </div>
-  )
-}
-
-function DiffView({ diff }) {
-  return (
-    <div className="diff">
-      {diff.map((d, i) => (
-        <div key={i} className={d.op === '+' ? 'add' : d.op === '-' ? 'del' : 'ctx'}>
-          {d.op === '…' ? '  …' : `${d.op} ${d.text}`}
-        </div>
-      ))}
-    </div>
-  )
-}
 
 export default function Config() {
   const [original, setOriginal] = useState(null)
