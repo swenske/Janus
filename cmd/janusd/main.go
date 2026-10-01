@@ -38,6 +38,7 @@ import (
 	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
+	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
@@ -473,6 +474,7 @@ func confirmBootHealth(marker *bootcommit.Marker, mgr *haproxy.Manager) {
 			syscall.Sync()
 			log.Printf("bootcommit: rebooting to complete the revert to slot %s", marker.RevertTo)
 			events.Publish("bootcommit.reverted", map[string]string{"slot": marker.Slot, "revert_to": marker.RevertTo})
+			consoledrain.Wait(os.Stderr, 2*time.Second)
 			return syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART)
 		},
 		healthPollInterval, healthStableChecks, defaultHealthTimeout)

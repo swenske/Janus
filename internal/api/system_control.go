@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/events"
 )
 
@@ -94,6 +95,7 @@ func (s *System) schedulePower(cmd int) {
 			}
 		}
 		syscall.Sync()
+		consoledrain.Wait(os.Stderr, 2*time.Second)
 		if err := syscall.Reboot(cmd); err != nil {
 			log.Printf("system: reboot(%#x): %v", cmd, err)
 		}

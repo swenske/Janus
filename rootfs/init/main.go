@@ -33,6 +33,7 @@ import (
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/nocloud"
 )
@@ -594,6 +595,7 @@ func main() {
 	mount("sysfs", "/sys", "sysfs")
 	loadSELinuxPolicy()
 	mount("devtmpfs", "/dev", "devtmpfs")
+	mirrorConsole()
 	linkVirtioPorts()
 	hardenSysctls()
 	mountEphemeral()
@@ -794,6 +796,7 @@ func revertAndReboot(marker *bootcommit.Marker) {
 	syscall.Sync()
 
 	fmt.Println("init: rebooting to complete the revert")
+	consoledrain.Wait(os.Stdout, 2*time.Second)
 	if err := syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART); err != nil {
 		fmt.Printf("init: reboot: %v\n", err)
 		return
@@ -805,6 +808,7 @@ func revertAndReboot(marker *bootcommit.Marker) {
 }
 
 func powerOff() {
+	consoledrain.Wait(os.Stdout, 2*time.Second)
 	if err := syscall.Reboot(syscall.LINUX_REBOOT_CMD_POWER_OFF); err != nil {
 		fmt.Printf("init: reboot(POWER_OFF): %v\n", err)
 	}

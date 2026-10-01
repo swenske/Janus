@@ -22,6 +22,7 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/espswitch"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/releasetrust"
@@ -261,6 +262,7 @@ func scheduleReboot() {
 	go func() {
 		time.Sleep(replyGrace)
 		syscall.Sync()
+		consoledrain.Wait(os.Stderr, 2*time.Second)
 		if err := syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART); err != nil {
 			log.Printf("lifecycle: reboot: %v", err)
 		}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/swenske/Janus/internal/consoledrain"
 )
 
 // janusdStopTimeout bounds how long a requested power-off or reboot waits
@@ -39,6 +41,7 @@ func handlePowerSignals(sv *Supervisor, done <-chan struct{}) {
 			fmt.Printf("init: janusd didn't stop within %s - going down anyway\n", janusdStopTimeout)
 		}
 		syscall.Sync()
+		consoledrain.Wait(os.Stdout, 2*time.Second)
 		if err := syscall.Reboot(cmd); err != nil {
 			fmt.Printf("init: reboot(%#x): %v\n", cmd, err)
 		}
