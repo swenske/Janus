@@ -39,6 +39,22 @@ Rules:
 - No UI or chart library beyond that: the chart is our own SVG component
   (`src/node/components/Chart.jsx`) - small, and it does what we need.
 
+## The main page
+
+Pending approvals first, then the nodes as cards, then provisioning.
+Above them, `ControllerUpdate.jsx` is the Controller's own update
+(`GET`/`POST /api/controller/update`, `dashboard/backend/selfupdate.go`):
+a newer release than this Controller's `main.version`
+(`updaterapi.Newer` - CalVer, a git-describe build counts as after its
+release), with **Update to vX** when janus-controller-updater is ready,
+or what keeps it from being ready and the manual `.env` line otherwise;
+during an update it polls `/api/auth/status` every 2 s and reloads into
+sign-in once the new Controller answers (sessions are in memory); after
+it, how the update ended with the updater's log, dismissable per
+browser. The updater itself, its contract with the Controller
+(`dashboard/updater/updaterapi`) and the Compose setup:
+`dashboard/README.md`, "Updating the Controller".
+
 ## The node page
 
 Hash routing (`#/haproxy/config`, `#/tools/files?path=/etc`), a sidebar

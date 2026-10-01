@@ -38,21 +38,51 @@ docker run -d \
   swenske/janus-controller
 ```
 
-Or with Compose:
+Or with Compose - recommended: with the second service below, the
+Controller updates itself from its page when a new release is out,
+after you confirm, and rolls back by itself if the new version doesn't
+start. Replace `/opt/janus-controller` with the directory holding this
+file, on both sides of its line:
 
 ```yaml
+# /opt/janus-controller/compose.yaml
 services:
   janus-controller:
-    image: swenske/janus-controller
+    image: ${JANUS_CONTROLLER_IMAGE:-swenske/janus-controller:latest}
     container_name: janus-controller
     network_mode: host
     restart: unless-stopped
     volumes:
       - janus-controller-data:/data
+      - janus-controller-updater:/run/janus-updater
+
+  # Optional: one-click updates of the Controller from its page.
+  janus-controller-updater:
+    image: ${JANUS_CONTROLLER_IMAGE:-swenske/janus-controller:latest}
+    container_name: janus-controller-updater
+    entrypoint: ["/janus-controller-updater"]
+    network_mode: none
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/janus-controller:/opt/janus-controller   # this directory, same path
+      - janus-controller-data:/data
+      - janus-controller-updater:/run/janus-updater
+      - janus-controller-updater-state:/var/lib/janus-updater
 
 volumes:
   janus-controller-data:
+  janus-controller-updater:
+  janus-controller-updater-state:
 ```
+
+The updater is the only container with the Docker socket, and has no
+network: it sets `JANUS_CONTROLLER_IMAGE` in the `.env` next to
+`compose.yaml` to the release's image (pinned to its digest), runs
+`docker compose up -d janus-controller`, and puts everything back if
+the new version doesn't come up. What each line is for, and what to do
+if an update fails:
+[Updating the Controller](https://github.com/swenske/Janus/blob/main/dashboard/README.md#updating-the-controller).
 
 `-v .../data` is required, not optional: it's where the node registry
 and the dashboard's own TLS identity persist across restarts.
@@ -87,8 +117,10 @@ docker run -d \
 
 - `latest` - the most recent build from `main`.
 - `<git-sha>` - a specific commit, for pinning.
-- `<release-version>` (e.g. `v2026.09.29`) - matches a real, tagged
+- `<release-version>` (e.g. `v2026.10.01-3`) - matches a real, tagged
   [GitHub Release](https://github.com/swenske/Janus/releases) - only
   pushed for a run that actually cuts one, so this tag may lag behind
-  `latest` between releases. ⚠️ Alpha software - see the release notes
-  themselves for the same warning.
+  `latest` between releases; the release's `controller-image.txt` names
+  it with its digest. This is what the Controller's one-click update
+  installs. ⚠️ Alpha software - see the release notes themselves for
+  the same warning.

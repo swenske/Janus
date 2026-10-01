@@ -3,7 +3,10 @@
 A web UI for managing one or more Janus nodes. The node list shows each
 node's live status at a glance (online, version and available update,
 HAProxy health, boot slot, uptime), handles self-registration approvals,
-and provisioning. Each node then has its own page, with a sidebar:
+and provisioning, and says when a newer Controller is out - installing
+it in one click with the updater (see [Updating the
+Controller](#updating-the-controller)). Each node then has its own page,
+with a sidebar:
 
 - **Monitoring** - an overview, live charts (CPU, memory, load, network,
   HAProxy requests/connections/rates; refresh selectable from 1 s to
@@ -105,7 +108,10 @@ docker run -d \
   swenske/janus-controller
 ```
 
-Or with Compose:
+Or with Compose - the recommended way, since the Controller can then
+update itself from its page: see [Updating the
+Controller](#updating-the-controller) for the complete `compose.yaml`.
+The minimal one:
 
 ```yaml
 services:
@@ -217,6 +223,208 @@ against your real network before using it - this process can't always
 tell what address a node will actually be able to reach it at, most
 notably under Docker bridge networking, see the `-advertise-address`
 note above).
+
+## Updating the Controller
+
+The main page says when a newer Janus release exists (the version this
+Controller runs is under its title). With **janus-controller-updater**
+running next to it, one click installs that release - after you confirm
+- and if the new version doesn't come up, the previous one is put back
+by itself, with its data.
+
+Why a second container: updating the Controller means replacing its own
+container, which needs the Docker socket - and access to the Docker
+socket is root on the host. The Controller already holds a credential
+for every node; it doesn't get the host too. The updater has the socket,
+no network at all, and does exactly one thing: move the Controller's
+Compose service to the image of a published release. It ships in the
+same image (its own entrypoint), with Docker Compose's standalone binary.
+
+### The Compose setup
+
+Put this `compose.yaml` in its own directory - `/opt/janus-controller`
+here; **use your directory's real path in place of
+`/opt/janus-controller`, on both sides of its line**:
+
+```yaml
+# /opt/janus-controller/compose.yaml
+services:
+  janus-controller:
+    # The image comes from .env: the updater sets JANUS_CONTROLLER_IMAGE
+    # there to the release it installs, pinned to its digest. Without
+    # the variable, :latest.
+    image: ${JANUS_CONTROLLER_IMAGE:-swenske/janus-controller:latest}
+    container_name: janus-controller
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - janus-controller-data:/data
+      # Where the updater listens: the Controller asks it for an update
+      # here, and tells it once started (no word from a new version
+      # within 2 minutes, and the updater rolls back).
+      - janus-controller-updater:/run/janus-updater
+
+  janus-controller-updater:
+    image: ${JANUS_CONTROLLER_IMAGE:-swenske/janus-controller:latest}
+    container_name: janus-controller-updater
+    entrypoint: ["/janus-controller-updater"]
+    # Talks to the Docker daemon over its socket only: no network.
+    network_mode: none
+    restart: unless-stopped
+    volumes:
+      # To pull the new image and recreate the Controller's container.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # This directory, at the SAME path: the updater runs docker compose
+      # on this compose.yaml and rewrites .env next to it.
+      - /opt/janus-controller:/opt/janus-controller
+      # The Controller's data, to back it up before an update and put it
+      # back if the update is rolled back.
+      - janus-controller-data:/data
+      - janus-controller-updater:/run/janus-updater
+      # Its own state: the last update and the backup it made.
+      - janus-controller-updater-state:/var/lib/janus-updater
+
+volumes:
+  janus-controller-data:
+  janus-controller-updater:
+  janus-controller-updater-state:
+```
+
+Then, in that directory:
+
+```sh
+docker compose up -d
+```
+
+`.env` is optional at first - without it, both containers run
+`swenske/janus-controller:latest`. Keep `.env` next to `compose.yaml`
+(Compose's default place): that's the file the updater edits. It only
+ever touches the `JANUS_CONTROLLER_IMAGE=` line - other variables and
+comments stay as they are, and the file keeps its owner and mode.
+
+**Coming from the minimal setup above**: edit the `compose.yaml` you
+already have, **in the directory it's in** - Compose names volumes
+after the project, by default that directory's name, so the same file
+moved elsewhere would start on new, empty volumes. Change the
+Controller's `image:` line, add its second volume, add the
+`janus-controller-updater` service (with *that* directory on its
+directory line) and the two new volumes, then `docker compose pull &&
+docker compose up -d`. The node registry, the admin password and the
+TLS identity are in the data volume: unchanged.
+
+The page then shows, under an available update, either an **Update to
+vX** button, or what keeps the updater from updating - each problem
+with what to do, for example:
+
+- *the updater can't see /opt/janus-controller/compose.yaml - mount the
+  Compose directory at the same path* - the directory line is missing,
+  or its two sides differ;
+- *can't reach Docker at /var/run/docker.sock* - the socket line is
+  missing (with rootless Docker, mount your user's socket, e.g.
+  `/run/user/1000/docker.sock:/var/run/docker.sock`);
+- *service janus-controller's image doesn't come from
+  JANUS_CONTROLLER_IMAGE* - the `image:` line still names a fixed image;
+- *the Controller must mount the updater's socket volume* - the
+  Controller's `janus-controller-updater:/run/janus-updater` line is
+  missing;
+- *the updater needs the Controller's data volume* - the updater's
+  `janus-controller-data:/data` line is missing, or names another volume.
+
+The updater's own log (`docker logs janus-controller-updater`) says the
+same at startup, and logs every update step.
+
+### What an update does
+
+From the page, only the newest release can be installed: the Controller
+gives the updater that version and the image its GitHub release names
+(`controller-image.txt`: `swenske/janus-controller:vX@sha256:...`, the
+exact image built and tested for the release - older releases: the
+`vX` tag). The updater checks it's that repository and that version,
+then:
+
+1. **pulls** the image - if that fails, nothing has changed;
+2. **stops** the Controller (`docker compose stop janus-controller`);
+3. **backs up** the data volume and `.env` into its state volume
+   (`backup/`, replacing the backup of the previous update);
+4. **writes** `JANUS_CONTROLLER_IMAGE=<image>` into `.env` and runs
+   `docker compose up -d janus-controller` - exactly what you'd do by
+   hand;
+5. **waits** for the new Controller to say it has started, and to still
+   run 10 seconds later.
+
+If step 4 or 5 fails, it **rolls back**: stops the new Controller, puts
+the data and `.env` back, starts the previous version, and waits for it
+the same way.
+
+The page follows the update: the Controller restarts, so you're asked to
+sign in again (sessions don't survive a restart), then the page says how
+it ended - updated, or rolled back and why - with the updater's log.
+Nodes keep running throughout; their pages reconnect by themselves.
+
+From then on, the Controller's version is the `JANUS_CONTROLLER_IMAGE`
+line in `.env`: `docker compose pull` no longer moves it to `:latest`
+(remove the line for that). The updater itself still runs the image it
+started with - the next `docker compose up -d` gives it the new one,
+which is harmless at any time.
+
+### When an update fails
+
+- **Rolled back** - nothing to do: the previous version runs, with its
+  data. The page shows why (a new version that didn't start within 2
+  minutes, or one that stopped right after starting), and the updater's
+  log has the details.
+- **Rollback failed** - the previous version didn't come back either,
+  which needs a hand. Its data and `.env` are in the updater's state
+  volume, under `backup/` (`data/`, `env`, `info.json` with the image it
+  ran). Volume names are prefixed with the Compose project's name, by
+  default its directory's (`docker volume ls | grep janus-controller`).
+  To put it back by hand, in the Compose directory:
+
+  ```sh
+  docker compose stop janus-controller
+  docker run --rm -v janus-controller_janus-controller-data:/data \
+    -v janus-controller_janus-controller-updater-state:/state \
+    busybox sh -c 'find /data -mindepth 1 -delete && cp -a /state/backup/data/. /data/'
+  docker run --rm -v janus-controller_janus-controller-updater-state:/state \
+    busybox cat /state/backup/env > .env   # if the backup has one
+  docker compose up -d
+  ```
+
+- **Interrupted** - the updater stopped mid-update (the host rebooted,
+  say). Check which version runs (`docker compose ps`); the backup above
+  is the state from before the update.
+
+### Updating by hand
+
+Without the updater, with the `compose.yaml` above: set the line the
+page shows - the release's image, also in its `controller-image.txt` -
+in `.env`, then `docker compose up -d`:
+
+```sh
+echo 'JANUS_CONTROLLER_IMAGE=swenske/janus-controller:vX' >> .env  # or edit the existing line
+docker compose up -d
+```
+
+### Settings
+
+Environment variables, all optional:
+
+| Variable | Container | Default | What |
+|---|---|---|---|
+| `JANUS_CONTROLLER_UPDATER_SOCKET` | Controller | `/run/janus-updater/updater.sock` | where to find the updater (empty: never) |
+| `JANUS_UPDATER_SERVICE` | updater | `janus-controller` | the Controller's service name in `compose.yaml` |
+| `JANUS_UPDATER_VARIABLE` | updater | `JANUS_CONTROLLER_IMAGE` | the `.env` variable its `image:` comes from |
+| `JANUS_UPDATER_START_TIMEOUT` | updater | `2m` | how long a new version has to start |
+| `JANUS_UPDATER_STABLE` | updater | `10s` | how long it must then keep running |
+| `JANUS_UPDATER_REPOSITORY` | updater | `swenske/janus-controller` | the only repository it installs from (a mirror) |
+| `JANUS_UPDATER_DOCKER_SOCKET` | updater | `/var/run/docker.sock` | the Docker socket, inside the container |
+
+`hack/controller-self-update-test.sh` (`make
+controller-self-update-test`, run by `image-build.yml` before anything
+is published) proves this setup with real Docker Compose: the updater
+explaining a missing mount, an update that works (data, TLS identity,
+password and `.env`'s other lines kept), and one whose new version never
+starts, rolled back by itself.
 
 ## Build (backend only, no image)
 
