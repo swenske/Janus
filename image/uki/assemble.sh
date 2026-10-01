@@ -95,8 +95,12 @@ trap 'rm -f "$CMDLINE_FILE"' EXIT
     fi
     schematic_arg=" janus.schematic=$JANUS_SCHEMATIC"
   fi
-  printf 'console=%s panic=-1 dm-mod.create="%s" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp%s%s' \
-    "${UKI_CONSOLE:-ttyS0}" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$enforcing_arg" "$schematic_arg"
+  # UKI_EXTRA_CMDLINE: development builds only, e.g.
+  # sysctl.kernel.printk_ratelimit=0 to see every SELinux denial while
+  # writing a new domain's rules. Never set for a release.
+  printf 'console=%s panic=-1 dm-mod.create="%s" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp%s%s%s' \
+    "${UKI_CONSOLE:-ttyS0}" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$enforcing_arg" "$schematic_arg" \
+    "${UKI_EXTRA_CMDLINE:+ $UKI_EXTRA_CMDLINE}"
 } > "$CMDLINE_FILE"
 
 mkdir -p "$(dirname "$OUT")"

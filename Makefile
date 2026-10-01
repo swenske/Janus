@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-extensions-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-extensions-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -755,6 +755,14 @@ qemu-firewall-test: SCHEMATIC = hack/testdata/schematic-firewall.json
 qemu-firewall-test: build extension-nftables-amd64
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
 	./hack/qemu-firewall-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# VRRP (keepalived extension) with two real enforcing nodes on a shared
+# LAN: master/backup, failover on HAProxy health and on a node going
+# away - see the script's header.
+qemu-vrrp-test: SCHEMATIC = hack/testdata/schematic-vrrp.json
+qemu-vrrp-test: build extension-keepalived-amd64
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	./hack/qemu-vrrp-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
 qemu-system-api-test: build disk-image
 	./hack/qemu-system-api-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl

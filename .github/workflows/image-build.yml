@@ -687,6 +687,12 @@ jobs:
       - name: Firewall - nftables ruleset on trial, live sets
         run: make qemu-firewall-test
 
+      # VRRP (keepalived extension) with two real enforcing nodes on a
+      # shared LAN: master/backup, failover when HAProxy stops answering and
+      # when a node goes away, failback. See hack/qemu-vrrp-test.sh.
+      - name: VRRP - keepalived failover between two nodes
+        run: make qemu-vrrp-test
+
       - name: Rebuild the default image after the extensions test
         run: make disk-image
 
