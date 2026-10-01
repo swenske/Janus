@@ -53,6 +53,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	"github.com/swenske/Janus/dashboard/updater/updaterapi"
 )
 
 // staticFiles is dashboard/frontend's built React SPA - dashboard/
@@ -90,8 +91,11 @@ func main() {
 	tlsCertFile := flag.String("tls-cert", "", "path to a PEM certificate for this dashboard's own TLS identity (used for -addr, -register-addr, and every per-node listener) - if set, together with -tls-key, replaces the auto-generated self-signed one entirely; both flags must be set together")
 	tlsKeyFile := flag.String("tls-key", "", "path to the PEM private key matching -tls-cert")
 	imageFactory := flag.String("image-factory", envOr("JANUS_CONTROLLER_IMAGE_FACTORY", nodeproxy.ImageFactoryURL), "image factory that builds and serves the updates of nodes whose image has optional extensions (docs/image-factory.md) - empty to disable, in which case such nodes have no update source; nodes with the default schematic update from GitHub Releases either way; also settable via JANUS_CONTROLLER_IMAGE_FACTORY")
+	updaterSocket := flag.String("updater-socket", envOr("JANUS_CONTROLLER_UPDATER_SOCKET", updaterapi.DefaultSocket), "Unix socket of janus-controller-updater, which updates this Controller when asked from its page (dashboard/README.md, Updating the Controller) - nothing happens when it isn't there; empty to never use one; also settable via JANUS_CONTROLLER_UPDATER_SOCKET")
+	releasesURL := flag.String("releases-url", envOr("JANUS_CONTROLLER_RELEASES_URL", nodeproxy.ReleasesURL), "GitHub API URL listing Janus releases, newest first - where the Controller learns about new releases for itself and its nodes (a mirror, or a test's fake); also settable via JANUS_CONTROLLER_RELEASES_URL")
 	flag.Parse()
 	nodeproxy.ImageFactoryURL = *imageFactory
+	nodeproxy.ReleasesURL = *releasesURL
 	nodeproxy.ControllerVersion = version
 
 	st, err := store.Open(*dataDir)
@@ -125,6 +129,7 @@ func main() {
 		serverCert:            serverCert,
 		listeners:             map[string]*nodeproxy.Listener{},
 		suggestedRegisterAddr: suggestRegisterAddress(*advertiseAddresses, *registerAddr),
+		selfUpdate:            newSelfUpdate(*updaterSocket),
 	}
 	for _, n := range st.List() {
 		if err := app.startListener(n); err != nil {
@@ -159,6 +164,7 @@ func main() {
 	mux.HandleFunc("/api/pending", app.requireAuth(app.handlePendingList))
 	mux.HandleFunc("/api/pending/", app.requireAuth(app.handlePendingAction))
 	mux.HandleFunc("/api/controller-info", app.requireAuth(app.handleControllerInfo))
+	mux.HandleFunc("/api/controller/update", app.requireAuth(app.handleControllerUpdate))
 	mux.Handle("/", http.FileServerFS(spa))
 
 	srv := &http.Server{
@@ -171,11 +177,18 @@ func main() {
 		Handler:   http.NewCrossOriginProtection().Handler(mux),
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{serverCert}},
 	}
-	log.Printf("dashboardd listening on %s (HTTPS only)", *addr)
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatalf("listen on %s: %v", *addr, err)
+	}
+	log.Printf("dashboardd %s listening on %s (HTTPS only)", version, *addr)
+	// Listening now: an update waiting for this version to start can stop
+	// waiting.
+	go app.selfUpdate.announce()
 	// Empty cert/key file arguments: srv.TLSConfig.Certificates above is
-	// what's actually used - ListenAndServeTLS falls back to it exactly
-	// for this case (see its own doc comment).
-	log.Fatal(srv.ListenAndServeTLS("", ""))
+	// what's actually used - ServeTLS falls back to it exactly for this
+	// case (see its own doc comment).
+	log.Fatal(srv.ServeTLS(ln, "", ""))
 }
 
 type app struct {
@@ -191,6 +204,7 @@ type app struct {
 	// still has to confirm or override it for their actual network
 	// either way, this is a convenience default, never authoritative.
 	suggestedRegisterAddr string
+	selfUpdate            *selfUpdate
 
 	mu        sync.Mutex
 	listeners map[string]*nodeproxy.Listener

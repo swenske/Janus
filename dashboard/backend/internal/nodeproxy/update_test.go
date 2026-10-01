@@ -127,7 +127,7 @@ func TestCheckUpdateNoFactory(t *testing.T) {
 }
 
 // seedRelease makes rel the latest GitHub release without asking GitHub.
-func seedRelease(t *testing.T, rel *latestReleaseInfo) {
+func seedRelease(t *testing.T, rel *ReleaseInfo) {
 	t.Helper()
 	releaseCache.mu.Lock()
 	prevData, prevErr, prevAt := releaseCache.data, releaseCache.err, releaseCache.fetchedAt
@@ -142,7 +142,7 @@ func seedRelease(t *testing.T, rel *latestReleaseInfo) {
 
 func TestCheckUpdateDefaultSchematicUsesGitHub(t *testing.T) {
 	resetFactory(t, "http://127.0.0.1:1") // must not be used
-	seedRelease(t, &latestReleaseInfo{TagName: "v1", BundleBaseURL: "https://github.invalid/download/v1", SHA256: "def"})
+	seedRelease(t, &ReleaseInfo{TagName: "v1", BundleBaseURL: "https://github.invalid/download/v1", SHA256: "def"})
 
 	// A node older than schematics and VersionResponse.arch.
 	uc := checkUpdate(context.Background(), &janusv1alpha1.VersionResponse{Version: "v1"})
@@ -206,7 +206,7 @@ func TestUpdateForSameSchematic(t *testing.T) {
 
 func TestUpdateForNoExtensionsUsesGitHub(t *testing.T) {
 	resetFactory(t, "http://127.0.0.1:1") // must not be used
-	seedRelease(t, &latestReleaseInfo{TagName: "v2", BundleBaseURL: "https://github.invalid/download/v2", SHA256: "def"})
+	seedRelease(t, &ReleaseInfo{TagName: "v2", BundleBaseURL: "https://github.invalid/download/v2", SHA256: "def"})
 	eu := updateFor(context.Background(), nodeWith("node-exporter", "qemu-guest-agent"), &schematic.Schematic{})
 	if !eu.Default || !eu.SchematicChange || eu.Source != "github" || eu.BundleURL != "https://github.invalid/download/v2" || len(eu.Extensions) != 0 {
 		t.Fatalf("update = %+v", eu)
@@ -320,9 +320,9 @@ func TestCachedFetchesIgnoreCanceledRequests(t *testing.T) {
 			}
 		}))
 		t.Cleanup(gh.Close)
-		prevURL := githubReleasesURL
-		githubReleasesURL = gh.URL + "/releases"
-		t.Cleanup(func() { githubReleasesURL = prevURL })
+		prevURL := ReleasesURL
+		ReleasesURL = gh.URL + "/releases"
+		t.Cleanup(func() { ReleasesURL = prevURL })
 		seedRelease(t, nil) // empty cache, restored afterwards
 		releaseCache.mu.Lock()
 		releaseCache.fetchedAt = time.Time{}

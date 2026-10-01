@@ -1,5 +1,6 @@
 import { ArrowUpRight, Check, ChevronDown, Copy, LogOut, Plus, RefreshCw, Rocket, Server, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import ControllerUpdate from './ControllerUpdate.jsx'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
 import { Badge, Card, ErrorBox, stateTone, useConfirm, useToast } from './shared/ui.jsx'
 
@@ -575,6 +576,7 @@ function MainApp() {
       <main className="content">
         <div className="stack">
           {error && <ErrorBox error={error} />}
+          <ControllerUpdate />
           <PendingList pending={pending} onApprove={approve} onReject={reject} busy={busy} />
           <div className="spread">
             <h1>Nodes</h1>

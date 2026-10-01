@@ -107,3 +107,11 @@ PFTF_RPI4_UEFI_SHA256  := ca9973e2a7a546b3df871cfb7382e656829114b6dfa424f40dc67c
 # rather than hidden.
 RPI5_UEFI_VERSION := v0.1
 RPI5_UEFI_SHA256  := c4fbbec9cd0d1115c9adab884923061b960de42b4ca6d65ba5f08cb6b46c6fad
+
+# Docker Compose's standalone binary, shipped in the Controller's image
+# for janus-controller-updater (dashboard/updater), which updates the
+# Controller with it - checked against the release's own .sha256 assets
+# (github.com/docker/compose/releases).
+DOCKER_COMPOSE_VERSION      := v5.5.1
+DOCKER_COMPOSE_SHA256_AMD64 := db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576
+DOCKER_COMPOSE_SHA256_ARM64 := 732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7

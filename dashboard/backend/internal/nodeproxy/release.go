@@ -29,10 +29,11 @@ import (
 	"time"
 )
 
-// githubReleasesURL lists this project's releases, newest first -
+// ReleasesURL lists this project's releases, newest first -
 // GitHub's documented ordering for this endpoint. Not /latest: that one
 // skips pre-releases, which every release up to v2026.09.30-2 was.
-var githubReleasesURL = "https://api.github.com/repos/swenske/Janus/releases" // a var for tests
+// dashboardd's -releases-url replaces it (a mirror, or a test's fake).
+var ReleasesURL = "https://api.github.com/repos/swenske/Janus/releases"
 
 // releaseCacheTTL bounds how long a fetched result is reused before
 // asking GitHub again - short enough that a fresh release shows up
@@ -42,17 +43,27 @@ var githubReleasesURL = "https://api.github.com/repos/swenske/Janus/releases" //
 // source IP) is the real constraint this is sized against, not UX.
 const releaseCacheTTL = 10 * time.Minute
 
-type latestReleaseInfo struct {
+// ReleaseInfo is the newest release.
+type ReleaseInfo struct {
 	TagName       string `json:"tag_name"`
 	HTMLURL       string `json:"html_url"`
 	PublishedAt   string `json:"published_at"`
 	BundleBaseURL string `json:"bundle_base_url"`
 	SHA256        string `json:"sha256"`
+	// ControllerImage is the release's Controller image pinned to its
+	// digest ("swenske/janus-controller:vX@sha256:..."), from its
+	// controller-image.txt asset - empty for releases before that asset.
+	ControllerImage string `json:"controller_image,omitempty"`
+}
+
+// LatestRelease is the newest release, cached like the per-node pages'.
+func LatestRelease(ctx context.Context) (*ReleaseInfo, error) {
+	return getLatestRelease(ctx)
 }
 
 var releaseCache struct {
 	mu        sync.Mutex
-	data      *latestReleaseInfo
+	data      *ReleaseInfo
 	err       error
 	fetchedAt time.Time
 }
@@ -73,7 +84,7 @@ func registerReleaseRoutes(mux *http.ServeMux) {
 // (network failure, GitHub API error, no releases published yet) is
 // cached too, briefly, so a real outage doesn't turn into a request
 // storm from every open per-node page's own refresh loop.
-func getLatestRelease(ctx context.Context) (*latestReleaseInfo, error) {
+func getLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	releaseCache.mu.Lock()
 	defer releaseCache.mu.Unlock()
 
@@ -121,8 +132,8 @@ type ghRelease struct {
 // fetchLatestRelease calls GitHub for real - no auth (this project's
 // releases are public), the same anonymous access every node's own
 // fetchBundleFile already relies on to download a release's assets.
-func fetchLatestRelease(ctx context.Context) (*latestReleaseInfo, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubReleasesURL, nil)
+func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ReleasesURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -151,24 +162,24 @@ func fetchLatestRelease(ctx context.Context) (*latestReleaseInfo, error) {
 		// would double up "releases") needs appending.
 		bundleBaseURL := strings.TrimSuffix(rel.HTMLURL, "/tag/"+rel.TagName) + "/download/" + rel.TagName
 
-		var sha256Value string
-		for _, asset := range rel.Assets {
-			if asset.Name == "rootfs.squashfs.sha256" {
-				sha256Value, err = fetchAssetText(ctx, asset.BrowserDownloadURL)
-				if err != nil {
-					return nil, fmt.Errorf("fetch %s: %w", asset.Name, err)
-				}
-				break
-			}
-		}
-
-		return &latestReleaseInfo{
+		info := &ReleaseInfo{
 			TagName:       rel.TagName,
 			HTMLURL:       rel.HTMLURL,
 			PublishedAt:   rel.PublishedAt,
 			BundleBaseURL: bundleBaseURL,
-			SHA256:        sha256Value,
-		}, nil
+		}
+		for _, asset := range rel.Assets {
+			switch asset.Name {
+			case "rootfs.squashfs.sha256":
+				info.SHA256, err = fetchAssetText(ctx, asset.BrowserDownloadURL)
+			case "controller-image.txt":
+				info.ControllerImage, err = fetchAssetText(ctx, asset.BrowserDownloadURL)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("fetch %s: %w", asset.Name, err)
+			}
+		}
+		return info, nil
 	}
 	return nil, fmt.Errorf("no published releases found")
 }

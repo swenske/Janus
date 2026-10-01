@@ -19,18 +19,44 @@
 # deployed container while this image shipped no bundle at all.
 # CGO_ENABLED=0 keeps the binary static so a bare FROM scratch final
 # stage can actually run it.
+#
+# The same image runs janus-controller-updater (dashboard/updater), the
+# optional companion that updates the Controller from its page: its own
+# entrypoint in the compose file (dashboard/README.md, "Updating the
+# Controller"), with Docker Compose's static binary next to it - pinned in
+# versions.mk, checked against its sha256 here.
+FROM golang:1.26-trixie AS compose
+ARG TARGETARCH
+ARG DOCKER_COMPOSE_VERSION
+ARG DOCKER_COMPOSE_SHA256_AMD64
+ARG DOCKER_COMPOSE_SHA256_ARM64
+RUN set -eu; \
+    test -n "$DOCKER_COMPOSE_VERSION" || { echo "DOCKER_COMPOSE_VERSION is unset - build with make dashboard-image (versions.mk)" >&2; exit 1; }; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) arch=x86_64; sum="$DOCKER_COMPOSE_SHA256_AMD64" ;; \
+      arm64) arch=aarch64; sum="$DOCKER_COMPOSE_SHA256_ARM64" ;; \
+      *) echo "no Docker Compose build for $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /docker-compose "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${arch}"; \
+    echo "${sum}  /docker-compose" | sha256sum -c -; \
+    chmod 0755 /docker-compose
+
 FROM golang:1.26-trixie AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY gen/ gen/
 COPY internal/ internal/
 COPY dashboard/backend/ dashboard/backend/
+COPY dashboard/updater/ dashboard/updater/
 # The Controller's version (make dashboard-image passes git describe's).
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/dashboardd ./dashboard/backend
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/dashboardd ./dashboard/backend && \
+    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/janus-controller-updater ./dashboard/updater
 
 FROM scratch AS export
 COPY --from=build /out/dashboardd /dashboardd
+COPY --from=build /out/janus-controller-updater /janus-controller-updater
+COPY --from=compose /docker-compose /usr/local/bin/docker-compose
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 # /data is the persistent volume (node registry + this dashboard's own
 # TLS identity - see dashboard/backend/main.go's own -data-dir default)

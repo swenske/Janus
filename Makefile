@@ -21,7 +21,7 @@ GEN_DIR := gen
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
-	qemu-dashboard-test dashboard-image local-dev-image ca-certificates seed-controller-test \
+	qemu-dashboard-test dashboard-image controller-self-update-test local-dev-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
@@ -668,6 +668,7 @@ dashboard-frontend-build:
 dashboard-build: dashboard-frontend-build
 	mkdir -p $(BIN_DIR)
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/dashboardd ./dashboard/backend
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/janus-controller-updater ./dashboard/updater
 
 # The companion site, janus.sw-servers.net (site/): frontend built into
 # site/backend/static (committed, like the Controller's), then the Go
@@ -694,8 +695,20 @@ qemu-dashboard-test: dashboard-build disk-image
 # dashboard/README.md. Run from the repo root (not dashboard/) since
 # the build context needs go.mod/gen/internal alongside dashboard/
 # itself.
+# DASHBOARD_IMAGE: the tag (controller-self-update-test builds its own).
+DASHBOARD_IMAGE ?= janus-controller
 dashboard-image:
-	docker build -f dashboard/Dockerfile --build-arg VERSION=$(VERSION) -t janus-controller .
+	docker build -f dashboard/Dockerfile --build-arg VERSION=$(VERSION) \
+		--build-arg DOCKER_COMPOSE_VERSION=$(DOCKER_COMPOSE_VERSION) \
+		--build-arg DOCKER_COMPOSE_SHA256_AMD64=$(DOCKER_COMPOSE_SHA256_AMD64) \
+		--build-arg DOCKER_COMPOSE_SHA256_ARM64=$(DOCKER_COMPOSE_SHA256_ARM64) \
+		-t $(DASHBOARD_IMAGE) .
+
+# The Controller updating itself through janus-controller-updater, with
+# real Docker Compose set up as dashboard/README.md documents it: an
+# update that works, one that rolls back (needs Docker, python3).
+controller-self-update-test:
+	./hack/controller-self-update-test.sh
 
 # "Local Platform" tranche: a real janusd+haproxy pair as an ordinary
 # Docker container, for fast local iteration - see local-dev/

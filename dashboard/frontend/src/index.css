@@ -24,6 +24,23 @@
 .node-card-name { font-weight: 650; font-size: 1.05rem; overflow-wrap: anywhere; }
 .pending { border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
 .pending-row { padding: 0.5rem 0; border-top: 1px solid var(--border); }
+.controller-update { display: flex; flex-direction: column; gap: 0.7rem; }
+.controller-update.accent { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.controller-update.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.controller-update.danger { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.controller-update.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
+.controller-update .card-header { margin-bottom: 0; }
+.update-log {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0.4rem 0 0;
+  padding: 0.6rem 0.7rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  font-size: 0.8em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .pending-row:first-child { border-top: none; padding-top: 0; }
 
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0; }
