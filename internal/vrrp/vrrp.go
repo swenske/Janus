@@ -253,12 +253,17 @@ func ParseJSON(data []byte) ([]Instance, error) {
 }
 
 // KeepHealth keeps HealthFile current - checked every interval with
-// healthy - until stop is closed.
-func KeepHealth(healthy func() bool, interval time.Duration, stop <-chan struct{}) {
+// healthy, and at once whenever the channel changed returns is closed
+// (nil: polling only) - until stop is closed.
+func KeepHealth(healthy func() bool, changed func() <-chan struct{}, interval time.Duration, stop <-chan struct{}) {
 	last := -1
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
+		var wake <-chan struct{}
+		if changed != nil {
+			wake = changed() // before checking: a change in between still wakes us
+		}
 		h := 0
 		if healthy() {
 			h = 1
@@ -277,6 +282,7 @@ func KeepHealth(healthy func() bool, interval time.Duration, stop <-chan struct{
 		case <-stop:
 			return
 		case <-t.C:
+		case <-wake:
 		}
 	}
 }

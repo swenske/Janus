@@ -383,11 +383,17 @@ func (m *Manager) Held() []string {
 }
 
 // KeepGate keeps the haproxy_* protocols down while healthy says HAProxy
-// doesn't answer - checked every interval - until stop is closed.
-func (m *Manager) KeepGate(healthy func() bool, interval time.Duration, stop <-chan struct{}) {
+// doesn't answer - checked every interval, and at once whenever the
+// channel changed returns is closed (nil: polling only) - until stop is
+// closed.
+func (m *Manager) KeepGate(healthy func() bool, changed func() <-chan struct{}, interval time.Duration, stop <-chan struct{}) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
+		var wake <-chan struct{}
+		if changed != nil {
+			wake = changed() // before checking: a change in between still wakes us
+		}
 		h := healthy()
 		m.mu.Lock()
 		if h != m.healthy {
@@ -400,6 +406,7 @@ func (m *Manager) KeepGate(healthy func() bool, interval time.Duration, stop <-c
 		case <-stop:
 			return
 		case <-t.C:
+		case <-wake:
 		}
 	}
 }

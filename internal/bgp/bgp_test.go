@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/modcfg"
@@ -187,7 +188,7 @@ func (f *fakeBIRD) get(name string) string {
 func gateOnce(m *Manager, healthy bool) {
 	stop := make(chan struct{})
 	close(stop)
-	m.KeepGate(func() bool { return healthy }, 1, stop)
+	m.KeepGate(func() bool { return healthy }, nil, 1, stop)
 }
 
 func TestGate(t *testing.T) {
@@ -216,6 +217,38 @@ func TestGate(t *testing.T) {
 	if len(m.Held()) != 0 {
 		t.Errorf("still held: %v", m.Held())
 	}
+}
+
+// A change signalled through changed is acted on at once, not at the next
+// poll: a deliberate stop of HAProxy withdraws the anycast routes before
+// its listeners close.
+func TestGateWakesOnChange(t *testing.T) {
+	f := startFakeBIRD(t, "haproxy_anycast=up")
+	m := New(nil)
+	var mu sync.Mutex
+	healthy := true
+	ch := make(chan struct{})
+	changed := func() <-chan struct{} { mu.Lock(); defer mu.Unlock(); return ch }
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		m.KeepGate(func() bool { mu.Lock(); defer mu.Unlock(); return healthy }, changed, time.Hour, stop)
+		close(done)
+	}()
+	mu.Lock()
+	healthy = false
+	close(ch)
+	ch = make(chan struct{})
+	mu.Unlock()
+	deadline := time.Now().Add(time.Second)
+	for f.get("haproxy_anycast") != "down" {
+		if time.Now().After(deadline) {
+			t.Fatal("haproxy_anycast still up - polling is hourly here")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(stop)
+	<-done
 }
 
 type fakeServices struct{ state, started, stopped string }

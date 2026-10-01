@@ -188,3 +188,69 @@ func readPID(t *testing.T, path string) int {
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 	return pid
 }
+
+// Stop declares HAProxy not serving and signals Changed at once, then
+// keeps the listeners open for DrainDelay before the soft stop: the
+// virtual IPs and anycast routes leave first.
+func TestManagerStopDrains(t *testing.T) {
+	dir := t.TempDir()
+	out := &syncBuffer{}
+	m := NewManager(fakeHAProxy(t), filepath.Join(dir, "haproxy.cfg"), filepath.Join(dir, "haproxy.pid"), filepath.Join(dir, "sock"))
+	m.Output = out
+	m.DrainDelay = 300 * time.Millisecond
+
+	starting := m.Changed()
+	if err := m.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-starting:
+	default:
+		t.Fatal("starting HAProxy didn't signal Changed")
+	}
+	waitFor(t, "start", func() bool { return strings.Contains(out.String(), "started") })
+
+	stopping := m.Changed()
+	begin := time.Now()
+	stopped := make(chan error, 1)
+	go func() { stopped <- m.Stop(5 * time.Second) }()
+	select {
+	case <-stopping:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Stop didn't signal Changed before draining")
+	}
+	if m.Serving() {
+		t.Error("still Serving while draining")
+	}
+	if strings.Contains(out.String(), "soft-stop") {
+		t.Error("soft-stopped before the drain was over")
+	}
+	if err := <-stopped; err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(begin); d < m.DrainDelay {
+		t.Errorf("Stop returned after %v, sooner than DrainDelay %v", d, m.DrainDelay)
+	}
+	waitFor(t, "soft stop", func() bool { return strings.Contains(out.String(), "soft-stop") })
+}
+
+// A process that exits on its own signals Changed: the health checks
+// notice a crash without waiting for their next poll.
+func TestManagerCrashSignalsChanged(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(fakeHAProxy(t), filepath.Join(dir, "haproxy.cfg"), filepath.Join(dir, "haproxy.pid"), filepath.Join(dir, "sock"))
+	m.Output = &syncBuffer{}
+	if err := m.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	changed := m.Changed()
+	_ = m.cur.cmd.Process.Signal(syscall.SIGKILL)
+	select {
+	case <-changed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a crash didn't signal Changed")
+	}
+	if !m.Serving() {
+		t.Error("a crash isn't a stop: Serving stays true, the health checks see the stats socket fail")
+	}
+}

@@ -25,6 +25,7 @@ import (
 	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/espswitch"
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/releasetrust"
 	"github.com/swenske/Janus/internal/schematic"
 )
@@ -48,6 +49,11 @@ import (
 // kind of release bundle Upgrade reads from.
 type Lifecycle struct {
 	janusv1alpha1.UnimplementedLifecycleServiceServer
+
+	// HAProxy, if set, is drained and soft-stopped before the reboot that
+	// ends Rollback and Upgrade, as SystemService.Reboot does: the virtual
+	// IPs and anycast routes leave this node first.
+	HAProxy *haproxy.Manager
 }
 
 // Fixed partition sizes, matching image/disk/assemble.sh's own
@@ -268,10 +274,15 @@ func resolveBootContext() (*bootContext, error) {
 // scheduleReboot reboots shortly after the caller returns, not before -
 // an RPC that rebooted immediately would kill the connection before its
 // own response (or, for Upgrade, its last stream message) ever reached
-// the caller.
-func scheduleReboot() {
+// the caller. HAProxy is drained and soft-stopped first.
+func (l *Lifecycle) scheduleReboot() {
 	go func() {
 		time.Sleep(replyGrace)
+		if l.HAProxy != nil {
+			if err := l.HAProxy.Stop(5 * time.Second); err != nil {
+				log.Printf("lifecycle: stop haproxy: %v", err)
+			}
+		}
 		syscall.Sync()
 		consoledrain.Wait(os.Stderr, 2*time.Second)
 		if err := syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART); err != nil {
@@ -321,7 +332,7 @@ func (l *Lifecycle) Rollback(_ context.Context, _ *emptypb.Empty) (*janusv1alpha
 	}
 
 	events.Publish("lifecycle.rollback", map[string]string{"from": bc.currentSlot, "to": bc.targetSlot})
-	scheduleReboot()
+	l.scheduleReboot()
 
 	return &janusv1alpha1.RollbackResponse{ActiveSlot: bc.targetSlot}, nil
 }
@@ -506,7 +517,7 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	}
 
 	events.Publish("lifecycle.upgrade", map[string]any{"from": bc.currentSlot, "to": bc.targetSlot, "source": req.GetSource().GetReference(), "wait_for_health": req.GetWaitForHealth(), "signature": signature})
-	scheduleReboot()
+	l.scheduleReboot()
 	return nil
 }
 

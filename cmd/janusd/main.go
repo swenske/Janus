@@ -72,6 +72,7 @@ func main() {
 	haproxyPid := flag.String("haproxy-pid", "/run/janus/haproxy.pid", "path to haproxy's pid file")
 	haproxySock := flag.String("haproxy-stats-socket", "/run/janus/haproxy-admin.sock", "path to haproxy's stats socket (must match the 'stats socket' line in haproxy-config)")
 	haproxyCertStore := flag.String("haproxy-cert-store", "", "where certificates uploaded at runtime are kept, to be put back into HAProxy after each reload or restart (default: runtime-certs next to -haproxy-config - STATE's haproxy/ on a node)")
+	haproxyDrain := flag.Duration("haproxy-drain", 2*time.Second, "with the keepalived or bird extension, how long a deliberate stop of HAProxy (service stop, reboot, shutdown, update, rollback) waits between giving up the virtual IPs and anycast routes and closing its listeners - the traffic moves to another node meanwhile")
 	haproxyChrootDir := flag.String("haproxy-chroot-dir", "/var/empty", "directory haproxy chroots into after binding listeners and dropping privileges (must match the 'chroot' line in haproxy-config); created here since this rootfs has no package manager to have provisioned it")
 	manageHost := flag.Bool("manage-host", false, "this janusd runs a Janus node: it configures the node's network, hostname and clock (internal/netmgr, internal/timesync). Off, they're only reported - never set this on a machine whose network janusd mustn't touch")
 	configDir := flag.String("config-dir", exporter.Dir, "directory for janusd's persistent settings (the exporter's, the optional modules'); a node's is on STATE")
@@ -202,7 +203,7 @@ func main() {
 		if err := vrrpMgr.Boot(); err != nil {
 			log.Printf("vrrp: %v", err)
 		}
-		go vrrp.KeepHealth(haproxyHealthy, 2*time.Second, nil)
+		go vrrp.KeepHealth(haproxyHealthy, haproxyMgr.Changed, 2*time.Second, nil)
 	}
 	// BIRD (the BGP extension) likewise; its haproxy_* protocols are kept
 	// down while HAProxy doesn't answer - checked every second: a BGP
@@ -212,7 +213,14 @@ func main() {
 		if err := bgpMgr.Boot(); err != nil {
 			log.Printf("bgp: %v", err)
 		}
-		go bgpMgr.KeepGate(haproxyHealthy, time.Second, nil)
+		go bgpMgr.KeepGate(haproxyHealthy, haproxyMgr.Changed, time.Second, nil)
+	}
+	// A deliberate stop of HAProxy gives the virtual IPs up and withdraws
+	// the anycast routes at once (Changed wakes both checks), then waits
+	// this long before closing the listeners: the traffic has moved to
+	// another node by then, and none is refused meanwhile.
+	if *manageHost && (vrrpMgr.Available() || bgpMgr.Available()) {
+		haproxyMgr.DrainDelay = *haproxyDrain
 	}
 	// prometheus-node-exporter runs as its saved settings say.
 	if extMgr.Has(nodeexporter.ServiceID) {
@@ -353,7 +361,7 @@ func main() {
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp})
-	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{})
+	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr})
 

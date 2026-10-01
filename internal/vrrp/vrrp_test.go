@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -42,7 +43,7 @@ func TestKeepHealth(t *testing.T) {
 	healthy.Store(true)
 	stop := make(chan struct{})
 	done := make(chan struct{})
-	go func() { KeepHealth(healthy.Load, 10*time.Millisecond, stop); close(done) }()
+	go func() { KeepHealth(healthy.Load, nil, 10*time.Millisecond, stop); close(done) }()
 	wait := func(want string) {
 		t.Helper()
 		deadline := time.Now().Add(2 * time.Second)
@@ -67,4 +68,42 @@ func TestKeepHealth(t *testing.T) {
 	if left, _ := filepath.Glob(filepath.Join(RunDir, "*.tmp")); len(left) != 0 {
 		t.Fatalf("left %v", left)
 	}
+}
+
+// A change signalled through changed is acted on at once, not at the next
+// poll: a deliberate stop of HAProxy gives the virtual IPs up before its
+// listeners close.
+func TestKeepHealthWakesOnChange(t *testing.T) {
+	RunDir = t.TempDir()
+	var healthy atomic.Bool
+	healthy.Store(true)
+	var mu sync.Mutex
+	ch := make(chan struct{})
+	changed := func() <-chan struct{} { mu.Lock(); defer mu.Unlock(); return ch }
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { KeepHealth(healthy.Load, changed, time.Hour, stop); close(done) }()
+	wait := func(want string) {
+		t.Helper()
+		deadline := time.Now().Add(time.Second)
+		for {
+			data, _ := os.ReadFile(HealthFile())
+			if strings.TrimSpace(string(data)) == want {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("health file %q, want %q - polling is hourly here", data, want)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	wait("0")
+	healthy.Store(false)
+	mu.Lock()
+	close(ch)
+	ch = make(chan struct{})
+	mu.Unlock()
+	wait("1")
+	close(stop)
+	<-done
 }

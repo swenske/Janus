@@ -42,11 +42,21 @@ type Manager struct {
 	CertStoreDir string
 	certMu       sync.Mutex
 
+	// DrainDelay is how long Stop waits between declaring HAProxy not
+	// serving and closing its listeners: what follows Serving and Changed
+	// (keepalived's track file, BIRD's haproxy_* protocols) moves the
+	// traffic to another node meanwhile, and this node still answers
+	// whatever arrives before it has moved. Zero: no wait.
+	DrainDelay time.Duration
+
 	mu  sync.Mutex
 	cur *process
 	// serving: a process runs that janusd isn't stopping. During a soft
 	// stop the stats socket still answers, but the listeners are closed.
 	serving atomic.Bool
+
+	changeMu sync.Mutex
+	changed  chan struct{}
 
 	counters Counters
 }
@@ -209,6 +219,9 @@ func (m *Manager) startOrReload(wait bool) error {
 			m.counters.UnexpectedExits.Add(1)
 		}
 		m.mu.Unlock()
+		if reason == "exited on its own" {
+			m.notifyChanged() // the health checks needn't wait for their next poll
+		}
 		exit := ""
 		if p.err != nil {
 			exit = p.err.Error()
@@ -216,7 +229,9 @@ func (m *Manager) startOrReload(wait bool) error {
 		events.Publish("haproxy.exited", map[string]any{"pid": cmd.Process.Pid, "reason": reason, "exit": exit})
 	}()
 	m.cur = p
-	m.serving.Store(true)
+	if !m.serving.Swap(true) {
+		m.notifyChanged()
+	}
 	// HAProxy itself only writes its -p pid file in daemon or
 	// master-worker mode, never in the foreground mode used here - so
 	// janusd writes it, for a restarted janusd to find the running
@@ -277,15 +292,37 @@ func (m *Manager) previousPID() int {
 	return pid
 }
 
-// Running reports whether the most recently started haproxy is still
-// running - the one serving traffic, ignoring any older process still
-// finishing its connections after a reload.
 // Serving reports whether janusd runs HAProxy and isn't stopping it:
 // false from the moment a soft stop begins, while the old process may
 // still answer on its stats socket. It doesn't take the lock Stop holds
 // while it waits.
 func (m *Manager) Serving() bool { return m.serving.Load() }
 
+// Changed returns a channel closed the next time Serving changes or the
+// current process exits on its own: a cue for HAProxy's health checks
+// to look again now rather than at their next poll. Take it before
+// checking, so a change in between isn't missed.
+func (m *Manager) Changed() <-chan struct{} {
+	m.changeMu.Lock()
+	defer m.changeMu.Unlock()
+	if m.changed == nil {
+		m.changed = make(chan struct{})
+	}
+	return m.changed
+}
+
+func (m *Manager) notifyChanged() {
+	m.changeMu.Lock()
+	defer m.changeMu.Unlock()
+	if m.changed != nil {
+		close(m.changed)
+		m.changed = nil
+	}
+}
+
+// Running reports whether the most recently started haproxy is still
+// running - the one serving traffic, ignoring any older process still
+// finishing its connections after a reload.
 func (m *Manager) Running() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -294,6 +331,8 @@ func (m *Manager) Running() bool {
 
 // Stop soft-stops haproxy (SIGUSR1: stop accepting, finish in-flight
 // connections), escalating to SIGTERM if it hasn't exited after timeout.
+// It first declares HAProxy not serving and waits DrainDelay, for the
+// traffic to leave this node before the listeners close.
 func (m *Manager) Stop(timeout time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -303,6 +342,10 @@ func (m *Manager) Stop(timeout time.Duration) error {
 	p := m.cur
 	p.stopping = true
 	m.serving.Store(false)
+	m.notifyChanged()
+	if m.DrainDelay > 0 {
+		time.Sleep(m.DrainDelay)
+	}
 	if err := p.cmd.Process.Signal(syscall.SIGUSR1); err != nil {
 		return fmt.Errorf("signal haproxy: %w", err)
 	}
