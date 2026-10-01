@@ -179,7 +179,16 @@ func main() {
 	// put the saved one there, and the HAProxy health file it can track,
 	// before the services start.
 	vrrpMgr := vrrp.New(extMgr)
-	haproxyHealthy := func() bool { _, err := haproxyMgr.ShowInfo(); return err == nil }
+	// HAProxy's health, for keepalived's track_file and BIRD's haproxy_*
+	// protocols: it answers on its stats socket, and isn't being stopped -
+	// a soft stop closes the listeners long before the process exits.
+	haproxyHealthy := func() bool {
+		if !haproxyMgr.Serving() {
+			return false
+		}
+		_, err := haproxyMgr.ShowInfo()
+		return err == nil
+	}
 	if *manageHost && vrrpMgr.Available() {
 		if err := vrrpMgr.Boot(); err != nil {
 			log.Printf("vrrp: %v", err)

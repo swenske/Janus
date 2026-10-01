@@ -39,6 +39,9 @@ type Manager struct {
 
 	mu  sync.Mutex
 	cur *process
+	// serving: a process runs that janusd isn't stopping. During a soft
+	// stop the stats socket still answers, but the listeners are closed.
+	serving atomic.Bool
 
 	counters Counters
 }
@@ -200,6 +203,7 @@ func (m *Manager) startOrReload() error {
 		events.Publish("haproxy.exited", map[string]any{"pid": cmd.Process.Pid, "reason": reason, "exit": exit})
 	}()
 	m.cur = p
+	m.serving.Store(true)
 	// HAProxy itself only writes its -p pid file in daemon or
 	// master-worker mode, never in the foreground mode used here - so
 	// janusd writes it, for a restarted janusd to find the running
@@ -208,7 +212,9 @@ func (m *Manager) startOrReload() error {
 		log.Printf("haproxy: write %s: %v", m.PidPath, err)
 	}
 	events.Publish("haproxy.started", map[string]any{"pid": cmd.Process.Pid, "args": args})
-	m.waitAnswering(p)
+	if reload {
+		m.waitAnswering(p)
+	}
 	return nil
 }
 
@@ -221,7 +227,9 @@ const takeoverTimeout = 5 * time.Second
 // the old process can still answer: runtime commands sent then would
 // reach it - a certificate staged in the old process and committed in
 // the new one fails with "No ongoing transaction", seen on the CI runner.
-// Called with mu held.
+// Only after a reload: a first start has no other process to answer in
+// its place, and janusd's boot goes on to its PKI meanwhile. Called with
+// mu held.
 func (m *Manager) waitAnswering(p *process) {
 	deadline := time.Now().Add(takeoverTimeout)
 	for time.Now().Before(deadline) && !p.exited() {
@@ -259,6 +267,12 @@ func (m *Manager) previousPID() int {
 // Running reports whether the most recently started haproxy is still
 // running - the one serving traffic, ignoring any older process still
 // finishing its connections after a reload.
+// Serving reports whether janusd runs HAProxy and isn't stopping it:
+// false from the moment a soft stop begins, while the old process may
+// still answer on its stats socket. It doesn't take the lock Stop holds
+// while it waits.
+func (m *Manager) Serving() bool { return m.serving.Load() }
+
 func (m *Manager) Running() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -275,6 +289,7 @@ func (m *Manager) Stop(timeout time.Duration) error {
 	}
 	p := m.cur
 	p.stopping = true
+	m.serving.Store(false)
 	if err := p.cmd.Process.Signal(syscall.SIGUSR1); err != nil {
 		return fmt.Errorf("signal haproxy: %w", err)
 	}

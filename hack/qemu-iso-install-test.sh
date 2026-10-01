@@ -102,7 +102,12 @@ fi
 
 # --- extract PKI creds straight from the console - no STATE partition
 # to debugfs into on this ephemeral medium, see this script's own
-# header comment.
+# header comment. janusd starts HAProxy before its PKI: wait for its
+# API to listen, which comes after the credentials are printed.
+until grep -aq "listening on :" "$LOG"; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "ISO install test FAILED: janusd never listened" >&2; cat "$LOG" >&2; exit 1; }
+  sleep 1
+done
 awk -v ca="$WORKDIR/ca.crt" -v acrt="$WORKDIR/admin.crt" -v akey="$WORKDIR/admin.key" '
   /pki: CA CERTIFICATE/ { section="ca"; next }
   /pki: ADMIN CERTIFICATE/ { section="admin"; next }

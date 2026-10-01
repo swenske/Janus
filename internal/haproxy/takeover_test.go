@@ -61,6 +61,17 @@ frontend f
 			t.Fatalf("CertificateUpload right after reload %d: %v", i, err)
 		}
 	}
+
+	// Serving: true while it runs, false as soon as a stop begins.
+	if !m.Serving() {
+		t.Error("Serving() is false with HAProxy running")
+	}
+	if err := m.Stop(5 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if m.Serving() {
+		t.Error("Serving() is still true after Stop")
+	}
 }
 
 type testWriter struct{ t *testing.T }
