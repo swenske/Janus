@@ -67,6 +67,10 @@ import (
 //go:embed all:static
 var staticFiles embed.FS
 
+// version is set at build time (-X main.version, the Makefile and
+// dashboard/Dockerfile).
+var version = "dev"
+
 // portRangeStart/End: the pool of per-node listener ports - see the
 // rebranding/dashboard plan's own architecture section for why a
 // dynamic per-node port (not one shared port) is what makes native
@@ -88,6 +92,7 @@ func main() {
 	imageFactory := flag.String("image-factory", envOr("JANUS_CONTROLLER_IMAGE_FACTORY", nodeproxy.ImageFactoryURL), "image factory that builds and serves the updates of nodes whose image has optional extensions (docs/image-factory.md) - empty to disable, in which case such nodes have no update source; nodes with the default schematic update from GitHub Releases either way; also settable via JANUS_CONTROLLER_IMAGE_FACTORY")
 	flag.Parse()
 	nodeproxy.ImageFactoryURL = *imageFactory
+	nodeproxy.ControllerVersion = version
 
 	st, err := store.Open(*dataDir)
 	if err != nil {
@@ -147,6 +152,9 @@ func main() {
 	mux.HandleFunc("/api/auth/logout", app.handleAuthLogout)
 	mux.HandleFunc("/api/nodes", app.requireAuth(app.handleNodes))
 	mux.HandleFunc("GET /api/nodes/status", app.requireAuth(app.handleNodesStatus))
+	mux.HandleFunc("GET /api/version", app.requireAuth(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"version": version})
+	}))
 	mux.HandleFunc("/api/nodes/", app.requireAuth(app.handleNode))
 	mux.HandleFunc("/api/pending", app.requireAuth(app.handlePendingList))
 	mux.HandleFunc("/api/pending/", app.requireAuth(app.handlePendingAction))

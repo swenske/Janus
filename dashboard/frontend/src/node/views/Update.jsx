@@ -2,7 +2,7 @@ import { Archive, CircleCheck, ExternalLink, Loader2, Puzzle, RefreshCcw, Rocket
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, postJSON } from '../api.js'
 import { Badge, Card, ErrorBox, Loading, PageHeader, Tabs, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
-import { dateTime } from '../format.js'
+import { bytes, dateTime } from '../format.js'
 import { usePoll } from '../hooks.jsx'
 import { WaitForNode } from '../waitForNode.jsx'
 
@@ -13,10 +13,29 @@ const FILES = [
   { field: 'uki_b', label: 'uki-b.efi' },
 ]
 
-export default function Update() {
+export default function Update({ route = '' }) {
   const check = usePoll('/api/update-check', { every: 60000 })
   const overview = usePoll('/api/system/overview', { every: 0 })
-  const [mode, setMode] = useState('url')
+  // How the bundle reaches the node, remembered per browser: "url" (the
+  // node downloads it), "relay" (the Controller downloads it and pushes
+  // it to the node), "upload" (files from this computer).
+  const [mode, setModeState] = useState(() => {
+    try {
+      return localStorage.getItem('janus.update.delivery') || 'url'
+    } catch {
+      return 'url'
+    }
+  })
+  const setMode = (m) => {
+    setModeState(m)
+    try {
+      if (m !== 'upload') localStorage.setItem('janus.update.delivery', m)
+    } catch {
+      // no storage: not remembered
+    }
+  }
+  // The Controller-pushed update's progress (relay mode).
+  const [relay, setRelay] = useState(null)
   const [reference, setReference] = useState('')
   const [sha, setSha] = useState('')
   const [files, setFiles] = useState({})
@@ -27,7 +46,8 @@ export default function Update() {
   const [following, setFollowing] = useState(null)
   // changing: the extensions panel is open; target: the update it prepared
   // (POST /api/factory/update), installed when the URL below is still its.
-  const [changing, setChanging] = useState(false)
+  // Apps › "Add or remove apps…" opens the extensions panel (?extensions).
+  const [changing, setChanging] = useState(() => new URLSearchParams(route.split('?')[1] || '').has('extensions'))
   const [target, setTarget] = useState(null)
   const installRef = useRef(null)
   const [busy, run] = useAction()
@@ -37,20 +57,35 @@ export default function Update() {
   const v = overview.data?.version
   const uc = check.data
   const useLatest = () => {
+    if (uc.renamed) {
+      // The update renames extensions: it's built from another schematic.
+      applyTarget({
+        latest: uc.latest,
+        source: uc.source,
+        bundle_base_url: uc.bundle_base_url,
+        sha256: uc.sha256,
+        extensions: uc.target_extensions,
+        node_extensions: uc.extensions,
+        renamed: uc.renamed,
+        schematic_change: true,
+      })
+      return
+    }
     setTarget(null)
-    setMode('url')
+    setModeState((m) => (m === 'upload' ? 'url' : m))
     setReference(uc.bundle_base_url)
     setSha(uc.sha256 || '')
   }
   const applyTarget = useCallback((t) => {
     setTarget(t)
-    setMode('url')
+    setModeState((m) => (m === 'upload' ? 'url' : m))
     setReference(t.bundle_base_url)
     setSha(t.sha256 || '')
     setAllowSchematic(t.schematic_change)
     installRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
-  const targetActive = !!target && mode === 'url' && reference === target.bundle_base_url
+  const byURL = mode === 'url' || mode === 'relay'
+  const targetActive = !!target && byURL && reference === target.bundle_base_url
 
   const launch = async () => {
     const slot = v?.active_slot === 'A' ? 'B' : 'A'
@@ -73,7 +108,7 @@ export default function Update() {
             </p>
           )}
           {targetActive && target.schematic_change ? (
-            <ExtensionChanges from={target.node_extensions} to={target.extensions} />
+            <ExtensionChanges from={target.node_extensions} to={target.extensions} renamed={target.renamed} />
           ) : (
             allowSchematic && (
               <p>
@@ -90,6 +125,7 @@ export default function Update() {
     const health = { wait_for_health: waitHealth, health_timeout_seconds: Number(timeout) || 0, insecure_skip_signature_check: allowUnsigned, allow_schematic_change: allowSchematic }
     const result = await run(async () => {
       if (mode === 'url') return postJSON('/api/lifecycle/upgrade-url', { reference, sha256: sha, ...health })
+      if (mode === 'relay') return relayUpgrade({ reference, sha256: sha, ...health }, setRelay)
       const form = new FormData()
       for (const f of FILES) form.append(f.field, files[f.field])
       form.append('sha256', sha)
@@ -101,13 +137,14 @@ export default function Update() {
       if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
       return resp.json()
     })
+    setRelay(null)
     if (result) {
       toast(result.message || 'Update written - the node is rebooting')
       setFollowing({ boot: overview.data?.system?.boot_time_unix, from: v?.version })
     }
   }
 
-  const ready = mode === 'url' ? !!reference : FILES.every((f) => files[f.field])
+  const ready = byURL ? !!reference : FILES.every((f) => files[f.field])
   return (
     <>
       <PageHeader title="Update" subtitle="Install a new Janus release on this node, A/B with automatic rollback" />
@@ -196,6 +233,16 @@ export default function Update() {
               {uc.published_at && <div className="muted small">Published {dateTime(Date.parse(uc.published_at))}</div>}
               {uc.message && <div className={uc.state === 'building' ? 'muted small' : 'small'}>{uc.message}</div>}
               {uc.state === 'building' && <div className="muted small">The image factory is building it - this page checks again every minute.</div>}
+              {uc.renamed && (
+                <div className="small">
+                  {Object.entries(uc.renamed).map(([from, to]) => (
+                    <div key={from}>
+                      <span className="mono">{from}</span> is now called <span className="mono">{to}</span>.
+                    </div>
+                  ))}
+                  <span className="muted">The update is built with the new names: installing it changes the node's schematic (the same extensions).</span>
+                </div>
+              )}
               <div className="muted small">Source: {uc.source === 'github' ? 'GitHub Releases' : 'image factory'}</div>
               <div>
                 <button className="primary small" onClick={useLatest} disabled={uc.state !== 'ready' || !uc.bundle_base_url}>
@@ -225,22 +272,30 @@ export default function Update() {
           )}
           <Tabs
             tabs={[
-              { id: 'url', label: 'From a URL (the node downloads it)' },
-              { id: 'upload', label: 'Upload files (relayed by the Controller)' },
+              { id: 'url', label: 'The node downloads it' },
+              { id: 'relay', label: 'The Controller pushes it' },
+              { id: 'upload', label: 'Upload files' },
             ]}
             active={mode}
             onChange={setMode}
           />
           <div className="stack">
-            {mode === 'url' ? (
-              <label className="field">
-                <span>Release bundle base URL</span>
-                <input className="mono" placeholder="https://github.com/swenske/Janus/releases/download/v…" value={reference} onChange={(e) => setReference(e.target.value)} />
-              </label>
+            {byURL ? (
+              <>
+                <p className="muted small" style={{ margin: 0 }}>
+                  {mode === 'url'
+                    ? 'The node fetches the release bundle from this URL itself.'
+                    : "For a node that can't reach the bundle's server: this Controller downloads it and streams it to the node, which then installs it."}
+                </p>
+                <label className="field">
+                  <span>Release bundle base URL</span>
+                  <input className="mono" placeholder="https://github.com/swenske/Janus/releases/download/v…" value={reference} onChange={(e) => setReference(e.target.value)} />
+                </label>
+              </>
             ) : (
               <>
                 <p className="muted small" style={{ margin: 0 }}>
-                  For a node that can't reach the Internet: the four files of a release bundle are streamed to it through this Controller.
+                  The four files of a release bundle, from this computer: streamed to the node through this Controller.
                 </p>
                 <div className="grid grid-2">
                   {FILES.map((f) => (
@@ -271,6 +326,7 @@ export default function Update() {
             <p className="muted small" style={{ margin: 0 }}>
               The node checks the release signature before writing anything; the sha256 above is only an early consistency check.
             </p>
+            {relay && <RelayProgress p={relay} />}
             <div>
               <button className="danger solid" disabled={busy || !ready || !!following || !v?.active_slot} onClick={launch}>
                 <Rocket size={15} /> {busy ? (mode === 'upload' ? 'Uploading…' : 'Installing…') : 'Install and reboot…'}
@@ -296,15 +352,21 @@ function ExtensionBadges({ names }) {
 }
 
 // ExtensionChanges says, in the confirmation, what the node gains and loses.
-function ExtensionChanges({ from, to }) {
-  const added = to.filter((e) => !from.includes(e))
-  const removed = from.filter((e) => !to.includes(e))
+function ExtensionChanges({ from, to, renamed = {} }) {
+  const renames = Object.entries(renamed).filter(([old, now]) => from.includes(old) && to.includes(now))
+  const added = to.filter((e) => !from.includes(e) && !renames.some(([, now]) => now === e))
+  const removed = from.filter((e) => !to.includes(e) && !renames.some(([old]) => old === e))
   return (
     <>
       <p>
         <strong>The node's extensions change.</strong> After the reboot it runs {to.length ? <ExtensionBadges names={to} /> : 'no extension'}.
       </p>
       <ul className="small" style={{ margin: 0 }}>
+        {renames.map(([old, now]) => (
+          <li key={old}>
+            Renamed: {old} → {now} - the same extension under its new name.
+          </li>
+        ))}
         {added.length > 0 && <li>Added: {added.join(', ')}</li>}
         {removed.length > 0 && <li>Removed: {removed.join(', ')} - not in the new image, and its services stop.</li>}
       </ul>
@@ -319,34 +381,50 @@ function ExtensionChanges({ from, to }) {
 // fills in the installation below, which stays the usual A/B update.
 function ChangeExtensions({ uc, onReady, onClose }) {
   const catalog = usePoll('/api/factory/catalog', { every: 0 })
-  const [selected, setSelected] = useState(() => new Set(uc.extensions))
+  // null until changed: the node's extensions, under the catalog's names.
+  const [selected, setSelected] = useState(null)
   const [prep, setPrep] = useState(null)
   const [busy, run] = useAction()
   const asked = useRef([])
 
-  const current = new Set(uc.extensions)
   const offered = catalog.data?.extensions || []
+  // An extension renamed since the node's image: its successor (old -> new).
+  const renamed = {}
+  for (const name of uc.extensions) {
+    if (offered.some((e) => e.name === name)) continue
+    const next = offered.find((e) => (e.replaces || []).includes(name))
+    if (next) renamed[name] = next.name
+  }
+  const current = new Set(uc.extensions.map((n) => renamed[n] || n))
+  const formerName = (name) => Object.keys(renamed).find((old) => renamed[old] === name)
+  const sel = selected || current
   const list = [...offered]
-  for (const name of uc.extensions) if (!offered.some((e) => e.name === name)) list.push({ name, missing: true })
-  const added = [...selected].filter((n) => !current.has(n)).sort()
-  const removed = [...current].filter((n) => !selected.has(n)).sort()
+  for (const name of uc.extensions) if (!offered.some((e) => e.name === name) && !renamed[name]) list.push({ name, missing: true })
+  const added = [...sel].filter((n) => !current.has(n)).sort()
+  const removed = [...current].filter((n) => !sel.has(n)).sort()
   const changed = added.length + removed.length > 0
 
   const toggle = (name, on) => {
     setPrep(null)
     setSelected((s) => {
-      const n = new Set(s)
+      const n = new Set(s || current)
       if (on) n.add(name)
       else n.delete(name)
       return n
     })
   }
+  const ready = (r) => onReady({ ...r, renamed: { ...renamed, ...(r.renamed || {}) } })
+  // The build follower calls the latest ready (a new one every render).
+  const readyRef = useRef(ready)
+  useEffect(() => {
+    readyRef.current = ready
+  })
   const prepare = async () => {
-    asked.current = [...selected].sort()
+    asked.current = [...sel].sort()
     const r = await run(() => postJSON('/api/factory/update', { extensions: asked.current }))
     if (!r) return
     setPrep(r)
-    if (r.state === 'ready' && r.bundle_base_url) onReady(r)
+    if (r.state === 'ready' && r.bundle_base_url) ready(r)
   }
 
   // Follow a build: ask again every 20 s until it's ready or failed.
@@ -356,13 +434,13 @@ function ChangeExtensions({ uc, onReady, onClose }) {
       try {
         const r = await postJSON('/api/factory/update', { extensions: asked.current })
         setPrep(r)
-        if (r.state === 'ready' && r.bundle_base_url) onReady(r)
+        if (r.state === 'ready' && r.bundle_base_url) readyRef.current(r)
       } catch (err) {
         setPrep({ state: 'unavailable', message: err.message })
       }
     }, 20000)
     return () => clearTimeout(timer)
-  }, [prep, onReady])
+  }, [prep])
 
   let host = ''
   try {
@@ -394,13 +472,13 @@ function ChangeExtensions({ uc, onReady, onClose }) {
             <div className="ext-list">
               {list.map((e) => {
                 const unsupported = !e.missing && Array.isArray(e.arches) && !e.arches.includes(uc.arch)
-                const on = selected.has(e.name)
+                const on = sel.has(e.name)
                 return (
                   <label key={e.name} className={'ext-row' + (unsupported && !on ? ' disabled' : '')}>
                     <input type="checkbox" checked={on} disabled={unsupported && !on} onChange={(ev) => toggle(e.name, ev.target.checked)} />
                     <span className="mono">{e.name}</span>
                     {e.version && <span className="muted small">{e.version}</span>}
-                    {current.has(e.name) && <Badge tone="info">installed</Badge>}
+                    {current.has(e.name) && <Badge tone="info">{formerName(e.name) ? `installed as ${formerName(e.name)}` : 'installed'}</Badge>}
                     {unsupported && <Badge tone="warn">not for {uc.arch}</Badge>}
                     {e.missing && <Badge tone="warn">not in {catalog.data.version}</Badge>}
                     {e.description && <span className="ext-desc muted small">{e.description}</span>}
@@ -459,6 +537,60 @@ function Preparation({ prep }) {
     </div>
   )
 }
+
+// relayUpgrade runs POST /api/lifecycle/upgrade-relay, passing each
+// progress line it streams (NDJSON) to onProgress; the last line says
+// whether it worked.
+async function relayUpgrade(body, onProgress) {
+  const resp = await fetch('/api/lifecycle/upgrade-relay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let last = null
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
+      const line = buf.slice(0, i).trim()
+      buf = buf.slice(i + 1)
+      if (!line) continue
+      last = JSON.parse(line)
+      if (last.stage === 'error') throw new ApiError(last.message, 502)
+      onProgress(last)
+    }
+  }
+  if (last?.stage !== 'done') throw new ApiError('The connection to the Controller ended before the update did', 502)
+  return { message: last.message }
+}
+
+function RelayProgress({ p }) {
+  if (p.stage === 'download') {
+    const n = RELAY_FILES.indexOf(p.file) + 1
+    const pct = p.total ? Math.min(100, (100 * (p.bytes || 0)) / p.total) : 0
+    return (
+      <div className="notice">
+        <div className="small">
+          Pushing <span className="mono">{p.file}</span> to the node ({n}/{RELAY_FILES.length}): {bytes(p.bytes || 0)}
+          {p.total ? ` / ${bytes(p.total)}` : ''}
+        </div>
+        <div className="bar" style={{ marginTop: '0.4rem' }}>
+          <div style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="notice small">
+      The node: {p.stage}
+      {p.percent ? ` ${p.percent}%` : ''}
+      {p.message ? ` - ${p.message}` : ''}
+    </div>
+  )
+}
+
+const RELAY_FILES = ['rootfs.squashfs', 'rootfs.verity', 'uki-a.efi', 'uki-b.efi']
 
 // UpdateBadge is the update state of a node, from /api/update-check.
 export function UpdateBadge({ uc }) {

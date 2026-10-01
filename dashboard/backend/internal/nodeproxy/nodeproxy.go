@@ -113,7 +113,7 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 		handleInfo(w, r, node)
 	})
 	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
-		writeJSONBody(w, http.StatusOK, map[string]string{"id": node.ID, "name": node.Name, "address": node.Addr()})
+		writeJSONBody(w, http.StatusOK, map[string]string{"id": node.ID, "name": node.Name, "address": node.Addr(), "controller_version": ControllerVersion})
 	})
 	registerOpsRoutes(mux, node)
 	registerLifecycleRoutes(mux, node)

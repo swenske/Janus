@@ -7,12 +7,14 @@ package nodeproxy
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +31,10 @@ import (
 // updates from; empty disables it (those nodes then have no update
 // source). Set once at startup (dashboardd's -image-factory).
 var ImageFactoryURL = "https://janus.sw-servers.net"
+
+// ControllerVersion is dashboardd's, shown on the node pages - set at
+// startup.
+var ControllerVersion = "dev"
 
 // updateCheck is GET /api/update-check.
 type updateCheck struct {
@@ -51,6 +57,14 @@ type updateCheck struct {
 	State           string `json:"state"`
 	Message         string `json:"message,omitempty"`
 	UpdateAvailable bool   `json:"update_available"`
+
+	// Renamed is set when the newest release offers some of the
+	// extensions under a new name (old -> new): the update is built from
+	// the migrated schematic, TargetSchematicID with TargetExtensions,
+	// and installing it takes allow_schematic_change.
+	Renamed           map[string]string `json:"renamed,omitempty"`
+	TargetSchematicID string            `json:"target_schematic_id,omitempty"`
+	TargetExtensions  []string          `json:"target_extensions,omitempty"`
 }
 
 func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
@@ -149,6 +163,15 @@ func resolveUpdate(ctx context.Context, uc *updateCheck) {
 	uc.BundleURL, uc.SHA256 = up.BundleURL, up.SHA256
 	uc.State, uc.Message = up.State, up.Message
 	uc.UpdateAvailable = up.Version != "" && up.Version != uc.Version
+	if len(up.Renamed) > 0 && up.Schematic != "" && up.Schematic != uc.SchematicID {
+		uc.Renamed, uc.TargetSchematicID = up.Renamed, up.Schematic
+		uc.TargetExtensions = []string{}
+		for _, e := range uc.Extensions {
+			uc.TargetExtensions = append(uc.TargetExtensions, cmp.Or(up.Renamed[e], e))
+		}
+		slices.Sort(uc.TargetExtensions)
+		uc.UpdateAvailable = up.Version != ""
+	}
 }
 
 // extensionsUpdate is POST /api/factory/update: the newest update built
@@ -182,9 +205,9 @@ func updateFor(ctx context.Context, v *janusv1alpha1.VersionResponse, sc *schema
 		},
 		NodeSchematicID: node.SchematicID,
 		NodeExtensions:  node.Extensions,
-		SchematicChange: sc.ID() != node.SchematicID,
 	}
 	resolveUpdate(ctx, &eu.updateCheck)
+	eu.SchematicChange = cmp.Or(eu.TargetSchematicID, eu.SchematicID) != node.SchematicID
 	return eu
 }
 
@@ -255,12 +278,16 @@ func fetchFactoryCatalog(ctx context.Context, base string) (*factoryCatalogView,
 // factoryUpdate is the image factory's answer, as site/backend's
 // GET /api/v1/updates/{id} gives it.
 type factoryUpdateResponse struct {
+	Schematic  string `json:"schematic"`
 	Version    string `json:"version"`
 	ReleaseURL string `json:"release_url"`
 	BundleURL  string `json:"bundle_url"`
 	SHA256     string `json:"sha256"`
 	State      string `json:"state"`
 	Message    string `json:"message"`
+	// Renamed: the update is built from another schematic, Schematic,
+	// with these extensions renamed (old -> new).
+	Renamed map[string]string `json:"renamed"`
 }
 
 var factoryCache struct {

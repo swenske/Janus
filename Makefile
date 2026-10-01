@@ -667,7 +667,7 @@ dashboard-frontend-build:
 
 dashboard-build: dashboard-frontend-build
 	mkdir -p $(BIN_DIR)
-	go build -trimpath -o $(BIN_DIR)/dashboardd ./dashboard/backend
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/dashboardd ./dashboard/backend
 
 # The companion site, janus.sw-servers.net (site/): frontend built into
 # site/backend/static (committed, like the Controller's), then the Go
@@ -695,7 +695,7 @@ qemu-dashboard-test: dashboard-build disk-image
 # the build context needs go.mod/gen/internal alongside dashboard/
 # itself.
 dashboard-image:
-	docker build -f dashboard/Dockerfile -t janus-controller .
+	docker build -f dashboard/Dockerfile --build-arg VERSION=$(VERSION) -t janus-controller .
 
 # "Local Platform" tranche: a real janusd+haproxy pair as an ordinary
 # Docker container, for fast local iteration - see local-dev/

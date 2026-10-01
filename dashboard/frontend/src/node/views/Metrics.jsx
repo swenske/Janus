@@ -1,7 +1,6 @@
 import { Activity, Cpu, Gauge, MemoryStick, Network, Shuffle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import Chart from '../components/Chart.jsx'
-import ExporterCard from './Exporter.jsx'
 import { Card, PageHeader } from '../../shared/ui.jsx'
 import { bytes, compact, rate } from '../format.js'
 import { useMetrics, useRefresh } from '../hooks.jsx'
@@ -136,9 +135,10 @@ export default function Metrics() {
           />
         </Card>
       </div>
-      <div style={{ marginTop: '1rem' }}>
-        <ExporterCard />
-      </div>
+      <p className="muted small" style={{ marginTop: '1rem' }}>
+        These charts are the Controller&apos;s, kept in your browser. For Prometheus, the node serves its own metrics: <a href="#/apps/janus-exporter">Apps › Janus exporter</a>, and the host&apos;s with{' '}
+        <a href="#/apps/node-exporter">the node exporter</a> when the node has it.
+      </p>
     </>
   )
 }

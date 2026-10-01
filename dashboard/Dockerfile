@@ -25,7 +25,9 @@ COPY go.mod go.sum ./
 COPY gen/ gen/
 COPY internal/ internal/
 COPY dashboard/backend/ dashboard/backend/
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/dashboardd ./dashboard/backend
+# The Controller's version (make dashboard-image passes git describe's).
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/dashboardd ./dashboard/backend
 
 FROM scratch AS export
 COPY --from=build /out/dashboardd /dashboardd

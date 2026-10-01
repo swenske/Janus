@@ -111,6 +111,23 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 			return janusv1alpha1.NewSystemServiceClient(conn).MetricsConfigSet(ctx, &janusv1alpha1.MetricsConfig{Enabled: req.Enabled, Port: req.Port})
 		})
 	})
+	mux.HandleFunc("GET /api/system/node-exporter", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
+		return c.NodeExporterConfigGet(ctx, empty)
+	}))
+	mux.HandleFunc("POST /api/system/node-exporter", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Enabled    bool     `json:"enabled"`
+			Address    string   `json:"address"`
+			Port       uint32   `json:"port"`
+			Collectors []string `json:"collectors"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		unary(w, r, node, unaryTimeout, func(ctx context.Context, conn *grpc.ClientConn) (any, error) {
+			return janusv1alpha1.NewSystemServiceClient(conn).NodeExporterConfigSet(ctx, &janusv1alpha1.NodeExporterConfig{Enabled: req.Enabled, Address: req.Address, Port: req.Port, Collectors: req.Collectors})
+		})
+	})
 	mux.HandleFunc("POST /api/system/power", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Action    string `json:"action"` // reboot, shutdown, restart, reset

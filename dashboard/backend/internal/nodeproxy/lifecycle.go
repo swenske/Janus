@@ -72,6 +72,10 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 		runUpgrade(w, r, janusv1alpha1.NewLifecycleServiceClient(conn), &janusv1alpha1.ImageSource{Reference: req.Reference, Sha256: req.SHA256, InsecureSkipSignatureCheck: req.InsecureSkipSignatureCheck, AllowSchematicChange: req.AllowSchematicChange}, req.WaitForHealth, req.HealthTimeoutSeconds)
 	})
 
+	mux.HandleFunc("POST /api/lifecycle/upgrade-relay", func(w http.ResponseWriter, r *http.Request) {
+		handleUpgradeRelay(w, r, node)
+	})
+
 	mux.HandleFunc("/api/lifecycle/upgrade-upload", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

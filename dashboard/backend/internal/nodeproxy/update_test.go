@@ -350,3 +350,23 @@ func TestCachedFetchesIgnoreCanceledRequests(t *testing.T) {
 		}
 	})
 }
+
+func TestCheckUpdateRenamedExtension(t *testing.T) {
+	var calls atomic.Int32
+	renamed := &schematic.Schematic{Customization: schematic.Customization{Extensions: []string{"prometheus-node-exporter", "qemu-guest-agent"}}}
+	if err := renamed.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	// The same release, the extension renamed: still an update to install.
+	body := `{"schematic":"` + renamed.ID() + `","version":"v1","bundle_url":"https://factory.invalid/image/r/v1/amd64","sha256":"abc","state":"ready","renamed":{"node-exporter":"prometheus-node-exporter"}}`
+	srv := fakeFactory(t, &calls, http.StatusOK, body)
+	resetFactory(t, srv.URL)
+
+	uc := checkUpdate(context.Background(), nodeWith("node-exporter", "qemu-guest-agent"))
+	if uc.TargetSchematicID != renamed.ID() || uc.Renamed["node-exporter"] != "prometheus-node-exporter" || !uc.UpdateAvailable {
+		t.Fatalf("update check = %+v", uc)
+	}
+	if strings.Join(uc.TargetExtensions, ",") != "prometheus-node-exporter,qemu-guest-agent" || strings.Join(uc.Extensions, ",") != "node-exporter,qemu-guest-agent" {
+		t.Fatalf("extensions %v -> %v", uc.Extensions, uc.TargetExtensions)
+	}
+}

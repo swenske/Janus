@@ -48,8 +48,13 @@ theme toggle:
 
 - **Monitoring** - overview, metrics, processes, network, storage
 - **Logs** - service logs, events, kernel (dmesg)
-- **Apps** - HAProxy (with its own tabs), then optional modules (bird,
-  keepalived, nftables), marked "n/a" when the image doesn't ship them.
+- **Apps** - HAProxy (with its own tabs) and the Janus exporter (built
+  into janusd: its settings and a scrape example), then only what the
+  node's image has: the extensions' apps (Node exporter - status and
+  settings; QEMU guest agent - status, what the hypervisor may do) and
+  the modules (bird, keepalived, nftables). An app the node doesn't have
+  isn't listed - "Add or remove apps…", last, opens the Update page's
+  extensions panel.
   Firewall: ruleset editor (check, diff, apply on trial - the Controller
   confirms over a *fresh* connection, never the shared one, which
   conntrack keeps open whatever the ruleset), live sets, live ruleset.
@@ -59,6 +64,10 @@ theme toggle:
 - **Tools** - packet capture, files
 - **System** - network (hostname, interfaces, VLANs, DNS, NTP), services,
   update, access (client certificates), power
+
+The sidebar shows the Controller's version under its name, as the main
+page does under its title (`dashboardd`'s `main.version`, stamped by the
+Makefile and the Docker image's `VERSION` build argument).
 
 Updates follow the node's image schematic (`GET /api/update-check`,
 `nodeproxy/update.go`): a node with the default schematic gets the
@@ -77,7 +86,20 @@ own check, so going back to no extension means GitHub - and the panel
 follows a build every 20 s until it's ready. It only fills in the
 installation form (URL, sha256, the schematic-change checkbox); the
 confirmation lists the extensions gained and lost, and installing stays
-the usual A/B update.
+the usual A/B update. A release that renamed one of the node's
+extensions (the catalog's `replaces`) is offered as a rename: the update
+check reports `renamed` and the migrated schematic, "Use this update"
+fills the form in as a schematic change, and the confirmation says
+"Renamed" rather than added and removed.
+
+The bundle reaches the node one of three ways, the choice remembered
+per browser: **the node downloads it** (`upgrade-url`), **the Controller
+pushes it** (`upgrade-relay`: dashboardd downloads the four files and
+streams each into `UploadReleaseFile` as it arrives - sha256 checked on
+the way - then calls `Upgrade` on the staged copy; progress comes back
+as NDJSON and the page shows it), or **upload files** from the browser
+(`upgrade-upload`). The node verifies the bundle's signature in every
+case.
 
 Shared caches (latest release, factory updates, catalog) fetch with a
 context detached from the request that triggers them

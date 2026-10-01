@@ -3,10 +3,14 @@ import {
   AlertTriangle,
   Archive,
   BarChart3,
+  Bot,
   Boxes,
   Cable,
+  ChartLine,
+  CirclePlus,
   Cpu,
   FolderOpen,
+  Gauge,
   HardDrive,
   KeyRound,
   LayoutDashboard,
@@ -35,6 +39,9 @@ import Kernel from './views/Kernel.jsx'
 import Logs from './views/Logs.jsx'
 import Metrics from './views/Metrics.jsx'
 import Firewall from './views/Firewall.jsx'
+import GuestAgent from './views/GuestAgent.jsx'
+import JanusExporter from './views/JanusExporter.jsx'
+import NodeExporter from './views/NodeExporter.jsx'
 import VRRP from './views/VRRP.jsx'
 import BGP from './views/BGP.jsx'
 import NetworkView from './views/Network.jsx'
@@ -69,9 +76,16 @@ const NAV = [
     group: 'Apps',
     items: [
       { path: '/haproxy', label: 'HAProxy', icon: Shuffle, view: HAProxy, prefix: true },
+      { path: '/apps/janus-exporter', label: 'Janus exporter', icon: Gauge, view: JanusExporter },
+      // An extension's app shows when the node's image has the extension
+      // (node-exporter: its name before v2026.10.02), a module's when its
+      // daemon is in the image.
+      { path: '/apps/node-exporter', label: 'Node exporter', icon: ChartLine, view: NodeExporter, extension: ['prometheus-node-exporter', 'node-exporter'] },
+      { path: '/apps/guest-agent', label: 'QEMU guest agent', icon: Bot, view: GuestAgent, extension: ['qemu-guest-agent'] },
       { path: '/apps/bgp', label: 'BGP · bird', icon: Workflow, view: BGP, moduleKey: 'bgp' },
       { path: '/apps/vrrp', label: 'VRRP · keepalived', icon: Boxes, view: VRRP, moduleKey: 'vrrp' },
       { path: '/apps/firewall', label: 'Firewall · nftables', icon: Shield, view: Firewall, moduleKey: 'firewall' },
+      { path: '/system/update?extensions', label: 'Add or remove apps…', icon: CirclePlus, link: true },
     ],
   },
   {
@@ -139,6 +153,13 @@ export default function App() {
   }, [name])
 
   const version = overview.data?.version?.version
+  const extensions = (overview.data?.version?.extensions || []).map((e) => e.name)
+  // Apps the node doesn't have aren't listed: they'd only say "n/a".
+  const shown = (item) => {
+    if (item.moduleKey) return !!modules.data && modules.data[item.moduleKey]?.state !== 'not_enabled'
+    if (item.extension) return item.extension.some((n) => extensions.includes(n))
+    return true
+  }
   const latestTag = check.data?.latest
   const updateAvailable = check.data?.state === 'ready' && check.data?.update_available
   const hap = latest?.hap
@@ -151,21 +172,19 @@ export default function App() {
           <Logo size={26} />
           <div>
             <div className="brand-name">Janus</div>
-            <div className="muted small">Controller</div>
+            <div className="muted small">Controller{node.data?.controller_version ? <span className="mono"> {node.data.controller_version}</span> : null}</div>
           </div>
         </div>
         <nav>
           {NAV.map((g) => (
             <div key={g.group} className="nav-group">
               <div className="nav-group-title">{g.group}</div>
-              {g.items.map((item) => {
+              {g.items.filter(shown).map((item) => {
                 const active = item === current
-                const moduleState = item.moduleKey && modules.data?.[item.moduleKey]?.state
                 return (
-                  <a key={item.path} href={`#${item.path}`} className={`nav-item ${active ? 'active' : ''}`}>
+                  <a key={item.path} href={`#${item.path}`} className={`nav-item ${active ? 'active' : ''} ${item.link ? 'nav-link' : ''}`}>
                     <item.icon size={16} />
                     <span className="grow">{item.label}</span>
-                    {moduleState === 'not_enabled' && <span className="nav-hint">n/a</span>}
                     {item.path === '/system/update' && updateAvailable && <span className="nav-dot" title="Update available" />}
                   </a>
                 )
@@ -211,7 +230,8 @@ export default function App() {
           </div>
         )}
         <main className="content">
-          <View {...(current.props || {})} route={route} navigate={navigate} />
+          {/* Update reads its query (?extensions) when it mounts: a new query, a new instance. */}
+          <View key={current.view === Update ? route : current.path} {...(current.props || {})} route={route} navigate={navigate} />
         </main>
       </div>
       {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} />}

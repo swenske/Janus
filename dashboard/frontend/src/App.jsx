@@ -474,6 +474,7 @@ function MainApp() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [adding, setAdding] = useState(false)
+  const [version, setVersion] = useState('')
   const confirm = useConfirm()
   const toast = useToast()
 
@@ -502,6 +503,11 @@ function MainApp() {
     }, STATUS_EVERY)
     return () => clearInterval(t)
   }, [refresh, refreshStatus])
+  useEffect(() => {
+    call('/api/version')
+      .then((v) => setVersion(v?.version || ''))
+      .catch(() => {})
+  }, [])
 
   const act = async (fn, success) => {
     setBusy(true)
@@ -544,7 +550,11 @@ function MainApp() {
           <Logo size={26} />
           <div>
             <div className="node-name">Janus Controller</div>
-            <div className="muted small">{nodes ? `${nodes.length} node${nodes.length === 1 ? '' : 's'}` : '…'}</div>
+            <div className="muted small">
+              {version && <span className="mono" title="This Controller's version">{version}</span>}
+              {version && ' · '}
+              {nodes ? `${nodes.length} node${nodes.length === 1 ? '' : 's'}` : '…'}
+            </div>
           </div>
         </div>
         <div className="row">
