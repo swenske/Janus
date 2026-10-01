@@ -34,7 +34,8 @@ vrrp_instance VI_1 {
 ```
 
 - **HAProxy's health**: janusd checks every 2 seconds that HAProxy answers
-  on its stats socket and writes `0` or `1` into
+  on its stats socket - and isn't being stopped: a soft stop closes the
+  listeners before the process exits - and writes `0` or `1` into
   `/run/janus/keepalived/haproxy-health`. Tracked with `weight 0`, a `1`
   puts the instance in FAULT: the node gives its virtual IPs up until
   HAProxy answers again. keepalived can't run scripts on a Janus node
