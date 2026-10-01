@@ -26,17 +26,10 @@
 # to find the ESP partition's own offset/size) - none of it needs root,
 # see image/disk/assemble.sh's own note on why.
 #
-# Usage: image/disk/activate-slot.sh <disk-img> <bzImage> <rootfs-dir> <A|B> [disk-device-prefix] [boot-filename]
-# [disk-device-prefix] (default /dev/vda, every existing caller's own
-# QEMU virtio-blk convention, unchanged): the root device's own name up
-# to but not including its partition number - BOOT-A-DATA/HASH become
-# "<prefix>2"/"<prefix>3", BOOT-B-DATA/HASH become "<prefix>4"/"<prefix>5",
-# plain string concatenation, no "pN" vs "N" partition-suffix logic of
-# its own. A real SD card's own naming convention (mmcblk0p2, not
-# mmcblk0"2") is handled by the *caller* passing "/dev/mmcblk0p"
-# (trailing "p" already included) rather than this script knowing about
-# it - the exact same trick internal/bootslot.diskAndPartition already
-# relies on (see its own doc comment).
+# Usage: image/disk/activate-slot.sh <disk-img> <bzImage> <rootfs-dir> <A|B> [boot-filename]
+# The UKIs name their root partitions by GPT label (PARTLABEL=BOOT-A-DATA
+# ...), not by device path: the same disk boots as /dev/vda, /dev/sda,
+# /dev/nvme0n1 or /dev/mmcblk0 - see image/uki/assemble.sh.
 # [boot-filename] (default BOOTX64.EFI, passed straight through to
 # image/uki/esp-image.sh's own 4th arg): BOOTAA64.EFI for an aarch64
 # target - see that script's own doc comment for why this can't be a
@@ -45,12 +38,11 @@ set -euo pipefail
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
-DISK="${1:?usage: $0 <disk-img> <bzImage> <rootfs-dir> <A|B> [disk-device-prefix] [boot-filename]}"
-KERNEL="${2:?usage: $0 <disk-img> <bzImage> <rootfs-dir> <A|B> [disk-device-prefix] [boot-filename]}"
-ROOTFS_DIR="${3:?usage: $0 <disk-img> <bzImage> <rootfs-dir> <A|B> [disk-device-prefix] [boot-filename]}"
-ACTIVE_SLOT="${4:?usage: $0 <disk-img> <bzImage> <rootfs-dir> <A|B> [disk-device-prefix] [boot-filename]}"
-DEVICE_PREFIX="${5:-/dev/vda}"
-BOOT_FILENAME="${6:-BOOTX64.EFI}"
+DISK="${1:?usage: $0 <disk-img> <bzImage> <rootfs-dir> <A|B> [boot-filename]}"
+KERNEL="${2:?usage: $0 <disk-img> <bzImage> <rootfs-dir> <A|B> [boot-filename]}"
+ROOTFS_DIR="${3:?usage: $0 <disk-img> <bzImage> <rootfs-dir> <A|B> [boot-filename]}"
+ACTIVE_SLOT="${4:?usage: $0 <disk-img> <bzImage> <rootfs-dir> <A|B> [boot-filename]}"
+BOOT_FILENAME="${5:-BOOTX64.EFI}"
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -68,8 +60,8 @@ trap 'rm -rf "$WORKDIR"' EXIT
 
 UKI_A="$WORKDIR/uki-a.efi"
 UKI_B="$WORKDIR/uki-b.efi"
-"$SELF_DIR/../uki/assemble.sh" "$UKI_A" "$KERNEL" "$ROOTFS_DIR" "${DEVICE_PREFIX}2" "${DEVICE_PREFIX}3"
-"$SELF_DIR/../uki/assemble.sh" "$UKI_B" "$KERNEL" "$ROOTFS_DIR" "${DEVICE_PREFIX}4" "${DEVICE_PREFIX}5"
+"$SELF_DIR/../uki/assemble.sh" "$UKI_A" "$KERNEL" "$ROOTFS_DIR" PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH
+"$SELF_DIR/../uki/assemble.sh" "$UKI_B" "$KERNEL" "$ROOTFS_DIR" PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH
 
 ACTIVE_UKI="$UKI_A"
 [ "$ACTIVE_SLOT" = "B" ] && ACTIVE_UKI="$UKI_B"

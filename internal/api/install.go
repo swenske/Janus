@@ -241,11 +241,11 @@ func refuseIfCurrentBootDisk(diskPath string) error {
 	if !ok {
 		return nil
 	}
-	currentDisk, ok := bootslot.Disk(dataDev)
+	currentDisk, ok := bootslot.WholeDisk(dataDev)
 	if !ok {
 		return nil
 	}
-	if currentDisk == diskPath {
+	if currentDisk == filepath.Clean(diskPath) {
 		return status.Errorf(codes.FailedPrecondition, "%s is the disk this node is currently booted from - Install is for provisioning a different, blank disk; use Upgrade to update this one", diskPath)
 	}
 	return nil

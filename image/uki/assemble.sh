@@ -98,8 +98,17 @@ trap 'rm -f "$CMDLINE_FILE"' EXIT
   # UKI_EXTRA_CMDLINE: development builds only, e.g.
   # sysctl.kernel.printk_ratelimit=0 to see every SELinux denial while
   # writing a new domain's rules. Never set for a release.
-  printf 'console=%s panic=-1 dm-mod.create="%s" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp%s%s%s' \
-    "${UKI_CONSOLE:-ttyS0}" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$enforcing_arg" "$schematic_arg" \
+  #
+  # The data and hash devices are usually partition labels
+  # (PARTLABEL=BOOT-A-DATA): the kernel resolves them itself, whatever
+  # the disk's name. dm-mod.waitfor makes it wait for them - USB and
+  # NVMe disks appear after the device-mapper would otherwise look.
+  #
+  # Two consoles: the screen (tty0) and the serial port, which comes
+  # last so it's /dev/console - rootfs/init copies its output to the
+  # screen as well.
+  printf 'console=tty0 console=%s panic=-1 dm-mod.create="%s" dm-mod.waitfor=%s,%s root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp%s%s%s' \
+    "${UKI_CONSOLE:-ttyS0}" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$DATA_DEV" "$HASH_DEV" "$enforcing_arg" "$schematic_arg" \
     "${UKI_EXTRA_CMDLINE:+ $UKI_EXTRA_CMDLINE}"
 } > "$CMDLINE_FILE"
 

@@ -38,12 +38,12 @@
 #      :8080 again - *not* :8081, see the note below) with PKI's
 #      "first boot" line NOT reappearing (STATE survived), and the
 #      kernel's own "Kernel command line:" log line must show it
-#      booted from slot B's partitions (/dev/vda4 /dev/vda5) with v2's
+#      booted from slot B's partitions (PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH) with v2's
 #      root hash, not slot A's.
 #   6. as a bonus check that Upgrade didn't corrupt the *other* slot's
 #      own staging: call Rollback afterward and confirm the guest comes
 #      back up healthy again, with the kernel cmdline now showing slot
-#      A's partitions (/dev/vda2 /dev/vda3) and v1's root hash again -
+#      A's partitions (PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH) and v1's root hash again -
 #      proving slot A's pre-existing \JANUS\UKI-A.EFI is still
 #      intact and correct.
 #
@@ -242,7 +242,7 @@ if ! grep -q "$FIRST_BOOT_MSG" "$A_LOG"; then
   echo "Upgrade test FAILED: slot A didn't log '$FIRST_BOOT_MSG' - expected a fresh bootstrap" >&2
   exit 1
 fi
-assert_last_boot "$A_LOG" /dev/vda2 /dev/vda3 "$V1_HASH" "initial boot"
+assert_last_boot "$A_LOG" PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH "$V1_HASH" "initial boot"
 echo "Slot A (v1) OK: real UEFI boot, HTTP 200 on :8080, PKI bootstrapped, root hash $V1_HASH confirmed"
 
 # --- extract PKI material straight from disk.img's STATE partition
@@ -309,8 +309,8 @@ if [ "$(grep -c "$FIRST_BOOT_MSG" "$A_LOG")" -ne 1 ]; then
   echo "--- console output ---" >&2; cat "$A_LOG" >&2
   exit 1
 fi
-assert_last_boot "$A_LOG" /dev/vda4 /dev/vda5 "$V2_HASH" "post-upgrade boot"
-echo "Slot B (v2) OK: real gRPC Upgrade wrote the new rootfs (root hash $V2_HASH, /dev/vda4+/dev/vda5), switched, and rebooted into it - HTTP healthy, STATE intact"
+assert_last_boot "$A_LOG" PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH "$V2_HASH" "post-upgrade boot"
+echo "Slot B (v2) OK: real gRPC Upgrade wrote the new rootfs (root hash $V2_HASH, BOOT-B-DATA/HASH), switched, and rebooted into it - HTTP healthy, STATE intact"
 
 kill "$QEMU_PID" 2>/dev/null || true
 wait "$QEMU_PID" 2>/dev/null || true
@@ -339,6 +339,6 @@ if ! wait_http_and_marker "$HOST_PORT_8080" "$B_LOG" 2 "$REBOOT_TIMEOUT_SECS"; t
   echo "--- console output ---" >&2; cat "$B_LOG" >&2
   exit 1
 fi
-assert_last_boot "$B_LOG" /dev/vda2 /dev/vda3 "$V1_HASH" "post-rollback boot"
-echo "Rollback-after-Upgrade OK: slot A's original content (root hash $V1_HASH, /dev/vda2+/dev/vda3) is still intact and reachable"
+assert_last_boot "$B_LOG" PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH "$V1_HASH" "post-rollback boot"
+echo "Rollback-after-Upgrade OK: slot A's original content (root hash $V1_HASH, BOOT-A-DATA/HASH) is still intact and reachable"
 echo "Upgrade test OK: a real gRPC LifecycleService.Upgrade call installed a genuinely new rootfs, and the untouched slot remained rollback-able afterward"

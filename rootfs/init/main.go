@@ -316,9 +316,9 @@ func seedPersistentHaproxyCfg(dir string) {
 // earlier NoCloud boot, or - for the network - a confirmed
 // NetworkConfigApply): each part is only written if absent, the same
 // "don't clobber what's already there" philosophy the other paths apply
-// on the writing side. Scans virtio-blk whole-disk devices only
+// on the writing side. Scans whole-disk devices
 // (internal/nocloud.ScanBlockDevices), excluding this node's own boot
-// disk (internal/bootslot.Disk off /proc/cmdline, same resolution
+// disk (internal/bootslot.WholeDisk off /proc/cmdline, same resolution
 // resolveStateDevice already trusts) - non-fatal at every step, same
 // tolerant pattern as everything else in this file: the overwhelming
 // majority of boots have no such volume attached at all, and that's not
@@ -335,7 +335,7 @@ func seedFromNoCloud() {
 	var bootDisk string
 	if cmdline, err := os.ReadFile("/proc/cmdline"); err == nil {
 		if dataDev, ok := bootslot.DataDevice(string(cmdline)); ok {
-			bootDisk, _ = bootslot.Disk(dataDev)
+			bootDisk, _ = bootslot.WholeDisk(dataDev)
 		}
 	}
 

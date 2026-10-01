@@ -1,6 +1,10 @@
 package bootslot
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestDataDevice(t *testing.T) {
 	cases := []struct {
@@ -226,5 +230,91 @@ func TestDisk(t *testing.T) {
 				t.Fatalf("disk = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// fakeSysfs writes a /sys/class/block-like tree: name -> PARTNAME, and
+// whether a device-mapper device holds it.
+func fakeSysfs(t *testing.T, parts map[string]struct {
+	label string
+	held  bool
+}) {
+	t.Helper()
+	dir := t.TempDir()
+	for name, p := range parts {
+		d := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Join(d, "holders"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		uevent := "MAJOR=8\nMINOR=2\nDEVNAME=" + name + "\nDEVTYPE=partition\n"
+		if p.label != "" {
+			uevent += "PARTNAME=" + p.label + "\n"
+		}
+		if err := os.WriteFile(filepath.Join(d, "uevent"), []byte(uevent), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if p.held {
+			if err := os.WriteFile(filepath.Join(d, "holders", "dm-0"), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	saved := sysClassBlock
+	sysClassBlock = dir
+	t.Cleanup(func() { sysClassBlock = saved })
+}
+
+// A UKI that names its root by partition label (PARTLABEL=BOOT-B-DATA)
+// boots on any disk; DataDevice gives the real partition back, and
+// everything else derives from it as from /dev/vdaN.
+func TestDataDeviceByPartitionLabel(t *testing.T) {
+	fakeSysfs(t, map[string]struct {
+		label string
+		held  bool
+	}{
+		"nvme0n1p2": {"BOOT-A-DATA", false},
+		"nvme0n1p4": {"BOOT-B-DATA", true},
+		"nvme0n1p6": {"STATE", false},
+		// A second Janus disk in the machine: same labels, not booted.
+		"sda4": {"BOOT-B-DATA", false},
+		"sda":  {"", false},
+	})
+	cmdline := `console=tty0 console=ttyS0 panic=-1 dm-mod.create="vroot,,,ro,0 131072 verity 1 PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH 4096 4096 16384 1 sha256 aa bb" dm-mod.waitfor=PARTLABEL=BOOT-B-DATA,PARTLABEL=BOOT-B-HASH root=/dev/dm-0`
+	dev, ok := DataDevice(cmdline)
+	if !ok || dev != "/dev/nvme0n1p4" {
+		t.Fatalf("DataDevice = %q, %v; want the partition the verity root is mapped from", dev, ok)
+	}
+	if slot, _ := ActiveSlot(dev); slot != "B" {
+		t.Errorf("ActiveSlot = %q", slot)
+	}
+	if state, _ := StateDevice(dev); state != "/dev/nvme0n1p6" {
+		t.Errorf("StateDevice = %q", state)
+	}
+	if esp, _ := ESPDevice(dev); esp != "/dev/nvme0n1p1" {
+		t.Errorf("ESPDevice = %q", esp)
+	}
+	if whole, _ := WholeDisk(dev); whole != "/dev/nvme0n1" {
+		t.Errorf("WholeDisk = %q", whole)
+	}
+
+	if _, ok := DataDevice(`dm-mod.create="vroot,,,ro,0 8 verity 1 PARTLABEL=NOPE PARTLABEL=NOPE2 4096 4096 1 1 sha256 aa bb"`); ok {
+		t.Error("an unknown label resolved")
+	}
+}
+
+func TestWholeDisk(t *testing.T) {
+	for in, want := range map[string]string{
+		"/dev/vda2":      "/dev/vda",
+		"/dev/sdb3":      "/dev/sdb",
+		"/dev/nvme0n1p4": "/dev/nvme0n1",
+		"/dev/mmcblk0p2": "/dev/mmcblk0",
+		"/dev/xvda6":     "/dev/xvda",
+	} {
+		if got, ok := WholeDisk(in); !ok || got != want {
+			t.Errorf("WholeDisk(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+	if _, ok := WholeDisk("/dev/vda"); ok {
+		t.Error("WholeDisk of a whole disk")
 	}
 }

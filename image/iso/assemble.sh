@@ -70,12 +70,15 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-# Matches the partition numbers this exact xorriso recipe actually
-# produces (see this script's own header comment) - ESP=2, DATA=3,
-# HASH=4, once the .iso is attached as a plain block device (/dev/vda
-# in every QEMU test in this project, same assumption image/disk/
-# assemble.sh's own UKI cmdline already makes).
-"$SELF_DIR/../uki/assemble.sh" "$WORKDIR/uki.efi" "$KERNEL" "$ROOTFS_DIR" /dev/vda3 /dev/vda4
+# The medium's root is named by GPT label, like an installed disk's - but
+# with labels of its own: while it installs a disk, both are attached,
+# and the medium must find its own partitions, not the new disk's
+# BOOT-A-*. xorriso can't name the partitions it appends (it calls them
+# "AppendedN"), so they're renamed below, once the image is written.
+# DATA is partition 3, HASH 4 (see this script's own header comment).
+ISO_DATA_LABEL=JANUS-ISO-DATA
+ISO_HASH_LABEL=JANUS-ISO-HASH
+"$SELF_DIR/../uki/assemble.sh" "$WORKDIR/uki.efi" "$KERNEL" "$ROOTFS_DIR" "PARTLABEL=$ISO_DATA_LABEL" "PARTLABEL=$ISO_HASH_LABEL"
 "$SELF_DIR/../uki/esp-image.sh" "$WORKDIR/efi.img" "$WORKDIR/uki.efi" 64
 
 # xorriso needs a non-empty source tree to -map even though nothing in
@@ -106,5 +109,14 @@ xorriso \
   -boot_image any efi_path=--interval:appended_partition_2:all:: \
   -boot_image any cat_path=/boot.catalog \
   -commit
+
+# Name the root partitions. sgdisk rewrites the GPT (primary and backup)
+# and widens the protective MBR entry to the whole image - the standard
+# value; the ISO9660 tree and El Torito boot record aren't touched.
+sgdisk -c "3:$ISO_DATA_LABEL" -c "4:$ISO_HASH_LABEL" "$OUT" >/dev/null 2>&1
+for n in 3:$ISO_DATA_LABEL 4:$ISO_HASH_LABEL; do
+  got="$(sgdisk -i "${n%%:*}" "$OUT" | awk -F"'" '/^Partition name/ {print $2}')"
+  [ "$got" = "${n#*:}" ] || { echo "partition ${n%%:*} of $OUT is named '$got', want '${n#*:}'" >&2; exit 1; }
+done
 
 echo "Wrote $OUT ($(du -h "$OUT" | cut -f1) hybrid ISO/GPT - bootable via El Torito EFI or as a raw disk)"

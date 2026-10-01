@@ -193,7 +193,7 @@ check "an update dropping the extensions is refused" "built from image schematic
 out="$(ctl lifecycle upgrade -insecure-skip-signature-check -sha256 "$SAME_SHA" /etc/.state/same 2>&1)" || fail "same-schematic upgrade: $out"
 check "an update from the same schematic is accepted" 'same image schematic' "$out"
 wait_boot 2
-check "slot B booted" 'Kernel command line: .*/dev/vda4' "$(awk "/$MARKER/{n++} n>=1" "$LOG")"
+check "slot B booted" 'Kernel command line: .*PARTLABEL=BOOT-B-DATA' "$(awk "/$MARKER/{n++} n>=1" "$LOG")"
 v="$(ctl version)"
 check "after the upgrade: same schematic" "^Image schematic: $SCHEMATIC_ID$" "$v"
 wait_service node-exporter running

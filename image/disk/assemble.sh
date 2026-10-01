@@ -36,32 +36,27 @@
 # own note on why loop devices are avoided deliberately, not just
 # incidentally, in this project's build tooling.
 #
-# Device paths baked into the UKI's cmdline assume this disk attaches
-# as /dev/vda (true for every QEMU test in this project, which only
-# ever attaches one virtio-blk drive as root) - a real installer
-# targeting arbitrary hardware would need to resolve this dynamically,
-# not hardcode it; out of scope here.
+# The UKIs name their partitions by GPT label (PARTLABEL=BOOT-A-DATA...),
+# so the disk boots whatever it attaches as: /dev/vda, /dev/sda,
+# /dev/nvme0n1...
 #
-# Usage: image/disk/assemble.sh <out-file> <bzImage> <rootfs-dir> <state-image> [active-slot] [disk-device-prefix] [boot-filename]
+# Usage: image/disk/assemble.sh <out-file> <bzImage> <rootfs-dir> <state-image> [active-slot] [boot-filename]
 # <rootfs-dir> must contain rootfs.squashfs and rootfs.verity (see
 # rootfs/assemble.sh). <state-image> from rootfs/state-image.sh.
-# [active-slot] is "A" or "B", defaulting to "A". [disk-device-prefix]/
-# [boot-filename] are passed straight through to activate-slot.sh's own
-# same-named args (see its doc comment) - both default to this script's
-# original, QEMU-virtio-blk-only behavior (/dev/vda, BOOTX64.EFI),
-# unchanged for every caller that doesn't pass them.
+# [active-slot] is "A" or "B", defaulting to "A". [boot-filename] is
+# passed straight through to activate-slot.sh's own (BOOTX64.EFI by
+# default).
 set -euo pipefail
 
 # Same PATH gap as veritysetup/mkfs.ext4/debugfs/mkfs.vfat before it.
 export PATH="$PATH:/usr/sbin:/sbin"
 
-OUT="${1:?usage: $0 <out-file> <bzImage> <rootfs-dir> <state-image> [active-slot] [disk-device-prefix] [boot-filename]}"
-KERNEL="${2:?usage: $0 <out-file> <bzImage> <rootfs-dir> <state-image> [active-slot] [disk-device-prefix] [boot-filename]}"
-ROOTFS_DIR="${3:?usage: $0 <out-file> <bzImage> <rootfs-dir> <state-image> [active-slot] [disk-device-prefix] [boot-filename]}"
-STATE_IMAGE="${4:?usage: $0 <out-file> <bzImage> <rootfs-dir> <state-image> [active-slot] [disk-device-prefix] [boot-filename]}"
+OUT="${1:?usage: $0 <out-file> <bzImage> <rootfs-dir> <state-image> [active-slot] [boot-filename]}"
+KERNEL="${2:?usage: $0 <out-file> <bzImage> <rootfs-dir> <state-image> [active-slot] [boot-filename]}"
+ROOTFS_DIR="${3:?usage: $0 <out-file> <bzImage> <rootfs-dir> <state-image> [active-slot] [boot-filename]}"
+STATE_IMAGE="${4:?usage: $0 <out-file> <bzImage> <rootfs-dir> <state-image> [active-slot] [boot-filename]}"
 ACTIVE_SLOT="${5:-A}"
-DEVICE_PREFIX="${6:-/dev/vda}"
-BOOT_FILENAME="${7:-BOOTX64.EFI}"
+BOOT_FILENAME="${6:-BOOTX64.EFI}"
 
 SQUASHFS="$ROOTFS_DIR/rootfs.squashfs"
 VERITY="$ROOTFS_DIR/rootfs.verity"
@@ -120,7 +115,7 @@ write_part() {
   dd if="$src" of="$OUT" bs=512 seek="$start_sector" conv=notrunc status=none
 }
 
-"$SELF_DIR/activate-slot.sh" "$OUT" "$KERNEL" "$ROOTFS_DIR" "$ACTIVE_SLOT" "$DEVICE_PREFIX" "$BOOT_FILENAME"
+"$SELF_DIR/activate-slot.sh" "$OUT" "$KERNEL" "$ROOTFS_DIR" "$ACTIVE_SLOT" "$BOOT_FILENAME"
 
 write_part 2 "$SQUASHFS"
 write_part 3 "$VERITY"

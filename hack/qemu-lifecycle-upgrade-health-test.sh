@@ -274,7 +274,7 @@ if ! wait_http_and_marker "$HOST_PORT_8080" "$LOG" 2 "$REBOOT_TIMEOUT_SECS"; the
   exit 1
 fi
 GOOD_HASH="$(cat "$GOOD_BUNDLE/rootfs.roothash")"
-assert_boot_n "$LOG" 2 /dev/vda4 /dev/vda5 "$GOOD_HASH" "post-'good'-upgrade boot"
+assert_boot_n "$LOG" 2 PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH "$GOOD_HASH" "post-'good'-upgrade boot"
 echo "Slot B (good) OK: real gRPC Upgrade with wait_for_health installed it and it's live"
 
 # Wait comfortably past HEALTH_TIMEOUT_SECS and confirm it actually got
@@ -321,7 +321,7 @@ if [ "$(marker_count "$LOG")" -lt 3 ]; then
   exit 1
 fi
 BROKEN_HASH="$(cat "$BROKEN_BUNDLE/rootfs.roothash")"
-assert_boot_n "$LOG" 3 /dev/vda2 /dev/vda3 "$BROKEN_HASH" "post-'broken'-upgrade boot"
+assert_boot_n "$LOG" 3 PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH "$BROKEN_HASH" "post-'broken'-upgrade boot"
 echo "Slot A (broken) OK: real gRPC Upgrade with wait_for_health installed it and the guest rebooted into it"
 
 # Now wait for the *autonomous* revert: a fourth boot marker, HTTP
@@ -337,7 +337,7 @@ if ! grep -q "giving up and reverting to slot B" "$LOG"; then
   echo "--- console output ---" >&2; cat "$LOG" >&2
   exit 1
 fi
-assert_boot_n "$LOG" 4 /dev/vda4 /dev/vda5 "$GOOD_HASH" "post-auto-revert boot"
+assert_boot_n "$LOG" 4 PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH "$GOOD_HASH" "post-auto-revert boot"
 echo "Part 2 OK: unhealthy upgrade auto-reverted to slot B (not a fixed fallback to slot A) and rebooted, entirely on its own"
 
 # =========================================================================
@@ -372,7 +372,7 @@ if ! grep -q "bootcommit: confirming health for slot A" "$LOG"; then
   exit 1
 fi
 HAPROXY_BROKEN_HASH="$(cat "$HAPROXY_BROKEN_BUNDLE/rootfs.roothash")"
-assert_boot_n "$LOG" 5 /dev/vda2 /dev/vda3 "$HAPROXY_BROKEN_HASH" "post-'haproxy-broken'-upgrade boot"
+assert_boot_n "$LOG" 5 PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH "$HAPROXY_BROKEN_HASH" "post-'haproxy-broken'-upgrade boot"
 echo "Slot A (haproxy-broken) OK: janusd itself came up for real and started confirming health"
 
 # The autonomous revert this time comes from cmd/janusd's own
@@ -388,7 +388,7 @@ if ! grep -q "bootcommit: rebooting to complete the revert to slot B" "$LOG"; th
   echo "--- console output ---" >&2; cat "$LOG" >&2
   exit 1
 fi
-assert_boot_n "$LOG" 6 /dev/vda4 /dev/vda5 "$GOOD_HASH" "post-second-auto-revert boot"
+assert_boot_n "$LOG" 6 PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH "$GOOD_HASH" "post-second-auto-revert boot"
 echo "Part 3 OK: HAProxy-level health check (not just janusd process survival) caught a broken HAProxy and reverted+rebooted, entirely on its own"
 
 echo "Upgrade health test OK: wait_for_health confirms a healthy upgrade and stays; reverts+reboots automatically both when janusd itself can't stay up (rootfs/init) and when janusd runs fine but HAProxy never comes up (cmd/janusd's own real health check)"

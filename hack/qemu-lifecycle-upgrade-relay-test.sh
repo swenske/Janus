@@ -158,7 +158,7 @@ if ! grep -q "$FIRST_BOOT_MSG" "$A_LOG"; then
   echo "Upgrade relay test FAILED: slot A didn't log '$FIRST_BOOT_MSG' - expected a fresh bootstrap" >&2
   exit 1
 fi
-assert_last_boot "$A_LOG" /dev/vda2 /dev/vda3 "$V1_HASH" "initial boot"
+assert_last_boot "$A_LOG" PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH "$V1_HASH" "initial boot"
 echo "Slot A (v1) OK: real UEFI boot, HTTP 200 on :8080, PKI bootstrapped, root hash $V1_HASH confirmed"
 
 # --- extract PKI material straight from disk.img's STATE partition ---
@@ -204,6 +204,6 @@ if [ "$(grep -c "$FIRST_BOOT_MSG" "$A_LOG")" -ne 1 ]; then
   echo "--- console output ---" >&2; cat "$A_LOG" >&2
   exit 1
 fi
-assert_last_boot "$A_LOG" /dev/vda4 /dev/vda5 "$V2_HASH" "post-upgrade boot"
-echo "Slot B (v2) OK: real gRPC Upgrade installed the relay-uploaded rootfs (root hash $V2_HASH, /dev/vda4+/dev/vda5), switched, and rebooted into it - HTTP healthy, STATE intact"
+assert_last_boot "$A_LOG" PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH "$V2_HASH" "post-upgrade boot"
+echo "Slot B (v2) OK: real gRPC Upgrade installed the relay-uploaded rootfs (root hash $V2_HASH, BOOT-B-DATA/HASH), switched, and rebooted into it - HTTP healthy, STATE intact"
 echo "Upgrade relay test OK: UploadReleaseFile + Upgrade work end to end as a two-step relay, with the node never dialing out anywhere"

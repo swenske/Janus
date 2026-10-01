@@ -17,8 +17,8 @@
 #      B, in place - BOOT-A-DATA/HASH, BOOT-B-DATA/HASH and STATE are
 #      never touched by this operation.
 #   3. boot the same disk.img again - OVMF's own log must now show it
-#      chain-loaded a table referencing /dev/vda4 (BOOT-B-DATA), not
-#      /dev/vda2, proving the ESP swap actually took effect; HAProxy
+#      chain-loaded a table referencing BOOT-B-DATA, not
+#      BOOT-A-DATA, proving the ESP swap actually took effect; HAProxy
 #      must again answer HTTP; and janusd must NOT log "first boot"
 #      again - internal/pki.LoadOrBootstrap finding and loading the
 #      *same* CA boot 1 wrote, proving STATE survived the slot switch
@@ -119,8 +119,8 @@ if ! grep -q "$MARKER" "$B_LOG"; then
   cat "$B_LOG" >&2
   exit 1
 fi
-if ! grep -q "dm-mod.create=.*verity 1 /dev/vda4 /dev/vda5" "$B_LOG"; then
-  echo "UEFI A/B test FAILED: console cmdline doesn't reference BOOT-B-DATA/HASH (/dev/vda4+5) - the ESP swap didn't take effect" >&2
+if ! grep -q "dm-mod.create=.*verity 1 PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH" "$B_LOG"; then
+  echo "UEFI A/B test FAILED: console cmdline doesn't reference BOOT-B-DATA/HASH (BOOT-B-DATA/HASH) - the ESP swap didn't take effect" >&2
   echo "--- console output ---" >&2
   cat "$B_LOG" >&2
   exit 1
@@ -131,5 +131,5 @@ if grep -q "$FIRST_BOOT_MSG" "$B_LOG"; then
   cat "$B_LOG" >&2
   exit 1
 fi
-echo "Slot B OK: real UEFI boot from the switched ESP (/dev/vda4+5 confirmed in the cmdline), STATE (CA) survived the switch untouched"
+echo "Slot B OK: real UEFI boot from the switched ESP (BOOT-B-DATA/HASH confirmed in the cmdline), STATE (CA) survived the switch untouched"
 echo "UEFI A/B test OK: the full single-disk, real-UEFI A/B shape works end to end"

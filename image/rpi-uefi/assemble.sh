@@ -82,14 +82,10 @@ SQUASHFS="$ROOTFS_DIR/rootfs.squashfs"
 VERITY="$ROOTFS_DIR/rootfs.verity"
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Real Pi SD card boot device/partition naming - genuinely different
-# from every other image this project builds (/dev/vda2, not
-# /dev/mmcblk0p2 - see internal/bootslot's own doc comment for why the
-# trailing "p" is baked into DEVICE_PREFIX itself rather than handled
-# as a special case anywhere in this script or in Go). BOOT_FILENAME is
-# the aarch64 UEFI-spec fallback name - see image/uki/esp-image.sh's
-# own doc comment.
-DEVICE_PREFIX="/dev/mmcblk0p"
+# The UKIs name their partitions by GPT label (PARTLABEL=BOOT-A-DATA...),
+# not /dev/mmcblk0pN: the same image boots from an SD card or a USB
+# drive. BOOT_FILENAME is the aarch64 UEFI-spec fallback name - see
+# image/uki/esp-image.sh's own doc comment.
 BOOT_FILENAME="BOOTAA64.EFI"
 
 # 128MiB for the firmware+ESP partition - pftf/RPi4's own release zip
@@ -139,11 +135,11 @@ UKI_B="$WORKDIR/uki-b.efi"
 UKIFY_STUB="${UKIFY_STUB:?UKIFY_STUB must be set to the fetched aarch64 sd-stub path - see systemd-stub-arm64/Dockerfile}" \
 UKI_CONSOLE=ttyAMA0 \
 UKI_SELINUX_ENFORCING=0 \
-  "$SELF_DIR/../uki/assemble.sh" "$UKI_A" "$KERNEL" "$ROOTFS_DIR" "${DEVICE_PREFIX}2" "${DEVICE_PREFIX}3"
+  "$SELF_DIR/../uki/assemble.sh" "$UKI_A" "$KERNEL" "$ROOTFS_DIR" PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH
 UKIFY_STUB="${UKIFY_STUB}" \
 UKI_CONSOLE=ttyAMA0 \
 UKI_SELINUX_ENFORCING=0 \
-  "$SELF_DIR/../uki/assemble.sh" "$UKI_B" "$KERNEL" "$ROOTFS_DIR" "${DEVICE_PREFIX}4" "${DEVICE_PREFIX}5"
+  "$SELF_DIR/../uki/assemble.sh" "$UKI_B" "$KERNEL" "$ROOTFS_DIR" PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH
 
 ACTIVE_UKI="$UKI_A"
 [ "$ACTIVE_SLOT" = "B" ] && ACTIVE_UKI="$UKI_B"

@@ -339,8 +339,8 @@ if [ "$CODE" != "200" ] || [ "$(grep -c "$MARKER" "$LOG")" -lt 2 ]; then
   echo "--- console output ---" >&2; cat "$LOG" >&2
   exit 1
 fi
-if grep -q "verity 1 /dev/vda2 /dev/vda3" "$LOG" && ! grep -q "verity 1 /dev/vda4 /dev/vda5" "$LOG"; then
-  echo "Install test FAILED: console never shows a boot from slot B's partitions (/dev/vda4+5)" >&2
+if grep -q "verity 1 PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH" "$LOG" && ! grep -q "verity 1 PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH" "$LOG"; then
+  echo "Install test FAILED: console never shows a boot from slot B's partitions (BOOT-B-DATA/HASH)" >&2
   echo "--- console output ---" >&2; cat "$LOG" >&2
   exit 1
 fi

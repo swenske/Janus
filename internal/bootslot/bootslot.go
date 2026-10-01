@@ -10,15 +10,77 @@
 //
 // The partition layout this package assumes is image/disk/
 // assemble.sh's own fixed convention: 1:ESP, 2:BOOT-A-DATA,
-// 3:BOOT-A-HASH, 4:BOOT-B-DATA, 5:BOOT-B-HASH, 6:STATE. Nothing here
-// discovers that layout generically (e.g. by GPT partition label) -
-// this project controls both ends (image assembly and every reader of
-// it) and fixes the convention instead, deliberately, the same
-// reasoning image/disk/assemble.sh's own comments give for not needing
-// /dev/disk/by-partlabel/* (no udev on this system anyway).
+// 3:BOOT-A-HASH, 4:BOOT-B-DATA, 5:BOOT-B-HASH, 6:STATE.
+//
+// The UKIs name the root partitions by GPT label
+// (PARTLABEL=BOOT-A-DATA), so the same disk boots as /dev/vda, /dev/sda
+// or /dev/nvme0n1: DataDevice resolves such a label to the partition
+// the kernel actually uses (ResolvePartLabel), and every derivation
+// below then works on a real device path. Older UKIs name /dev/vdaN
+// directly; those still parse as before.
 package bootslot
 
-import "strings"
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// ResolvePartLabel maps a GPT partition label to its /dev path. A var
+// so tests can replace the sysfs lookup.
+var ResolvePartLabel = resolvePartLabelSysfs
+
+// sysClassBlock is where the kernel lists block devices - a var so
+// tests can point it at a fake tree.
+var sysClassBlock = "/sys/class/block"
+
+// resolvePartLabelSysfs finds the partition named label (PARTNAME= in
+// its uevent). When several disks carry the label - two Janus disks in
+// one machine - the one held by a device-mapper device (the verity
+// root, mapped from it at boot) wins: that's the one the kernel booted.
+func resolvePartLabelSysfs(label string) (string, error) {
+	entries, err := os.ReadDir(sysClassBlock)
+	if err != nil {
+		return "", err
+	}
+	var found []string
+	for _, e := range entries {
+		name, partname := readUevent(filepath.Join(sysClassBlock, e.Name(), "uevent"))
+		if partname != label || name == "" {
+			continue
+		}
+		if holders, _ := os.ReadDir(filepath.Join(sysClassBlock, e.Name(), "holders")); len(holders) > 0 {
+			return "/dev/" + name, nil
+		}
+		found = append(found, "/dev/"+name)
+	}
+	if len(found) == 0 {
+		return "", fmt.Errorf("no partition labeled %s", label)
+	}
+	return found[0], nil
+}
+
+// readUevent returns a block device's DEVNAME and PARTNAME.
+func readUevent(path string) (devname, partname string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		k, v, _ := strings.Cut(sc.Text(), "=")
+		switch k {
+		case "DEVNAME":
+			devname = v
+		case "PARTNAME":
+			partname = v
+		}
+	}
+	return devname, partname
+}
 
 // DataDevice extracts the verity target's data device (e.g.
 // "/dev/vda2") from a raw kernel cmdline string containing a
@@ -61,7 +123,15 @@ func DataDevice(cmdline string) (string, bool) {
 	if len(fields) < 5 || fields[2] != "verity" {
 		return "", false
 	}
-	return fields[4], true
+	dev := fields[4]
+	if label, ok := strings.CutPrefix(dev, "PARTLABEL="); ok {
+		path, err := ResolvePartLabel(label)
+		if err != nil || path == "" {
+			return "", false
+		}
+		return path, true
+	}
+	return dev, true
 }
 
 // diskAndPartition splits a partition device path into its disk and
@@ -165,6 +235,25 @@ func SlotHashDevice(disk, slot string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// WholeDisk is the disk a partition is on, as its own device:
+// "/dev/vda2" -> "/dev/vda", "/dev/nvme0n1p2" -> "/dev/nvme0n1",
+// "/dev/mmcblk0p2" -> "/dev/mmcblk0". Disk keeps the "p" for building
+// partition names; this is the device to compare with another disk.
+func WholeDisk(dataDev string) (string, bool) {
+	disk, _, ok := diskAndPartition(dataDev)
+	if !ok {
+		return "", false
+	}
+	// A disk whose name ends in a digit separates its partitions with
+	// a "p" (nvme0n1p2, mmcblk0p2, loop0p2).
+	if trimmed, cut := strings.CutSuffix(disk, "p"); cut && trimmed != "" {
+		if last := trimmed[len(trimmed)-1]; last >= '0' && last <= '9' {
+			return trimmed, true
+		}
+	}
+	return disk, true
 }
 
 // Disk strips the trailing partition number off a partition device

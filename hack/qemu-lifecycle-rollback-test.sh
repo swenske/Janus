@@ -27,7 +27,7 @@
 #      inside the same process - proving this is a genuine, complete
 #      reboot cycle, not just that the RPC returned successfully.
 #   5. after the second boot, HTTP must answer again, the console's own
-#      dm-mod.create= line must now reference /dev/vda4 (slot B, not
+#      dm-mod.create= line must now reference BOOT-B-DATA (slot B, not
 #      slot A), and janusd's "first boot" line must NOT appear
 #      again - STATE (the CA the first boot generated) survived the
 #      reboot, same invariant hack/qemu-uefi-ab-boot-test.sh already
@@ -149,8 +149,8 @@ if [ "$(grep -c "$MARKER" "$LOG")" -lt 2 ]; then
   cat "$LOG" >&2
   exit 1
 fi
-if ! grep -q "dm-mod.create=.*verity 1 /dev/vda4 /dev/vda5" "$LOG"; then
-  echo "Rollback test FAILED: console cmdline never referenced BOOT-B-DATA/HASH (/dev/vda4+5) - the ESP swap Rollback performed didn't actually take effect on reboot" >&2
+if ! grep -q "dm-mod.create=.*verity 1 PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH" "$LOG"; then
+  echo "Rollback test FAILED: console cmdline never referenced BOOT-B-DATA/HASH (BOOT-B-DATA/HASH) - the ESP swap Rollback performed didn't actually take effect on reboot" >&2
   echo "--- console output ---" >&2
   cat "$LOG" >&2
   exit 1

@@ -22,10 +22,9 @@
 # uses it as-is: no PE manipulation, no signing, no build tooling, ever,
 # on the node.
 #
-# Device paths baked into both UKIs' cmdlines assume the disk attaches
-# as /dev/vda, same as every other script in this project - see
-# image/disk/assemble.sh's own note on why that's a real, documented
-# limitation, not an oversight.
+# Both UKIs name their partitions by GPT label (PARTLABEL=BOOT-B-DATA...),
+# the names image/disk/assemble.sh and LifecycleService.Install give
+# them: an upgraded node boots whatever its disk attaches as.
 #
 # Usage: image/release/assemble.sh <out-dir> <bzImage> <rootfs-dir> [signing-key] [signing-cert]
 # <rootfs-dir> must contain rootfs.squashfs/rootfs.verity/
@@ -48,7 +47,7 @@ cp "$ROOTFS_DIR/rootfs.verity" "$OUT_DIR/rootfs.verity"
 cp "$ROOTFS_DIR/rootfs.roothash" "$OUT_DIR/rootfs.roothash"
 sha256sum "$OUT_DIR/rootfs.squashfs" | awk '{print $1}' > "$OUT_DIR/rootfs.squashfs.sha256"
 
-"$SELF_DIR/../uki/assemble.sh" "$OUT_DIR/uki-a.efi" "$KERNEL" "$ROOTFS_DIR" /dev/vda2 /dev/vda3 "$SIGNING_KEY" "$SIGNING_CERT"
-"$SELF_DIR/../uki/assemble.sh" "$OUT_DIR/uki-b.efi" "$KERNEL" "$ROOTFS_DIR" /dev/vda4 /dev/vda5 "$SIGNING_KEY" "$SIGNING_CERT"
+"$SELF_DIR/../uki/assemble.sh" "$OUT_DIR/uki-a.efi" "$KERNEL" "$ROOTFS_DIR" PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH "$SIGNING_KEY" "$SIGNING_CERT"
+"$SELF_DIR/../uki/assemble.sh" "$OUT_DIR/uki-b.efi" "$KERNEL" "$ROOTFS_DIR" PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH "$SIGNING_KEY" "$SIGNING_CERT"
 
 echo "Wrote release bundle to $OUT_DIR: rootfs.squashfs ($(cat "$OUT_DIR/rootfs.squashfs.sha256")), rootfs.verity, uki-a.efi, uki-b.efi"

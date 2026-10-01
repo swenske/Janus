@@ -66,7 +66,9 @@ curl -fsSL -o "$WORKDIR/uki-b.efi" "$RELEASE_URL/uki-b.efi"
 # The UKI's .cmdline section is plain text inside the PE file - grepped
 # directly rather than extracted with objcopy, which the self-hosted
 # runner doesn't have.
-RELEASE_HASH="$(grep -aoE 'verity 1 /dev/vda4 /dev/vda5 [0-9 ]+ sha256 [0-9a-f]{64}' "$WORKDIR/uki-b.efi" | head -1 | awk '{print $NF}')"
+# A release's UKIs name the root by partition label (PARTLABEL=BOOT-B-DATA)
+# since the bare-metal tranche, by /dev/vdaN before.
+RELEASE_HASH="$(grep -aoE 'verity 1 (/dev/vda4 /dev/vda5|PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH) [0-9 ]+ sha256 [0-9a-f]{64}' "$WORKDIR/uki-b.efi" | head -1 | awk '{print $NF}')"
 [ -n "$RELEASE_HASH" ] || fail "couldn't read the root hash out of $JANUS_RELEASE_TAG's uki-b.efi .cmdline section"
 
 V1_HASH="$(cat "$BUILD_DIR/rootfs/rootfs.roothash")"
@@ -104,7 +106,7 @@ last_cmdline() { grep "^Kernel command line:" "$LOG" | tail -1; }
 wait_http_and_marker 1 "$HTTP_TIMEOUT_SECS" || fail "slot A never answered HTTP 200 within ${HTTP_TIMEOUT_SECS}s"
 grep -q "$FIRST_BOOT_MSG" "$LOG" || fail "slot A didn't bootstrap a fresh PKI"
 case "$(last_cmdline)" in
-  *"verity 1 /dev/vda2 /dev/vda3 "*"$V1_HASH"*) : ;;
+  *"verity 1 PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH "*"$V1_HASH"*) : ;;
   *) fail "slot A's cmdline doesn't match the local build: $(last_cmdline)" ;;
 esac
 echo "Slot A (local build) OK: HTTP 200, root hash $V1_HASH"
@@ -138,8 +140,8 @@ echo "$UPGRADE_OUT" | grep -qi "rebooting" || fail "Upgrade never reached the 'r
 
 wait_http_and_marker 2 "$REBOOT_TIMEOUT_SECS" || fail "no healthy HTTP 200 after the upgrade reboot within ${REBOOT_TIMEOUT_SECS}s"
 case "$(last_cmdline)" in
-  *"verity 1 /dev/vda4 /dev/vda5 "*"$RELEASE_HASH"*) : ;;
+  *"verity 1 /dev/vda4 /dev/vda5 "*"$RELEASE_HASH"*|*"verity 1 PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH "*"$RELEASE_HASH"*) : ;;
   *) fail "post-upgrade cmdline doesn't carry $JANUS_RELEASE_TAG's slot B root hash $RELEASE_HASH: $(last_cmdline)" ;;
 esac
-echo "Slot B OK: booted $JANUS_RELEASE_TAG (root hash $RELEASE_HASH, /dev/vda4+/dev/vda5)"
+echo "Slot B OK: booted $JANUS_RELEASE_TAG (root hash $RELEASE_HASH, slot B)"
 echo "Upgrade HTTPS test OK: the node fetched a real GitHub Release over https://, verified against its own bundled CA trust store, and rebooted into it"

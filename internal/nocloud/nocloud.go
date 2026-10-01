@@ -82,20 +82,17 @@ type metaData struct {
 	SeedFromCACert string `json:"seedfrom_ca_cert"`
 }
 
-// vdWholeDisk matches a whole virtio-blk disk device name (vda, vdb,
-// ...), never a partition (vda1) - a NoCloud volume is always used as
-// the entire block device's own content, no partition table, the same
-// convention a real mkisofs/genisoimage- or mtools-built cloud-init
-// volume already has.
-var vdWholeDisk = regexp.MustCompile(`^vd[a-z]$`)
+// wholeDisk matches a whole disk's device name - virtio (vda), SCSI/SATA/
+// USB (sda), Xen (xvda), NVMe (nvme0n1), SD/eMMC (mmcblk0), CD-ROM (sr0)
+// - never a partition (vda1, nvme0n1p1). A NoCloud volume is always the
+// entire device's own content, no partition table, the same convention
+// a real mkisofs/genisoimage- or mtools-built cloud-init volume already
+// has; a hypervisor's cloud-init drive is often a CD-ROM (Proxmox's).
+var wholeDisk = regexp.MustCompile(`^(vd[a-z]+|sd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+|mmcblk[0-9]+|sr[0-9]+)$`)
 
-// ScanBlockDevices lists /dev/vd[a-z] whole-disk devices, excluding
-// excludeDisk (this node's own boot disk - see internal/bootslot.Disk,
-// which callers already have on hand from resolving STATE) - the real
-// candidate list rootfs/init passes to FindVolume. virtio-blk only,
-// matching every other assumption already baked into this project
-// (image/disk/assemble.sh, internal/bootslot, ...) - no SCSI/SATA
-// support, there being no real use case for it here yet.
+// ScanBlockDevices lists the whole-disk devices in /dev, excluding
+// excludeDisk (this node's own boot disk - see internal/bootslot.
+// WholeDisk) - the real candidate list rootfs/init passes to FindVolume.
 func ScanBlockDevices(excludeDisk string) ([]string, error) {
 	entries, err := os.ReadDir("/dev")
 	if err != nil {
@@ -103,7 +100,7 @@ func ScanBlockDevices(excludeDisk string) ([]string, error) {
 	}
 	var out []string
 	for _, e := range entries {
-		if !vdWholeDisk.MatchString(e.Name()) {
+		if !wholeDisk.MatchString(e.Name()) {
 			continue
 		}
 		path := "/dev/" + e.Name()
@@ -120,7 +117,7 @@ func ScanBlockDevices(excludeDisk string) ([]string, error) {
 // FAT/ISO9660 labels are commonly padded with trailing spaces).
 // Deliberately takes an explicit candidate list rather than scanning
 // /dev itself, so it's unit-testable against plain files (see
-// ScanBlockDevices for the real /dev/vd* enumeration). A candidate that
+// ScanBlockDevices for the real /dev enumeration). A candidate that
 // fails to open, or has no recognizable filesystem at all (e.g. a data
 // disk with an existing Janus GPT layout - internal/api/install.go's
 // own kind of disk), is silently skipped, not an error: the whole point
