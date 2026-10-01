@@ -1,0 +1,26 @@
+{
+  "name": "keepalived",
+  "description": "VRRP: virtual IPs shared by several nodes, moved to another one when the node holding them fails - or when its HAProxy stops answering. keepalived.conf managed through the API and the Controller, validated before it's applied.",
+  "homepage": "https://www.keepalived.org",
+  "arches": ["amd64", "arm64"],
+  "services": [
+    {
+      "id": "keepalived",
+      "description": "VRRP instances of /run/janus/keepalived/keepalived.conf",
+      "path": "/usr/local/sbin/keepalived",
+      "args": [
+        "--dont-fork",
+        "--log-console",
+        "--log-detail",
+        "--no-syslog",
+        "--use-file=/run/janus/keepalived/keepalived.conf",
+        "--pid=/run/janus/keepalived/keepalived.pid",
+        "--vrrp_pid=/run/janus/keepalived/vrrp.pid"
+      ],
+      "wait_for": ["/run/janus/keepalived/keepalived.conf"]
+    }
+  ],
+  "selinux_labels": {
+    "usr/local/sbin/keepalived": "keepalived_exec_t"
+  }
+}

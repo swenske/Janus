@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-extensions-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-extensions-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -141,14 +141,30 @@ extension-nftables-arm64: musl-toolchain-arm64
 	go run ./hack/extpack pack -name nftables -arch arm64 -version $(NFTABLES_VERSION) \
 		-tree $(EXT_DIR)/tree-nftables-arm64 -out $(EXT_DIR)/extension-nftables-arm64.tar
 
-extensions-amd64: extension-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64
-extensions-arm64: extension-node-exporter-arm64 extension-nftables-arm64
+KEEPALIVED_BUILD_ARGS = --build-arg KEEPALIVED_VERSION=$(KEEPALIVED_VERSION) --build-arg KEEPALIVED_SHA256=$(KEEPALIVED_SHA256)
+
+extension-keepalived-amd64:
+	rm -rf $(EXT_DIR)/tree-keepalived-amd64
+	docker build --target export $(KEEPALIVED_BUILD_ARGS) -o $(EXT_DIR)/tree-keepalived-amd64 extensions/keepalived
+	go run ./hack/extpack pack -name keepalived -arch amd64 -version $(KEEPALIVED_VERSION) \
+		-tree $(EXT_DIR)/tree-keepalived-amd64 -out $(EXT_DIR)/extension-keepalived-amd64.tar
+
+extension-keepalived-arm64: musl-toolchain-arm64
+	rm -rf $(EXT_DIR)/tree-keepalived-arm64
+	docker build --target export-arm64 $(KEEPALIVED_BUILD_ARGS) \
+		--build-context musltoolchain=$(BUILD_DIR)/musl-toolchain-arm64 \
+		-o $(EXT_DIR)/tree-keepalived-arm64 extensions/keepalived
+	go run ./hack/extpack pack -name keepalived -arch arm64 -version $(KEEPALIVED_VERSION) \
+		-tree $(EXT_DIR)/tree-keepalived-arm64 -out $(EXT_DIR)/extension-keepalived-arm64.tar
+
+extensions-amd64: extension-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-keepalived-amd64
+extensions-arm64: extension-node-exporter-arm64 extension-nftables-arm64 extension-keepalived-arm64
 
 # The extensions a release can build a schematic with.
 schematic-catalog:
 	mkdir -p $(EXT_DIR)
 	go run ./hack/extpack catalog -release $(VERSION) -out $(EXT_DIR)/schematic-catalog.json \
-		node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION)
+		node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION) keepalived=$(KEEPALIVED_VERSION)
 
 # What a release publishes so custom schematics can be built from it
 # without rebuilding anything (image/schematic/build.sh): per

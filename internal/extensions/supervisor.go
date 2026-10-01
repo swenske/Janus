@@ -181,6 +181,25 @@ func (m *Manager) State(id string) (ServiceState, error) {
 	return st, nil
 }
 
+// ErrNotRunning is Signal on a service that isn't running.
+var ErrNotRunning = errors.New("the service isn't running")
+
+// Signal sends sig to a running service's process (its own, not the
+// children it may have) - a reload, a status dump.
+func (m *Manager) Signal(id string, sig syscall.Signal) error {
+	s, ok := m.services[id]
+	if !ok {
+		return errNoService
+	}
+	s.mu.Lock()
+	cmd := s.cmd
+	s.mu.Unlock()
+	if cmd == nil {
+		return ErrNotRunning
+	}
+	return cmd.Process.Signal(sig)
+}
+
 // IsNoService reports whether err means an unknown service.
 func IsNoService(err error) bool { return errors.Is(err, errNoService) }
 
