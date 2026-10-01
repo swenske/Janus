@@ -256,6 +256,10 @@
 # this config lacked (init's tcp_syncookies hardening sysctl now applies
 # here too).
 #
+# keepalived extension (2026-10-01): inotify for its track_file - the
+# full resolved diff is INOTIFY_USER=y and FSNOTIFY=y, which it selects.
+#   CONFIG_INOTIFY_USER=y
+#
 ##
 #
 # Automatically generated file; DO NOT EDIT.
@@ -2718,8 +2722,9 @@ CONFIG_EXPORTFS=y
 CONFIG_FILE_LOCKING=y
 # CONFIG_FS_ENCRYPTION is not set
 # CONFIG_FS_VERITY is not set
+CONFIG_FSNOTIFY=y
 # CONFIG_DNOTIFY is not set
-# CONFIG_INOTIFY_USER is not set
+CONFIG_INOTIFY_USER=y
 # CONFIG_FANOTIFY is not set
 # CONFIG_QUOTA is not set
 # CONFIG_AUTOFS_FS is not set
@@ -2810,6 +2815,7 @@ CONFIG_SQUASHFS_FRAGMENT_CACHE_SIZE=3
 # CONFIG_EROFS_FS is not set
 CONFIG_NETWORK_FILESYSTEMS=y
 # CONFIG_NFS_FS is not set
+# CONFIG_NFSD is not set
 # CONFIG_CEPH_FS is not set
 # CONFIG_CIFS is not set
 # CONFIG_SMB_SERVER is not set
