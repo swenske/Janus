@@ -2,9 +2,10 @@
 # Smoke test of a schematic build (image/schematic/build.sh): boots its
 # disk.img under real UEFI firmware (the UKI's own signed cmdline,
 # SELinux enforcing), and checks HAProxy answers, the cmdline carries the
-# schematic's ID, every extension's services started, and nothing was
-# denied. The full proof of extensions is hack/qemu-extensions-test.sh;
-# this only checks that one built image is sound before it's published.
+# schematic's ID, every extension is loaded and none of their services
+# failed, and nothing was denied. The full proof of extensions is
+# hack/qemu-extensions-test.sh; this only checks that one built image is
+# sound before it's published.
 #
 # Usage: hack/qemu-schematic-smoke-test.sh <disk.img> <schematic.json>
 set -euo pipefail
@@ -56,20 +57,27 @@ if [ -n "$EXTENSIONS" ]; then
   grep -q "janus.schematic=$ID" "$LOG" || fail "the cmdline doesn't carry janus.schematic=$ID"
   echo "  ok: the signed cmdline carries schematic $ID"
 fi
+# Every extension is loaded. Its services start, or wait for a
+# configuration applied through the API (keepalived, bird) - and some
+# have none (nftables, run by janusd itself).
 for ext in $EXTENSIONS; do
   deadline=$((SECONDS + 30))
-  until grep -q "extensions: started .* ($ext, pid" "$LOG"; do
-    [ "$SECONDS" -lt "$deadline" ] || fail "extension $ext never started a service"
+  until grep -q "extensions: $ext " "$LOG"; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "extension $ext isn't loaded"
     sleep 1
   done
-  echo "  ok: $ext started"
+  if grep -q "extensions: started .* ($ext, pid" "$LOG"; then
+    echo "  ok: $ext loaded, its service started"
+  else
+    echo "  ok: $ext loaded (no service running until it's configured, or none at all)"
+  fi
 done
 sleep 5 # let the services run into anything their policy denies
 if grep -q "avc:.*denied" "$LOG"; then
   grep "avc:.*denied" "$LOG" >&2
   fail "AVC denials under enforcing"
 fi
-if grep -Eq "extensions: .* exited" "$LOG"; then
-  fail "an extension service exited: $(grep -E 'extensions: .* exited' "$LOG")"
+if grep -Eq "extensions: (.* exited|start [^ ]+: )" "$LOG"; then
+  fail "an extension service failed: $(grep -E 'extensions: (.* exited|start [^ ]+: )' "$LOG")"
 fi
 echo "Schematic smoke test OK: schematic $ID boots, serves, runs [${EXTENSIONS:-no extension}], zero AVC denials"
