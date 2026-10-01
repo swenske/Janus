@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/firewall"
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/timesync"
 )
@@ -26,6 +27,8 @@ type Network struct {
 	janusv1alpha1.UnimplementedNetworkServiceServer
 	Net  *netmgr.Manager
 	Time *timesync.Service
+	// Firewall manages the nftables extension's ruleset (firewall.go).
+	Firewall *firewall.Manager
 }
 
 // moduleBinaries is where each module's daemon lives in an image that
@@ -81,16 +84,4 @@ func (n *Network) VRRPStatus(_ context.Context, _ *emptypb.Empty) (*janusv1alpha
 
 func (n *Network) VRRPApplyConfig(_ context.Context, _ *janusv1alpha1.VRRPApplyConfigRequest) (*janusv1alpha1.VRRPApplyConfigResponse, error) {
 	return nil, moduleApply("vrrp")
-}
-
-func (n *Network) FirewallList(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.FirewallListResponse, error) {
-	st, err := moduleStatus("firewall")
-	if err != nil {
-		return nil, err
-	}
-	return &janusv1alpha1.FirewallListResponse{State: st}, nil
-}
-
-func (n *Network) FirewallApplyRuleset(_ context.Context, _ *janusv1alpha1.FirewallApplyRulesetRequest) (*janusv1alpha1.FirewallApplyRulesetResponse, error) {
-	return nil, moduleApply("firewall")
 }

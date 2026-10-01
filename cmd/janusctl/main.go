@@ -192,6 +192,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  network apply [-timeout 30s] [-no-confirm] FILE  apply a configuration on trial, then confirm it over the node's new address - unconfirmed, the node reverts by itself")
 	fmt.Fprintln(os.Stderr, "  network confirm            confirm the configuration on trial (over an address it keeps)")
 	fmt.Fprintln(os.Stderr, "  network modules            optional modules (bird, keepalived, nftables) and whether this image has them")
+	for _, line := range firewallUsage {
+		fmt.Fprintln(os.Stderr, "  "+line)
+	}
 	fmt.Fprintln(os.Stderr, "  haproxy backends           backends, their servers, addresses and states")
 	fmt.Fprintln(os.Stderr, "  haproxy show-info          HAProxy version/uptime/connections (stats socket)")
 	fmt.Fprintln(os.Stderr, "  haproxy stats              raw 'show stat' CSV from the stats socket")

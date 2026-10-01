@@ -63,6 +63,8 @@ func runNetwork(conn *grpc.ClientConn, endpoint string, redial redialer, args []
 		fmt.Printf("confirmed via %s - the configuration is saved\n", resp.GetConfirmedVia())
 	case "modules":
 		runNetworkModules(client)
+	case "firewall":
+		runFirewall(conn, endpoint, redial, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl network: unknown subcommand %q\n", args[0])
 		usage()

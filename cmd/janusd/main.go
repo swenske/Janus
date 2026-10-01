@@ -40,6 +40,7 @@ import (
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
+	"github.com/swenske/Janus/internal/firewall"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/kmsgwatch"
 	"github.com/swenske/Janus/internal/netconfig"
@@ -87,6 +88,17 @@ func main() {
 	}
 	captured := io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"]})
 	log.SetOutput(captured)
+
+	// The firewall (the nftables extension) before anything listens: the
+	// window where the node is up without its saved ruleset is the boot
+	// itself, until here.
+	firewall.Dir = *configDir
+	fwMgr := firewall.New()
+	if *manageHost {
+		if err := fwMgr.Boot(); err != nil {
+			log.Printf("firewall: %v - the node runs without its saved ruleset", err)
+		}
+	}
 
 	// Network, hostname and clock come first: the node's certificates
 	// are issued for its hostname and addresses, and dated by its clock.
@@ -268,7 +280,7 @@ func main() {
 	// The node's own Prometheus exporter (internal/exporter). The kernel
 	// log and STATE are only this node's to report when janusd runs it.
 	metrics := &metricsSources{version: version, started: started, ca: pkiBootstrap.CA, serverCert: serverCert,
-		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc}
+		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr}
 	if *manageHost {
 		metrics.kmsg = &kmsgwatch.Counts{}
 		metrics.statePath = "/etc/.state"
@@ -286,13 +298,14 @@ func main() {
 	tlsConfig := pkiBootstrap.CA.ServerTLSConfigFor(serverCert)
 	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
+		grpc.StatsHandler(api.ConnStats{}),
 		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr})
-	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc})
+	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
 	printMOTD(motdInfo{

@@ -25,7 +25,11 @@ const (
 	NetworkService_VRRPStatus_FullMethodName           = "/janus.v1alpha1.NetworkService/VRRPStatus"
 	NetworkService_VRRPApplyConfig_FullMethodName      = "/janus.v1alpha1.NetworkService/VRRPApplyConfig"
 	NetworkService_FirewallList_FullMethodName         = "/janus.v1alpha1.NetworkService/FirewallList"
+	NetworkService_FirewallGetRuleset_FullMethodName   = "/janus.v1alpha1.NetworkService/FirewallGetRuleset"
 	NetworkService_FirewallApplyRuleset_FullMethodName = "/janus.v1alpha1.NetworkService/FirewallApplyRuleset"
+	NetworkService_FirewallConfirm_FullMethodName      = "/janus.v1alpha1.NetworkService/FirewallConfirm"
+	NetworkService_FirewallSets_FullMethodName         = "/janus.v1alpha1.NetworkService/FirewallSets"
+	NetworkService_FirewallSetUpdate_FullMethodName    = "/janus.v1alpha1.NetworkService/FirewallSetUpdate"
 	NetworkService_NetworkConfigGet_FullMethodName     = "/janus.v1alpha1.NetworkService/NetworkConfigGet"
 	NetworkService_NetworkConfigApply_FullMethodName   = "/janus.v1alpha1.NetworkService/NetworkConfigApply"
 	NetworkService_NetworkConfigConfirm_FullMethodName = "/janus.v1alpha1.NetworkService/NetworkConfigConfirm"
@@ -47,8 +51,23 @@ type NetworkServiceClient interface {
 	BGPApplyConfig(ctx context.Context, in *BGPApplyConfigRequest, opts ...grpc.CallOption) (*BGPApplyConfigResponse, error)
 	VRRPStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*VRRPStatusResponse, error)
 	VRRPApplyConfig(ctx context.Context, in *VRRPApplyConfigRequest, opts ...grpc.CallOption) (*VRRPApplyConfigResponse, error)
+	// Firewall: the nftables extension (docs/firewall.md). The ruleset is
+	// the node's whole nftables ruleset, in nft's own syntax. FirewallList
+	// reports the module and the live ruleset; FirewallGetRuleset the saved
+	// one. FirewallApplyRuleset validates and applies one on trial: unless
+	// FirewallConfirm comes within the timeout - over a connection opened
+	// after the apply, since established connections are kept whatever the
+	// ruleset - the previous one is put back. Confirmed, it's saved and
+	// applied at every boot.
 	FirewallList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallListResponse, error)
+	FirewallGetRuleset(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallGetRulesetResponse, error)
 	FirewallApplyRuleset(ctx context.Context, in *FirewallApplyRulesetRequest, opts ...grpc.CallOption) (*FirewallApplyRulesetResponse, error)
+	FirewallConfirm(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallConfirmResponse, error)
+	// The live ruleset's named sets, and editing their elements without
+	// reloading the ruleset - elements added without a timeout are kept
+	// across applies and reboots.
+	FirewallSets(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallSetsResponse, error)
+	FirewallSetUpdate(ctx context.Context, in *FirewallSetUpdateRequest, opts ...grpc.CallOption) (*FirewallSetUpdateResponse, error)
 	// The node's own network configuration: hostname, interfaces (physical
 	// and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
 	// modules above, always available.
@@ -130,10 +149,50 @@ func (c *networkServiceClient) FirewallList(ctx context.Context, in *emptypb.Emp
 	return out, nil
 }
 
+func (c *networkServiceClient) FirewallGetRuleset(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallGetRulesetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FirewallGetRulesetResponse)
+	err := c.cc.Invoke(ctx, NetworkService_FirewallGetRuleset_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *networkServiceClient) FirewallApplyRuleset(ctx context.Context, in *FirewallApplyRulesetRequest, opts ...grpc.CallOption) (*FirewallApplyRulesetResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(FirewallApplyRulesetResponse)
 	err := c.cc.Invoke(ctx, NetworkService_FirewallApplyRuleset_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) FirewallConfirm(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallConfirmResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FirewallConfirmResponse)
+	err := c.cc.Invoke(ctx, NetworkService_FirewallConfirm_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) FirewallSets(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallSetsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FirewallSetsResponse)
+	err := c.cc.Invoke(ctx, NetworkService_FirewallSets_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) FirewallSetUpdate(ctx context.Context, in *FirewallSetUpdateRequest, opts ...grpc.CallOption) (*FirewallSetUpdateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FirewallSetUpdateResponse)
+	err := c.cc.Invoke(ctx, NetworkService_FirewallSetUpdate_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -204,8 +263,23 @@ type NetworkServiceServer interface {
 	BGPApplyConfig(context.Context, *BGPApplyConfigRequest) (*BGPApplyConfigResponse, error)
 	VRRPStatus(context.Context, *emptypb.Empty) (*VRRPStatusResponse, error)
 	VRRPApplyConfig(context.Context, *VRRPApplyConfigRequest) (*VRRPApplyConfigResponse, error)
+	// Firewall: the nftables extension (docs/firewall.md). The ruleset is
+	// the node's whole nftables ruleset, in nft's own syntax. FirewallList
+	// reports the module and the live ruleset; FirewallGetRuleset the saved
+	// one. FirewallApplyRuleset validates and applies one on trial: unless
+	// FirewallConfirm comes within the timeout - over a connection opened
+	// after the apply, since established connections are kept whatever the
+	// ruleset - the previous one is put back. Confirmed, it's saved and
+	// applied at every boot.
 	FirewallList(context.Context, *emptypb.Empty) (*FirewallListResponse, error)
+	FirewallGetRuleset(context.Context, *emptypb.Empty) (*FirewallGetRulesetResponse, error)
 	FirewallApplyRuleset(context.Context, *FirewallApplyRulesetRequest) (*FirewallApplyRulesetResponse, error)
+	FirewallConfirm(context.Context, *emptypb.Empty) (*FirewallConfirmResponse, error)
+	// The live ruleset's named sets, and editing their elements without
+	// reloading the ruleset - elements added without a timeout are kept
+	// across applies and reboots.
+	FirewallSets(context.Context, *emptypb.Empty) (*FirewallSetsResponse, error)
+	FirewallSetUpdate(context.Context, *FirewallSetUpdateRequest) (*FirewallSetUpdateResponse, error)
 	// The node's own network configuration: hostname, interfaces (physical
 	// and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
 	// modules above, always available.
@@ -252,8 +326,20 @@ func (UnimplementedNetworkServiceServer) VRRPApplyConfig(context.Context, *VRRPA
 func (UnimplementedNetworkServiceServer) FirewallList(context.Context, *emptypb.Empty) (*FirewallListResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FirewallList not implemented")
 }
+func (UnimplementedNetworkServiceServer) FirewallGetRuleset(context.Context, *emptypb.Empty) (*FirewallGetRulesetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FirewallGetRuleset not implemented")
+}
 func (UnimplementedNetworkServiceServer) FirewallApplyRuleset(context.Context, *FirewallApplyRulesetRequest) (*FirewallApplyRulesetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FirewallApplyRuleset not implemented")
+}
+func (UnimplementedNetworkServiceServer) FirewallConfirm(context.Context, *emptypb.Empty) (*FirewallConfirmResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FirewallConfirm not implemented")
+}
+func (UnimplementedNetworkServiceServer) FirewallSets(context.Context, *emptypb.Empty) (*FirewallSetsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FirewallSets not implemented")
+}
+func (UnimplementedNetworkServiceServer) FirewallSetUpdate(context.Context, *FirewallSetUpdateRequest) (*FirewallSetUpdateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FirewallSetUpdate not implemented")
 }
 func (UnimplementedNetworkServiceServer) NetworkConfigGet(context.Context, *emptypb.Empty) (*NetworkConfigGetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method NetworkConfigGet not implemented")
@@ -378,6 +464,24 @@ func _NetworkService_FirewallList_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NetworkService_FirewallGetRuleset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).FirewallGetRuleset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_FirewallGetRuleset_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).FirewallGetRuleset(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _NetworkService_FirewallApplyRuleset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FirewallApplyRulesetRequest)
 	if err := dec(in); err != nil {
@@ -392,6 +496,60 @@ func _NetworkService_FirewallApplyRuleset_Handler(srv interface{}, ctx context.C
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(NetworkServiceServer).FirewallApplyRuleset(ctx, req.(*FirewallApplyRulesetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_FirewallConfirm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).FirewallConfirm(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_FirewallConfirm_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).FirewallConfirm(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_FirewallSets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).FirewallSets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_FirewallSets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).FirewallSets(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_FirewallSetUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FirewallSetUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).FirewallSetUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_FirewallSetUpdate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).FirewallSetUpdate(ctx, req.(*FirewallSetUpdateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -489,8 +647,24 @@ var NetworkService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _NetworkService_FirewallList_Handler,
 		},
 		{
+			MethodName: "FirewallGetRuleset",
+			Handler:    _NetworkService_FirewallGetRuleset_Handler,
+		},
+		{
 			MethodName: "FirewallApplyRuleset",
 			Handler:    _NetworkService_FirewallApplyRuleset_Handler,
+		},
+		{
+			MethodName: "FirewallConfirm",
+			Handler:    _NetworkService_FirewallConfirm_Handler,
+		},
+		{
+			MethodName: "FirewallSets",
+			Handler:    _NetworkService_FirewallSets_Handler,
+		},
+		{
+			MethodName: "FirewallSetUpdate",
+			Handler:    _NetworkService_FirewallSetUpdate_Handler,
 		},
 		{
 			MethodName: "NetworkConfigGet",

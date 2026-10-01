@@ -14,6 +14,7 @@ import (
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
+	"github.com/swenske/Janus/internal/firewall"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/kmsgwatch"
 	"github.com/swenske/Janus/internal/netmgr"
@@ -32,6 +33,7 @@ type metricsSources struct {
 	net        *netmgr.Manager
 	time       *timesync.Service
 	kmsg       *kmsgwatch.Counts
+	firewall   *firewall.Manager
 	statePath  string // STATE's mount point, for its filesystem's error count
 
 	certsMu      sync.Mutex
@@ -45,7 +47,7 @@ type metricsSources struct {
 const haproxyCertTTL = time.Minute
 
 func (m *metricsSources) collectors() []exporter.Collector {
-	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.security, m.apiRequests}
+	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.security, m.apiRequests}
 }
 
 func gauge(name, help string, samples ...exporter.Sample) exporter.Family {
@@ -191,6 +193,26 @@ func (m *metricsSources) network() []exporter.Family {
 		if pending {
 			fams = append(fams, gauge("janus_network_trial_revert_timestamp_seconds", "When the network configuration on trial reverts unless confirmed.", sample(float64(revertAt.Unix()))))
 		}
+	}
+	return fams
+}
+
+func (m *metricsSources) firewallMetrics() []exporter.Family {
+	if m.firewall == nil || !firewall.Available() {
+		return nil
+	}
+	_, isDefault, _ := firewall.Saved()
+	pending, _ := m.firewall.Trial()
+	fams := []exporter.Family{
+		gauge("janus_firewall_configured", "1 if the node has a saved firewall ruleset (the nftables extension).", sample(exporter.Bool(!isDefault))),
+		gauge("janus_firewall_trial_pending", "1 while a firewall ruleset is on trial: it reverts unless confirmed.", sample(exporter.Bool(pending))),
+	}
+	if sets, err := m.firewall.Sets(); err == nil {
+		var samples []exporter.Sample
+		for _, s := range sets {
+			samples = append(samples, sample(float64(len(s.Elements)), "family", s.Family, "table", s.Table, "set", s.Name))
+		}
+		fams = append(fams, gauge("janus_firewall_set_elements", "Elements in each named set of the live firewall ruleset.", samples...))
 	}
 	return fams
 }

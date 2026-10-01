@@ -19,8 +19,23 @@ service NetworkService {
   rpc VRRPStatus(google.protobuf.Empty) returns (VRRPStatusResponse);
   rpc VRRPApplyConfig(VRRPApplyConfigRequest) returns (VRRPApplyConfigResponse);
 
+  // Firewall: the nftables extension (docs/firewall.md). The ruleset is
+  // the node's whole nftables ruleset, in nft's own syntax. FirewallList
+  // reports the module and the live ruleset; FirewallGetRuleset the saved
+  // one. FirewallApplyRuleset validates and applies one on trial: unless
+  // FirewallConfirm comes within the timeout - over a connection opened
+  // after the apply, since established connections are kept whatever the
+  // ruleset - the previous one is put back. Confirmed, it's saved and
+  // applied at every boot.
   rpc FirewallList(google.protobuf.Empty) returns (FirewallListResponse);
+  rpc FirewallGetRuleset(google.protobuf.Empty) returns (FirewallGetRulesetResponse);
   rpc FirewallApplyRuleset(FirewallApplyRulesetRequest) returns (FirewallApplyRulesetResponse);
+  rpc FirewallConfirm(google.protobuf.Empty) returns (FirewallConfirmResponse);
+  // The live ruleset's named sets, and editing their elements without
+  // reloading the ruleset - elements added without a timeout are kept
+  // across applies and reboots.
+  rpc FirewallSets(google.protobuf.Empty) returns (FirewallSetsResponse);
+  rpc FirewallSetUpdate(FirewallSetUpdateRequest) returns (FirewallSetUpdateResponse);
 
   // The node's own network configuration: hostname, interfaces (physical
   // and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
@@ -274,14 +289,62 @@ message VRRPApplyConfigResponse {
 
 message FirewallListResponse {
   ModuleState state = 1;
-  bytes ruleset = 2; // current nftables ruleset, as text
+  bytes ruleset = 2; // the live ruleset, as nft lists it
+  bool configured = 3; // a ruleset is saved (otherwise the node has no firewall)
+  bool trial_pending = 4;
+  int64 trial_revert_at_unix = 5;
+}
+
+message FirewallGetRulesetResponse {
+  bytes ruleset = 1; // the saved ruleset
+  bool is_default = 2; // none saved: no firewall
 }
 
 message FirewallApplyRulesetRequest {
+  // The whole ruleset, nft syntax; empty removes the firewall.
   bytes ruleset = 1;
+  uint32 confirm_timeout_seconds = 2; // 0 = 30; 5-300
+  bool validate_only = 3; // check it, change nothing
 }
 
 message FirewallApplyRulesetResponse {
   bool accepted = 1;
-  repeated string errors = 2;
+  repeated string errors = 2; // nft's, with the ruleset's own line numbers
+  int64 revert_at_unix = 3; // when it reverts unless confirmed
+}
+
+message FirewallConfirmResponse {}
+
+message FirewallSet {
+  string family = 1;
+  string table = 2;
+  string name = 3;
+  string type = 4; // "ipv4_addr", "ipv4_addr . inet_service"
+  repeated string flags = 5;
+  repeated FirewallSetElement elements = 6;
+}
+
+message FirewallSetElement {
+  // nft syntax: "192.0.2.7", "198.51.100.0/24", "10.0.0.1-10.0.0.9",
+  // "192.0.2.1 . 443".
+  string value = 1;
+  uint32 timeout_seconds = 2; // on add: expire after; 0 = never, and kept
+  uint32 expires_seconds = 3; // time left, on list
+  bool persistent = 4; // kept on the node, added back after every apply
+}
+
+message FirewallSetsResponse {
+  repeated FirewallSet sets = 1;
+}
+
+message FirewallSetUpdateRequest {
+  string family = 1;
+  string table = 2;
+  string set = 3;
+  repeated FirewallSetElement add = 4;
+  repeated string delete = 5;
+}
+
+message FirewallSetUpdateResponse {
+  FirewallSet set = 1; // the set after the update
 }

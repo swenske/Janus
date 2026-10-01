@@ -100,6 +100,10 @@ var requiredRoles = map[string][]string{
 	"/janus.v1alpha1.NetworkService/VRRPApplyConfig":      adminOnly,
 	"/janus.v1alpha1.NetworkService/FirewallList":         adminOrReader,
 	"/janus.v1alpha1.NetworkService/FirewallApplyRuleset": adminOnly,
+	"/janus.v1alpha1.NetworkService/FirewallGetRuleset":   adminOrReader,
+	"/janus.v1alpha1.NetworkService/FirewallConfirm":      adminOnly,
+	"/janus.v1alpha1.NetworkService/FirewallSets":         adminOrReader,
+	"/janus.v1alpha1.NetworkService/FirewallSetUpdate":    adminOnly,
 	"/janus.v1alpha1.NetworkService/NetworkConfigGet":     adminOrReader, // no secrets in it
 	"/janus.v1alpha1.NetworkService/NetworkConfigApply":   adminOnly,
 	"/janus.v1alpha1.NetworkService/NetworkConfigConfirm": adminOnly,
