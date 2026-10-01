@@ -35,8 +35,8 @@ import Kernel from './views/Kernel.jsx'
 import Logs from './views/Logs.jsx'
 import Metrics from './views/Metrics.jsx'
 import Firewall from './views/Firewall.jsx'
-import Module from './views/Module.jsx'
 import VRRP from './views/VRRP.jsx'
+import BGP from './views/BGP.jsx'
 import NetworkView from './views/Network.jsx'
 import NetworkConfig from './views/NetworkConfig.jsx'
 import Overview from './views/Overview.jsx'
@@ -69,7 +69,7 @@ const NAV = [
     group: 'Apps',
     items: [
       { path: '/haproxy', label: 'HAProxy', icon: Shuffle, view: HAProxy, prefix: true },
-      { path: '/apps/bgp', label: 'BGP · bird', icon: Workflow, view: Module, props: { module: 'bgp' }, moduleKey: 'bgp' },
+      { path: '/apps/bgp', label: 'BGP · bird', icon: Workflow, view: BGP, moduleKey: 'bgp' },
       { path: '/apps/vrrp', label: 'VRRP · keepalived', icon: Boxes, view: VRRP, moduleKey: 'vrrp' },
       { path: '/apps/firewall', label: 'Firewall · nftables', icon: Shield, view: Firewall, moduleKey: 'firewall' },
     ],
