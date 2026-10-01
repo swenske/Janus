@@ -693,6 +693,13 @@ jobs:
       - name: VRRP - keepalived failover between two nodes
         run: make qemu-vrrp-test
 
+      # BGP (bird extension) between two real enforcing nodes: sessions
+      # with TCP MD5 and BFD next to OSPF, routes into the kernel, the
+      # anycast route withdrawn while HAProxy doesn't answer. See
+      # hack/qemu-bgp-test.sh.
+      - name: BGP - bird sessions and the HAProxy gate between two nodes
+        run: make qemu-bgp-test
+
       - name: Rebuild the default image after the extensions test
         run: make disk-image
 
