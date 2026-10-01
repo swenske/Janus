@@ -14,6 +14,7 @@ built from a schematic keeps it through its updates.
 | `qemu-guest-agent` | amd64 | The [QEMU guest agent](https://www.qemu.org/docs/master/interop/qemu-ga.html), for Proxmox and other KVM hypervisors: the node's addresses and OS in the hypervisor's UI, filesystem freeze for consistent backups, clean shutdown from the hypervisor |
 | `nftables` | amd64, arm64 | A firewall: the node's nftables ruleset managed through the API and the Controller, applied on trial with an automatic revert, named sets editable live - see [firewall.md](firewall.md) |
 | `keepalived` | amd64, arm64 | VRRP: virtual IPs shared by several nodes, moved when one fails or its HAProxy stops answering - see [vrrp.md](vrrp.md) |
+| `bird` | amd64, arm64 | BGP, OSPF, BFD with BIRD 2: announce the node's addresses - an anycast address withdrawn while HAProxy doesn't answer - see [bgp.md](bgp.md) |
 
 An extension is built into the read-only rootfs: there is no installing or
 removing one on a running node. `janusd` runs its services - restarting

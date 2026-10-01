@@ -15,9 +15,12 @@ manager on the running system - everything is driven through a gRPC API
 secured with mTLS. **Janus Controller** (see [`dashboard/`](dashboard/)) is
 the companion management dashboard for running one or more nodes.
 
-Optional network features, opt-in per node: BGP via
-[bird](https://bird.network.cz/), VRRP via
-[keepalived](https://www.keepalived.org/), firewalling via nftables.
+Optional network features, chosen per image and configured through the
+API and the Controller: [BGP](docs/bgp.md) via [BIRD](https://bird.nic.cz/),
+[VRRP](docs/vrrp.md) via [keepalived](https://www.keepalived.org/), a
+[firewall](docs/firewall.md) via nftables - keepalived and BIRD follow
+HAProxy's health. Every node also serves its own
+[Prometheus metrics](docs/metrics.md).
 
 > **Janus** is the Roman god of beginnings and endings, of choices, of
 > passage, and of doors - traditionally shown with two faces looking in

@@ -71,6 +71,10 @@ scrape_configs:
 | `janus_vrrp_instance_state` | gauge | `instance`, `interface`, `state` | 1 for each VRRP instance's current state (`MASTER`, `BACKUP`, `FAULT`, `INIT`, `STOP`) - [VRRP](vrrp.md), the keepalived extension |
 | `janus_vrrp_instance_effective_priority` | gauge | `instance` | Its priority after tracking |
 | `janus_vrrp_instance_became_master_total` | counter | `instance` | Times it became master since keepalived started |
+| `janus_bgp_protocol_up` | gauge | `protocol`, `proto` | 1 if each BIRD protocol is up - [BGP](bgp.md), the bird extension |
+| `janus_bgp_session_established` | gauge | `protocol`, `neighbor` | 1 if each BGP session is established |
+| `janus_bgp_routes` | gauge | `protocol`, `channel`, `direction` (`imported`, `exported`) | Routes each protocol imported and exported |
+| `janus_bgp_protocol_held_down` | gauge | `protocol` | 1 while janusd keeps a `haproxy_*` protocol down: HAProxy doesn't answer |
 | `janus_selinux_enforcing` | gauge | | 1 if SELinux is enforcing |
 | `janus_selinux_denials_total` | counter | | SELinux denials in the kernel log since boot - there should be none |
 | `janus_kernel_oom_kills_total` | counter | | Processes the kernel killed for lack of memory since boot |
@@ -125,6 +129,10 @@ groups:
       - alert: JanusVRRPFault
         expr: janus_vrrp_instance_state{state="FAULT"} == 1
         for: 1m
+        labels: {severity: critical}
+      - alert: JanusBGPSessionDown
+        expr: janus_bgp_session_established == 0
+        for: 2m
         labels: {severity: critical}
 ```
 

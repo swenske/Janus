@@ -3,7 +3,7 @@
 Janus is an ultra-light, immutable, API-driven Linux distribution built
 from scratch (LFS-style), inspired by [Talos Linux](https://github.com/siderolabs/talos)
 but centered on HAProxy as the primary reverse-proxy/load-balancer, with
-optional network features (BGP via [bird](https://bird.network.cz/),
+optional network features (BGP via [BIRD](https://bird.nic.cz/),
 VRRP via [keepalived](https://www.keepalived.org/), firewalling via
 nftables).
 
@@ -166,12 +166,18 @@ extensions' services, each in its own SELinux domain. See
 
 ## Optional network features
 
-`bird` (BGP) and `keepalived` (VRRP) are opt-in per node, selected in the
-node's declarative configuration. When a feature isn't enabled, its binary
-is simply absent from the built rootfs image - not installed-but-disabled,
-genuinely not present, which is what keeps a minimal node's attack surface
-and image size down. `NetworkService`'s corresponding RPCs report
-`MODULE_STATE_NOT_ENABLED` rather than erroring in that case.
+`bird` (BGP, [bgp.md](bgp.md)), `keepalived` (VRRP, [vrrp.md](vrrp.md))
+and `nftables` (the firewall, [firewall.md](firewall.md)) are extensions,
+chosen per image in its schematic ([image-factory.md](image-factory.md)).
+When a feature isn't chosen, its binary is simply absent from the built
+rootfs image - not installed-but-disabled, genuinely not present, which is
+what keeps a minimal node's attack surface and image size down.
+`NetworkService`'s corresponding RPCs report `MODULE_STATE_NOT_ENABLED`
+rather than erroring in that case. When present, each daemon's own
+configuration file is managed through the API - checked by the daemon,
+saved on STATE, applied - and keepalived and BIRD follow HAProxy's health,
+so a node whose HAProxy stops answering gives up its virtual IPs and
+withdraws its anycast routes.
 
 ## Companion website
 
@@ -1080,7 +1086,8 @@ plan - not implemented yet.
   the exact `qm create`/`qm importdisk` steps - needs `--serial0
   socket --vga serial0` specifically, since this rootfs has no VGA
   console at all, only serial.
-- **Phase 5**: `NetworkService` - bird (BGP), keepalived (VRRP), nftables.
+- **Phase 5** (done): `NetworkService` - bird (BGP), keepalived (VRRP),
+  nftables, as image extensions.
 - **Phase 6**: companion website + dedicated Proxmox-hosted backend
   (separate container from the runner) + remote kernel-menuconfig UI -
   separate repository, separate plan.
