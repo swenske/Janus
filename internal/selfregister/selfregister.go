@@ -110,8 +110,37 @@ func AlreadyRegistered(dir string) bool {
 // itself - written only after Register succeeds, so a failed attempt
 // (Controller unreachable, say) is retried on the next boot rather than
 // silently given up on forever.
+//
+// The marker is synced to disk before this returns: a node powered off
+// within ext4's commit interval after announcing itself would otherwise
+// announce itself again on its next boot (seen on the CI runner, where
+// the self-register test stops the VM seconds after the announcement).
 func MarkRegistered(dir string) error {
-	return os.WriteFile(filepath.Join(dir, markerFile), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+	tmp := filepath.Join(dir, "."+markerFile+".tmp")
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(time.Now().UTC().Format(time.RFC3339) + "\n"); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, markerFile)); err != nil {
+		return err
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // registerRequest mirrors dashboard/backend/register.go's own
