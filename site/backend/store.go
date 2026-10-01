@@ -55,7 +55,7 @@ var platforms = []platform{
 	{ID: "kvm", Name: "KVM / libvirt", Group: "Virtualization", Arch: "amd64", File: "janus-kvm.qcow2",
 		Description: "qcow2 disk for virt-install --boot uefi, OpenStack or any KVM host.", Docs: "image/kvm/README.md"},
 	{ID: "vmware", Name: "VMware ESXi", Group: "Virtualization", Arch: "amd64", File: "janus.vmdk",
-		Description: "streamOptimized VMDK; EFI firmware.", Docs: "image/vmware/README.md"},
+		Description: "streamOptimized VMDK; EFI firmware, a PVSCSI, SATA or NVMe disk controller (not LSI Logic).", Docs: "image/vmware/README.md"},
 	{ID: "iso", Name: "Bare metal (ISO / USB)", Group: "Bare metal", Arch: "amd64", File: "janus.iso",
 		Description: "Installer: write it to a USB stick (not a CD), boot it, install the machine's disk with janusctl lifecycle install - registered with your Controller if you give it one.", Docs: "docs/provisioning-a-node.md"},
 	{ID: "rpi4", Name: "Raspberry Pi 4 / CM4", Group: "Single-board computer", Arch: "arm64", File: "pi4-disk.img",
