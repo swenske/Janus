@@ -69,6 +69,7 @@ func main() {
 	haproxyCfg := flag.String("haproxy-config", "/etc/haproxy/haproxy.cfg", "path to haproxy's active config file")
 	haproxyPid := flag.String("haproxy-pid", "/run/janus/haproxy.pid", "path to haproxy's pid file")
 	haproxySock := flag.String("haproxy-stats-socket", "/run/janus/haproxy-admin.sock", "path to haproxy's stats socket (must match the 'stats socket' line in haproxy-config)")
+	haproxyCertStore := flag.String("haproxy-cert-store", "", "where certificates uploaded at runtime are kept, to be put back into HAProxy after each reload or restart (default: runtime-certs next to -haproxy-config - STATE's haproxy/ on a node)")
 	haproxyChrootDir := flag.String("haproxy-chroot-dir", "/var/empty", "directory haproxy chroots into after binding listeners and dropping privileges (must match the 'chroot' line in haproxy-config); created here since this rootfs has no package manager to have provisioned it")
 	manageHost := flag.Bool("manage-host", false, "this janusd runs a Janus node: it configures the node's network, hostname and clock (internal/netmgr, internal/timesync). Off, they're only reported - never set this on a machine whose network janusd mustn't touch")
 	configDir := flag.String("config-dir", exporter.Dir, "directory for janusd's persistent settings (the exporter's, the optional modules'); a node's is on STATE")
@@ -151,6 +152,10 @@ func main() {
 
 	haproxyMgr := haproxy.NewManager(*haproxyBin, *haproxyCfg, *haproxyPid, *haproxySock)
 	haproxyMgr.Output = &ring.LineWriter{Ring: serviceLogs["haproxy"]}
+	haproxyMgr.CertStoreDir = *haproxyCertStore
+	if haproxyMgr.CertStoreDir == "" {
+		haproxyMgr.CertStoreDir = filepath.Join(filepath.Dir(*haproxyCfg), "runtime-certs")
+	}
 
 	// Start haproxy from whatever config is already on disk (the
 	// bootstrap default at first boot - see rootfs/base/etc/haproxy -
@@ -159,7 +164,7 @@ func main() {
 	// without the haproxy binary in place should still serve the gRPC
 	// API for everything else.
 	haproxyRunning := true
-	if err := haproxyMgr.Reload(); err != nil {
+	if err := haproxyMgr.Boot(); err != nil {
 		haproxyRunning = false
 		log.Printf("haproxy: initial start failed (continuing without it): %v", err)
 	}

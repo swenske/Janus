@@ -82,23 +82,42 @@ func parseCertField(detail []byte, field string) string {
 // subsequent "commit" is the authoritative result, so that's what's
 // checked here.
 func (m *Manager) CertificateUpload(name string, pemBundle []byte, crtList string, sni []string) error {
+	if _, err := cliToken("certificate name", name); err != nil {
+		return err
+	}
+	if crtList != "" {
+		if _, err := cliToken("crt-list", crtList); err != nil {
+			return err
+		}
+	}
+	for _, s := range sni {
+		if _, err := cliToken("sni", s); err != nil {
+			return err
+		}
+	}
+	if _, err := cliPayload("PEM bundle", pemBundle); err != nil {
+		return err
+	}
+	if err := m.loadCert(name, pemBundle); err != nil {
+		return err
+	}
+	if crtList != "" {
+		if err := m.addToCrtList(name, crtList, sni); err != nil {
+			return err
+		}
+	}
+	if err := m.storeCert(name, pemBundle, crtList, sni); err != nil {
+		return fmt.Errorf("certificate %s is loaded, but not stored - it won't survive a reload: %w", name, err)
+	}
+	return nil
+}
+
+// loadCert puts pemBundle into HAProxy's certificate store under name:
+// created if it isn't there, replaced if it is.
+func (m *Manager) loadCert(name string, pemBundle []byte) error {
 	certArg, err := cliToken("certificate name", name)
 	if err != nil {
 		return err
-	}
-	listArg := ""
-	if crtList != "" {
-		if listArg, err = cliToken("crt-list", crtList); err != nil {
-			return err
-		}
-	}
-	sniArgs := make([]string, 0, len(sni))
-	for _, s := range sni {
-		a, err := cliToken("sni", s)
-		if err != nil {
-			return err
-		}
-		sniArgs = append(sniArgs, a)
 	}
 	payload, err := cliPayload("PEM bundle", pemBundle)
 	if err != nil {
@@ -128,14 +147,26 @@ func (m *Manager) CertificateUpload(name string, pemBundle []byte, crtList strin
 		_, _ = m.statsCommand("abort ssl cert " + certArg)
 		return fmt.Errorf("commit certificate %s: %s", name, strings.TrimSpace(string(commitOut)))
 	}
+	return nil
+}
 
-	if crtList == "" {
-		return nil
+// addToCrtList binds name into crtList, scoped to sni if given.
+func (m *Manager) addToCrtList(name, crtList string, sni []string) error {
+	certArg, err := cliToken("certificate name", name)
+	if err != nil {
+		return err
 	}
-
+	listArg, err := cliToken("crt-list", crtList)
+	if err != nil {
+		return err
+	}
 	addCmd := "add ssl crt-list " + listArg + " " + certArg
-	if len(sniArgs) > 0 {
-		addCmd += " " + strings.Join(sniArgs, " ")
+	for _, s := range sni {
+		a, err := cliToken("sni", s)
+		if err != nil {
+			return err
+		}
+		addCmd += " " + a
 	}
 	addOut, err := m.statsCommand(addCmd)
 	if err != nil {
@@ -174,11 +205,17 @@ func (m *Manager) CertificateDelete(name, crtList string) error {
 		return err
 	}
 	msg := string(out)
-	if strings.Contains(msg, "doesn't exist") {
-		return fmt.Errorf("certificate %s not found", name)
-	}
-	if !strings.Contains(msg, "deleted") {
+	if !strings.Contains(msg, "deleted") && !strings.Contains(msg, "doesn't exist") {
 		return fmt.Errorf("delete certificate %s: %s", name, strings.TrimSpace(msg))
+	}
+	// Out of the store too - even if this process didn't have it (a
+	// configuration that couldn't take it, say).
+	stored, err := m.forgetCert(name)
+	if err != nil {
+		return fmt.Errorf("certificate %s is deleted, but still stored - it would come back on a reload: %w", name, err)
+	}
+	if strings.Contains(msg, "doesn't exist") && !stored {
+		return fmt.Errorf("certificate %s not found", name)
 	}
 	return nil
 }

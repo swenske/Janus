@@ -52,7 +52,7 @@ frontend f
 	}
 	t.Cleanup(func() { _ = m.Stop(5 * time.Second) })
 
-	bundle := selfSignedBundle(t)
+	bundle := selfSignedBundle(t, "takeover.test")
 	for i := range 10 {
 		if err := m.Reload(); err != nil {
 			t.Fatalf("Reload %d: %v", i, err)
@@ -81,14 +81,14 @@ func (w *testWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func selfSignedBundle(t *testing.T) []byte {
+func selfSignedBundle(t *testing.T, cn string) []byte {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "takeover.test"},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), DNSNames: []string{"takeover.test"}}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: cn},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), DNSNames: []string{cn}}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
 		t.Fatal(err)

@@ -41,6 +41,10 @@ service HAProxyService {
   rpc ACLUpdate(ACLUpdateRequest) returns (google.protobuf.Empty);
 
   rpc CertificateList(google.protobuf.Empty) returns (CertificateListResponse);
+  // CertificateUpload loads a certificate into the running HAProxy and
+  // keeps it on the node (STATE): janusd puts it back - crt-list binding
+  // included - into every new HAProxy process, after a reload, a restart
+  // or a reboot. CertificateDelete removes it from both.
   rpc CertificateUpload(CertificateUploadRequest) returns (google.protobuf.Empty);
   rpc CertificateDelete(CertificateDeleteRequest) returns (google.protobuf.Empty);
 }

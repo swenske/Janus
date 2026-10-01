@@ -71,6 +71,10 @@ type HAProxyServiceClient interface {
 	MapUpdate(ctx context.Context, in *MapUpdateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ACLUpdate(ctx context.Context, in *ACLUpdateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	CertificateList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*CertificateListResponse, error)
+	// CertificateUpload loads a certificate into the running HAProxy and
+	// keeps it on the node (STATE): janusd puts it back - crt-list binding
+	// included - into every new HAProxy process, after a reload, a restart
+	// or a reboot. CertificateDelete removes it from both.
 	CertificateUpload(ctx context.Context, in *CertificateUploadRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	CertificateDelete(ctx context.Context, in *CertificateDeleteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
@@ -276,6 +280,10 @@ type HAProxyServiceServer interface {
 	MapUpdate(context.Context, *MapUpdateRequest) (*emptypb.Empty, error)
 	ACLUpdate(context.Context, *ACLUpdateRequest) (*emptypb.Empty, error)
 	CertificateList(context.Context, *emptypb.Empty) (*CertificateListResponse, error)
+	// CertificateUpload loads a certificate into the running HAProxy and
+	// keeps it on the node (STATE): janusd puts it back - crt-list binding
+	// included - into every new HAProxy process, after a reload, a restart
+	// or a reboot. CertificateDelete removes it from both.
 	CertificateUpload(context.Context, *CertificateUploadRequest) (*emptypb.Empty, error)
 	CertificateDelete(context.Context, *CertificateDeleteRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedHAProxyServiceServer()

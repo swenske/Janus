@@ -37,6 +37,11 @@ type Manager struct {
 	// janusd's own), for SystemService.Logs.
 	Output io.Writer
 
+	// CertStoreDir, if set, keeps the certificates CertificateUpload
+	// loads at runtime across reloads and restarts (certstore.go).
+	CertStoreDir string
+	certMu       sync.Mutex
+
 	mu  sync.Mutex
 	cur *process
 	// serving: a process runs that janusd isn't stopping. During a soft
@@ -139,14 +144,22 @@ func (m *Manager) Apply(cfg []byte) ([]string, error) {
 	// PKI bootstrap: don't let an applied config's durability depend on
 	// some later, unrelated sync happening to occur first.
 	syscall.Sync()
-	return nil, m.startOrReload()
+	return nil, m.startOrReload(true)
 }
 
 // Reload re-applies whatever is currently on disk at ConfigPath - used
 // when the config file hasn't changed but a restart is still wanted (or
-// as the second half of Apply).
+// as the second half of Apply). It returns once the new process answers
+// on the stats socket, ready for runtime commands.
 func (m *Manager) Reload() error {
-	return m.startOrReload()
+	return m.startOrReload(true)
+}
+
+// Boot starts HAProxy when janusd starts. Unlike Reload, a first start
+// doesn't wait for the process to answer: janusd goes on to its PKI
+// meanwhile.
+func (m *Manager) Boot() error {
+	return m.startOrReload(false)
 }
 
 // startOrReload starts haproxy if it isn't running yet, or performs a
@@ -154,7 +167,7 @@ func (m *Manager) Reload() error {
 // the caller (janusd, itself supervised by rootfs/init) is
 // responsible for treating this as a managed child process, not letting
 // HAProxy detach on its own.
-func (m *Manager) startOrReload() error {
+func (m *Manager) startOrReload(wait bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -212,9 +225,10 @@ func (m *Manager) startOrReload() error {
 		log.Printf("haproxy: write %s: %v", m.PidPath, err)
 	}
 	events.Publish("haproxy.started", map[string]any{"pid": cmd.Process.Pid, "args": args})
-	if reload {
+	if reload || wait {
 		m.waitAnswering(p)
 	}
+	m.restoreCerts(p)
 	return nil
 }
 
@@ -227,9 +241,8 @@ const takeoverTimeout = 5 * time.Second
 // the old process can still answer: runtime commands sent then would
 // reach it - a certificate staged in the old process and committed in
 // the new one fails with "No ongoing transaction", seen on the CI runner.
-// Only after a reload: a first start has no other process to answer in
-// its place, and janusd's boot goes on to its PKI meanwhile. Called with
-// mu held.
+// Always after a reload; after a first start, unless janusd is booting
+// (Boot): it goes on to its PKI meanwhile. Called with mu held.
 func (m *Manager) waitAnswering(p *process) {
 	deadline := time.Now().Add(takeoverTimeout)
 	for time.Now().Before(deadline) && !p.exited() {
