@@ -244,7 +244,12 @@ plan - not implemented yet.
   reachable by TLS clients instead of just sitting in the store reporting
   "Unused". `CertificateDelete`'s matching `crt_list` field unbinds
   first - HAProxy refuses `del ssl cert` on anything still bound
-  ("in use, can't be deleted!"). One real constraint worth remembering:
+  ("in use, can't be deleted!"). Runtime changes only live in the
+  process that received them, so janusd keeps every uploaded
+  certificate and its binding in a store on STATE
+  (`/etc/haproxy/runtime-certs`, keys 0600) and puts them back into each
+  new HAProxy process right after a reload, restart or reboot
+  (`internal/haproxy/certstore.go`). One real constraint worth remembering:
   HAProxy refuses to even **start** a `bind ... ssl crt-list <path>`
   whose crt-list file is empty ("no SSL certificate specified") - a
   crt-list-backed listener needs at least one seed certificate already
