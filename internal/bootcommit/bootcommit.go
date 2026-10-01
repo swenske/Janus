@@ -93,7 +93,9 @@ func Read() (*Marker, error) {
 
 // Write persists m, creating Dir if needed - it's a bind-mount target
 // that a node upgrading from a build predating this package won't have
-// pre-created.
+// pre-created. The marker is on disk when this returns: rootfs/init
+// decrements TriesLeft before starting the new slot, and a crash within
+// ext4's commit interval must not give that slot its attempt back.
 func Write(m *Marker) error {
 	if err := os.MkdirAll(Dir, 0o755); err != nil {
 		return err
@@ -102,7 +104,31 @@ func Write(m *Marker) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path(), data, 0o644)
+	tmp := path() + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path()); err != nil {
+		return err
+	}
+	d, err := os.Open(Dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // Clear removes the marker. A no-op, not an error, if none exists -
