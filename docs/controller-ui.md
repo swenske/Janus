@@ -49,7 +49,10 @@ theme toggle:
 - **Monitoring** - overview, metrics, processes, network, storage
 - **Logs** - service logs, events, kernel (dmesg)
 - **Apps** - HAProxy (with its own tabs), then optional modules (bird,
-  keepalived, nftables), marked "n/a" when the image doesn't ship them
+  keepalived, nftables), marked "n/a" when the image doesn't ship them.
+  Firewall: ruleset editor (check, diff, apply on trial - the Controller
+  confirms over a *fresh* connection, never the shared one, which
+  conntrack keeps open whatever the ruleset), live sets, live ruleset
 - **Tools** - packet capture, files
 - **System** - network (hostname, interfaces, VLANs, DNS, NTP), services,
   update, access (client certificates), power

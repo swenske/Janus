@@ -12,6 +12,7 @@ built from a schematic keeps it through its updates.
 |---|---|---|
 | `node-exporter` | amd64, arm64 | Prometheus [node_exporter](https://github.com/prometheus/node_exporter): CPU, memory, disk, filesystem and network metrics on `:9100/metrics` |
 | `qemu-guest-agent` | amd64 | The [QEMU guest agent](https://www.qemu.org/docs/master/interop/qemu-ga.html), for Proxmox and other KVM hypervisors: the node's addresses and OS in the hypervisor's UI, filesystem freeze for consistent backups, clean shutdown from the hypervisor |
+| `nftables` | amd64, arm64 | A firewall: the node's nftables ruleset managed through the API and the Controller, applied on trial with an automatic revert, named sets editable live - see [firewall.md](firewall.md) |
 
 An extension is built into the read-only rootfs: there is no installing or
 removing one on a running node. `janusd` runs its services - restarting

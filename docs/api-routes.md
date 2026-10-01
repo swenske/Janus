@@ -105,7 +105,11 @@ Optional modules:
 |---|---|---|---|
 | `BGPStatus` / `BGPApplyConfig` | | ✅ (not-enabled) | bird - `MODULE_STATE_NOT_ENABLED` and apply refused (`FailedPrecondition`) when bird isn't in the image, which is every image today; answers `Unimplemented` if the binary is present, since its management isn't built yet |
 | `VRRPStatus` / `VRRPApplyConfig` | | ✅ (not-enabled) | keepalived, same convention |
-| `FirewallList` / `FirewallApplyRuleset` | | ✅ (not-enabled) | nftables, same convention |
+| `FirewallList` | | ✅ | The nftables extension: the live ruleset, whether one is saved, a trial in progress ([firewall.md](firewall.md)) |
+| `FirewallGetRuleset` | | ✅ | The saved ruleset |
+| `FirewallApplyRuleset` | | ✅ | Check (`validate_only`) or apply a ruleset on trial - reverts unless confirmed |
+| `FirewallConfirm` | | ✅ | Keep and save the ruleset on trial - refused over a connection opened before it was applied |
+| `FirewallSets` / `FirewallSetUpdate` | | ✅ | Named sets of the live ruleset; add/delete elements live, kept across applies and reboots unless they have a timeout |
 
 ## Deliberately not present
 
