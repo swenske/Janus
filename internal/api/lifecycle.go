@@ -122,6 +122,10 @@ func releaseFileMaxBytes(filename string) int64 {
 // pinning, unlike internal/nocloud's own seedfrom modes: a real release
 // URL is always the public internet (GitHub Releases) with a
 // well-known CA, not an operator-supplied arbitrary endpoint.
+// errBundleFileMissing is a bundle answering that it has no such file -
+// not a bundle that couldn't be reached.
+var errBundleFileMissing = errors.New("not in the bundle")
+
 func fetchBundleFile(ctx context.Context, bundleRef, filename string) ([]byte, error) {
 	if strings.HasPrefix(bundleRef, "http://") || strings.HasPrefix(bundleRef, "https://") {
 		url := strings.TrimSuffix(bundleRef, "/") + "/" + filename
@@ -136,12 +140,19 @@ func fetchBundleFile(ctx context.Context, bundleRef, filename string) ([]byte, e
 			return nil, fmt.Errorf("GET %s: %w", url, err)
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("GET %s: %s: %w", url, resp.Status, errBundleFileMissing)
+		}
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("GET %s: unexpected status %s", url, resp.Status)
 		}
 		return io.ReadAll(resp.Body)
 	}
-	return os.ReadFile(filepath.Join(bundleRef, filename))
+	data, err := os.ReadFile(filepath.Join(bundleRef, filename))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("%w: %w", err, errBundleFileMissing)
+	}
+	return data, err
 }
 
 // verifyUKI is internal/releasetrust.VerifyUKI - a var so tests can
@@ -381,8 +392,13 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	// that isn't trusted is refused before the rootfs is even downloaded.
 	ukiName := fmt.Sprintf("uki-%s.efi", strings.ToLower(bc.targetSlot))
 	uki, err := fetchBundleFile(ctx, bundleRef, ukiName)
-	if err != nil {
+	switch {
+	case errors.Is(err, errBundleFileMissing):
 		return status.Errorf(codes.FailedPrecondition, "%s: %v - does this bundle include a UKI for slot %s? (see image/release/assemble.sh)", ukiName, err, bc.targetSlot)
+	case err != nil && verb == "downloading":
+		return status.Errorf(codes.FailedPrecondition, "%s: %v - if the node can't reach that server, have the Controller push the bundle to it (Update, \"The Controller pushes it\") or upload it (janusctl lifecycle upload-release)", ukiName, err)
+	case err != nil:
+		return status.Errorf(codes.FailedPrecondition, "%s: %v", ukiName, err)
 	}
 	signature, err := checkUKISignature(req.GetSource(), ukiName, uki)
 	if err != nil {
