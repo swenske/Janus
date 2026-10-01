@@ -171,7 +171,7 @@ jobs:
           # run failed to load under the new code with "CA key is not
           # ECDSA", not a missing-cleanup problem visible until the key
           # algorithm itself changed.
-          sudo rm -rf /etc/janus/pki
+          sudo rm -rf /etc/janus/pki /etc/haproxy/runtime-certs
           sudo mkdir -p /run/janus /etc/haproxy /etc/janus
           sudo cp rootfs/base/etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg
           # chroot /var/empty is in that config now - the chroot() syscall
@@ -235,6 +235,9 @@ jobs:
       - name: HAProxy runtime map/ACL/certificate test
         run: |
           set -euo pipefail
+          # janusd keeps uploaded certificates next to -haproxy-config
+          # (/tmp/runtime-certs here): start from an empty store.
+          rm -rf /tmp/runtime-certs
           mkdir -p /tmp/rt-maps /tmp/rt-acls /tmp/rt-certs
           echo "www.example.com backend1" > /tmp/rt-maps/hosts.map
           echo "1.2.3.4" > /tmp/rt-acls/blocked.acl
@@ -279,7 +282,9 @@ jobs:
           # draining process instead of the new one, producing
           # hard-to-explain failures ("No ongoing transaction!" on a
           # commit whose "set" had just "succeeded") that had nothing to
-          # do with the map/ACL/cert code itself.
+          # do with the map/ACL/cert code itself. Fixed since: a reload
+          # returns once the new process answers (the reload check below
+          # relies on it).
           ./bin/janusd -addr :19506 -haproxy-binary "$PWD/build/haproxy" \
             -pki-dir /etc/janus/pki-rt -haproxy-config /tmp/rt-haproxy.cfg \
             & echo $! > /tmp/janusd-rt.pid
@@ -317,6 +322,13 @@ jobs:
           [ "$got" = "subject=CN=uploaded.local" ] || { echo "expected the SNI-bound cert, got: $got" >&2; exit 1; }
           got="$(openssl s_client -connect 127.0.0.1:8443 </dev/null 2>/dev/null | grep subject=)"
           [ "$got" = "subject=CN=default.local" ] || { echo "expected the default cert with no SNI, got: $got" >&2; exit 1; }
+
+          # A reload starts a new HAProxy from the configuration: janusd
+          # puts the uploaded certificate and its crt-list binding back.
+          ctl haproxy apply-config /tmp/rt-haproxy.cfg
+          ctl haproxy cert-list | grep -q "^/tmp/rt-certs/uploaded.pem.*status=Used"
+          got="$(openssl s_client -connect 127.0.0.1:8443 -servername uploaded.local </dev/null 2>/dev/null | grep subject=)"
+          [ "$got" = "subject=CN=uploaded.local" ] || { echo "expected the SNI-bound cert after a reload, got: $got" >&2; exit 1; }
 
           ctl haproxy cert-delete -crt-list /tmp/rt-certs/crt-list.txt /tmp/rt-certs/uploaded.pem
           ctl haproxy cert-list | grep -q "^/tmp/rt-certs/uploaded.pem" && { echo "expected the cert to be gone after delete" >&2; exit 1; } || true

@@ -76,18 +76,18 @@ done
 ctl() { "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
 
 # Before the first scrape (HAProxy's certificates are cached a minute):
-# two config applies, then a certificate in HAProxy's store - after the
-# reload, which a certificate uploaded at runtime doesn't survive.
-ctl haproxy get-config > "$WORKDIR/haproxy.cfg"
-ctl haproxy apply-config "$WORKDIR/haproxy.cfg" >/dev/null || fail "re-applying the running config was refused"
-printf 'global\n  this is not haproxy\n' > "$WORKDIR/bad.cfg"
-ctl haproxy apply-config "$WORKDIR/bad.cfg" >/dev/null 2>&1 && fail "a broken config was accepted"
-wait_http
+# a certificate in HAProxy's store, then two config applies - the reload
+# puts the stored certificate back into the new process.
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 45 \
   -subj "/O=Janus test/CN=metrics.example.test" -keyout "$WORKDIR/k.pem" -out "$WORKDIR/c.pem" 2>/dev/null
 cat "$WORKDIR/c.pem" "$WORKDIR/k.pem" > "$WORKDIR/site.pem"
 ctl haproxy cert-upload metrics-test.pem "$WORKDIR/site.pem" >/dev/null || fail "cert-upload"
 CERT_NOT_AFTER="$(date -d "$(openssl x509 -in "$WORKDIR/c.pem" -noout -enddate | cut -d= -f2)" +%s)"
+ctl haproxy get-config > "$WORKDIR/haproxy.cfg"
+ctl haproxy apply-config "$WORKDIR/haproxy.cfg" >/dev/null || fail "re-applying the running config was refused"
+printf 'global\n  this is not haproxy\n' > "$WORKDIR/bad.cfg"
+ctl haproxy apply-config "$WORKDIR/bad.cfg" >/dev/null 2>&1 && fail "a broken config was accepted"
+wait_http
 
 scrape() { curl -fsS -m 5 "http://127.0.0.1:$1/metrics"; }
 METRICS="$(scrape "$P_METRICS")" || fail "no metrics on :10056"
