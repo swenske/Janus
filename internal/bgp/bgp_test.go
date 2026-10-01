@@ -104,11 +104,11 @@ func TestWithLog(t *testing.T) {
 
 // fakeBIRD answers on SocketPath like BIRD: a greeting, then one command.
 type fakeBIRD struct {
-	mu        sync.Mutex
-	state     map[string]string // protocol -> "up", "down", "start"
-	order     []string
-	commands  []string
-	disabled  map[string]bool // what "configure" brings back: the config's own
+	mu       sync.Mutex
+	state    map[string]string // protocol -> "up", "down", "start"
+	order    []string
+	commands []string
+	disabled map[string]bool // what "configure" brings back: the config's own
 }
 
 func startFakeBIRD(t *testing.T, protocols ...string) *fakeBIRD {

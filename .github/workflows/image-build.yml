@@ -712,6 +712,13 @@ jobs:
       - name: BGP - bird sessions and the HAProxy gate between two nodes
         run: make qemu-bgp-test
 
+      # Bare metal: the images on NVMe/SATA/USB/virtio-scsi disks and
+      # e1000e/igb/vmxnet3/e1000 NICs with 4 CPUs, a cloud-init CD-ROM, and
+      # the ISO on a USB stick installing a disk that registers with a
+      # Controller - enforcing. See hack/qemu-baremetal-test.sh.
+      - name: Bare metal - real disks, NICs, CPUs and the ISO's install
+        run: make qemu-baremetal-test
+
       - name: Rebuild the default image after the extensions test
         run: make disk-image
 
