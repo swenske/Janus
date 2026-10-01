@@ -1,17 +1,19 @@
-# Full Janus image build: kernel, pkgs/*, rootfs assembly, and the
-# per-target disk images (image/disk, image/iso, image/kvm-proxmox,
-# image/kvm, image/vmware). Runs on the self-hosted runner - this is the heavy,
-# long-running, Docker-and-toolchain-dependent job, kept strictly separate
-# from ci.yml (GitHub-hosted, safe for forks).
+# Full Janus image build and tests: kernel, pkgs/*, rootfs, every disk
+# image, and the QEMU tests that boot them - on the self-hosted runners
+# (janus-runner01 on lgspve02, janus-runner02 on lgspve01), kept strictly
+# separate from ci.yml (GitHub-hosted, safe for forks).
 #
 # workflow_dispatch only, on purpose - never triggered by push/pull_request.
-# Phase 1 (kernel + shell-less init boots under QEMU) and Phase 2 (static
-# HAProxy, supervised by janusd, reachable over the network *inside*
-# the QEMU-booted kernel via virtio-net + DHCP) are real as of the steps
-# below - verified both locally and by running this exact workflow.
-# rootfs/assemble.sh and image/* (Phase 3) are still stubs - filled in
-# phase by phase (see docs/architecture.md's roadmap) rather than added
-# all at once.
+#
+# Five test jobs run in parallel, each on its own runner instance (a
+# machine runs several, each with its own JANUS_TEST_PORT_OFFSET in its
+# .env, so tests on one machine never share a port); each job builds what
+# its tests need itself - the Docker build cache makes that seconds - so
+# nothing passes between jobs. The tests boot their guests with KVM when
+# the runner has it (-accel kvm -accel tcg). publish needs every test job:
+# a failing test still blocks every image, the Docker Hub push and the
+# release, as when this was one job.
+
 name: Image Build
 
 on:
@@ -27,73 +29,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    # This project's own self-hosted runner (persistent Docker + build
-    # cache), matching swenske/gotochanger's release.yml convention. Never
-    # used for pull_request-triggered jobs - see ci.yml.
-    runs-on: [self-hosted, docker, haproxyos]
-    # contents: write is only for the optional "Publish a real GitHub
-    # Release" step at the very end (gated on release_version being
-    # set) - every other step here only ever reads the repo or writes
-    # to unrelated third-party services (Docker Hub), needing nothing
-    # beyond the default token permissions.
-    permissions:
-      contents: write
+  test-boot:
+    name: "Tests: Boot, dm-verity, SELinux, UEFI, ISO, PXE, arm64"
+    runs-on: [self-hosted, docker, janus]
     steps:
-      # Full history, not the default depth-1 clone: the Makefile's
-      # VERSION comes from `git describe --tags`, which can only find a
-      # release tag reachable through history - a shallow clone made every
-      # published build report a bare commit SHA instead of its release
-      # version, so the dashboard's "Latest release" check never matched.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      # A run cutting a release only creates its tag in the final step,
-      # after every binary is built - git describe alone would stamp them
-      # with the *previous* release plus a -N-g<sha> suffix. Pin VERSION
-      # (the Makefile's own `VERSION ?=`) to the release being cut instead.
-      - name: Pin VERSION to the release being cut
+      # A release's version and notes are checked again by publish, which
+      # uses them - here so a typo fails in seconds, not after the tests.
+      - name: Check the release version and its notes
         if: ${{ inputs.release_version != '' }}
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
-          if ! [[ "$RELEASE_VERSION" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$ ]]; then
-            echo "release_version must look like vYYYY.MM.DD or vYYYY.MM.DD-N, got: $RELEASE_VERSION" >&2
-            exit 1
-          fi
-          echo "VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
-          # Every release gets hand-written notes, structured by theme -
-          # checked here, before an hour of building, not at publish time.
-          notes=".github/release-notes/$RELEASE_VERSION.md"
-          if ! [ -s "$notes" ]; then
-            echo "::error::no release notes at $notes - write them (see .github/release-notes/README.md) and commit them before cutting $RELEASE_VERSION" >&2
-            exit 1
-          fi
+          [[ "$RELEASE_VERSION" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$ ]] \
+            || { echo "::error::release_version must look like vYYYY.MM.DD or vYYYY.MM.DD-N, got: $RELEASE_VERSION"; exit 1; }
+          [ -s ".github/release-notes/$RELEASE_VERSION.md" ] \
+            || { echo "::error::no release notes at .github/release-notes/$RELEASE_VERSION.md - write them (see .github/release-notes/README.md) and commit them first"; exit 1; }
 
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      - name: Install QEMU + rootfs build tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-system-x86 qemu-utils squashfs-tools cryptsetup-bin e2fsprogs gdisk \
-            ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware xorriso ipxe \
-            qemu-system-arm crossbuild-essential-arm64 qemu-efi-aarch64 unzip
-
-      # dashboard/frontend (Vite 8) needs Node >=20.19 - Debian's own
-      # default `nodejs` apt package version isn't reliably that recent,
-      # so NodeSource's own setup script is used instead of a plain
-      # `apt-get install nodejs npm`, the same reasoning every other
-      # tool-version pin in this project follows (verify what's actually
-      # available rather than assume a distro package is recent enough).
-      - name: Install Node.js (dashboard/frontend build)
-        run: |
-          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-          sudo apt-get install -y -qq nodejs
-          node --version
-          npm --version
+      - uses: ./.github/actions/runner-setup
 
       # Phase 1: builds bzImage (kernel/Dockerfile's fetch -> config ->
       # build -> export stages) + the init-only initramfs (rootfs/init,
@@ -141,6 +97,358 @@ jobs:
       # any sysctl write that logged an error at all, expected or not.
       - name: Kernel hardening sysctls take effect on a real boot (Phase 4)
         run: make qemu-hardening-test
+
+      # Phase 2 is now fully done (see docs/architecture.md): HAProxy
+      # integration, mTLS + role enforcement, Map*/ACLUpdate/Certificate*
+      # including crt-list binding, restart-on-crash, chroot/uid.
+
+      # Phase 3, first slice: builds a squashfs image of the real rootfs
+      # and its dm-verity hash tree (rootfs/assemble.sh), then proves
+      # verification actually works both ways - accepts the real image
+      # against its own root hash, and rejects a single-byte-tampered
+      # copy of it.
+      - name: Rootfs squashfs + dm-verity build test (Phase 3)
+        run: |
+          set -euo pipefail
+          # veritysetup (cryptsetup-bin) installs to /usr/sbin, which this
+          # runner's non-interactive shell doesn't have on PATH by default
+          # (confirmed on haproxyos-runner01: run 35817622995 failed here
+          # with "command not found" right after rootfs/assemble.sh's own
+          # veritysetup call succeeded, because that script now extends its
+          # own PATH but this step's direct calls below did not).
+          export PATH="$PATH:/usr/sbin:/sbin"
+          make rootfs-build
+          roothash="$(cat build/rootfs/rootfs.roothash)"
+          veritysetup verify build/rootfs/rootfs.squashfs build/rootfs/rootfs.verity "$roothash"
+
+          cp build/rootfs/rootfs.squashfs /tmp/tampered.squashfs
+          printf '\xFF' | dd of=/tmp/tampered.squashfs bs=1 seek=500000 count=1 conv=notrunc status=none
+          if veritysetup verify /tmp/tampered.squashfs build/rootfs/rootfs.verity "$roothash" 2>/tmp/tamper-check.log; then
+            echo "expected a tampered image to fail verification, it passed" >&2
+            exit 1
+          fi
+          grep -q "Verification failed" /tmp/tamper-check.log || { echo "expected a verification-failed message, got:" >&2; cat /tmp/tamper-check.log >&2; exit 1; }
+
+      # Phase 3, second slice: boots the kernel directly from that
+      # squashfs+dm-verity image via the "dm-mod.create=" cmdline
+      # parameter (CONFIG_DM_INIT) - no initramfs, no userspace verity
+      # setup. Also proves the *kernel itself* (not just `veritysetup
+      # verify` on the build host, above) refuses to mount a tampered
+      # copy of the image. See hack/qemu-verity-boot-test.sh.
+      - name: Rootfs dm-verity kernel boot test (Phase 3 cont'd)
+        run: make qemu-verity-boot-test
+
+      # Phase 4 cont'd: proves the real, hand-written SELinux policy
+      # (selinux/classes.conf + selinux/policy.conf, compiled by
+      # checkpolicy and loaded at boot by rootfs/init's
+      # loadSELinuxPolicy) mediates a full boot to a working HTTP 200
+      # with zero AVC denials - both permissively (the shipped default)
+      # and with a real enforcing=1 boot, the actual proof the rule set
+      # is complete rather than merely quiet. See
+      # hack/qemu-selinux-test.sh and selinux/policy.conf's own header
+      # for the real gaps (missing self:fd use, missing
+      # filesystem:associate, missing process transition perms, missing
+      # peer/packet network rules) five rounds of real boots found.
+      - name: SELinux policy mediates a real boot cleanly, permissive and enforcing (Phase 4 cont'd)
+        run: make qemu-selinux-test
+
+      # Phase 3 cont'd: proves rootfs/state-image.sh's persistent STATE
+      # partition survives a reboot, not just that it mounts - three
+      # boots against the SAME state.img: janusd's "first boot" log
+      # line appears once, not twice (PKI persists), and a config
+      # written directly onto the persisted haproxy/ subdirectory
+      # between boots (standing in for a real ApplyConfig RPC) is what
+      # HAProxy actually starts from afterward, not the squashfs's
+      # read-only bootstrap default. See hack/qemu-state-persist-test.sh
+      # and rootfs/init/main.go's mountState/mountEphemeral for what's
+      # ephemeral (/run, /tmp) vs persistent (/etc/janus/pki and
+      # /etc/haproxy, bind-mounted from the STATE partition).
+      - name: Persistent STATE partition survives a reboot (Phase 3 cont'd)
+        run: make qemu-state-persist-test
+
+      # Phase 3 cont'd: assembles a single, real GPT-partitioned disk
+      # image (image/disk/assemble.sh - BOOT-A-DATA/HASH,
+      # BOOT-B-DATA/HASH, STATE, all on one disk) and proves both A/B
+      # slots are independently bootable - the real, single-disk shape
+      # a deployed node would actually have, not just the separate-
+      # virtio-blk-drives test harness the steps above use (which keeps
+      # working, and still covers what it always covered). Both slots
+      # hold the same content for now - no LifecycleService.Upgrade yet
+      # to install something different into the inactive one. See
+      # hack/qemu-ab-boot-test.sh.
+      # A third boot, back on slot A, proves rootfs/init/main.go's
+      # resolveStateDevice (cmdline.go) actually finds STATE (partition
+      # 6 - image/disk/assemble.sh now has an ESP as partition 1 too,
+      # ahead of both A/B slots) on this real single-disk layout by
+      # parsing its own /proc/cmdline - janusd's "first boot" log
+      # line must not reappear, since boot 1 already bootstrapped a CA
+      # there. See hack/qemu-ab-boot-test.sh's own comment for why the
+      # disk isn't attached read-only for this test (dm-verity's own
+      # "ro" flag already protects the root mapping regardless).
+      - name: A/B disk image - both slots independently boot (Phase 3 cont'd)
+        run: make qemu-ab-boot-test
+
+      # Phase 3 cont'd: assembles a real Unified Kernel Image (`ukify` -
+      # kernel + exact cmdline, one PE/COFF executable) and a FAT32 ESP
+      # with it at \EFI\BOOT\BOOTX64.EFI, then boots it under *real*
+      # OVMF UEFI firmware - no QEMU -kernel/-append shortcut at all.
+      # Needed CONFIG_ACPI in the kernel for the first time (CONFIG_EFI
+      # depends on it) plus CONFIG_EFI/CONFIG_EFI_STUB - the vanilla
+      # kernel's own EFI stub only reads its cmdline from EFI
+      # LoadOptions (an interactive shell invocation), not a `.cmdline`
+      # PE section, so `ukify`'s stub (systemd-stub) is what actually
+      # reads the embedded cmdline and chain-loads into the kernel's own
+      # EFI stub via the handover protocol - confirmed by reading the
+      # kernel's own stub source, not assumed. Uses a standalone
+      # ESP + two separate squashfs/verity drives, not
+      # image/disk/assemble.sh's merged disk - see the next step for
+      # that. See hack/qemu-uefi-boot-test.sh.
+      - name: UKI boots under real UEFI firmware (Phase 3 cont'd)
+        run: make qemu-uefi-boot-test
+
+      # Bare-metal Machine tranche (docs/companion-site-builder-scope.md):
+      # image/iso/assemble.sh's hybrid ISO/GPT installer/maintenance-mode
+      # medium, booted as a raw disk under real OVMF (the realistic
+      # "dd'd to USB" case - see that script's own header for why a
+      # real optical/El Torito boot isn't what's tested here). See
+      # hack/qemu-iso-boot-test.sh.
+      - name: Hybrid installer ISO boots under real UEFI firmware (Bare-metal tranche)
+        run: make qemu-iso-boot-test
+
+      # Bare-metal Machine tranche cont'd: proves the ISO's own embedded
+      # release bundle (image/iso/assemble.sh's optional
+      # [release-bundle-dir] arg) is real - a node booted from it can
+      # call LifecycleService.Install using only /etc/janus/release,
+      # no bundle reachable from the host at all. See
+      # hack/qemu-iso-install-test.sh.
+      - name: Installer ISO's embedded release bundle installs a real disk (Bare-metal tranche)
+        run: make qemu-iso-install-test
+
+      # Bare-metal Machine tranche cont'd: proves only the network-
+      # delivery half of PXE/iPXE boot (a real iPXE DHCPs and fetches
+      # the real Janus UKI via TFTP at the correct byte size) - see
+      # image/pxe/README.md for the full story, including why a full
+      # boot isn't asserted here.
+      - name: iPXE DHCPs and fetches the real Janus UKI via TFTP (Bare-metal tranche)
+        run: make qemu-pxe-fetch-test
+
+      # Single Board Computer tranche's own Phase-1-equivalent boot-
+      # proof (see docs/companion-site-builder-scope.md): a minimal
+      # aarch64/BCM2711 kernel (kernel/configs/janus_rpi4_defconfig)
+      # boots rootfs/init (GOARCH=arm64) as PID 1 under QEMU's raspi4b
+      # machine - console-only verification (no PCIe/Ethernet emulation
+      # in raspi4b at all), the same bar Talos itself uses for real
+      # Raspberry Pi hardware. Real hardware (SD/MMC, USB, Ethernet,
+      # UEFI firmware) is not yet covered.
+      - name: Raspberry Pi 4 (aarch64/BCM2711) console boot (Single Board Computer tranche)
+        run: make qemu-raspi4-boot-test
+
+      # Single Board Computer tranche's own Phase-2-equivalent: the
+      # same init+janusd+haproxy stack qemu-network-test proves on
+      # amd64, now cross-built for arm64 (static janusd via GOARCH=arm64,
+      # static haproxy via pkgs/haproxy/Dockerfile under
+      # --platform=linux/arm64 - see the binfmt registration step
+      # above) and boot-proved under QEMU raspi4b - console-verified
+      # only, not the real HTTP check qemu-network-test does, since
+      # raspi4b emulates neither PCIe nor BCM GENET Ethernet at all (see
+      # hack/qemu-raspi4-daemon-test.sh's own header for the full
+      # reasoning). Confirms janusd's own gRPC listener actually binds
+      # (PKI bootstrap succeeds) and haproxy actually starts under its
+      # supervision - CONFIG_NET/INET/UNIX/PACKET all needed adding to
+      # kernel/configs/janus_rpi4_defconfig for this, entirely absent
+      # from the Phase-1-equivalent boot-proof above (which never
+      # touched a socket at all).
+      - name: Raspberry Pi 4 (aarch64/BCM2711) janusd+haproxy boot (Single Board Computer tranche)
+        run: make qemu-raspi4-daemon-test
+
+      # Single Board Computer tranche Phase-3-equivalent: the same
+      # aarch64 kernel/initramfs, booted instead under QEMU's generic
+      # "virt" machine (real virtio-net-pci, no Pi-specific hardware at
+      # all) - closes the real-HTTP-proof gap raspi4b can never close
+      # (no PCIe/Ethernet emulation there at all). See
+      # hack/qemu-arm64-network-test.sh's own header.
+      - name: arm64 janusd+haproxy real HTTP over virtio-net (Single Board Computer tranche)
+        run: make qemu-arm64-network-test
+
+      # Single Board Computer tranche, UEFI/UKI: the full squashfs+dm-
+      # verity+UEFI/UKI chain, proven on aarch64 too - a real arm64
+      # Unified Kernel Image booted under real AAVMF/edk2-aarch64
+      # firmware on QEMU's generic "virt" machine, no -kernel/-append
+      # shortcut at all. See hack/qemu-arm64-uefi-boot-test.sh's own
+      # header for the three arch-specific gaps this closed (no aarch64
+      # sd-stub on an amd64 build host, BOOTAA64.EFI vs. BOOTX64.EFI,
+      # ttyAMA0 vs. ttyS0 + no SELinux support in this kernel config
+      # yet).
+      - name: arm64 UEFI/UKI boot under real AAVMF firmware (Single Board Computer tranche)
+        run: make qemu-arm64-uefi-boot-test
+
+  test-lifecycle:
+    name: "Tests: A/B slots, rollback, upgrades, install"
+    runs-on: [self-hosted, docker, janus]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/runner-setup
+
+      # Phase 3 cont'd: the ESP now lives on image/disk/assemble.sh's
+      # single GPT disk too (partition 1, ahead of both A/B slots) - the
+      # real, complete, single-disk shape a deployed node would have.
+      # Proves the whole thing end to end under real OVMF firmware (one
+      # virtio-blk drive, no -kernel/-append), AND that
+      # image/disk/activate-slot.sh's in-place ESP swap - rewriting only
+      # the ESP to point at the other slot, leaving BOOT-A/BOOT-B/STATE
+      # untouched - actually works: boot slot A (fresh CA onto STATE),
+      # switch to slot B in place, boot again, confirm slot B is live
+      # *and* STATE (the CA) survived the switch. This is the
+      # build/install-time half of what the next step proves works at
+      # runtime too. See hack/qemu-uefi-ab-boot-test.sh.
+      - name: Single-disk UEFI A/B - slot switch survives with STATE intact (Phase 3 cont'd)
+        run: make qemu-uefi-ab-boot-test
+
+      # Phase 3 cont'd: LifecycleService.Rollback (internal/api/
+      # lifecycle.go) is real - the gRPC front end for the same ESP
+      # swap the step above drives directly, except this runs it on an
+      # already-booted node with a real mTLS call, and the node - which
+      # has no package manager, so it can never shell out to `ukify` the
+      # way image/disk/activate-slot.sh does - just mounts the ESP
+      # (CONFIG_VFAT_FS) and copies the other slot's pre-staged UKI
+      # (\JANUS\UKI-A.EFI / UKI-B.EFI, staged there by
+      # activate-slot.sh precisely so this doesn't need to build
+      # anything at runtime) over \EFI\BOOT\BOOTX64.EFI, then reboots
+      # for real. This test boots without -no-reboot, unlike every
+      # other boot test here, specifically so the guest can actually
+      # reboot itself inside the same QEMU process - and checks the
+      # boot marker appears exactly twice, the cmdline on the second
+      # boot references slot B's partitions, and PKI's "first boot" line
+      # appears exactly once (STATE survived a real, API-driven reboot).
+      # mTLS credentials for the test's own janusctl call are
+      # extracted straight from disk.img's STATE partition via debugfs
+      # (not the console - janusd does print all three, CA cert
+      # included, once on first boot, but a script can't watch a live
+      # console the way a real operator would - see
+      # cmd/janusd/main.go). See hack/qemu-lifecycle-rollback-test.sh.
+      - name: LifecycleService.Rollback reboots into the other slot for real (Phase 3 cont'd)
+        run: make qemu-lifecycle-rollback-test
+
+      # Phase 3 cont'd: LifecycleService.Upgrade (internal/api/
+      # lifecycle.go) is real - installs a *genuinely new* rootfs onto
+      # the inactive slot from a local "release bundle" directory
+      # (image/release/assemble.sh: rootfs.squashfs/rootfs.verity/
+      # uki-a.efi/uki-b.efi - the UKI has to be pre-built, same reason
+      # Rollback's ESP swap only ever copies a pre-staged UKI, never
+      # builds one: no package manager on the node, so `ukify` can
+      # never run there). The test builds a second rootfs with
+      # different content (different squashfs, different root hash),
+      # injects its release bundle into disk.img's STATE partition via
+      # debugfs *before* the first boot (janusctl and janusd
+      # don't share a filesystem across this QEMU host/guest boundary,
+      # unlike CLAUDE.md's normal "share a filesystem" case - and
+      # writing to STATE from the host while the guest also has it
+      # mounted read-write would corrupt it), then drives a real gRPC
+      # Upgrade call that writes the new squashfs/verity to slot B,
+      # switches the ESP, and reboots. A real bug was found writing
+      # this test - not in Upgrade itself, but in the test's own first
+      # assumption that a different bootstrap HAProxy config (bound to
+      # a different port) would prove v2 was running: Janus's STATE
+      # partition is one partition shared by both A/B slots, and
+      # rootfs/init/main.go's seedPersistentHaproxyCfg deliberately
+      # never overwrites an already-persisted config, so slot B keeps
+      # serving whatever slot A already persisted there - correct,
+      # intended behavior (an upgrade must never reset a node's
+      # live-applied config). The test now proves genuinely new content
+      # took effect the same way hack/qemu-uefi-ab-boot-test.sh proves a
+      # slot switch did: by reading the kernel's own "Kernel command
+      # line:" log line back and checking it references the new slot's
+      # partitions and root hash, not by which HTTP port answers. A
+      # bonus check calls Rollback afterward and confirms slot A's own
+      # pre-existing staged UKI is still intact. See
+      # hack/qemu-lifecycle-upgrade-test.sh.
+      - name: LifecycleService.Upgrade installs a genuinely new rootfs for real (Phase 3 cont'd)
+        run: make qemu-lifecycle-upgrade-test
+
+      # Node-initiated-fetch follow-up: the same proof, but
+      # Source.Reference is a real http:// URL instead of a local path -
+      # proves Upgrade's new fetchBundleFile URL branch works over a
+      # real network fetch (a host-side python3 http.server), one half
+      # of the real remote-update design (the node fetches directly;
+      # the other half, a controller-relayed push for nodes that can't
+      # dial out, is right below). See
+      # hack/qemu-lifecycle-upgrade-url-test.sh.
+      - name: LifecycleService.Upgrade fetches a release bundle over real HTTP
+        run: make qemu-lifecycle-upgrade-url-test
+
+      # Same, over https:// against the newest real GitHub Release,
+      # verified against the node's own bundled CA trust store - the
+      # plain-http test above never exercised TLS verification at all,
+      # which is how a hidden CA bundle shipped in v2026.09.29. See
+      # hack/qemu-lifecycle-upgrade-https-test.sh.
+      - name: LifecycleService.Upgrade fetches a real GitHub Release over HTTPS
+        run: make qemu-lifecycle-upgrade-https-test
+
+      # Controller-relay follow-up: the other half - a real
+      # LifecycleService.UploadReleaseFile call streams the release
+      # bundle to a live node over the same mTLS connection every other
+      # RPC already uses, then a real Upgrade call installs it - proves
+      # a node with zero outbound connectivity can still be updated.
+      # See hack/qemu-lifecycle-upgrade-relay-test.sh.
+      - name: LifecycleService.UploadReleaseFile relays a release bundle to a live node
+        run: make qemu-lifecycle-upgrade-relay-test
+
+      # Phase 3 cont'd: wait_for_health is real, confirmed against
+      # HAProxy's own stats socket, not just janusd process
+      # survival. A pending "boot pending confirmation" marker
+      # (internal/bootcommit), written to STATE right before the ESP
+      # switch, is what the *next* boot's cmd/janusd checks at
+      # startup: in the background, it polls HAProxy's own stats socket
+      # (internal/haproxy.Manager.ShowInfo) until it succeeds several
+      # times in a row, then clears the marker itself
+      # (internal/bootcommit.Confirm) - real, application-level health.
+      # If that never happens within health_timeout_seconds, janusd
+      # reverts and reboots itself directly, no RPC involved. A first
+      # version of this piggybacked on Supervisor's own proactive
+      # stability tracking (an OnStable hook, "the janusd *process*
+      # stayed up a while") - removed once this real check landed, since
+      # the two would have raced (the weaker, earlier signal could clear
+      # the marker before the real health check ever got a verdict).
+      # rootfs/init's Supervisor.GiveUpAfter/OnGiveUp - the *one*
+      # documented exception to that package's otherwise-unconditional
+      # "restart forever" policy, active only when a marker is pending -
+      # stays as a *complementary* backstop for the one thing
+      # janusd's own check structurally can't catch: janusd
+      # crashing too fast, or too often, to ever run that check at all.
+      # Both revert paths share one internal/bootrevert.To helper, built
+      # on internal/espswitch (factored out of Rollback's own inline
+      # ESP-swap logic once rootfs/init's local revert became a second
+      # real consumer of the identical mechanism).
+      # hack/qemu-lifecycle-upgrade-health-test.sh proves all three
+      # outcomes against the same running node: a "good" upgrade (the
+      # existing v1 rootfs, repackaged) must show janusd's own
+      # "confirmed healthy" and never revert; a "broken" one (a fresh
+      # rootfs with the host's own dynamically-linked /bin/false
+      # standing in for janusd itself - no dynamic linker/libc in
+      # this rootfs at all, so every restart attempt fails at spawn()
+      # itself) must reboot into it, then autonomously give up via
+      # Supervisor's own backstop and revert; and a third
+      # "haproxy-broken" one (real janusd, but /bin/false standing
+      # in for *haproxy* this time) must show janusd itself starting
+      # fine and beginning its own confirmation attempt, then
+      # autonomously reverting via its own real health check - proving
+      # the two mechanisms are genuinely independent, not just one
+      # dressed up as two. All three reverts land back on whichever slot
+      # was actually active when that particular Upgrade was called -
+      # not a hardcoded fallback.
+      - name: LifecycleService.Upgrade's wait_for_health confirms or reverts automatically (Phase 3 cont'd)
+        run: make qemu-lifecycle-upgrade-health-test
+
+  test-api:
+    name: "Tests: API, HAProxy, Controller, self-registration"
+    runs-on: [self-hosted, docker, janus]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/runner-setup
 
       # Host-level check of the gRPC API surface itself (ApplyConfig/
       # ShowInfo/...) - faster than going through QEMU for this, and
@@ -333,230 +641,6 @@ jobs:
           ctl haproxy cert-delete -crt-list /tmp/rt-certs/crt-list.txt /tmp/rt-certs/uploaded.pem
           ctl haproxy cert-list | grep -q "^/tmp/rt-certs/uploaded.pem" && { echo "expected the cert to be gone after delete" >&2; exit 1; } || true
 
-      # Phase 2 is now fully done (see docs/architecture.md): HAProxy
-      # integration, mTLS + role enforcement, Map*/ACLUpdate/Certificate*
-      # including crt-list binding, restart-on-crash, chroot/uid.
-
-      # Phase 3, first slice: builds a squashfs image of the real rootfs
-      # and its dm-verity hash tree (rootfs/assemble.sh), then proves
-      # verification actually works both ways - accepts the real image
-      # against its own root hash, and rejects a single-byte-tampered
-      # copy of it.
-      - name: Rootfs squashfs + dm-verity build test (Phase 3)
-        run: |
-          set -euo pipefail
-          # veritysetup (cryptsetup-bin) installs to /usr/sbin, which this
-          # runner's non-interactive shell doesn't have on PATH by default
-          # (confirmed on haproxyos-runner01: run 35817622995 failed here
-          # with "command not found" right after rootfs/assemble.sh's own
-          # veritysetup call succeeded, because that script now extends its
-          # own PATH but this step's direct calls below did not).
-          export PATH="$PATH:/usr/sbin:/sbin"
-          make rootfs-build
-          roothash="$(cat build/rootfs/rootfs.roothash)"
-          veritysetup verify build/rootfs/rootfs.squashfs build/rootfs/rootfs.verity "$roothash"
-
-          cp build/rootfs/rootfs.squashfs /tmp/tampered.squashfs
-          printf '\xFF' | dd of=/tmp/tampered.squashfs bs=1 seek=500000 count=1 conv=notrunc status=none
-          if veritysetup verify /tmp/tampered.squashfs build/rootfs/rootfs.verity "$roothash" 2>/tmp/tamper-check.log; then
-            echo "expected a tampered image to fail verification, it passed" >&2
-            exit 1
-          fi
-          grep -q "Verification failed" /tmp/tamper-check.log || { echo "expected a verification-failed message, got:" >&2; cat /tmp/tamper-check.log >&2; exit 1; }
-
-      # Phase 3, second slice: boots the kernel directly from that
-      # squashfs+dm-verity image via the "dm-mod.create=" cmdline
-      # parameter (CONFIG_DM_INIT) - no initramfs, no userspace verity
-      # setup. Also proves the *kernel itself* (not just `veritysetup
-      # verify` on the build host, above) refuses to mount a tampered
-      # copy of the image. See hack/qemu-verity-boot-test.sh.
-      - name: Rootfs dm-verity kernel boot test (Phase 3 cont'd)
-        run: make qemu-verity-boot-test
-
-      # Phase 4 cont'd: proves the real, hand-written SELinux policy
-      # (selinux/classes.conf + selinux/policy.conf, compiled by
-      # checkpolicy and loaded at boot by rootfs/init's
-      # loadSELinuxPolicy) mediates a full boot to a working HTTP 200
-      # with zero AVC denials - both permissively (the shipped default)
-      # and with a real enforcing=1 boot, the actual proof the rule set
-      # is complete rather than merely quiet. See
-      # hack/qemu-selinux-test.sh and selinux/policy.conf's own header
-      # for the real gaps (missing self:fd use, missing
-      # filesystem:associate, missing process transition perms, missing
-      # peer/packet network rules) five rounds of real boots found.
-      - name: SELinux policy mediates a real boot cleanly, permissive and enforcing (Phase 4 cont'd)
-        run: make qemu-selinux-test
-
-      # Phase 3 cont'd: proves rootfs/state-image.sh's persistent STATE
-      # partition survives a reboot, not just that it mounts - three
-      # boots against the SAME state.img: janusd's "first boot" log
-      # line appears once, not twice (PKI persists), and a config
-      # written directly onto the persisted haproxy/ subdirectory
-      # between boots (standing in for a real ApplyConfig RPC) is what
-      # HAProxy actually starts from afterward, not the squashfs's
-      # read-only bootstrap default. See hack/qemu-state-persist-test.sh
-      # and rootfs/init/main.go's mountState/mountEphemeral for what's
-      # ephemeral (/run, /tmp) vs persistent (/etc/janus/pki and
-      # /etc/haproxy, bind-mounted from the STATE partition).
-      - name: Persistent STATE partition survives a reboot (Phase 3 cont'd)
-        run: make qemu-state-persist-test
-
-      # Phase 3 cont'd: assembles a single, real GPT-partitioned disk
-      # image (image/disk/assemble.sh - BOOT-A-DATA/HASH,
-      # BOOT-B-DATA/HASH, STATE, all on one disk) and proves both A/B
-      # slots are independently bootable - the real, single-disk shape
-      # a deployed node would actually have, not just the separate-
-      # virtio-blk-drives test harness the steps above use (which keeps
-      # working, and still covers what it always covered). Both slots
-      # hold the same content for now - no LifecycleService.Upgrade yet
-      # to install something different into the inactive one. See
-      # hack/qemu-ab-boot-test.sh.
-      # A third boot, back on slot A, proves rootfs/init/main.go's
-      # resolveStateDevice (cmdline.go) actually finds STATE (partition
-      # 6 - image/disk/assemble.sh now has an ESP as partition 1 too,
-      # ahead of both A/B slots) on this real single-disk layout by
-      # parsing its own /proc/cmdline - janusd's "first boot" log
-      # line must not reappear, since boot 1 already bootstrapped a CA
-      # there. See hack/qemu-ab-boot-test.sh's own comment for why the
-      # disk isn't attached read-only for this test (dm-verity's own
-      # "ro" flag already protects the root mapping regardless).
-      - name: A/B disk image - both slots independently boot (Phase 3 cont'd)
-        run: make qemu-ab-boot-test
-
-      # Phase 3 cont'd: assembles a real Unified Kernel Image (`ukify` -
-      # kernel + exact cmdline, one PE/COFF executable) and a FAT32 ESP
-      # with it at \EFI\BOOT\BOOTX64.EFI, then boots it under *real*
-      # OVMF UEFI firmware - no QEMU -kernel/-append shortcut at all.
-      # Needed CONFIG_ACPI in the kernel for the first time (CONFIG_EFI
-      # depends on it) plus CONFIG_EFI/CONFIG_EFI_STUB - the vanilla
-      # kernel's own EFI stub only reads its cmdline from EFI
-      # LoadOptions (an interactive shell invocation), not a `.cmdline`
-      # PE section, so `ukify`'s stub (systemd-stub) is what actually
-      # reads the embedded cmdline and chain-loads into the kernel's own
-      # EFI stub via the handover protocol - confirmed by reading the
-      # kernel's own stub source, not assumed. Uses a standalone
-      # ESP + two separate squashfs/verity drives, not
-      # image/disk/assemble.sh's merged disk - see the next step for
-      # that. See hack/qemu-uefi-boot-test.sh.
-      - name: UKI boots under real UEFI firmware (Phase 3 cont'd)
-        run: make qemu-uefi-boot-test
-
-      # Bare-metal Machine tranche (docs/companion-site-builder-scope.md):
-      # image/iso/assemble.sh's hybrid ISO/GPT installer/maintenance-mode
-      # medium, booted as a raw disk under real OVMF (the realistic
-      # "dd'd to USB" case - see that script's own header for why a
-      # real optical/El Torito boot isn't what's tested here). See
-      # hack/qemu-iso-boot-test.sh.
-      - name: Hybrid installer ISO boots under real UEFI firmware (Bare-metal tranche)
-        run: make qemu-iso-boot-test
-
-      # Bare-metal Machine tranche cont'd: proves the ISO's own embedded
-      # release bundle (image/iso/assemble.sh's optional
-      # [release-bundle-dir] arg) is real - a node booted from it can
-      # call LifecycleService.Install using only /etc/janus/release,
-      # no bundle reachable from the host at all. See
-      # hack/qemu-iso-install-test.sh.
-      - name: Installer ISO's embedded release bundle installs a real disk (Bare-metal tranche)
-        run: make qemu-iso-install-test
-
-      # Bare-metal Machine tranche cont'd: proves only the network-
-      # delivery half of PXE/iPXE boot (a real iPXE DHCPs and fetches
-      # the real Janus UKI via TFTP at the correct byte size) - see
-      # image/pxe/README.md for the full story, including why a full
-      # boot isn't asserted here.
-      - name: iPXE DHCPs and fetches the real Janus UKI via TFTP (Bare-metal tranche)
-        run: make qemu-pxe-fetch-test
-
-      # Single Board Computer tranche's own Phase-1-equivalent boot-
-      # proof (see docs/companion-site-builder-scope.md): a minimal
-      # aarch64/BCM2711 kernel (kernel/configs/janus_rpi4_defconfig)
-      # boots rootfs/init (GOARCH=arm64) as PID 1 under QEMU's raspi4b
-      # machine - console-only verification (no PCIe/Ethernet emulation
-      # in raspi4b at all), the same bar Talos itself uses for real
-      # Raspberry Pi hardware. Real hardware (SD/MMC, USB, Ethernet,
-      # UEFI firmware) is not yet covered.
-      - name: Raspberry Pi 4 (aarch64/BCM2711) console boot (Single Board Computer tranche)
-        run: make qemu-raspi4-boot-test
-
-      # Single Board Computer tranche's own Phase-2-equivalent: the
-      # same init+janusd+haproxy stack qemu-network-test proves on
-      # amd64, now cross-built for arm64 (static janusd via GOARCH=arm64,
-      # static haproxy via pkgs/haproxy/Dockerfile under
-      # --platform=linux/arm64 - see the binfmt registration step
-      # above) and boot-proved under QEMU raspi4b - console-verified
-      # only, not the real HTTP check qemu-network-test does, since
-      # raspi4b emulates neither PCIe nor BCM GENET Ethernet at all (see
-      # hack/qemu-raspi4-daemon-test.sh's own header for the full
-      # reasoning). Confirms janusd's own gRPC listener actually binds
-      # (PKI bootstrap succeeds) and haproxy actually starts under its
-      # supervision - CONFIG_NET/INET/UNIX/PACKET all needed adding to
-      # kernel/configs/janus_rpi4_defconfig for this, entirely absent
-      # from the Phase-1-equivalent boot-proof above (which never
-      # touched a socket at all).
-      - name: Raspberry Pi 4 (aarch64/BCM2711) janusd+haproxy boot (Single Board Computer tranche)
-        run: make qemu-raspi4-daemon-test
-
-      # Single Board Computer tranche Phase-3-equivalent: the same
-      # aarch64 kernel/initramfs, booted instead under QEMU's generic
-      # "virt" machine (real virtio-net-pci, no Pi-specific hardware at
-      # all) - closes the real-HTTP-proof gap raspi4b can never close
-      # (no PCIe/Ethernet emulation there at all). See
-      # hack/qemu-arm64-network-test.sh's own header.
-      - name: arm64 janusd+haproxy real HTTP over virtio-net (Single Board Computer tranche)
-        run: make qemu-arm64-network-test
-
-      # Single Board Computer tranche, UEFI/UKI: the full squashfs+dm-
-      # verity+UEFI/UKI chain, proven on aarch64 too - a real arm64
-      # Unified Kernel Image booted under real AAVMF/edk2-aarch64
-      # firmware on QEMU's generic "virt" machine, no -kernel/-append
-      # shortcut at all. See hack/qemu-arm64-uefi-boot-test.sh's own
-      # header for the three arch-specific gaps this closed (no aarch64
-      # sd-stub on an amd64 build host, BOOTAA64.EFI vs. BOOTX64.EFI,
-      # ttyAMA0 vs. ttyS0 + no SELinux support in this kernel config
-      # yet).
-      - name: arm64 UEFI/UKI boot under real AAVMF firmware (Single Board Computer tranche)
-        run: make qemu-arm64-uefi-boot-test
-
-      # Phase 3 cont'd: the ESP now lives on image/disk/assemble.sh's
-      # single GPT disk too (partition 1, ahead of both A/B slots) - the
-      # real, complete, single-disk shape a deployed node would have.
-      # Proves the whole thing end to end under real OVMF firmware (one
-      # virtio-blk drive, no -kernel/-append), AND that
-      # image/disk/activate-slot.sh's in-place ESP swap - rewriting only
-      # the ESP to point at the other slot, leaving BOOT-A/BOOT-B/STATE
-      # untouched - actually works: boot slot A (fresh CA onto STATE),
-      # switch to slot B in place, boot again, confirm slot B is live
-      # *and* STATE (the CA) survived the switch. This is the
-      # build/install-time half of what the next step proves works at
-      # runtime too. See hack/qemu-uefi-ab-boot-test.sh.
-      - name: Single-disk UEFI A/B - slot switch survives with STATE intact (Phase 3 cont'd)
-        run: make qemu-uefi-ab-boot-test
-
-      # Phase 3 cont'd: LifecycleService.Rollback (internal/api/
-      # lifecycle.go) is real - the gRPC front end for the same ESP
-      # swap the step above drives directly, except this runs it on an
-      # already-booted node with a real mTLS call, and the node - which
-      # has no package manager, so it can never shell out to `ukify` the
-      # way image/disk/activate-slot.sh does - just mounts the ESP
-      # (CONFIG_VFAT_FS) and copies the other slot's pre-staged UKI
-      # (\JANUS\UKI-A.EFI / UKI-B.EFI, staged there by
-      # activate-slot.sh precisely so this doesn't need to build
-      # anything at runtime) over \EFI\BOOT\BOOTX64.EFI, then reboots
-      # for real. This test boots without -no-reboot, unlike every
-      # other boot test here, specifically so the guest can actually
-      # reboot itself inside the same QEMU process - and checks the
-      # boot marker appears exactly twice, the cmdline on the second
-      # boot references slot B's partitions, and PKI's "first boot" line
-      # appears exactly once (STATE survived a real, API-driven reboot).
-      # mTLS credentials for the test's own janusctl call are
-      # extracted straight from disk.img's STATE partition via debugfs
-      # (not the console - janusd does print all three, CA cert
-      # included, once on first boot, but a script can't watch a live
-      # console the way a real operator would - see
-      # cmd/janusd/main.go). See hack/qemu-lifecycle-rollback-test.sh.
-      - name: LifecycleService.Rollback reboots into the other slot for real (Phase 3 cont'd)
-        run: make qemu-lifecycle-rollback-test
-
       # Dashboard prep, tranche 1: proves Memory/CPUInfo/LoadAvg/DiskStats
       # and Version's new active_slot/kernel_version/go_version fields
       # return real, sane values from a real boot (not a mock) - the
@@ -579,85 +663,6 @@ jobs:
       - name: Dashboard backend add/list/relay/mTLS-gate/delete/restart against a real node (dashboard prep)
         run: make qemu-dashboard-test
 
-      # Phase 3 cont'd: Secure Boot signing/enforcement is real, proven
-      # both directions - a UKI signed with a throwaway test key
-      # (image/secureboot/gen-test-key.sh, generated fresh every run,
-      # never committed - a real project release key needs real key
-      # management, out of scope here) boots under genuinely
-      # Secure-Boot-enabled UEFI firmware with that key enrolled
-      # (image/secureboot/enroll-vars.sh), and an unsigned UKI on the
-      # exact same enrolled vars is refused by firmware itself ("Access
-      # Denied"), never even reaching the kernel. `enroll-vars.sh`'s own
-      # comment explains a real bug caught along the way: `virt-fw-vars
-      # --enroll-cert` (the obvious "just enroll my cert" shortcut)
-      # only populates PK/KEK, never db - the one list that actually
-      # authorizes *boot images* - so a correctly signed UKI still got
-      # "Access Denied" until switched to explicit --set-pk/--add-kek/
-      # --add-db (same cert, all three). This test also needs the
-      # secboot-capable OVMF binary (OVMF_CODE_4M.secboot.fd) plus
-      # `-machine q35,smm=on` specifically - the plain i440fx machine
-      # type every other boot test here uses produces zero console
-      # output at all with that firmware binary (found by an identical
-      # command, only the machine type changed, going from a total
-      # hang to a normal boot). See hack/qemu-secureboot-test.sh.
-      - name: Secure Boot enforcement, both directions (Phase 3 cont'd)
-        run: make qemu-secureboot-test
-
-      # Phase 3 cont'd: LifecycleService.Upgrade (internal/api/
-      # lifecycle.go) is real - installs a *genuinely new* rootfs onto
-      # the inactive slot from a local "release bundle" directory
-      # (image/release/assemble.sh: rootfs.squashfs/rootfs.verity/
-      # uki-a.efi/uki-b.efi - the UKI has to be pre-built, same reason
-      # Rollback's ESP swap only ever copies a pre-staged UKI, never
-      # builds one: no package manager on the node, so `ukify` can
-      # never run there). The test builds a second rootfs with
-      # different content (different squashfs, different root hash),
-      # injects its release bundle into disk.img's STATE partition via
-      # debugfs *before* the first boot (janusctl and janusd
-      # don't share a filesystem across this QEMU host/guest boundary,
-      # unlike CLAUDE.md's normal "share a filesystem" case - and
-      # writing to STATE from the host while the guest also has it
-      # mounted read-write would corrupt it), then drives a real gRPC
-      # Upgrade call that writes the new squashfs/verity to slot B,
-      # switches the ESP, and reboots. A real bug was found writing
-      # this test - not in Upgrade itself, but in the test's own first
-      # assumption that a different bootstrap HAProxy config (bound to
-      # a different port) would prove v2 was running: Janus's STATE
-      # partition is one partition shared by both A/B slots, and
-      # rootfs/init/main.go's seedPersistentHaproxyCfg deliberately
-      # never overwrites an already-persisted config, so slot B keeps
-      # serving whatever slot A already persisted there - correct,
-      # intended behavior (an upgrade must never reset a node's
-      # live-applied config). The test now proves genuinely new content
-      # took effect the same way hack/qemu-uefi-ab-boot-test.sh proves a
-      # slot switch did: by reading the kernel's own "Kernel command
-      # line:" log line back and checking it references the new slot's
-      # partitions and root hash, not by which HTTP port answers. A
-      # bonus check calls Rollback afterward and confirms slot A's own
-      # pre-existing staged UKI is still intact. See
-      # hack/qemu-lifecycle-upgrade-test.sh.
-      - name: LifecycleService.Upgrade installs a genuinely new rootfs for real (Phase 3 cont'd)
-        run: make qemu-lifecycle-upgrade-test
-
-      # Node-initiated-fetch follow-up: the same proof, but
-      # Source.Reference is a real http:// URL instead of a local path -
-      # proves Upgrade's new fetchBundleFile URL branch works over a
-      # real network fetch (a host-side python3 http.server), one half
-      # of the real remote-update design (the node fetches directly;
-      # the other half, a controller-relayed push for nodes that can't
-      # dial out, is right below). See
-      # hack/qemu-lifecycle-upgrade-url-test.sh.
-      - name: LifecycleService.Upgrade fetches a release bundle over real HTTP
-        run: make qemu-lifecycle-upgrade-url-test
-
-      # Same, over https:// against the newest real GitHub Release,
-      # verified against the node's own bundled CA trust store - the
-      # plain-http test above never exercised TLS verification at all,
-      # which is how a hidden CA bundle shipped in v2026.09.29. See
-      # hack/qemu-lifecycle-upgrade-https-test.sh.
-      - name: LifecycleService.Upgrade fetches a real GitHub Release over HTTPS
-        run: make qemu-lifecycle-upgrade-https-test
-
       # SystemService.PacketCapture on a real enforcing node, plus the
       # janusd console banner. See hack/qemu-packet-capture-test.sh.
       - name: SystemService.PacketCapture captures real traffic
@@ -675,121 +680,18 @@ jobs:
       - name: SystemService observability, files, services and machine control
         run: make qemu-system-api-test
 
-      # The node's network configuration on a real enforcing node: an
-      # offline-seeded config (MAC rename, static address, 802.1Q VLAN),
-      # NTP over that VLAN setting a 2020 clock, trials confirmed and
-      # reverted, persistence across a reboot. See
-      # hack/qemu-network-config-test.sh.
-      - name: Network configuration, VLAN, NTP and trial/revert
-        run: make qemu-network-config-test
-
-      # Optional extensions (node_exporter, the QEMU guest agent) built
-      # into an image from a schematic: the schematic in the signed
-      # cmdline, the services under janusd and SELinux enforcing, Upgrade
-      # keeping the schematic, a clean power-off from the hypervisor. See
-      # hack/qemu-extensions-test.sh. It leaves build/rootfs built with
-      # extensions, so the next step puts the default image back.
-      - name: Optional extensions and image schematics
-        run: make qemu-extensions-test
-
-      # The firewall (nftables extension) on a real enforcing node: a
-      # ruleset checked, applied on trial and confirmed over a new
-      # connection, filtering for real; a lockout reverted by itself; sets
-      # edited live and kept across a reboot. See hack/qemu-firewall-test.sh.
-      - name: Firewall - nftables ruleset on trial, live sets
-        run: make qemu-firewall-test
-
-      # VRRP (keepalived extension) with two real enforcing nodes on a
-      # shared LAN: master/backup, failover when HAProxy stops answering and
-      # when a node goes away, failback. See hack/qemu-vrrp-test.sh.
-      - name: VRRP - keepalived failover between two nodes
-        run: make qemu-vrrp-test
-
-      # BGP (bird extension) between two real enforcing nodes: sessions
-      # with TCP MD5 and BFD next to OSPF, routes into the kernel, the
-      # anycast route withdrawn while HAProxy doesn't answer. See
-      # hack/qemu-bgp-test.sh.
-      - name: BGP - bird sessions and the HAProxy gate between two nodes
-        run: make qemu-bgp-test
-
-      # Bare metal: the images on NVMe/SATA/USB/virtio-scsi disks and
-      # e1000e/igb/vmxnet3/e1000 NICs with 4 CPUs, a cloud-init CD-ROM, and
-      # the ISO on a USB stick installing a disk that registers with a
-      # Controller - enforcing. See hack/qemu-baremetal-test.sh.
-      - name: Bare metal - real disks, NICs, CPUs and the ISO's install
-        run: make qemu-baremetal-test
-
-      - name: Rebuild the default image after the extensions test
-        run: make disk-image
-
-      # What custom schematics are built from (image/schematic/build.sh,
-      # .github/workflows/schematic-build.yml): per architecture, the
-      # kernel, the base rootfs tree and the extension packs, plus the
-      # catalog - published with a release, kept as an artifact otherwise
-      # (schematic-build's source_run input builds from it, for testing).
-      - name: Build inputs for custom schematics
-        run: make schematic-inputs
-      - name: Upload the schematic build inputs
-        uses: actions/upload-artifact@v7
-        with:
-          name: schematic-inputs
-          path: build/inputs/
-          retention-days: 14
-
-      # Controller-relay follow-up: the other half - a real
-      # LifecycleService.UploadReleaseFile call streams the release
-      # bundle to a live node over the same mTLS connection every other
-      # RPC already uses, then a real Upgrade call installs it - proves
-      # a node with zero outbound connectivity can still be updated.
-      # See hack/qemu-lifecycle-upgrade-relay-test.sh.
-      - name: LifecycleService.UploadReleaseFile relays a release bundle to a live node
-        run: make qemu-lifecycle-upgrade-relay-test
-
-      # Phase 3 cont'd: wait_for_health is real, confirmed against
-      # HAProxy's own stats socket, not just janusd process
-      # survival. A pending "boot pending confirmation" marker
-      # (internal/bootcommit), written to STATE right before the ESP
-      # switch, is what the *next* boot's cmd/janusd checks at
-      # startup: in the background, it polls HAProxy's own stats socket
-      # (internal/haproxy.Manager.ShowInfo) until it succeeds several
-      # times in a row, then clears the marker itself
-      # (internal/bootcommit.Confirm) - real, application-level health.
-      # If that never happens within health_timeout_seconds, janusd
-      # reverts and reboots itself directly, no RPC involved. A first
-      # version of this piggybacked on Supervisor's own proactive
-      # stability tracking (an OnStable hook, "the janusd *process*
-      # stayed up a while") - removed once this real check landed, since
-      # the two would have raced (the weaker, earlier signal could clear
-      # the marker before the real health check ever got a verdict).
-      # rootfs/init's Supervisor.GiveUpAfter/OnGiveUp - the *one*
-      # documented exception to that package's otherwise-unconditional
-      # "restart forever" policy, active only when a marker is pending -
-      # stays as a *complementary* backstop for the one thing
-      # janusd's own check structurally can't catch: janusd
-      # crashing too fast, or too often, to ever run that check at all.
-      # Both revert paths share one internal/bootrevert.To helper, built
-      # on internal/espswitch (factored out of Rollback's own inline
-      # ESP-swap logic once rootfs/init's local revert became a second
-      # real consumer of the identical mechanism).
-      # hack/qemu-lifecycle-upgrade-health-test.sh proves all three
-      # outcomes against the same running node: a "good" upgrade (the
-      # existing v1 rootfs, repackaged) must show janusd's own
-      # "confirmed healthy" and never revert; a "broken" one (a fresh
-      # rootfs with the host's own dynamically-linked /bin/false
-      # standing in for janusd itself - no dynamic linker/libc in
-      # this rootfs at all, so every restart attempt fails at spawn()
-      # itself) must reboot into it, then autonomously give up via
-      # Supervisor's own backstop and revert; and a third
-      # "haproxy-broken" one (real janusd, but /bin/false standing
-      # in for *haproxy* this time) must show janusd itself starting
-      # fine and beginning its own confirmation attempt, then
-      # autonomously reverting via its own real health check - proving
-      # the two mechanisms are genuinely independent, not just one
-      # dressed up as two. All three reverts land back on whichever slot
-      # was actually active when that particular Upgrade was called -
-      # not a hardcoded fallback.
-      - name: LifecycleService.Upgrade's wait_for_health confirms or reverts automatically (Phase 3 cont'd)
-        run: make qemu-lifecycle-upgrade-health-test
+      # Point 2 suite, tranche 5: proves a node provisioned with a
+      # Controller at Install time (controller_address/
+      # controller_ca_cert, tranche 4) genuinely self-registers with a
+      # real, running dashboardd on its own first boot - no RPC call
+      # from the test drives the registration itself, only cmd/janusd's
+      # own background selfRegisterIfConfigured. See hack/
+      # qemu-self-register-test.sh's own header comment for the full
+      # flow and the two real bugs (a missing janusd_t SELinux
+      # udp_socket rule, and a dashboard TLS identity SAN gap under
+      # Docker bridge networking) this test itself found.
+      - name: janusd self-registers with a Controller on first boot (Point 2 suite tranche 5)
+        run: make qemu-self-register-test
 
       # Phase 3 cont'd: LifecycleService.Install is real - unlike
       # Rollback/Upgrade, it has no existing partition table to build
@@ -832,18 +734,155 @@ jobs:
       - name: LifecycleService.Install partitions a blank disk from scratch for real (Phase 3 cont'd)
         run: make lifecycle-install-test
 
-      # Point 2 suite, tranche 5: proves a node provisioned with a
-      # Controller at Install time (controller_address/
-      # controller_ca_cert, tranche 4) genuinely self-registers with a
-      # real, running dashboardd on its own first boot - no RPC call
-      # from the test drives the registration itself, only cmd/janusd's
-      # own background selfRegisterIfConfigured. See hack/
-      # qemu-self-register-test.sh's own header comment for the full
-      # flow and the two real bugs (a missing janusd_t SELinux
-      # udp_socket rule, and a dashboard TLS identity SAN gap under
-      # Docker bridge networking) this test itself found.
-      - name: janusd self-registers with a Controller on first boot (Point 2 suite tranche 5)
-        run: make qemu-self-register-test
+  test-network:
+    name: "Tests: Network config, extensions, firewall, VRRP, BGP"
+    runs-on: [self-hosted, docker, janus]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/runner-setup
+
+      # The node's network configuration on a real enforcing node: an
+      # offline-seeded config (MAC rename, static address, 802.1Q VLAN),
+      # NTP over that VLAN setting a 2020 clock, trials confirmed and
+      # reverted, persistence across a reboot. See
+      # hack/qemu-network-config-test.sh.
+      - name: Network configuration, VLAN, NTP and trial/revert
+        run: make qemu-network-config-test
+
+      # Optional extensions (node_exporter, the QEMU guest agent) built
+      # into an image from a schematic: the schematic in the signed
+      # cmdline, the services under janusd and SELinux enforcing, Upgrade
+      # keeping the schematic, a clean power-off from the hypervisor. See
+      # hack/qemu-extensions-test.sh. It leaves build/rootfs built with
+      # extensions, so the next step puts the default image back.
+      - name: Optional extensions and image schematics
+        run: make qemu-extensions-test
+
+      # The firewall (nftables extension) on a real enforcing node: a
+      # ruleset checked, applied on trial and confirmed over a new
+      # connection, filtering for real; a lockout reverted by itself; sets
+      # edited live and kept across a reboot. See hack/qemu-firewall-test.sh.
+      - name: Firewall - nftables ruleset on trial, live sets
+        run: make qemu-firewall-test
+
+      # VRRP (keepalived extension) with two real enforcing nodes on a
+      # shared LAN: master/backup, failover when HAProxy stops answering and
+      # when a node goes away, failback. See hack/qemu-vrrp-test.sh.
+      - name: VRRP - keepalived failover between two nodes
+        run: make qemu-vrrp-test
+
+      # BGP (bird extension) between two real enforcing nodes: sessions
+      # with TCP MD5 and BFD next to OSPF, routes into the kernel, the
+      # anycast route withdrawn while HAProxy doesn't answer. See
+      # hack/qemu-bgp-test.sh.
+      - name: BGP - bird sessions and the HAProxy gate between two nodes
+        run: make qemu-bgp-test
+
+  test-hardware:
+    name: "Tests: Secure Boot, bare metal, Controller self-update"
+    runs-on: [self-hosted, docker, janus]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/runner-setup
+
+      # Phase 3 cont'd: Secure Boot signing/enforcement is real, proven
+      # both directions - a UKI signed with a throwaway test key
+      # (image/secureboot/gen-test-key.sh, generated fresh every run,
+      # never committed - a real project release key needs real key
+      # management, out of scope here) boots under genuinely
+      # Secure-Boot-enabled UEFI firmware with that key enrolled
+      # (image/secureboot/enroll-vars.sh), and an unsigned UKI on the
+      # exact same enrolled vars is refused by firmware itself ("Access
+      # Denied"), never even reaching the kernel. `enroll-vars.sh`'s own
+      # comment explains a real bug caught along the way: `virt-fw-vars
+      # --enroll-cert` (the obvious "just enroll my cert" shortcut)
+      # only populates PK/KEK, never db - the one list that actually
+      # authorizes *boot images* - so a correctly signed UKI still got
+      # "Access Denied" until switched to explicit --set-pk/--add-kek/
+      # --add-db (same cert, all three). This test also needs the
+      # secboot-capable OVMF binary (OVMF_CODE_4M.secboot.fd) plus
+      # `-machine q35,smm=on` specifically - the plain i440fx machine
+      # type every other boot test here uses produces zero console
+      # output at all with that firmware binary (found by an identical
+      # command, only the machine type changed, going from a total
+      # hang to a normal boot). See hack/qemu-secureboot-test.sh.
+      - name: Secure Boot enforcement, both directions (Phase 3 cont'd)
+        run: make qemu-secureboot-test
+
+      # Bare metal: the images on NVMe/SATA/USB/virtio-scsi disks and
+      # e1000e/igb/vmxnet3/e1000 NICs with 4 CPUs, a cloud-init CD-ROM, and
+      # the ISO on a USB stick installing a disk that registers with a
+      # Controller - enforcing. See hack/qemu-baremetal-test.sh.
+      - name: Bare metal - real disks, NICs, CPUs and the ISO's install
+        run: make qemu-baremetal-test
+
+      # The Controller updating itself (janus-controller-updater), with
+      # real Docker Compose set up the way dashboard/README.md documents
+      # it - before anything is published.
+      - name: Controller self-update test (Docker Compose)
+        run: make controller-self-update-test
+
+  publish:
+    name: Images and release
+    needs: [test-boot, test-lifecycle, test-api, test-network, test-hardware]
+    runs-on: [self-hosted, docker, janus]
+    # contents: write is only for the optional "Publish a real GitHub
+    # Release" step at the very end (gated on release_version being
+    # set).
+    permissions:
+      contents: write
+    steps:
+      # Full history, not the default depth-1 clone: the Makefile's
+      # VERSION comes from `git describe --tags`, which can only find a
+      # release tag reachable through history - a shallow clone made every
+      # published build report a bare commit SHA instead of its release
+      # version, so the dashboard's "Latest release" check never matched.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # A run cutting a release only creates its tag in the final step,
+      # after every binary is built - git describe alone would stamp them
+      # with the *previous* release plus a -N-g<sha> suffix. Pin VERSION
+      # (the Makefile's own `VERSION ?=`) to the release being cut instead.
+      - name: Pin VERSION to the release being cut
+        if: ${{ inputs.release_version != '' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          if ! [[ "$RELEASE_VERSION" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$ ]]; then
+            echo "release_version must look like vYYYY.MM.DD or vYYYY.MM.DD-N, got: $RELEASE_VERSION" >&2
+            exit 1
+          fi
+          echo "VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
+          # Every release gets hand-written notes, structured by theme -
+          # checked here, before an hour of building, not at publish time.
+          notes=".github/release-notes/$RELEASE_VERSION.md"
+          if ! [ -s "$notes" ]; then
+            echo "::error::no release notes at $notes - write them (see .github/release-notes/README.md) and commit them before cutting $RELEASE_VERSION" >&2
+            exit 1
+          fi
+
+      - uses: ./.github/actions/runner-setup
+
+      # What custom schematics are built from (image/schematic/build.sh,
+      # .github/workflows/schematic-build.yml): per architecture, the
+      # kernel, the base rootfs tree and the extension packs, plus the
+      # catalog - published with a release, kept as an artifact otherwise
+      # (schematic-build's source_run input builds from it, for testing).
+      - name: Build inputs for custom schematics
+        run: make schematic-inputs
+
+      - name: Upload the schematic build inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: schematic-inputs
+          path: build/inputs/
+          retention-days: 14
 
       # First real, deployable artifact: image/disk/assemble.sh's single
       # GPT disk (ESP + both A/B slots + STATE - the exact same shape
@@ -861,6 +900,7 @@ jobs:
         run: |
           make proxmox-image
           ls -lh build/janus.qcow2
+
       - name: Upload the alpha Proxmox VM image
         uses: actions/upload-artifact@v7
         with:
@@ -878,16 +918,19 @@ jobs:
         run: |
           make kvm-image
           ls -lh build/janus-kvm.qcow2
+
       - name: Upload the alpha KVM/libvirt image
         uses: actions/upload-artifact@v7
         with:
           name: janus-alpha-amd64-kvm-${{ github.sha }}
           path: build/janus-kvm.qcow2
           retention-days: 30
+
       - name: Build an alpha VMware/ESXi image (VMDK)
         run: |
           make vmware-image
           ls -lh build/janus.vmdk
+
       - name: Upload the alpha VMware/ESXi image
         uses: actions/upload-artifact@v7
         with:
@@ -943,6 +986,7 @@ jobs:
             make iso-image-with-bundle
           fi
           ls -lh build/janus.iso
+
       - name: Upload the alpha installer ISO
         uses: actions/upload-artifact@v7
         with:
@@ -968,16 +1012,19 @@ jobs:
         run: |
           make pi4-sdcard-image-test
           ls -lh build/rpi-uefi/pi4-disk.img
+
       - name: Upload the Raspberry Pi 4 SD card image
         uses: actions/upload-artifact@v7
         with:
           name: janus-alpha-arm64-rpi4-${{ github.sha }}
           path: build/rpi-uefi/pi4-disk.img
           retention-days: 30
+
       - name: Build and verify the Raspberry Pi 5 SD card image
         run: |
           make pi5-sdcard-image-test
           ls -lh build/rpi-uefi/pi5-disk.img
+
       - name: Upload the Raspberry Pi 5 SD card image
         uses: actions/upload-artifact@v7
         with:
@@ -1003,11 +1050,7 @@ jobs:
       # second secret to manage.
       - name: Build the dashboard Docker image
         run: make dashboard-image
-      # The Controller updating itself (janus-controller-updater), with
-      # real Docker Compose set up the way dashboard/README.md documents
-      # it - before anything is published.
-      - name: Controller self-update test (Docker Compose)
-        run: make controller-self-update-test
+
       # User-flagged real gap (2026-09-29, alongside remote-update Phase
       # 4): only `latest`/`<git-sha>` were ever pushed - no tag on
       # Docker Hub ever corresponded to a real release version, even
@@ -1180,5 +1223,3 @@ jobs:
       # TODO(Phase 3 cont'd): a real OVA (OVF descriptor + tar) on top
       # of image/vmware's bare VMDK - once built, add build/janus.ova
       # to the release step's own files: list above.
-      # TODO(Phase 5): pkgs/bird, pkgs/keepalived, pkgs/nftables - built
-      # only into images that opt in via declarative configuration.

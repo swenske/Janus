@@ -25,12 +25,15 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, docker, haproxyos]
+    runs-on: [self-hosted, docker, janus]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # The runner keeps Go's caches on disk; GitHub's cache only
+          # added a slow restore and save.
+          cache: false
       - name: Test
         run: go test ./site/... ./internal/schematic/...
       - name: Build

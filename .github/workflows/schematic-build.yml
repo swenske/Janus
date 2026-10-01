@@ -47,7 +47,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: [self-hosted, docker, haproxyos]
+    runs-on: [self-hosted, docker, janus]
     timeout-minutes: 90
     steps:
       - name: Check the request
@@ -72,6 +72,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # The runner keeps Go's caches on disk; GitHub's cache only
+          # added a slow restore and save.
+          cache: false
 
       - name: Write the schematic
         env:

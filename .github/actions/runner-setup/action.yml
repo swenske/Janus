@@ -1,0 +1,44 @@
+# Shared setup of every Janus image-build job, on a Janus self-hosted
+# runner (.github/workflows/image-build.yml): Go, the QEMU and image
+# tools, Node.js. Expects the repository checked out.
+name: Janus runner setup
+description: Go, QEMU and the image tools, and Node.js, on a Janus self-hosted runner.
+runs:
+  using: composite
+  steps:
+    # The runner keeps Go's module and build caches on its own disk
+    # between runs; setup-go's cache restored and saved them through
+    # GitHub's cache service instead - about 2 minutes a run.
+    - uses: actions/setup-go@v7
+      with:
+        go-version-file: go.mod
+        cache: false
+
+    - name: Install QEMU + rootfs build tools
+      shell: bash
+      # Several jobs share a machine: installed once, and never two apt
+      # runs at a time (dpkg's lock would fail the second one).
+      run: |
+        pkgs="qemu-system-x86 qemu-utils squashfs-tools cryptsetup-bin e2fsprogs gdisk
+          ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware xorriso ipxe
+          qemu-system-arm crossbuild-essential-arm64 qemu-efi-aarch64 unzip"
+        dpkg -s $pkgs >/dev/null 2>&1 || sudo flock /var/lock/janus-runner-setup.lock sh -c "
+          apt-get update -qq && apt-get install -y -qq $(echo $pkgs)"
+
+    # dashboard/frontend (Vite 8) needs Node >=20.19 - Debian's own
+    # default `nodejs` apt package version isn't reliably that recent,
+    # so NodeSource's own setup script is used instead of a plain
+    # `apt-get install nodejs npm`, the same reasoning every other
+    # tool-version pin in this project follows (verify what's actually
+    # available rather than assume a distro package is recent enough).
+    - name: Install Node.js (dashboard/frontend build)
+      shell: bash
+      run: |
+        if ! node --version 2>/dev/null | grep -Eq '^v(2[0-9]|[3-9][0-9])\.'; then
+          setup=$(mktemp)
+          curl -fsSL https://deb.nodesource.com/setup_20.x -o "$setup"
+          sudo flock /var/lock/janus-runner-setup.lock sh -c "bash $setup && apt-get install -y -qq nodejs"
+          rm -f "$setup"
+        fi
+        node --version
+        npm --version
