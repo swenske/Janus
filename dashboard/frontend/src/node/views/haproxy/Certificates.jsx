@@ -80,7 +80,7 @@ export default function Certificates() {
       title: `Delete ${name}?`,
       body: (
         <p>
-          It's removed from HAProxy's certificate store at runtime{crtList ? <> after being unbound from <code>{crtList}</code></> : ''}. HAProxy refuses to delete a certificate that is still bound into a crt-list.
+          It's removed from HAProxy's certificate store{crtList ? <> after being unbound from <code>{crtList}</code></> : ''}, and from the node: it won't come back on a reload or a reboot. HAProxy refuses to delete a certificate that is still bound into a crt-list.
         </p>
       ),
       action: 'Delete',
@@ -118,6 +118,9 @@ export default function Certificates() {
         />
       </Card>
       <Card title="Upload a certificate" icon={Upload}>
+        <p className="small muted" style={{ marginTop: 0 }}>
+          Loaded into HAProxy at once and kept on the node: it's put back - crt-list binding included - after every reload, restart and reboot.
+        </p>
         <UploadForm onDone={certs.reload} />
       </Card>
     </div>
