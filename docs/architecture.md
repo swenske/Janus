@@ -1115,9 +1115,9 @@ plan - not implemented yet.
   image before conversion - real OVMF boot under `-machine q35`
   (Proxmox's own machine type), zero AVC denials under the now-default
   `enforcing=1`, real HTTP 200. See `image/kvm-proxmox/README.md` for
-  the exact `qm create`/`qm importdisk` steps - needs `--serial0
-  socket --vga serial0` specifically, since this rootfs has no VGA
-  console at all, only serial.
+  the exact `qm create`/`qm importdisk` steps. At the time it needed
+  `--serial0 socket --vga serial0`, since the rootfs had no screen
+  console, only serial; bare-metal support (above) added the screen.
 - **Phase 5** (done): `NetworkService` - bird (BGP), keepalived (VRRP),
   nftables, as image extensions.
 - **Phase 6**: companion website + dedicated Proxmox-hosted backend

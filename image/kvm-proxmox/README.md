@@ -10,31 +10,36 @@ it as a workflow artifact.
 ## Importing into Proxmox
 
 The image is unsigned (no Secure Boot cert of this project's is
-enrolled in Proxmox's own OVMF by default) and has no VGA/framebuffer
-console at all - only a serial one (`console=ttyS0` baked into the UKI
-cmdline). Both matter for how the VM is created:
+enrolled in Proxmox's own OVMF by default), which matters for how the VM
+is created:
 
 ```sh
 qm create <vmid> --name janus-alpha --memory 512 --cores 1 \
   --machine q35 --bios ovmf --efidisk0 <storage>:0,pre-enrolled-keys=0 \
   --net0 virtio,bridge=<bridge> \
-  --serial0 socket --vga serial0
+  --serial0 socket
 
 qm importdisk <vmid> janus.qcow2 <storage>
 qm set <vmid> --scsihw virtio-scsi-pci --virtio0 <storage>:vm-<vmid>-disk-1
 qm set <vmid> --boot order=virtio0
 
 qm start <vmid>
-qm terminal <vmid>   # serial console - the GUI's noVNC console shows nothing
+qm terminal <vmid>   # the serial console
 ```
 
 `pre-enrolled-keys=0` on the EFI disk is what leaves Secure Boot off
 (Proxmox's own default OVMF vars otherwise enroll Microsoft's keys,
-which don't match this project's own signing key anyway). `--serial0
-socket --vga serial0` is what makes `qm terminal` show the actual
-console - without it, the GUI's noVNC console stays blank (this rootfs
-has no VGA console driver compiled in at all, by design, matching the
-"ultra-light" boot-proof baseline).
+which don't match this project's own signing key anyway).
+
+The node shows its console in two places: on the screen (the UEFI
+framebuffer - Proxmox's noVNC console) and on the serial port
+(`console=ttyS0`, which `--serial0 socket` connects to `qm terminal`).
+Both show the kernel's messages, the banner and the first-boot
+credentials. Keep `--serial0 socket` anyway: those credentials are
+easier to copy from a text console than from a screen. Adding `--vga
+serial0` makes the GUI's console the serial port instead of the screen.
+Images from before v2026.10.01-3 have no screen console at all: they
+need `--vga serial0`, or the GUI's console stays blank.
 
 First boot bootstraps a CA and prints the admin gRPC client cert/key to
 that console **once** - see `cmd/janusd/main.go` - copy it out

@@ -10,9 +10,8 @@ separate artifact because the target is generic libvirt/KVM
 ## Importing via libvirt/virt-install
 
 Unsigned (no Secure Boot cert of this project's is enrolled in a
-generic libvirt host's OVMF by default) and has no VGA/framebuffer
-console - only a serial one (`console=ttyS0` baked into the UKI
-cmdline). Both matter for how the domain is defined:
+generic libvirt host's OVMF by default), which matters for how the
+domain is defined:
 
 ```sh
 virt-install \
@@ -28,11 +27,16 @@ virsh console janus-alpha
 `--boot uefi` is what selects OVMF without Secure Boot enrolled by
 default (a generic libvirt/OVMF install has no keys enrolled at all,
 unlike Proxmox's own default vars, which enroll Microsoft's - so
-nothing extra is needed here to leave Secure Boot off). `--graphics
-none --console pty,target_type=serial` is what makes `virsh console`
-show the actual boot output - without it, the default graphical
-console stays blank (this rootfs has no VGA console driver compiled in
-at all, by design).
+nothing extra is needed here to leave Secure Boot off).
+
+The node shows its console on the serial port (`console=ttyS0`) and on
+the screen (the UEFI framebuffer) - the kernel's messages, the banner
+and the first-boot credentials on both. `--graphics none --console
+pty,target_type=serial` gives `virsh console` the serial port, the
+easiest place to copy those credentials from. For a screen as well,
+replace `--graphics none` with `--graphics vnc --video vga` (tested with
+QEMU's standard VGA). Images from before v2026.10.01-3 only have the
+serial console.
 
 First boot bootstraps a CA and prints the admin gRPC client cert/key to
 that console **once** - see `cmd/janusd/main.go` - copy it out
