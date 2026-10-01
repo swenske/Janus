@@ -111,6 +111,12 @@ boot_and_wait_http() {
     [ "$code" = "200" ] && break
     sleep 1
   done
+  # HAProxy answers before janusd has bootstrapped and synced its PKI
+  # (it starts HAProxy first, on purpose): stopping at HTTP 200 alone
+  # can cut the PKI write short - under KVM it did. Wait for janusd.
+  while [ "$code" = "200" ] && [ "$SECONDS" -lt "$deadline" ] && ! grep -q "listening on .* (mTLS required)" "$log" 2>/dev/null; do
+    sleep 0.5
+  done
   CODE_OTHER="$(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${other_host_port}/" || true)"
 
   kill "$QEMU_PID" 2>/dev/null || true

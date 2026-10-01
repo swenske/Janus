@@ -78,6 +78,12 @@ boot_slot() {
     [ "$code" = "200" ] && break
     sleep 1
   done
+  # HAProxy answers before janusd has bootstrapped and synced its PKI
+  # (it starts HAProxy first, on purpose): stopping at HTTP 200 alone
+  # can cut the PKI write short - under KVM it did. Wait for janusd.
+  while [ "$code" = "200" ] && [ "$SECONDS" -lt "$deadline" ] && ! grep -q "listening on .* (mTLS required)" "$log" 2>/dev/null; do
+    sleep 0.5
+  done
 
   kill "$QEMU_PID" 2>/dev/null || true
   wait "$QEMU_PID" 2>/dev/null || true
