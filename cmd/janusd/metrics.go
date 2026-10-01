@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/internal/api"
+	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
@@ -36,6 +37,7 @@ type metricsSources struct {
 	kmsg       *kmsgwatch.Counts
 	firewall   *firewall.Manager
 	vrrp       *vrrp.Manager
+	bgp        *bgp.Manager
 	statePath  string // STATE's mount point, for its filesystem's error count
 
 	certsMu      sync.Mutex
@@ -49,7 +51,7 @@ type metricsSources struct {
 const haproxyCertTTL = time.Minute
 
 func (m *metricsSources) collectors() []exporter.Collector {
-	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.security, m.apiRequests}
+	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.security, m.apiRequests}
 }
 
 func gauge(name, help string, samples ...exporter.Sample) exporter.Family {
@@ -241,6 +243,37 @@ func (m *metricsSources) vrrpMetrics() []exporter.Family {
 		gauge("janus_vrrp_instance_state", "Each VRRP instance's state (the keepalived extension): 1 for its current one.", states...),
 		gauge("janus_vrrp_instance_effective_priority", "Each VRRP instance's priority, after tracking.", prio...),
 		counter("janus_vrrp_instance_became_master_total", "Times each VRRP instance became master since keepalived started.", masters...),
+	}
+}
+
+func (m *metricsSources) bgpMetrics() []exporter.Family {
+	if m.bgp == nil || !m.bgp.Available() {
+		return nil
+	}
+	st, err := m.bgp.Status()
+	if err != nil {
+		return nil
+	}
+	var up, established, held, routes []exporter.Sample
+	for _, p := range st.Protocols {
+		up = append(up, sample(exporter.Bool(p.State == "up"), "protocol", p.Name, "proto", p.Proto))
+		if p.Proto == "BGP" {
+			established = append(established, sample(exporter.Bool(p.BGPState == "Established"), "protocol", p.Name, "neighbor", p.NeighborAddress))
+		}
+		if strings.HasPrefix(p.Name, bgp.GatePrefix) {
+			held = append(held, sample(exporter.Bool(p.HeldDown), "protocol", p.Name))
+		}
+		for _, c := range p.Channels {
+			routes = append(routes,
+				sample(float64(c.Imported), "protocol", p.Name, "channel", c.Name, "direction", "imported"),
+				sample(float64(c.Exported), "protocol", p.Name, "channel", c.Name, "direction", "exported"))
+		}
+	}
+	return []exporter.Family{
+		gauge("janus_bgp_protocol_up", "1 if each BIRD protocol is up (the bird extension).", up...),
+		gauge("janus_bgp_session_established", "1 if each BGP session is established.", established...),
+		gauge("janus_bgp_routes", "Routes each BIRD protocol imported and exported, per channel.", routes...),
+		gauge("janus_bgp_protocol_held_down", "1 while janusd keeps a haproxy_* protocol down: HAProxy doesn't answer.", held...),
 	}
 }
 

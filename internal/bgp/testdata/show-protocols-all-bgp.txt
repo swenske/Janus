@@ -1,0 +1,43 @@
+2002-Name       Proto      Table      State  Since         Info
+1002-peer_b     BGP        ---        up     01:41:34.348  Established   
+1006-  BGP state:          Established
+     Neighbor address: 172.17.0.3
+     Neighbor AS:      65002
+     Local AS:         65001
+     Neighbor ID:      10.0.0.2
+     Local capabilities
+       Multiprotocol
+         AF announced: ipv4
+       Route refresh
+       Graceful restart
+       4-octet AS numbers
+       Enhanced refresh
+       Long-lived graceful restart
+     Neighbor capabilities
+       Multiprotocol
+         AF announced: ipv4
+       Route refresh
+       Graceful restart
+       4-octet AS numbers
+       Enhanced refresh
+       Long-lived graceful restart
+     Session:          external AS4
+     Source address:   172.17.0.2
+     Hold timer:       195.431/240
+     Keepalive timer:  63.673/80
+     Send hold timer:  389.292/480
+   Channel ipv4
+     State:          UP
+     Table:          master4
+     Preference:     100
+     Input filter:   ACCEPT
+     Output filter:  (unnamed)
+     Routes:         0 imported, 1 exported, 0 preferred
+     Route change stats:     received   rejected   filtered    ignored   accepted
+       Import updates:              0          0          0          0          0
+       Import withdraws:            0          0        ---          0          0
+       Export updates:              3          0          0        ---          3
+       Export withdraws:            2        ---        ---        ---          2
+     BGP Next hop:   172.17.0.2
+ 
+0000 

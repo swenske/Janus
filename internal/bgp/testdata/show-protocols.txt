@@ -1,0 +1,5 @@
+2002-Name       Proto      Table      State  Since         Info
+1002-device1    Device     ---        up     01:41:30.402  
+ haproxy_anycast Static     master4    up     01:41:34.437  
+ peer_b     BGP        ---        up     01:41:34.348  Established   
+0000 

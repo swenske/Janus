@@ -35,6 +35,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/api"
+	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/events"
@@ -195,6 +196,16 @@ func main() {
 		}
 		go vrrp.KeepHealth(haproxyHealthy, 2*time.Second, nil)
 	}
+	// BIRD (the BGP extension) likewise; its haproxy_* protocols are kept
+	// down while HAProxy doesn't answer - checked every second: a BGP
+	// session takes longer than that to come up.
+	bgpMgr := bgp.New(extMgr)
+	if *manageHost && bgpMgr.Available() {
+		if err := bgpMgr.Boot(); err != nil {
+			log.Printf("bgp: %v", err)
+		}
+		go bgpMgr.KeepGate(haproxyHealthy, time.Second, nil)
+	}
 	extMgr.Start()
 
 	// SIGTERM is rootfs/init asking janusd to stop before a power-off or
@@ -301,7 +312,7 @@ func main() {
 	// The node's own Prometheus exporter (internal/exporter). The kernel
 	// log and STATE are only this node's to report when janusd runs it.
 	metrics := &metricsSources{version: version, started: started, ca: pkiBootstrap.CA, serverCert: serverCert,
-		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr, vrrp: vrrpMgr}
+		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr, vrrp: vrrpMgr, bgp: bgpMgr}
 	if *manageHost {
 		metrics.kmsg = &kmsgwatch.Counts{}
 		metrics.statePath = "/etc/.state"
@@ -326,7 +337,7 @@ func main() {
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr})
-	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy})
+	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
 	printMOTD(motdInfo{

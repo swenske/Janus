@@ -13,7 +13,12 @@ option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
 // binary is then simply absent from the immutable rootfs (see
 // docs/architecture.md and Phase 5 of the roadmap).
 service NetworkService {
+  // BGP: the bird extension (docs/bgp.md). bird.conf is checked by BIRD
+  // itself, saved, and BIRD reconfigures; BGPStatus reads every protocol's
+  // state over BIRD's control socket. The protocols named haproxy_* are
+  // kept down while this node's HAProxy doesn't answer.
   rpc BGPStatus(google.protobuf.Empty) returns (BGPStatusResponse);
+  rpc BGPGetConfig(google.protobuf.Empty) returns (BGPGetConfigResponse);
   rpc BGPApplyConfig(BGPApplyConfigRequest) returns (BGPApplyConfigResponse);
 
   // VRRP: the keepalived extension (docs/vrrp.md). keepalived.conf is
@@ -250,19 +255,53 @@ enum ModuleState {
 
 message BGPStatusResponse {
   ModuleState state = 1;
-  repeated BGPPeer peers = 2;
+  reserved 2; // was peers
+  bool configured = 3; // a bird.conf is saved
+  string version = 4; // BIRD's
+  string router_id = 5;
+  // Every protocol of bird.conf: BGP sessions and the others (static,
+  // kernel, device, OSPF...).
+  repeated BGPProtocol protocols = 6;
+  bool haproxy_healthy = 7;
+  string error = 8; // why the protocols couldn't be read, if they couldn't
 }
 
-message BGPPeer {
-  string address = 1;
-  string state = 2; // bird protocol state, e.g. "Established"
-  uint32 routes_received = 3;
-  uint32 routes_exported = 4;
+message BGPProtocol {
+  string name = 1;
+  string protocol = 2; // "BGP", "Static", "Kernel", "Device", "OSPF"...
+  string table = 3;
+  string state = 4; // "up", "down", "start" or "stop" - BIRD's own
+  string since = 5; // as BIRD prints it
+  string info = 6; // e.g. "Established", "Active Socket: Connection refused"
+  // BGP sessions only.
+  string bgp_state = 7;
+  string neighbor_address = 8;
+  uint32 neighbor_as = 9;
+  uint32 local_as = 10;
+  string last_error = 11;
+  repeated BGPChannel channels = 12;
+  // janusd keeps it down: its name starts with haproxy_ and HAProxy
+  // doesn't answer.
+  bool held_down = 13;
+}
+
+message BGPChannel {
+  string name = 1; // "ipv4", "ipv6"...
+  string state = 2;
+  uint32 imported = 3;
+  uint32 exported = 4;
+  uint32 preferred = 5;
+}
+
+message BGPGetConfigResponse {
+  bytes config = 1; // the saved bird.conf
+  bool is_default = 2; // none saved
 }
 
 message BGPApplyConfigRequest {
-  // bird.conf content, validated before apply.
+  // bird.conf; empty removes it and stops BIRD.
   bytes config = 1;
+  bool validate_only = 2;
 }
 
 message BGPApplyConfigResponse {

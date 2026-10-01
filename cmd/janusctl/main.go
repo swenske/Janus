@@ -198,6 +198,9 @@ func usage() {
 	for _, line := range vrrpUsage {
 		fmt.Fprintln(os.Stderr, "  "+line)
 	}
+	for _, line := range bgpUsage {
+		fmt.Fprintln(os.Stderr, "  "+line)
+	}
 	fmt.Fprintln(os.Stderr, "  haproxy backends           backends, their servers, addresses and states")
 	fmt.Fprintln(os.Stderr, "  haproxy show-info          HAProxy version/uptime/connections (stats socket)")
 	fmt.Fprintln(os.Stderr, "  haproxy stats              raw 'show stat' CSV from the stats socket")

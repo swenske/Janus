@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	NetworkService_BGPStatus_FullMethodName            = "/janus.v1alpha1.NetworkService/BGPStatus"
+	NetworkService_BGPGetConfig_FullMethodName         = "/janus.v1alpha1.NetworkService/BGPGetConfig"
 	NetworkService_BGPApplyConfig_FullMethodName       = "/janus.v1alpha1.NetworkService/BGPApplyConfig"
 	NetworkService_VRRPStatus_FullMethodName           = "/janus.v1alpha1.NetworkService/VRRPStatus"
 	NetworkService_VRRPGetConfig_FullMethodName        = "/janus.v1alpha1.NetworkService/VRRPGetConfig"
@@ -48,7 +49,12 @@ const (
 // binary is then simply absent from the immutable rootfs (see
 // docs/architecture.md and Phase 5 of the roadmap).
 type NetworkServiceClient interface {
+	// BGP: the bird extension (docs/bgp.md). bird.conf is checked by BIRD
+	// itself, saved, and BIRD reconfigures; BGPStatus reads every protocol's
+	// state over BIRD's control socket. The protocols named haproxy_* are
+	// kept down while this node's HAProxy doesn't answer.
 	BGPStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*BGPStatusResponse, error)
+	BGPGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*BGPGetConfigResponse, error)
 	BGPApplyConfig(ctx context.Context, in *BGPApplyConfigRequest, opts ...grpc.CallOption) (*BGPApplyConfigResponse, error)
 	// VRRP: the keepalived extension (docs/vrrp.md). keepalived.conf is
 	// checked by keepalived itself, saved, and reloaded; VRRPStatus reads
@@ -108,6 +114,16 @@ func (c *networkServiceClient) BGPStatus(ctx context.Context, in *emptypb.Empty,
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BGPStatusResponse)
 	err := c.cc.Invoke(ctx, NetworkService_BGPStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) BGPGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*BGPGetConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BGPGetConfigResponse)
+	err := c.cc.Invoke(ctx, NetworkService_BGPGetConfig_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +290,12 @@ func (c *networkServiceClient) NetworkStatus(ctx context.Context, in *emptypb.Em
 // binary is then simply absent from the immutable rootfs (see
 // docs/architecture.md and Phase 5 of the roadmap).
 type NetworkServiceServer interface {
+	// BGP: the bird extension (docs/bgp.md). bird.conf is checked by BIRD
+	// itself, saved, and BIRD reconfigures; BGPStatus reads every protocol's
+	// state over BIRD's control socket. The protocols named haproxy_* are
+	// kept down while this node's HAProxy doesn't answer.
 	BGPStatus(context.Context, *emptypb.Empty) (*BGPStatusResponse, error)
+	BGPGetConfig(context.Context, *emptypb.Empty) (*BGPGetConfigResponse, error)
 	BGPApplyConfig(context.Context, *BGPApplyConfigRequest) (*BGPApplyConfigResponse, error)
 	// VRRP: the keepalived extension (docs/vrrp.md). keepalived.conf is
 	// checked by keepalived itself, saved, and reloaded; VRRPStatus reads
@@ -332,6 +353,9 @@ type UnimplementedNetworkServiceServer struct{}
 
 func (UnimplementedNetworkServiceServer) BGPStatus(context.Context, *emptypb.Empty) (*BGPStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method BGPStatus not implemented")
+}
+func (UnimplementedNetworkServiceServer) BGPGetConfig(context.Context, *emptypb.Empty) (*BGPGetConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BGPGetConfig not implemented")
 }
 func (UnimplementedNetworkServiceServer) BGPApplyConfig(context.Context, *BGPApplyConfigRequest) (*BGPApplyConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method BGPApplyConfig not implemented")
@@ -410,6 +434,24 @@ func _NetworkService_BGPStatus_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(NetworkServiceServer).BGPStatus(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_BGPGetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).BGPGetConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_BGPGetConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).BGPGetConfig(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -669,6 +711,10 @@ var NetworkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BGPStatus",
 			Handler:    _NetworkService_BGPStatus_Handler,
+		},
+		{
+			MethodName: "BGPGetConfig",
+			Handler:    _NetworkService_BGPGetConfig_Handler,
 		},
 		{
 			MethodName: "BGPApplyConfig",

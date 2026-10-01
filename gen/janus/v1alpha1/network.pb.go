@@ -1235,11 +1235,18 @@ func (x *TimeStatus) GetError() string {
 }
 
 type BGPStatusResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         ModuleState            `protobuf:"varint,1,opt,name=state,proto3,enum=janus.v1alpha1.ModuleState" json:"state,omitempty"`
-	Peers         []*BGPPeer             `protobuf:"bytes,2,rep,name=peers,proto3" json:"peers,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	State      ModuleState            `protobuf:"varint,1,opt,name=state,proto3,enum=janus.v1alpha1.ModuleState" json:"state,omitempty"`
+	Configured bool                   `protobuf:"varint,3,opt,name=configured,proto3" json:"configured,omitempty"` // a bird.conf is saved
+	Version    string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`        // BIRD's
+	RouterId   string                 `protobuf:"bytes,5,opt,name=router_id,json=routerId,proto3" json:"router_id,omitempty"`
+	// Every protocol of bird.conf: BGP sessions and the others (static,
+	// kernel, device, OSPF...).
+	Protocols      []*BGPProtocol `protobuf:"bytes,6,rep,name=protocols,proto3" json:"protocols,omitempty"`
+	HaproxyHealthy bool           `protobuf:"varint,7,opt,name=haproxy_healthy,json=haproxyHealthy,proto3" json:"haproxy_healthy,omitempty"`
+	Error          string         `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"` // why the protocols couldn't be read, if they couldn't
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *BGPStatusResponse) Reset() {
@@ -1279,37 +1286,84 @@ func (x *BGPStatusResponse) GetState() ModuleState {
 	return ModuleState_MODULE_STATE_NOT_ENABLED
 }
 
-func (x *BGPStatusResponse) GetPeers() []*BGPPeer {
+func (x *BGPStatusResponse) GetConfigured() bool {
 	if x != nil {
-		return x.Peers
+		return x.Configured
+	}
+	return false
+}
+
+func (x *BGPStatusResponse) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *BGPStatusResponse) GetRouterId() string {
+	if x != nil {
+		return x.RouterId
+	}
+	return ""
+}
+
+func (x *BGPStatusResponse) GetProtocols() []*BGPProtocol {
+	if x != nil {
+		return x.Protocols
 	}
 	return nil
 }
 
-type BGPPeer struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Address        string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	State          string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"` // bird protocol state, e.g. "Established"
-	RoutesReceived uint32                 `protobuf:"varint,3,opt,name=routes_received,json=routesReceived,proto3" json:"routes_received,omitempty"`
-	RoutesExported uint32                 `protobuf:"varint,4,opt,name=routes_exported,json=routesExported,proto3" json:"routes_exported,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+func (x *BGPStatusResponse) GetHaproxyHealthy() bool {
+	if x != nil {
+		return x.HaproxyHealthy
+	}
+	return false
 }
 
-func (x *BGPPeer) Reset() {
-	*x = BGPPeer{}
+func (x *BGPStatusResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type BGPProtocol struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Protocol string                 `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"` // "BGP", "Static", "Kernel", "Device", "OSPF"...
+	Table    string                 `protobuf:"bytes,3,opt,name=table,proto3" json:"table,omitempty"`
+	State    string                 `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"` // "up", "down", "start" or "stop" - BIRD's own
+	Since    string                 `protobuf:"bytes,5,opt,name=since,proto3" json:"since,omitempty"` // as BIRD prints it
+	Info     string                 `protobuf:"bytes,6,opt,name=info,proto3" json:"info,omitempty"`   // e.g. "Established", "Active Socket: Connection refused"
+	// BGP sessions only.
+	BgpState        string        `protobuf:"bytes,7,opt,name=bgp_state,json=bgpState,proto3" json:"bgp_state,omitempty"`
+	NeighborAddress string        `protobuf:"bytes,8,opt,name=neighbor_address,json=neighborAddress,proto3" json:"neighbor_address,omitempty"`
+	NeighborAs      uint32        `protobuf:"varint,9,opt,name=neighbor_as,json=neighborAs,proto3" json:"neighbor_as,omitempty"`
+	LocalAs         uint32        `protobuf:"varint,10,opt,name=local_as,json=localAs,proto3" json:"local_as,omitempty"`
+	LastError       string        `protobuf:"bytes,11,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	Channels        []*BGPChannel `protobuf:"bytes,12,rep,name=channels,proto3" json:"channels,omitempty"`
+	// janusd keeps it down: its name starts with haproxy_ and HAProxy
+	// doesn't answer.
+	HeldDown      bool `protobuf:"varint,13,opt,name=held_down,json=heldDown,proto3" json:"held_down,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BGPProtocol) Reset() {
+	*x = BGPProtocol{}
 	mi := &file_janus_v1alpha1_network_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BGPPeer) String() string {
+func (x *BGPProtocol) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BGPPeer) ProtoMessage() {}
+func (*BGPProtocol) ProtoMessage() {}
 
-func (x *BGPPeer) ProtoReflect() protoreflect.Message {
+func (x *BGPProtocol) ProtoReflect() protoreflect.Message {
 	mi := &file_janus_v1alpha1_network_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1321,50 +1375,242 @@ func (x *BGPPeer) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BGPPeer.ProtoReflect.Descriptor instead.
-func (*BGPPeer) Descriptor() ([]byte, []int) {
+// Deprecated: Use BGPProtocol.ProtoReflect.Descriptor instead.
+func (*BGPProtocol) Descriptor() ([]byte, []int) {
 	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *BGPPeer) GetAddress() string {
+func (x *BGPProtocol) GetName() string {
 	if x != nil {
-		return x.Address
+		return x.Name
 	}
 	return ""
 }
 
-func (x *BGPPeer) GetState() string {
+func (x *BGPProtocol) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *BGPProtocol) GetTable() string {
+	if x != nil {
+		return x.Table
+	}
+	return ""
+}
+
+func (x *BGPProtocol) GetState() string {
 	if x != nil {
 		return x.State
 	}
 	return ""
 }
 
-func (x *BGPPeer) GetRoutesReceived() uint32 {
+func (x *BGPProtocol) GetSince() string {
 	if x != nil {
-		return x.RoutesReceived
+		return x.Since
+	}
+	return ""
+}
+
+func (x *BGPProtocol) GetInfo() string {
+	if x != nil {
+		return x.Info
+	}
+	return ""
+}
+
+func (x *BGPProtocol) GetBgpState() string {
+	if x != nil {
+		return x.BgpState
+	}
+	return ""
+}
+
+func (x *BGPProtocol) GetNeighborAddress() string {
+	if x != nil {
+		return x.NeighborAddress
+	}
+	return ""
+}
+
+func (x *BGPProtocol) GetNeighborAs() uint32 {
+	if x != nil {
+		return x.NeighborAs
 	}
 	return 0
 }
 
-func (x *BGPPeer) GetRoutesExported() uint32 {
+func (x *BGPProtocol) GetLocalAs() uint32 {
 	if x != nil {
-		return x.RoutesExported
+		return x.LocalAs
 	}
 	return 0
+}
+
+func (x *BGPProtocol) GetLastError() string {
+	if x != nil {
+		return x.LastError
+	}
+	return ""
+}
+
+func (x *BGPProtocol) GetChannels() []*BGPChannel {
+	if x != nil {
+		return x.Channels
+	}
+	return nil
+}
+
+func (x *BGPProtocol) GetHeldDown() bool {
+	if x != nil {
+		return x.HeldDown
+	}
+	return false
+}
+
+type BGPChannel struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // "ipv4", "ipv6"...
+	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	Imported      uint32                 `protobuf:"varint,3,opt,name=imported,proto3" json:"imported,omitempty"`
+	Exported      uint32                 `protobuf:"varint,4,opt,name=exported,proto3" json:"exported,omitempty"`
+	Preferred     uint32                 `protobuf:"varint,5,opt,name=preferred,proto3" json:"preferred,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BGPChannel) Reset() {
+	*x = BGPChannel{}
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BGPChannel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BGPChannel) ProtoMessage() {}
+
+func (x *BGPChannel) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BGPChannel.ProtoReflect.Descriptor instead.
+func (*BGPChannel) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *BGPChannel) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *BGPChannel) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *BGPChannel) GetImported() uint32 {
+	if x != nil {
+		return x.Imported
+	}
+	return 0
+}
+
+func (x *BGPChannel) GetExported() uint32 {
+	if x != nil {
+		return x.Exported
+	}
+	return 0
+}
+
+func (x *BGPChannel) GetPreferred() uint32 {
+	if x != nil {
+		return x.Preferred
+	}
+	return 0
+}
+
+type BGPGetConfigResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Config        []byte                 `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`                         // the saved bird.conf
+	IsDefault     bool                   `protobuf:"varint,2,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"` // none saved
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BGPGetConfigResponse) Reset() {
+	*x = BGPGetConfigResponse{}
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BGPGetConfigResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BGPGetConfigResponse) ProtoMessage() {}
+
+func (x *BGPGetConfigResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BGPGetConfigResponse.ProtoReflect.Descriptor instead.
+func (*BGPGetConfigResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *BGPGetConfigResponse) GetConfig() []byte {
+	if x != nil {
+		return x.Config
+	}
+	return nil
+}
+
+func (x *BGPGetConfigResponse) GetIsDefault() bool {
+	if x != nil {
+		return x.IsDefault
+	}
+	return false
 }
 
 type BGPApplyConfigRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// bird.conf content, validated before apply.
+	// bird.conf; empty removes it and stops BIRD.
 	Config        []byte `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	ValidateOnly  bool   `protobuf:"varint,2,opt,name=validate_only,json=validateOnly,proto3" json:"validate_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BGPApplyConfigRequest) Reset() {
 	*x = BGPApplyConfigRequest{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[16]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1376,7 +1622,7 @@ func (x *BGPApplyConfigRequest) String() string {
 func (*BGPApplyConfigRequest) ProtoMessage() {}
 
 func (x *BGPApplyConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[16]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1389,7 +1635,7 @@ func (x *BGPApplyConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BGPApplyConfigRequest.ProtoReflect.Descriptor instead.
 func (*BGPApplyConfigRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{16}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *BGPApplyConfigRequest) GetConfig() []byte {
@@ -1397,6 +1643,13 @@ func (x *BGPApplyConfigRequest) GetConfig() []byte {
 		return x.Config
 	}
 	return nil
+}
+
+func (x *BGPApplyConfigRequest) GetValidateOnly() bool {
+	if x != nil {
+		return x.ValidateOnly
+	}
+	return false
 }
 
 type BGPApplyConfigResponse struct {
@@ -1409,7 +1662,7 @@ type BGPApplyConfigResponse struct {
 
 func (x *BGPApplyConfigResponse) Reset() {
 	*x = BGPApplyConfigResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[17]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1421,7 +1674,7 @@ func (x *BGPApplyConfigResponse) String() string {
 func (*BGPApplyConfigResponse) ProtoMessage() {}
 
 func (x *BGPApplyConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[17]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1434,7 +1687,7 @@ func (x *BGPApplyConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BGPApplyConfigResponse.ProtoReflect.Descriptor instead.
 func (*BGPApplyConfigResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{17}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *BGPApplyConfigResponse) GetAccepted() bool {
@@ -1467,7 +1720,7 @@ type VRRPStatusResponse struct {
 
 func (x *VRRPStatusResponse) Reset() {
 	*x = VRRPStatusResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[18]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1479,7 +1732,7 @@ func (x *VRRPStatusResponse) String() string {
 func (*VRRPStatusResponse) ProtoMessage() {}
 
 func (x *VRRPStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[18]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1492,7 +1745,7 @@ func (x *VRRPStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VRRPStatusResponse.ProtoReflect.Descriptor instead.
 func (*VRRPStatusResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{18}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *VRRPStatusResponse) GetState() ModuleState {
@@ -1555,7 +1808,7 @@ type VRRPInstance struct {
 
 func (x *VRRPInstance) Reset() {
 	*x = VRRPInstance{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[19]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1567,7 +1820,7 @@ func (x *VRRPInstance) String() string {
 func (*VRRPInstance) ProtoMessage() {}
 
 func (x *VRRPInstance) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[19]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1580,7 +1833,7 @@ func (x *VRRPInstance) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VRRPInstance.ProtoReflect.Descriptor instead.
 func (*VRRPInstance) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{19}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *VRRPInstance) GetName() string {
@@ -1656,7 +1909,7 @@ type VRRPGetConfigResponse struct {
 
 func (x *VRRPGetConfigResponse) Reset() {
 	*x = VRRPGetConfigResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[20]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1668,7 +1921,7 @@ func (x *VRRPGetConfigResponse) String() string {
 func (*VRRPGetConfigResponse) ProtoMessage() {}
 
 func (x *VRRPGetConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[20]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1681,7 +1934,7 @@ func (x *VRRPGetConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VRRPGetConfigResponse.ProtoReflect.Descriptor instead.
 func (*VRRPGetConfigResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{20}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *VRRPGetConfigResponse) GetConfig() []byte {
@@ -1709,7 +1962,7 @@ type VRRPApplyConfigRequest struct {
 
 func (x *VRRPApplyConfigRequest) Reset() {
 	*x = VRRPApplyConfigRequest{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[21]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1721,7 +1974,7 @@ func (x *VRRPApplyConfigRequest) String() string {
 func (*VRRPApplyConfigRequest) ProtoMessage() {}
 
 func (x *VRRPApplyConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[21]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1734,7 +1987,7 @@ func (x *VRRPApplyConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VRRPApplyConfigRequest.ProtoReflect.Descriptor instead.
 func (*VRRPApplyConfigRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{21}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *VRRPApplyConfigRequest) GetConfig() []byte {
@@ -1761,7 +2014,7 @@ type VRRPApplyConfigResponse struct {
 
 func (x *VRRPApplyConfigResponse) Reset() {
 	*x = VRRPApplyConfigResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[22]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1773,7 +2026,7 @@ func (x *VRRPApplyConfigResponse) String() string {
 func (*VRRPApplyConfigResponse) ProtoMessage() {}
 
 func (x *VRRPApplyConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[22]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1786,7 +2039,7 @@ func (x *VRRPApplyConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VRRPApplyConfigResponse.ProtoReflect.Descriptor instead.
 func (*VRRPApplyConfigResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{22}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *VRRPApplyConfigResponse) GetAccepted() bool {
@@ -1816,7 +2069,7 @@ type FirewallListResponse struct {
 
 func (x *FirewallListResponse) Reset() {
 	*x = FirewallListResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[23]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1828,7 +2081,7 @@ func (x *FirewallListResponse) String() string {
 func (*FirewallListResponse) ProtoMessage() {}
 
 func (x *FirewallListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[23]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1841,7 +2094,7 @@ func (x *FirewallListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallListResponse.ProtoReflect.Descriptor instead.
 func (*FirewallListResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{23}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *FirewallListResponse) GetState() ModuleState {
@@ -1889,7 +2142,7 @@ type FirewallGetRulesetResponse struct {
 
 func (x *FirewallGetRulesetResponse) Reset() {
 	*x = FirewallGetRulesetResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[24]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1901,7 +2154,7 @@ func (x *FirewallGetRulesetResponse) String() string {
 func (*FirewallGetRulesetResponse) ProtoMessage() {}
 
 func (x *FirewallGetRulesetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[24]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1914,7 +2167,7 @@ func (x *FirewallGetRulesetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallGetRulesetResponse.ProtoReflect.Descriptor instead.
 func (*FirewallGetRulesetResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{24}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *FirewallGetRulesetResponse) GetRuleset() []byte {
@@ -1943,7 +2196,7 @@ type FirewallApplyRulesetRequest struct {
 
 func (x *FirewallApplyRulesetRequest) Reset() {
 	*x = FirewallApplyRulesetRequest{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[25]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1955,7 +2208,7 @@ func (x *FirewallApplyRulesetRequest) String() string {
 func (*FirewallApplyRulesetRequest) ProtoMessage() {}
 
 func (x *FirewallApplyRulesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[25]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1968,7 +2221,7 @@ func (x *FirewallApplyRulesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallApplyRulesetRequest.ProtoReflect.Descriptor instead.
 func (*FirewallApplyRulesetRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{25}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *FirewallApplyRulesetRequest) GetRuleset() []byte {
@@ -2003,7 +2256,7 @@ type FirewallApplyRulesetResponse struct {
 
 func (x *FirewallApplyRulesetResponse) Reset() {
 	*x = FirewallApplyRulesetResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[26]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2015,7 +2268,7 @@ func (x *FirewallApplyRulesetResponse) String() string {
 func (*FirewallApplyRulesetResponse) ProtoMessage() {}
 
 func (x *FirewallApplyRulesetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[26]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2028,7 +2281,7 @@ func (x *FirewallApplyRulesetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallApplyRulesetResponse.ProtoReflect.Descriptor instead.
 func (*FirewallApplyRulesetResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{26}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *FirewallApplyRulesetResponse) GetAccepted() bool {
@@ -2060,7 +2313,7 @@ type FirewallConfirmResponse struct {
 
 func (x *FirewallConfirmResponse) Reset() {
 	*x = FirewallConfirmResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[27]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2072,7 +2325,7 @@ func (x *FirewallConfirmResponse) String() string {
 func (*FirewallConfirmResponse) ProtoMessage() {}
 
 func (x *FirewallConfirmResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[27]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2085,7 +2338,7 @@ func (x *FirewallConfirmResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallConfirmResponse.ProtoReflect.Descriptor instead.
 func (*FirewallConfirmResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{27}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{29}
 }
 
 type FirewallSet struct {
@@ -2102,7 +2355,7 @@ type FirewallSet struct {
 
 func (x *FirewallSet) Reset() {
 	*x = FirewallSet{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[28]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2114,7 +2367,7 @@ func (x *FirewallSet) String() string {
 func (*FirewallSet) ProtoMessage() {}
 
 func (x *FirewallSet) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[28]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2127,7 +2380,7 @@ func (x *FirewallSet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallSet.ProtoReflect.Descriptor instead.
 func (*FirewallSet) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{28}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *FirewallSet) GetFamily() string {
@@ -2186,7 +2439,7 @@ type FirewallSetElement struct {
 
 func (x *FirewallSetElement) Reset() {
 	*x = FirewallSetElement{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[29]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2198,7 +2451,7 @@ func (x *FirewallSetElement) String() string {
 func (*FirewallSetElement) ProtoMessage() {}
 
 func (x *FirewallSetElement) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[29]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2211,7 +2464,7 @@ func (x *FirewallSetElement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallSetElement.ProtoReflect.Descriptor instead.
 func (*FirewallSetElement) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{29}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *FirewallSetElement) GetValue() string {
@@ -2251,7 +2504,7 @@ type FirewallSetsResponse struct {
 
 func (x *FirewallSetsResponse) Reset() {
 	*x = FirewallSetsResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[30]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2263,7 +2516,7 @@ func (x *FirewallSetsResponse) String() string {
 func (*FirewallSetsResponse) ProtoMessage() {}
 
 func (x *FirewallSetsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[30]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2276,7 +2529,7 @@ func (x *FirewallSetsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallSetsResponse.ProtoReflect.Descriptor instead.
 func (*FirewallSetsResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{30}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *FirewallSetsResponse) GetSets() []*FirewallSet {
@@ -2299,7 +2552,7 @@ type FirewallSetUpdateRequest struct {
 
 func (x *FirewallSetUpdateRequest) Reset() {
 	*x = FirewallSetUpdateRequest{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[31]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2311,7 +2564,7 @@ func (x *FirewallSetUpdateRequest) String() string {
 func (*FirewallSetUpdateRequest) ProtoMessage() {}
 
 func (x *FirewallSetUpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[31]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2324,7 +2577,7 @@ func (x *FirewallSetUpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallSetUpdateRequest.ProtoReflect.Descriptor instead.
 func (*FirewallSetUpdateRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{31}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *FirewallSetUpdateRequest) GetFamily() string {
@@ -2371,7 +2624,7 @@ type FirewallSetUpdateResponse struct {
 
 func (x *FirewallSetUpdateResponse) Reset() {
 	*x = FirewallSetUpdateResponse{}
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[32]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2383,7 +2636,7 @@ func (x *FirewallSetUpdateResponse) String() string {
 func (*FirewallSetUpdateResponse) ProtoMessage() {}
 
 func (x *FirewallSetUpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_network_proto_msgTypes[32]
+	mi := &file_janus_v1alpha1_network_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2396,7 +2649,7 @@ func (x *FirewallSetUpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallSetUpdateResponse.ProtoReflect.Descriptor instead.
 func (*FirewallSetUpdateResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{32}
+	return file_janus_v1alpha1_network_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *FirewallSetUpdateResponse) GetSet() *FirewallSet {
@@ -2507,17 +2760,48 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\x0elast_sync_unix\x18\x05 \x01(\x03R\flastSyncUnix\x12\x1b\n" +
 	"\toffset_ns\x18\x06 \x01(\x03R\boffsetNs\x12\x18\n" +
 	"\astratum\x18\a \x01(\rR\astratum\x12\x14\n" +
-	"\x05error\x18\b \x01(\tR\x05error\"u\n" +
+	"\x05error\x18\b \x01(\tR\x05error\"\x9d\x02\n" +
 	"\x11BGPStatusResponse\x121\n" +
-	"\x05state\x18\x01 \x01(\x0e2\x1b.janus.v1alpha1.ModuleStateR\x05state\x12-\n" +
-	"\x05peers\x18\x02 \x03(\v2\x17.janus.v1alpha1.BGPPeerR\x05peers\"\x8b\x01\n" +
-	"\aBGPPeer\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x14\n" +
-	"\x05state\x18\x02 \x01(\tR\x05state\x12'\n" +
-	"\x0froutes_received\x18\x03 \x01(\rR\x0eroutesReceived\x12'\n" +
-	"\x0froutes_exported\x18\x04 \x01(\rR\x0eroutesExported\"/\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x1b.janus.v1alpha1.ModuleStateR\x05state\x12\x1e\n" +
+	"\n" +
+	"configured\x18\x03 \x01(\bR\n" +
+	"configured\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\x12\x1b\n" +
+	"\trouter_id\x18\x05 \x01(\tR\brouterId\x129\n" +
+	"\tprotocols\x18\x06 \x03(\v2\x1b.janus.v1alpha1.BGPProtocolR\tprotocols\x12'\n" +
+	"\x0fhaproxy_healthy\x18\a \x01(\bR\x0ehaproxyHealthy\x12\x14\n" +
+	"\x05error\x18\b \x01(\tR\x05errorJ\x04\b\x02\x10\x03\"\x8b\x03\n" +
+	"\vBGPProtocol\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
+	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12\x14\n" +
+	"\x05table\x18\x03 \x01(\tR\x05table\x12\x14\n" +
+	"\x05state\x18\x04 \x01(\tR\x05state\x12\x14\n" +
+	"\x05since\x18\x05 \x01(\tR\x05since\x12\x12\n" +
+	"\x04info\x18\x06 \x01(\tR\x04info\x12\x1b\n" +
+	"\tbgp_state\x18\a \x01(\tR\bbgpState\x12)\n" +
+	"\x10neighbor_address\x18\b \x01(\tR\x0fneighborAddress\x12\x1f\n" +
+	"\vneighbor_as\x18\t \x01(\rR\n" +
+	"neighborAs\x12\x19\n" +
+	"\blocal_as\x18\n" +
+	" \x01(\rR\alocalAs\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\v \x01(\tR\tlastError\x126\n" +
+	"\bchannels\x18\f \x03(\v2\x1a.janus.v1alpha1.BGPChannelR\bchannels\x12\x1b\n" +
+	"\theld_down\x18\r \x01(\bR\bheldDown\"\x8c\x01\n" +
+	"\n" +
+	"BGPChannel\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12\x1a\n" +
+	"\bimported\x18\x03 \x01(\rR\bimported\x12\x1a\n" +
+	"\bexported\x18\x04 \x01(\rR\bexported\x12\x1c\n" +
+	"\tpreferred\x18\x05 \x01(\rR\tpreferred\"M\n" +
+	"\x14BGPGetConfigResponse\x12\x16\n" +
+	"\x06config\x18\x01 \x01(\fR\x06config\x12\x1d\n" +
+	"\n" +
+	"is_default\x18\x02 \x01(\bR\tisDefault\"T\n" +
 	"\x15BGPApplyConfigRequest\x12\x16\n" +
-	"\x06config\x18\x01 \x01(\fR\x06config\"L\n" +
+	"\x06config\x18\x01 \x01(\fR\x06config\x12#\n" +
+	"\rvalidate_only\x18\x02 \x01(\bR\fvalidateOnly\"L\n" +
 	"\x16BGPApplyConfigResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
 	"\x06errors\x18\x02 \x03(\tR\x06errors\"\x92\x02\n" +
@@ -2606,10 +2890,10 @@ const file_janus_v1alpha1_network_proto_rawDesc = "" +
 	"\x18MODULE_STATE_NOT_ENABLED\x10\x00\x12\x18\n" +
 	"\x14MODULE_STATE_RUNNING\x10\x01\x12\x18\n" +
 	"\x14MODULE_STATE_STOPPED\x10\x02\x12\x16\n" +
-	"\x12MODULE_STATE_ERROR\x10\x032\xd1\n" +
-	"\n" +
+	"\x12MODULE_STATE_ERROR\x10\x032\x9f\v\n" +
 	"\x0eNetworkService\x12F\n" +
-	"\tBGPStatus\x12\x16.google.protobuf.Empty\x1a!.janus.v1alpha1.BGPStatusResponse\x12_\n" +
+	"\tBGPStatus\x12\x16.google.protobuf.Empty\x1a!.janus.v1alpha1.BGPStatusResponse\x12L\n" +
+	"\fBGPGetConfig\x12\x16.google.protobuf.Empty\x1a$.janus.v1alpha1.BGPGetConfigResponse\x12_\n" +
 	"\x0eBGPApplyConfig\x12%.janus.v1alpha1.BGPApplyConfigRequest\x1a&.janus.v1alpha1.BGPApplyConfigResponse\x12H\n" +
 	"\n" +
 	"VRRPStatus\x12\x16.google.protobuf.Empty\x1a\".janus.v1alpha1.VRRPStatusResponse\x12N\n" +
@@ -2639,7 +2923,7 @@ func file_janus_v1alpha1_network_proto_rawDescGZIP() []byte {
 }
 
 var file_janus_v1alpha1_network_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_janus_v1alpha1_network_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_janus_v1alpha1_network_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_janus_v1alpha1_network_proto_goTypes = []any{
 	(AddressingMode)(0),                  // 0: janus.v1alpha1.AddressingMode
 	(ModuleState)(0),                     // 1: janus.v1alpha1.ModuleState
@@ -2658,25 +2942,27 @@ var file_janus_v1alpha1_network_proto_goTypes = []any{
 	(*NetworkRoute)(nil),                 // 14: janus.v1alpha1.NetworkRoute
 	(*TimeStatus)(nil),                   // 15: janus.v1alpha1.TimeStatus
 	(*BGPStatusResponse)(nil),            // 16: janus.v1alpha1.BGPStatusResponse
-	(*BGPPeer)(nil),                      // 17: janus.v1alpha1.BGPPeer
-	(*BGPApplyConfigRequest)(nil),        // 18: janus.v1alpha1.BGPApplyConfigRequest
-	(*BGPApplyConfigResponse)(nil),       // 19: janus.v1alpha1.BGPApplyConfigResponse
-	(*VRRPStatusResponse)(nil),           // 20: janus.v1alpha1.VRRPStatusResponse
-	(*VRRPInstance)(nil),                 // 21: janus.v1alpha1.VRRPInstance
-	(*VRRPGetConfigResponse)(nil),        // 22: janus.v1alpha1.VRRPGetConfigResponse
-	(*VRRPApplyConfigRequest)(nil),       // 23: janus.v1alpha1.VRRPApplyConfigRequest
-	(*VRRPApplyConfigResponse)(nil),      // 24: janus.v1alpha1.VRRPApplyConfigResponse
-	(*FirewallListResponse)(nil),         // 25: janus.v1alpha1.FirewallListResponse
-	(*FirewallGetRulesetResponse)(nil),   // 26: janus.v1alpha1.FirewallGetRulesetResponse
-	(*FirewallApplyRulesetRequest)(nil),  // 27: janus.v1alpha1.FirewallApplyRulesetRequest
-	(*FirewallApplyRulesetResponse)(nil), // 28: janus.v1alpha1.FirewallApplyRulesetResponse
-	(*FirewallConfirmResponse)(nil),      // 29: janus.v1alpha1.FirewallConfirmResponse
-	(*FirewallSet)(nil),                  // 30: janus.v1alpha1.FirewallSet
-	(*FirewallSetElement)(nil),           // 31: janus.v1alpha1.FirewallSetElement
-	(*FirewallSetsResponse)(nil),         // 32: janus.v1alpha1.FirewallSetsResponse
-	(*FirewallSetUpdateRequest)(nil),     // 33: janus.v1alpha1.FirewallSetUpdateRequest
-	(*FirewallSetUpdateResponse)(nil),    // 34: janus.v1alpha1.FirewallSetUpdateResponse
-	(*emptypb.Empty)(nil),                // 35: google.protobuf.Empty
+	(*BGPProtocol)(nil),                  // 17: janus.v1alpha1.BGPProtocol
+	(*BGPChannel)(nil),                   // 18: janus.v1alpha1.BGPChannel
+	(*BGPGetConfigResponse)(nil),         // 19: janus.v1alpha1.BGPGetConfigResponse
+	(*BGPApplyConfigRequest)(nil),        // 20: janus.v1alpha1.BGPApplyConfigRequest
+	(*BGPApplyConfigResponse)(nil),       // 21: janus.v1alpha1.BGPApplyConfigResponse
+	(*VRRPStatusResponse)(nil),           // 22: janus.v1alpha1.VRRPStatusResponse
+	(*VRRPInstance)(nil),                 // 23: janus.v1alpha1.VRRPInstance
+	(*VRRPGetConfigResponse)(nil),        // 24: janus.v1alpha1.VRRPGetConfigResponse
+	(*VRRPApplyConfigRequest)(nil),       // 25: janus.v1alpha1.VRRPApplyConfigRequest
+	(*VRRPApplyConfigResponse)(nil),      // 26: janus.v1alpha1.VRRPApplyConfigResponse
+	(*FirewallListResponse)(nil),         // 27: janus.v1alpha1.FirewallListResponse
+	(*FirewallGetRulesetResponse)(nil),   // 28: janus.v1alpha1.FirewallGetRulesetResponse
+	(*FirewallApplyRulesetRequest)(nil),  // 29: janus.v1alpha1.FirewallApplyRulesetRequest
+	(*FirewallApplyRulesetResponse)(nil), // 30: janus.v1alpha1.FirewallApplyRulesetResponse
+	(*FirewallConfirmResponse)(nil),      // 31: janus.v1alpha1.FirewallConfirmResponse
+	(*FirewallSet)(nil),                  // 32: janus.v1alpha1.FirewallSet
+	(*FirewallSetElement)(nil),           // 33: janus.v1alpha1.FirewallSetElement
+	(*FirewallSetsResponse)(nil),         // 34: janus.v1alpha1.FirewallSetsResponse
+	(*FirewallSetUpdateRequest)(nil),     // 35: janus.v1alpha1.FirewallSetUpdateRequest
+	(*FirewallSetUpdateResponse)(nil),    // 36: janus.v1alpha1.FirewallSetUpdateResponse
+	(*emptypb.Empty)(nil),                // 37: google.protobuf.Empty
 }
 var file_janus_v1alpha1_network_proto_depIdxs = []int32{
 	3,  // 0: janus.v1alpha1.NetworkConfig.interfaces:type_name -> janus.v1alpha1.NetworkInterface
@@ -2692,49 +2978,52 @@ var file_janus_v1alpha1_network_proto_depIdxs = []int32{
 	0,  // 10: janus.v1alpha1.NetworkInterfaceStatus.mode:type_name -> janus.v1alpha1.AddressingMode
 	13, // 11: janus.v1alpha1.NetworkInterfaceStatus.dhcp:type_name -> janus.v1alpha1.DHCPLease
 	1,  // 12: janus.v1alpha1.BGPStatusResponse.state:type_name -> janus.v1alpha1.ModuleState
-	17, // 13: janus.v1alpha1.BGPStatusResponse.peers:type_name -> janus.v1alpha1.BGPPeer
-	1,  // 14: janus.v1alpha1.VRRPStatusResponse.state:type_name -> janus.v1alpha1.ModuleState
-	21, // 15: janus.v1alpha1.VRRPStatusResponse.instances:type_name -> janus.v1alpha1.VRRPInstance
-	1,  // 16: janus.v1alpha1.FirewallListResponse.state:type_name -> janus.v1alpha1.ModuleState
-	31, // 17: janus.v1alpha1.FirewallSet.elements:type_name -> janus.v1alpha1.FirewallSetElement
-	30, // 18: janus.v1alpha1.FirewallSetsResponse.sets:type_name -> janus.v1alpha1.FirewallSet
-	31, // 19: janus.v1alpha1.FirewallSetUpdateRequest.add:type_name -> janus.v1alpha1.FirewallSetElement
-	30, // 20: janus.v1alpha1.FirewallSetUpdateResponse.set:type_name -> janus.v1alpha1.FirewallSet
-	35, // 21: janus.v1alpha1.NetworkService.BGPStatus:input_type -> google.protobuf.Empty
-	18, // 22: janus.v1alpha1.NetworkService.BGPApplyConfig:input_type -> janus.v1alpha1.BGPApplyConfigRequest
-	35, // 23: janus.v1alpha1.NetworkService.VRRPStatus:input_type -> google.protobuf.Empty
-	35, // 24: janus.v1alpha1.NetworkService.VRRPGetConfig:input_type -> google.protobuf.Empty
-	23, // 25: janus.v1alpha1.NetworkService.VRRPApplyConfig:input_type -> janus.v1alpha1.VRRPApplyConfigRequest
-	35, // 26: janus.v1alpha1.NetworkService.FirewallList:input_type -> google.protobuf.Empty
-	35, // 27: janus.v1alpha1.NetworkService.FirewallGetRuleset:input_type -> google.protobuf.Empty
-	27, // 28: janus.v1alpha1.NetworkService.FirewallApplyRuleset:input_type -> janus.v1alpha1.FirewallApplyRulesetRequest
-	35, // 29: janus.v1alpha1.NetworkService.FirewallConfirm:input_type -> google.protobuf.Empty
-	35, // 30: janus.v1alpha1.NetworkService.FirewallSets:input_type -> google.protobuf.Empty
-	33, // 31: janus.v1alpha1.NetworkService.FirewallSetUpdate:input_type -> janus.v1alpha1.FirewallSetUpdateRequest
-	35, // 32: janus.v1alpha1.NetworkService.NetworkConfigGet:input_type -> google.protobuf.Empty
-	8,  // 33: janus.v1alpha1.NetworkService.NetworkConfigApply:input_type -> janus.v1alpha1.NetworkConfigApplyRequest
-	35, // 34: janus.v1alpha1.NetworkService.NetworkConfigConfirm:input_type -> google.protobuf.Empty
-	35, // 35: janus.v1alpha1.NetworkService.NetworkStatus:input_type -> google.protobuf.Empty
-	16, // 36: janus.v1alpha1.NetworkService.BGPStatus:output_type -> janus.v1alpha1.BGPStatusResponse
-	19, // 37: janus.v1alpha1.NetworkService.BGPApplyConfig:output_type -> janus.v1alpha1.BGPApplyConfigResponse
-	20, // 38: janus.v1alpha1.NetworkService.VRRPStatus:output_type -> janus.v1alpha1.VRRPStatusResponse
-	22, // 39: janus.v1alpha1.NetworkService.VRRPGetConfig:output_type -> janus.v1alpha1.VRRPGetConfigResponse
-	24, // 40: janus.v1alpha1.NetworkService.VRRPApplyConfig:output_type -> janus.v1alpha1.VRRPApplyConfigResponse
-	25, // 41: janus.v1alpha1.NetworkService.FirewallList:output_type -> janus.v1alpha1.FirewallListResponse
-	26, // 42: janus.v1alpha1.NetworkService.FirewallGetRuleset:output_type -> janus.v1alpha1.FirewallGetRulesetResponse
-	28, // 43: janus.v1alpha1.NetworkService.FirewallApplyRuleset:output_type -> janus.v1alpha1.FirewallApplyRulesetResponse
-	29, // 44: janus.v1alpha1.NetworkService.FirewallConfirm:output_type -> janus.v1alpha1.FirewallConfirmResponse
-	32, // 45: janus.v1alpha1.NetworkService.FirewallSets:output_type -> janus.v1alpha1.FirewallSetsResponse
-	34, // 46: janus.v1alpha1.NetworkService.FirewallSetUpdate:output_type -> janus.v1alpha1.FirewallSetUpdateResponse
-	7,  // 47: janus.v1alpha1.NetworkService.NetworkConfigGet:output_type -> janus.v1alpha1.NetworkConfigGetResponse
-	9,  // 48: janus.v1alpha1.NetworkService.NetworkConfigApply:output_type -> janus.v1alpha1.NetworkConfigApplyResponse
-	10, // 49: janus.v1alpha1.NetworkService.NetworkConfigConfirm:output_type -> janus.v1alpha1.NetworkConfigConfirmResponse
-	11, // 50: janus.v1alpha1.NetworkService.NetworkStatus:output_type -> janus.v1alpha1.NetworkStatusResponse
-	36, // [36:51] is the sub-list for method output_type
-	21, // [21:36] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	17, // 13: janus.v1alpha1.BGPStatusResponse.protocols:type_name -> janus.v1alpha1.BGPProtocol
+	18, // 14: janus.v1alpha1.BGPProtocol.channels:type_name -> janus.v1alpha1.BGPChannel
+	1,  // 15: janus.v1alpha1.VRRPStatusResponse.state:type_name -> janus.v1alpha1.ModuleState
+	23, // 16: janus.v1alpha1.VRRPStatusResponse.instances:type_name -> janus.v1alpha1.VRRPInstance
+	1,  // 17: janus.v1alpha1.FirewallListResponse.state:type_name -> janus.v1alpha1.ModuleState
+	33, // 18: janus.v1alpha1.FirewallSet.elements:type_name -> janus.v1alpha1.FirewallSetElement
+	32, // 19: janus.v1alpha1.FirewallSetsResponse.sets:type_name -> janus.v1alpha1.FirewallSet
+	33, // 20: janus.v1alpha1.FirewallSetUpdateRequest.add:type_name -> janus.v1alpha1.FirewallSetElement
+	32, // 21: janus.v1alpha1.FirewallSetUpdateResponse.set:type_name -> janus.v1alpha1.FirewallSet
+	37, // 22: janus.v1alpha1.NetworkService.BGPStatus:input_type -> google.protobuf.Empty
+	37, // 23: janus.v1alpha1.NetworkService.BGPGetConfig:input_type -> google.protobuf.Empty
+	20, // 24: janus.v1alpha1.NetworkService.BGPApplyConfig:input_type -> janus.v1alpha1.BGPApplyConfigRequest
+	37, // 25: janus.v1alpha1.NetworkService.VRRPStatus:input_type -> google.protobuf.Empty
+	37, // 26: janus.v1alpha1.NetworkService.VRRPGetConfig:input_type -> google.protobuf.Empty
+	25, // 27: janus.v1alpha1.NetworkService.VRRPApplyConfig:input_type -> janus.v1alpha1.VRRPApplyConfigRequest
+	37, // 28: janus.v1alpha1.NetworkService.FirewallList:input_type -> google.protobuf.Empty
+	37, // 29: janus.v1alpha1.NetworkService.FirewallGetRuleset:input_type -> google.protobuf.Empty
+	29, // 30: janus.v1alpha1.NetworkService.FirewallApplyRuleset:input_type -> janus.v1alpha1.FirewallApplyRulesetRequest
+	37, // 31: janus.v1alpha1.NetworkService.FirewallConfirm:input_type -> google.protobuf.Empty
+	37, // 32: janus.v1alpha1.NetworkService.FirewallSets:input_type -> google.protobuf.Empty
+	35, // 33: janus.v1alpha1.NetworkService.FirewallSetUpdate:input_type -> janus.v1alpha1.FirewallSetUpdateRequest
+	37, // 34: janus.v1alpha1.NetworkService.NetworkConfigGet:input_type -> google.protobuf.Empty
+	8,  // 35: janus.v1alpha1.NetworkService.NetworkConfigApply:input_type -> janus.v1alpha1.NetworkConfigApplyRequest
+	37, // 36: janus.v1alpha1.NetworkService.NetworkConfigConfirm:input_type -> google.protobuf.Empty
+	37, // 37: janus.v1alpha1.NetworkService.NetworkStatus:input_type -> google.protobuf.Empty
+	16, // 38: janus.v1alpha1.NetworkService.BGPStatus:output_type -> janus.v1alpha1.BGPStatusResponse
+	19, // 39: janus.v1alpha1.NetworkService.BGPGetConfig:output_type -> janus.v1alpha1.BGPGetConfigResponse
+	21, // 40: janus.v1alpha1.NetworkService.BGPApplyConfig:output_type -> janus.v1alpha1.BGPApplyConfigResponse
+	22, // 41: janus.v1alpha1.NetworkService.VRRPStatus:output_type -> janus.v1alpha1.VRRPStatusResponse
+	24, // 42: janus.v1alpha1.NetworkService.VRRPGetConfig:output_type -> janus.v1alpha1.VRRPGetConfigResponse
+	26, // 43: janus.v1alpha1.NetworkService.VRRPApplyConfig:output_type -> janus.v1alpha1.VRRPApplyConfigResponse
+	27, // 44: janus.v1alpha1.NetworkService.FirewallList:output_type -> janus.v1alpha1.FirewallListResponse
+	28, // 45: janus.v1alpha1.NetworkService.FirewallGetRuleset:output_type -> janus.v1alpha1.FirewallGetRulesetResponse
+	30, // 46: janus.v1alpha1.NetworkService.FirewallApplyRuleset:output_type -> janus.v1alpha1.FirewallApplyRulesetResponse
+	31, // 47: janus.v1alpha1.NetworkService.FirewallConfirm:output_type -> janus.v1alpha1.FirewallConfirmResponse
+	34, // 48: janus.v1alpha1.NetworkService.FirewallSets:output_type -> janus.v1alpha1.FirewallSetsResponse
+	36, // 49: janus.v1alpha1.NetworkService.FirewallSetUpdate:output_type -> janus.v1alpha1.FirewallSetUpdateResponse
+	7,  // 50: janus.v1alpha1.NetworkService.NetworkConfigGet:output_type -> janus.v1alpha1.NetworkConfigGetResponse
+	9,  // 51: janus.v1alpha1.NetworkService.NetworkConfigApply:output_type -> janus.v1alpha1.NetworkConfigApplyResponse
+	10, // 52: janus.v1alpha1.NetworkService.NetworkConfigConfirm:output_type -> janus.v1alpha1.NetworkConfigConfirmResponse
+	11, // 53: janus.v1alpha1.NetworkService.NetworkStatus:output_type -> janus.v1alpha1.NetworkStatusResponse
+	38, // [38:54] is the sub-list for method output_type
+	22, // [22:38] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_janus_v1alpha1_network_proto_init() }
@@ -2748,7 +3037,7 @@ func file_janus_v1alpha1_network_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_network_proto_rawDesc), len(file_janus_v1alpha1_network_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   33,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

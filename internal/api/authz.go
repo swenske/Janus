@@ -96,6 +96,7 @@ var requiredRoles = map[string][]string{
 	// NetworkService
 	"/janus.v1alpha1.NetworkService/BGPStatus":            adminOrReader,
 	"/janus.v1alpha1.NetworkService/BGPApplyConfig":       adminOnly,
+	"/janus.v1alpha1.NetworkService/BGPGetConfig":         adminOrReader,
 	"/janus.v1alpha1.NetworkService/VRRPStatus":           adminOrReader,
 	"/janus.v1alpha1.NetworkService/VRRPApplyConfig":      adminOnly,
 	"/janus.v1alpha1.NetworkService/VRRPGetConfig":        adminOrReader,

@@ -1,0 +1,7 @@
+1000-BIRD 2.19.2
+1011-Router ID is 10.0.0.1
+ Hostname is node
+ Current server time is 2026-10-01 01:41:48.163
+ Last reboot on 2026-10-01 01:41:30.402
+ Last reconfiguration on 2026-10-01 01:41:34.437
+0013 Daemon is up and running

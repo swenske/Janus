@@ -67,6 +67,8 @@ func runNetwork(conn *grpc.ClientConn, endpoint string, redial redialer, args []
 		runFirewall(conn, endpoint, redial, args[1:])
 	case "vrrp":
 		runVRRP(conn, args[1:])
+	case "bgp":
+		runBGP(conn, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl network: unknown subcommand %q\n", args[0])
 		usage()

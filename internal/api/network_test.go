@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -13,36 +11,27 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
 
+// Without their extension in the image, the modules report NOT_ENABLED
+// and refuse a configuration.
 func TestNetworkModules(t *testing.T) {
-	dir := t.TempDir()
-	saved := moduleBinaries
-	defer func() { moduleBinaries = saved }()
-	moduleBinaries = map[string]string{
-		"bgp": filepath.Join(dir, "bird"), "vrrp": filepath.Join(dir, "keepalived"), "firewall": filepath.Join(dir, "nft"),
-	}
 	n, ctx := &Network{}, context.Background()
-
-	// Absent from the image: NOT_ENABLED, and apply refused.
-	bgp, err := n.BGPStatus(ctx, &emptypb.Empty{})
-	if err != nil || bgp.GetState() != janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED {
-		t.Errorf("BGPStatus = %v, %v", bgp, err)
+	if st, err := n.BGPStatus(ctx, &emptypb.Empty{}); err != nil || st.GetState() != janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED {
+		t.Errorf("BGPStatus = %v, %v", st, err)
+	}
+	if st, err := n.VRRPStatus(ctx, &emptypb.Empty{}); err != nil || st.GetState() != janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED {
+		t.Errorf("VRRPStatus = %v, %v", st, err)
 	}
 	if fw, err := n.FirewallList(ctx, &emptypb.Empty{}); err != nil || fw.GetState() != janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED {
 		t.Errorf("FirewallList = %v, %v", fw, err)
 	}
+	if _, err := n.BGPApplyConfig(ctx, &janusv1alpha1.BGPApplyConfigRequest{}); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("BGPApplyConfig without bird = %v", err)
+	}
+	if _, err := n.BGPGetConfig(ctx, &emptypb.Empty{}); status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("BGPGetConfig without bird = %v", err)
+	}
 	if _, err := n.VRRPApplyConfig(ctx, &janusv1alpha1.VRRPApplyConfigRequest{}); status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("VRRPApplyConfig without keepalived = %v", err)
-	}
-
-	// Present but not managed yet: honest Unimplemented, not a fake state.
-	if err := os.WriteFile(moduleBinaries["bgp"], nil, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := n.BGPStatus(ctx, &emptypb.Empty{}); status.Code(err) != codes.Unimplemented {
-		t.Errorf("BGPStatus with bird present = %v", err)
-	}
-	if _, err := n.BGPApplyConfig(ctx, &janusv1alpha1.BGPApplyConfigRequest{}); status.Code(err) != codes.Unimplemented {
-		t.Errorf("BGPApplyConfig with bird present = %v", err)
 	}
 }
 
