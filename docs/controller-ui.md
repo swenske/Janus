@@ -68,7 +68,21 @@ the image factory has built from its schematic (`dashboardd
 until it's ready - never a plain release, which would drop its
 extensions. The Update page shows the node's schematic and extensions,
 and installing a bundle from another schematic takes an explicit
-checkbox (`allow_schematic_change`).
+checkbox (`allow_schematic_change`). **Change extensions…** opens a
+panel with the factory's catalog for the newest release (`GET
+/api/factory/catalog`); **Prepare the update** sends the chosen set to
+`POST /api/factory/update`, which registers that schematic with the
+factory and asks for its update - the same resolution as the node's
+own check, so going back to no extension means GitHub - and the panel
+follows a build every 20 s until it's ready. It only fills in the
+installation form (URL, sha256, the schematic-change checkbox); the
+confirmation lists the extensions gained and lost, and installing stays
+the usual A/B update.
+
+Shared caches (latest release, factory updates, catalog) fetch with a
+context detached from the request that triggers them
+(`sharedFetchContext`): a browser leaving the page must never put
+"context canceled" in a cache every node's page reads.
 
 A new feature goes into the group matching what the operator is trying
 to do, not into whichever page has room. A page that grows several

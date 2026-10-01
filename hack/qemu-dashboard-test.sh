@@ -568,6 +568,25 @@ expect_json /api/system/services 'any(s["id"] == "haproxy" and s["state"] == "ru
 # A default-schematic node's update comes from GitHub Releases; whether
 # GitHub answers from here isn't what's under test, the node's side is.
 expect_json /api/update-check 'd["default_schematic"] and d["schematic_id"] == "a055fbb697e2d0abb0c5911e7702b07040f49eb71befeaf9b90495a905327f47" and d["arch"] == "amd64" and d["extensions"] == [] and d["source"] == "github" and d["state"] in ("ready", "unavailable") and d["version"]' "update check"
+# Changing the extensions (nodeproxy/update.go). Only what starts no
+# image-factory build: back to the default schematic (GitHub, like the
+# check above), and an invalid name the Controller refuses itself. The
+# catalog comes from the real factory - a 502 if it can't be reached.
+jpost() { curl -sk "${DASH_CERT[@]}" -w '\n%{http_code}' -X POST -H 'Content-Type: application/json' -d "$2" "${NODE_BASE}$1"; }
+out="$(jpost /api/factory/update '{"extensions":[]}')"; code="${out##*$'\n'}"; body="${out%$'\n'*}"
+[ "$code" = "200" ] && python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["default_schematic"] and not d["schematic_change"] and d["extensions"] == [] and d["node_schematic_id"] == d["schematic_id"] and d["source"] == "github" and d["state"] in ("ready", "unavailable")' "$body" 2>/dev/null ||
+  { echo "Dashboard test FAILED: extensions update for the default schematic -> $code: $body" >&2; exit 1; }
+out="$(jpost /api/factory/update '{"extensions":["Not Valid!"]}')"; code="${out##*$'\n'}"
+[ "$code" = "400" ] || { echo "Dashboard test FAILED: an invalid extension name should be refused with 400, got $code: ${out%$'\n'*}" >&2; exit 1; }
+out="$(jget /api/factory/catalog)"; code="${out##*$'\n'}"; body="${out%$'\n'*}"
+if [ "$code" = "200" ]; then
+  python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["version"] and any(e["name"] == "node-exporter" and e["arches"] for e in d["extensions"])' "$body" 2>/dev/null ||
+    { echo "Dashboard test FAILED: extension catalog: $body" >&2; exit 1; }
+elif [ "$code" = "502" ] && grep -q "image factory" <<<"$body"; then
+  echo "  (extension catalog: the image factory isn't reachable from here: $body)"
+else
+  echo "Dashboard test FAILED: extension catalog -> $code: $body" >&2; exit 1
+fi
 expect_json /api/system/metrics-config 'd["config"]["enabled"] and d["config"]["port"] == 10056 and d["listening"] and d["is_default"]' "exporter config"
 expect_json /api/network/firewall 'd["state"] == "not_enabled"' "firewall module (not in the default image)"
 expect_json /api/network/vrrp 'd["state"] == "not_enabled"' "VRRP module (not in the default image)"

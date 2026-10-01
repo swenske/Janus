@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/schematic"
 )
@@ -125,19 +126,23 @@ func TestCheckUpdateNoFactory(t *testing.T) {
 	}
 }
 
-func TestCheckUpdateDefaultSchematicUsesGitHub(t *testing.T) {
-	resetFactory(t, "http://127.0.0.1:1") // must not be used
+// seedRelease makes rel the latest GitHub release without asking GitHub.
+func seedRelease(t *testing.T, rel *latestReleaseInfo) {
+	t.Helper()
 	releaseCache.mu.Lock()
 	prevData, prevErr, prevAt := releaseCache.data, releaseCache.err, releaseCache.fetchedAt
-	releaseCache.data = &latestReleaseInfo{TagName: "v1", BundleBaseURL: "https://github.invalid/download/v1", SHA256: "def"}
-	releaseCache.err = nil
-	releaseCache.fetchedAt = time.Now()
+	releaseCache.data, releaseCache.err, releaseCache.fetchedAt = rel, nil, time.Now()
 	releaseCache.mu.Unlock()
 	t.Cleanup(func() {
 		releaseCache.mu.Lock()
 		releaseCache.data, releaseCache.err, releaseCache.fetchedAt = prevData, prevErr, prevAt
 		releaseCache.mu.Unlock()
 	})
+}
+
+func TestCheckUpdateDefaultSchematicUsesGitHub(t *testing.T) {
+	resetFactory(t, "http://127.0.0.1:1") // must not be used
+	seedRelease(t, &latestReleaseInfo{TagName: "v1", BundleBaseURL: "https://github.invalid/download/v1", SHA256: "def"})
 
 	// A node older than schematics and VersionResponse.arch.
 	uc := checkUpdate(context.Background(), &janusv1alpha1.VersionResponse{Version: "v1"})
@@ -147,4 +152,201 @@ func TestCheckUpdateDefaultSchematicUsesGitHub(t *testing.T) {
 	if uc.SchematicID != schematic.DefaultID() || uc.BundleURL != "https://github.invalid/download/v1" {
 		t.Fatalf("update check = %+v", uc)
 	}
+}
+
+func TestUpdateForOtherExtensions(t *testing.T) {
+	var calls atomic.Int32
+	target := &schematic.Schematic{Customization: schematic.Customization{Extensions: []string{"qemu-guest-agent", "node-exporter"}}}
+	if err := target.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"schematic":"` + target.ID() + `","version":"v2","release_url":"https://example.invalid/r/v2","bundle_url":"https://factory.invalid/image/t/v2/amd64","sha256":"abc","state":"ready"}`
+	srv := fakeFactory(t, &calls, http.StatusOK, body)
+	resetFactory(t, srv.URL)
+
+	eu := updateFor(context.Background(), nodeWith(), target)
+	if !eu.SchematicChange || eu.Default || eu.SchematicID != target.ID() || eu.NodeSchematicID != schematic.DefaultID() {
+		t.Fatalf("update = %+v", eu)
+	}
+	if strings.Join(eu.Extensions, ",") != "node-exporter,qemu-guest-agent" || len(eu.NodeExtensions) != 0 {
+		t.Fatalf("extensions = %v, node's %v", eu.Extensions, eu.NodeExtensions)
+	}
+	if eu.Source != "image-factory" || eu.State != "ready" || eu.BundleURL != "https://factory.invalid/image/t/v2/amd64" || eu.SHA256 != "abc" || eu.Version != "v1" {
+		t.Fatalf("update = %+v", eu)
+	}
+	// The embedded check's fields come out at the top level.
+	data, _ := json.Marshal(eu)
+	var flat map[string]any
+	if err := json.Unmarshal(data, &flat); err != nil || flat["bundle_base_url"] != eu.BundleURL || flat["schematic_change"] != true || flat["node_schematic_id"] != schematic.DefaultID() {
+		t.Fatalf("JSON = %s", data)
+	}
+}
+
+func TestUpdateForBuilding(t *testing.T) {
+	var calls atomic.Int32
+	srv := fakeFactory(t, &calls, http.StatusOK, `{"version":"v2","state":"building"}`)
+	resetFactory(t, srv.URL)
+	target := &schematic.Schematic{Customization: schematic.Customization{Extensions: []string{"bird"}}}
+	eu := updateFor(context.Background(), nodeWith("node-exporter"), target)
+	if eu.State != "building" || eu.BundleURL != "" || !eu.SchematicChange {
+		t.Fatalf("update = %+v", eu)
+	}
+}
+
+func TestUpdateForSameSchematic(t *testing.T) {
+	var calls atomic.Int32
+	srv := fakeFactory(t, &calls, http.StatusOK, `{"version":"v2","bundle_url":"https://factory.invalid/b","state":"ready"}`)
+	resetFactory(t, srv.URL)
+	target := &schematic.Schematic{Customization: schematic.Customization{Extensions: []string{"node-exporter"}}}
+	eu := updateFor(context.Background(), nodeWith("node-exporter"), target)
+	if eu.SchematicChange || eu.State != "ready" || !eu.UpdateAvailable {
+		t.Fatalf("update = %+v", eu)
+	}
+}
+
+func TestUpdateForNoExtensionsUsesGitHub(t *testing.T) {
+	resetFactory(t, "http://127.0.0.1:1") // must not be used
+	seedRelease(t, &latestReleaseInfo{TagName: "v2", BundleBaseURL: "https://github.invalid/download/v2", SHA256: "def"})
+	eu := updateFor(context.Background(), nodeWith("node-exporter", "qemu-guest-agent"), &schematic.Schematic{})
+	if !eu.Default || !eu.SchematicChange || eu.Source != "github" || eu.BundleURL != "https://github.invalid/download/v2" || len(eu.Extensions) != 0 {
+		t.Fatalf("update = %+v", eu)
+	}
+	if strings.Join(eu.NodeExtensions, ",") != "node-exporter,qemu-guest-agent" {
+		t.Fatalf("node's extensions = %v", eu.NodeExtensions)
+	}
+}
+
+// fakeCatalogFactory serves the versions list and the catalogs of
+// site/backend, counting the requests.
+func fakeCatalogFactory(t *testing.T, calls *atomic.Int32) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		switch r.URL.Path {
+		case "/api/v1/versions":
+			_, _ = io.WriteString(w, `[{"version":"v3","schematics":false},{"version":"v2","schematics":true},{"version":"v1","schematics":true}]`)
+		case "/api/v1/versions/v2/extensions":
+			_, _ = io.WriteString(w, `{"version":"v2","extensions":[{"name":"node-exporter","version":"1.9.1","description":"Prometheus exporter","arches":["amd64","arm64"]},{"name":"qemu-guest-agent","version":"10.0.0","description":"QEMU guest agent","arches":["amd64"]}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func resetCatalog(t *testing.T) {
+	t.Helper()
+	catalogCache.mu.Lock()
+	catalogCache.base, catalogCache.view, catalogCache.err = "", nil, nil
+	catalogCache.mu.Unlock()
+}
+
+func TestFactoryCatalog(t *testing.T) {
+	var calls atomic.Int32
+	srv := fakeCatalogFactory(t, &calls)
+	resetFactory(t, srv.URL)
+	resetCatalog(t)
+
+	view, err := factoryCatalog(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// v3 publishes no catalog (an older build pipeline): the newest one is v2's.
+	if view.Version != "v2" || len(view.Extensions) != 2 || view.Extensions[1].Name != "qemu-guest-agent" || view.Extensions[1].Arches[0] != "amd64" || view.Factory != srv.URL {
+		t.Fatalf("catalog = %+v", view)
+	}
+	if _, err := factoryCatalog(context.Background()); err != nil || calls.Load() != 2 {
+		t.Fatalf("second call: %v, factory asked %d times, want 2 (cached)", err, calls.Load())
+	}
+}
+
+func TestFactoryCatalogNoFactory(t *testing.T) {
+	resetFactory(t, "")
+	resetCatalog(t)
+	if _, err := factoryCatalog(context.Background()); err == nil || !strings.Contains(err.Error(), "-image-factory") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFactoryRoutes(t *testing.T) {
+	var calls atomic.Int32
+	srv := fakeCatalogFactory(t, &calls)
+	resetFactory(t, srv.URL)
+	resetCatalog(t)
+	mux := http.NewServeMux()
+	registerUpdateRoutes(mux, &store.Node{})
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/factory/catalog", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"qemu-guest-agent"`) {
+		t.Fatalf("catalog: %d %s", rec.Code, rec.Body)
+	}
+
+	// An invalid name is refused before the node or the factory is asked.
+	before := calls.Load()
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/factory/update", strings.NewReader(`{"extensions":["Not Valid!"]}`)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "valid extension name") || calls.Load() != before {
+		t.Fatalf("invalid name: %d %s", rec.Code, rec.Body)
+	}
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/factory/update", strings.NewReader(`not json`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad body: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// canceled is the context of a request whose browser already went away.
+func canceled() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}
+
+// A shared, cached fetch outlives the request that triggers it: a client
+// going away mustn't leave "context canceled" in the cache for every node.
+func TestCachedFetchesIgnoreCanceledRequests(t *testing.T) {
+	t.Run("latest release", func(t *testing.T) {
+		var gh *httptest.Server
+		gh = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/releases":
+				_, _ = io.WriteString(w, `[{"tag_name":"v2","html_url":"https://github.invalid/r/releases/tag/v2","assets":[{"name":"rootfs.squashfs.sha256","browser_download_url":"`+gh.URL+`/sha"}]}]`)
+			case "/sha":
+				_, _ = io.WriteString(w, "abc\n")
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		t.Cleanup(gh.Close)
+		prevURL := githubReleasesURL
+		githubReleasesURL = gh.URL + "/releases"
+		t.Cleanup(func() { githubReleasesURL = prevURL })
+		seedRelease(t, nil) // empty cache, restored afterwards
+		releaseCache.mu.Lock()
+		releaseCache.fetchedAt = time.Time{}
+		releaseCache.mu.Unlock()
+
+		rel, err := getLatestRelease(canceled())
+		if err != nil || rel.TagName != "v2" || rel.SHA256 != "abc" {
+			t.Fatalf("latest release = %+v, %v", rel, err)
+		}
+	})
+	t.Run("factory catalog", func(t *testing.T) {
+		var calls atomic.Int32
+		resetFactory(t, fakeCatalogFactory(t, &calls).URL)
+		resetCatalog(t)
+		if view, err := factoryCatalog(canceled()); err != nil || view.Version != "v2" {
+			t.Fatalf("catalog = %+v, %v", view, err)
+		}
+	})
+	t.Run("factory update", func(t *testing.T) {
+		var calls atomic.Int32
+		srv := fakeFactory(t, &calls, http.StatusOK, `{"version":"v2","bundle_url":"https://factory.invalid/b","state":"ready"}`)
+		resetFactory(t, srv.URL)
+		if uc := checkUpdate(canceled(), nodeWith("node-exporter")); uc.State != "ready" {
+			t.Fatalf("update check = %+v", uc)
+		}
+	})
 }

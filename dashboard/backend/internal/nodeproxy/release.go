@@ -32,7 +32,7 @@ import (
 // githubReleasesURL lists this project's releases, newest first -
 // GitHub's documented ordering for this endpoint. Not /latest: that one
 // skips pre-releases, which every release up to v2026.09.30-2 was.
-const githubReleasesURL = "https://api.github.com/repos/swenske/Janus/releases"
+var githubReleasesURL = "https://api.github.com/repos/swenske/Janus/releases" // a var for tests
 
 // releaseCacheTTL bounds how long a fetched result is reused before
 // asking GitHub again - short enough that a fresh release shows up
@@ -84,7 +84,9 @@ func getLatestRelease(ctx context.Context) (*latestReleaseInfo, error) {
 		return nil, releaseCache.err
 	}
 
-	info, err := fetchLatestRelease(ctx)
+	fctx, cancel := sharedFetchContext(ctx)
+	defer cancel()
+	info, err := fetchLatestRelease(fctx)
 	releaseCache.fetchedAt = time.Now()
 	if err != nil {
 		releaseCache.err = err
@@ -94,6 +96,14 @@ func getLatestRelease(ctx context.Context) (*latestReleaseInfo, error) {
 	releaseCache.data = info
 	releaseCache.err = nil
 	return info, nil
+}
+
+// sharedFetchContext is the context of a fetch whose result is cached
+// and shared by every node's page: detached from the request that
+// happens to trigger it, so a browser going away (page change, closed
+// tab) can't leave "context canceled" in the cache for everyone.
+func sharedFetchContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 }
 
 type ghRelease struct {

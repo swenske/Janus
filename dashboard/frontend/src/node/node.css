@@ -220,3 +220,20 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
   .topbar { padding: 0.5rem 0.8rem; }
   .search input { width: 9rem; }
 }
+
+/* Update › Change extensions */
+.ext-list { display: grid; gap: 0.35rem; }
+.ext-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.ext-row:hover { background: var(--surface-2); }
+.ext-row.disabled { cursor: default; opacity: 0.6; }
+.ext-row.disabled:hover { background: none; }
+.ext-row .ext-desc { flex-basis: 100%; padding-left: 1.55rem; }

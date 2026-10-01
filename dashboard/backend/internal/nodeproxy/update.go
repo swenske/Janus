@@ -63,9 +63,46 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 			return checkUpdate(ctx, v), nil
 		})
 	})
+	mux.HandleFunc("GET /api/factory/catalog", func(w http.ResponseWriter, r *http.Request) {
+		view, err := factoryCatalog(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSONBody(w, http.StatusOK, view)
+	})
+	mux.HandleFunc("POST /api/factory/update", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Extensions []string `json:"extensions"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		sc := &schematic.Schematic{Customization: schematic.Customization{Extensions: req.Extensions}}
+		if err := sc.Normalize(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		unary(w, r, node, unaryTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
+			v, err := janusv1alpha1.NewSystemServiceClient(c).Version(ctx, &emptypb.Empty{})
+			if err != nil {
+				return nil, err
+			}
+			return updateFor(ctx, v, sc), nil
+		})
+	})
 }
 
 func checkUpdate(ctx context.Context, v *janusv1alpha1.VersionResponse) *updateCheck {
+	uc := nodeUpdateCheck(v)
+	resolveUpdate(ctx, uc)
+	return uc
+}
+
+// nodeUpdateCheck is the node's part of an update check: its version,
+// architecture and schematic.
+func nodeUpdateCheck(v *janusv1alpha1.VersionResponse) *updateCheck {
 	uc := &updateCheck{Version: v.GetVersion(), Arch: v.GetArch(), SchematicID: v.GetSchematicId(), Extensions: []string{}}
 	for _, e := range v.GetExtensions() {
 		uc.Extensions = append(uc.Extensions, e.GetName())
@@ -77,37 +114,142 @@ func checkUpdate(ctx context.Context, v *janusv1alpha1.VersionResponse) *updateC
 		uc.SchematicID = schematic.DefaultID() // older than schematics
 	}
 	uc.Default = uc.SchematicID == schematic.DefaultID()
+	return uc
+}
 
+// resolveUpdate fills in the newest update built from uc's schematic for
+// a node running uc.Version on uc.Arch.
+func resolveUpdate(ctx context.Context, uc *updateCheck) {
 	if uc.Default {
 		uc.Source = "github"
 		rel, err := getLatestRelease(ctx)
 		if err != nil {
 			uc.State, uc.Message = "unavailable", err.Error()
-			return uc
+			return
 		}
 		uc.State = "ready"
 		uc.Latest, uc.ReleaseURL, uc.PublishedAt = rel.TagName, rel.HTMLURL, rel.PublishedAt
 		uc.BundleURL, uc.SHA256 = rel.BundleBaseURL, rel.SHA256
 		uc.UpdateAvailable = uc.Latest != uc.Version
-		return uc
+		return
 	}
 
 	uc.Source = "image-factory"
 	base := strings.TrimRight(ImageFactoryURL, "/")
 	if base == "" {
-		uc.State, uc.Message = "unavailable", "this node's image has extensions, and no image factory is configured to build its updates (dashboardd -image-factory)"
-		return uc
+		uc.State, uc.Message = "unavailable", "an image with extensions gets its updates from an image factory, and none is configured (dashboardd -image-factory)"
+		return
 	}
 	up, err := factoryUpdate(ctx, base, uc)
 	if err != nil {
 		uc.State, uc.Message = "unavailable", err.Error()
-		return uc
+		return
 	}
 	uc.Latest, uc.ReleaseURL = up.Version, up.ReleaseURL
 	uc.BundleURL, uc.SHA256 = up.BundleURL, up.SHA256
 	uc.State, uc.Message = up.State, up.Message
 	uc.UpdateAvailable = up.Version != "" && up.Version != uc.Version
-	return uc
+}
+
+// extensionsUpdate is POST /api/factory/update: the newest update built
+// for the node with another set of extensions. The embedded check's
+// Version and Arch are the node's, its schematic and extensions the
+// target's.
+type extensionsUpdate struct {
+	updateCheck
+	NodeSchematicID string   `json:"node_schematic_id"`
+	NodeExtensions  []string `json:"node_extensions"`
+	// SchematicChange says installing it needs allow_schematic_change.
+	SchematicChange bool `json:"schematic_change"`
+}
+
+// updateFor finds the update that would give the node running v the
+// extensions of sc (normalized). An image factory builds it if it
+// doesn't exist yet - State says so.
+func updateFor(ctx context.Context, v *janusv1alpha1.VersionResponse, sc *schematic.Schematic) *extensionsUpdate {
+	node := nodeUpdateCheck(v)
+	exts := sc.Extensions()
+	if exts == nil {
+		exts = []string{}
+	}
+	eu := &extensionsUpdate{
+		updateCheck: updateCheck{
+			Version:     node.Version,
+			Arch:        node.Arch,
+			SchematicID: sc.ID(),
+			Extensions:  exts,
+			Default:     sc.ID() == schematic.DefaultID(),
+		},
+		NodeSchematicID: node.SchematicID,
+		NodeExtensions:  node.Extensions,
+		SchematicChange: sc.ID() != node.SchematicID,
+	}
+	resolveUpdate(ctx, &eu.updateCheck)
+	return eu
+}
+
+// factoryCatalogView is GET /api/factory/catalog: the extensions an image
+// factory builds, from the newest release that publishes them.
+type factoryCatalogView struct {
+	Factory    string                   `json:"factory"`
+	Version    string                   `json:"version"`
+	Extensions []schematic.CatalogEntry `json:"extensions"`
+}
+
+var catalogCache struct {
+	mu      sync.Mutex
+	base    string
+	view    *factoryCatalogView
+	err     error
+	expires time.Time
+}
+
+// factoryCatalog asks the image factory for its newest extension
+// catalog; the answer is cached like the release check, an error for a
+// minute.
+func factoryCatalog(ctx context.Context) (*factoryCatalogView, error) {
+	base := strings.TrimRight(ImageFactoryURL, "/")
+	if base == "" {
+		return nil, fmt.Errorf("no image factory is configured (dashboardd -image-factory)")
+	}
+	catalogCache.mu.Lock()
+	defer catalogCache.mu.Unlock()
+	if catalogCache.base == base && time.Now().Before(catalogCache.expires) {
+		return catalogCache.view, catalogCache.err
+	}
+	fctx, cancel := sharedFetchContext(ctx)
+	defer cancel()
+	view, err := fetchFactoryCatalog(fctx, base)
+	ttl := releaseCacheTTL
+	if err != nil {
+		ttl = time.Minute
+	}
+	catalogCache.base, catalogCache.view, catalogCache.err, catalogCache.expires = base, view, err, time.Now().Add(ttl)
+	return view, err
+}
+
+func fetchFactoryCatalog(ctx context.Context, base string) (*factoryCatalogView, error) {
+	var versions []struct {
+		Version    string `json:"version"`
+		Schematics bool   `json:"schematics"`
+	}
+	if err := factoryCall(ctx, http.MethodGet, base+"/api/v1/versions", nil, &versions); err != nil {
+		return nil, err
+	}
+	for _, v := range versions { // newest first
+		if !v.Schematics {
+			continue
+		}
+		var c schematic.Catalog
+		if err := factoryCall(ctx, http.MethodGet, base+"/api/v1/versions/"+url.PathEscape(v.Version)+"/extensions", nil, &c); err != nil {
+			return nil, err
+		}
+		if c.Extensions == nil {
+			c.Extensions = []schematic.CatalogEntry{}
+		}
+		return &factoryCatalogView{Factory: base, Version: v.Version, Extensions: c.Extensions}, nil
+	}
+	return nil, fmt.Errorf("image factory: no release offers extensions")
 }
 
 // factoryUpdate is the image factory's answer, as site/backend's
@@ -144,7 +286,9 @@ func factoryUpdate(ctx context.Context, base string, uc *updateCheck) (*factoryU
 	if e, ok := factoryCache.entries[key]; ok && time.Now().Before(e.expires) {
 		return e.up, e.err
 	}
-	up, err := fetchFactoryUpdate(ctx, base, uc)
+	fctx, cancel := sharedFetchContext(ctx)
+	defer cancel()
+	up, err := fetchFactoryUpdate(fctx, base, uc)
 	ttl := time.Minute
 	switch {
 	case err == nil && up.State == "ready":
