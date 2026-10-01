@@ -52,7 +52,10 @@ theme toggle:
   keepalived, nftables), marked "n/a" when the image doesn't ship them.
   Firewall: ruleset editor (check, diff, apply on trial - the Controller
   confirms over a *fresh* connection, never the shared one, which
-  conntrack keeps open whatever the ruleset), live sets, live ruleset
+  conntrack keeps open whatever the ruleset), live sets, live ruleset.
+  VRRP (and BGP): instances/sessions, then the daemon's configuration in
+  the shared ModuleConfigEditor (check by the daemon itself, diff, apply,
+  remove)
 - **Tools** - packet capture, files
 - **System** - network (hostname, interfaces, VLANs, DNS, NTP), services,
   update, access (client certificates), power

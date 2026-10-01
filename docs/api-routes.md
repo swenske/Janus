@@ -104,7 +104,9 @@ Optional modules:
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
 | `BGPStatus` / `BGPApplyConfig` | | ✅ (not-enabled) | bird - `MODULE_STATE_NOT_ENABLED` and apply refused (`FailedPrecondition`) when bird isn't in the image, which is every image today; answers `Unimplemented` if the binary is present, since its management isn't built yet |
-| `VRRPStatus` / `VRRPApplyConfig` | | ✅ (not-enabled) | keepalived, same convention |
+| `VRRPStatus` | | ✅ | The keepalived extension: each VRRP instance's state, interface, priority, virtual IPs, and HAProxy's health as tracked ([vrrp.md](vrrp.md)) |
+| `VRRPGetConfig` | | ✅ | The saved keepalived.conf |
+| `VRRPApplyConfig` | | ✅ | Check (`validate_only`, by keepalived itself) or apply keepalived.conf - saved, reloaded; empty stops keepalived |
 | `FirewallList` | | ✅ | The nftables extension: the live ruleset, whether one is saved, a trial in progress ([firewall.md](firewall.md)) |
 | `FirewallGetRuleset` | | ✅ | The saved ruleset |
 | `FirewallApplyRuleset` | | ✅ | Check (`validate_only`) or apply a ruleset on trial - reverts unless confirmed |

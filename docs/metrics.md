@@ -65,6 +65,12 @@ scrape_configs:
 | `janus_time_stratum` | gauge | | The server's stratum |
 | `janus_network_trial_pending` | gauge | | 1 while a network configuration is on trial (it reverts unless confirmed) |
 | `janus_network_trial_revert_timestamp_seconds` | gauge | | When it reverts, while on trial |
+| `janus_firewall_configured` | gauge | | 1 if a firewall ruleset is saved ([firewall](firewall.md), the nftables extension) |
+| `janus_firewall_trial_pending` | gauge | | 1 while a firewall ruleset is on trial: it reverts unless confirmed |
+| `janus_firewall_set_elements` | gauge | `family`, `table`, `set` | Elements in each named set of the live ruleset |
+| `janus_vrrp_instance_state` | gauge | `instance`, `interface`, `state` | 1 for each VRRP instance's current state (`MASTER`, `BACKUP`, `FAULT`, `INIT`, `STOP`) - [VRRP](vrrp.md), the keepalived extension |
+| `janus_vrrp_instance_effective_priority` | gauge | `instance` | Its priority after tracking |
+| `janus_vrrp_instance_became_master_total` | counter | `instance` | Times it became master since keepalived started |
 | `janus_selinux_enforcing` | gauge | | 1 if SELinux is enforcing |
 | `janus_selinux_denials_total` | counter | | SELinux denials in the kernel log since boot - there should be none |
 | `janus_kernel_oom_kills_total` | counter | | Processes the kernel killed for lack of memory since boot |
@@ -116,6 +122,10 @@ groups:
       - alert: JanusAPIRefusals
         expr: sum by (instance) (increase(janus_api_requests_total{code=~"PermissionDenied|Unauthenticated"}[15m])) > 10
         labels: {severity: warning}
+      - alert: JanusVRRPFault
+        expr: janus_vrrp_instance_state{state="FAULT"} == 1
+        for: 1m
+        labels: {severity: critical}
 ```
 
 ## HAProxy's own metrics
