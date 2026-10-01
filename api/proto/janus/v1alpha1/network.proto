@@ -16,7 +16,11 @@ service NetworkService {
   rpc BGPStatus(google.protobuf.Empty) returns (BGPStatusResponse);
   rpc BGPApplyConfig(BGPApplyConfigRequest) returns (BGPApplyConfigResponse);
 
+  // VRRP: the keepalived extension (docs/vrrp.md). keepalived.conf is
+  // checked by keepalived itself, saved, and reloaded; VRRPStatus reads
+  // keepalived's own state of each instance.
   rpc VRRPStatus(google.protobuf.Empty) returns (VRRPStatusResponse);
+  rpc VRRPGetConfig(google.protobuf.Empty) returns (VRRPGetConfigResponse);
   rpc VRRPApplyConfig(VRRPApplyConfigRequest) returns (VRRPApplyConfigResponse);
 
   // Firewall: the nftables extension (docs/firewall.md). The ruleset is
@@ -269,22 +273,42 @@ message BGPApplyConfigResponse {
 message VRRPStatusResponse {
   ModuleState state = 1;
   repeated VRRPInstance instances = 2;
+  bool configured = 3; // a keepalived.conf is saved
+  // The file a keepalived.conf tracks (track_file) to give its virtual IPs
+  // up when HAProxy stops answering: "0" healthy, "1" not.
+  string haproxy_health_file = 4;
+  bool haproxy_healthy = 5;
+  string error = 6; // why the instances couldn't be read, if they couldn't
 }
 
 message VRRPInstance {
   string name = 1;
-  string role = 2; // "MASTER" or "BACKUP"
-  string virtual_ip = 3;
+  // "MASTER", "BACKUP", "FAULT", "INIT" or "STOP" - keepalived's own.
+  string role = 2;
+  reserved 3; // was a single virtual_ip
+  string interface = 4;
+  uint32 virtual_router_id = 5;
+  uint32 priority = 6; // configured
+  uint32 effective_priority = 7; // after tracked scripts/files
+  repeated string virtual_ips = 8; // CIDR
+  int64 last_transition_unix = 9;
+  uint64 became_master = 10; // times, since keepalived started
+}
+
+message VRRPGetConfigResponse {
+  bytes config = 1; // the saved keepalived.conf
+  bool is_default = 2; // none saved
 }
 
 message VRRPApplyConfigRequest {
-  // keepalived.conf content, validated before apply.
+  // keepalived.conf; empty removes it and stops keepalived.
   bytes config = 1;
+  bool validate_only = 2;
 }
 
 message VRRPApplyConfigResponse {
   bool accepted = 1;
-  repeated string errors = 2;
+  repeated string errors = 2; // keepalived's
 }
 
 message FirewallListResponse {

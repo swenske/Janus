@@ -98,6 +98,7 @@ var requiredRoles = map[string][]string{
 	"/janus.v1alpha1.NetworkService/BGPApplyConfig":       adminOnly,
 	"/janus.v1alpha1.NetworkService/VRRPStatus":           adminOrReader,
 	"/janus.v1alpha1.NetworkService/VRRPApplyConfig":      adminOnly,
+	"/janus.v1alpha1.NetworkService/VRRPGetConfig":        adminOrReader,
 	"/janus.v1alpha1.NetworkService/FirewallList":         adminOrReader,
 	"/janus.v1alpha1.NetworkService/FirewallApplyRuleset": adminOnly,
 	"/janus.v1alpha1.NetworkService/FirewallGetRuleset":   adminOrReader,

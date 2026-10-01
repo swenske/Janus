@@ -12,6 +12,7 @@ import (
 	"github.com/swenske/Janus/internal/firewall"
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/timesync"
+	"github.com/swenske/Janus/internal/vrrp"
 )
 
 // Network implements janusv1alpha1.NetworkServiceServer for the optional
@@ -29,6 +30,10 @@ type Network struct {
 	Time *timesync.Service
 	// Firewall manages the nftables extension's ruleset (firewall.go).
 	Firewall *firewall.Manager
+	// VRRP manages the keepalived extension (vrrp.go); HAProxyHealthy is
+	// what its health file reports.
+	VRRP           *vrrp.Manager
+	HAProxyHealthy func() bool
 }
 
 // moduleBinaries is where each module's daemon lives in an image that
@@ -72,16 +77,4 @@ func (n *Network) BGPStatus(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1
 
 func (n *Network) BGPApplyConfig(_ context.Context, _ *janusv1alpha1.BGPApplyConfigRequest) (*janusv1alpha1.BGPApplyConfigResponse, error) {
 	return nil, moduleApply("bgp")
-}
-
-func (n *Network) VRRPStatus(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.VRRPStatusResponse, error) {
-	st, err := moduleStatus("vrrp")
-	if err != nil {
-		return nil, err
-	}
-	return &janusv1alpha1.VRRPStatusResponse{State: st}, nil
-}
-
-func (n *Network) VRRPApplyConfig(_ context.Context, _ *janusv1alpha1.VRRPApplyConfigRequest) (*janusv1alpha1.VRRPApplyConfigResponse, error) {
-	return nil, moduleApply("vrrp")
 }

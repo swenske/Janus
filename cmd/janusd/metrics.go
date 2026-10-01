@@ -20,6 +20,7 @@ import (
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/timesync"
+	"github.com/swenske/Janus/internal/vrrp"
 )
 
 // metricsSources is what the node's exporter reads at scrape time.
@@ -34,6 +35,7 @@ type metricsSources struct {
 	time       *timesync.Service
 	kmsg       *kmsgwatch.Counts
 	firewall   *firewall.Manager
+	vrrp       *vrrp.Manager
 	statePath  string // STATE's mount point, for its filesystem's error count
 
 	certsMu      sync.Mutex
@@ -47,7 +49,7 @@ type metricsSources struct {
 const haproxyCertTTL = time.Minute
 
 func (m *metricsSources) collectors() []exporter.Collector {
-	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.security, m.apiRequests}
+	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.security, m.apiRequests}
 }
 
 func gauge(name, help string, samples ...exporter.Sample) exporter.Family {
@@ -215,6 +217,31 @@ func (m *metricsSources) firewallMetrics() []exporter.Family {
 		fams = append(fams, gauge("janus_firewall_set_elements", "Elements in each named set of the live firewall ruleset.", samples...))
 	}
 	return fams
+}
+
+var vrrpStates = []string{"MASTER", "BACKUP", "FAULT", "INIT", "STOP"}
+
+func (m *metricsSources) vrrpMetrics() []exporter.Family {
+	if m.vrrp == nil || !m.vrrp.Available() {
+		return nil
+	}
+	instances, err := m.vrrp.Status()
+	if err != nil {
+		return nil
+	}
+	var states, prio, masters []exporter.Sample
+	for _, in := range instances {
+		for _, s := range vrrpStates {
+			states = append(states, sample(exporter.Bool(in.State == s), "instance", in.Name, "interface", in.Interface, "state", s))
+		}
+		prio = append(prio, sample(float64(in.EffectivePriority), "instance", in.Name))
+		masters = append(masters, sample(float64(in.BecameMaster), "instance", in.Name))
+	}
+	return []exporter.Family{
+		gauge("janus_vrrp_instance_state", "Each VRRP instance's state (the keepalived extension): 1 for its current one.", states...),
+		gauge("janus_vrrp_instance_effective_priority", "Each VRRP instance's priority, after tracking.", prio...),
+		counter("janus_vrrp_instance_became_master_total", "Times each VRRP instance became master since keepalived started.", masters...),
+	}
 }
 
 func (m *metricsSources) security() []exporter.Family {

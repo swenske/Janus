@@ -49,6 +49,7 @@ import (
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/selfregister"
 	"github.com/swenske/Janus/internal/timesync"
+	"github.com/swenske/Janus/internal/vrrp"
 )
 
 // version is set via -ldflags "-X main.version=..." by the release build
@@ -174,6 +175,17 @@ func main() {
 		serviceLogs[id] = ring.New[string](serviceLogLines)
 		return io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs[id]})
 	})
+	// keepalived (the VRRP extension) waits for its configuration file:
+	// put the saved one there, and the HAProxy health file it can track,
+	// before the services start.
+	vrrpMgr := vrrp.New(extMgr)
+	haproxyHealthy := func() bool { _, err := haproxyMgr.ShowInfo(); return err == nil }
+	if *manageHost && vrrpMgr.Available() {
+		if err := vrrpMgr.Boot(); err != nil {
+			log.Printf("vrrp: %v", err)
+		}
+		go vrrp.KeepHealth(haproxyHealthy, 2*time.Second, nil)
+	}
 	extMgr.Start()
 
 	// SIGTERM is rootfs/init asking janusd to stop before a power-off or
@@ -280,7 +292,7 @@ func main() {
 	// The node's own Prometheus exporter (internal/exporter). The kernel
 	// log and STATE are only this node's to report when janusd runs it.
 	metrics := &metricsSources{version: version, started: started, ca: pkiBootstrap.CA, serverCert: serverCert,
-		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr}
+		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr, vrrp: vrrpMgr}
 	if *manageHost {
 		metrics.kmsg = &kmsgwatch.Counts{}
 		metrics.statePath = "/etc/.state"
@@ -305,7 +317,7 @@ func main() {
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr})
-	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr})
+	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
 	printMOTD(motdInfo{

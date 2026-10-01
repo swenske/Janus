@@ -23,6 +23,7 @@ const (
 	NetworkService_BGPStatus_FullMethodName            = "/janus.v1alpha1.NetworkService/BGPStatus"
 	NetworkService_BGPApplyConfig_FullMethodName       = "/janus.v1alpha1.NetworkService/BGPApplyConfig"
 	NetworkService_VRRPStatus_FullMethodName           = "/janus.v1alpha1.NetworkService/VRRPStatus"
+	NetworkService_VRRPGetConfig_FullMethodName        = "/janus.v1alpha1.NetworkService/VRRPGetConfig"
 	NetworkService_VRRPApplyConfig_FullMethodName      = "/janus.v1alpha1.NetworkService/VRRPApplyConfig"
 	NetworkService_FirewallList_FullMethodName         = "/janus.v1alpha1.NetworkService/FirewallList"
 	NetworkService_FirewallGetRuleset_FullMethodName   = "/janus.v1alpha1.NetworkService/FirewallGetRuleset"
@@ -49,7 +50,11 @@ const (
 type NetworkServiceClient interface {
 	BGPStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*BGPStatusResponse, error)
 	BGPApplyConfig(ctx context.Context, in *BGPApplyConfigRequest, opts ...grpc.CallOption) (*BGPApplyConfigResponse, error)
+	// VRRP: the keepalived extension (docs/vrrp.md). keepalived.conf is
+	// checked by keepalived itself, saved, and reloaded; VRRPStatus reads
+	// keepalived's own state of each instance.
 	VRRPStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*VRRPStatusResponse, error)
+	VRRPGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*VRRPGetConfigResponse, error)
 	VRRPApplyConfig(ctx context.Context, in *VRRPApplyConfigRequest, opts ...grpc.CallOption) (*VRRPApplyConfigResponse, error)
 	// Firewall: the nftables extension (docs/firewall.md). The ruleset is
 	// the node's whole nftables ruleset, in nft's own syntax. FirewallList
@@ -123,6 +128,16 @@ func (c *networkServiceClient) VRRPStatus(ctx context.Context, in *emptypb.Empty
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(VRRPStatusResponse)
 	err := c.cc.Invoke(ctx, NetworkService_VRRPStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) VRRPGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*VRRPGetConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VRRPGetConfigResponse)
+	err := c.cc.Invoke(ctx, NetworkService_VRRPGetConfig_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +276,11 @@ func (c *networkServiceClient) NetworkStatus(ctx context.Context, in *emptypb.Em
 type NetworkServiceServer interface {
 	BGPStatus(context.Context, *emptypb.Empty) (*BGPStatusResponse, error)
 	BGPApplyConfig(context.Context, *BGPApplyConfigRequest) (*BGPApplyConfigResponse, error)
+	// VRRP: the keepalived extension (docs/vrrp.md). keepalived.conf is
+	// checked by keepalived itself, saved, and reloaded; VRRPStatus reads
+	// keepalived's own state of each instance.
 	VRRPStatus(context.Context, *emptypb.Empty) (*VRRPStatusResponse, error)
+	VRRPGetConfig(context.Context, *emptypb.Empty) (*VRRPGetConfigResponse, error)
 	VRRPApplyConfig(context.Context, *VRRPApplyConfigRequest) (*VRRPApplyConfigResponse, error)
 	// Firewall: the nftables extension (docs/firewall.md). The ruleset is
 	// the node's whole nftables ruleset, in nft's own syntax. FirewallList
@@ -319,6 +338,9 @@ func (UnimplementedNetworkServiceServer) BGPApplyConfig(context.Context, *BGPApp
 }
 func (UnimplementedNetworkServiceServer) VRRPStatus(context.Context, *emptypb.Empty) (*VRRPStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method VRRPStatus not implemented")
+}
+func (UnimplementedNetworkServiceServer) VRRPGetConfig(context.Context, *emptypb.Empty) (*VRRPGetConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method VRRPGetConfig not implemented")
 }
 func (UnimplementedNetworkServiceServer) VRRPApplyConfig(context.Context, *VRRPApplyConfigRequest) (*VRRPApplyConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method VRRPApplyConfig not implemented")
@@ -424,6 +446,24 @@ func _NetworkService_VRRPStatus_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(NetworkServiceServer).VRRPStatus(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_VRRPGetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).VRRPGetConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_VRRPGetConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).VRRPGetConfig(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -637,6 +677,10 @@ var NetworkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "VRRPStatus",
 			Handler:    _NetworkService_VRRPStatus_Handler,
+		},
+		{
+			MethodName: "VRRPGetConfig",
+			Handler:    _NetworkService_VRRPGetConfig_Handler,
 		},
 		{
 			MethodName: "VRRPApplyConfig",
