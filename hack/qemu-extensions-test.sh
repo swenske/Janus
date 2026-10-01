@@ -152,6 +152,11 @@ check "node_exporter: disk statistics" '^node_disk_reads_completed_total\{device
 check "node_exporter: STATE filesystem" 'node_filesystem_size_bytes\{.*mountpoint="/etc/.state"' "$m"
 check "node_exporter: network statistics" '^node_network_receive_bytes_total\{device="eth0"\}' "$m"
 check "node_exporter logs captured" 'Starting node_exporter' "$(ctl system logs node-exporter)"
+# janusd reads every /proc/<pid> for Processes and Stats (the
+# Controller's metrics): the extensions' processes must be there too.
+ps_out="$(ctl system ps)"
+check "node_exporter listed by Processes" 'node_exporter' "$ps_out"
+check "qemu-ga listed by Processes" 'qemu-ga' "$ps_out"
 # Janus's own exporter reports the extensions and their services.
 jm="$(curl -s -m 5 "http://127.0.0.1:${P_JANUS}/metrics" || true)"
 check "janus exporter: the image's extensions" '^janus_extension_info\{extension="node-exporter",version="[0-9.]+"\} 1$' "$jm"
