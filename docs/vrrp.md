@@ -13,6 +13,10 @@ Every node of a group gets the same file, but for its `priority` - the
 highest one holds the virtual IP:
 
 ```
+global_defs {
+    vrrp_version 3          # for sub-second adverts
+}
+
 track_file haproxy {
     # 0 while this node's HAProxy answers, 1 when it doesn't - kept by janusd.
     file /run/janus/keepalived/haproxy-health
@@ -23,9 +27,9 @@ vrrp_instance VI_1 {
     interface eth1
     virtual_router_id 51
     priority 150            # 100 on the other node
-    advert_int 1
+    advert_int 0.2          # a node that dies is replaced in ~3 adverts
     track_file {
-        haproxy weight 0    # HAProxy not answering: give the virtual IP up
+        haproxy weight -100 # HAProxy not answering: priority 50, the other node takes over
     }
     virtual_ipaddress {
         192.0.2.100/24
@@ -36,10 +40,20 @@ vrrp_instance VI_1 {
 - **HAProxy's health**: janusd checks every 2 seconds - and at once when
   HAProxy starts, stops or exits - that HAProxy answers on its stats
   socket and isn't being stopped, and writes `0` or `1` into
-  `/run/janus/keepalived/haproxy-health`. Tracked with `weight 0`, a `1`
-  puts the instance in FAULT: the node gives its virtual IPs up until
-  HAProxy answers again. keepalived can't run scripts on a Janus node
-  (there's no shell) - this file is how it follows HAProxy.
+  `/run/janus/keepalived/haproxy-health`. keepalived can't run scripts
+  on a Janus node (there's no shell) - this file is how it follows
+  HAProxy.
+- **The track weight**: a negative weight larger than the gap between the
+  nodes' priorities drops a node whose HAProxy doesn't answer below the
+  others, which preempt it - the new holder takes the virtual IP before
+  this node lets it go, so no request falls in between. `weight 0`
+  puts the instance in FAULT instead: the node drops the virtual IP at
+  once and the other takes it after its skew time - a short gap (~0.1 s
+  with 0.2 s adverts). With a negative weight that node shows BACKUP,
+  not FAULT: alert on HAProxy itself (below).
+- **The advert interval**: a node that dies is noticed after about three
+  missed adverts. Measured with a client every 50 ms: ~0.5 s with
+  VRRPv3 and `advert_int 0.2`, ~3.5 s with VRRPv2's 1 second.
 - **A deliberate stop drains first**: stopping HAProxy (`janusctl system
   service stop haproxy`), rebooting or shutting the node down, and the
   reboot that ends an update or a rollback all mark HAProxy unhealthy at
@@ -86,10 +100,15 @@ state dump.
 
 The [Janus exporter](metrics.md) reports `janus_vrrp_instance_state`
 (1 for each instance's current state), `janus_vrrp_instance_effective_priority`
-and `janus_vrrp_instance_became_master_total`. An alert on a node that
-should hold a virtual IP:
+and `janus_vrrp_instance_became_master_total`. Alerts on a node that
+can't hold its virtual IPs - with a negative track weight, a node whose
+HAProxy is down is BACKUP, not FAULT, so `janus_haproxy_up` is the one
+that says so:
 
 ```yaml
+- alert: JanusHAProxyDown
+  expr: janus_haproxy_up == 0
+  for: 1m
 - alert: JanusVRRPFault
   expr: janus_vrrp_instance_state{state="FAULT"} == 1
   for: 1m
