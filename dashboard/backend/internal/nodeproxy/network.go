@@ -179,11 +179,19 @@ func applyNetwork(ctx context.Context, node *store.Node, cfg *janusv1alpha1.Netw
 			break
 		}
 		if err != nil {
-			code := status.Code(err)
-			if !applying || (code != codes.Unavailable && code != codes.DeadlineExceeded && code != codes.Canceled) {
+			if !connectionLost(err) {
 				return nil, grpcHTTPStatus(err), errors.New(status.Convert(err).Message())
 			}
-			res.Stages = append(res.Stages, "connection lost while applying (expected if the node's address changed)")
+			if applying {
+				res.Stages = append(res.Stages, "connection lost while applying (expected if the node's address changed)")
+			} else {
+				// The node writes "applying" just before it drops the
+				// address this connection uses: that last message can be
+				// lost with it. Or the request never reached the node (a
+				// connection from before it rebooted). Confirming tells
+				// which - a node with nothing on trial says so.
+				res.Stages = append(res.Stages, "connection lost - checking whether the node applied it")
+			}
 			break
 		}
 		res.Stages = append(res.Stages, fmt.Sprintf("%s: %s", msg.GetStage(), msg.GetMessage()))
@@ -196,6 +204,12 @@ func applyNetwork(ctx context.Context, node *store.Node, cfg *janusv1alpha1.Netw
 		if len(msg.GetAddresses()) > 0 {
 			res.Addresses = msg.GetAddresses()
 		}
+	}
+	if res.RevertAtUnix == 0 { // the node's own deadline was lost with the connection
+		if timeoutSeconds == 0 {
+			timeoutSeconds = 30
+		}
+		res.RevertAtUnix = time.Now().Add(time.Duration(timeoutSeconds) * time.Second).Unix()
 	}
 	res.Candidates = confirmCandidates(node.Addr(), cfg, res.Addresses)
 	pendingConfirm.Store(node.ID, pendingTrial{candidates: res.Candidates, revertAt: time.Unix(res.RevertAtUnix, 0)})
@@ -240,29 +254,45 @@ func confirmCandidates(current string, cfg *janusv1alpha1.NetworkConfig, reporte
 // on a new address, that address is stored and the shared connection
 // reset.
 func confirmNetwork(node *store.Node, st *store.Store, res *networkApplyResult) {
+	ep, ok := confirmLoop(res, func(ep string) (string, error) { return confirmAt(node, ep) })
+	if ok || res.Error != "" {
+		pendingConfirm.Delete(node.ID)
+	}
+	if ok {
+		if ep != node.Addr() {
+			if st == nil {
+				res.Error = "confirmed, but the new address couldn't be recorded"
+			} else if err := st.SetAddress(node.ID, ep); err != nil {
+				res.Error = fmt.Sprintf("confirmed, but recording the new address failed: %v", err)
+			} else {
+				log.Printf("node %s (%s) moved to %s after a network reconfiguration", node.Name, node.ID, ep)
+			}
+			closeNodeConn(node.ID)
+		}
+		res.Address = node.Addr()
+	}
+}
+
+// confirmLoop tries each candidate with confirm until one accepts (its
+// endpoint, true) or the trial is about to revert. A node that answers
+// it has nothing on trial ends it at once: the change never reached it,
+// or it already went back.
+func confirmLoop(res *networkApplyResult, confirm func(ep string) (string, error)) (string, bool) {
 	deadline := time.Unix(res.RevertAtUnix, 0).Add(-time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
 		for _, ep := range res.Candidates {
-			via, err := confirmAt(node, ep)
+			via, err := confirm(ep)
+			if status.Code(err) == codes.FailedPrecondition {
+				res.Error = fmt.Sprintf("the node has nothing awaiting confirmation (%s): it didn't receive this change, or already reverted it - nothing changed, apply it again", status.Convert(err).Message())
+				return "", false
+			}
 			if err != nil {
-				lastErr = fmt.Errorf("%s: %w", ep, err)
+				lastErr = fmt.Errorf("%s: %s", ep, status.Convert(err).Message())
 				continue
 			}
 			res.Confirmed, res.ConfirmedVia = true, via
-			pendingConfirm.Delete(node.ID)
-			if ep != node.Addr() {
-				if st == nil {
-					res.Error = "confirmed, but the new address couldn't be recorded"
-				} else if err := st.SetAddress(node.ID, ep); err != nil {
-					res.Error = fmt.Sprintf("confirmed, but recording the new address failed: %v", err)
-				} else {
-					log.Printf("node %s (%s) moved to %s after a network reconfiguration", node.Name, node.ID, ep)
-				}
-				closeNodeConn(node.ID)
-			}
-			res.Address = node.Addr()
-			return
+			return ep, true
 		}
 		time.Sleep(time.Second)
 	}
@@ -270,6 +300,17 @@ func confirmNetwork(node *store.Node, st *store.Store, res *networkApplyResult) 
 		lastErr = errors.New("the trial already reverted")
 	}
 	res.Error = fmt.Sprintf("couldn't confirm before the node reverts (%v) - it goes back to its previous configuration by itself", lastErr)
+	return "", false
+}
+
+// connectionLost reports an error that says nothing of what the node did:
+// the connection broke, or this side gave up waiting.
+func connectionLost(err error) bool {
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
+		return true
+	}
+	return false
 }
 
 // confirmAt calls NetworkConfigConfirm over a fresh connection to
@@ -288,7 +329,7 @@ func confirmAt(node *store.Node, endpoint string) (string, error) {
 	defer cancel()
 	resp, err := janusv1alpha1.NewNetworkServiceClient(conn).NetworkConfigConfirm(ctx, &emptypb.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
-		return "", errors.New(status.Convert(err).Message())
+		return "", err // a status: FailedPrecondition is "nothing on trial"
 	}
 	return resp.GetConfirmedVia(), nil
 }
