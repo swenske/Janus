@@ -266,6 +266,25 @@ sleep 5
 [ "$(grep -c "certificate .* ordering it" "$LOG" || true)" = "$orders" ] || fail "certificates ordered again after the reboot"
 echo "  ok: after a reboot - same certificates, same thumbprint, nothing ordered"
 
+# --- the node's trust store ---------------------------------------------
+# Without directory_ca, janus-acme checks the CA against the node's trust
+# store, as for Let's Encrypt - Pebble's test CA isn't in it. Go reads
+# /etc/ssl/certs for it: a denial a real node hit, not this test.
+python3 - "$WORKDIR/acme.json" > "$WORKDIR/acme-system.json" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+del c["account"]["directory_ca"]
+print(json.dumps(c))
+PY
+out="$(ctl haproxy acme apply "$WORKDIR/acme-system.json")" || fail "apply without directory_ca: $out"
+ctl haproxy acme renew site >/dev/null || fail "renew without directory_ca"
+deadline=$((SECONDS + 90))
+until out="$(ctl haproxy acme status)" && grep -q "x509\|unknown authority" <<<"$out"; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "Pebble's CA wasn't refused by the node's trust store: $out"
+  sleep 2
+done
+echo "  ok: without directory_ca the node's trust store applies - Pebble's test CA refused"
+
 denials="$(grep -a "avc:.*denied" "$LOG".* || true)"
 if [ -n "$denials" ]; then
   if [ "${ACME_DISCOVERY:-}" = 1 ]; then

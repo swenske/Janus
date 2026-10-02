@@ -153,12 +153,16 @@ ctl haproxy file-put certs/files.pem "$WORKDIR/files.pem" >/dev/null || fail "fi
 expect "FileList" '^certs/files\.pem .*private key' ctl haproxy files
 expect "FileGet" 'janus-files-test-503' ctl haproxy file-get errors/503.http
 if ctl haproxy file-get certs/files.pem >/dev/null 2>&1; then fail "a private key was read back"; fi
-ctl haproxy get-config > "$WORKDIR/files.cfg"
+# log stdout, as a configuration brought from a distribution uses: HAProxy
+# checks whether it's a terminal - a denial a real node hit.
+ctl haproxy get-config | awk '{print} /^global/{print "    log stdout format raw local0"}' > "$WORKDIR/files.cfg"
 cat >> "$WORKDIR/files.cfg" <<'EOF2'
 
 frontend files-test
     bind *:8081
     bind *:8443 ssl crt /etc/haproxy/files/certs/files.pem
+    log global
+    option httplog
     default_backend files-none
 
 backend files-none
@@ -171,13 +175,14 @@ files_served() {
     openssl x509 -noout -subject | grep -q files.example.test
 }
 files_served || fail "the error page or the certificate from the files isn't served"
+ctl system logs -n 500 haproxy | grep -q "files-test" || fail "HAProxy's access log (log stdout) isn't in its service log"
 if ctl haproxy file-delete errors/503.http >/dev/null 2>&1; then fail "an error page in use was removed"; fi
 echo garbage > "$WORKDIR/garbage.pem"
 if ctl haproxy file-put -reload certs/files.pem "$WORKDIR/garbage.pem" >/dev/null 2>&1; then fail "a broken certificate was accepted"; fi
 ctl system service restart haproxy >/dev/null || fail "reload after a refused change"
 sleep 2
 files_served || fail "the files aren't served any more after a refused change and a reload"
-echo "  ok: HAProxy files (error page and certificate served, private key never read back, breaking changes refused)"
+echo "  ok: HAProxy files (error page and certificate served, private key never read back, breaking changes refused; access log through log stdout)"
 
 # --- open files: what a distribution gives HAProxy (rootfs/init raises the
 # hard limit to systemd's); a configuration haproxy -c accepts but HAProxy
