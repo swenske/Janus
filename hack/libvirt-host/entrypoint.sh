@@ -3,6 +3,13 @@
 # machines use, and waits.
 set -euo pipefail
 
+# QEMU runs with /dev/kvm's group: in an unprivileged LXC (the CI
+# runners), the device's owner isn't mapped and root gets no right on it
+# but the group's - libvirt then sees no KVM, and finds no UEFI firmware
+# for a KVM domain. The container gets that group too (docker run
+# --group-add), for libvirtd's own check.
+echo "group = \"+$(stat -c %g /dev/kvm)\"" >> /etc/libvirt/qemu.conf
+
 ssh-keygen -A >/dev/null
 /usr/sbin/sshd
 virtlogd -d

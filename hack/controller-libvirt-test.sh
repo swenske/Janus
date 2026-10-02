@@ -62,7 +62,9 @@ docker build -q -t janus-libvirt-host "$SELF_DIR/libvirt-host" >/dev/null
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 # --init: libvirt daemonizes its QEMU probes, and an orphan left to a
 # PID 1 that never reaps it stays a zombie libvirt waits on forever.
-docker run -d --init --name "$NAME" --privileged --device /dev/kvm \
+# --group-add: /dev/kvm's group, which is all root may rely on in an
+# unprivileged LXC (the CI runners) - see hack/libvirt-host/entrypoint.sh.
+docker run -d --init --name "$NAME" --privileged --device /dev/kvm --group-add "$(stat -c %g /dev/kvm)" \
   -p "127.0.0.1:${HOST_PORT}:18080" \
   -v "$DASHBOARDD:/usr/local/bin/dashboardd:ro" -v "$IMAGE:/images/janus-kvm.qcow2:ro" \
   janus-libvirt-host >/dev/null
@@ -112,6 +114,39 @@ assert h["networks"] == [{"name": "janus-test", "active": True}], h["networks"]
 EOF
 echo "Part 2 OK: hypervisor authorized, host key checked against the host's and trusted (a wrong fingerprint refused), host state read over SSH"
 
+# Without /dev/net/tun (a CI runner's unprivileged LXC passes only
+# /dev/kvm through), a machine can't be plugged into a network, so it
+# can't boot here: what's left to check is that its failed start leaves
+# nothing behind, and that destroying it is clean.
+failed_creation() {
+  SUM="$(sha256sum "$IMAGE" | cut -d' ' -f1)"
+  api -X POST "$API/api/machines" -H 'Content-Type: application/json' -d "{
+    \"name\": \"node1\", \"hypervisor_id\": \"$HV\", \"vcpus\": 1, \"memory_mib\": 1024,
+    \"image\": {\"url\": \"http://127.0.0.1:8000/janus-kvm.qcow2\", \"sha256\": \"$SUM\"},
+    \"nics\": [{\"network\": \"janus-test\", \"name\": \"lan\", \"mode\": \"dhcp\"}]}" >"$WORKDIR/m.json"
+  MID="$(json "d['id']" <"$WORKDIR/m.json")" || fail "create: $(cat "$WORKDIR/m.json")"
+  for _ in $(seq 1 60); do
+    phase="$(api "$API/api/machines/$MID" | json "d['phase']")"
+    case "$phase" in ready | failed) break ;; esac
+    sleep 1
+  done
+  [ "$phase" = failed ] || fail "expected the start to fail without /dev/net/tun, the machine is $phase"
+  api "$API/api/machines/$MID" | json "d['error']" | grep -q "tun" || fail "unexpected failure: $(api "$API/api/machines/$MID")"
+  if in_host virsh list --all --name | grep -q '^janus-node1$'; then fail "a failed creation left its virtual machine"; fi
+  vols="$(in_host virsh vol-list janus | awk 'NR>2 && $1 {print $1}')"
+  [ "$vols" = "janus-base-sha256-${SUM:0:16}.qcow2" ] || fail "a failed creation left volumes: $vols"
+  code="$(api -o /dev/null -w '%{http_code}' -X DELETE "$API/api/machines/$MID")"
+  [ "$code" = 202 ] || fail "destroying a failed machine returned $code"
+  for _ in $(seq 1 30); do
+    [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID")" = 404 ] && break
+    sleep 1
+  done
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID")" = 404 ] || fail "the failed machine was never destroyed: $(api "$API/api/machines/$MID")"
+  echo "::warning::controller-libvirt test: no /dev/net/tun on this host, so no machine boots here - the boot, registration-token admission, console and reset are only checked where it exists"
+  echo "Part 3 OK (no /dev/net/tun): the machine's failed start left nothing behind (no domain, only the base image) and it was destroyed cleanly"
+}
+
+boot_cycle() {
 # =========================================================================
 # 2. A node, created and admitted on its token.
 # =========================================================================
@@ -185,6 +220,34 @@ assert "�" not in out, "characters broken across packets"
 EOF
 echo "Part 4 OK: the console streamed the reboot (no private key, no broken character), the node came back from a hypervisor reset"
 
+}
+
+destroy_cycle() {
+# =========================================================================
+# 5. Destroy: nothing left but the base image.
+# =========================================================================
+code="$(api -o /dev/null -w '%{http_code}' -X DELETE "$API/api/machines/$MID")"
+[ "$code" = 202 ] || fail "destroy returned $code"
+for _ in $(seq 1 90); do
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID")" = 404 ] && break
+  sleep 1
+done
+[ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID")" = 404 ] || fail "the machine was never destroyed: $(api "$API/api/machines/$MID")"
+[ "$(api "$API/api/nodes" | json "len(d or [])")" = 0 ] || fail "its node is still registered"
+if in_host virsh list --all --name | grep -q '^janus-node1$'; then fail "the virtual machine is still defined"; fi
+if in_host sh -c 'ls /var/lib/libvirt/qemu/nvram/' | grep -q node1; then fail "its NVRAM is still there"; fi
+vols="$(in_host virsh vol-list janus | awk 'NR>2 && $1 {print $1}')"
+[ "$vols" = "janus-base-sha256-${SUM:0:16}.qcow2" ] || fail "volumes left in the pool: $vols"
+echo "Part 6 OK: destroyed - node, virtual machine, NVRAM and volumes gone, the base image kept"
+
+}
+
+if [ -c /dev/net/tun ]; then
+  boot_cycle
+else
+  failed_creation
+fi
+
 # =========================================================================
 # 4. Domains the Controller didn't create are refused.
 # =========================================================================
@@ -228,21 +291,8 @@ for d in foreign-untagged janus-foreign; do
 done
 echo "Part 5 OK: an untagged domain and another Controller's were refused (start 403, destroy failed) and left as they were"
 
-# =========================================================================
-# 5. Destroy: nothing left but the base image.
-# =========================================================================
-code="$(api -o /dev/null -w '%{http_code}' -X DELETE "$API/api/machines/$MID")"
-[ "$code" = 202 ] || fail "destroy returned $code"
-for _ in $(seq 1 90); do
-  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID")" = 404 ] && break
-  sleep 1
-done
-[ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID")" = 404 ] || fail "the machine was never destroyed: $(api "$API/api/machines/$MID")"
-[ "$(api "$API/api/nodes" | json "len(d or [])")" = 0 ] || fail "its node is still registered"
-if in_host virsh list --all --name | grep -q '^janus-node1$'; then fail "the virtual machine is still defined"; fi
-if in_host sh -c 'ls /var/lib/libvirt/qemu/nvram/' | grep -q node1; then fail "its NVRAM is still there"; fi
-vols="$(in_host virsh vol-list janus | awk 'NR>2 && $1 {print $1}')"
-[ "$vols" = "janus-base-sha256-${SUM:0:16}.qcow2" ] || fail "volumes left in the pool: $vols"
-echo "Part 6 OK: destroyed - node, virtual machine, NVRAM and volumes gone, the base image kept"
+if [ -c /dev/net/tun ]; then
+  destroy_cycle
+fi
 
 echo "controller-libvirt test OK"

@@ -10,9 +10,12 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && rm -rf /var/lib/apt/lists/*
 
 # No cgroups or security driver of its own inside a container; QEMU as
-# root so it can open the pool's volumes as they are. No polkit either
-# (no D-Bus): the socket's access is its group's, libvirt.
-RUN printf 'cgroup_controllers = [ ]\nsecurity_driver = "none"\nuser = "root"\ngroup = "root"\n' >> /etc/libvirt/qemu.conf \
+# root so it can open the pool's volumes as they are (its group is
+# /dev/kvm's, set by entrypoint.sh) - so no ownership changes either,
+# nor remembering them in trusted.* xattrs, which an unprivileged LXC
+# (the CI runners) refuses. No polkit either (no D-Bus): the socket's
+# access is its group's, libvirt.
+RUN printf 'cgroup_controllers = [ ]\nsecurity_driver = "none"\nuser = "root"\ndynamic_ownership = 0\nremember_owner = 0\n' >> /etc/libvirt/qemu.conf \
     && printf 'unix_sock_group = "libvirt"\nunix_sock_rw_perms = "0770"\nauth_unix_rw = "none"\nauth_unix_ro = "none"\n' >> /etc/libvirt/libvirtd.conf
 
 # The Controller's user: SSH key only, libvirt through the group.

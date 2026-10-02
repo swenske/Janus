@@ -385,3 +385,9 @@ privileged container (`hack/libvirt-host`), with the Controller inside it:
 
 The polkit policy can't run in a container: it's checked on a real host
 as shown in step 5.
+
+On a host without `/dev/net/tun`, a machine can't be plugged into a
+network, so the test can't boot it. The CI runners are such hosts: an
+unprivileged LXC that only passes `/dev/kvm` through. There, the test
+checks instead that the failed start leaves nothing behind and that
+destroying it is clean, and it says what it skipped in a CI warning.
