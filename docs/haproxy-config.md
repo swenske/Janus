@@ -28,8 +28,10 @@ on 1 to 4 threads: 1.4 to 7 times more TLS handshakes per second than
 with OpenSSL 3.5, the gap growing with the threads. Certificates and
 crt-lists (runtime updates included), client-certificate verification
 with CRLs, SNI, ALPN, TLS 1.2/1.3, X25519MLKEM768 and the TLS sample
-fetches behave as with OpenSSL. What AWS-LC doesn't have, and the node
-refuses:
+fetches behave as with OpenSSL - except `ssl_fc_curve`, which names the
+NIST curves `prime256v1`/`secp384r1` (OpenSSL: `SECP256R1`/`SECP384R1`),
+and the default TLS 1.2 preference, AES-128-GCM before AES-256-GCM. What
+AWS-LC doesn't have, and the node refuses:
 
 | Keyword | Do instead |
 |---|---|
