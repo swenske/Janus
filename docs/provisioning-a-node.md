@@ -44,7 +44,8 @@ directly into the image rather than delivering it separately at boot.
 - The generic image, already built: `make proxmox-image` (or
   `image/disk/assemble.sh` for the raw disk before its qcow2
   conversion).
-- An up-to-date `bin/janusctl` (`make build`).
+- `janusctl`: [the Debian package](../README.md#installing-janusctl), or
+  `make build` (then `./bin/janusctl` instead of `janusctl` below).
 - The Controller's CA certificate (not sensitive, retrievable without
   credentials):
 
@@ -59,7 +60,7 @@ echo | openssl s_client -connect <CONTROLLER_HOST>:8443 \
 ```sh
 cp build/disk.img my-node.img   # or any copy of the generic image
 
-./bin/janusctl image seed-controller \
+janusctl image seed-controller \
   -controller-address <CONTROLLER_HOST>:8443 \
   -controller-ca controller-ca.crt \
   my-node.img
@@ -76,7 +77,7 @@ convert to raw, seed, convert back:
 
 ```sh
 qemu-img convert -O raw my-node.qcow2 my-node.img
-./bin/janusctl image seed-controller \
+janusctl image seed-controller \
   -controller-address <CONTROLLER_HOST>:8443 \
   -controller-ca controller-ca.crt \
   my-node.img

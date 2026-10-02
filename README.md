@@ -50,7 +50,38 @@ though real hardware support (SD/MMC, USB, Ethernet, UEFI firmware) is
 not yet built - see `docs/companion-site-builder-scope.md`. See
 [`docs/architecture.md`](docs/architecture.md) for the design and roadmap,
 and [`docs/api-routes.md`](docs/api-routes.md) for the gRPC API catalog.
-Nothing here is published or versioned for general use yet.
+
+## Installing janusctl
+
+`janusctl`, the command-line client for a node's API, is published as a
+Debian package with every [release](https://github.com/swenske/Janus/releases),
+for amd64 and arm64. It is a static binary: the same package installs on
+any Debian or Ubuntu release (apt 2.4 or later for the `.asc` key below -
+Debian 12, Ubuntu 22.04 and newer).
+
+```sh
+# 1. The repository's signing key
+sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSL https://apt.sw-servers.net/apt-sw-servers.net.gpg.asc \
+  -o /etc/apt/keyrings/apt-sw-servers.net.asc
+
+# 2. The repository
+echo "deb [signed-by=/etc/apt/keyrings/apt-sw-servers.net.asc] https://apt.sw-servers.net/janus stable main" \
+  | sudo tee /etc/apt/sources.list.d/janus.list
+
+# 3. Install
+sudo apt-get update
+sudo apt-get install janusctl
+janusctl version
+```
+
+The key's fingerprint is `0731 333D 9DDF FF94 08CD 6AEC A333 9293 BD0C BBDC`
+(`gpg --show-keys /etc/apt/keyrings/apt-sw-servers.net.asc`). Later
+releases come with `apt-get upgrade`.
+
+Without the repository, each release also carries
+`janusctl_<version>_<amd64|arm64>.deb` (`sudo apt install
+./janusctl_<version>_amd64.deb`); `make build` builds it from source.
 
 ## Repository layout
 
