@@ -81,8 +81,15 @@ lxc.idmap: g 993 103 1
 lxc.idmap: g 994 100994 64542
 lxc.cgroup2.devices.allow: c 10:232 rwm
 lxc.mount.entry: /dev/kvm dev/kvm none bind,optional,create=file
+lxc.cgroup2.devices.allow: c 10:200 rwm
+lxc.mount.entry: /dev/net/tun dev/net/tun none bind,optional,create=file
 EOF
 ```
+
+`/dev/net/tun` is for `make controller-libvirt-test`: the virtual
+machines its libvirt host creates are plugged into a network through
+it. Without it the test still runs, without booting a machine, and says
+so in a CI warning.
 
 Check both gids first (`getent group kvm` on the host and in the
 container) and adjust the four `idmap` lines to match.
