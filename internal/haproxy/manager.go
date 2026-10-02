@@ -49,6 +49,15 @@ type Manager struct {
 	// whatever arrives before it has moved. Zero: no wait.
 	DrainDelay time.Duration
 
+	// Env, if set, adds to HAProxy's environment - for `haproxy -c` too:
+	// a configuration can use these variables. Read at each start and
+	// validation.
+	Env func() []string
+
+	// txMu serializes runtime certificate transactions: HAProxy has one
+	// open at a time.
+	txMu sync.Mutex
+
 	mu  sync.Mutex
 	cur *process
 	// serving: a process runs that janusd isn't stopping. During a soft
@@ -79,6 +88,7 @@ func (m *Manager) Counters() *Counters { return &m.counters }
 // been reaped.
 type process struct {
 	cmd      *exec.Cmd
+	started  time.Time
 	done     chan struct{}
 	err      error
 	stopping bool // set by Stop, under Manager.mu
@@ -118,7 +128,9 @@ func (m *Manager) Validate(cfg []byte) (bool, []string) {
 	}
 	tmp.Close()
 
-	out, err := exec.Command(m.BinaryPath, "-c", "-f", tmp.Name()).CombinedOutput()
+	check := exec.Command(m.BinaryPath, "-c", "-f", tmp.Name())
+	check.Env = m.env()
+	out, err := check.CombinedOutput()
 	if err != nil {
 		errs := splitNonEmptyLines(string(out))
 		if len(errs) == 0 {
@@ -189,6 +201,7 @@ func (m *Manager) startOrReload(wait bool) error {
 	}
 
 	cmd := exec.Command(m.BinaryPath, args...)
+	cmd.Env = m.env()
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if m.Output != nil {
 		cmd.Stdout = io.MultiWriter(os.Stdout, m.Output)
@@ -204,7 +217,7 @@ func (m *Manager) startOrReload(wait bool) error {
 	// Every started process is waited on, including the ones a later
 	// seamless reload (-sf) replaces - otherwise each would stay a zombie
 	// under janusd for as long as it runs.
-	p := &process{cmd: cmd, done: make(chan struct{})}
+	p := &process{cmd: cmd, started: time.Now(), done: make(chan struct{})}
 	go func() {
 		p.err = cmd.Wait()
 		close(p.done) // before taking mu: Stop holds it while waiting on done
@@ -245,6 +258,25 @@ func (m *Manager) startOrReload(wait bool) error {
 	}
 	m.restoreCerts(p)
 	return nil
+}
+
+// env is HAProxy's environment: janusd's, plus Env's.
+func (m *Manager) env() []string {
+	if m.Env == nil {
+		return nil // inherit
+	}
+	return append(os.Environ(), m.Env()...)
+}
+
+// StartedAt is when the current HAProxy process started - zero if none
+// runs. A file created since then isn't loaded in it.
+func (m *Manager) StartedAt() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cur == nil || m.cur.exited() {
+		return time.Time{}
+	}
+	return m.cur.started
 }
 
 // takeoverTimeout bounds how long a start or reload waits for the new

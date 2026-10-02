@@ -1,6 +1,7 @@
 package haproxy
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -124,6 +125,8 @@ func (m *Manager) loadCert(name string, pemBundle []byte) error {
 		return err
 	}
 
+	m.txMu.Lock()
+	defer m.txMu.Unlock()
 	// Ignore the result: "already exists" just means we're updating a
 	// cert that's already in the store, which is fine.
 	_, _ = m.statsCommand("new ssl cert " + certArg)
@@ -146,6 +149,47 @@ func (m *Manager) loadCert(name string, pemBundle []byte) error {
 	if !strings.Contains(string(commitOut), "Success!") {
 		_, _ = m.statsCommand("abort ssl cert " + certArg)
 		return fmt.Errorf("commit certificate %s: %s", name, strings.TrimSpace(string(commitOut)))
+	}
+	return nil
+}
+
+// ErrCertNotLoaded is ReplaceCertFile's answer for a file the running
+// HAProxy didn't load.
+var ErrCertNotLoaded = errors.New("HAProxy doesn't use this certificate file")
+
+// ReplaceCertFile swaps the certificate HAProxy loaded from path (by a
+// crt line, a crt directory or a crt-list) for pemBundle, without a
+// reload - the file itself is the caller's to update, for the next
+// start. ErrCertNotLoaded: the running HAProxy never loaded path.
+func (m *Manager) ReplaceCertFile(path string, pemBundle []byte) error {
+	certArg, err := cliToken("certificate file", path)
+	if err != nil {
+		return err
+	}
+	payload, err := cliPayload("PEM bundle", pemBundle)
+	if err != nil {
+		return err
+	}
+	m.txMu.Lock()
+	defer m.txMu.Unlock()
+	setOut, err := m.statsCommand("set ssl cert " + certArg + " <<\n" + payload)
+	if err != nil {
+		return fmt.Errorf("stage certificate: %w", err)
+	}
+	out := string(setOut)
+	if strings.Contains(out, "not referenced by the configuration") {
+		return ErrCertNotLoaded
+	}
+	if !strings.Contains(out, "Transaction created") && !strings.Contains(out, "Transaction updated") {
+		return fmt.Errorf("stage certificate %s: %s", path, strings.TrimSpace(out))
+	}
+	commitOut, err := m.statsCommand("commit ssl cert " + certArg)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(commitOut), "Success!") {
+		_, _ = m.statsCommand("abort ssl cert " + certArg)
+		return fmt.Errorf("commit certificate %s: %s", path, strings.TrimSpace(string(commitOut)))
 	}
 	return nil
 }
