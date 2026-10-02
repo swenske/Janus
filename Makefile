@@ -279,15 +279,16 @@ musl-toolchain-arm64:
 # toolchain (pkgs/haproxy/Dockerfile's own "export-arm64" target, fed
 # musl-toolchain-arm64's output as an external build context) - no
 # QEMU/emulation anywhere, a normal amd64 build producing an arm64
-# binary. zlib/OpenSSL are cross-compiled from source too (no prebuilt
+# binary. zlib/AWS-LC are cross-compiled from source too (no prebuilt
 # static aarch64-musl libs to lean on the way Alpine's apk packages
-# cover the native amd64 path).
+# cover zlib on the native amd64 path).
 rpi4-haproxy-build: musl-toolchain-arm64
 	mkdir -p $(BUILD_DIR)/rpi4
 	docker build --target export-arm64 \
 		--build-arg HAPROXY_VERSION=$(HAPROXY_VERSION) \
 		--build-arg ZLIB_VERSION=$(ZLIB_VERSION) \
-		--build-arg OPENSSL_VERSION=$(OPENSSL_VERSION) \
+		--build-arg AWSLC_VERSION=$(AWSLC_VERSION) \
+		--build-arg AWSLC_SHA256=$(AWSLC_SHA256) \
 		--build-context musltoolchain=$(BUILD_DIR)/musl-toolchain-arm64 \
 		-o $(BUILD_DIR)/rpi4 pkgs/haproxy
 
@@ -418,12 +419,14 @@ pi5-sdcard-image-test: pi5-sdcard-image
 	./hack/rpi-sdcard-image-test.sh $(BUILD_DIR)/rpi-uefi/pi5-disk.img RPI_EFI.fd
 
 # Builds a fully static (musl, via Alpine's own toolchain - see pkgs/
-# haproxy/Dockerfile) haproxy binary with OpenSSL and pulls it out to
+# haproxy/Dockerfile) haproxy binary with AWS-LC and pulls it out to
 # build/haproxy. No PCRE2 (Alpine ships no static pcre2-posix lib;
 # HAProxy's built-in regex engine covers Phase 2's needs).
 haproxy-build:
 	mkdir -p $(BUILD_DIR)
 	docker build --target export --build-arg HAPROXY_VERSION=$(HAPROXY_VERSION) \
+		--build-arg AWSLC_VERSION=$(AWSLC_VERSION) \
+		--build-arg AWSLC_SHA256=$(AWSLC_SHA256) \
 		-o $(BUILD_DIR) pkgs/haproxy
 
 # Builds janusd as a static binary (CGO_ENABLED=0, same reasoning as

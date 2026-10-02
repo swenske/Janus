@@ -24,12 +24,18 @@ HAPROXY_VERSION := 3.4.0
 # is an LXC container whose confinement blocks a nested `docker run
 # --privileged`'s own binfmt_misc registration from actually taking
 # effect - not fixable by more privilege flags from inside the LXC).
-# pkgs/haproxy's own arm64 path cross-compiles zlib/OpenSSL from source
-# against this toolchain too (no prebuilt static aarch64 libs needed) -
-# their versions are pinned here for the same reason HAPROXY_VERSION is.
+# pkgs/haproxy's own arm64 path cross-compiles zlib from source against
+# this toolchain too (no prebuilt static aarch64 libs needed) - its
+# version is pinned here for the same reason HAPROXY_VERSION is.
 MUSL_CROSS_MAKE_REF := 227df8b99103f9c59f6570babf892978e293082f
 ZLIB_VERSION        := 1.3.1
-OPENSSL_VERSION     := 3.5.4
+
+# AWS-LC, HAProxy's TLS library on both architectures (pkgs/haproxy, built
+# from source and linked statically). AWS-LC publishes no signed release
+# artifact (the tag's commit only carries GitHub's merge signature):
+# sha256 of GitHub's tag archive.
+AWSLC_VERSION := 5.11.0
+AWSLC_SHA256  := 8cb24c6e6be1fa7ff05075c4560ca8b537a7ef48f9e6f465af4ea455794d74f4
 
 # Optional network features (Phase 5) - versions TBD.
 # Optional extensions (extensions/<name>/, see docs/image-factory.md).

@@ -1,7 +1,30 @@
 # syntax=docker/dockerfile:1
 #
-# Fetches the pinned HAProxy source (see ../../versions.mk) and builds
-# it as a fully static musl binary.
+# Fetches the pinned HAProxy and AWS-LC sources (see ../../versions.mk)
+# and builds HAProxy as a fully static musl binary linked against AWS-LC.
+#
+# AWS-LC instead of OpenSSL: OpenSSL 3.x took locks and atomics into
+# libcrypto's hot paths, and HAProxy's own measurements ("The state of
+# SSL stacks", haproxy.com, 2025) put it far behind AWS-LC as soon as
+# many threads do TLS - full handshakes ~1.5x, resumptions several times
+# over on 64 cores. HAProxy's INSTALL lists AWS-LC (>= 1.22) as the
+# performant, complete OpenSSL derivative. Both architectures build the
+# same pinned AWS-LC from source (before, amd64 linked whatever OpenSSL
+# Alpine shipped and arm64 a pinned one). Missing next to OpenSSL: the
+# obsolete DHE and CCM ciphers and the ENGINE API (ssl-engine,
+# ssl-mode-async).
+#
+# AWS-LC build options, both paths:
+# - DISABLE_CPU_JITTER_ENTROPY: by default AWS-LC seeds its DRBG from a
+#   CPU jitter entropy collector on top of getrandom(), and abort()s the
+#   whole process when that collector fails its health tests three times
+#   in a row. On an appliance that runs on whatever hypervisor/timer it is
+#   given, an HAProxy that can die on its entropy source is the worse
+#   trade: with it off, seeds come from getrandom() (the kernel's CSPRNG,
+#   what OpenSSL used) mixed with RDRAND/RNDR when the CPU has one.
+# - DISABLE_GO: Go only generates err_data.c, shipped pre-generated in the
+#   release tarball; Perl still generates the assembly.
+# - No tests, no bssl tool, static libraries only.
 #
 # amd64 (the "export" target): Alpine's own toolchain (gcc/musl-dev via
 # build-base - a real, prebuilt native toolchain, no cross-compilation
@@ -17,13 +40,13 @@
 # actually working). Needs ../musl-toolchain's own export supplied as
 # an external build context named "musltoolchain" (`docker build
 # --build-context musltoolchain=<musl-toolchain export dir> ...` - see
-# ../../Makefile's rpi4-haproxy-build target). zlib/OpenSSL have no
-# prebuilt static aarch64-musl libraries available anywhere to lean on
-# (unlike Alpine's own apk packages for the native amd64 path), so both
-# are cross-compiled from source against the same toolchain first.
+# ../../Makefile's rpi4-haproxy-build target). zlib has no prebuilt
+# static aarch64-musl library available anywhere to lean on (unlike
+# Alpine's own apk packages for the native amd64 path), so it is
+# cross-compiled from source first, like AWS-LC.
 #
-# TODO: signature verification for the downloaded tarballs - not wired
-# up yet. See ../../docs/architecture.md.
+# TODO: signature verification for the HAProxy/zlib tarballs - not wired
+# up yet (AWS-LC's is pinned by sha256). See ../../docs/architecture.md.
 #
 # USE_PROMEX=1 (both paths): HAProxy's own Prometheus metrics exporter
 # (`http-request use-service prometheus-exporter`) is a real, separate
@@ -38,11 +61,14 @@
 # own `PROMEX_CFLAGS` is set automatically once `USE_PROMEX` is truthy.
 
 ARG HAPROXY_VERSION
+ARG AWSLC_VERSION
+ARG AWSLC_SHA256
 ARG ZLIB_VERSION
-ARG OPENSSL_VERSION
 
 FROM debian:trixie-slim AS fetch
 ARG HAPROXY_VERSION
+ARG AWSLC_VERSION
+ARG AWSLC_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -50,18 +76,33 @@ WORKDIR /src
 RUN branch="$(echo "${HAPROXY_VERSION}" | cut -d. -f1,2)" \
     && curl -fsSLO "https://www.haproxy.org/download/${branch}/src/haproxy-${HAPROXY_VERSION}.tar.gz"
 RUN tar xf haproxy-${HAPROXY_VERSION}.tar.gz
+RUN test -n "${AWSLC_SHA256}" \
+    && curl -fsSLo aws-lc-${AWSLC_VERSION}.tar.gz \
+       "https://github.com/aws/aws-lc/archive/refs/tags/v${AWSLC_VERSION}.tar.gz" \
+    && echo "${AWSLC_SHA256}  aws-lc-${AWSLC_VERSION}.tar.gz" | sha256sum -c - \
+    && tar xf aws-lc-${AWSLC_VERSION}.tar.gz
 
 FROM alpine:3.22 AS build
 ARG HAPROXY_VERSION
-RUN apk add --no-cache build-base linux-headers zlib-dev zlib-static \
-    openssl-dev openssl-libs-static
+ARG AWSLC_VERSION
+RUN apk add --no-cache build-base linux-headers cmake samurai perl \
+    zlib-dev zlib-static
+COPY --from=fetch /src/aws-lc-${AWSLC_VERSION} /src/aws-lc-${AWSLC_VERSION}
+RUN cmake -S /src/aws-lc-${AWSLC_VERSION} -B /build/aws-lc -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/aws-lc \
+    -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_SHARED_LIBS=OFF \
+    -DBUILD_TESTING=OFF -DBUILD_TOOL=OFF -DDISABLE_GO=ON \
+    -DDISABLE_CPU_JITTER_ENTROPY=ON -DENABLE_SOURCE_MODIFICATION=OFF \
+    && ninja -C /build/aws-lc install
 COPY --from=fetch /src/haproxy-${HAPROXY_VERSION} /src/haproxy-${HAPROXY_VERSION}
 WORKDIR /src/haproxy-${HAPROXY_VERSION}
 RUN make -j"$(nproc)" TARGET=linux-musl \
-    USE_OPENSSL=1 USE_ZLIB=1 USE_PTHREAD_PSHARED=1 USE_PROMEX=1 \
+    USE_OPENSSL_AWSLC=1 SSL_INC=/opt/aws-lc/include SSL_LIB=/opt/aws-lc/lib \
+    USE_ZLIB=1 USE_PTHREAD_PSHARED=1 USE_PROMEX=1 \
     LDFLAGS=-static \
     && strip haproxy \
-    && ./haproxy -vv
+    && ./haproxy -vv \
+    && ./haproxy -vv | grep -q "^Built with SSL library version : .*AWS-LC ${AWSLC_VERSION}"
 
 FROM scratch AS export
 ARG HAPROXY_VERSION
@@ -71,24 +112,26 @@ COPY --from=build /src/haproxy-${HAPROXY_VERSION}/haproxy /haproxy
 
 FROM debian:trixie-slim AS fetch-arm64-deps
 ARG ZLIB_VERSION
-ARG OPENSSL_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 RUN curl -fsSLO "https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz" \
     && tar xf zlib-${ZLIB_VERSION}.tar.gz
-RUN curl -fsSLO "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
-    && tar xf openssl-${OPENSSL_VERSION}.tar.gz
 
 FROM debian:trixie-slim AS build-arm64
 ARG HAPROXY_VERSION
+ARG AWSLC_VERSION
 ARG ZLIB_VERSION
-ARG OPENSSL_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential perl \
+    build-essential perl cmake ninja-build linux-libc-dev-arm64-cross \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=musltoolchain / /opt/musl-cross
+# musl-cross-make installs Linux 4.19's UAPI headers, older than
+# HAProxy's AWS-LC kTLS code (TLS_1_3_VERSION, <linux/tls.h>, Linux 5.1):
+# Debian's arm64 ones (libc-independent, what Alpine's linux-headers is
+# to the amd64 path) replace them for everything built below.
+RUN cp -a /usr/aarch64-linux-gnu/include/. /opt/musl-cross/aarch64-linux-musl/include/
 ENV PATH="/opt/musl-cross/bin:${PATH}"
 ENV SYSROOT=/opt/sysroot
 
@@ -99,23 +142,23 @@ RUN CC=aarch64-linux-musl-gcc AR=aarch64-linux-musl-ar RANLIB=aarch64-linux-musl
     ./configure --prefix="${SYSROOT}" --static \
     && make -j"$(nproc)" && make install
 
-WORKDIR /src
-COPY --from=fetch-arm64-deps /src/openssl-${OPENSSL_VERSION} /src/openssl-${OPENSSL_VERSION}
-WORKDIR /src/openssl-${OPENSSL_VERSION}
-# --cross-compile-prefix alone derives CC as
-# aarch64-linux-musl-gcc; also passing CC= would double the prefix
-# ("aarch64-linux-musl-aarch64-linux-musl-gcc: not found") - found by a
-# real build failing with exactly that, not assumed.
-RUN ./Configure linux-aarch64 no-shared no-dso --prefix="${SYSROOT}" \
-    --cross-compile-prefix=aarch64-linux-musl- \
-    && make -j"$(nproc)" \
-    && make install_sw install_ssldirs
+COPY --from=fetch /src/aws-lc-${AWSLC_VERSION} /src/aws-lc-${AWSLC_VERSION}
+RUN cmake -S /src/aws-lc-${AWSLC_VERSION} -B /build/aws-lc -G Ninja \
+    -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+    -DCMAKE_C_COMPILER=aarch64-linux-musl-gcc \
+    -DCMAKE_CXX_COMPILER=aarch64-linux-musl-g++ \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${SYSROOT}" \
+    -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_SHARED_LIBS=OFF \
+    -DBUILD_TESTING=OFF -DBUILD_TOOL=OFF -DDISABLE_GO=ON \
+    -DDISABLE_CPU_JITTER_ENTROPY=ON -DENABLE_SOURCE_MODIFICATION=OFF \
+    && ninja -C /build/aws-lc install
 
 WORKDIR /src
 COPY --from=fetch /src/haproxy-${HAPROXY_VERSION} /src/haproxy-${HAPROXY_VERSION}
 WORKDIR /src/haproxy-${HAPROXY_VERSION}
 RUN make -j"$(nproc)" TARGET=linux-musl CC=aarch64-linux-musl-gcc \
-    USE_OPENSSL=1 USE_ZLIB=1 USE_PTHREAD_PSHARED=1 USE_PROMEX=1 \
+    USE_OPENSSL_AWSLC=1 SSL_INC="${SYSROOT}/include" SSL_LIB="${SYSROOT}/lib" \
+    USE_ZLIB=1 USE_PTHREAD_PSHARED=1 USE_PROMEX=1 \
     LDFLAGS="-static -L${SYSROOT}/lib" CFLAGS="-I${SYSROOT}/include" \
     && aarch64-linux-musl-strip haproxy
 
