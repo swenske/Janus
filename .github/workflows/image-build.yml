@@ -793,6 +793,30 @@ jobs:
       - name: BGP - bird sessions and the HAProxy gate between two nodes
         run: make qemu-bgp-test
 
+  test-services:
+    name: "Tests: Let's Encrypt, Consul"
+    runs-on: [self-hosted, docker, janus]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/runner-setup
+
+      # Let's Encrypt (letsencrypt extension) against Pebble, the ACME test
+      # CA, on a real enforcing node: stand-ins until obtained, HTTP-01
+      # answered by HAProxy, a wildcard over DNS-01, a renewal swapped in
+      # without a reload, kept across a reboot. See hack/qemu-acme-test.sh.
+      - name: Let's Encrypt - ACME certificates from Pebble
+        run: make qemu-acme-test
+
+      # The Consul agent (consul extension) on two real enforcing nodes: a
+      # server and a client with gossip encryption and TLS from the files
+      # given with their configuration, HAProxy finding a service through
+      # Consul's DNS, the node ID kept across a reboot. See
+      # hack/qemu-consul-test.sh.
+      - name: Consul - a server, a client, HAProxy service discovery
+        run: make qemu-consul-test
+
   test-hardware:
     name: "Tests: Secure Boot, bare metal, Controller self-update"
     runs-on: [self-hosted, docker, janus]
@@ -841,7 +865,7 @@ jobs:
 
   publish:
     name: Images and release
-    needs: [test-boot, test-lifecycle, test-api, test-network, test-hardware]
+    needs: [test-boot, test-lifecycle, test-api, test-network, test-services, test-hardware]
     # Only on runners labeled janus-publish: what this job builds is
     # published (and its release bundle signed) - never from a machine
     # that isn't trusted to build bit-exact (docs/ci-runners.md).

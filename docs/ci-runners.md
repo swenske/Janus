@@ -7,12 +7,12 @@ self-hosted runners, labeled `self-hosted, docker, janus`.
 
 ## How image-build runs
 
-- **Five test jobs at once** (`test-boot`, `test-lifecycle`, `test-api`,
-  `test-network`, `test-hardware`), balanced by duration. Each builds
-  what its tests need: the Docker build cache makes that a matter of
-  seconds, and nothing has to pass between jobs.
+- **Six test jobs at once** (`test-boot`, `test-lifecycle`, `test-api`,
+  `test-network`, `test-services`, `test-hardware`), balanced by
+  duration. Each builds what its tests need: the Docker build cache makes
+  that a matter of seconds, and nothing has to pass between jobs.
 - **`publish`** (images, workflow artifacts, the Docker Hub push, the
-  release) needs all five. A failing test still blocks everything that
+  release) needs all six. A failing test still blocks everything that
   gets published.
 - **Shared setup** is a composite action, `.github/actions/runner-setup`:
   Go (setup-go without its GitHub cache - the runners keep Go's caches on
