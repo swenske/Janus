@@ -1,5 +1,6 @@
 # Continuous integration: lint, test, and build the Janus control
-# plane (cmd/, internal/, gen/) on every push to main and every pull
+# plane (cmd/, internal/, gen/, dashboard/) and the Terraform provider
+# (terraform-provider-janus/) on every push to main and every pull
 # request (including from forks). Always runs on GitHub-hosted runners -
 # free/unlimited on a public repo, and this is the one workflow that MUST
 # accept untrusted fork PRs, so it never touches the self-hosted runner or
@@ -82,5 +83,31 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+
+      - run: go build ./...
+
+  # The Terraform provider (terraform-provider-janus/): its own Go module,
+  # so the jobs above - on the root module's ./... - don't reach it.
+  provider:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform-provider-janus
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: terraform-provider-janus/go.mod
+
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: terraform-provider-janus
+          args: --config ../.golangci.yml
+
+      - run: go test ./... -race -cover
+
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
       - run: go build ./...
