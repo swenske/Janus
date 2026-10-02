@@ -115,6 +115,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("open auth store: %v", err)
 	}
+	tokenStore, err := auth.OpenTokens(*dataDir)
+	if err != nil {
+		log.Fatalf("open API token store: %v", err)
+	}
 	if authStore.SetupRequired() {
 		log.Printf("no admin password set yet - the UI will force a one-time setup screen on first visit")
 	}
@@ -141,6 +145,7 @@ func main() {
 		store:                 st,
 		pending:               pendingStore,
 		auth:                  authStore,
+		tokens:                tokenStore,
 		loginLimiter:          auth.NewLoginLimiter(),
 		serverCert:            serverCert,
 		listeners:             map[string]*nodeproxy.Listener{},
@@ -187,6 +192,9 @@ func main() {
 	mux.HandleFunc("/api/pending/", app.requireAuth(app.handlePendingAction))
 	mux.HandleFunc("/api/controller-info", app.requireAuth(app.handleControllerInfo))
 	mux.HandleFunc("/api/controller/update", app.requireAuth(app.handleControllerUpdate))
+	mux.HandleFunc("GET /api/tokens", app.requireSession(app.handleTokenList))
+	mux.HandleFunc("POST /api/tokens", app.requireSession(app.handleTokenCreate))
+	mux.HandleFunc("DELETE /api/tokens/{id}", app.requireSession(app.handleTokenRevoke))
 	app.registerHypervisorRoutes(mux)
 	app.registerMachineRoutes(mux)
 	mux.Handle("/", http.FileServerFS(spa))
@@ -219,6 +227,7 @@ type app struct {
 	store        *store.Store
 	pending      *pending.Store
 	auth         *auth.Store
+	tokens       *auth.TokenStore
 	loginLimiter *auth.LoginLimiter
 	serverCert   tls.Certificate
 	// suggestedRegisterAddr is handleControllerInfo's best guess at the
