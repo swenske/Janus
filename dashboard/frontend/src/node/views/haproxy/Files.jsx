@@ -7,7 +7,7 @@ import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from '../../..
 import { bytes, dateTime } from '../../format.js'
 import { usePoll } from '../../hooks.jsx'
 
-const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99})?$/
+const NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$/
 
 function base64(buf) {
   const u8 = new Uint8Array(buf)
@@ -69,7 +69,7 @@ function FileForm({ initialName = '', initialText = '', editing, dir, onDone, on
         </div>
       </div>
       {!binary && <Editor value={text} onChange={setText} />}
-      {name && !NAME.test(name) && <div className="notice">Letters, digits, '.', '-', '_', and at most one subdirectory (certs/site.pem).</div>}
+      {name && !NAME.test(name) && <div className="notice">Letters, digits, '.', '-', '_' (not starting with '.' or '-'), and at most one subdirectory (certs/site.pem).</div>}
       <label className="row small">
         <input type="checkbox" checked={reload} onChange={(e) => setReload(e.target.checked)} />
         Reload HAProxy afterwards, for it to use the file now

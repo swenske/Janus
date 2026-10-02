@@ -29,7 +29,7 @@ const (
 	maxHAProxyFiles     = 256
 )
 
-var fileNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(/[A-Za-z0-9][A-Za-z0-9._-]{0,99})?$`)
+var fileNamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$`)
 
 // ErrSecretFile is FileRead on a file holding a private key.
 var ErrSecretFile = errors.New("the file holds a private key: it is never read back")
@@ -54,7 +54,7 @@ func (m *Manager) filePath(name string) (string, error) {
 		return "", errors.New("HAProxy's files have no directory on this node")
 	}
 	if !fileNamePattern.MatchString(name) {
-		return "", fmt.Errorf("%w: file name %q: letters, digits, '.', '-', '_', and at most one subdirectory", ErrInvalidArgument, name)
+		return "", fmt.Errorf("%w: file name %q: letters, digits, '.', '-', '_' (not starting with '.' or '-'), and at most one subdirectory", ErrInvalidArgument, name)
 	}
 	return filepath.Join(m.FilesDir, filepath.FromSlash(name)), nil
 }

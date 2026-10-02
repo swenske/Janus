@@ -106,6 +106,10 @@ backend none
 	if _, err := os.Stat(filepath.Join(m.FilesDir, "errors/503.http")); err != nil {
 		t.Error("the page in use isn't back")
 	}
+	// The usual name of a wildcard's file.
+	if errs, err := m.FilePut("certs/_.example.test.pem", cert); err != nil {
+		t.Errorf("a wildcard's file name: %v %v", errs, err)
+	}
 	if errs, err := m.FileDelete("unused.map"); err != nil {
 		t.Errorf("an unused file: %v %v", errs, err)
 	}
@@ -113,7 +117,7 @@ backend none
 		t.Errorf("deleting it twice: %v", err)
 	}
 
-	for _, bad := range []string{"../x", "/etc/passwd", ".hidden", "a/b/c", "a b", ""} {
+	for _, bad := range []string{"../x", "/etc/passwd", ".hidden", "-rf", "certs/.x", "a/b/c", "a b", ""} {
 		if _, err := m.FilePut(bad, []byte("x")); !errors.Is(err, ErrInvalidArgument) {
 			t.Errorf("name %q accepted: %v", bad, err)
 		}

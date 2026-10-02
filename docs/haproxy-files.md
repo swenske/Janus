@@ -9,8 +9,9 @@ Controller's **HAProxy › Files** tab, and kept on the node (its STATE
 partition) across reboots and updates.
 
 Each file is `/etc/haproxy/files/<name>` for `haproxy.cfg`; a name is
-letters, digits, `.`, `-` and `_`, with at most one subdirectory
-(`errors/503.http`, `certs/admin.pem`). Up to 256 files of 1 MiB each.
+letters, digits, `.`, `-` and `_`, not starting with `.` or `-`, with at
+most one subdirectory (`errors/503.http`, `certs/_.example.com.pem`). Up
+to 256 files of 1 MiB each.
 
 ```
 defaults
