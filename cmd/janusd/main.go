@@ -162,6 +162,7 @@ func main() {
 	if haproxyMgr.CertStoreDir == "" {
 		haproxyMgr.CertStoreDir = filepath.Join(filepath.Dir(*haproxyCfg), "runtime-certs")
 	}
+	haproxyMgr.FilesDir = filepath.Join(filepath.Dir(*haproxyCfg), "files")
 	// HAProxy's health: it answers on its stats socket, and isn't being
 	// stopped - a soft stop closes the listeners long before the process
 	// exits. For keepalived's track_file, BIRD's haproxy_* protocols and

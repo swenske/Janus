@@ -35,6 +35,10 @@ const (
 	HAProxyService_CertificateList_FullMethodName   = "/janus.v1alpha1.HAProxyService/CertificateList"
 	HAProxyService_CertificateUpload_FullMethodName = "/janus.v1alpha1.HAProxyService/CertificateUpload"
 	HAProxyService_CertificateDelete_FullMethodName = "/janus.v1alpha1.HAProxyService/CertificateDelete"
+	HAProxyService_FileList_FullMethodName          = "/janus.v1alpha1.HAProxyService/FileList"
+	HAProxyService_FileGet_FullMethodName           = "/janus.v1alpha1.HAProxyService/FileGet"
+	HAProxyService_FilePut_FullMethodName           = "/janus.v1alpha1.HAProxyService/FilePut"
+	HAProxyService_FileDelete_FullMethodName        = "/janus.v1alpha1.HAProxyService/FileDelete"
 	HAProxyService_ACMEStatus_FullMethodName        = "/janus.v1alpha1.HAProxyService/ACMEStatus"
 	HAProxyService_ACMEGetConfig_FullMethodName     = "/janus.v1alpha1.HAProxyService/ACMEGetConfig"
 	HAProxyService_ACMEApplyConfig_FullMethodName   = "/janus.v1alpha1.HAProxyService/ACMEApplyConfig"
@@ -81,6 +85,16 @@ type HAProxyServiceClient interface {
 	// or a reboot. CertificateDelete removes it from both.
 	CertificateUpload(ctx context.Context, in *CertificateUploadRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	CertificateDelete(ctx context.Context, in *CertificateDeleteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// HAProxy's own files (docs/haproxy-files.md): what haproxy.cfg
+	// references besides the letsencrypt extension's certificates - error
+	// pages, maps, ACL lists, Lua, other certificates - as
+	// /etc/haproxy/files/<name>, kept on the node. A file is only written or
+	// removed if haproxy.cfg still loads with the change; a file holding a
+	// private key is never read back.
+	FileList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FileListResponse, error)
+	FileGet(ctx context.Context, in *FileGetRequest, opts ...grpc.CallOption) (*FileGetResponse, error)
+	FilePut(ctx context.Context, in *FilePutRequest, opts ...grpc.CallOption) (*FilePutResponse, error)
+	FileDelete(ctx context.Context, in *FileDeleteRequest, opts ...grpc.CallOption) (*FileDeleteResponse, error)
 	// ACME: the letsencrypt extension (docs/letsencrypt.md). The node
 	// obtains and renews its certificates itself, from Let's Encrypt or any
 	// ACME CA, writes each to /etc/haproxy/acme/<name>.pem and swaps a
@@ -264,6 +278,46 @@ func (c *hAProxyServiceClient) CertificateDelete(ctx context.Context, in *Certif
 	return out, nil
 }
 
+func (c *hAProxyServiceClient) FileList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FileListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FileListResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_FileList_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) FileGet(ctx context.Context, in *FileGetRequest, opts ...grpc.CallOption) (*FileGetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FileGetResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_FileGet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) FilePut(ctx context.Context, in *FilePutRequest, opts ...grpc.CallOption) (*FilePutResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FilePutResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_FilePut_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) FileDelete(ctx context.Context, in *FileDeleteRequest, opts ...grpc.CallOption) (*FileDeleteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FileDeleteResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_FileDelete_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *hAProxyServiceClient) ACMEStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ACMEStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ACMEStatusResponse)
@@ -344,6 +398,16 @@ type HAProxyServiceServer interface {
 	// or a reboot. CertificateDelete removes it from both.
 	CertificateUpload(context.Context, *CertificateUploadRequest) (*emptypb.Empty, error)
 	CertificateDelete(context.Context, *CertificateDeleteRequest) (*emptypb.Empty, error)
+	// HAProxy's own files (docs/haproxy-files.md): what haproxy.cfg
+	// references besides the letsencrypt extension's certificates - error
+	// pages, maps, ACL lists, Lua, other certificates - as
+	// /etc/haproxy/files/<name>, kept on the node. A file is only written or
+	// removed if haproxy.cfg still loads with the change; a file holding a
+	// private key is never read back.
+	FileList(context.Context, *emptypb.Empty) (*FileListResponse, error)
+	FileGet(context.Context, *FileGetRequest) (*FileGetResponse, error)
+	FilePut(context.Context, *FilePutRequest) (*FilePutResponse, error)
+	FileDelete(context.Context, *FileDeleteRequest) (*FileDeleteResponse, error)
 	// ACME: the letsencrypt extension (docs/letsencrypt.md). The node
 	// obtains and renews its certificates itself, from Let's Encrypt or any
 	// ACME CA, writes each to /etc/haproxy/acme/<name>.pem and swaps a
@@ -412,6 +476,18 @@ func (UnimplementedHAProxyServiceServer) CertificateUpload(context.Context, *Cer
 }
 func (UnimplementedHAProxyServiceServer) CertificateDelete(context.Context, *CertificateDeleteRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method CertificateDelete not implemented")
+}
+func (UnimplementedHAProxyServiceServer) FileList(context.Context, *emptypb.Empty) (*FileListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FileList not implemented")
+}
+func (UnimplementedHAProxyServiceServer) FileGet(context.Context, *FileGetRequest) (*FileGetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FileGet not implemented")
+}
+func (UnimplementedHAProxyServiceServer) FilePut(context.Context, *FilePutRequest) (*FilePutResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FilePut not implemented")
+}
+func (UnimplementedHAProxyServiceServer) FileDelete(context.Context, *FileDeleteRequest) (*FileDeleteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FileDelete not implemented")
 }
 func (UnimplementedHAProxyServiceServer) ACMEStatus(context.Context, *emptypb.Empty) (*ACMEStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ACMEStatus not implemented")
@@ -709,6 +785,78 @@ func _HAProxyService_CertificateDelete_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HAProxyService_FileList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).FileList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_FileList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).FileList(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_FileGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FileGetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).FileGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_FileGet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).FileGet(ctx, req.(*FileGetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_FilePut_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FilePutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).FilePut(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_FilePut_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).FilePut(ctx, req.(*FilePutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_FileDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FileDeleteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).FileDelete(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_FileDelete_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).FileDelete(ctx, req.(*FileDeleteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _HAProxyService_ACMEStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -843,6 +991,22 @@ var HAProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CertificateDelete",
 			Handler:    _HAProxyService_CertificateDelete_Handler,
+		},
+		{
+			MethodName: "FileList",
+			Handler:    _HAProxyService_FileList_Handler,
+		},
+		{
+			MethodName: "FileGet",
+			Handler:    _HAProxyService_FileGet_Handler,
+		},
+		{
+			MethodName: "FilePut",
+			Handler:    _HAProxyService_FilePut_Handler,
+		},
+		{
+			MethodName: "FileDelete",
+			Handler:    _HAProxyService_FileDelete_Handler,
 		},
 		{
 			MethodName: "ACMEStatus",

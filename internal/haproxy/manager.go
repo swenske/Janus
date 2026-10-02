@@ -58,6 +58,11 @@ type Manager struct {
 	// open at a time.
 	txMu sync.Mutex
 
+	// FilesDir holds HAProxy's own files (files.go): error pages, maps,
+	// certificates the configuration references.
+	FilesDir string
+	fileMu   sync.Mutex
+
 	mu  sync.Mutex
 	cur *process
 	// serving: a process runs that janusd isn't stopping. During a soft
@@ -132,7 +137,9 @@ func (m *Manager) Validate(cfg []byte) (bool, []string) {
 	check.Env = m.env()
 	out, err := check.CombinedOutput()
 	if err != nil {
-		errs := splitNonEmptyLines(string(out))
+		// HAProxy names the file it checked: the operator knows it as
+		// haproxy.cfg, not as this temporary copy.
+		errs := splitNonEmptyLines(strings.ReplaceAll(string(out), tmp.Name(), "haproxy.cfg"))
 		if len(errs) == 0 {
 			// haproxy exited nonzero but printed nothing this run captured
 			// (e.g. it never even started - a bad BinaryPath, a denied

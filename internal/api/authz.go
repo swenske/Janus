@@ -94,6 +94,10 @@ var requiredRoles = map[string][]string{
 	"/janus.v1alpha1.HAProxyService/CertificateList":   adminOrReader, // names/expiry only, not key material
 	"/janus.v1alpha1.HAProxyService/CertificateUpload": adminOnly,
 	"/janus.v1alpha1.HAProxyService/CertificateDelete": adminOnly,
+	"/janus.v1alpha1.HAProxyService/FileList":          adminOrReader,
+	"/janus.v1alpha1.HAProxyService/FileGet":           adminOrReader, // private keys are never read back
+	"/janus.v1alpha1.HAProxyService/FilePut":           adminOnly,
+	"/janus.v1alpha1.HAProxyService/FileDelete":        adminOnly,
 	"/janus.v1alpha1.HAProxyService/ACMEStatus":        adminOrReader,
 	"/janus.v1alpha1.HAProxyService/ACMEGetConfig":     adminOrReader, // secrets come back empty
 	"/janus.v1alpha1.HAProxyService/ACMEApplyConfig":   adminOnly,

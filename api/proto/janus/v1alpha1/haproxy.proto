@@ -49,6 +49,17 @@ service HAProxyService {
   rpc CertificateUpload(CertificateUploadRequest) returns (google.protobuf.Empty);
   rpc CertificateDelete(CertificateDeleteRequest) returns (google.protobuf.Empty);
 
+  // HAProxy's own files (docs/haproxy-files.md): what haproxy.cfg
+  // references besides the letsencrypt extension's certificates - error
+  // pages, maps, ACL lists, Lua, other certificates - as
+  // /etc/haproxy/files/<name>, kept on the node. A file is only written or
+  // removed if haproxy.cfg still loads with the change; a file holding a
+  // private key is never read back.
+  rpc FileList(google.protobuf.Empty) returns (FileListResponse);
+  rpc FileGet(FileGetRequest) returns (FileGetResponse);
+  rpc FilePut(FilePutRequest) returns (FilePutResponse);
+  rpc FileDelete(FileDeleteRequest) returns (FileDeleteResponse);
+
   // ACME: the letsencrypt extension (docs/letsencrypt.md). The node
   // obtains and renews its certificates itself, from Let's Encrypt or any
   // ACME CA, writes each to /etc/haproxy/acme/<name>.pem and swaps a
@@ -319,4 +330,50 @@ message ACMECertificateStatus {
   string last_error = 14; // the last attempt's, if it failed
   uint32 failures = 15; // consecutive
   int64 next_attempt_unix = 16; // after a failure
+}
+
+message HAProxyFile {
+  string name = 1; // relative to the files directory: "errors/503.http"
+  string path = 2; // what haproxy.cfg references
+  uint64 size = 3;
+  string sha256 = 4;
+  int64 modified_unix = 5;
+  bool secret = 6; // holds a private key: never read back
+}
+
+message FileListResponse {
+  repeated HAProxyFile files = 1;
+  string dir = 2; // /etc/haproxy/files
+}
+
+message FileGetRequest {
+  string name = 1;
+}
+
+message FileGetResponse {
+  bytes content = 1;
+}
+
+message FilePutRequest {
+  // Letters, digits, '.', '-', '_', and at most one subdirectory
+  // ("certs/admin.pem"). Up to 1 MiB.
+  string name = 1;
+  bytes content = 2;
+  // Reload HAProxy afterwards, for the running process to use it.
+  bool reload = 3;
+}
+
+message FilePutResponse {
+  bool accepted = 1;
+  repeated string errors = 2; // HAProxy's, when haproxy.cfg doesn't load with it
+}
+
+message FileDeleteRequest {
+  string name = 1;
+  bool reload = 2;
+}
+
+message FileDeleteResponse {
+  bool accepted = 1;
+  repeated string errors = 2; // HAProxy's, when haproxy.cfg needs it
 }

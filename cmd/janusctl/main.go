@@ -218,6 +218,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  haproxy cert-list                   list certificates in HAProxy's cert store")
 	fmt.Fprintln(os.Stderr, "  haproxy cert-upload [-crt-list PATH] [-sni host1,host2] NAME FILE  upload a PEM cert+key bundle as NAME, optionally binding it into crt-list PATH")
 	fmt.Fprintln(os.Stderr, "  haproxy cert-delete [-crt-list PATH] NAME  delete a certificate (unbinding from crt-list PATH first if given)")
+	for _, line := range haproxyFilesUsage {
+		fmt.Fprintln(os.Stderr, "  "+line)
+	}
 	for _, line := range acmeUsage {
 		fmt.Fprintln(os.Stderr, "  "+line)
 	}
@@ -637,6 +640,9 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 	}
 	client := janusv1alpha1.NewHAProxyServiceClient(conn)
 
+	if runHAProxyFiles(client, args[0], args[1:]) {
+		return
+	}
 	switch sub := args[0]; sub {
 	case "acme":
 		runACME(conn, args[1:])
