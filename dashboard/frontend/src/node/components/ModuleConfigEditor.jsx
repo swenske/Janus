@@ -8,8 +8,10 @@ import { DiffView, Editor } from './Editor.jsx'
 // ModuleConfigEditor edits an optional module daemon's configuration
 // (keepalived.conf, bird.conf): `${base}/config` loads it, `${base}/check`
 // has the daemon check it, `${base}/apply` saves and reloads it. starter
-// fills the editor while nothing is saved.
-export default function ModuleConfigEditor({ base, file, daemon, starter, applyNote, onApplied }) {
+// fills the editor while nothing is saved. extraBody goes with check and
+// apply (Consul's files); extraDirty is a change of it, extraSummary what
+// the confirmation says of it.
+export default function ModuleConfigEditor({ base, file, daemon, starter, applyNote, onApplied, extraBody, extraDirty, extraSummary }) {
   const [saved, setSaved] = useState(null) // { config, is_default }
   const [draft, setDraft] = useState('')
   const [loadError, setLoadError] = useState(null)
@@ -39,7 +41,7 @@ export default function ModuleConfigEditor({ base, file, daemon, starter, applyN
 
   const doCheck = () =>
     run(async () => {
-      setCheck(await postJSON(`${base}/check`, { config: draft }))
+      setCheck(await postJSON(`${base}/check`, { ...extraBody, config: draft }))
     })
 
   const apply = async (config) => {
@@ -48,6 +50,7 @@ export default function ModuleConfigEditor({ base, file, daemon, starter, applyN
       body: config ? (
         <>
           <p>{applyNote}</p>
+          {extraDirty && extraSummary}
           <DiffView diff={hunks(lineDiff(original, config))} />
         </>
       ) : (
@@ -58,7 +61,7 @@ export default function ModuleConfigEditor({ base, file, daemon, starter, applyN
       wide: !!config,
     })
     if (!ok) return
-    const r = await run(() => postJSON(`${base}/apply`, { config }))
+    const r = await run(() => postJSON(`${base}/apply`, config ? { ...extraBody, config } : { config }))
     if (!r) return
     if (!r.accepted) {
       setCheck(r)
@@ -108,7 +111,7 @@ export default function ModuleConfigEditor({ base, file, daemon, starter, applyN
           <button disabled={busy} onClick={doCheck}>
             <CheckCircle2 size={15} /> Check
           </button>
-          <button className="primary" disabled={busy || (!dirty && !saved.is_default) || !draft.trim()} onClick={() => apply(draft)}>
+          <button className="primary" disabled={busy || (!dirty && !saved.is_default && !extraDirty) || !draft.trim()} onClick={() => apply(draft)}>
             <Upload size={15} /> Apply…
           </button>
           <button disabled={busy || !dirty} onClick={() => setDraft(original || starter)}>

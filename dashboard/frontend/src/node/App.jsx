@@ -14,6 +14,7 @@ import {
   HardDrive,
   KeyRound,
   LayoutDashboard,
+  LockKeyhole,
   Menu,
   Network,
   Power,
@@ -24,6 +25,7 @@ import {
   Shield,
   Shuffle,
   Terminal,
+  Waypoints,
   Workflow,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -44,6 +46,8 @@ import JanusExporter from './views/JanusExporter.jsx'
 import NodeExporter from './views/NodeExporter.jsx'
 import VRRP from './views/VRRP.jsx'
 import BGP from './views/BGP.jsx'
+import Consul from './views/Consul.jsx'
+import LetsEncrypt from './views/LetsEncrypt.jsx'
 import NetworkView from './views/Network.jsx'
 import NetworkConfig from './views/NetworkConfig.jsx'
 import Overview from './views/Overview.jsx'
@@ -85,6 +89,8 @@ const NAV = [
       { path: '/apps/bgp', label: 'BGP · bird', icon: Workflow, view: BGP, moduleKey: 'bgp' },
       { path: '/apps/vrrp', label: 'VRRP · keepalived', icon: Boxes, view: VRRP, moduleKey: 'vrrp' },
       { path: '/apps/firewall', label: 'Firewall · nftables', icon: Shield, view: Firewall, moduleKey: 'firewall' },
+      { path: '/apps/letsencrypt', label: "Let's Encrypt", icon: LockKeyhole, view: LetsEncrypt, extension: ['letsencrypt'] },
+      { path: '/apps/consul', label: 'Consul', icon: Waypoints, view: Consul, extension: ['consul'] },
       { path: '/system/update?extensions', label: 'Add or remove apps…', icon: CirclePlus, link: true },
     ],
   },
