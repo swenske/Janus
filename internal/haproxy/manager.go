@@ -9,6 +9,7 @@ package haproxy
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -97,6 +98,50 @@ type process struct {
 	done     chan struct{}
 	err      error
 	stopping bool // set by Stop, under Manager.mu
+	failed   bool // exited before taking over (StartError), under Manager.mu
+	output   *tailWriter
+}
+
+// StartError is a start or reload HAProxy refused although its
+// configuration checks out - `haproxy -c` doesn't apply the process
+// limits, for one (a "ulimit-n" above the node's): the new process exited
+// before taking over. The previous process, if any, still serves.
+type StartError struct {
+	Output []string // what HAProxy printed
+}
+
+func (e *StartError) Error() string {
+	why := "exited at once"
+	for _, l := range e.Output {
+		if strings.Contains(l, "[ALERT]") {
+			why = l
+			break
+		}
+	}
+	return "haproxy refused to start: " + why
+}
+
+// tailWriter keeps the first lines a process prints - a refused start's
+// reasons - and drops the rest.
+type tailWriter struct {
+	mu    sync.Mutex
+	buf   bytes.Buffer
+	limit int
+}
+
+func (t *tailWriter) Write(b []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if room := t.limit - t.buf.Len(); room > 0 {
+		t.buf.Write(b[:min(len(b), room)])
+	}
+	return len(b), nil
+}
+
+func (t *tailWriter) lines() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return splitNonEmptyLines(t.buf.String())
 }
 
 func (p *process) exited() bool {
@@ -162,8 +207,7 @@ func (m *Manager) Apply(cfg []byte) ([]string, error) {
 		m.counters.ApplyRejected.Add(1)
 		return errs, fmt.Errorf("invalid config")
 	}
-	m.counters.ApplyAccepted.Add(1)
-	m.counters.LastApplyUnix.Store(time.Now().Unix())
+	previous, previousErr := os.ReadFile(m.ConfigPath)
 	if err := os.WriteFile(m.ConfigPath, cfg, 0o644); err != nil {
 		return nil, fmt.Errorf("write config: %w", err)
 	}
@@ -173,13 +217,38 @@ func (m *Manager) Apply(cfg []byte) ([]string, error) {
 	// PKI bootstrap: don't let an applied config's durability depend on
 	// some later, unrelated sync happening to occur first.
 	syscall.Sync()
-	return nil, m.startOrReload(true)
+	if err := m.startOrReload(true); err != nil {
+		var se *StartError
+		if !errors.As(err, &se) {
+			return nil, err
+		}
+		// Checked, but HAProxy won't run it: the previous configuration
+		// goes back, or the next boot would start HAProxy from this one -
+		// and fail.
+		var rerr error
+		switch {
+		case previousErr == nil:
+			rerr = os.WriteFile(m.ConfigPath, previous, 0o644)
+		case errors.Is(previousErr, os.ErrNotExist):
+			rerr = os.Remove(m.ConfigPath)
+		}
+		if rerr != nil {
+			log.Printf("haproxy: put the previous configuration back: %v", rerr)
+		}
+		syscall.Sync()
+		m.counters.ApplyRejected.Add(1)
+		return se.Output, err
+	}
+	m.counters.ApplyAccepted.Add(1)
+	m.counters.LastApplyUnix.Store(time.Now().Unix())
+	return nil, nil
 }
 
 // Reload re-applies whatever is currently on disk at ConfigPath - used
 // when the config file hasn't changed but a restart is still wanted (or
 // as the second half of Apply). It returns once the new process answers
-// on the stats socket, ready for runtime commands.
+// on the stats socket, ready for runtime commands - or a *StartError if it
+// exited instead, the previous process still serving.
 func (m *Manager) Reload() error {
 	return m.startOrReload(true)
 }
@@ -201,19 +270,21 @@ func (m *Manager) startOrReload(wait bool) error {
 	defer m.mu.Unlock()
 
 	args := []string{"-f", m.ConfigPath}
-	reload := false
-	if old := m.previousPID(); old > 0 {
+	prev := m.cur
+	old := m.previousPID()
+	reload := old > 0
+	if reload {
 		args = append(args, "-sf", strconv.Itoa(old))
-		reload = true
 	}
 
 	cmd := exec.Command(m.BinaryPath, args...)
 	cmd.Env = m.env()
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	output := &tailWriter{limit: 16 << 10}
+	out := []io.Writer{os.Stdout, output}
 	if m.Output != nil {
-		cmd.Stdout = io.MultiWriter(os.Stdout, m.Output)
-		cmd.Stderr = io.MultiWriter(os.Stderr, m.Output)
+		out = append(out, m.Output)
 	}
+	cmd.Stdout, cmd.Stderr = io.MultiWriter(out...), io.MultiWriter(out...)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start haproxy: %w", err)
 	}
@@ -224,7 +295,7 @@ func (m *Manager) startOrReload(wait bool) error {
 	// Every started process is waited on, including the ones a later
 	// seamless reload (-sf) replaces - otherwise each would stay a zombie
 	// under janusd for as long as it runs.
-	p := &process{cmd: cmd, started: time.Now(), done: make(chan struct{})}
+	p := &process{cmd: cmd, started: time.Now(), done: make(chan struct{}), output: output}
 	go func() {
 		p.err = cmd.Wait()
 		close(p.done) // before taking mu: Stop holds it while waiting on done
@@ -233,6 +304,8 @@ func (m *Manager) startOrReload(wait bool) error {
 		switch {
 		case p.stopping:
 			reason = "stopped"
+		case p.failed:
+			reason = "refused to start"
 		case m.cur != p:
 			reason = "replaced by a reload"
 		default:
@@ -260,8 +333,22 @@ func (m *Manager) startOrReload(wait bool) error {
 		log.Printf("haproxy: write %s: %v", m.PidPath, err)
 	}
 	events.Publish("haproxy.started", map[string]any{"pid": cmd.Process.Pid, "args": args})
-	if reload || wait {
-		m.waitAnswering(p)
+	if (reload || wait) && !m.waitAnswering(p) && p.exited() {
+		// It never took over: -sf wasn't sent, the previous process (if
+		// any) still serves - it's the current one again.
+		p.failed = true
+		m.cur = prev
+		if prev != nil && prev.exited() {
+			m.cur = nil
+		}
+		if reload {
+			_ = os.WriteFile(m.PidPath, []byte(strconv.Itoa(old)+"\n"), 0o644)
+		} else {
+			_ = os.Remove(m.PidPath)
+			m.serving.Store(false)
+			m.notifyChanged()
+		}
+		return &StartError{Output: output.lines()}
 	}
 	m.restoreCerts(p)
 	return nil
@@ -291,20 +378,21 @@ func (m *Manager) StartedAt() time.Time {
 const takeoverTimeout = 5 * time.Second
 
 // waitAnswering waits until p is the process answering on the stats
-// socket (or it exits, or takeoverTimeout passes). Right after a reload
+// socket (true), or it exits, or takeoverTimeout passes. Right after a reload
 // the old process can still answer: runtime commands sent then would
 // reach it - a certificate staged in the old process and committed in
 // the new one fails with "No ongoing transaction", seen on the CI runner.
 // Always after a reload; after a first start, unless janusd is booting
 // (Boot): it goes on to its PKI meanwhile. Called with mu held.
-func (m *Manager) waitAnswering(p *process) {
+func (m *Manager) waitAnswering(p *process) bool {
 	deadline := time.Now().Add(takeoverTimeout)
 	for time.Now().Before(deadline) && !p.exited() {
 		if out, err := m.statsCommand("show info"); err == nil && parseShowInfo(string(out)).Pid == p.cmd.Process.Pid {
-			return
+			return true
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+	return false
 }
 
 // previousPID is the haproxy a new one must take over from (-sf): the one

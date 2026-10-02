@@ -43,6 +43,9 @@ func (h *HAProxy) ApplyConfig(req *janusv1alpha1.ApplyConfigRequest, stream janu
 
 	errs, err := h.Manager.Apply(req.GetConfig())
 	if err != nil {
+		if len(errs) == 0 {
+			errs = []string{err.Error()}
+		}
 		events.Publish("haproxy.config.rejected", map[string]any{"sha256": sha256Hex(req.GetConfig()), "errors": errs})
 		return stream.Send(&janusv1alpha1.ApplyConfigResponse{
 			Stage:    "rejected",
