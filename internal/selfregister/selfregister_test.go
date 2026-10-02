@@ -89,8 +89,15 @@ func TestRegisterSuccess(t *testing.T) {
 	// ca.crt would take (the Controller's own CA/identity cert).
 	cfg := &Config{Address: srv.Listener.Addr().String(), CACertPEM: certPEM(t, srv)}
 
-	if err := Register(cfg, ca, "test-node", "10.1.2.3:9505"); err != nil {
+	admitted, err := Register(cfg, ca, "test-node", "10.1.2.3:9505")
+	if err != nil {
 		t.Fatalf("Register: %v", err)
+	}
+	if admitted {
+		t.Error("admitted = true from a Controller whose 201 has no body")
+	}
+	if gotReq.RegistrationToken != "" {
+		t.Errorf("RegistrationToken = %q without a token configured", gotReq.RegistrationToken)
 	}
 
 	if gotReq.Name != "test-node" {
@@ -110,6 +117,59 @@ func TestRegisterSuccess(t *testing.T) {
 	}
 	if _, err := tls.X509KeyPair([]byte(gotReq.ServiceCertPEM), []byte(gotReq.ServiceKeyPEM)); err != nil {
 		t.Errorf("service credential doesn't form a valid cert/key pair: %v", err)
+	}
+}
+
+func TestRegisterSendsTokenAndReportsAdmission(t *testing.T) {
+	var gotReq registerRequest
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"abc","admitted":true}`))
+	}))
+	defer srv.Close()
+
+	ca, err := pki.NewCA("test node CA")
+	if err != nil {
+		t.Fatalf("pki.NewCA: %v", err)
+	}
+	cfg := &Config{Address: srv.Listener.Addr().String(), CACertPEM: certPEM(t, srv), Token: "one-time"}
+	admitted, err := Register(cfg, ca, "test-node", "10.1.2.3:9505")
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if !admitted {
+		t.Error("admitted = false, want true")
+	}
+	if gotReq.RegistrationToken != "one-time" {
+		t.Errorf("RegistrationToken = %q, want one-time", gotReq.RegistrationToken)
+	}
+}
+
+func TestReadTokenAndRemoveToken(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{addressFile: "10.0.0.5:8443", caFile: "pem", tokenFile: "tok\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if cfg.Token != "tok" {
+		t.Errorf("Token = %q, want tok", cfg.Token)
+	}
+	if err := RemoveToken(dir); err != nil {
+		t.Fatalf("RemoveToken: %v", err)
+	}
+	if err := RemoveToken(dir); err != nil {
+		t.Fatalf("RemoveToken twice: %v", err)
+	}
+	if cfg, err = Read(dir); err != nil || cfg.Token != "" {
+		t.Errorf("after RemoveToken: Read = %+v, %v", cfg, err)
 	}
 }
 
@@ -133,7 +193,7 @@ func TestRegisterWrongCARefused(t *testing.T) {
 	}
 
 	cfg := &Config{Address: srv.Listener.Addr().String(), CACertPEM: wrongCA.CertPEM}
-	if err := Register(cfg, ca, "test-node", "10.1.2.3:9505"); err == nil {
+	if _, err := Register(cfg, ca, "test-node", "10.1.2.3:9505"); err == nil {
 		t.Fatal("Register against a server whose cert isn't signed by the given CA succeeded, want a TLS verification failure")
 	}
 }
@@ -149,7 +209,7 @@ func TestRegisterControllerRejects(t *testing.T) {
 		t.Fatalf("pki.NewCA: %v", err)
 	}
 	cfg := &Config{Address: srv.Listener.Addr().String(), CACertPEM: certPEM(t, srv)}
-	err = Register(cfg, ca, "test-node", "10.1.2.3:9505")
+	_, err = Register(cfg, ca, "test-node", "10.1.2.3:9505")
 	if err == nil {
 		t.Fatal("Register against a Controller that refuses the request succeeded, want an error")
 	}

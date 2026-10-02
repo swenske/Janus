@@ -381,6 +381,13 @@ func seedFromNoCloud() {
 		fmt.Printf("init: nocloud: write /etc/janus/controller/ca.crt: %v\n", err)
 		return
 	}
+	// A Controller that created this machine itself admits it on this
+	// token (internal/selfregister sends it, then deletes it).
+	if cfg.RegistrationToken != "" {
+		if err := os.WriteFile("/etc/janus/controller/token", []byte(cfg.RegistrationToken), 0o600); err != nil {
+			fmt.Printf("init: nocloud: write /etc/janus/controller/token: %v\n", err)
+		}
+	}
 	fmt.Printf("init: nocloud: seeded controller config from %s\n", volume)
 }
 

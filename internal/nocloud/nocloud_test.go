@@ -100,6 +100,20 @@ func TestReadLocalUserData(t *testing.T) {
 	}
 }
 
+func TestParseUserDataRegistrationToken(t *testing.T) {
+	cfg, err := parseUserData([]byte(`{"controller_address":"c:8443","controller_ca_cert":"pem","registration_token":"tok"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RegistrationToken != "tok" {
+		t.Errorf("RegistrationToken = %q, want tok", cfg.RegistrationToken)
+	}
+	// A token is presented to a Controller - meaningless without one.
+	if _, err := parseUserData([]byte(`{"registration_token":"tok","network":{"hostname":"lb1"}}`)); err == nil {
+		t.Error("registration_token without a Controller: accepted")
+	}
+}
+
 func TestParseUserDataNetwork(t *testing.T) {
 	cfg, err := parseUserData([]byte(`{"network": {"hostname": "lb1", "interfaces": [{"name": "eth0", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.0.2.10/24"], "gateway": "192.0.2.1"}], "ntp": {"servers": ["ntp.example.net"]}}}`))
 	if err != nil {

@@ -65,6 +65,11 @@ var ErrNotFound = errors.New("no cidata volume found")
 type Config struct {
 	ControllerAddress string
 	ControllerCACert  []byte
+	// A one-time token the node presents when it announces itself to
+	// that Controller (internal/selfregister), set by a Controller that
+	// created this machine itself so it can admit it without the manual
+	// approval step. Optional; only meaningful with a Controller.
+	RegistrationToken string
 	// The node's network configuration (internal/netconfig), as
 	// user-data's "network" object - the NetworkConfig message's JSON
 	// form, as `janusctl network get` prints it.
@@ -74,6 +79,7 @@ type Config struct {
 type userData struct {
 	ControllerAddress string          `json:"controller_address"`
 	ControllerCACert  string          `json:"controller_ca_cert"`
+	RegistrationToken string          `json:"registration_token"`
 	Network           json.RawMessage `json:"network"`
 }
 
@@ -184,6 +190,12 @@ func parseUserData(raw []byte) (*Config, error) {
 		// No trust on first use: a Controller address is only usable with
 		// the CA to verify it against.
 		return nil, errors.New("user-data: controller_address and controller_ca_cert go together")
+	}
+	if ud.RegistrationToken != "" {
+		if cfg.ControllerAddress == "" {
+			return nil, errors.New("user-data: registration_token needs controller_address/controller_ca_cert")
+		}
+		cfg.RegistrationToken = ud.RegistrationToken
 	}
 	if len(ud.Network) > 0 && string(ud.Network) != "null" {
 		n, err := netconfig.Parse(ud.Network)

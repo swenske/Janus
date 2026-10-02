@@ -580,13 +580,22 @@ func selfRegisterIfConfigured(ca *pki.CA, hostname, grpcAddr string) {
 	}
 
 	log.Printf("selfregister: announcing to Controller at %s as %s (%s)", cfg.Address, hostname, advertiseAddr)
-	if err := selfregister.Register(cfg, ca, hostname, advertiseAddr); err != nil {
+	admitted, err := selfregister.Register(cfg, ca, hostname, advertiseAddr)
+	if err != nil {
 		log.Printf("selfregister: registration failed, will retry on next boot: %v", err)
 		events.Publish("selfregister.failed", map[string]string{"controller": cfg.Address, "error": err.Error()})
 		return
 	}
 	if err := selfregister.MarkRegistered(selfregister.Dir); err != nil {
 		log.Printf("selfregister: mark registered: %v", err)
+		return
+	}
+	if err := selfregister.RemoveToken(selfregister.Dir); err != nil {
+		log.Printf("selfregister: remove the used registration token: %v", err)
+	}
+	if admitted {
+		log.Printf("selfregister: admitted by Controller at %s", cfg.Address)
+		events.Publish("selfregister.admitted", map[string]string{"controller": cfg.Address})
 		return
 	}
 	log.Printf("selfregister: successfully announced to Controller at %s, awaiting approval", cfg.Address)

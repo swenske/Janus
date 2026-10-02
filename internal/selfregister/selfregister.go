@@ -58,6 +58,7 @@ var Dir = "/etc/janus/controller"
 const (
 	addressFile = "address"
 	caFile      = "ca.crt"
+	tokenFile   = "token"
 	markerFile  = "registered"
 
 	dialTimeout = 10 * time.Second
@@ -68,6 +69,11 @@ const (
 type Config struct {
 	Address   string
 	CACertPEM []byte
+	// Token is the optional one-time registration token a Controller
+	// that created this machine put in its NoCloud volume
+	// (internal/nocloud) - presented so that Controller admits the node
+	// directly instead of queueing it for manual approval.
+	Token string
 }
 
 // Read loads Config from dir. A missing address file means no
@@ -94,7 +100,26 @@ func Read(dir string) (*Config, error) {
 		return nil, fmt.Errorf("read %s: %w", caPath, err)
 	}
 
-	return &Config{Address: address, CACertPEM: ca}, nil
+	cfg := &Config{Address: address, CACertPEM: ca}
+	tok, err := os.ReadFile(filepath.Join(dir, tokenFile))
+	switch {
+	case err == nil:
+		cfg.Token = strings.TrimSpace(string(tok))
+	case !os.IsNotExist(err):
+		return nil, fmt.Errorf("read %s: %w", filepath.Join(dir, tokenFile), err)
+	}
+	return cfg, nil
+}
+
+// RemoveToken deletes the registration token once it has been used: the
+// Controller only ever accepts it once, so there is nothing left to keep
+// it for.
+func RemoveToken(dir string) error {
+	err := os.Remove(filepath.Join(dir, tokenFile))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // AlreadyRegistered reports whether this node has ever successfully
@@ -155,6 +180,15 @@ type registerRequest struct {
 	CACertPEM      string `json:"ca_cert_pem"`
 	ServiceCertPEM string `json:"service_cert_pem"`
 	ServiceKeyPEM  string `json:"service_key_pem"`
+	// Omitted when the node has none - an older Controller never sees it.
+	RegistrationToken string `json:"registration_token,omitempty"`
+}
+
+// registerResponse is the Controller's 201 body. Admitted is true when
+// the registration token was accepted (the node is already approved); an
+// older Controller, or one without a matching token, leaves it false.
+type registerResponse struct {
+	Admitted bool `json:"admitted"`
 }
 
 // Register mints a fresh admin-role service credential from ca (see the
@@ -162,11 +196,13 @@ type registerRequest struct {
 // admin credential) and POSTs a self-announcement to cfg.Address's
 // /register endpoint, identifying itself as hostname and advertising
 // advertiseAddr as the address a Controller should dial back to reach
-// this node's own gRPC API.
-func Register(cfg *Config, ca *pki.CA, hostname, advertiseAddr string) error {
+// this node's own gRPC API. It reports whether the Controller admitted
+// the node directly (cfg.Token accepted) rather than queueing it for
+// approval.
+func Register(cfg *Config, ca *pki.CA, hostname, advertiseAddr string) (admitted bool, err error) {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(cfg.CACertPEM) {
-		return fmt.Errorf("controller CA certificate doesn't parse")
+		return false, fmt.Errorf("controller CA certificate doesn't parse")
 	}
 
 	certPEM, keyPEM, err := ca.Issue(pki.IssueOptions{
@@ -175,7 +211,7 @@ func Register(cfg *Config, ca *pki.CA, hostname, advertiseAddr string) error {
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	})
 	if err != nil {
-		return fmt.Errorf("issue service credential: %w", err)
+		return false, fmt.Errorf("issue service credential: %w", err)
 	}
 
 	body, err := json.Marshal(registerRequest{
@@ -184,9 +220,11 @@ func Register(cfg *Config, ca *pki.CA, hostname, advertiseAddr string) error {
 		CACertPEM:      string(ca.CertPEM),
 		ServiceCertPEM: string(certPEM),
 		ServiceKeyPEM:  string(keyPEM),
+
+		RegistrationToken: cfg.Token,
 	})
 	if err != nil {
-		return fmt.Errorf("encode registration request: %w", err)
+		return false, fmt.Errorf("encode registration request: %w", err)
 	}
 
 	client := &http.Client{
@@ -197,14 +235,16 @@ func Register(cfg *Config, ca *pki.CA, hostname, advertiseAddr string) error {
 	}
 	resp, err := client.Post("https://"+cfg.Address+"/register", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("POST https://%s/register: %w", cfg.Address, err)
+		return false, fmt.Errorf("POST https://%s/register: %w", cfg.Address, err)
 	}
 	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode != http.StatusCreated {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("controller at %s refused registration (%s): %s", cfg.Address, resp.Status, strings.TrimSpace(string(respBody)))
+		return false, fmt.Errorf("controller at %s refused registration (%s): %s", cfg.Address, resp.Status, strings.TrimSpace(string(respBody)))
 	}
-	return nil
+	var r registerResponse
+	_ = json.Unmarshal(respBody, &r) // registered either way; only the admitted hint is lost
+	return r.Admitted, nil
 }
 
 // DetectAdvertiseAddress picks the local IP this machine would use to
