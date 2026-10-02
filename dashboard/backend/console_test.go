@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 const consoleSample = "janusd: listening on :9505\r\n" +
@@ -88,3 +90,27 @@ func TestUTF8Chunks(t *testing.T) {
 		}
 	}
 }
+
+// Tiny packets come out as few writes, in order, nothing lost.
+func TestCoalescer(t *testing.T) {
+	var mu sync.Mutex
+	var writes []string
+	c := newCoalescer(writerTo(func(p []byte) {
+		mu.Lock()
+		writes = append(writes, string(p))
+		mu.Unlock()
+	}), time.Hour)
+	for _, b := range []byte("\x1b[38;5;166mJanus\x1b[0m") {
+		_, _ = c.Write([]byte{b})
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if len(writes) != 1 || writes[0] != "\x1b[38;5;166mJanus\x1b[0m" {
+		t.Errorf("writes = %q", writes)
+	}
+}
+
+type writerTo func(p []byte)
+
+func (f writerTo) Write(p []byte) (int, error) { f(p); return len(p), nil }

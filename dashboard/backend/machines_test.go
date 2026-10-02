@@ -235,6 +235,7 @@ func TestMachineLifecycle(t *testing.T) {
 		Name: "lb1", HypervisorID: h.ID,
 		Image: &machines.ImageSource{URL: srv.URL + "/janus-kvm.qcow2", SHA256: hex.EncodeToString(sum[:])},
 		NICs:  []machines.NIC{{Network: "lab-mgmt", Name: "mgmt", Mode: "static", Addresses: []string{"10.200.10.23/24"}}},
+		NTP:   []string{"10.200.10.1"},
 	})
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body)
@@ -259,7 +260,7 @@ func TestMachineLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the NoCloud volume: %v", err)
 	}
-	if ci.ControllerAddress != "192.0.2.1:8443" || ci.RegistrationToken == "" || ci.Network.GetHostname() != "lb1" || ci.Network.GetInterfaces()[0].GetMac() != m.Spec.NICs[0].MAC {
+	if ci.ControllerAddress != "192.0.2.1:8443" || ci.RegistrationToken == "" || ci.Network.GetHostname() != "lb1" || ci.Network.GetInterfaces()[0].GetMac() != m.Spec.NICs[0].MAC || ci.Network.GetNtp().GetServers()[0] != "10.200.10.1" {
 		t.Fatalf("NoCloud config: %+v", ci)
 	}
 
@@ -346,6 +347,7 @@ func TestMachineCreateRefusals(t *testing.T) {
 		"multicast MAC":     {Name: "lb1", HypervisorID: h.ID, NICs: []machines.NIC{{Network: "lab-mgmt", MAC: "01:00:5e:00:00:01"}}},
 		"static no address": {Name: "lb1", HypervisorID: h.ID, NICs: []machines.NIC{{Network: "lab-mgmt", Mode: "static", Addresses: []string{"nope"}}}},
 		"too little memory": {Name: "lb1", HypervisorID: h.ID, NICs: nic, MemoryMiB: 128},
+		"three NTP servers": {Name: "lb1", HypervisorID: h.ID, NICs: nic, NTP: []string{"a", "b", "c"}},
 		"image and version": {Name: "lb1", HypervisorID: h.ID, NICs: nic, Version: "v2026.10.02", Image: &machines.ImageSource{URL: "https://x/y", SHA256: strings.Repeat("a", 64)}},
 	} {
 		rec := call(t, a.handleMachineCreate, "POST", "/api/machines", "POST /api/machines", spec)
@@ -368,5 +370,29 @@ func TestMachineResumeAfterRestart(t *testing.T) {
 	got, _ := a.machines.Get(m.ID)
 	if got.Phase != machines.PhaseFailed || !strings.Contains(got.Error, "restarted") {
 		t.Errorf("after resume: %s %q", got.Phase, got.Error)
+	}
+}
+
+// A node from an image without registration tokens waits for approval;
+// approved, it's linked to the machine waiting under its name.
+func TestManualApprovalLinksTheMachine(t *testing.T) {
+	a, _ := newTestApp(t)
+	m := &machines.Machine{Spec: machines.Spec{Name: "lb1"}, Phase: machines.PhaseRegistering, Ref: &hypervisor.MachineRef{UUID: "u", Name: "janus-lb1"}}
+	if err := a.machines.Add(m); err != nil {
+		t.Fatal(err)
+	}
+	rec := call(t, a.handleRegister, "POST", "/register", "/register", registration(t, "lb1", ""))
+	if rec.Code != http.StatusCreated || len(a.pending.List()) != 1 {
+		t.Fatalf("register: %d %s", rec.Code, rec.Body)
+	}
+	p := a.pending.List()[0]
+	rec = call(t, a.handlePendingAction, "POST", "/api/pending/"+p.ID+"/approve", "/api/pending/", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("approve: %d %s", rec.Code, rec.Body)
+	}
+	got, _ := a.machines.Get(m.ID)
+	node, ok := a.store.Get(got.NodeID)
+	if got.Phase != machines.PhaseReady || !ok || node.MachineID != m.ID {
+		t.Errorf("machine %s node %q, node %+v", got.Phase, got.NodeID, node)
 	}
 }

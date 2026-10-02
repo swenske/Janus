@@ -155,6 +155,17 @@ func (r *machineRunner) registered(id string, node *store.Node) {
 	})
 }
 
+// waitingFor is the machine named name still waiting for its node, if
+// any.
+func (r *machineRunner) waitingFor(name string) string {
+	for _, m := range r.a.machines.List() {
+		if m.Spec.Name == name && m.NodeID == "" && m.Ref != nil && (m.Phase == machines.PhaseRegistering || m.Phase == machines.PhaseFailed) {
+			return m.ID
+		}
+	}
+	return ""
+}
+
 // watchRegistration fails the machine if its node hasn't registered in
 // time - the virtual machine is left running, for its console to tell
 // why.
@@ -524,6 +535,9 @@ func networkConfig(spec machines.Spec) (*janusv1alpha1.NetworkConfig, error) {
 	}
 	if len(spec.DNS) > 0 {
 		cfg.Dns = &janusv1alpha1.NetworkDNS{Servers: spec.DNS}
+	}
+	if len(spec.NTP) > 0 {
+		cfg.Ntp = &janusv1alpha1.NetworkNTP{Servers: spec.NTP}
 	}
 	if err := netconfig.Validate(cfg); err != nil {
 		return nil, err

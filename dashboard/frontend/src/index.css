@@ -76,3 +76,19 @@
   .content { padding: 1rem; }
   .topbar { padding: 0.5rem 0.8rem; }
 }
+
+/* Hypervisors and machines (Hypervisors.jsx, Console.jsx). */
+.machine-strip { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.45rem 0.6rem; background: var(--surface-2); border-radius: var(--radius-sm); }
+.trust-steps { padding: 0.7rem; border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+.fingerprint { font-size: 0.85rem; overflow-wrap: anywhere; }
+.nic-row { display: grid; grid-template-columns: minmax(7rem, 1fr) minmax(5rem, 0.7fr) minmax(7rem, 0.8fr) minmax(9rem, 1.2fr) minmax(8rem, 1fr) auto; gap: 0.4rem; align-items: center; }
+.ext-list { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; }
+.machine-events { max-height: 220px; margin: 0; white-space: pre-wrap; }
+.kv dd .bar { margin-top: 0.3rem; }
+.modal.console-modal { width: min(1100px, 100%); display: flex; flex-direction: column; gap: 0.6rem; }
+.console-output { height: min(65vh, 640px); margin: 0; white-space: pre-wrap; word-break: break-all; }
+.content > .tabs { margin-bottom: 1.1rem; }
+
+@media (max-width: 800px) {
+  .nic-row { grid-template-columns: 1fr 1fr; }
+}

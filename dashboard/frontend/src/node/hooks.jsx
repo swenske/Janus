@@ -83,35 +83,6 @@ export function usePoll(path, { every, enabled = true } = {}) {
   return { ...state, reload }
 }
 
-// useSSE follows a Server-Sent Events stream while enabled; onMessage
-// gets each data payload, onFailure a node-side error ("failure" event).
-export function useSSE(url, { enabled = true, onMessage, onFailure }) {
-  const [status, setStatus] = useState('connecting')
-  const handlers = useRef({ onMessage, onFailure })
-  handlers.current = { onMessage, onFailure }
-
-  useEffect(() => {
-    if (!enabled || !url) {
-      setStatus('paused')
-      return undefined
-    }
-    setStatus('connecting')
-    const es = new EventSource(url)
-    es.onopen = () => setStatus('live')
-    es.onmessage = (e) => handlers.current.onMessage?.(e.data)
-    es.addEventListener('failure', (e) => {
-      setStatus('failed')
-      handlers.current.onFailure?.(e.data)
-      es.close()
-    })
-    // EventSource retries on its own after a dropped connection.
-    es.onerror = () => setStatus(es.readyState === EventSource.CLOSED ? 'failed' : 'reconnecting')
-    return () => es.close()
-  }, [url, enabled])
-
-  return status
-}
-
 // --- metrics history (app-wide, so charts keep their data across views) ---
 
 const MAX_SAMPLES = 900
@@ -235,19 +206,6 @@ export function useMetrics() {
   return useContext(MetricsContext)
 }
 
-// --- hash router ---
-
-export function useHashRoute() {
-  const read = () => window.location.hash.replace(/^#/, '') || '/'
-  const [route, setRoute] = useState(read)
-  useEffect(() => {
-    const on = () => setRoute(read())
-    window.addEventListener('hashchange', on)
-    return () => window.removeEventListener('hashchange', on)
-  }, [])
-  return route
-}
-
-export function navigate(path) {
-  window.location.hash = path
-}
+// Shared with the main page.
+export { navigate, useHashRoute } from '../shared/route.js'
+export { useSSE } from '../shared/sse.js'

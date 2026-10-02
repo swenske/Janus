@@ -192,7 +192,11 @@ func (a *app) approvePending(w http.ResponseWriter, id string) {
 		return
 	}
 
-	node, err := a.admit(p, "")
+	// A node of a machine this Controller created, from an image too old
+	// to present its token: once approved, it's that machine's (the
+	// approval is the operator's, the name only says which machine).
+	machineID := a.runner.waitingFor(p.Name)
+	node, err := a.admit(p, machineID)
 	if err != nil {
 		var full errPortsExhausted
 		if errors.As(err, &full) {
@@ -207,6 +211,9 @@ func (a *app) approvePending(w http.ResponseWriter, id string) {
 	// retried, rather than silently losing the announcement.
 	if err := a.pending.Remove(id); err != nil {
 		log.Printf("pending node %s: approved but failed to remove from the pending queue: %v", id, err)
+	}
+	if machineID != "" {
+		a.runner.registered(machineID, node)
 	}
 	log.Printf("node approved: %s (%s) -> port %d", node.Name, node.Address, node.Port)
 	writeJSON(w, http.StatusCreated, struct {

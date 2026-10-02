@@ -77,18 +77,6 @@
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.1rem; flex-wrap: wrap; }
 .page-header h1 { margin-bottom: 0.15rem; }
 
-/* --- tabs --- */
-.tabs { display: flex; gap: 0.2rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; overflow-x: auto; }
-.tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  padding: 0.5rem 0.8rem;
-  color: var(--muted);
-}
-.tab:hover:not(:disabled) { background: none; color: var(--text); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
 /* --- misc components --- */
 .search {
@@ -104,16 +92,6 @@
 .search input { border: none; padding: 0.35rem 0; background: transparent; outline: none; width: 14rem; }
 button.active { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
 
-.logview {
-  font-family: var(--mono);
-  font-size: 0.82rem;
-  line-height: 1.5;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.6rem 0.8rem;
-  overflow: auto;
-}
 .logline { white-space: pre; }
 .logview.wrap .logline { white-space: pre-wrap; word-break: break-all; }
 .log-danger { color: var(--danger); }

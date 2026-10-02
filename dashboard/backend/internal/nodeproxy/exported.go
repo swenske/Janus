@@ -34,6 +34,11 @@ func NewSSE(w http.ResponseWriter, r *http.Request) (*SSE, bool) {
 	return &SSE{s: s}, true
 }
 
+// Comment writes an SSE comment, which browsers ignore - sent first, it
+// opens the stream at once (EventSource reports it open) rather than at
+// the first event.
+func (s *SSE) Comment(text string) error { return s.s.write(": " + text + "\n\n") }
+
 // Send writes one event ("" for the default "message" event). An error
 // for the browser goes out as "failure", never "error" (EventSource's
 // own connection-error event).

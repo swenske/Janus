@@ -1,8 +1,12 @@
-import { ArrowUpRight, Check, ChevronDown, Copy, LogOut, Plus, RefreshCw, Rocket, Server, ShieldCheck, Trash2, X } from 'lucide-react'
+import { ArrowUpRight, Boxes, Check, ChevronDown, Copy, LogOut, Plus, RefreshCw, Rocket, Server, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { call } from './call.js'
+import MachineConsole from './Console.jsx'
 import ControllerUpdate from './ControllerUpdate.jsx'
+import HypervisorsPage, { PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
+import { navigate, useHashRoute } from './shared/route.js'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
-import { Badge, Card, ErrorBox, stateTone, useConfirm, useToast } from './shared/ui.jsx'
+import { Badge, Card, ErrorBox, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
 
 // dashboardd serves this SPA and its REST API on the same origin (its own
 // -addr) - see dashboard/backend/main.go. Each *node's own* page lives on
@@ -11,13 +15,6 @@ import { Badge, Card, ErrorBox, stateTone, useConfirm, useToast } from './shared
 // origin needs a TLS client certificate the browser negotiates per origin.
 function openNode(node) {
   window.open(`https://${window.location.hostname}:${node.port}/`, '_blank', 'noopener,noreferrer')
-}
-
-async function call(path, opts) {
-  const resp = await fetch(path, opts)
-  const text = await resp.text()
-  if (!resp.ok) throw new Error(text.trim() || `${resp.status} ${resp.statusText}`)
-  return text ? JSON.parse(text) : null
 }
 
 function uptime(bootUnix) {
@@ -32,7 +29,10 @@ function uptime(bootUnix) {
 
 // --- node cards ---
 
-function NodeCard({ node, status, onRemove }) {
+// A node the Controller created on a hypervisor shows its machine's
+// state, and the hypervisor-level actions - what's left when the node
+// itself doesn't answer.
+function NodeCard({ node, status, onRemove, machine, vm, machineActions }) {
   const st = status
   const reachable = st?.reachable
   return (
@@ -44,6 +44,22 @@ function NodeCard({ node, status, onRemove }) {
         </div>
         {!st ? <Badge>checking…</Badge> : reachable ? <Badge tone="ok" dot>online</Badge> : <Badge tone="danger" dot>unreachable</Badge>}
       </div>
+      {machine && (
+        <div className="machine-strip small">
+          <div className="row" style={{ gap: '0.4rem' }}>
+            <Boxes size={14} />
+            <span className="muted">
+              VM <span className="mono">{machine.vm_name}</span> on {machine.hypervisor_name}
+            </span>
+          </div>
+          <div className="row" style={{ gap: '0.3rem' }}>
+            <PowerBadge power={vm?.power} />
+            {machine.phase !== 'ready' && <PhaseBadge phase={machine.phase} />}
+            <span className="grow" />
+            <PowerButtons machine={machine} vm={vm} actions={machineActions} />
+          </div>
+        </div>
+      )}
       {st && !reachable && <div className="error-box small">{st.error || 'no answer'}</div>}
       {reachable && (
         <dl className="kv small">
@@ -79,9 +95,15 @@ function NodeCard({ node, status, onRemove }) {
           Open <ArrowUpRight size={15} />
         </button>
         <span className="grow" />
-        <button className="ghost small danger" onClick={() => onRemove(node)} title="Remove from this Controller">
-          <Trash2 size={14} /> Remove
-        </button>
+        {machine ? (
+          <button className="ghost small danger" onClick={() => machineActions.destroy(machine)} disabled={machineActions.busy} title="Destroy its virtual machine">
+            <Trash2 size={14} /> Destroy
+          </button>
+        ) : (
+          <button className="ghost small danger" onClick={() => onRemove(node)} title="Remove from this Controller">
+            <Trash2 size={14} /> Remove
+          </button>
+        )}
       </div>
     </section>
   )
@@ -90,15 +112,23 @@ function NodeCard({ node, status, onRemove }) {
 // PendingList is the Tailscale-style admission queue: a node announced
 // itself (see dashboard/backend/register.go) but isn't reachable until a
 // human approves it here - never fully automatic.
-function PendingList({ pending, onApprove, onReject, busy }) {
+function PendingList({ pending, onApprove, onReject, busy, machines }) {
   if (!pending.length) return null
+  // A machine this Controller created whose image is too old to present
+  // its registration token: approving it links the node to the machine.
+  const waiting = (name) => machines.find((m) => m.spec.name === name && !m.node_id && ['waiting-registration', 'failed'].includes(m.phase))
   return (
     <Card title={`Waiting for approval (${pending.length})`} icon={ShieldCheck} className="pending">
       <div className="stack" style={{ gap: '0.5rem' }}>
         {pending.map((p) => (
           <div key={p.id} className="spread pending-row">
             <div>
-              <strong>{p.name}</strong> <span className="muted mono small">{p.address}</span>
+              <strong>{p.name}</strong> <span className="muted mono small">{p.address}</span>{' '}
+              {waiting(p.name) && (
+                <Badge tone="info">
+                  <Boxes size={11} /> a machine created on {waiting(p.name).hypervisor_name}
+                </Badge>
+              )}
               <div className="muted small">announced {new Date(p.announced_at).toLocaleString()}</div>
             </div>
             <div className="row">
@@ -469,9 +499,15 @@ function AuthGate({ children }) {
 const STATUS_EVERY = 15000
 
 function MainApp() {
+  const route = useHashRoute()
+  const tab = route.startsWith('/hypervisors') ? 'hypervisors' : 'nodes'
   const [nodes, setNodes] = useState(null)
   const [pending, setPending] = useState([])
   const [statuses, setStatuses] = useState({})
+  const [hypervisors, setHypervisors] = useState([])
+  const [machines, setMachines] = useState([])
+  const [hvStatus, setHvStatus] = useState({})
+  const [consoleOf, setConsoleOf] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [adding, setAdding] = useState(false)
@@ -481,29 +517,42 @@ function MainApp() {
 
   const refresh = useCallback(async () => {
     try {
-      const [n, p] = await Promise.all([call('/api/nodes'), call('/api/pending')])
+      const [n, p, h, m] = await Promise.all([call('/api/nodes'), call('/api/pending'), call('/api/hypervisors'), call('/api/machines')])
       setNodes(n ?? [])
       setPending(p ?? [])
+      setHypervisors(h ?? [])
+      setMachines(m ?? [])
       setError(null)
+      return h ?? []
     } catch (err) {
       setError(err.message)
+      return []
     }
   }, [])
-  const refreshStatus = useCallback(() => {
+  const refreshStatus = useCallback((hvs) => {
     call('/api/nodes/status')
       .then((s) => setStatuses(s || {}))
       .catch(() => {})
+    for (const hv of hvs || []) {
+      if (!hv.trusted) continue
+      call(`/api/hypervisors/${hv.id}/status`)
+        .then((st) => setHvStatus((all) => ({ ...all, [hv.id]: st })))
+        .catch(() => {})
+    }
   }, [])
+  const reload = useCallback(async () => refreshStatus(await refresh()), [refresh, refreshStatus])
 
+  // Faster while a machine is being created or destroyed: its phase moves
+  // every few seconds.
+  const working = machines.some((m) => !['ready', 'failed'].includes(m.phase))
   useEffect(() => {
-    refresh()
-    refreshStatus()
-    const t = setInterval(() => {
-      refresh()
-      refreshStatus()
-    }, STATUS_EVERY)
+    reload()
+    const t = setInterval(reload, working ? 3000 : STATUS_EVERY)
     return () => clearInterval(t)
-  }, [refresh, refreshStatus])
+  }, [reload, working])
+  const machineActions = useMachineActions({ onChanged: reload, onConsole: setConsoleOf })
+  const machineOf = (node) => machines.find((m) => m.id === node.machine_id)
+  const vmOf = (m) => m && hvStatus[m.spec.hypervisor_id]?.machines?.[m.id]
   useEffect(() => {
     call('/api/version')
       .then((v) => setVersion(v?.version || ''))
@@ -515,8 +564,7 @@ function MainApp() {
     try {
       await fn()
       if (success) toast(success)
-      await refresh()
-      refreshStatus()
+      await reload()
     } catch (err) {
       toast(err, 'danger')
     } finally {
@@ -565,7 +613,7 @@ function MainApp() {
           {pending.length > 0 && <Badge tone="warn">{pending.length} pending</Badge>}
         </div>
         <span className="grow" />
-        <button className="ghost icon" title="Refresh" onClick={() => { refresh(); refreshStatus() }}>
+        <button className="ghost icon" title="Refresh" onClick={reload}>
           <RefreshCw size={16} />
         </button>
         <ThemeToggle />
@@ -574,41 +622,53 @@ function MainApp() {
         </button>
       </header>
       <main className="content">
-        <div className="stack">
-          {error && <ErrorBox error={error} />}
-          <ControllerUpdate />
-          <PendingList pending={pending} onApprove={approve} onReject={reject} busy={busy} />
-          <div className="spread">
-            <h1>Nodes</h1>
-            {!adding && (
-              <button className="primary" onClick={() => setAdding(true)}>
-                <Plus size={15} /> Add node
-              </button>
-            )}
-          </div>
-          {adding && (
-            <AddNodeForm
-              onAdded={() => {
-                setAdding(false)
-                refresh()
-                refreshStatus()
-              }}
-              onClose={() => setAdding(false)}
-            />
-          )}
-          {nodes && nodes.length === 0 && !adding && (
-            <div className="card empty">
-              No node yet. <button className="small" onClick={() => setAdding(true)}>Add one</button> with its admin certificate, or provision new ones to self-register
-              (below).
+        <Tabs
+          tabs={[
+            { id: 'nodes', label: `Nodes${nodes ? ` (${nodes.length})` : ''}`, icon: Server },
+            { id: 'hypervisors', label: `Hypervisors${hypervisors.length ? ` (${hypervisors.length})` : ''}`, icon: Boxes },
+          ]}
+          active={tab}
+          onChange={(id) => navigate(id === 'nodes' ? '/' : '/hypervisors')}
+        />
+        {consoleOf && <MachineConsole machine={consoleOf} onClose={() => setConsoleOf(null)} />}
+        {tab === 'hypervisors' ? (
+          <HypervisorsPage hypervisors={hypervisors} machines={machines} hvStatus={hvStatus} onChanged={reload} onConsole={setConsoleOf} />
+        ) : (
+          <div className="stack">
+            {error && <ErrorBox error={error} />}
+            <ControllerUpdate />
+            <PendingList pending={pending} onApprove={approve} onReject={reject} busy={busy} machines={machines} />
+            <div className="spread">
+              <h1>Nodes</h1>
+              {!adding && (
+                <button className="primary" onClick={() => setAdding(true)}>
+                  <Plus size={15} /> Add node
+                </button>
+              )}
             </div>
-          )}
-          <div className="node-grid">
-            {(nodes || []).map((n) => (
-              <NodeCard key={n.id} node={n} status={statuses[n.id]} onRemove={remove} />
-            ))}
+            {adding && (
+              <AddNodeForm
+                onAdded={() => {
+                  setAdding(false)
+                  reload()
+                }}
+                onClose={() => setAdding(false)}
+              />
+            )}
+            {nodes && nodes.length === 0 && !adding && (
+              <div className="card empty">
+                No node yet. <button className="small" onClick={() => setAdding(true)}>Add one</button> with its admin certificate, or provision new ones to self-register
+                (below).
+              </div>
+            )}
+            <div className="node-grid">
+              {(nodes || []).map((n) => (
+                <NodeCard key={n.id} node={n} status={statuses[n.id]} onRemove={remove} machine={machineOf(n)} vm={vmOf(machineOf(n))} machineActions={machineActions} />
+              ))}
+            </div>
+            <ProvisionInfo />
           </div>
-          <ProvisionInfo />
-        </div>
+        )}
       </main>
     </div>
   )

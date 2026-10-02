@@ -255,13 +255,16 @@ func (a *app) handleMachineConsole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	_ = sse.Comment("console")
 	out := &utf8Chunks{send: func(text string) error {
 		chunk, _ := json.Marshal(text)
 		return sse.Send("", string(chunk))
 	}}
-	red := newKeyRedactor(out)
+	batch := newCoalescer(out, 100*time.Millisecond)
+	red := newKeyRedactor(batch)
 	err = drv.Console(r.Context(), *m.Ref, red)
 	_ = red.Flush()
+	_ = batch.Close()
 	_ = out.Flush()
 	if r.Context().Err() != nil {
 		return // the browser left

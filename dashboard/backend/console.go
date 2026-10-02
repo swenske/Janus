@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"io"
+	"sync"
+	"time"
 	"unicode/utf8"
 )
 
@@ -167,4 +169,72 @@ func completeUTF8(b []byte) int {
 		}
 	}
 	return len(b)
+}
+
+// coalescer gathers a console's output and passes it on at most every
+// period (or once maxPending bytes are waiting): a serial console comes
+// in packets of a few bytes, and one event per packet would flood the
+// browser - and cut nearly every escape sequence in two.
+type coalescer struct {
+	w io.Writer
+
+	mu      sync.Mutex
+	pending []byte
+	err     error
+	stop    chan struct{}
+	stopped sync.WaitGroup
+}
+
+const maxPending = 32 << 10
+
+func newCoalescer(w io.Writer, period time.Duration) *coalescer {
+	c := &coalescer{w: w, stop: make(chan struct{})}
+	c.stopped.Add(1)
+	go func() {
+		defer c.stopped.Done()
+		t := time.NewTicker(period)
+		defer t.Stop()
+		for {
+			select {
+			case <-c.stop:
+				return
+			case <-t.C:
+				c.mu.Lock()
+				c.flushLocked()
+				c.mu.Unlock()
+			}
+		}
+	}()
+	return c
+}
+
+func (c *coalescer) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.err != nil {
+		return 0, c.err
+	}
+	c.pending = append(c.pending, p...)
+	if len(c.pending) >= maxPending {
+		c.flushLocked()
+	}
+	return len(p), c.err
+}
+
+func (c *coalescer) flushLocked() {
+	if len(c.pending) == 0 || c.err != nil {
+		return
+	}
+	_, c.err = c.w.Write(c.pending)
+	c.pending = c.pending[:0]
+}
+
+// Close stops the timer and passes on what's left.
+func (c *coalescer) Close() error {
+	close(c.stop)
+	c.stopped.Wait()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.flushLocked()
+	return c.err
 }

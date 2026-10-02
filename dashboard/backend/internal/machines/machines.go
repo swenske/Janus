@@ -70,6 +70,9 @@ type Spec struct {
 	NICs  []NIC        `json:"nics"`
 	// DNS servers; empty: those DHCP gives, if any.
 	DNS []string `json:"dns,omitempty"`
+	// NTP servers (at most two); empty: those DHCP gives, else
+	// pool.ntp.org.
+	NTP []string `json:"ntp,omitempty"`
 }
 
 type ImageSource struct {
