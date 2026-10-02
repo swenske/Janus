@@ -44,7 +44,7 @@ Rules:
 
 ## The main page
 
-Two tabs (hash routes `#/` and `#/hypervisors`).
+Three tabs (hash routes `#/`, `#/hypervisors`, `#/tokens`).
 
 **Nodes**: pending approvals first, then the nodes as cards, then
 provisioning. A node the Controller created on a hypervisor shows its
@@ -65,6 +65,10 @@ image factory's extensions, or an image by URL and SHA-256. The console
 (`Console.jsx`) is read-only, follows the SSE stream from
 `/api/machines/{id}/console`, and cleans terminal sequences out of the
 whole text - an escape sequence can be cut across two messages.
+
+**API tokens** (`Tokens.jsx`): create one (name, validity) - shown once,
+with a copy button - see each one's last use, revoke. Only the admin's
+session reaches it, never a token.
 
 On the Nodes tab, above the rest, `ControllerUpdate.jsx` is the
 Controller's own update

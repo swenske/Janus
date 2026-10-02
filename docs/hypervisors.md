@@ -13,8 +13,8 @@ production one sharing a host never touch each other's machines, and
 neither touches anything else. On the host, a polkit policy makes
 libvirt itself enforce the same boundary (below).
 
-Proxmox, VMware and Hyper-V are planned; a Terraform provider driving
-this API too.
+Proxmox, VMware and Hyper-V are planned. Terraform (and OpenTofu,
+Terragrunt) drive it with the Janus provider: [terraform.md](terraform.md).
 
 ## What the host needs
 
@@ -346,9 +346,27 @@ If a hypervisor is gone for good, `DELETE /api/machines/{id}?forget=true`
 drops the Controller's records of a machine without touching anything
 else.
 
+## Changing a node
+
+`PATCH /api/machines/{id}` changes a ready node in place, in the
+background: phase `updating`, then back to `ready`. If a step failed,
+the error is on the machine, and the steps that succeeded are kept.
+
+- **Network** (addresses, gateways, modes, DNS, NTP): put on trial on the
+  node and confirmed from wherever it's reachable afterwards.
+- **Size** (vCPUs, memory): a clean shutdown, the virtual machine
+  resized, started again.
+- **Version and extensions**: the node's own A/B update, from the
+  release's bundle or the image factory's build.
+
+The name, hypervisor, image, and the interfaces' count, networks, names
+and MACs don't change in place: that's a new machine. This is what the
+Terraform provider applies ([terraform.md](terraform.md)).
+
 ## The API
 
-Behind the Controller's login, like the rest of its API. The shape is
+Behind the Controller's login, like the rest of its API, or an API token
+(`Authorization: Bearer`, the **API tokens** tab) for a program. The shape is
 the one a Terraform provider needs, for the planned one:
 - `POST` answers `202` with the resource, whose `phase` is then polled;
 - `GET` returns the spec as created, with MAC addresses filled in, plus
@@ -364,11 +382,13 @@ the one a Terraform provider needs, for the planned one:
 | `POST /api/hypervisors/{id}/trust` | `{fingerprint}`: pins the host key, if the host presents that one |
 | `GET /api/hypervisors/{id}/status` | the host, CPU use, and each of its machines' state |
 | `GET`, `POST /api/machines` | list; create (`{name, hypervisor_id, vcpus, memory_mib, version, extensions, image: {url, sha256}, nics: [{network, name, mac, mode, addresses, gateway}], dns, ntp}`) |
-| `GET`, `DELETE /api/machines/{id}` | one: `phase` is `pending`, `preparing-image`, `creating`, `waiting-registration`, `ready`, `failed` or `destroying`; destroy (`?forget=true`: records only) |
+| `GET`, `DELETE /api/machines/{id}` | one: `phase` is `pending`, `preparing-image`, `creating`, `waiting-registration`, `ready`, `updating`, `failed` or `destroying`; destroy (`?forget=true`: records only) |
+| `PATCH /api/machines/{id}` | change it in place (`{vcpus, memory_mib, version, extensions, nics, dns, ntp}`, those given) |
 | `POST /api/machines/{id}/power` | `{action: "start" \| "force-off" \| "reset"}` |
 | `POST /api/machines/{id}/retry` | a failed creation, again |
 | `GET /api/machines/{id}/console` | Server-Sent Events, one JSON string per chunk; `failure` when it closes |
 | `GET /api/catalog` | the newest release and the image factory's extensions |
+| `GET`, `POST /api/tokens`, `DELETE /api/tokens/{id}` | API tokens (`{name, expires_in_days}`; the token is in the answer, once) - the admin's session only, never a token |
 
 ## Testing
 

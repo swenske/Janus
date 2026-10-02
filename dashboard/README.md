@@ -234,6 +234,13 @@ acts on the machines it created. Preparing the host (a dedicated SSH
 account, a storage pool, a polkit policy) and the API:
 [docs/hypervisors.md](../docs/hypervisors.md).
 
+### API tokens and Terraform
+
+A program uses the Controller's API with an API token (the **API tokens**
+tab: shown once, revocable) sent as `Authorization: Bearer`. The Janus
+Terraform provider is one: it creates, changes and destroys the
+Controller's nodes as code ([docs/terraform.md](../docs/terraform.md)).
+
 ## Updating the Controller
 
 The main page says when a newer Janus release exists (the version this
