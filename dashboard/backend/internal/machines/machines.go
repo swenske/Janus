@@ -39,6 +39,9 @@ const (
 	PhaseReady       Phase = "ready"
 	PhaseFailed      Phase = "failed"
 	PhaseDestroying  Phase = "destroying"
+	// PhaseUpdating: a ready machine being changed in place; back to
+	// ready when done, with Error set if a step failed.
+	PhaseUpdating Phase = "updating"
 )
 
 // Busy reports whether something is under way in this phase - work a

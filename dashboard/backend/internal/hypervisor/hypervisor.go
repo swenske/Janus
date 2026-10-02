@@ -56,6 +56,9 @@ type Driver interface {
 	CreateMachine(ctx context.Context, spec MachineSpec) (*MachineRef, error)
 	MachineStatus(ctx context.Context, ref MachineRef) (*MachineStatus, error)
 	Power(ctx context.Context, ref MachineRef, action PowerAction) error
+	// Resize changes a stopped machine's vCPUs and memory, from its next
+	// start.
+	Resize(ctx context.Context, ref MachineRef, vcpus, memoryMiB int) error
 	// Console copies the machine's serial console output to w until ctx
 	// ends or the console closes. Read-only.
 	Console(ctx context.Context, ref MachineRef, w io.Writer) error

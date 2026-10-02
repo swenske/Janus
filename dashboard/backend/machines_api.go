@@ -23,6 +23,7 @@ func (a *app) registerMachineRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/machines", a.requireAuth(a.handleMachineList))
 	mux.HandleFunc("POST /api/machines", a.requireAuth(a.handleMachineCreate))
 	mux.HandleFunc("GET /api/machines/{id}", a.requireAuth(a.handleMachineGet))
+	mux.HandleFunc("PATCH /api/machines/{id}", a.requireAuth(a.handleMachineUpdate))
 	mux.HandleFunc("DELETE /api/machines/{id}", a.requireAuth(a.handleMachineDelete))
 	mux.HandleFunc("POST /api/machines/{id}/retry", a.requireAuth(a.handleMachineRetry))
 	mux.HandleFunc("POST /api/machines/{id}/power", a.requireAuth(a.handleMachinePower))

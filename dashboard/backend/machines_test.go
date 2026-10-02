@@ -36,6 +36,8 @@ type fakeDriver struct {
 	vms       map[string]hypervisor.MachineSpec // by UUID
 	destroyed []string
 	ciData    []byte
+	powered   []hypervisor.PowerAction
+	resized   [][2]int
 }
 
 func newFakeDriver() *fakeDriver {
@@ -93,7 +95,17 @@ func (f *fakeDriver) MachineStatus(_ context.Context, ref hypervisor.MachineRef)
 	return &hypervisor.MachineStatus{Power: hypervisor.PowerRunning}, nil
 }
 
-func (f *fakeDriver) Power(context.Context, hypervisor.MachineRef, hypervisor.PowerAction) error {
+func (f *fakeDriver) Power(_ context.Context, _ hypervisor.MachineRef, action hypervisor.PowerAction) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.powered = append(f.powered, action)
+	return nil
+}
+
+func (f *fakeDriver) Resize(_ context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resized = append(f.resized, [2]int{vcpus, memoryMiB})
 	return nil
 }
 

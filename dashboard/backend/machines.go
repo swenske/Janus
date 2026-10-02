@@ -72,6 +72,13 @@ func newMachineRunner(a *app) *machineRunner {
 func (r *machineRunner) resume() {
 	for _, m := range r.a.machines.List() {
 		switch {
+		case m.Phase == machines.PhaseUpdating:
+			// Its node is still there: the machine stays ready.
+			_, _ = r.a.machines.Update(m.ID, func(m *machines.Machine) error {
+				m.Phase, m.Error = machines.PhaseReady, "update interrupted: the Controller restarted"
+				m.Log("%s", m.Error)
+				return nil
+			})
 		case m.Phase.Busy():
 			_, _ = r.a.machines.Update(m.ID, func(m *machines.Machine) error {
 				m.Error = fmt.Sprintf("interrupted while %s: the Controller restarted", m.Phase)
@@ -317,8 +324,8 @@ func (r *machineRunner) resolveImage(ctx context.Context, m *machines.Machine) (
 			}); err != nil {
 				return nil, hypervisor.Image{}, err
 			}
-			name := fmt.Sprintf("janus-base-%s-%s.qcow2", vi.Schematic[:8], vi.Version)
-			r.logEvent(m.ID, "image: Janus %s, schematic %s", vi.Version, vi.Schematic[:8])
+			name := fmt.Sprintf("janus-base-%.8s-%s.qcow2", vi.Schematic, vi.Version)
+			r.logEvent(m.ID, "image: Janus %s, schematic %.8s", vi.Version, vi.Schematic)
 			return &imageSource{URL: vi.URL, SHA256: vi.SHA256, Size: vi.Size}, hypervisor.Image{Name: name}, nil
 		case "building":
 			if !reported {
@@ -437,7 +444,7 @@ func (r *machineRunner) destroy(ctx context.Context, id string) error {
 
 	if node, ok := a.store.Get(m.NodeID); ok && m.Ref != nil {
 		sctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		err := nodeproxy.Shutdown(sctx, node)
+		err := nodes.Shutdown(sctx, node)
 		cancel()
 		if err != nil {
 			r.logEvent(id, "the node didn't take a clean shutdown (%v) - powering it off", err)

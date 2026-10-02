@@ -596,6 +596,7 @@ const PHASE_LABEL = {
   creating: 'creating',
   'waiting-registration': 'booting',
   ready: 'ready',
+  updating: 'updating',
   failed: 'failed',
   destroying: 'destroying',
 }

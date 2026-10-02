@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
@@ -168,5 +169,24 @@ func domainDiskFiles(domXML string) ([]string, error) {
 			out = append(out, disk.Source.File)
 		}
 	}
+	return out, nil
+}
+
+var (
+	memoryRe        = regexp.MustCompile(`<memory\b[^>]*>\s*\d+\s*</memory>`)
+	currentMemoryRe = regexp.MustCompile(`<currentMemory\b[^>]*>\s*\d+\s*</currentMemory>`)
+	vcpuRe          = regexp.MustCompile(`<vcpu\b([^>]*)>\s*\d+\s*</vcpu>`)
+)
+
+// resizeXML sets a domain definition's memory and vCPUs, leaving the rest
+// - the ownership tag included - as libvirt wrote it.
+func resizeXML(domXML string, vcpus, memoryMiB int) (string, error) {
+	if !memoryRe.MatchString(domXML) || !vcpuRe.MatchString(domXML) {
+		return "", fmt.Errorf("no <memory> or <vcpu> in the domain's definition")
+	}
+	kib := memoryMiB * 1024
+	out := memoryRe.ReplaceAllString(domXML, fmt.Sprintf("<memory unit='KiB'>%d</memory>", kib))
+	out = currentMemoryRe.ReplaceAllString(out, fmt.Sprintf("<currentMemory unit='KiB'>%d</currentMemory>", kib))
+	out = vcpuRe.ReplaceAllString(out, fmt.Sprintf("<vcpu${1}>%d</vcpu>", vcpus))
 	return out, nil
 }

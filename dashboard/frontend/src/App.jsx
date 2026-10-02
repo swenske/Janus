@@ -1,4 +1,4 @@
-import { ArrowUpRight, Boxes, Check, ChevronDown, Copy, LogOut, Plus, RefreshCw, Rocket, Server, ShieldCheck, Trash2, X } from 'lucide-react'
+import { ArrowUpRight, Boxes, Check, ChevronDown, Copy, KeyRound, LogOut, Plus, RefreshCw, Rocket, Server, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { call } from './call.js'
 import MachineConsole from './Console.jsx'
@@ -6,6 +6,7 @@ import ControllerUpdate from './ControllerUpdate.jsx'
 import HypervisorsPage, { PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
 import { navigate, useHashRoute } from './shared/route.js'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
+import TokensPage from './Tokens.jsx'
 import { Badge, Card, ErrorBox, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
 
 // dashboardd serves this SPA and its REST API on the same origin (its own
@@ -500,7 +501,7 @@ const STATUS_EVERY = 15000
 
 function MainApp() {
   const route = useHashRoute()
-  const tab = route.startsWith('/hypervisors') ? 'hypervisors' : 'nodes'
+  const tab = route.startsWith('/hypervisors') ? 'hypervisors' : route.startsWith('/tokens') ? 'tokens' : 'nodes'
   const [nodes, setNodes] = useState(null)
   const [pending, setPending] = useState([])
   const [statuses, setStatuses] = useState({})
@@ -626,12 +627,15 @@ function MainApp() {
           tabs={[
             { id: 'nodes', label: `Nodes${nodes ? ` (${nodes.length})` : ''}`, icon: Server },
             { id: 'hypervisors', label: `Hypervisors${hypervisors.length ? ` (${hypervisors.length})` : ''}`, icon: Boxes },
+            { id: 'tokens', label: 'API tokens', icon: KeyRound },
           ]}
           active={tab}
-          onChange={(id) => navigate(id === 'nodes' ? '/' : '/hypervisors')}
+          onChange={(id) => navigate(id === 'nodes' ? '/' : `/${id}`)}
         />
         {consoleOf && <MachineConsole machine={consoleOf} onClose={() => setConsoleOf(null)} />}
-        {tab === 'hypervisors' ? (
+        {tab === 'tokens' ? (
+          <TokensPage />
+        ) : tab === 'hypervisors' ? (
           <HypervisorsPage hypervisors={hypervisors} machines={machines} hvStatus={hvStatus} onChanged={reload} onConsole={setConsoleOf} />
         ) : (
           <div className="stack">

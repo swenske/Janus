@@ -121,3 +121,48 @@ func TestUUIDRoundTrip(t *testing.T) {
 		t.Error("parseUUID accepted garbage")
 	}
 }
+
+// What libvirt's dumpxml gives back for a defined domain.
+const dumpedDomain = `<domain type='kvm'>
+  <name>janus-lb1</name>
+  <uuid>6f1c7d2e-1b8a-4c3d-9e0f-a1b2c3d4e5f6</uuid>
+  <metadata>
+    <janus:machine xmlns:janus="https://janus.sw-servers.net/xmlns/libvirt/machine/1" controller="ctl-1" id="0123456789abcdef"/>
+  </metadata>
+  <memory unit='KiB'>1048576</memory>
+  <currentMemory unit='KiB'>1048576</currentMemory>
+  <vcpu placement='static'>2</vcpu>
+  <os firmware='efi'>
+    <type arch='x86_64' machine='pc-q35-10.0'>hvm</type>
+  </os>
+</domain>`
+
+func TestResizeXML(t *testing.T) {
+	out, err := resizeXML(dumpedDomain, 4, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		Memory        int `xml:"memory"`
+		CurrentMemory int `xml:"currentMemory"`
+		VCPU          struct {
+			N         int    `xml:",chardata"`
+			Placement string `xml:"placement,attr"`
+		} `xml:"vcpu"`
+		Metadata struct {
+			Inner string `xml:",innerxml"`
+		} `xml:"metadata"`
+	}
+	if err := xml.Unmarshal([]byte(out), &d); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if d.Memory != 2048*1024 || d.CurrentMemory != 2048*1024 || d.VCPU.N != 4 || d.VCPU.Placement != "static" {
+		t.Errorf("resized to %+v", d)
+	}
+	if !tagMatches(d.Metadata.Inner, "ctl-1", "0123456789abcdef") {
+		t.Error("the ownership tag was lost")
+	}
+	if _, err := resizeXML("<domain/>", 1, 512); err == nil {
+		t.Error("a definition without memory/vcpu accepted")
+	}
+}

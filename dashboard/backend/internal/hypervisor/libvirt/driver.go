@@ -465,6 +465,34 @@ func (d *Driver) Power(ctx context.Context, ref hypervisor.MachineRef, action hy
 	})
 }
 
+func (d *Driver) Resize(ctx context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int) error {
+	return d.run(ctx, func(l *golibvirt.Libvirt) error {
+		dom, err := d.owned(l, ref)
+		if err != nil {
+			return err
+		}
+		state, _, err := l.DomainGetState(dom, 0)
+		if err != nil {
+			return err
+		}
+		if golibvirt.DomainState(state) != golibvirt.DomainShutoff {
+			return errors.New("the virtual machine must be stopped to change its size")
+		}
+		domXML, err := l.DomainGetXMLDesc(dom, golibvirt.DomainXMLInactive)
+		if err != nil {
+			return err
+		}
+		next, err := resizeXML(domXML, vcpus, memoryMiB)
+		if err != nil {
+			return err
+		}
+		if _, err := l.DomainDefineXMLFlags(next, golibvirt.DomainDefineValidate); err != nil {
+			return fmt.Errorf("redefine the virtual machine: %w", err)
+		}
+		return nil
+	})
+}
+
 // Console streams the serial console. Without VIR_DOMAIN_CONSOLE_FORCE:
 // a console someone already has open on the host (virsh console) wins,
 // and this returns libvirt's error saying so.
