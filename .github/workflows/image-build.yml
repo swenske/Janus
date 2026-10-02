@@ -924,6 +924,22 @@ jobs:
           path: build/inputs/
           retention-days: 14
 
+      # janusctl as Debian packages (amd64, arm64 - hack/janusctl-deb.sh):
+      # attached to a release and published on apt.sw-servers.net by the
+      # last step. Checked here (metadata, byte-identical rebuild, install
+      # in Debian/Ubuntu containers) on every run.
+      - name: Build and check janusctl's Debian packages
+        run: |
+          rm -rf build/deb
+          make janusctl-deb-test
+
+      - name: Upload janusctl's Debian packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: janusctl-deb-${{ github.sha }}
+          path: build/deb/janusctl_*.deb
+          retention-days: 30
+
       # First real, deployable artifact: image/disk/assemble.sh's single
       # GPT disk (ESP + both A/B slots + STATE - the exact same shape
       # every UEFI boot test above already proved works end to end,
@@ -1259,6 +1275,29 @@ jobs:
             build/inputs/rootfs-base-amd64.tar
             build/inputs/rootfs-base-arm64.tar
             build/inputs/extension-*.tar
+            build/deb/janusctl_*.deb
+
+      # janusctl on https://apt.sw-servers.net/janus (suite "stable",
+      # component "main" - README.md), after the GitHub Release so apt
+      # never offers a version that has no release. Same design as
+      # swenske/gotochanger: a key that only exists on this runner
+      # (~actions-runner/.ssh/id_janus_aptly, never a GitHub secret)
+      # reaches a forced-command account on apt.int.sw-servers.net that
+      # only accepts "upload janusctl_<version>_<arch>.deb" (stdin) and
+      # "publish" (/usr/local/sbin/janus-publish-dispatch.sh and
+      # janus-aptly-publish.sh there). A rerun uploads the same bytes,
+      # which aptly accepts again (the packages are reproducible).
+      - name: Publish janusctl on apt.sw-servers.net
+        if: ${{ inputs.release_version != '' }}
+        run: |
+          set -euo pipefail
+          key="$HOME/.ssh/id_janus_aptly"
+          host="janus-publish@apt.int.sw-servers.net"
+          for deb in build/deb/janusctl_*.deb; do
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key" "$host" \
+              "upload $(basename "$deb")" < "$deb"
+          done
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key" "$host" publish
 
       # TODO(Phase 3 cont'd): a real OVA (OVF descriptor + tar) on top
       # of image/vmware's bare VMDK - once built, add build/janus.ova

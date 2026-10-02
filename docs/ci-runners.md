@@ -107,3 +107,28 @@ sudo ./svc.sh install actions-runner && sudo ./svc.sh start
 
 A registration token comes from `gh api -X POST
 repos/swenske/Janus/actions/runners/registration-token -q .token`.
+
+## Publishing janusctl on apt.sw-servers.net
+
+A release run ends by publishing janusctl's Debian packages on
+`https://apt.sw-servers.net/janus` (README.md). The `janus-publish`
+machine holds the only key for it, as the `actions-runner` user - never a
+GitHub secret:
+
+```sh
+su - actions-runner -c 'ssh-keygen -t ed25519 -N "" \
+  -C "janus-runnerNN janus-publish@apt.int.sw-servers.net" -f ~/.ssh/id_janus_aptly'
+```
+
+On the aptly server (`apt.int.sw-servers.net`), once, with that public
+key - it creates the `janus` aptly repo and a `janus-publish` account
+whose key can only upload a `janusctl_<version>_<arch>.deb` and publish
+the repo:
+
+```sh
+scp -r packaging/apt apt.int.sw-servers.net:
+ssh -t apt.int.sw-servers.net sudo ./apt/setup-server.sh "$(cat id_janus_aptly.pub)"
+```
+
+A new `janus-publish` machine (or a new key): `setup-server.sh` again
+with its public key - it replaces the previous one.

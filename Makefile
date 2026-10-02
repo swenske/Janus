@@ -10,7 +10,7 @@ BUILD_DIR := build
 
 GEN_DIR := gen
 
-.PHONY: all build test vet lint proto clean kernel-menuconfig \
+.PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
 	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble qemu-acme-test qemu-consul-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
@@ -38,6 +38,15 @@ build:
 	for b in $(BINARIES); do \
 		go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$$b ./cmd/$$b ; \
 	done
+
+# janusctl's Debian packages, amd64 and arm64, in build/deb - what a
+# release publishes on apt.sw-servers.net (see hack/janusctl-deb.sh).
+janusctl-deb:
+	for a in amd64 arm64; do ./hack/janusctl-deb.sh $(VERSION) $$a $(BUILD_DIR)/deb; done
+
+# Installs the amd64 package in Debian and Ubuntu containers and runs it.
+janusctl-deb-test: janusctl-deb
+	./hack/janusctl-deb-test.sh $(VERSION) $(BUILD_DIR)/deb
 
 test:
 	go test ./...
