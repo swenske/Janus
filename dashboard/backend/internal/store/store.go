@@ -29,8 +29,11 @@ type Node struct {
 	// Address is the node's own real gRPC ip:port. Set it only before
 	// the node is added; afterwards read it with Addr and change it with
 	// Store.SetAddress - a network reconfiguration can move a node.
-	Address        string `json:"address"`
-	Port           int    `json:"port"` // this dashboard's per-node listener port
+	Address string `json:"address"`
+	Port    int    `json:"port"` // this dashboard's per-node listener port
+	// MachineID is set for a node the Controller created itself on a
+	// hypervisor (internal/machines) - the virtual machine it runs in.
+	MachineID      string `json:"machine_id,omitempty"`
 	CACertPEM      []byte `json:"-"`
 	ServiceCertPEM []byte `json:"-"`
 	ServiceKeyPEM  []byte `json:"-"`
@@ -50,10 +53,11 @@ func (n *Node) Addr() string {
 // one file per PEM block rather than one blob that mixes secret and
 // non-secret fields.
 type meta struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Address string `json:"address"`
-	Port    int    `json:"port"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Address   string `json:"address"`
+	Port      int    `json:"port"`
+	MachineID string `json:"machine_id,omitempty"`
 }
 
 type Store struct {
@@ -115,7 +119,7 @@ func loadNode(dir string) (*Node, error) {
 	}
 
 	return &Node{
-		ID: m.ID, Name: m.Name, Address: m.Address, Port: m.Port,
+		ID: m.ID, Name: m.Name, Address: m.Address, Port: m.Port, MachineID: m.MachineID,
 		CACertPEM: ca, ServiceCertPEM: cert, ServiceKeyPEM: key,
 	}, nil
 }
@@ -171,7 +175,7 @@ func (s *Store) Add(node *Node) error {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	metaBytes, err := json.Marshal(meta{ID: id, Name: node.Name, Address: node.Address, Port: node.Port})
+	metaBytes, err := json.Marshal(meta{ID: id, Name: node.Name, Address: node.Address, Port: node.Port, MachineID: node.MachineID})
 	if err != nil {
 		return fmt.Errorf("marshal meta.json: %w", err)
 	}
@@ -205,7 +209,7 @@ func (s *Store) SetAddress(id, addr string) error {
 	if !ok {
 		return fmt.Errorf("no such node %q", id)
 	}
-	metaBytes, err := json.Marshal(meta{ID: n.ID, Name: n.Name, Address: addr, Port: n.Port})
+	metaBytes, err := json.Marshal(meta{ID: n.ID, Name: n.Name, Address: addr, Port: n.Port, MachineID: n.MachineID})
 	if err != nil {
 		return err
 	}

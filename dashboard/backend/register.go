@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -64,6 +65,9 @@ type registerRequest struct {
 	CACertPEM      string `json:"ca_cert_pem"`
 	ServiceCertPEM string `json:"service_cert_pem"`
 	ServiceKeyPEM  string `json:"service_key_pem"`
+	// RegistrationToken is set by a node the Controller created itself
+	// (machines.go): the one-time token from its NoCloud volume.
+	RegistrationToken string `json:"registration_token,omitempty"`
 }
 
 func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +100,30 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 		ServiceCertPEM: []byte(req.ServiceCertPEM),
 		ServiceKeyPEM:  []byte(req.ServiceKeyPEM),
 	}
+
+	// A machine this Controller created presents the token it was given:
+	// creating it was the approval, so it's admitted directly. Anything
+	// else - no token, an unknown, used or expired one - joins the queue
+	// like every other registration.
+	if req.RegistrationToken != "" {
+		if m, ok := a.machines.ClaimToken(req.RegistrationToken); ok {
+			admitted, err := a.admit(node, m.ID)
+			if err == nil {
+				a.runner.registered(m.ID, admitted)
+				log.Printf("node self-registered: %s (%s), admitted as machine %s -> port %d", admitted.Name, admitted.Address, m.ID, admitted.Port)
+				writeJSON(w, http.StatusCreated, struct {
+					ID       string `json:"id"`
+					Admitted bool   `json:"admitted"`
+				}{ID: admitted.ID, Admitted: true})
+				return
+			}
+			log.Printf("machine %s: admitting its node failed, queueing it for approval instead: %v", m.ID, err)
+			a.runner.logEvent(m.ID, "admitting the node failed (%v): it waits for approval instead", err)
+		} else {
+			log.Printf("node self-registered with a registration token no machine is waiting for: %s (%s)", req.Name, req.Address)
+		}
+	}
+
 	if err := a.pending.Add(node); err != nil {
 		http.Error(w, "record registration: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -164,35 +192,14 @@ func (a *app) approvePending(w http.ResponseWriter, id string) {
 		return
 	}
 
-	port, err := a.allocatePort()
+	node, err := a.admit(p, "")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInsufficientStorage)
-		return
-	}
-
-	node := &store.Node{
-		Name:           p.Name,
-		Address:        p.Address,
-		Port:           port,
-		CACertPEM:      p.CACertPEM,
-		ServiceCertPEM: p.ServiceCertPEM,
-		ServiceKeyPEM:  p.ServiceKeyPEM,
-	}
-	if err := a.store.Add(node); err != nil {
-		http.Error(w, fmt.Sprintf("persist node: %v", err), http.StatusInternalServerError)
-		return
-	}
-	if err := a.startListener(node); err != nil {
-		// Roll the store entry back rather than leaving it orphaned: the
-		// pending entry below stays in the queue specifically so this can
-		// be retried (e.g. after freeing up a conflicting port), and a
-		// retry calls store.Add again with a freshly allocated port - if
-		// the failed attempt's row were left behind, retrying would just
-		// pile up a permanently dead duplicate next to the working one.
-		if removeErr := a.store.Remove(node.ID); removeErr != nil {
-			log.Printf("node %s: failed to roll back after listener start failure: %v", node.ID, removeErr)
+		var full errPortsExhausted
+		if errors.As(err, &full) {
+			http.Error(w, err.Error(), http.StatusInsufficientStorage)
+			return
 		}
-		http.Error(w, fmt.Sprintf("node approved but its listener failed to start: %v", err), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	// Only remove the pending entry once the node is genuinely live -
@@ -206,6 +213,48 @@ func (a *app) approvePending(w http.ResponseWriter, id string) {
 		ID   string `json:"id"`
 		Port int    `json:"port"`
 	}{ID: node.ID, Port: node.Port})
+}
+
+// errPortsExhausted is admit's error when no per-node port is left.
+type errPortsExhausted struct{ error }
+
+// admit turns a registration into a node: a port, a store entry, its
+// listener - for an approved pending entry, or straight away for a
+// machine this Controller created (machineID). The registration itself
+// already carries the node's credential (see internal/pending's doc
+// comment): nothing is exchanged with the node.
+func (a *app) admit(p *pending.Node, machineID string) (*store.Node, error) {
+	a.admitMu.Lock()
+	defer a.admitMu.Unlock()
+	port, err := a.allocatePort()
+	if err != nil {
+		return nil, errPortsExhausted{err}
+	}
+	node := &store.Node{
+		Name:           p.Name,
+		Address:        p.Address,
+		Port:           port,
+		MachineID:      machineID,
+		CACertPEM:      p.CACertPEM,
+		ServiceCertPEM: p.ServiceCertPEM,
+		ServiceKeyPEM:  p.ServiceKeyPEM,
+	}
+	if err := a.store.Add(node); err != nil {
+		return nil, fmt.Errorf("persist node: %w", err)
+	}
+	if err := a.startListener(node); err != nil {
+		// Roll the store entry back rather than leaving it orphaned: a
+		// pending entry stays in the queue specifically so this can be
+		// retried (e.g. after freeing up a conflicting port), and a retry
+		// calls store.Add again with a freshly allocated port - if the
+		// failed attempt's row were left behind, retrying would just pile
+		// up a permanently dead duplicate next to the working one.
+		if removeErr := a.store.Remove(node.ID); removeErr != nil {
+			log.Printf("node %s: failed to roll back after listener start failure: %v", node.ID, removeErr)
+		}
+		return nil, fmt.Errorf("node approved but its listener failed to start: %w", err)
+	}
+	return node, nil
 }
 
 // rejectPending just discards the announcement - the node itself isn't

@@ -1,0 +1,364 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+
+	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
+	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor/libvirt"
+	"github.com/swenske/Janus/dashboard/backend/internal/machines"
+)
+
+// The hypervisors the Controller creates its own nodes on
+// (docs/hypervisors.md). Adding one is a three-step handshake, so the
+// Controller only ever logs in to a host the operator vouched for:
+// POST /api/hypervisors gives the public key to authorize on the host,
+// .../probe reads the host's SSH key, and .../trust pins it once the
+// operator confirmed its fingerprint on the host itself.
+
+func (a *app) registerHypervisorRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/hypervisors", a.requireAuth(a.handleHypervisorList))
+	mux.HandleFunc("POST /api/hypervisors", a.requireAuth(a.handleHypervisorCreate))
+	mux.HandleFunc("GET /api/hypervisors/{id}", a.requireAuth(a.handleHypervisorGet))
+	mux.HandleFunc("PATCH /api/hypervisors/{id}", a.requireAuth(a.handleHypervisorUpdate))
+	mux.HandleFunc("DELETE /api/hypervisors/{id}", a.requireAuth(a.handleHypervisorDelete))
+	mux.HandleFunc("POST /api/hypervisors/{id}/probe", a.requireAuth(a.handleHypervisorProbe))
+	mux.HandleFunc("POST /api/hypervisors/{id}/trust", a.requireAuth(a.handleHypervisorTrust))
+	mux.HandleFunc("GET /api/hypervisors/{id}/status", a.requireAuth(a.handleHypervisorStatus))
+}
+
+// newDriver connects the Controller to a hypervisor - a variable so
+// tests can give a fake one.
+var newDriver = func(h *hypervisor.Hypervisor, controllerID string) (hypervisor.Driver, error) {
+	switch h.Kind {
+	case hypervisor.KindLibvirt:
+		return libvirt.New(h, controllerID)
+	}
+	return nil, fmt.Errorf("unknown hypervisor kind %q", h.Kind)
+}
+
+type hypervisorView struct {
+	ID                string                    `json:"id"`
+	Name              string                    `json:"name"`
+	Kind              hypervisor.Kind           `json:"kind"`
+	ControllerAddress string                    `json:"controller_address,omitempty"`
+	Libvirt           *hypervisor.LibvirtConfig `json:"libvirt,omitempty"`
+	// AuthorizedKey is the line to add to the hypervisor user's
+	// ~/.ssh/authorized_keys.
+	AuthorizedKey      string    `json:"authorized_key"`
+	Trusted            bool      `json:"trusted"`
+	HostKeyFingerprint string    `json:"host_key_fingerprint,omitempty"`
+	Machines           int       `json:"machines"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
+func (a *app) hypervisorView(h *hypervisor.Hypervisor) hypervisorView {
+	v := hypervisorView{
+		ID: h.ID, Name: h.Name, Kind: h.Kind, ControllerAddress: h.ControllerAddress, Libvirt: h.Libvirt,
+		AuthorizedKey: h.AuthorizedKey(), CreatedAt: h.CreatedAt,
+	}
+	if h.Libvirt != nil && h.Libvirt.HostKey != "" {
+		if key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(h.Libvirt.HostKey)); err == nil {
+			v.Trusted, v.HostKeyFingerprint = true, ssh.FingerprintSHA256(key)
+		}
+	}
+	for _, m := range a.machines.List() {
+		if m.Spec.HypervisorID == h.ID {
+			v.Machines++
+		}
+	}
+	return v
+}
+
+func (a *app) handleHypervisorList(w http.ResponseWriter, _ *http.Request) {
+	out := []hypervisorView{}
+	for _, h := range a.hypervisors.List() {
+		out = append(out, a.hypervisorView(h))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// hypervisorRequest is what can be set on a hypervisor - never its key,
+// nor its host key (that's .../trust's job).
+type hypervisorRequest struct {
+	Name              string                    `json:"name"`
+	Kind              hypervisor.Kind           `json:"kind"`
+	ControllerAddress string                    `json:"controller_address"`
+	Libvirt           *hypervisor.LibvirtConfig `json:"libvirt"`
+}
+
+func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		writeError(w, http.StatusBadRequest, "decode request: "+err.Error())
+		return false
+	}
+	return true
+}
+
+// writeError is the API's error shape for these endpoints: {"error"},
+// which a client (the future Terraform provider) can show as is.
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func (a *app) handleHypervisorCreate(w http.ResponseWriter, r *http.Request) {
+	var req hypervisorRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.Kind == "" {
+		req.Kind = hypervisor.KindLibvirt
+	}
+	if req.Libvirt != nil {
+		req.Libvirt.HostKey = ""
+	}
+	h := &hypervisor.Hypervisor{Name: strings.TrimSpace(req.Name), Kind: req.Kind, ControllerAddress: req.ControllerAddress, Libvirt: req.Libvirt}
+	if err := a.hypervisors.Add(h); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, a.hypervisorView(h))
+}
+
+func (a *app) getHypervisor(w http.ResponseWriter, r *http.Request) (*hypervisor.Hypervisor, bool) {
+	h, ok := a.hypervisors.Get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "no such hypervisor")
+	}
+	return h, ok
+}
+
+func (a *app) handleHypervisorGet(w http.ResponseWriter, r *http.Request) {
+	if h, ok := a.getHypervisor(w, r); ok {
+		writeJSON(w, http.StatusOK, a.hypervisorView(h))
+	}
+}
+
+func (a *app) handleHypervisorUpdate(w http.ResponseWriter, r *http.Request) {
+	h, ok := a.getHypervisor(w, r)
+	if !ok {
+		return
+	}
+	var req hypervisorRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.Kind != "" && req.Kind != h.Kind {
+		writeError(w, http.StatusBadRequest, "a hypervisor's kind can't change")
+		return
+	}
+	next := *h
+	next.Name, next.ControllerAddress = strings.TrimSpace(req.Name), req.ControllerAddress
+	if req.Libvirt != nil && h.Libvirt != nil {
+		l := *req.Libvirt
+		// The pinned host key belongs to the host: another host must be
+		// trusted again.
+		l.HostKey = h.Libvirt.HostKey
+		if l.Host != h.Libvirt.Host {
+			l.HostKey = ""
+		}
+		next.Libvirt = &l
+	}
+	if err := a.hypervisors.Update(&next); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.hvStatus.forget(h.ID)
+	h, _ = a.hypervisors.Get(h.ID)
+	writeJSON(w, http.StatusOK, a.hypervisorView(h))
+}
+
+func (a *app) handleHypervisorDelete(w http.ResponseWriter, r *http.Request) {
+	h, ok := a.getHypervisor(w, r)
+	if !ok {
+		return
+	}
+	for _, m := range a.machines.List() {
+		if m.Spec.HypervisorID == h.ID {
+			writeError(w, http.StatusConflict, fmt.Sprintf("machine %s is still on this hypervisor - destroy its machines first", m.Spec.Name))
+			return
+		}
+	}
+	if err := a.hypervisors.Remove(h.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	a.hvStatus.forget(h.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type hostKeyView struct {
+	HostKey     string `json:"host_key"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+func probe(ctx context.Context, h *hypervisor.Hypervisor) (ssh.PublicKey, error) {
+	if h.Libvirt == nil {
+		return nil, errors.New("only libvirt hypervisors are reached over SSH")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return libvirt.ProbeHostKey(ctx, h.Libvirt.SSHAddress())
+}
+
+// handleHypervisorProbe reads the host key the hypervisor presents -
+// trusting nothing yet.
+func (a *app) handleHypervisorProbe(w http.ResponseWriter, r *http.Request) {
+	h, ok := a.getHypervisor(w, r)
+	if !ok {
+		return
+	}
+	key, err := probe(r.Context(), h)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, hostKeyView{HostKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))), Fingerprint: ssh.FingerprintSHA256(key)})
+}
+
+// handleHypervisorTrust pins the host key - only the one the host
+// presents now, and only if it's the one whose fingerprint the operator
+// confirmed.
+func (a *app) handleHypervisorTrust(w http.ResponseWriter, r *http.Request) {
+	h, ok := a.getHypervisor(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Fingerprint string `json:"fingerprint"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	key, err := probe(r.Context(), h)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if got := ssh.FingerprintSHA256(key); got != strings.TrimSpace(req.Fingerprint) {
+		writeError(w, http.StatusConflict, fmt.Sprintf("the host now presents %s, not the confirmed %s - nothing was trusted", got, req.Fingerprint))
+		return
+	}
+	h.Libvirt.HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+	if err := a.hypervisors.Update(h); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	a.hvStatus.forget(h.ID)
+	writeJSON(w, http.StatusOK, a.hypervisorView(h))
+}
+
+// hypervisorStatus is a hypervisor's live state: the host, and the
+// state of each machine the Controller has there.
+type hypervisorStatus struct {
+	Host *hypervisor.HostInfo `json:"host,omitempty"`
+	// CPUPercent is the host's CPU use since the previous status, -1
+	// for the first one.
+	CPUPercent float64                              `json:"cpu_percent"`
+	Machines   map[string]*hypervisor.MachineStatus `json:"machines"`
+	// MachineErrors are machines whose state couldn't be read.
+	MachineErrors map[string]string `json:"machine_errors,omitempty"`
+	Error         string            `json:"error,omitempty"`
+	CheckedAt     time.Time         `json:"checked_at"`
+}
+
+// statusCache keeps each hypervisor's status a few seconds (several open
+// pages poll it) and the previous CPU counters for the usage.
+type statusCache struct {
+	mu      sync.Mutex
+	entries map[string]*statusEntry
+}
+
+type statusEntry struct {
+	mu          sync.Mutex
+	st          *hypervisorStatus
+	busy, total uint64
+}
+
+const statusTTL = 5 * time.Second
+
+func (c *statusCache) entry(id string) *statusEntry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = map[string]*statusEntry{}
+	}
+	e, ok := c.entries[id]
+	if !ok {
+		e = &statusEntry{}
+		c.entries[id] = e
+	}
+	return e
+}
+
+func (c *statusCache) forget(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, id)
+}
+
+func (a *app) handleHypervisorStatus(w http.ResponseWriter, r *http.Request) {
+	h, ok := a.getHypervisor(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, a.hypervisorStatus(r.Context(), h))
+}
+
+func (a *app) hypervisorStatus(ctx context.Context, h *hypervisor.Hypervisor) *hypervisorStatus {
+	e := a.hvStatus.entry(h.ID)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.st != nil && time.Since(e.st.CheckedAt) < statusTTL {
+		return e.st
+	}
+	// Shared by every poller: not tied to the request that triggered it.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	st := &hypervisorStatus{CPUPercent: -1, Machines: map[string]*hypervisor.MachineStatus{}, CheckedAt: time.Now()}
+	defer func() { e.st = st }()
+
+	drv, err := newDriver(h, a.controllerID)
+	if err != nil {
+		st.Error = err.Error()
+		return st
+	}
+	defer drv.Close()
+	host, err := drv.HostInfo(ctx)
+	if err != nil {
+		st.Error = err.Error()
+		return st
+	}
+	st.Host = host
+	if e.total > 0 && host.CPUTotalNs > e.total && host.CPUBusyNs >= e.busy {
+		st.CPUPercent = 100 * float64(host.CPUBusyNs-e.busy) / float64(host.CPUTotalNs-e.total)
+	}
+	e.busy, e.total = host.CPUBusyNs, host.CPUTotalNs
+
+	for _, m := range a.machines.List() {
+		if m.Spec.HypervisorID != h.ID || m.Ref == nil || m.Ref.UUID == "" || m.Phase == machines.PhaseDestroying {
+			continue
+		}
+		ms, err := drv.MachineStatus(ctx, *m.Ref)
+		if err != nil {
+			if st.MachineErrors == nil {
+				st.MachineErrors = map[string]string{}
+			}
+			st.MachineErrors[m.ID] = err.Error()
+			continue
+		}
+		st.Machines[m.ID] = ms
+	}
+	return st
+}

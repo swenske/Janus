@@ -50,6 +50,8 @@ import (
 	"github.com/swenske/Janus/internal/pki"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
+	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
@@ -78,7 +80,8 @@ var version = "dev"
 // browser client-certificate selection work per node at all. This is
 // exactly why the container needs --network host in practice, not just
 // a wide -p range - see dashboard/README.md.
-const (
+// Variables only so tests can use a range of their own.
+var (
 	portRangeStart = 9500
 	portRangeEnd   = 9599
 )
@@ -121,6 +124,19 @@ func main() {
 		log.Fatalf("dashboard TLS identity: %v", err)
 	}
 
+	controllerID, err := loadOrCreateControllerID(*dataDir)
+	if err != nil {
+		log.Fatalf("controller ID: %v", err)
+	}
+	hypervisorStore, err := hypervisor.Open(*dataDir)
+	if err != nil {
+		log.Fatalf("open hypervisor store: %v", err)
+	}
+	machineStore, err := machines.Open(*dataDir)
+	if err != nil {
+		log.Fatalf("open machine store: %v", err)
+	}
+
 	app := &app{
 		store:                 st,
 		pending:               pendingStore,
@@ -130,7 +146,12 @@ func main() {
 		listeners:             map[string]*nodeproxy.Listener{},
 		suggestedRegisterAddr: suggestRegisterAddress(*advertiseAddresses, *registerAddr),
 		selfUpdate:            newSelfUpdate(*updaterSocket),
+		dataDir:               *dataDir,
+		controllerID:          controllerID,
+		hypervisors:           hypervisorStore,
+		machines:              machineStore,
 	}
+	app.runner = newMachineRunner(app)
 	for _, n := range st.List() {
 		if err := app.startListener(n); err != nil {
 			// A node whose listener fails to start (e.g. its port is
@@ -144,6 +165,7 @@ func main() {
 	if err := app.startRegistrationListener(*registerAddr); err != nil {
 		log.Fatalf("registration listener: %v", err)
 	}
+	app.runner.resume()
 
 	spa, err := fs.Sub(staticFiles, "static")
 	if err != nil {
@@ -165,6 +187,8 @@ func main() {
 	mux.HandleFunc("/api/pending/", app.requireAuth(app.handlePendingAction))
 	mux.HandleFunc("/api/controller-info", app.requireAuth(app.handleControllerInfo))
 	mux.HandleFunc("/api/controller/update", app.requireAuth(app.handleControllerUpdate))
+	app.registerHypervisorRoutes(mux)
+	app.registerMachineRoutes(mux)
 	mux.Handle("/", http.FileServerFS(spa))
 
 	srv := &http.Server{
@@ -206,8 +230,24 @@ type app struct {
 	suggestedRegisterAddr string
 	selfUpdate            *selfUpdate
 
+	dataDir string
+	// controllerID tags every virtual machine this Controller creates
+	// (loadOrCreateControllerID).
+	controllerID string
+	hypervisors  *hypervisor.Store
+	machines     *machines.Store
+	runner       *machineRunner
+
 	mu        sync.Mutex
 	listeners map[string]*nodeproxy.Listener
+
+	// admitMu serializes port allocation and the store entry that takes
+	// the port - two admissions at once would otherwise get the same one.
+	admitMu sync.Mutex
+	// createMu serializes machine creations' checks (a unique name) with
+	// their records.
+	createMu sync.Mutex
+	hvStatus statusCache
 }
 
 func (a *app) startListener(n *store.Node) error {
@@ -299,14 +339,15 @@ func (a *app) handleNodes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		type nodeView struct {
-			ID      string `json:"id"`
-			Name    string `json:"name"`
-			Address string `json:"address"`
-			Port    int    `json:"port"`
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			Address   string `json:"address"`
+			Port      int    `json:"port"`
+			MachineID string `json:"machine_id,omitempty"`
 		}
 		var out []nodeView
 		for _, n := range a.store.List() {
-			out = append(out, nodeView{ID: n.ID, Name: n.Name, Address: n.Addr(), Port: n.Port})
+			out = append(out, nodeView{ID: n.ID, Name: n.Name, Address: n.Addr(), Port: n.Port, MachineID: n.MachineID})
 		}
 		writeJSON(w, http.StatusOK, out)
 
@@ -354,6 +395,8 @@ func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
 	// this point - only cfg's freshly-issued service credential is
 	// persisted below.
 
+	a.admitMu.Lock()
+	defer a.admitMu.Unlock()
 	port, err := a.allocatePort()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInsufficientStorage)
@@ -392,6 +435,14 @@ func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 	if id == "" {
 		http.Error(w, "missing node id", http.StatusBadRequest)
 		return
+	}
+	// Removing the node alone would leave its virtual machine running,
+	// owned by nobody: it goes with its machine (DELETE /api/machines).
+	if n, ok := a.store.Get(id); ok && n.MachineID != "" {
+		if _, ok := a.machines.Get(n.MachineID); ok {
+			http.Error(w, "this node runs in a virtual machine the Controller created: destroy the machine instead", http.StatusConflict)
+			return
+		}
 	}
 
 	a.mu.Lock()
