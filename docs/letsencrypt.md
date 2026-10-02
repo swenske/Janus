@@ -215,6 +215,11 @@ and the same `http-request return` rule) moves as is:
    certificate with the zone's DNS provider: renewed by the node from then
    on.
 
+## Other certificates
+
+A certificate from another CA (an internal one, a commercial one) goes in
+[HAProxy's files](haproxy-files.md) and is referenced from there.
+
 ## Not supported
 
 The TLS-ALPN-01 challenge, revoking a certificate, OCSP (Let's Encrypt

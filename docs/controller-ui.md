@@ -68,7 +68,10 @@ theme toggle:
   into janusd: its settings and a scrape example), then only what the
   node's image has: the extensions' apps (Node exporter - status and
   settings; QEMU guest agent - status, what the hypervisor may do) and
-  the modules (bird, keepalived, nftables), Let's Encrypt (account, the
+  the modules (bird, keepalived, nftables) - HAProxy's tabs include
+  Files (`/etc/haproxy/files`: error pages, maps, certificates; edit,
+  upload, remove, each refused by the node when haproxy.cfg wouldn't
+  load with it; files holding a private key are never shown) - Let's Encrypt (account, the
   HTTP-01 rule, certificates and DNS providers as forms - secrets never
   shown, kept when left empty - and the configuration as JSON) and Consul
   (agent, members, the configuration's files, the configuration in the
