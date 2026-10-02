@@ -1,10 +1,11 @@
-import { FileCode2, KeyRound, ListTree, Play, RefreshCw, RotateCw, Server, Shuffle, Square } from 'lucide-react'
+import { FileCode2, FileText, KeyRound, ListTree, Play, RefreshCw, RotateCw, Server, Shuffle, Square } from 'lucide-react'
 import { postJSON } from '../api.js'
 import { Badge, PageHeader, Tabs, stateTone, useAction, useConfirm } from '../../shared/ui.jsx'
 import { navigate, useMetrics, usePoll } from '../hooks.jsx'
 import Backends from './haproxy/Backends.jsx'
 import Certificates from './haproxy/Certificates.jsx'
 import Config from './haproxy/Config.jsx'
+import Files from './haproxy/Files.jsx'
 import MapsAcls from './haproxy/MapsAcls.jsx'
 import Status from './haproxy/Status.jsx'
 
@@ -14,6 +15,7 @@ const TABS = [
   { id: 'config', label: 'Configuration', icon: FileCode2, view: Config },
   { id: 'maps', label: 'Maps & ACLs', icon: ListTree, view: MapsAcls },
   { id: 'certificates', label: 'Certificates', icon: KeyRound, view: Certificates },
+  { id: 'files', label: 'Files', icon: FileText, view: Files },
 ]
 
 function ServiceControls() {

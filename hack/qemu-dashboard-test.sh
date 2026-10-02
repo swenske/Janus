@@ -593,6 +593,7 @@ expect_json /api/network/vrrp 'd["state"] == "not_enabled"' "VRRP module (not in
 expect_json /api/network/bgp 'd["state"] == "not_enabled"' "BGP module (not in the default image)"
 expect_json /api/network/consul 'd["state"] == "not_enabled"' "Consul extension (not in the default image)"
 expect_json /api/haproxy/acme 'd["state"] == "not_enabled"' "Let's Encrypt extension (not in the default image)"
+expect_json /api/haproxy/files 'd["dir"] == "/etc/haproxy/files" and isinstance(d["files"], list)' "HAProxy files"
 expect_json /api/system/processes 'any(p["pid"] == 1 for p in d["processes"])' "processes"
 expect_json /api/system/mounts 'any(m["mounted_on"] == "/etc/.state" for m in d["mounts"])' "mounts"
 expect_json /api/system/netstat 'any(c["local_address"].endswith(":9505") and c["state"] == "LISTEN" for c in d["connections"])' "netstat"

@@ -127,6 +127,7 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	registerBGPRoutes(mux, node)
 	registerConsulRoutes(mux, node)
 	registerACMERoutes(mux, node)
+	registerHAProxyFileRoutes(mux, node)
 	mux.Handle("/", http.FileServerFS(view))
 
 	return http.NewCrossOriginProtection().Handler(mux), nil
