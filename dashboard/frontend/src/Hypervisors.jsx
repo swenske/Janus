@@ -328,7 +328,7 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
             </dt>
             <dd>
               {hv.machines} from this Controller
-              {host.running_machines >= 0 && ` · ${host.running_machines} running on the host`}
+              {host.running_machines >= 0 && ` · ${host.running_machines} running that it may see`}
             </dd>
           </dl>
         </>

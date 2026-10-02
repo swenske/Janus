@@ -83,9 +83,10 @@ type HostInfo struct {
 	Storage StorageInfo `json:"storage"`
 	// Networks are the ones machines may be attached to, as configured.
 	Networks []NetworkInfo `json:"networks"`
-	// RunningMachines counts every running virtual machine on the host,
-	// not only this Controller's; -1 when the hypervisor won't say
-	// (an access policy restricting what the Controller sees).
+	// RunningMachines counts the running virtual machines the
+	// Controller's account may see - every one on the host, or only its
+	// own under an access policy (docs/hypervisors.md); -1 when the
+	// hypervisor won't say.
 	RunningMachines int `json:"running_machines"`
 }
 
