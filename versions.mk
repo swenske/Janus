@@ -122,6 +122,14 @@ DOCKER_COMPOSE_VERSION      := v5.5.1
 DOCKER_COMPOSE_SHA256_AMD64 := db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576
 DOCKER_COMPOSE_SHA256_ARM64 := 732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7
 
+# OpenTofu, which hack/terraform-provider-test.sh drives the Janus
+# Terraform provider (terraform-provider-janus) with - never shipped.
+# Checked against these, from tofu_<version>_SHA256SUMS, whose signature
+# by OpenTofu's key E3E6 E43D 84CB 852E ADB0 051D 0C0A F313 E5FD 9F80
+# was checked when pinning.
+OPENTOFU_VERSION      := 1.13.1
+OPENTOFU_SHA256_AMD64 := 378ada19d4bc70c43732004e8159be771b23b9a5afdf059e5f8a2b3fa2c70a69
+
 # Pebble, Let's Encrypt's ACME test server, and its DNS test server: the
 # CA hack/qemu-acme-test.sh issues certificates from (go install'ed at
 # this tag - never shipped in an image).

@@ -818,7 +818,7 @@ jobs:
         run: make qemu-consul-test
 
   test-hardware:
-    name: "Tests: Secure Boot, bare metal, Controller self-update and hypervisors"
+    name: "Tests: Secure Boot, bare metal, Controller self-update, hypervisors and Terraform"
     runs-on: [self-hosted, docker, janus]
     steps:
       - uses: actions/checkout@v7
@@ -870,6 +870,13 @@ jobs:
       # hack/controller-libvirt-test.sh and docs/hypervisors.md.
       - name: Controller creates, admits and destroys a node on libvirt
         run: make controller-libvirt-test
+
+      # The Terraform provider driven by OpenTofu (pinned, checked) against
+      # the same libvirt host and a real Controller: hypervisor, node,
+      # in-place memory and address changes, replacement, import, destroy.
+      # See hack/terraform-provider-test.sh and docs/terraform.md.
+      - name: Terraform provider against a real Controller and libvirt host
+        run: make terraform-provider-test
 
   publish:
     name: Images and release

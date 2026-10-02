@@ -31,58 +31,15 @@ IMAGE="$(cd "$(dirname "$IMAGE_REL")" && pwd)/$(basename "$IMAGE_REL")"
 DASHBOARDD="$(cd "$(dirname "$DASHBOARDD_REL")" && pwd)/$(basename "$DASHBOARDD_REL")"
 [ -c /dev/kvm ] || { echo "controller-libvirt test needs /dev/kvm" >&2; exit 1; }
 
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOST_PORT="${CONTROLLER_LIBVIRT_TEST_PORT:-$((18270 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
-NAME="janus-libvirt-test-${JANUS_TEST_PORT_OFFSET:-0}"
-WORKDIR="$(mktemp -d)"
-API="https://127.0.0.1:${HOST_PORT}"
-JAR="$WORKDIR/cookies"
-
-fail() {
-  echo "controller-libvirt test FAILED: $*" >&2
-  docker exec "$NAME" sh -c 'cat /work/dashboardd.log; virsh list --all' >&2 2>/dev/null || true
-  exit 1
-}
-cleanup() {
-  docker rm -f "$NAME" >/dev/null 2>&1 || true
-  rm -rf "$WORKDIR"
-}
-trap cleanup EXIT
-
-in_host() { docker exec "$NAME" "$@"; }
-# With stdin: what's piped in is written inside the host.
-in_host_i() { docker exec -i "$NAME" "$@"; }
-api() { curl -sk -b "$JAR" "$@"; }
-json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
+TEST_NAME=controller-libvirt
+# shellcheck source=libvirt-host/lib.sh
+. "$(dirname "$0")/libvirt-host/lib.sh"
 
 # =========================================================================
 # The host, and the Controller inside it.
 # =========================================================================
-docker build -q -t janus-libvirt-host "$SELF_DIR/libvirt-host" >/dev/null
-docker rm -f "$NAME" >/dev/null 2>&1 || true
-# --init: libvirt daemonizes its QEMU probes, and an orphan left to a
-# PID 1 that never reaps it stays a zombie libvirt waits on forever.
-# --group-add: /dev/kvm's group, which is all root may rely on in an
-# unprivileged LXC (the CI runners) - see hack/libvirt-host/entrypoint.sh.
-docker run -d --init --name "$NAME" --privileged --device /dev/kvm --group-add "$(stat -c %g /dev/kvm)" \
-  -p "127.0.0.1:${HOST_PORT}:18080" \
-  -v "$DASHBOARDD:/usr/local/bin/dashboardd:ro" -v "$IMAGE:/images/janus-kvm.qcow2:ro" \
-  janus-libvirt-host >/dev/null
-for _ in $(seq 1 60); do
-  docker logs "$NAME" 2>&1 | grep -q "libvirt-host ready" && break
-  sleep 1
-done
-docker logs "$NAME" 2>&1 | grep -q "libvirt-host ready" || fail "the libvirt host never came up: $(docker logs "$NAME" 2>&1 | tail -5)"
-in_host mkdir -p /work/data
-docker exec -d "$NAME" sh -c 'cd /images && exec python3 -m http.server 8000 --bind 127.0.0.1 >/work/http.log 2>&1'
-# Nodes boot on janus-test (192.168.123.0/24) and register at its gateway.
-docker exec -d "$NAME" sh -c 'exec dashboardd -addr :18080 -register-addr :18443 -data-dir /work/data -advertise-address 192.168.123.1 >/work/dashboardd.log 2>&1'
-for _ in $(seq 1 30); do
-  [ "$(curl -sk -o /dev/null -w '%{http_code}' "$API/api/auth/status")" = 200 ] && break
-  sleep 0.5
-done
-code="$(curl -sk -c "$JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/auth/setup" -H 'Content-Type: application/json' -d '{"password":"libvirt-test-password"}')"
-[ "$code" = 204 ] || fail "admin setup returned $code"
+lh_start
 echo "Part 1 OK: libvirt host and Controller running"
 
 # =========================================================================
@@ -268,12 +225,8 @@ for pair in "f00df00df00df001:foreign-untagged:$U1" "aaaaaaaaaaaaaaaa:janus-fore
   printf '{"id":"%s","spec":{"name":"%s","hypervisor_id":"%s","vcpus":1,"memory_mib":64,"nics":[]},"phase":"ready","ref":{"machine_id":"%s","uuid":"%s","name":"%s","volumes":[]},"events":[],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}' \
     "$fid" "$fname" "$HV" "$fid" "$fuuid" "$fname" | in_host_i sh -c "cat > /work/data/machines/$fid/meta.json"
 done
-docker exec -d "$NAME" sh -c 'exec dashboardd -addr :18080 -register-addr :18443 -data-dir /work/data -advertise-address 192.168.123.1 >>/work/dashboardd.log 2>&1'
-for _ in $(seq 1 30); do
-  [ "$(curl -sk -o /dev/null -w '%{http_code}' "$API/api/auth/status")" = 200 ] && break
-  sleep 0.5
-done
-curl -sk -c "$JAR" -o /dev/null -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d '{"password":"libvirt-test-password"}'
+lh_run_controller
+curl -sk -c "$JAR" -o /dev/null -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d "{\"password\":\"$LH_PASSWORD\"}"
 for fid in f00df00df00df001 aaaaaaaaaaaaaaaa; do
   code="$(api -o /dev/null -w '%{http_code}' -X POST "$API/api/machines/$fid/power" -H 'Content-Type: application/json' -d '{"action":"start"}')"
   [ "$code" = 403 ] || fail "starting a foreign domain through a forged record returned $code, want 403"

@@ -21,7 +21,7 @@ GEN_DIR := gen
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
-	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test local-dev-image ca-certificates seed-controller-test \
+	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test terraform-provider-build terraform-provider-test local-dev-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
@@ -740,6 +740,30 @@ dashboard-image:
 # update that works, one that rolls back (needs Docker, python3).
 controller-self-update-test:
 	./hack/controller-self-update-test.sh
+
+# The Janus Terraform provider (terraform-provider-janus/, its own Go
+# module) - docs/terraform.md.
+terraform-provider-build:
+	mkdir -p $(BIN_DIR)
+	cd terraform-provider-janus && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o $(CURDIR)/$(BIN_DIR)/terraform-provider-janus .
+
+# OpenTofu, checked against versions.mk, for terraform-provider-test.
+TOFU_BIN := $(BUILD_DIR)/tools/tofu-$(OPENTOFU_VERSION)
+$(TOFU_BIN):
+	mkdir -p $(BUILD_DIR)/tools
+	curl -fsSL -o $(BUILD_DIR)/tools/tofu.tar.gz https://github.com/opentofu/opentofu/releases/download/v$(OPENTOFU_VERSION)/tofu_$(OPENTOFU_VERSION)_linux_amd64.tar.gz
+	echo "$(OPENTOFU_SHA256_AMD64)  $(BUILD_DIR)/tools/tofu.tar.gz" | sha256sum -c -
+	tar -xzf $(BUILD_DIR)/tools/tofu.tar.gz -C $(BUILD_DIR)/tools tofu
+	mv $(BUILD_DIR)/tools/tofu $@
+	rm $(BUILD_DIR)/tools/tofu.tar.gz
+
+# The provider driven by OpenTofu against a real Controller and libvirt
+# host (the same container as controller-libvirt-test): hypervisor,
+# node, in-place changes, replacement, import, destroy - see
+# hack/terraform-provider-test.sh.
+terraform-provider-test: kvm-image terraform-provider-build $(TOFU_BIN)
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/dashboardd-static ./dashboard/backend
+	./hack/terraform-provider-test.sh $(BUILD_DIR)/janus-kvm.qcow2 $(BIN_DIR)/dashboardd-static $(BIN_DIR)/terraform-provider-janus $(TOFU_BIN)
 
 # The Controller creating, admitting, powering and destroying its own
 # node on a libvirt/KVM host (a container: hack/libvirt-host), and
