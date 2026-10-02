@@ -20,6 +20,9 @@ frontend admin
     bind :8443 ssl crt /etc/haproxy/files/certs/admin.pem
 ```
 
+[Bringing your haproxy.cfg to a Janus node](haproxy-config.md) covers
+the rest of what changes from a distribution's HAProxy.
+
 A subdirectory can serve as a `crt` directory (`crt
 /etc/haproxy/files/certs/`) - keep only certificates in it then.
 
