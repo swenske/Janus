@@ -818,7 +818,7 @@ jobs:
         run: make qemu-consul-test
 
   test-hardware:
-    name: "Tests: Secure Boot, bare metal, Controller self-update"
+    name: "Tests: Secure Boot, bare metal, Controller self-update and hypervisors"
     runs-on: [self-hosted, docker, janus]
     steps:
       - uses: actions/checkout@v7
@@ -862,6 +862,14 @@ jobs:
       # it - before anything is published.
       - name: Controller self-update test (Docker Compose)
         run: make controller-self-update-test
+
+      # The Controller creating its own node on a libvirt/KVM host (a
+      # privileged container with libvirtd and sshd), admitting it on its
+      # registration token, its console and a reset, refusing domains it
+      # didn't create, and destroying it. See
+      # hack/controller-libvirt-test.sh and docs/hypervisors.md.
+      - name: Controller creates, admits and destroys a node on libvirt
+        run: make controller-libvirt-test
 
   publish:
     name: Images and release

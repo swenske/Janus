@@ -21,7 +21,7 @@ GEN_DIR := gen
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
-	qemu-dashboard-test dashboard-image controller-self-update-test local-dev-image ca-certificates seed-controller-test \
+	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test local-dev-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
@@ -740,6 +740,16 @@ dashboard-image:
 # update that works, one that rolls back (needs Docker, python3).
 controller-self-update-test:
 	./hack/controller-self-update-test.sh
+
+# The Controller creating, admitting, powering and destroying its own
+# node on a libvirt/KVM host (a container: hack/libvirt-host), and
+# refusing domains it didn't create - see hack/controller-libvirt-test.sh
+# and docs/hypervisors.md. dashboardd runs inside that container: built
+# static.
+controller-libvirt-test: kvm-image
+	mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/dashboardd-static ./dashboard/backend
+	./hack/controller-libvirt-test.sh $(BUILD_DIR)/janus-kvm.qcow2 $(BIN_DIR)/dashboardd-static
 
 # "Local Platform" tranche: a real janusd+haproxy pair as an ordinary
 # Docker container, for fast local iteration - see local-dev/

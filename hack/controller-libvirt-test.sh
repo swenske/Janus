@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# The Controller creating its own nodes on a hypervisor, end to end and
+# for real (docs/hypervisors.md): a libvirt/KVM host in a container
+# (hack/libvirt-host: libvirtd, QEMU with OVMF, sshd), the Controller
+# inside it too - on the network its machines boot on - and talking to
+# libvirt the way it does on a real host, over SSH as a dedicated user.
+#
+#   1. the hypervisor is added in the API's three steps: its public key
+#      authorized, the host key read and checked against the host's own
+#      fingerprint, then trusted; the host's state reads back;
+#   2. a node is created from the image under test, boots with its
+#      NoCloud volume and is admitted on its registration token - no
+#      approval - and answers through the Controller's relay;
+#   3. the serial console streams its boot, never a private key; a
+#      hypervisor reset brings the node back;
+#   4. a record forged to point at a domain the Controller didn't create
+#      (one untagged, one tagged by another Controller) is refused, and
+#      the domain is left as it was;
+#   5. destroying the machine leaves nothing but the cached base image.
+#
+# The polkit ACL that restricts the Controller's account on a real host
+# can't run in a container (no polkitd); it's checked on the lab's host
+# (docs/hypervisors.md says how).
+#
+# Usage: hack/controller-libvirt-test.sh <janus-kvm.qcow2> <dashboardd-bin>
+set -euo pipefail
+
+IMAGE_REL="${1:?usage: $0 <janus-kvm.qcow2> <dashboardd-bin>}"
+DASHBOARDD_REL="${2:?usage: $0 <janus-kvm.qcow2> <dashboardd-bin>}"
+IMAGE="$(cd "$(dirname "$IMAGE_REL")" && pwd)/$(basename "$IMAGE_REL")"
+DASHBOARDD="$(cd "$(dirname "$DASHBOARDD_REL")" && pwd)/$(basename "$DASHBOARDD_REL")"
+[ -c /dev/kvm ] || { echo "controller-libvirt test needs /dev/kvm" >&2; exit 1; }
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+HOST_PORT="${CONTROLLER_LIBVIRT_TEST_PORT:-$((18270 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+NAME="janus-libvirt-test-${JANUS_TEST_PORT_OFFSET:-0}"
+WORKDIR="$(mktemp -d)"
+API="https://127.0.0.1:${HOST_PORT}"
+JAR="$WORKDIR/cookies"
+
+fail() {
+  echo "controller-libvirt test FAILED: $*" >&2
+  docker exec "$NAME" sh -c 'cat /work/dashboardd.log; virsh list --all' >&2 2>/dev/null || true
+  exit 1
+}
+cleanup() {
+  docker rm -f "$NAME" >/dev/null 2>&1 || true
+  rm -rf "$WORKDIR"
+}
+trap cleanup EXIT
+
+in_host() { docker exec "$NAME" "$@"; }
+# With stdin: what's piped in is written inside the host.
+in_host_i() { docker exec -i "$NAME" "$@"; }
+api() { curl -sk -b "$JAR" "$@"; }
+json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
+
+# =========================================================================
+# The host, and the Controller inside it.
+# =========================================================================
+docker build -q -t janus-libvirt-host "$SELF_DIR/libvirt-host" >/dev/null
+docker rm -f "$NAME" >/dev/null 2>&1 || true
+# --init: libvirt daemonizes its QEMU probes, and an orphan left to a
+# PID 1 that never reaps it stays a zombie libvirt waits on forever.
+docker run -d --init --name "$NAME" --privileged --device /dev/kvm \
+  -p "127.0.0.1:${HOST_PORT}:18080" \
+  -v "$DASHBOARDD:/usr/local/bin/dashboardd:ro" -v "$IMAGE:/images/janus-kvm.qcow2:ro" \
+  janus-libvirt-host >/dev/null
+for _ in $(seq 1 60); do
+  docker logs "$NAME" 2>&1 | grep -q "libvirt-host ready" && break
+  sleep 1
+done
+docker logs "$NAME" 2>&1 | grep -q "libvirt-host ready" || fail "the libvirt host never came up: $(docker logs "$NAME" 2>&1 | tail -5)"
+in_host mkdir -p /work/data
+docker exec -d "$NAME" sh -c 'cd /images && exec python3 -m http.server 8000 --bind 127.0.0.1 >/work/http.log 2>&1'
+# Nodes boot on janus-test (192.168.123.0/24) and register at its gateway.
+docker exec -d "$NAME" sh -c 'exec dashboardd -addr :18080 -register-addr :18443 -data-dir /work/data -advertise-address 192.168.123.1 >/work/dashboardd.log 2>&1'
+for _ in $(seq 1 30); do
+  [ "$(curl -sk -o /dev/null -w '%{http_code}' "$API/api/auth/status")" = 200 ] && break
+  sleep 0.5
+done
+code="$(curl -sk -c "$JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/auth/setup" -H 'Content-Type: application/json' -d '{"password":"libvirt-test-password"}')"
+[ "$code" = 204 ] || fail "admin setup returned $code"
+echo "Part 1 OK: libvirt host and Controller running"
+
+# =========================================================================
+# 1. Adding the hypervisor: authorize, check the host key, trust.
+# =========================================================================
+api -X POST "$API/api/hypervisors" -H 'Content-Type: application/json' \
+  -d '{"name":"testhost","kind":"libvirt","libvirt":{"host":"127.0.0.1","user":"janus-ctl","pool":"janus","networks":["janus-test"]}}' >"$WORKDIR/hv.json"
+HV="$(json "d['id']" <"$WORKDIR/hv.json")"
+[ "$(json "d['trusted']" <"$WORKDIR/hv.json")" = False ] || fail "a new hypervisor is trusted before its host key was confirmed"
+status="$(api "$API/api/hypervisors/$HV/status")"
+echo "$status" | grep -q "host key hasn't been confirmed" || fail "an untrusted hypervisor was connected to: $status"
+
+json "d['authorized_key']" <"$WORKDIR/hv.json" | in_host_i sh -c 'cat >> /home/janus-ctl/.ssh/authorized_keys && chown janus-ctl: /home/janus-ctl/.ssh/authorized_keys && chmod 600 /home/janus-ctl/.ssh/authorized_keys'
+probed="$(api -X POST "$API/api/hypervisors/$HV/probe" | json "d['fingerprint']")"
+actual="$(in_host ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk '{print $2}')"
+[ "$probed" = "$actual" ] || fail "probed host key $probed, the host's own is $actual"
+code="$(api -o /dev/null -w '%{http_code}' -X POST "$API/api/hypervisors/$HV/trust" -H 'Content-Type: application/json' -d '{"fingerprint":"SHA256:not-the-host-key"}')"
+[ "$code" = 409 ] || fail "trusting a fingerprint the host doesn't present returned $code, want 409"
+api -X POST "$API/api/hypervisors/$HV/trust" -H 'Content-Type: application/json' -d "{\"fingerprint\":\"$probed\"}" | json "d['trusted']" | grep -q True || fail "trust didn't pin the host key"
+api "$API/api/hypervisors/$HV/status" >"$WORKDIR/status.json"
+python3 - "$WORKDIR/status.json" <<'EOF' || fail "host status: $(cat "$WORKDIR/status.json")"
+import json, sys
+d = json.load(open(sys.argv[1]))
+h = d["host"]
+assert not d.get("error"), d.get("error")
+assert h["cpus"] > 0 and h["memory_total"] > 0, h
+assert h["storage"]["name"] == "janus" and h["storage"]["active"], h["storage"]
+assert h["networks"] == [{"name": "janus-test", "active": True}], h["networks"]
+EOF
+echo "Part 2 OK: hypervisor authorized, host key checked against the host's and trusted (a wrong fingerprint refused), host state read over SSH"
+
+# =========================================================================
+# 2. A node, created and admitted on its token.
+# =========================================================================
+SUM="$(sha256sum "$IMAGE" | cut -d' ' -f1)"
+api -X POST "$API/api/machines" -H 'Content-Type: application/json' -d "{
+  \"name\": \"node1\", \"hypervisor_id\": \"$HV\", \"vcpus\": 1, \"memory_mib\": 1024,
+  \"image\": {\"url\": \"http://127.0.0.1:8000/janus-kvm.qcow2\", \"sha256\": \"$SUM\"},
+  \"nics\": [{\"network\": \"janus-test\", \"name\": \"lan\", \"mode\": \"dhcp\"}]}" >"$WORKDIR/m.json"
+MID="$(json "d['id']" <"$WORKDIR/m.json")" || fail "create: $(cat "$WORKDIR/m.json")"
+
+# The console from the moment the machine exists: its first boot prints
+# the node's admin credential, whose key must never come through.
+for _ in $(seq 1 120); do
+  [ -n "$(api "$API/api/machines/$MID" | json "d.get('vm_uuid','')")" ] && break
+  sleep 0.5
+done
+timeout 90 curl -skN -b "$JAR" "$API/api/machines/$MID/console" >"$WORKDIR/console1.sse" 2>/dev/null &
+CONSOLE_PID=$!
+
+for _ in $(seq 1 120); do
+  phase="$(api "$API/api/machines/$MID" | json "d['phase']")"
+  case "$phase" in ready | failed) break ;; esac
+  sleep 2
+done
+api "$API/api/machines/$MID" >"$WORKDIR/m.json"
+[ "$phase" = ready ] || fail "machine ended $phase: $(cat "$WORKDIR/m.json")"
+NODE="$(json "d['node_id']" <"$WORKDIR/m.json")"
+[ "$(api "$API/api/pending" | json "len(d or [])")" = 0 ] || fail "the node waited for approval instead of being admitted on its token"
+for _ in $(seq 1 30); do
+  reachable="$(api "$API/api/nodes/status" | json "d.get('$NODE',{}).get('reachable')")"
+  [ "$reachable" = True ] && break
+  sleep 1
+done
+[ "$reachable" = True ] || fail "the admitted node isn't reachable through the Controller: $(api "$API/api/nodes/status")"
+host="$(api "$API/api/nodes/status" | json "d['$NODE']['hostname']")"
+[ "$host" = node1 ] || fail "the node's hostname is $host, not the one its NoCloud volume set"
+echo "Part 3 OK: node1 created, admitted on its registration token (no approval), reachable through the relay as $host"
+
+# =========================================================================
+# 3. Console and hypervisor reset.
+# =========================================================================
+sleep 3
+kill "$CONSOLE_PID" 2>/dev/null || true
+wait "$CONSOLE_PID" 2>/dev/null || true
+python3 - "$WORKDIR/console1.sse" <<'EOF' || fail "first-boot console"
+import json, re, sys
+out = "".join(json.loads(l[6:]) for l in open(sys.argv[1]) if l.startswith("data: "))
+assert "listening on :9505" in out, "no janusd boot in the console: %r" % out[-500:]
+assert not re.search(r"BEGIN [A-Z ]*PRIVATE KEY", out), "a private key came through the console"
+print("  first boot: %d bytes, %s" % (len(out), "the admin key hidden" if "[private key hidden" in out else "attached after the credential's print"))
+EOF
+boot_before="$(api "$API/api/nodes/status" | json "d['$NODE']['boot_time_unix']")"
+timeout 60 curl -skN -b "$JAR" "$API/api/machines/$MID/console" >"$WORKDIR/console2.sse" 2>/dev/null &
+CONSOLE_PID=$!
+sleep 2
+code="$(api -o /dev/null -w '%{http_code}' -X POST "$API/api/machines/$MID/power" -H 'Content-Type: application/json' -d '{"action":"reset"}')"
+[ "$code" = 204 ] || fail "reset returned $code"
+for _ in $(seq 1 60); do
+  boot_after="$(api "$API/api/nodes/status" | json "d['$NODE'].get('boot_time_unix') if d['$NODE'].get('reachable') else 0")"
+  [ "$boot_after" != 0 ] && [ "$boot_after" != "$boot_before" ] && break
+  sleep 2
+done
+[ "$boot_after" != "$boot_before" ] && [ "$boot_after" != 0 ] || fail "the node didn't come back from a reset"
+kill "$CONSOLE_PID" 2>/dev/null || true
+wait "$CONSOLE_PID" 2>/dev/null || true
+python3 - "$WORKDIR/console2.sse" <<'EOF' || fail "console after a reset"
+import json, sys
+out = "".join(json.loads(l[6:]) for l in open(sys.argv[1]) if l.startswith("data: "))
+assert "Linux version" in out and "listening on :9505" in out, out[-500:]
+assert "�" not in out, "characters broken across packets"
+EOF
+echo "Part 4 OK: the console streamed the reboot (no private key, no broken character), the node came back from a hypervisor reset"
+
+# =========================================================================
+# 4. Domains the Controller didn't create are refused.
+# =========================================================================
+in_host sh -c 'cat > /tmp/f1.xml <<XML
+<domain type="kvm"><name>foreign-untagged</name><memory unit="MiB">64</memory><vcpu>1</vcpu><os><type arch="x86_64" machine="q35">hvm</type></os></domain>
+XML
+cat > /tmp/f2.xml <<XML
+<domain type="kvm"><name>janus-foreign</name><metadata><janus:machine xmlns:janus="https://janus.sw-servers.net/xmlns/libvirt/machine/1" controller="another-controller" id="aaaaaaaaaaaaaaaa"/></metadata><memory unit="MiB">64</memory><vcpu>1</vcpu><os><type arch="x86_64" machine="q35">hvm</type></os></domain>
+XML
+virsh -q define /tmp/f1.xml && virsh -q define /tmp/f2.xml'
+U1="$(in_host virsh domuuid foreign-untagged | tr -d '[:space:]')"
+U2="$(in_host virsh domuuid janus-foreign | tr -d '[:space:]')"
+in_host pkill -x dashboardd
+sleep 1
+for pair in "f00df00df00df001:foreign-untagged:$U1" "aaaaaaaaaaaaaaaa:janus-foreign:$U2"; do
+  IFS=: read -r fid fname fuuid <<<"$pair"
+  in_host mkdir -p "/work/data/machines/$fid"
+  printf '{"id":"%s","spec":{"name":"%s","hypervisor_id":"%s","vcpus":1,"memory_mib":64,"nics":[]},"phase":"ready","ref":{"machine_id":"%s","uuid":"%s","name":"%s","volumes":[]},"events":[],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}' \
+    "$fid" "$fname" "$HV" "$fid" "$fuuid" "$fname" | in_host_i sh -c "cat > /work/data/machines/$fid/meta.json"
+done
+docker exec -d "$NAME" sh -c 'exec dashboardd -addr :18080 -register-addr :18443 -data-dir /work/data -advertise-address 192.168.123.1 >>/work/dashboardd.log 2>&1'
+for _ in $(seq 1 30); do
+  [ "$(curl -sk -o /dev/null -w '%{http_code}' "$API/api/auth/status")" = 200 ] && break
+  sleep 0.5
+done
+curl -sk -c "$JAR" -o /dev/null -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d '{"password":"libvirt-test-password"}'
+for fid in f00df00df00df001 aaaaaaaaaaaaaaaa; do
+  code="$(api -o /dev/null -w '%{http_code}' -X POST "$API/api/machines/$fid/power" -H 'Content-Type: application/json' -d '{"action":"start"}')"
+  [ "$code" = 403 ] || fail "starting a foreign domain through a forged record returned $code, want 403"
+  api -o /dev/null -X DELETE "$API/api/machines/$fid"
+  for _ in $(seq 1 20); do
+    phase="$(api "$API/api/machines/$fid" | json "d['phase']")"
+    [ "$phase" = failed ] && break
+    sleep 0.5
+  done
+  api "$API/api/machines/$fid" | json "d['error']" | grep -q "wasn't created by this Controller" || fail "destroying a foreign domain wasn't refused: $(api "$API/api/machines/$fid")"
+  api -o /dev/null -X DELETE "$API/api/machines/$fid?forget=true"
+done
+for d in foreign-untagged janus-foreign; do
+  [ "$(in_host virsh domstate "$d" | tr -d '[:space:]')" = "shutoff" ] || fail "$d was touched"
+done
+echo "Part 5 OK: an untagged domain and another Controller's were refused (start 403, destroy failed) and left as they were"
+
+# =========================================================================
+# 5. Destroy: nothing left but the base image.
+# =========================================================================
+code="$(api -o /dev/null -w '%{http_code}' -X DELETE "$API/api/machines/$MID")"
+[ "$code" = 202 ] || fail "destroy returned $code"
+for _ in $(seq 1 90); do
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID")" = 404 ] && break
+  sleep 1
+done
+[ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID")" = 404 ] || fail "the machine was never destroyed: $(api "$API/api/machines/$MID")"
+[ "$(api "$API/api/nodes" | json "len(d or [])")" = 0 ] || fail "its node is still registered"
+if in_host virsh list --all --name | grep -q '^janus-node1$'; then fail "the virtual machine is still defined"; fi
+if in_host sh -c 'ls /var/lib/libvirt/qemu/nvram/' | grep -q node1; then fail "its NVRAM is still there"; fi
+vols="$(in_host virsh vol-list janus | awk 'NR>2 && $1 {print $1}')"
+[ "$vols" = "janus-base-sha256-${SUM:0:16}.qcow2" ] || fail "volumes left in the pool: $vols"
+echo "Part 6 OK: destroyed - node, virtual machine, NVRAM and volumes gone, the base image kept"
+
+echo "controller-libvirt test OK"
