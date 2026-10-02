@@ -15,6 +15,8 @@ built from a schematic keeps it through its updates.
 | `nftables` | amd64, arm64 | A firewall: the node's nftables ruleset managed through the API and the Controller, applied on trial with an automatic revert, named sets editable live - see [firewall.md](firewall.md) |
 | `keepalived` | amd64, arm64 | VRRP: virtual IPs shared by several nodes, moved when one fails or its HAProxy stops answering - see [vrrp.md](vrrp.md) |
 | `bird` | amd64, arm64 | BGP, OSPF, BFD with BIRD 2: announce the node's addresses - an anycast address withdrawn while HAProxy doesn't answer - see [bgp.md](bgp.md) |
+| `letsencrypt` | amd64, arm64 | Let's Encrypt (or any ACME CA): the node obtains and renews its HAProxy certificates itself - HTTP-01 answered by HAProxy, DNS-01 through a DNS provider's API for wildcards - swapped in without a reload - see [letsencrypt.md](letsencrypt.md) |
+| `consul` | amd64, arm64 | The [Consul](https://developer.hashicorp.com/consul) agent with your configuration: HAProxy's servers from Consul's catalog, the node's services in it - see [consul.md](consul.md). Business Source License 1.1 |
 
 `prometheus-node-exporter` was called `node-exporter` up to v2026.10.01-2.
 A node built with the old name isn't stuck on it: the image factory

@@ -68,7 +68,11 @@ theme toggle:
   into janusd: its settings and a scrape example), then only what the
   node's image has: the extensions' apps (Node exporter - status and
   settings; QEMU guest agent - status, what the hypervisor may do) and
-  the modules (bird, keepalived, nftables). An app the node doesn't have
+  the modules (bird, keepalived, nftables), Let's Encrypt (account, the
+  HTTP-01 rule, certificates and DNS providers as forms - secrets never
+  shown, kept when left empty - and the configuration as JSON) and Consul
+  (agent, members, the configuration's files, the configuration in the
+  shared ModuleConfigEditor). An app the node doesn't have
   isn't listed - "Add or remove apps…", last, opens the Update page's
   extensions panel.
   Firewall: ruleset editor (check, diff, apply on trial - the Controller

@@ -102,6 +102,11 @@ authentication: restrict who reaches the port.
 | `janus_bgp_session_established` | gauge | `protocol`, `neighbor` | 1 if each BGP session is established |
 | `janus_bgp_routes` | gauge | `protocol`, `channel`, `direction` (`imported`, `exported`) | Routes each protocol imported and exported |
 | `janus_bgp_protocol_held_down` | gauge | `protocol` | 1 while janusd keeps a `haproxy_*` protocol down: HAProxy doesn't answer |
+| `janus_acme_account_registered` | gauge | | 1 once the ACME CA knows the account - [Let's Encrypt](letsencrypt.md), the letsencrypt extension |
+| `janus_acme_certificate_state` | gauge | `name`, `state` | 1 for each certificate's current state (`pending`: not obtained yet, `valid`, `due`, `expired`) |
+| `janus_acme_certificate_failures` | gauge | `name` | Failed attempts in a row to obtain it |
+| `janus_acme_certificate_renew_timestamp_seconds` | gauge | `name` | When it becomes due for renewal (0 until obtained) |
+| `janus_acme_certificate_last_success_timestamp_seconds` | gauge | `name` | When it was last obtained (0: never) |
 | `janus_selinux_enforcing` | gauge | | 1 if SELinux is enforcing |
 | `janus_selinux_denials_total` | counter | | SELinux denials in the kernel log since boot - there should be none |
 | `janus_kernel_oom_kills_total` | counter | | Processes the kernel killed for lack of memory since boot |
@@ -160,6 +165,13 @@ groups:
       - alert: JanusBGPSessionDown
         expr: janus_bgp_session_established == 0
         for: 2m
+        labels: {severity: critical}
+      - alert: JanusACMERenewalFailing
+        expr: janus_acme_certificate_failures >= 3
+        labels: {severity: warning}
+      - alert: JanusACMECertificateNotObtained
+        expr: janus_acme_certificate_state{state=~"pending|expired"} == 1
+        for: 1h
         labels: {severity: critical}
 ```
 

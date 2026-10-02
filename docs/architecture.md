@@ -206,6 +206,14 @@ saved on STATE, applied - and keepalived and BIRD follow HAProxy's health,
 so a node whose HAProxy stops answering gives up its virtual IPs and
 withdraws its anycast routes.
 
+Two more extensions sit next to HAProxy rather than the network:
+`letsencrypt` ([letsencrypt.md](letsencrypt.md)) - janusd obtains and
+renews HAProxy's certificates through an ACME client of this project's
+own (`cmd/janus-acme`, on lego), run for each exchange with the CA with
+nothing on disk of its own, HTTP-01 answered statelessly by HAProxy - and
+`consul` ([consul.md](consul.md)), the Consul agent with the operator's
+configuration, for HAProxy's service discovery.
+
 ## Companion website
 
 A separate, dedicated backend (hosted on the user's own Proxmox, in a

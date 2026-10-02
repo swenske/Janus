@@ -88,6 +88,10 @@ are also technically non-mutating).
 | `MapList` / `MapGet` / `MapUpdate` | | ✅ | Runtime maps - file-backed only (`map(<path>)` in the running config); upsert is delete-then-add since `set map` doesn't create missing keys |
 | `ACLUpdate` | | ✅ | Runtime ACL pattern values - file-backed only (`acl ... -f <path>`), same delete-then-add upsert reasoning |
 | `CertificateList` / `Upload` / `Delete` | | ✅ | HAProxy's cert store (`new`/`set`/`commit`/`del ssl cert`), plus optional binding into a `crt-list` already referenced by a `bind ... ssl crt-list <path>` in the running config (`add`/`del ssl crt-list`, with SNI filters) - `CertificateList` reports each cert's `Used`/`Unused` status. Uploaded certificates are kept on STATE and put back into HAProxy after every reload, restart and reboot |
+| `ACMEStatus` | | ✅ | The letsencrypt extension: the account (thumbprint, registration), the HTTP-01 rule, and each certificate's state, expiry, renewal time and last error ([letsencrypt.md](letsencrypt.md)) |
+| `ACMEGetConfig` | | ✅ | The configuration - secrets (DNS provider settings, EAB key) returned empty |
+| `ACMEApplyConfig` | | ✅ | Check (`validate_only`) or save it, optionally with an account key to import; certificates are obtained in the background. An empty secret keeps the saved one |
+| `ACMERenew` | | ✅ | Obtain the named certificates (or all) now, due or not |
 
 ## NetworkService
 
@@ -116,6 +120,9 @@ Optional modules:
 | `FirewallApplyRuleset` | | ✅ | Check (`validate_only`) or apply a ruleset on trial - reverts unless confirmed |
 | `FirewallConfirm` | | ✅ | Keep and save the ruleset on trial - refused over a connection opened before it was applied |
 | `FirewallSets` / `FirewallSetUpdate` | | ✅ | Named sets of the live ruleset; add/delete elements live, kept across applies and reboots unless they have a timeout |
+| `ConsulStatus` | | ✅ | The consul extension: the agent's service state and, from its HTTP API, its node, role, datacenter, leader and members ([consul.md](consul.md)) |
+| `ConsulGetConfig` | | ✅ | The saved configuration and its files' names (admin only: it may hold the gossip key and ACL tokens) |
+| `ConsulApplyConfig` | | ✅ | Check (`validate_only`, by `consul validate`) or apply a configuration with its files - saved, the agent restarts; empty stops the agent |
 
 ## Deliberately not present
 
