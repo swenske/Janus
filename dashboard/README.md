@@ -224,6 +224,16 @@ tell what address a node will actually be able to reach it at, most
 notably under Docker bridge networking, see the `-advertise-address`
 note above).
 
+### Creating nodes on a hypervisor
+
+Given a libvirt/KVM host (the **Hypervisors** tab), the Controller
+creates nodes itself: the virtual machine, its image, its network, and
+a registration token that gets the node admitted without approval - and
+it powers them, shows their console and destroys them. It only ever
+acts on the machines it created. Preparing the host (a dedicated SSH
+account, a storage pool, a polkit policy) and the API:
+[docs/hypervisors.md](../docs/hypervisors.md).
+
 ## Updating the Controller
 
 The main page says when a newer Janus release exists (the version this

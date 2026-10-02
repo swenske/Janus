@@ -22,6 +22,11 @@ approvals.
   or a VM installed from a medium. The ISO boots a temporary Janus that
   installs the machine's disk, already configured with the Controller.
 
+Or let the Controller do it all on a libvirt/KVM host it's been given:
+it creates the virtual machine with a NoCloud volume of its own (method
+3, plus a one-time registration token) and admits the node without the
+approval step - see [hypervisors.md](hypervisors.md).
+
 The Controller's address and CA certificate are in its **Provision new
 nodes with this Controller** panel (or `GET /api/controller-info`).
 

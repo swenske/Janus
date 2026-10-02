@@ -214,6 +214,26 @@ nothing on disk of its own, HTTP-01 answered statelessly by HAProxy - and
 `consul` ([consul.md](consul.md)), the Consul agent with the operator's
 configuration, for HAProxy's service discovery.
 
+## The Controller's own nodes
+
+The Controller (`dashboard/`) can create its nodes itself on the
+hypervisors it's given - libvirt/KVM first, over SSH in pure Go
+([hypervisors.md](hypervisors.md)). Three choices shape it:
+
+- **Ownership is checked, not assumed.** Every virtual machine carries
+  the Controller's ID and its own in its metadata, and every operation
+  checks them on the hypervisor before acting; on the host, a polkit
+  policy makes libvirt enforce the same boundary.
+- **Creating the machine is the approval.** Its NoCloud volume carries a
+  one-time registration token (only its hash is kept); the node presents
+  it and is admitted at once. Every other registration still waits for a
+  human.
+- **Long operations belong to the machine, not to a request.** Creation
+  runs in the background with its phase and history saved with the
+  machine, so the API is resource-shaped - what a Terraform provider
+  (users declaring nodes, the Controller doing the hypervisor work) will
+  build on.
+
 ## Companion website
 
 A separate, dedicated backend (hosted on the user's own Proxmox, in a
@@ -1131,3 +1151,8 @@ plan - not implemented yet.
 - **Phase 6**: companion website + dedicated Proxmox-hosted backend
   (separate container from the runner) + remote kernel-menuconfig UI -
   separate repository, separate plan.
+- **Phase 7** (libvirt done): the Controller creates its own nodes on
+  hypervisors ([hypervisors.md](hypervisors.md)); next, a Terraform
+  provider driving the Controller, then Proxmox (API token scoped to a
+  pool), then VMware and Hyper-V (which needs the kernel's Hyper-V
+  drivers and a VHDX image first).

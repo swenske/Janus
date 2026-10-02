@@ -28,6 +28,9 @@ else from `src/shared/`:
   `PageHeader`, `Meter`, `Loading`/`ErrorBox`/`Empty`, toasts
   (`useToast`), the confirmation dialog (`useConfirm`) and `useAction`
   (busy state + success/error toast around an async call).
+- `route.js` - hash routing (`useHashRoute`, `navigate`); `sse.js` -
+  `useSSE`. Both pages use them (the node page re-exports them from
+  `src/node/hooks.jsx`).
 
 Rules:
 
@@ -41,8 +44,30 @@ Rules:
 
 ## The main page
 
-Pending approvals first, then the nodes as cards, then provisioning.
-Above them, `ControllerUpdate.jsx` is the Controller's own update
+Two tabs (hash routes `#/` and `#/hypervisors`).
+
+**Nodes**: pending approvals first, then the nodes as cards, then
+provisioning. A node the Controller created on a hypervisor shows its
+virtual machine on its card (state, reset/force-off/start, console) and
+**Destroy** instead of Remove; a pending registration from a machine it
+created (an image too old to present its registration token) says so,
+and approving it links the node to the machine.
+
+**Hypervisors** ([hypervisors.md](hypervisors.md)): one card per host -
+added in three steps (the Controller's public key to authorize, the host
+key read and compared with the host's own, then trusted), then its
+software, CPU, memory, pool and networks - and below, the machines: their
+phase while they're created (the page polls every 3 s while one is under
+way), their virtual machine's state, history, retry, destroy (type the
+name) and the console. **Create node** takes the hypervisor, name, size,
+interfaces (network, name, static/DHCP/none), DNS/NTP, the version and the
+image factory's extensions, or an image by URL and SHA-256. The console
+(`Console.jsx`) is read-only, follows the SSE stream from
+`/api/machines/{id}/console`, and cleans terminal sequences out of the
+whole text - an escape sequence can be cut across two messages.
+
+On the Nodes tab, above the rest, `ControllerUpdate.jsx` is the
+Controller's own update
 (`GET`/`POST /api/controller/update`, `dashboard/backend/selfupdate.go`):
 a newer release than this Controller's `main.version`
 (`updaterapi.Newer` - CalVer, a git-describe build counts as after its
