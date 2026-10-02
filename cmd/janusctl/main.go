@@ -58,6 +58,12 @@ func main() {
 		return
 	}
 
+	// janusctl's own version first: shown even when no node is
+	// reachable (checking an installed package).
+	if flag.Arg(0) == "version" {
+		fmt.Println("Client:", version)
+	}
+
 	conn, err := dial(*endpoint, *caFile, *certFile, *keyFile)
 	if err != nil {
 		log.Fatal(err)
@@ -238,8 +244,6 @@ func ctx() (context.Context, context.CancelFunc) {
 }
 
 func runVersion(conn *grpc.ClientConn) {
-	fmt.Println("Client:", version)
-
 	c, cancel := ctx()
 	defer cancel()
 
