@@ -112,4 +112,9 @@ if grep -qE "^init: sysctl .*: [a-zA-Z]" "$LOG"; then
   grep -E "^init: sysctl .*: [a-zA-Z]" "$LOG" >&2
   exit 1
 fi
+grep -qx "init: open files limit 524288" <(tr -d '\r' < "$LOG") || {
+  echo "Hardening test FAILED: init didn't raise the open files limit:" >&2
+  grep -a "open files limit" "$LOG" >&2
+  exit 1
+}
 echo "Hardening test OK: every kernel hardening sysctl this project sets took effect on a real boot, and HAProxy still serves traffic normally"

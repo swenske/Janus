@@ -179,6 +179,20 @@ sleep 2
 files_served || fail "the files aren't served any more after a refused change and a reload"
 echo "  ok: HAProxy files (error page and certificate served, private key never read back, breaking changes refused)"
 
+# --- open files: what a distribution gives HAProxy (rootfs/init raises the
+# hard limit to systemd's); a configuration haproxy -c accepts but HAProxy
+# won't start with is refused, nothing changed ---
+expect "HAProxy sized from the node's open-files limit" 'Connections: +[0-9]+ / 26[0-9]{4}$' ctl haproxy show-info
+awk '{print} /^global/{print "    ulimit-n 524288"}' "$WORKDIR/files.cfg" > "$WORKDIR/ulimit.cfg"
+ctl haproxy apply-config "$WORKDIR/ulimit.cfg" >/dev/null || fail "ulimit-n 524288 (systemd's limit for a service) was refused"
+awk '{print} /^global/{print "    ulimit-n 2000000000"}' "$WORKDIR/files.cfg" > "$WORKDIR/impossible.cfg"
+if out="$(ctl haproxy apply-config "$WORKDIR/impossible.cfg" 2>&1)"; then fail "a configuration HAProxy can't start with was reported applied: $out"; fi
+grep -q "FD limit" <<<"$out" || fail "the refusal doesn't give HAProxy's reason: $out"
+ctl haproxy get-config | cmp -s - "$WORKDIR/ulimit.cfg" || fail "the refused configuration replaced the previous one"
+files_served || fail "HAProxy stopped serving after a refused start"
+[ "$(haproxy_count)" = 1 ] || fail "$(haproxy_count) haproxy processes after a refused start"
+echo "  ok: open files (ulimit-n 524288 accepted, an impossible one refused with HAProxy's reason, previous configuration kept)"
+
 # --- service control ---
 ctl system service restart haproxy >/dev/null || fail "ServiceRestart haproxy failed"
 sleep 2

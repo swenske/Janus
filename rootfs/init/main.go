@@ -544,6 +544,25 @@ func hardenSysctls() {
 	}
 }
 
+// fileLimit is the open-file limit janusd and what it starts may raise
+// their own to. HAProxy sizes its maxconn from it (about half) unless its
+// configuration says otherwise, and refuses to start when a "ulimit-n" or
+// "maxconn" asks more - while `haproxy -c` accepts them. The kernel gives
+// PID 1 a hard limit of 4096: about 2000 connections at most. 524288 is
+// the hard limit systemd gives every service, what HAProxy gets on a
+// mainstream distribution. The soft limit stays 1024: a program raises
+// its own when it needs more, as Go and HAProxy do by themselves.
+const fileLimit = 524288
+
+func raiseFileLimit() {
+	l := syscall.Rlimit{Cur: 1024, Max: fileLimit}
+	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &l); err != nil {
+		fmt.Printf("init: open files limit %d: %v\n", fileLimit, err)
+		return
+	}
+	fmt.Printf("init: open files limit %d\n", fileLimit)
+}
+
 // selinuxPolicyPath is where rootfs/assemble.sh bundles the binary
 // policy selinux/classes.conf + selinux/policy.conf compile into (see
 // the Makefile's selinux-policy target) - a fixed path on the
@@ -598,6 +617,7 @@ func main() {
 	mirrorConsole()
 	linkVirtioPorts()
 	hardenSysctls()
+	raiseFileLimit()
 	mountEphemeral()
 	// /etc/resolv.conf, like the rest of the network, is janusd's
 	// (internal/netmgr): the kernel's boot DHCP resolvers by default.
