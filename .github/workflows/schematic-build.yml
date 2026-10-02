@@ -166,9 +166,25 @@ jobs:
           printf '%s\n' "$SITE_HOST_KEY" > "$D/known_hosts"
           SSH="ssh -i $D/key -o UserKnownHostsFile=$D/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes"
           dest="$SCHEMATIC_ID/$VERSION/$ARCH/"
-          rsync -rtp --chmod=D2775,F664 --mkpath --exclude disk.img --exclude manifest.json -e "$SSH" \
+          # The site's rrsync serves one connection at a time and refuses
+          # the others at once: builds finishing together - the site's
+          # pre-builds right after a release - take turns.
+          up() {
+            local out
+            for _ in $(seq 1 20); do
+              if out="$(rsync "$@" 2>&1)"; then
+                [ -z "$out" ] || echo "$out"
+                return 0
+              fi
+              echo "$out"
+              grep -q "Another instance of rrsync" <<<"$out" || return 1
+              sleep $((10 + RANDOM % 20))
+            done
+            return 1
+          }
+          up -rtp --chmod=D2775,F664 --mkpath --exclude disk.img --exclude manifest.json -e "$SSH" \
             build/schematic/out/ "$SITE_UPLOAD_TARGET:$dest"
-          rsync -tp --chmod=F664 -e "$SSH" build/schematic/out/manifest.json "$SITE_UPLOAD_TARGET:$dest"
+          up -tp --chmod=F664 -e "$SSH" build/schematic/out/manifest.json "$SITE_UPLOAD_TARGET:$dest"
           echo "Uploaded to $SITE_UPLOAD_TARGET:$dest"
 
       - name: Keep the images as an artifact
