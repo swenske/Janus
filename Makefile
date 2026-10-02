@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble qemu-acme-test qemu-consul-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -173,14 +173,33 @@ extension-bird-arm64: musl-toolchain-arm64
 	go run ./hack/extpack pack -name bird -arch arm64 -version $(BIRD_VERSION) \
 		-tree $(EXT_DIR)/tree-bird-arm64 -out $(EXT_DIR)/extension-bird-arm64.tar
 
-extensions-amd64: extension-prometheus-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-keepalived-amd64 extension-bird-amd64
-extensions-arm64: extension-prometheus-node-exporter-arm64 extension-nftables-arm64 extension-keepalived-arm64 extension-bird-arm64
+extension-consul-%:
+	rm -rf $(EXT_DIR)/tree-consul-$*
+	docker build --target export --build-arg ARCH=$* \
+		--build-arg CONSUL_VERSION=$(CONSUL_VERSION) \
+		--build-arg CONSUL_SHA256=$(CONSUL_SHA256_$*) \
+		-o $(EXT_DIR)/tree-consul-$* extensions/consul
+	go run ./hack/extpack pack -name consul -arch $* -version $(CONSUL_VERSION) \
+		-tree $(EXT_DIR)/tree-consul-$* -out $(EXT_DIR)/extension-consul-$*.tar
+
+# letsencrypt is this repository's own ACME client (cmd/janus-acme), built
+# like janusd.
+extension-letsencrypt-%:
+	rm -rf $(EXT_DIR)/tree-letsencrypt-$*
+	mkdir -p $(EXT_DIR)/tree-letsencrypt-$*/usr/local/sbin
+	CGO_ENABLED=0 GOOS=linux GOARCH=$* go build -trimpath -ldflags "$(LDFLAGS)" \
+		-o $(EXT_DIR)/tree-letsencrypt-$*/usr/local/sbin/janus-acme ./cmd/janus-acme
+	go run ./hack/extpack pack -name letsencrypt -arch $* -version $(VERSION) \
+		-tree $(EXT_DIR)/tree-letsencrypt-$* -out $(EXT_DIR)/extension-letsencrypt-$*.tar
+
+extensions-amd64: extension-prometheus-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-keepalived-amd64 extension-bird-amd64 extension-letsencrypt-amd64 extension-consul-amd64
+extensions-arm64: extension-prometheus-node-exporter-arm64 extension-nftables-arm64 extension-keepalived-arm64 extension-bird-arm64 extension-letsencrypt-arm64 extension-consul-arm64
 
 # The extensions a release can build a schematic with.
 schematic-catalog:
 	mkdir -p $(EXT_DIR)
 	go run ./hack/extpack catalog -release $(VERSION) -out $(EXT_DIR)/schematic-catalog.json \
-		prometheus-node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION) keepalived=$(KEEPALIVED_VERSION) bird=$(BIRD_VERSION)
+		prometheus-node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION) keepalived=$(KEEPALIVED_VERSION) bird=$(BIRD_VERSION) letsencrypt=$(VERSION) consul=$(CONSUL_VERSION)
 
 # What a release publishes so custom schematics can be built from it
 # without rebuilding anything (image/schematic/build.sh): per
@@ -799,6 +818,26 @@ qemu-bgp-test: SCHEMATIC = hack/testdata/schematic-bgp.json
 qemu-bgp-test: build extension-bird-amd64
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
 	./hack/qemu-bgp-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# Let's Encrypt (letsencrypt extension) against Pebble, the ACME test CA,
+# on a real enforcing node: HTTP-01 answered by HAProxy, a wildcard over
+# DNS-01, renewal swapped in without a reload - see the script.
+pebble:
+	GOBIN=$(abspath $(BUILD_DIR))/pebble go install github.com/letsencrypt/pebble/v2/cmd/pebble@$(PEBBLE_VERSION) \
+		github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@$(PEBBLE_VERSION)
+
+qemu-acme-test: SCHEMATIC = hack/testdata/schematic-letsencrypt.json
+qemu-acme-test: build extension-letsencrypt-amd64 pebble
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	./hack/qemu-acme-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl $(BUILD_DIR)/pebble
+
+# The Consul agent (consul extension) on two real enforcing nodes: a
+# server and a client, HAProxy discovering a service through Consul's
+# DNS - see the script.
+qemu-consul-test: SCHEMATIC = hack/testdata/schematic-consul.json
+qemu-consul-test: build extension-consul-amd64
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	./hack/qemu-consul-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl $(EXT_DIR)/tree-consul-amd64/usr/local/sbin/consul
 
 # Bare metal: the same images on NVMe/SATA/pvscsi/USB/virtio-scsi disks
 # and e1000e/igb/vmxnet3/e1000 NICs, 4 CPUs, a cloud-init CD-ROM, the ISO

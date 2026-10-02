@@ -1,0 +1,9 @@
+{
+  "name": "letsencrypt",
+  "description": "Let's Encrypt (or any ACME CA): the node obtains and renews its HAProxy certificates itself - HTTP-01 answered by HAProxy, DNS-01 through a DNS provider's API for wildcards - and swaps renewed ones in without a reload. Configured through the API and the Controller.",
+  "homepage": "https://letsencrypt.org",
+  "arches": ["amd64", "arm64"],
+  "selinux_labels": {
+    "usr/local/sbin/janus-acme": "acme_exec_t"
+  }
+}

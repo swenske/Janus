@@ -34,11 +34,13 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/acme"
 	"github.com/swenske/Janus/internal/api"
 	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/consoledrain"
+	"github.com/swenske/Janus/internal/consul"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
@@ -160,6 +162,37 @@ func main() {
 	if haproxyMgr.CertStoreDir == "" {
 		haproxyMgr.CertStoreDir = filepath.Join(filepath.Dir(*haproxyCfg), "runtime-certs")
 	}
+	// HAProxy's health: it answers on its stats socket, and isn't being
+	// stopped - a soft stop closes the listeners long before the process
+	// exits. For keepalived's track_file, BIRD's haproxy_* protocols and
+	// the HTTP-01 challenges HAProxy answers.
+	haproxyHealthy := func() bool {
+		if !haproxyMgr.Serving() {
+			return false
+		}
+		_, err := haproxyMgr.ShowInfo()
+		return err == nil
+	}
+
+	// The letsencrypt extension (internal/acme) before HAProxy starts: its
+	// certificate files - stand-ins until the CA's arrive - must be there
+	// for a configuration that loads them, and HAProxy's environment has
+	// the account's thumbprint, for the HTTP-01 challenges.
+	acme.Dir = *configDir
+	acme.CertDir = filepath.Join(filepath.Dir(*haproxyCfg), "acme")
+	serviceLogs[acme.LogID] = ring.New[string](serviceLogLines)
+	acmeMgr := acme.New(acme.Options{
+		HAProxy: haproxyMgr, HAProxyConfig: *haproxyCfg, Healthy: haproxyHealthy,
+		Output: io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs[acme.LogID]}),
+	})
+	if *manageHost && acmeMgr.Available() {
+		if err := acmeMgr.Boot(); err != nil {
+			log.Printf("letsencrypt: %v", err)
+		}
+		haproxyMgr.Env = acmeMgr.Env
+	} else {
+		delete(serviceLogs, acme.LogID)
+	}
 
 	// Start haproxy from whatever config is already on disk (the
 	// bootstrap default at first boot - see rootfs/base/etc/haproxy -
@@ -189,16 +222,6 @@ func main() {
 	// put the saved one there, and the HAProxy health file it can track,
 	// before the services start.
 	vrrpMgr := vrrp.New(extMgr)
-	// HAProxy's health, for keepalived's track_file and BIRD's haproxy_*
-	// protocols: it answers on its stats socket, and isn't being stopped -
-	// a soft stop closes the listeners long before the process exits.
-	haproxyHealthy := func() bool {
-		if !haproxyMgr.Serving() {
-			return false
-		}
-		_, err := haproxyMgr.ShowInfo()
-		return err == nil
-	}
 	if *manageHost && vrrpMgr.Available() {
 		if err := vrrpMgr.Boot(); err != nil {
 			log.Printf("vrrp: %v", err)
@@ -214,6 +237,14 @@ func main() {
 			log.Printf("bgp: %v", err)
 		}
 		go bgpMgr.KeepGate(haproxyHealthy, haproxyMgr.Changed, time.Second, nil)
+	}
+	// The Consul agent (consul extension) waits for its configuration
+	// likewise; janusd's own part of it (data directory, node ID) first.
+	consulMgr := consul.New(extMgr)
+	if *manageHost && consulMgr.Available() {
+		if err := consulMgr.Boot(); err != nil {
+			log.Printf("consul: %v", err)
+		}
 	}
 	// A deliberate stop of HAProxy gives the virtual IPs up and withdraws
 	// the anycast routes at once (Changed wakes both checks), then waits
@@ -233,6 +264,9 @@ func main() {
 		}
 	}
 	extMgr.Start()
+	if *manageHost && acmeMgr.Available() {
+		go acmeMgr.Run(nil)
+	}
 
 	// SIGTERM is rootfs/init asking janusd to stop before a power-off or
 	// reboot (/sbin/shutdown, e.g. from the QEMU guest agent): HAProxy is
@@ -338,7 +372,7 @@ func main() {
 	// The node's own Prometheus exporter (internal/exporter). The kernel
 	// log and STATE are only this node's to report when janusd runs it.
 	metrics := &metricsSources{version: version, started: started, ca: pkiBootstrap.CA, serverCert: serverCert,
-		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr, vrrp: vrrpMgr, bgp: bgpMgr}
+		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr, vrrp: vrrpMgr, bgp: bgpMgr, acme: acmeMgr}
 	if *manageHost {
 		metrics.kmsg = &kmsgwatch.Counts{}
 		metrics.statePath = "/etc/.state"
@@ -362,8 +396,8 @@ func main() {
 	)...)
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr})
-	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr})
-	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr})
+	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr})
+	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr, Consul: consulMgr, Services: extMgr})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
 	printMOTD(motdInfo{

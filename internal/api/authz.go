@@ -94,6 +94,10 @@ var requiredRoles = map[string][]string{
 	"/janus.v1alpha1.HAProxyService/CertificateList":   adminOrReader, // names/expiry only, not key material
 	"/janus.v1alpha1.HAProxyService/CertificateUpload": adminOnly,
 	"/janus.v1alpha1.HAProxyService/CertificateDelete": adminOnly,
+	"/janus.v1alpha1.HAProxyService/ACMEStatus":        adminOrReader,
+	"/janus.v1alpha1.HAProxyService/ACMEGetConfig":     adminOrReader, // secrets come back empty
+	"/janus.v1alpha1.HAProxyService/ACMEApplyConfig":   adminOnly,
+	"/janus.v1alpha1.HAProxyService/ACMERenew":         adminOnly,
 
 	// NetworkService
 	"/janus.v1alpha1.NetworkService/BGPStatus":            adminOrReader,
@@ -102,6 +106,9 @@ var requiredRoles = map[string][]string{
 	"/janus.v1alpha1.NetworkService/VRRPStatus":           adminOrReader,
 	"/janus.v1alpha1.NetworkService/VRRPApplyConfig":      adminOnly,
 	"/janus.v1alpha1.NetworkService/VRRPGetConfig":        adminOrReader,
+	"/janus.v1alpha1.NetworkService/ConsulStatus":         adminOrReader,
+	"/janus.v1alpha1.NetworkService/ConsulApplyConfig":    adminOnly,
+	"/janus.v1alpha1.NetworkService/ConsulGetConfig":      adminOnly, // the configuration may hold the gossip key and ACL tokens
 	"/janus.v1alpha1.NetworkService/FirewallList":         adminOrReader,
 	"/janus.v1alpha1.NetworkService/FirewallApplyRuleset": adminOnly,
 	"/janus.v1alpha1.NetworkService/FirewallGetRuleset":   adminOrReader,

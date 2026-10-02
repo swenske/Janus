@@ -46,6 +46,15 @@ service NetworkService {
   rpc FirewallSets(google.protobuf.Empty) returns (FirewallSetsResponse);
   rpc FirewallSetUpdate(FirewallSetUpdateRequest) returns (FirewallSetUpdateResponse);
 
+  // Consul: the consul extension (docs/consul.md). The agent runs with
+  // the operator's own configuration, checked by `consul validate`, and
+  // the files it names (TLS certificates, keys...) under
+  // /run/janus/consul/files; applying one restarts the agent.
+  // ConsulGetConfig gives the files' names, never their content.
+  rpc ConsulStatus(google.protobuf.Empty) returns (ConsulStatusResponse);
+  rpc ConsulGetConfig(google.protobuf.Empty) returns (ConsulGetConfigResponse);
+  rpc ConsulApplyConfig(ConsulApplyConfigRequest) returns (ConsulApplyConfigResponse);
+
   // The node's own network configuration: hostname, interfaces (physical
   // and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
   // modules above, always available.
@@ -348,6 +357,55 @@ message VRRPApplyConfigRequest {
 message VRRPApplyConfigResponse {
   bool accepted = 1;
   repeated string errors = 2; // keepalived's
+}
+
+message ConsulStatusResponse {
+  ModuleState state = 1;
+  bool configured = 2; // a configuration is saved
+  // The consul service's state: "running", "waiting" (for a
+  // configuration), "restarting", "stopped".
+  string service_state = 3;
+  string service_error = 4; // its last exit, if it ended badly
+  // What the agent says of itself, over its HTTP API (127.0.0.1:8500,
+  // without a token): empty if it can't be asked, error says why.
+  string error = 5;
+  string node_name = 6;
+  string node_id = 7;
+  string datacenter = 8;
+  bool server = 9;
+  string version = 10;
+  string leader = 11; // the cluster's leader, "" if there's none
+  repeated ConsulMember members = 12; // the LAN gossip pool
+  string files_dir = 13; // where the configuration's files are
+}
+
+message ConsulMember {
+  string name = 1;
+  string address = 2;
+  string status = 3; // "alive", "leaving", "left", "failed"
+  string role = 4; // "server", "client"
+  string datacenter = 5;
+}
+
+message ConsulGetConfigResponse {
+  bytes config = 1; // the saved configuration (HCL or JSON)
+  bool is_default = 2; // none saved
+  repeated string files = 3; // the saved files' names
+}
+
+message ConsulApplyConfigRequest {
+  // The agent's configuration, HCL or JSON; empty removes it - and its
+  // files - and stops the agent.
+  bytes config = 1;
+  bool validate_only = 2;
+  // The files it names, as /run/janus/consul/files/<name>: an empty value
+  // keeps the saved file of that name; a saved file not given is removed.
+  map<string, bytes> files = 3;
+}
+
+message ConsulApplyConfigResponse {
+  bool accepted = 1;
+  repeated string errors = 2; // consul validate's
 }
 
 message FirewallListResponse {

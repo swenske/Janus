@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/acme"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/haproxy"
 )
@@ -23,6 +24,8 @@ type HAProxy struct {
 	janusv1alpha1.UnimplementedHAProxyServiceServer
 
 	Manager *haproxy.Manager
+	// ACME manages the letsencrypt extension (acme.go).
+	ACME *acme.Manager
 }
 
 func (h *HAProxy) GetConfig(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.GetConfigResponse, error) {
@@ -51,6 +54,9 @@ func (h *HAProxy) ApplyConfig(req *janusv1alpha1.ApplyConfigRequest, stream janu
 	events.Publish("haproxy.config.applied", map[string]string{"sha256": sha256Hex(req.GetConfig())})
 	if err := stream.Send(&janusv1alpha1.ApplyConfigResponse{Stage: "reloading"}); err != nil {
 		return err
+	}
+	if h.ACME != nil {
+		h.ACME.HAProxyConfigChanged()
 	}
 	return stream.Send(&janusv1alpha1.ApplyConfigResponse{Stage: "done", Accepted: true})
 }

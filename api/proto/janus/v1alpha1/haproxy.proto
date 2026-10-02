@@ -3,6 +3,7 @@ syntax = "proto3";
 package janus.v1alpha1;
 
 import "google/protobuf/empty.proto";
+import "janus/v1alpha1/network.proto";
 
 option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
 
@@ -47,6 +48,21 @@ service HAProxyService {
   // or a reboot. CertificateDelete removes it from both.
   rpc CertificateUpload(CertificateUploadRequest) returns (google.protobuf.Empty);
   rpc CertificateDelete(CertificateDeleteRequest) returns (google.protobuf.Empty);
+
+  // ACME: the letsencrypt extension (docs/letsencrypt.md). The node
+  // obtains and renews its certificates itself, from Let's Encrypt or any
+  // ACME CA, writes each to /etc/haproxy/acme/<name>.pem and swaps a
+  // renewed one into the running HAProxy without a reload. ACMEGetConfig
+  // never returns a secret (a DNS provider's settings, the EAB key): their
+  // values come back empty, and an empty value in ACMEApplyConfig keeps
+  // the saved one.
+  rpc ACMEStatus(google.protobuf.Empty) returns (ACMEStatusResponse);
+  rpc ACMEGetConfig(google.protobuf.Empty) returns (ACMEGetConfigResponse);
+  rpc ACMEApplyConfig(ACMEApplyConfigRequest) returns (ACMEApplyConfigResponse);
+  // ACMERenew obtains the named certificates (every one if none is named)
+  // now, whether or not they're due, in the background: ACMEStatus says
+  // how it went.
+  rpc ACMERenew(ACMERenewRequest) returns (ACMERenewResponse);
 }
 
 message GetConfigResponse {
@@ -185,4 +201,122 @@ message CertificateDeleteRequest {
   // ever binds to one at a time, but nothing stops a caller from binding
   // the same cert into more than one crt-list out of band).
   string crt_list = 2;
+}
+
+// ACMEConfig is the letsencrypt extension's configuration - also its JSON
+// form, as saved on the node.
+message ACMEConfig {
+  ACMEAccount account = 1;
+  repeated ACMECertificate certificates = 2;
+  repeated ACMEDNSProvider dns_providers = 3;
+}
+
+message ACMEAccount {
+  // The CA's ACME directory URL, or "letsencrypt" (the default, when
+  // empty) or "letsencrypt-staging".
+  string directory = 1;
+  // PEM: if set, the only CA trusted for the directory's HTTPS certificate
+  // (a private ACME server's); otherwise the node's trust store.
+  string directory_ca = 2;
+  string email = 3; // optional contact address
+  // Registering an account means accepting the CA's terms of service:
+  // needed for a key the CA doesn't know yet.
+  bool accept_terms = 4;
+  // External account binding, for the CAs that require one.
+  string eab_key_id = 5;
+  string eab_hmac_key = 6; // secret
+}
+
+message ACMECertificate {
+  // Its file is /etc/haproxy/acme/<name>.pem (letters, digits, '.', '-',
+  // '_'). Until the CA's certificate is there, the file holds a
+  // self-signed stand-in, so HAProxy can start with it referenced.
+  string name = 1;
+  // The names it covers; a wildcard ("*.example.com") needs dns-01.
+  repeated string domains = 2;
+  string key_type = 3; // "ec256" (default), "ec384", "rsa2048", "rsa3072", "rsa4096"
+  string challenge = 4; // "http-01" (default) or "dns-01"
+  string dns_provider = 5; // dns-01: the name of one of dns_providers
+  string profile = 6; // the CA's certificate profile, if it has several
+}
+
+message ACMEDNSProvider {
+  string name = 1; // what certificates refer to it by
+  // gandiv5, ovh, cloudflare, route53... (docs/letsencrypt.md)
+  string type = 2;
+  // The provider's settings, under lego's own variable names
+  // (GANDIV5_PERSONAL_ACCESS_TOKEN...). Secret.
+  map<string, string> settings = 3;
+  // Resolvers for the propagation check (host[:port]); default: the
+  // node's. With split-horizon DNS, give public ones.
+  repeated string resolvers = 4;
+  // If set, wait this long after creating the record instead of checking
+  // that it's visible - for networks where the check can't see it.
+  uint32 propagation_wait_seconds = 5;
+}
+
+message ACMEGetConfigResponse {
+  ACMEConfig config = 1;
+  bool is_default = 2; // none saved
+}
+
+message ACMEApplyConfigRequest {
+  ACMEConfig config = 1;
+  bool validate_only = 2;
+  // Optional: an account private key (PEM, EC or RSA) to use from now on -
+  // an existing account's, to keep its thumbprint. Empty keeps the node's
+  // (generated the first time it's needed).
+  string account_key = 3;
+}
+
+message ACMEApplyConfigResponse {
+  bool accepted = 1;
+  repeated string errors = 2;
+}
+
+message ACMERenewRequest {
+  repeated string names = 1;
+}
+
+message ACMERenewResponse {
+  repeated string names = 1; // the certificates being obtained
+}
+
+message ACMEStatusResponse {
+  ModuleState state = 1;
+  bool configured = 2; // a configuration is saved
+  // The account key's thumbprint (RFC 7638). An HTTP-01 challenge's
+  // answer is "<token>.<thumbprint>"; HAProxy has it in its environment
+  // as JANUS_ACME_THUMBPRINT.
+  string account_thumbprint = 3;
+  string account_uri = 4; // once the CA knows the account
+  string account_error = 5;
+  string directory = 6; // the URL in use
+  string terms_url = 7;
+  // An http-request rule answering HTTP-01 challenges, for the frontends
+  // that receive them (port 80).
+  string http01_rule = 8;
+  string certificates_dir = 9;
+  repeated ACMECertificateStatus certificates = 10;
+}
+
+message ACMECertificateStatus {
+  string name = 1;
+  repeated string domains = 2; // configured
+  string path = 3;
+  // "pending": not obtained yet, the stand-in is there; "valid"; "due": to
+  // renew; "expired".
+  string state = 4;
+  repeated string served_domains = 5; // what the file's certificate covers
+  string issuer = 6;
+  int64 not_before_unix = 7;
+  int64 not_after_unix = 8;
+  string serial = 9;
+  int64 renew_at_unix = 10; // when it becomes due
+  bool in_progress = 11;
+  int64 last_attempt_unix = 12;
+  int64 last_success_unix = 13;
+  string last_error = 14; // the last attempt's, if it failed
+  uint32 failures = 15; // consecutive
+  int64 next_attempt_unix = 16; // after a failure
 }

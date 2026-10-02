@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/swenske/Janus/internal/acme"
 	"github.com/swenske/Janus/internal/api"
 	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/bootcommit"
@@ -38,6 +39,7 @@ type metricsSources struct {
 	firewall   *firewall.Manager
 	vrrp       *vrrp.Manager
 	bgp        *bgp.Manager
+	acme       *acme.Manager
 	statePath  string // STATE's mount point, for its filesystem's error count
 
 	certsMu      sync.Mutex
@@ -51,7 +53,7 @@ type metricsSources struct {
 const haproxyCertTTL = time.Minute
 
 func (m *metricsSources) collectors() []exporter.Collector {
-	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.security, m.apiRequests}
+	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.acmeMetrics, m.security, m.apiRequests}
 }
 
 func gauge(name, help string, samples ...exporter.Sample) exporter.Family {
@@ -243,6 +245,32 @@ func (m *metricsSources) vrrpMetrics() []exporter.Family {
 		gauge("janus_vrrp_instance_state", "Each VRRP instance's state (the keepalived extension): 1 for its current one.", states...),
 		gauge("janus_vrrp_instance_effective_priority", "Each VRRP instance's priority, after tracking.", prio...),
 		counter("janus_vrrp_instance_became_master_total", "Times each VRRP instance became master since keepalived started.", masters...),
+	}
+}
+
+// acmeStates are a Let's Encrypt certificate's states.
+var acmeStates = []string{"pending", "valid", "due", "expired"}
+
+func (m *metricsSources) acmeMetrics() []exporter.Family {
+	if m.acme == nil || !m.acme.Available() {
+		return nil
+	}
+	st := m.acme.Status()
+	var states, renew, failures, success []exporter.Sample
+	for _, c := range st.GetCertificates() {
+		for _, s := range acmeStates {
+			states = append(states, sample(exporter.Bool(c.GetState() == s), "name", c.GetName(), "state", s))
+		}
+		renew = append(renew, sample(float64(c.GetRenewAtUnix()), "name", c.GetName()))
+		failures = append(failures, sample(float64(c.GetFailures()), "name", c.GetName()))
+		success = append(success, sample(float64(c.GetLastSuccessUnix()), "name", c.GetName()))
+	}
+	return []exporter.Family{
+		gauge("janus_acme_account_registered", "1 once the ACME CA knows the account (the letsencrypt extension).", sample(exporter.Bool(st.GetAccountUri() != ""))),
+		gauge("janus_acme_certificate_state", "Each ACME certificate's state: 1 for its current one (pending: not obtained yet, a stand-in is served).", states...),
+		gauge("janus_acme_certificate_renew_timestamp_seconds", "When each ACME certificate becomes due for renewal, as a Unix timestamp (0 until obtained).", renew...),
+		gauge("janus_acme_certificate_failures", "Failed attempts in a row to obtain each ACME certificate.", failures...),
+		gauge("janus_acme_certificate_last_success_timestamp_seconds", "When each ACME certificate was last obtained, as a Unix timestamp (0: never).", success...),
 	}
 }
 

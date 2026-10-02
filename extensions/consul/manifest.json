@@ -1,0 +1,22 @@
+{
+  "name": "consul",
+  "description": "The Consul agent, run with the operator's own configuration (checked by consul validate): service discovery for HAProxy - server-template over Consul's DNS - and the node's services in the catalog. Client or server. Consul is HashiCorp's, under the Business Source License 1.1.",
+  "homepage": "https://developer.hashicorp.com/consul",
+  "arches": ["amd64", "arm64"],
+  "services": [
+    {
+      "id": "consul",
+      "description": "Consul agent of /run/janus/consul/consul.hcl",
+      "path": "/usr/local/sbin/consul",
+      "args": [
+        "agent",
+        "-config-file=/run/janus/consul/consul.hcl",
+        "-config-file=/run/janus/consul/janus.json"
+      ],
+      "wait_for": ["/run/janus/consul/consul.hcl"]
+    }
+  ],
+  "selinux_labels": {
+    "usr/local/sbin/consul": "consul_exec_t"
+  }
+}

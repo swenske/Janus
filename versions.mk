@@ -115,3 +115,17 @@ RPI5_UEFI_SHA256  := c4fbbec9cd0d1115c9adab884923061b960de42b4ca6d65ba5f08cb6b46
 DOCKER_COMPOSE_VERSION      := v5.5.1
 DOCKER_COMPOSE_SHA256_AMD64 := db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576
 DOCKER_COMPOSE_SHA256_ARM64 := 732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7
+
+# Pebble, Let's Encrypt's ACME test server, and its DNS test server: the
+# CA hack/qemu-acme-test.sh issues certificates from (go install'ed at
+# this tag - never shipped in an image).
+PEBBLE_VERSION := v2.10.1
+
+# The Consul agent (consul extension): HashiCorp's release zip, checked
+# against these (from consul_<version>_SHA256SUMS, whose signature by
+# HashiCorp's release key C874 011F 0AB4 0511 0D02 1055 3436 5D94 72D7
+# 468F was checked when pinning). Consul is under the Business Source
+# License 1.1.
+CONSUL_VERSION      := 2.0.4
+CONSUL_SHA256_amd64 := 7a28033850a24fd411722593931625d8b548a27646c3ab70c1379ea7fd2af423
+CONSUL_SHA256_arm64 := 8530dd2f92c1f4acddf152a96e2629a89e6f0f19229889d20dbf8092927aa742

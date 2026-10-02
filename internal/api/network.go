@@ -3,6 +3,8 @@ package api
 import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/bgp"
+	"github.com/swenske/Janus/internal/consul"
+	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/firewall"
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/timesync"
@@ -29,4 +31,10 @@ type Network struct {
 	HAProxyHealthy func() bool
 	// BGP manages the bird extension (bgp.go).
 	BGP *bgp.Manager
+	// Consul manages the consul extension (consul.go); Services reports
+	// its service's state.
+	Consul   *consul.Manager
+	Services interface {
+		State(id string) (extensions.ServiceState, error)
+	}
 }

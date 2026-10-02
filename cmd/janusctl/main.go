@@ -201,6 +201,9 @@ func usage() {
 	for _, line := range bgpUsage {
 		fmt.Fprintln(os.Stderr, "  "+line)
 	}
+	for _, line := range consulUsage {
+		fmt.Fprintln(os.Stderr, "  "+line)
+	}
 	fmt.Fprintln(os.Stderr, "  haproxy backends           backends, their servers, addresses and states")
 	fmt.Fprintln(os.Stderr, "  haproxy show-info          HAProxy version/uptime/connections (stats socket)")
 	fmt.Fprintln(os.Stderr, "  haproxy stats              raw 'show stat' CSV from the stats socket")
@@ -215,6 +218,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  haproxy cert-list                   list certificates in HAProxy's cert store")
 	fmt.Fprintln(os.Stderr, "  haproxy cert-upload [-crt-list PATH] [-sni host1,host2] NAME FILE  upload a PEM cert+key bundle as NAME, optionally binding it into crt-list PATH")
 	fmt.Fprintln(os.Stderr, "  haproxy cert-delete [-crt-list PATH] NAME  delete a certificate (unbinding from crt-list PATH first if given)")
+	for _, line := range acmeUsage {
+		fmt.Fprintln(os.Stderr, "  "+line)
+	}
 	fmt.Fprintln(os.Stderr, "  pki generate-client-config [-role os:admin|os:reader] DIR  issue a new client certificate, write ca.crt/client.crt/client.key to DIR")
 	fmt.Fprintln(os.Stderr, "  lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] [-network-config FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR  partition a blank DISK from scratch and write a release bundle (image/release/assemble.sh) to both A/B slots - does not reboot anything; -controller-address/-controller-ca make the installed node self-register with that Controller on first boot")
 	fmt.Fprintln(os.Stderr, "  lifecycle rollback         switch the ESP to the other A/B slot's staged UKI and reboot into it")
@@ -632,6 +638,9 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 	client := janusv1alpha1.NewHAProxyServiceClient(conn)
 
 	switch sub := args[0]; sub {
+	case "acme":
+		runACME(conn, args[1:])
+
 	case "show-info":
 		c, cancel := ctx()
 		defer cancel()

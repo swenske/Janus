@@ -32,6 +32,9 @@ const (
 	NetworkService_FirewallConfirm_FullMethodName      = "/janus.v1alpha1.NetworkService/FirewallConfirm"
 	NetworkService_FirewallSets_FullMethodName         = "/janus.v1alpha1.NetworkService/FirewallSets"
 	NetworkService_FirewallSetUpdate_FullMethodName    = "/janus.v1alpha1.NetworkService/FirewallSetUpdate"
+	NetworkService_ConsulStatus_FullMethodName         = "/janus.v1alpha1.NetworkService/ConsulStatus"
+	NetworkService_ConsulGetConfig_FullMethodName      = "/janus.v1alpha1.NetworkService/ConsulGetConfig"
+	NetworkService_ConsulApplyConfig_FullMethodName    = "/janus.v1alpha1.NetworkService/ConsulApplyConfig"
 	NetworkService_NetworkConfigGet_FullMethodName     = "/janus.v1alpha1.NetworkService/NetworkConfigGet"
 	NetworkService_NetworkConfigApply_FullMethodName   = "/janus.v1alpha1.NetworkService/NetworkConfigApply"
 	NetworkService_NetworkConfigConfirm_FullMethodName = "/janus.v1alpha1.NetworkService/NetworkConfigConfirm"
@@ -79,6 +82,14 @@ type NetworkServiceClient interface {
 	// across applies and reboots.
 	FirewallSets(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallSetsResponse, error)
 	FirewallSetUpdate(ctx context.Context, in *FirewallSetUpdateRequest, opts ...grpc.CallOption) (*FirewallSetUpdateResponse, error)
+	// Consul: the consul extension (docs/consul.md). The agent runs with
+	// the operator's own configuration, checked by `consul validate`, and
+	// the files it names (TLS certificates, keys...) under
+	// /run/janus/consul/files; applying one restarts the agent.
+	// ConsulGetConfig gives the files' names, never their content.
+	ConsulStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConsulStatusResponse, error)
+	ConsulGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConsulGetConfigResponse, error)
+	ConsulApplyConfig(ctx context.Context, in *ConsulApplyConfigRequest, opts ...grpc.CallOption) (*ConsulApplyConfigResponse, error)
 	// The node's own network configuration: hostname, interfaces (physical
 	// and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
 	// modules above, always available.
@@ -230,6 +241,36 @@ func (c *networkServiceClient) FirewallSetUpdate(ctx context.Context, in *Firewa
 	return out, nil
 }
 
+func (c *networkServiceClient) ConsulStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConsulStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConsulStatusResponse)
+	err := c.cc.Invoke(ctx, NetworkService_ConsulStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) ConsulGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConsulGetConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConsulGetConfigResponse)
+	err := c.cc.Invoke(ctx, NetworkService_ConsulGetConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) ConsulApplyConfig(ctx context.Context, in *ConsulApplyConfigRequest, opts ...grpc.CallOption) (*ConsulApplyConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConsulApplyConfigResponse)
+	err := c.cc.Invoke(ctx, NetworkService_ConsulApplyConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *networkServiceClient) NetworkConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkConfigGetResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(NetworkConfigGetResponse)
@@ -320,6 +361,14 @@ type NetworkServiceServer interface {
 	// across applies and reboots.
 	FirewallSets(context.Context, *emptypb.Empty) (*FirewallSetsResponse, error)
 	FirewallSetUpdate(context.Context, *FirewallSetUpdateRequest) (*FirewallSetUpdateResponse, error)
+	// Consul: the consul extension (docs/consul.md). The agent runs with
+	// the operator's own configuration, checked by `consul validate`, and
+	// the files it names (TLS certificates, keys...) under
+	// /run/janus/consul/files; applying one restarts the agent.
+	// ConsulGetConfig gives the files' names, never their content.
+	ConsulStatus(context.Context, *emptypb.Empty) (*ConsulStatusResponse, error)
+	ConsulGetConfig(context.Context, *emptypb.Empty) (*ConsulGetConfigResponse, error)
+	ConsulApplyConfig(context.Context, *ConsulApplyConfigRequest) (*ConsulApplyConfigResponse, error)
 	// The node's own network configuration: hostname, interfaces (physical
 	// and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
 	// modules above, always available.
@@ -386,6 +435,15 @@ func (UnimplementedNetworkServiceServer) FirewallSets(context.Context, *emptypb.
 }
 func (UnimplementedNetworkServiceServer) FirewallSetUpdate(context.Context, *FirewallSetUpdateRequest) (*FirewallSetUpdateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FirewallSetUpdate not implemented")
+}
+func (UnimplementedNetworkServiceServer) ConsulStatus(context.Context, *emptypb.Empty) (*ConsulStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConsulStatus not implemented")
+}
+func (UnimplementedNetworkServiceServer) ConsulGetConfig(context.Context, *emptypb.Empty) (*ConsulGetConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConsulGetConfig not implemented")
+}
+func (UnimplementedNetworkServiceServer) ConsulApplyConfig(context.Context, *ConsulApplyConfigRequest) (*ConsulApplyConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConsulApplyConfig not implemented")
 }
 func (UnimplementedNetworkServiceServer) NetworkConfigGet(context.Context, *emptypb.Empty) (*NetworkConfigGetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method NetworkConfigGet not implemented")
@@ -636,6 +694,60 @@ func _NetworkService_FirewallSetUpdate_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NetworkService_ConsulStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).ConsulStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_ConsulStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).ConsulStatus(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_ConsulGetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).ConsulGetConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_ConsulGetConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).ConsulGetConfig(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_ConsulApplyConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConsulApplyConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).ConsulApplyConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_ConsulApplyConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).ConsulApplyConfig(ctx, req.(*ConsulApplyConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _NetworkService_NetworkConfigGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -755,6 +867,18 @@ var NetworkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FirewallSetUpdate",
 			Handler:    _NetworkService_FirewallSetUpdate_Handler,
+		},
+		{
+			MethodName: "ConsulStatus",
+			Handler:    _NetworkService_ConsulStatus_Handler,
+		},
+		{
+			MethodName: "ConsulGetConfig",
+			Handler:    _NetworkService_ConsulGetConfig_Handler,
+		},
+		{
+			MethodName: "ConsulApplyConfig",
+			Handler:    _NetworkService_ConsulApplyConfig_Handler,
 		},
 		{
 			MethodName: "NetworkConfigGet",

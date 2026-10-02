@@ -69,6 +69,8 @@ func runNetwork(conn *grpc.ClientConn, endpoint string, redial redialer, args []
 		runVRRP(conn, args[1:])
 	case "bgp":
 		runBGP(conn, args[1:])
+	case "consul":
+		runConsul(conn, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl network: unknown subcommand %q\n", args[0])
 		usage()
@@ -279,4 +281,6 @@ func runNetworkModules(client janusv1alpha1.NetworkServiceClient) {
 	fmt.Println("vrrp (keepalived):  ", state(vrrp.GetState(), err))
 	fw, err := client.FirewallList(c, &emptypb.Empty{})
 	fmt.Println("firewall (nftables):", state(fw.GetState(), err))
+	cs, err := client.ConsulStatus(c, &emptypb.Empty{})
+	fmt.Println("consul:             ", state(cs.GetState(), err))
 }

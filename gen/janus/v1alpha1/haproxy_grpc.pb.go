@@ -35,6 +35,10 @@ const (
 	HAProxyService_CertificateList_FullMethodName   = "/janus.v1alpha1.HAProxyService/CertificateList"
 	HAProxyService_CertificateUpload_FullMethodName = "/janus.v1alpha1.HAProxyService/CertificateUpload"
 	HAProxyService_CertificateDelete_FullMethodName = "/janus.v1alpha1.HAProxyService/CertificateDelete"
+	HAProxyService_ACMEStatus_FullMethodName        = "/janus.v1alpha1.HAProxyService/ACMEStatus"
+	HAProxyService_ACMEGetConfig_FullMethodName     = "/janus.v1alpha1.HAProxyService/ACMEGetConfig"
+	HAProxyService_ACMEApplyConfig_FullMethodName   = "/janus.v1alpha1.HAProxyService/ACMEApplyConfig"
+	HAProxyService_ACMERenew_FullMethodName         = "/janus.v1alpha1.HAProxyService/ACMERenew"
 )
 
 // HAProxyServiceClient is the client API for HAProxyService service.
@@ -77,6 +81,20 @@ type HAProxyServiceClient interface {
 	// or a reboot. CertificateDelete removes it from both.
 	CertificateUpload(ctx context.Context, in *CertificateUploadRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	CertificateDelete(ctx context.Context, in *CertificateDeleteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// ACME: the letsencrypt extension (docs/letsencrypt.md). The node
+	// obtains and renews its certificates itself, from Let's Encrypt or any
+	// ACME CA, writes each to /etc/haproxy/acme/<name>.pem and swaps a
+	// renewed one into the running HAProxy without a reload. ACMEGetConfig
+	// never returns a secret (a DNS provider's settings, the EAB key): their
+	// values come back empty, and an empty value in ACMEApplyConfig keeps
+	// the saved one.
+	ACMEStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ACMEStatusResponse, error)
+	ACMEGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ACMEGetConfigResponse, error)
+	ACMEApplyConfig(ctx context.Context, in *ACMEApplyConfigRequest, opts ...grpc.CallOption) (*ACMEApplyConfigResponse, error)
+	// ACMERenew obtains the named certificates (every one if none is named)
+	// now, whether or not they're due, in the background: ACMEStatus says
+	// how it went.
+	ACMERenew(ctx context.Context, in *ACMERenewRequest, opts ...grpc.CallOption) (*ACMERenewResponse, error)
 }
 
 type hAProxyServiceClient struct {
@@ -246,6 +264,46 @@ func (c *hAProxyServiceClient) CertificateDelete(ctx context.Context, in *Certif
 	return out, nil
 }
 
+func (c *hAProxyServiceClient) ACMEStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ACMEStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ACMEStatusResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ACMEStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) ACMEGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ACMEGetConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ACMEGetConfigResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ACMEGetConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) ACMEApplyConfig(ctx context.Context, in *ACMEApplyConfigRequest, opts ...grpc.CallOption) (*ACMEApplyConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ACMEApplyConfigResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ACMEApplyConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) ACMERenew(ctx context.Context, in *ACMERenewRequest, opts ...grpc.CallOption) (*ACMERenewResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ACMERenewResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ACMERenew_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // HAProxyServiceServer is the server API for HAProxyService service.
 // All implementations must embed UnimplementedHAProxyServiceServer
 // for forward compatibility.
@@ -286,6 +344,20 @@ type HAProxyServiceServer interface {
 	// or a reboot. CertificateDelete removes it from both.
 	CertificateUpload(context.Context, *CertificateUploadRequest) (*emptypb.Empty, error)
 	CertificateDelete(context.Context, *CertificateDeleteRequest) (*emptypb.Empty, error)
+	// ACME: the letsencrypt extension (docs/letsencrypt.md). The node
+	// obtains and renews its certificates itself, from Let's Encrypt or any
+	// ACME CA, writes each to /etc/haproxy/acme/<name>.pem and swaps a
+	// renewed one into the running HAProxy without a reload. ACMEGetConfig
+	// never returns a secret (a DNS provider's settings, the EAB key): their
+	// values come back empty, and an empty value in ACMEApplyConfig keeps
+	// the saved one.
+	ACMEStatus(context.Context, *emptypb.Empty) (*ACMEStatusResponse, error)
+	ACMEGetConfig(context.Context, *emptypb.Empty) (*ACMEGetConfigResponse, error)
+	ACMEApplyConfig(context.Context, *ACMEApplyConfigRequest) (*ACMEApplyConfigResponse, error)
+	// ACMERenew obtains the named certificates (every one if none is named)
+	// now, whether or not they're due, in the background: ACMEStatus says
+	// how it went.
+	ACMERenew(context.Context, *ACMERenewRequest) (*ACMERenewResponse, error)
 	mustEmbedUnimplementedHAProxyServiceServer()
 }
 
@@ -340,6 +412,18 @@ func (UnimplementedHAProxyServiceServer) CertificateUpload(context.Context, *Cer
 }
 func (UnimplementedHAProxyServiceServer) CertificateDelete(context.Context, *CertificateDeleteRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method CertificateDelete not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ACMEStatus(context.Context, *emptypb.Empty) (*ACMEStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ACMEStatus not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ACMEGetConfig(context.Context, *emptypb.Empty) (*ACMEGetConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ACMEGetConfig not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ACMEApplyConfig(context.Context, *ACMEApplyConfigRequest) (*ACMEApplyConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ACMEApplyConfig not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ACMERenew(context.Context, *ACMERenewRequest) (*ACMERenewResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ACMERenew not implemented")
 }
 func (UnimplementedHAProxyServiceServer) mustEmbedUnimplementedHAProxyServiceServer() {}
 func (UnimplementedHAProxyServiceServer) testEmbeddedByValue()                        {}
@@ -625,6 +709,78 @@ func _HAProxyService_CertificateDelete_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HAProxyService_ACMEStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ACMEStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ACMEStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ACMEStatus(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_ACMEGetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ACMEGetConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ACMEGetConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ACMEGetConfig(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_ACMEApplyConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ACMEApplyConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ACMEApplyConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ACMEApplyConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ACMEApplyConfig(ctx, req.(*ACMEApplyConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_ACMERenew_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ACMERenewRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ACMERenew(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ACMERenew_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ACMERenew(ctx, req.(*ACMERenewRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // HAProxyService_ServiceDesc is the grpc.ServiceDesc for HAProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -687,6 +843,22 @@ var HAProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CertificateDelete",
 			Handler:    _HAProxyService_CertificateDelete_Handler,
+		},
+		{
+			MethodName: "ACMEStatus",
+			Handler:    _HAProxyService_ACMEStatus_Handler,
+		},
+		{
+			MethodName: "ACMEGetConfig",
+			Handler:    _HAProxyService_ACMEGetConfig_Handler,
+		},
+		{
+			MethodName: "ACMEApplyConfig",
+			Handler:    _HAProxyService_ACMEApplyConfig_Handler,
+		},
+		{
+			MethodName: "ACMERenew",
+			Handler:    _HAProxyService_ACMERenew_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

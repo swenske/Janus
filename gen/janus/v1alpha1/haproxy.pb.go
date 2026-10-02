@@ -1246,11 +1246,877 @@ func (x *CertificateDeleteRequest) GetCrtList() string {
 	return ""
 }
 
+// ACMEConfig is the letsencrypt extension's configuration - also its JSON
+// form, as saved on the node.
+type ACMEConfig struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Account       *ACMEAccount           `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	Certificates  []*ACMECertificate     `protobuf:"bytes,2,rep,name=certificates,proto3" json:"certificates,omitempty"`
+	DnsProviders  []*ACMEDNSProvider     `protobuf:"bytes,3,rep,name=dns_providers,json=dnsProviders,proto3" json:"dns_providers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMEConfig) Reset() {
+	*x = ACMEConfig{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMEConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMEConfig) ProtoMessage() {}
+
+func (x *ACMEConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMEConfig.ProtoReflect.Descriptor instead.
+func (*ACMEConfig) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ACMEConfig) GetAccount() *ACMEAccount {
+	if x != nil {
+		return x.Account
+	}
+	return nil
+}
+
+func (x *ACMEConfig) GetCertificates() []*ACMECertificate {
+	if x != nil {
+		return x.Certificates
+	}
+	return nil
+}
+
+func (x *ACMEConfig) GetDnsProviders() []*ACMEDNSProvider {
+	if x != nil {
+		return x.DnsProviders
+	}
+	return nil
+}
+
+type ACMEAccount struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The CA's ACME directory URL, or "letsencrypt" (the default, when
+	// empty) or "letsencrypt-staging".
+	Directory string `protobuf:"bytes,1,opt,name=directory,proto3" json:"directory,omitempty"`
+	// PEM: if set, the only CA trusted for the directory's HTTPS certificate
+	// (a private ACME server's); otherwise the node's trust store.
+	DirectoryCa string `protobuf:"bytes,2,opt,name=directory_ca,json=directoryCa,proto3" json:"directory_ca,omitempty"`
+	Email       string `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"` // optional contact address
+	// Registering an account means accepting the CA's terms of service:
+	// needed for a key the CA doesn't know yet.
+	AcceptTerms bool `protobuf:"varint,4,opt,name=accept_terms,json=acceptTerms,proto3" json:"accept_terms,omitempty"`
+	// External account binding, for the CAs that require one.
+	EabKeyId      string `protobuf:"bytes,5,opt,name=eab_key_id,json=eabKeyId,proto3" json:"eab_key_id,omitempty"`
+	EabHmacKey    string `protobuf:"bytes,6,opt,name=eab_hmac_key,json=eabHmacKey,proto3" json:"eab_hmac_key,omitempty"` // secret
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMEAccount) Reset() {
+	*x = ACMEAccount{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMEAccount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMEAccount) ProtoMessage() {}
+
+func (x *ACMEAccount) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMEAccount.ProtoReflect.Descriptor instead.
+func (*ACMEAccount) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ACMEAccount) GetDirectory() string {
+	if x != nil {
+		return x.Directory
+	}
+	return ""
+}
+
+func (x *ACMEAccount) GetDirectoryCa() string {
+	if x != nil {
+		return x.DirectoryCa
+	}
+	return ""
+}
+
+func (x *ACMEAccount) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *ACMEAccount) GetAcceptTerms() bool {
+	if x != nil {
+		return x.AcceptTerms
+	}
+	return false
+}
+
+func (x *ACMEAccount) GetEabKeyId() string {
+	if x != nil {
+		return x.EabKeyId
+	}
+	return ""
+}
+
+func (x *ACMEAccount) GetEabHmacKey() string {
+	if x != nil {
+		return x.EabHmacKey
+	}
+	return ""
+}
+
+type ACMECertificate struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Its file is /etc/haproxy/acme/<name>.pem (letters, digits, '.', '-',
+	// '_'). Until the CA's certificate is there, the file holds a
+	// self-signed stand-in, so HAProxy can start with it referenced.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// The names it covers; a wildcard ("*.example.com") needs dns-01.
+	Domains       []string `protobuf:"bytes,2,rep,name=domains,proto3" json:"domains,omitempty"`
+	KeyType       string   `protobuf:"bytes,3,opt,name=key_type,json=keyType,proto3" json:"key_type,omitempty"`             // "ec256" (default), "ec384", "rsa2048", "rsa3072", "rsa4096"
+	Challenge     string   `protobuf:"bytes,4,opt,name=challenge,proto3" json:"challenge,omitempty"`                        // "http-01" (default) or "dns-01"
+	DnsProvider   string   `protobuf:"bytes,5,opt,name=dns_provider,json=dnsProvider,proto3" json:"dns_provider,omitempty"` // dns-01: the name of one of dns_providers
+	Profile       string   `protobuf:"bytes,6,opt,name=profile,proto3" json:"profile,omitempty"`                            // the CA's certificate profile, if it has several
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMECertificate) Reset() {
+	*x = ACMECertificate{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMECertificate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMECertificate) ProtoMessage() {}
+
+func (x *ACMECertificate) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMECertificate.ProtoReflect.Descriptor instead.
+func (*ACMECertificate) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ACMECertificate) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ACMECertificate) GetDomains() []string {
+	if x != nil {
+		return x.Domains
+	}
+	return nil
+}
+
+func (x *ACMECertificate) GetKeyType() string {
+	if x != nil {
+		return x.KeyType
+	}
+	return ""
+}
+
+func (x *ACMECertificate) GetChallenge() string {
+	if x != nil {
+		return x.Challenge
+	}
+	return ""
+}
+
+func (x *ACMECertificate) GetDnsProvider() string {
+	if x != nil {
+		return x.DnsProvider
+	}
+	return ""
+}
+
+func (x *ACMECertificate) GetProfile() string {
+	if x != nil {
+		return x.Profile
+	}
+	return ""
+}
+
+type ACMEDNSProvider struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // what certificates refer to it by
+	// gandiv5, ovh, cloudflare, route53... (docs/letsencrypt.md)
+	Type string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	// The provider's settings, under lego's own variable names
+	// (GANDIV5_PERSONAL_ACCESS_TOKEN...). Secret.
+	Settings map[string]string `protobuf:"bytes,3,rep,name=settings,proto3" json:"settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Resolvers for the propagation check (host[:port]); default: the
+	// node's. With split-horizon DNS, give public ones.
+	Resolvers []string `protobuf:"bytes,4,rep,name=resolvers,proto3" json:"resolvers,omitempty"`
+	// If set, wait this long after creating the record instead of checking
+	// that it's visible - for networks where the check can't see it.
+	PropagationWaitSeconds uint32 `protobuf:"varint,5,opt,name=propagation_wait_seconds,json=propagationWaitSeconds,proto3" json:"propagation_wait_seconds,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *ACMEDNSProvider) Reset() {
+	*x = ACMEDNSProvider{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMEDNSProvider) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMEDNSProvider) ProtoMessage() {}
+
+func (x *ACMEDNSProvider) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMEDNSProvider.ProtoReflect.Descriptor instead.
+func (*ACMEDNSProvider) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ACMEDNSProvider) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ACMEDNSProvider) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *ACMEDNSProvider) GetSettings() map[string]string {
+	if x != nil {
+		return x.Settings
+	}
+	return nil
+}
+
+func (x *ACMEDNSProvider) GetResolvers() []string {
+	if x != nil {
+		return x.Resolvers
+	}
+	return nil
+}
+
+func (x *ACMEDNSProvider) GetPropagationWaitSeconds() uint32 {
+	if x != nil {
+		return x.PropagationWaitSeconds
+	}
+	return 0
+}
+
+type ACMEGetConfigResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Config        *ACMEConfig            `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	IsDefault     bool                   `protobuf:"varint,2,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"` // none saved
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMEGetConfigResponse) Reset() {
+	*x = ACMEGetConfigResponse{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMEGetConfigResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMEGetConfigResponse) ProtoMessage() {}
+
+func (x *ACMEGetConfigResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMEGetConfigResponse.ProtoReflect.Descriptor instead.
+func (*ACMEGetConfigResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ACMEGetConfigResponse) GetConfig() *ACMEConfig {
+	if x != nil {
+		return x.Config
+	}
+	return nil
+}
+
+func (x *ACMEGetConfigResponse) GetIsDefault() bool {
+	if x != nil {
+		return x.IsDefault
+	}
+	return false
+}
+
+type ACMEApplyConfigRequest struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Config       *ACMEConfig            `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	ValidateOnly bool                   `protobuf:"varint,2,opt,name=validate_only,json=validateOnly,proto3" json:"validate_only,omitempty"`
+	// Optional: an account private key (PEM, EC or RSA) to use from now on -
+	// an existing account's, to keep its thumbprint. Empty keeps the node's
+	// (generated the first time it's needed).
+	AccountKey    string `protobuf:"bytes,3,opt,name=account_key,json=accountKey,proto3" json:"account_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMEApplyConfigRequest) Reset() {
+	*x = ACMEApplyConfigRequest{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMEApplyConfigRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMEApplyConfigRequest) ProtoMessage() {}
+
+func (x *ACMEApplyConfigRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMEApplyConfigRequest.ProtoReflect.Descriptor instead.
+func (*ACMEApplyConfigRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ACMEApplyConfigRequest) GetConfig() *ACMEConfig {
+	if x != nil {
+		return x.Config
+	}
+	return nil
+}
+
+func (x *ACMEApplyConfigRequest) GetValidateOnly() bool {
+	if x != nil {
+		return x.ValidateOnly
+	}
+	return false
+}
+
+func (x *ACMEApplyConfigRequest) GetAccountKey() string {
+	if x != nil {
+		return x.AccountKey
+	}
+	return ""
+}
+
+type ACMEApplyConfigResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Errors        []string               `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMEApplyConfigResponse) Reset() {
+	*x = ACMEApplyConfigResponse{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMEApplyConfigResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMEApplyConfigResponse) ProtoMessage() {}
+
+func (x *ACMEApplyConfigResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMEApplyConfigResponse.ProtoReflect.Descriptor instead.
+func (*ACMEApplyConfigResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ACMEApplyConfigResponse) GetAccepted() bool {
+	if x != nil {
+		return x.Accepted
+	}
+	return false
+}
+
+func (x *ACMEApplyConfigResponse) GetErrors() []string {
+	if x != nil {
+		return x.Errors
+	}
+	return nil
+}
+
+type ACMERenewRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Names         []string               `protobuf:"bytes,1,rep,name=names,proto3" json:"names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMERenewRequest) Reset() {
+	*x = ACMERenewRequest{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMERenewRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMERenewRequest) ProtoMessage() {}
+
+func (x *ACMERenewRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMERenewRequest.ProtoReflect.Descriptor instead.
+func (*ACMERenewRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ACMERenewRequest) GetNames() []string {
+	if x != nil {
+		return x.Names
+	}
+	return nil
+}
+
+type ACMERenewResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Names         []string               `protobuf:"bytes,1,rep,name=names,proto3" json:"names,omitempty"` // the certificates being obtained
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMERenewResponse) Reset() {
+	*x = ACMERenewResponse{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMERenewResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMERenewResponse) ProtoMessage() {}
+
+func (x *ACMERenewResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMERenewResponse.ProtoReflect.Descriptor instead.
+func (*ACMERenewResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ACMERenewResponse) GetNames() []string {
+	if x != nil {
+		return x.Names
+	}
+	return nil
+}
+
+type ACMEStatusResponse struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	State      ModuleState            `protobuf:"varint,1,opt,name=state,proto3,enum=janus.v1alpha1.ModuleState" json:"state,omitempty"`
+	Configured bool                   `protobuf:"varint,2,opt,name=configured,proto3" json:"configured,omitempty"` // a configuration is saved
+	// The account key's thumbprint (RFC 7638). An HTTP-01 challenge's
+	// answer is "<token>.<thumbprint>"; HAProxy has it in its environment
+	// as JANUS_ACME_THUMBPRINT.
+	AccountThumbprint string `protobuf:"bytes,3,opt,name=account_thumbprint,json=accountThumbprint,proto3" json:"account_thumbprint,omitempty"`
+	AccountUri        string `protobuf:"bytes,4,opt,name=account_uri,json=accountUri,proto3" json:"account_uri,omitempty"` // once the CA knows the account
+	AccountError      string `protobuf:"bytes,5,opt,name=account_error,json=accountError,proto3" json:"account_error,omitempty"`
+	Directory         string `protobuf:"bytes,6,opt,name=directory,proto3" json:"directory,omitempty"` // the URL in use
+	TermsUrl          string `protobuf:"bytes,7,opt,name=terms_url,json=termsUrl,proto3" json:"terms_url,omitempty"`
+	// An http-request rule answering HTTP-01 challenges, for the frontends
+	// that receive them (port 80).
+	Http01Rule      string                   `protobuf:"bytes,8,opt,name=http01_rule,json=http01Rule,proto3" json:"http01_rule,omitempty"`
+	CertificatesDir string                   `protobuf:"bytes,9,opt,name=certificates_dir,json=certificatesDir,proto3" json:"certificates_dir,omitempty"`
+	Certificates    []*ACMECertificateStatus `protobuf:"bytes,10,rep,name=certificates,proto3" json:"certificates,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ACMEStatusResponse) Reset() {
+	*x = ACMEStatusResponse{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMEStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMEStatusResponse) ProtoMessage() {}
+
+func (x *ACMEStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMEStatusResponse.ProtoReflect.Descriptor instead.
+func (*ACMEStatusResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ACMEStatusResponse) GetState() ModuleState {
+	if x != nil {
+		return x.State
+	}
+	return ModuleState_MODULE_STATE_NOT_ENABLED
+}
+
+func (x *ACMEStatusResponse) GetConfigured() bool {
+	if x != nil {
+		return x.Configured
+	}
+	return false
+}
+
+func (x *ACMEStatusResponse) GetAccountThumbprint() string {
+	if x != nil {
+		return x.AccountThumbprint
+	}
+	return ""
+}
+
+func (x *ACMEStatusResponse) GetAccountUri() string {
+	if x != nil {
+		return x.AccountUri
+	}
+	return ""
+}
+
+func (x *ACMEStatusResponse) GetAccountError() string {
+	if x != nil {
+		return x.AccountError
+	}
+	return ""
+}
+
+func (x *ACMEStatusResponse) GetDirectory() string {
+	if x != nil {
+		return x.Directory
+	}
+	return ""
+}
+
+func (x *ACMEStatusResponse) GetTermsUrl() string {
+	if x != nil {
+		return x.TermsUrl
+	}
+	return ""
+}
+
+func (x *ACMEStatusResponse) GetHttp01Rule() string {
+	if x != nil {
+		return x.Http01Rule
+	}
+	return ""
+}
+
+func (x *ACMEStatusResponse) GetCertificatesDir() string {
+	if x != nil {
+		return x.CertificatesDir
+	}
+	return ""
+}
+
+func (x *ACMEStatusResponse) GetCertificates() []*ACMECertificateStatus {
+	if x != nil {
+		return x.Certificates
+	}
+	return nil
+}
+
+type ACMECertificateStatus struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Name    string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Domains []string               `protobuf:"bytes,2,rep,name=domains,proto3" json:"domains,omitempty"` // configured
+	Path    string                 `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	// "pending": not obtained yet, the stand-in is there; "valid"; "due": to
+	// renew; "expired".
+	State           string   `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`
+	ServedDomains   []string `protobuf:"bytes,5,rep,name=served_domains,json=servedDomains,proto3" json:"served_domains,omitempty"` // what the file's certificate covers
+	Issuer          string   `protobuf:"bytes,6,opt,name=issuer,proto3" json:"issuer,omitempty"`
+	NotBeforeUnix   int64    `protobuf:"varint,7,opt,name=not_before_unix,json=notBeforeUnix,proto3" json:"not_before_unix,omitempty"`
+	NotAfterUnix    int64    `protobuf:"varint,8,opt,name=not_after_unix,json=notAfterUnix,proto3" json:"not_after_unix,omitempty"`
+	Serial          string   `protobuf:"bytes,9,opt,name=serial,proto3" json:"serial,omitempty"`
+	RenewAtUnix     int64    `protobuf:"varint,10,opt,name=renew_at_unix,json=renewAtUnix,proto3" json:"renew_at_unix,omitempty"` // when it becomes due
+	InProgress      bool     `protobuf:"varint,11,opt,name=in_progress,json=inProgress,proto3" json:"in_progress,omitempty"`
+	LastAttemptUnix int64    `protobuf:"varint,12,opt,name=last_attempt_unix,json=lastAttemptUnix,proto3" json:"last_attempt_unix,omitempty"`
+	LastSuccessUnix int64    `protobuf:"varint,13,opt,name=last_success_unix,json=lastSuccessUnix,proto3" json:"last_success_unix,omitempty"`
+	LastError       string   `protobuf:"bytes,14,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`                      // the last attempt's, if it failed
+	Failures        uint32   `protobuf:"varint,15,opt,name=failures,proto3" json:"failures,omitempty"`                                        // consecutive
+	NextAttemptUnix int64    `protobuf:"varint,16,opt,name=next_attempt_unix,json=nextAttemptUnix,proto3" json:"next_attempt_unix,omitempty"` // after a failure
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ACMECertificateStatus) Reset() {
+	*x = ACMECertificateStatus{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMECertificateStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMECertificateStatus) ProtoMessage() {}
+
+func (x *ACMECertificateStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMECertificateStatus.ProtoReflect.Descriptor instead.
+func (*ACMECertificateStatus) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ACMECertificateStatus) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ACMECertificateStatus) GetDomains() []string {
+	if x != nil {
+		return x.Domains
+	}
+	return nil
+}
+
+func (x *ACMECertificateStatus) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *ACMECertificateStatus) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *ACMECertificateStatus) GetServedDomains() []string {
+	if x != nil {
+		return x.ServedDomains
+	}
+	return nil
+}
+
+func (x *ACMECertificateStatus) GetIssuer() string {
+	if x != nil {
+		return x.Issuer
+	}
+	return ""
+}
+
+func (x *ACMECertificateStatus) GetNotBeforeUnix() int64 {
+	if x != nil {
+		return x.NotBeforeUnix
+	}
+	return 0
+}
+
+func (x *ACMECertificateStatus) GetNotAfterUnix() int64 {
+	if x != nil {
+		return x.NotAfterUnix
+	}
+	return 0
+}
+
+func (x *ACMECertificateStatus) GetSerial() string {
+	if x != nil {
+		return x.Serial
+	}
+	return ""
+}
+
+func (x *ACMECertificateStatus) GetRenewAtUnix() int64 {
+	if x != nil {
+		return x.RenewAtUnix
+	}
+	return 0
+}
+
+func (x *ACMECertificateStatus) GetInProgress() bool {
+	if x != nil {
+		return x.InProgress
+	}
+	return false
+}
+
+func (x *ACMECertificateStatus) GetLastAttemptUnix() int64 {
+	if x != nil {
+		return x.LastAttemptUnix
+	}
+	return 0
+}
+
+func (x *ACMECertificateStatus) GetLastSuccessUnix() int64 {
+	if x != nil {
+		return x.LastSuccessUnix
+	}
+	return 0
+}
+
+func (x *ACMECertificateStatus) GetLastError() string {
+	if x != nil {
+		return x.LastError
+	}
+	return ""
+}
+
+func (x *ACMECertificateStatus) GetFailures() uint32 {
+	if x != nil {
+		return x.Failures
+	}
+	return 0
+}
+
+func (x *ACMECertificateStatus) GetNextAttemptUnix() int64 {
+	if x != nil {
+		return x.NextAttemptUnix
+	}
+	return 0
+}
+
 var File_janus_v1alpha1_haproxy_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\n" +
-	"\x1cjanus/v1alpha1/haproxy.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\"C\n" +
+	"\x1cjanus/v1alpha1/haproxy.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cjanus/v1alpha1/network.proto\"C\n" +
 	"\x11GetConfigResponse\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\",\n" +
@@ -1329,7 +2195,89 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\x03sni\x18\x04 \x03(\tR\x03sni\"I\n" +
 	"\x18CertificateDeleteRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
-	"\bcrt_list\x18\x02 \x01(\tR\acrtList2\x9c\t\n" +
+	"\bcrt_list\x18\x02 \x01(\tR\acrtList\"\xce\x01\n" +
+	"\n" +
+	"ACMEConfig\x125\n" +
+	"\aaccount\x18\x01 \x01(\v2\x1b.janus.v1alpha1.ACMEAccountR\aaccount\x12C\n" +
+	"\fcertificates\x18\x02 \x03(\v2\x1f.janus.v1alpha1.ACMECertificateR\fcertificates\x12D\n" +
+	"\rdns_providers\x18\x03 \x03(\v2\x1f.janus.v1alpha1.ACMEDNSProviderR\fdnsProviders\"\xc7\x01\n" +
+	"\vACMEAccount\x12\x1c\n" +
+	"\tdirectory\x18\x01 \x01(\tR\tdirectory\x12!\n" +
+	"\fdirectory_ca\x18\x02 \x01(\tR\vdirectoryCa\x12\x14\n" +
+	"\x05email\x18\x03 \x01(\tR\x05email\x12!\n" +
+	"\faccept_terms\x18\x04 \x01(\bR\vacceptTerms\x12\x1c\n" +
+	"\n" +
+	"eab_key_id\x18\x05 \x01(\tR\beabKeyId\x12 \n" +
+	"\feab_hmac_key\x18\x06 \x01(\tR\n" +
+	"eabHmacKey\"\xb5\x01\n" +
+	"\x0fACMECertificate\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\adomains\x18\x02 \x03(\tR\adomains\x12\x19\n" +
+	"\bkey_type\x18\x03 \x01(\tR\akeyType\x12\x1c\n" +
+	"\tchallenge\x18\x04 \x01(\tR\tchallenge\x12!\n" +
+	"\fdns_provider\x18\x05 \x01(\tR\vdnsProvider\x12\x18\n" +
+	"\aprofile\x18\x06 \x01(\tR\aprofile\"\x99\x02\n" +
+	"\x0fACMEDNSProvider\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12I\n" +
+	"\bsettings\x18\x03 \x03(\v2-.janus.v1alpha1.ACMEDNSProvider.SettingsEntryR\bsettings\x12\x1c\n" +
+	"\tresolvers\x18\x04 \x03(\tR\tresolvers\x128\n" +
+	"\x18propagation_wait_seconds\x18\x05 \x01(\rR\x16propagationWaitSeconds\x1a;\n" +
+	"\rSettingsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"j\n" +
+	"\x15ACMEGetConfigResponse\x122\n" +
+	"\x06config\x18\x01 \x01(\v2\x1a.janus.v1alpha1.ACMEConfigR\x06config\x12\x1d\n" +
+	"\n" +
+	"is_default\x18\x02 \x01(\bR\tisDefault\"\x92\x01\n" +
+	"\x16ACMEApplyConfigRequest\x122\n" +
+	"\x06config\x18\x01 \x01(\v2\x1a.janus.v1alpha1.ACMEConfigR\x06config\x12#\n" +
+	"\rvalidate_only\x18\x02 \x01(\bR\fvalidateOnly\x12\x1f\n" +
+	"\vaccount_key\x18\x03 \x01(\tR\n" +
+	"accountKey\"M\n" +
+	"\x17ACMEApplyConfigResponse\x12\x1a\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
+	"\x06errors\x18\x02 \x03(\tR\x06errors\"(\n" +
+	"\x10ACMERenewRequest\x12\x14\n" +
+	"\x05names\x18\x01 \x03(\tR\x05names\")\n" +
+	"\x11ACMERenewResponse\x12\x14\n" +
+	"\x05names\x18\x01 \x03(\tR\x05names\"\xae\x03\n" +
+	"\x12ACMEStatusResponse\x121\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x1b.janus.v1alpha1.ModuleStateR\x05state\x12\x1e\n" +
+	"\n" +
+	"configured\x18\x02 \x01(\bR\n" +
+	"configured\x12-\n" +
+	"\x12account_thumbprint\x18\x03 \x01(\tR\x11accountThumbprint\x12\x1f\n" +
+	"\vaccount_uri\x18\x04 \x01(\tR\n" +
+	"accountUri\x12#\n" +
+	"\raccount_error\x18\x05 \x01(\tR\faccountError\x12\x1c\n" +
+	"\tdirectory\x18\x06 \x01(\tR\tdirectory\x12\x1b\n" +
+	"\tterms_url\x18\a \x01(\tR\btermsUrl\x12\x1f\n" +
+	"\vhttp01_rule\x18\b \x01(\tR\n" +
+	"http01Rule\x12)\n" +
+	"\x10certificates_dir\x18\t \x01(\tR\x0fcertificatesDir\x12I\n" +
+	"\fcertificates\x18\n" +
+	" \x03(\v2%.janus.v1alpha1.ACMECertificateStatusR\fcertificates\"\x98\x04\n" +
+	"\x15ACMECertificateStatus\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\adomains\x18\x02 \x03(\tR\adomains\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\x12\x14\n" +
+	"\x05state\x18\x04 \x01(\tR\x05state\x12%\n" +
+	"\x0eserved_domains\x18\x05 \x03(\tR\rservedDomains\x12\x16\n" +
+	"\x06issuer\x18\x06 \x01(\tR\x06issuer\x12&\n" +
+	"\x0fnot_before_unix\x18\a \x01(\x03R\rnotBeforeUnix\x12$\n" +
+	"\x0enot_after_unix\x18\b \x01(\x03R\fnotAfterUnix\x12\x16\n" +
+	"\x06serial\x18\t \x01(\tR\x06serial\x12\"\n" +
+	"\rrenew_at_unix\x18\n" +
+	" \x01(\x03R\vrenewAtUnix\x12\x1f\n" +
+	"\vin_progress\x18\v \x01(\bR\n" +
+	"inProgress\x12*\n" +
+	"\x11last_attempt_unix\x18\f \x01(\x03R\x0flastAttemptUnix\x12*\n" +
+	"\x11last_success_unix\x18\r \x01(\x03R\x0flastSuccessUnix\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\x0e \x01(\tR\tlastError\x12\x1a\n" +
+	"\bfailures\x18\x0f \x01(\rR\bfailures\x12*\n" +
+	"\x11next_attempt_unix\x18\x10 \x01(\x03R\x0fnextAttemptUnix2\xec\v\n" +
 	"\x0eHAProxyService\x12F\n" +
 	"\tGetConfig\x12\x16.google.protobuf.Empty\x1a!.janus.v1alpha1.GetConfigResponse\x12X\n" +
 	"\vApplyConfig\x12\".janus.v1alpha1.ApplyConfigRequest\x1a#.janus.v1alpha1.ApplyConfigResponse0\x01\x12_\n" +
@@ -1345,7 +2293,12 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\tACLUpdate\x12 .janus.v1alpha1.ACLUpdateRequest\x1a\x16.google.protobuf.Empty\x12R\n" +
 	"\x0fCertificateList\x12\x16.google.protobuf.Empty\x1a'.janus.v1alpha1.CertificateListResponse\x12U\n" +
 	"\x11CertificateUpload\x12(.janus.v1alpha1.CertificateUploadRequest\x1a\x16.google.protobuf.Empty\x12U\n" +
-	"\x11CertificateDelete\x12(.janus.v1alpha1.CertificateDeleteRequest\x1a\x16.google.protobuf.EmptyB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
+	"\x11CertificateDelete\x12(.janus.v1alpha1.CertificateDeleteRequest\x1a\x16.google.protobuf.Empty\x12H\n" +
+	"\n" +
+	"ACMEStatus\x12\x16.google.protobuf.Empty\x1a\".janus.v1alpha1.ACMEStatusResponse\x12N\n" +
+	"\rACMEGetConfig\x12\x16.google.protobuf.Empty\x1a%.janus.v1alpha1.ACMEGetConfigResponse\x12b\n" +
+	"\x0fACMEApplyConfig\x12&.janus.v1alpha1.ACMEApplyConfigRequest\x1a'.janus.v1alpha1.ACMEApplyConfigResponse\x12P\n" +
+	"\tACMERenew\x12 .janus.v1alpha1.ACMERenewRequest\x1a!.janus.v1alpha1.ACMERenewResponseB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
 
 var (
 	file_janus_v1alpha1_haproxy_proto_rawDescOnce sync.Once
@@ -1360,7 +2313,7 @@ func file_janus_v1alpha1_haproxy_proto_rawDescGZIP() []byte {
 }
 
 var file_janus_v1alpha1_haproxy_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_janus_v1alpha1_haproxy_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_janus_v1alpha1_haproxy_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_janus_v1alpha1_haproxy_proto_goTypes = []any{
 	(ServerSetStateRequest_State)(0), // 0: janus.v1alpha1.ServerSetStateRequest.State
 	(*GetConfigResponse)(nil),        // 1: janus.v1alpha1.GetConfigResponse
@@ -1384,50 +2337,79 @@ var file_janus_v1alpha1_haproxy_proto_goTypes = []any{
 	(*CertificateInfo)(nil),          // 19: janus.v1alpha1.CertificateInfo
 	(*CertificateUploadRequest)(nil), // 20: janus.v1alpha1.CertificateUploadRequest
 	(*CertificateDeleteRequest)(nil), // 21: janus.v1alpha1.CertificateDeleteRequest
-	nil,                              // 22: janus.v1alpha1.MapGetResponse.EntriesEntry
-	(*emptypb.Empty)(nil),            // 23: google.protobuf.Empty
+	(*ACMEConfig)(nil),               // 22: janus.v1alpha1.ACMEConfig
+	(*ACMEAccount)(nil),              // 23: janus.v1alpha1.ACMEAccount
+	(*ACMECertificate)(nil),          // 24: janus.v1alpha1.ACMECertificate
+	(*ACMEDNSProvider)(nil),          // 25: janus.v1alpha1.ACMEDNSProvider
+	(*ACMEGetConfigResponse)(nil),    // 26: janus.v1alpha1.ACMEGetConfigResponse
+	(*ACMEApplyConfigRequest)(nil),   // 27: janus.v1alpha1.ACMEApplyConfigRequest
+	(*ACMEApplyConfigResponse)(nil),  // 28: janus.v1alpha1.ACMEApplyConfigResponse
+	(*ACMERenewRequest)(nil),         // 29: janus.v1alpha1.ACMERenewRequest
+	(*ACMERenewResponse)(nil),        // 30: janus.v1alpha1.ACMERenewResponse
+	(*ACMEStatusResponse)(nil),       // 31: janus.v1alpha1.ACMEStatusResponse
+	(*ACMECertificateStatus)(nil),    // 32: janus.v1alpha1.ACMECertificateStatus
+	nil,                              // 33: janus.v1alpha1.MapGetResponse.EntriesEntry
+	nil,                              // 34: janus.v1alpha1.ACMEDNSProvider.SettingsEntry
+	(ModuleState)(0),                 // 35: janus.v1alpha1.ModuleState
+	(*emptypb.Empty)(nil),            // 36: google.protobuf.Empty
 }
 var file_janus_v1alpha1_haproxy_proto_depIdxs = []int32{
 	10, // 0: janus.v1alpha1.Backend.servers:type_name -> janus.v1alpha1.BackendServer
 	9,  // 1: janus.v1alpha1.BackendListResponse.backends:type_name -> janus.v1alpha1.Backend
 	0,  // 2: janus.v1alpha1.ServerSetStateRequest.state:type_name -> janus.v1alpha1.ServerSetStateRequest.State
-	22, // 3: janus.v1alpha1.MapGetResponse.entries:type_name -> janus.v1alpha1.MapGetResponse.EntriesEntry
+	33, // 3: janus.v1alpha1.MapGetResponse.entries:type_name -> janus.v1alpha1.MapGetResponse.EntriesEntry
 	19, // 4: janus.v1alpha1.CertificateListResponse.certificates:type_name -> janus.v1alpha1.CertificateInfo
-	23, // 5: janus.v1alpha1.HAProxyService.GetConfig:input_type -> google.protobuf.Empty
-	2,  // 6: janus.v1alpha1.HAProxyService.ApplyConfig:input_type -> janus.v1alpha1.ApplyConfigRequest
-	4,  // 7: janus.v1alpha1.HAProxyService.ValidateConfig:input_type -> janus.v1alpha1.ValidateConfigRequest
-	23, // 8: janus.v1alpha1.HAProxyService.Reload:input_type -> google.protobuf.Empty
-	23, // 9: janus.v1alpha1.HAProxyService.Stats:input_type -> google.protobuf.Empty
-	23, // 10: janus.v1alpha1.HAProxyService.ShowInfo:input_type -> google.protobuf.Empty
-	23, // 11: janus.v1alpha1.HAProxyService.BackendList:input_type -> google.protobuf.Empty
-	12, // 12: janus.v1alpha1.HAProxyService.ServerSetState:input_type -> janus.v1alpha1.ServerSetStateRequest
-	23, // 13: janus.v1alpha1.HAProxyService.MapList:input_type -> google.protobuf.Empty
-	14, // 14: janus.v1alpha1.HAProxyService.MapGet:input_type -> janus.v1alpha1.MapGetRequest
-	16, // 15: janus.v1alpha1.HAProxyService.MapUpdate:input_type -> janus.v1alpha1.MapUpdateRequest
-	17, // 16: janus.v1alpha1.HAProxyService.ACLUpdate:input_type -> janus.v1alpha1.ACLUpdateRequest
-	23, // 17: janus.v1alpha1.HAProxyService.CertificateList:input_type -> google.protobuf.Empty
-	20, // 18: janus.v1alpha1.HAProxyService.CertificateUpload:input_type -> janus.v1alpha1.CertificateUploadRequest
-	21, // 19: janus.v1alpha1.HAProxyService.CertificateDelete:input_type -> janus.v1alpha1.CertificateDeleteRequest
-	1,  // 20: janus.v1alpha1.HAProxyService.GetConfig:output_type -> janus.v1alpha1.GetConfigResponse
-	3,  // 21: janus.v1alpha1.HAProxyService.ApplyConfig:output_type -> janus.v1alpha1.ApplyConfigResponse
-	5,  // 22: janus.v1alpha1.HAProxyService.ValidateConfig:output_type -> janus.v1alpha1.ValidateConfigResponse
-	6,  // 23: janus.v1alpha1.HAProxyService.Reload:output_type -> janus.v1alpha1.ReloadResponse
-	7,  // 24: janus.v1alpha1.HAProxyService.Stats:output_type -> janus.v1alpha1.HAProxyStatsResponse
-	8,  // 25: janus.v1alpha1.HAProxyService.ShowInfo:output_type -> janus.v1alpha1.ShowInfoResponse
-	11, // 26: janus.v1alpha1.HAProxyService.BackendList:output_type -> janus.v1alpha1.BackendListResponse
-	23, // 27: janus.v1alpha1.HAProxyService.ServerSetState:output_type -> google.protobuf.Empty
-	13, // 28: janus.v1alpha1.HAProxyService.MapList:output_type -> janus.v1alpha1.MapListResponse
-	15, // 29: janus.v1alpha1.HAProxyService.MapGet:output_type -> janus.v1alpha1.MapGetResponse
-	23, // 30: janus.v1alpha1.HAProxyService.MapUpdate:output_type -> google.protobuf.Empty
-	23, // 31: janus.v1alpha1.HAProxyService.ACLUpdate:output_type -> google.protobuf.Empty
-	18, // 32: janus.v1alpha1.HAProxyService.CertificateList:output_type -> janus.v1alpha1.CertificateListResponse
-	23, // 33: janus.v1alpha1.HAProxyService.CertificateUpload:output_type -> google.protobuf.Empty
-	23, // 34: janus.v1alpha1.HAProxyService.CertificateDelete:output_type -> google.protobuf.Empty
-	20, // [20:35] is the sub-list for method output_type
-	5,  // [5:20] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	23, // 5: janus.v1alpha1.ACMEConfig.account:type_name -> janus.v1alpha1.ACMEAccount
+	24, // 6: janus.v1alpha1.ACMEConfig.certificates:type_name -> janus.v1alpha1.ACMECertificate
+	25, // 7: janus.v1alpha1.ACMEConfig.dns_providers:type_name -> janus.v1alpha1.ACMEDNSProvider
+	34, // 8: janus.v1alpha1.ACMEDNSProvider.settings:type_name -> janus.v1alpha1.ACMEDNSProvider.SettingsEntry
+	22, // 9: janus.v1alpha1.ACMEGetConfigResponse.config:type_name -> janus.v1alpha1.ACMEConfig
+	22, // 10: janus.v1alpha1.ACMEApplyConfigRequest.config:type_name -> janus.v1alpha1.ACMEConfig
+	35, // 11: janus.v1alpha1.ACMEStatusResponse.state:type_name -> janus.v1alpha1.ModuleState
+	32, // 12: janus.v1alpha1.ACMEStatusResponse.certificates:type_name -> janus.v1alpha1.ACMECertificateStatus
+	36, // 13: janus.v1alpha1.HAProxyService.GetConfig:input_type -> google.protobuf.Empty
+	2,  // 14: janus.v1alpha1.HAProxyService.ApplyConfig:input_type -> janus.v1alpha1.ApplyConfigRequest
+	4,  // 15: janus.v1alpha1.HAProxyService.ValidateConfig:input_type -> janus.v1alpha1.ValidateConfigRequest
+	36, // 16: janus.v1alpha1.HAProxyService.Reload:input_type -> google.protobuf.Empty
+	36, // 17: janus.v1alpha1.HAProxyService.Stats:input_type -> google.protobuf.Empty
+	36, // 18: janus.v1alpha1.HAProxyService.ShowInfo:input_type -> google.protobuf.Empty
+	36, // 19: janus.v1alpha1.HAProxyService.BackendList:input_type -> google.protobuf.Empty
+	12, // 20: janus.v1alpha1.HAProxyService.ServerSetState:input_type -> janus.v1alpha1.ServerSetStateRequest
+	36, // 21: janus.v1alpha1.HAProxyService.MapList:input_type -> google.protobuf.Empty
+	14, // 22: janus.v1alpha1.HAProxyService.MapGet:input_type -> janus.v1alpha1.MapGetRequest
+	16, // 23: janus.v1alpha1.HAProxyService.MapUpdate:input_type -> janus.v1alpha1.MapUpdateRequest
+	17, // 24: janus.v1alpha1.HAProxyService.ACLUpdate:input_type -> janus.v1alpha1.ACLUpdateRequest
+	36, // 25: janus.v1alpha1.HAProxyService.CertificateList:input_type -> google.protobuf.Empty
+	20, // 26: janus.v1alpha1.HAProxyService.CertificateUpload:input_type -> janus.v1alpha1.CertificateUploadRequest
+	21, // 27: janus.v1alpha1.HAProxyService.CertificateDelete:input_type -> janus.v1alpha1.CertificateDeleteRequest
+	36, // 28: janus.v1alpha1.HAProxyService.ACMEStatus:input_type -> google.protobuf.Empty
+	36, // 29: janus.v1alpha1.HAProxyService.ACMEGetConfig:input_type -> google.protobuf.Empty
+	27, // 30: janus.v1alpha1.HAProxyService.ACMEApplyConfig:input_type -> janus.v1alpha1.ACMEApplyConfigRequest
+	29, // 31: janus.v1alpha1.HAProxyService.ACMERenew:input_type -> janus.v1alpha1.ACMERenewRequest
+	1,  // 32: janus.v1alpha1.HAProxyService.GetConfig:output_type -> janus.v1alpha1.GetConfigResponse
+	3,  // 33: janus.v1alpha1.HAProxyService.ApplyConfig:output_type -> janus.v1alpha1.ApplyConfigResponse
+	5,  // 34: janus.v1alpha1.HAProxyService.ValidateConfig:output_type -> janus.v1alpha1.ValidateConfigResponse
+	6,  // 35: janus.v1alpha1.HAProxyService.Reload:output_type -> janus.v1alpha1.ReloadResponse
+	7,  // 36: janus.v1alpha1.HAProxyService.Stats:output_type -> janus.v1alpha1.HAProxyStatsResponse
+	8,  // 37: janus.v1alpha1.HAProxyService.ShowInfo:output_type -> janus.v1alpha1.ShowInfoResponse
+	11, // 38: janus.v1alpha1.HAProxyService.BackendList:output_type -> janus.v1alpha1.BackendListResponse
+	36, // 39: janus.v1alpha1.HAProxyService.ServerSetState:output_type -> google.protobuf.Empty
+	13, // 40: janus.v1alpha1.HAProxyService.MapList:output_type -> janus.v1alpha1.MapListResponse
+	15, // 41: janus.v1alpha1.HAProxyService.MapGet:output_type -> janus.v1alpha1.MapGetResponse
+	36, // 42: janus.v1alpha1.HAProxyService.MapUpdate:output_type -> google.protobuf.Empty
+	36, // 43: janus.v1alpha1.HAProxyService.ACLUpdate:output_type -> google.protobuf.Empty
+	18, // 44: janus.v1alpha1.HAProxyService.CertificateList:output_type -> janus.v1alpha1.CertificateListResponse
+	36, // 45: janus.v1alpha1.HAProxyService.CertificateUpload:output_type -> google.protobuf.Empty
+	36, // 46: janus.v1alpha1.HAProxyService.CertificateDelete:output_type -> google.protobuf.Empty
+	31, // 47: janus.v1alpha1.HAProxyService.ACMEStatus:output_type -> janus.v1alpha1.ACMEStatusResponse
+	26, // 48: janus.v1alpha1.HAProxyService.ACMEGetConfig:output_type -> janus.v1alpha1.ACMEGetConfigResponse
+	28, // 49: janus.v1alpha1.HAProxyService.ACMEApplyConfig:output_type -> janus.v1alpha1.ACMEApplyConfigResponse
+	30, // 50: janus.v1alpha1.HAProxyService.ACMERenew:output_type -> janus.v1alpha1.ACMERenewResponse
+	32, // [32:51] is the sub-list for method output_type
+	13, // [13:32] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_janus_v1alpha1_haproxy_proto_init() }
@@ -1435,13 +2417,14 @@ func file_janus_v1alpha1_haproxy_proto_init() {
 	if File_janus_v1alpha1_haproxy_proto != nil {
 		return
 	}
+	file_janus_v1alpha1_network_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_haproxy_proto_rawDesc), len(file_janus_v1alpha1_haproxy_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   22,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
