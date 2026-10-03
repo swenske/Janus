@@ -23,19 +23,22 @@
 # ../hack/qemu-raspi4-boot-test.sh for the QEMU boot proof.
 
 ARG KERNEL_VERSION
+ARG KERNEL_SHA256
 
+# The tarball is checked against KERNEL_SHA256, pinned in versions.mk
+# after checking its kernel.org signature - nothing is extracted before.
 FROM debian:trixie-slim AS fetch
 ARG KERNEL_VERSION
+ARG KERNEL_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates gnupg xz-utils \
+    curl ca-certificates xz-utils \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl -fsSLO https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz \
-    && curl -fsSLO https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.sign
-# TODO(Phase 1): verify the detached PGP signature against kernel.org's
-# published release-signing keys before extracting anything below - not
-# wired up yet, so this stage is not yet safe to feed into a real build.
-RUN tar xf linux-${KERNEL_VERSION}.tar.xz
+RUN test -n "${KERNEL_SHA256}" \
+    && major="$(echo "${KERNEL_VERSION}" | cut -d. -f1)" \
+    && curl -fsSLO "https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${KERNEL_VERSION}.tar.xz" \
+    && echo "${KERNEL_SHA256}  linux-${KERNEL_VERSION}.tar.xz" | sha256sum -c - \
+    && tar xf linux-${KERNEL_VERSION}.tar.xz
 
 FROM fetch AS config
 ARG KERNEL_VERSION

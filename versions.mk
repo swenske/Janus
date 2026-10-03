@@ -1,16 +1,22 @@
 # Single source of truth for every pinned upstream version used by the
-# build system (kernel/, pkgs/*). Bumping a version here is the entire
-# "montée de version" workflow for Phase 0/1: edit the number (+ sha256),
-# open a PR, let ci.yml build the control plane and image-build.yml (manual)
-# build+boot-test the image before merging.
-#
-# Versions below were checked live against upstream on 2026-09-22:
-#   - kernel: https://www.kernel.org/releases.json, latest "longterm" branch
-#   - haproxy: https://www.haproxy.org/, latest stable branch
-# bird/keepalived are optional (Phase 5, NetworkService) and not yet
-# pinned - confirm actual target versions before that phase starts.
+# build system (kernel/, pkgs/*, extensions/*). Bumping a version here is
+# the entire "montée de version" workflow: edit the number + its sha256,
+# open a PR, let ci.yml build the control plane and image-build.yml
+# (manual) build+boot-test the image before merging. Every download is
+# checked against the sha256 pinned here; how each one was trusted when
+# it was pinned (GPG signature, signed checksum list, cross-check with a
+# distribution) is noted next to it.
 
-KERNEL_VERSION  := 6.18.53
+# Linux, the latest longterm branch (kernel.org/releases.json). sha256 of
+# the .tar.xz, pinned after checking the tarball's signature (.tar.sign,
+# over the uncompressed tar) by Greg Kroah-Hartman's key
+# 647F28654894E3BD457199BE38DBBDC86092693E and kernel.org's signed
+# sha256sums.asc (Kernel.org checksum autosigner,
+# B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1), which agree.
+KERNEL_VERSION := 6.18.55
+KERNEL_SHA256  := f410638061a165c12f42ab871d2f3fcd525515359b5faeee80969cff84524df9
+
+# HAProxy, the latest LTS branch (haproxy.org).
 HAPROXY_VERSION := 3.4.0
 
 # Single Board Computer tranche follow-up: pkgs/musl-toolchain builds a
@@ -37,7 +43,6 @@ ZLIB_VERSION        := 1.3.1
 AWSLC_VERSION := 5.11.0
 AWSLC_SHA256  := 8cb24c6e6be1fa7ff05075c4560ca8b537a7ef48f9e6f465af4ea455794d74f4
 
-# Optional network features (Phase 5) - versions TBD.
 # Optional extensions (extensions/<name>/, see docs/image-factory.md).
 # node_exporter: upstream's static release binaries, sha256 from its own
 # sha256sums.txt, per architecture.

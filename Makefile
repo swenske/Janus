@@ -80,7 +80,8 @@ clean:
 # started.
 kernel-menuconfig:
 	docker build --target config -t janus-kernel-config \
-		--build-arg KERNEL_VERSION=$(KERNEL_VERSION) kernel
+		--build-arg KERNEL_VERSION=$(KERNEL_VERSION) \
+		--build-arg KERNEL_SHA256=$(KERNEL_SHA256) kernel
 	docker run --rm -it \
 		-v "$(CURDIR)/kernel/configs:/out" \
 		janus-kernel-config \
@@ -93,6 +94,7 @@ kernel-menuconfig:
 kernel-build:
 	mkdir -p $(BUILD_DIR)
 	docker build --target export --build-arg KERNEL_VERSION=$(KERNEL_VERSION) \
+		--build-arg KERNEL_SHA256=$(KERNEL_SHA256) \
 		-o $(BUILD_DIR) kernel
 
 # Builds the Phase 1 PID 1 (rootfs/init) as a static binary - CGO must stay
@@ -246,6 +248,7 @@ qemu-boot-test: kernel-build initramfs
 rpi4-kernel-build:
 	mkdir -p $(BUILD_DIR)/rpi4
 	docker build --target export-arm64 --build-arg KERNEL_VERSION=$(KERNEL_VERSION) \
+		--build-arg KERNEL_SHA256=$(KERNEL_SHA256) \
 		--build-arg ARCH=arm64 --build-arg CROSS_COMPILE=aarch64-linux-gnu- \
 		--build-arg DEFCONFIG=janus_rpi4_defconfig --build-arg MAKE_TARGETS="Image dtbs" \
 		-o $(BUILD_DIR)/rpi4 kernel
