@@ -2,6 +2,7 @@ package hypervisor
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -23,10 +24,12 @@ func PreparationScript(name string, steps []PrepStep) string {
 }
 
 // CommentSafe keeps a free-form name on one printable line - for the
-// comments of a script, never its commands.
+// comments of a script, never its commands - without "!": a step pasted
+// into an interactive bash would take it for a history expansion (in a
+// JavaScript comment too).
 func CommentSafe(s string) string {
 	s = strings.Map(func(r rune) rune {
-		if !unicode.IsPrint(r) {
+		if !unicode.IsPrint(r) || r == '!' {
 			return -1
 		}
 		return r
@@ -54,4 +57,24 @@ func wrap(s string, width int) []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// historyRe finds what an interactive bash would take for a history
+// expansion: "!" followed by anything but a blank or "=".
+var historyRe = regexp.MustCompile(`![^ \t=]|!$`)
+var singleQuotedRe = regexp.MustCompile(`'[^']*'`)
+
+// PasteUnsafe is the first line of a script an interactive bash would
+// mangle when pasted into it - a history expansion outside single quotes
+// and comments - or "".
+func PasteUnsafe(script string) string {
+	for _, line := range strings.Split(script, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if historyRe.MatchString(singleQuotedRe.ReplaceAllString(line, "''")) {
+			return line
+		}
+	}
+	return ""
 }

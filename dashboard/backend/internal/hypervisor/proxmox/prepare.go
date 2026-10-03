@@ -118,7 +118,7 @@ pveum acl modify /nodes/{{.Node}} --users {{.User}} --roles JanusNode
 		about: "The Controller's token, with its user's rights (no separate ones). Its secret is shown once: paste it in the hypervisor's form, " +
 			"as the token secret. A token that already exists keeps its secret hidden - remove it and run this again for a new one.",
 		script: `if pvesh get /access/users/{{.User}}/token/{{.Token}} >/dev/null 2>&1; then
-    echo "The token {{.User}}!{{.Token}} exists: its secret was shown when it was made. For a new one: pveum user token remove {{.User}} {{.Token}}, then this step again."
+    echo 'The token {{.User}}!{{.Token}} exists: its secret was shown when it was made. For a new one: pveum user token remove {{.User}} {{.Token}}, then this step again.'
 else
     pveum user token add {{.User}} {{.Token}} --privsep 0 --comment "Janus Controller"
 fi

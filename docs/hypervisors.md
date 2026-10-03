@@ -225,7 +225,7 @@ cat > /etc/polkit-1/rules.d/50-janus-ctl.rules <<'JANUS'
         }
         var parts = action.id.substr("org.libvirt.api.".length).split(".");
         var allowed = ALLOWED[parts[0]];
-        if (!allowed || allowed.indexOf(parts[1]) < 0) {
+        if (allowed === undefined || allowed.indexOf(parts[1]) < 0) {
             return denied(action);
         }
         switch (parts[0]) {
@@ -384,7 +384,7 @@ VLAN on it.
 
 ```sh
 if pvesh get /access/users/janus-ctl@pve/token/controller >/dev/null 2>&1; then
-    echo "The token janus-ctl@pve!controller exists: its secret was shown when it was made. For a new one: pveum user token remove janus-ctl@pve controller, then this step again."
+    echo 'The token janus-ctl@pve!controller exists: its secret was shown when it was made. For a new one: pveum user token remove janus-ctl@pve controller, then this step again.'
 else
     pveum user token add janus-ctl@pve controller --privsep 0 --comment "Janus Controller"
 fi

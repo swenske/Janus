@@ -14,14 +14,19 @@ func TestHostPreparation(t *testing.T) {
 		URL: "https://pve:8006", Node: "pve1", TokenID: "janus-ctl@pve!controller", Pool: "janus",
 		Storage: "local-lvm", ImageStorage: "janus-images", Networks: []string{"vmbr0.10", "vmbr1"},
 	}
-	steps := HostPreparation("pve1\n`$(reboot)`", c)
-	script := hypervisor.PreparationScript("pve1\n`$(reboot)`", steps)
+	steps := HostPreparation("pve!1\n`$(reboot)`", c)
+	script := hypervisor.PreparationScript("pve!1\n`$(reboot)`", steps)
 	for _, s := range append(steps, hypervisor.PrepStep{Title: "all", About: "all", Script: script}) {
 		if s.Title == "" || s.About == "" || !strings.HasSuffix(s.Script, "\n") {
 			t.Errorf("step %+v", s)
 		}
 		if out, err := exec.Command("sh", "-n", "-c", s.Script).CombinedOutput(); err != nil {
 			t.Errorf("%s: sh -n: %v %s", s.Title, err, out)
+		}
+		// Each step can be pasted into an interactive bash - the token's
+		// "user!name" included.
+		if line := hypervisor.PasteUnsafe(s.Script); line != "" {
+			t.Errorf("%s: bash would take a history expansion in %q", s.Title, line)
 		}
 	}
 	for _, want := range []string{

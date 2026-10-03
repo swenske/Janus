@@ -217,7 +217,7 @@ cat > /etc/polkit-1/rules.d/50-{{.User}}.rules <<'JANUS'
         }
         var parts = action.id.substr("org.libvirt.api.".length).split(".");
         var allowed = ALLOWED[parts[0]];
-        if (!allowed || allowed.indexOf(parts[1]) < 0) {
+        if (allowed === undefined || allowed.indexOf(parts[1]) < 0) {
             return denied(action);
         }
         switch (parts[0]) {

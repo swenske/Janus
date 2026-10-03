@@ -13,11 +13,11 @@ func TestHostPreparation(t *testing.T) {
 	c := &hypervisor.LibvirtConfig{Host: "kvm01", User: "janus-ctl2", Pool: "janus2", Networks: []string{"lan", "dmz"}, NamePrefix: "j2-"}
 	const key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOKd8n6l0Xc1Vf2B0Yw3fN5mJ8vVvYb6ehgZK1vE0pQ7 janus-controller-0123abcd"
 	for _, tc := range []struct{ name, key string }{{"before it's added", ""}, {"added", key}} {
-		steps := HostPreparation("kvm01\n`$(reboot)`", c, tc.key)
+		steps := HostPreparation("kvm!01\n`$(reboot)`", c, tc.key)
 		if len(steps) != 6 {
 			t.Fatalf("%s: %d steps", tc.name, len(steps))
 		}
-		script := hypervisor.PreparationScript("kvm01\n`$(reboot)`", steps)
+		script := hypervisor.PreparationScript("kvm!01\n`$(reboot)`", steps)
 		for _, s := range steps {
 			if s.Title == "" || s.About == "" || s.Script == "" || !strings.HasSuffix(s.Script, "\n") {
 				t.Errorf("%s: step %+v", tc.name, s)
@@ -28,6 +28,10 @@ func TestHostPreparation(t *testing.T) {
 			}
 			if out, err := exec.Command("sh", "-n", "-c", s.Script).CombinedOutput(); err != nil {
 				t.Errorf("%s: step %q: sh -n: %v %s", tc.name, s.Title, err, out)
+			}
+			// Each step can be pasted into an interactive bash.
+			if line := hypervisor.PasteUnsafe(s.Script); line != "" {
+				t.Errorf("%s: step %q: bash would take a history expansion in %q", tc.name, s.Title, line)
 			}
 		}
 		if out, err := exec.Command("sh", "-n", "-c", script).CombinedOutput(); err != nil {
