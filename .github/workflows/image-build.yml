@@ -33,7 +33,7 @@ jobs:
     name: "Tests: Boot, dm-verity, SELinux, UEFI, ISO, PXE, arm64"
     runs-on: [self-hosted, docker, janus]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -297,7 +297,7 @@ jobs:
     name: "Tests: A/B slots, rollback, upgrades, install"
     runs-on: [self-hosted, docker, janus]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/runner-setup
@@ -456,7 +456,7 @@ jobs:
     name: "Tests: API, HAProxy, Controller, self-registration"
     runs-on: [self-hosted, docker, janus]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/runner-setup
@@ -751,7 +751,7 @@ jobs:
     name: "Tests: Network config, extensions, firewall, VRRP, BGP"
     runs-on: [self-hosted, docker, janus]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/runner-setup
@@ -797,7 +797,7 @@ jobs:
     name: "Tests: Let's Encrypt, Consul"
     runs-on: [self-hosted, docker, janus]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/runner-setup
@@ -821,7 +821,7 @@ jobs:
     name: "Tests: Secure Boot, bare metal, Controller self-update, hypervisors and Terraform"
     runs-on: [self-hosted, docker, janus]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/runner-setup
@@ -896,7 +896,7 @@ jobs:
       # release tag reachable through history - a shallow clone made every
       # published build report a bare commit SHA instead of its release
       # version, so the dashboard's "Latest release" check never matched.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -933,7 +933,7 @@ jobs:
         run: make schematic-inputs
 
       - name: Upload the schematic build inputs
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: schematic-inputs
           path: build/inputs/
@@ -949,7 +949,7 @@ jobs:
           make janusctl-deb-test
 
       - name: Upload janusctl's Debian packages
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: janusctl-deb-${{ github.sha }}
           path: build/deb/janusctl_*.deb
@@ -966,7 +966,7 @@ jobs:
           make terraform-provider-dist-test
 
       - name: Upload the Terraform provider's archives
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: terraform-provider-janus-${{ github.sha }}
           path: build/terraform-provider/terraform-provider-janus_*
@@ -990,7 +990,7 @@ jobs:
           ls -lh build/janus.qcow2
 
       - name: Upload the alpha Proxmox VM image
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: janus-alpha-amd64-proxmox-${{ github.sha }}
           path: build/janus.qcow2
@@ -1008,7 +1008,7 @@ jobs:
           ls -lh build/janus-kvm.qcow2
 
       - name: Upload the alpha KVM/libvirt image
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: janus-alpha-amd64-kvm-${{ github.sha }}
           path: build/janus-kvm.qcow2
@@ -1020,7 +1020,7 @@ jobs:
           ls -lh build/janus.vmdk
 
       - name: Upload the alpha VMware/ESXi image
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: janus-alpha-amd64-vmware-${{ github.sha }}
           path: build/janus.vmdk
@@ -1076,7 +1076,7 @@ jobs:
           ls -lh build/janus.iso
 
       - name: Upload the alpha installer ISO
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: janus-alpha-amd64-iso-${{ github.sha }}
           path: build/janus.iso
@@ -1102,7 +1102,7 @@ jobs:
           ls -lh build/rpi-uefi/pi4-disk.img
 
       - name: Upload the Raspberry Pi 4 SD card image
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: janus-alpha-arm64-rpi4-${{ github.sha }}
           path: build/rpi-uefi/pi4-disk.img
@@ -1114,7 +1114,7 @@ jobs:
           ls -lh build/rpi-uefi/pi5-disk.img
 
       - name: Upload the Raspberry Pi 5 SD card image
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: janus-alpha-arm64-rpi5-${{ github.sha }}
           path: build/rpi-uefi/pi5-disk.img
@@ -1198,7 +1198,7 @@ jobs:
         if: ${{ env.DOCKERHUB_TOKEN != '' }}
         env:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        uses: peter-evans/dockerhub-description@v5
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
           username: swenske
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -1275,7 +1275,7 @@ jobs:
 
       - name: Publish a real GitHub Release
         if: ${{ inputs.release_version != '' }}
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ inputs.release_version }}
           target_commitish: ${{ github.sha }}
