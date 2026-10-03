@@ -316,6 +316,12 @@ then boot normally: the node reads the volume, writes
 `controller/address`/`controller/ca.crt` to its own STATE partition, and
 registers itself.
 
+Whatever the way it was provisioned, a node that can't reach its
+Controller keeps trying: 5 s after the first failure, then twice as
+long each time, at most every two minutes. Each failure is on its
+console (`selfregister: ... - retrying in ...`). Images up to
+v2026.10.03-2 try once a boot only.
+
 ### Remote retrieval (`seedfrom`)
 
 Instead of a full local `user-data`, the volume can hold just a

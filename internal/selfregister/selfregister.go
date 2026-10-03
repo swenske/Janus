@@ -62,7 +62,22 @@ const (
 	markerFile  = "registered"
 
 	dialTimeout = 10 * time.Second
+
+	firstRetry = 5 * time.Second
+	maxRetry   = 2 * time.Minute
 )
+
+// RetryDelay is the wait after the attempt-th failed registration (from
+// 1): 5 s, doubling, at most 2 min - quick while the network comes up,
+// then a steady pace a Controller (or an operator fixing a route) never
+// waits long for.
+func RetryDelay(attempt int) time.Duration {
+	d := firstRetry
+	for i := 1; i < attempt && d < maxRetry; i++ {
+		d *= 2
+	}
+	return min(d, maxRetry)
+}
 
 // Config is what a provisioned node knows about its Controller, read
 // back from STATE at boot.
@@ -235,7 +250,7 @@ func Register(cfg *Config, ca *pki.CA, hostname, advertiseAddr string) (admitted
 	}
 	resp, err := client.Post("https://"+cfg.Address+"/register", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return false, fmt.Errorf("POST https://%s/register: %w", cfg.Address, err)
+		return false, err // a *url.Error: it names the URL
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))

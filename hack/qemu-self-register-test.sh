@@ -27,6 +27,9 @@
 #      10.0.2.2:<register-port> and -controller-ca <dashboardd's own
 #      identity cert> - a genuinely different disk than the one this
 #      native janusd itself would ever boot from.
+#   3b. the Controller is stopped while the node boots: the node logs
+#      its failed attempt and retries on its own (selfregister.RetryDelay)
+#      - once the Controller is back, it registers without a reboot.
 #   4. boot the installed disk for real under OVMF, virtio-net +
 #      usermode NAT (the guest reaches 10.0.2.2 automatically - no
 #      special hostfwd needed for this, guest-initiated connections to
@@ -84,7 +87,7 @@ DASHBOARDD="$(cd "$(dirname "$DASHBOARDD_REL")" && pwd)/$(basename "$DASHBOARDD_
 
 DISK_MB="${SELFREG_TEST_DISK_MB:-512}"
 HTTP_TIMEOUT_SECS="${SELFREG_TEST_HTTP_TIMEOUT:-40}"
-REGISTER_TIMEOUT_SECS="${SELFREG_TEST_REGISTER_TIMEOUT:-30}"
+REGISTER_TIMEOUT_SECS="${SELFREG_TEST_REGISTER_TIMEOUT:-90}"
 HOST_HTTP_PORT="${SELFREG_TEST_HOST_HTTP_PORT:-$((18140 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 HOST_GRPC_PORT="${SELFREG_TEST_HOST_GRPC_PORT:-$((18141 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 NATIVE_GRPC_PORT="${SELFREG_TEST_NATIVE_GRPC_PORT:-$((19510 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
@@ -193,6 +196,17 @@ JANUSD_PID=""
 kill_native_haproxy
 echo "Part 2 OK: Install wrote a Controller-provisioned image"
 
+# The Controller is down while the node boots: its first attempts fail.
+start_dashboardd() {
+  "$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" \
+    -data-dir "$WORKDIR/dashboard-data" -advertise-address "$QEMU_HOST_GATEWAY" \
+    >> "$WORKDIR/dashboardd.log" 2>&1 &
+  DASHBOARD_PID=$!
+}
+kill "$DASHBOARD_PID"
+wait "$DASHBOARD_PID" 2>/dev/null || true
+DASHBOARD_PID=""
+
 # =========================================================================
 # Part 3: boot the installed disk for real - self-registration is
 # expected to happen entirely on its own, no RPC call from this script.
@@ -224,6 +238,25 @@ if [ "$CODE" != "200" ]; then
   exit 1
 fi
 echo "Part 3 OK: the Controller-provisioned disk boots for real"
+
+failed_attempt() { grep -q "selfregister: registration failed: .* - retrying in " "$LOG"; }
+DEADLINE=$((SECONDS + 60))
+until failed_attempt || [ "$SECONDS" -ge "$DEADLINE" ]; do sleep 1; done
+if ! failed_attempt; then
+  echo "Self-register test FAILED: with the Controller down, the node never logged a failed attempt to retry" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+start_dashboardd
+DEADLINE=$((SECONDS + 20))
+login_code=""
+while [ "$SECONDS" -lt "$DEADLINE" ]; do
+  login_code="$(curl -sk -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/auth/login" -H "Content-Type: application/json" -d '{"password":"self-register-test-admin-pw"}' || true)"
+  [ "$login_code" = "204" ] && break
+  sleep 1
+done
+[ "$login_code" = "204" ] || { echo "Self-register test FAILED: login after restarting dashboardd returned $login_code" >&2; cat "$WORKDIR/dashboardd.log" >&2; exit 1; }
+echo "Part 3b OK: with the Controller down, the node logged its failed attempt and retries: $(grep -m1 'selfregister: registration failed' "$LOG" | tr -d '\r')"
 
 # --- poll the real dashboardd's own pending queue - no RPC call here
 # drives the registration, only cmd/janusd's own background attempt ---

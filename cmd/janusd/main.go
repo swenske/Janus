@@ -550,16 +550,16 @@ func confirmBootHealth(marker *bootcommit.Marker, mgr *haproxy.Manager) {
 	// nothing further to do, the machine is already on its way down.
 }
 
-// selfRegisterIfConfigured is Point 2 suite tranche 5's actual trigger:
-// reads internal/selfregister.Dir (bind-mounted from STATE's own
-// controller/ subdirectory by rootfs/init's mountState - see that
-// function's own comment), and if a Controller was provisioned for this
-// node (LifecycleService.Install's controller_address/
-// controller_ca_cert) and it hasn't already announced itself, does so
-// now. A failed attempt (Controller unreachable, say) is simply logged
-// and left for the next boot to retry - selfregister.MarkRegistered is
-// only ever written on success, so nothing here needs its own retry
-// loop.
+// selfRegisterIfConfigured reads internal/selfregister.Dir (bind-mounted
+// from STATE's controller/ subdirectory by rootfs/init's mountState),
+// and if a Controller was provisioned for this node (NoCloud, Install's
+// controller_address/controller_ca_cert, image seed-controller) and it
+// hasn't announced itself yet, does so now - again and again until it
+// succeeds, waiting longer each time (selfregister.RetryDelay): a node
+// whose network comes up late, or whose route to the Controller is only
+// fixed afterwards, registers without a reboot. Each failure is logged
+// on the console, where a Controller that created the node reads it
+// (dashboard/backend: the machine's warning).
 func selfRegisterIfConfigured(ca *pki.CA, hostname, grpcAddr string) {
 	cfg, err := selfregister.Read(selfregister.Dir)
 	if err != nil {
@@ -572,23 +572,34 @@ func selfRegisterIfConfigured(ca *pki.CA, hostname, grpcAddr string) {
 	if selfregister.AlreadyRegistered(selfregister.Dir) {
 		return
 	}
+	for attempt := 1; ; attempt++ {
+		err := announce(cfg, ca, hostname, grpcAddr)
+		if err == nil {
+			return
+		}
+		delay := selfregister.RetryDelay(attempt)
+		log.Printf("selfregister: %v - retrying in %s", err, delay)
+		events.Publish("selfregister.failed", map[string]string{"controller": cfg.Address, "error": err.Error()})
+		time.Sleep(delay)
+	}
+}
 
+// announce is one registration attempt. Once the Controller took it,
+// what's left to write locally is logged, never retried: announcing
+// again would only queue the node a second time.
+func announce(cfg *selfregister.Config, ca *pki.CA, hostname, grpcAddr string) error {
 	advertiseAddr, err := selfregister.DetectAdvertiseAddress(cfg.Address, grpcAddr)
 	if err != nil {
-		log.Printf("selfregister: determine address to advertise to Controller at %s: %v", cfg.Address, err)
-		return
+		return fmt.Errorf("reach the Controller at %s: %w", cfg.Address, err)
 	}
-
 	log.Printf("selfregister: announcing to Controller at %s as %s (%s)", cfg.Address, hostname, advertiseAddr)
 	admitted, err := selfregister.Register(cfg, ca, hostname, advertiseAddr)
 	if err != nil {
-		log.Printf("selfregister: registration failed, will retry on next boot: %v", err)
-		events.Publish("selfregister.failed", map[string]string{"controller": cfg.Address, "error": err.Error()})
-		return
+		return fmt.Errorf("registration failed: %w", err)
 	}
 	if err := selfregister.MarkRegistered(selfregister.Dir); err != nil {
 		log.Printf("selfregister: mark registered: %v", err)
-		return
+		return nil
 	}
 	if err := selfregister.RemoveToken(selfregister.Dir); err != nil {
 		log.Printf("selfregister: remove the used registration token: %v", err)
@@ -596,8 +607,9 @@ func selfRegisterIfConfigured(ca *pki.CA, hostname, grpcAddr string) {
 	if admitted {
 		log.Printf("selfregister: admitted by Controller at %s", cfg.Address)
 		events.Publish("selfregister.admitted", map[string]string{"controller": cfg.Address})
-		return
+		return nil
 	}
 	log.Printf("selfregister: successfully announced to Controller at %s, awaiting approval", cfg.Address)
 	events.Publish("selfregister.announced", map[string]string{"controller": cfg.Address})
+	return nil
 }

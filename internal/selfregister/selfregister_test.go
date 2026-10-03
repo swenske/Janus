@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/swenske/Janus/internal/pki"
 )
@@ -240,4 +241,16 @@ func certPEM(t *testing.T, srv *httptest.Server) []byte {
 		t.Fatal("test server has no certificate")
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+}
+
+func TestRetryDelay(t *testing.T) {
+	want := []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second, 2 * time.Minute, 2 * time.Minute}
+	for i, w := range want {
+		if got := RetryDelay(i + 1); got != w {
+			t.Errorf("RetryDelay(%d) = %s, want %s", i+1, got, w)
+		}
+	}
+	if got := RetryDelay(1000); got != 2*time.Minute {
+		t.Errorf("RetryDelay(1000) = %s", got)
+	}
 }
