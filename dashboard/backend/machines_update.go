@@ -449,11 +449,11 @@ func (a *app) handleMachineUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h, ok := a.hypervisors.Get(m.Spec.HypervisorID)
-	if !ok || h.Libvirt == nil {
+	if !ok {
 		writeError(w, http.StatusConflict, "its hypervisor is gone")
 		return
 	}
-	p, err := planUpdate(m, u, h.Libvirt.AllowsNetwork)
+	p, err := planUpdate(m, u, h.AllowsNetwork)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

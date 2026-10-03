@@ -1,22 +1,24 @@
 # Hypervisors: nodes the Controller creates itself
 
-The Controller can be given hypervisors - libvirt/KVM hosts today - and
-create, power and destroy Janus nodes on them itself. A node it creates
+The Controller can be given hypervisors - libvirt/KVM hosts and
+Proxmox VE nodes - and create, power and destroy Janus nodes on them
+itself. A node it creates
 is admitted as soon as it registers, without the approval every other
 registration waits for: creating it was the approval.
 
 The Controller only ever acts on the virtual machines it created. Every
-one carries an ownership tag in its libvirt `<metadata>`: this
-Controller's ID (`<data-dir>/controller-id`) and the machine's. Every
-operation on a machine checks it first, so a lab Controller and a
-production one sharing a host never touch each other's machines, and
-neither touches anything else. On the host, a polkit policy makes
-libvirt itself enforce the same boundary (below).
+one carries an ownership tag - in its libvirt `<metadata>`, in its
+Proxmox notes: this Controller's ID (`<data-dir>/controller-id`) and the
+machine's. Every operation on a machine checks it first, so a lab
+Controller and a production one sharing a host never touch each other's
+machines, and neither touches anything else. On the host, the
+hypervisor itself enforces the same boundary: a polkit policy for
+libvirt, an API token whose rights cover one pool for Proxmox (below).
 
-Proxmox, VMware and Hyper-V are planned. Terraform (and OpenTofu,
+VMware and Hyper-V are planned. Terraform (and OpenTofu,
 Terragrunt) drive it with the Janus provider: [terraform.md](terraform.md).
 
-## What the host needs
+## What a libvirt host needs
 
 - libvirt with QEMU/KVM and OVMF. Tested with Debian 13: libvirt 11.3,
   QEMU 10.0.
@@ -305,9 +307,134 @@ those files with the account's own.
   whose SSH key the operator confirmed, never to whatever answers.
   Moving the hypervisor to another host means confirming its key again.
 
+## Preparing a Proxmox VE node
+
+The Controller talks to Proxmox VE's API with an API token. The token's
+rights cover:
+- one **resource pool**: its machines go in it, and the token sees no
+  other virtual machine at all - not even in a list;
+- the **storage** for the machines' disks, and a **directory storage**
+  of its own for the Janus images and the machines' NoCloud volumes (it
+  may delete its files there);
+- the **networks** it may use: a bridge (`vmbr0`) or a VLAN on one
+  (`vmbr0.20`) - Proxmox refuses the token any other VLAN;
+- reading the node's state.
+
+Like for libvirt, the Controller writes the preparation with the
+hypervisor's values: **Add hypervisor**, kind **Proxmox VE**, then
+**Show host preparation** once the required fields are filled in. Run
+it as root on the node. Step 4 shows the token's secret, once: paste it
+in the form as the token secret. The Controller keeps it in its data
+directory (`hypervisors/<id>/token`, 0600) and never shows it again.
+
+Its steps, here for the hypervisor `pve01`: node `pve01`, token
+`janus-ctl@pve!controller`, pool `janus`, disks on `local-lvm`, images
+on `janus-images`, networks `vmbr0.10` and `vmbr0.20`:
+
+### 1. The pool, and the image storage
+
+```sh
+pvesh get /pools/janus >/dev/null 2>&1 || pvesh create /pools --poolid janus --comment "Janus Controller: its machines"
+if ! pvesh get /storage/janus-images >/dev/null 2>&1; then
+    mkdir -p /var/lib/janus-images
+    pvesm add dir janus-images --path /var/lib/janus-images --content import,iso --nodes pve01
+fi
+pvesh get /storage/local-lvm >/dev/null 2>&1 || echo "warning: there's no storage local-lvm for the machines' disks" >&2
+```
+
+### 2. Roles: what the Controller may do
+
+One role per kind of object, each with only what the Controller uses -
+the least Proxmox VE 9 accepted, every privilege added after Proxmox
+refused without it:
+
+```sh
+role() { pveum role add "$1" --privs "$2" 2>/dev/null || pveum role modify "$1" --privs "$2"; }
+role JanusVM "VM.Allocate,VM.Audit,VM.Config.CDROM,VM.Config.CPU,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Console,VM.PowerMgmt"
+role JanusDisks "Datastore.AllocateSpace,Datastore.Audit"
+role JanusImages "Datastore.Allocate,Datastore.AllocateSpace,Datastore.AllocateTemplate,Datastore.Audit"
+role JanusNetwork "SDN.Use"
+role JanusNode "Sys.Audit"
+```
+
+- `VM.Config.Options` covers the machine's notes, where its ownership
+  tag is. Proxmox checks a machine's tags against the machine's own
+  rights, not its pool's, so the Controller sets the `janus` tag just
+  after creating it.
+- `Datastore.Allocate` on the image storage is what deleting a file
+  there takes. It also lets the token change that storage's settings:
+  it's the Controller's own.
+
+### 3. The Controller's user and its rights
+
+```sh
+pvesh get /access/users/janus-ctl@pve >/dev/null 2>&1 || pveum user add janus-ctl@pve --comment "Janus Controller"
+pveum acl modify /pool/janus --users janus-ctl@pve --roles JanusVM
+pveum acl modify /storage/local-lvm --users janus-ctl@pve --roles JanusDisks
+pveum acl modify /storage/janus-images --users janus-ctl@pve --roles JanusImages
+pveum acl modify /sdn/zones/localnetwork/vmbr0/10 --users janus-ctl@pve --roles JanusNetwork
+pveum acl modify /sdn/zones/localnetwork/vmbr0/20 --users janus-ctl@pve --roles JanusNetwork
+pveum acl modify /nodes/pve01 --users janus-ctl@pve --roles JanusNode
+```
+
+An untagged bridge gets `--propagate 0`: the bridge itself, not every
+VLAN on it.
+
+### 4. The API token
+
+```sh
+if pvesh get /access/users/janus-ctl@pve/token/controller >/dev/null 2>&1; then
+    echo "The token janus-ctl@pve!controller exists: its secret was shown when it was made. For a new one: pveum user token remove janus-ctl@pve controller, then this step again."
+else
+    pveum user token add janus-ctl@pve controller --privsep 0 --comment "Janus Controller"
+fi
+```
+
+`--privsep 0`: the token has its user's rights, the user nothing else.
+
+### 5. Check
+
+```sh
+pveum user permissions janus-ctl@pve
+f=/etc/pve/local/pveproxy-ssl.pem
+[ -e "$f" ] || f=/etc/pve/local/pve-ssl.pem
+openssl x509 -in "$f" -noout -fingerprint -sha256
+```
+
+### Trusting the API
+
+The Controller only talks to the API whose certificate the operator
+vouched for, never to whatever answers:
+- **its fingerprint**: once the hypervisor is added, its card reads the
+  certificate the API presents. Compare it with the node's own - step 5
+  prints it - and trust it. Another certificate later (a renewal, a
+  move) has to be confirmed again;
+- **or its CA**: paste the CA certificate that signs the API's in the
+  form. A certificate renewed by that CA stays trusted, and the address
+  must be one it names.
+
+### What the token can't do, and limits
+
+- It can't see, change or stop any virtual machine outside its pool.
+  The Controller reads one outside it as gone.
+- It can't put a machine on a VLAN or bridge it wasn't given.
+- **VM IDs**: by default, the cluster's next free one. **VM IDs** in the
+  form (`9000-9099`) keeps the Controller's machines in a range of their
+  own.
+- **The serial console** has one reader at a time, like on libvirt:
+  while the Controller watches a node register, Proxmox's own serial
+  console waits.
+- **SDN VNets** aren't supported yet: networks are bridges of the
+  `localnetwork` zone, with or without a VLAN.
+
 ## Adding the hypervisor
 
-In the Controller: **Hypervisors**, then **Add hypervisor**. You give it:
+In the Controller: **Hypervisors**, then **Add hypervisor**, and its
+kind. A Proxmox VE node takes its API URL, the node, the token (ID and
+secret), the pool, the two storages, the networks, and optionally a
+VM ID range and the API's CA; its card then has one step left, trusting
+the API's certificate ([Trusting the API](#trusting-the-api)). A
+libvirt host takes:
 - the SSH host;
 - the user;
 - the pool;
@@ -523,11 +650,11 @@ the one a Terraform provider needs, for the planned one:
 
 | Method and path | |
 |---|---|
-| `GET`, `POST /api/hypervisors` | list, add (`{name, kind: "libvirt", controller_address, libvirt: {host, user, socket, pool, networks, name_prefix}}`) |
-| `GET`, `PATCH`, `DELETE /api/hypervisors/{id}` | one; change (another host must be trusted again); remove (refused while it has machines) |
+| `GET`, `POST /api/hypervisors` | list, add (`{name, kind: "libvirt", controller_address, libvirt: {host, user, socket, pool, networks, name_prefix}}`, or `{name, kind: "proxmox", controller_address, token_secret, proxmox: {url, node, token_id, pool, storage, image_storage, networks, name_prefix, vmids, ca_cert}}`) - the token secret is never in an answer (`has_token_secret`) |
+| `GET`, `PATCH`, `DELETE /api/hypervisors/{id}` | one; change (another host or API address must be trusted again; a Proxmox token secret is kept unless one is given); remove (refused while it has machines) |
 | `POST /api/hypervisors/preparation` | what to run on the host for these settings (the add form's body, plus `id` for one already added: its key goes in): `{steps: [{title, about, script}], script, has_key}` |
-| `POST /api/hypervisors/{id}/probe` | the host key the host presents: `{host_key, fingerprint}` |
-| `POST /api/hypervisors/{id}/trust` | `{fingerprint}`: pins the host key, if the host presents that one |
+| `POST /api/hypervisors/{id}/probe` | what the host presents: `{host_key, fingerprint}` (libvirt), `{fingerprint, subject, issuer}` (the API's certificate, Proxmox) |
+| `POST /api/hypervisors/{id}/trust` | `{fingerprint}`: pins the host key or certificate, if the host presents that one |
 | `GET /api/hypervisors/{id}/status` | the host, CPU use, and each of its machines' state |
 | `GET`, `POST /api/machines` | list; create (`{name, hypervisor_id, vcpus, memory_mib, version, extensions, image: {url, sha256}, nics: [{network, name, mac, mode, addresses, gateway}], dns, ntp}`) |
 | `GET`, `DELETE /api/machines/{id}` | one (`?refresh=true`: read from its node and hypervisor first): `phase` is `pending`, `preparing-image`, `creating`, `waiting-registration`, `ready`, `updating`, `failed` or `destroying`; destroy (`?forget=true`: records only) |
@@ -556,6 +683,25 @@ privileged container (`hack/libvirt-host`), with the Controller inside it:
 
 The polkit policy can't run in a container: it's checked on a real host
 as shown in step 5.
+
+Proxmox VE can't run in CI either. Its driver has unit tests, and a test
+against a real node, skipped unless its environment is set - a token
+prepared as above, and a VM ID outside its pool, only ever read, to
+check the token can't see it:
+
+```sh
+JANUS_PVE_URL=https://pve01:8006 JANUS_PVE_NODE=pve01 \
+JANUS_PVE_TOKEN_ID='janus-ctl@pve!controller' JANUS_PVE_TOKEN_SECRET=... \
+JANUS_PVE_FINGERPRINT=AA:BB:... JANUS_PVE_POOL=janus JANUS_PVE_STORAGE=local-lvm \
+JANUS_PVE_IMAGE_STORAGE=janus-images JANUS_PVE_NETWORK=vmbr0.10 \
+JANUS_PVE_VMIDS=9100-9189 JANUS_PVE_IMAGE=janus.qcow2 JANUS_PVE_FOREIGN_VMID=100 \
+go test -run TestLive -v ./dashboard/backend/internal/hypervisor/proxmox/
+```
+
+It uploads the image, creates a machine, reads its console through a
+reset, changes its hardware (an interface added, then removed), checks
+another Controller's record and a machine outside the pool are refused,
+and destroys it.
 
 On a host without `/dev/net/tun`, a machine can't be plugged into a
 network, so the test can't boot it. The CI runners are such hosts: an

@@ -65,20 +65,52 @@ function CopyBlock({ label, value, rows = 2 }) {
 
 // --- hypervisor form (add / edit) ---
 
-const emptyHV = { name: '', host: '', user: 'janus-ctl', pool: 'janus', networks: '', name_prefix: '', socket: '', controller_address: '' }
+const emptyHV = {
+  kind: 'libvirt',
+  name: '',
+  controller_address: '',
+  networks: '',
+  name_prefix: '',
+  // libvirt
+  host: '',
+  user: 'janus-ctl',
+  pool: 'janus',
+  socket: '',
+  // Proxmox
+  url: '',
+  node: '',
+  token_id: 'janus-ctl@pve!controller',
+  token_secret: '',
+  pve_pool: 'janus',
+  storage: 'local-lvm',
+  image_storage: 'janus-images',
+  vmids: '',
+  ca_cert: '',
+}
 
 function toForm(hv) {
   if (!hv) return emptyHV
   const l = hv.libvirt || {}
+  const p = hv.proxmox || {}
   return {
+    ...emptyHV,
+    kind: hv.kind,
     name: hv.name,
+    controller_address: hv.controller_address || '',
+    networks: (l.networks || p.networks || []).join(', '),
+    name_prefix: l.name_prefix || p.name_prefix || '',
     host: l.host || '',
     user: l.user || '',
     pool: l.pool || '',
-    networks: (l.networks || []).join(', '),
-    name_prefix: l.name_prefix || '',
     socket: l.socket || '',
-    controller_address: hv.controller_address || '',
+    url: p.url || '',
+    node: p.node || '',
+    token_id: p.token_id || '',
+    pve_pool: p.pool || '',
+    storage: p.storage || '',
+    image_storage: p.image_storage || '',
+    vmids: p.vmids || '',
+    ca_cert: p.ca_cert || '',
   }
 }
 
@@ -89,11 +121,33 @@ function splitList(s) {
     .filter(Boolean)
 }
 
+// hvNetworks: the networks a hypervisor's machines may use, any kind.
+export function hvNetworks(hv) {
+  return hv?.libvirt?.networks || hv?.proxmox?.networks || []
+}
+
 function hvBody(f) {
+  const common = { name: f.name, kind: f.kind, controller_address: f.controller_address.trim() }
+  if (f.kind === 'proxmox') {
+    return {
+      ...common,
+      ...(f.token_secret.trim() ? { token_secret: f.token_secret.trim() } : {}),
+      proxmox: {
+        url: f.url.trim(),
+        node: f.node.trim(),
+        token_id: f.token_id.trim(),
+        pool: f.pve_pool.trim(),
+        storage: f.storage.trim(),
+        image_storage: f.image_storage.trim(),
+        networks: splitList(f.networks),
+        name_prefix: f.name_prefix.trim(),
+        vmids: f.vmids.trim(),
+        ca_cert: f.ca_cert.trim(),
+      },
+    }
+  }
   return {
-    name: f.name,
-    kind: 'libvirt',
-    controller_address: f.controller_address.trim(),
+    ...common,
     libvirt: {
       host: f.host.trim(),
       user: f.user.trim(),
@@ -105,8 +159,19 @@ function hvBody(f) {
   }
 }
 
-// What the host's files name: changed, the host needs preparing again.
-const PREPARED = ['user', 'pool', 'networks', 'name_prefix']
+// What a host's preparation names, per kind: changed, the host needs
+// preparing again. And what the preparation needs.
+const PREPARED = { libvirt: ['user', 'pool', 'networks', 'name_prefix'], proxmox: ['token_id', 'pve_pool', 'storage', 'image_storage', 'networks', 'node'] }
+const NEEDED = { libvirt: ['name', 'host', 'user', 'pool'], proxmox: ['name', 'url', 'node', 'token_id', 'pve_pool', 'storage', 'image_storage'] }
+
+function Field({ label, children }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      {children}
+    </label>
+  )
+}
 
 function HypervisorForm({ hv, onSaved, onClose }) {
   const [f, setF] = useState(() => toForm(hv))
@@ -114,9 +179,10 @@ function HypervisorForm({ hv, onSaved, onClose }) {
   const [prep, setPrep] = useState(false)
   const [busy, run] = useAction()
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
-  const ready = ['name', 'host', 'user', 'pool'].every((k) => f[k].trim()) && splitList(f.networks).length > 0
+  const pve = f.kind === 'proxmox'
+  const ready = NEEDED[f.kind].every((k) => f[k].trim()) && splitList(f.networks).length > 0
   const saved0 = toForm(hv)
-  const reprepare = hv && PREPARED.some((k) => (k === 'networks' ? splitList(f[k]).join() !== splitList(saved0[k]).join() : f[k].trim() !== saved0[k]))
+  const reprepare = hv && PREPARED[f.kind].some((k) => (k === 'networks' ? splitList(f[k]).join() !== splitList(saved0[k]).join() : f[k].trim() !== saved0[k]))
   const submit = async (e) => {
     e.preventDefault()
     setError(null)
@@ -134,6 +200,9 @@ function HypervisorForm({ hv, onSaved, onClose }) {
     )
     if (saved) onSaved(saved)
   }
+  const missing = pve
+    ? 'Fill in the name, API URL, node, token ID, pool, storages and networks first'
+    : 'Fill in the name, SSH host and user, pool and networks first'
   return (
     <Card
       title={hv ? `Edit ${hv.name}` : 'Add a hypervisor'}
@@ -145,48 +214,122 @@ function HypervisorForm({ hv, onSaved, onClose }) {
       }
     >
       <form className="stack" onSubmit={submit}>
+        {!hv && (
+          <Field label="Kind">
+            <select
+              value={f.kind}
+              onChange={(e) => {
+                setPrep(false)
+                setF({ ...f, kind: e.target.value })
+              }}
+            >
+              <option value="libvirt">libvirt / KVM - over SSH</option>
+              <option value="proxmox">Proxmox VE - its API, with a token</option>
+            </select>
+          </Field>
+        )}
         <p className="muted small" style={{ margin: 0 }}>
-          A libvirt/KVM host, reached over SSH as a dedicated user in its <code>libvirt</code> group. The Controller only ever acts on the virtual machines it
-          created, in the pool and on the networks listed here - <code>docs/hypervisors.md</code> sets the host up so that libvirt itself enforces it.
+          {pve ? (
+            <>
+              A Proxmox VE node, through its API with a token whose rights cover one pool, two storages and the networks listed here - nothing else, not even
+              seeing other virtual machines. <strong>Show host preparation</strong> sets it up, the token included.
+            </>
+          ) : (
+            <>
+              A libvirt/KVM host, reached over SSH as a dedicated user in its <code>libvirt</code> group. The Controller only ever acts on the virtual machines
+              it created, in the pool and on the networks listed here - the host&apos;s preparation makes libvirt itself enforce it.
+            </>
+          )}
         </p>
         <div className="grid grid-2">
-          <label className="field">
-            <span>Name</span>
-            <input value={f.name} onChange={set('name')} required placeholder="kvm01" />
-          </label>
-          <label className="field">
-            <span>SSH host (host or host:port)</span>
-            <input value={f.host} onChange={set('host')} required placeholder="kvm01.example.net" />
-          </label>
-          <label className="field">
-            <span>SSH user</span>
-            <input value={f.user} onChange={set('user')} required />
-          </label>
-          <label className="field">
-            <span>Storage pool (type dir)</span>
-            <input value={f.pool} onChange={set('pool')} required />
-          </label>
-          <label className="field">
-            <span>Networks machines may use (libvirt networks, comma-separated)</span>
-            <input value={f.networks} onChange={set('networks')} required placeholder="lan, dmz" />
-          </label>
-          <label className="field">
-            <span>Virtual machine name prefix (default janus-)</span>
-            <input value={f.name_prefix} onChange={set('name_prefix')} placeholder="janus-" />
-          </label>
-          <label className="field">
-            <span>Controller address its machines register at (default: this Controller&apos;s own guess)</span>
-            <input value={f.controller_address} onChange={set('controller_address')} placeholder="10.0.0.10:8443" />
-          </label>
-          <label className="field">
-            <span>libvirt socket on the host (default /var/run/libvirt/libvirt-sock)</span>
-            <input value={f.socket} onChange={set('socket')} placeholder="/var/run/libvirt/libvirt-sock" />
-          </label>
+          <Field label="Name">
+            <input value={f.name} onChange={set('name')} required placeholder={pve ? 'pve01' : 'kvm01'} />
+          </Field>
+          {pve ? (
+            <>
+              <Field label="API URL">
+                <input value={f.url} onChange={set('url')} required placeholder="https://pve01.example.net:8006" />
+              </Field>
+              <Field label="Node machines are created on">
+                <input value={f.node} onChange={set('node')} required placeholder="pve01" />
+              </Field>
+              <Field label="API token (user@realm!name)">
+                <input value={f.token_id} onChange={set('token_id')} required />
+              </Field>
+              <Field label={hv?.has_token_secret ? 'Token secret (kept - give one to replace it)' : 'Token secret (step 4 of the preparation shows it)'}>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={f.token_secret}
+                  onChange={set('token_secret')}
+                  required={!hv}
+                  placeholder={hv?.has_token_secret ? '••••••••' : 'xxxxxxxx-xxxx-…'}
+                />
+              </Field>
+              <Field label="Pool">
+                <input value={f.pve_pool} onChange={set('pve_pool')} required />
+              </Field>
+              <Field label="Storage for the disks">
+                <input value={f.storage} onChange={set('storage')} required />
+              </Field>
+              <Field label="Storage for the images (a directory, import and iso)">
+                <input value={f.image_storage} onChange={set('image_storage')} required />
+              </Field>
+              <Field label="Networks machines may use (bridge, or bridge.vlan; comma-separated)">
+                <input value={f.networks} onChange={set('networks')} required placeholder="vmbr0.10, vmbr0.20" />
+              </Field>
+              <Field label="Virtual machine name prefix (default janus-)">
+                <input value={f.name_prefix} onChange={set('name_prefix')} placeholder="janus-" />
+              </Field>
+              <Field label="VM IDs (first-last; default: the cluster's next free one)">
+                <input value={f.vmids} onChange={set('vmids')} placeholder="9000-9099" />
+              </Field>
+              <Field label="Controller address its machines register at (default: this Controller's own guess)">
+                <input value={f.controller_address} onChange={set('controller_address')} placeholder="10.0.0.10:8443" />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label="SSH host (host or host:port)">
+                <input value={f.host} onChange={set('host')} required placeholder="kvm01.example.net" />
+              </Field>
+              <Field label="SSH user">
+                <input value={f.user} onChange={set('user')} required />
+              </Field>
+              <Field label="Storage pool (type dir)">
+                <input value={f.pool} onChange={set('pool')} required />
+              </Field>
+              <Field label="Networks machines may use (libvirt networks, comma-separated)">
+                <input value={f.networks} onChange={set('networks')} required placeholder="lan, dmz" />
+              </Field>
+              <Field label="Virtual machine name prefix (default janus-)">
+                <input value={f.name_prefix} onChange={set('name_prefix')} placeholder="janus-" />
+              </Field>
+              <Field label="Controller address its machines register at (default: this Controller's own guess)">
+                <input value={f.controller_address} onChange={set('controller_address')} placeholder="10.0.0.10:8443" />
+              </Field>
+              <Field label="libvirt socket on the host (default /var/run/libvirt/libvirt-sock)">
+                <input value={f.socket} onChange={set('socket')} placeholder="/var/run/libvirt/libvirt-sock" />
+              </Field>
+            </>
+          )}
         </div>
-        {hv && f.host.trim() !== (hv.libvirt?.host || '') && <div className="notice warn">Another host: its host key will have to be confirmed again.</div>}
+        {pve && (
+          <Field label="CA certificate of the API (optional, PEM) - a certificate renewed now and then stays trusted; without it, you confirm the certificate's fingerprint once added">
+            <textarea rows={3} className="mono" value={f.ca_cert} onChange={set('ca_cert')} placeholder="-----BEGIN CERTIFICATE-----" />
+          </Field>
+        )}
+        {hv && !pve && f.host.trim() !== (hv.libvirt?.host || '') && (
+          <div className="notice warn">Another host: its host key will have to be confirmed again.</div>
+        )}
+        {hv && pve && f.url.trim() !== (hv.proxmox?.url || '') && !f.ca_cert.trim() && (
+          <div className="notice warn">Another address: its certificate will have to be confirmed again.</div>
+        )}
         {reprepare && (
           <div className="notice warn">
-            The host&apos;s sshd, nftables and polkit files name the account, pool, networks and prefix: prepare the host again with the new ones.
+            {pve
+              ? "The node's pool, storages, roles and rights name the token's user, pool, storages and networks: prepare it again with the new ones."
+              : "The host's sshd, nftables and polkit files name the account, pool, networks and prefix: prepare the host again with the new ones."}
           </div>
         )}
         <ErrorBox error={error} />
@@ -199,7 +342,7 @@ function HypervisorForm({ hv, onSaved, onClose }) {
             onClick={() => setPrep(!prep)}
             disabled={!ready && !prep}
             aria-expanded={prep}
-            title={ready ? 'What to run on the host, with these settings' : 'Fill in the name, SSH host and user, pool and networks first'}
+            title={ready ? 'What to run on the host, with these settings' : missing}
           >
             <ListChecks size={15} /> {prep ? 'Hide host preparation' : 'Show host preparation'}
           </button>
@@ -254,10 +397,10 @@ function HostPrep({ body }) {
     <div className="stack host-prep">
       <div className="spread" style={{ alignItems: 'flex-start', gap: '0.75rem' }}>
         <div>
-          <strong>Preparing {body.libvirt.host}</strong>
+          <strong>Preparing {body.proxmox ? `node ${body.proxmox.node}` : body.libvirt.host}</strong>
           <div className="muted small">
-            As root on the host: run <code>sh {file}</code>, or paste it into <code>sudo sh</code>. Each step can also run alone, and running it again is
-            harmless.
+            As root on the {body.proxmox ? 'node' : 'host'}: run <code>sh {file}</code>, or paste it into <code>sudo sh</code>. Each step can also run alone,
+            and running it again is harmless.
           </div>
         </div>
         <div className="row" style={{ flexShrink: 0 }}>
@@ -269,7 +412,12 @@ function HostPrep({ body }) {
           </button>
         </div>
       </div>
-      {!prep.has_key && (
+      {body.proxmox && (
+        <div className="notice small">
+          Step 4 shows the API token&apos;s secret, once: paste it in the form as the token secret. The Controller keeps it and never shows it again.
+        </div>
+      )}
+      {!prep.has_key && !body.proxmox && (
         <div className="notice small">
           The Controller&apos;s SSH key isn&apos;t in it yet: it&apos;s made when the hypervisor is added. Its card then gives the command that authorizes it -
           or this preparation again, key included.
@@ -295,9 +443,28 @@ function HostPrep({ body }) {
 
 // --- trusting a new hypervisor ---
 
+function PrepModal({ hv, onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal card wide host-prep-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="card-header">
+          <div className="card-title">
+            <ListChecks size={16} /> {hv.name}: preparing the host
+          </div>
+          <button className="ghost icon" onClick={onClose} aria-label="Close">
+            <X size={16} />
+          </button>
+        </div>
+        <HostPrep body={{ ...hvBody(toForm(hv)), id: hv.id }} />
+      </div>
+    </div>
+  )
+}
+
 function TrustSteps({ hv, onTrusted }) {
   const [probe, setProbe] = useState(null)
   const [prep, setPrep] = useState(false)
+  const pve = hv.kind === 'proxmox'
   const user = hv.libvirt?.user
   const keyFile = `~${user}/.ssh/authorized_keys`
   const authorize = `grep -qxF '${hv.authorized_key}' ${keyFile} || echo '${hv.authorized_key}' >> ${keyFile}`
@@ -317,42 +484,38 @@ function TrustSteps({ hv, onTrusted }) {
       const saved = await postJSON(`/api/hypervisors/${hv.id}/trust`, { fingerprint: probe.fingerprint })
       onTrusted(saved)
     }, `${hv.name} trusted`)
+  const prepButton = (
+    <div className="row">
+      <button type="button" className="small ghost" onClick={() => setPrep(!prep)} aria-expanded={prep}>
+        <ListChecks size={14} /> Host not prepared yet? Show host preparation
+      </button>
+    </div>
+  )
   return (
     <div className="stack trust-steps">
-      <div>
-        <strong>1. Let the Controller in.</strong>{' '}
-        <span className="muted small">
-          On the host, as root - it adds the Controller&apos;s key to <code>{keyFile}</code>:
-        </span>
-      </div>
-      <CopyBlock label="Command" value={authorize} rows={4} />
-      <div className="row">
-        <button type="button" className="small ghost" onClick={() => setPrep(!prep)} aria-expanded={prep}>
-          <ListChecks size={14} /> Host not prepared yet? Show host preparation
-        </button>
-      </div>
-      {prep && (
-        <div className="modal-backdrop" onClick={() => setPrep(false)}>
-          <div className="modal card wide host-prep-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <div className="card-header">
-              <div className="card-title">
-                <ListChecks size={16} /> {hv.name}: preparing the host
-              </div>
-              <button className="ghost icon" onClick={() => setPrep(false)} aria-label="Close">
-                <X size={16} />
-              </button>
-            </div>
-            <HostPrep body={{ ...hvBody(toForm(hv)), id: hv.id }} />
+      {prep && <PrepModal hv={hv} onClose={() => setPrep(false)} />}
+      {pve ? (
+        prepButton
+      ) : (
+        <>
+          <div>
+            <strong>1. Let the Controller in.</strong>{' '}
+            <span className="muted small">
+              On the host, as root - it adds the Controller&apos;s key to <code>{keyFile}</code>:
+            </span>
           </div>
-        </div>
+          <CopyBlock label="Command" value={authorize} rows={4} />
+          {prepButton}
+        </>
       )}
       <div>
-        <strong>2. Confirm the host is the right one.</strong> <span className="muted small">The Controller never trusts a host key it was simply shown.</span>
+        <strong>{pve ? 'Confirm the API is the right one.' : '2. Confirm the host is the right one.'}</strong>{' '}
+        <span className="muted small">The Controller never trusts a {pve ? 'certificate' : 'host key'} it was simply shown.</span>
       </div>
       {!probe ? (
         <div>
           <button className="small" onClick={readKey} disabled={busy}>
-            <KeyRound size={14} /> Read the host key
+            <KeyRound size={14} /> {pve ? 'Read the certificate' : 'Read the host key'}
           </button>
         </div>
       ) : (
@@ -361,12 +524,23 @@ function TrustSteps({ hv, onTrusted }) {
             <Fingerprint size={16} />
             <code className="fingerprint">{probe.fingerprint}</code>
           </div>
+          {probe.subject && (
+            <div className="muted small mono" style={{ overflowWrap: 'anywhere' }}>
+              {probe.subject}
+              <br />
+              issued by {probe.issuer}
+            </div>
+          )}
           <div className="muted small">
-            Compare it with the host&apos;s own, on the host: <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code>
+            Compare it with the {pve ? "node's own, on the node" : "host's own, on the host"}:{' '}
+            <code>
+              {pve ? 'openssl x509 -noout -fingerprint -sha256 -in /etc/pve/local/pveproxy-ssl.pem' : 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'}
+            </code>
+            {pve && " (pve-ssl.pem without a certificate of your own) - the preparation's last step prints it."}
           </div>
           <div className="row">
             <button className="primary small" onClick={trust} disabled={busy}>
-              It matches - trust this host
+              It matches - trust this {pve ? 'certificate' : 'host'}
             </button>
             <button className="small ghost" onClick={() => setProbe(null)} disabled={busy}>
               Cancel
@@ -387,7 +561,7 @@ function pct(used, total) {
 
 function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
   const host = status?.host
-  const authError = status?.error && /unable to authenticate|permission denied \(publickey/i.test(status.error)
+  const authError = status?.error && /unable to authenticate|permission denied \(publickey|401|authentication failure|invalid token/i.test(status.error)
   let badge = <Badge>checking…</Badge>
   if (!hv.trusted) badge = <Badge tone="warn">to set up</Badge>
   else if (status?.error)
@@ -408,7 +582,9 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
         <div style={{ minWidth: 0 }}>
           <div className="node-card-name">{hv.name}</div>
           <div className="muted small mono">
-            {hv.libvirt?.user}@{hv.libvirt?.host} · libvirt
+            {hv.kind === 'proxmox'
+              ? `${hv.proxmox?.node} · ${hv.proxmox?.token_id?.split('!')[0]} · Proxmox VE`
+              : `${hv.libvirt?.user}@${hv.libvirt?.host} · libvirt`}
           </div>
         </div>
         {badge}
@@ -417,7 +593,13 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
       {hv.trusted && status?.error && (
         <div className="error-box small">
           {status.error}
-          {authError && <div style={{ marginTop: '0.4rem' }}>Add the Controller&apos;s public key to the user&apos;s authorized_keys (Edit shows it).</div>}
+          {authError && (
+            <div style={{ marginTop: '0.4rem' }}>
+              {hv.kind === 'proxmox'
+                ? "Check the API token's ID and secret (Edit)."
+                : "Add the Controller's public key to the user's authorized_keys (Edit shows it)."}
+            </div>
+          )}
         </div>
       )}
       {host && (
@@ -444,7 +626,7 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
               <Meter value={host.memory_total - host.memory_free} max={host.memory_total} />
             </dd>
             <dt>
-              <HardDrive size={13} /> Pool
+              <HardDrive size={13} /> {hv.kind === 'proxmox' ? 'Storage' : 'Pool'}
             </dt>
             <dd>
               {host.storage.error ? (
@@ -505,7 +687,7 @@ const MODES = [
 ]
 
 function newNIC(hv, i) {
-  return { network: hv?.libvirt?.networks?.[0] || '', name: `eth${i}`, mode: 'static', address: '', gateway: '' }
+  return { network: hvNetworks(hv)[0] || '', name: `eth${i}`, mode: 'static', address: '', gateway: '' }
 }
 
 function CreateMachineForm({ hypervisors, onCreated, onClose }) {
@@ -535,7 +717,7 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
   const pickHV = (id) => {
     setHvId(id)
     const next = usable.find((h) => h.id === id)
-    setNics(nics.map((n) => (next?.libvirt?.networks?.includes(n.network) ? n : { ...n, network: next?.libvirt?.networks?.[0] || '' })))
+    setNics(nics.map((n) => (hvNetworks(next).includes(n.network) ? n : { ...n, network: hvNetworks(next)[0] || '' })))
   }
 
   const submit = async (e) => {
@@ -618,7 +800,7 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
             {nics.map((n, i) => (
               <div key={i} className="nic-row">
                 <select value={n.network} onChange={(e) => setNIC(i, { network: e.target.value })} aria-label="Network">
-                  {(hv?.libvirt?.networks || []).map((net) => (
+                  {hvNetworks(hv).map((net) => (
                     <option key={net} value={net}>
                       {net}
                     </option>
@@ -855,7 +1037,7 @@ const blankNIC = (networks, i) => ({ network: networks[0] || '', name: `eth${i}`
 // changes them - only an interface added or moved gets its addresses
 // here, since it needs some to be of any use.
 function EditMachine({ m, hv, onClose, onSaved }) {
-  const networks = hv?.libvirt?.networks || []
+  const networks = hvNetworks(hv)
   const [vcpus, setVcpus] = useState(m.spec.vcpus)
   const [memory, setMemory] = useState(m.spec.memory_mib)
   const [nics, setNics] = useState(() =>
@@ -1226,7 +1408,7 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
           <button className="small" onClick={() => setForm('add')}>
             Add one
           </button>{' '}
-          - a libvirt/KVM host the Controller creates its nodes on.
+          - a libvirt/KVM host or a Proxmox VE node the Controller creates its nodes on.
         </div>
       )}
       <div className="node-grid">

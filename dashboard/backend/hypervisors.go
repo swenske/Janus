@@ -14,6 +14,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor/libvirt"
+	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor/proxmox"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 )
 
@@ -42,6 +43,8 @@ var newDriver = func(h *hypervisor.Hypervisor, controllerID string) (hypervisor.
 	switch h.Kind {
 	case hypervisor.KindLibvirt:
 		return libvirt.New(h, controllerID)
+	case hypervisor.KindProxmox:
+		return proxmox.New(h, controllerID)
 	}
 	return nil, fmt.Errorf("unknown hypervisor kind %q", h.Kind)
 }
@@ -52,23 +55,37 @@ type hypervisorView struct {
 	Kind              hypervisor.Kind           `json:"kind"`
 	ControllerAddress string                    `json:"controller_address,omitempty"`
 	Libvirt           *hypervisor.LibvirtConfig `json:"libvirt,omitempty"`
+	Proxmox           *hypervisor.ProxmoxConfig `json:"proxmox,omitempty"`
 	// AuthorizedKey is the line to add to the hypervisor user's
-	// ~/.ssh/authorized_keys.
-	AuthorizedKey      string    `json:"authorized_key"`
-	Trusted            bool      `json:"trusted"`
-	HostKeyFingerprint string    `json:"host_key_fingerprint,omitempty"`
-	Machines           int       `json:"machines"`
-	CreatedAt          time.Time `json:"created_at"`
+	// ~/.ssh/authorized_keys (libvirt).
+	AuthorizedKey string `json:"authorized_key,omitempty"`
+	Trusted       bool   `json:"trusted"`
+	// HostKeyFingerprint is the pinned SSH host key's (libvirt) or API
+	// certificate's (Proxmox) fingerprint; CASubject the CA trusted
+	// instead (Proxmox).
+	HostKeyFingerprint string `json:"host_key_fingerprint,omitempty"`
+	CASubject          string `json:"ca_subject,omitempty"`
+	// HasTokenSecret: a Proxmox token's secret is kept (never shown).
+	HasTokenSecret bool      `json:"has_token_secret,omitempty"`
+	Machines       int       `json:"machines"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 func (a *app) hypervisorView(h *hypervisor.Hypervisor) hypervisorView {
 	v := hypervisorView{
-		ID: h.ID, Name: h.Name, Kind: h.Kind, ControllerAddress: h.ControllerAddress, Libvirt: h.Libvirt,
-		AuthorizedKey: h.AuthorizedKey(), CreatedAt: h.CreatedAt,
+		ID: h.ID, Name: h.Name, Kind: h.Kind, ControllerAddress: h.ControllerAddress, Libvirt: h.Libvirt, Proxmox: h.Proxmox,
+		CreatedAt: h.CreatedAt, Trusted: h.Trusted(),
 	}
-	if h.Libvirt != nil && h.Libvirt.HostKey != "" {
+	if h.Libvirt != nil {
+		v.AuthorizedKey = h.AuthorizedKey()
 		if key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(h.Libvirt.HostKey)); err == nil {
-			v.Trusted, v.HostKeyFingerprint = true, ssh.FingerprintSHA256(key)
+			v.HostKeyFingerprint = ssh.FingerprintSHA256(key)
+		}
+	}
+	if p := h.Proxmox; p != nil {
+		v.HostKeyFingerprint, v.HasTokenSecret = p.Fingerprint, h.TokenSecret != ""
+		if ca, err := hypervisor.ParseCACert(p.CACert); err == nil {
+			v.CASubject = ca.Subject.String()
 		}
 	}
 	for _, m := range a.machines.List() {
@@ -88,12 +105,38 @@ func (a *app) handleHypervisorList(w http.ResponseWriter, _ *http.Request) {
 }
 
 // hypervisorRequest is what can be set on a hypervisor - never its key,
-// nor its host key (that's .../trust's job).
+// nor its host key or certificate (that's .../trust's job). A Proxmox
+// token's secret can only be written.
 type hypervisorRequest struct {
 	Name              string                    `json:"name"`
 	Kind              hypervisor.Kind           `json:"kind"`
 	ControllerAddress string                    `json:"controller_address"`
 	Libvirt           *hypervisor.LibvirtConfig `json:"libvirt"`
+	Proxmox           *hypervisor.ProxmoxConfig `json:"proxmox"`
+	TokenSecret       string                    `json:"token_secret,omitempty"`
+}
+
+// hypervisor is the request's hypervisor: its kind (from its settings
+// when unset), nothing the operator didn't vouch for through .../trust.
+func (req *hypervisorRequest) hypervisor() *hypervisor.Hypervisor {
+	if req.Kind == "" {
+		req.Kind = hypervisor.KindLibvirt
+		if req.Proxmox != nil {
+			req.Kind = hypervisor.KindProxmox
+		}
+	}
+	h := &hypervisor.Hypervisor{Name: strings.TrimSpace(req.Name), Kind: req.Kind, ControllerAddress: req.ControllerAddress, TokenSecret: req.TokenSecret}
+	if req.Libvirt != nil {
+		l := *req.Libvirt
+		l.HostKey = ""
+		h.Libvirt = &l
+	}
+	if req.Proxmox != nil {
+		p := *req.Proxmox
+		p.Fingerprint = ""
+		h.Proxmox = &p
+	}
+	return h
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -118,13 +161,7 @@ func (a *app) handleHypervisorCreate(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if req.Kind == "" {
-		req.Kind = hypervisor.KindLibvirt
-	}
-	if req.Libvirt != nil {
-		req.Libvirt.HostKey = ""
-	}
-	h := &hypervisor.Hypervisor{Name: strings.TrimSpace(req.Name), Kind: req.Kind, ControllerAddress: req.ControllerAddress, Libvirt: req.Libvirt}
+	h := req.hypervisor()
 	if err := a.hypervisors.Add(h); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -160,7 +197,17 @@ func (a *app) handleHypervisorUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next := *h
-	next.Name, next.ControllerAddress = strings.TrimSpace(req.Name), req.ControllerAddress
+	next.Name, next.ControllerAddress, next.TokenSecret = strings.TrimSpace(req.Name), req.ControllerAddress, req.TokenSecret
+	if req.Proxmox != nil && h.Proxmox != nil {
+		p := *req.Proxmox
+		// The pinned certificate belongs to the API's address: another
+		// one must be trusted again.
+		p.Fingerprint = h.Proxmox.Fingerprint
+		if p.Address() != h.Proxmox.Address() {
+			p.Fingerprint = ""
+		}
+		next.Proxmox = &p
+	}
 	if req.Libvirt != nil && h.Libvirt != nil {
 		l := *req.Libvirt
 		// The pinned host key belongs to the host: another host must be
@@ -222,15 +269,7 @@ func (a *app) handleHypervisorPreparation(w http.ResponseWriter, r *http.Request
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if req.Kind == "" {
-		req.Kind = hypervisor.KindLibvirt
-	}
-	h := &hypervisor.Hypervisor{Name: strings.TrimSpace(req.Name), Kind: req.Kind, ControllerAddress: req.ControllerAddress, Libvirt: req.Libvirt}
-	if h.Libvirt != nil {
-		l := *h.Libvirt
-		l.HostKey = ""
-		h.Libvirt = &l
-	}
+	h := req.hypervisor()
 	if err := h.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -244,42 +283,67 @@ func (a *app) handleHypervisorPreparation(w http.ResponseWriter, r *http.Request
 		}
 		key = saved.AuthorizedKey()
 	}
-	steps := libvirt.HostPreparation(h.Name, h.Libvirt, key)
-	writeJSON(w, http.StatusOK, preparationView{Steps: steps, Script: libvirt.PreparationScript(h.Name, steps), HasKey: key != ""})
-}
-
-type hostKeyView struct {
-	HostKey     string `json:"host_key"`
-	Fingerprint string `json:"fingerprint"`
-}
-
-func probe(ctx context.Context, h *hypervisor.Hypervisor) (ssh.PublicKey, error) {
-	if h.Libvirt == nil {
-		return nil, errors.New("only libvirt hypervisors are reached over SSH")
+	var steps []hypervisor.PrepStep
+	switch h.Kind {
+	case hypervisor.KindProxmox:
+		steps, key = proxmox.HostPreparation(h.Name, h.Proxmox), ""
+	default:
+		steps = libvirt.HostPreparation(h.Name, h.Libvirt, key)
 	}
+	writeJSON(w, http.StatusOK, preparationView{Steps: steps, Script: hypervisor.PreparationScript(h.Name, steps), HasKey: key != ""})
+}
+
+// hostKeyView is what a hypervisor presents: its SSH host key
+// (libvirt), or its API's certificate (Proxmox: Subject, Issuer).
+type hostKeyView struct {
+	HostKey     string `json:"host_key,omitempty"`
+	Fingerprint string `json:"fingerprint"`
+	Subject     string `json:"subject,omitempty"`
+	Issuer      string `json:"issuer,omitempty"`
+}
+
+// probe reads what the hypervisor presents - trusting nothing yet; pin
+// records it as trusted on a hypervisor.
+func probe(ctx context.Context, h *hypervisor.Hypervisor) (hostKeyView, func(*hypervisor.Hypervisor), error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	return libvirt.ProbeHostKey(ctx, h.Libvirt.SSHAddress())
+	switch {
+	case h.Libvirt != nil:
+		key, err := libvirt.ProbeHostKey(ctx, h.Libvirt.SSHAddress())
+		if err != nil {
+			return hostKeyView{}, nil, err
+		}
+		line := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+		return hostKeyView{HostKey: line, Fingerprint: ssh.FingerprintSHA256(key)}, func(h *hypervisor.Hypervisor) { h.Libvirt.HostKey = line }, nil
+	case h.Proxmox != nil:
+		cert, err := proxmox.ProbeCertificate(ctx, h.Proxmox)
+		if err != nil {
+			return hostKeyView{}, nil, err
+		}
+		fp := proxmox.Fingerprint(cert.Raw)
+		return hostKeyView{Fingerprint: fp, Subject: cert.Subject.String(), Issuer: cert.Issuer.String()}, func(h *hypervisor.Hypervisor) { h.Proxmox.Fingerprint = fp }, nil
+	}
+	return hostKeyView{}, nil, errors.New("nothing to read from this hypervisor")
 }
 
-// handleHypervisorProbe reads the host key the hypervisor presents -
-// trusting nothing yet.
+// handleHypervisorProbe reads the host key or certificate the
+// hypervisor presents - trusting nothing yet.
 func (a *app) handleHypervisorProbe(w http.ResponseWriter, r *http.Request) {
 	h, ok := a.getHypervisor(w, r)
 	if !ok {
 		return
 	}
-	key, err := probe(r.Context(), h)
+	v, _, err := probe(r.Context(), h)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, hostKeyView{HostKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))), Fingerprint: ssh.FingerprintSHA256(key)})
+	writeJSON(w, http.StatusOK, v)
 }
 
-// handleHypervisorTrust pins the host key - only the one the host
-// presents now, and only if it's the one whose fingerprint the operator
-// confirmed.
+// handleHypervisorTrust pins the host key or certificate - only the one
+// the host presents now, and only if it's the one whose fingerprint the
+// operator confirmed.
 func (a *app) handleHypervisorTrust(w http.ResponseWriter, r *http.Request) {
 	h, ok := a.getHypervisor(w, r)
 	if !ok {
@@ -291,16 +355,20 @@ func (a *app) handleHypervisorTrust(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	key, err := probe(r.Context(), h)
+	v, pin, err := probe(r.Context(), h)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	if got := ssh.FingerprintSHA256(key); got != strings.TrimSpace(req.Fingerprint) {
-		writeError(w, http.StatusConflict, fmt.Sprintf("the host now presents %s, not the confirmed %s - nothing was trusted", got, req.Fingerprint))
+	confirmed := strings.TrimSpace(req.Fingerprint)
+	if h.Proxmox != nil {
+		confirmed = hypervisor.NormalizeFingerprint(confirmed)
+	}
+	if v.Fingerprint != confirmed {
+		writeError(w, http.StatusConflict, fmt.Sprintf("the host now presents %s, not the confirmed %s - nothing was trusted", v.Fingerprint, req.Fingerprint))
 		return
 	}
-	h.Libvirt.HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+	pin(h)
 	if err := a.hypervisors.Update(h); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -391,7 +459,9 @@ func (a *app) hypervisorStatus(ctx context.Context, h *hypervisor.Hypervisor) *h
 		return st
 	}
 	st.Host = host
-	if e.total > 0 && host.CPUTotalNs > e.total && host.CPUBusyNs >= e.busy {
+	if host.CPUUsage != nil {
+		st.CPUPercent = 100 * *host.CPUUsage
+	} else if e.total > 0 && host.CPUTotalNs > e.total && host.CPUBusyNs >= e.busy {
 		st.CPUPercent = 100 * float64(host.CPUBusyNs-e.busy) / float64(host.CPUTotalNs-e.total)
 	}
 	e.busy, e.total = host.CPUBusyNs, host.CPUTotalNs

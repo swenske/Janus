@@ -3,12 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -473,4 +479,75 @@ func TestHypervisorPreparation(t *testing.T) {
 	if rec = call(t, a.handleHypervisorPreparation, "POST", "/api/hypervisors/preparation", pattern, form); rec.Code != http.StatusBadRequest {
 		t.Errorf("a user name with a space: %d %s", rec.Code, rec.Body)
 	}
+}
+
+// A Proxmox hypervisor: its token's secret is written, never read back,
+// and kept when not given again; its certificate is only trusted
+// through .../trust - or a CA the operator gives.
+func TestProxmoxHypervisorAPI(t *testing.T) {
+	a, _ := newTestApp(t)
+	body := map[string]any{"name": "pve1", "token_secret": "s3cr3t-0000", "proxmox": map[string]any{
+		"url": "https://pve1.example.net", "node": "pve1", "token_id": "janus-ctl@pve!controller", "pool": "janus",
+		"storage": "local-lvm", "image_storage": "janus-images", "networks": []string{"vmbr0.10"},
+		"fingerprint": strings.Repeat("AB:", 31) + "AB",
+	}}
+	rec := call(t, a.handleHypervisorCreate, "POST", "/api/hypervisors", "POST /api/hypervisors", body)
+	if rec.Code != http.StatusCreated || strings.Contains(rec.Body.String(), "s3cr3t") {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	var v hypervisorView
+	_ = json.Unmarshal(rec.Body.Bytes(), &v)
+	if v.Kind != hypervisor.KindProxmox || v.Trusted || !v.HasTokenSecret || v.HostKeyFingerprint != "" || v.AuthorizedKey != "" {
+		t.Fatalf("view: %+v", v)
+	}
+	h, _ := a.hypervisors.Get(v.ID)
+	if h.TokenSecret != "s3cr3t-0000" || h.Proxmox.Fingerprint != "" {
+		t.Fatalf("stored: secret %q, fingerprint %q", h.TokenSecret, h.Proxmox.Fingerprint)
+	}
+	if info, err := os.Stat(filepath.Join(a.dataDir, "hypervisors", v.ID, "token")); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("token file: %v %v", info, err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(a.dataDir, "hypervisors", v.ID, "meta.json")); strings.Contains(string(raw), "s3cr3t") {
+		t.Fatal("the secret is in meta.json")
+	}
+
+	// Trusted by a CA: given with the settings; the secret stays.
+	caPEM, _, _ := testCA(t)
+	delete(body, "token_secret")
+	body["proxmox"].(map[string]any)["ca_cert"] = caPEM
+	rec = call(t, a.handleHypervisorUpdate, "PATCH", "/api/hypervisors/"+v.ID, "PATCH /api/hypervisors/{id}", body)
+	v = hypervisorView{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &v)
+	if rec.Code != http.StatusOK || !v.Trusted || v.CASubject == "" || !v.HasTokenSecret {
+		t.Fatalf("with a CA: %d %+v", rec.Code, v)
+	}
+	if h, _ = a.hypervisors.Get(v.ID); h.TokenSecret != "s3cr3t-0000" {
+		t.Fatalf("secret after an update without one: %q", h.TokenSecret)
+	}
+
+	rec = call(t, a.handleHypervisorPreparation, "POST", "/api/hypervisors/preparation", "POST /api/hypervisors/preparation", body)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "pveum acl modify /pool/janus") {
+		t.Fatalf("preparation: %d %s", rec.Code, rec.Body)
+	}
+	// What Add refuses, the preparation refuses too.
+	body["proxmox"].(map[string]any)["networks"] = []string{"vmbr0.10; reboot"}
+	if rec = call(t, a.handleHypervisorPreparation, "POST", "/api/hypervisors/preparation", "POST /api/hypervisors/preparation", body); rec.Code != http.StatusBadRequest {
+		t.Errorf("a network with a command: %d", rec.Code)
+	}
+}
+
+// testCA is a CA certificate (PEM).
+func testCA(t *testing.T) (string, *x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "test CA"}, NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, _ := x509.ParseCertificate(der)
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), cert, key
 }

@@ -46,9 +46,16 @@ const (
 	// factoryBuildTimeout bounds the wait for the image factory to build
 	// a schematic's images.
 	factoryBuildTimeout = 60 * time.Minute
-	// vmImageFile is the release asset for libvirt (image/kvm).
-	vmImageFile = "janus-kvm.qcow2"
 )
+
+// vmImageFile is the release (or image factory) asset for a kind of
+// hypervisor - the same disk, named as the site offers it.
+func vmImageFile(h *hypervisor.Hypervisor) string {
+	if h.Kind == hypervisor.KindProxmox {
+		return "janus.qcow2" // image/kvm-proxmox
+	}
+	return "janus-kvm.qcow2" // image/kvm
+}
 
 type machineRunner struct {
 	a *app
@@ -280,7 +287,7 @@ func (r *machineRunner) create(ctx context.Context, id string) error {
 	}
 	spec := hypervisor.MachineSpec{
 		MachineID: id,
-		Name:      h.Libvirt.Prefix() + m.Spec.Name,
+		Name:      h.Prefix() + m.Spec.Name,
 		VCPUs:     m.Spec.VCPUs,
 		MemoryMiB: m.Spec.MemoryMiB,
 		Image:     img,
@@ -334,7 +341,11 @@ func (r *machineRunner) resolveImage(ctx context.Context, m *machines.Machine) (
 	deadline := time.Now().Add(factoryBuildTimeout)
 	reported := false
 	for {
-		vi, err := nodeproxy.ResolveVMImage(ctx, m.Spec.Version, m.Spec.Extensions, vmImageFile)
+		h, ok := r.a.hypervisors.Get(m.Spec.HypervisorID)
+		if !ok {
+			return nil, hypervisor.Image{}, errors.New("its hypervisor no longer exists")
+		}
+		vi, err := nodeproxy.ResolveVMImage(ctx, m.Spec.Version, m.Spec.Extensions, vmImageFile(h))
 		if err != nil {
 			return nil, hypervisor.Image{}, fmt.Errorf("find the image: %w", err)
 		}
@@ -590,8 +601,8 @@ func (a *app) checkSpec(spec *machines.Spec) error {
 	if !ok {
 		return fmt.Errorf("no such hypervisor %q", spec.HypervisorID)
 	}
-	if h.Libvirt == nil || h.Libvirt.HostKey == "" {
-		return fmt.Errorf("hypervisor %s isn't trusted yet: confirm its host key first", h.Name)
+	if !h.Trusted() {
+		return fmt.Errorf("hypervisor %s isn't trusted yet: confirm its host key or certificate first", h.Name)
 	}
 	for _, m := range a.machines.List() {
 		if m.Spec.Name == spec.Name {
@@ -632,8 +643,8 @@ func (a *app) checkSpec(spec *machines.Spec) error {
 	seen := map[string]bool{}
 	for i := range spec.NICs {
 		n := &spec.NICs[i]
-		if !h.Libvirt.AllowsNetwork(n.Network) {
-			return fmt.Errorf("network %q isn't one this hypervisor allows (%s)", n.Network, strings.Join(h.Libvirt.Networks, ", "))
+		if !h.AllowsNetwork(n.Network) {
+			return fmt.Errorf("network %q isn't one this hypervisor allows (%s)", n.Network, strings.Join(h.Networks(), ", "))
 		}
 		if n.Name == "" {
 			n.Name = fmt.Sprintf("eth%d", i)

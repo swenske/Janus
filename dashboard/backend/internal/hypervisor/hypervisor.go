@@ -80,10 +80,13 @@ type HostInfo struct {
 	CPUMHz            int    `json:"cpu_mhz"`
 	// Cumulative CPU time over all CPUs, nanoseconds: the busy share
 	// between two samples is the CPU usage (computed by the caller).
-	CPUBusyNs   uint64 `json:"-"`
-	CPUTotalNs  uint64 `json:"-"`
-	MemoryTotal uint64 `json:"memory_total"` // bytes
-	MemoryFree  uint64 `json:"memory_free"`  // bytes
+	CPUBusyNs  uint64 `json:"-"`
+	CPUTotalNs uint64 `json:"-"`
+	// CPUUsage, when the hypervisor gives it (Proxmox), is the share of
+	// CPU busy right now, 0 to 1 - instead of the cumulative times.
+	CPUUsage    *float64 `json:"-"`
+	MemoryTotal uint64   `json:"memory_total"` // bytes
+	MemoryFree  uint64   `json:"memory_free"`  // bytes
 	// Storage is the pool new machines' disks go to.
 	Storage StorageInfo `json:"storage"`
 	// Networks are the ones machines may be attached to, as configured.

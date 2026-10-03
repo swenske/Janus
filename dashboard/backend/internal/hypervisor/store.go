@@ -32,9 +32,13 @@ type Hypervisor struct {
 	// Controller's own guess (-advertise-address and -register-addr).
 	ControllerAddress string         `json:"controller_address,omitempty"`
 	Libvirt           *LibvirtConfig `json:"libvirt,omitempty"`
+	Proxmox           *ProxmoxConfig `json:"proxmox,omitempty"`
 	CreatedAt         time.Time      `json:"created_at"`
 
 	SSHKey ed25519.PrivateKey `json:"-"`
+	// TokenSecret is a Proxmox API token's secret - kept in its own
+	// file (token, 0600), never shown.
+	TokenSecret string `json:"-"`
 }
 
 // LibvirtConfig reaches a libvirt daemon over SSH, as a dedicated user
@@ -151,8 +155,15 @@ func (h *Hypervisor) Validate() error {
 				return fmt.Errorf("host key: %w", err)
 			}
 		}
+	case KindProxmox:
+		if h.Proxmox == nil {
+			return errors.New("the Proxmox settings are required")
+		}
+		if err := h.Proxmox.validate(); err != nil {
+			return err
+		}
 	default:
-		return fmt.Errorf("unknown kind %q (want %q)", h.Kind, KindLibvirt)
+		return fmt.Errorf("unknown kind %q (want %q or %q)", h.Kind, KindLibvirt, KindProxmox)
 	}
 	return nil
 }
@@ -180,11 +191,17 @@ func (h *Hypervisor) clone() *Hypervisor {
 		l.Networks = append([]string(nil), h.Libvirt.Networks...)
 		c.Libvirt = &l
 	}
+	if h.Proxmox != nil {
+		p := *h.Proxmox
+		p.Networks = append([]string(nil), h.Proxmox.Networks...)
+		c.Proxmox = &p
+	}
 	return &c
 }
 
 // Store keeps the configured hypervisors under <data-dir>/hypervisors,
-// one directory each: meta.json and ssh.key (0600).
+// one directory each: meta.json, ssh.key and - for Proxmox - token
+// (0600).
 type Store struct {
 	dir string
 
@@ -237,6 +254,11 @@ func load(dir string) (*Hypervisor, error) {
 		return nil, fmt.Errorf("ssh.key is a %T, want ed25519", key)
 	}
 	h.SSHKey = *edKey
+	if secret, err := os.ReadFile(filepath.Join(dir, "token")); err == nil {
+		h.TokenSecret = strings.TrimSpace(string(secret))
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
 	return &h, nil
 }
 
@@ -268,6 +290,9 @@ func (s *Store) Add(h *Hypervisor) error {
 	if err := h.Validate(); err != nil {
 		return err
 	}
+	if h.Kind == KindProxmox && strings.TrimSpace(h.TokenSecret) == "" {
+		return errors.New("the API token's secret is required")
+	}
 	id, err := randomID()
 	if err != nil {
 		return err
@@ -289,6 +314,12 @@ func (s *Store) Add(h *Hypervisor) error {
 	if err := writeFileAtomic(filepath.Join(dir, "ssh.key"), pem.EncodeToMemory(block)); err != nil {
 		return err
 	}
+	if h.TokenSecret != "" {
+		h.TokenSecret = strings.TrimSpace(h.TokenSecret)
+		if err := writeFileAtomic(filepath.Join(dir, "token"), []byte(h.TokenSecret+"\n")); err != nil {
+			return err
+		}
+	}
 	if err := s.writeMeta(h); err != nil {
 		return err
 	}
@@ -298,7 +329,8 @@ func (s *Store) Add(h *Hypervisor) error {
 	return nil
 }
 
-// Update saves a changed configuration (its ID, kind and key are kept).
+// Update saves a changed configuration (its ID, kind and key are kept;
+// a Proxmox token's secret too, unless h carries a new one).
 func (s *Store) Update(h *Hypervisor) error {
 	if err := h.Validate(); err != nil {
 		return err
@@ -311,6 +343,13 @@ func (s *Store) Update(h *Hypervisor) error {
 	}
 	next := h.clone()
 	next.Kind, next.SSHKey, next.CreatedAt = cur.Kind, cur.SSHKey, cur.CreatedAt
+	if next.TokenSecret = strings.TrimSpace(next.TokenSecret); next.TokenSecret == "" {
+		next.TokenSecret = cur.TokenSecret
+	} else if next.TokenSecret != cur.TokenSecret {
+		if err := writeFileAtomic(filepath.Join(s.dir, h.ID, "token"), []byte(next.TokenSecret+"\n")); err != nil {
+			return err
+		}
+	}
 	if err := s.writeMeta(next); err != nil {
 		return err
 	}

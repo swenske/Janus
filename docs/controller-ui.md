@@ -54,8 +54,11 @@ created (an image too old to present its registration token) says so,
 and approving it links the node to the machine.
 
 **Hypervisors** ([hypervisors.md](hypervisors.md)): one card per host -
-added in three steps (the command that authorizes the Controller's key,
-the host key read and compared with the host's own, then trusted), then its
+libvirt or Proxmox VE (the form's **Kind**, fixed once added; a Proxmox
+token's secret is write-only: `has_token_secret`) - added in steps (for
+libvirt the command that authorizes the Controller's key; then the SSH
+host key or the API's certificate read and compared with the host's
+own, then trusted - a Proxmox node given its CA needs none), then its
 software, CPU, memory, pool and networks - and below, the machines: their
 phase while they're created (the page polls every 3 s while one is under
 way), their virtual machine's state, history, retry, destroy (type the

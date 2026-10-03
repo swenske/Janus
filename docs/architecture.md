@@ -1151,8 +1151,9 @@ plan - not implemented yet.
 - **Phase 6**: companion website + dedicated Proxmox-hosted backend
   (separate container from the runner) + remote kernel-menuconfig UI -
   separate repository, separate plan.
-- **Phase 7** (libvirt and Terraform done): the Controller creates its
-  own nodes on hypervisors ([hypervisors.md](hypervisors.md)) and the
-  Janus Terraform provider drives it ([terraform.md](terraform.md));
-  next, Proxmox (API token scoped to a pool), then VMware and Hyper-V
-  (which needs the kernel's Hyper-V drivers and a VHDX image first).
+- **Phase 7** (libvirt, Proxmox VE and Terraform done): the Controller
+  creates its own nodes on hypervisors ([hypervisors.md](hypervisors.md):
+  libvirt over SSH with a polkit policy, Proxmox VE with an API token
+  scoped to a pool) and the Janus Terraform provider drives it
+  ([terraform.md](terraform.md)); next, VMware, then Hyper-V (which
+  needs the kernel's Hyper-V drivers and a VHDX image first).

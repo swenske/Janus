@@ -17,7 +17,7 @@ func TestHostPreparation(t *testing.T) {
 		if len(steps) != 6 {
 			t.Fatalf("%s: %d steps", tc.name, len(steps))
 		}
-		script := PreparationScript("kvm01\n`$(reboot)`", steps)
+		script := hypervisor.PreparationScript("kvm01\n`$(reboot)`", steps)
 		for _, s := range steps {
 			if s.Title == "" || s.About == "" || s.Script == "" || !strings.HasSuffix(s.Script, "\n") {
 				t.Errorf("%s: step %+v", tc.name, s)
@@ -62,7 +62,7 @@ func TestHostPreparation(t *testing.T) {
 	}
 	// The default prefix, the documented account.
 	steps := HostPreparation("kvm01", &hypervisor.LibvirtConfig{Host: "kvm01", User: "janus-ctl", Pool: "janus", Networks: []string{"lan"}}, "")
-	if s := PreparationScript("kvm01", steps); !strings.Contains(s, `var JANUS_PREFIX = "janus-";`) || !strings.Contains(s, "table inet janus_ctl {") {
+	if s := hypervisor.PreparationScript("kvm01", steps); !strings.Contains(s, `var JANUS_PREFIX = "janus-";`) || !strings.Contains(s, "table inet janus_ctl {") {
 		t.Error("defaults: no janus- prefix or janus_ctl table")
 	}
 }

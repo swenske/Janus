@@ -40,6 +40,7 @@ require (
 	github.com/aws/smithy-go v1.25.0 // indirect
 	github.com/bodgit/tsig v1.2.2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/djherbis/times v1.6.0 // indirect
 	github.com/elliotwutingfeng/asciiset v0.0.0-20260129054604-cfde2086bc57 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect

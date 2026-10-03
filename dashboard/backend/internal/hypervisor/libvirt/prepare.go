@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
-	"unicode"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 )
@@ -37,7 +36,7 @@ var tableRe = regexp.MustCompile(`[^A-Za-z0-9_]`)
 // there's none yet.
 func HostPreparation(name string, c *hypervisor.LibvirtConfig, authorizedKey string) []hypervisor.PrepStep {
 	d := prepData{
-		Name:     commentSafe(name),
+		Name:     hypervisor.CommentSafe(name),
 		User:     c.User,
 		Group:    ControllersGroup,
 		Pool:     c.Pool,
@@ -55,21 +54,6 @@ func HostPreparation(name string, c *hypervisor.LibvirtConfig, authorizedKey str
 	return steps
 }
 
-// PreparationScript is every step in one script.
-func PreparationScript(name string, steps []hypervisor.PrepStep) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "#!/bin/sh\n# Prepares this host for the Janus Controller's hypervisor %q\n", commentSafe(name))
-	b.WriteString("# (docs/hypervisors.md). Run it as root: sh <this file>. Running it\n# again is harmless.\nset -eu\n")
-	for i, s := range steps {
-		fmt.Fprintf(&b, "\n# --- %d. %s ---\n", i+1, s.Title)
-		for _, line := range wrap(s.About, 70) {
-			b.WriteString("# " + line + "\n")
-		}
-		b.WriteString(s.Script)
-	}
-	return b.String()
-}
-
 func render(text string, d prepData) string {
 	var b strings.Builder
 	if err := template.Must(template.New("").Funcs(template.FuncMap{
@@ -85,39 +69,6 @@ func render(text string, d prepData) string {
 		panic(err) // the templates are constants: a test runs them all
 	}
 	return b.String()
-}
-
-// commentSafe keeps a free-form name on one printable line.
-func commentSafe(s string) string {
-	s = strings.Map(func(r rune) rune {
-		if !unicode.IsPrint(r) {
-			return -1
-		}
-		return r
-	}, s)
-	if r := []rune(s); len(r) > 64 {
-		s = string(r[:64])
-	}
-	return s
-}
-
-func wrap(s string, width int) []string {
-	var lines []string
-	line := ""
-	for _, w := range strings.Fields(s) {
-		if line != "" && len(line)+1+len(w) > width {
-			lines = append(lines, line)
-			line = ""
-		}
-		if line != "" {
-			line += " "
-		}
-		line += w
-	}
-	if line != "" {
-		lines = append(lines, line)
-	}
-	return lines
 }
 
 var prepSteps = []struct{ title, about, script string }{
