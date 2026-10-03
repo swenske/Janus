@@ -53,8 +53,8 @@ jobs:
 
       # Phase 1: builds bzImage (kernel/Dockerfile's fetch -> config ->
       # build -> export stages) + the init-only initramfs (rootfs/init,
-      # hack/build-initramfs.sh - no pkgs/musl-toolchain or pkgs/busybox
-      # needed, a CGO_ENABLED=0 Go binary has no libc to link against),
+      # hack/build-initramfs.sh - no musl toolchain needed, a
+      # CGO_ENABLED=0 Go binary has no libc to link against),
       # boots them under QEMU, checks for rootfs/init's success marker on
       # the console (hack/qemu-run.sh). Fast, no HAProxy involved - a
       # regression check on the boot chain itself.

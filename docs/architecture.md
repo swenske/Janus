@@ -257,9 +257,10 @@ plan - not implemented yet.
   (`image-build.yml`).
   Turned out **not to need `pkgs/musl-toolchain` or `pkgs/busybox` at
   all**: a statically-linked Go binary needs no libc, so there's nothing
-  for PID 1 to link against - those two `pkgs/` placeholders stay
-  `FROM scratch` until something written in C (HAProxy, bird, keepalived)
-  actually needs a toolchain, which is Phase 2+.
+  for PID 1 to link against. (The `pkgs/busybox` placeholder - and
+  `pkgs/bird|keepalived|nftables`, superseded by `extensions/` - were
+  removed on 2026-10-03; `pkgs/musl-toolchain` became the arm64
+  cross-toolchain.)
   Still open for Phase 1: real rootfs assembly beyond a single init binary
   (`rootfs/assemble.sh` still a stub) isn't needed yet either, since the
   initramfs *is* the whole rootfs for this boot-proof milestone.
