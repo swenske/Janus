@@ -21,7 +21,7 @@ GEN_DIR := gen
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
-	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test terraform-provider-build terraform-provider-test local-dev-image ca-certificates seed-controller-test \
+	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test local-dev-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
@@ -746,6 +746,15 @@ controller-self-update-test:
 terraform-provider-build:
 	mkdir -p $(BIN_DIR)
 	cd terraform-provider-janus && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o $(CURDIR)/$(BIN_DIR)/terraform-provider-janus .
+
+# The provider's release archives (linux/darwin, amd64/arm64) and their
+# checksums - attached to every GitHub Release (docs/terraform.md).
+terraform-provider-dist:
+	rm -rf $(BUILD_DIR)/terraform-provider
+	./hack/terraform-provider-dist.sh $(VERSION) $(BUILD_DIR)/terraform-provider
+
+terraform-provider-dist-test: terraform-provider-dist
+	./hack/terraform-provider-dist-test.sh $(VERSION) $(BUILD_DIR)/terraform-provider
 
 # OpenTofu, checked against versions.mk, for terraform-provider-test.
 TOFU_BIN := $(BUILD_DIR)/tools/tofu-$(OPENTOFU_VERSION)

@@ -955,6 +955,23 @@ jobs:
           path: build/deb/janusctl_*.deb
           retention-days: 30
 
+      # The Terraform provider's archives (linux/darwin, amd64/arm64 -
+      # hack/terraform-provider-dist.sh) and their SHA256SUMS: attached
+      # to a release (docs/terraform.md: the provider binary). Checked
+      # here (checksums, contents, platforms, a byte-identical rebuild)
+      # on every run.
+      - name: Build and check the Terraform provider's archives
+        run: |
+          rm -rf build/terraform-provider
+          make terraform-provider-dist-test
+
+      - name: Upload the Terraform provider's archives
+        uses: actions/upload-artifact@v7
+        with:
+          name: terraform-provider-janus-${{ github.sha }}
+          path: build/terraform-provider/terraform-provider-janus_*
+          retention-days: 30
+
       # First real, deployable artifact: image/disk/assemble.sh's single
       # GPT disk (ESP + both A/B slots + STATE - the exact same shape
       # every UEFI boot test above already proved works end to end,
@@ -1291,6 +1308,7 @@ jobs:
             build/inputs/rootfs-base-arm64.tar
             build/inputs/extension-*.tar
             build/deb/janusctl_*.deb
+            build/terraform-provider/terraform-provider-janus_*
 
       # janusctl on https://apt.sw-servers.net/janus (suite "stable",
       # component "main" - README.md), after the GitHub Release so apt

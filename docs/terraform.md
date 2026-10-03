@@ -12,9 +12,9 @@ Controller does the hypervisor's work ([hypervisors.md](hypervisors.md)):
 The provider only ever talks to the Controller's API, never to a
 hypervisor or a node.
 
-It's built from this repository for now (`make terraform-provider-build`,
-`terraform-provider-janus/`). It isn't published on the Terraform and
-OpenTofu registries yet.
+Every release attaches it, for Linux and macOS on amd64 and arm64. It
+isn't published on the Terraform and OpenTofu registries yet: Terraform
+is pointed at the binary with a development override (below).
 
 ## Setting it up
 
@@ -28,22 +28,37 @@ OpenTofu registries yet.
    panel, or `GET /api/controller-info` (`ca_cert_pem`). The provider
    checks the Controller against it, so the token never goes to whoever
    answers.
-3. **The provider binary**: `make terraform-provider-build` gives
-   `bin/terraform-provider-janus`. Point Terraform at its directory with
-   a development override in `~/.terraformrc` (OpenTofu: `~/.tofurc`, or
-   `TF_CLI_CONFIG_FILE`):
+3. **The provider binary**, from the release that matches your
+   Controller - `terraform-provider-janus_<version>_<os>_<arch>.tar.gz`,
+   checked against `terraform-provider-janus_<version>_SHA256SUMS`:
+
+   ```sh
+   v=2026.10.04 platform=linux_amd64   # linux_arm64, darwin_amd64, darwin_arm64
+   base=https://github.com/swenske/Janus/releases/download/v$v
+   curl -fsSLO "$base/terraform-provider-janus_${v}_${platform}.tar.gz"
+   curl -fsSLO "$base/terraform-provider-janus_${v}_SHA256SUMS"
+   sha256sum --ignore-missing -c "terraform-provider-janus_${v}_SHA256SUMS"   # macOS: shasum -a 256 --ignore-missing -c
+   mkdir -p ~/.terraform.d/janus
+   tar -xzf "terraform-provider-janus_${v}_${platform}.tar.gz" -C ~/.terraform.d/janus terraform-provider-janus
+   ```
+
+   Or build it from this repository: `make terraform-provider-build`
+   gives `bin/terraform-provider-janus`.
+
+   Point Terraform at the binary's directory with a development override
+   in `~/.terraformrc` (OpenTofu: `~/.tofurc`, or `TF_CLI_CONFIG_FILE`):
 
    ```hcl
    provider_installation {
      dev_overrides {
-       "swenske/janus" = "/path/to/Janus/bin"
+       "swenske/janus" = "/home/you/.terraform.d/janus"   # the directory, not the binary
      }
      direct {}
    }
    ```
 
    With an override, Terraform says so on every run, and `init` isn't
-   needed for this provider.
+   needed for this provider. Updating it is replacing the binary.
 
 ```hcl
 terraform {
@@ -261,3 +276,8 @@ and destroy.
 
 Unit tests run in `ci.yml`: the client, the schemas, what a change
 sends, and the state read back.
+
+`make terraform-provider-dist-test`, run by `image-build.yml` before a
+release attaches them, checks the release archives: their checksums,
+each one's contents and platform, the version the binary carries, and
+that rebuilding them gives the same bytes.
