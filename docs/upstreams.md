@@ -131,11 +131,44 @@ only):
   branch, as for any change.
 
 Pull requests need `UPSTREAM_BOT_TOKEN`: a fine-grained token on this
-repository with **Contents** and **Pull requests** read/write - GitHub runs
+repository with **Contents**, **Pull requests** and **Repository security
+advisories** read/write (the last one for releases, below) - GitHub runs
 no workflow for pull requests the workflow's own token opens, so `ci.yml`
 wouldn't check them. Without it, only the issues are kept.
 `workflow_dispatch` defaults to a dry run: everything is checked, bumps
 included, nothing is pushed or posted.
+
+## A release says what it fixes
+
+`image-build.yml`, when it cuts a release:
+
+1. runs `security-notes` from the previous release: `security.json`,
+   what the release fixes - upstreams, Go modules linked into Janus's
+   programs, the Go toolchain, the Controller's npm packages - with each
+   fix's severity and whether it reaches nodes or the Controller;
+2. refuses to go on if the release fixes something and its notes have no
+   `## 🔒` section (draft it with `make upstream-security-notes FROM=<previous
+   tag> RELEASE=<version>`, then make it say what it means for an
+   operator);
+3. names the release "Janus vX (Alpha) - 🔒 security update" when it fixes
+   something, and attaches `security.json` and the SBOM (`sbom.cdx.json`);
+4. when a fix is rated high or critical, publishes a repository security
+   advisory - "Janus before vX ships known vulnerabilities", ecosystem
+   "other" (Janus isn't a package GitHub knows: no Dependabot alert
+   anywhere), the fixes listed. It takes `UPSTREAM_BOT_TOKEN` with
+   **Repository security advisories** read/write; without it the job
+   prints the request to file it by hand.
+
+The Controller reads `security.json` from every release: a node running
+an older release - or the Controller itself - gets a 🔒 security update
+badge, rated by the worst vulnerability it misses
+([controller-ui.md](controller-ui.md)).
+
+GitHub's "Security alerts" watch option only reaches the repository's
+maintainers (Dependabot, code and secret scanning alerts), and GitHub
+notifies nobody when an advisory is published: people who want to know
+watch **Releases** - the release's name says it's a security update - and
+operators see it in their Controller.
 
 ## Adding an upstream
 

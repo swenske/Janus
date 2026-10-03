@@ -378,3 +378,33 @@ func TestDocsListEveryComponent(t *testing.T) {
 		}
 	}
 }
+
+func TestAdvisory(t *testing.T) {
+	d := &securityDoc{Version: "v2026.10.10", Previous: "v2026.10.03-4", MaxSeverity: "medium", Updates: []updateRecord{
+		{Name: "haproxy", Title: "HAProxy", Target: "node", From: "3.4.0", To: "3.4.6",
+			Fixes: []vuln{{ID: "haproxy-79abd43", Title: "BUG/MAJOR: htx: ...", Severity: "high"}}},
+		{Name: "jansson", Title: "Jansson", Target: "node", From: "2.15.1", To: "2.15.2"},
+	}}
+	if needsAdvisory(d) {
+		t.Error("a medium release gets an advisory")
+	}
+	d.MaxSeverity = "high"
+	if !needsAdvisory(d) {
+		t.Error("a high release gets no advisory")
+	}
+	if needsAdvisory(&securityDoc{MaxSeverity: "none"}) {
+		t.Error("a release fixing nothing gets an advisory")
+	}
+	a := advisory(d, "https://github.com/swenske/Janus/releases/tag/v2026.10.10")
+	if a["summary"] != "Janus before v2026.10.10 ships known vulnerabilities (HAProxy)" || a["severity"] != "high" {
+		t.Errorf("advisory: %v", a)
+	}
+	desc := a["description"].(string)
+	if !strings.Contains(desc, "haproxy-79abd43") || strings.Contains(desc, "Jansson") {
+		t.Errorf("description:\n%s", desc)
+	}
+	v := a["vulnerabilities"].([]map[string]any)[0]
+	if v["vulnerable_version_range"] != "< v2026.10.10" || v["patched_versions"] != "v2026.10.10" {
+		t.Errorf("vulnerabilities: %v", v)
+	}
+}

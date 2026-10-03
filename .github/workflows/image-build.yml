@@ -936,6 +936,31 @@ jobs:
 
       - uses: ./.github/actions/runner-setup
 
+      # What this release fixes since the previous one (hack/upstream,
+      # docs/upstreams.md): security.json, attached to the release - the
+      # Controller reads it to tell nodes missing security fixes - with
+      # the SBOM. Notes without a 🔒 section are refused when it isn't
+      # empty: checked here, before an hour of building.
+      - name: Security fixes since the previous release, and the SBOM
+        if: ${{ inputs.release_version != '' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          prev=$(git describe --tags --abbrev=0 --match 'v20*')
+          mkdir -p build/security
+          go run ./hack/upstream security-notes -from "$prev" -version "$RELEASE_VERSION" \
+            -json build/security/security.json > build/security/notes.md
+          cat build/security/notes.md >> "$GITHUB_STEP_SUMMARY"
+          severity=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["max_severity"])' build/security/security.json)
+          if [ "$severity" != none ] && ! grep -q '^## 🔒' ".github/release-notes/$RELEASE_VERSION.md"; then
+            echo "::error::$RELEASE_VERSION fixes vulnerabilities since $prev (up to $severity) but its notes have no '## 🔒' section - draft it with: make upstream-security-notes FROM=$prev RELEASE=$RELEASE_VERSION"
+            exit 1
+          fi
+          echo "SECURITY_SEVERITY=$severity" >> "$GITHUB_ENV"
+          go run ./hack/upstream sbom -version "$RELEASE_VERSION" -out build/security/sbom.cdx.json
+
       # What custom schematics are built from (image/schematic/build.sh,
       # .github/workflows/schematic-build.yml): per architecture, the
       # kernel, the base rootfs tree and the extension packs, plus the
@@ -1291,7 +1316,9 @@ jobs:
         with:
           tag_name: ${{ inputs.release_version }}
           target_commitish: ${{ github.sha }}
-          name: "Janus ${{ inputs.release_version }} (Alpha)"
+          # "🔒 security update" when it fixes vulnerabilities: what the
+          # Releases watch and the releases feed show (docs/upstreams.md).
+          name: "Janus ${{ inputs.release_version }} (Alpha)${{ env.SECURITY_SEVERITY != '' && env.SECURITY_SEVERITY != 'none' && ' - 🔒 security update' || '' }}"
           # A full release marked as the latest, not a pre-release: a
           # pre-release is never "Latest", so the repository's home page
           # showed no release at all - only "3 tags". The alpha status is
@@ -1307,6 +1334,8 @@ jobs:
             build/release/uki-a.efi
             build/release/uki-b.efi
             build/release/controller-image.txt
+            build/security/security.json
+            build/security/sbom.cdx.json
             build/janus.qcow2
             build/janus-kvm.qcow2
             build/janus.vmdk
@@ -1321,6 +1350,36 @@ jobs:
             build/inputs/extension-*.tar
             build/deb/janusctl_*.deb
             build/terraform-provider/terraform-provider-janus_*
+
+      # A release fixing something rated high or worse gets a repository
+      # security advisory: public and citable on the Security tab - GitHub
+      # notifies nobody for one (docs/upstreams.md). It takes
+      # UPSTREAM_BOT_TOKEN with "Repository security advisories" write;
+      # without it, the request is printed to create it by hand.
+      - name: Publish a security advisory
+        if: ${{ inputs.release_version != '' }}
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          TOKEN: ${{ secrets.UPSTREAM_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/${{ github.repository }}/releases/tag/$RELEASE_VERSION"
+          go run ./hack/upstream advisory -security build/security/security.json -url "$url" > build/security/advisory.json
+          if ! [ -s build/security/advisory.json ]; then
+            echo "No advisory: nothing fixed is rated high or worse."
+            exit 0
+          fi
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::$RELEASE_VERSION calls for a security advisory, but UPSTREAM_BOT_TOKEN isn't set - create it by hand (Security > Advisories) from:"
+            cat build/security/advisory.json
+            exit 0
+          fi
+          api="https://api.github.com/repos/${{ github.repository }}/security-advisories"
+          auth=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json")
+          ghsa=$(curl -fsS "${auth[@]}" -X POST "$api" --data @build/security/advisory.json \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["ghsa_id"])')
+          curl -fsS "${auth[@]}" -X PATCH "$api/$ghsa" --data '{"state":"published"}' \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["html_url"])'
 
       # janusctl on https://apt.sw-servers.net/janus (suite "stable",
       # component "main" - README.md), after the GitHub Release so apt

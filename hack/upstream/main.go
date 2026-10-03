@@ -28,6 +28,12 @@
 //	upstream sbom -version V [-out FILE]
 //
 // sbom writes the working tree's CycloneDX SBOM.
+//
+//	upstream advisory -security FILE -url RELEASE_URL
+//
+// advisory prints the repository security advisory a release's
+// security.json calls for (its fixes rated high or more) as the JSON
+// request GitHub's API takes - nothing when it calls for none.
 package main
 
 import (
@@ -47,7 +53,7 @@ import (
 func main() {
 	log.SetFlags(0)
 	if len(os.Args) < 2 {
-		log.Fatal("usage: upstream check|bump|security-notes|sbom ...")
+		log.Fatal("usage: upstream check|bump|security-notes|sbom|advisory ...")
 	}
 	e := &env{ctx: context.Background(), f: newHTTPFetcher()}
 	switch os.Args[1] {
@@ -59,6 +65,8 @@ func main() {
 		notesCmd(e, os.Args[2:])
 	case "sbom":
 		sbomCmd(os.Args[2:])
+	case "advisory":
+		advisoryCmd(os.Args[2:])
 	default:
 		log.Fatalf("unknown command %q", os.Args[1])
 	}
@@ -304,4 +312,30 @@ func sbomCmd(args []string) {
 		log.Fatal(err)
 	}
 	done()
+}
+
+func advisoryCmd(args []string) {
+	fs := flag.NewFlagSet("advisory", flag.ExitOnError)
+	file := fs.String("security", "", "the release's security.json")
+	url := fs.String("url", "", "the release's page")
+	_ = fs.Parse(args)
+	if *file == "" || *url == "" {
+		log.Fatal("usage: upstream advisory -security FILE -url RELEASE_URL")
+	}
+	data, err := os.ReadFile(*file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var d securityDoc
+	if err := json.Unmarshal(data, &d); err != nil {
+		log.Fatalf("%s: %v", *file, err)
+	}
+	if !needsAdvisory(&d) {
+		return
+	}
+	out, err := json.MarshalIndent(advisory(&d, *url), "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(string(out))
 }

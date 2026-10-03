@@ -37,7 +37,22 @@ actions are kept up to date by Dependabot.
 
 ## Being told about security releases
 
-A release that fixes vulnerabilities says so in its notes, in a 🔒 section.
+A release that fixes vulnerabilities:
+
+- is named "Janus vX (Alpha) - 🔒 security update", and says what it fixes
+  in a 🔒 section of its notes;
+- carries `security.json` (what it fixes, machine-readable) and
+  `sbom.cdx.json` (what it is made of, CycloneDX);
+- shows up in the Controller: nodes running an older release get a 🔒
+  security update badge, rated by the worst vulnerability they miss, and
+  so does the Controller itself;
+- gets a GitHub security advisory (Security tab) when a fix is rated high
+  or critical.
+
 To be notified, watch the repository: **Watch** → **Custom** →
-**Releases**. (GitHub's "Security alerts" watch option only ever reaches
-the repository's maintainers.)
+**Releases** (or follow the releases' Atom feed). GitHub's "Security
+alerts" watch option only ever reaches the repository's maintainers, and
+GitHub notifies nobody of a published advisory.
+
+How upstream releases are followed, checked and assessed:
+[docs/upstreams.md](docs/upstreams.md).
