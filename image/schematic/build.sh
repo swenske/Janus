@@ -64,9 +64,9 @@ amd64)
   ;;
 arm64)
   echo "== Raspberry Pi images"
-  make -s systemd-stub-arm64 pi4-firmware pi5-firmware
+  make -s systemd-stub pi4-firmware pi5-firmware
   for board in pi4 pi5; do
-    UKIFY_STUB=build/systemd-stub-arm64/linuxaa64.efi.stub \
+    UKIFY_STUB=build/systemd-stub/linuxaa64.efi.stub \
       ./image/rpi-uefi/assemble.sh "$OUT/$board-disk.img" "build/rpi-uefi/$board-firmware" \
       "$KERNEL" "$WORK/rootfs" "$WORK/state.img"
   done

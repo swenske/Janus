@@ -8,7 +8,7 @@
 # BOOTAA64.EFI - see that script's own doc comment for why this can't
 # just reuse the x86_64 BOOTX64.EFI name), loads it (systemd-stub with
 # the arm64 kernel Image and its exact cmdline embedded, built against
-# the fetched linuxaa64.efi.stub - see systemd-stub-arm64/Dockerfile),
+# the fetched linuxaa64.efi.stub - see systemd-stub/Dockerfile),
 # which on arm64 needs no separate "handover protocol" at all (unlike
 # x86_64's EFI_HANDOVER_PROTOCOL): the kernel's own Image binary is
 # already a directly-runnable UEFI PE/COFF executable once

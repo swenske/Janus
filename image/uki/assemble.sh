@@ -37,12 +37,11 @@
 # project needs to care about.
 #
 # UKIFY_STUB (env var, optional): explicit path to the sd-stub PE
-# binary `ukify` should embed - needed for arm64 (see
-# systemd-stub-arm64/Dockerfile's own doc comment for why the build
-# host's own `ukify` install can't find an aarch64 stub on its own,
-# only its native amd64 one). Left unset for every amd64 caller, which
-# keeps relying on `ukify`'s own auto-detection off the kernel's
-# architecture, exactly as before.
+# binary `ukify` should embed. Unset, the stub for the kernel's
+# architecture (an arm64 Image carries "ARMd" at offset 56, anything
+# else is taken as x86) comes from systemd-stub/Dockerfile's pinned
+# Debian image, built into build/systemd-stub/ the first time - never
+# the build host's own systemd-boot-efi, whose version nobody tracks.
 #
 # UKI_CONSOLE (env var, optional, default ttyS0): the serial console
 # name baked into the cmdline - x86 targets (QEMU's isa-serial/OVMF)
@@ -123,9 +122,17 @@ UKIFY_ARGS=(
 if [ -n "$SIGNING_KEY" ] && [ -n "$SIGNING_CERT" ]; then
   UKIFY_ARGS+=(--secureboot-private-key="$SIGNING_KEY" --secureboot-certificate="$SIGNING_CERT")
 fi
-if [ -n "${UKIFY_STUB:-}" ]; then
-  UKIFY_ARGS+=(--stub="$UKIFY_STUB")
+if [ -z "${UKIFY_STUB:-}" ]; then
+  stub_dir="$(dirname "$0")/../../build/systemd-stub"
+  stub=linuxx64.efi.stub
+  [ "$(dd if="$KERNEL" bs=1 skip=56 count=4 2>/dev/null)" = ARMd ] && stub=linuxaa64.efi.stub
+  if [ ! -f "$stub_dir/$stub" ]; then
+    mkdir -p "$stub_dir"
+    docker build -q --target export -o "$stub_dir" "$(dirname "$0")/../../systemd-stub" >/dev/null
+  fi
+  UKIFY_STUB="$stub_dir/$stub"
 fi
+UKIFY_ARGS+=(--stub="$UKIFY_STUB")
 ukify "${UKIFY_ARGS[@]}"
 
 echo "Wrote $OUT"

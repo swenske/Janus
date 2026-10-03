@@ -27,7 +27,7 @@ GEN_DIR := gen
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
 	rpi4-daemon-static musl-toolchain-arm64 rpi4-haproxy-build rpi4-initramfs-full \
 	qemu-raspi4-daemon-test qemu-arm64-network-test rpi4-rootfs-build \
-	systemd-stub-arm64 rpi4-uki-image qemu-arm64-uefi-boot-test \
+	systemd-stub rpi4-uki-image qemu-arm64-uefi-boot-test \
 	pi4-firmware pi5-firmware pi4-sdcard-image pi5-sdcard-image \
 	pi4-sdcard-image-test pi5-sdcard-image-test
 
@@ -349,13 +349,12 @@ rpi4-rootfs-build: rpi4-init rpi4-daemon-static rpi4-haproxy-build selinux-polic
 		$(BUILD_DIR)/rpi4/haproxy rootfs/base/etc/haproxy/haproxy.cfg \
 		$(BUILD_DIR)/selinux/janus.policy $(BUILD_DIR)/ca-certificates/ca-certificates.crt
 
-# Single Board Computer tranche, UEFI/UKI prep: exports systemd's
-# aarch64 sd-stub (linuxaa64.efi.stub) - see systemd-stub-arm64/
-# Dockerfile's own header for why this can't just be apt-installed on
-# the build host directly.
-systemd-stub-arm64:
-	mkdir -p $(BUILD_DIR)/systemd-stub-arm64
-	docker build --target export -o $(BUILD_DIR)/systemd-stub-arm64 systemd-stub-arm64
+# systemd's UKI stubs, both architectures, from a pinned Debian image
+# (systemd-stub/Dockerfile). image/uki/assemble.sh builds them itself
+# when they're missing; this target is for building them ahead.
+systemd-stub:
+	mkdir -p $(BUILD_DIR)/systemd-stub
+	docker build --target export -o $(BUILD_DIR)/systemd-stub systemd-stub
 
 # Single Board Computer tranche: the aarch64 equivalent of uki-image -
 # same ukify-based assembly, but UKIFY_STUB points at the fetched
@@ -367,8 +366,8 @@ systemd-stub-arm64:
 # build option (image/uki/esp-image.sh's own doc comment). root's
 # data/hash devices are /dev/vdb+/dev/vdc, same reasoning as the amd64
 # uki-image target: the ESP itself takes the vda slot once attached.
-rpi4-uki-image: rpi4-kernel-build rpi4-rootfs-build systemd-stub-arm64
-	UKIFY_STUB=$(BUILD_DIR)/systemd-stub-arm64/linuxaa64.efi.stub \
+rpi4-uki-image: rpi4-kernel-build rpi4-rootfs-build systemd-stub
+	UKIFY_STUB=$(BUILD_DIR)/systemd-stub/linuxaa64.efi.stub \
 	UKI_CONSOLE=ttyAMA0 \
 	UKI_SELINUX_ENFORCING=0 \
 	./image/uki/assemble.sh $(BUILD_DIR)/rpi4/rootfs/janus.efi $(BUILD_DIR)/rpi4/Image \
@@ -403,16 +402,16 @@ pi5-firmware:
 # build/state-image with every other arm64 target - the rootfs/kernel
 # content is identical for both boards, only the firmware partition and
 # ESP boot filename differ. Requires sgdisk, mtools/dosfstools, ukify.
-pi4-sdcard-image: rpi4-kernel-build rpi4-rootfs-build systemd-stub-arm64 state-image pi4-firmware
+pi4-sdcard-image: rpi4-kernel-build rpi4-rootfs-build systemd-stub state-image pi4-firmware
 	mkdir -p $(BUILD_DIR)/rpi-uefi
-	UKIFY_STUB=$(BUILD_DIR)/systemd-stub-arm64/linuxaa64.efi.stub \
+	UKIFY_STUB=$(BUILD_DIR)/systemd-stub/linuxaa64.efi.stub \
 	./image/rpi-uefi/assemble.sh $(BUILD_DIR)/rpi-uefi/pi4-disk.img \
 		$(BUILD_DIR)/rpi-uefi/pi4-firmware $(BUILD_DIR)/rpi4/Image \
 		$(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rootfs/state.img
 
-pi5-sdcard-image: rpi4-kernel-build rpi4-rootfs-build systemd-stub-arm64 state-image pi5-firmware
+pi5-sdcard-image: rpi4-kernel-build rpi4-rootfs-build systemd-stub state-image pi5-firmware
 	mkdir -p $(BUILD_DIR)/rpi-uefi
-	UKIFY_STUB=$(BUILD_DIR)/systemd-stub-arm64/linuxaa64.efi.stub \
+	UKIFY_STUB=$(BUILD_DIR)/systemd-stub/linuxaa64.efi.stub \
 	./image/rpi-uefi/assemble.sh $(BUILD_DIR)/rpi-uefi/pi5-disk.img \
 		$(BUILD_DIR)/rpi-uefi/pi5-firmware $(BUILD_DIR)/rpi4/Image \
 		$(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rootfs/state.img

@@ -132,7 +132,7 @@ trap 'rm -rf "$WORKDIR"' EXIT
 # (ukify/sbsign don't exist there), so both are pre-staged now.
 UKI_A="$WORKDIR/uki-a.efi"
 UKI_B="$WORKDIR/uki-b.efi"
-UKIFY_STUB="${UKIFY_STUB:?UKIFY_STUB must be set to the fetched aarch64 sd-stub path - see systemd-stub-arm64/Dockerfile}" \
+UKIFY_STUB="${UKIFY_STUB:?UKIFY_STUB must be set to the fetched aarch64 sd-stub path - see systemd-stub/Dockerfile}" \
 UKI_CONSOLE=ttyAMA0 \
 UKI_SELINUX_ENFORCING=0 \
   "$SELF_DIR/../uki/assemble.sh" "$UKI_A" "$KERNEL" "$ROOTFS_DIR" PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH

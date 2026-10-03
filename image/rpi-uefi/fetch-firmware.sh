@@ -7,7 +7,7 @@
 # (kernel/Dockerfile's own fetch stage, pkgs/haproxy's, etc), just a
 # plain script rather than an isolated Docker stage since this fetch
 # needs no foreign-architecture package trickery (unlike ca-certificates/
-# or systemd-stub-arm64/) - a plain curl+unzip against a public GitHub
+# or systemd-stub/) - a plain curl+unzip against a public GitHub
 # release asset works directly on the build host or CI runner.
 #
 # Usage: image/rpi-uefi/fetch-firmware.sh <url> <sha256> <out-dir>
