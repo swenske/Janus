@@ -5,6 +5,8 @@ import { Badge, Card, ErrorBox, Loading, PageHeader, Tabs, useAction, useConfirm
 import { bytes, dateTime } from '../format.js'
 import { usePoll } from '../hooks.jsx'
 import { WaitForNode } from '../waitForNode.jsx'
+import { SecurityBadge } from '../../SecurityBadge.jsx'
+import { securityText, securityTone } from '../../severity.js'
 
 const FILES = [
   { field: 'rootfs_squashfs', label: 'rootfs.squashfs' },
@@ -231,6 +233,16 @@ export default function Update({ route = '' }) {
                 <UpdateBadge uc={uc} />
               </div>
               {uc.published_at && <div className="muted small">Published {dateTime(Date.parse(uc.published_at))}</div>}
+              {uc.security_update && (
+                <div className={`notice small ${securityTone(uc.security_update)}`}>
+                  {securityText(uc.security_update)}{' '}
+                  {uc.security_release && (
+                    <a href={`https://github.com/swenske/Janus/releases/tag/${uc.security_release}`} target="_blank" rel="noreferrer">
+                      {uc.security_release}'s notes <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
+              )}
               {uc.message && <div className={uc.state === 'building' ? 'muted small' : 'small'}>{uc.message}</div>}
               {uc.state === 'building' && <div className="muted small">The image factory is building it - this page checks again every minute.</div>}
               {uc.renamed && (
@@ -598,5 +610,6 @@ export function UpdateBadge({ uc }) {
   if (uc.state === 'building') return <Badge tone="info">Building</Badge>
   if (uc.state === 'failed') return <Badge tone="danger">Build failed</Badge>
   if (uc.state !== 'ready') return <Badge tone="warn">Unavailable</Badge>
+  if (uc.security_update) return <SecurityBadge severity={uc.security_update}>Security update available</SecurityBadge>
   return uc.update_available ? <Badge tone="accent">Update available</Badge> : <Badge tone="ok">Up to date</Badge>
 }

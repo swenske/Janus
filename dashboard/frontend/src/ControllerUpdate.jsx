@@ -1,6 +1,8 @@
 import { ArrowUpRight, CheckCircle2, Copy, Loader2, Rocket, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, useConfirm, useToast } from './shared/ui.jsx'
+import { SecurityBadge } from './SecurityBadge.jsx'
+import { securityText, securityTone } from './severity.js'
 
 // The Controller's own updates (dashboard/README.md, "Updating the
 // Controller"): GET /api/controller/update says whether a newer release
@@ -215,6 +217,11 @@ export default function ControllerUpdate() {
           </a>
         }
       >
+        {info.security_update && (
+          <div className={`notice small ${securityTone(info.security_update)}`}>
+            <SecurityBadge severity={info.security_update} /> {securityText(info.security_update)}
+          </div>
+        )}
         <div className="muted small">
           {info.version_known ? (
             <>

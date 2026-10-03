@@ -114,6 +114,19 @@ browser. The updater itself, its contract with the Controller
 (`dashboard/updater/updaterapi`) and the Compose setup:
 `dashboard/README.md`, "Updating the Controller".
 
+**Security updates.** A release's `security.json` asset lists what it
+fixes, per target ([upstreams.md](upstreams.md)). `nodeproxy`'s release
+fetch reads it for every release (once each: a release doesn't change),
+and `ReleaseInfo.SecurityUpdate(version, target)` is the worst severity
+the releases after a version fix - `security_update` in `/api/nodes/
+status`, a node's `/api/update-check` (with `security_release`) and
+`/api/controller/update`; empty for a development build. Where an update
+shows, a security update shows instead: `SecurityBadge.jsx` (a shield,
+`danger` for critical/high, `warn` below; `severity.js` for the tone and
+the sentence), on the node card, the header's count, the node page's top
+bar, its Update view (with a notice linking the release's notes), the
+Controller's update card, and the node page's Update dot.
+
 ## The node page
 
 Hash routing (`#/haproxy/config`, `#/tools/files?path=/etc`), a sidebar

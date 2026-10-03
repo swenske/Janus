@@ -253,6 +253,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 0.6rem 0.8rem;
 }
 .notice.warn { background: var(--warn-soft); border-left-color: var(--warn); }
+.notice.danger { background: var(--danger-soft); border-left-color: var(--danger); }
 .bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
 .bar > div { height: 100%; background: var(--accent); border-radius: 3px; }
 .bar.ok > div { background: var(--ok); }

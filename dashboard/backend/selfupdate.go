@@ -91,6 +91,9 @@ type controllerUpdateView struct {
 	// LatestError: the newest release couldn't be found (no internet...).
 	LatestError     string `json:"latest_error,omitempty"`
 	UpdateAvailable bool   `json:"update_available"`
+	// SecurityUpdate: the newer releases fix vulnerabilities in this
+	// Controller, the worst this severe (nodeproxy.ReleaseInfo.SecurityUpdate).
+	SecurityUpdate string `json:"security_update,omitempty"`
 	// VersionKnown is false for a build that isn't a release or after one
 	// ("dev") - nothing to compare, any release can be installed.
 	VersionKnown bool         `json:"version_known"`
@@ -108,6 +111,7 @@ func (a *app) controllerUpdate(ctx context.Context) controllerUpdateView {
 		if !v.VersionKnown {
 			v.UpdateAvailable = updaterapi.IsRelease(rel.TagName) && rel.TagName != version
 		}
+		v.SecurityUpdate, _ = rel.SecurityUpdate(version, "controller")
 	}
 	if a.selfUpdate.configured() {
 		v.Updater.Configured = true

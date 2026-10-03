@@ -57,6 +57,11 @@ type updateCheck struct {
 	State           string `json:"state"`
 	Message         string `json:"message,omitempty"`
 	UpdateAvailable bool   `json:"update_available"`
+	// SecurityUpdate is the worst vulnerability the releases after the
+	// node's fix, SecurityRelease the newest of those releases
+	// (ReleaseInfo.SecurityUpdate) - whatever the source of its updates.
+	SecurityUpdate  string `json:"security_update,omitempty"`
+	SecurityRelease string `json:"security_release,omitempty"`
 
 	// Renamed is set when the newest release offers some of the
 	// extensions under a new name (old -> new): the update is built from
@@ -111,6 +116,9 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 func checkUpdate(ctx context.Context, v *janusv1alpha1.VersionResponse) *updateCheck {
 	uc := nodeUpdateCheck(v)
 	resolveUpdate(ctx, uc)
+	if rel, err := getLatestRelease(ctx); err == nil {
+		uc.SecurityUpdate, uc.SecurityRelease = rel.SecurityUpdate(uc.Version, "node")
+	}
 	return uc
 }
 

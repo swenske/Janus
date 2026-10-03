@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -51,7 +52,6 @@ const releaseCacheTTL = 10 * time.Minute
 // minutes.)
 var errorCacheTTL = 15 * time.Second
 
-
 // ReleaseInfo is the newest release.
 type ReleaseInfo struct {
 	TagName       string `json:"tag_name"`
@@ -63,6 +63,95 @@ type ReleaseInfo struct {
 	// digest ("swenske/janus-controller:vX@sha256:..."), from its
 	// controller-image.txt asset - empty for releases before that asset.
 	ControllerImage string `json:"controller_image,omitempty"`
+
+	// tags are every published release, newest first; security what the
+	// ones with a security.json asset fix (SecurityUpdate).
+	tags     []string
+	security map[string]map[string]string
+}
+
+// SecurityUpdate is the most severe of the vulnerabilities the releases
+// after version fix for target - "node" or "controller" - and the newest
+// of those releases: from their security.json assets (hack/upstream,
+// docs/upstreams.md), "critical", "high", "medium", "low" or "unknown"
+// (unrated). Empty when they fix none, or when version isn't a published
+// release (a development build: nothing to compare).
+func (r *ReleaseInfo) SecurityUpdate(version, target string) (severity, release string) {
+	if !slices.Contains(r.tags, version) {
+		return "", ""
+	}
+	for _, tag := range r.tags {
+		if tag == version {
+			break
+		}
+		sev := r.security[tag][target]
+		if sev == "" {
+			continue
+		}
+		if release == "" {
+			release = tag
+		}
+		if severity == "" || severityRank(sev) > severityRank(severity) {
+			severity = sev
+		}
+	}
+	return severity, release
+}
+
+func severityRank(s string) int {
+	return max(slices.Index([]string{"unknown", "low", "medium", "high", "critical"}, s), 0)
+}
+
+// securityDoc is the part of a release's security.json read here.
+type securityDoc struct {
+	Updates []struct {
+		Target string `json:"target"`
+		Fixes  []struct {
+			Severity string `json:"severity"`
+		} `json:"fixes"`
+	} `json:"updates"`
+}
+
+// securityByTag caches each release's security.json, read once: a
+// published release doesn't change.
+var securityByTag = struct {
+	sync.Mutex
+	m map[string]map[string]string
+}{m: map[string]map[string]string{}}
+
+// releaseSecurity is the most severe fix of a release's security.json for
+// each target.
+func releaseSecurity(ctx context.Context, tag, url string) (map[string]string, error) {
+	securityByTag.Lock()
+	sev, ok := securityByTag.m[tag]
+	securityByTag.Unlock()
+	if ok {
+		return sev, nil
+	}
+	data, err := fetchAsset(ctx, url, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	var doc securityDoc
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("%s's security.json: %w", tag, err)
+	}
+	sev = map[string]string{}
+	for _, u := range doc.Updates {
+		for _, f := range u.Fixes {
+			s := f.Severity
+			if s == "" {
+				s = "unknown"
+			}
+			if cur, ok := sev[u.Target]; !ok || severityRank(s) > severityRank(cur) {
+				sev[u.Target] = s
+			}
+		}
+	}
+	securityByTag.Lock()
+	securityByTag.m[tag] = sev
+	securityByTag.Unlock()
+	return sev, nil
 }
 
 // LatestRelease is the newest release, cached like the per-node pages'.
@@ -161,8 +250,16 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		return nil, fmt.Errorf("decode GitHub API response: %w", err)
 	}
 
+	var info *ReleaseInfo
 	for _, rel := range releases {
 		if rel.Draft {
+			continue
+		}
+		if info != nil {
+			info.tags = append(info.tags, rel.TagName)
+			if err := info.readSecurity(ctx, rel); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		// rel.HTMLURL is ".../releases/tag/<tag>" - trimming the
@@ -171,11 +268,13 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 		// would double up "releases") needs appending.
 		bundleBaseURL := strings.TrimSuffix(rel.HTMLURL, "/tag/"+rel.TagName) + "/download/" + rel.TagName
 
-		info := &ReleaseInfo{
+		info = &ReleaseInfo{
 			TagName:       rel.TagName,
 			HTMLURL:       rel.HTMLURL,
 			PublishedAt:   rel.PublishedAt,
 			BundleBaseURL: bundleBaseURL,
+			tags:          []string{rel.TagName},
+			security:      map[string]map[string]string{},
 		}
 		for _, asset := range rel.Assets {
 			switch asset.Name {
@@ -188,9 +287,28 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 				return nil, fmt.Errorf("fetch %s: %w", asset.Name, err)
 			}
 		}
-		return info, nil
+		if err := info.readSecurity(ctx, rel); err != nil {
+			return nil, err
+		}
 	}
-	return nil, fmt.Errorf("no published releases found")
+	if info == nil {
+		return nil, fmt.Errorf("no published releases found")
+	}
+	return info, nil
+}
+
+// readSecurity reads a release's security.json, when it has one.
+func (r *ReleaseInfo) readSecurity(ctx context.Context, rel ghRelease) error {
+	for _, asset := range rel.Assets {
+		if asset.Name == "security.json" {
+			sev, err := releaseSecurity(ctx, rel.TagName, asset.BrowserDownloadURL)
+			if err != nil {
+				return fmt.Errorf("fetch %s's security.json: %w", rel.TagName, err)
+			}
+			r.security[rel.TagName] = sev
+		}
+	}
+	return nil
 }
 
 // fetchAssetText downloads a small text asset (the sha256 checksum
@@ -200,21 +318,23 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 // don't assume" discipline the release-bundle files themselves are
 // held to.
 func fetchAssetText(ctx context.Context, url string) (string, error) {
+	data, err := fetchAsset(ctx, url, 4096)
+	return strings.TrimSpace(string(data)), err
+}
+
+// fetchAsset downloads a release asset, at most limit bytes of it.
+func fetchAsset(ctx context.Context, url string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GET %s: unexpected status %s", url, resp.Status)
+		return nil, fmt.Errorf("GET %s: unexpected status %s", url, resp.Status)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(data)), nil
+	return io.ReadAll(io.LimitReader(resp.Body, limit))
 }

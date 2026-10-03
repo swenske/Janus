@@ -25,6 +25,9 @@ type NodeStatus struct {
 	HAProxyHealth   string `json:"haproxy_health,omitempty"`
 	LatestRelease   string `json:"latest_release,omitempty"`
 	UpdateAvailable bool   `json:"update_available"`
+	// SecurityUpdate: the newer releases fix vulnerabilities this node
+	// has, the worst this severe (ReleaseInfo.SecurityUpdate).
+	SecurityUpdate string `json:"security_update,omitempty"`
 }
 
 // Status queries node over its shared connection. ctx bounds the whole
@@ -108,6 +111,7 @@ func Status(ctx context.Context, node *store.Node) NodeStatus {
 	if rel, err := getLatestRelease(ctx); err == nil {
 		st.LatestRelease = rel.TagName
 		st.UpdateAvailable = rel.TagName != "" && rel.TagName != st.Version
+		st.SecurityUpdate, _ = rel.SecurityUpdate(st.Version, "node")
 	}
 	return st
 }

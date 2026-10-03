@@ -7,6 +7,8 @@ import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, Powe
 import { navigate, useHashRoute } from './shared/route.js'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
 import TokensPage from './Tokens.jsx'
+import { SecurityBadge } from './SecurityBadge.jsx'
+import { worstSeverity } from './severity.js'
 import { Badge, Card, ErrorBox, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
 
 // dashboardd serves this SPA and its REST API on the same origin (its own
@@ -71,13 +73,20 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions }) {
           <dt>Version</dt>
           <dd>
             <span className="mono">{st.version}</span>
-            {st.update_available && (
+            {st.security_update ? (
               <>
                 {' '}
-                <Badge tone="accent">
-                  <Rocket size={11} /> {st.latest_release}
-                </Badge>
+                <SecurityBadge severity={st.security_update}>{st.latest_release}</SecurityBadge>
               </>
+            ) : (
+              st.update_available && (
+                <>
+                  {' '}
+                  <Badge tone="accent">
+                    <Rocket size={11} /> {st.latest_release}
+                  </Badge>
+                </>
+              )
             )}
           </dd>
           <dt>HAProxy</dt>
@@ -596,6 +605,7 @@ function MainApp() {
   const online = values.filter((s) => s.reachable).length
   const down = values.filter((s) => !s.reachable).length
   const updates = values.filter((s) => s.update_available).length
+  const security = values.filter((s) => s.security_update)
 
   return (
     <div className="main-page">
@@ -614,6 +624,11 @@ function MainApp() {
         <div className="row">
           {online > 0 && <Badge tone="ok" dot>{online} online</Badge>}
           {down > 0 && <Badge tone="danger" dot>{down} unreachable</Badge>}
+          {security.length > 0 && (
+            <SecurityBadge severity={worstSeverity(security.map((s) => s.security_update))}>
+              {security.length} security update{security.length === 1 ? '' : 's'}
+            </SecurityBadge>
+          )}
           {updates > 0 && <Badge tone="accent">{updates} update{updates === 1 ? '' : 's'} available</Badge>}
           {pending.length > 0 && <Badge tone="warn">{pending.length} pending</Badge>}
         </div>

@@ -40,6 +40,8 @@
 .nav-item.active svg { color: var(--accent); }
 .nav-hint { font-size: 0.7rem; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 0.25rem; }
 .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.nav-dot.danger { background: var(--danger); }
+.nav-dot.warn { background: var(--warn); }
 
 /* --- main --- */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }

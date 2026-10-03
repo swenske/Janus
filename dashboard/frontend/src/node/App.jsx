@@ -32,6 +32,8 @@ import {
 import { useEffect, useState } from 'react'
 import { Logo, ThemeToggle } from '../shared/theme.jsx'
 import { Badge } from '../shared/ui.jsx'
+import { SecurityBadge } from '../SecurityBadge.jsx'
+import { securityText, securityTone } from '../severity.js'
 import { INTERVALS, navigate, useHashRoute, useMetrics, usePoll, useRefresh } from './hooks.jsx'
 import Access from './views/Access.jsx'
 import Capture from './views/Capture.jsx'
@@ -169,6 +171,7 @@ export default function App() {
   }
   const latestTag = check.data?.latest
   const updateAvailable = check.data?.state === 'ready' && check.data?.update_available
+  const securityUpdate = check.data?.security_update
   const hap = latest?.hap
   const View = current.view
 
@@ -192,7 +195,9 @@ export default function App() {
                   <a key={item.path} href={`#${item.path}`} className={`nav-item ${active ? 'active' : ''} ${item.link ? 'nav-link' : ''}`}>
                     <item.icon size={16} />
                     <span className="grow">{item.label}</span>
-                    {item.path === '/system/update' && updateAvailable && <span className="nav-dot" title="Update available" />}
+                    {item.path === '/system/update' && (securityUpdate || updateAvailable) && (
+                      <span className={`nav-dot ${securityUpdate ? securityTone(securityUpdate) : ''}`} title={securityUpdate ? securityText(securityUpdate) : 'Update available'} />
+                    )}
                   </a>
                 )
               })}
@@ -221,9 +226,13 @@ export default function App() {
               </Badge>
             )}
             {version && (
-              <a href="#/system/update" className="version-link" title={updateAvailable ? `Update available: ${latestTag}` : 'Up to date'}>
+              <a href="#/system/update" className="version-link" title={securityUpdate ? securityText(securityUpdate) : updateAvailable ? `Update available: ${latestTag}` : 'Up to date'}>
                 <Badge tone={updateAvailable ? 'accent' : ''}>{version}</Badge>
-                {updateAvailable && <Badge tone="accent">update → {latestTag}</Badge>}
+                {securityUpdate ? (
+                  <SecurityBadge severity={securityUpdate}>security update → {latestTag}</SecurityBadge>
+                ) : (
+                  updateAvailable && <Badge tone="accent">update → {latestTag}</Badge>
+                )}
               </a>
             )}
           </div>
