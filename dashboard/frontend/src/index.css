@@ -86,7 +86,14 @@
 .machine-events { max-height: 220px; margin: 0; white-space: pre-wrap; }
 .kv dd .bar { margin-top: 0.3rem; }
 .modal.console-modal { width: min(1100px, 100%); display: flex; flex-direction: column; gap: 0.6rem; }
-.console-output { height: min(65vh, 640px); margin: 0; white-space: pre-wrap; word-break: break-all; }
+/* A terminal, in either theme: the console's colors are a terminal's. */
+.console-output {
+  --console-bg: #15171c;
+  --console-fg: #d7dae0;
+  height: min(65vh, 640px); margin: 0; white-space: pre-wrap; word-break: break-all; line-height: 1.2;
+  background: var(--console-bg); color: var(--console-fg); border-color: #2a2e36;
+}
+.console-waiting { color: #7f848e; }
 .content > .tabs { margin-bottom: 1.1rem; }
 
 @media (max-width: 800px) {

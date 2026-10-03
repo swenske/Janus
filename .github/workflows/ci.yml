@@ -1,6 +1,7 @@
 # Continuous integration: lint, test, and build the Janus control
-# plane (cmd/, internal/, gen/, dashboard/) and the Terraform provider
-# (terraform-provider-janus/) on every push to main and every pull
+# plane (cmd/, internal/, gen/, dashboard/), the Terraform provider
+# (terraform-provider-janus/) and the Controller's frontend's lint and
+# unit tests (dashboard/frontend/) on every push to main and every pull
 # request (including from forks). Always runs on GitHub-hosted runners -
 # free/unlimited on a public repo, and this is the one workflow that MUST
 # accept untrusted fork PRs, so it never touches the self-hosted runner or
@@ -111,3 +112,21 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
       - run: go build ./...
+
+  # The Controller's frontend (dashboard/frontend/): its lint and its unit
+  # tests (node --test - the console's terminal colors, src/ansi.js). Its
+  # built output is committed (make dashboard-frontend-build): nothing
+  # here builds it. The runner's own Node.
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard/frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm test

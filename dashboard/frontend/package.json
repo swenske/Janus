@@ -8,7 +8,8 @@
     "build": "vite build && vite build --config vite.node.config.js",
     "lint": "oxlint",
     "preview": "vite preview",
-    "build:node": "vite build --config vite.node.config.js"
+    "build:node": "vite build --config vite.node.config.js",
+    "test": "node --test src/"
   },
   "dependencies": {
     "lucide-react": "^1.49.0",

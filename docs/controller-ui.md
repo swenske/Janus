@@ -74,7 +74,10 @@ the host again. **Create node** takes the hypervisor, name, size,
 interfaces (network, name, static/DHCP/none), DNS/NTP, the version and the
 image factory's extensions, or an image by URL and SHA-256. The console
 (`Console.jsx`) is read-only, follows the SSE stream from
-`/api/machines/{id}/console`, and cleans terminal sequences out of the
+`/api/machines/{id}/console`, keeps the terminal's colors and attributes
+(SGR - `ansi.js`, unit-tested with `npm test`; a terminal's dark
+background in both themes, so the node's banner shows in its colors),
+and cleans every other terminal sequence out of the
 whole text - an escape sequence can be cut across two messages.
 
 A machine's card shows:
