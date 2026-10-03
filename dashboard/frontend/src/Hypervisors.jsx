@@ -3,10 +3,12 @@ import {
   Code,
   Copy,
   Cpu,
+  Download,
   Fingerprint,
   HardDrive,
   History,
   KeyRound,
+  ListChecks,
   Loader2,
   Lock,
   LockOpen,
@@ -29,18 +31,25 @@ import { Badge, Card, ErrorBox, Meter, stateTone, useAction, useConfirm, useToas
 // machines (dashboard/backend/hypervisors.go, machines.go,
 // docs/hypervisors.md).
 
-function CopyBlock({ label, value, rows = 2 }) {
-  const ref = useRef(null)
+// useCopy copies text to the clipboard, saying so; onFail selects it
+// for a Ctrl+C when the clipboard refuses.
+function useCopy() {
   const toast = useToast()
-  const copy = async () => {
+  return async (text, label, onFail) => {
     try {
-      await navigator.clipboard.writeText(value)
+      await navigator.clipboard.writeText(text)
       toast(`${label} copied`)
     } catch {
-      ref.current?.select()
+      onFail?.()
       toast(`Select the ${label.toLowerCase()} and press Ctrl+C`, 'warn')
     }
   }
+}
+
+function CopyBlock({ label, value, rows = 2 }) {
+  const ref = useRef(null)
+  const copyText = useCopy()
+  const copy = () => copyText(value, label, () => ref.current?.select())
   return (
     <label className="field">
       <span className="spread">
@@ -80,27 +89,38 @@ function splitList(s) {
     .filter(Boolean)
 }
 
+function hvBody(f) {
+  return {
+    name: f.name,
+    kind: 'libvirt',
+    controller_address: f.controller_address.trim(),
+    libvirt: {
+      host: f.host.trim(),
+      user: f.user.trim(),
+      pool: f.pool.trim(),
+      networks: splitList(f.networks),
+      name_prefix: f.name_prefix.trim(),
+      socket: f.socket.trim(),
+    },
+  }
+}
+
+// What the host's files name: changed, the host needs preparing again.
+const PREPARED = ['user', 'pool', 'networks', 'name_prefix']
+
 function HypervisorForm({ hv, onSaved, onClose }) {
   const [f, setF] = useState(() => toForm(hv))
   const [error, setError] = useState(null)
+  const [prep, setPrep] = useState(false)
   const [busy, run] = useAction()
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
+  const ready = ['name', 'host', 'user', 'pool'].every((k) => f[k].trim()) && splitList(f.networks).length > 0
+  const saved0 = toForm(hv)
+  const reprepare = hv && PREPARED.some((k) => (k === 'networks' ? splitList(f[k]).join() !== splitList(saved0[k]).join() : f[k].trim() !== saved0[k]))
   const submit = async (e) => {
     e.preventDefault()
     setError(null)
-    const body = {
-      name: f.name,
-      kind: 'libvirt',
-      controller_address: f.controller_address.trim(),
-      libvirt: {
-        host: f.host.trim(),
-        user: f.user.trim(),
-        pool: f.pool.trim(),
-        networks: splitList(f.networks),
-        name_prefix: f.name_prefix.trim(),
-        socket: f.socket.trim(),
-      },
-    }
+    const body = hvBody(f)
     const saved = await run(
       async () => {
         try {
@@ -164,14 +184,112 @@ function HypervisorForm({ hv, onSaved, onClose }) {
           </label>
         </div>
         {hv && f.host.trim() !== (hv.libvirt?.host || '') && <div className="notice warn">Another host: its host key will have to be confirmed again.</div>}
+        {reprepare && (
+          <div className="notice warn">
+            The host&apos;s sshd, nftables and polkit files name the account, pool, networks and prefix: prepare the host again with the new ones.
+          </div>
+        )}
         <ErrorBox error={error} />
-        <div>
+        <div className="row">
           <button className="primary" type="submit" disabled={busy}>
             {busy ? 'Saving…' : hv ? 'Save' : 'Add hypervisor'}
           </button>
+          <button
+            type="button"
+            onClick={() => setPrep(!prep)}
+            disabled={!ready && !prep}
+            aria-expanded={prep}
+            title={ready ? 'What to run on the host, with these settings' : 'Fill in the name, SSH host and user, pool and networks first'}
+          >
+            <ListChecks size={15} /> {prep ? 'Hide host preparation' : 'Show host preparation'}
+          </button>
         </div>
       </form>
+      {prep && ready && <HostPrep body={{ ...hvBody(f), ...(hv ? { id: hv.id } : {}) }} />}
     </Card>
+  )
+}
+
+// --- preparing the host ---
+
+// HostPrep shows what to run on the host, as root, for these settings -
+// the Controller writes it (POST /api/hypervisors/preparation), again on
+// every change to them.
+function HostPrep({ body }) {
+  const [prep, setPrep] = useState(null)
+  const [error, setError] = useState(null)
+  const copy = useCopy()
+  const key = JSON.stringify(body)
+  useEffect(() => {
+    let live = true
+    const t = setTimeout(() => {
+      postJSON('/api/hypervisors/preparation', JSON.parse(key)).then(
+        (p) => {
+          if (!live) return
+          setPrep(p)
+          setError(null)
+        },
+        (err) => {
+          if (live) setError(err)
+        },
+      )
+    }, 250)
+    return () => {
+      live = false
+      clearTimeout(t)
+    }
+  }, [key])
+  const file = `janus-${(body.name || 'hypervisor').replace(/[^A-Za-z0-9_.-]+/g, '-')}-host.sh`
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([prep.script], { type: 'text/x-shellscript' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = file
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+  if (error) return <ErrorBox error={error} />
+  if (!prep) return <div className="muted small">Writing the host preparation…</div>
+  return (
+    <div className="stack host-prep">
+      <div className="spread" style={{ alignItems: 'flex-start', gap: '0.75rem' }}>
+        <div>
+          <strong>Preparing {body.libvirt.host}</strong>
+          <div className="muted small">
+            As root on the host: run <code>sh {file}</code>, or paste it into <code>sudo sh</code>. Each step can also run alone, and running it again is
+            harmless.
+          </div>
+        </div>
+        <div className="row" style={{ flexShrink: 0 }}>
+          <button type="button" className="small" onClick={() => copy(prep.script, 'Host preparation')}>
+            <Copy size={14} /> Copy all
+          </button>
+          <button type="button" className="small" onClick={download} title={`Save it as ${file}`}>
+            <Download size={14} /> Download
+          </button>
+        </div>
+      </div>
+      {!prep.has_key && (
+        <div className="notice small">
+          The Controller&apos;s SSH key isn&apos;t in it yet: it&apos;s made when the hypervisor is added. Its card then gives the command that authorizes it -
+          or this preparation again, key included.
+        </div>
+      )}
+      <ol className="prep-steps">
+        {prep.steps.map((s, i) => (
+          <li key={i}>
+            <div className="spread">
+              <strong>{s.title}</strong>
+              <button type="button" className="small ghost" onClick={() => copy(s.script, `Step ${i + 1}`)}>
+                <Copy size={13} /> Copy
+              </button>
+            </div>
+            <p className="muted small">{s.about}</p>
+            <pre className="logview prep-script">{s.script}</pre>
+          </li>
+        ))}
+      </ol>
+    </div>
   )
 }
 
@@ -179,6 +297,10 @@ function HypervisorForm({ hv, onSaved, onClose }) {
 
 function TrustSteps({ hv, onTrusted }) {
   const [probe, setProbe] = useState(null)
+  const [prep, setPrep] = useState(false)
+  const user = hv.libvirt?.user
+  const keyFile = `~${user}/.ssh/authorized_keys`
+  const authorize = `grep -qxF '${hv.authorized_key}' ${keyFile} || echo '${hv.authorized_key}' >> ${keyFile}`
   const [error, setError] = useState(null)
   const [busy, run] = useAction()
   const readKey = () => {
@@ -200,10 +322,30 @@ function TrustSteps({ hv, onTrusted }) {
       <div>
         <strong>1. Let the Controller in.</strong>{' '}
         <span className="muted small">
-          On the host, add this line to <code>~{hv.libvirt?.user}/.ssh/authorized_keys</code>:
+          On the host, as root - it adds the Controller&apos;s key to <code>{keyFile}</code>:
         </span>
       </div>
-      <CopyBlock label="Controller public key" value={hv.authorized_key} rows={3} />
+      <CopyBlock label="Command" value={authorize} rows={4} />
+      <div className="row">
+        <button type="button" className="small ghost" onClick={() => setPrep(!prep)} aria-expanded={prep}>
+          <ListChecks size={14} /> Host not prepared yet? Show host preparation
+        </button>
+      </div>
+      {prep && (
+        <div className="modal-backdrop" onClick={() => setPrep(false)}>
+          <div className="modal card wide host-prep-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="card-header">
+              <div className="card-title">
+                <ListChecks size={16} /> {hv.name}: preparing the host
+              </div>
+              <button className="ghost icon" onClick={() => setPrep(false)} aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+            <HostPrep body={{ ...hvBody(toForm(hv)), id: hv.id }} />
+          </div>
+        </div>
+      )}
       <div>
         <strong>2. Confirm the host is the right one.</strong> <span className="muted small">The Controller never trusts a host key it was simply shown.</span>
       </div>

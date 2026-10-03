@@ -197,3 +197,11 @@ func (a PowerAction) Valid() bool {
 
 // Timestamps used by Store.
 var now = func() time.Time { return time.Now().UTC() }
+
+// PrepStep is one step of preparing a host for the Controller: what to
+// run there as root, and why.
+type PrepStep struct {
+	Title  string `json:"title"`
+	About  string `json:"about"`
+	Script string `json:"script"`
+}

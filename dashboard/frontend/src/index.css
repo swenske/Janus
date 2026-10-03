@@ -96,3 +96,9 @@
 .modal.edit-machine { width: min(980px, 100%); }
 .nic-current { align-self: center; grid-column: span 3; }
 .edit-notes { margin: 0.2rem 0 0; padding-left: 1.1rem; }
+.host-prep { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.modal.host-prep-modal { width: min(1000px, 100%); }
+.host-prep-modal .host-prep { margin-top: 0; padding-top: 0; border-top: none; }
+.prep-steps { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: 0.9rem; }
+.prep-steps p { margin: 0.2rem 0 0.4rem; }
+.prep-script { margin: 0; max-height: 18rem; white-space: pre; font-size: 0.78rem; }

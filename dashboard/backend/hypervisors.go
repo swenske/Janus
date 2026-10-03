@@ -33,6 +33,7 @@ func (a *app) registerHypervisorRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/hypervisors/{id}/probe", a.requireAuth(a.handleHypervisorProbe))
 	mux.HandleFunc("POST /api/hypervisors/{id}/trust", a.requireAuth(a.handleHypervisorTrust))
 	mux.HandleFunc("GET /api/hypervisors/{id}/status", a.requireAuth(a.handleHypervisorStatus))
+	mux.HandleFunc("POST /api/hypervisors/preparation", a.requireAuth(a.handleHypervisorPreparation))
 }
 
 // newDriver connects the Controller to a hypervisor - a variable so
@@ -196,6 +197,55 @@ func (a *app) handleHypervisorDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	a.hvStatus.forget(h.ID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// preparationRequest is a hypervisor's settings - the form's, before
+// it's added or saved - and, for one already added, its ID: its key then
+// goes in the preparation too.
+type preparationRequest struct {
+	hypervisorRequest
+	ID string `json:"id,omitempty"`
+}
+
+type preparationView struct {
+	Steps []hypervisor.PrepStep `json:"steps"`
+	// Script is every step in one script.
+	Script string `json:"script"`
+	// HasKey: the Controller's key is in it.
+	HasKey bool `json:"has_key"`
+}
+
+// handleHypervisorPreparation gives what to run on the host, as root,
+// for these settings (docs/hypervisors.md: preparing a libvirt host).
+func (a *app) handleHypervisorPreparation(w http.ResponseWriter, r *http.Request) {
+	var req preparationRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.Kind == "" {
+		req.Kind = hypervisor.KindLibvirt
+	}
+	h := &hypervisor.Hypervisor{Name: strings.TrimSpace(req.Name), Kind: req.Kind, ControllerAddress: req.ControllerAddress, Libvirt: req.Libvirt}
+	if h.Libvirt != nil {
+		l := *h.Libvirt
+		l.HostKey = ""
+		h.Libvirt = &l
+	}
+	if err := h.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	key := ""
+	if req.ID != "" {
+		saved, ok := a.hypervisors.Get(req.ID)
+		if !ok {
+			writeError(w, http.StatusNotFound, "no such hypervisor")
+			return
+		}
+		key = saved.AuthorizedKey()
+	}
+	steps := libvirt.HostPreparation(h.Name, h.Libvirt, key)
+	writeJSON(w, http.StatusOK, preparationView{Steps: steps, Script: libvirt.PreparationScript(h.Name, steps), HasKey: key != ""})
 }
 
 type hostKeyView struct {

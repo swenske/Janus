@@ -32,28 +32,55 @@ Terragrunt) drive it with the Janus provider: [terraform.md](terraform.md).
 
 ## Preparing a libvirt host
 
-Everything here runs as root on the host.
+The Controller writes the host's preparation with the hypervisor's own
+values - its account, pool, networks and name prefix:
+- **Show host preparation**, in the **Add hypervisor** form, once its
+  required fields are filled in;
+- on the card of a hypervisor not trusted yet - the Controller's key
+  included;
+- `POST /api/hypervisors/preparation` ([The API](#the-api)).
+
+Run it as root on the host: `sh janus-<name>-host.sh`, or paste it
+into `sudo sh`. Every step can also run alone, and running it again is
+harmless - it's also how a host follows a change to those values.
+
+The Controller's SSH key is made when the hypervisor is added: a
+preparation shown before has no key. The hypervisor's card then gives
+the one command that authorizes it.
+
+Its steps, here for the hypervisor `kvm01`, account `janus-ctl`, pool
+`janus`, networks `lan` and `dmz`, and the default prefix `janus-`:
 
 ### 1. The Controller's account
 
+A dedicated account with no password and no shell:
+- the `libvirt` group lets it connect to libvirt's socket (Debian's
+  polkit rule `60-libvirt.rules`);
+- `janus-controllers` is the group of every Janus Controller's account
+  on the host (step 5).
+
 ```sh
-useradd -m -s /usr/sbin/nologin -G libvirt janus-ctl
-passwd -l janus-ctl
-install -d -m 700 -o janus-ctl -g janus-ctl ~janus-ctl/.ssh
-install -m 600 -o janus-ctl -g janus-ctl /dev/null ~janus-ctl/.ssh/authorized_keys
+getent group libvirt >/dev/null || { echo "There's no libvirt group: is libvirt installed?" >&2; exit 1; }
+getent group janus-controllers >/dev/null || groupadd --system janus-controllers
+id -u janus-ctl >/dev/null 2>&1 || useradd --create-home --shell /usr/sbin/nologin janus-ctl
+usermod --append --groups libvirt,janus-controllers janus-ctl
+passwd --lock janus-ctl >/dev/null
+install -d -m 700 -o janus-ctl -g "$(id -gn janus-ctl)" ~janus-ctl/.ssh
+[ -e ~janus-ctl/.ssh/authorized_keys ] || install -m 600 -o janus-ctl -g "$(id -gn janus-ctl)" /dev/null ~janus-ctl/.ssh/authorized_keys
+# The Controller's key for this hypervisor goes in ~janus-ctl/.ssh/authorized_keys:
+# it's made when the hypervisor is added - its card then gives the command.
 ```
-
-The `libvirt` group lets the account connect to libvirt's socket
-(Debian's polkit rule `60-libvirt.rules`).
-
-The Controller generates its own SSH key per hypervisor. Its public half,
-shown once the hypervisor is added, goes in that `authorized_keys`.
 
 ### 2. sshd: nothing but the socket
 
-`/etc/ssh/sshd_config.d/50-janus-controller.conf`:
+The account gets no shell and no TTY, and nothing listens on its behalf.
 
-```
+```sh
+grep -qi '^Include /etc/ssh/sshd_config.d/' /etc/ssh/sshd_config || echo "warning: /etc/ssh/sshd_config doesn't include sshd_config.d" >&2
+# Its earlier name, from a docs/hypervisors.md that named no account.
+if grep -qx 'Match User janus-ctl' /etc/ssh/sshd_config.d/50-janus-controller.conf 2>/dev/null; then rm /etc/ssh/sshd_config.d/50-janus-controller.conf; fi
+cat > /etc/ssh/sshd_config.d/50-janus-ctl.conf <<'JANUS'
+# Janus Controller, hypervisor kvm01: its account only opens libvirt's socket.
 Match User janus-ctl
     PasswordAuthentication no
     KbdInteractiveAuthentication no
@@ -64,26 +91,32 @@ Match User janus-ctl
     AllowAgentForwarding no
     PermitTTY no
     ForceCommand /usr/bin/false
+JANUS
+sshd -t
+systemctl reload ssh 2>/dev/null || systemctl reload sshd
+sshd -T -C user=janus-ctl,host=localhost,addr=127.0.0.1 | grep -qx 'allowstreamlocalforwarding local' ||
+    echo "warning: another sshd setting wins over 50-janus-ctl.conf for janus-ctl: check sshd -T -C user=janus-ctl" >&2
 ```
-
-The account gets no shell and no TTY, and nothing listens on its behalf.
 
 `AllowTcpForwarding` has to stay `local`. With `no`, OpenSSH also
 refuses to open a Unix socket: libvirt's channel fails with "connect
 failed". For the same reason, `PermitOpen` must stay unset.
 
 Since that also allows forwarding TCP, step 3 makes sure no TCP gets
-anywhere.
+anywhere. The last check catches another sshd setting winning over this
+file - sshd keeps the first value it reads.
 
 ### 3. No network traffic from that account
 
-The account only ever needs libvirt's Unix socket. An nftables table
-rejects any IP traffic it would send, so a stolen key can't be used to
-reach other machines through the host.
+The account only ever needs libvirt's Unix socket. An nftables table,
+loaded at boot by a oneshot unit, rejects any IP traffic it would send,
+so a stolen key can't be used to reach other machines through the host.
+The Controller's own SSH connection isn't affected: its socket belongs
+to sshd.
 
-`/etc/nftables.d/janus-ctl.nft`:
-
-```
+```sh
+mkdir -p /etc/nftables.d
+cat > /etc/nftables.d/janus-ctl.nft <<'JANUS'
 table inet janus_ctl
 delete table inet janus_ctl
 table inet janus_ctl {
@@ -92,14 +125,10 @@ table inet janus_ctl {
 		meta skuid "janus-ctl" counter reject
 	}
 }
-```
-
-Load it at boot with a oneshot unit,
-`/etc/systemd/system/janus-ctl-egress.service`:
-
-```
+JANUS
+cat > /etc/systemd/system/janus-ctl-egress.service <<'JANUS'
 [Unit]
-Description=No IP traffic from the Janus Controller account (janus-ctl)
+Description=No IP traffic from the Janus Controller account janus-ctl
 Before=ssh.service
 After=nss-user-lookup.target
 
@@ -111,18 +140,25 @@ ExecStop=/usr/sbin/nft delete table inet janus_ctl
 
 [Install]
 WantedBy=multi-user.target
+JANUS
+systemctl daemon-reload
+systemctl enable --quiet janus-ctl-egress
+systemctl restart janus-ctl-egress
 ```
 
-Enable it with `systemctl enable --now janus-ctl-egress`. The Controller's
-own SSH connection isn't affected: its socket belongs to sshd.
+### 4. The storage pool, and the networks
 
-### 4. The storage pool
+A pool of type `dir`, for the base images and the machines' disks. The
+networks must already be in libvirt: they're only checked.
 
 ```sh
 install -d -m 711 /var/lib/libvirt/janus
-virsh pool-define-as janus dir --target /var/lib/libvirt/janus
-virsh pool-start janus
-virsh pool-autostart janus
+virsh -q pool-info janus >/dev/null 2>&1 || virsh -q pool-define-as janus dir --target /var/lib/libvirt/janus
+virsh -q pool-info janus | grep -q '^State: *running' || virsh -q pool-start janus
+virsh -q pool-autostart janus
+for net in lan dmz; do
+    virsh -q net-info "$net" >/dev/null 2>&1 || echo "warning: libvirt has no network $net" >&2
+done
 ```
 
 ### 5. polkit: libvirt enforces the boundary
@@ -133,91 +169,129 @@ do anything libvirt can, which is effectively root on the host.
 With libvirt's polkit access driver, every API call is checked:
 - the Controller's account only sees and acts on domains named with its
   prefix, its pool and the networks it may use;
-- everyone else - root, the rest of the `libvirt` group - keeps every
-  right they had.
+- root and the rest of the `libvirt` group keep every right they had;
+- another Controller's account (`janus-controllers`) is left to its own
+  rule.
 
-`/etc/polkit-1/rules.d/50-janus-controller.rules`, with your prefix,
-pool and networks at the top:
-
-```js
-var JANUS_USER = "janus-ctl";
-var JANUS_PREFIX = "janus-";
-var JANUS_POOL = "janus";
-var JANUS_NETWORKS = ["lan", "dmz"];
-
-var JANUS_ALLOWED = {
-    "connect": ["getattr", "read", "search-domains", "search-networks", "search-storage-pools"],
-    "domain": ["getattr", "read", "write", "save", "delete", "start", "stop", "reset", "open-device"],
-    "storage-pool": ["getattr", "read", "refresh", "search-storage-vols"],
-    "storage-vol": ["getattr", "read", "create", "delete", "data-read", "data-write"],
-    "network": ["getattr", "read"],
-    // Starting a machine plugs its interfaces into the networks.
-    "network-port": ["getattr", "read", "create", "delete"]
-};
-
-function janusDenied(action) {
-    polkit.log("janus-controller: denied " + action.id + " domain=" + action.lookup("domain_name") +
-        " pool=" + action.lookup("pool_name") + " network=" + action.lookup("network_name"));
-    return polkit.Result.NO;
-}
-
-polkit.addRule(function(action, subject) {
-    if (action.id.indexOf("org.libvirt.api.") != 0) {
-        return polkit.Result.NOT_HANDLED;
-    }
-    if (subject.user != JANUS_USER) {
-        if (subject.user == "root" || subject.isInGroup("libvirt")) {
-            return polkit.Result.YES;
-        }
-        return polkit.Result.NOT_HANDLED;
-    }
-    var parts = action.id.substr("org.libvirt.api.".length).split(".");
-    var allowed = JANUS_ALLOWED[parts[0]];
-    if (!allowed || allowed.indexOf(parts[1]) < 0) {
-        return janusDenied(action);
-    }
-    switch (parts[0]) {
-    case "domain":
-        return String(action.lookup("domain_name")).indexOf(JANUS_PREFIX) == 0 ? polkit.Result.YES : janusDenied(action);
-    case "storage-pool":
-    case "storage-vol":
-        return action.lookup("pool_name") == JANUS_POOL ? polkit.Result.YES : janusDenied(action);
-    case "network":
-    case "network-port":
-        return JANUS_NETWORKS.indexOf(action.lookup("network_name")) >= 0 ? polkit.Result.YES : janusDenied(action);
-    }
-    return polkit.Result.YES;
-});
-```
-
-Then turn the access driver on and restart libvirt. The running virtual
+Turning the driver on restarts libvirtd once; the running virtual
 machines aren't affected.
 
 ```sh
-echo 'access_drivers = [ "polkit" ]' >> /etc/libvirt/libvirtd.conf
-systemctl restart libvirtd
+# Its earlier name, from a docs/hypervisors.md that named no account.
+if grep -q 'JANUS_USER = "janus-ctl";' /etc/polkit-1/rules.d/50-janus-controller.rules 2>/dev/null; then rm /etc/polkit-1/rules.d/50-janus-controller.rules; fi
+cat > /etc/polkit-1/rules.d/50-janus-ctl.rules <<'JANUS'
+// Janus Controller, hypervisor kvm01 (docs/hypervisors.md): what its
+// account may do through libvirt once libvirt checks every API call with
+// polkit - its own virtual machines, its pool, its networks, and reading
+// the host. In a function of its own: every rules file shares one scope.
+(function () {
+    var JANUS_USER = "janus-ctl";
+    var JANUS_PREFIX = "janus-";
+    var JANUS_POOL = "janus";
+    var JANUS_NETWORKS = ["lan", "dmz"];
+    // Every Janus Controller's account: each one has its own rule.
+    var JANUS_GROUP = "janus-controllers";
+
+    var ALLOWED = {
+        "connect": ["getattr", "read", "search-domains", "search-networks", "search-storage-pools"],
+        "domain": ["getattr", "read", "write", "save", "delete", "start", "stop", "reset", "open-device"],
+        "storage-pool": ["getattr", "read", "refresh", "search-storage-vols"],
+        "storage-vol": ["getattr", "read", "create", "delete", "data-read", "data-write"],
+        "network": ["getattr", "read"],
+        // Starting a machine plugs its interfaces into the networks.
+        "network-port": ["getattr", "read", "create", "delete"]
+    };
+
+    function denied(action) {
+        polkit.log(JANUS_USER + ": denied " + action.id + " domain=" + action.lookup("domain_name") +
+            " pool=" + action.lookup("pool_name") + " network=" + action.lookup("network_name"));
+        return polkit.Result.NO;
+    }
+
+    polkit.addRule(function (action, subject) {
+        if (action.id.indexOf("org.libvirt.api.") != 0) {
+            return polkit.Result.NOT_HANDLED;
+        }
+        if (subject.user != JANUS_USER) {
+            if (subject.isInGroup(JANUS_GROUP)) {
+                return polkit.Result.NOT_HANDLED;
+            }
+            if (subject.user == "root" || subject.isInGroup("libvirt")) {
+                return polkit.Result.YES;
+            }
+            return polkit.Result.NOT_HANDLED;
+        }
+        var parts = action.id.substr("org.libvirt.api.".length).split(".");
+        var allowed = ALLOWED[parts[0]];
+        if (!allowed || allowed.indexOf(parts[1]) < 0) {
+            return denied(action);
+        }
+        switch (parts[0]) {
+        case "domain":
+            return String(action.lookup("domain_name")).indexOf(JANUS_PREFIX) == 0 ? polkit.Result.YES : denied(action);
+        case "storage-pool":
+        case "storage-vol":
+            return action.lookup("pool_name") == JANUS_POOL ? polkit.Result.YES : denied(action);
+        case "network":
+        case "network-port":
+            return JANUS_NETWORKS.indexOf(action.lookup("network_name")) >= 0 ? polkit.Result.YES : denied(action);
+        }
+        return polkit.Result.YES;
+    });
+})();
+JANUS
+if systemctl is-enabled --quiet libvirtd.service 2>/dev/null || systemctl is-active --quiet libvirtd.service; then
+    if ! grep -q '^access_drivers' /etc/libvirt/libvirtd.conf; then
+        echo 'access_drivers = [ "polkit" ]' >> /etc/libvirt/libvirtd.conf
+        systemctl try-restart libvirtd.service
+    fi
+    grep -q '^access_drivers.*"polkit"' /etc/libvirt/libvirtd.conf || echo "warning: /etc/libvirt/libvirtd.conf sets access_drivers without polkit" >&2
+else
+    echo "warning: no libvirtd - with libvirt's modular daemons, add access_drivers = [ \"polkit\" ] to virtqemud.conf, virtstoraged.conf and virtnetworkd.conf, then restart them" >&2
+fi
 ```
 
-With modular daemons instead of `libvirtd` (not tested here), the setting
-goes in each driver daemon's own configuration: `virtqemud.conf`,
-`virtstoraged.conf` and `virtnetworkd.conf`.
+The rule lives in a function of its own: polkit runs every rules file
+in one JavaScript scope, so two Controllers' top-level variables would
+overwrite each other.
 
-Check it - root sees everything, the account only its own:
-
-```sh
-virsh list --all
-sudo -u janus-ctl virsh -c qemu:///system list --all
-sudo -u janus-ctl virsh -c qemu:///system dominfo <another VM>    # failed to get domain
-```
+With modular daemons instead of `libvirtd` (not tested here), the
+setting goes in each driver daemon's own configuration: `virtqemud.conf`,
+`virtstoraged.conf` and `virtnetworkd.conf`. The script says so instead
+of guessing.
 
 How to read a refusal:
 - libvirtd's journal says `access denied: ...`.
 - The rule logs each one with `polkit.log`. Whether polkitd shows those
   lines depends on its log level: it didn't at Debian's `notice`.
 
-The machines' prefix is the hypervisor's **name prefix** in the
-Controller. A Controller sharing a host with another one gets its own
-account and its own prefix.
+### 6. Check
+
+The account sees its own machines only, and the host key's fingerprint
+is the one to compare with what the Controller reads when it's trusted.
+
+```sh
+echo "janus-ctl sees these domains:"
+runuser -u janus-ctl -- virsh -c qemu:///system list --all --name
+echo "This host's SSH key:"
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+Other accounts keep their view: `virsh list --all` as root still lists
+every machine, and `runuser -u janus-ctl -- virsh -c qemu:///system
+dominfo <another VM>` fails to get the domain.
+
+### Several Controllers on one host
+
+Each gets its own account, prefix and pool - its own hypervisor
+settings, its own preparation. Every account is in `janus-controllers`,
+so each account's polkit rule leaves the others to theirs.
+
+Up to v2026.10.03, these files didn't carry the account's name
+(`50-janus-controller.conf`, `50-janus-controller.rules`), and the rule
+granted any other `libvirt` group member everything - a second
+Controller's account included. Run the preparation again: it replaces
+those files with the account's own.
 
 ### Limits worth knowing
 
@@ -242,10 +316,18 @@ In the Controller: **Hypervisors**, then **Add hypervisor**. You give it:
 - optionally, the address its machines register at. By default it's the
   Controller's own guess: `-advertise-address` and `-register-addr`.
 
+Once the required fields are filled in, **Show host preparation** gives
+what to run on the host with those values
+([Preparing a libvirt host](#preparing-a-libvirt-host)). Changing the
+account, pool, networks or prefix later means running it again: the
+edit form says so.
+
 Then the card walks you through the remaining steps:
 
-1. **Let the Controller in**: add the shown line to the account's
-   `authorized_keys`.
+1. **Let the Controller in**: the command to run as root on the host
+   adds the Controller's key to the account's `authorized_keys`. A host
+   not prepared yet gets the whole preparation, key included, from
+   **Show host preparation** there.
 2. **Confirm the host**: **Read the host key** shows the fingerprint the
    host presents. Compare it with the host's own,
    `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`, then click **It
@@ -426,6 +508,7 @@ the one a Terraform provider needs, for the planned one:
 |---|---|
 | `GET`, `POST /api/hypervisors` | list, add (`{name, kind: "libvirt", controller_address, libvirt: {host, user, socket, pool, networks, name_prefix}}`) |
 | `GET`, `PATCH`, `DELETE /api/hypervisors/{id}` | one; change (another host must be trusted again); remove (refused while it has machines) |
+| `POST /api/hypervisors/preparation` | what to run on the host for these settings (the add form's body, plus `id` for one already added: its key goes in): `{steps: [{title, about, script}], script, has_key}` |
 | `POST /api/hypervisors/{id}/probe` | the host key the host presents: `{host_key, fingerprint}` |
 | `POST /api/hypervisors/{id}/trust` | `{fingerprint}`: pins the host key, if the host presents that one |
 | `GET /api/hypervisors/{id}/status` | the host, CPU use, and each of its machines' state |

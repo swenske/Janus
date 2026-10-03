@@ -54,12 +54,18 @@ created (an image too old to present its registration token) says so,
 and approving it links the node to the machine.
 
 **Hypervisors** ([hypervisors.md](hypervisors.md)): one card per host -
-added in three steps (the Controller's public key to authorize, the host
-key read and compared with the host's own, then trusted), then its
+added in three steps (the command that authorizes the Controller's key,
+the host key read and compared with the host's own, then trusted), then its
 software, CPU, memory, pool and networks - and below, the machines: their
 phase while they're created (the page polls every 3 s while one is under
 way), their virtual machine's state, history, retry, destroy (type the
-name) and the console. **Create node** takes the hypervisor, name, size,
+name) and the console. **Show host preparation** (`HostPrep`) - in the
+add/edit form once its required fields are filled in, and in a modal
+from a card not trusted yet, key included - shows the steps the backend
+writes (`POST /api/hypervisors/preparation`, again 250 ms after each
+change), each with Copy, plus Copy all and Download; the edit form warns
+when a change to the account, pool, networks or prefix means preparing
+the host again. **Create node** takes the hypervisor, name, size,
 interfaces (network, name, static/DHCP/none), DNS/NTP, the version and the
 image factory's extensions, or an image by URL and SHA-256. The console
 (`Console.jsx`) is read-only, follows the SSE stream from

@@ -427,3 +427,33 @@ func TestManualApprovalLinksTheMachine(t *testing.T) {
 		t.Errorf("machine %s node %q, node %+v", got.Phase, got.NodeID, node)
 	}
 }
+
+func TestHypervisorPreparation(t *testing.T) {
+	a, _ := newTestApp(t)
+	h := addTrustedHypervisor(t, a)
+	form := map[string]any{"name": "kvm02", "libvirt": map[string]any{"host": "kvm02", "user": "janus-ctl", "pool": "janus", "networks": []string{"lan"}}}
+	const pattern = "POST /api/hypervisors/preparation"
+
+	rec := call(t, a.handleHypervisorPreparation, "POST", "/api/hypervisors/preparation", pattern, form)
+	var got preparationView
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil || got.HasKey || len(got.Steps) == 0 || !strings.Contains(got.Script, "50-janus-ctl.rules") {
+		t.Fatalf("before it's added: %d %s", rec.Code, rec.Body)
+	}
+	// Added: its key is in it.
+	form["id"] = h.ID
+	rec = call(t, a.handleHypervisorPreparation, "POST", "/api/hypervisors/preparation", pattern, form)
+	got = preparationView{}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil || !got.HasKey || !strings.Contains(got.Script, h.AuthorizedKey()) {
+		t.Fatalf("added: %d %s", rec.Code, rec.Body)
+	}
+	form["id"] = "nope"
+	if rec = call(t, a.handleHypervisorPreparation, "POST", "/api/hypervisors/preparation", pattern, form); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown hypervisor: %d", rec.Code)
+	}
+	delete(form, "id")
+	// What Add refuses, it refuses too: nothing unchecked goes in a script.
+	form["libvirt"].(map[string]any)["user"] = "janus ctl; reboot"
+	if rec = call(t, a.handleHypervisorPreparation, "POST", "/api/hypervisors/preparation", pattern, form); rec.Code != http.StatusBadRequest {
+		t.Errorf("a user name with a space: %d %s", rec.Code, rec.Body)
+	}
+}
