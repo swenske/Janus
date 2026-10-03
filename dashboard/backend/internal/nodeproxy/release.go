@@ -43,6 +43,15 @@ var ReleasesURL = "https://api.github.com/repos/swenske/Janus/releases"
 // source IP) is the real constraint this is sized against, not UX.
 const releaseCacheTTL = 10 * time.Minute
 
+// errorCacheTTL is how long a failed fetch is answered from the cache:
+// long enough that every open page's refresh doesn't turn an outage into
+// a request storm, short enough that a retry soon after a passing
+// failure - a slow answer from GitHub - gets a fresh try. (It was
+// releaseCacheTTL: one timeout failed every machine creation for ten
+// minutes.)
+var errorCacheTTL = 15 * time.Second
+
+
 // ReleaseInfo is the newest release.
 type ReleaseInfo struct {
 	TagName       string `json:"tag_name"`
@@ -91,7 +100,7 @@ func getLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	if releaseCache.data != nil && time.Since(releaseCache.fetchedAt) < releaseCacheTTL {
 		return releaseCache.data, nil
 	}
-	if releaseCache.err != nil && time.Since(releaseCache.fetchedAt) < releaseCacheTTL {
+	if releaseCache.err != nil && time.Since(releaseCache.fetchedAt) < errorCacheTTL {
 		return nil, releaseCache.err
 	}
 

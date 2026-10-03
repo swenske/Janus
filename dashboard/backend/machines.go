@@ -330,6 +330,19 @@ type imageSource struct {
 	Size   int64 // 0: unknown
 }
 
+// resolveVMImage finds a release's (or the image factory's) image - a
+// variable so tests can give answers of their own.
+var resolveVMImage = nodeproxy.ResolveVMImage
+
+// imageAttempts is how many times in a row resolveImage asks before
+// giving up, imageRetryWait the wait after the first failure (doubled
+// after each): GitHub or the image factory answering slowly once
+// shouldn't fail a machine's creation.
+var (
+	imageAttempts  = 3
+	imageRetryWait = 20 * time.Second
+)
+
 // resolveImage finds the machine's image, waiting while the image
 // factory builds it.
 func (r *machineRunner) resolveImage(ctx context.Context, m *machines.Machine) (*imageSource, hypervisor.Image, error) {
@@ -340,15 +353,28 @@ func (r *machineRunner) resolveImage(ctx context.Context, m *machines.Machine) (
 	}
 	deadline := time.Now().Add(factoryBuildTimeout)
 	reported := false
+	failures := 0
 	for {
 		h, ok := r.a.hypervisors.Get(m.Spec.HypervisorID)
 		if !ok {
 			return nil, hypervisor.Image{}, errors.New("its hypervisor no longer exists")
 		}
-		vi, err := nodeproxy.ResolveVMImage(ctx, m.Spec.Version, m.Spec.Extensions, vmImageFile(h))
+		vi, err := resolveVMImage(ctx, m.Spec.Version, m.Spec.Extensions, vmImageFile(h))
 		if err != nil {
-			return nil, hypervisor.Image{}, fmt.Errorf("find the image: %w", err)
+			failures++
+			if failures >= imageAttempts || ctx.Err() != nil {
+				return nil, hypervisor.Image{}, fmt.Errorf("find the image: %w", err)
+			}
+			wait := imageRetryWait << (failures - 1)
+			r.logEvent(m.ID, "couldn't find the image yet (%v) - trying again in %s", err, wait)
+			select {
+			case <-ctx.Done():
+				return nil, hypervisor.Image{}, ctx.Err()
+			case <-time.After(wait):
+			}
+			continue
 		}
+		failures = 0
 		switch vi.State {
 		case "ready":
 			if _, err := r.a.machines.Update(m.ID, func(m *machines.Machine) error {

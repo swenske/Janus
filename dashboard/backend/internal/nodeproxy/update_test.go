@@ -370,3 +370,40 @@ func TestCheckUpdateRenamedExtension(t *testing.T) {
 		t.Fatalf("extensions %v -> %v", uc.Extensions, uc.TargetExtensions)
 	}
 }
+
+// A failure to reach GitHub is answered from the cache only briefly: a
+// retry soon after gets a fresh try (it used to wait ten minutes).
+func TestReleaseErrorCachedBriefly(t *testing.T) {
+	var calls atomic.Int32
+	failing := atomic.Bool{}
+	failing.Store(true)
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		if failing.Load() {
+			http.Error(w, "slow down", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"tag_name":"v2026.10.03-3","html_url":"https://github.invalid/r/releases/tag/v2026.10.03-3","assets":[]}]`))
+	}))
+	defer gh.Close()
+	prevURL, prevTTL := ReleasesURL, errorCacheTTL
+	ReleasesURL, errorCacheTTL = gh.URL, 200*time.Millisecond
+	seedRelease(t, nil) // restores the cache afterwards
+	releaseCache.mu.Lock()
+	releaseCache.fetchedAt = time.Time{}
+	releaseCache.mu.Unlock()
+	t.Cleanup(func() { ReleasesURL, errorCacheTTL = prevURL, prevTTL })
+
+	if _, err := getLatestRelease(context.Background()); err == nil {
+		t.Fatal("no error from a failing GitHub")
+	}
+	failing.Store(false)
+	if _, err := getLatestRelease(context.Background()); err == nil || calls.Load() != 1 {
+		t.Fatalf("right after: %v, %d calls - want the cached error", err, calls.Load())
+	}
+	time.Sleep(250 * time.Millisecond)
+	rel, err := getLatestRelease(context.Background())
+	if err != nil || rel.TagName != "v2026.10.03-3" || calls.Load() != 2 {
+		t.Fatalf("after errorCacheTTL: %+v %v, %d calls", rel, err, calls.Load())
+	}
+}

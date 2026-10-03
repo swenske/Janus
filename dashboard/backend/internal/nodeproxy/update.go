@@ -228,8 +228,8 @@ var catalogCache struct {
 }
 
 // factoryCatalog asks the image factory for its newest extension
-// catalog; the answer is cached like the release check, an error for a
-// minute.
+// catalog; the answer is cached like the release check, an error
+// briefly (errorCacheTTL).
 func factoryCatalog(ctx context.Context) (*factoryCatalogView, error) {
 	base := strings.TrimRight(ImageFactoryURL, "/")
 	if base == "" {
@@ -245,7 +245,7 @@ func factoryCatalog(ctx context.Context) (*factoryCatalogView, error) {
 	view, err := fetchFactoryCatalog(fctx, base)
 	ttl := releaseCacheTTL
 	if err != nil {
-		ttl = time.Minute
+		ttl = errorCacheTTL
 	}
 	catalogCache.base, catalogCache.view, catalogCache.err, catalogCache.expires = base, view, err, time.Now().Add(ttl)
 	return view, err
@@ -316,8 +316,10 @@ func factoryUpdate(ctx context.Context, base string, uc *updateCheck) (*factoryU
 	fctx, cancel := sharedFetchContext(ctx)
 	defer cancel()
 	up, err := fetchFactoryUpdate(fctx, base, uc)
-	ttl := time.Minute
+	ttl := time.Minute // not ready yet, or another answer
 	switch {
+	case err != nil:
+		ttl = errorCacheTTL
 	case err == nil && up.State == "ready":
 		ttl = releaseCacheTTL
 	case err == nil && up.State == "building":

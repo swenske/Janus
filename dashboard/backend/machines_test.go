@@ -551,3 +551,48 @@ func testCA(t *testing.T) (string, *x509.Certificate, *ecdsa.PrivateKey) {
 	cert, _ := x509.ParseCertificate(der)
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), cert, key
 }
+
+// GitHub or the image factory failing once doesn't fail a creation: the
+// image is asked for again, then found - or the creation fails after
+// imageAttempts tries.
+func TestResolveImageRetries(t *testing.T) {
+	a, _ := newTestApp(t)
+	h := addTrustedHypervisor(t, a)
+	prevResolve, prevWait := resolveVMImage, imageRetryWait
+	t.Cleanup(func() { resolveVMImage, imageRetryWait = prevResolve, prevWait })
+	imageRetryWait = 10 * time.Millisecond
+	m := &machines.Machine{Spec: machines.Spec{Name: "node1", HypervisorID: h.ID}, Phase: machines.PhaseImage}
+	if err := a.machines.Add(m); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		failures int
+		ok       bool
+	}{{0, true}, {imageAttempts - 1, true}, {imageAttempts, false}} {
+		calls := 0
+		resolveVMImage = func(context.Context, string, []string, string) (*nodeproxy.VMImage, error) {
+			calls++
+			if calls <= tc.failures {
+				return nil, errors.New(`Get "https://api.github.com/repos/swenske/Janus/releases": context deadline exceeded`)
+			}
+			return &nodeproxy.VMImage{State: "ready", Version: "v2026.10.03-3", Schematic: strings.Repeat("a", 64), URL: "https://example.invalid/janus-kvm.qcow2", SHA256: strings.Repeat("b", 64)}, nil
+		}
+		src, img, err := a.runner.resolveImage(context.Background(), m)
+		if tc.ok != (err == nil) || (tc.ok && (src == nil || img.Name != "janus-base-aaaaaaaa-v2026.10.03-3.qcow2")) {
+			t.Errorf("%d failures: %v %+v %v", tc.failures, src, img, err)
+		}
+		if want := min(tc.failures+1, imageAttempts); calls != want {
+			t.Errorf("%d failures: asked %d times, want %d", tc.failures, calls, want)
+		}
+	}
+	got, _ := a.machines.Get(m.ID)
+	retried := 0
+	for _, e := range got.Events {
+		if strings.HasPrefix(e.Message, "couldn't find the image yet") {
+			retried++
+		}
+	}
+	if retried != 2*(imageAttempts-1) {
+		t.Errorf("%d retries in the history, want %d", retried, 2*(imageAttempts-1))
+	}
+}
