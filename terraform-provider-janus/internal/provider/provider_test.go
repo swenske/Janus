@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -151,5 +152,44 @@ func TestFromMachine(t *testing.T) {
 	fromMachine(m, &s)
 	if s.DNS.IsNull() {
 		t.Error("an empty dns list became null")
+	}
+}
+
+// A Proxmox VE hypervisor: what goes to the Controller, and what comes
+// back into the state - the secret stays the state's (the Controller
+// never shows it), a fingerprint written in another case stays as
+// written, unset options stay unset.
+func TestProxmoxHypervisor(t *testing.T) {
+	ctx := context.Background()
+	nets, _ := types.ListValueFrom(ctx, types.StringType, []string{"vmbr0.10"})
+	fp := strings.ToLower(strings.Repeat("AB:", 31) + "AB")
+	m := proxmoxHypervisorModel{
+		Name: types.StringValue("pve01"), URL: types.StringValue("https://pve01:8006"), Node: types.StringValue("pve01"),
+		TokenID: types.StringValue("janus-ctl@pve!controller"), TokenSecret: types.StringValue("s3cr3t"),
+		Pool: types.StringValue("janus"), Storage: types.StringValue("local-lvm"), ImageStorage: types.StringValue("janus-images"),
+		Networks: nets, NamePrefix: types.StringNull(), VMIDs: types.StringValue("9000-9099"), ControllerAddress: types.StringNull(),
+		CACert: types.StringNull(), CertificateFingerprint: types.StringValue(fp),
+	}
+	var diags diag.Diagnostics
+	req := proxmoxRequest(ctx, &m, &diags)
+	if diags.HasError() || req.Kind != "proxmox" || req.TokenSecret != "s3cr3t" || req.Libvirt != nil || req.Proxmox == nil ||
+		req.Proxmox.Pool != "janus" || req.Proxmox.VMIDs != "9000-9099" || len(req.Proxmox.Networks) != 1 {
+		t.Fatalf("request: %+v %+v %v", req, req.Proxmox, diags)
+	}
+
+	h := &client.Hypervisor{ID: "h1", Name: "pve01", Kind: "proxmox", Trusted: true, HostKeyFingerprint: strings.ToUpper(fp), HasTokenSecret: true,
+		Proxmox: &client.ProxmoxConfig{URL: "https://pve01:8006", Node: "pve01", TokenID: "janus-ctl@pve!controller", Pool: "janus",
+			Storage: "local-lvm", ImageStorage: "janus-images", Networks: []string{"vmbr0.10"}, VMIDs: "9000-9099"}}
+	fromProxmox(h, &m)
+	if m.TokenSecret.ValueString() != "s3cr3t" || m.CertificateFingerprint.ValueString() != fp || !m.NamePrefix.IsNull() || !m.CACert.IsNull() ||
+		!m.ControllerAddress.IsNull() || !m.Trusted.ValueBool() || m.ID.ValueString() != "h1" {
+		t.Errorf("state: %+v", m)
+	}
+	// The API presents another certificate now: the state shows it, a
+	// change from the configuration to trust again.
+	h.HostKeyFingerprint, h.Trusted = "", false
+	fromProxmox(h, &m)
+	if !m.CertificateFingerprint.IsNull() && m.CertificateFingerprint.ValueString() != "" {
+		t.Errorf("an unpinned certificate kept the fingerprint %q", m.CertificateFingerprint.ValueString())
 	}
 }

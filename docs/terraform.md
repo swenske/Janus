@@ -92,8 +92,55 @@ Optional:
 - `socket`;
 - `controller_address`: where its nodes reach the Controller.
 
-A hypervisor that already exists on the Controller can be read instead:
-`data "janus_hypervisor" "kvm01" { name = "kvm01" }`.
+### `janus_proxmox_hypervisor`
+
+A Proxmox VE node the Controller creates nodes on, through its API with
+a token scoped to a pool. Prepare the node first - its preparation
+creates the token and shows its secret once: [hypervisors.md](hypervisors.md),
+preparing a Proxmox VE node.
+
+```hcl
+variable "pve_token_secret" {
+  type      = string
+  sensitive = true
+}
+
+resource "janus_proxmox_hypervisor" "pve01" {
+  name          = "pve01"
+  url           = "https://pve01.example.net:8006"
+  node          = "pve01"
+  token_id      = "janus-ctl@pve!controller"
+  token_secret  = var.pve_token_secret
+  pool          = "janus"
+  storage       = "local-lvm"
+  image_storage = "janus-images"
+  networks      = ["vmbr0.10", "vmbr0.20"]
+  # Read on the node: openssl x509 -noout -fingerprint -sha256 -in /etc/pve/local/pveproxy-ssl.pem
+  certificate_fingerprint = "8D:B4:BF:D2:36:65:AD:25:78:93:D8:04:32:74:86:3F:FE:43:0A:09:B1:88:E2:46:30:47:6D:99:B4:CE:4F:DE"
+}
+```
+
+- **Trust.** The API is trusted only if it presents the certificate
+  whose fingerprint is given (any case), or one signed by `ca_cert` (a
+  PEM CA certificate - a renewed certificate stays trusted). With
+  neither, the hypervisor isn't trusted, and no node can be created on
+  it.
+- **`token_secret`** goes to the Controller and is never read back: the
+  provider keeps it in the state, marked sensitive - protect the state.
+  An imported hypervisor gets it written by its next apply.
+
+Optional: `name_prefix` (default `janus-`), `vmids` (a range,
+`9000-9099`; default: the cluster's next free ID), `controller_address`,
+`ca_cert`.
+
+`janus_node` takes either kind's `id` as its `hypervisor_id`; its
+interfaces' `network` is then a bridge (`vmbr0`) or a VLAN on one
+(`vmbr0.20`).
+
+A hypervisor that already exists on the Controller - either kind - can
+be read instead: `data "janus_hypervisor" "kvm01" { name = "kvm01" }`.
+It gives its `kind` (`libvirt` or `proxmox`), `host` (the SSH host, or
+the API URL), `pool`, `networks` and whether it's `trusted`.
 
 ### `janus_node`
 
@@ -205,6 +252,12 @@ container of [hypervisors.md](hypervisors.md)'s test. It checks:
 - destroy.
 
 After each step it checks that a plan has nothing left to change.
+
+`janus_proxmox_hypervisor` needs a real Proxmox VE node, which CI hasn't
+got. It was checked on one (Proxmox VE 9.2) with OpenTofu: the
+hypervisor added and trusted on its fingerprint, a node created and
+admitted, its memory changed in place, an empty plan after each step,
+and destroy.
 
 Unit tests run in `ci.yml`: the client, the schemas, what a change
 sends, and the state read back.

@@ -17,7 +17,8 @@ import (
 	"github.com/swenske/Janus/terraform-provider-janus/internal/client"
 )
 
-// janus_hypervisor: a libvirt host the Controller creates nodes on. It's
+// janus_hypervisor: a libvirt host the Controller creates nodes on (a
+// Proxmox VE node is janus_proxmox_hypervisor). It's
 // trusted - its SSH host key pinned - once host_key_fingerprint is given:
 // the fingerprint an operator read on the host itself
 // (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub), never whatever the
@@ -155,6 +156,10 @@ func (r *hypervisorResource) Read(ctx context.Context, req resource.ReadRequest,
 		resp.Diagnostics.AddError("Reading the hypervisor", err.Error())
 		return
 	}
+	if h.Kind != "" && h.Kind != "libvirt" {
+		resp.Diagnostics.AddError("Not a libvirt hypervisor", "hypervisor "+h.ID+" is a "+h.Kind+" one: janus_proxmox_hypervisor manages those")
+		return
+	}
 	fromHypervisor(h, &state)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -201,6 +206,7 @@ func NewHypervisorDataSource() datasource.DataSource { return &hypervisorDataSou
 type hypervisorDataModel struct {
 	ID            types.String `tfsdk:"id"`
 	Name          types.String `tfsdk:"name"`
+	Kind          types.String `tfsdk:"kind"`
 	Host          types.String `tfsdk:"host"`
 	Pool          types.String `tfsdk:"pool"`
 	Networks      types.List   `tfsdk:"networks"`
@@ -214,12 +220,13 @@ func (d *hypervisorDataSource) Metadata(_ context.Context, req datasource.Metada
 
 func (d *hypervisorDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = dsschema.Schema{
-		Description: "A hypervisor already on the Controller, found by name.",
+		Description: "A hypervisor already on the Controller, found by name - libvirt or Proxmox VE.",
 		Attributes: map[string]dsschema.Attribute{
 			"name":           dsschema.StringAttribute{Required: true},
 			"id":             dsschema.StringAttribute{Computed: true},
-			"host":           dsschema.StringAttribute{Computed: true},
-			"pool":           dsschema.StringAttribute{Computed: true},
+			"kind":           dsschema.StringAttribute{Computed: true, Description: "libvirt or proxmox."},
+			"host":           dsschema.StringAttribute{Computed: true, Description: "Its SSH host (libvirt) or API URL (Proxmox VE)."},
+			"pool":           dsschema.StringAttribute{Computed: true, Description: "Its storage pool (libvirt) or resource pool (Proxmox VE)."},
 			"networks":       dsschema.ListAttribute{Computed: true, ElementType: types.StringType},
 			"trusted":        dsschema.BoolAttribute{Computed: true},
 			"authorized_key": dsschema.StringAttribute{Computed: true},
@@ -248,10 +255,15 @@ func (d *hypervisorDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		if h.Name != m.Name.ValueString() {
 			continue
 		}
-		m.ID, m.Trusted, m.AuthorizedKey = types.StringValue(h.ID), types.BoolValue(h.Trusted), types.StringValue(h.AuthorizedKey)
+		m.ID, m.Kind, m.Trusted, m.AuthorizedKey = types.StringValue(h.ID), types.StringValue(h.Kind), types.BoolValue(h.Trusted), types.StringValue(h.AuthorizedKey)
+		m.Host, m.Pool, m.Networks = types.StringNull(), types.StringNull(), types.ListNull(types.StringType)
 		if l := h.Libvirt; l != nil {
 			m.Host, m.Pool = types.StringValue(l.Host), types.StringValue(l.Pool)
 			m.Networks = listOf(l.Networks, types.ListNull(types.StringType))
+		}
+		if p := h.Proxmox; p != nil {
+			m.Host, m.Pool = types.StringValue(p.URL), types.StringValue(p.Pool)
+			m.Networks = listOf(p.Networks, types.ListNull(types.StringType))
 		}
 		resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 		return

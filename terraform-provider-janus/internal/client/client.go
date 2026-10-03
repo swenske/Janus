@@ -124,23 +124,45 @@ type LibvirtConfig struct {
 	NamePrefix string   `json:"name_prefix,omitempty"`
 }
 
+// ProxmoxConfig is a Proxmox VE node's settings (docs/hypervisors.md);
+// the token's secret travels apart, in HypervisorRequest.TokenSecret.
+type ProxmoxConfig struct {
+	URL          string   `json:"url"`
+	Node         string   `json:"node"`
+	TokenID      string   `json:"token_id"`
+	Pool         string   `json:"pool"`
+	Storage      string   `json:"storage"`
+	ImageStorage string   `json:"image_storage"`
+	Networks     []string `json:"networks"`
+	NamePrefix   string   `json:"name_prefix,omitempty"`
+	VMIDs        string   `json:"vmids,omitempty"`
+	CACert       string   `json:"ca_cert,omitempty"`
+}
+
 type HypervisorRequest struct {
 	Name              string         `json:"name"`
 	Kind              string         `json:"kind"`
 	ControllerAddress string         `json:"controller_address"`
-	Libvirt           *LibvirtConfig `json:"libvirt"`
+	Libvirt           *LibvirtConfig `json:"libvirt,omitempty"`
+	Proxmox           *ProxmoxConfig `json:"proxmox,omitempty"`
+	// TokenSecret is a Proxmox token's secret: written, never read back.
+	TokenSecret string `json:"token_secret,omitempty"`
 }
 
 type Hypervisor struct {
-	ID                 string         `json:"id"`
-	Name               string         `json:"name"`
-	Kind               string         `json:"kind"`
-	ControllerAddress  string         `json:"controller_address"`
-	Libvirt            *LibvirtConfig `json:"libvirt"`
-	AuthorizedKey      string         `json:"authorized_key"`
-	Trusted            bool           `json:"trusted"`
-	HostKeyFingerprint string         `json:"host_key_fingerprint"`
-	Machines           int            `json:"machines"`
+	ID                string         `json:"id"`
+	Name              string         `json:"name"`
+	Kind              string         `json:"kind"`
+	ControllerAddress string         `json:"controller_address"`
+	Libvirt           *LibvirtConfig `json:"libvirt"`
+	Proxmox           *ProxmoxConfig `json:"proxmox"`
+	AuthorizedKey     string         `json:"authorized_key"`
+	Trusted           bool           `json:"trusted"`
+	// HostKeyFingerprint is the pinned SSH host key's (libvirt) or API
+	// certificate's (Proxmox).
+	HostKeyFingerprint string `json:"host_key_fingerprint"`
+	HasTokenSecret     bool   `json:"has_token_secret"`
+	Machines           int    `json:"machines"`
 }
 
 func (c *Client) Hypervisors(ctx context.Context) ([]Hypervisor, error) {
