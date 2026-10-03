@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "build:node": "vite build --config vite.node.config.js",
-    "test": "node --test src/"
+    "test": "node --test"
   },
   "dependencies": {
     "lucide-react": "^1.49.0",

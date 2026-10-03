@@ -1,4 +1,4 @@
-// node --test src/ (npm test)
+// node --test (npm test)
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ansiSegments, color256 } from './ansi.js'
