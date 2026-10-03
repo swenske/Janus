@@ -28,7 +28,7 @@ func advisory(d *securityDoc, releaseURL string) map[string]any {
 			continue
 		}
 		titles = append(titles, strings.TrimSuffix(u.Title, " (Go module)"))
-		where := map[string]string{"node": "nodes", "controller": "the Controller", "client": "janusctl and the Terraform provider"}[u.Target]
+		where := whereText(u)
 		fmt.Fprintf(&body, "### %s %s → %s (%s)\n\n", u.Title, u.From, u.To, where)
 		for _, v := range u.Fixes {
 			fmt.Fprintln(&body, "- "+vulnLine(v))

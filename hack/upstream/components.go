@@ -67,10 +67,11 @@ type component struct {
 	// purl names it in the SBOM, when there's a better name than
 	// pkg:generic/<name>@<version> (a Go module).
 	purl func(v string) string
-	// extension and shipped: the extension whose tar carries the
-	// component's Go binary, at this path - security-notes compares the
-	// binary a release ships with the previous release's (its Go, its
-	// modules), whether or not the version changed.
+	// extension: the extension (extensions/<name>) a kindExtension
+	// component is part of - its fixes only matter to nodes that have it.
+	// shipped: the path of the Go binary its tar carries - security-notes
+	// compares it with the previous release's (its Go, its modules),
+	// whether or not the version changed.
 	extension, shipped string
 	vulns              []vulnSource
 	// eol is the endoflife.date product, with the number of version
@@ -193,6 +194,7 @@ var components = []*component{
 	},
 	{
 		name: "libmnl", title: "libmnl (nftables extension)", kind: kindExtension,
+		extension:  "nftables",
 		versionVar: "LIBMNL_VERSION", sumVars: map[string]string{"": "LIBMNL_SHA256"},
 		feed: htmlIndex{url: "https://www.netfilter.org/pub/libmnl/", re: regexp.MustCompile(`libmnl-([0-9][0-9.]*[0-9])\.tar\.bz2`)}, track: trackAny,
 		url:    func(v, _ string) string { return "https://www.netfilter.org/pub/libmnl/libmnl-" + v + ".tar.bz2" },
@@ -200,6 +202,7 @@ var components = []*component{
 	},
 	{
 		name: "libnftnl", title: "libnftnl (nftables extension)", kind: kindExtension,
+		extension:  "nftables",
 		versionVar: "LIBNFTNL_VERSION", sumVars: map[string]string{"": "LIBNFTNL_SHA256"},
 		feed: htmlIndex{url: "https://www.netfilter.org/pub/libnftnl/", re: regexp.MustCompile(`libnftnl-([0-9][0-9.]*[0-9])\.tar\.xz`)}, track: trackAny,
 		url:    func(v, _ string) string { return "https://www.netfilter.org/pub/libnftnl/libnftnl-" + v + ".tar.xz" },
@@ -207,6 +210,7 @@ var components = []*component{
 	},
 	{
 		name: "nftables", title: "nftables (nftables extension)", kind: kindExtension,
+		extension:  "nftables",
 		versionVar: "NFTABLES_VERSION", sumVars: map[string]string{"": "NFTABLES_SHA256"},
 		feed: htmlIndex{url: "https://www.netfilter.org/pub/nftables/", re: regexp.MustCompile(`nftables-([0-9][0-9.]*[0-9])\.tar\.xz`)}, track: trackAny,
 		url:    func(v, _ string) string { return "https://www.netfilter.org/pub/nftables/nftables-" + v + ".tar.xz" },
@@ -214,6 +218,7 @@ var components = []*component{
 	},
 	{
 		name: "jansson", title: "Jansson (nftables extension)", kind: kindExtension,
+		extension:  "nftables",
 		versionVar: "JANSSON_VERSION", sumVars: map[string]string{"": "JANSSON_SHA256"},
 		feed: githubReleases{repo: "akheron/jansson"}, track: trackAny,
 		url: func(v, _ string) string {
@@ -225,6 +230,7 @@ var components = []*component{
 	},
 	{
 		name: "keepalived", title: "keepalived (VRRP extension)", kind: kindExtension,
+		extension:  "keepalived",
 		versionVar: "KEEPALIVED_VERSION", sumVars: map[string]string{"": "KEEPALIVED_SHA256"},
 		feed: githubTags{repo: "acassen/keepalived"}, track: trackMajor,
 		url: func(v, _ string) string {
@@ -236,6 +242,7 @@ var components = []*component{
 	},
 	{
 		name: "qemu-guest-agent", title: "QEMU (qemu-ga, guest agent extension)", kind: kindExtension,
+		extension:  "qemu-guest-agent",
 		versionVar: "QEMU_VERSION", sumVars: map[string]string{"": "QEMU_SHA256"},
 		feed: htmlIndex{url: "https://download.qemu.org/", re: regexp.MustCompile(`qemu-([0-9]+\.[0-9]+\.[0-9]+)\.tar\.xz`)}, track: trackAny,
 		url:    func(v, _ string) string { return "https://download.qemu.org/qemu-" + v + ".tar.xz" },
@@ -246,6 +253,7 @@ var components = []*component{
 	},
 	{
 		name: "bird", title: "BIRD (BGP extension)", kind: kindExtension,
+		extension:  "bird",
 		versionVar: "BIRD_VERSION", sumVars: map[string]string{"": "BIRD_SHA256"},
 		feed: htmlIndex{url: "https://bird.nic.cz/download/", re: regexp.MustCompile(`bird-([0-9]+\.[0-9]+\.[0-9]+)\.tar\.gz`)}, track: trackMajor,
 		url: func(v, _ string) string { return "https://bird.nic.cz/download/bird-" + v + ".tar.gz" },

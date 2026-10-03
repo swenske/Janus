@@ -31,11 +31,13 @@ type updateRecord struct {
 	Name  string `json:"name"`
 	Title string `json:"title"`
 	// Target is what runs it: "node", "controller" ("extension" and
-	// "firmware" components are on nodes too).
-	Target string `json:"target"`
-	From   string `json:"from"`
-	To     string `json:"to"`
-	Fixes  []vuln `json:"fixes,omitempty"`
+	// "firmware" components are on nodes too). Extension, when set: only
+	// nodes with that extension have it.
+	Target    string `json:"target"`
+	Extension string `json:"extension,omitempty"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Fixes     []vuln `json:"fixes,omitempty"`
 	// Skipped: security fixes that can't apply to Janus's build.
 	Skipped       []vuln `json:"skipped,omitempty"`
 	NotApplicable int    `json:"not_applicable,omitempty"`
@@ -80,7 +82,7 @@ func securityNotes(e *env, from, to, version, extDir string) (*securityDoc, erro
 		if a == b || a == "" || b == "" || target == "" {
 			continue
 		}
-		u := updateRecord{Name: c.name, Title: c.title, Target: target, From: a, To: b}
+		u := updateRecord{Name: c.name, Title: c.title, Target: target, Extension: c.extension, From: a, To: b}
 		if _, ok := c.feed.(githubCommit); !ok {
 			res := &bumpResult{}
 			if err := fixedBetween(e, c, a, b, res); err != nil {
@@ -350,7 +352,7 @@ var releaseAssetURL = func(tag, name string) string {
 // The fixes join the component's update, or make one.
 func shippedUpdates(e *env, doc *securityDoc, from, extDir string, oldVars, newVars map[string]string) error {
 	for _, c := range components {
-		if c.extension == "" {
+		if c.shipped == "" {
 			continue
 		}
 		tar := "extension-" + c.extension + "-amd64.tar"
@@ -393,7 +395,7 @@ func shippedUpdates(e *env, doc *securityDoc, from, extDir string, oldVars, newV
 		u := findUpdate(doc, c.name)
 		if u == nil {
 			doc.Updates = append(doc.Updates, updateRecord{Name: c.name, Title: c.title, Target: targetOf(c.kind),
-				From: old.label(), To: cur.label()})
+				Extension: c.extension, From: old.label(), To: cur.label()})
 			u = &doc.Updates[len(doc.Updates)-1]
 		}
 		have := map[string]bool{}

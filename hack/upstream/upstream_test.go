@@ -479,3 +479,25 @@ func TestExtractTar(t *testing.T) {
 		t.Errorf("label = %q", l)
 	}
 }
+
+// TestExtensionComponents: every extension component names an extension
+// that exists, and only those do.
+func TestExtensionComponents(t *testing.T) {
+	for _, c := range components {
+		if (c.kind == kindExtension) != (c.extension != "") {
+			t.Errorf("%s: kind %s, extension %q", c.name, c.kind, c.extension)
+		}
+		if c.extension != "" {
+			if _, err := os.Stat("../../extensions/" + c.extension + "/manifest.json"); err != nil {
+				t.Errorf("%s: extension %s: %v", c.name, c.extension, err)
+			}
+		}
+		if c.shipped != "" && c.extension == "" {
+			t.Errorf("%s: a shipped binary but no extension", c.name)
+		}
+	}
+	u := updateRecord{Target: "node", Extension: "prometheus-node-exporter"}
+	if w := whereText(u); w != "nodes with the prometheus-node-exporter extension" {
+		t.Errorf("whereText = %q", w)
+	}
+}

@@ -181,7 +181,7 @@ func writeNotesDraft(w io.Writer, d *securityDoc) {
 			continue
 		}
 		any = true
-		where := map[string]string{"node": "nodes", "controller": "the Controller"}[u.Target]
+		where := whereText(u)
 		fmt.Fprintf(w, "- **%s %s → %s** (%s)", u.Title, u.From, u.To, where)
 		if len(u.Fixes) == 0 {
 			fmt.Fprintln(w, ": no known vulnerability fixed.")
@@ -207,4 +207,18 @@ func writeNotesDraft(w io.Writer, d *securityDoc) {
 	if !any {
 		fmt.Fprintln(w, "No known vulnerability fixed since "+d.Previous+".")
 	}
+}
+
+// whereText says who an update reaches: "nodes", "nodes with the bird
+// extension", "the Controller".
+func whereText(u updateRecord) string {
+	switch {
+	case u.Extension != "":
+		return "nodes with the " + u.Extension + " extension"
+	case u.Target == "controller":
+		return "the Controller"
+	case u.Target == "client":
+		return "janusctl and the Terraform provider"
+	}
+	return "nodes"
 }
