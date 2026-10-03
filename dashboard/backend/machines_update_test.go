@@ -181,12 +181,17 @@ func patchAs(t *testing.T, a *app, id string, body any, kind authKind) (int, str
 	return rec.Code, rec.Body.String()
 }
 
+// waitReady waits for an update to end: its machine ready again and its
+// job done - the job reads the machine back from its node only once it's
+// ready (syncAs), so a test reading it at "ready" could beat that (seen
+// in CI: the old version still in the record).
 func waitReady(t *testing.T, a *app, id string) *machines.Machine {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		m, _ := a.machines.Get(id)
-		if m.Phase == machines.PhaseReady {
+		if m, _ := a.machines.Get(id); m.Phase == machines.PhaseReady {
+			a.runner.waitJobs()
+			m, _ = a.machines.Get(id)
 			return m
 		}
 		time.Sleep(20 * time.Millisecond)
