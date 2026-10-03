@@ -63,12 +63,23 @@ ARG MAKE_TARGETS=bzImage
 WORKDIR /src/linux-${KERNEL_VERSION}
 RUN make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} olddefconfig \
     && make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} -j"$(nproc)" ${MAKE_TARGETS}
+# Every source file and header the build read, from kbuild's .o.cmd files
+# (source_<obj> and deps_<obj>): hack/upstream keeps the kernel CVEs whose
+# fixes touch one of them - kernel/built-files-<arch>.txt (make
+# kernel-built-files). Host tools (tools/, scripts/) and system headers
+# aren't the kernel.
+RUN find . -name '.*.o.cmd' -print0 | xargs -0 cat \
+    | sed -n -e 's/^source_[^ ]* := \([^ ]*\)$/\1/p' -e 's/^  \([^ $][^ ]*\.[chS]\)\( \\\)\{0,1\}$/\1/p' \
+    | sed 's|^\./||' | grep -vE '^(/|\.\./|tools/|scripts/)' | sort -u > /built-files.txt \
+    && test "$(wc -l < /built-files.txt)" -gt 1000
 
 FROM scratch AS export
 ARG KERNEL_VERSION
 COPY --from=build /src/linux-${KERNEL_VERSION}/arch/x86/boot/bzImage /bzImage
+COPY --from=build /built-files.txt /built-files.txt
 
 FROM scratch AS export-arm64
 ARG KERNEL_VERSION
 COPY --from=build /src/linux-${KERNEL_VERSION}/arch/arm64/boot/Image /Image
 COPY --from=build /src/linux-${KERNEL_VERSION}/arch/arm64/boot/dts/broadcom/bcm2711-rpi-4-b.dtb /bcm2711-rpi-4-b.dtb
+COPY --from=build /built-files.txt /built-files.txt

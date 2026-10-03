@@ -29,7 +29,7 @@ GEN_DIR := gen
 	qemu-raspi4-daemon-test qemu-arm64-network-test rpi4-rootfs-build \
 	systemd-stub rpi4-uki-image qemu-arm64-uefi-boot-test \
 	pi4-firmware pi5-firmware pi4-sdcard-image pi5-sdcard-image \
-	pi4-sdcard-image-test pi5-sdcard-image-test
+	pi4-sdcard-image-test pi5-sdcard-image-test kernel-built-files
 
 all: build
 
@@ -96,6 +96,14 @@ kernel-build:
 	docker build --target export --build-arg KERNEL_VERSION=$(KERNEL_VERSION) \
 		--build-arg KERNEL_SHA256=$(KERNEL_SHA256) \
 		-o $(BUILD_DIR) kernel
+
+# The files each kernel build reads (kernel/Dockerfile exports the list),
+# for hack/upstream to keep only the kernel CVEs that apply to Janus.
+# Regenerate whenever a defconfig changes - image-build.yml fails when
+# they no longer match the build.
+kernel-built-files: kernel-build rpi4-kernel-build
+	cp $(BUILD_DIR)/built-files.txt kernel/built-files-amd64.txt
+	cp $(BUILD_DIR)/rpi4/built-files.txt kernel/built-files-arm64.txt
 
 # Builds the Phase 1 PID 1 (rootfs/init) as a static binary - CGO must stay
 # disabled since the target has no libc.

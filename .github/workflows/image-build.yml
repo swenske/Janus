@@ -61,6 +61,13 @@ jobs:
       - name: Kernel boot test (Phase 1)
         run: make qemu-boot-test
 
+      # hack/upstream keeps the kernel CVEs whose fixes touch a file the
+      # kernel builds: its list (kernel/Dockerfile) must be the build's.
+      - name: The kernel's list of built files is current
+        run: |
+          cmp build/built-files.txt kernel/built-files-amd64.txt \
+            || { echo "::error::kernel/built-files-amd64.txt doesn't match this build - run make kernel-built-files and commit"; exit 1; }
+
       # Phase 2: builds the static musl+OpenSSL haproxy binary (pkgs/
       # haproxy/Dockerfile) and janusd, packages init + janusd +
       # haproxy + the bootstrap config into a second initramfs (rootfs/
@@ -253,6 +260,11 @@ jobs:
       # UEFI firmware) is not yet covered.
       - name: Raspberry Pi 4 (aarch64/BCM2711) console boot (Single Board Computer tranche)
         run: make qemu-raspi4-boot-test
+
+      - name: The arm64 kernel's list of built files is current
+        run: |
+          cmp build/rpi4/built-files.txt kernel/built-files-arm64.txt \
+            || { echo "::error::kernel/built-files-arm64.txt doesn't match this build - run make kernel-built-files and commit"; exit 1; }
 
       # Single Board Computer tranche's own Phase-2-equivalent: the
       # same init+janusd+haproxy stack qemu-network-test proves on
