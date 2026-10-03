@@ -112,21 +112,57 @@ func Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageS
 	return nil
 }
 
-// NodeVersion is the Janus version and image schematic node runs.
-func NodeVersion(ctx context.Context, node *store.Node) (version, schematicID string, err error) {
+// NodeInfo is what node runs: its Janus version, image schematic and
+// that schematic's extensions.
+type NodeInfo struct {
+	Version    string
+	Schematic  string
+	Extensions []string
+}
+
+func GetNodeInfo(ctx context.Context, node *store.Node) (*NodeInfo, error) {
 	conn, err := dialNode(node)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	v, err := janusv1alpha1.NewSystemServiceClient(conn).Version(ctx, &emptypb.Empty{})
 	if err != nil {
-		return "", "", errors.New(status.Convert(err).Message())
+		return nil, errors.New(status.Convert(err).Message())
 	}
-	sc := v.GetSchematicId()
-	if sc == "" {
-		sc = schematic.DefaultID()
+	info := &NodeInfo{Version: v.GetVersion(), Schematic: v.GetSchematicId()}
+	if info.Schematic == "" {
+		info.Schematic = schematic.DefaultID()
 	}
-	return v.GetVersion(), sc, nil
+	for _, e := range v.GetExtensions() {
+		info.Extensions = append(info.Extensions, e.GetName())
+	}
+	return info, nil
+}
+
+// NetworkConfig is node's network configuration as it keeps it.
+func NetworkConfig(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkConfig, error) {
+	conn, err := dialNode(node)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := janusv1alpha1.NewNetworkServiceClient(conn).NetworkConfigGet(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, errors.New(status.Convert(err).Message())
+	}
+	return resp.GetConfig(), nil
+}
+
+// NetworkStatus is node's network as it is: interfaces and addresses.
+func NetworkStatus(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkStatusResponse, error) {
+	conn, err := dialNode(node)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := janusv1alpha1.NewNetworkServiceClient(conn).NetworkStatus(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, errors.New(status.Convert(err).Message())
+	}
+	return resp, nil
 }
 
 // Bundle is where a node fetches an update from.

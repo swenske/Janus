@@ -76,6 +76,12 @@ type Spec struct {
 	// NTP servers (at most two); empty: those DHCP gives, else
 	// pool.ntp.org.
 	NTP []string `json:"ntp,omitempty"`
+	// ManagedBy names what manages the machine as code ("terraform"),
+	// shown on its pages; Locked keeps the Controller's pages from
+	// changing what that manages (its next run would undo it) - a
+	// program's API token still can.
+	ManagedBy string `json:"managed_by,omitempty"`
+	Locked    bool   `json:"locked,omitempty"`
 }
 
 type ImageSource struct {
@@ -119,6 +125,13 @@ type Machine struct {
 	// NodeID is the node it registered as (internal/store).
 	NodeID string  `json:"node_id,omitempty"`
 	Events []Event `json:"events"`
+
+	// The spec is kept as the node and the hypervisor really are
+	// (machines_sync.go): when it was last read, why it couldn't be, and
+	// the hostname the node reports (the name stays the machine's).
+	SyncedAt     time.Time `json:"synced_at,omitempty"`
+	SyncError    string    `json:"sync_error,omitempty"`
+	NodeHostname string    `json:"node_hostname,omitempty"`
 
 	TokenHash    string    `json:"token_hash,omitempty"`
 	TokenExpires time.Time `json:"token_expires,omitempty"`

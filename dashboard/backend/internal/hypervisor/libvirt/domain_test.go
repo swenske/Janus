@@ -135,7 +135,62 @@ const dumpedDomain = `<domain type='kvm'>
   <os firmware='efi'>
     <type arch='x86_64' machine='pc-q35-10.0'>hvm</type>
   </os>
+  <devices>
+    <interface type='network'>
+      <mac address='52:54:00:aa:bb:01'/>
+      <source network='lab-mgmt'/>
+      <model type='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+    </interface>
+    <interface type='network'>
+      <mac address='52:54:00:aa:bb:02'/>
+      <source network='lab-front'/>
+      <model type='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x02' slot='0x00' function='0x0'/>
+    </interface>
+    <serial type='pty'>
+      <target type='isa-serial' port='0'/>
+    </serial>
+  </devices>
 </domain>`
+
+func TestReconfigureXML(t *testing.T) {
+	out, err := reconfigureXML(dumpedDomain, 2, 1024, []hypervisor.NIC{
+		{Network: "lab-backend", MAC: "52:54:00:AA:BB:02"}, // moved, its MAC in another case
+		{Network: "lab-mgmt", MAC: "52:54:00:aa:bb:03"},    // added
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		Interfaces []struct {
+			MAC struct {
+				Address string `xml:"address,attr"`
+			} `xml:"mac"`
+			Source struct {
+				Network string `xml:"network,attr"`
+			} `xml:"source"`
+			Address *struct{} `xml:"address"`
+		} `xml:"devices>interface"`
+		Serial *struct{} `xml:"devices>serial"`
+	}
+	if err := xml.Unmarshal([]byte(out), &d); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if len(d.Interfaces) != 2 {
+		t.Fatalf("%d interfaces:\n%s", len(d.Interfaces), out)
+	}
+	moved, added := d.Interfaces[0], d.Interfaces[1]
+	if moved.MAC.Address != "52:54:00:aa:bb:02" || moved.Source.Network != "lab-backend" || moved.Address == nil {
+		t.Errorf("moved interface: %+v (its PCI address must stay)", moved)
+	}
+	if added.MAC.Address != "52:54:00:aa:bb:03" || added.Source.Network != "lab-mgmt" || added.Address != nil {
+		t.Errorf("added interface: %+v", added)
+	}
+	if d.Serial == nil || strings.Contains(out, "52:54:00:aa:bb:01") {
+		t.Errorf("removed interface left, or another device lost:\n%s", out)
+	}
+}
 
 func TestResizeXML(t *testing.T) {
 	out, err := resizeXML(dumpedDomain, 4, 2048)

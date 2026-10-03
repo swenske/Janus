@@ -178,6 +178,56 @@ var (
 	vcpuRe          = regexp.MustCompile(`<vcpu\b([^>]*)>\s*\d+\s*</vcpu>`)
 )
 
+var (
+	interfaceRe = regexp.MustCompile(`(?s)[ \t]*<interface type='network'>.*?</interface>\n?`)
+	ifaceMACRe  = regexp.MustCompile(`<mac address='([^']+)'`)
+	ifaceSrcRe  = regexp.MustCompile(`<source network='[^']*'`)
+)
+
+// reconfigureXML sets a domain definition's memory, vCPUs and network
+// interfaces, leaving the rest - the ownership tag, the devices' PCI
+// addresses - as libvirt wrote it. An added interface gets its address
+// when libvirt defines the domain.
+func reconfigureXML(domXML string, vcpus, memoryMiB int, nics []hypervisor.NIC) (string, error) {
+	out, err := resizeXML(domXML, vcpus, memoryMiB)
+	if err != nil {
+		return "", err
+	}
+	want := map[string]hypervisor.NIC{}
+	for _, n := range nics {
+		want[strings.ToLower(n.MAC)] = n
+	}
+	present := map[string]bool{}
+	out = interfaceRe.ReplaceAllStringFunc(out, func(block string) string {
+		m := ifaceMACRe.FindStringSubmatch(block)
+		if m == nil {
+			return block
+		}
+		mac := strings.ToLower(m[1])
+		n, ok := want[mac]
+		if !ok {
+			return "" // removed
+		}
+		present[mac] = true
+		return ifaceSrcRe.ReplaceAllString(block, "<source network='"+esc(n.Network)+"'")
+	})
+	var added strings.Builder
+	for _, n := range nics {
+		if present[strings.ToLower(n.MAC)] {
+			continue
+		}
+		fmt.Fprintf(&added, "    <interface type='network'>\n      <mac address='%s'/>\n      <source network='%s'/>\n      <model type='virtio'/>\n    </interface>\n", esc(n.MAC), esc(n.Network))
+	}
+	if added.Len() > 0 {
+		i := strings.LastIndex(out, "</devices>")
+		if i < 0 {
+			return "", fmt.Errorf("no <devices> in the domain's definition")
+		}
+		out = out[:i] + added.String() + "  " + out[i:]
+	}
+	return out, nil
+}
+
 // resizeXML sets a domain definition's memory and vCPUs, leaving the rest
 // - the ownership tag included - as libvirt wrote it.
 func resizeXML(domXML string, vcpus, memoryMiB int) (string, error) {

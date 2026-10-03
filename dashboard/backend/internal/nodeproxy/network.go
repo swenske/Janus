@@ -112,6 +112,10 @@ func registerNetworkRoutes(mux *http.ServeMux, node *store.Node, st *store.Store
 	})
 
 	mux.HandleFunc("POST /api/network/apply", func(w http.ResponseWriter, r *http.Request) {
+		if refuseLocked(w, node) {
+			return
+		}
+		defer NodeChanged(node)
 		var req struct {
 			Config                json.RawMessage `json:"config"`
 			ConfirmTimeoutSeconds uint32          `json:"confirm_timeout_seconds"`

@@ -535,8 +535,10 @@ func networkConfig(spec machines.Spec) (*janusv1alpha1.NetworkConfig, error) {
 			iface.Mode = janusv1alpha1.AddressingMode_ADDRESSING_MODE_STATIC
 		case "none":
 			iface.Mode = janusv1alpha1.AddressingMode_ADDRESSING_MODE_NONE
+		case "disabled":
+			iface.Mode = janusv1alpha1.AddressingMode_ADDRESSING_MODE_DISABLED
 		default:
-			return nil, fmt.Errorf("interface %s: mode %q (want dhcp, static or none)", n.Name, n.Mode)
+			return nil, fmt.Errorf("interface %s: mode %q (want static, dhcp, none or disabled)", n.Name, n.Mode)
 		}
 		cfg.Interfaces = append(cfg.Interfaces, iface)
 	}

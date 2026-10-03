@@ -43,6 +43,9 @@ type machineView struct {
 	VMUUID         string           `json:"vm_uuid,omitempty"`
 	NodeID         string           `json:"node_id,omitempty"`
 	NodeAddress    string           `json:"node_address,omitempty"`
+	NodeHostname   string           `json:"node_hostname,omitempty"`
+	SyncedAt       time.Time        `json:"synced_at,omitzero"`
+	SyncError      string           `json:"sync_error,omitempty"`
 	Events         []machines.Event `json:"events"`
 	CreatedAt      time.Time        `json:"created_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`
@@ -52,6 +55,7 @@ func (a *app) machineView(m *machines.Machine) machineView {
 	v := machineView{
 		ID: m.ID, Spec: m.Spec, Phase: m.Phase, Error: m.Error, Version: m.Version, Schematic: m.Schematic,
 		NodeID: m.NodeID, Events: m.Events, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
+		NodeHostname: m.NodeHostname, SyncedAt: m.SyncedAt, SyncError: m.SyncError,
 	}
 	if h, ok := a.hypervisors.Get(m.Spec.HypervisorID); ok {
 		v.HypervisorName = h.Name
@@ -81,10 +85,21 @@ func (a *app) getMachine(w http.ResponseWriter, r *http.Request) (*machines.Mach
 	return m, ok
 }
 
+// handleMachineGet answers a machine; ?refresh=true reads it from its
+// node and hypervisor first, unless it was just read - what the
+// Terraform provider asks before a plan, to see changes made elsewhere.
 func (a *app) handleMachineGet(w http.ResponseWriter, r *http.Request) {
-	if m, ok := a.getMachine(w, r); ok {
-		writeJSON(w, http.StatusOK, a.machineView(m))
+	m, ok := a.getMachine(w, r)
+	if !ok {
+		return
 	}
+	if r.URL.Query().Get("refresh") == "true" && time.Since(m.SyncedAt) > syncFresh {
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		_ = a.runner.sync(ctx, m.ID)
+		cancel()
+		m, _ = a.machines.Get(m.ID)
+	}
+	writeJSON(w, http.StatusOK, a.machineView(m))
 }
 
 func (a *app) handleMachineCreate(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +174,9 @@ func (a *app) handleMachineRetry(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleMachineDelete(w http.ResponseWriter, r *http.Request) {
 	m, ok := a.getMachine(w, r)
 	if !ok {
+		return
+	}
+	if lockedFromPage(w, r, m) {
 		return
 	}
 	id := m.ID

@@ -465,7 +465,7 @@ func (d *Driver) Power(ctx context.Context, ref hypervisor.MachineRef, action hy
 	})
 }
 
-func (d *Driver) Resize(ctx context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int) error {
+func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int, nics []hypervisor.NIC) error {
 	return d.run(ctx, func(l *golibvirt.Libvirt) error {
 		dom, err := d.owned(l, ref)
 		if err != nil {
@@ -476,13 +476,18 @@ func (d *Driver) Resize(ctx context.Context, ref hypervisor.MachineRef, vcpus, m
 			return err
 		}
 		if golibvirt.DomainState(state) != golibvirt.DomainShutoff {
-			return errors.New("the virtual machine must be stopped to change its size")
+			return errors.New("the virtual machine must be stopped to change its hardware")
+		}
+		for _, n := range nics {
+			if !d.cfg.AllowsNetwork(n.Network) {
+				return fmt.Errorf("network %s isn't one this hypervisor allows", n.Network)
+			}
 		}
 		domXML, err := l.DomainGetXMLDesc(dom, golibvirt.DomainXMLInactive)
 		if err != nil {
 			return err
 		}
-		next, err := resizeXML(domXML, vcpus, memoryMiB)
+		next, err := reconfigureXML(domXML, vcpus, memoryMiB, nics)
 		if err != nil {
 			return err
 		}

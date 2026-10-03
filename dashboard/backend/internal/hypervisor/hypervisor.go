@@ -56,9 +56,11 @@ type Driver interface {
 	CreateMachine(ctx context.Context, spec MachineSpec) (*MachineRef, error)
 	MachineStatus(ctx context.Context, ref MachineRef) (*MachineStatus, error)
 	Power(ctx context.Context, ref MachineRef, action PowerAction) error
-	// Resize changes a stopped machine's vCPUs and memory, from its next
-	// start.
-	Resize(ctx context.Context, ref MachineRef, vcpus, memoryMiB int) error
+	// Reconfigure changes a stopped machine's vCPUs, memory and network
+	// interfaces - nics is the whole new set: an interface whose MAC
+	// isn't in it is removed, one that's new is added, one whose network
+	// changed is moved - from its next start.
+	Reconfigure(ctx context.Context, ref MachineRef, vcpus, memoryMiB int, nics []NIC) error
 	// Console copies the machine's serial console output to w until ctx
 	// ends or the console closes. Read-only.
 	Console(ctx context.Context, ref MachineRef, w io.Writer) error

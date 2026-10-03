@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"net"
@@ -125,14 +126,14 @@ func (a *app) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 				http.Error(w, "invalid or expired API token", http.StatusUnauthorized)
 				return
 			}
-			next(w, r)
+			next(w, r.WithContext(context.WithValue(r.Context(), authKindKey{}, authToken)))
 			return
 		}
 		if !a.validSession(r) {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
-		next(w, r)
+		next(w, r.WithContext(context.WithValue(r.Context(), authKindKey{}, authSession)))
 	}
 }
 

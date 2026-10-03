@@ -171,6 +171,16 @@ func main() {
 		log.Fatalf("registration listener: %v", err)
 	}
 	app.runner.resume()
+	go app.runner.syncLoop(context.Background())
+	// The node pages: a machine's lock, and its record read again after a
+	// change made there.
+	nodeproxy.LockedBy = func(n *store.Node) string {
+		if m, ok := app.machines.Get(n.MachineID); ok && n.MachineID != "" && m.Spec.Locked {
+			return or(m.Spec.ManagedBy, "code")
+		}
+		return ""
+	}
+	nodeproxy.NodeChanged = app.runner.syncNode
 
 	spa, err := fs.Sub(staticFiles, "static")
 	if err != nil {

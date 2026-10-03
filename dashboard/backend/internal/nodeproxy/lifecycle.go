@@ -44,6 +44,10 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if refuseLocked(w, node) {
+			return
+		}
+		defer NodeChanged(node)
 		var req struct {
 			Reference            string `json:"reference"`
 			SHA256               string `json:"sha256"`
@@ -73,6 +77,10 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 	})
 
 	mux.HandleFunc("POST /api/lifecycle/upgrade-relay", func(w http.ResponseWriter, r *http.Request) {
+		if refuseLocked(w, node) {
+			return
+		}
+		defer NodeChanged(node)
 		handleUpgradeRelay(w, r, node)
 	})
 
@@ -81,6 +89,10 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if refuseLocked(w, node) {
+			return
+		}
+		defer NodeChanged(node)
 		handleUpgradeUpload(w, r, node)
 	})
 }

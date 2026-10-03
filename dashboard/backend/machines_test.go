@@ -38,6 +38,10 @@ type fakeDriver struct {
 	ciData    []byte
 	powered   []hypervisor.PowerAction
 	resized   [][2]int
+	nics      []hypervisor.NIC
+	// hw is what MachineStatus answers for every machine, when set.
+	hw  *hypervisor.MachineStatus
+	ops []string
 }
 
 func newFakeDriver() *fakeDriver {
@@ -89,6 +93,10 @@ func (f *fakeDriver) CreateMachine(_ context.Context, spec hypervisor.MachineSpe
 func (f *fakeDriver) MachineStatus(_ context.Context, ref hypervisor.MachineRef) (*hypervisor.MachineStatus, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.hw != nil {
+		c := *f.hw
+		return &c, nil
+	}
 	if _, ok := f.vms[ref.UUID]; !ok {
 		return &hypervisor.MachineStatus{Power: hypervisor.PowerOff}, nil
 	}
@@ -99,13 +107,24 @@ func (f *fakeDriver) Power(_ context.Context, _ hypervisor.MachineRef, action hy
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.powered = append(f.powered, action)
+	if f.hw != nil {
+		switch action {
+		case hypervisor.PowerStart, hypervisor.PowerReset:
+			f.hw.Power = hypervisor.PowerRunning
+		case hypervisor.PowerForceOff:
+			f.hw.Power = hypervisor.PowerOff
+		}
+	}
 	return nil
 }
 
-func (f *fakeDriver) Resize(_ context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int) error {
+func (f *fakeDriver) Reconfigure(_ context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int, nics []hypervisor.NIC) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.resized = append(f.resized, [2]int{vcpus, memoryMiB})
+	f.nics = append([]hypervisor.NIC(nil), nics...)
+	f.hw = &hypervisor.MachineStatus{Power: hypervisor.PowerRunning, VCPUs: vcpus, MemoryMiB: memoryMiB}
+	f.ops = append(f.ops, "reconfigure")
 	return nil
 }
 
