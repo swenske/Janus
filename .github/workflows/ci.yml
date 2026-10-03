@@ -74,7 +74,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      # Pinned as a go.mod tool (Dependabot updates it), not @latest.
+      - run: go tool govulncheck ./...
 
   build:
     runs-on: ubuntu-latest
@@ -109,7 +110,8 @@ jobs:
 
       - run: go test ./... -race -cover
 
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      # The root module's govulncheck tool, run on this module.
+      - run: go -C .. tool govulncheck -C terraform-provider-janus ./...
 
       - run: go build ./...
 

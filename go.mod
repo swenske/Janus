@@ -6,6 +6,7 @@ toolchain go1.26.8
 
 require (
 	github.com/beevik/ntp v1.6.0
+	github.com/coder/websocket v1.8.15
 	github.com/digitalocean/go-libvirt v0.0.0-20260814190004-1a83157e1858
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/foxboron/go-uefi v0.0.0-20251010190908-d29549a44f29
@@ -40,7 +41,6 @@ require (
 	github.com/aws/smithy-go v1.25.0 // indirect
 	github.com/bodgit/tsig v1.2.2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
-	github.com/coder/websocket v1.8.15 // indirect
 	github.com/djherbis/times v1.6.0 // indirect
 	github.com/elliotwutingfeng/asciiset v0.0.0-20260129054604-cfde2086bc57 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -75,9 +75,13 @@ require (
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260908163034-4bcc4b2ee518 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	golang.org/x/tools v0.49.0 // indirect
+	golang.org/x/tools v0.50.0 // indirect
+	golang.org/x/vuln v1.8.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	gopkg.in/ini.v1 v1.67.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+tool golang.org/x/vuln/cmd/govulncheck
