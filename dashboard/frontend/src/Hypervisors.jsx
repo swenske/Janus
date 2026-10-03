@@ -136,41 +136,60 @@ function vlanRange(hv, entry) {
   return m[2] ? { bridge: m[1], first: 1, last: 4094, any: true } : { bridge: m[1], first: +m[3], last: +m[4] }
 }
 
-// networkChoice is the allowed network an interface's network falls
-// under, and its VLAN when that one is a range.
-function networkChoice(hv, network) {
+// untaggedToo: the bridge's own, untagged network is allowed besides
+// "bridge.*" - one choice then, its VLAN tag optional, as in Proxmox.
+function untaggedToo(hv, r) {
+  return !!r?.any && hvNetworks(hv).includes(r.bridge)
+}
+
+// networkChoices are the networks offered: every allowed one, but a
+// bridge whose "bridge.*" is allowed too is that one's empty tag.
+function networkChoices(hv) {
   const entries = hvNetworks(hv)
+  return entries.filter((e) => !entries.some((o) => vlanRange(hv, o)?.any && vlanRange(hv, o).bridge === e))
+}
+
+// networkChoice is the choice an interface's network falls under, and
+// its VLAN tag when that choice is a range.
+function networkChoice(hv, network) {
+  const entries = networkChoices(hv)
   if (entries.includes(network)) return { entry: network, vlan: '' }
   const m = /^(.+)\.(\d*)$/.exec(network || '')
   for (const e of entries) {
     const r = vlanRange(hv, e)
-    if (m && r && r.bridge === m[1] && (m[2] === '' || (+m[2] >= r.first && +m[2] <= r.last))) return { entry: e, vlan: m[2] }
+    if (!r) continue
+    if (network === r.bridge && untaggedToo(hv, r)) return { entry: e, vlan: '' }
+    if (m && r.bridge === m[1] && (m[2] === '' || (+m[2] >= r.first && +m[2] <= r.last))) return { entry: e, vlan: m[2] }
   }
   return null
 }
 
-// firstNetwork is an interface's network on an allowed one: itself, or
-// for a range its first VLAN (any VLAN: still to choose).
-function firstNetwork(hv, entry = hvNetworks(hv)[0] || '') {
+// firstNetwork is an interface's network on a choice: itself; a range's
+// first VLAN; for "bridge.*", the bridge untagged when that's allowed,
+// else a tag still to fill in.
+function firstNetwork(hv, entry = networkChoices(hv)[0] || '') {
   const r = vlanRange(hv, entry)
   if (!r) return entry
-  return `${r.bridge}.${r.any ? '' : r.first}`
+  if (r.any) return untaggedToo(hv, r) ? r.bridge : `${r.bridge}.`
+  return `${r.bridge}.${r.first}`
 }
 
-// NetworkPicker chooses an interface's network: one the hypervisor
-// allows, and its VLAN when that one is a range.
+// NetworkPicker chooses an interface's network the way Proxmox does: a
+// bridge, and a VLAN tag when the hypervisor allows a range or any tag
+// on it (optional when it allows the bridge untagged too).
 function NetworkPicker({ hv, value, onChange }) {
   const choice = networkChoice(hv, value) || { entry: '', vlan: '' }
   const r = vlanRange(hv, choice.entry)
+  const optional = untaggedToo(hv, r)
   return (
     <div className="net-pick">
       <select value={choice.entry} onChange={(e) => onChange(firstNetwork(hv, e.target.value))} aria-label="Network">
         {!choice.entry && <option value="">-</option>}
-        {hvNetworks(hv).map((net) => {
+        {networkChoices(hv).map((net) => {
           const nr = vlanRange(hv, net)
           return (
             <option key={net} value={net}>
-              {nr ? `${nr.bridge} · VLAN ${nr.any ? 'any' : `${nr.first}-${nr.last}`}` : net}
+              {nr ? `${nr.bridge} · VLAN ${nr.any ? 'tag' : `${nr.first}-${nr.last}`}` : net}
             </option>
           )
         })}
@@ -180,12 +199,12 @@ function NetworkPicker({ hv, value, onChange }) {
           type="number"
           min={r.first}
           max={r.last}
-          required
+          required={!optional}
           value={choice.vlan}
-          onChange={(e) => onChange(`${r.bridge}.${e.target.value}`)}
-          aria-label="VLAN"
-          placeholder="VLAN"
-          title={`VLAN ${r.first} to ${r.last}`}
+          onChange={(e) => onChange(e.target.value === '' && optional ? r.bridge : `${r.bridge}.${e.target.value}`)}
+          aria-label="VLAN tag"
+          placeholder={optional ? 'no tag' : 'VLAN tag'}
+          title={r.any ? `VLAN tag, 1 to 4094${optional ? ' - none: untagged' : ''}` : `VLAN ${r.first} to ${r.last}`}
         />
       )}
     </div>

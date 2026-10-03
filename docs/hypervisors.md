@@ -323,8 +323,13 @@ rights cover:
   - any VLAN on it: `vmbr0.*`.
 
   With a range or `*`, each interface of a node picks its VLAN: the
-  **Create node** and **Edit** forms ask for it, the API and Terraform
-  name it (`vmbr0.150`);
+  **Create node** and **Edit** forms show the bridge with a VLAN tag
+  field, as Proxmox's own forms do - optional when the bridge untagged
+  is allowed too (`vmbr0, vmbr0.*`: one choice, `vmbr0 · VLAN tag`). The
+  API and Terraform name the result (`vmbr0`, `vmbr0.150`).
+
+  A VLAN-aware `vmbr0` carrying every VLAN, each VM choosing its tag, is
+  `vmbr0.*` - with `vmbr0` for untagged interfaces;
 - reading the node's state.
 
 Like for libvirt, the Controller writes the preparation with the
