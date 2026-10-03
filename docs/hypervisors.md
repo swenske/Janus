@@ -348,20 +348,68 @@ else.
 
 ## Changing a node
 
+What a machine is made of has three homes, each with one way to change
+it:
+
+| What | Where it's changed |
+|---|---|
+| Hardware: vCPUs, memory, network interfaces (added, removed, moved to another network) | **Edit** on the machine's card, the API, or Terraform. The node shuts down cleanly, its virtual machine is reconfigured and started again. |
+| The node's own settings: interfaces' addresses, DNS, NTP, VLANs, its version and extensions, HAProxy... | Its own page (**Open**): System › Network, System › Update... - or the API, or Terraform. |
+| Its name, hypervisor, image | Nowhere: that's a new machine. |
+
+The page doesn't repeat what the node's page does. An interface added or
+moved gets its addresses in **Edit**, since it's of no use without them.
+
+Two constraints from the node:
+- **The interface the Controller reaches the node through** can't be
+  removed or moved: the node would be lost.
+- **DHCP** only works on the interface the node booted with, so an
+  added one gets static addresses or none.
+
+The order is the node's too. A removed interface leaves the node's
+configuration first, then it's unplugged: a node whose configuration
+names an interface it hasn't got keeps none of it. An added one is
+plugged in first, then configured.
+
+**The record follows the node.** The machine's record is read again
+from its node and its hypervisor:
+- after every change the Controller makes or relays;
+- every minute;
+- when asked (`?refresh=true`).
+
+So a change made on the node's page, with `janusctl` or on the hypervisor
+shows up on the card. It's in its history ("changed outside the
+Controller") and in Terraform's next plan.
+
+The name isn't read back: a hostname changed on the node's page is shown
+beside it. A network change through the API or Terraform is merged into
+the node's own configuration: what only its page manages - VLANs, MTUs,
+search domains, route metrics - stays.
+
+### Managed as code, and locked
+
+A node Terraform manages is marked so (`managed_by`) and, by default,
+**locked** (`lock_ui`, [terraform.md](terraform.md)).
+
+- **What its pages refuse** (both the Controller's and the node's own):
+  what Terraform manages - its hardware, network, version and
+  extensions, and destroying it.
+- **What they still do**: show it, its console and logs, power and
+  restarts, and everything Terraform doesn't manage yet (HAProxy's
+  configuration, certificates, the firewall...).
+- **The lock is only on the pages**: Terraform's API token isn't held by
+  it.
+
+**Release**, on the card, lifts the lock for a change by hand. Terraform
+then shows that change in its next plan and undoes it on `apply`, and
+locks the node again. The lock is a guardrail in the Controller, not a
+barrier: the node's own admin credential (`janusctl`) goes around it.
+The record shows what was done that way.
+
 `PATCH /api/machines/{id}` changes a ready node in place, in the
 background: phase `updating`, then back to `ready`. If a step failed,
-the error is on the machine, and the steps that succeeded are kept.
-
-- **Network** (addresses, gateways, modes, DNS, NTP): put on trial on the
-  node and confirmed from wherever it's reachable afterwards.
-- **Size** (vCPUs, memory): a clean shutdown, the virtual machine
-  resized, started again.
-- **Version and extensions**: the node's own A/B update, from the
-  release's bundle or the image factory's build.
-
-The name, hypervisor, image, and the interfaces' count, networks, names
-and MACs don't change in place: that's a new machine. This is what the
-Terraform provider applies ([terraform.md](terraform.md)).
+the error is on the machine, and its record is read back from the node,
+so it says what was really done.
 
 ## The API
 
@@ -382,8 +430,8 @@ the one a Terraform provider needs, for the planned one:
 | `POST /api/hypervisors/{id}/trust` | `{fingerprint}`: pins the host key, if the host presents that one |
 | `GET /api/hypervisors/{id}/status` | the host, CPU use, and each of its machines' state |
 | `GET`, `POST /api/machines` | list; create (`{name, hypervisor_id, vcpus, memory_mib, version, extensions, image: {url, sha256}, nics: [{network, name, mac, mode, addresses, gateway}], dns, ntp}`) |
-| `GET`, `DELETE /api/machines/{id}` | one: `phase` is `pending`, `preparing-image`, `creating`, `waiting-registration`, `ready`, `updating`, `failed` or `destroying`; destroy (`?forget=true`: records only) |
-| `PATCH /api/machines/{id}` | change it in place (`{vcpus, memory_mib, version, extensions, nics, dns, ntp}`, those given) |
+| `GET`, `DELETE /api/machines/{id}` | one (`?refresh=true`: read from its node and hypervisor first): `phase` is `pending`, `preparing-image`, `creating`, `waiting-registration`, `ready`, `updating`, `failed` or `destroying`; destroy (`?forget=true`: records only) |
+| `PATCH /api/machines/{id}` | change it in place (`{vcpus, memory_mib, version, extensions, nics, dns, ntp, managed_by, locked}`, those given; `nics` is the whole new set, by MAC). A locked machine refuses its pages (`423`) except `{"locked": false}` |
 | `POST /api/machines/{id}/power` | `{action: "start" \| "force-off" \| "reset"}` |
 | `POST /api/machines/{id}/retry` | a failed creation, again |
 | `GET /api/machines/{id}/console` | Server-Sent Events, one JSON string per chunk; `failure` when it closes |

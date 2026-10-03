@@ -66,6 +66,22 @@ image factory's extensions, or an image by URL and SHA-256. The console
 `/api/machines/{id}/console`, and cleans terminal sequences out of the
 whole text - an escape sequence can be cut across two messages.
 
+A machine's card shows:
+- what manages it as code (`ManagedBadge`), and its lock (`LockNotice`,
+  with **Release**, confirmed);
+- when its record was last read from its node and hypervisor;
+- the node's hostname when its page changed it.
+
+**Edit** (`EditMachine`) is the hardware only: vCPUs, memory, interfaces
+added, removed or moved. An existing interface's addresses are shown
+read-only - they're the node's, changed on its page - and editable only
+once the interface is added or moved. A hardware change asks first
+(restart).
+
+A locked machine shows neither Edit nor Destroy. Its node's page shows a
+banner (`/api/node`'s `locked_by`), and refuses network changes and
+updates with 423.
+
 **API tokens** (`Tokens.jsx`): create one (name, validity) - shown once,
 with a copy button - see each one's last use, revoke. Only the admin's
 session reaches it, never a token.

@@ -130,14 +130,33 @@ stays the same:
 
 | Change | What happens |
 |---|---|
-| `interfaces` addresses, gateways and modes; `dns`; `ntp` | Put on trial on the node and confirmed from wherever it's reachable afterwards. Unconfirmed, the node goes back by itself. |
-| `vcpus`, `memory_mib` | The node shuts down cleanly (HAProxy stops), the virtual machine is resized and started again. |
+| `interfaces` addresses, gateways, modes and names; `dns`; `ntp` | Put on trial on the node and confirmed from wherever it's reachable afterwards. Unconfirmed, the node goes back by itself. What only its page sets - VLANs, MTUs, search domains - stays. |
+| `vcpus`, `memory_mib`; an interface added, removed or moved to another `network` | The node shuts down cleanly (HAProxy stops), the virtual machine is reconfigured and started again. A removed interface leaves the node's configuration before it's unplugged; an added one is configured once plugged in. |
 | `version`, `extensions` | The node's own A/B update. The bundle is the release's, or the image factory's build of the new schematic. The node checks its signature, and confirms itself healthy. |
 
-What makes **a new node** (Terraform plans a replacement):
-- `name`, `hypervisor_id`, `image`;
-- another number of interfaces;
-- an interface's `network`, `name` or `mac`.
+What makes **a new node** (Terraform plans a replacement): `name`,
+`hypervisor_id`, `image`.
+
+**Interfaces keep their MAC by their name.** Removing the first
+interface doesn't hand its MAC to the second. Renamed in place (same
+position, same network), an interface keeps its MAC too. An interface
+with no MAC to keep is a new one, and the Controller chooses its MAC.
+Constraints:
+- The interface the Controller reaches the node through can't be
+  removed or moved.
+- An added interface is `static` or `none`: DHCP only works on the one
+  the node booted with.
+
+**`lock_ui`** (default `true`) locks the node against changes from the
+Controller's pages: its hardware, network, version and extensions, and
+destroying it. Those pages still show it, restart it and open its
+console. Released on the Controller for a change by hand, that change
+shows in the next plan; `apply` undoes it and locks the node again.
+
+**Drift.** The provider reads the node as it is: the Controller reads it
+from the node and the hypervisor before answering. A change made
+anywhere else - the node's page, `janusctl`, the hypervisor - shows in
+`terraform plan`, to adopt in your configuration or undo with `apply`.
 
 **After a failed change**, the node keeps running: the steps that
 succeeded stay applied. The next plan shows what's still to do, and the
