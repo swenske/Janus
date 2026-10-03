@@ -151,11 +151,15 @@ included, nothing is pushed or posted.
 1. runs `security-notes` from the previous release: `security.json`,
    what the release fixes - upstreams, Go modules linked into Janus's
    programs, the Go toolchain, the Controller's npm packages - with each
-   fix's severity and whether it reaches nodes or the Controller;
+   fix's severity and whether it reaches nodes or the Controller. The Go
+   binaries the new extensions carry are also compared with the previous
+   release's (govulncheck on both): a binary rebuilt with a newer Go fixes
+   things without any version changing - node_exporter, built here. A
+   stripped one (Consul's) is compared by version only;
 2. refuses to go on if the release fixes something and its notes have no
    `## 🔒` section (draft it with `make upstream-security-notes FROM=<previous
-   tag> RELEASE=<version>`, then make it say what it means for an
-   operator);
+   tag> RELEASE=<version> EXTENSIONS=build/extensions`, after `make
+   extensions-amd64`, then make it say what it means for an operator);
 3. names the release "Janus vX (Alpha) - 🔒 security update" when it fixes
    something, and attaches `security.json` and the SBOM (`sbom.cdx.json`);
 4. when a fix is rated high or critical, publishes a repository security

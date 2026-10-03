@@ -66,8 +66,13 @@ type component struct {
 	manual string
 	// purl names it in the SBOM, when there's a better name than
 	// pkg:generic/<name>@<version> (a Go module).
-	purl  func(v string) string
-	vulns []vulnSource
+	purl func(v string) string
+	// extension and shipped: the extension whose tar carries the
+	// component's Go binary, at this path - security-notes compares the
+	// binary a release ships with the previous release's (its Go, its
+	// modules), whether or not the version changed.
+	extension, shipped string
+	vulns              []vulnSource
 	// eol is the endoflife.date product, with the number of version
 	// components naming a release cycle there.
 	eol      string
@@ -180,10 +185,11 @@ var components = []*component{
 		name: "node-exporter", title: "Prometheus node_exporter", kind: kindExtension,
 		versionVar: "NODE_EXPORTER_VERSION", sumVars: map[string]string{"": "NODE_EXPORTER_SHA256"},
 		feed: githubReleases{repo: "prometheus/node_exporter"}, track: trackMajor,
-		url:    goModuleZip("github.com/prometheus/node_exporter"),
-		checks: []check{goSumDB{module: "github.com/prometheus/node_exporter"}},
-		vulns:  []vulnSource{govulnSource{module: "github.com/prometheus/node_exporter"}},
-		purl:   func(v string) string { return "pkg:golang/github.com/prometheus/node_exporter@v" + plain(v) },
+		url:       goModuleZip("github.com/prometheus/node_exporter"),
+		checks:    []check{goSumDB{module: "github.com/prometheus/node_exporter"}},
+		vulns:     []vulnSource{govulnSource{module: "github.com/prometheus/node_exporter"}},
+		purl:      func(v string) string { return "pkg:golang/github.com/prometheus/node_exporter@v" + plain(v) },
+		extension: "prometheus-node-exporter", shipped: "usr/local/sbin/node_exporter",
 	},
 	{
 		name: "libmnl", title: "libmnl (nftables extension)", kind: kindExtension,
@@ -321,6 +327,7 @@ var components = []*component{
 			keys: []string{keyHashiCorp}}},
 		vulns: []vulnSource{govulnBinary{member: func(string, string) string { return "consul" }}},
 		eol:   "consul", eolCycle: 2,
+		extension: "consul", shipped: "usr/local/sbin/consul",
 	},
 }
 

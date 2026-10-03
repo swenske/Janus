@@ -1,9 +1,15 @@
 package main
 
 import (
+	"debug/buildinfo"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
+	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -46,8 +52,10 @@ func targetOf(k kind) string {
 	return "node"
 }
 
-// securityNotes compares two git refs (to "" = the working tree).
-func securityNotes(e *env, from, to, version string) (*securityDoc, error) {
+// securityNotes compares two git refs (to "" = the working tree). With
+// extDir, the Go binaries the extensions built there carry are compared
+// with those in the previous release's (shippedUpdates).
+func securityNotes(e *env, from, to, version, extDir string) (*securityDoc, error) {
 	read := func(ref, path string) ([]byte, error) {
 		if ref == "" {
 			return readFile(path)
@@ -93,6 +101,11 @@ func securityNotes(e *env, from, to, version string) (*securityDoc, error) {
 		return nil, err
 	}
 	doc.Updates = append(doc.Updates, npmUpdates...)
+	if extDir != "" {
+		if err := shippedUpdates(e, doc, from, extDir, oldVars, newVars); err != nil {
+			return nil, err
+		}
+	}
 
 	for _, u := range doc.Updates {
 		for _, v := range u.Fixes {
@@ -323,4 +336,132 @@ func sortedKeys(m map[string]string) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+// releaseAssetURL is a published release's asset.
+var releaseAssetURL = func(tag, name string) string {
+	return repoURL + "/releases/download/" + tag + "/" + name
+}
+
+// shippedUpdates compares the Go binary each extension carries (amd64) in
+// extDir with the one the previous release shipped: govulncheck on both,
+// what the old one had and the new one doesn't is fixed - a version bump,
+// or the same version rebuilt with a newer Go (node_exporter from source).
+// The fixes join the component's update, or make one.
+func shippedUpdates(e *env, doc *securityDoc, from, extDir string, oldVars, newVars map[string]string) error {
+	for _, c := range components {
+		if c.extension == "" {
+			continue
+		}
+		tar := "extension-" + c.extension + "-amd64.tar"
+		oldTar, err := e.f.download(e.ctx, releaseAssetURL(from, tar))
+		if err != nil {
+			var he *httpError
+			if errors.As(err, &he) && he.status == http.StatusNotFound {
+				continue // the previous release didn't have it
+			}
+			return err
+		}
+		old, err := shippedBinary(e, oldTar, c.shipped, oldVars[c.versionVar])
+		if errors.Is(err, errStripped) {
+			log.Printf("%s: %s's binary is stripped - compared by version only", c.name, from)
+			continue
+		} else if err != nil {
+			return fmt.Errorf("%s's %s: %w", from, tar, err)
+		}
+		cur, err := shippedBinary(e, filepath.Join(extDir, tar), c.shipped, newVars[c.versionVar])
+		if errors.Is(err, errStripped) {
+			log.Printf("%s: the new binary is stripped - compared by version only", c.name)
+			continue
+		} else if err != nil {
+			return fmt.Errorf("%s: %w", tar, err)
+		}
+		still := map[string]bool{}
+		for _, v := range cur.vulns {
+			still[v.ID] = true
+		}
+		var fixed []vuln
+		for _, v := range old.vulns {
+			if !still[v.ID] {
+				fixed = append(fixed, v)
+			}
+		}
+		if len(fixed) == 0 {
+			continue
+		}
+		enrich(e, fixed)
+		u := findUpdate(doc, c.name)
+		if u == nil {
+			doc.Updates = append(doc.Updates, updateRecord{Name: c.name, Title: c.title, Target: targetOf(c.kind),
+				From: old.label(), To: cur.label()})
+			u = &doc.Updates[len(doc.Updates)-1]
+		}
+		have := map[string]bool{}
+		for _, v := range u.Fixes {
+			have[v.ID] = true
+		}
+		for _, v := range fixed {
+			if !have[v.ID] {
+				u.Fixes = append(u.Fixes, v)
+			}
+		}
+		sortVulns(u.Fixes)
+	}
+	return nil
+}
+
+func findUpdate(doc *securityDoc, name string) *updateRecord {
+	for i := range doc.Updates {
+		if doc.Updates[i].Name == name {
+			return &doc.Updates[i]
+		}
+	}
+	return nil
+}
+
+// errStripped: a binary without its symbol table, which govulncheck can't
+// tell what it reaches from (consul's extension strips it). The component
+// is then compared by version only - right for an upstream binary, whose
+// version says what's in it.
+var errStripped = errors.New("stripped binary")
+
+// shipped is a Go binary an extension carries: what built it, and what
+// govulncheck finds it reaches.
+type shipped struct {
+	version, goVersion string
+	vulns              []vuln
+}
+
+// label is "1.12.1 (Go 1.26.5)".
+func (s shipped) label() string {
+	return strings.TrimPrefix(s.version, "v") + " (Go " + strings.TrimPrefix(s.goVersion, "go") + ")"
+}
+
+// shippedBinary reads a binary out of an extension tar. pinned is its
+// version, for a binary that doesn't know its own (built from a module's
+// source, it says "(devel)").
+func shippedBinary(e *env, tarPath, member, pinned string) (*shipped, error) {
+	bin, err := extract(tarPath, member)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(bin)
+	info, err := buildinfo.ReadFile(bin)
+	if err != nil {
+		return nil, err
+	}
+	if stripped, err := elfStripped(bin); err != nil {
+		return nil, err
+	} else if stripped {
+		return nil, errStripped
+	}
+	vs, err := govulncheck(e, "-mode=binary", bin)
+	if err != nil {
+		return nil, err
+	}
+	version := info.Main.Version
+	if version == "" || version == "(devel)" {
+		version = pinned
+	}
+	return &shipped{version: version, goVersion: info.GoVersion, vulns: vs}, nil
 }

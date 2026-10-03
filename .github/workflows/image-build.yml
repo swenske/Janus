@@ -936,11 +936,16 @@ jobs:
 
       - uses: ./.github/actions/runner-setup
 
+      - name: Build inputs for custom schematics
+        run: make schematic-inputs
+
       # What this release fixes since the previous one (hack/upstream,
       # docs/upstreams.md): security.json, attached to the release - the
       # Controller reads it to tell nodes missing security fixes - with
-      # the SBOM. Notes without a 🔒 section are refused when it isn't
-      # empty: checked here, before an hour of building.
+      # the SBOM. The extensions just built are compared with the previous
+      # release's: a Go binary rebuilt with a newer Go fixes things with
+      # no version change. Notes without a 🔒 section are refused when it
+      # isn't empty: checked here, before the images are built.
       - name: Security fixes since the previous release, and the SBOM
         if: ${{ inputs.release_version != '' }}
         env:
@@ -951,7 +956,7 @@ jobs:
           prev=$(git describe --tags --abbrev=0 --match 'v20*')
           mkdir -p build/security
           go run ./hack/upstream security-notes -from "$prev" -version "$RELEASE_VERSION" \
-            -json build/security/security.json > build/security/notes.md
+            -extensions build/inputs -json build/security/security.json > build/security/notes.md
           cat build/security/notes.md >> "$GITHUB_STEP_SUMMARY"
           severity=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["max_severity"])' build/security/security.json)
           if [ "$severity" != none ] && ! grep -q '^## 🔒' ".github/release-notes/$RELEASE_VERSION.md"; then
@@ -966,8 +971,6 @@ jobs:
       # kernel, the base rootfs tree and the extension packs, plus the
       # catalog - published with a release, kept as an artifact otherwise
       # (schematic-build's source_run input builds from it, for testing).
-      - name: Build inputs for custom schematics
-        run: make schematic-inputs
 
       - name: Upload the schematic build inputs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

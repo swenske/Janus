@@ -405,7 +405,8 @@ func govulncheck(e *env, args ...string) ([]vuln, error) {
 	return res, nil
 }
 
-// extract copies one file out of a .zip or .tar.gz into a temporary file.
+// extract copies one file out of a .zip, .tar.gz or .tar into a temporary
+// file.
 func extract(archive, member string) (string, error) {
 	out, err := os.CreateTemp("", "upstream-bin-")
 	if err != nil {
@@ -442,11 +443,15 @@ func extract(archive, member string) (string, error) {
 		return fail(err)
 	}
 	defer file.Close()
-	gz, err := gzip.NewReader(file)
-	if err != nil {
-		return fail(err)
+	var r io.Reader = file
+	if !strings.HasSuffix(archive, ".tar") {
+		gz, err := gzip.NewReader(file)
+		if err != nil {
+			return fail(err)
+		}
+		r = gz
 	}
-	tr := tar.NewReader(gz)
+	tr := tar.NewReader(r)
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {

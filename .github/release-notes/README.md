@@ -21,7 +21,8 @@ module, the Go toolchain, an npm package - its notes must have a
 one. Draft it with
 
 ```sh
-make upstream-security-notes FROM=<previous tag> RELEASE=<this version>
+make extensions-amd64   # for the rebuilt Go binaries they carry
+make upstream-security-notes FROM=<previous tag> RELEASE=<this version> EXTENSIONS=build/extensions
 ```
 
 and edit it into the notes: say what it means for an operator (which

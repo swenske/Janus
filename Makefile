@@ -109,8 +109,10 @@ kernel-built-files: kernel-build rpi4-kernel-build
 # Following upstreams (docs/upstreams.md, hack/upstream): what's new and
 # what's vulnerable in every component versions.mk pins; a checked bump
 # (C=haproxy, V= optional); a draft of RELEASE's notes' 🔒 section - what
-# it fixes since FROM, the previous release (image-build.yml generates the
-# release's security.json the same way); the SBOM.
+# it fixes since FROM, the previous release, and with EXTENSIONS=build/
+# extensions (after make extensions-amd64) what rebuilt Go binaries fix
+# (image-build.yml generates the release's security.json the same way);
+# the SBOM.
 upstream-check:
 	go run ./hack/upstream check
 
@@ -120,7 +122,7 @@ upstream-bump:
 upstream-security-notes:
 	mkdir -p $(BUILD_DIR)
 	go run ./hack/upstream security-notes -from $(FROM) -version $(RELEASE) \
-		-json $(BUILD_DIR)/security.json
+		$(if $(EXTENSIONS),-extensions $(EXTENSIONS)) -json $(BUILD_DIR)/security.json
 
 upstream-sbom:
 	mkdir -p $(BUILD_DIR)

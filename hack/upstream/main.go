@@ -18,12 +18,14 @@
 // checksums, independent ones), then rewrites versions.mk - or nothing.
 // -md writes the pull request body.
 //
-//	upstream security-notes -from REF [-to REF] -version V [-json FILE]
+//	upstream security-notes -from REF [-to REF] -version V [-json FILE] [-extensions DIR]
 //
 // security-notes lists what the changes from REF to REF (default: the
 // working tree) fix - upstream components, Go modules, the Go toolchain,
 // npm packages - as security.json (-json) and a draft of the release
-// notes' 🔒 section on stdout.
+// notes' 🔒 section on stdout. With -extensions (the new extension tars),
+// the Go binaries they carry are compared with the previous release's:
+// fixes a rebuild brings without a version change are seen too.
 //
 //	upstream sbom -version V [-out FILE]
 //
@@ -272,11 +274,12 @@ func notesCmd(e *env, args []string) {
 	to := fs.String("to", "", "the new release's git ref (default: the working tree)")
 	version := fs.String("version", "", "the new release's version")
 	js := fs.String("json", "", "write security.json here")
+	ext := fs.String("extensions", "", "the new release's extension tars (build/inputs): compare the Go binaries they carry with the previous release's")
 	_ = fs.Parse(args)
 	if *from == "" || *version == "" {
-		log.Fatal("usage: upstream security-notes -from REF [-to REF] -version V [-json FILE]")
+		log.Fatal("usage: upstream security-notes -from REF [-to REF] -version V [-json FILE] [-extensions DIR]")
 	}
-	doc, err := securityNotes(e, *from, *to, *version)
+	doc, err := securityNotes(e, *from, *to, *version, *ext)
 	if err != nil {
 		log.Fatal(err)
 	}

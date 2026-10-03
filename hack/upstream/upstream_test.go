@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/tar"
 	"context"
 	"errors"
 	"fmt"
@@ -440,5 +441,41 @@ func TestELFStripped(t *testing.T) {
 func TestGoModuleZip(t *testing.T) {
 	if u := goModuleZip("github.com/prometheus/node_exporter")("1.12.1", ""); u != "https://proxy.golang.org/github.com/prometheus/node_exporter/@v/v1.12.1.zip" {
 		t.Errorf("goModuleZip = %s", u)
+	}
+}
+
+// TestExtractTar: a binary comes out of an extension's plain tar.
+func TestExtractTar(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "extension-x-amd64.tar")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tw := tar.NewWriter(f)
+	for name, body := range map[string]string{"usr/local/sbin/x": "binary", ".janus-labels": "labels"} {
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(body))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	out, err := extract(path, "usr/local/sbin/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(out)
+	if b, _ := os.ReadFile(out); string(b) != "binary" {
+		t.Errorf("extracted %q", b)
+	}
+	if _, err := extract(path, "usr/local/sbin/missing"); err == nil {
+		t.Error("a missing member was extracted")
+	}
+	if l := (shipped{version: "v1.12.1", goVersion: "go1.26.8"}).label(); l != "1.12.1 (Go 1.26.8)" {
+		t.Errorf("label = %q", l)
 	}
 }
