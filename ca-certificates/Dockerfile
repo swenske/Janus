@@ -11,7 +11,7 @@
 # store) - a Janus node's own rootfs never needed one either, until a
 # seedfrom URL with no pinned CA of its own needed something to verify
 # against.
-FROM debian:trixie-slim AS build
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*

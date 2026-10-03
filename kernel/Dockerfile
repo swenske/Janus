@@ -27,7 +27,7 @@ ARG KERNEL_SHA256
 
 # The tarball is checked against KERNEL_SHA256, pinned in versions.mk
 # after checking its kernel.org signature - nothing is extracted before.
-FROM debian:trixie-slim AS fetch
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS fetch
 ARG KERNEL_VERSION
 ARG KERNEL_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends \

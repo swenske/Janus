@@ -15,7 +15,7 @@
 
 ARG KEEPALIVED_VERSION
 
-FROM debian:trixie-slim AS fetch
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS fetch
 ARG KEEPALIVED_VERSION
 ARG KEEPALIVED_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
@@ -40,12 +40,12 @@ install -D -m 0644 COPYING /out/usr/share/licenses/keepalived/COPYING
 if readelf -l /out/usr/local/sbin/keepalived | grep -q INTERP; then echo "keepalived isn't static" >&2; exit 1; fi
 SCRIPT
 
-FROM --platform=linux/amd64 alpine:3.22 AS build
+FROM --platform=linux/amd64 alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS build
 RUN apk add --no-cache build-base linux-headers
 COPY --from=fetch /src /src
 RUN STRIP=strip /src/build.sh
 
-FROM --platform=linux/amd64 debian:trixie-slim AS build-arm64
+FROM --platform=linux/amd64 debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS build-arm64
 # The cross-toolchain's kernel headers predate what keepalived includes
 # (linux/close_range.h, 5.9): Debian's arm64 kernel headers instead - the
 # kernel's own uapi directories only, nothing of glibc's.

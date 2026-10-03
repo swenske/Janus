@@ -32,7 +32,7 @@
 
 ARG MUSL_CROSS_MAKE_REF
 
-FROM debian:trixie-slim AS fetch
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS fetch
 ARG MUSL_CROSS_MAKE_REF
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates \
@@ -41,7 +41,7 @@ WORKDIR /src
 RUN git clone https://github.com/richfelker/musl-cross-make.git \
     && cd musl-cross-make && git checkout "${MUSL_CROSS_MAKE_REF}"
 
-FROM debian:trixie-slim AS build
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential wget bzip2 xz-utils ca-certificates \
     && rm -rf /var/lib/apt/lists/*

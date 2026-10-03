@@ -68,7 +68,7 @@ ARG AWSLC_SHA256
 ARG ZLIB_VERSION
 ARG ZLIB_SHA256
 
-FROM debian:trixie-slim AS fetch
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS fetch
 ARG HAPROXY_VERSION
 ARG HAPROXY_SHA256
 ARG AWSLC_VERSION
@@ -94,7 +94,7 @@ RUN test -n "${ZLIB_SHA256}" \
     && echo "${ZLIB_SHA256}  zlib-${ZLIB_VERSION}.tar.gz" | sha256sum -c - \
     && tar xf zlib-${ZLIB_VERSION}.tar.gz
 
-FROM alpine:3.22 AS build
+FROM alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS build
 ARG HAPROXY_VERSION
 ARG AWSLC_VERSION
 ARG ZLIB_VERSION
@@ -128,7 +128,7 @@ COPY --from=build /src/haproxy-${HAPROXY_VERSION}/haproxy /haproxy
 
 # --- arm64 cross-compile path -----------------------------------------
 
-FROM debian:trixie-slim AS build-arm64
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS build-arm64
 ARG HAPROXY_VERSION
 ARG AWSLC_VERSION
 ARG ZLIB_VERSION

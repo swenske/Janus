@@ -17,7 +17,7 @@ ARG LIBMNL_VERSION
 ARG LIBNFTNL_VERSION
 ARG NFTABLES_VERSION
 
-FROM debian:trixie-slim AS fetch
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS fetch
 ARG LIBMNL_VERSION
 ARG LIBMNL_SHA256
 ARG LIBNFTNL_VERSION
@@ -75,12 +75,12 @@ install -D -m 0644 /src/netbase.copyright /out/usr/share/licenses/nftables/netba
 if readelf -l /out/usr/local/sbin/nft | grep -q INTERP; then echo "nft isn't static" >&2; exit 1; fi
 SCRIPT
 
-FROM --platform=linux/amd64 alpine:3.22 AS build
+FROM --platform=linux/amd64 alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS build
 RUN apk add --no-cache build-base linux-headers pkgconf bison flex
 COPY --from=fetch /src /src
 RUN STRIP=strip /src/build.sh
 
-FROM --platform=linux/amd64 debian:trixie-slim AS build-arm64
+FROM --platform=linux/amd64 debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS build-arm64
 RUN apt-get update && apt-get install -y --no-install-recommends make pkgconf bison flex file binutils \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=musltoolchain / /opt/musl-cross
