@@ -1,0 +1,112 @@
+# Follows the upstream components Janus is built from (docs/upstreams.md),
+# every day:
+# - the "📦 Upstream status" issue: every component versions.mk pins, the
+#   newest release it follows, newer branches, its support, the
+#   vulnerabilities known in it - and Janus's own Go code and npm packages;
+# - a "🔒 Security fixes waiting for a release" issue while main fixes
+#   vulnerabilities the latest release still has;
+# - a pull request per component with a newer release it follows
+#   (hack/upstream-watch.sh), every download checked first.
+#
+# GitHub-hosted, never self-hosted, and never on pull requests: it only
+# runs main's own code. UPSTREAM_BOT_TOKEN (a fine-grained token: contents
+# and pull requests, read and write, on this repository) pushes the bump
+# branches and opens their pull requests - GitHub never runs ci.yml for
+# pull requests the workflow's own token opens. Without it, no pull
+# request is proposed; the issues are still kept.
+name: Upstream Watch
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report only: no issue updated, no branch pushed - bumps are still checked"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-watch
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      DRY_RUN: ${{ inputs.dry_run && 'yes' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Check every component
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build
+          go run ./hack/upstream check -md build/status.md -json build/status.json
+          cat build/status.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update the status issue
+        if: env.DRY_RUN == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create upstream-status --color 0E8A16 --description "Upstream components' status (upstream-watch.yml)" --force >/dev/null
+          n=$(gh issue list --label upstream-status --state open --json number --jq '.[0].number // empty')
+          if [ -z "$n" ]; then
+            gh issue create --title "📦 Upstream status" --label upstream-status --body-file build/status.md
+          else
+            gh issue edit "$n" --body-file build/status.md
+          fi
+
+      # What main fixes since the latest release: once any of it is a
+      # vulnerability, a security release is due (SECURITY.md's targets).
+      - name: Security fixes waiting for a release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view --json tagName --jq .tagName)
+          go run ./hack/upstream security-notes -from "$tag" -version main -json build/pending.json > build/pending.md
+          severity=$(jq -r .max_severity build/pending.json)
+          echo "Fixed on main since $tag: max severity $severity" >> "$GITHUB_STEP_SUMMARY"
+          [ -n "$DRY_RUN" ] && exit 0
+          gh label create security --color B60205 --description "Fixes or reports a vulnerability" --force >/dev/null
+          title="🔒 Security fixes waiting for a release"
+          n=$(gh issue list --label security --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ "$severity" = none ]; then
+            [ -n "$n" ] && gh issue close "$n" --comment "Nothing left: released, or no longer pending."
+            exit 0
+          fi
+          {
+            echo "Fixed on \`main\` since **$tag**, highest severity **$severity** - [SECURITY.md](../blob/main/SECURITY.md)'s targets: critical 72 hours, high 7 days."
+            echo
+            cat build/pending.md
+          } > build/pending-issue.md
+          if [ -z "$n" ]; then
+            gh issue create --title "$title" --label security --body-file build/pending-issue.md
+          else
+            gh issue edit "$n" --body-file build/pending-issue.md
+          fi
+
+      - name: Propose bumps
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.UPSTREAM_BOT_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ] && [ -z "$DRY_RUN" ]; then
+            echo "::notice::no UPSTREAM_BOT_TOKEN: no pull request proposed"
+            exit 0
+          fi
+          ./hack/upstream-watch.sh build/status.json ${DRY_RUN:+--dry-run}
