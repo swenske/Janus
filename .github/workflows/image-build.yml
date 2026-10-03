@@ -1351,9 +1351,32 @@ jobs:
             build/deb/janusctl_*.deb
             build/terraform-provider/terraform-provider-janus_*
 
+      # janusctl on https://apt.sw-servers.net/janus (suite "stable",
+      # component "main" - README.md), after the GitHub Release so apt
+      # never offers a version that has no release. Same design as
+      # swenske/gotochanger: a key that only exists on this runner
+      # (~actions-runner/.ssh/id_janus_aptly, never a GitHub secret)
+      # reaches a forced-command account on apt.int.sw-servers.net that
+      # only accepts "upload janusctl_<version>_<arch>.deb" (stdin) and
+      # "publish" (/usr/local/sbin/janus-publish-dispatch.sh and
+      # janus-aptly-publish.sh there). A rerun uploads the same bytes,
+      # which aptly accepts again (the packages are reproducible).
+      - name: Publish janusctl on apt.sw-servers.net
+        if: ${{ inputs.release_version != '' }}
+        run: |
+          set -euo pipefail
+          key="$HOME/.ssh/id_janus_aptly"
+          host="janus-publish@apt.int.sw-servers.net"
+          for deb in build/deb/janusctl_*.deb; do
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key" "$host" \
+              "upload $(basename "$deb")" < "$deb"
+          done
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key" "$host" publish
+
       # A release fixing something rated high or worse gets a repository
       # security advisory: public and citable on the Security tab - GitHub
-      # notifies nobody for one (docs/upstreams.md). It takes
+      # notifies nobody for one (docs/upstreams.md). Last, so a refused
+      # token can't keep janusctl off apt. It takes
       # UPSTREAM_BOT_TOKEN with "Repository security advisories" write;
       # without it, the request is printed to create it by hand.
       - name: Publish a security advisory
@@ -1376,32 +1399,13 @@ jobs:
           fi
           api="https://api.github.com/repos/${{ github.repository }}/security-advisories"
           auth=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json")
-          ghsa=$(curl -fsS "${auth[@]}" -X POST "$api" --data @build/security/advisory.json \
-            | python3 -c 'import json, sys; print(json.load(sys.stdin)["ghsa_id"])')
-          curl -fsS "${auth[@]}" -X PATCH "$api/$ghsa" --data '{"state":"published"}' \
-            | python3 -c 'import json, sys; print(json.load(sys.stdin)["html_url"])'
-
-      # janusctl on https://apt.sw-servers.net/janus (suite "stable",
-      # component "main" - README.md), after the GitHub Release so apt
-      # never offers a version that has no release. Same design as
-      # swenske/gotochanger: a key that only exists on this runner
-      # (~actions-runner/.ssh/id_janus_aptly, never a GitHub secret)
-      # reaches a forced-command account on apt.int.sw-servers.net that
-      # only accepts "upload janusctl_<version>_<arch>.deb" (stdin) and
-      # "publish" (/usr/local/sbin/janus-publish-dispatch.sh and
-      # janus-aptly-publish.sh there). A rerun uploads the same bytes,
-      # which aptly accepts again (the packages are reproducible).
-      - name: Publish janusctl on apt.sw-servers.net
-        if: ${{ inputs.release_version != '' }}
-        run: |
-          set -euo pipefail
-          key="$HOME/.ssh/id_janus_aptly"
-          host="janus-publish@apt.int.sw-servers.net"
-          for deb in build/deb/janusctl_*.deb; do
-            ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key" "$host" \
-              "upload $(basename "$deb")" < "$deb"
-          done
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key" "$host" publish
+          resp=build/security/advisory-response.json
+          curl -sS --fail-with-body "${auth[@]}" -X POST "$api" --data @build/security/advisory.json -o "$resp" \
+            || { echo "::error::creating the advisory failed: $(cat "$resp")"; exit 1; }
+          ghsa=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["ghsa_id"])' "$resp")
+          curl -sS --fail-with-body "${auth[@]}" -X PATCH "$api/$ghsa" --data '{"state":"published"}' -o "$resp" \
+            || { echo "::error::publishing advisory $ghsa failed: $(cat "$resp")"; exit 1; }
+          python3 -c 'import json, sys; print("Published", json.load(open(sys.argv[1]))["html_url"])' "$resp"
 
       # TODO(Phase 3 cont'd): a real OVA (OVF descriptor + tar) on top
       # of image/vmware's bare VMDK - once built, add build/janus.ova
