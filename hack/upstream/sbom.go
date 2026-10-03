@@ -57,6 +57,9 @@ func sbom(version string, when time.Time) ([]byte, error) {
 		}
 		cc := cdxComponent{Type: "library", Name: c.name, Version: v, PURL: "pkg:generic/" + c.name + "@" + v,
 			Properties: []cdxProperty{{"janus:kind", string(c.kind)}, {"janus:title", c.title}}}
+		if c.purl != nil {
+			cc.PURL = c.purl(v)
+		}
 		switch c.kind {
 		case kindFirmware:
 			cc.Type = "firmware"

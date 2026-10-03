@@ -149,7 +149,7 @@ extension-prometheus-node-exporter-%:
 	rm -rf $(EXT_DIR)/tree-prometheus-node-exporter-$*
 	docker build --target export --build-arg ARCH=$* \
 		--build-arg NODE_EXPORTER_VERSION=$(NODE_EXPORTER_VERSION) \
-		--build-arg NODE_EXPORTER_SHA256=$(NODE_EXPORTER_SHA256_$*) \
+		--build-arg NODE_EXPORTER_SHA256=$(NODE_EXPORTER_SHA256) \
 		-o $(EXT_DIR)/tree-prometheus-node-exporter-$* extensions/prometheus-node-exporter
 	go run ./hack/extpack pack -name prometheus-node-exporter -arch $* -version $(NODE_EXPORTER_VERSION) \
 		-tree $(EXT_DIR)/tree-prometheus-node-exporter-$* -out $(EXT_DIR)/extension-prometheus-node-exporter-$*.tar

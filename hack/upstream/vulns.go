@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"debug/elf"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -275,7 +276,87 @@ func (g govulnBinary) affecting(e *env, c *component, v string) ([]vuln, error) 
 		}
 		defer os.Remove(path)
 	}
+	// Without a symbol table, govulncheck can't tell what the binary
+	// reaches and reports every vulnerability of every module in it.
+	if stripped, err := elfStripped(path); err != nil {
+		return nil, err
+	} else if stripped {
+		return nil, fmt.Errorf("%s is stripped: govulncheck can't tell what it reaches", filepath.Base(c.url(v, arch)))
+	}
 	return govulncheck(e, "-mode=binary", path)
+}
+
+func elfStripped(path string) (bool, error) {
+	f, err := elf.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	return f.Section(".symtab") == nil, nil
+}
+
+// govulnSource runs govulncheck on a Go module's source at a version, with
+// this tree's Go: what a component built from source (node_exporter)
+// reaches, the standard library included.
+type govulnSource struct{ module string }
+
+func (g govulnSource) describe() string { return "govulncheck on its source, with this tree's Go" }
+
+func (g govulnSource) affecting(e *env, _ *component, v string) ([]vuln, error) {
+	dl, err := goModDownload(e.ctx, g.module, "v"+plain(v))
+	if err != nil {
+		return nil, err
+	}
+	return govulncheck(e, "-C", dl.Dir, "./...")
+}
+
+// goModule is what go mod download says of a module version.
+type goModule struct {
+	Zip, Dir, Sum, Error string
+}
+
+// goModDownload downloads a module version through the Go proxy, checked
+// against Go's checksum database, into the module cache.
+func goModDownload(ctx context.Context, module, version string) (*goModule, error) {
+	cmd := exec.CommandContext(ctx, "go", "mod", "download", "-json", module+"@"+version)
+	cmd.Dir = os.TempDir() // outside any module
+	out, err := cmd.Output()
+	var m goModule
+	if jerr := json.Unmarshal(out, &m); jerr != nil {
+		return nil, fmt.Errorf("go mod download %s@%s: %v", module, version, err)
+	}
+	if m.Error != "" {
+		return nil, fmt.Errorf("go mod download %s@%s: %s", module, version, m.Error)
+	}
+	return &m, err
+}
+
+// goModuleZip is a Go module version's zip on proxy.golang.org.
+func goModuleZip(module string) func(v, arch string) string {
+	return func(v, _ string) string {
+		return "https://proxy.golang.org/" + strings.ToLower(module) + "/@v/v" + plain(v) + ".zip"
+	}
+}
+
+// goSumDB checks a module zip downloaded from the proxy is the one go mod
+// download fetches and checks against Go's checksum database.
+type goSumDB struct{ module string }
+
+func (goSumDB) describe() string { return "Go's checksum database (go mod download)" }
+
+func (g goSumDB) verify(ctx context.Context, _ fetcher, a *artifact) error {
+	dl, err := goModDownload(ctx, g.module, "v"+plain(a.version))
+	if err != nil {
+		return err
+	}
+	sum, err := fileSHA256(dl.Zip)
+	if err != nil {
+		return err
+	}
+	if sum != a.sha256 {
+		return fmt.Errorf("sha256 %s, the module zip go mod download checked is %s", a.sha256, sum)
+	}
+	return nil
 }
 
 // govulncheck runs the root module's govulncheck tool and returns what it

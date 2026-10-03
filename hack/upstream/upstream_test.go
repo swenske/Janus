@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -406,5 +407,38 @@ func TestAdvisory(t *testing.T) {
 	v := a["vulnerabilities"].([]map[string]any)[0]
 	if v["vulnerable_version_range"] != "< v2026.10.10" || v["patched_versions"] != "v2026.10.10" {
 		t.Errorf("vulnerabilities: %v", v)
+	}
+}
+
+// TestELFStripped: built normally, a Go binary keeps its symbols; with
+// -ldflags=-s, not.
+func TestELFStripped(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(src, []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		ldflags  string
+		stripped bool
+	}{{"", false}, {"-s", true}} {
+		out := filepath.Join(dir, "bin"+tc.ldflags)
+		cmd := exec.Command("go", "build", "-ldflags="+tc.ldflags, "-o", out, src)
+		cmd.Env = append(os.Environ(), "GOOS=linux", "GO111MODULE=off")
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("go build: %v: %s", err, b)
+		}
+		if stripped, err := elfStripped(out); err != nil || stripped != tc.stripped {
+			t.Errorf("elfStripped(-ldflags=%q) = %v, %v", tc.ldflags, stripped, err)
+		}
+	}
+	if _, err := elfStripped("testdata/bugs-3.4.0.html"); err == nil {
+		t.Error("a non-ELF file isn't an error")
+	}
+}
+
+func TestGoModuleZip(t *testing.T) {
+	if u := goModuleZip("github.com/prometheus/node_exporter")("1.12.1", ""); u != "https://proxy.golang.org/github.com/prometheus/node_exporter/@v/v1.12.1.zip" {
+		t.Errorf("goModuleZip = %s", u)
 	}
 }

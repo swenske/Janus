@@ -64,7 +64,10 @@ type component struct {
 	crossChecks []check
 	// manual: never bumped by the tool - why.
 	manual string
-	vulns  []vulnSource
+	// purl names it in the SBOM, when there's a better name than
+	// pkg:generic/<name>@<version> (a Go module).
+	purl  func(v string) string
+	vulns []vulnSource
 	// eol is the endoflife.date product, with the number of version
 	// components naming a release cycle there.
 	eol      string
@@ -171,23 +174,16 @@ var components = []*component{
 		vulns: []vulnSource{ghsaRepo{repo: "aws/aws-lc", pkg: "AWS-LC"}},
 	},
 	{
+		// Built from source with this tree's Go (extensions/prometheus-
+		// node-exporter/Dockerfile): upstream's binary carries the Go it was
+		// built with.
 		name: "node-exporter", title: "Prometheus node_exporter", kind: kindExtension,
-		versionVar: "NODE_EXPORTER_VERSION",
-		sumVars:    map[string]string{"amd64": "NODE_EXPORTER_SHA256_amd64", "arm64": "NODE_EXPORTER_SHA256_arm64"},
-		feed:       githubReleases{repo: "prometheus/node_exporter"}, track: trackMajor,
-		url: func(v, arch string) string {
-			v = plain(v)
-			return "https://github.com/prometheus/node_exporter/releases/download/v" + v + "/node_exporter-" + v + ".linux-" + arch + ".tar.gz"
-		},
-		checks: []check{
-			publishedSum{sumURL: func(a *artifact) string {
-				return "https://github.com/prometheus/node_exporter/releases/download/v" + plain(a.version) + "/sha256sums.txt"
-			}},
-			githubDigest{repo: "prometheus/node_exporter", tag: "v%s"},
-		},
-		vulns: []vulnSource{govulnBinary{member: func(v, arch string) string {
-			return "node_exporter-" + plain(v) + ".linux-" + arch + "/node_exporter"
-		}}},
+		versionVar: "NODE_EXPORTER_VERSION", sumVars: map[string]string{"": "NODE_EXPORTER_SHA256"},
+		feed: githubReleases{repo: "prometheus/node_exporter"}, track: trackMajor,
+		url:    goModuleZip("github.com/prometheus/node_exporter"),
+		checks: []check{goSumDB{module: "github.com/prometheus/node_exporter"}},
+		vulns:  []vulnSource{govulnSource{module: "github.com/prometheus/node_exporter"}},
+		purl:   func(v string) string { return "pkg:golang/github.com/prometheus/node_exporter@v" + plain(v) },
 	},
 	{
 		name: "libmnl", title: "libmnl (nftables extension)", kind: kindExtension,

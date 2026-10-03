@@ -43,7 +43,7 @@ no component follows.
 | `zlib` | every release | Mark Adler's signature, and Alpine's sha512 | osv.dev |
 | `aws-lc` | every release | Alpine's or FreeBSD's checksum of GitHub's tag archive - AWS-LC signs nothing | AWS-LC's own GitHub advisories |
 | `musl-cross-make` | by hand (a commit) | - | - |
-| `node-exporter` | its major | upstream's sha256sums.txt and GitHub's asset digest | govulncheck on the binary |
+| `node-exporter` | its major - built from source with this tree's Go, not upstream's binary | Go's checksum database (`go mod download`) on the module's zip | govulncheck on its source, with this tree's Go |
 | `libmnl`, `libnftnl`, `nftables` | every release | the Netfilter Core Team's signature | - (none published) |
 | `jansson` | every release | Petri Lehtinen's signature | osv.dev |
 | `keepalived` | its major | Alpine's sha512 - keepalived signs nothing | osv.dev |
@@ -112,6 +112,12 @@ Known Exploited Vulnerabilities catalog is critical, whatever its score.
 
 `check` also runs govulncheck on Janus's own Go code (only what it
 reaches) and `npm audit` on the Controller frontend's production packages.
+A downloaded Go binary (Consul, Compose) is checked as built: what its
+symbols reach, the standard library of the Go that built it included - a
+stripped binary is refused, govulncheck would report every vulnerability
+of every module in it. When an upstream's binary lags behind on Go,
+building it from source fixes it: node_exporter 1.12.1's carried seven
+vulnerabilities of Go 1.26.5's standard library, the one built here none.
 
 ## Every day: `upstream-watch.yml`
 

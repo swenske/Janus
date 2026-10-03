@@ -50,11 +50,14 @@ AWSLC_VERSION := 5.11.0
 AWSLC_SHA256  := 8cb24c6e6be1fa7ff05075c4560ca8b537a7ef48f9e6f465af4ea455794d74f4
 
 # Optional extensions (extensions/<name>/, see docs/image-factory.md).
-# node_exporter: upstream's static release binaries, sha256 from its own
-# sha256sums.txt, per architecture.
-NODE_EXPORTER_VERSION      := 1.12.1
-NODE_EXPORTER_SHA256_amd64 := b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63
-NODE_EXPORTER_SHA256_arm64 := ad35b605f9954b9f1ffddf5ba054bdc5a98d790b9eae5291e1eeb83f1ecbd0e7
+# node_exporter: built from source with this tree's Go (the pinned golang
+# image), not upstream's release binary - 1.12.1's was built with Go
+# 1.26.5, and carries seven standard library vulnerabilities. The source
+# is the module's zip on proxy.golang.org: sha256 pinned after go mod
+# download checked it against Go's checksum database (h1:LzcZ6SqJ...
+# for 1.12.1), the build checks it again the same way.
+NODE_EXPORTER_VERSION := 1.12.1
+NODE_EXPORTER_SHA256  := 9d85e5f99be3ff58bb117d0762343c58b902529f76d72e5fd54a82f3ab3469af
 # nftables for the firewall extension: netfilter.org release tarballs,
 # sha256 pinned after checking their GPG signatures - libnftnl and
 # nftables by the Netfilter Core Team key
