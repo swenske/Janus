@@ -1096,6 +1096,11 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
       </div>
       <LockNotice m={m} actions={actions} />
       {m.error && <div className="error-box small">{m.error}</div>}
+      {m.warning && !m.node_id && (
+        <div className="notice warn small">
+          {m.warning} <span className="muted">Its console shows the rest.</span>
+        </div>
+      )}
       {vmError && <div className="error-box small">{vmError}</div>}
       {m.node_hostname && m.node_hostname !== m.spec.name && (
         <div className="notice warn small">The node calls itself {m.node_hostname}: its hostname was changed on its page.</div>

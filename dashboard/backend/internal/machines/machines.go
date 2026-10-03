@@ -132,6 +132,10 @@ type Machine struct {
 	SyncedAt     time.Time `json:"synced_at,omitempty"`
 	SyncError    string    `json:"sync_error,omitempty"`
 	NodeHostname string    `json:"node_hostname,omitempty"`
+	// Warning is why its node can't register, read from the node's
+	// console while the machine waits for it (dashboard/backend:
+	// machines_watch.go).
+	Warning string `json:"warning,omitempty"`
 
 	TokenHash    string    `json:"token_hash,omitempty"`
 	TokenExpires time.Time `json:"token_expires,omitempty"`

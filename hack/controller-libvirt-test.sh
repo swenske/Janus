@@ -13,6 +13,9 @@
 #      approval - and answers through the Controller's relay;
 #   3. the serial console streams its boot, never a private key; a
 #      hypervisor reset brings the node back;
+#   3b. a node that can't register says why on its console: the machine
+#      shows it as a warning (while a page reads the same console), and
+#      the node registers on its own once it can - no reboot;
 #   4. a record forged to point at a domain the Controller didn't create
 #      (one untagged, one tagged by another Controller) is refused, and
 #      the domain is left as it was;
@@ -176,6 +179,93 @@ assert "Linux version" in out and "listening on :9505" in out, out[-500:]
 assert "�" not in out, "characters broken across packets"
 EOF
 echo "Part 4 OK: the console streamed the reboot (no private key, no broken character), the node came back from a hypervisor reset"
+
+# =========================================================================
+# 3b. A node that can't register says why - and registers once it can.
+# =========================================================================
+set_controller_address() {
+  api "$API/api/hypervisors/$HV" | python3 -c '
+import json, sys
+h = json.load(sys.stdin)
+print(json.dumps({"name": h["name"], "controller_address": sys.argv[1], "libvirt": h["libvirt"]}))' "$1" >"$WORKDIR/hv.json"
+  api -o /dev/null -X PATCH "$API/api/hypervisors/$HV" -H 'Content-Type: application/json' -d @"$WORKDIR/hv.json"
+}
+# Nothing listens on 18444 yet.
+set_controller_address 192.168.123.1:18444
+api -X POST "$API/api/machines" -H 'Content-Type: application/json' -d "{
+  \"name\": \"node2\", \"hypervisor_id\": \"$HV\", \"vcpus\": 1, \"memory_mib\": 512,
+  \"image\": {\"url\": \"http://127.0.0.1:8000/janus-kvm.qcow2\", \"sha256\": \"$SUM\"},
+  \"nics\": [{\"network\": \"janus-test\", \"name\": \"lan\", \"mode\": \"dhcp\"}]}" >"$WORKDIR/m2.json"
+MID2="$(json "d['id']" <"$WORKDIR/m2.json")" || fail "create node2: $(cat "$WORKDIR/m2.json")"
+for _ in $(seq 1 120); do
+  [ "$(api "$API/api/machines/$MID2" | json "d['phase']")" = waiting-registration ] && break
+  sleep 0.5
+done
+# A page reads the console the Controller watches.
+timeout 120 curl -skN -b "$JAR" "$API/api/machines/$MID2/console" >"$WORKDIR/console3.sse" 2>/dev/null &
+CONSOLE_PID=$!
+warning=""
+for _ in $(seq 1 60); do
+  warning="$(api "$API/api/machines/$MID2" | json "d.get('warning','')")"
+  [ -n "$warning" ] && break
+  sleep 2
+done
+case "$warning" in
+*"connection refused"*"Nothing listens there"*) ;;
+*) fail "node2's machine doesn't say why its node can't register: '$warning' $(api "$API/api/machines/$MID2")" ;;
+esac
+api "$API/api/machines/$MID2" | json "[e['message'] for e in d['events']]" | grep -q "the node says: registration failed" || fail "node2's history doesn't say what the node said"
+# Now the port leads to the Controller: the node gets through on its next try.
+cat <<'EOF' | in_host_i sh -c 'cat >/work/forward.py'
+import socket, threading
+def pipe(a, b):
+    try:
+        while True:
+            d = a.recv(65536)
+            if not d:
+                break
+            b.sendall(d)
+    except OSError:
+        pass
+    for x in (a, b):
+        try:
+            x.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("0.0.0.0", 18444))
+s.listen()
+while True:
+    c, _ = s.accept()
+    u = socket.create_connection(("127.0.0.1", 18443))
+    threading.Thread(target=pipe, args=(c, u), daemon=True).start()
+    threading.Thread(target=pipe, args=(u, c), daemon=True).start()
+EOF
+docker exec -d "$NAME" python3 /work/forward.py
+for _ in $(seq 1 100); do
+  phase="$(api "$API/api/machines/$MID2" | json "d['phase']")"
+  [ "$phase" = ready ] && break
+  sleep 2
+done
+[ "$phase" = ready ] || fail "node2 never registered once it could: $(api "$API/api/machines/$MID2")"
+[ -z "$(api "$API/api/machines/$MID2" | json "d.get('warning','')")" ] || fail "node2's warning outlived its registration"
+kill "$CONSOLE_PID" 2>/dev/null || true
+wait "$CONSOLE_PID" 2>/dev/null || true
+python3 - "$WORKDIR/console3.sse" <<'EOF' || fail "the page's console while the Controller watched it"
+import json, sys
+out = "".join(json.loads(l[6:]) for l in open(sys.argv[1]) if l.startswith("data: "))
+assert "selfregister: registration failed" in out and "selfregister: admitted by" in out, out[-800:]
+EOF
+set_controller_address ""
+code="$(api -o /dev/null -w '%{http_code}' -X DELETE "$API/api/machines/$MID2")"
+[ "$code" = 202 ] || fail "destroying node2 returned $code"
+for _ in $(seq 1 90); do
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID2")" = 404 ] && break
+  sleep 1
+done
+[ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID2")" = 404 ] || fail "node2 was never destroyed"
+echo "Part 4b OK: node2, unable to register, said why on the machine ($(echo "$warning" | cut -c1-90)...) while a page read the same console, then registered on its own once it could"
 
 }
 

@@ -388,6 +388,21 @@ What happens then, followed on the machine's card:
      **Waiting for approval**, marked as a machine this Controller
      created. Approving it links it to the machine.
 
+**While it waits, the card says what's wrong.** The Controller reads
+the node's console, and a node that can't register says why there: the
+card shows it, with the likely cause:
+- no route to the Controller - often a DHCP server that hands out no
+  gateway: give an interface a static address and a gateway;
+- no DNS for the Controller's name - give the node a DNS server, or set
+  the hypervisor's Controller address to an IP address;
+- nothing listening, a certificate that doesn't name the address, no
+  answer at all (a firewall).
+
+The node keeps trying, waiting a little longer each time (up to two
+minutes): once the network is fixed, it registers without a reboot. An
+image up to v2026.10.03-2 tries once a boot only: the card says so -
+reset it once the network is fixed.
+
 A machine that hasn't registered within 15 minutes is marked failed.
 The virtual machine is left running so its console can say why, and its
 token stays valid for a day: a node that comes up later is still
@@ -408,8 +423,10 @@ On the machine's card, and on its node's card:
   node's own page (Power), through its API.
 - **Console**: the serial console, read-only (a node has no shell),
   from the moment it's opened. Private keys are hidden: the Controller
-  never holds a node's admin credential, even passing through. A
-  console already open on the host (`virsh console`) keeps it.
+  never holds a node's admin credential, even passing through. Every
+  page showing it - and the Controller, while a node registers - shares
+  one console. A console already open on the host (`virsh console`)
+  keeps it.
 - **Destroy** (type the name):
   1. the node is shut down cleanly first, so HAProxy stops and VRRP or
      BGP peers see it go;
@@ -530,6 +547,9 @@ privileged container (`hack/libvirt-host`), with the Controller inside it:
 - creating a node from the image under test, admitted on its token;
 - the console of its first boot, with no key getting through;
 - a reset;
+- a node that can't reach the Controller: the machine says why, while a
+  page reads the same console, and the node registers on its own once
+  it can;
 - refusing two forged records pointing at domains the Controller didn't
   create;
 - destroying it.

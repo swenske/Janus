@@ -55,6 +55,12 @@ type machineRunner struct {
 
 	mu   sync.Mutex
 	jobs map[string]*machineJob
+	// watching: machines whose console is read for their node's
+	// registration (watchNode); quit stops those readers.
+	watching map[string]bool
+	watchers sync.WaitGroup
+	quit     chan struct{}
+	stopOnce sync.Once
 }
 
 type machineJob struct {
@@ -63,7 +69,7 @@ type machineJob struct {
 }
 
 func newMachineRunner(a *app) *machineRunner {
-	return &machineRunner{a: a, jobs: map[string]*machineJob{}}
+	return &machineRunner{a: a, jobs: map[string]*machineJob{}, quit: make(chan struct{})}
 }
 
 // resume picks up after a restart: work that was under way is reported
@@ -88,7 +94,22 @@ func (r *machineRunner) resume() {
 			})
 		case m.Phase == machines.PhaseRegistering:
 			r.watchRegistration(m.ID, time.Until(m.UpdatedAt.Add(registrationTimeout)))
+			r.watchNode(m.ID)
 		}
+	}
+}
+
+// waitJobs waits for every job running - tests, before they put back
+// what the jobs use.
+func (r *machineRunner) waitJobs() {
+	r.mu.Lock()
+	var done []chan struct{}
+	for _, j := range r.jobs {
+		done = append(done, j.done)
+	}
+	r.mu.Unlock()
+	for _, d := range done {
+		<-d
 	}
 }
 
@@ -153,7 +174,7 @@ func (r *machineRunner) phase(id string, p machines.Phase, format string, args .
 // its token and was admitted.
 func (r *machineRunner) registered(id string, node *store.Node) {
 	_, _ = r.a.machines.Update(id, func(m *machines.Machine) error {
-		m.NodeID = node.ID
+		m.NodeID, m.Warning = node.ID, ""
 		if m.Phase != machines.PhaseDestroying {
 			m.Phase, m.Error = machines.PhaseReady, ""
 		}
@@ -280,7 +301,7 @@ func (r *machineRunner) create(ctx context.Context, id string) error {
 		m.Ref = ref
 		// Already registered (a fast boot beats this update)? Then ready.
 		if m.NodeID == "" {
-			m.Phase = machines.PhaseRegistering
+			m.Phase, m.Warning = machines.PhaseRegistering, ""
 			m.Log("%s started on %s - waiting for the node to register at %s", ref.Name, h.Name, ctlAddr)
 		} else {
 			m.Log("%s started on %s", ref.Name, h.Name)
@@ -291,6 +312,7 @@ func (r *machineRunner) create(ctx context.Context, id string) error {
 		return err
 	}
 	r.watchRegistration(id, registrationTimeout)
+	r.watchNode(id)
 	return nil
 }
 

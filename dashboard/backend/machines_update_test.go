@@ -158,6 +158,7 @@ func readyMachine(t *testing.T, a *app, hv *hypervisor.Hypervisor, fake *fakeDri
 	prev := nodes
 	nodes = f
 	t.Cleanup(func() { nodes = prev })
+	t.Cleanup(a.runner.waitJobs) // first: a job may still read nodes
 	// The machine's record as the node says it is.
 	if err := a.runner.sync(context.Background(), m.ID); err != nil {
 		t.Fatal(err)

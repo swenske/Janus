@@ -256,6 +256,7 @@ type app struct {
 	hypervisors  *hypervisor.Store
 	machines     *machines.Store
 	runner       *machineRunner
+	consoles     consoleHub
 
 	mu        sync.Mutex
 	listeners map[string]*nodeproxy.Listener

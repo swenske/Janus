@@ -46,6 +46,7 @@ type machineView struct {
 	NodeHostname   string           `json:"node_hostname,omitempty"`
 	SyncedAt       time.Time        `json:"synced_at,omitzero"`
 	SyncError      string           `json:"sync_error,omitempty"`
+	Warning        string           `json:"warning,omitempty"`
 	Events         []machines.Event `json:"events"`
 	CreatedAt      time.Time        `json:"created_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`
@@ -55,7 +56,7 @@ func (a *app) machineView(m *machines.Machine) machineView {
 	v := machineView{
 		ID: m.ID, Spec: m.Spec, Phase: m.Phase, Error: m.Error, Version: m.Version, Schematic: m.Schematic,
 		NodeID: m.NodeID, Events: m.Events, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
-		NodeHostname: m.NodeHostname, SyncedAt: m.SyncedAt, SyncError: m.SyncError,
+		NodeHostname: m.NodeHostname, SyncedAt: m.SyncedAt, SyncError: m.SyncError, Warning: m.Warning,
 	}
 	if h, ok := a.hypervisors.Get(m.Spec.HypervisorID); ok {
 		v.HypervisorName = h.Name
@@ -249,27 +250,18 @@ func (a *app) handleMachinePower(w http.ResponseWriter, r *http.Request) {
 // event per chunk, JSON-encoded (a console writes \r and escape
 // sequences, which SSE's line format can't carry raw). Private keys are
 // hidden - a node's first boot prints its root admin credential there,
-// which the Controller must never hold.
+// which the Controller must never hold. The console is shared with every
+// other reader (consoleHub).
 func (a *app) handleMachineConsole(w http.ResponseWriter, r *http.Request) {
 	m, ok := a.getMachine(w, r)
 	if !ok {
 		return
 	}
-	if m.Ref == nil || m.Ref.UUID == "" {
-		writeError(w, http.StatusConflict, "the machine has no virtual machine yet")
-		return
-	}
-	h, ok := a.hypervisors.Get(m.Spec.HypervisorID)
-	if !ok {
-		writeError(w, http.StatusConflict, "its hypervisor no longer exists")
-		return
-	}
-	drv, err := newDriver(h, a.controllerID)
+	open, err := a.machineConsole(m)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	defer drv.Close()
 	sse, ok := nodeproxy.NewSSE(w, r)
 	if !ok {
 		return
@@ -280,9 +272,12 @@ func (a *app) handleMachineConsole(w http.ResponseWriter, r *http.Request) {
 		return sse.Send("", string(chunk))
 	}}
 	batch := newCoalescer(out, 100*time.Millisecond)
-	red := newKeyRedactor(batch)
-	err = drv.Console(r.Context(), *m.Ref, red)
-	_ = red.Flush()
+	sub := a.consoles.subscribe(m.ID, open, batch)
+	select {
+	case <-r.Context().Done():
+		a.consoles.unsubscribe(sub)
+	case err = <-sub.done:
+	}
 	_ = batch.Close()
 	_ = out.Flush()
 	if r.Context().Err() != nil {

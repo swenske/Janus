@@ -59,7 +59,9 @@ the host key read and compared with the host's own, then trusted), then its
 software, CPU, memory, pool and networks - and below, the machines: their
 phase while they're created (the page polls every 3 s while one is under
 way), their virtual machine's state, history, retry, destroy (type the
-name) and the console. **Show host preparation** (`HostPrep`) - in the
+name) and the console. A machine waiting for its node shows the
+`warning` the Controller read on the node's console (why it can't
+register, with a hint). **Show host preparation** (`HostPrep`) - in the
 add/edit form once its required fields are filled in, and in a modal
 from a card not trusted yet, key included - shows the steps the backend
 writes (`POST /api/hypervisors/preparation`, again 250 ms after each

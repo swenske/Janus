@@ -42,6 +42,10 @@ type fakeDriver struct {
 	// hw is what MachineStatus answers for every machine, when set.
 	hw  *hypervisor.MachineStatus
 	ops []string
+	// console, when set, is what every machine's console prints before
+	// it stays open; consoles counts the consoles opened.
+	console  string
+	consoles int
 }
 
 func newFakeDriver() *fakeDriver {
@@ -128,9 +132,20 @@ func (f *fakeDriver) Reconfigure(_ context.Context, ref hypervisor.MachineRef, v
 	return nil
 }
 
-func (f *fakeDriver) Console(_ context.Context, _ hypervisor.MachineRef, w io.Writer) error {
-	_, err := w.Write([]byte("-----BEGIN EC PRIVATE KEY-----\nsecret\n-----END EC PRIVATE KEY-----\nok\n"))
-	return err
+func (f *fakeDriver) Console(ctx context.Context, _ hypervisor.MachineRef, w io.Writer) error {
+	f.mu.Lock()
+	f.consoles++
+	out := f.console
+	f.mu.Unlock()
+	if out == "" {
+		_, err := w.Write([]byte("-----BEGIN EC PRIVATE KEY-----\nsecret\n-----END EC PRIVATE KEY-----\nok\n"))
+		return err
+	}
+	if _, err := w.Write([]byte(out)); err != nil {
+		return err
+	}
+	<-ctx.Done()
+	return nil
 }
 
 func (f *fakeDriver) DestroyMachine(_ context.Context, ref hypervisor.MachineRef) error {
@@ -183,6 +198,8 @@ func newTestApp(t *testing.T) (*app, *fakeDriver) {
 	prev := newDriver
 	newDriver = func(*hypervisor.Hypervisor, string) (hypervisor.Driver, error) { return fake, nil }
 	t.Cleanup(func() { newDriver = prev })
+	t.Cleanup(a.runner.waitJobs)     // jobs and console readers use newDriver:
+	t.Cleanup(a.runner.stopWatching) // done with them first
 	return a, fake
 }
 
