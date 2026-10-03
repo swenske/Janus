@@ -40,7 +40,7 @@ install -D -m 0644 COPYING /out/usr/share/licenses/keepalived/COPYING
 if readelf -l /out/usr/local/sbin/keepalived | grep -q INTERP; then echo "keepalived isn't static" >&2; exit 1; fi
 SCRIPT
 
-FROM --platform=linux/amd64 alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS build
+FROM --platform=linux/amd64 alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS build
 RUN apk add --no-cache build-base linux-headers
 COPY --from=fetch /src /src
 RUN STRIP=strip /src/build.sh
