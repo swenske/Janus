@@ -316,8 +316,15 @@ rights cover:
 - the **storage** for the machines' disks, and a **directory storage**
   of its own for the Janus images and the machines' NoCloud volumes (it
   may delete its files there);
-- the **networks** it may use: a bridge (`vmbr0`) or a VLAN on one
-  (`vmbr0.20`) - Proxmox refuses the token any other VLAN;
+- the **networks** it may use - Proxmox refuses the token any other:
+  - a bridge, untagged: `vmbr0`;
+  - a VLAN on one: `vmbr0.20`;
+  - a range of VLANs, at most 256: `vmbr0.100-199`;
+  - any VLAN on it: `vmbr0.*`.
+
+  With a range or `*`, each interface of a node picks its VLAN: the
+  **Create node** and **Edit** forms ask for it, the API and Terraform
+  name it (`vmbr0.150`);
 - reading the node's state.
 
 Like for libvirt, the Controller writes the preparation with the
@@ -329,7 +336,8 @@ directory (`hypervisors/<id>/token`, 0600) and never shows it again.
 
 Its steps, here for the hypervisor `pve01`: node `pve01`, token
 `janus-ctl@pve!controller`, pool `janus`, disks on `local-lvm`, images
-on `janus-images`, networks `vmbr0.10` and `vmbr0.20`:
+on `janus-images`, networks `vmbr0.10` and `vmbr0.100-109` (VLAN 10,
+and VLANs 100 to 109):
 
 ### 1. The pool, and the image storage
 
@@ -373,12 +381,15 @@ pveum acl modify /pool/janus --users janus-ctl@pve --roles JanusVM
 pveum acl modify /storage/local-lvm --users janus-ctl@pve --roles JanusDisks
 pveum acl modify /storage/janus-images --users janus-ctl@pve --roles JanusImages
 pveum acl modify /sdn/zones/localnetwork/vmbr0/10 --users janus-ctl@pve --roles JanusNetwork
-pveum acl modify /sdn/zones/localnetwork/vmbr0/20 --users janus-ctl@pve --roles JanusNetwork
+for vlan in $(seq 100 109); do pveum acl modify /sdn/zones/localnetwork/vmbr0/$vlan --users janus-ctl@pve --roles JanusNetwork; done
 pveum acl modify /nodes/pve01 --users janus-ctl@pve --roles JanusNode
 ```
 
 An untagged bridge gets `--propagate 0`: the bridge itself, not every
-VLAN on it.
+VLAN on it. A range gives each of its VLANs its own right. `vmbr0.*` is
+the bridge's right, propagated: every VLAN on it - and, for Proxmox,
+its untagged traffic too; the Controller itself still only puts an
+interface on a VLAN then.
 
 ### 4. The API token
 
@@ -650,7 +661,7 @@ the one a Terraform provider needs, for the planned one:
 
 | Method and path | |
 |---|---|
-| `GET`, `POST /api/hypervisors` | list, add (`{name, kind: "libvirt", controller_address, libvirt: {host, user, socket, pool, networks, name_prefix}}`, or `{name, kind: "proxmox", controller_address, token_secret, proxmox: {url, node, token_id, pool, storage, image_storage, networks, name_prefix, vmids, ca_cert}}`) - the token secret is never in an answer (`has_token_secret`) |
+| `GET`, `POST /api/hypervisors` | list, add (`{name, kind: "libvirt", controller_address, libvirt: {host, user, socket, pool, networks, name_prefix}}`, or `{name, kind: "proxmox", controller_address, token_secret, proxmox: {url, node, token_id, pool, storage, image_storage, networks, name_prefix, vmids, ca_cert}}` - Proxmox networks: `vmbr0`, `vmbr0.20`, `vmbr0.100-199`, `vmbr0.*`; a machine's interface names one bridge or VLAN, `vmbr0.150`) - the token secret is never in an answer (`has_token_secret`) |
 | `GET`, `PATCH`, `DELETE /api/hypervisors/{id}` | one; change (another host or API address must be trusted again; a Proxmox token secret is kept unless one is given); remove (refused while it has machines) |
 | `POST /api/hypervisors/preparation` | what to run on the host for these settings (the add form's body, plus `id` for one already added: its key goes in): `{steps: [{title, about, script}], script, has_key}` |
 | `POST /api/hypervisors/{id}/probe` | what the host presents: `{host_key, fingerprint}` (libvirt), `{fingerprint, subject, issuer}` (the API's certificate, Proxmox) |

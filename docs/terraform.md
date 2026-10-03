@@ -129,7 +129,7 @@ resource "janus_proxmox_hypervisor" "pve01" {
   pool          = "janus"
   storage       = "local-lvm"
   image_storage = "janus-images"
-  networks      = ["vmbr0.10", "vmbr0.20"]
+  networks      = ["vmbr0.10", "vmbr0.100-199"] # also: vmbr0 (untagged), vmbr0.*
   # Read on the node: openssl x509 -noout -fingerprint -sha256 -in /etc/pve/local/pveproxy-ssl.pem
   certificate_fingerprint = "8D:B4:BF:D2:36:65:AD:25:78:93:D8:04:32:74:86:3F:FE:43:0A:09:B1:88:E2:46:30:47:6D:99:B4:CE:4F:DE"
 }
@@ -150,7 +150,8 @@ Optional: `name_prefix` (default `janus-`), `vmids` (a range,
 
 `janus_node` takes either kind's `id` as its `hypervisor_id`; its
 interfaces' `network` is then a bridge (`vmbr0`) or a VLAN on one
-(`vmbr0.20`).
+(`vmbr0.150`), which one of the hypervisor's `networks` names or covers
+(`vmbr0.100-199`, `vmbr0.*`).
 
 A hypervisor that already exists on the Controller - either kind - can
 be read instead: `data "janus_hypervisor" "kvm01" { name = "kvm01" }`.

@@ -39,8 +39,10 @@ type ProxmoxConfig struct {
 	// the machines' NoCloud volumes.
 	Storage      string `json:"storage"`
 	ImageStorage string `json:"image_storage"`
-	// Networks the machines may use: a bridge ("vmbr0") or a VLAN on one
-	// ("vmbr0.20").
+	// Networks the machines may use: a bridge ("vmbr0", untagged), a
+	// VLAN on one ("vmbr0.20"), a range of VLANs ("vmbr0.100-199") or any
+	// VLAN on it ("vmbr0.*"). A machine's interface names one network:
+	// "vmbr0" or "vmbr0.150".
 	Networks []string `json:"networks"`
 	// NamePrefix starts every virtual machine's name. Empty:
 	// DefaultNamePrefix.
@@ -58,14 +60,56 @@ func (c *ProxmoxConfig) Prefix() string {
 	return DefaultNamePrefix
 }
 
-// AllowsNetwork reports whether machines may be attached to network.
+// AllowsNetwork reports whether machines may be attached to network -
+// "vmbr0" or "vmbr0.150" - one of Networks names or covers.
 func (c *ProxmoxConfig) AllowsNetwork(network string) bool {
-	for _, n := range c.Networks {
-		if n == network {
+	bridge, vlan, err := ParseProxmoxNetwork(network)
+	if err != nil {
+		return false
+	}
+	for _, entry := range c.Networks {
+		b, first, last, err := ParseProxmoxAllowed(entry)
+		if err != nil || b != bridge {
+			continue
+		}
+		if (vlan == 0 && first == 0) || (vlan > 0 && first > 0 && vlan >= first && vlan <= last) {
 			return true
 		}
 	}
 	return false
+}
+
+// MaxVLANRange is the widest range of VLANs a network may name: wider is
+// "bridge.*" (the host's preparation gives each VLAN of a range its own
+// right).
+const MaxVLANRange = 256
+
+// ParseProxmoxAllowed reads an allowed network: its bridge and VLANs -
+// 0, 0 for the bridge itself (untagged), first to last otherwise
+// ("vmbr0.20": 20, 20; "vmbr0.100-199"; "vmbr0.*": 1, 4094).
+func ParseProxmoxAllowed(entry string) (bridge string, first, last int, err error) {
+	m := pveAllowedRe.FindStringSubmatch(entry)
+	if m == nil {
+		return "", 0, 0, fmt.Errorf("network %q isn't a bridge, bridge.vlan, bridge.first-last or bridge.* (vmbr0, vmbr0.20, vmbr0.100-199, vmbr0.*)", entry)
+	}
+	switch {
+	case m[2] == "*":
+		return m[1], 1, 4094, nil
+	case m[3] == "":
+		return m[1], 0, 0, nil
+	}
+	first, _ = strconv.Atoi(m[3])
+	last = first
+	if m[4] != "" {
+		last, _ = strconv.Atoi(m[4])
+	}
+	if first < 1 || last > 4094 || last < first {
+		return "", 0, 0, fmt.Errorf("network %q: VLANs go from 1 to 4094, first to last", entry)
+	}
+	if last-first+1 > MaxVLANRange {
+		return "", 0, 0, fmt.Errorf("network %q: at most %d VLANs in a range - %s.* allows them all", entry, MaxVLANRange, m[1])
+	}
+	return m[1], first, last, nil
 }
 
 // APIBase is the API's base URL, ".../api2/json".
@@ -122,6 +166,7 @@ func ParseProxmoxNetwork(network string) (bridge string, tag int, err error) {
 
 var (
 	pveNetworkRe = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]{0,14})(?:\.([0-9]{1,4}))?$`)
+	pveAllowedRe = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]{0,14})(?:\.(?:(\*)|([0-9]{1,4})(?:-([0-9]{1,4}))?))?$`)
 	pveIDRe      = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,62}$`)
 	pveTokenRe   = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z][A-Za-z0-9._-]*$`)
 	pveVMIDsRe   = regexp.MustCompile(`^[0-9]{3,9}-[0-9]{3,9}$`)
@@ -156,7 +201,7 @@ func (c *ProxmoxConfig) validate() error {
 		return errors.New("at least one network is required")
 	}
 	for _, n := range c.Networks {
-		if _, _, err := ParseProxmoxNetwork(n); err != nil {
+		if _, _, _, err := ParseProxmoxAllowed(n); err != nil {
 			return err
 		}
 	}
@@ -219,10 +264,11 @@ func (h *Hypervisor) Networks() []string {
 
 // AllowsNetwork reports whether its machines may be attached to network.
 func (h *Hypervisor) AllowsNetwork(network string) bool {
-	for _, n := range h.Networks() {
-		if n == network {
-			return true
-		}
+	switch {
+	case h.Libvirt != nil:
+		return h.Libvirt.AllowsNetwork(network)
+	case h.Proxmox != nil:
+		return h.Proxmox.AllowsNetwork(network)
 	}
 	return false
 }

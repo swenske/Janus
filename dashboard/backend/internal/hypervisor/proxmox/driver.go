@@ -105,7 +105,7 @@ func (d *Driver) HostInfo(ctx context.Context) (*hypervisor.HostInfo, error) {
 	}
 	for _, n := range d.cfg.Networks {
 		ni := hypervisor.NetworkInfo{Name: n}
-		bridge, _, err := hypervisor.ParseProxmoxNetwork(n)
+		bridge, _, _, err := hypervisor.ParseProxmoxAllowed(n)
 		switch {
 		case err != nil:
 			ni.Error = err.Error()

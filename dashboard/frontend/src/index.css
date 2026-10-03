@@ -81,7 +81,7 @@
 .machine-strip { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.45rem 0.6rem; background: var(--surface-2); border-radius: var(--radius-sm); }
 .trust-steps { padding: 0.7rem; border: 1px dashed var(--border); border-radius: var(--radius-sm); }
 .fingerprint { font-size: 0.85rem; overflow-wrap: anywhere; }
-.nic-row { display: grid; grid-template-columns: minmax(7rem, 1fr) minmax(5rem, 0.7fr) minmax(7rem, 0.8fr) minmax(9rem, 1.2fr) minmax(8rem, 1fr) auto; gap: 0.4rem; align-items: center; }
+.nic-row { display: grid; grid-template-columns: minmax(10rem, 1.4fr) minmax(5rem, 0.7fr) minmax(7rem, 0.8fr) minmax(9rem, 1.2fr) minmax(8rem, 1fr) auto; gap: 0.4rem; align-items: center; }
 .ext-list { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; }
 .machine-events { max-height: 220px; margin: 0; white-space: pre-wrap; }
 .kv dd .bar { margin-top: 0.3rem; }
@@ -102,3 +102,6 @@
 .prep-steps { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: 0.9rem; }
 .prep-steps p { margin: 0.2rem 0 0.4rem; }
 .prep-script { margin: 0; max-height: 18rem; white-space: pre; font-size: 0.78rem; }
+.net-pick { display: flex; gap: 0.3rem; min-width: 0; }
+.net-pick select { flex: 1; min-width: 0; }
+.net-pick input { width: 5.5rem; flex: none; }

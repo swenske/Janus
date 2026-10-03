@@ -126,6 +126,72 @@ export function hvNetworks(hv) {
   return hv?.libvirt?.networks || hv?.proxmox?.networks || []
 }
 
+// A Proxmox network may stand for several: "vmbr0.100-199", "vmbr0.*" -
+// an interface then picks its VLAN, and names it ("vmbr0.150"). Mirrors
+// hypervisor.ParseProxmoxAllowed.
+function vlanRange(hv, entry) {
+  if (hv?.kind !== 'proxmox') return null
+  const m = /^([A-Za-z][A-Za-z0-9_-]{0,14})\.(?:(\*)|(\d{1,4})-(\d{1,4}))$/.exec(entry || '')
+  if (!m) return null
+  return m[2] ? { bridge: m[1], first: 1, last: 4094, any: true } : { bridge: m[1], first: +m[3], last: +m[4] }
+}
+
+// networkChoice is the allowed network an interface's network falls
+// under, and its VLAN when that one is a range.
+function networkChoice(hv, network) {
+  const entries = hvNetworks(hv)
+  if (entries.includes(network)) return { entry: network, vlan: '' }
+  const m = /^(.+)\.(\d*)$/.exec(network || '')
+  for (const e of entries) {
+    const r = vlanRange(hv, e)
+    if (m && r && r.bridge === m[1] && (m[2] === '' || (+m[2] >= r.first && +m[2] <= r.last))) return { entry: e, vlan: m[2] }
+  }
+  return null
+}
+
+// firstNetwork is an interface's network on an allowed one: itself, or
+// for a range its first VLAN (any VLAN: still to choose).
+function firstNetwork(hv, entry = hvNetworks(hv)[0] || '') {
+  const r = vlanRange(hv, entry)
+  if (!r) return entry
+  return `${r.bridge}.${r.any ? '' : r.first}`
+}
+
+// NetworkPicker chooses an interface's network: one the hypervisor
+// allows, and its VLAN when that one is a range.
+function NetworkPicker({ hv, value, onChange }) {
+  const choice = networkChoice(hv, value) || { entry: '', vlan: '' }
+  const r = vlanRange(hv, choice.entry)
+  return (
+    <div className="net-pick">
+      <select value={choice.entry} onChange={(e) => onChange(firstNetwork(hv, e.target.value))} aria-label="Network">
+        {!choice.entry && <option value="">-</option>}
+        {hvNetworks(hv).map((net) => {
+          const nr = vlanRange(hv, net)
+          return (
+            <option key={net} value={net}>
+              {nr ? `${nr.bridge} · VLAN ${nr.any ? 'any' : `${nr.first}-${nr.last}`}` : net}
+            </option>
+          )
+        })}
+      </select>
+      {r && (
+        <input
+          type="number"
+          min={r.first}
+          max={r.last}
+          required
+          value={choice.vlan}
+          onChange={(e) => onChange(`${r.bridge}.${e.target.value}`)}
+          aria-label="VLAN"
+          placeholder="VLAN"
+          title={`VLAN ${r.first} to ${r.last}`}
+        />
+      )}
+    </div>
+  )
+}
+
 function hvBody(f) {
   const common = { name: f.name, kind: f.kind, controller_address: f.controller_address.trim() }
   if (f.kind === 'proxmox') {
@@ -275,8 +341,8 @@ function HypervisorForm({ hv, onSaved, onClose }) {
               <Field label="Storage for the images (a directory, import and iso)">
                 <input value={f.image_storage} onChange={set('image_storage')} required />
               </Field>
-              <Field label="Networks machines may use (bridge, or bridge.vlan; comma-separated)">
-                <input value={f.networks} onChange={set('networks')} required placeholder="vmbr0.10, vmbr0.20" />
+              <Field label="Networks machines may use (bridge, bridge.vlan, bridge.first-last or bridge.*; comma-separated)">
+                <input value={f.networks} onChange={set('networks')} required placeholder="vmbr0.10, vmbr0.100-199" />
               </Field>
               <Field label="Virtual machine name prefix (default janus-)">
                 <input value={f.name_prefix} onChange={set('name_prefix')} placeholder="janus-" />
@@ -687,7 +753,7 @@ const MODES = [
 ]
 
 function newNIC(hv, i) {
-  return { network: hvNetworks(hv)[0] || '', name: `eth${i}`, mode: 'static', address: '', gateway: '' }
+  return { network: firstNetwork(hv), name: `eth${i}`, mode: 'static', address: '', gateway: '' }
 }
 
 function CreateMachineForm({ hypervisors, onCreated, onClose }) {
@@ -717,7 +783,7 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
   const pickHV = (id) => {
     setHvId(id)
     const next = usable.find((h) => h.id === id)
-    setNics(nics.map((n) => (hvNetworks(next).includes(n.network) ? n : { ...n, network: hvNetworks(next)[0] || '' })))
+    setNics(nics.map((n) => (networkChoice(next, n.network) ? n : { ...n, network: firstNetwork(next) })))
   }
 
   const submit = async (e) => {
@@ -799,13 +865,7 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
           <div className="stack" style={{ gap: '0.5rem' }}>
             {nics.map((n, i) => (
               <div key={i} className="nic-row">
-                <select value={n.network} onChange={(e) => setNIC(i, { network: e.target.value })} aria-label="Network">
-                  {hvNetworks(hv).map((net) => (
-                    <option key={net} value={net}>
-                      {net}
-                    </option>
-                  ))}
-                </select>
+                <NetworkPicker hv={hv} value={n.network} onChange={(network) => setNIC(i, { network })} />
                 <input value={n.name} onChange={(e) => setNIC(i, { name: e.target.value })} aria-label="Interface name" placeholder={`eth${i}`} />
                 <select value={n.mode} onChange={(e) => setNIC(i, { mode: e.target.value })} aria-label="Addressing">
                   {MODES.map((m) => (
@@ -1029,7 +1089,7 @@ function ago(t) {
 
 // --- changing a machine: its hardware ---
 
-const blankNIC = (networks, i) => ({ network: networks[0] || '', name: `eth${i}`, mode: 'static', address: '', gateway: '', isNew: true })
+const blankNIC = (hv, i) => ({ network: firstNetwork(hv), name: `eth${i}`, mode: 'static', address: '', gateway: '', isNew: true })
 
 // EditMachine changes what the hypervisor gives the machine: vCPUs,
 // memory, network interfaces (added, removed, moved to another network).
@@ -1037,7 +1097,6 @@ const blankNIC = (networks, i) => ({ network: networks[0] || '', name: `eth${i}`
 // changes them - only an interface added or moved gets its addresses
 // here, since it needs some to be of any use.
 function EditMachine({ m, hv, onClose, onSaved }) {
-  const networks = hvNetworks(hv)
   const [vcpus, setVcpus] = useState(m.spec.vcpus)
   const [memory, setMemory] = useState(m.spec.memory_mib)
   const [nics, setNics] = useState(() =>
@@ -1125,13 +1184,7 @@ function EditMachine({ m, hv, onClose, onSaved }) {
                 const editable = n.isNew || n.network !== n.origNetwork
                 return (
                   <div key={n.mac || `new-${i}`} className="nic-row">
-                    <select value={n.network} onChange={(e) => setNIC(i, { network: e.target.value })} aria-label="Network">
-                      {networks.map((net) => (
-                        <option key={net} value={net}>
-                          {net}
-                        </option>
-                      ))}
-                    </select>
+                    <NetworkPicker hv={hv} value={n.network} onChange={(network) => setNIC(i, { network })} />
                     <input value={n.name} onChange={(e) => setNIC(i, { name: e.target.value })} disabled={!n.isNew} aria-label="Interface name" />
                     {editable ? (
                       <>
@@ -1174,7 +1227,7 @@ function EditMachine({ m, hv, onClose, onSaved }) {
               })}
             </div>
             <div className="row">
-              <button type="button" className="small ghost" onClick={() => setNics([...nics, blankNIC(networks, nics.length)])} disabled={nics.length >= 8}>
+              <button type="button" className="small ghost" onClick={() => setNics([...nics, blankNIC(hv, nics.length)])} disabled={nics.length >= 8}>
                 <Plus size={14} /> Interface
               </button>
             </div>

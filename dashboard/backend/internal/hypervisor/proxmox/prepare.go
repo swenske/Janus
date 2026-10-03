@@ -1,6 +1,7 @@
 package proxmox
 
 import (
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -33,9 +34,13 @@ type prepData struct {
 	PrivsNode                                                 string
 }
 
+// prepNetwork is an allowed network's right: on the bridge itself (an
+// untagged one without propagation; "bridge.*" with it - every VLAN, and
+// the bridge too), on one VLAN, or on each VLAN of a range.
 type prepNetwork struct {
-	Name, Path string
-	Untagged   bool
+	Name, Path  string
+	Untagged    bool
+	First, Last int // a range: Path is the bridge's
 }
 
 // HostPreparation gives the steps for c.
@@ -46,16 +51,32 @@ func HostPreparation(name string, c *hypervisor.ProxmoxConfig) []hypervisor.Prep
 		Storage: c.Storage, Images: c.ImageStorage, ImagesDir: "/var/lib/" + c.ImageStorage,
 		PrivsVM: privsVM, PrivsDisks: privsDisks, PrivsImages: privsImages, PrivsNetwork: privsNetwork, PrivsNode: privsNode,
 	}
+	wildcard := map[string]bool{}
 	for _, n := range c.Networks {
-		bridge, vlan, err := hypervisor.ParseProxmoxNetwork(n)
+		if bridge, first, last, err := hypervisor.ParseProxmoxAllowed(n); err == nil && first == 1 && last == 4094 {
+			wildcard[bridge] = true
+		}
+	}
+	for _, n := range c.Networks {
+		bridge, first, last, err := hypervisor.ParseProxmoxAllowed(n)
 		if err != nil {
 			continue // Validate refused it already
 		}
 		pn := prepNetwork{Name: n, Path: "/sdn/zones/localnetwork/" + bridge}
-		if vlan > 0 {
-			pn.Path += "/" + strings.TrimPrefix(n, bridge+".")
-		} else {
+		switch {
+		case first == 0:
+			if wildcard[bridge] {
+				continue // bridge.* gives the bridge too
+			}
 			pn.Untagged = true
+		case first == 1 && last == 4094:
+			// The bridge's right, propagated: every VLAN.
+		case wildcard[bridge]:
+			continue // within bridge.*
+		case first == last:
+			pn.Path += "/" + strconv.Itoa(first)
+		default:
+			pn.First, pn.Last = first, last
 		}
 		d.Networks = append(d.Networks, pn)
 	}
@@ -102,13 +123,18 @@ role JanusNode "{{.PrivsNode}}"
 	{
 		title: "The Controller's user and its rights",
 		about: "A user with no password - it can't log in to the web interface - and those roles on the pool, the two storages, the networks " +
-			"({{range $i, $n := .Networks}}{{if $i}}, {{end}}{{$n.Name}}{{end}}) and node {{.Node}}: nowhere else.",
+			"({{range $i, $n := .Networks}}{{if $i}}, {{end}}{{$n.Name}}{{end}}) and node {{.Node}}: nowhere else. A bridge alone is its untagged " +
+			"traffic, a range gives each of its VLANs its own right, bridge.* gives the bridge with every VLAN on it.",
 		script: `pvesh get /access/users/{{.User}} >/dev/null 2>&1 || pveum user add {{.User}} --comment "Janus Controller"
 pveum acl modify /pool/{{.Pool}} --users {{.User}} --roles JanusVM
 pveum acl modify /storage/{{.Storage}} --users {{.User}} --roles JanusDisks
 pveum acl modify /storage/{{.Images}} --users {{.User}} --roles JanusImages
 {{- range .Networks}}
+{{- if .First}}
+for vlan in $(seq {{.First}} {{.Last}}); do pveum acl modify {{.Path}}/$vlan --users {{$.User}} --roles JanusNetwork; done
+{{- else}}
 pveum acl modify {{.Path}} --users {{$.User}} --roles JanusNetwork{{if .Untagged}} --propagate 0{{end}}
+{{- end}}
 {{- end}}
 pveum acl modify /nodes/{{.Node}} --users {{.User}} --roles JanusNode
 `,

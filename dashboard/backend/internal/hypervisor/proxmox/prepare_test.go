@@ -62,11 +62,43 @@ func TestDocsShowThePreparation(t *testing.T) {
 	}
 	c := &hypervisor.ProxmoxConfig{
 		URL: "https://pve01.example.net:8006", Node: "pve01", TokenID: "janus-ctl@pve!controller", Pool: "janus",
-		Storage: "local-lvm", ImageStorage: "janus-images", Networks: []string{"vmbr0.10", "vmbr0.20"},
+		Storage: "local-lvm", ImageStorage: "janus-images", Networks: []string{"vmbr0.10", "vmbr0.100-109"},
 	}
 	for i, s := range HostPreparation("pve01", c) {
 		if !strings.Contains(string(raw), "```sh\n"+s.Script+"```\n") {
 			t.Errorf("docs/hypervisors.md doesn't show step %d (%s) as the Controller writes it:\n%s", i+1, s.Title, s.Script)
 		}
+	}
+}
+
+// Each kind of allowed network gets its right: a VLAN its own, a range
+// each of its VLANs, bridge.* the bridge propagated (which also covers
+// the bridge alone, and any VLAN or range named besides).
+func TestPreparationNetworks(t *testing.T) {
+	c := &hypervisor.ProxmoxConfig{
+		URL: "https://pve:8006", Node: "pve1", TokenID: "janus-ctl@pve!controller", Pool: "janus", Storage: "local-lvm", ImageStorage: "janus-images",
+		Networks: []string{"vmbr0.10", "vmbr0.100-109", "vmbr1", "vmbr2", "vmbr2.*", "vmbr2.20"},
+	}
+	script := HostPreparation("pve1", c)[2].Script
+	for _, want := range []string{
+		"pveum acl modify /sdn/zones/localnetwork/vmbr0/10 --users janus-ctl@pve --roles JanusNetwork\n",
+		"for vlan in $(seq 100 109); do pveum acl modify /sdn/zones/localnetwork/vmbr0/$vlan --users janus-ctl@pve --roles JanusNetwork; done\n",
+		"pveum acl modify /sdn/zones/localnetwork/vmbr1 --users janus-ctl@pve --roles JanusNetwork --propagate 0\n",
+		"pveum acl modify /sdn/zones/localnetwork/vmbr2 --users janus-ctl@pve --roles JanusNetwork\n",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("no %q in:\n%s", want, script)
+		}
+	}
+	for _, unwanted := range []string{"vmbr2 --users janus-ctl@pve --roles JanusNetwork --propagate 0", "vmbr2/20"} {
+		if strings.Contains(script, unwanted) {
+			t.Errorf("%q in:\n%s", unwanted, script)
+		}
+	}
+	if out, err := exec.Command("sh", "-n", "-c", script).CombinedOutput(); err != nil {
+		t.Errorf("sh -n: %v %s", err, out)
+	}
+	if line := hypervisor.PasteUnsafe(script); line != "" {
+		t.Errorf("bash would expand %q", line)
 	}
 }
