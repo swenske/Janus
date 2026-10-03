@@ -21,6 +21,7 @@ REPO="${GITHUB_REPOSITORY:-swenske/Janus}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+go build -o "$WORK/upstream" ./hack/upstream
 git config user.name "janus-upstream[bot]"
 git config user.email "janus-upstream@users.noreply.github.com"
 base="$(git rev-parse HEAD)"
@@ -37,7 +38,7 @@ while read -r name latest <&3; do
     continue
   fi
   git checkout --quiet -B "$branch" "$base"
-  if ! go run ./hack/upstream bump -md "$WORK/$name.md" -json "$WORK/$name.json" "$name" "$latest" 2>"$WORK/$name.log"; then
+  if ! "$WORK/upstream" bump -md "$WORK/$name.md" -json "$WORK/$name.json" "$name" "$latest" 2>"$WORK/$name.log"; then
     echo "::warning::$name $latest not proposed: $(tail -1 "$WORK/$name.log")"
     git checkout --quiet --force "$base"
     continue
