@@ -1,0 +1,116 @@
+{
+  "branch": "3.4",
+  "latest_release": "3.4.6",
+  "releases": {
+    "3.4.6": {
+      "file": "haproxy-3.4.6.tar.gz",
+      "md5": "0cc181a1f6185eaa7a4bb8c8175839bc",
+      "sha256": "791e1815f8af6e8b850a227a9a0a190f3d3478c9e8d38a0f51c98b7f4bfe368b"
+    },
+    "3.4.5": {
+      "file": "haproxy-3.4.5.tar.gz",
+      "md5": "3155e7f8f165e31d0b449dbbf61d9ef5",
+      "sha256": "ec5095095bce7db2e0e6e971f616dded1bb505717e692ec6c3cc8dab6a31678a"
+    },
+    "3.4.4": {
+      "file": "haproxy-3.4.4.tar.gz",
+      "md5": "be029273b462b64d87341dfe4a91db09",
+      "sha256": "b0c5053c4d46840ecdee3925736fe9a3de6472559b43c69183d70e593d9133df"
+    },
+    "3.4.3": {
+      "file": "haproxy-3.4.3.tar.gz",
+      "md5": "069b1e26fa4707d9e16c76f5ac369eff",
+      "sha256": "7fa666d36d198275999e2a68dda44d3d37960f2f7aed3a595fb811f4fd0515b5"
+    },
+    "3.4.2": {
+      "file": "haproxy-3.4.2.tar.gz",
+      "md5": "0855983897e85ad10a9420a3e27607bf",
+      "sha256": "b1330dbb0d6e6bc4a72c4708a6a9e585579cd1156dfe5763c26305105bc12907"
+    },
+    "3.4.1": {
+      "file": "haproxy-3.4.1.tar.gz",
+      "md5": "1ebdffce18a57bb4414836a8ed072251",
+      "sha256": "2e62c4ce4fd77d3bc7cf17e586431663454456a078b7c8465b8f0125b5bc22f8"
+    },
+    "3.4.0": {
+      "file": "haproxy-3.4.0.tar.gz",
+      "md5": "051a43320801c42f07e4ab7200cf641c",
+      "sha256": "9298f565c2a9ba8a4e7f89c54be2c5d3fd960b5b304eb5515e15d29d2c15d4f7"
+    },
+    "3.4-dev14": {
+      "file": "devel/haproxy-3.4-dev14.tar.gz",
+      "md5": "d78fc4a3b594b61e988e66a79491fbea",
+      "sha256": "716d25dbc8960d33fd79f14e73c5f980b5ec26845f05b752668840a90d873b65"
+    },
+    "3.4-dev13": {
+      "file": "devel/haproxy-3.4-dev13.tar.gz",
+      "md5": "19ef1cca8045e6f25606b2e095f9bc8d",
+      "sha256": "6a7a7489045134694dd5b29eae2251075f1b4ce63a79b7079849f2b53f0ef255"
+    },
+    "3.4-dev12": {
+      "file": "devel/haproxy-3.4-dev12.tar.gz",
+      "md5": "77d5ec263f68616d984e240dd29150c4",
+      "sha256": "d195f1184fd03e27ce28c0d6b9c8287a8bccaf19968c4e393737f5363c186a60"
+    },
+    "3.4-dev11": {
+      "file": "devel/haproxy-3.4-dev11.tar.gz",
+      "md5": "894bf263785dc7c4f70c238fb815ccec",
+      "sha256": "37b7782fca8ecd6514db9b810c290bc94e5eada011ea573f5ea49fb153d2b3a9"
+    },
+    "3.4-dev10": {
+      "file": "devel/haproxy-3.4-dev10.tar.gz",
+      "md5": "0a63de35b0c14ab2ada4572c5824b8fb",
+      "sha256": "286c54b97ad9c93aab9963485fa5ae14b6493516701f1dde6a4ad2848c47e7cc"
+    },
+    "3.4-dev9": {
+      "file": "devel/haproxy-3.4-dev9.tar.gz",
+      "md5": "8dd31a1dfe9f39a807836749a74a8bad",
+      "sha256": "8504742e20739d89ed5375d9076104455868d768c3d29cda59c81aa58bfb00fc"
+    },
+    "3.4-dev8": {
+      "file": "devel/haproxy-3.4-dev8.tar.gz",
+      "md5": "b89a8cabc341c0dc41de5626049ec182",
+      "sha256": "e66c0f03a5a24afc6a0cfd08aebd0b26f3f4adae48207830815574ea5e9d4956"
+    },
+    "3.4-dev7": {
+      "file": "devel/haproxy-3.4-dev7.tar.gz",
+      "md5": "85a1e005dbbaae64a50fe5ab9b2e8bbd",
+      "sha256": "7a4e21559f67c78b7830c689be21bea94372de31c9ca96d710066918c3debdde"
+    },
+    "3.4-dev6": {
+      "file": "devel/haproxy-3.4-dev6.tar.gz",
+      "md5": "b0519025d0b31383e2d474050b6187ca",
+      "sha256": "cba0f435096446ab577f080dfae784adccd6819e0199c349e2ed3bc96dcb19c5"
+    },
+    "3.4-dev5": {
+      "file": "devel/haproxy-3.4-dev5.tar.gz",
+      "md5": "6cca07ce9d06e24595f26cf796f3af7a",
+      "sha256": "ae820ef219c6900cf589e7b5145d1af1245c5fe20b87a47dd9b95ccadb312cdf"
+    },
+    "3.4-dev4": {
+      "file": "devel/haproxy-3.4-dev4.tar.gz",
+      "md5": "bf38f0eac2c741838b0273b9a6329134",
+      "sha256": "f41ef9124322972e5c995db68e22e7c9c71b7b9ef3cab51f5ca257784701765e"
+    },
+    "3.4-dev3": {
+      "file": "devel/haproxy-3.4-dev3.tar.gz",
+      "md5": "c789e61587a28dc901e8d8b43fb741e7",
+      "sha256": "0341ed66050958aa6839821d5eb136c8348d68b6254d6326b92bab0247934079"
+    },
+    "3.4-dev2": {
+      "file": "devel/haproxy-3.4-dev2.tar.gz",
+      "md5": "8592e7087a5ea46650f289addf03e7df",
+      "sha256": "0bd125014f1f07dd32d0877f166e85b6b0d080ff4afaba664b3eaf6ef83c9cf9"
+    },
+    "3.4-dev1": {
+      "file": "devel/haproxy-3.4-dev1.tar.gz",
+      "md5": "10add006f3c288c74a3fb7db65ea3457",
+      "sha256": "a5422a77891d7ae160d848291f9954fc5052ae6356ed67e6000cb59d58037515"
+    },
+    "3.4-dev0": {
+      "file": "devel/haproxy-3.4-dev0.tar.gz",
+      "md5": "a7625b33dbfcb1672a20688258e21f5b",
+      "sha256": "05e40bd9690b250ba35147f46a0cc3fa0355eb8413958a5a695149fd2f837f5e"
+    }
+  }
+}

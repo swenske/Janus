@@ -29,7 +29,8 @@ GEN_DIR := gen
 	qemu-raspi4-daemon-test qemu-arm64-network-test rpi4-rootfs-build \
 	systemd-stub rpi4-uki-image qemu-arm64-uefi-boot-test \
 	pi4-firmware pi5-firmware pi4-sdcard-image pi5-sdcard-image \
-	pi4-sdcard-image-test pi5-sdcard-image-test kernel-built-files
+	pi4-sdcard-image-test pi5-sdcard-image-test kernel-built-files \
+	upstream-check upstream-bump upstream-security-notes upstream-sbom
 
 all: build
 
@@ -104,6 +105,24 @@ kernel-build:
 kernel-built-files: kernel-build rpi4-kernel-build
 	cp $(BUILD_DIR)/built-files.txt kernel/built-files-amd64.txt
 	cp $(BUILD_DIR)/rpi4/built-files.txt kernel/built-files-arm64.txt
+
+# Following upstreams (docs/upstreams.md, hack/upstream): what's new and
+# what's vulnerable in every component versions.mk pins; a checked bump
+# (C=haproxy, V= optional); the release notes' security section and
+# security.json since FROM (a release tag) for RELEASE; the SBOM.
+upstream-check:
+	go run ./hack/upstream check
+
+upstream-bump:
+	go run ./hack/upstream bump $(C) $(V)
+
+upstream-security-notes:
+	go run ./hack/upstream security-notes -from $(FROM) -version $(RELEASE) \
+		-json .github/release-notes/$(RELEASE).security.json
+
+upstream-sbom:
+	mkdir -p $(BUILD_DIR)
+	go run ./hack/upstream sbom -version $(VERSION) -out $(BUILD_DIR)/sbom.cdx.json
 
 # Builds the Phase 1 PID 1 (rootfs/init) as a static binary - CGO must stay
 # disabled since the target has no libc.

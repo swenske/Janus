@@ -1,0 +1,329 @@
+<HTML>
+<HEAD>
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<link rel="canonical" href="https://www.haproxy.org/bugs/bugs-3.4.0.html" />
+</HEAD>
+<BODY>
+<H1>HAProxy known bugs for version v3.4.0 (maintenance branch 3.4) : <span style=background-color:#ff9000;>&nbsp;258&nbsp;</span></H1>
+This version (3.4.0) is a release belonging to <a href="bugs-3.4.html">maintenance branch 3.4</a>
+whose latest version is <a href="bugs-3.4.6.html">3.4.6</a>. If your version is not the last
+one in the maintenance branch, you are missing fixes for known bugs, and <b>by not updating
+you are needlessly taking the responsibility for the risk of unexpected service outages and
+exposing your web site to possible security issues</b>.
+<p/>
+The HAProxy development team takes a great care of maintaining stable versions so that all
+users can apply bug fixes without having to take the risk of upgrading to a new branch.
+In turn users are expected to apply the fixes when the development team estimates that
+they were worth being backported to stable branches.
+<p/>
+<H2>Quick links</H2>
+<ul>
+<li/>full changelog for 3.4 : <a href="//git.haproxy.org/?p=haproxy-3.4.git;a=blob_plain;f=CHANGELOG">here</a>
+<li/>browse history for 3.4 : <a href="//git.haproxy.org/?p=haproxy-3.4.git;a=summary">here</a>
+ </ul>
+<p/>
+<H2>Other versions in the same branch</H2>
+This branch contains the following releases :<p/>
+<table cellspacing=0 cellpadding=8 border=1>
+<tr><th>Date</th><th>Version</th><th>Comment</th></tr>
+<tr><td>2026-09-28</td><td><a href=bugs-3.4.6.html>3.4.6</a></td><td>&nbsp;&lArr; last </td></tr>
+<tr><td>2026-09-24</td><td><a href=bugs-3.4.5.html>3.4.5</a></td><td>&nbsp;</td></tr>
+<tr><td>2026-08-27</td><td><a href=bugs-3.4.4.html>3.4.4</a></td><td>&nbsp;</td></tr>
+<tr><td>2026-07-29</td><td><a href=bugs-3.4.3.html>3.4.3</a></td><td>&nbsp;</td></tr>
+<tr><td>2026-07-03</td><td><a href=bugs-3.4.2.html>3.4.2</a></td><td>&nbsp;</td></tr>
+<tr><td>2026-06-25</td><td><a href=bugs-3.4.1.html>3.4.1</a></td><td>&nbsp;</td></tr>
+<tr><td>2026-06-03</td><td><a href=bugs-3.4.0.html>3.4.0</a></td><td>&nbsp;&lArr; yours </td></tr>
+</table>
+<p/>
+
+<H2>Known bugs affecting this version, and already fixed in the maintenance branch</H2>
+These fixes have already been queued for a more recent 3.4 version. Some of them might have
+already been released in a more recent version than yours, and other ones might still be
+pending in the maintenance branch for a future release. The list may be empty if you're
+already on the latest version and no new fix was backported.
+<p/>
+Bugs are almost always tagged with a severity (some people forget the severity tag when the bug is minor). The following severities are used :
+<ul>
+<li/>MINOR: the bug presents a limited impact and can easily be mitigated ; users rarely upgrade just for these ones ;
+<li/><span style="background: #ffff00;">MEDIUM</span>: the bug can cause some undesired behaviour and may require some tricky configuration changes to avoid hitting it ; users normally upgrade to get rid of them, or temporarily disable a functionality.
+<li/><span style="background: #ff9000;">MAJOR</span>: the bug affects short term reliability and cannot easily be worked around without a significant performance penalty or without a significant functional loss ; such bugs don't stay long in the queue without a release and users must plan an upgrade as soon as possible ;
+<li/><span style="background: #ff0000;">CRITICAL</span>: this one very rarely happens ; it indicates a short-term reliability or security issue for which there is no workaround. A release will be emitted for this fix even if it's alone and users are urged to upgrade immediately. Some distro maintainers might have been informed in advance in order to agree on a coordinated release date.
+</ul>
+<p/>
+Total known bugs in this version by category :<p/>
+<table cellspacing=0 cellpadding=8 border=1>
+<tr align=center><th>Total</th><th bgcolor="#ff0000">CRITICAL</th><th bgcolor="#ff9000">MAJOR</th><th bgcolor="#ffff00">MEDIUM</th><th>MINOR</th></tr>
+
+<tr align=center><td> 258 </td><td> 0 </td><td> 6 </td><td> 118 </td><td> 134 </td></tr>
+</table>
+<p/>
+Click on the subjects below to get the full description of the bug :
+<p/>
+<table cellspacing=0 cellpadding=8 border=1>
+<tr><th>Merge date</th><th>Subject - Severity (minor, medium, major, critical)</th></tr>
+<tr bgcolor=#ffff00><td>2026-09-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=f1a6b2d">BUG/MEDIUM: server: skip log backend addr checks for internal proxies</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=cc22bf6">BUG/MEDIUM: sink: reconnect attempt not working after session lasted more than ~25 days</a></td></tr>
+<tr bgcolor=#ff9000><td>2026-09-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=ed4588c">BUG/MAJOR: mux_quic: fix potential crash on RESET_STREAM receive</a></td></tr>
+<tr><td>2026-09-24</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=718fcc8">BUG/MINOR: mux-h2: Reject trailers received on a tunneled stream</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-24</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=9e07b2a">BUG/MEDIUM: log: encode the whole non-printable range in the +json output</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-24</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=498963f">BUG/MEDIUM: mux_quic: activate timeout on FE init</a></td></tr>
+<tr bgcolor=#ff9000><td>2026-09-24</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8999d6d">BUG/MAJOR: mux_quic: fix leak on RESET_STREAM reception</a></td></tr>
+<tr><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=64f60a3">BUG/MINOR: http-ana: restore the transaction status after early hints</a></td></tr>
+<tr><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c2b3f98">BUG/MINOR: tcpcheck: refresh the start-line after updating the authority</a></td></tr>
+<tr><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=1dc56d7">BUG/MINOR: mux-h1: only mark C-L and T-E as sent once the header is emitted</a></td></tr>
+<tr><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=1d26889">BUG/MINOR: http-fetch: fix the space check of http_auth_bearer(<hdr>)</a></td></tr>
+<tr><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e99d66b">BUG/MINOR: http-fetch: http_auth_bearer() must not match a missing header</a></td></tr>
+<tr><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=993e4e9">BUG/MINOR: http-ana: count response body failures only once in http_fail_cnt</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=ad88046">BUG/MEDIUM: tcp-rules: ignore "capture len" rules evaluated from a backend</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=f76f48c">BUG/MEDIUM: http-act: ignore "capture len" rules evaluated from a backend</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=ec9a0e4">BUG/MEDIUM: http-htx: don't build the new authority in a rotating trash chunk</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c961b0f">BUG/MEDIUM: log: reserve the trailing 0 in CBOR int and bool encoders</a></td></tr>
+<tr><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6d4c9c6">BUG/MINOR: mux-h2: Don't expect more HTX data on 1xx interim responses</a></td></tr>
+<tr><td>2026-09-23</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6292a64">BUG/MINOR: http-client: Convert server timeout ticks when setting it</a></td></tr>
+<tr><td>2026-09-21</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=959ebe7">BUG/MINOR: ssl: Fix possible null deref on the SSL context in ssl_sock_to_buf()</a></td></tr>
+<tr><td>2026-09-21</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=f51a530">BUG/MINOR: hlua: release private Lua rule data on teardown</a></td></tr>
+<tr bgcolor=#ff9000><td>2026-09-21</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=79abd43">BUG/MAJOR: htx: Check the header/trailer length limits when one is updated</a></td></tr>
+<tr><td>2026-09-21</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=006a3b3">BUG/MINOR: tools: Don't try to anonymize a NULL string</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-21</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=ea3b312">BUG/MEDIUM: htx: Fix the position returned by htx_defrag()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-21</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8435afa">BUG/MEDIUM: http-client/cli: Notify the http-client when the response is consumed</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-21</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e540b7f">BUG/MEDIUM: acme: Set HTTPCLIENT_O_RES_ACCUM option on the http-client</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-21</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=fe88191">BUG/MEDIUM: ssl/ocsp: Set HTTPCLIENT_O_RES_ACCUM option on the http-client</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-21</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=a64f9bc">BUG/MEDIUM: http-client: Don't use the httpclient context if it was released</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-21</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=5d26548">BUG/MEDIUM: task: Do not destroy a task that is not ours in task_destroy</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=ec8ff79">BUG/MINOR: proxy: pass PR_FL_DEF_EXPLICIT_MODE through cascaded defaults</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=b63b959">BUG/MEDIUM: tcp-rules: Don't restart tcp-request content evaluation on yield</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7828333">BUG/MEDIUM: htx: Reserve a block descriptor for zero-sized blocks</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=463bfa1">BUG/MEDIUM: ssl: don't set a 0 timeout on an expired TLS session</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=348f3e6">BUG/MINOR: sample: reject a \0 byte in url_dec, json_query and jwt_*_query</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=79887e4">BUG/MINOR: ssl: Fix leak of ca_list in cafile_entry</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=03d7b56">BUG/MINOR: cli: Reject payload with no command</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=a8ec3d6">BUG/MEDIUM: cli: Don't read a command or payload line into a full buffer</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=cdb60cc">BUG/MEDIUM: cli: Don't parse next command if input buffer is empty</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7325a7f">BUG/MEDIUM: http_act: fix normalize-uri normalizer selection with a condition</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7ed1ea3">BUG/MEDIUM: map: do not overwrite the fetch context in pat_match_regm()</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=14de410">BUG/MINOR: ssl: don't pass the address of a size_t as an int* to OpenSSL</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=0a8425d">BUG/MEDIUM: http-ana: apply tunnel timeout with data filters</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=af50f1b">BUG/MINOR: h3: only increment frame type counter on new header</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=ef180cc">BUG/MINOR: h3: handle unknown frame type on request stream as specified</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=da09966">BUG/MINOR: h3: handle empty HEADERS frame as specified</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7f680ec">BUG/MEDIUM: h3: do not block FIN on empty DATA frame</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=83d77f8">BUG/MINOR: h3: reject truncated frames with mandatory payload</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8f34610">BUG/MINOR: stream/debug: harden the stream dump function regarding signals</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8637c13">BUG/MEDIUM: htx: Don't reset flags when source must be preserved during transfer</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=aca54cd">BUG/MINOR: hlua: Always return nil if there is no data to dup for HTTP messages</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=3eb3bd6">BUG/MINOR: mux-h1: Return an error on trailers if last chunk is unfinished</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c0c70c2">BUG/MEDIUM: hlua: Never release a cosocket applet from the GC</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=454d8c1">BUG/MINOR: quic: leak of the NEW_TOKEN frame on token generation failure</a></td></tr>
+<tr bgcolor=#ff9000><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2364c06">BUG/MAJOR: h3: reject H3 truncated frames</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=18c3263">BUG/MEDIUM: mux-h2: Make sure we remove H2_SF_NOTIFIED on subscribe</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=35bbf77">BUG/MINOR: quic: delete the wrong CIDs when post-handshake frames fail</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8b5aac2">BUG/MINOR: qpack: accept a Required Insert Count which cannot be reached</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=aee47b6">BUG/MINOR: qpack: encoder and decoder stream data is never consumed</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=4c8b6cd">BUG/MINOR: resolvers: classify empty truncated responses</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=286ef26">BUG/MEDIUM: filters: check the filter name before comparing it</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=4b4198d">BUG/MINOR: quic: late packets of the first key phase are dropped</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=795f83c">BUG/MEDIUM: quic: crash on key update phase change after a failed one</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=abcf544">BUG/MINOR: payload: bound ClientHello extension lists by the extension length</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=a0e7af4">BUG/MINOR: payload: fix the cipher_len bound check in smp_client_hello_parse()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=beb6cec">BUG/MEDIUM: mux-spop: Properly handle parsing of split HELLO/DISCONNECT frames</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7a8c281">BUG/MINOR: cache: Seed cache primary hash</a></td></tr>
+<tr><td>2026-09-16</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8d2682d">BUG/MINOR: cache: Manage collisions on primary key</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-26</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=24ec4c1">BUG/MEDIUM: sink: do not create one implicit ring per logger copy</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-26</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=02723e5">BUG/MEDIUM: sink: initialize the settings of the implicit log server</a></td></tr>
+<tr><td>2026-08-26</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=1f90f2f">BUG/MINOR: flt-http-comp: Don't read next block to detect end of data</a></td></tr>
+<tr><td>2026-08-26</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=d3bb85d">BUG/MINOR: fcgi-app: allow explicit filter declaration with non-cache/non-compression filters</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-26</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=04326a5">BUG/MEDIUM: cache: ignore cache on redundant origin/referer</a></td></tr>
+<tr><td>2026-08-26</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=d1d062d">MINOR: debug: check the match count in __BUG_ON_ONCE() and not in complain()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=46a6aa8">BUG/MEDIUM: sink: do not hold the sft lock around ring_dispatch_messages()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=f9676ac">BUG/MEDIUM: connection: fix an infinite loop in the fc_pp_tlv() fetch</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=bed91cd">BUG/MEDIUM: mux-h1: close the connection on a short content-length</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=ebf20f7">BUG/MINOR: hbuf: treat unexpected escape sequences as literals</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e7d2800">BUG/MINOR: ech: fix label at end of compound statement</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=0727676">BUG/MEDIUM: mux-fcgi: check the room left before appending the index</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2aedb0e">BUG/MEDIUM: sink: pre-initialize the implicit log forwarding server</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=80b82e6">BUG/MINOR: resolvers: accept fields at the response boundary</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=1e568b3">BUG/MINOR: ssl/cli: fix frontend-not-found detection in 'show ssl sni -f'</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2849c39">BUG/MINOR: haproxy: fix out-of-scope tmpdir usage in do_chroot()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=aec2b4f">BUG/MEDIUM: ssl: isolate TLS session resumption per authentication policy</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=3131c61">BUG/MINOR: ssl: isolate TLS session resumption per crt-list filter</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=fd2cb95">BUG/MEDIUM: ssl: isolate TLS session resumption per X509 server certificate</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2081b4b">BUG/MINOR: ssl: apply tune.ssl.lifetime to TLS1.3 sessions on BoringSSL/AWS-LC</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=a695cdb">BUG/MEDIUM: ssl: enforce tune.ssl.lifetime across TLS1.3 session renewals</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=70fe8cb">BUG/MEDIUM: ssl: Fix unprotected 'ssl_sock_choose_sni_ctx' calls</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=d885dd2">BUG/MINOR: ssl: release the previous client cert reference at depth > 0</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=0ebb7ca">BUG/MINOR: ssl: Fix leak of X509_NAME in traces</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=5046e94">BUG/MINOR: conn: Do not check 'sess_el' list on frontend connections in __trace_enabled</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=486e726">BUG/MINOR: mux-h2: harden h2_dump_h2s_info() against potentially null h2s->sd</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=4e34cec">BUG/MINOR: log: fix double-free error when error in parse_loger occurs</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=30f8034">BUG/MINOR: qpack: missing shift count check in qpack_get_varint() (UB)</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6019528">BUG/MINOR: spoe: check snprintf() return value in spoe_set_var/spoe_unset_var</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e6190d5">BUG/MINOR: payload: fix handshake length off-by-4 in ssl_hello_sni/alpn</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=0ab5afd">BUG/MEDIUM: bwlim: fix a stick-table entry leak in shared mode</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=5224efe">BUG/MEDIUM: http: fix authority parsing for absolute-form URI with empty path</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=54d78c9">BUG/MINOR: server: fix off-by-one error when parsing and copying source port range</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=f2b8ed8">BUG/MINOR: quic: avoid a division by zero in the BBR pacing interval</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=db4c0e5">BUG/MINOR: ssl: reject an embedded NUL in the full-DN ssl_*_dn() fetches</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c7e91f3">BUG/MINOR: ssl: reject an embedded NUL in the ssl_*_dn(entry) fetches</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=449dfcf">BUG/MINOR: wurfl: fix memory leak of information list and patch strings at deinit</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e5349eb">BUG/MEDIUM: cache: do not release an entry under the cache read lock</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=fc238d2">BUG/MEDIUM: cache: retain the primary or secondary entry only when detaching its row</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=5fc02c3">BUG/MEDIUM: hlua_fcn: ensure systematic bref cleanup for patref list iterator</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2752259">BUG/MEDIUM: lua: resume Channel:send() from the unsent part of the string</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=be7e0da">BUG/MINOR: quic: drop multiple Retry on same connection</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8049a29">BUG/MEDIUM: quic: prevent out-of-bound read on wrapping CRYPTO content</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=67b6320">BUG/MINOR: mux-h2: strip the userinfo when deriving :authority for a server</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6817d0a">BUG/MINOR: debug: only dump the trace once in __BUG_ON_ONCE()</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c4b324c">BUG/MINOR: lb-chash: bound the walk when the saved cursor changed tree</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=0a29e46">BUG/MEDIUM: session: don't release a reversed connection twice on error</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=f705717">BUG/MINOR: connection: reserve the whole CRC32C TLV before saving its pointer</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=b80e568">BUG/MINOR: acme: restrict the permissions of the generated account key</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=b184f38">BUG/MINOR: ssl: reject server certificate names containing a NUL byte</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=4a02000">BUG/MEDIUM: acme: don't delete a NULL token from the map</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=a0fdd75">BUG/MEDIUM: ssl: require a full-length AEAD tag when decrypting with AES-GCM</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7fa94ba">BUG/MINOR: jwt: don't take an extra reference on the certificate public key</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=3caa18d">BUG/MEDIUM: jwe: validate the secret length against the algorithm of the token</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6256c30">BUG/MEDIUM: log: always reserve room for trailing 0 when using CBOR encoding helpers</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=adde368">BUG/MINOR: mux-fcgi: sanitize the STDERR records before logging them</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=03c671e">BUG/MEDIUM: http-ana: check the cookie rewrite result before moving the offsets</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=93081cb">BUG/MEDIUM: sock: bound the recvmsg() length when receiving old sockets</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=07053a0">BUG/MEDIUM: stick-tables: use the same bucket for string keys with a NUL</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e031861">BUG/MEDIUM: http-ana: don't crash on "keep-query" in a response redirect</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=4b720ca">BUG/MINOR: mux-fcgi: don't call fcgi_strm_destroy() on a NULL stream</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=d73e78d">BUG/MEDIUM: spoe: clear the applet pointer when the applet fails to start</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=5c4ccb9">BUG/MINOR: hlua: use a local buffer to format the socket addresses</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=91cd0df">BUG/MINOR: stats-file: reject tgid 0 when preloading shm objects</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8450da8">BUG/MEDIUM: hpack: encode long methods and schemes using the long form</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2eaca87">BUG/MINOR: proxy: release watcher in various commands on CLI abort</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=11abc38">BUG/MINOR: proxy: fix default-server leak on post-parsing cleanup</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e13f5b8">BUG/MINOR: server: check strdup return value on server ID</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8a6f451">BUG/MEDIUM: filter: Disable auto-close on channel during TCP payload filtering</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=a67ee07">BUG/MEDIUM: counters: preserve shared.tg pointer on 'clear counters all'</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=13fbae2">BUG/MINOR: ech: reject an ECH store with no usable private key</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7df5a22">BUG/MINOR: ech: propagate error from load_echkeys()</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=f68ce4a">BUG/MINOR: cli: do not reject the "/<fd>" form of "show fd"</a></td></tr>
+<tr><td>2026-08-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=17a3ef6">BUG/MINOR: cli: use the current argument to parse the FD spec in "show fd"</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-08-06</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=bf9b7da">BUG/MEDIUM: proxy: fix crash on delete first backend</a></td></tr>
+<tr><td>2026-07-29</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c8bde9d">BUG/MINOR: server: fix check reuse-pool in srv_settings_cpy()</a></td></tr>
+<tr><td>2026-07-29</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8702111">BUG/MINOR: server: duplicate server alt_proto in srv_settings_cpy()</a></td></tr>
+<tr><td>2026-07-29</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c0e1b53">BUG/MINOR: server: fix QUIC on server-template</a></td></tr>
+<tr bgcolor=#ff9000><td>2026-07-29</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2535bd2">BUG/MAJOR: ssl/ocsp: lock the OCSP response around reads in the stapling callback</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-29</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c55387b">BUG/MEDIUM: sample: reject the deprecated protobuf group wire types</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-29</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=f9f1388">BUG/MEDIUM: peers: check the available room before encoding dict values</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-29</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2092804">BUG/MEDIUM: ssl: Put CO_ER_SSL_KEYUPDATE at the right place</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=fcb75ca">BUG/MINOR: slz: avoid undefined shifts when building the word byte by byte</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8096189">BUG/MINOR: slz: fix the adler32 accumulators signedness on 32-bit</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=3f46a57">BUG/MINOR: slz: do not append a block to an already finished stream</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=087fac7">BUG/MEDIUM: slz: bound the bits wasted by the 9-bit literals</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=cea3988">BUG/MINOR: slz: use the exact switch cost for the last literals of a block</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e74c73f">BUG/MINOR: slz: do not read past the end of the input around the match loop</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=9778dbc">BUG/MINOR: http-rules: fix release of a failed "set-cookie-fmt" redirect rule</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2e2d01d">BUG/MINOR: htx: Transfer HTX_FL_EOM flag on success in htx_append_msg()</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=46f59df">BUG/MINOR: htx: Perform raw copy for messages of same size in htx_copy_msg()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=51ca779">BUG/MEDIUM: tools: make string encoding possible to fail instead of truncating</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=3b676bc">BUG/MINOR: http-htx: check the strdup() of the "lf-string" http reply argument</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=74384f2">BUG/MINOR: http-act: reject a negative capture id in the capture actions</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=90d1f35">BUG/MINOR: http-act: work on a copy of the sample in del-headers-bin</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=1dd6b2d">BUG/MINOR: http-act: restore the response buffer state in the early-hint action</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=d73df67">BUG/MINOR: http-act: fix a double free of the map reference on a parsing error</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=9651320">BUG/MINOR: http-act: fix a double free of the regex on a rule parsing error</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=fbac677">BUG/MINOR: http-ana: fix a one-byte over-read in the client-side cookie parser</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=16b9eab">BUG/MINOR: h3: don't use a block pointer to roll back a partial HTX conversion</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=3617957">BUG/MINOR: h2: don't use a block pointer to roll back a partial HTX conversion</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=1b04e44">BUG/MINOR: h1: report the right error position on authority/host mismatch</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7fbb86d">BUG/MINOR: http-htx: check the trash allocation in http_scheme_based_normalize()</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=d5fef3f">BUG/MINOR: http: fix an out-of-bounds read in http_get_host_port() on empty host</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6128804">BUG/MINOR: http-fetch: fix a NULL channel dereference in smp_fetch_body()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8824e15">BUG/MEDIUM: http-fetch: reject a negative capture id in capture.{req,res}.hdr</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6626bfd">BUG/MEDIUM: http-fetch: don't parse a non-HTTP check buffer as an HTX message</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=a03a934">BUG/MINOR: http-htx: fix the length moved when removing a header value</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=393af5c">BUG/MEDIUM: mux-h1: Always adjust case for all outgoing headers as expected</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7c5bc71">DEBUG: fd: catch access attempts to closed FDs</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8cd274c">BUG/MEDIUM: ssl: Handle non-application data record while splicing</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2c371fb">BUG/MEDIUM: ssl: Spell HAVE_VANILLA_OPENSSL correctly</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=575a37a">BUG/MEDIUM: proxy: protect "show errors" against backend deletion</a></td></tr>
+<tr><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=38f8d75">BUG/MINOR: resolvers: do not index resolvers names in the proxies</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-28</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=0a8c0be">BUG/MEDIUM: server: Properly check for streams before deletion</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c997a98">BUG/MEDIUM: proxy: protect show backend against be deletion</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7064dd5">BUG/MEDIUM: proxy: protect "show servers ..." against backend deletion</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8cfb4d3">BUG/MEDIUM: proxy: protect "show servers ..." against server deletion</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c281869">BUG/MINOR: sample: Fix bytes() when length it greater than remaining data</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=f7d8c0f">BUG/MEDIUM: sample: Adjust sample size capacity after pointer shift for ltrim()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=510fcd7">BUG/MEDIUM: sample: Adjust sample size capacity after pointer shift for bytes()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6412bc2">BUG/MEDIUM: net-helper: Adjust sample size capacity after pointer shift</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=5ef788f">BUG/MINOR: mux-h1: Don't delay send if message with c-l was fully sent</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=083fae4">BUG/MINOR: ssl: fix proxy lookup for show ssl sni</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=4d6bd8d">BUG/MEDIUM: protobuf: fix nested path bypass in field lookup</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=5486dbc">BUG/MEDIUM: protobuf: adjust sample size capacity after pointer shift</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=a3e72e8">BUG/MEDIUM: ssl-gencert: Don't forget to free memory when done</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=3f4f68f">BUG/MEDIUM: stats: Ensure that Origin is valid on POSTs</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=c266f7e">BUG/MEDIUM: cache: reattach the row when a secondary entry is incomplete</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=5abb08d">BUG/MINOR: shctx: fix shctx_row_data_get() when offset exceeds a block</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=a12ae20">BUG/MEDIUM: stats: subject "stats admin" accesses to "stats scope" filtering</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=11da00b">BUG/MEDIUM: applet: Reenable reads in applet context if requesting a connection</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e34062b">BUG/MINOR: hlua: Apply socket timeout on server side only</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=78decd1">BUG/MINOR: http-conv: Make url-dec failed if no space for trailing null byte</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=032d506">BUG/MINOR: stream: Fix custom max-retries initialization when setting backend</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=d545d3c">BUG/MINOR: stream: Fix custom timeouts initialization when setting backend</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=d39c235">BUG/MEDIUM: chunk: Review chunks usage to not retrieve a large buffer by error</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=130f411">BUG/MINOR: sample: Fix a possible underflow on be2hex for large chunk size</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=39321bb">BUG/MEDIUM: tcpcheck: Add proxy used for healthcheck sections in proxies list</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2ded949">BUG/MEDIUM: fd: Fix a deadlock when closing other tgroups fds</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=55129f5">BUG/MINOR: quic: ignore STREAM after MUX closure on BE side</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=0657786">BUG/MEDIUM: mux_quic: complete stream shutdown for read channel</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e0a7d25">BUG/MEDIUM: mux_quic: do not free QCS if STOP_SENDING to sent</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=cfae5a1">BUG/MINOR: trace/quic_frame: use buf, not trace_buf in chunk_frm_appendf()</a></td></tr>
+<tr><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6f4b1b0">BUG/MINOR: mux_quic: prevent multiple STOP_SENDING emission per stream</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-22</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=785c21d">BUG/MEDIUM: h3: fix parser desync on error with multiple frames</a></td></tr>
+<tr><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=89814d3">BUG/MINOR: http-htx: Don't by-pass HTX API when merging cookie values</a></td></tr>
+<tr><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=43b2a42">BUG/MINOR: mux-quic: Fix handling EOM after in qcs_http_rcv_buf()</a></td></tr>
+<tr bgcolor=#ff9000><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=3b9ce9a">BUG/MAJOR: htx: Don't swap buffers for empty HTX message with an error</a></td></tr>
+<tr><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=b96682c">BUG/MINOR: tools: fix invalid character detection in strl2ic()</a></td></tr>
+<tr><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=7446288">BUG/MINOR: init: fix default global settings being overwritten by -G</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=3377fd8">BUG/MEDIUM: servers: Use a refcount for port_range and free it properly</a></td></tr>
+<tr><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=5169726">BUG/MINOR: sample: set SMP_F_CONST on srv_name fetch</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=14b3e24">BUG/MEDIUM: server: initialise agent.health in srv_settings_init()</a></td></tr>
+<tr><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=86c32ad">BUG/MINOR: hq-interop: support transcoding of absolute URI</a></td></tr>
+<tr><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=59a59f4">BUG/MINOR: hq-interop: fix transcoding of wrapping response buffer</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-07-02</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=3ac7218">BUG/MEDIUM: mux_quic: fix memory leak of rx app_buf on stream free</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e5221ba">BUG/MEDIUM: mux-quic: Drain the given amount of data in qcs_http_reset_buf()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=37dc4e8">BUG/MEDIUM: mux-spop: Truly drain outgoing data when the stream is closed</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e1484a5">BUG/MEDIUM: mux-h2: Truly drain outgoing HTX data when the stream is closed</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=84b9525">BUG/MEDIUM: mux-fcgi: Truly drain outgoing HTX data when the stream is closed</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=876257f">BUG/MEDIUM: h3: increment unknown request payload length</a></td></tr>
+<tr><td>2026-06-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=1311f80">BUG/MINOR: hq-interop: support response buffer wrapping</a></td></tr>
+<tr><td>2026-06-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=d952a32">BUG/MINOR: hq-interop: support full demux buf on large response</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=d69cfd9">BUG/MEDIUM: hlua: Properly report EOS when http applet exits</a></td></tr>
+<tr><td>2026-06-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=131fb45">BUG/MINOR: hq-interop: prevent reset if missing content-length</a></td></tr>
+<tr><td>2026-06-25</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=9d3b0dd">BUG/MINOR: hq-interop: reject too big content</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=fc300e9">BUG/MEDIUM: mux-fcgi: fix uint16_t overflow in drl += drp</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=9e29271">BUG/MEDIUM: http-act: Make a copy of the sample expr in (set/add)-headers-bin</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=378493d">BUG/MEDIUM: mux_quic: fix freeze transfer after QCS rxbuf realign</a></td></tr>
+<tr><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=2629506">BUG/MINOR: hpack-tbl: add missing NULL check after hpack_dht_defrag()</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6693cd8">BUG/MEDIUM: ssl: Don't free the early data buffer too early</a></td></tr>
+<tr><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=435ca66">BUG/MINOR: quic: fix rxbuf settings on backend side</a></td></tr>
+<tr><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=9941e48">BUG/MINOR: mux-h1: Properly resolve file path for 'h1-case-adjust-file'</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=0e50fe5">BUG/MEDIUM: http-ana: Don't ignore L7 retry errors</a></td></tr>
+<tr><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=65bb4f7">BUG/MINOR: http-ana: Remove a debugging memset on redirect</a></td></tr>
+<tr><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=16a88fb">BUG/MINOR: server: fix add server with consistent hash balancing</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8910ef4">BUG/MEDIUM: h3: Properly handle PUSH_PROMISE on backend connections</a></td></tr>
+<tr><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=25623f2">BUG/MINOR: cpu-topo: use ha_diag_notice() to report thread creations</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=8c586bb">BUG/MEDIUM: ktls: defer enabling TLS ULP on a socket until connected</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=768bc71">BUG/MEDIUM: acme: stuck ACME task when authz is already "valid"</a></td></tr>
+<tr><td>2026-06-18</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=371ac55">BUG/MINOR: quic: fix Initial length value in sent packets</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-09</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=97d3f1a">BUG/MEDIUM: checks: Dequeue checks on purge</a></td></tr>
+<tr><td>2026-06-09</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=9975df7">BUG/MINOR: acl: report "ACL" not "map" in ACL ID lookup failures</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-09</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e0ba854">BUG/MEDIUM: xprt_qmux: implement ->get_ssl_sock_ctx() to get the SSL laye</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-09</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=6c22300">BUG/MEDIUM: threads: Fiw build when using no thread</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-09</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=b7b5a79">BUG/MEDIUM: regex: initialize the match array earlier during boot</a></td></tr>
+<tr><td>2026-06-09</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=9b1f42f">BUG/MINOR: tcpcheck: Override external check if healthcheck section is set</a></td></tr>
+<tr><td>2026-06-09</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=a33fcf7">BUG/MINOR: mux_quic: do not interrupt recv on error/incomplete data</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-09</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=700fbe3">BUG/MEDIUM: mux_quic: prevent risk of infinite loop on recv</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-05</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=4715472">BUG/MEDIUM: server/checks: Support healtcheck keyword on default-server lines</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-05</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=e7ba150">BUG/MEDIUM: check: Ignore small-buffer option when starting an external check</a></td></tr>
+<tr bgcolor=#ffff00><td>2026-06-05</td><td><a href="//git.haproxy.org/?p=haproxy-3.4.git;a=commitdiff;h=b8f7f07">BUG/MEDIUM: check: Skip tcpcheck post-config for external checks</a></td></tr>
+</table>
+<p/>
+<a href="index.html">Back to the list of branches and versions</a><br/>
+<a href="//www.haproxy.org/">Back to the HAProxy page</a><br/>
+<p/>
+</BODY></HTML>
