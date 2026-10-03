@@ -34,5 +34,15 @@ cat > /tmp/net.xml <<'XML'
 XML
 virsh -q net-define /tmp/net.xml
 virsh -q net-start janus-test
+# A second network, for an interface added to a machine.
+cat > /tmp/net2.xml <<'XML'
+<network>
+  <name>janus-test2</name>
+  <bridge name='virbr-janus2' stp='on' delay='0'/>
+  <ip address='192.168.124.1' netmask='255.255.255.0'/>
+</network>
+XML
+virsh -q net-define /tmp/net2.xml
+virsh -q net-start janus-test2
 echo "libvirt-host ready"
 exec sleep infinity
