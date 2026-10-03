@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 #
-# Fetches the pinned HAProxy and AWS-LC sources (see ../../versions.mk)
-# and builds HAProxy as a fully static musl binary linked against AWS-LC.
+# Fetches the pinned HAProxy, AWS-LC and zlib sources (see
+# ../../versions.mk), each checked against its pinned sha256 before
+# anything is extracted, and builds HAProxy as a fully static musl binary
+# linked against AWS-LC and zlib.
 #
 # AWS-LC instead of OpenSSL: OpenSSL 3.x took locks and atomics into
 # libcrypto's hot paths, and HAProxy's own measurements ("The state of
@@ -43,10 +45,9 @@
 # ../../Makefile's rpi4-haproxy-build target). zlib has no prebuilt
 # static aarch64-musl library available anywhere to lean on (unlike
 # Alpine's own apk packages for the native amd64 path), so it is
-# cross-compiled from source first, like AWS-LC.
-#
-# TODO: signature verification for the HAProxy/zlib tarballs - not wired
-# up yet (AWS-LC's is pinned by sha256). See ../../docs/architecture.md.
+# cross-compiled from source first, like AWS-LC. amd64 builds the same
+# pinned zlib from source too (rather than Alpine's zlib-static), so both
+# architectures ship the version versions.mk names.
 #
 # USE_PROMEX=1 (both paths): HAProxy's own Prometheus metrics exporter
 # (`http-request use-service prometheus-exporter`) is a real, separate
@@ -61,32 +62,47 @@
 # own `PROMEX_CFLAGS` is set automatically once `USE_PROMEX` is truthy.
 
 ARG HAPROXY_VERSION
+ARG HAPROXY_SHA256
 ARG AWSLC_VERSION
 ARG AWSLC_SHA256
 ARG ZLIB_VERSION
+ARG ZLIB_SHA256
 
 FROM debian:trixie-slim AS fetch
 ARG HAPROXY_VERSION
+ARG HAPROXY_SHA256
 ARG AWSLC_VERSION
 ARG AWSLC_SHA256
+ARG ZLIB_VERSION
+ARG ZLIB_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN branch="$(echo "${HAPROXY_VERSION}" | cut -d. -f1,2)" \
-    && curl -fsSLO "https://www.haproxy.org/download/${branch}/src/haproxy-${HAPROXY_VERSION}.tar.gz"
-RUN tar xf haproxy-${HAPROXY_VERSION}.tar.gz
+RUN test -n "${HAPROXY_SHA256}" \
+    && branch="$(echo "${HAPROXY_VERSION}" | cut -d. -f1,2)" \
+    && curl -fsSLO "https://www.haproxy.org/download/${branch}/src/haproxy-${HAPROXY_VERSION}.tar.gz" \
+    && echo "${HAPROXY_SHA256}  haproxy-${HAPROXY_VERSION}.tar.gz" | sha256sum -c - \
+    && tar xf haproxy-${HAPROXY_VERSION}.tar.gz
 RUN test -n "${AWSLC_SHA256}" \
     && curl -fsSLo aws-lc-${AWSLC_VERSION}.tar.gz \
        "https://github.com/aws/aws-lc/archive/refs/tags/v${AWSLC_VERSION}.tar.gz" \
     && echo "${AWSLC_SHA256}  aws-lc-${AWSLC_VERSION}.tar.gz" | sha256sum -c - \
     && tar xf aws-lc-${AWSLC_VERSION}.tar.gz
+RUN test -n "${ZLIB_SHA256}" \
+    && curl -fsSLO "https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz" \
+    && echo "${ZLIB_SHA256}  zlib-${ZLIB_VERSION}.tar.gz" | sha256sum -c - \
+    && tar xf zlib-${ZLIB_VERSION}.tar.gz
 
 FROM alpine:3.22 AS build
 ARG HAPROXY_VERSION
 ARG AWSLC_VERSION
-RUN apk add --no-cache build-base linux-headers cmake samurai perl \
-    zlib-dev zlib-static
+ARG ZLIB_VERSION
+RUN apk add --no-cache build-base linux-headers cmake samurai perl
+COPY --from=fetch /src/zlib-${ZLIB_VERSION} /src/zlib-${ZLIB_VERSION}
+WORKDIR /src/zlib-${ZLIB_VERSION}
+RUN ./configure --prefix=/opt/zlib --static \
+    && make -j"$(nproc)" && make install
 COPY --from=fetch /src/aws-lc-${AWSLC_VERSION} /src/aws-lc-${AWSLC_VERSION}
 RUN cmake -S /src/aws-lc-${AWSLC_VERSION} -B /build/aws-lc -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/aws-lc \
@@ -98,26 +114,19 @@ COPY --from=fetch /src/haproxy-${HAPROXY_VERSION} /src/haproxy-${HAPROXY_VERSION
 WORKDIR /src/haproxy-${HAPROXY_VERSION}
 RUN make -j"$(nproc)" TARGET=linux-musl \
     USE_OPENSSL_AWSLC=1 SSL_INC=/opt/aws-lc/include SSL_LIB=/opt/aws-lc/lib \
-    USE_ZLIB=1 USE_PTHREAD_PSHARED=1 USE_PROMEX=1 \
+    USE_ZLIB=1 ZLIB_INC=/opt/zlib/include ZLIB_LIB=/opt/zlib/lib \
+    USE_PTHREAD_PSHARED=1 USE_PROMEX=1 \
     LDFLAGS=-static \
     && strip haproxy \
     && ./haproxy -vv \
-    && ./haproxy -vv | grep -q "^Built with SSL library version : .*AWS-LC ${AWSLC_VERSION}"
+    && ./haproxy -vv | grep -q "^Built with SSL library version : .*AWS-LC ${AWSLC_VERSION}" \
+    && ./haproxy -vv | grep -q "^Built with zlib version : ${ZLIB_VERSION}$"
 
 FROM scratch AS export
 ARG HAPROXY_VERSION
 COPY --from=build /src/haproxy-${HAPROXY_VERSION}/haproxy /haproxy
 
 # --- arm64 cross-compile path -----------------------------------------
-
-FROM debian:trixie-slim AS fetch-arm64-deps
-ARG ZLIB_VERSION
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /src
-RUN curl -fsSLO "https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz" \
-    && tar xf zlib-${ZLIB_VERSION}.tar.gz
 
 FROM debian:trixie-slim AS build-arm64
 ARG HAPROXY_VERSION
@@ -136,7 +145,7 @@ ENV PATH="/opt/musl-cross/bin:${PATH}"
 ENV SYSROOT=/opt/sysroot
 
 WORKDIR /src
-COPY --from=fetch-arm64-deps /src/zlib-${ZLIB_VERSION} /src/zlib-${ZLIB_VERSION}
+COPY --from=fetch /src/zlib-${ZLIB_VERSION} /src/zlib-${ZLIB_VERSION}
 WORKDIR /src/zlib-${ZLIB_VERSION}
 RUN CC=aarch64-linux-musl-gcc AR=aarch64-linux-musl-ar RANLIB=aarch64-linux-musl-ranlib \
     ./configure --prefix="${SYSROOT}" --static \

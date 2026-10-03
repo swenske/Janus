@@ -291,14 +291,13 @@ musl-toolchain-arm64:
 # toolchain (pkgs/haproxy/Dockerfile's own "export-arm64" target, fed
 # musl-toolchain-arm64's output as an external build context) - no
 # QEMU/emulation anywhere, a normal amd64 build producing an arm64
-# binary. zlib/AWS-LC are cross-compiled from source too (no prebuilt
-# static aarch64-musl libs to lean on the way Alpine's apk packages
-# cover zlib on the native amd64 path).
+# binary. zlib/AWS-LC are cross-compiled from source too, as on amd64.
 rpi4-haproxy-build: musl-toolchain-arm64
 	mkdir -p $(BUILD_DIR)/rpi4
 	docker build --target export-arm64 \
 		--build-arg HAPROXY_VERSION=$(HAPROXY_VERSION) \
-		--build-arg ZLIB_VERSION=$(ZLIB_VERSION) \
+		--build-arg HAPROXY_SHA256=$(HAPROXY_SHA256) \
+		--build-arg ZLIB_VERSION=$(ZLIB_VERSION) --build-arg ZLIB_SHA256=$(ZLIB_SHA256) \
 		--build-arg AWSLC_VERSION=$(AWSLC_VERSION) \
 		--build-arg AWSLC_SHA256=$(AWSLC_SHA256) \
 		--build-context musltoolchain=$(BUILD_DIR)/musl-toolchain-arm64 \
@@ -437,6 +436,8 @@ pi5-sdcard-image-test: pi5-sdcard-image
 haproxy-build:
 	mkdir -p $(BUILD_DIR)
 	docker build --target export --build-arg HAPROXY_VERSION=$(HAPROXY_VERSION) \
+		--build-arg HAPROXY_SHA256=$(HAPROXY_SHA256) \
+		--build-arg ZLIB_VERSION=$(ZLIB_VERSION) --build-arg ZLIB_SHA256=$(ZLIB_SHA256) \
 		--build-arg AWSLC_VERSION=$(AWSLC_VERSION) \
 		--build-arg AWSLC_SHA256=$(AWSLC_SHA256) \
 		-o $(BUILD_DIR) pkgs/haproxy

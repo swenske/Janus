@@ -16,8 +16,11 @@
 KERNEL_VERSION := 6.18.55
 KERNEL_SHA256  := f410638061a165c12f42ab871d2f3fcd525515359b5faeee80969cff84524df9
 
-# HAProxy, the latest LTS branch (haproxy.org).
-HAPROXY_VERSION := 3.4.0
+# HAProxy, the latest LTS branch (haproxy.org). HAProxy doesn't sign its
+# tarballs: sha256 as published by haproxy.org (the .sha256 file and the
+# branch's releases.json, over HTTPS).
+HAPROXY_VERSION := 3.4.6
+HAPROXY_SHA256  := 791e1815f8af6e8b850a227a9a0a190f3d3478c9e8d38a0f51c98b7f4bfe368b
 
 # Single Board Computer tranche follow-up: pkgs/musl-toolchain builds a
 # real aarch64-linux-musl cross-toolchain (musl-cross-make, pinned by
@@ -30,11 +33,14 @@ HAPROXY_VERSION := 3.4.0
 # is an LXC container whose confinement blocks a nested `docker run
 # --privileged`'s own binfmt_misc registration from actually taking
 # effect - not fixable by more privilege flags from inside the LXC).
-# pkgs/haproxy's own arm64 path cross-compiles zlib from source against
-# this toolchain too (no prebuilt static aarch64 libs needed) - its
-# version is pinned here for the same reason HAPROXY_VERSION is.
 MUSL_CROSS_MAKE_REF := 227df8b99103f9c59f6570babf892978e293082f
-ZLIB_VERSION        := 1.3.1
+
+# zlib, linked statically into HAProxy on both architectures (built from
+# source, not Alpine's package). sha256 pinned after checking its
+# signature by Mark Adler (5ED46A6721D365587791E2AA783FCD8E58BCAFBA);
+# it also matches Alpine's pinned sha512 for the same version.
+ZLIB_VERSION := 1.3.2
+ZLIB_SHA256  := bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
 
 # AWS-LC, HAProxy's TLS library on both architectures (pkgs/haproxy, built
 # from source and linked statically). AWS-LC publishes no signed release
