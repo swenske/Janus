@@ -23,7 +23,7 @@ func TestSecurityUpdate(t *testing.T) {
 		case "/releases":
 			_, _ = io.WriteString(w, `[
 				{"tag_name":"sec-v4","html_url":"https://github.invalid/r/releases/tag/sec-v4","assets":[`+asset("security.json", "/v4.json")+`]},
-				{"tag_name":"sec-v3","html_url":"https://github.invalid/r/releases/tag/sec-v3","assets":[]},
+				{"tag_name":"sec-v3","html_url":"https://github.invalid/r/releases/tag/sec-v3","assets":[`+asset("security.json", "/v3.json")+`]},
 				{"tag_name":"sec-draft","draft":true,"assets":[`+asset("security.json", "/missing.json")+`]},
 				{"tag_name":"sec-v2","html_url":"https://github.invalid/r/releases/tag/sec-v2","assets":[`+asset("security.json", "/v2.json")+`]},
 				{"tag_name":"sec-v1","html_url":"https://github.invalid/r/releases/tag/sec-v1","assets":[]}]`)
@@ -36,6 +36,9 @@ func TestSecurityUpdate(t *testing.T) {
 		case "/v2.json":
 			reads.Add(1)
 			_, _ = io.WriteString(w, `{"version":"sec-v2","updates":[{"name":"linux","target":"node","fixes":[{"id":"d","severity":"critical"},{"id":"e"}]}]}`)
+		case "/v3.json":
+			reads.Add(1)
+			_, _ = io.WriteString(w, `{"version":"sec-v3","updates":[{"name":"node-exporter","target":"node","extension":"prometheus-node-exporter","fixes":[{"id":"f","severity":"critical"}]}]}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -49,26 +52,31 @@ func TestSecurityUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ne := []string{"prometheus-node-exporter"}
 	for _, tc := range []struct {
-		version, target, severity, release string
+		version, target   string
+		extensions        []string
+		severity, release string
 	}{
-		{"sec-v1", "node", "critical", "sec-v4"},
-		{"sec-v2", "node", "high", "sec-v4"},
-		{"sec-v3", "node", "high", "sec-v4"},
-		{"sec-v4", "node", "", ""},
-		{"sec-v1", "controller", "medium", "sec-v4"},
-		{"sec-v3", "client", "", ""},
-		{"v2026.10.03-4-3-gabcdef", "node", "", ""}, // a development build
+		{"sec-v1", "node", nil, "critical", "sec-v4"},
+		{"sec-v2", "node", nil, "high", "sec-v4"},
+		// sec-v3's fix is node_exporter's: only for a node with it.
+		{"sec-v2", "node", ne, "critical", "sec-v4"},
+		{"sec-v3", "node", ne, "high", "sec-v4"},
+		{"sec-v4", "node", ne, "", ""},
+		{"sec-v1", "controller", nil, "medium", "sec-v4"},
+		{"sec-v3", "client", nil, "", ""},
+		{"v2026.10.03-4-3-gabcdef", "node", nil, "", ""}, // a development build
 	} {
-		sev, r := rel.SecurityUpdate(tc.version, tc.target)
+		sev, r := rel.SecurityUpdate(tc.version, tc.target, tc.extensions)
 		if sev != tc.severity || r != tc.release {
-			t.Errorf("SecurityUpdate(%s, %s) = %q, %q; want %q, %q", tc.version, tc.target, sev, r, tc.severity, tc.release)
+			t.Errorf("SecurityUpdate(%s, %s, %v) = %q, %q; want %q, %q", tc.version, tc.target, tc.extensions, sev, r, tc.severity, tc.release)
 		}
 	}
 	if _, err := fetchLatestRelease(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if n := reads.Load(); n != 2 {
-		t.Errorf("security.json read %d times, want each once (2)", n)
+	if n := reads.Load(); n != 3 {
+		t.Errorf("security.json read %d times, want each once (3)", n)
 	}
 }

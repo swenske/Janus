@@ -171,7 +171,8 @@ included, nothing is pushed or posted.
 
 The Controller reads `security.json` from every release: a node running
 an older release - or the Controller itself - gets a 🔒 security update
-badge, rated by the worst vulnerability it misses
+badge, rated by the worst vulnerability it misses; a fix to an extension
+(its update names it) only counts for nodes that have that extension
 ([controller-ui.md](controller-ui.md)).
 
 GitHub's "Security alerts" watch option only reaches the repository's

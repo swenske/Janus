@@ -117,7 +117,7 @@ func checkUpdate(ctx context.Context, v *janusv1alpha1.VersionResponse) *updateC
 	uc := nodeUpdateCheck(v)
 	resolveUpdate(ctx, uc)
 	if rel, err := getLatestRelease(ctx); err == nil {
-		uc.SecurityUpdate, uc.SecurityRelease = rel.SecurityUpdate(uc.Version, "node")
+		uc.SecurityUpdate, uc.SecurityRelease = rel.SecurityUpdate(uc.Version, "node", uc.Extensions)
 	}
 	return uc
 }

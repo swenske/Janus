@@ -19,6 +19,7 @@
 package nodeproxy
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -67,16 +68,25 @@ type ReleaseInfo struct {
 	// tags are every published release, newest first; security what the
 	// ones with a security.json asset fix (SecurityUpdate).
 	tags     []string
-	security map[string]map[string]string
+	security map[string][]releaseFix
+}
+
+// releaseFix is one fix of a release's security.json: whom it reaches
+// (target "node" or "controller"; extension, when only nodes with it),
+// how severe.
+type releaseFix struct {
+	target, extension, severity string
 }
 
 // SecurityUpdate is the most severe of the vulnerabilities the releases
-// after version fix for target - "node" or "controller" - and the newest
-// of those releases: from their security.json assets (hack/upstream,
-// docs/upstreams.md), "critical", "high", "medium", "low" or "unknown"
-// (unrated). Empty when they fix none, or when version isn't a published
-// release (a development build: nothing to compare).
-func (r *ReleaseInfo) SecurityUpdate(version, target string) (severity, release string) {
+// after version fix for target - "node" (with these extensions) or
+// "controller" - and the newest of those releases: from their
+// security.json assets (hack/upstream, docs/upstreams.md), "critical",
+// "high", "medium", "low" or "unknown" (unrated). A fix to an extension
+// counts only for a node that has it. Empty when they fix none, or when
+// version isn't a published release (a development build: nothing to
+// compare).
+func (r *ReleaseInfo) SecurityUpdate(version, target string, extensions []string) (severity, release string) {
 	if !slices.Contains(r.tags, version) {
 		return "", ""
 	}
@@ -84,15 +94,16 @@ func (r *ReleaseInfo) SecurityUpdate(version, target string) (severity, release 
 		if tag == version {
 			break
 		}
-		sev := r.security[tag][target]
-		if sev == "" {
-			continue
-		}
-		if release == "" {
-			release = tag
-		}
-		if severity == "" || severityRank(sev) > severityRank(severity) {
-			severity = sev
+		for _, f := range r.security[tag] {
+			if f.target != target || (f.extension != "" && !slices.Contains(extensions, f.extension)) {
+				continue
+			}
+			if release == "" {
+				release = tag
+			}
+			if severity == "" || severityRank(f.severity) > severityRank(severity) {
+				severity = f.severity
+			}
 		}
 	}
 	return severity, release
@@ -105,8 +116,9 @@ func severityRank(s string) int {
 // securityDoc is the part of a release's security.json read here.
 type securityDoc struct {
 	Updates []struct {
-		Target string `json:"target"`
-		Fixes  []struct {
+		Target    string `json:"target"`
+		Extension string `json:"extension"`
+		Fixes     []struct {
 			Severity string `json:"severity"`
 		} `json:"fixes"`
 	} `json:"updates"`
@@ -116,17 +128,16 @@ type securityDoc struct {
 // published release doesn't change.
 var securityByTag = struct {
 	sync.Mutex
-	m map[string]map[string]string
-}{m: map[string]map[string]string{}}
+	m map[string][]releaseFix
+}{m: map[string][]releaseFix{}}
 
-// releaseSecurity is the most severe fix of a release's security.json for
-// each target.
-func releaseSecurity(ctx context.Context, tag, url string) (map[string]string, error) {
+// releaseSecurity is the fixes of a release's security.json.
+func releaseSecurity(ctx context.Context, tag, url string) ([]releaseFix, error) {
 	securityByTag.Lock()
-	sev, ok := securityByTag.m[tag]
+	fixes, ok := securityByTag.m[tag]
 	securityByTag.Unlock()
 	if ok {
-		return sev, nil
+		return fixes, nil
 	}
 	data, err := fetchAsset(ctx, url, 1<<20)
 	if err != nil {
@@ -136,22 +147,16 @@ func releaseSecurity(ctx context.Context, tag, url string) (map[string]string, e
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("%s's security.json: %w", tag, err)
 	}
-	sev = map[string]string{}
+	fixes = []releaseFix{}
 	for _, u := range doc.Updates {
 		for _, f := range u.Fixes {
-			s := f.Severity
-			if s == "" {
-				s = "unknown"
-			}
-			if cur, ok := sev[u.Target]; !ok || severityRank(s) > severityRank(cur) {
-				sev[u.Target] = s
-			}
+			fixes = append(fixes, releaseFix{target: u.Target, extension: u.Extension, severity: cmp.Or(f.Severity, "unknown")})
 		}
 	}
 	securityByTag.Lock()
-	securityByTag.m[tag] = sev
+	securityByTag.m[tag] = fixes
 	securityByTag.Unlock()
-	return sev, nil
+	return fixes, nil
 }
 
 // LatestRelease is the newest release, cached like the per-node pages'.
@@ -274,7 +279,7 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 			PublishedAt:   rel.PublishedAt,
 			BundleBaseURL: bundleBaseURL,
 			tags:          []string{rel.TagName},
-			security:      map[string]map[string]string{},
+			security:      map[string][]releaseFix{},
 		}
 		for _, asset := range rel.Assets {
 			switch asset.Name {
@@ -301,11 +306,11 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 func (r *ReleaseInfo) readSecurity(ctx context.Context, rel ghRelease) error {
 	for _, asset := range rel.Assets {
 		if asset.Name == "security.json" {
-			sev, err := releaseSecurity(ctx, rel.TagName, asset.BrowserDownloadURL)
+			fixes, err := releaseSecurity(ctx, rel.TagName, asset.BrowserDownloadURL)
 			if err != nil {
 				return fmt.Errorf("fetch %s's security.json: %w", rel.TagName, err)
 			}
-			r.security[rel.TagName] = sev
+			r.security[rel.TagName] = fixes
 		}
 	}
 	return nil

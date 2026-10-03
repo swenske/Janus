@@ -42,6 +42,7 @@ func Status(ctx context.Context, node *store.Node) NodeStatus {
 
 	var (
 		st             NodeStatus
+		extensions     []string
 		mu             sync.Mutex
 		wg             sync.WaitGroup
 		firstErr       error
@@ -67,6 +68,9 @@ func Status(ctx context.Context, node *store.Node) NodeStatus {
 		}
 		mu.Lock()
 		st.Version, st.ActiveSlot, st.KernelVersion = v.GetVersion(), v.GetActiveSlot(), v.GetKernelVersion()
+		for _, e := range v.GetExtensions() {
+			extensions = append(extensions, e.GetName())
+		}
 		mu.Unlock()
 	}()
 	go func() {
@@ -111,7 +115,7 @@ func Status(ctx context.Context, node *store.Node) NodeStatus {
 	if rel, err := getLatestRelease(ctx); err == nil {
 		st.LatestRelease = rel.TagName
 		st.UpdateAvailable = rel.TagName != "" && rel.TagName != st.Version
-		st.SecurityUpdate, _ = rel.SecurityUpdate(st.Version, "node")
+		st.SecurityUpdate, _ = rel.SecurityUpdate(st.Version, "node", extensions)
 	}
 	return st
 }
