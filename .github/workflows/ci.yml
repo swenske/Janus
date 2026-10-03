@@ -117,8 +117,10 @@ jobs:
 
   # The Controller's frontend (dashboard/frontend/): its lint and its unit
   # tests (node --test - the console's terminal colors, src/ansi.js). Its
-  # built output is committed (make dashboard-frontend-build): nothing
-  # here builds it. The runner's own Node.
+  # built output is committed (make dashboard-frontend-build), so the job
+  # rebuilds it and fails when the commit doesn't carry what its sources
+  # build - a Dependabot npm update, say, without the rebuild. The
+  # runner's own Node.
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -132,3 +134,13 @@ jobs:
       - run: npm run lint
 
       - run: npm test
+
+      - name: Check the committed build is up to date
+        run: |
+          npm run build
+          out="../backend/static ../backend/internal/nodeproxy/static"
+          if [ -n "$(git status --porcelain -- $out)" ]; then
+            git status --short -- $out
+            echo "::error::the committed frontend build doesn't match its sources - run make dashboard-frontend-build and commit the result"
+            exit 1
+          fi
