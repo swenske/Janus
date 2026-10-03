@@ -106,7 +106,12 @@ type httpError struct {
 }
 
 func (e *httpError) Error() string {
-	return fmt.Sprintf("GET %s: HTTP %d %s", e.url, e.status, e.body)
+	msg := fmt.Sprintf("GET %s: HTTP %d", e.url, e.status)
+	// An error page's HTML says nothing more than its status.
+	if e.body != "" && !strings.HasPrefix(e.body, "<") {
+		msg += " " + e.body
+	}
+	return msg
 }
 
 func (f *httpFetcher) get(ctx context.Context, url string) ([]byte, error) {

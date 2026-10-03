@@ -62,7 +62,7 @@ func writeStatus(w io.Writer, sts []status, ref string, now time.Time) {
 		if s.Newer != "" {
 			update += "<br>also " + s.Newer
 		}
-		if len(s.Errors) > 0 && s.Latest == "" {
+		if s.FeedFailed {
 			update = "⚠️ unknown"
 		}
 		fmt.Fprintf(w, "| %s | %s | %s | %s | %s | %s |\n", s.Title, s.Kind, short(s.Pinned), update, supportCell(s.Support), vulnCell(s))

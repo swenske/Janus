@@ -32,6 +32,8 @@ type status struct {
 	Sources       []string `json:"sources,omitempty"`
 	Note          string   `json:"note,omitempty"`
 	Errors        []string `json:"errors,omitempty"`
+	// FeedFailed: its releases couldn't be listed - Latest means nothing.
+	FeedFailed bool `json:"feed_failed,omitempty"`
 }
 
 // support is the pinned release cycle's support, from endoflife.date.
@@ -134,6 +136,7 @@ func componentStatus(e *env, c *component, pinned string, now time.Time) status 
 	}
 	if all, err := c.feed.versions(e.ctx, e.f, pinned); err != nil {
 		st.Errors = append(st.Errors, c.feed.describe()+": "+err.Error())
+		st.FeedFailed = true
 	} else {
 		st.Latest, st.Newer = newestVersions(c, pinned, all)
 		st.Bumpable = st.Latest != "" && c.manual == ""
