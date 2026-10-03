@@ -1,5 +1,6 @@
 import {
   Boxes,
+  Code,
   Copy,
   Cpu,
   Fingerprint,
@@ -7,6 +8,8 @@ import {
   History,
   KeyRound,
   Loader2,
+  Lock,
+  LockOpen,
   MemoryStick,
   Pencil,
   Play,
@@ -664,7 +667,212 @@ export function useMachineActions({ onChanged, onConsole }) {
     await run(() => postJSON(`/api/machines/${m.id}/retry`), `Retrying ${m.spec.name}`)
     onChanged()
   }
-  return { busy, power, destroy, retry, console: onConsole }
+  const release = async (m) => {
+    const by = m.spec.managed_by || 'code'
+    const ok = await confirm({
+      title: `Release ${m.spec.name} from ${by}?`,
+      body: (
+        <p>
+          Its pages may change it again - but {by} still manages it: its next run undoes what was changed here
+          {by === 'terraform' ? ', and locks it again while its configuration says lock_ui = true' : ''}.
+        </p>
+      ),
+      action: 'Release',
+      danger: true,
+    })
+    if (!ok) return
+    await run(() => postJSON(`/api/machines/${m.id}`, { locked: false }, 'PATCH'), `${m.spec.name} released`)
+    onChanged()
+  }
+  return { busy, power, destroy, retry, release, console: onConsole }
+}
+
+// ManagedBadge: what manages the machine as code, and its lock.
+export function ManagedBadge({ m }) {
+  if (!m?.spec?.managed_by) return null
+  return (
+    <Badge tone={m.spec.locked ? 'info' : 'warn'}>
+      {m.spec.locked ? <Lock size={11} /> : <Code size={11} />} {m.spec.managed_by}
+    </Badge>
+  )
+}
+
+function ago(t) {
+  if (!t || t.startsWith('0001')) return null
+  const s = Math.max(0, Math.round((Date.now() - new Date(t).getTime()) / 1000))
+  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(t).toLocaleString()
+}
+
+// --- changing a machine: its hardware ---
+
+const blankNIC = (networks, i) => ({ network: networks[0] || '', name: `eth${i}`, mode: 'static', address: '', gateway: '', isNew: true })
+
+// EditMachine changes what the hypervisor gives the machine: vCPUs,
+// memory, network interfaces (added, removed, moved to another network).
+// The interfaces' addresses, DNS and NTP are the node's: its own page
+// changes them - only an interface added or moved gets its addresses
+// here, since it needs some to be of any use.
+function EditMachine({ m, hv, onClose, onSaved }) {
+  const networks = hv?.libvirt?.networks || []
+  const [vcpus, setVcpus] = useState(m.spec.vcpus)
+  const [memory, setMemory] = useState(m.spec.memory_mib)
+  const [nics, setNics] = useState(() =>
+    m.spec.nics.map((n) => ({ ...n, origNetwork: n.network, address: (n.addresses || []).join(', '), gateway: n.gateway || '', isNew: false })),
+  )
+  const [error, setError] = useState(null)
+  const [busy, run] = useAction()
+  const confirm = useConfirm()
+  const setNIC = (i, patch) => setNics(nics.map((n, j) => (j === i ? { ...n, ...patch } : n)))
+  const addresses = (n) =>
+    n.address
+      .split(/[\s,]+/)
+      .map((x) => x.trim())
+      .filter(Boolean)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setError(null)
+    const body = {
+      vcpus: Number(vcpus),
+      memory_mib: Number(memory),
+      nics: nics.map((n) => {
+        const edited = n.isNew || n.network !== n.origNetwork
+        const out = { network: n.network, name: n.name.trim(), mode: n.mode }
+        if (!n.isNew) out.mac = n.mac
+        if (edited && n.mode === 'static') {
+          out.addresses = addresses(n)
+          if (n.gateway.trim()) out.gateway = n.gateway.trim()
+        } else if (!edited) {
+          out.addresses = n.addresses
+          if (n.gateway) out.gateway = n.gateway
+        }
+        return out
+      }),
+    }
+    const removed = m.spec.nics.filter((o) => !nics.some((n) => n.mac === o.mac)).length
+    const hardware =
+      body.vcpus !== m.spec.vcpus || body.memory_mib !== m.spec.memory_mib || removed > 0 || nics.some((n) => n.isNew || n.network !== n.origNetwork)
+    if (hardware) {
+      const ok = await confirm({
+        title: `Restart ${m.spec.name}?`,
+        body: <p>Its hardware changes: the node shuts down cleanly (HAProxy stops), its virtual machine is reconfigured and started again.</p>,
+        action: 'Change and restart',
+        danger: true,
+      })
+      if (!ok) return
+    }
+    const saved = await run(async () => {
+      try {
+        return await postJSON(`/api/machines/${m.id}`, body, 'PATCH')
+      } catch (err) {
+        setError(err)
+        throw err
+      }
+    }, `Changing ${m.spec.name}`)
+    if (saved) onSaved()
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal card wide edit-machine" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="card-header">
+          <div className="card-title">
+            <Pencil size={16} /> {m.spec.name}: hardware
+          </div>
+          <button className="ghost icon" onClick={onClose} aria-label="Close">
+            <X size={16} />
+          </button>
+        </div>
+        <form className="stack" onSubmit={submit}>
+          <div className="grid grid-2">
+            <label className="field">
+              <span>vCPUs</span>
+              <input type="number" min={1} max={64} value={vcpus} onChange={(e) => setVcpus(e.target.value)} required />
+            </label>
+            <label className="field">
+              <span>Memory (MiB)</span>
+              <input type="number" min={512} step={256} value={memory} onChange={(e) => setMemory(e.target.value)} required />
+            </label>
+          </div>
+          <div className="field">
+            <span className="field-label">Network interfaces</span>
+            <div className="stack" style={{ gap: '0.5rem' }}>
+              {nics.map((n, i) => {
+                const editable = n.isNew || n.network !== n.origNetwork
+                return (
+                  <div key={n.mac || `new-${i}`} className="nic-row">
+                    <select value={n.network} onChange={(e) => setNIC(i, { network: e.target.value })} aria-label="Network">
+                      {networks.map((net) => (
+                        <option key={net} value={net}>
+                          {net}
+                        </option>
+                      ))}
+                    </select>
+                    <input value={n.name} onChange={(e) => setNIC(i, { name: e.target.value })} disabled={!n.isNew} aria-label="Interface name" />
+                    {editable ? (
+                      <>
+                        <select value={n.mode} onChange={(e) => setNIC(i, { mode: e.target.value })} aria-label="Addressing">
+                          <option value="static">Static</option>
+                          <option value="none">Up, no address</option>
+                        </select>
+                        <input
+                          value={n.address}
+                          onChange={(e) => setNIC(i, { address: e.target.value })}
+                          placeholder="192.0.2.10/24"
+                          aria-label="Address"
+                          disabled={n.mode !== 'static'}
+                          required={n.mode === 'static'}
+                        />
+                        <input
+                          value={n.gateway}
+                          onChange={(e) => setNIC(i, { gateway: e.target.value })}
+                          placeholder="gateway (optional)"
+                          aria-label="Gateway"
+                          disabled={n.mode !== 'static'}
+                        />
+                      </>
+                    ) : (
+                      <span className="muted small mono nic-current">
+                        {n.mode === 'static' ? (n.addresses || []).join(' ') : n.mode} {n.gateway ? `via ${n.gateway}` : ''}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className="ghost icon"
+                      onClick={() => setNics(nics.filter((_, j) => j !== i))}
+                      disabled={nics.length === 1}
+                      aria-label="Remove interface"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="row">
+              <button type="button" className="small ghost" onClick={() => setNics([...nics, blankNIC(networks, nics.length)])} disabled={nics.length >= 8}>
+                <Plus size={14} /> Interface
+              </button>
+            </div>
+            <ul className="muted small edit-notes">
+              <li>The addresses, DNS and NTP of the interfaces it has are the node&apos;s: change them on its page (System › Network).</li>
+              <li>An added interface gets static addresses, or none: DHCP only works on the one the node booted with.</li>
+              <li>The interface the Controller reaches the node through can&apos;t be removed or moved to another network.</li>
+            </ul>
+          </div>
+          <ErrorBox error={error} />
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="primary" type="submit" disabled={busy}>
+              {busy ? 'Changing…' : 'Change'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
 
 export function PowerButtons({ machine, vm, actions }) {
@@ -703,9 +911,32 @@ export function PowerButtons({ machine, vm, actions }) {
   )
 }
 
-function MachineCard({ m, vm, vmError, actions }) {
+// LockNotice says a machine is managed as code, and whether its pages may
+// change it.
+export function LockNotice({ m, actions }) {
+  if (!m.spec.managed_by) return null
+  const by = m.spec.managed_by
+  return m.spec.locked ? (
+    <div className="notice small lock-notice">
+      <Lock size={14} />
+      <span className="grow">
+        Managed by <strong>{by}</strong> and locked: change it there. A change made on this Controller would be undone by its next run.
+      </span>
+      <button className="small ghost" onClick={() => actions.release(m)} disabled={actions.busy} title="Let its pages change it again">
+        <LockOpen size={14} /> Release
+      </button>
+    </div>
+  ) : (
+    <div className="notice warn small">
+      Managed by <strong>{by}</strong>, released: a change made here is undone by its next run.
+    </div>
+  )
+}
+
+function MachineCard({ m, vm, vmError, actions, onEdit }) {
   const [history, setHistory] = useState(false)
   const last = m.events[m.events.length - 1]
+  const synced = ago(m.synced_at)
   return (
     <section className="card node-card">
       <div className="spread" style={{ alignItems: 'flex-start' }}>
@@ -715,13 +946,18 @@ function MachineCard({ m, vm, vmError, actions }) {
             {m.vm_name || '…'} · {m.hypervisor_name}
           </div>
         </div>
-        <div className="row" style={{ gap: '0.3rem' }}>
+        <div className="row" style={{ gap: '0.3rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <ManagedBadge m={m} />
           <PowerBadge power={vm?.power} />
           <PhaseBadge phase={m.phase} />
         </div>
       </div>
+      <LockNotice m={m} actions={actions} />
       {m.error && <div className="error-box small">{m.error}</div>}
       {vmError && <div className="error-box small">{vmError}</div>}
+      {m.node_hostname && m.node_hostname !== m.spec.name && (
+        <div className="notice warn small">The node calls itself {m.node_hostname}: its hostname was changed on its page.</div>
+      )}
       <dl className="kv small">
         <dt>Size</dt>
         <dd>
@@ -748,18 +984,28 @@ function MachineCard({ m, vm, vmError, actions }) {
         </div>
       )}
       {history && <pre className="logview machine-events">{m.events.map((e) => `${new Date(e.time).toLocaleTimeString()}  ${e.message}`).join('\n')}</pre>}
+      {m.node_id && (synced || m.sync_error) && (
+        <div className={`small ${m.sync_error ? '' : 'muted'}`} style={m.sync_error ? { color: 'var(--warn)' } : undefined}>
+          {m.sync_error ? `Couldn't read it from its node: ${m.sync_error}` : `Read from its node and hypervisor ${synced}`}
+        </div>
+      )}
       <div className="row" style={{ marginTop: 'auto' }}>
         <PowerButtons machine={m} vm={vm} actions={actions} />
         <button className="small ghost" onClick={() => setHistory(!history)} title="History">
           <History size={14} />
         </button>
+        {m.phase === 'ready' && m.node_id && !m.spec.locked && (
+          <button className="small" onClick={() => onEdit(m)} disabled={actions.busy} title="vCPUs, memory, network interfaces">
+            <Pencil size={14} /> Edit
+          </button>
+        )}
         {m.phase === 'failed' && !m.node_id && (
           <button className="small" onClick={() => actions.retry(m)} disabled={actions.busy}>
             <RotateCcw size={14} /> Retry
           </button>
         )}
         <span className="grow" />
-        {m.phase !== 'destroying' && (
+        {m.phase !== 'destroying' && !m.spec.locked && (
           <button className="ghost small danger" onClick={() => actions.destroy(m)} disabled={actions.busy}>
             <Trash2 size={14} /> Destroy
           </button>
@@ -774,6 +1020,7 @@ function MachineCard({ m, vm, vmError, actions }) {
 export default function HypervisorsPage({ hypervisors, machines, hvStatus, onChanged, onConsole }) {
   const [form, setForm] = useState(null) // null, 'add', or a hypervisor to edit
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState(null) // a machine
   const confirm = useConfirm()
   const [, run] = useAction()
   const actions = useMachineActions({ onChanged, onConsole })
@@ -790,11 +1037,23 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
     }
   }
   const trusted = hypervisors.filter((h) => h.trusted)
+  const editingHV = editing && hypervisors.find((h) => h.id === editing.spec.hypervisor_id)
   const vmOf = (m) => hvStatus[m.spec.hypervisor_id]?.machines?.[m.id]
   const vmErrorOf = (m) => hvStatus[m.spec.hypervisor_id]?.machine_errors?.[m.id]
 
   return (
     <div className="stack">
+      {editing && (
+        <EditMachine
+          m={editing}
+          hv={editingHV}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null)
+            onChanged()
+          }}
+        />
+      )}
       <div className="spread">
         <h1>Hypervisors</h1>
         {!form && (
@@ -855,7 +1114,7 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
       {machines.length === 0 && !creating && <div className="card empty">No machine yet: the nodes this Controller creates appear here.</div>}
       <div className="node-grid">
         {machines.map((m) => (
-          <MachineCard key={m.id} m={m} vm={vmOf(m)} vmError={vmErrorOf(m)} actions={actions} />
+          <MachineCard key={m.id} m={m} vm={vmOf(m)} vmError={vmErrorOf(m)} actions={actions} onEdit={setEditing} />
         ))}
       </div>
     </div>

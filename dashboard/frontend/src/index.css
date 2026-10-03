@@ -92,3 +92,7 @@
 @media (max-width: 800px) {
   .nic-row { grid-template-columns: 1fr 1fr; }
 }
+.lock-notice { display: flex; align-items: center; gap: 0.5rem; }
+.modal.edit-machine { width: min(980px, 100%); }
+.nic-current { align-self: center; grid-column: span 3; }
+.edit-notes { margin: 0.2rem 0 0; padding-left: 1.1rem; }

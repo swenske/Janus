@@ -27,6 +27,7 @@ import {
   Terminal,
   Waypoints,
   Workflow,
+  Lock,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Logo, ThemeToggle } from '../shared/theme.jsx'
@@ -233,6 +234,12 @@ export default function App() {
         {error && (
           <div className="banner danger">
             <AlertTriangle size={16} /> Can't reach the node: {String(error.message || error)} - retrying.
+          </div>
+        )}
+        {node.data?.locked_by && (
+          <div className="banner info">
+            <Lock size={16} /> Managed by {node.data.locked_by} and locked: its network and updates are changed there - this page refuses them. Release it on the
+            Controller&apos;s Hypervisors tab to change them here.
           </div>
         )}
         <main className="content">

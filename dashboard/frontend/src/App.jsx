@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { call } from './call.js'
 import MachineConsole from './Console.jsx'
 import ControllerUpdate from './ControllerUpdate.jsx'
-import HypervisorsPage, { PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
+import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
 import { navigate, useHashRoute } from './shared/route.js'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
 import TokensPage from './Tokens.jsx'
@@ -54,6 +54,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions }) {
             </span>
           </div>
           <div className="row" style={{ gap: '0.3rem' }}>
+            <ManagedBadge m={machine} />
             <PowerBadge power={vm?.power} />
             {machine.phase !== 'ready' && <PhaseBadge phase={machine.phase} />}
             <span className="grow" />
@@ -61,6 +62,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions }) {
           </div>
         </div>
       )}
+      {machine && <LockNotice m={machine} actions={machineActions} />}
       {st && !reachable && <div className="error-box small">{st.error || 'no answer'}</div>}
       {reachable && (
         <dl className="kv small">
@@ -97,9 +99,11 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions }) {
         </button>
         <span className="grow" />
         {machine ? (
-          <button className="ghost small danger" onClick={() => machineActions.destroy(machine)} disabled={machineActions.busy} title="Destroy its virtual machine">
-            <Trash2 size={14} /> Destroy
-          </button>
+          !machine.spec.locked && (
+            <button className="ghost small danger" onClick={() => machineActions.destroy(machine)} disabled={machineActions.busy} title="Destroy its virtual machine">
+              <Trash2 size={14} /> Destroy
+            </button>
+          )
         ) : (
           <button className="ghost small danger" onClick={() => onRemove(node)} title="Remove from this Controller">
             <Trash2 size={14} /> Remove

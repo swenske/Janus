@@ -73,6 +73,7 @@
 }
 .banner.danger { background: var(--danger-soft); color: var(--danger); }
 .banner.warn { background: var(--warn-soft); color: var(--warn); }
+.banner.info { background: var(--info-soft); color: var(--info); }
 .content { padding: 1.3rem 1.4rem 3rem; max-width: 1500px; width: 100%; }
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.1rem; flex-wrap: wrap; }
 .page-header h1 { margin-bottom: 0.15rem; }
