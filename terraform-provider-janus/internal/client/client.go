@@ -58,7 +58,9 @@ type Error struct {
 	Message string
 }
 
-func (e *Error) Error() string { return fmt.Sprintf("Janus Controller: %s (HTTP %d)", e.Message, e.Status) }
+func (e *Error) Error() string {
+	return fmt.Sprintf("Janus Controller: %s (HTTP %d)", e.Message, e.Status)
+}
 
 // IsNotFound reports a 404: the resource is gone.
 func IsNotFound(err error) bool {
@@ -199,6 +201,8 @@ type MachineSpec struct {
 	NICs         []NIC        `json:"nics"`
 	DNS          []string     `json:"dns,omitempty"`
 	NTP          []string     `json:"ntp,omitempty"`
+	ManagedBy    string       `json:"managed_by,omitempty"`
+	Locked       bool         `json:"locked,omitempty"`
 }
 
 type Event struct {
@@ -230,11 +234,20 @@ type MachineUpdate struct {
 	NICs       *[]NIC    `json:"nics,omitempty"`
 	DNS        *[]string `json:"dns,omitempty"`
 	NTP        *[]string `json:"ntp,omitempty"`
+	ManagedBy  *string   `json:"managed_by,omitempty"`
+	Locked     *bool     `json:"locked,omitempty"`
 }
 
 func (c *Client) Machine(ctx context.Context, id string) (*Machine, error) {
 	var out Machine
 	return &out, c.do(ctx, http.MethodGet, "/api/machines/"+url.PathEscape(id), nil, &out)
+}
+
+// RefreshMachine reads a machine after the Controller read it again from
+// its node and hypervisor: what a plan compares the configuration with.
+func (c *Client) RefreshMachine(ctx context.Context, id string) (*Machine, error) {
+	var out Machine
+	return &out, c.do(ctx, http.MethodGet, "/api/machines/"+url.PathEscape(id)+"?refresh=true", nil, &out)
 }
 
 func (c *Client) CreateMachine(ctx context.Context, spec MachineSpec) (*Machine, error) {

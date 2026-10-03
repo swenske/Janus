@@ -12,8 +12,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
@@ -58,6 +58,7 @@ type nodeModel struct {
 	Interfaces   []interfaceModel `tfsdk:"interfaces"`
 	DNS          types.List       `tfsdk:"dns"`
 	NTP          types.List       `tfsdk:"ntp"`
+	LockUI       types.Bool       `tfsdk:"lock_ui"`
 	NodeID       types.String     `tfsdk:"node_id"`
 	NodeAddress  types.String     `tfsdk:"node_address"`
 	VMName       types.String     `tfsdk:"vm_name"`
@@ -71,7 +72,7 @@ func (r *nodeResource) Metadata(_ context.Context, req resource.MetadataRequest,
 
 func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A Janus node the Controller creates on one of its hypervisors. Its network, size, version and extensions change in place; a new name, hypervisor, image or set of interfaces makes a new node.",
+		Description: "A Janus node the Controller creates on one of its hypervisors. Its hardware (vCPUs, memory, interfaces), network, version and extensions change in place; a new name, hypervisor or image makes a new node.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed: true, Description: "The machine's ID on the Controller.",
@@ -95,7 +96,7 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 			},
 			"version": schema.StringAttribute{
 				Optional: true, Computed: true,
-				Description: "The Janus release it runs (vYYYY.MM.DD[-N]). Unset: the newest when created, then whatever it runs. A change updates the node in place (A/B, checked healthy).",
+				Description:   "The Janus release it runs (vYYYY.MM.DD[-N]). Unset: the newest when created, then whatever it runs. A change updates the node in place (A/B, checked healthy).",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"extensions": schema.SetAttribute{
@@ -113,7 +114,7 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 			},
 			"interfaces": schema.ListNestedAttribute{
 				Required:    true,
-				Description: "Its network interfaces, matched by MAC address and named on the node. Addresses, gateways and modes change in place (on trial, confirmed); another network, name, MAC or count makes a new node.",
+				Description: "Its network interfaces, matched by MAC address and named on the node. All of it changes in place: addresses, gateways and modes on trial then confirmed; an interface added, removed or moved to another network with a clean restart. An interface keeps its MAC by its name; the one the Controller reaches the node through can't be removed or moved.",
 				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 					"network": schema.StringAttribute{Required: true, Description: "One of the hypervisor's networks."},
 					"name":    schema.StringAttribute{Required: true, Description: "The interface's name on the node (mgmt, front...)."},
@@ -124,16 +125,18 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 					"addresses": schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "Static mode: addresses in CIDR form."},
 					"gateway":   schema.StringAttribute{Optional: true, Description: "Static mode: the default gateway through this interface."},
 					"mac": schema.StringAttribute{
-						Optional: true, Computed: true, Description: "Its MAC address; chosen by the Controller when unset.",
-						PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+						Optional: true, Computed: true,
+						Description: "Its MAC address; chosen by the Controller when unset, and kept by the interface's name afterwards.",
 					},
 				}},
-				PlanModifiers: []planmodifier.List{listplanmodifier.RequiresReplaceIf(interfacesReplaced,
-					"Another number of interfaces, or another network, name or MAC address for one, makes a new node.",
-					"Another number of interfaces, or another network, name or MAC address for one, makes a new node.")},
+				PlanModifiers: []planmodifier.List{interfaceMACs{}},
 			},
 			"dns": schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "DNS servers; unset: DHCP's."},
 			"ntp": schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "NTP servers (at most two); unset: DHCP's, else pool.ntp.org."},
+			"lock_ui": schema.BoolAttribute{
+				Optional: true, Computed: true, Default: booldefault.StaticBool(true),
+				Description: "Lock the node against changes from the Controller's pages (its hardware, network, version and extensions, destroying it) - they'd be undone by the next apply. Its pages still show it, restart it, open its console. Released on the Controller, it's locked again by the next apply.",
+			},
 			"node_id": schema.StringAttribute{
 				Computed: true, Description: "The node's ID on the Controller once it registered.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
@@ -149,10 +152,22 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 	}
 }
 
-// interfacesReplaced: a new node when the interfaces' count, or one's
-// network, name or MAC address changes.
-func interfacesReplaced(ctx context.Context, req planmodifier.ListRequest, resp *listplanmodifier.RequiresReplaceIfFuncResponse) {
-	if req.StateValue.IsNull() || req.PlanValue.IsUnknown() {
+// interfaceMACs keeps each interface's MAC address from one plan to the
+// next by the interface's name (or, renamed, by its position on the same
+// network): with positions alone, removing the first interface would
+// give the second one the first one's MAC - and the Controller would
+// remove the wrong one. An interface with no MAC to keep is a new one:
+// the Controller chooses it.
+type interfaceMACs struct{}
+
+func (interfaceMACs) Description(context.Context) string {
+	return "keeps each interface's MAC address by its name"
+}
+
+func (m interfaceMACs) MarkdownDescription(ctx context.Context) string { return m.Description(ctx) }
+
+func (interfaceMACs) PlanModifyList(ctx context.Context, req planmodifier.ListRequest, resp *planmodifier.ListResponse) {
+	if req.StateValue.IsNull() || req.PlanValue.IsUnknown() || req.PlanValue.IsNull() {
 		return
 	}
 	var state, plan []interfaceModel
@@ -161,23 +176,48 @@ func interfacesReplaced(ctx context.Context, req planmodifier.ListRequest, resp 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	resp.RequiresReplace = interfacesStructureChanged(state, plan)
+	keepMACs(state, plan)
+	v, d := types.ListValueFrom(ctx, req.PlanValue.ElementType(ctx), plan)
+	resp.Diagnostics.Append(d...)
+	resp.PlanValue = v
 }
 
-func interfacesStructureChanged(state, plan []interfaceModel) bool {
-	if len(state) != len(plan) {
-		return true
+// keepMACs gives each planned interface without a MAC of its own the one
+// it has now: the interface with its name, else the one at its position
+// on the same network; none - a new interface - stays unknown.
+func keepMACs(state, plan []interfaceModel) {
+	used := map[int]bool{}
+	known := func(v types.String) bool { return !v.IsNull() && !v.IsUnknown() && v.ValueString() != "" }
+	for i := range plan {
+		if known(plan[i].MAC) {
+			for j := range state {
+				if state[j].MAC.Equal(plan[i].MAC) {
+					used[j] = true
+				}
+			}
+		}
 	}
 	for i := range plan {
-		if !plan[i].Network.Equal(state[i].Network) || !plan[i].Name.Equal(state[i].Name) {
-			return true
+		if known(plan[i].MAC) {
+			continue
 		}
-		// An unset MAC keeps the one chosen; a set one must be it.
-		if !plan[i].MAC.IsUnknown() && !plan[i].MAC.IsNull() && !plan[i].MAC.Equal(state[i].MAC) {
-			return true
+		j := -1
+		for k := range state {
+			if !used[k] && state[k].Name.Equal(plan[i].Name) {
+				j = k
+				break
+			}
 		}
+		if j < 0 && i < len(state) && !used[i] && state[i].Network.Equal(plan[i].Network) {
+			j = i
+		}
+		if j < 0 {
+			plan[i].MAC = types.StringUnknown()
+			continue
+		}
+		used[j] = true
+		plan[i].MAC = state[j].MAC
 	}
-	return false
 }
 
 func (r *nodeResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -228,6 +268,8 @@ func specFromPlan(ctx context.Context, m *nodeModel, diags *diag.Diagnostics) cl
 		Extensions:   stringsOf(ctx, m.Extensions, diags),
 		DNS:          stringsOf(ctx, m.DNS, diags),
 		NTP:          stringsOf(ctx, m.NTP, diags),
+		ManagedBy:    "terraform",
+		Locked:       m.LockUI.ValueBool(),
 	}
 	if m.Image != nil {
 		spec.Image = &client.ImageSource{URL: m.Image.URL.ValueString(), SHA256: m.Image.SHA256.ValueString()}
@@ -326,6 +368,7 @@ func fromMachine(m *client.Machine, s *nodeModel) {
 	}
 	s.DNS = listOf(m.Spec.DNS, s.DNS)
 	s.NTP = listOf(m.Spec.NTP, s.NTP)
+	s.LockUI = types.BoolValue(m.Spec.Locked)
 	s.NodeID = strOrNull(m.NodeID, types.StringNull())
 	s.NodeAddress = strOrNull(m.NodeAddress, types.StringNull())
 	s.VMName = strOrNull(m.VMName, types.StringNull())
@@ -377,6 +420,14 @@ func updateFor(ctx context.Context, state, plan *nodeModel, diags *diag.Diagnost
 			pt = []string{}
 		}
 		u.NTP, changed = &pt, true
+	}
+	if !plan.LockUI.Equal(state.LockUI) {
+		v := plan.LockUI.ValueBool()
+		u.Locked, changed = &v, true
+	}
+	if changed {
+		by := "terraform"
+		u.ManagedBy = &by // an imported node becomes Terraform's
 	}
 	if !changed {
 		return nil
@@ -430,7 +481,7 @@ func (r *nodeResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	m, err := r.c.Machine(ctx, state.ID.ValueString())
+	m, err := r.c.RefreshMachine(ctx, state.ID.ValueString())
 	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return

@@ -47,24 +47,38 @@ func iface(network, name, mac, mode string, addrs ...string) interfaceModel {
 	}
 }
 
-func TestInterfacesStructureChanged(t *testing.T) {
-	state := []interfaceModel{iface("lan", "mgmt", "52:54:00:00:00:01", "static", "10.0.0.5/24")}
-	same := []interfaceModel{iface("lan", "mgmt", "52:54:00:00:00:01", "static", "10.0.0.6/24")}
-	unsetMAC := []interfaceModel{iface("lan", "mgmt", "", "dhcp")}
-	unsetMAC[0].MAC = types.StringUnknown()
+// An interface keeps its MAC by its name: removing the first one must
+// not hand its MAC to the second (the Controller would remove the wrong
+// one); a new one gets none (the Controller chooses).
+func TestKeepMACs(t *testing.T) {
+	state := []interfaceModel{
+		iface("lan", "mgmt", "52:54:00:00:00:01", "static", "10.0.0.5/24"),
+		iface("dmz", "front", "52:54:00:00:00:02", "none"),
+	}
+	unset := func(network, name string) interfaceModel {
+		i := iface(network, name, "", "static")
+		i.MAC = types.StringUnknown()
+		return i
+	}
 	for name, tc := range map[string]struct {
 		plan []interfaceModel
-		want bool
+		want []string // MACs; "" for unknown
 	}{
-		"address only":    {same, false},
-		"mode, MAC unset": {unsetMAC, false},
-		"network":         {[]interfaceModel{iface("dmz", "mgmt", "52:54:00:00:00:01", "static")}, true},
-		"name":            {[]interfaceModel{iface("lan", "eth0", "52:54:00:00:00:01", "static")}, true},
-		"MAC":             {[]interfaceModel{iface("lan", "mgmt", "52:54:00:00:00:02", "static")}, true},
-		"one more":        {append(same, iface("dmz", "front", "", "dhcp")), true},
+		"unchanged":         {[]interfaceModel{unset("lan", "mgmt"), unset("dmz", "front")}, []string{"52:54:00:00:00:01", "52:54:00:00:00:02"}},
+		"first removed":     {[]interfaceModel{unset("dmz", "front")}, []string{"52:54:00:00:00:02"}},
+		"one added":         {[]interfaceModel{unset("lan", "mgmt"), unset("dmz", "front"), unset("lan", "backend")}, []string{"52:54:00:00:00:01", "52:54:00:00:00:02", ""}},
+		"renamed in place":  {[]interfaceModel{unset("lan", "admin"), unset("dmz", "front")}, []string{"52:54:00:00:00:01", "52:54:00:00:00:02"}},
+		"moved, same name":  {[]interfaceModel{unset("lan", "mgmt"), unset("lan", "front")}, []string{"52:54:00:00:00:01", "52:54:00:00:00:02"}},
+		"swapped order":     {[]interfaceModel{unset("dmz", "front"), unset("lan", "mgmt")}, []string{"52:54:00:00:00:02", "52:54:00:00:00:01"}},
+		"replaced by a new": {[]interfaceModel{unset("lan", "mgmt"), unset("wan", "uplink")}, []string{"52:54:00:00:00:01", ""}},
 	} {
-		if got := interfacesStructureChanged(state, tc.plan); got != tc.want {
-			t.Errorf("%s: %v, want %v", name, got, tc.want)
+		plan := append([]interfaceModel(nil), tc.plan...)
+		keepMACs(state, plan)
+		for i, w := range tc.want {
+			got := plan[i].MAC
+			if (w == "" && !got.IsUnknown()) || (w != "" && got.ValueString() != w) {
+				t.Errorf("%s: interface %d has %v, want %q", name, i, got, w)
+			}
 		}
 	}
 }
