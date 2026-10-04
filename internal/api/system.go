@@ -37,13 +37,14 @@ type System struct {
 	// from build-time ldflags.
 	BuildVersion string
 
-	// CA issues the client certificates GenerateClientConfiguration hands
+	// LocalCA is the node's own CA, now (LocalCARotate replaces it): it
+	// issues the client certificates GenerateClientConfiguration hands
 	// out. Reaching this RPC at all already required a valid client
 	// certificate (mTLS is enforced on the whole listener, see
 	// cmd/janusd) - this is for rotating/reissuing credentials, not
 	// bootstrapping the very first one (that comes from the admin
 	// certificate LoadOrBootstrap prints on first boot).
-	CA *pki.CA
+	LocalCA func() *pki.CA
 
 	// Logs holds each managed service's captured output, by service id
 	// ("janusd", "haproxy") - see Logs.
@@ -156,7 +157,7 @@ func (s *System) GenerateClientConfiguration(_ context.Context, req *janusv1alph
 		return nil, status.Errorf(codes.InvalidArgument, "ttl_seconds %d: between 60 and %d (one year), or 0 for one year", req.GetTtlSeconds(), int(pki.LeafValidity.Seconds()))
 	}
 
-	certPEM, keyPEM, err := s.CA.Issue(pki.IssueOptions{
+	certPEM, keyPEM, err := s.LocalCA().Issue(pki.IssueOptions{
 		CommonName:  name,
 		Roles:       roles,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
@@ -167,7 +168,7 @@ func (s *System) GenerateClientConfiguration(_ context.Context, req *janusv1alph
 	}
 
 	return &janusv1alpha1.GenerateClientConfigurationResponse{
-		Ca:  s.CA.CertPEM,
+		Ca:  s.LocalCA().CertPEM,
 		Crt: certPEM,
 		Key: keyPEM,
 	}, nil

@@ -2,11 +2,21 @@ package api
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
+	"io"
 	"log"
+	"os"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -24,8 +34,14 @@ import (
 type Access struct {
 	janusv1alpha1.UnimplementedAccessServiceServer
 	Fleet *pki.Fleet
-	// LocalCA is the node's own CA, now.
-	LocalCA func() *pki.CA
+	// Local is the node's own CA; ServerCert, its server certificate -
+	// both replaced by LocalCARotate.
+	Local      *pki.Local
+	ServerCert *pki.ServerCert
+	// Console gets what LocalCARotate prints when the node made the new
+	// admin key - janusd's stderr, the console: never its log ring,
+	// which Logs serves.
+	Console io.Writer
 }
 
 func (a *Access) state() *janusv1alpha1.TrustState {
@@ -63,7 +79,7 @@ func (a *Access) TrustSet(ctx context.Context, req *janusv1alpha1.TrustSetReques
 }
 
 func (a *Access) TrustReset(ctx context.Context, _ *emptypb.Empty) (*janusv1alpha1.TrustState, error) {
-	if !viaLocalCA(ctx, a.LocalCA().Cert.Raw) {
+	if !viaLocalCA(ctx, a.Local.CA().Cert.Raw) {
 		return nil, status.Error(codes.PermissionDenied, "only a certificate of the node's own CA may forget its fleet")
 	}
 	if err := a.Fleet.Reset(); err != nil {
@@ -73,6 +89,64 @@ func (a *Access) TrustReset(ctx context.Context, _ *emptypb.Empty) (*janusv1alph
 	log.Printf("access: fleet forgotten - by %s", caller)
 	events.Publish("access.trust_reset", map[string]any{"by": caller.String()})
 	return a.state(), nil
+}
+
+func (a *Access) LocalCARotate(ctx context.Context, req *janusv1alpha1.LocalCARotateRequest) (*janusv1alpha1.LocalCARotateResponse, error) {
+	var pub crypto.PublicKey
+	if len(req.GetAdminPublicKey()) > 0 {
+		p, err := parseAdminPublicKey(req.GetAdminPublicKey())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "admin_public_key: %v", err)
+		}
+		pub = p
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "janus"
+	}
+	r, err := a.ServerCert.Rotate(a.Local, hostname, pki.LocalIPs(), pub)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "replace the node's CA: %v", err)
+	}
+	caller, _ := CallerFrom(ctx)
+	log.Printf("access: the node's own CA replaced (SHA-256 %s) - every certificate the old one issued stops working - by %s", fingerprint(r.CA.Cert.Raw), caller)
+	events.Publish("access.local_ca_rotated", map[string]any{"ca": fingerprint(r.CA.Cert.Raw), "by": caller.String()})
+	resp := &janusv1alpha1.LocalCARotateResponse{CaCert: r.CA.CertPEM}
+	if r.AdminKeyPEM == nil {
+		resp.AdminCert = r.AdminCertPEM
+		return resp, nil
+	}
+	now := time.Now().Format("2006/01/02 15:04:05")
+	fmt.Fprintf(a.Console, "%s pki: the node's own CA was replaced (by %s)\n%s pki: CA CERTIFICATE (needed for janusctl's -ca flag):\n%s%s pki: ADMIN CERTIFICATE (save this now, it will not be printed again):\n%s%s",
+		now, caller, now, r.CA.CertPEM, now, r.AdminCertPEM, r.AdminKeyPEM)
+	return resp, nil
+}
+
+// parseAdminPublicKey reads a PKIX PEM public key a certificate may be
+// issued for.
+func parseAdminPublicKey(p []byte) (crypto.PublicKey, error) {
+	block, _ := pem.Decode(p)
+	if block == nil || block.Type != "PUBLIC KEY" {
+		return nil, errors.New("not a PEM PUBLIC KEY")
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	switch k := pub.(type) {
+	case *ecdsa.PublicKey:
+		if k.Curve != elliptic.P256() && k.Curve != elliptic.P384() {
+			return nil, fmt.Errorf("ECDSA on %s: P-256 or P-384", k.Curve.Params().Name)
+		}
+	case ed25519.PublicKey:
+	case *rsa.PublicKey:
+		if k.N.BitLen() < 2048 {
+			return nil, fmt.Errorf("RSA %d bits: 2048 or more", k.N.BitLen())
+		}
+	default:
+		return nil, fmt.Errorf("%T: ECDSA, Ed25519 or RSA", pub)
+	}
+	return pub, nil
 }
 
 // viaLocalCA reports whether the call's client certificate chains to the

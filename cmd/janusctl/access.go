@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
 	"flag"
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"google.golang.org/grpc"
@@ -20,6 +26,7 @@ var accessUsage = []string{
 	"access trust                       the fleet the node trusts besides its own CA: root, bundle, issuing CAs",
 	"access trust-set [-root FILE] BUNDLE  pin the fleet's root (the first time) and apply BUNDLE, signed by it and newer than the node's",
 	"access trust-reset                 forget the fleet - only with a certificate of the node's own CA",
+	"access rotate-ca [-console] DIR    replace the node's own CA: every certificate it issued stops working; writes DIR/{ca.crt,admin.crt,admin.key}, the key made here and never sent (-console: the node makes it and prints it on its console; only DIR/ca.crt)",
 }
 
 func runAccess(conn *grpc.ClientConn, args []string) {
@@ -54,6 +61,9 @@ func runAccess(conn *grpc.ClientConn, args []string) {
 	case "trust-reset":
 		st, err = client.TrustReset(c, &emptypb.Empty{})
 		check("TrustReset", err)
+	case "rotate-ca":
+		rotateCA(c, client, args[1:])
+		return
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl access: unknown subcommand %q\n", args[0])
 		usage()
@@ -97,4 +107,54 @@ func printTrust(st *janusv1alpha1.TrustState) {
 	for _, ca := range st.GetIssuingCas() {
 		fmt.Println("Issuing:", describe(ca))
 	}
+}
+
+// rotateCA replaces the node's own CA; the new admin certificate's key is
+// made here and never leaves this machine - unless -console.
+func rotateCA(c context.Context, client janusv1alpha1.AccessServiceClient, args []string) {
+	fs := flag.NewFlagSet("access rotate-ca", flag.ExitOnError)
+	console := fs.Bool("console", false, "have the node make the admin key and print it on its console, like at first boot")
+	_ = fs.Parse(args)
+	if fs.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "usage: janusctl access rotate-ca [-console] DIR")
+		os.Exit(2)
+	}
+	dir := fs.Arg(0)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		log.Fatal(err)
+	}
+	req := &janusv1alpha1.LocalCARotateRequest{}
+	var keyPEM []byte
+	if !*console {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pub, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+		if err != nil {
+			log.Fatal(err)
+		}
+		der, err := x509.MarshalPKCS8PrivateKey(key)
+		if err != nil {
+			log.Fatal(err)
+		}
+		req.AdminPublicKey = pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pub})
+		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	}
+	resp, err := client.LocalCARotate(c, req)
+	check("LocalCARotate", err)
+	files := map[string][]byte{"ca.crt": resp.GetCaCert()}
+	if !*console {
+		files["admin.crt"], files["admin.key"] = resp.GetAdminCert(), keyPEM
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			log.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if *console {
+		fmt.Printf("The node's own CA is replaced: its new CA certificate is in %s/ca.crt; the new admin certificate and key are on its console.\n", dir)
+		return
+	}
+	fmt.Printf("The node's own CA is replaced: wrote %s/{ca.crt,admin.crt,admin.key}. Every certificate the old CA issued no longer works.\n", dir)
 }

@@ -20,9 +20,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AccessService_TrustGet_FullMethodName   = "/janus.v1alpha1.AccessService/TrustGet"
-	AccessService_TrustSet_FullMethodName   = "/janus.v1alpha1.AccessService/TrustSet"
-	AccessService_TrustReset_FullMethodName = "/janus.v1alpha1.AccessService/TrustReset"
+	AccessService_TrustGet_FullMethodName      = "/janus.v1alpha1.AccessService/TrustGet"
+	AccessService_TrustSet_FullMethodName      = "/janus.v1alpha1.AccessService/TrustSet"
+	AccessService_TrustReset_FullMethodName    = "/janus.v1alpha1.AccessService/TrustReset"
+	AccessService_LocalCARotate_FullMethodName = "/janus.v1alpha1.AccessService/LocalCARotate"
 )
 
 // AccessServiceClient is the client API for AccessService service.
@@ -46,6 +47,16 @@ type AccessServiceClient interface {
 	// certificate of the node's own CA may do it - the way back when a
 	// fleet is lost, never for the fleet itself.
 	TrustReset(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TrustState, error)
+	// Replaces the node's own CA: a new CA, server certificate and admin
+	// certificate. Every certificate the old CA issued stops working - the
+	// first-boot admin one, a Controller's service credential, those
+	// GenerateClientConfiguration issued; the fleet's let in as before.
+	// With admin_public_key (PKIX, PEM: ECDSA P-256/P-384, Ed25519 or RSA
+	// 2048+), the new admin certificate is issued for it, its key never
+	// seen by the node; without, the node makes the key and prints both on
+	// its console, like at first boot. Clients must verify the node with
+	// the new CA (ca_cert) from now on.
+	LocalCARotate(ctx context.Context, in *LocalCARotateRequest, opts ...grpc.CallOption) (*LocalCARotateResponse, error)
 }
 
 type accessServiceClient struct {
@@ -86,6 +97,16 @@ func (c *accessServiceClient) TrustReset(ctx context.Context, in *emptypb.Empty,
 	return out, nil
 }
 
+func (c *accessServiceClient) LocalCARotate(ctx context.Context, in *LocalCARotateRequest, opts ...grpc.CallOption) (*LocalCARotateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LocalCARotateResponse)
+	err := c.cc.Invoke(ctx, AccessService_LocalCARotate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AccessServiceServer is the server API for AccessService service.
 // All implementations must embed UnimplementedAccessServiceServer
 // for forward compatibility.
@@ -107,6 +128,16 @@ type AccessServiceServer interface {
 	// certificate of the node's own CA may do it - the way back when a
 	// fleet is lost, never for the fleet itself.
 	TrustReset(context.Context, *emptypb.Empty) (*TrustState, error)
+	// Replaces the node's own CA: a new CA, server certificate and admin
+	// certificate. Every certificate the old CA issued stops working - the
+	// first-boot admin one, a Controller's service credential, those
+	// GenerateClientConfiguration issued; the fleet's let in as before.
+	// With admin_public_key (PKIX, PEM: ECDSA P-256/P-384, Ed25519 or RSA
+	// 2048+), the new admin certificate is issued for it, its key never
+	// seen by the node; without, the node makes the key and prints both on
+	// its console, like at first boot. Clients must verify the node with
+	// the new CA (ca_cert) from now on.
+	LocalCARotate(context.Context, *LocalCARotateRequest) (*LocalCARotateResponse, error)
 	mustEmbedUnimplementedAccessServiceServer()
 }
 
@@ -125,6 +156,9 @@ func (UnimplementedAccessServiceServer) TrustSet(context.Context, *TrustSetReque
 }
 func (UnimplementedAccessServiceServer) TrustReset(context.Context, *emptypb.Empty) (*TrustState, error) {
 	return nil, status.Error(codes.Unimplemented, "method TrustReset not implemented")
+}
+func (UnimplementedAccessServiceServer) LocalCARotate(context.Context, *LocalCARotateRequest) (*LocalCARotateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LocalCARotate not implemented")
 }
 func (UnimplementedAccessServiceServer) mustEmbedUnimplementedAccessServiceServer() {}
 func (UnimplementedAccessServiceServer) testEmbeddedByValue()                       {}
@@ -201,6 +235,24 @@ func _AccessService_TrustReset_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AccessService_LocalCARotate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LocalCARotateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccessServiceServer).LocalCARotate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccessService_LocalCARotate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccessServiceServer).LocalCARotate(ctx, req.(*LocalCARotateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AccessService_ServiceDesc is the grpc.ServiceDesc for AccessService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -219,6 +271,10 @@ var AccessService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TrustReset",
 			Handler:    _AccessService_TrustReset_Handler,
+		},
+		{
+			MethodName: "LocalCARotate",
+			Handler:    _AccessService_LocalCARotate_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

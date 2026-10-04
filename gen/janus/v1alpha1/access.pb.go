@@ -22,6 +22,102 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type LocalCARotateRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AdminPublicKey []byte                 `protobuf:"bytes,1,opt,name=admin_public_key,json=adminPublicKey,proto3" json:"admin_public_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *LocalCARotateRequest) Reset() {
+	*x = LocalCARotateRequest{}
+	mi := &file_janus_v1alpha1_access_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalCARotateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalCARotateRequest) ProtoMessage() {}
+
+func (x *LocalCARotateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_access_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocalCARotateRequest.ProtoReflect.Descriptor instead.
+func (*LocalCARotateRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_access_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *LocalCARotateRequest) GetAdminPublicKey() []byte {
+	if x != nil {
+		return x.AdminPublicKey
+	}
+	return nil
+}
+
+type LocalCARotateResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CaCert        []byte                 `protobuf:"bytes,1,opt,name=ca_cert,json=caCert,proto3" json:"ca_cert,omitempty"`          // PEM
+	AdminCert     []byte                 `protobuf:"bytes,2,opt,name=admin_cert,json=adminCert,proto3" json:"admin_cert,omitempty"` // PEM; empty when printed on the console
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocalCARotateResponse) Reset() {
+	*x = LocalCARotateResponse{}
+	mi := &file_janus_v1alpha1_access_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalCARotateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalCARotateResponse) ProtoMessage() {}
+
+func (x *LocalCARotateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_access_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocalCARotateResponse.ProtoReflect.Descriptor instead.
+func (*LocalCARotateResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_access_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *LocalCARotateResponse) GetCaCert() []byte {
+	if x != nil {
+		return x.CaCert
+	}
+	return nil
+}
+
+func (x *LocalCARotateResponse) GetAdminCert() []byte {
+	if x != nil {
+		return x.AdminCert
+	}
+	return nil
+}
+
 type TrustState struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	RootCert         []byte                 `protobuf:"bytes,1,opt,name=root_cert,json=rootCert,proto3" json:"root_cert,omitempty"`                 // PEM; empty when the node trusts no fleet
@@ -34,7 +130,7 @@ type TrustState struct {
 
 func (x *TrustState) Reset() {
 	*x = TrustState{}
-	mi := &file_janus_v1alpha1_access_proto_msgTypes[0]
+	mi := &file_janus_v1alpha1_access_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -46,7 +142,7 @@ func (x *TrustState) String() string {
 func (*TrustState) ProtoMessage() {}
 
 func (x *TrustState) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_access_proto_msgTypes[0]
+	mi := &file_janus_v1alpha1_access_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59,7 +155,7 @@ func (x *TrustState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TrustState.ProtoReflect.Descriptor instead.
 func (*TrustState) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_access_proto_rawDescGZIP(), []int{0}
+	return file_janus_v1alpha1_access_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *TrustState) GetRootCert() []byte {
@@ -100,7 +196,7 @@ type TrustSetRequest struct {
 
 func (x *TrustSetRequest) Reset() {
 	*x = TrustSetRequest{}
-	mi := &file_janus_v1alpha1_access_proto_msgTypes[1]
+	mi := &file_janus_v1alpha1_access_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -112,7 +208,7 @@ func (x *TrustSetRequest) String() string {
 func (*TrustSetRequest) ProtoMessage() {}
 
 func (x *TrustSetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_access_proto_msgTypes[1]
+	mi := &file_janus_v1alpha1_access_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -125,7 +221,7 @@ func (x *TrustSetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TrustSetRequest.ProtoReflect.Descriptor instead.
 func (*TrustSetRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_access_proto_rawDescGZIP(), []int{1}
+	return file_janus_v1alpha1_access_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *TrustSetRequest) GetRootCert() []byte {
@@ -146,7 +242,13 @@ var File_janus_v1alpha1_access_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_access_proto_rawDesc = "" +
 	"\n" +
-	"\x1bjanus/v1alpha1/access.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\"\x9f\x01\n" +
+	"\x1bjanus/v1alpha1/access.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\"@\n" +
+	"\x14LocalCARotateRequest\x12(\n" +
+	"\x10admin_public_key\x18\x01 \x01(\fR\x0eadminPublicKey\"O\n" +
+	"\x15LocalCARotateResponse\x12\x17\n" +
+	"\aca_cert\x18\x01 \x01(\fR\x06caCert\x12\x1d\n" +
+	"\n" +
+	"admin_cert\x18\x02 \x01(\fR\tadminCert\"\x9f\x01\n" +
 	"\n" +
 	"TrustState\x12\x1b\n" +
 	"\troot_cert\x18\x01 \x01(\fR\brootCert\x12%\n" +
@@ -156,12 +258,13 @@ const file_janus_v1alpha1_access_proto_rawDesc = "" +
 	"issuingCas\"F\n" +
 	"\x0fTrustSetRequest\x12\x1b\n" +
 	"\troot_cert\x18\x01 \x01(\fR\brootCert\x12\x16\n" +
-	"\x06bundle\x18\x02 \x01(\fR\x06bundle2\xda\x01\n" +
+	"\x06bundle\x18\x02 \x01(\fR\x06bundle2\xb8\x02\n" +
 	"\rAccessService\x12>\n" +
 	"\bTrustGet\x12\x16.google.protobuf.Empty\x1a\x1a.janus.v1alpha1.TrustState\x12G\n" +
 	"\bTrustSet\x12\x1f.janus.v1alpha1.TrustSetRequest\x1a\x1a.janus.v1alpha1.TrustState\x12@\n" +
 	"\n" +
-	"TrustReset\x12\x16.google.protobuf.Empty\x1a\x1a.janus.v1alpha1.TrustStateB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
+	"TrustReset\x12\x16.google.protobuf.Empty\x1a\x1a.janus.v1alpha1.TrustState\x12\\\n" +
+	"\rLocalCARotate\x12$.janus.v1alpha1.LocalCARotateRequest\x1a%.janus.v1alpha1.LocalCARotateResponseB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
 
 var (
 	file_janus_v1alpha1_access_proto_rawDescOnce sync.Once
@@ -175,21 +278,25 @@ func file_janus_v1alpha1_access_proto_rawDescGZIP() []byte {
 	return file_janus_v1alpha1_access_proto_rawDescData
 }
 
-var file_janus_v1alpha1_access_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_janus_v1alpha1_access_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_janus_v1alpha1_access_proto_goTypes = []any{
-	(*TrustState)(nil),      // 0: janus.v1alpha1.TrustState
-	(*TrustSetRequest)(nil), // 1: janus.v1alpha1.TrustSetRequest
-	(*emptypb.Empty)(nil),   // 2: google.protobuf.Empty
+	(*LocalCARotateRequest)(nil),  // 0: janus.v1alpha1.LocalCARotateRequest
+	(*LocalCARotateResponse)(nil), // 1: janus.v1alpha1.LocalCARotateResponse
+	(*TrustState)(nil),            // 2: janus.v1alpha1.TrustState
+	(*TrustSetRequest)(nil),       // 3: janus.v1alpha1.TrustSetRequest
+	(*emptypb.Empty)(nil),         // 4: google.protobuf.Empty
 }
 var file_janus_v1alpha1_access_proto_depIdxs = []int32{
-	2, // 0: janus.v1alpha1.AccessService.TrustGet:input_type -> google.protobuf.Empty
-	1, // 1: janus.v1alpha1.AccessService.TrustSet:input_type -> janus.v1alpha1.TrustSetRequest
-	2, // 2: janus.v1alpha1.AccessService.TrustReset:input_type -> google.protobuf.Empty
-	0, // 3: janus.v1alpha1.AccessService.TrustGet:output_type -> janus.v1alpha1.TrustState
-	0, // 4: janus.v1alpha1.AccessService.TrustSet:output_type -> janus.v1alpha1.TrustState
-	0, // 5: janus.v1alpha1.AccessService.TrustReset:output_type -> janus.v1alpha1.TrustState
-	3, // [3:6] is the sub-list for method output_type
-	0, // [0:3] is the sub-list for method input_type
+	4, // 0: janus.v1alpha1.AccessService.TrustGet:input_type -> google.protobuf.Empty
+	3, // 1: janus.v1alpha1.AccessService.TrustSet:input_type -> janus.v1alpha1.TrustSetRequest
+	4, // 2: janus.v1alpha1.AccessService.TrustReset:input_type -> google.protobuf.Empty
+	0, // 3: janus.v1alpha1.AccessService.LocalCARotate:input_type -> janus.v1alpha1.LocalCARotateRequest
+	2, // 4: janus.v1alpha1.AccessService.TrustGet:output_type -> janus.v1alpha1.TrustState
+	2, // 5: janus.v1alpha1.AccessService.TrustSet:output_type -> janus.v1alpha1.TrustState
+	2, // 6: janus.v1alpha1.AccessService.TrustReset:output_type -> janus.v1alpha1.TrustState
+	1, // 7: janus.v1alpha1.AccessService.LocalCARotate:output_type -> janus.v1alpha1.LocalCARotateResponse
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -206,7 +313,7 @@ func file_janus_v1alpha1_access_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_access_proto_rawDesc), len(file_janus_v1alpha1_access_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

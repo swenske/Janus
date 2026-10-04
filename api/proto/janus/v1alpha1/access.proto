@@ -25,6 +25,26 @@ service AccessService {
   // certificate of the node's own CA may do it - the way back when a
   // fleet is lost, never for the fleet itself.
   rpc TrustReset(google.protobuf.Empty) returns (TrustState);
+
+  // Replaces the node's own CA: a new CA, server certificate and admin
+  // certificate. Every certificate the old CA issued stops working - the
+  // first-boot admin one, a Controller's service credential, those
+  // GenerateClientConfiguration issued; the fleet's let in as before.
+  // With admin_public_key (PKIX, PEM: ECDSA P-256/P-384, Ed25519 or RSA
+  // 2048+), the new admin certificate is issued for it, its key never
+  // seen by the node; without, the node makes the key and prints both on
+  // its console, like at first boot. Clients must verify the node with
+  // the new CA (ca_cert) from now on.
+  rpc LocalCARotate(LocalCARotateRequest) returns (LocalCARotateResponse);
+}
+
+message LocalCARotateRequest {
+  bytes admin_public_key = 1;
+}
+
+message LocalCARotateResponse {
+  bytes ca_cert = 1; // PEM
+  bytes admin_cert = 2; // PEM; empty when printed on the console
 }
 
 message TrustState {

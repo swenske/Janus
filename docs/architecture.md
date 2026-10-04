@@ -114,6 +114,15 @@ every issuing CA is lost. The node's own CA always lets in, and only it
 can make the node forget its fleet. The TLS configuration is built per
 connection, so a new bundle counts from the next one.
 
+The node's own CA can be replaced too (`AccessService.LocalCARotate`):
+every certificate it issued stops working - the first-boot admin one, a
+Controller's service credential - while the fleet's keep letting in. The
+new admin certificate is issued for a public key the caller sends (its
+key never seen by the node), or printed on the console like at first
+boot. The new files are written to `pki/rotation/` and marked ready
+before they're moved in place; a boot finishes a ready rotation and
+forgets an unfinished one (`internal/pki/rotate.go`).
+
 Roles are enforced, not just carried: `internal/api/authz.go`'s
 `UnaryAuthInterceptor`/`StreamAuthInterceptor` check every single RPC
 (both services are wired via `grpc.UnaryInterceptor`/

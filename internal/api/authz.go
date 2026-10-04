@@ -97,9 +97,10 @@ var requiredRoles = map[string][]string{
 
 	// AccessService - a fleet's trust decides who else gets in: admin,
 	// and TrustReset only through the node's own CA (access.go).
-	"/janus.v1alpha1.AccessService/TrustGet":   readers,
-	"/janus.v1alpha1.AccessService/TrustSet":   adminOnly,
-	"/janus.v1alpha1.AccessService/TrustReset": adminOnly,
+	"/janus.v1alpha1.AccessService/TrustGet":      readers,
+	"/janus.v1alpha1.AccessService/TrustSet":      adminOnly,
+	"/janus.v1alpha1.AccessService/TrustReset":    adminOnly,
+	"/janus.v1alpha1.AccessService/LocalCARotate": adminOnly,
 
 	// HAProxyService
 	"/janus.v1alpha1.HAProxyService/GetConfig":         readers,

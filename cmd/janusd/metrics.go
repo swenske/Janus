@@ -29,7 +29,7 @@ import (
 type metricsSources struct {
 	version    string
 	started    time.Time
-	ca         *pki.CA
+	ca         func() *pki.CA // the node's own CA, now
 	serverCert *pki.ServerCert
 	haproxy    *haproxy.Manager
 	ext        *extensions.Manager
@@ -94,8 +94,9 @@ func (m *metricsSources) node() []exporter.Family {
 
 func (m *metricsSources) certificates() []exporter.Family {
 	var samples []exporter.Sample
-	if m.ca != nil && m.ca.Cert != nil {
-		samples = append(samples, sample(float64(m.ca.Cert.NotAfter.Unix()), "source", "api", "certificate", "ca", "cn", m.ca.Cert.Subject.CommonName))
+	if m.ca != nil && m.ca() != nil && m.ca().Cert != nil {
+		ca := m.ca().Cert
+		samples = append(samples, sample(float64(ca.NotAfter.Unix()), "source", "api", "certificate", "ca", "cn", ca.Subject.CommonName))
 	}
 	if m.serverCert != nil {
 		if t := m.serverCert.NotAfter(); !t.IsZero() {

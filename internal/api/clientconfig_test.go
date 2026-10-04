@@ -22,7 +22,7 @@ func TestGenerateClientConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &System{CA: ca}
+	s := &System{LocalCA: func() *pki.CA { return ca }}
 	issue := func(req *janusv1alpha1.GenerateClientConfigurationRequest) (*x509.Certificate, error) {
 		resp, err := s.GenerateClientConfiguration(context.Background(), req)
 		if err != nil {

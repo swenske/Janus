@@ -323,7 +323,7 @@ func main() {
 		}
 		log.Printf("pki: trusts the fleet of root %q, bundle version %d", root.Subject.CommonName, version)
 	}
-	localCA := func() *pki.CA { return pkiBootstrap.CA }
+	local := pki.NewLocal(pkiBootstrap.CA) // LocalCARotate replaces it
 	if pkiBootstrap.AdminIssued {
 		log.SetOutput(os.Stderr) // console only - see serviceLogs above
 		log.Printf("pki: first boot - generated a new CA and admin client certificate in %s", *pkiDir)
@@ -374,7 +374,7 @@ func main() {
 	// reasoning as bootcommit above: gRPC must start regardless, and
 	// the overwhelming majority of boots have no Controller configured
 	// at all.
-	go selfRegisterIfConfigured(pkiBootstrap.CA, hostname, *addr)
+	go selfRegisterIfConfigured(local.CA, hostname, *addr)
 
 	// The server certificate follows the node's addresses and hostname
 	// (reissued on a change - see netMgr's OnChange above) and is renewed
@@ -389,7 +389,7 @@ func main() {
 
 	// The node's own Prometheus exporter (internal/exporter). The kernel
 	// log and STATE are only this node's to report when janusd runs it.
-	metrics := &metricsSources{version: version, started: started, ca: pkiBootstrap.CA, serverCert: serverCert,
+	metrics := &metricsSources{version: version, started: started, ca: local.CA, serverCert: serverCert,
 		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr, vrrp: vrrpMgr, bgp: bgpMgr, acme: acmeMgr}
 	if *manageHost {
 		metrics.kmsg = &kmsgwatch.Counts{}
@@ -405,17 +405,17 @@ func main() {
 		log.Printf("exporter: %v", err)
 	}
 
-	tlsConfig := pki.NodeTLSConfig(localCA, serverCert, fleet)
+	tlsConfig := pki.NodeTLSConfig(local.CA, serverCert, fleet)
 	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.StatsHandler(api.ConnStats{}),
 		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr})
-	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, LocalCA: localCA})
+	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr, Consul: consulMgr, Services: extMgr})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
@@ -578,7 +578,7 @@ func confirmBootHealth(marker *bootcommit.Marker, mgr *haproxy.Manager) {
 // fixed afterwards, registers without a reboot. Each failure is logged
 // on the console, where a Controller that created the node reads it
 // (dashboard/backend: the machine's warning).
-func selfRegisterIfConfigured(ca *pki.CA, hostname, grpcAddr string) {
+func selfRegisterIfConfigured(ca func() *pki.CA, hostname, grpcAddr string) {
 	cfg, err := selfregister.Read(selfregister.Dir)
 	if err != nil {
 		log.Printf("selfregister: read config: %v", err)
@@ -591,7 +591,7 @@ func selfRegisterIfConfigured(ca *pki.CA, hostname, grpcAddr string) {
 		return
 	}
 	for attempt := 1; ; attempt++ {
-		err := announce(cfg, ca, hostname, grpcAddr)
+		err := announce(cfg, ca(), hostname, grpcAddr)
 		if err == nil {
 			return
 		}
