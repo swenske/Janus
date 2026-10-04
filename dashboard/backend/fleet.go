@@ -98,8 +98,13 @@ func (a *app) trustAll(ctx context.Context) {
 	}
 	for _, n := range a.store.List() {
 		nctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		a.trust.set(n.ID, a.ensureTrust(nctx, n))
+		nt := a.ensureTrust(nctx, n)
 		cancel()
+		a.trust.set(n.ID, nt)
+		if nt.State == trustTrusted {
+			// A keyless node approved meanwhile fetched its trust.
+			a.pending.RemoveApproved(n.ID)
+		}
 	}
 }
 

@@ -153,6 +153,12 @@ function PendingList({ pending, onApprove, onReject, busy, machines }) {
                 </Badge>
               )}
               <div className="muted small">announced {new Date(p.announced_at).toLocaleString()}</div>
+              {p.ca_fingerprint && (
+                <div className="muted small" title="The node's CA, as its console shows it when it announces itself: compare before approving">
+                  CA <span className="mono">{p.ca_fingerprint.slice(0, 16)}…</span>
+                  {p.keyless && ' · no key sent: it will trust the fleet'}
+                </div>
+              )}
             </div>
             <div className="row">
               <button className="primary small" disabled={busy} onClick={() => onApprove(p.id)}>

@@ -37,16 +37,29 @@ type Node struct {
 	ServiceCertPEM []byte    `json:"-"`
 	ServiceKeyPEM  []byte    `json:"-"`
 	AnnouncedAt    time.Time `json:"announced_at"`
+	// PollSecretHash: a keyless announcement (protocol 2) - no service
+	// credential, the SHA-256 of the secret the node polls with.
+	// Approved/NodeID: approved, waiting for the node to fetch its
+	// trust (not listed any more).
+	PollSecretHash []byte `json:"-"`
+	Approved       bool   `json:"-"`
+	NodeID         string `json:"-"`
 }
+
+// Keyless reports whether n announced itself with no key (protocol 2).
+func (n *Node) Keyless() bool { return len(n.PollSecretHash) > 0 }
 
 // meta is Node's on-disk, non-secret half - same split store.go's own
 // meta type uses, cert/key material in sibling files instead of one
 // blob mixing secret and non-secret fields.
 type meta struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Address     string    `json:"address"`
-	AnnouncedAt time.Time `json:"announced_at"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Address        string    `json:"address"`
+	AnnouncedAt    time.Time `json:"announced_at"`
+	PollSecretHash []byte    `json:"poll_secret_sha256,omitempty"`
+	Approved       bool      `json:"approved,omitempty"`
+	NodeID         string    `json:"node_id,omitempty"`
 }
 
 type Store struct {
@@ -97,19 +110,20 @@ func loadNode(dir string) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read ca.crt: %w", err)
 	}
-	cert, err := os.ReadFile(filepath.Join(dir, "service.crt"))
-	if err != nil {
+	n := &Node{
+		ID: m.ID, Name: m.Name, Address: m.Address, AnnouncedAt: m.AnnouncedAt, CACertPEM: ca,
+		PollSecretHash: m.PollSecretHash, Approved: m.Approved, NodeID: m.NodeID,
+	}
+	if n.Keyless() {
+		return n, nil
+	}
+	if n.ServiceCertPEM, err = os.ReadFile(filepath.Join(dir, "service.crt")); err != nil {
 		return nil, fmt.Errorf("read service.crt: %w", err)
 	}
-	key, err := os.ReadFile(filepath.Join(dir, "service.key"))
-	if err != nil {
+	if n.ServiceKeyPEM, err = os.ReadFile(filepath.Join(dir, "service.key")); err != nil {
 		return nil, fmt.Errorf("read service.key: %w", err)
 	}
-
-	return &Node{
-		ID: m.ID, Name: m.Name, Address: m.Address, AnnouncedAt: m.AnnouncedAt,
-		CACertPEM: ca, ServiceCertPEM: cert, ServiceKeyPEM: key,
-	}, nil
+	return n, nil
 }
 
 // List returns every pending node, oldest announcement first - the
@@ -119,7 +133,9 @@ func (s *Store) List() []*Node {
 	defer s.mu.Unlock()
 	out := make([]*Node, 0, len(s.nodes))
 	for _, n := range s.nodes {
-		out = append(out, n)
+		if !n.Approved { // waiting for its node to fetch its trust: not pending any more
+			out = append(out, n)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].AnnouncedAt.Before(out[j].AnnouncedAt) })
 	return out
@@ -150,18 +166,17 @@ func (s *Store) Add(node *Node) error {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	metaBytes, err := json.Marshal(meta{ID: id, Name: node.Name, Address: node.Address, AnnouncedAt: node.AnnouncedAt})
+	metaBytes, err := json.Marshal(meta{ID: id, Name: node.Name, Address: node.Address, AnnouncedAt: node.AnnouncedAt, PollSecretHash: node.PollSecretHash})
 	if err != nil {
 		return fmt.Errorf("marshal meta.json: %w", err)
 	}
-	writes := []struct {
+	type file struct {
 		name string
 		data []byte
-	}{
-		{"meta.json", metaBytes},
-		{"ca.crt", node.CACertPEM},
-		{"service.crt", node.ServiceCertPEM},
-		{"service.key", node.ServiceKeyPEM},
+	}
+	writes := []file{{"meta.json", metaBytes}, {"ca.crt", node.CACertPEM}}
+	if !node.Keyless() {
+		writes = append(writes, file{"service.crt", node.ServiceCertPEM}, file{"service.key", node.ServiceKeyPEM})
 	}
 	for _, w := range writes {
 		if err := os.WriteFile(filepath.Join(dir, w.name), w.data, 0o600); err != nil {
@@ -173,6 +188,46 @@ func (s *Store) Add(node *Node) error {
 	s.nodes[id] = node
 	s.mu.Unlock()
 	return nil
+}
+
+// MarkApproved records that a keyless announcement was approved as node
+// nodeID: kept, unlisted, until the node fetches its trust.
+func (s *Store) MarkApproved(id, nodeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.nodes[id]
+	if !ok {
+		return fmt.Errorf("no such pending node %q", id)
+	}
+	data, err := json.Marshal(meta{ID: n.ID, Name: n.Name, Address: n.Address, AnnouncedAt: n.AnnouncedAt, PollSecretHash: n.PollSecretHash, Approved: true, NodeID: nodeID})
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(s.dir, "pending", id, "meta.json")
+	if err := os.WriteFile(path+".tmp", data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(path+".tmp", path); err != nil {
+		return err
+	}
+	n.Approved, n.NodeID = true, nodeID
+	return nil
+}
+
+// RemoveApproved forgets the approved keyless announcements of node
+// nodeID - once it took the fleet's trust.
+func (s *Store) RemoveApproved(nodeID string) {
+	s.mu.Lock()
+	var ids []string
+	for id, n := range s.nodes {
+		if n.Approved && n.NodeID == nodeID {
+			ids = append(ids, id)
+		}
+	}
+	s.mu.Unlock()
+	for _, id := range ids {
+		_ = s.Remove(id)
+	}
 }
 
 // Remove discards a pending entry - used both by rejection and by

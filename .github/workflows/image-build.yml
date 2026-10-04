@@ -724,6 +724,12 @@ jobs:
       - name: janusd self-registers with a Controller on first boot (Point 2 suite tranche 5)
         run: make qemu-self-register-test
 
+      # The same with the Controller's fleet set up: the node announces
+      # itself with no key, polls until approved, and takes the fleet's
+      # trust (protocol 2) - the test above proves the fallback.
+      - name: janusd self-registers with no key, then trusts the Controller's fleet
+        run: make qemu-self-register-fleet-test
+
       # Phase 3 cont'd: LifecycleService.Install is real - unlike
       # Rollback/Upgrade, it has no existing partition table to build
       # on, so it can't get away with only ever moving pre-built bytes

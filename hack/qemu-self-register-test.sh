@@ -148,6 +148,21 @@ setup_code="$(curl -sk -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "
 echo "Part 1 OK: dashboardd running natively, admin auth established"
 
 CONTROLLER_CA="$WORKDIR/dashboard-data/dashboard-identity.crt"
+
+# SELF_REGISTER_FLEET=1: the Controller's fleet is set up before the node
+# boots - the node then announces itself with no key at all (protocol
+# 2), waits for approval polling with its secret, and takes the fleet's
+# trust. Without it, the node finds no fleet and falls back to
+# announcing with a service credential.
+FLEET="${SELF_REGISTER_FLEET:-}"
+if [ -n "$FLEET" ]; then
+  curl -sk -b "$COOKIE_JAR" -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/fleet/setup" -o "$WORKDIR/fleet-setup.json"
+  curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/fleet/recovery-kit" -o "$WORKDIR/kit.age"
+  python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); print(json.dumps({"kit": open(sys.argv[2]).read(), "passphrase": s["passphrase"]}))' "$WORKDIR/fleet-setup.json" "$WORKDIR/kit.age" >"$WORKDIR/confirm.json"
+  fleet_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/fleet/confirm" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/confirm.json")"
+  [ "$fleet_code" = "200" ] || { echo "Self-register test FAILED: setting up the fleet: $fleet_code" >&2; exit 1; }
+  echo "Fleet set up: the node will announce itself with no key"
+fi
 [ -s "$CONTROLLER_CA" ] || { echo "Self-register test FAILED: dashboardd never wrote its own identity cert to $CONTROLLER_CA" >&2; exit 1; }
 
 # =========================================================================
@@ -273,7 +288,18 @@ if [ "$PENDING_JSON" = "null" ] || [ -z "$PENDING_JSON" ]; then
   echo "--- dashboardd log ---" >&2; cat "$WORKDIR/dashboardd.log" >&2
   exit 1
 fi
-grep -q "selfregister: successfully announced" "$LOG" || { echo "Self-register test FAILED: guest console never logged a successful self-registration" >&2; cat "$LOG" >&2; exit 1; }
+if [ -n "$FLEET" ]; then
+  grep -q "selfregister: announced to Controller at .*, awaiting approval" "$LOG" || { echo "Self-register test FAILED: guest console never logged its keyless announcement" >&2; cat "$LOG" >&2; exit 1; }
+  console_fp="$(grep -ao "check it shows this node's CA as SHA-256 [0-9a-f]*" "$LOG" | tail -1 | awk '{print $NF}')"
+  pending_fp="$(echo "$PENDING_JSON" | python3 -c 'import json,sys; p=json.load(sys.stdin)[0]; print(p.get("ca_fingerprint","") if p.get("keyless") else "")')"
+  [ -n "$console_fp" ] && [ "$console_fp" = "$pending_fp" ] || { echo "Self-register test FAILED: the pending entry isn't keyless with the CA the node's console shows ($console_fp vs $pending_fp): $PENDING_JSON" >&2; exit 1; }
+  PID_DIR="$(ls -d "$WORKDIR"/dashboard-data/pending/*/ | head -1)"
+  [ ! -e "$PID_DIR/service.key" ] && [ ! -e "$PID_DIR/service.crt" ] || { echo "Self-register test FAILED: a credential was kept for a keyless announcement" >&2; exit 1; }
+  echo "Keyless announcement OK: no key sent, the pending entry shows the CA the node's console shows ($console_fp)"
+else
+  grep -q "selfregister: successfully announced" "$LOG" || { echo "Self-register test FAILED: guest console never logged a successful self-registration" >&2; cat "$LOG" >&2; exit 1; }
+  grep -q "selfregister: .*fleet isn't set up yet.* - announcing with a service credential instead" "$LOG" || { echo "Self-register test FAILED: the node didn't say it fell back to a service credential" >&2; cat "$LOG" >&2; exit 1; }
+fi
 
 PENDING_ID="$(echo "$PENDING_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
 PENDING_NAME="$(echo "$PENDING_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["name"])')"
@@ -309,6 +335,19 @@ APPROVE_BODY="$(echo "$APPROVE_RESP" | sed '$d')"
 [ "$APPROVE_CODE" = "201" ] || { echo "Self-register test FAILED: approve returned $APPROVE_CODE: $APPROVE_BODY" >&2; exit 1; }
 APPROVED_PORT="$(echo "$APPROVE_BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["port"])')"
 [ -n "$APPROVED_PORT" ] || { echo "Self-register test FAILED: approve response missing a port: $APPROVE_BODY" >&2; exit 1; }
+if [ -n "$FLEET" ]; then
+  # The node polls every 15 s: it takes the fleet's trust by itself.
+  DEADLINE=$((SECONDS + 60))
+  until grep -q "selfregister: admitted by Controller at .* - the node trusts its fleet" "$LOG"; do
+    [ "$SECONDS" -lt "$DEADLINE" ] || { echo "Self-register test FAILED: the approved node never took the fleet's trust" >&2; cat "$LOG" >&2; exit 1; }
+    sleep 1
+  done
+  grep -q "access: fleet root\|pki: trusts the fleet" "$LOG" || true
+  APPROVED_ID="$(echo "$APPROVE_BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+  grep -q '"fleet":true' "$WORKDIR/dashboard-data/nodes/$APPROVED_ID/meta.json" && [ ! -e "$WORKDIR/dashboard-data/nodes/$APPROVED_ID/service.key" ] \
+    || { echo "Self-register test FAILED: the approved keyless node isn't recorded trusting the fleet with no credential" >&2; exit 1; }
+  echo "Keyless approval OK: the node polled, took the fleet's trust, and the Controller keeps no credential for it"
+fi
 
 # Extract a cert from the booted guest's own CA (partition 6, STATE -
 # same debugfs extraction every other lifecycle test in this project
@@ -390,7 +429,7 @@ fi
 # show up, the same way it did the first time, before declaring this
 # clean.
 sleep 5
-if grep -q "selfregister: successfully announced\|selfregister: registration failed" "$LOG2"; then
+if grep -q "selfregister: successfully announced\|selfregister: registration failed\|selfregister: announcing to Controller" "$LOG2"; then
   echo "Self-register test FAILED: the node attempted to self-register again on its second boot despite the persisted marker" >&2
   cat "$LOG2" >&2
   exit 1
@@ -405,5 +444,10 @@ echo "Part 6 OK: the persisted registered marker survived the reboot - no second
 kill "$QEMU_PID" 2>/dev/null || true
 wait "$QEMU_PID" 2>/dev/null || true
 QEMU_PID=""
+
+if grep -a "avc:.*denied" "$LOG" "$LOG2"; then
+  echo "Self-register test FAILED: SELinux denials" >&2
+  exit 1
+fi
 
 echo "Self-register test OK: a node provisioned with a Controller at Install time genuinely self-registered on first boot, was approved through the real API, the approved listener's mTLS gate trusted the self-reported CA, and it never announced itself again on a second boot"

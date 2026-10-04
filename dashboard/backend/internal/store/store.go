@@ -206,18 +206,17 @@ func (s *Store) Add(node *Node) error {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	metaBytes, err := json.Marshal(meta{ID: id, Name: node.Name, Address: node.Address, Port: node.Port, MachineID: node.MachineID})
+	metaBytes, err := json.Marshal(meta{ID: id, Name: node.Name, Address: node.Address, Port: node.Port, MachineID: node.MachineID, Fleet: node.Fleet})
 	if err != nil {
 		return fmt.Errorf("marshal meta.json: %w", err)
 	}
-	writes := []struct {
+	type file struct {
 		name string
 		data []byte
-	}{
-		{"meta.json", metaBytes},
-		{"ca.crt", node.CACertPEM},
-		{"service.crt", node.ServiceCertPEM},
-		{"service.key", node.ServiceKeyPEM},
+	}
+	writes := []file{{"meta.json", metaBytes}, {"ca.crt", node.CACertPEM}}
+	if !node.Fleet { // trusting the fleet from the start, a node has no service credential
+		writes = append(writes, file{"service.crt", node.ServiceCertPEM}, file{"service.key", node.ServiceKeyPEM})
 	}
 	for _, w := range writes {
 		if err := os.WriteFile(filepath.Join(dir, w.name), w.data, 0o600); err != nil {

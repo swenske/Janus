@@ -1,10 +1,15 @@
 package main
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -12,6 +17,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // startRegistrationListener serves the node self-registration endpoint
@@ -35,6 +41,7 @@ func (a *app) startRegistrationListener(addr string) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/register", a.handleRegister)
+	mux.HandleFunc("GET /register/{id}", a.handleRegisterPoll)
 
 	ln, err := tls.Listen("tcp", addr, tlsConfig)
 	if err != nil {
@@ -68,6 +75,17 @@ type registerRequest struct {
 	// RegistrationToken is set by a node the Controller created itself
 	// (machines.go): the one-time token from its NoCloud volume.
 	RegistrationToken string `json:"registration_token,omitempty"`
+	// Protocol 2: no service credential - the node polls with
+	// PollSecret, and gets the fleet's trust once admitted.
+	Protocol   int    `json:"protocol,omitempty"`
+	PollSecret string `json:"poll_secret,omitempty"`
+}
+
+// keylessTrust is what an admitted keyless node gets: the fleet's root
+// and the bundle it signed (internal/selfregister.Trust).
+type keylessTrust struct {
+	RootCert string `json:"root_cert"`
+	Bundle   []byte `json:"bundle"`
 }
 
 func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -77,8 +95,12 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req registerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
 		http.Error(w, "decode request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Protocol >= 2 {
+		a.registerKeyless(w, req)
 		return
 	}
 	if req.Name == "" || req.Address == "" || req.CACertPEM == "" || req.ServiceCertPEM == "" || req.ServiceKeyPEM == "" {
@@ -146,10 +168,18 @@ func (a *app) handlePendingList(w http.ResponseWriter, r *http.Request) {
 		Name        string    `json:"name"`
 		Address     string    `json:"address"`
 		AnnouncedAt time.Time `json:"announced_at"`
+		// CAFingerprint is the node's CA, as its console says it when it
+		// announces itself - to compare before approving.
+		CAFingerprint string `json:"ca_fingerprint,omitempty"`
+		Keyless       bool   `json:"keyless,omitempty"`
 	}
 	var out []pendingView
 	for _, n := range a.pending.List() {
-		out = append(out, pendingView{ID: n.ID, Name: n.Name, Address: n.Address, AnnouncedAt: n.AnnouncedAt})
+		v := pendingView{ID: n.ID, Name: n.Name, Address: n.Address, AnnouncedAt: n.AnnouncedAt, Keyless: n.Keyless()}
+		if c, err := parseCertPEM(n.CACertPEM); err == nil {
+			v.CAFingerprint = pki.Fingerprint(c.Raw)
+		}
+		out = append(out, v)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -208,8 +238,13 @@ func (a *app) approvePending(w http.ResponseWriter, id string) {
 	}
 	// Only remove the pending entry once the node is genuinely live -
 	// a failed approval above leaves it in the queue so it can be
-	// retried, rather than silently losing the announcement.
-	if err := a.pending.Remove(id); err != nil {
+	// retried, rather than silently losing the announcement. A keyless
+	// one stays, unlisted, until its node fetched its trust.
+	if p.Keyless() {
+		if err := a.pending.MarkApproved(id, node.ID); err != nil {
+			log.Printf("pending node %s: approved but failed to record it: %v", id, err)
+		}
+	} else if err := a.pending.Remove(id); err != nil {
 		log.Printf("pending node %s: approved but failed to remove from the pending queue: %v", id, err)
 	}
 	if machineID != "" {
@@ -245,6 +280,9 @@ func (a *app) admit(p *pending.Node, machineID string) (*store.Node, error) {
 		CACertPEM:      p.CACertPEM,
 		ServiceCertPEM: p.ServiceCertPEM,
 		ServiceKeyPEM:  p.ServiceKeyPEM,
+		// A keyless node takes the fleet's trust when admitted: the
+		// Controller reaches it with its fleet certificate from the start.
+		Fleet: p.Keyless(),
 	}
 	if err := a.store.Add(node); err != nil {
 		return nil, fmt.Errorf("persist node: %w", err)
@@ -276,4 +314,100 @@ func (a *app) rejectPending(w http.ResponseWriter, id string) {
 	}
 	log.Printf("pending node %s rejected", id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// registerKeyless takes a protocol 2 announcement: no key at all - the
+// node's CA (public), its name and address, a token if it has one, the
+// secret it polls with. Admitted at once for a token this Controller
+// made, else queued for approval; either way, the node gets the fleet's
+// trust and is reached with the fleet certificate. Without a fleet, 409:
+// the node announces with a service credential instead.
+func (a *app) registerKeyless(w http.ResponseWriter, req registerRequest) {
+	if req.Name == "" || req.Address == "" || req.CACertPEM == "" || len(req.PollSecret) < 32 {
+		http.Error(w, "name, address, ca_cert_pem and poll_secret (32 characters or more) are all required", http.StatusBadRequest)
+		return
+	}
+	ca, err := parseCertPEM([]byte(req.CACertPEM))
+	if err != nil || !ca.IsCA {
+		http.Error(w, "ca_cert_pem isn't a CA certificate", http.StatusBadRequest)
+		return
+	}
+	var rootPEM, bundle []byte
+	ok := false
+	if a.fleet != nil { // nil only in tests
+		rootPEM, bundle, _, ok = a.fleet.Trust()
+	}
+	if !ok {
+		http.Error(w, "this Controller's fleet isn't set up yet: announce with a service credential", http.StatusConflict)
+		return
+	}
+	sum := sha256.Sum256([]byte(req.PollSecret))
+	node := &pending.Node{Name: req.Name, Address: req.Address, CACertPEM: []byte(req.CACertPEM), PollSecretHash: sum[:]}
+	fingerprint := pki.Fingerprint(ca.Raw)
+
+	if req.RegistrationToken != "" {
+		if m, ok := a.machines.ClaimToken(req.RegistrationToken); ok {
+			admitted, err := a.admit(node, m.ID)
+			if err == nil {
+				a.runner.registered(m.ID, admitted)
+				log.Printf("node self-registered with no key: %s (%s), admitted as machine %s -> port %d", admitted.Name, admitted.Address, m.ID, admitted.Port)
+				writeJSON(w, http.StatusCreated, struct {
+					ID       string        `json:"id"`
+					Admitted bool          `json:"admitted"`
+					Trust    *keylessTrust `json:"trust"`
+				}{admitted.ID, true, &keylessTrust{RootCert: string(rootPEM), Bundle: bundle}})
+				return
+			}
+			log.Printf("machine %s: admitting its node failed, queueing it for approval instead: %v", m.ID, err)
+			a.runner.logEvent(m.ID, "admitting the node failed (%v): it waits for approval instead", err)
+		} else {
+			log.Printf("node self-registered with a registration token no machine is waiting for: %s (%s)", req.Name, req.Address)
+		}
+	}
+	if err := a.pending.Add(node); err != nil {
+		http.Error(w, "record registration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Printf("node self-registered with no key: %s (%s), its CA SHA-256 %s - awaiting approval", node.Name, node.Address, fingerprint)
+	writeJSON(w, http.StatusCreated, struct {
+		ID string `json:"id"`
+	}{node.ID})
+}
+
+// handleRegisterPoll answers a keyless node asking whether it was
+// approved - with the secret it announced itself with: 202 while it
+// waits, the fleet's trust once approved, 404 when rejected (or
+// unknown).
+func (a *app) handleRegisterPoll(w http.ResponseWriter, r *http.Request) {
+	p, ok := a.pending.Get(r.PathValue("id"))
+	if !ok || !p.Keyless() {
+		http.NotFound(w, r)
+		return
+	}
+	sum := sha256.Sum256([]byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")))
+	if subtle.ConstantTimeCompare(sum[:], p.PollSecretHash) != 1 {
+		http.Error(w, "not this enrollment's secret", http.StatusForbidden)
+		return
+	}
+	if !p.Approved {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	rootPEM, bundle, _, ok := a.fleet.Trust()
+	if !ok {
+		http.Error(w, "this Controller has no fleet any more", http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, http.StatusOK, keylessTrust{RootCert: string(rootPEM), Bundle: bundle})
+	log.Printf("node %s (%s) fetched the fleet's trust", p.Name, p.NodeID)
+	// It applies it now: check in a moment, rather than in ten minutes.
+	time.AfterFunc(5*time.Second, a.trust.Kick)
+}
+
+func parseCertPEM(p []byte) (*x509.Certificate, error) {
+	block, _ := pem.Decode(p)
+	if block == nil {
+		return nil, errors.New("no PEM certificate")
+	}
+	return x509.ParseCertificate(block.Bytes)
 }
