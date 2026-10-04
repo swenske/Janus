@@ -25,10 +25,9 @@ setup.
 
 ## How to run
 
-**The container must run with `--network host`.** It listens on three
-ports, one of which (the per-node listener pool) is a dynamic range -
-host networking makes every one of them directly reachable at the
-host's own address, with no port mapping and no extra configuration.
+**Run the container with `--network host`.** It listens on two ports -
+the UI with every node's page under it, and the one nodes register on -
+and sees the host's own addresses for its TLS identity that way.
 
 ```sh
 docker run -d \

@@ -43,7 +43,7 @@ func TestFollowCA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := &store.Node{Name: "lb1", Address: ln.Addr().String(), Port: 9500, CACertPEM: b.CA.CertPEM, ServiceCertPEM: client, ServiceKeyPEM: key}
+	node := &store.Node{Name: "lb1", Address: ln.Addr().String(), CACertPEM: b.CA.CertPEM, ServiceCertPEM: client, ServiceKeyPEM: key}
 	if err := st.Add(node); err != nil {
 		t.Fatal(err)
 	}

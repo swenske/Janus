@@ -78,18 +78,6 @@ var staticFiles embed.FS
 // dashboard/Dockerfile).
 var version = "dev"
 
-// portRangeStart/End: the pool of per-node listener ports - see the
-// rebranding/dashboard plan's own architecture section for why a
-// dynamic per-node port (not one shared port) is what makes native
-// browser client-certificate selection work per node at all. This is
-// exactly why the container needs --network host in practice, not just
-// a wide -p range - see dashboard/README.md.
-// Variables only so tests can use a range of their own.
-var (
-	portRangeStart = 9500
-	portRangeEnd   = 9599
-)
-
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "reset-user" {
 		resetUser(os.Args[2:])
@@ -176,7 +164,6 @@ func main() {
 		loginLimiter:          auth.NewLoginLimiter(),
 		audit:                 auditLog,
 		serverCert:            serverCert,
-		listeners:             map[string]*nodeproxy.Listener{},
 		suggestedRegisterAddr: suggestRegisterAddress(*advertiseAddresses, *registerAddr),
 		selfUpdate:            newSelfUpdate(*updaterSocket),
 		dataDir:               *dataDir,
@@ -187,16 +174,6 @@ func main() {
 		trust:                 newTrustTracker(),
 	}
 	app.runner = newMachineRunner(app)
-	for _, n := range st.List() {
-		if err := app.startListener(n); err != nil {
-			// A node whose listener fails to start (e.g. its port is
-			// somehow already taken) stays registered but unreachable -
-			// logged, not fatal, so one bad node doesn't take the whole
-			// dashboard down on restart.
-			log.Printf("node %s (%s): start listener: %v", n.ID, n.Name, err)
-		}
-	}
-
 	if err := app.startRegistrationListener(*registerAddr); err != nil {
 		log.Fatalf("registration listener: %v", err)
 	}
@@ -262,6 +239,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/pending/", a.gate(auth.Reader, auth.Admin, a.handlePendingAction))
 	mux.HandleFunc("/api/controller-info", a.gate(auth.Reader, auth.Admin, a.handleControllerInfo))
 	mux.HandleFunc("/api/controller/update", a.gate(auth.Reader, auth.Admin, a.handleControllerUpdate))
+	mux.HandleFunc("/nodes/", a.handleNodePage)
 	a.registerTokenRoutes(mux)
 	a.registerUserRoutes(mux)
 	a.registerHypervisorRoutes(mux)
@@ -299,27 +277,14 @@ type app struct {
 	runner       *machineRunner
 	consoles     consoleHub
 
-	mu        sync.Mutex
-	listeners map[string]*nodeproxy.Listener
-
-	// admitMu serializes port allocation and the store entry that takes
-	// the port - two admissions at once would otherwise get the same one.
-	admitMu sync.Mutex
+	// pages holds each node's page handler (node_pages.go), made on its
+	// first request.
+	pagesMu sync.Mutex
+	pages   map[string]http.Handler
 	// createMu serializes machine creations' checks (a unique name) with
 	// their records.
 	createMu sync.Mutex
 	hvStatus statusCache
-}
-
-func (a *app) startListener(n *store.Node) error {
-	l, err := nodeproxy.Start(n, a.serverCert, a.store)
-	if err != nil {
-		return err
-	}
-	a.mu.Lock()
-	a.listeners[n.ID] = l
-	a.mu.Unlock()
-	return nil
 }
 
 // addNodeRequest is the JSON form of "add a node": three raw PEM blocks
@@ -403,12 +368,11 @@ func (a *app) handleNodes(w http.ResponseWriter, r *http.Request) {
 			ID        string `json:"id"`
 			Name      string `json:"name"`
 			Address   string `json:"address"`
-			Port      int    `json:"port"`
 			MachineID string `json:"machine_id,omitempty"`
 		}
 		var out []nodeView
 		for _, n := range a.store.List() {
-			out = append(out, nodeView{ID: n.ID, Name: n.Name, Address: n.Addr(), Port: n.Port, MachineID: n.MachineID})
+			out = append(out, nodeView{ID: n.ID, Name: n.Name, Address: n.Addr(), MachineID: n.MachineID})
 		}
 		writeJSON(w, http.StatusOK, out)
 
@@ -457,18 +421,9 @@ func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
 	// this point - only cfg's freshly-issued service credential is
 	// persisted below.
 
-	a.admitMu.Lock()
-	defer a.admitMu.Unlock()
-	port, err := a.allocatePort()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInsufficientStorage)
-		return
-	}
-
 	node := &store.Node{
 		Name:           name,
 		Address:        address,
-		Port:           port,
 		CACertPEM:      cfg.GetCa(),
 		ServiceCertPEM: cfg.GetCrt(),
 		ServiceKeyPEM:  cfg.GetKey(),
@@ -477,16 +432,11 @@ func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("persist node: %v", err), http.StatusInternalServerError)
 		return
 	}
-	if err := a.startListener(node); err != nil {
-		http.Error(w, fmt.Sprintf("node registered but its listener failed to start: %v", err), http.StatusInternalServerError)
-		return
-	}
 	a.trust.Kick() // brought to trust the fleet at once
 
 	writeJSON(w, http.StatusCreated, struct {
-		ID   string `json:"id"`
-		Port int    `json:"port"`
-	}{ID: node.ID, Port: node.Port})
+		ID string `json:"id"`
+	}{ID: node.ID})
 }
 
 func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
@@ -508,30 +458,13 @@ func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	a.mu.Lock()
-	l, ok := a.listeners[id]
-	delete(a.listeners, id)
-	a.mu.Unlock()
-	if ok {
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		defer cancel()
-		if err := l.Stop(ctx); err != nil {
-			log.Printf("node %s: stop listener: %v", id, err)
-		}
-	}
-
-	if err := a.store.Remove(id); err != nil {
+	if err := a.removeNode(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// allocatePort returns the first port in [portRangeStart, portRangeEnd]
-// not already used by a registered node - not concurrency-safe against
-// two simultaneous add-node requests racing for the same port (fine for
-// a first slice: this dashboard is a single operator's own tool, not a
-// multi-tenant service).
 // handleNodesStatus reports every registered node's live status, queried
 // concurrently with a short timeout so one unreachable node can't stall
 // the node list.
@@ -555,16 +488,6 @@ func (a *app) handleNodesStatus(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
-}
-
-func (a *app) allocatePort() (int, error) {
-	used := a.store.UsedPorts()
-	for p := portRangeStart; p <= portRangeEnd; p++ {
-		if !used[p] {
-			return p, nil
-		}
-	}
-	return 0, fmt.Errorf("no free port in [%d, %d] - %d nodes already registered", portRangeStart, portRangeEnd, len(used))
 }
 
 // loadOrCreateDashboardIdentity gives every TLS surface this process

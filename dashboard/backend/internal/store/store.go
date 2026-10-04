@@ -30,7 +30,6 @@ type Node struct {
 	// the node is added; afterwards read it with Addr and change it with
 	// Store.SetAddress - a network reconfiguration can move a node.
 	Address string `json:"address"`
-	Port    int    `json:"port"` // this dashboard's per-node listener port
 	// MachineID is set for a node the Controller created itself on a
 	// hypervisor (internal/machines) - the virtual machine it runs in.
 	MachineID string `json:"machine_id,omitempty"`
@@ -86,7 +85,6 @@ type meta struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Address   string `json:"address"`
-	Port      int    `json:"port"`
 	MachineID string `json:"machine_id,omitempty"`
 	// Fleet: the node trusts the Controller's fleet - no service
 	// credential is kept for it anymore.
@@ -142,7 +140,7 @@ func loadNode(dir string) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read ca.crt: %w", err)
 	}
-	n := &Node{ID: m.ID, Name: m.Name, Address: m.Address, Port: m.Port, MachineID: m.MachineID, CACertPEM: ca, Fleet: m.Fleet}
+	n := &Node{ID: m.ID, Name: m.Name, Address: m.Address, MachineID: m.MachineID, CACertPEM: ca, Fleet: m.Fleet}
 	if m.Fleet {
 		return n, nil
 	}
@@ -176,19 +174,6 @@ func (s *Store) Get(id string) (*Node, bool) {
 	return n, ok
 }
 
-// UsedPorts returns every port already allocated to a registered node -
-// used by main.go's port-pool allocation so a restart doesn't hand out a
-// port a still-registered node already owns.
-func (s *Store) UsedPorts() map[int]bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	used := make(map[int]bool, len(s.nodes))
-	for _, n := range s.nodes {
-		used[n.Port] = true
-	}
-	return used
-}
-
 // Add generates a random ID, writes node's files to disk (0600 - this is
 // a full admin credential for the target node, even if a dashboard-
 // specific one rather than the user's own personal cert), and registers
@@ -206,7 +191,7 @@ func (s *Store) Add(node *Node) error {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	metaBytes, err := json.Marshal(meta{ID: id, Name: node.Name, Address: node.Address, Port: node.Port, MachineID: node.MachineID, Fleet: node.Fleet})
+	metaBytes, err := json.Marshal(meta{ID: id, Name: node.Name, Address: node.Address, MachineID: node.MachineID, Fleet: node.Fleet})
 	if err != nil {
 		return fmt.Errorf("marshal meta.json: %w", err)
 	}
@@ -241,7 +226,7 @@ func (s *Store) SetAddress(id, addr string) error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	m := meta{ID: n.ID, Name: n.Name, Address: addr, Port: n.Port, MachineID: n.MachineID, Fleet: n.Fleet}
+	m := meta{ID: n.ID, Name: n.Name, Address: addr, MachineID: n.MachineID, Fleet: n.Fleet}
 	if err := s.write(id, "meta.json", mustJSON(m)); err != nil {
 		return err
 	}
@@ -259,7 +244,7 @@ func (s *Store) SetFleet(id string) error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	m := meta{ID: n.ID, Name: n.Name, Address: n.Address, Port: n.Port, MachineID: n.MachineID, Fleet: true}
+	m := meta{ID: n.ID, Name: n.Name, Address: n.Address, MachineID: n.MachineID, Fleet: true}
 	if err := s.write(id, "meta.json", mustJSON(m)); err != nil {
 		return err
 	}

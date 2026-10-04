@@ -1,31 +1,20 @@
-// Package nodeproxy runs one dedicated HTTPS listener per registered
-// node, on that node's own allocated port (see dashboard/backend/
-// internal/store) - the browser's TLS client-certificate negotiation
-// happens per origin (host:port), so managing more than one node with
-// native browser cert selection needs a distinct origin per node, not
-// one shared listener (see the rebranding/dashboard plan's own
-// architecture section for the full reasoning).
-//
-// The client certificate a browser presents here only ever proves the
-// browser is allowed into *this* node's view (it's checked against that
-// node's own CA) - it is never, and cryptographically can never be,
-// reused to talk to the real node (a TLS server can verify a client
-// holds a private key, it can never extract that key). All real gRPC
-// calls to the node use the store.Node's own dedicated service
-// credential instead.
+// Package nodeproxy is each registered node's page and API on the
+// Controller: served under /nodes/<id>/ on its main port, behind its
+// accounts (dashboard/backend's gate), and relayed to the node over one
+// shared gRPC connection per node. The Controller reaches a node that
+// trusts its fleet with its own short-lived fleet certificate, acting
+// for the signed-in account - the node checks that account's role
+// itself (WithUser) -, and an older node with the service credential it
+// got when the node was added.
 package nodeproxy
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
-	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -34,78 +23,29 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
-	"github.com/swenske/Janus/internal/pki"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
 
-// staticFiles is the entire per-node dashboard view - deliberately
-// plain HTML/JS, no build step, no framework (unlike dashboard/
-// frontend's own React SPA, which lives on a completely different
-// origin - see this package's own doc comment for why the two can't
-// just be the same thing).
+// staticFiles is the node page (dashboard/frontend's node app, built
+// with relative asset paths: it's served under /nodes/<id>/).
 //
 //go:embed static
 var staticFiles embed.FS
 
-// Listener is one running per-node HTTPS endpoint.
-type Listener struct {
-	node   *store.Node
-	server *http.Server
+// Handler is node's page and API, for the Controller to serve under
+// /nodes/<id>/ (the prefix stripped) behind its own gate.
+func Handler(node *store.Node, st *store.Store) (http.Handler, error) {
+	return newHandler(node, st)
 }
 
-// Start begins serving node's dashboard view on its own allocated port
-// immediately - callers should treat a returned error as "this node's
-// listener never came up", not something to retry inline.
-func Start(node *store.Node, dashboardServerCert tls.Certificate, st *store.Store) (*Listener, error) {
-	if !x509.NewCertPool().AppendCertsFromPEM(node.CA()) {
-		return nil, fmt.Errorf("node %s: no valid certificates in stored ca.crt", node.ID)
-	}
+// Forget closes node's connection - the node is gone, or its
+// credentials changed.
+func Forget(nodeID string) { closeNodeConn(nodeID) }
 
-	// The node's CA as the Controller pins it now - it follows the node
-	// replacing it (followCA), and the browser's certificates with it.
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS13,
-		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
-			pool := x509.NewCertPool()
-			pool.AppendCertsFromPEM(node.CA())
-			return &tls.Config{
-				Certificates: []tls.Certificate{dashboardServerCert},
-				ClientAuth:   tls.RequireAndVerifyClientCert,
-				ClientCAs:    pool,
-				MinVersion:   tls.VersionTLS13,
-			}, nil
-		},
-	}
-
-	handler, err := newHandler(node, st)
-	if err != nil {
-		return nil, err
-	}
-
-	addr := fmt.Sprintf(":%d", node.Port)
-	ln, err := tls.Listen("tcp", addr, tlsConfig)
-	if err != nil {
-		return nil, fmt.Errorf("node %s: listen on %s: %w", node.ID, addr, err)
-	}
-
-	srv := &http.Server{Handler: handler}
-	go func() {
-		// ErrServerClosed is the expected outcome of Stop() below, not a
-		// real failure - nothing else to do with a listener error after
-		// the fact except let it die; the node just stops being
-		// reachable through the dashboard until re-added.
-		_ = srv.Serve(ln)
-	}()
-
-	return &Listener{node: node, server: srv}, nil
-}
-
-// newHandler is everything a per-node listener serves, behind CSRF
-// protection. The browser attaches the client certificate that opens
-// this origin to *any* request aimed at it, including one a page from
-// another site triggers - so the certificate alone doesn't prove the
-// operator meant the request. http.CrossOriginProtection rejects
+// newHandler is everything a node page serves, behind CSRF protection -
+// the Controller's main handler has it too; kept here so this handler is
+// never served without it. http.CrossOriginProtection rejects
 // cross-origin browser requests with a non-safe method (every endpoint
 // that changes something: power, services, config, maps, certificates,
 // upgrades...); GET stays open, since a cross-origin page can't read the
@@ -120,6 +60,12 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
 		handleInfo(w, r, node)
+	})
+	// Who the page acts for: the Controller's account and the node role
+	// the node gives it.
+	mux.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
+		u := userOf(r.Context())
+		writeJSONBody(w, http.StatusOK, map[string]any{"name": u.Name, "roles": u.Roles})
 	})
 	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
 		writeJSONBody(w, http.StatusOK, map[string]string{"id": node.ID, "name": node.Name, "address": node.Addr(), "controller_version": ControllerVersion, "locked_by": LockedBy(node)})
@@ -139,41 +85,7 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	registerHAProxyFileRoutes(mux, node)
 	mux.Handle("/", http.FileServerFS(view))
 
-	return requireAdminCertificate(http.NewCrossOriginProtection().Handler(mux)), nil
-}
-
-// requireAdminCertificate lets only an os:admin client certificate in.
-// Whatever the browser presents, the Controller acts on the node with
-// its own admin service credential: a reader certificate opening this
-// page would be an admin in all but name. Read-only access comes with
-// the Controller's own accounts and roles. A request without TLS only
-// comes from a test calling the handler directly - the listener itself
-// requires a verified certificate.
-func requireAdminCertificate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.TLS != nil {
-			var roles []string
-			if len(r.TLS.VerifiedChains) > 0 && len(r.TLS.VerifiedChains[0]) > 0 {
-				roles = r.TLS.VerifiedChains[0][0].Subject.Organization
-			}
-			if !slices.Contains(roles, pki.RoleAdmin) {
-				role := strings.Join(roles, ", ")
-				if role == "" {
-					role = "none"
-				}
-				w.Header().Set("Cache-Control", "no-store")
-				http.Error(w, fmt.Sprintf("This certificate's role is %s: a node's page needs an %s certificate - the Controller acts on the node as admin whatever the browser presents. Use this certificate with janusctl, and choose an admin certificate for this page (the browser remembers its choice per site: close it, or clear its SSL state, to be asked again).", role, pki.RoleAdmin), http.StatusForbidden)
-				return
-			}
-			// The node logs the certificate's name as who acted.
-			name := r.TLS.VerifiedChains[0][0].Subject.CommonName
-			if name == "" {
-				name = "browser"
-			}
-			r = r.WithContext(WithUser(r.Context(), User{Name: name, Roles: []string{pki.RoleAdmin}}))
-		}
-		next.ServeHTTP(w, r)
-	})
+	return http.NewCrossOriginProtection().Handler(mux), nil
 }
 
 // sameOriginOrDirect reports whether a browser request came from this
@@ -187,15 +99,6 @@ func sameOriginOrDirect(r *http.Request) bool {
 		return true
 	}
 	return false
-}
-
-// Stop shuts this node's listener down - used both for explicit node
-// removal and (in a future slice) restarting a listener after its
-// service credential is rotated.
-func (l *Listener) Stop(ctx context.Context) error {
-	err := l.server.Shutdown(ctx)
-	closeNodeConn(l.node.ID)
-	return err
 }
 
 // conns holds one long-lived gRPC connection per node (keyed by node

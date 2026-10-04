@@ -133,7 +133,9 @@ the Controller's checks can't make a reader an admin on a node. Every
 Controller route names the role a read of it and a change of it need
 (`gate`); an API token is its account's, with that role or less; every
 change and sign-in is in the Controller's audit, and what reaches a node
-in the node's log too. A second factor - TOTP, its secret sealed with
+in the node's log too. A node's page is the Controller's too, under
+`/nodes/<id>/` behind the session, with no certificate in the browser.
+A second factor - TOTP, its secret sealed with
 the master key, or a WebAuthn passkey - finishes the sign-in of an
 account that has one, required for admins by default.
 
@@ -159,7 +161,7 @@ key never seen by the node), or printed on the console like at first
 boot. The old CA cross-signs the new one, and the node serves that
 certificate after its server certificate: a client that pinned the old
 CA still verifies the node - the Controller then pins the new one
-(`nodeproxy.followCA`), its per-node page with it. The new files are
+(`nodeproxy.followCA`). The new files are
 written to `pki/rotation/` and marked ready before they're moved in
 place; a boot finishes a ready rotation and forgets an unfinished one
 (`internal/pki/rotate.go`).

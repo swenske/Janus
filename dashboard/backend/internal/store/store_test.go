@@ -15,7 +15,7 @@ func TestSetFleet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := &Node{Name: "lb1", Address: "192.0.2.10:9505", Port: 9500, CACertPEM: []byte("old CA"), ServiceCertPEM: []byte("cert"), ServiceKeyPEM: []byte("key")}
+	n := &Node{Name: "lb1", Address: "192.0.2.10:9505", CACertPEM: []byte("old CA"), ServiceCertPEM: []byte("cert"), ServiceKeyPEM: []byte("key")}
 	if err := s.Add(n); err != nil {
 		t.Fatal(err)
 	}

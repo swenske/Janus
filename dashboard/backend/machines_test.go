@@ -167,7 +167,6 @@ func (f *fakeDriver) Close() error { return nil }
 func newTestApp(t *testing.T) (*app, *fakeDriver) {
 	t.Helper()
 	dir := t.TempDir()
-	portRangeStart, portRangeEnd = 39500, 39599
 	st, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +188,7 @@ func newTestApp(t *testing.T) (*app, *fakeDriver) {
 		t.Fatal(err)
 	}
 	a := &app{
-		store: st, pending: pend, serverCert: cert, listeners: map[string]*nodeproxy.Listener{},
+		store: st, pending: pend, serverCert: cert,
 		suggestedRegisterAddr: "192.0.2.1:8443", dataDir: dir, controllerID: "ctl-test",
 		hypervisors: hvs, machines: ms,
 	}

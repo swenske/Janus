@@ -9,9 +9,10 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
 
-// TestPerNodeCSRF: the client certificate opening a per-node origin is
-// attached by the browser to requests *any* site triggers, so a request
-// from another origin must be refused before it reaches the node. The
+// TestPerNodeCSRF: the session cookie is attached by the browser to
+// requests *any* site triggers (SameSite keeps it off cross-site ones,
+// not same-site ones), so a request from another origin must be refused
+// before it reaches the node. The
 // test node has no usable credential, so a request that gets past the
 // check fails at the dial with 502 - never a 403.
 func TestPerNodeCSRF(t *testing.T) {
@@ -42,8 +43,7 @@ func TestPerNodeCSRF(t *testing.T) {
 		{"cross-site GET read-only view", req{"GET", "/api/system/services", "", map[string]string{"Sec-Fetch-Site": "cross-site"}}, http.StatusBadGateway},
 	}
 	for _, c := range cases {
-		r := httptest.NewRequest(c.req.method, "https://controller.example:9500"+c.req.path, strings.NewReader(c.req.body))
-		r.TLS = withRoles("os:admin")
+		r := httptest.NewRequest(c.req.method, "https://controller.example"+c.req.path, strings.NewReader(c.req.body))
 		for k, v := range c.req.headers {
 			r.Header.Set(k, v)
 		}

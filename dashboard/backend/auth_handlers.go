@@ -555,12 +555,13 @@ func noteAudit(r *http.Request, user, via string) {
 // auditedReads are reads worth recording: a secret leaving the Controller.
 var auditedReads = map[string]bool{"/api/fleet/recovery-kit": true}
 
-// audited records every API request that isn't a read - and the reads of
-// auditedReads -, with its account and outcome, in the audit and the
-// process's log.
+// audited records every API request that isn't a read - the
+// Controller's and its node pages' - and the reads of auditedReads, with
+// its account and outcome, in the audit and the process's log.
 func (a *app) audited(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/api/") || (safeMethod(r.Method) && !auditedReads[r.URL.Path]) {
+		api := strings.HasPrefix(r.URL.Path, "/api/") || (strings.HasPrefix(r.URL.Path, "/nodes/") && strings.Contains(r.URL.Path, "/api/"))
+		if !api || (safeMethod(r.Method) && !auditedReads[r.URL.Path]) {
 			next.ServeHTTP(w, r)
 			return
 		}

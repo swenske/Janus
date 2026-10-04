@@ -404,8 +404,7 @@ APPROVE_CODE="$(echo "$APPROVE_RESP" | tail -1)"
 APPROVE_BODY="$(echo "$APPROVE_RESP" | sed '$d')"
 [ "$APPROVE_CODE" = "201" ] || { echo "Dashboard test FAILED: approve should return 201, got $APPROVE_CODE: $APPROVE_BODY" >&2; exit 1; }
 APPROVED_NODE_ID="$(echo "$APPROVE_BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-APPROVED_PORT="$(echo "$APPROVE_BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["port"])')"
-[ -n "$APPROVED_PORT" ] || { echo "Dashboard test FAILED: approve response missing an allocated port: $APPROVE_BODY" >&2; exit 1; }
+[ -n "$APPROVED_NODE_ID" ] || { echo "Dashboard test FAILED: approve response missing the node's id: $APPROVE_BODY" >&2; exit 1; }
 
 REJECT_CODE="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/pending/${REJECT_ID}/reject")"
 [ "$REJECT_CODE" = "204" ] || { echo "Dashboard test FAILED: reject should return 204, got $REJECT_CODE" >&2; exit 1; }
@@ -428,15 +427,11 @@ if echo "$NODES_AFTER_ACTIONS" | grep -q '"name":"reject-me"'; then
   exit 1
 fi
 
-# The approved node's listener must genuinely be up and its mTLS gate
-# must accept a cert from its own CA - this synthetic node's "address"
-# (10.0.0.9:9505) isn't a real janusd, so the relay itself can't
-# succeed (expect a 502 once nodeproxy tries to actually dial it, not a
-# 200) - what matters here is that the TLS handshake completes at all
-# (proving the listener is up and the gate accepts the right CA), not
-# "000" (connection refused/handshake failure).
-approve_relay_code="$(curl -sk -o /dev/null -w '%{http_code}' --cert "$WORKDIR/approve-me-service.crt" --key "$WORKDIR/approve-me-service.key" "https://127.0.0.1:${APPROVED_PORT}/api/info" || true)"
-[ "$approve_relay_code" != "000" ] || { echo "Dashboard test FAILED: approved node's listener isn't up at all (port $APPROVED_PORT)" >&2; exit 1; }
+# The approved node's page is up under /nodes/<id>/ - this synthetic
+# node's "address" (10.0.0.9:9505) isn't a real janusd, so the relay
+# itself can't succeed: a 502 once nodeproxy tries to dial it.
+approve_relay_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -m 20 "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/nodes/${APPROVED_NODE_ID}/api/info" || true)"
+[ "$approve_relay_code" = "502" ] || { echo "Dashboard test FAILED: the approved node's page answered $approve_relay_code, want 502 (relayed, the node unreachable)" >&2; exit 1; }
 
 reject_unknown_id_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/pending/${REJECT_ID}/reject")"
 [ "$reject_unknown_id_code" = "404" ] || { echo "Dashboard test FAILED: rejecting an already-rejected id should be 404, got $reject_unknown_id_code" >&2; exit 1; }
@@ -499,13 +494,13 @@ PYEOF
 ADD_RESP="$(curl -sk -b "$COOKIE_JAR" -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/nodes" -H "Content-Type: application/json" -d @"$WORKDIR/add-node.json")"
 echo "add-node response: $ADD_RESP"
 NODE_ID="$(echo "$ADD_RESP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-NODE_LISTEN_PORT="$(echo "$ADD_RESP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["port"])')"
-if [ -z "$NODE_ID" ] || [ -z "$NODE_LISTEN_PORT" ]; then
-  echo "Dashboard test FAILED: add-node didn't return an id/port" >&2
+if [ -z "$NODE_ID" ]; then
+  echo "Dashboard test FAILED: add-node didn't return an id" >&2
   cat "$WORKDIR/dashboardd.log" >&2
   exit 1
 fi
-echo "Add-node OK: id=$NODE_ID port=$NODE_LISTEN_PORT"
+echo "Add-node OK: id=$NODE_ID"
+NODE_BASE="https://127.0.0.1:${DASHBOARD_ADDR_PORT}/nodes/${NODE_ID}"
 
 # --- list ---
 LIST_RESP="$(curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/nodes")"
@@ -516,8 +511,8 @@ if echo "$LIST_RESP" | grep -q "bootstrap\|service"; then
 fi
 echo "List OK: node present, no credential material in the response"
 
-# --- per-node relay, with a valid cert from the node's own CA ---
-INFO="$(curl -sk --cert "$WORKDIR/admin.crt" --key "$WORKDIR/admin.key" "https://127.0.0.1:${NODE_LISTEN_PORT}/api/info")"
+# --- the node's page relays, for the signed-in admin ---
+INFO="$(curl -sk -b "$COOKIE_JAR" "${NODE_BASE}/api/info")"
 echo "relay response: $INFO"
 echo "$INFO" | grep -q '"kernel_version"' || { echo "Dashboard test FAILED: relay response missing kernel_version: $INFO" >&2; exit 1; }
 echo "$INFO" | grep -q '"active_slot":"A"' || { echo "Dashboard test FAILED: relay response's active_slot wasn't A: $INFO" >&2; exit 1; }
@@ -525,16 +520,16 @@ mem_total="$(echo "$INFO" | python3 -c 'import json,sys; print(json.load(sys.std
 [ "$mem_total" -gt 0 ] || { echo "Dashboard test FAILED: relayed memory total_bytes was 0" >&2; exit 1; }
 echo "Relay OK: real data (kernel_version, active_slot=A, memory=${mem_total} bytes) genuinely round-tripped through the dashboard to the real node and back"
 
-# --- the per-node view (nodeproxy's own go:embed'd static/index.html,
-# not the main SPA) must actually be served, mTLS-gated the same way
-# /api/info is ---
-NODE_UI="$(curl -sk --cert "$WORKDIR/admin.crt" --key "$WORKDIR/admin.key" "https://127.0.0.1:${NODE_LISTEN_PORT}/")"
-echo "$NODE_UI" | grep -q '<title>Janus Node</title>' || { echo "Dashboard test FAILED: per-node dashboard page not served at /: $NODE_UI" >&2; exit 1; }
-echo "Per-node UI OK: nodeproxy's own dashboard page is served at / behind the same mTLS gate as /api/info"
+# --- the node's page itself (nodeproxy's go:embed'd node app, not the
+# main SPA), its assets relative to /nodes/<id>/ ---
+NODE_UI="$(curl -sk "${NODE_BASE}/")"
+echo "$NODE_UI" | grep -q '<title>Janus Node</title>' || { echo "Dashboard test FAILED: the node page isn't served at /nodes/<id>/: $NODE_UI" >&2; exit 1; }
+node_asset="$(echo "$NODE_UI" | grep -o 'src="./assets/[^"]*"' | head -1 | sed 's/src="\.\///; s/"$//')"
+[ "$(curl -sk -o /dev/null -w '%{http_code}' "${NODE_BASE}/${node_asset}")" = 200 ] || { echo "Dashboard test FAILED: the node page's asset ${node_asset} isn't served under its page" >&2; exit 1; }
+echo "Node page OK: the node app is served at /nodes/<id>/ with its assets"
 
 # --- tranche 4: ops/config relay (dashboard/backend/internal/nodeproxy/ops.go) ---
-DASH_CERT=(--cert "$WORKDIR/admin.crt" --key "$WORKDIR/admin.key")
-NODE_BASE="https://127.0.0.1:${NODE_LISTEN_PORT}"
+DASH_CERT=(-b "$COOKIE_JAR")
 
 HAPROXY_INFO="$(curl -sk "${DASH_CERT[@]}" "${NODE_BASE}/api/haproxy/info")"
 echo "$HAPROXY_INFO" | grep -q '"version"' || { echo "Dashboard test FAILED: /api/haproxy/info missing version: $HAPROXY_INFO" >&2; exit 1; }
@@ -759,19 +754,13 @@ LIST_AFTER_DELETE_CERT="$(curl -sk "${DASH_CERT[@]}" "${NODE_BASE}/api/haproxy/c
 [ "$LIST_AFTER_DELETE_CERT" = "{}" ] || { echo "Dashboard test FAILED: cert still listed after delete: $LIST_AFTER_DELETE_CERT" >&2; exit 1; }
 echo "Certificate relay OK: real upload/list/delete round trip against the real node's cert store"
 
-# --- the mTLS gate must reject both no cert and the wrong CA ---
-no_cert_code="$(curl -sk -o /dev/null -w '%{http_code}' -m 3 "https://127.0.0.1:${NODE_LISTEN_PORT}/api/info" || true)"
-if [ "$no_cert_code" != "000" ]; then
-  echo "Dashboard test FAILED: connecting with no client cert should be refused at the TLS handshake, got HTTP $no_cert_code" >&2
-  exit 1
-fi
-openssl req -x509 -newkey ed25519 -keyout "$WORKDIR/wrong.key" -out "$WORKDIR/wrong.crt" -days 1 -nodes -subj "/CN=wrong" >/dev/null 2>&1
-wrong_ca_code="$(curl -sk --cert "$WORKDIR/wrong.crt" --key "$WORKDIR/wrong.key" -o /dev/null -w '%{http_code}' -m 3 "https://127.0.0.1:${NODE_LISTEN_PORT}/api/info" || true)"
-if [ "$wrong_ca_code" != "000" ]; then
-  echo "Dashboard test FAILED: connecting with a cert from an unrelated CA should be refused at the TLS handshake, got HTTP $wrong_ca_code" >&2
-  exit 1
-fi
-echo "mTLS gate OK: both no-cert and wrong-CA connections refused at the TLS handshake itself"
+# --- the node's API needs an account: none is 401; a node that doesn't
+# trust the fleet yet - reached as admin - is refused a reader ---
+no_session_code="$(curl -sk -o /dev/null -w '%{http_code}' -m 3 "${NODE_BASE}/api/info")"
+[ "$no_session_code" = 401 ] || { echo "Dashboard test FAILED: the node's API with no session answered $no_session_code" >&2; exit 1; }
+reader_old_code="$(curl -sk -b "$READER_JAR" -o /dev/null -w '%{http_code}' -m 3 "${NODE_BASE}/api/info")"
+[ "$reader_old_code" = 403 ] || { echo "Dashboard test FAILED: a reader read a node that doesn't trust the fleet ($reader_old_code)" >&2; exit 1; }
+echo "Node page gate OK: no session refused, a reader refused a node reached as admin"
 
 # --- delete ---
 del_code="$(curl -sk -b "$COOKIE_JAR" -X DELETE -o /dev/null -w '%{http_code}' "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/nodes/${NODE_ID}")"
@@ -781,9 +770,9 @@ if echo "$LIST_AFTER_DELETE" | grep -qF "\"id\":\"$NODE_ID\""; then
   echo "Dashboard test FAILED: node still listed after DELETE: $LIST_AFTER_DELETE" >&2
   exit 1
 fi
-after_delete_code="$(curl -sk -o /dev/null -w '%{http_code}' -m 3 --cert "$WORKDIR/admin.crt" --key "$WORKDIR/admin.key" "https://127.0.0.1:${NODE_LISTEN_PORT}/api/info" || true)"
-[ "$after_delete_code" = "000" ] || { echo "Dashboard test FAILED: per-node port still answering after DELETE (got $after_delete_code)" >&2; exit 1; }
-echo "Delete OK: node unregistered, its listener stopped accepting connections entirely"
+after_delete_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -m 3 "${NODE_BASE}/api/info")"
+[ "$after_delete_code" = "404" ] || { echo "Dashboard test FAILED: the deleted node's page answered $after_delete_code" >&2; exit 1; }
+echo "Delete OK: node unregistered, its page gone"
 
 # --- persistence across a restart ---
 curl -sk -b "$COOKIE_JAR" -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/nodes" -H "Content-Type: application/json" -d @"$WORKDIR/add-node.json" > /dev/null
@@ -813,10 +802,23 @@ echo "Pending persistence OK: the self-registered node's pending entry survived 
 
 RESTART_LIST="$(curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/nodes")"
 echo "$RESTART_LIST" | grep -q '"name":"test-node"' || { echo "Dashboard test FAILED: node registry didn't survive a restart: $RESTART_LIST" >&2; cat "$WORKDIR/dashboardd-restart.log" >&2; exit 1; }
-RESTART_PORT="$(echo "$RESTART_LIST" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["port"])')"
-restart_relay_code="$(curl -sk -o /dev/null -w '%{http_code}' --cert "$WORKDIR/admin.crt" --key "$WORKDIR/admin.key" "https://127.0.0.1:${RESTART_PORT}/api/info" || true)"
-[ "$restart_relay_code" = "200" ] || { echo "Dashboard test FAILED: per-node listener didn't come back after restart (got $restart_relay_code)" >&2; exit 1; }
-echo "Restart persistence OK: node registry and per-node listener both survived a dashboardd restart against the same data directory"
+RESTART_ID="$(echo "$RESTART_LIST" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+NODE_BASE="https://127.0.0.1:${DASHBOARD_ADDR_PORT}/nodes/${RESTART_ID}"
+restart_relay_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "${NODE_BASE}/api/info")"
+[ "$restart_relay_code" = "200" ] || { echo "Dashboard test FAILED: the node's page didn't relay after restart (got $restart_relay_code)" >&2; exit 1; }
+echo "Restart persistence OK: node registry and its page both survived a dashboardd restart against the same data directory"
+
+# signin signs the admin in again after a restart (sessions are in
+# memory) - its second factor a recovery code, one per sign-in (a code
+# from the app is good once per 30 s).
+RECOVERY_USED=0
+signin() {
+  curl -sk -c "$COOKIE_JAR" -o /dev/null -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d '{"password":"dashboard-test-admin-pw"}'
+  local code
+  code="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["recovery_codes"][int(sys.argv[2])])' "$WORKDIR/recovery.json" "$RECOVERY_USED")"
+  RECOVERY_USED=$((RECOVERY_USED + 1))
+  [ "$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/auth/mfa/recovery" -H 'Content-Type: application/json' -d "{\"code\":\"$code\"}")" = 204 ]
+}
 
 # --- the fleet (dashboard/backend/fleet.go): set up, its recovery kit
 # given back, then the node brought to trust it - the Controller reaches
@@ -851,19 +853,39 @@ grep -q '"fleet":true' "$WORKDIR/data/nodes/$FLEET_NODE_ID/meta.json" || { echo 
 echo "Fleet setup OK: a wrong passphrase refused, the kit confirmed, the root key gone, the node trusts the fleet and its service key is deleted"
 
 fleet_relay() { # the node's page, now relayed with the fleet certificate
-  curl -sk -o /dev/null -w '%{http_code}' --cert "$WORKDIR/admin.crt" --key "$WORKDIR/admin.key" -X POST "https://127.0.0.1:${RESTART_PORT}/api/system/services/haproxy/restart"
+  curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "${NODE_BASE}/api/system/services/haproxy/restart"
 }
 [ "$(fleet_relay)" = "200" ] || { echo "Dashboard test FAILED: restarting HAProxy through the fleet relay" >&2; exit 1; }
-curl -sk -m 4 --cert "$WORKDIR/admin.crt" --key "$WORKDIR/admin.key" "https://127.0.0.1:${RESTART_PORT}/api/stream/logs?id=janusd&tail=200" >"$WORKDIR/node-janusd.log" || true
-grep -q 'api: SystemService/ServiceRestart: admin (os:admin) via janus-controller' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log the restart as the browser's user via the Controller: $(cat "$WORKDIR/node-janusd.log")" >&2; exit 1; }
+
+# The accounts' roles on the node itself: an operator restarts HAProxy,
+# and the node refuses it what only an admin does; a reader reads now
+# (the Controller acts for it as os:reader) and changes nothing.
+OPERATOR_JAR="$WORKDIR/operator-cookies.txt"
+curl -sk -b "$COOKIE_JAR" -o /dev/null -X POST "$API/api/users" -H 'Content-Type: application/json' -d '{"name":"olga","role":"operator","password":"olga-given-pw"}'
+curl -sk -c "$OPERATOR_JAR" -o /dev/null -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d '{"name":"olga","password":"olga-given-pw"}'
+curl -sk -b "$OPERATOR_JAR" -c "$OPERATOR_JAR" -o /dev/null -X POST "$API/api/auth/password" -H 'Content-Type: application/json' -d '{"current_password":"olga-given-pw","new_password":"olgas-own-password"}'
+op_restart="$(curl -sk -b "$OPERATOR_JAR" -o /dev/null -w '%{http_code}' -X POST "${NODE_BASE}/api/system/services/haproxy/restart")"
+op_issue="$(curl -sk -b "$OPERATOR_JAR" -o "$WORKDIR/op-issue.txt" -w '%{http_code}' -X POST "${NODE_BASE}/api/pki/client" -H 'Content-Type: application/json' -d '{"role":"os:reader","name":"x","ttl_seconds":3600,"format":"pem"}')"
+curl -sk -c "$READER_JAR" -o /dev/null -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d '{"name":"rita","password":"ritas-own-password"}' # after the restart
+reader_read="$(curl -sk -b "$READER_JAR" -o /dev/null -w '%{http_code}' "${NODE_BASE}/api/info")"
+reader_change="$(curl -sk -b "$READER_JAR" -o /dev/null -w '%{http_code}' -X POST "${NODE_BASE}/api/system/services/haproxy/restart")"
+[ "$op_restart/$op_issue/$reader_read/$reader_change" = 200/403/200/403 ] || { echo "Dashboard test FAILED: operator restart $op_restart, operator issuing a certificate $op_issue ($(cat "$WORKDIR/op-issue.txt")), reader read $reader_read, reader restart $reader_change (want 200/403/200/403)" >&2; exit 1; }
+grep -q 'requires role \[os:admin\], olga has \[os:operator\]' "$WORKDIR/op-issue.txt" || { echo "Dashboard test FAILED: the operator's certificate refused by someone else than the node: $(cat "$WORKDIR/op-issue.txt")" >&2; exit 1; }
+curl -sk -m 4 -b "$COOKIE_JAR" "${NODE_BASE}/api/stream/logs?id=janusd&tail=300" >"$WORKDIR/node-janusd.log" || true
+grep -q 'api: SystemService/ServiceRestart: admin (os:admin) via janus-controller' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log the admin's restart via the Controller: $(cat "$WORKDIR/node-janusd.log")" >&2; exit 1; }
+grep -q 'api: SystemService/ServiceRestart: olga (os:operator) via janus-controller' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log the operator's restart as hers" >&2; exit 1; }
 grep -q 'access: fleet root' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log taking the fleet" >&2; exit 1; }
-echo "Fleet relay OK: the node logs the browser's user acting through the Controller's fleet certificate"
+echo "Fleet relay OK: the node logs each account acting through the Controller - an operator restarted HAProxy and was refused an admin's call by the node itself, a reader read"
 
 kill "$DASHBOARD_PID"
 wait "$DASHBOARD_PID" 2>/dev/null || true
 "$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data" > "$WORKDIR/dashboardd-restart2.log" 2>&1 &
 DASHBOARD_PID=$!
 deadline=$((SECONDS + 20))
+until signin 2>/dev/null; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: signing in after the restart" >&2; exit 1; }
+  sleep 1
+done
 until [ "$(fleet_relay)" = "200" ]; do
   [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the fleet relay didn't come back after a restart" >&2; cat "$WORKDIR/dashboardd-restart2.log" >&2; exit 1; }
   sleep 1
@@ -882,9 +904,13 @@ wait "$DASHBOARD_PID" 2>/dev/null || true
 "$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data" > "$WORKDIR/dashboardd-restart3.log" 2>&1 &
 DASHBOARD_PID=$!
 rotated_relay() {
-  curl -sk -o /dev/null -w '%{http_code}' --cert "$WORKDIR/rotated/admin.crt" --key "$WORKDIR/rotated/admin.key" "https://127.0.0.1:${RESTART_PORT}/api/info"
+  curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "${NODE_BASE}/api/info"
 }
 deadline=$((SECONDS + 30))
+until signin 2>/dev/null; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: signing in after the restart" >&2; exit 1; }
+  sleep 1
+done
 until [ "$(rotated_relay)" = "200" ]; do
   [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the node isn't reached after it replaced its CA" >&2; cat "$WORKDIR/dashboardd-restart3.log" >&2; exit 1; }
   sleep 1
@@ -893,6 +919,8 @@ if cmp -s "$WORKDIR/pinned-before.crt" "$WORKDIR/data/nodes/$FLEET_NODE_ID/ca.cr
   echo "Dashboard test FAILED: the Controller still pins the node's old CA" >&2; exit 1
 fi
 grep -q 'replaced its CA - the Controller now pins the new one' "$WORKDIR/dashboardd-restart3.log" || { echo "Dashboard test FAILED: the Controller didn't say it follows the node's new CA" >&2; exit 1; }
-echo "CA rotation OK: the Controller follows the node's new CA, cross-signed by the old one, and the new admin certificate opens its page"
+"$WORKDIR/janusctl" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/rotated/ca.crt" -cert "$WORKDIR/rotated/admin.crt" -key "$WORKDIR/rotated/admin.key" version >/dev/null \
+  || { echo "Dashboard test FAILED: the new admin certificate doesn't reach the node" >&2; exit 1; }
+echo "CA rotation OK: the Controller follows the node's new CA, cross-signed by the old one, and the new admin certificate reaches the node"
 
-echo "Dashboard test OK: add/list/relay/mTLS-gate/delete/restart-persistence/fleet all verified against a real running node"
+echo "Dashboard test OK: add/list/relay/accounts on node pages/delete/restart-persistence/fleet all verified against a real running node"

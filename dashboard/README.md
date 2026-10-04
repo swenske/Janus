@@ -24,27 +24,27 @@ with a sidebar:
   [`docs/packet-capture.md`](../docs/packet-capture.md)), and a
   read-only file browser (preview, download a file or a folder as .tar).
 - **System** - services, A/B updates (from a URL or relayed through the
-  Controller, with automatic revert), issuing reader/admin client
-  certificates (.pfx or PEM), and power: restart janusd (HAProxy keeps
+  Controller, with automatic revert), issuing client certificates for
+  janusctl (.pfx or PEM), and power: restart janusd (HAProxy keeps
   serving), reboot, shut down, reset - with the page following the node
   until it's back.
+
+A node's page is on the Controller's own address, under
+`/nodes/<id>/`, behind your account - no certificate in the browser. The
+Controller acts on the node for your account, with its role there
+(`os:reader`, `os:operator`, `os:admin`), and the node logs who acted.
 
 Light and dark themes follow the system, or can be chosen per browser.
 Design principles and how to verify a UI change:
 [`docs/controller-ui.md`](../docs/controller-ui.md).
 
-See the local `docs/plan` history (rebranding/dashboard/client-native
-initiative) for the full architecture and why it's shaped the way it
-is - the short version: your browser authenticates to *this dashboard*
-per node using an `os:admin` TLS client certificate issued by that
-node's own PKI (never uploaded - selected from what your browser already
-has installed; a reader certificate is refused, since the dashboard acts
-as admin on the node whatever certificate opened the page), while the dashboard itself talks to the real node using a
-separate service credential it generates for itself once, when you add
-the node. A TLS server can verify a client holds a private key, it can
-never extract that key - so your browser's certificate can never be
-reused to dial the node directly, only to prove to the dashboard that
-you're allowed to look at that node's own view.
+How it holds together: you sign in to the Controller with an account
+([Accounts and roles](#accounts-and-roles)); the Controller reaches each
+node over mutual TLS, with a short-lived certificate of its fleet once
+the node trusts it ([Securing the fleet](#securing-the-fleet)) - with
+the service credential it got when the node was added until then, which
+an admin's account only may use. The node checks the role of the
+account the Controller acts for, itself.
 
 **Status:** published to Docker Hub as
 [`swenske/janus-controller`](https://hub.docker.com/r/swenske/janus-controller)
@@ -77,18 +77,10 @@ and commit the result before building the image.
 
 ## Run
 
-**The container must run with `--network host`.** It listens on three
-distinct ports, one of which (the per-node listener pool, below) is a
-*dynamic range*, not a single fixed port - browser TLS client-
-certificate selection is negotiated per *origin* (host:port), so
-managing more than one node needs a distinct origin per node. Docker's
-static `-p host:container` mapping can't represent that cleanly (mapping
-a 100-port range works but is awkward, and still leaves this process
-unable to see its own real, externally-reachable address on its network
-interfaces - see `-advertise-address` further down for that specific
-symptom). `--network host` sidesteps all of it at once: every port
-`dashboardd` binds is immediately reachable at the host's own address,
-with no mapping and no address-detection gap.
+**Run the container with `--network host`.** It listens on two ports,
+and sees the host's own addresses that way: its TLS identity and the
+address it suggests for provisioning nodes come from them (with `-p`
+mappings instead, set `-advertise-address` - further down).
 
 - **`:8080`** (configurable via `-addr`) - the main UI, **HTTPS only**.
   Behind accounts - the first one, an admin, made on first visit (see
@@ -97,9 +89,6 @@ with no mapping and no address-detection gap.
   self-registers (see `internal/pending`); self-announced nodes land in
   a "pending" queue, approved or rejected by hand in the UI, not
   admitted automatically.
-- **`9500-9599`** - a *pool* of per-node HTTPS listeners, one per
-  registered node, each requiring a TLS client certificate issued by
-  that node's own CA.
 
 ```sh
 docker run -d \
@@ -135,16 +124,16 @@ image for the locally-built `janus-controller` tag - see Build above.)
 registry and the dashboard's own TLS identity persist across restarts
 (`-data-dir`, default `/data`) - without it, every restart forgets
 every registered node and re-issues a new dashboard identity, which
-also invalidates any per-node listener certificate your browser
-already trusted.
+also invalidates the certificate your browser already trusted.
 
 ### TLS identity
 
 Every port above shares one TLS server certificate
 (`loadOrCreateDashboardIdentity`) - by default a self-signed one,
 generated on first run and persisted to `-data-dir`, so your browser's
-one-time trust click-through (same as any per-node view already needs)
-survives restarts. Its SAN list covers `localhost`/`127.0.0.1`/`::1`
+one-time trust click-through survives restarts (passkeys need a
+certificate the browser really trusts: give the Controller one with
+`-tls-cert`, or trust its own). Its SAN list covers `localhost`/`127.0.0.1`/`::1`
 plus every real address this process can see on its own network
 interfaces - with `--network host`, that's the host's actual LAN
 address(es) directly, no extra configuration needed. Pass

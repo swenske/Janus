@@ -126,7 +126,7 @@ const mgmtMAC, frontMAC = "52:54:00:00:00:01", "52:54:00:00:00:02"
 // page), as the node and the hypervisor report them.
 func readyMachine(t *testing.T, a *app, hv *hypervisor.Hypervisor, fake *fakeDriver) (*machines.Machine, *fakeNodes) {
 	t.Helper()
-	node := &store.Node{Name: "lb1", Address: "127.0.0.1:1", Port: 39599, CACertPEM: []byte("ca"), ServiceCertPEM: []byte("c"), ServiceKeyPEM: []byte("k")}
+	node := &store.Node{Name: "lb1", Address: "127.0.0.1:1", CACertPEM: []byte("ca"), ServiceCertPEM: []byte("c"), ServiceKeyPEM: []byte("k")}
 	if err := a.store.Add(node); err != nil {
 		t.Fatal(err)
 	}

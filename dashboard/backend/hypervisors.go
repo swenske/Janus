@@ -12,11 +12,11 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor/libvirt"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor/proxmox"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
-	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 )
 
 // The hypervisors the Controller creates its own nodes on

@@ -43,10 +43,9 @@
 #      Controller over TLS verified against the CA it was given at
 #      provisioning time.
 #   5. approve the pending entry through the real dashboard API, then
-#      confirm the resulting per-node listener's mTLS gate trusts the
-#      CA the node self-reported - a cert extracted from the booted
-#      guest's own STATE partition completes the handshake, a cert from
-#      an unrelated CA is refused at the handshake itself. Doesn't go
+#      confirm the Controller pins the CA the node self-reported - the
+#      one on the booted guest's own STATE partition - and that the
+#      node's page relays (a 502: unreachable from here). Doesn't go
 #      all the way to a relayed response with real data the way hack/
 #      qemu-dashboard-test.sh's own relay check does - see this part's
 #      own comment in the script for why (QEMU usermode networking's
@@ -317,9 +316,9 @@ PENDING_NAME="$(echo "$PENDING_JSON" | python3 -c 'import json,sys; print(json.l
 echo "Part 4 OK: node self-registered on its own - id=$PENDING_ID name=$PENDING_NAME, entry: $PENDING_JSON"
 
 # =========================================================================
-# Part 5: approve it through the real API, then confirm the resulting
-# per-node listener's mTLS gate genuinely trusts the CA the node
-# self-reported (not some other CA it happens to already know about).
+# Part 5: approve it through the real API, then confirm the Controller
+# pins the CA the node self-reported (not some other CA it happens to
+# already know about), and that its page relays.
 #
 # This can't go all the way to a real relayed response the way hack/
 # qemu-dashboard-test.sh's own relay check does: dashboardd here runs
@@ -337,14 +336,14 @@ echo "Part 4 OK: node self-registered on its own - id=$PENDING_ID name=$PENDING_
 # host-reachable node address by hack/qemu-dashboard-test.sh - what's
 # actually new here, and what this part verifies instead, is that
 # approvePending correctly plumbed the node's *self-reported* CA into
-# the listener it started.
+# the node it recorded.
 # =========================================================================
 APPROVE_RESP="$(curl -sk -b "$COOKIE_JAR" -w '\n%{http_code}' -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/pending/${PENDING_ID}/approve")"
 APPROVE_CODE="$(echo "$APPROVE_RESP" | tail -1)"
 APPROVE_BODY="$(echo "$APPROVE_RESP" | sed '$d')"
 [ "$APPROVE_CODE" = "201" ] || { echo "Self-register test FAILED: approve returned $APPROVE_CODE: $APPROVE_BODY" >&2; exit 1; }
-APPROVED_PORT="$(echo "$APPROVE_BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["port"])')"
-[ -n "$APPROVED_PORT" ] || { echo "Self-register test FAILED: approve response missing a port: $APPROVE_BODY" >&2; exit 1; }
+APPROVED_ID="$(echo "$APPROVE_BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+[ -n "$APPROVED_ID" ] || { echo "Self-register test FAILED: approve response missing the node's id: $APPROVE_BODY" >&2; exit 1; }
 if [ -n "$FLEET" ]; then
   # The node polls every 15 s: it takes the fleet's trust by itself.
   DEADLINE=$((SECONDS + 60))
@@ -353,53 +352,28 @@ if [ -n "$FLEET" ]; then
     sleep 1
   done
   grep -q "access: fleet root\|pki: trusts the fleet" "$LOG" || true
-  APPROVED_ID="$(echo "$APPROVE_BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
   grep -q '"fleet":true' "$WORKDIR/dashboard-data/nodes/$APPROVED_ID/meta.json" && [ ! -e "$WORKDIR/dashboard-data/nodes/$APPROVED_ID/service.key" ] \
     || { echo "Self-register test FAILED: the approved keyless node isn't recorded trusting the fleet with no credential" >&2; exit 1; }
   echo "Keyless approval OK: the node polled, took the fleet's trust, and the Controller keeps no credential for it"
 fi
 
-# Extract a cert from the booted guest's own CA (partition 6, STATE -
-# same debugfs extraction every other lifecycle test in this project
-# uses) - any cert issued by that CA must satisfy the per-node
-# listener's mTLS gate.
+# The CA the Controller pins for the node is the one the node reported -
+# compared with the booted guest's own (partition 6, STATE - the same
+# debugfs extraction every other lifecycle test in this project uses).
 STATE_START_SECTOR="$(sgdisk -i 6 "$BLANK_DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
 STATE_SIZE_SECTORS="$(sgdisk -i 6 "$BLANK_DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
 dd if="$BLANK_DISK" of="$WORKDIR/state.img" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-for f in admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || { echo "Self-register test FAILED: couldn't extract pki/$f from the booted guest's STATE partition" >&2; exit 1; }
-done
+debugfs -R "dump pki/ca.crt $WORKDIR/guest-ca.crt" "$WORKDIR/state.img" >/dev/null 2>&1
+[ -s "$WORKDIR/guest-ca.crt" ] || { echo "Self-register test FAILED: couldn't extract pki/ca.crt from the booted guest's STATE partition" >&2; exit 1; }
+cmp -s "$WORKDIR/guest-ca.crt" "$WORKDIR/dashboard-data/nodes/$APPROVED_ID/ca.crt" \
+  || { echo "Self-register test FAILED: the Controller pins another CA than the node's own" >&2; exit 1; }
 
-# A cert from the guest's own (self-reported) CA must complete the TLS
-# handshake and reach the relay handler - proven here by a real 502
-# ("Version: ... DeadlineExceeded", from nodeproxy.go's handleInfo
-# trying and failing to reach the guest's own unreachable-from-here
-# advertise address, per this part's own header comment) rather than a
-# handshake-level refusal. handleInfo's own dial uses a 10s context
-# timeout (see nodeproxy.go), so this needs real room past that: a
-# first draft used a tight 5s client-side timeout here, which made a
-# genuinely successful handshake indistinguishable from a real
-# refusal, since curl's %{http_code} reports "000" for both "never
-# connected" and "connected fine but the response didn't arrive in
-# time" - caught with curl -v, which showed the handshake completing
-# in full while the tight timeout still reported 000.
-right_ca_code="$(curl -sk --cert "$WORKDIR/admin.crt" --key "$WORKDIR/admin.key" -o /dev/null -w '%{http_code}' -m 20 "https://127.0.0.1:${APPROVED_PORT}/api/info" || true)"
-if [ "$right_ca_code" != "502" ]; then
-  echo "Self-register test FAILED: expected the approved node's listener to accept the right-CA cert and reach the relay handler (502, dial timeout to the unreachable-from-here address), got $right_ca_code" >&2
-  exit 1
-fi
-
-# A cert from an unrelated CA must be refused at the handshake itself -
-# proving the gate is checking against the self-reported CA
-# specifically, not just accepting anything.
-openssl req -x509 -newkey ed25519 -keyout "$WORKDIR/wrong.key" -out "$WORKDIR/wrong.crt" -days 1 -nodes -subj "/CN=wrong" >/dev/null 2>&1
-wrong_ca_code="$(curl -sk --cert "$WORKDIR/wrong.crt" --key "$WORKDIR/wrong.key" -o /dev/null -w '%{http_code}' -m 5 "https://127.0.0.1:${APPROVED_PORT}/api/info" || true)"
-if [ "$wrong_ca_code" != "000" ]; then
-  echo "Self-register test FAILED: the approved node's listener accepted a cert from an unrelated CA (code $wrong_ca_code), want a handshake-level refusal" >&2
-  exit 1
-fi
-echo "Part 5 OK: approved node's listener gate genuinely trusts the CA the node self-reported (right CA: HTTP $right_ca_code, unrelated CA: refused at the handshake)"
+# Its page relays: a 502 here - the guest's advertise address isn't
+# reachable from the host (this part's header comment) - rather than a
+# refusal. nodeproxy's dial has a 10 s timeout: room past that.
+relay_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -m 20 "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/nodes/${APPROVED_ID}/api/info" || true)"
+[ "$relay_code" = "502" ] || { echo "Self-register test FAILED: the approved node's page answered $relay_code, want 502 (relayed, the node unreachable from here)" >&2; exit 1; }
+echo "Part 5 OK: the Controller pins the CA the node reported, and the node's page relays (HTTP $relay_code)"
 
 kill "$QEMU_PID" 2>/dev/null || true
 wait "$QEMU_PID" 2>/dev/null || true
@@ -460,4 +434,4 @@ if grep -a "avc:.*denied" "$LOG" "$LOG2"; then
   exit 1
 fi
 
-echo "Self-register test OK: a node provisioned with a Controller at Install time genuinely self-registered on first boot, was approved through the real API, the approved listener's mTLS gate trusted the self-reported CA, and it never announced itself again on a second boot"
+echo "Self-register test OK: a node provisioned with a Controller at Install time genuinely self-registered on first boot, was approved through the real API, the Controller pinned the self-reported CA, and it never announced itself again on a second boot"

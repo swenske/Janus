@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
-	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 )
 
 // The machines API is resource-shaped on purpose - what a Terraform

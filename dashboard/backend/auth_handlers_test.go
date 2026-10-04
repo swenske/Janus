@@ -11,6 +11,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
 
 // authApp is an app with accounts root (admin), olga (operator) and rita
@@ -46,7 +47,11 @@ func newAuthApp(t *testing.T) *authApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{auth: authStore, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log}
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{auth: authStore, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: st}
 	return &authApp{app: a, h: a.audited(a.routes(fstest.MapFS{}))}
 }
 

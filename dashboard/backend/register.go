@@ -142,7 +142,7 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 			admitted, err := a.admit(node, m.ID)
 			if err == nil {
 				a.runner.registered(m.ID, admitted)
-				log.Printf("node self-registered: %s (%s), admitted as machine %s -> port %d", admitted.Name, admitted.Address, m.ID, admitted.Port)
+				log.Printf("node self-registered: %s (%s), admitted as machine %s", admitted.Name, admitted.Address, m.ID)
 				writeJSON(w, http.StatusCreated, struct {
 					ID       string `json:"id"`
 					Admitted bool   `json:"admitted"`
@@ -238,11 +238,6 @@ func (a *app) approvePending(w http.ResponseWriter, id string) {
 	machineID := a.runner.waitingFor(p.Name)
 	node, err := a.admit(p, machineID)
 	if err != nil {
-		var full errPortsExhausted
-		if errors.As(err, &full) {
-			http.Error(w, err.Error(), http.StatusInsufficientStorage)
-			return
-		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -260,32 +255,21 @@ func (a *app) approvePending(w http.ResponseWriter, id string) {
 	if machineID != "" {
 		a.runner.registered(machineID, node)
 	}
-	log.Printf("node approved: %s (%s) -> port %d", node.Name, node.Address, node.Port)
+	log.Printf("node approved: %s (%s), its page at /nodes/%s/", node.Name, node.Address, node.ID)
 	writeJSON(w, http.StatusCreated, struct {
-		ID   string `json:"id"`
-		Port int    `json:"port"`
-	}{ID: node.ID, Port: node.Port})
+		ID string `json:"id"`
+	}{ID: node.ID})
 }
 
-// errPortsExhausted is admit's error when no per-node port is left.
-type errPortsExhausted struct{ error }
-
-// admit turns a registration into a node: a port, a store entry, its
-// listener - for an approved pending entry, or straight away for a
+// admit turns a registration into a node - a store entry, its page at
+// /nodes/<id>/ - for an approved pending entry, or straight away for a
 // machine this Controller created (machineID). The registration itself
 // already carries the node's credential (see internal/pending's doc
 // comment): nothing is exchanged with the node.
 func (a *app) admit(p *pending.Node, machineID string) (*store.Node, error) {
-	a.admitMu.Lock()
-	defer a.admitMu.Unlock()
-	port, err := a.allocatePort()
-	if err != nil {
-		return nil, errPortsExhausted{err}
-	}
 	node := &store.Node{
 		Name:           p.Name,
 		Address:        p.Address,
-		Port:           port,
 		MachineID:      machineID,
 		CACertPEM:      p.CACertPEM,
 		ServiceCertPEM: p.ServiceCertPEM,
@@ -296,18 +280,6 @@ func (a *app) admit(p *pending.Node, machineID string) (*store.Node, error) {
 	}
 	if err := a.store.Add(node); err != nil {
 		return nil, fmt.Errorf("persist node: %w", err)
-	}
-	if err := a.startListener(node); err != nil {
-		// Roll the store entry back rather than leaving it orphaned: a
-		// pending entry stays in the queue specifically so this can be
-		// retried (e.g. after freeing up a conflicting port), and a retry
-		// calls store.Add again with a freshly allocated port - if the
-		// failed attempt's row were left behind, retrying would just pile
-		// up a permanently dead duplicate next to the working one.
-		if removeErr := a.store.Remove(node.ID); removeErr != nil {
-			log.Printf("node %s: failed to roll back after listener start failure: %v", node.ID, removeErr)
-		}
-		return nil, fmt.Errorf("node approved but its listener failed to start: %w", err)
 	}
 	a.trust.Kick() // brought to trust the fleet at once
 	return node, nil
@@ -360,7 +332,7 @@ func (a *app) registerKeyless(w http.ResponseWriter, req registerRequest) {
 			admitted, err := a.admit(node, m.ID)
 			if err == nil {
 				a.runner.registered(m.ID, admitted)
-				log.Printf("node self-registered with no key: %s (%s), admitted as machine %s -> port %d", admitted.Name, admitted.Address, m.ID, admitted.Port)
+				log.Printf("node self-registered with no key: %s (%s), admitted as machine %s", admitted.Name, admitted.Address, m.ID)
 				writeJSON(w, http.StatusCreated, struct {
 					ID       string        `json:"id"`
 					Admitted bool          `json:"admitted"`

@@ -556,19 +556,10 @@ func (r *machineRunner) forget(ctx context.Context, id string) error {
 	return r.a.machines.Remove(id)
 }
 
-// removeNode stops a node's listener and forgets it.
-func (a *app) removeNode(ctx context.Context, id string) error {
-	a.mu.Lock()
-	l, ok := a.listeners[id]
-	delete(a.listeners, id)
-	a.mu.Unlock()
-	if ok {
-		sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if err := l.Stop(sctx); err != nil {
-			log.Printf("node %s: stop listener: %v", id, err)
-		}
-	}
+// removeNode forgets a node: its page, its connection, its record.
+func (a *app) removeNode(_ context.Context, id string) error {
+	a.forgetNodePage(id)
+	nodeproxy.Forget(id)
 	return a.store.Remove(id)
 }
 
