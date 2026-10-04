@@ -21,9 +21,10 @@
 //	upstream security-notes -from REF [-to REF] -version V [-json FILE] [-extensions DIR]
 //
 // security-notes lists what the changes from REF to REF (default: the
-// working tree) fix - upstream components, Go modules, the Go toolchain,
-// npm packages - as security.json (-json) and a draft of the release
-// notes' 🔒 section on stdout. With -extensions (the new extension tars),
+// working tree) fix - Janus's own code (the security/fixes records added
+// meanwhile), upstream components, Go modules, the Go toolchain, npm
+// packages - as security.json (-json) and a draft of the release notes'
+// 🔒 section on stdout. With -extensions (the new extension tars),
 // the Go binaries they carry are compared with the previous release's:
 // fixes a rebuild brings without a version change are seen too.
 //
@@ -33,9 +34,10 @@
 //
 //	upstream advisory -security FILE -url RELEASE_URL
 //
-// advisory prints the repository security advisory a release's
-// security.json calls for (its fixes rated high or more) as the JSON
-// request GitHub's API takes - nothing when it calls for none.
+// advisory prints the repository security advisories a release's
+// security.json calls for - one per fix of Janus's own code, one for the
+// components it updates when their fixes are rated high or more - as a
+// JSON list of the requests GitHub's API takes ([] for none).
 package main
 
 import (
@@ -333,10 +335,16 @@ func advisoryCmd(args []string) {
 	if err := json.Unmarshal(data, &d); err != nil {
 		log.Fatalf("%s: %v", *file, err)
 	}
-	if !needsAdvisory(&d) {
-		return
+	list, err := advisories(&d, *url, func(id string) (*fixRecord, error) {
+		if !fixIDPattern.MatchString(id) {
+			return nil, fmt.Errorf("%q isn't a fix record's id", id)
+		}
+		return readFix(readFile, id+".json")
+	})
+	if err != nil {
+		log.Fatal(err)
 	}
-	out, err := json.MarshalIndent(advisory(&d, *url), "", "  ")
+	out, err := json.MarshalIndent(list, "", "  ")
 	if err != nil {
 		log.Fatal(err)
 	}

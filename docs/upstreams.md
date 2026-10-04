@@ -149,9 +149,10 @@ included, nothing is pushed or posted.
 `image-build.yml`, when it cuts a release:
 
 1. runs `security-notes` from the previous release: `security.json`,
-   what the release fixes - upstreams, Go modules linked into Janus's
-   programs, the Go toolchain, the Controller's npm packages - with each
-   fix's severity and whether it reaches nodes or the Controller. The Go
+   what the release fixes - Janus's own code (below), upstreams, Go
+   modules linked into Janus's programs, the Go toolchain, the
+   Controller's npm packages - with each fix's severity and whether it
+   reaches nodes or the Controller. The Go
    binaries the new extensions carry are also compared with the previous
    release's (govulncheck on both): a binary rebuilt with a newer Go fixes
    things without any version changing - node_exporter, built here. A
@@ -162,12 +163,31 @@ included, nothing is pushed or posted.
    extensions-amd64`, then make it say what it means for an operator);
 3. names the release "Janus vX (Alpha) - 🔒 security update" when it fixes
    something, and attaches `security.json` and the SBOM (`sbom.cdx.json`);
-4. when a fix is rated high or critical, publishes a repository security
-   advisory - "Janus before vX ships known vulnerabilities", ecosystem
-   "other" (Janus isn't a package GitHub knows: no Dependabot alert
-   anywhere), the fixes listed. It takes `UPSTREAM_BOT_TOKEN` with
-   **Repository security advisories** read/write; without it the job
-   prints the request to file it by hand.
+4. publishes repository security advisories, ecosystem "other" (Janus
+   isn't a package GitHub knows: no Dependabot alert anywhere): one per
+   vulnerability of Janus's own code it fixes, whatever its severity, and
+   - when what the components it updates fix is rated high or critical -
+   one "Janus before vX ships known vulnerabilities", those fixes listed.
+   It takes `UPSTREAM_BOT_TOKEN` with **Repository security advisories**
+   read/write; without it the job prints the requests to file them by
+   hand.
+
+### Janus's own vulnerabilities
+
+A vulnerability in Janus's own code gets a record, committed with its
+fix: `security/fixes/JANUS-<year>-<nnn>.json` - its title (what an
+attacker could do), severity and CVSS 3.1 vector (`go test
+./hack/upstream` refuses a severity its vector doesn't score), CWE,
+`target` (`node`, `controller` or `client`) and description: what was
+wrong, who is affected, what the fix does, what to do besides updating.
+The description is the advisory's body, written for operators.
+
+A release fixes the records added since the previous one: they're in its
+`security.json` (as `janus`, `janus-controller` or `janusctl`, marked
+`first_party`), so its name, its required 🔒 section and the Controller's
+🔒 badge count them like any other fix - and each gets its own advisory.
+The daily status issue counts them while they wait for a release.
+[SECURITY.md](../SECURITY.md) sets how soon that is.
 
 The Controller reads `security.json` from every release: a node running
 an older release - or the Controller itself - gets a 🔒 security update

@@ -182,6 +182,13 @@ func writeNotesDraft(w io.Writer, d *securityDoc) {
 		}
 		any = true
 		where := whereText(u)
+		if u.FirstParty {
+			fmt.Fprintf(w, "- **%s itself** (%s), its own code:\n", u.Title, where)
+			for _, v := range u.Fixes {
+				fmt.Fprintln(w, "  - "+vulnLine(v))
+			}
+			continue
+		}
 		fmt.Fprintf(w, "- **%s %s → %s** (%s)", u.Title, u.From, u.To, where)
 		if len(u.Fixes) == 0 {
 			fmt.Fprintln(w, ": no known vulnerability fixed.")

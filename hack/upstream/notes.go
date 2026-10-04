@@ -42,6 +42,9 @@ type updateRecord struct {
 	Skipped       []vuln `json:"skipped,omitempty"`
 	NotApplicable int    `json:"not_applicable,omitempty"`
 	FixedBugs     int    `json:"fixed_bugs,omitempty"`
+	// FirstParty: vulnerabilities of Janus's own code (security/fixes),
+	// From the previous release and To this one.
+	FirstParty bool `json:"first_party,omitempty"`
 }
 
 func targetOf(k kind) string {
@@ -108,6 +111,11 @@ func securityNotes(e *env, from, to, version, extDir string) (*securityDoc, erro
 			return nil, err
 		}
 	}
+	own, err := firstPartyUpdates(func(p string) ([]byte, error) { return read(to, p) }, from, to, version)
+	if err != nil {
+		return nil, err
+	}
+	doc.Updates = append(own, doc.Updates...)
 
 	for _, u := range doc.Updates {
 		for _, v := range u.Fixes {

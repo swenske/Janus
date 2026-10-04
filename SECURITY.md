@@ -46,8 +46,9 @@ A release that fixes vulnerabilities:
 - shows up in the Controller: nodes running an older release get a 🔒
   security update badge, rated by the worst vulnerability they miss, and
   so does the Controller itself;
-- gets a GitHub security advisory (Security tab) when a fix is rated high
-  or critical.
+- gets a GitHub security advisory (Security tab) for each vulnerability
+  of Janus's own code it fixes, whatever its severity, and one for the
+  components it updates when what they fix is rated high or critical.
 
 To be notified, watch the repository: **Watch** → **Custom** →
 **Releases** (or follow the releases' Atom feed). GitHub's "Security

@@ -1376,13 +1376,15 @@ jobs:
           done
           ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key" "$host" publish
 
-      # A release fixing something rated high or worse gets a repository
-      # security advisory: public and citable on the Security tab - GitHub
-      # notifies nobody for one (docs/upstreams.md). Last, so a refused
-      # token can't keep janusctl off apt. It takes
+      # Repository security advisories - public and citable on the Security
+      # tab, GitHub notifies nobody for one (docs/upstreams.md): one per
+      # vulnerability of Janus's own code the release fixes (security/
+      # fixes), whatever its severity, and one for the components it
+      # updates when what they fix is rated high or worse. Last, so a
+      # refused token can't keep janusctl off apt. It takes
       # UPSTREAM_BOT_TOKEN with "Repository security advisories" write;
-      # without it, the request is printed to create it by hand.
-      - name: Publish a security advisory
+      # without it, the requests are printed to create them by hand.
+      - name: Publish the security advisories
         if: ${{ inputs.release_version != '' }}
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
@@ -1390,25 +1392,30 @@ jobs:
         run: |
           set -euo pipefail
           url="https://github.com/${{ github.repository }}/releases/tag/$RELEASE_VERSION"
-          go run ./hack/upstream advisory -security build/security/security.json -url "$url" > build/security/advisory.json
-          if ! [ -s build/security/advisory.json ]; then
-            echo "No advisory: nothing fixed is rated high or worse."
+          go run ./hack/upstream advisory -security build/security/security.json -url "$url" > build/security/advisories.json
+          count=$(python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))))' build/security/advisories.json)
+          if [ "$count" = 0 ]; then
+            echo "No advisory: no fix of Janus's own code, and nothing its components fix is rated high or worse."
             exit 0
           fi
           if [ -z "$TOKEN" ]; then
-            echo "::warning::$RELEASE_VERSION calls for a security advisory, but UPSTREAM_BOT_TOKEN isn't set - create it by hand (Security > Advisories) from:"
-            cat build/security/advisory.json
+            echo "::warning::$RELEASE_VERSION calls for $count security advisories, but UPSTREAM_BOT_TOKEN isn't set - create them by hand (Security > Advisories) from:"
+            cat build/security/advisories.json
             exit 0
           fi
           api="https://api.github.com/repos/${{ github.repository }}/security-advisories"
           auth=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json")
           resp=build/security/advisory-response.json
-          curl -sS --fail-with-body "${auth[@]}" -X POST "$api" --data @build/security/advisory.json -o "$resp" \
-            || { echo "::error::creating the advisory failed: $(cat "$resp")"; exit 1; }
-          ghsa=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["ghsa_id"])' "$resp")
-          curl -sS --fail-with-body "${auth[@]}" -X PATCH "$api/$ghsa" --data '{"state":"published"}' -o "$resp" \
-            || { echo "::error::publishing advisory $ghsa failed: $(cat "$resp")"; exit 1; }
-          python3 -c 'import json, sys; print("Published", json.load(open(sys.argv[1]))["html_url"])' "$resp"
+          for i in $(seq 0 $((count - 1))); do
+            req=build/security/advisory-$i.json
+            python3 -c 'import json, sys; json.dump(json.load(open(sys.argv[1]))[int(sys.argv[2])], open(sys.argv[3], "w"))' build/security/advisories.json "$i" "$req"
+            curl -sS --fail-with-body "${auth[@]}" -X POST "$api" --data @"$req" -o "$resp" \
+              || { echo "::error::creating advisory $i failed: $(cat "$resp")"; exit 1; }
+            ghsa=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["ghsa_id"])' "$resp")
+            curl -sS --fail-with-body "${auth[@]}" -X PATCH "$api/$ghsa" --data '{"state":"published"}' -o "$resp" \
+              || { echo "::error::publishing advisory $ghsa failed: $(cat "$resp")"; exit 1; }
+            python3 -c 'import json, sys; print("Published", json.load(open(sys.argv[1]))["html_url"])' "$resp"
+          done
 
       # TODO(Phase 3 cont'd): a real OVA (OVF descriptor + tar) on top
       # of image/vmware's bare VMDK - once built, add build/janus.ova

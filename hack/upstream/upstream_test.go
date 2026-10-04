@@ -384,13 +384,13 @@ func TestDocsListEveryComponent(t *testing.T) {
 func TestAdvisory(t *testing.T) {
 	d := &securityDoc{Version: "v2026.10.10", Previous: "v2026.10.03-4", MaxSeverity: "medium", Updates: []updateRecord{
 		{Name: "haproxy", Title: "HAProxy", Target: "node", From: "3.4.0", To: "3.4.6",
-			Fixes: []vuln{{ID: "haproxy-79abd43", Title: "BUG/MAJOR: htx: ...", Severity: "high"}}},
+			Fixes: []vuln{{ID: "haproxy-79abd43", Title: "BUG/MAJOR: htx: ...", Severity: "medium"}}},
 		{Name: "jansson", Title: "Jansson", Target: "node", From: "2.15.1", To: "2.15.2"},
 	}}
 	if needsAdvisory(d) {
 		t.Error("a medium release gets an advisory")
 	}
-	d.MaxSeverity = "high"
+	d.MaxSeverity, d.Updates[0].Fixes[0].Severity = "high", "high"
 	if !needsAdvisory(d) {
 		t.Error("a high release gets no advisory")
 	}
