@@ -50,6 +50,7 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/pki"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
@@ -90,6 +91,10 @@ var (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "reset-user" {
+		resetUser(os.Args[2:])
+		return
+	}
 	addr := flag.String("addr", envOr("JANUS_CONTROLLER_ADDR", ":8080"), "main HTTPS address (node list, add/remove - never a credential) - e.g. \":443\" to run the UI on the standard HTTPS port; also settable via JANUS_CONTROLLER_ADDR (same \":port\"/\"host:port\" format - a flag takes precedence over the env var if both are given), for Docker Compose deployments where an environment: entry is more natural than overriding the container's command")
 	registerAddr := flag.String("register-addr", ":8443", "TLS address nodes self-register against (see internal/pending) - not the same port pool as approved nodes' own per-node listeners")
 	dataDir := flag.String("data-dir", "/data", "persistent data directory (Docker volume) - node registry + this dashboard's own TLS identity")
@@ -124,7 +129,11 @@ func main() {
 		log.Fatalf("open API token store: %v", err)
 	}
 	if authStore.SetupRequired() {
-		log.Printf("no admin password set yet - the UI will force a one-time setup screen on first visit")
+		log.Printf("no account yet - the UI will force a one-time setup screen on first visit")
+	}
+	auditLog, err := audit.Open(*dataDir)
+	if err != nil {
+		log.Fatalf("open the audit: %v", err)
 	}
 
 	serverCert, err := loadOrCreateDashboardIdentity(*dataDir, *advertiseAddresses, *tlsCertFile, *tlsKeyFile)
@@ -164,6 +173,7 @@ func main() {
 		auth:                  authStore,
 		tokens:                tokenStore,
 		loginLimiter:          auth.NewLoginLimiter(),
+		audit:                 auditLog,
 		serverCert:            serverCert,
 		listeners:             map[string]*nodeproxy.Listener{},
 		suggestedRegisterAddr: suggestRegisterAddress(*advertiseAddresses, *registerAddr),
@@ -207,29 +217,6 @@ func main() {
 		log.Fatalf("static assets: %v", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/auth/status", app.handleAuthStatus)
-	mux.HandleFunc("/api/auth/setup", app.handleAuthSetup)
-	mux.HandleFunc("/api/auth/login", app.handleAuthLogin)
-	mux.HandleFunc("/api/auth/logout", app.handleAuthLogout)
-	mux.HandleFunc("/api/nodes", app.requireAuth(app.handleNodes))
-	mux.HandleFunc("GET /api/nodes/status", app.requireAuth(app.handleNodesStatus))
-	mux.HandleFunc("GET /api/version", app.requireAuth(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"version": version})
-	}))
-	mux.HandleFunc("/api/nodes/", app.requireAuth(app.handleNode))
-	mux.HandleFunc("/api/pending", app.requireAuth(app.handlePendingList))
-	mux.HandleFunc("/api/pending/", app.requireAuth(app.handlePendingAction))
-	mux.HandleFunc("/api/controller-info", app.requireAuth(app.handleControllerInfo))
-	mux.HandleFunc("/api/controller/update", app.requireAuth(app.handleControllerUpdate))
-	mux.HandleFunc("GET /api/tokens", app.requireSession(app.handleTokenList))
-	mux.HandleFunc("POST /api/tokens", app.requireSession(app.handleTokenCreate))
-	mux.HandleFunc("DELETE /api/tokens/{id}", app.requireSession(app.handleTokenRevoke))
-	app.registerHypervisorRoutes(mux)
-	app.registerFleetRoutes(mux)
-	app.registerMachineRoutes(mux)
-	mux.Handle("/", http.FileServerFS(spa))
-
 	srv := &http.Server{
 		Addr: *addr,
 		// The session cookie's SameSite=Strict already keeps it off
@@ -237,7 +224,7 @@ func main() {
 		// or subdomain of the same host) - refuse any non-safe request
 		// from another origin outright, the same protection every
 		// per-node listener has (see nodeproxy.newHandler).
-		Handler:   http.NewCrossOriginProtection().Handler(mux),
+		Handler:   http.NewCrossOriginProtection().Handler(app.audited(app.routes(spa))),
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{serverCert}},
 	}
 	ln, err := net.Listen("tcp", *addr)
@@ -254,12 +241,41 @@ func main() {
 	log.Fatal(srv.ServeTLS(ln, "", ""))
 }
 
+// routes is the main port's API and the page: every API route behind a
+// gate naming the role a read and a change of it need.
+func (a *app) routes(spa fs.FS) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/status", a.handleAuthStatus)
+	mux.HandleFunc("POST /api/auth/setup", a.handleAuthSetup)
+	mux.HandleFunc("POST /api/auth/login", a.handleAuthLogin)
+	mux.HandleFunc("POST /api/auth/logout", a.handleAuthLogout)
+	mux.HandleFunc("POST /api/auth/password", a.handleAuthPassword)
+	mux.HandleFunc("/api/nodes", a.gate(auth.Reader, auth.Admin, a.handleNodes))
+	mux.HandleFunc("GET /api/nodes/status", a.gate(auth.Reader, auth.Reader, a.handleNodesStatus))
+	mux.HandleFunc("GET /api/version", a.gate(auth.Reader, auth.Reader, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"version": version})
+	}))
+	mux.HandleFunc("/api/nodes/", a.gate(auth.Reader, auth.Admin, a.handleNode))
+	mux.HandleFunc("/api/pending", a.gate(auth.Reader, auth.Admin, a.handlePendingList))
+	mux.HandleFunc("/api/pending/", a.gate(auth.Reader, auth.Admin, a.handlePendingAction))
+	mux.HandleFunc("/api/controller-info", a.gate(auth.Reader, auth.Admin, a.handleControllerInfo))
+	mux.HandleFunc("/api/controller/update", a.gate(auth.Reader, auth.Admin, a.handleControllerUpdate))
+	a.registerTokenRoutes(mux)
+	a.registerUserRoutes(mux)
+	a.registerHypervisorRoutes(mux)
+	a.registerFleetRoutes(mux)
+	a.registerMachineRoutes(mux)
+	mux.Handle("/", http.FileServerFS(spa))
+	return mux
+}
+
 type app struct {
 	store        *store.Store
 	pending      *pending.Store
 	auth         *auth.Store
 	tokens       *auth.TokenStore
 	loginLimiter *auth.LoginLimiter
+	audit        *audit.Log
 	serverCert   tls.Certificate
 	// suggestedRegisterAddr is handleControllerInfo's best guess at the
 	// address a node should be given as -controller-address at

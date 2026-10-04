@@ -20,7 +20,8 @@ is pointed at the binary with a development override (below).
 
 1. **An API token**: the Controller's **API tokens** tab, **New token**.
    It's shown once: keep it in your secret store.
-   - It has your rights over the API except managing tokens.
+   - It acts as you, with your role or the lower one you chose (an
+     admin's, to create machines), except managing accounts and tokens.
    - Revoke it there.
    - It's sent as `Authorization: Bearer`.
 2. **The Controller's certificate**: the Controller's self-signed

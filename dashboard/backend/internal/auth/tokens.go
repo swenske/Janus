@@ -17,10 +17,12 @@ import (
 )
 
 // API tokens let a program - a Terraform provider, a script - call the
-// Controller's API with "Authorization: Bearer <token>" instead of the
-// admin's session. A token is shown once, when it's created: only its
-// SHA-256 is kept (<data-dir>/api-tokens.json, 0600). Its form,
-// "janus_<id>_<secret>", names the record to check without a search.
+// Controller's API with "Authorization: Bearer <token>" instead of a
+// session. A token belongs to an account and acts with a role no higher
+// than the account's - lowered with it, gone with it. A token is shown
+// once, when it's created: only its SHA-256 is kept
+// (<data-dir>/api-tokens.json, 0600). Its form, "janus_<id>_<secret>",
+// names the record to check without a search.
 
 // TokenPrefix starts every token, so one found in a file or a log is
 // recognizable.
@@ -28,8 +30,12 @@ const TokenPrefix = "janus_"
 
 // Token is a token's record - never its secret.
 type Token struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Owner is the account the token acts for, with Role at most - a
+	// token from before accounts is the "admin" account's, as admin.
+	Owner      string     `json:"owner"`
+	Role       Role       `json:"role"`
 	Hash       string     `json:"hash"`
 	CreatedAt  time.Time  `json:"created_at"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
@@ -68,14 +74,21 @@ func OpenTokens(dataDir string) (*TokenStore, error) {
 		return nil, fmt.Errorf("parse %s: %w", s.path, err)
 	}
 	for _, t := range list {
+		if t.Owner == "" {
+			t.Owner, t.Role = LegacyAdmin, Admin
+		}
 		s.tokens[t.ID] = t
 	}
 	return s, nil
 }
 
-// Create makes a token named name, valid for ttl (0: until revoked), and
-// returns it - the only time its secret exists outside the caller.
-func (s *TokenStore) Create(name string, ttl time.Duration) (string, *Token, error) {
+// Create makes a token named name for owner, acting with role, valid for
+// ttl (0: until revoked), and returns it - the only time its secret
+// exists outside the caller.
+func (s *TokenStore) Create(owner string, role Role, name string, ttl time.Duration) (string, *Token, error) {
+	if _, err := ParseRole(string(role)); err != nil {
+		return "", nil, err
+	}
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 100 {
 		return "", nil, errors.New("a name of 1 to 100 characters is required")
@@ -93,7 +106,7 @@ func (s *TokenStore) Create(name string, ttl time.Duration) (string, *Token, err
 	}
 	token := TokenPrefix + id + "_" + secret
 	now := time.Now().UTC()
-	t := &Token{ID: id, Name: name, Hash: hashToken(token), CreatedAt: now}
+	t := &Token{ID: id, Name: name, Owner: owner, Role: role, Hash: hashToken(token), CreatedAt: now}
 	if ttl > 0 {
 		exp := now.Add(ttl)
 		t.ExpiresAt = &exp
@@ -138,16 +151,53 @@ func (s *TokenStore) Verify(token string) (*Token, bool) {
 	return &c, true
 }
 
-// List returns every token's record, newest first.
-func (s *TokenStore) List() []Token {
+// List returns the records of owner's tokens - everyone's for "" -,
+// newest first.
+func (s *TokenStore) List(owner string) []Token {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]Token, 0, len(s.tokens))
 	for _, t := range s.tokens {
-		out = append(out, *t)
+		if owner == "" || t.Owner == owner {
+			out = append(out, *t)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 	return out
+}
+
+// Get returns one token's record.
+func (s *TokenStore) Get(id string) (Token, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tokens[id]
+	if !ok {
+		return Token{}, false
+	}
+	return *t, true
+}
+
+// RevokeOwner deletes every token of an account.
+func (s *TokenStore) RevokeOwner(owner string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := map[string]*Token{}
+	for id, t := range s.tokens {
+		if t.Owner == owner {
+			removed[id] = t
+			delete(s.tokens, id)
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	if err := s.saveLocked(); err != nil {
+		for id, t := range removed {
+			s.tokens[id] = t
+		}
+		return err
+	}
+	return nil
 }
 
 // Revoke deletes a token: it stops working at once.

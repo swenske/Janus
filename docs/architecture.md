@@ -126,6 +126,15 @@ checked with the fleet certificate - and deletes that credential: from
 then on the Controller holds no credential per node, and every call it
 makes names the user it's made for.
 
+Those users are the Controller's accounts (`dashboard/backend/
+internal/auth`): reader, operator or admin, each mapped to the node role
+of the same name for the calls the Controller makes for it - so a bug in
+the Controller's checks can't make a reader an admin on a node. Every
+Controller route names the role a read of it and a change of it need
+(`gate`); an API token is its account's, with that role or less; every
+change and sign-in is in the Controller's audit, and what reaches a node
+in the node's log too.
+
 A node registering itself with a Controller whose fleet is ready sends
 no key at all (`internal/selfregister`, protocol 2): its CA's
 certificate, its token if the Controller created it, and a secret it

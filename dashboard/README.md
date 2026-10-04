@@ -91,8 +91,8 @@ symptom). `--network host` sidesteps all of it at once: every port
 with no mapping and no address-detection gap.
 
 - **`:8080`** (configurable via `-addr`) - the main UI, **HTTPS only**.
-  Behind a single admin password, forced setup on first visit (see
-  `internal/auth`).
+  Behind accounts - the first one, an admin, made on first visit (see
+  [Accounts and roles](#accounts-and-roles)).
 - **`:8443`** (configurable via `-register-addr`) - where a node
   self-registers (see `internal/pending`); self-announced nodes land in
   a "pending" queue, approved or rejected by hand in the UI, not
@@ -264,11 +264,50 @@ acts on the machines it created. Preparing the host (a dedicated SSH
 account, a storage pool, a polkit policy) and the API:
 [docs/hypervisors.md](../docs/hypervisors.md).
 
+### Accounts and roles
+
+The first visit makes the first account, an admin. An admin makes the
+others on the **Accounts** tab, each with a role:
+
+| Role | On the Controller | On nodes, through it |
+|---|---|---|
+| **reader** | sees everything, changes nothing | `os:reader` |
+| **operator** | + powers machines and opens their consoles | `os:operator`: HAProxy, services, reboots |
+| **admin** | everything: accounts, the fleet, hypervisors, machines, approvals, updates, the audit | `os:admin` |
+
+The Controller makes a new account's password, shown once to hand over;
+its owner chooses their own at the first sign-in. **Reset password**
+does the same for an account and ends its sessions. The last enabled
+admin can't be demoted, disabled or deleted. A Controller from before
+accounts had one admin password: it's the account `admin`'s now, and
+its API tokens are admin's.
+
+Sessions end after 30 minutes nobody touched the page, and 12 hours
+after the sign-in at most - both on the **Accounts** tab. A page left
+open refreshing itself doesn't count as use.
+
+The **Audit** tab is every change made on the Controller - from its
+pages or with an API token - and every sign-in, failed or not, with who
+made it (`<data-dir>/audit.jsonl`, and the container's log). What the
+Controller does on a node, the node logs too, with the same name.
+
+**Locked out of every admin account?** On the Controller's host:
+
+```sh
+docker exec janus-controller /dashboardd reset-user admin
+```
+
+prints a new password for that account - to change at the next sign-in
+-, enables it, and makes it an admin if it doesn't exist. The running
+Controller takes it at once.
+
 ### API tokens and Terraform
 
 A program uses the Controller's API with an API token (the **API tokens**
-tab: shown once, revocable) sent as `Authorization: Bearer`. The Janus
-Terraform provider is one: it creates, changes and destroys the
+tab: shown once, revocable) sent as `Authorization: Bearer`. A token is
+its account's, with the account's role or a lower one: demoted with the
+account, stopped with it. Tokens manage neither accounts nor tokens. The
+Janus Terraform provider is one: it creates, changes and destroys the
 Controller's nodes as code ([docs/terraform.md](../docs/terraform.md)).
 
 ## Updating the Controller
@@ -362,7 +401,7 @@ moved elsewhere would start on new, empty volumes. Change the
 Controller's `image:` line, add its second volume, add the
 `janus-controller-updater` service (with *that* directory on its
 directory line) and the two new volumes, then `docker compose pull &&
-docker compose up -d`. The node registry, the admin password and the
+docker compose up -d`. The node registry, the accounts and the
 TLS identity are in the data volume: unchanged.
 
 The page then shows, under an available update, either an **Update to

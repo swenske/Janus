@@ -656,7 +656,8 @@ so it says what was really done.
 ## The API
 
 Behind the Controller's login, like the rest of its API, or an API token
-(`Authorization: Bearer`, the **API tokens** tab) for a program. The shape is
+(`Authorization: Bearer`, the **API tokens** tab) for a program. Reads
+need a reader, power and console an operator, the rest an admin. The shape is
 the one a Terraform provider needs, for the planned one:
 - `POST` answers `202` with the resource, whose `phase` is then polled;
 - `GET` returns the spec as created, with MAC addresses filled in, plus
@@ -679,7 +680,7 @@ the one a Terraform provider needs, for the planned one:
 | `POST /api/machines/{id}/retry` | a failed creation, again |
 | `GET /api/machines/{id}/console` | Server-Sent Events, one JSON string per chunk; `failure` when it closes |
 | `GET /api/catalog` | the newest release and the image factory's extensions |
-| `GET`, `POST /api/tokens`, `DELETE /api/tokens/{id}` | API tokens (`{name, expires_in_days}`; the token is in the answer, once) - the admin's session only, never a token |
+| `GET`, `POST /api/tokens`, `DELETE /api/tokens/{id}` | API tokens (`{name, expires_in_days, role}`; the token is in the answer, once) - each account's own, from its session only, never a token; an admin sees everyone's |
 
 ## Testing
 

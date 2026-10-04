@@ -48,7 +48,7 @@ TOKEN="$(api -X POST "$API/api/tokens" -H 'Content-Type: application/json' -d '{
 api "$API/api/controller-info" | json "d['ca_cert_pem']" >"$WORKDIR/controller-ca.crt"
 # A token can't make another one.
 code="$(curl -sk -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" -X POST "$API/api/tokens" -H 'Content-Type: application/json' -d '{"name":"x"}')"
-[ "$code" = 401 ] || fail "a token could create a token ($code)"
+[ "$code" = 403 ] || fail "a token could create a token ($code)"
 
 export JANUS_ENDPOINT="$API" JANUS_TOKEN="$TOKEN" JANUS_CA_CERT="$WORKDIR/controller-ca.crt"
 mkdir -p "$WORKDIR/provider" "$WORKDIR/tf"

@@ -10,6 +10,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
+	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 )
 
 // The machines API is resource-shaped on purpose - what a Terraform
@@ -20,15 +21,15 @@ import (
 // disappears (404) once destroyed.
 
 func (a *app) registerMachineRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/machines", a.requireAuth(a.handleMachineList))
-	mux.HandleFunc("POST /api/machines", a.requireAuth(a.handleMachineCreate))
-	mux.HandleFunc("GET /api/machines/{id}", a.requireAuth(a.handleMachineGet))
-	mux.HandleFunc("PATCH /api/machines/{id}", a.requireAuth(a.handleMachineUpdate))
-	mux.HandleFunc("DELETE /api/machines/{id}", a.requireAuth(a.handleMachineDelete))
-	mux.HandleFunc("POST /api/machines/{id}/retry", a.requireAuth(a.handleMachineRetry))
-	mux.HandleFunc("POST /api/machines/{id}/power", a.requireAuth(a.handleMachinePower))
-	mux.HandleFunc("GET /api/machines/{id}/console", a.requireAuth(a.handleMachineConsole))
-	mux.HandleFunc("GET /api/catalog", a.requireAuth(a.handleCatalog))
+	mux.HandleFunc("GET /api/machines", a.gate(auth.Reader, auth.Admin, a.handleMachineList))
+	mux.HandleFunc("POST /api/machines", a.gate(auth.Reader, auth.Admin, a.handleMachineCreate))
+	mux.HandleFunc("GET /api/machines/{id}", a.gate(auth.Reader, auth.Admin, a.handleMachineGet))
+	mux.HandleFunc("PATCH /api/machines/{id}", a.gate(auth.Reader, auth.Admin, a.handleMachineUpdate))
+	mux.HandleFunc("DELETE /api/machines/{id}", a.gate(auth.Reader, auth.Admin, a.handleMachineDelete))
+	mux.HandleFunc("POST /api/machines/{id}/retry", a.gate(auth.Reader, auth.Admin, a.handleMachineRetry))
+	mux.HandleFunc("POST /api/machines/{id}/power", a.gate(auth.Reader, auth.Operator, a.handleMachinePower))
+	mux.HandleFunc("GET /api/machines/{id}/console", a.gate(auth.Operator, auth.Operator, a.handleMachineConsole))
+	mux.HandleFunc("GET /api/catalog", a.gate(auth.Reader, auth.Admin, a.handleCatalog))
 }
 
 type machineView struct {

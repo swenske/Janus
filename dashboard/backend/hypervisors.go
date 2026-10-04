@@ -16,6 +16,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor/libvirt"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor/proxmox"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
+	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 )
 
 // The hypervisors the Controller creates its own nodes on
@@ -26,15 +27,15 @@ import (
 // operator confirmed its fingerprint on the host itself.
 
 func (a *app) registerHypervisorRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/hypervisors", a.requireAuth(a.handleHypervisorList))
-	mux.HandleFunc("POST /api/hypervisors", a.requireAuth(a.handleHypervisorCreate))
-	mux.HandleFunc("GET /api/hypervisors/{id}", a.requireAuth(a.handleHypervisorGet))
-	mux.HandleFunc("PATCH /api/hypervisors/{id}", a.requireAuth(a.handleHypervisorUpdate))
-	mux.HandleFunc("DELETE /api/hypervisors/{id}", a.requireAuth(a.handleHypervisorDelete))
-	mux.HandleFunc("POST /api/hypervisors/{id}/probe", a.requireAuth(a.handleHypervisorProbe))
-	mux.HandleFunc("POST /api/hypervisors/{id}/trust", a.requireAuth(a.handleHypervisorTrust))
-	mux.HandleFunc("GET /api/hypervisors/{id}/status", a.requireAuth(a.handleHypervisorStatus))
-	mux.HandleFunc("POST /api/hypervisors/preparation", a.requireAuth(a.handleHypervisorPreparation))
+	mux.HandleFunc("GET /api/hypervisors", a.gate(auth.Reader, auth.Admin, a.handleHypervisorList))
+	mux.HandleFunc("POST /api/hypervisors", a.gate(auth.Reader, auth.Admin, a.handleHypervisorCreate))
+	mux.HandleFunc("GET /api/hypervisors/{id}", a.gate(auth.Reader, auth.Admin, a.handleHypervisorGet))
+	mux.HandleFunc("PATCH /api/hypervisors/{id}", a.gate(auth.Reader, auth.Admin, a.handleHypervisorUpdate))
+	mux.HandleFunc("DELETE /api/hypervisors/{id}", a.gate(auth.Reader, auth.Admin, a.handleHypervisorDelete))
+	mux.HandleFunc("POST /api/hypervisors/{id}/probe", a.gate(auth.Reader, auth.Admin, a.handleHypervisorProbe))
+	mux.HandleFunc("POST /api/hypervisors/{id}/trust", a.gate(auth.Reader, auth.Admin, a.handleHypervisorTrust))
+	mux.HandleFunc("GET /api/hypervisors/{id}/status", a.gate(auth.Reader, auth.Admin, a.handleHypervisorStatus))
+	mux.HandleFunc("POST /api/hypervisors/preparation", a.gate(auth.Reader, auth.Admin, a.handleHypervisorPreparation))
 }
 
 // newDriver connects the Controller to a hypervisor - a variable so

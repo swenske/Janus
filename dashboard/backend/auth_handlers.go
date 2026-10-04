@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/rand"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"log"
 	"math"
 	"net"
 	"net/http"
@@ -10,41 +14,218 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swenske/Janus/internal/pki"
+
+	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 )
 
 const sessionCookieName = "janus_session"
 
-// handleAuthStatus never requires auth itself - the SPA calls this on
-// load to decide whether to show the first-run setup screen, the login
-// screen, or the real app.
-func (a *app) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
-	authenticated := false
-	if c, err := r.Cookie(sessionCookieName); err == nil {
-		authenticated = a.auth.ValidSession(c.Value)
-	}
-	writeJSON(w, http.StatusOK, struct {
-		SetupRequired bool `json:"setup_required"`
-		Authenticated bool `json:"authenticated"`
-	}{SetupRequired: a.auth.SetupRequired(), Authenticated: authenticated})
+// backgroundHeader marks a request the page makes by itself - a periodic
+// refresh -, which doesn't keep an idle session alive.
+const backgroundHeader = "X-Janus-Background"
+
+// principal is who a request is from: an account, through its session or
+// one of its API tokens.
+type principal struct {
+	User string
+	// Role is what the request may do: the account's, or less for a
+	// token made with less.
+	Role auth.Role
+	// Token is the API token's ID - empty for a session.
+	Token string
+	// Needs is what the session must do before anything else:
+	// "password" (change the one someone else set).
+	Needs []string
 }
 
-// handleAuthSetup sets the admin password once, on first run only -
-// Store.Setup itself refuses a second call, so this can't be used to
-// silently reset an existing password.
-func (a *app) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Password string `json:"password"`
+type principalKey struct{}
+
+func principalOf(r *http.Request) (principal, bool) {
+	p, ok := r.Context().Value(principalKey{}).(principal)
+	return p, ok
+}
+
+func (p principal) via() string {
+	if p.Token != "" {
+		return "token " + p.Token
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "decode request: "+err.Error(), http.StatusBadRequest)
+	return "session"
+}
+
+func needsOf(u auth.User) []string {
+	if u.MustChangePassword {
+		return []string{"password"}
+	}
+	return nil
+}
+
+// nodeRole is the role a node gives the calls the Controller makes for an
+// account (nodeproxy's impersonation): the same, by its name there.
+func nodeRole(r auth.Role) string {
+	switch r {
+	case auth.Admin:
+		return pki.RoleAdmin
+	case auth.Operator:
+		return pki.RoleOperator
+	}
+	return pki.RoleReader
+}
+
+func safeMethod(m string) bool {
+	return m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions
+}
+
+// gate lets a request in for an account whose role is at least read for a
+// read (GET), write for anything else - by its session or an API token.
+func (a *app) gate(read, write auth.Role, next http.HandlerFunc) http.HandlerFunc {
+	return a.gated(read, write, false, next)
+}
+
+// sessionGate is gate for a session only, never an API token: what
+// manages credentials - tokens, accounts, the fleet's.
+func (a *app) sessionGate(read, write auth.Role, next http.HandlerFunc) http.HandlerFunc {
+	return a.gated(read, write, true, next)
+}
+
+func (a *app) gated(read, write auth.Role, sessionOnly bool, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, ok := a.authenticate(w, r)
+		if !ok {
+			return
+		}
+		noteAudit(r, p.User, p.via())
+		if sessionOnly && p.Token != "" {
+			writeError(w, http.StatusForbidden, "this needs a session on the Controller's page, not an API token")
+			return
+		}
+		if len(p.Needs) > 0 {
+			writeError(w, http.StatusForbidden, "change your password first")
+			return
+		}
+		need := write
+		if safeMethod(r.Method) {
+			need = read
+		}
+		if !p.Role.AtLeast(need) {
+			writeError(w, http.StatusForbidden, fmt.Sprintf("this needs the %s role: %s is %s", need, p.User, p.Role))
+			return
+		}
+		ctx := context.WithValue(r.Context(), principalKey{}, p)
+		kind := authSession
+		if p.Token != "" {
+			kind = authToken
+		}
+		ctx = context.WithValue(ctx, authKindKey{}, kind)
+		if !safeMethod(r.Method) {
+			// What the request changes on a node, the node logs as this
+			// account's.
+			ctx = nodeproxy.WithUser(ctx, nodeproxy.User{Name: p.User, Roles: []string{nodeRole(p.Role)}})
+		}
+		next(w, r.WithContext(ctx))
+	}
+}
+
+// authenticate finds the request's account - "Authorization: Bearer
+// <token>" (a program: the Terraform provider) or the session cookie -,
+// answering 401 (or 429) itself when there's none. A wrong token counts
+// against the same per-address limit as a wrong password.
+func (a *app) authenticate(w http.ResponseWriter, r *http.Request) (principal, bool) {
+	if bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+		client := clientAddr(r)
+		if ok, wait := a.loginLimiter.Allow(client); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+			http.Error(w, "too many failed attempts - try again later", http.StatusTooManyRequests)
+			return principal{}, false
+		}
+		t, ok := a.tokens.Verify(strings.TrimSpace(bearer))
+		var u auth.User
+		if ok {
+			u, ok = a.auth.User(t.Owner)
+			ok = ok && !u.Disabled
+		}
+		if !ok {
+			a.loginLimiter.Fail(client)
+			http.Error(w, "invalid or expired API token", http.StatusUnauthorized)
+			return principal{}, false
+		}
+		return principal{User: u.Name, Role: auth.Lower(t.Role, u.Role), Token: t.ID}, true
+	}
+	u, _, ok := a.session(r)
+	if !ok {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return principal{}, false
+	}
+	return principal{User: u.Name, Role: u.Role, Needs: needsOf(u)}, true
+}
+
+// session is the request's live session - kept alive unless the page
+// made the request by itself.
+func (a *app) session(r *http.Request) (auth.User, auth.Session, bool) {
+	c, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return auth.User{}, auth.Session{}, false
+	}
+	return a.auth.Session(c.Value, r.Header.Get(backgroundHeader) == "")
+}
+
+// --- signing in: /api/auth/* ---
+
+type meView struct {
+	Name  string    `json:"name"`
+	Role  auth.Role `json:"role"`
+	Needs []string  `json:"needs"`
+	// ExpiresAt is when the session ends if it isn't used again.
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// handleAuthStatus never requires auth itself - the SPA calls this on
+// load to decide whether to show the first-run setup screen, the sign-in
+// screen, or the real app.
+func (a *app) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	out := struct {
+		SetupRequired bool    `json:"setup_required"`
+		Authenticated bool    `json:"authenticated"`
+		User          *meView `json:"user,omitempty"`
+	}{SetupRequired: a.auth.SetupRequired()}
+	if u, ss, ok := a.session(r); ok {
+		out.Authenticated = true
+		out.User = &meView{Name: u.Name, Role: u.Role, Needs: nonNil(needsOf(u)), ExpiresAt: ss.Expires(a.auth.Settings())}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type signIn struct {
+	// Name defaults to "admin" - the account of a Controller from before
+	// accounts, and what a script written for it signs in as.
+	Name     string `json:"name"`
+	Password string `json:"password"`
+}
+
+func (c *signIn) name() string {
+	if c.Name == "" {
+		return auth.LegacyAdmin
+	}
+	return strings.TrimSpace(c.Name)
+}
+
+// handleAuthSetup makes the first account, an admin, on first run only -
+// Store.Setup itself refuses once any account exists, so this can't be
+// used to take over a Controller already set up.
+func (a *app) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
+	var req signIn
+	if !decodeBody(w, r, &req) {
 		return
 	}
-	if err := a.auth.Setup(req.Password); err != nil {
+	noteAudit(r, req.name(), "")
+	u, err := a.auth.Setup(req.name(), req.Password)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	a.startSession(w)
+	a.startSession(w, u.Name)
 }
 
 func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
@@ -58,28 +239,28 @@ func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many failed attempts - try again later", http.StatusTooManyRequests)
 		return
 	}
-
-	var req struct {
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "decode request: "+err.Error(), http.StatusBadRequest)
+	var req signIn
+	if !decodeBody(w, r, &req) {
 		return
 	}
-	if !a.auth.Verify(req.Password) {
+	noteAudit(r, req.name(), "")
+	u, err := a.auth.Authenticate(req.name(), req.Password)
+	if err != nil {
 		a.loginLimiter.Fail(client)
-		// Deliberately generic - not "wrong password" vs "no such
-		// account" (there's only ever one account anyway), no point
-		// giving an attacker anything to distinguish.
+		// Deliberately generic: never which of the name or the password
+		// was wrong.
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 	a.loginLimiter.Succeed(client)
-	a.startSession(w)
+	a.startSession(w, u.Name)
 }
 
 func (a *app) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookieName); err == nil {
+		if u, _, ok := a.auth.Session(c.Value, false); ok {
+			noteAudit(r, u.Name, "session")
+		}
 		a.auth.Revoke(c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -89,69 +270,54 @@ func (a *app) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *app) startSession(w http.ResponseWriter) {
-	token, err := a.auth.NewSession()
+// handleAuthPassword changes the session's own password - the one thing
+// a session that must change it may do. Every session of the account
+// ends; this one starts again.
+func (a *app) handleAuthPassword(w http.ResponseWriter, r *http.Request) {
+	u, _, ok := a.session(r)
+	if !ok {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	noteAudit(r, u.Name, "session")
+	var req struct {
+		Current string `json:"current_password"`
+		New     string `json:"new_password"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	client := clientAddr(r)
+	if ok, wait := a.loginLimiter.Allow(client); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+		http.Error(w, "too many failed attempts - try again later", http.StatusTooManyRequests)
+		return
+	}
+	if err := a.auth.ChangePassword(u.Name, req.Current, req.New); err != nil {
+		if strings.Contains(err.Error(), "current password") {
+			a.loginLimiter.Fail(client)
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.startSession(w, u.Name)
+}
+
+func (a *app) startSession(w http.ResponseWriter, user string) {
+	token, err := a.auth.NewSession(user)
 	if err != nil {
 		http.Error(w, "create session: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	// Secure is safe (not just cosmetic) now that this port is
 	// HTTPS-only (see dashboard/backend/main.go's own doc comment) - a
-	// browser never sends this cookie in the clear.
+	// browser never sends this cookie in the clear. The cookie lasts as
+	// long as a session can; the Controller ends it sooner when idle.
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookieName, Value: token, Path: "/", MaxAge: 24 * 60 * 60,
+		Name: sessionCookieName, Value: token, Path: "/", MaxAge: int(a.auth.Settings().Max().Seconds()),
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// requireAuth gates a handler behind a valid session cookie or API token
-// - wraps every /api/nodes* route, never the /api/auth/* routes
-// themselves or static asset serving (the SPA has to load
-// unauthenticated so it can render the login/setup screen in the first
-// place). A program (a Terraform provider) sends "Authorization: Bearer
-// <token>" (see internal/auth's TokenStore); a wrong one counts against
-// the same per-address limit as a wrong password.
-func (a *app) requireAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
-			client := clientAddr(r)
-			if ok, wait := a.loginLimiter.Allow(client); !ok {
-				w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
-				http.Error(w, "too many failed attempts - try again later", http.StatusTooManyRequests)
-				return
-			}
-			if _, ok := a.tokens.Verify(strings.TrimSpace(bearer)); !ok {
-				a.loginLimiter.Fail(client)
-				http.Error(w, "invalid or expired API token", http.StatusUnauthorized)
-				return
-			}
-			next(w, r.WithContext(context.WithValue(r.Context(), authKindKey{}, authToken)))
-			return
-		}
-		if !a.validSession(r) {
-			http.Error(w, "authentication required", http.StatusUnauthorized)
-			return
-		}
-		next(w, r.WithContext(context.WithValue(r.Context(), authKindKey{}, authSession)))
-	}
-}
-
-// requireSession gates a handler behind the admin's session only, never
-// an API token: what manages the tokens themselves.
-func (a *app) requireSession(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !a.validSession(r) {
-			http.Error(w, "this needs the admin's session, not an API token", http.StatusUnauthorized)
-			return
-		}
-		next(w, r)
-	}
-}
-
-func (a *app) validSession(r *http.Request) bool {
-	c, err := r.Cookie(sessionCookieName)
-	return err == nil && a.auth.ValidSession(c.Value)
 }
 
 func clientAddr(r *http.Request) string {
@@ -162,58 +328,248 @@ func clientAddr(r *http.Request) string {
 	return client
 }
 
-// --- API tokens: /api/tokens ---
+// --- accounts: /api/users (admin) ---
 
-type tokenView struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	CreatedAt  time.Time  `json:"created_at"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	Expired    bool       `json:"expired"`
+type userView struct {
+	Name               string     `json:"name"`
+	Role               auth.Role  `json:"role"`
+	Disabled           bool       `json:"disabled"`
+	MustChangePassword bool       `json:"must_change_password"`
+	CreatedAt          time.Time  `json:"created_at"`
+	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
+	Tokens             int        `json:"tokens"`
+	// Password is set once: the one the Controller made for a new
+	// account or a reset, to hand over.
+	Password string `json:"password,omitempty"`
 }
 
-func viewToken(t auth.Token) tokenView {
-	return tokenView{ID: t.ID, Name: t.Name, CreatedAt: t.CreatedAt, ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt, Expired: t.Expired(time.Now())}
+func (a *app) viewUser(u auth.User) userView {
+	return userView{Name: u.Name, Role: u.Role, Disabled: u.Disabled, MustChangePassword: u.MustChangePassword, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt, Tokens: len(a.tokens.List(u.Name))}
 }
 
-func (a *app) handleTokenList(w http.ResponseWriter, _ *http.Request) {
-	out := []tokenView{}
-	for _, t := range a.tokens.List() {
-		out = append(out, viewToken(t))
+func (a *app) registerUserRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/users", a.gate(auth.Admin, auth.Admin, a.handleUserList))
+	mux.HandleFunc("POST /api/users", a.sessionGate(auth.Admin, auth.Admin, a.handleUserCreate))
+	mux.HandleFunc("PATCH /api/users/{name}", a.sessionGate(auth.Admin, auth.Admin, a.handleUserUpdate))
+	mux.HandleFunc("DELETE /api/users/{name}", a.sessionGate(auth.Admin, auth.Admin, a.handleUserDelete))
+	mux.HandleFunc("GET /api/settings", a.gate(auth.Admin, auth.Admin, a.handleSettingsGet))
+	mux.HandleFunc("PUT /api/settings", a.sessionGate(auth.Admin, auth.Admin, a.handleSettingsSet))
+	mux.HandleFunc("GET /api/audit", a.gate(auth.Admin, auth.Admin, a.handleAudit))
+}
+
+func (a *app) handleUserList(w http.ResponseWriter, _ *http.Request) {
+	out := []userView{}
+	for _, u := range a.auth.Users() {
+		out = append(out, a.viewUser(u))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (a *app) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
+// newPassword is one the Controller makes for an account, to hand over:
+// 20 characters, 120 bits.
+func newPassword() (string, error) {
+	raw := make([]byte, 15)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func (a *app) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name string `json:"name"`
-		// 0: until revoked.
-		ExpiresInDays int `json:"expires_in_days"`
+		Name string    `json:"name"`
+		Role auth.Role `json:"role"`
+		// Password is optional: without one, the Controller makes one,
+		// answered once. Either way its owner changes it at the first
+		// sign-in.
+		Password string `json:"password"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if req.ExpiresInDays < 0 || req.ExpiresInDays > 3650 {
-		writeError(w, http.StatusBadRequest, "expires_in_days: 0 (never) to 3650")
-		return
+	made := req.Password == ""
+	if made {
+		var err error
+		if req.Password, err = newPassword(); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
-	secret, t, err := a.tokens.Create(req.Name, time.Duration(req.ExpiresInDays)*24*time.Hour)
+	u, err := a.auth.CreateUser(strings.TrimSpace(req.Name), req.Role, req.Password)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, struct {
-		tokenView
-		// Token is shown this once.
-		Token string `json:"token"`
-	}{viewToken(*t), secret})
+	v := a.viewUser(u)
+	if made {
+		v.Password = req.Password
+	}
+	writeJSON(w, http.StatusCreated, v)
 }
 
-func (a *app) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
-	if err := a.tokens.Revoke(r.PathValue("id")); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+func (a *app) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Role     *auth.Role `json:"role"`
+		Disabled *bool      `json:"disabled"`
+		// ResetPassword gives the account a new password the Controller
+		// makes, answered once - its sessions end, and its owner changes
+		// it at the next sign-in.
+		ResetPassword bool `json:"reset_password"`
+	}
+	if !decodeBody(w, r, &req) {
 		return
 	}
+	c := auth.Change{Role: req.Role, Disabled: req.Disabled}
+	var password string
+	if req.ResetPassword {
+		var err error
+		if password, err = newPassword(); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		c.Password = &password
+	}
+	u, err := a.auth.UpdateUser(r.PathValue("name"), c)
+	if err != nil {
+		writeError(w, userErrorStatus(err), err.Error())
+		return
+	}
+	v := a.viewUser(u)
+	v.Password = password
+	writeJSON(w, http.StatusOK, v)
+}
+
+func userErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, auth.ErrNoUser):
+		return http.StatusNotFound
+	case errors.Is(err, auth.ErrLastAdmin):
+		return http.StatusConflict
+	}
+	return http.StatusBadRequest
+}
+
+// handleUserDelete removes an account - its tokens with it.
+func (a *app) handleUserDelete(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := a.auth.DeleteUser(name); err != nil {
+		writeError(w, userErrorStatus(err), err.Error())
+		return
+	}
+	if err := a.tokens.RevokeOwner(name); err != nil {
+		// The account is gone: its tokens can't act any more anyway
+		// (authenticate checks their owner) - only left on disk.
+		log.Printf("revoke %s's API tokens: %v", name, err)
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *app) handleSettingsGet(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, a.auth.Settings())
+}
+
+func (a *app) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
+	var req auth.Settings
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if err := a.auth.SetSettings(req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, a.auth.Settings())
+}
+
+func (a *app) handleAudit(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 5000 {
+		limit = 500
+	}
+	user := r.URL.Query().Get("user")
+	var keep func(audit.Entry) bool
+	if user != "" {
+		keep = func(e audit.Entry) bool { return e.User == user }
+	}
+	out, err := a.audit.Recent(limit, keep)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, nonNil(out))
+}
+
+// --- the audit: every request that changes something ---
+
+type auditNote struct{ user, via string }
+
+type auditNoteKey struct{}
+
+// noteAudit tells the audit who made r, as soon as it's known.
+func noteAudit(r *http.Request, user, via string) {
+	if n, ok := r.Context().Value(auditNoteKey{}).(*auditNote); ok {
+		n.user, n.via = user, via
+	}
+}
+
+// auditedReads are reads worth recording: a secret leaving the Controller.
+var auditedReads = map[string]bool{"/api/fleet/recovery-kit": true}
+
+// audited records every API request that isn't a read - and the reads of
+// auditedReads -, with its account and outcome, in the audit and the
+// process's log.
+func (a *app) audited(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") || (safeMethod(r.Method) && !auditedReads[r.URL.Path]) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		n := &auditNote{}
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), auditNoteKey{}, n)))
+		e := audit.Entry{Time: time.Now().UTC(), User: n.user, Via: n.via, Method: r.Method, Path: r.URL.Path, Status: rec.status, Client: clientAddr(r)}
+		log.Printf("audit: %s %s %d: %s (%s) from %s", e.Method, e.Path, e.Status, or(e.User, "-"), or(e.Via, "no credential"), e.Client)
+		if a.audit == nil {
+			return
+		}
+		if err := a.audit.Append(e); err != nil {
+			log.Printf("audit: write: %v", err)
+		}
+	})
+}
+
+// statusRecorder keeps the status a handler answered.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	wrote  bool
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	if !s.wrote {
+		s.status, s.wrote = code, true
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Write(b []byte) (int, error) {
+	s.wrote = true
+	return s.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController reach the connection (flushing a
+// stream).
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// nonNil is s, or an empty slice - JSON [] rather than null.
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 )
 
 // The fleet (internal/fleet): set up from the main page, then every node
@@ -158,10 +159,10 @@ func trustFailure(err error) nodeTrust {
 // --- API ---
 
 func (a *app) registerFleetRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/fleet", a.requireAuth(a.handleFleetStatus))
-	mux.HandleFunc("POST /api/fleet/setup", a.requireSession(a.handleFleetSetup))
-	mux.HandleFunc("GET /api/fleet/recovery-kit", a.requireSession(a.handleFleetKit))
-	mux.HandleFunc("POST /api/fleet/confirm", a.requireSession(a.handleFleetConfirm))
+	mux.HandleFunc("GET /api/fleet", a.gate(auth.Reader, auth.Admin, a.handleFleetStatus))
+	mux.HandleFunc("POST /api/fleet/setup", a.sessionGate(auth.Admin, auth.Admin, a.handleFleetSetup))
+	mux.HandleFunc("GET /api/fleet/recovery-kit", a.sessionGate(auth.Admin, auth.Admin, a.handleFleetKit))
+	mux.HandleFunc("POST /api/fleet/confirm", a.sessionGate(auth.Admin, auth.Admin, a.handleFleetConfirm))
 }
 
 func (a *app) handleFleetStatus(w http.ResponseWriter, _ *http.Request) {

@@ -262,6 +262,24 @@ second_setup_code="$(curl -sk -o /dev/null -w '%{http_code}' -X POST "https://12
 grep -P 'janus_session' "$COOKIE_JAR" | awk -F'\t' '{print $4}' | grep -qx TRUE || { echo "Dashboard test FAILED: session cookie isn't marked Secure: $(cat "$COOKIE_JAR")" >&2; exit 1; }
 echo "Auth OK: /api/nodes refused with no session, setup validated (short password, second-setup refusal), session cookie established and marked Secure"
 
+# Accounts: a reader made by the admin chooses their password, reads,
+# and is refused every change - recorded in the audit with their name.
+API="https://127.0.0.1:${DASHBOARD_ADDR_PORT}"
+READER_JAR="$WORKDIR/reader-cookies.txt"
+curl -sk -b "$COOKIE_JAR" -X POST "$API/api/users" -H 'Content-Type: application/json' -d '{"name":"rita","role":"reader"}' -o "$WORKDIR/rita.json"
+rita_given="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["password"])' "$WORKDIR/rita.json")"
+curl -sk -c "$READER_JAR" -o /dev/null -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d "{\"name\":\"rita\",\"password\":\"$rita_given\"}"
+before_change="$(curl -sk -b "$READER_JAR" -o /dev/null -w '%{http_code}' "$API/api/nodes")"
+[ "$before_change" = 403 ] || { echo "Dashboard test FAILED: a session with a given password read /api/nodes ($before_change)" >&2; exit 1; }
+curl -sk -b "$READER_JAR" -c "$READER_JAR" -o /dev/null -X POST "$API/api/auth/password" -H 'Content-Type: application/json' -d "{\"current_password\":\"$rita_given\",\"new_password\":\"ritas-own-password\"}"
+reader_read="$(curl -sk -b "$READER_JAR" -o /dev/null -w '%{http_code}' "$API/api/nodes")"
+reader_add="$(curl -sk -b "$READER_JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/nodes" -H 'Content-Type: application/json' -d '{}')"
+reader_users="$(curl -sk -b "$READER_JAR" -o /dev/null -w '%{http_code}' "$API/api/users")"
+[ "$reader_read/$reader_add/$reader_users" = 200/403/403 ] || { echo "Dashboard test FAILED: a reader read /api/nodes $reader_read, added a node $reader_add, listed accounts $reader_users (want 200/403/403)" >&2; exit 1; }
+curl -sk -b "$COOKIE_JAR" "$API/api/audit?user=rita" -o "$WORKDIR/audit-rita.json"
+grep -q '"path":"/api/nodes","status":403' "$WORKDIR/audit-rita.json" || { echo "Dashboard test FAILED: the audit doesn't show rita's refused change: $(cat "$WORKDIR/audit-rita.json")" >&2; exit 1; }
+echo "Accounts OK: a reader chose their password, read the nodes, was refused adding one and the accounts - the audit says so"
+
 # --- Point 2 suite, tranche 6: GET /api/controller-info hands an
 # operator what janusctl lifecycle install's own -controller-address/
 # -controller-ca flags need - auth-gated like everything else under

@@ -14,7 +14,7 @@ func TestTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret, tok, err := s.Create("terraform", 0)
+	secret, tok, err := s.Create("alice", Operator, "terraform", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestTokens(t *testing.T) {
 	if _, ok := s2.Verify(secret); ok {
 		t.Error("revoked token accepted")
 	}
-	if s3, _ := OpenTokens(dir); len(s3.List()) != 0 {
+	if s3, _ := OpenTokens(dir); len(s3.List("")) != 0 {
 		t.Error("revocation not saved")
 	}
 }
@@ -62,7 +62,7 @@ func TestTokenExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret, _, err := s.Create("short", time.Nanosecond)
+	secret, _, err := s.Create("alice", Reader, "short", time.Nanosecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,41 @@ func TestTokenExpiry(t *testing.T) {
 	if _, ok := s.Verify(secret); ok {
 		t.Error("expired token accepted")
 	}
-	if _, _, err := s.Create(" ", 0); err == nil {
+	if _, _, err := s.Create("alice", Reader, " ", 0); err == nil {
 		t.Error("empty name accepted")
+	}
+}
+
+// TestTokenOwners: a token is its owner's, with a role; one from before
+// accounts is admin's, as admin; an account's tokens go with it.
+func TestTokenOwners(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `[{"id":"0123456789ab","name":"old","hash":"x","created_at":"2026-10-01T00:00:00Z"}]`
+	if err := os.WriteFile(filepath.Join(dir, "api-tokens.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenTokens(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old, ok := s.Get("0123456789ab"); !ok || old.Owner != LegacyAdmin || old.Role != Admin {
+		t.Fatalf("a token from before accounts: %+v", old)
+	}
+	if _, _, err := s.Create("alice", "root", "x", 0); err == nil {
+		t.Error("a token with an unknown role")
+	}
+	_, a1, _ := s.Create("alice", Reader, "a1", 0)
+	_, _, _ = s.Create("alice", Operator, "a2", 0)
+	if got := s.List("alice"); len(got) != 2 || got[0].Owner != "alice" {
+		t.Fatalf("alice's tokens: %+v", got)
+	}
+	if len(s.List("")) != 3 {
+		t.Error("everyone's tokens")
+	}
+	if err := s.RevokeOwner("alice"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.Get(a1.ID); ok || len(s.List("")) != 1 {
+		t.Error("alice's tokens survived her")
 	}
 }

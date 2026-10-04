@@ -90,7 +90,7 @@ and the dashboard's own TLS identity persist across restarts.
 Then open **`https://<host>:8080/`** (HTTPS only - a self-signed
 certificate is generated on first run, so your browser will ask you to
 click through a trust warning once, the same as it would for any
-self-hosted admin tool) and set the admin password on first visit.
+self-hosted admin tool) and make the first admin account on first visit.
 
 Two environment variables tune this without overriding the container's
 command - handy for a Compose `environment:` block:
