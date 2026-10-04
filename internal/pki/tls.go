@@ -49,3 +49,31 @@ func ClientTLSConfig(caCertPEM, clientCertPEM, clientKeyPEM []byte) (*tls.Config
 		MinVersion:   tls.VersionTLS13,
 	}, nil
 }
+
+// NodeTLSConfig is janusd's listener: serverCert, and a client
+// certificate required from the node's own CA or its fleet
+// (Fleet.AcceptChains). Built for each connection, so a CA replaced or a
+// bundle applied counts from the next one; local returns the node's
+// current CA.
+func NodeTLSConfig(local func() *CA, serverCert *ServerCert, fleet *Fleet) *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+			ca := local()
+			pool := ca.CertPool()
+			if root := fleet.Root(); root != nil {
+				pool.AddCert(root)
+			}
+			return &tls.Config{
+				MinVersion:     tls.VersionTLS13,
+				NextProtos:     []string{"h2"}, // gRPC; credentials.NewTLS only adds it to the outer config
+				GetCertificate: serverCert.GetCertificate,
+				ClientAuth:     tls.RequireAndVerifyClientCert,
+				ClientCAs:      pool,
+				VerifyConnection: func(cs tls.ConnectionState) error {
+					return fleet.AcceptChains(cs.VerifiedChains, ca.Cert)
+				},
+			}, nil
+		},
+	}
+}

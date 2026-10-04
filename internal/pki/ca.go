@@ -56,8 +56,13 @@ type CA struct {
 	Key     *ecdsa.PrivateKey
 }
 
-// NewCA generates a brand new, self-signed CA.
+// NewCA generates a brand new, self-signed CA, valid 10 years.
 func NewCA(commonName string) (*CA, error) {
+	return NewCAFor(commonName, caValidity)
+}
+
+// NewCAFor generates a brand new, self-signed CA valid for validity.
+func NewCAFor(commonName string, validity time.Duration) (*CA, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generate CA key: %w", err)
@@ -73,7 +78,7 @@ func NewCA(commonName string) (*CA, error) {
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: commonName},
 		NotBefore:             time.Now().Add(-time.Hour), // small clock-skew margin
-		NotAfter:              time.Now().Add(caValidity),
+		NotAfter:              time.Now().Add(validity),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
@@ -89,6 +94,38 @@ func NewCA(commonName string) (*CA, error) {
 		return nil, fmt.Errorf("parse CA certificate: %w", err)
 	}
 
+	return &CA{Cert: cert, CertPEM: encodePEM(caCertPEMType, der), Key: priv}, nil
+}
+
+// IssueCA signs a new subordinate CA - one that signs leaf certificates
+// only, no CA of its own - valid for validity.
+func (ca *CA) IssueCA(commonName string, validity time.Duration) (*CA, error) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generate CA key: %w", err)
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(validity),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLenZero:        true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, &priv.PublicKey, ca.Key)
+	if err != nil {
+		return nil, fmt.Errorf("create CA certificate: %w", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA certificate: %w", err)
+	}
 	return &CA{Cert: cert, CertPEM: encodePEM(caCertPEMType, der), Key: priv}, nil
 }
 
