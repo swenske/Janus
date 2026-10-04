@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-001",
+  "title": "An admin certificate can read a node's private keys and credentials through the file API",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:N/A:N",
+  "cwe": [
+    "CWE-522"
+  ],
+  "target": "node",
+  "description": "A node's file API - `SystemService.Read` and `Copy`, behind `janusctl system cat` and `system cp` and the Controller's file browser - served every file, including the ones no other API returns: the private key of the node's certificate authority, its server and first-boot admin keys, the Controller registration token, the ACME account key and DNS provider credentials, and the private keys of HAProxy's certificates.\n\nThe file API takes an `os:admin` certificate, which already controls the node. But with the CA's key, whoever held one - even for a moment - could sign themselves new certificates valid for a year, and keep admin access once theirs was gone; and take away credentials that belong to other systems: a DNS provider's API token, a site's TLS key.\n\n**Affected**: every node before the fixed release.\n\n**Fix**: the file API refuses these files - by location, however the path is written (symlinks and `/proc/self/root` included), and any file holding a PEM private key wherever it is. `Copy` leaves them out of its archives, and refuses them when asked for by name.\n\n**Besides updating**: if an admin certificate of a node was ever in hands that shouldn't keep access, reset the node's state - a new CA, every certificate issued before refused - and replace the DNS provider credentials and TLS keys it held."
+}

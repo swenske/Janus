@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-002",
+  "title": "A node's reader certificate opens its page in the Controller with admin rights",
+  "severity": "high",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+  "cwe": [
+    "CWE-863"
+  ],
+  "target": "controller",
+  "description": "The Controller serves each node's page on a port of its own (9500-9599), opened with a TLS client certificate issued by that node's certificate authority, and acts on the node with its own admin service credential - whatever certificate the browser presented. It never checked that certificate's role: an `os:reader` certificate, meant for status and metrics only, opened a page that does everything an admin can - reboot, reset or reconfigure the node, change its HAProxy configuration, read its files, capture its traffic, issue more certificates.\n\n**Affected**: Controllers before the fixed release, managing a node for which an `os:reader` certificate was issued - from the node's Access page, or with `janusctl pki generate-client-config -role os:reader` - to someone who can reach the Controller's per-node ports.\n\n**Fix**: a node's page - the page and every request it makes - answers 403 to a certificate without the `os:admin` role.\n\n**Besides updating**: certificates already issued can't be revoked; if a reader certificate went to someone who shouldn't control the node, reset the node's state (a new CA, every certificate issued before refused) and add the node to the Controller again."
+}
