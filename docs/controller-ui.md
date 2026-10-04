@@ -121,8 +121,20 @@ refused - buttons, forms, tabs - rather than showing them disabled. The
 backend refuses anyway (`gate` in `auth_handlers.go`, one role for reads
 and one for changes per route; `TestRoutesNeedTheirRole`). Reader:
 reads. Operator: + `PowerButtons` (start/reset/force-off, console).
-Admin: the rest. A session whose password was given (`needs:
-["password"]`) only gets the password form.
+Admin: the rest. A session that needs something first (`needs`) gets only that:
+`mfa` - `SecondFactorForm` (passkey, app code, recovery code) -, then
+`password` - the forced change -, then `mfa_enroll` - `EnrollMFA`, the
+role's required first factor, then its recovery codes once
+(`RecoveryCodes`). The account button opens `MFAPanel` (factors, add,
+remove and new recovery codes with the password) and the password form.
+Passkeys go through `webauthn.js` (base64url options to
+`navigator.credentials` and back); they're offered only where the page's
+host is a name (`mfa.rp_id`), and the TOTP QR code is an SVG the
+Controller draws, shown as an `<img>`. Checked with Chromium's virtual
+authenticator (CDP `WebAuthn.addVirtualAuthenticator`) on
+`https://localhost`, the Controller's certificate accepted with
+`--ignore-certificate-errors-spki-list` - Chromium refuses WebAuthn on a
+page with a certificate error.
 
 **Sessions on the page.** A request the page makes by itself - every
 periodic refresh - is `call(path, { background: true })` (or

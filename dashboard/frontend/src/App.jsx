@@ -28,6 +28,7 @@ import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, Powe
 import { navigate, useHashRoute } from './shared/route.js'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
 import { MeContext, useCan, useMe } from './me.jsx'
+import { EnrollMFA, MFAPanel, SecondFactorForm } from './MFA.jsx'
 import TokensPage from './Tokens.jsx'
 import UsersPage from './Users.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
@@ -509,6 +510,7 @@ function SetupForm({ onDone }) {
   const [name, setName] = useState('admin')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [mfa, setMFA] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   async function submit(e) {
@@ -517,7 +519,7 @@ function SetupForm({ onDone }) {
     setBusy(true)
     setError(null)
     try {
-      await postJSON('/api/auth/setup', { name: name.trim(), password })
+      await postJSON('/api/auth/setup', { name: name.trim(), password, mfa_required: mfa ? 'admins' : 'nobody' })
       onDone()
     } catch (err) {
       setError(err.message)
@@ -539,6 +541,10 @@ function SetupForm({ onDone }) {
         <label className="field">
           <span>Confirm password</span>
           <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={8} maxLength={72} autoComplete="new-password" />
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={mfa} onChange={(e) => setMFA(e.target.checked)} />
+          <span>Admins need a second factor - an authenticator app or a passkey (recommended; you set yours up next)</span>
         </label>
         <ErrorBox error={error} />
         <button className="primary" type="submit" disabled={busy}>
@@ -687,7 +693,14 @@ function AuthGate({ children }) {
   if (!status) return null
   if (status.setup_required) return <SetupForm onDone={refreshStatus} />
   if (!status.authenticated) return <LoginForm onDone={() => (setEnded(false), refreshStatus())} ended={ended} />
-  if (status.user?.needs?.includes('password'))
+  const needs = status.user?.needs || []
+  if (needs.includes('mfa'))
+    return (
+      <AuthScreen title={`Second factor for ${status.user.name}`}>
+        <SecondFactorForm me={status.user} onDone={refreshStatus} onSignOut={signOut} />
+      </AuthScreen>
+    )
+  if (needs.includes('password'))
     return (
       <AuthScreen title={`Signed in as ${status.user.name}`}>
         <PasswordForm forced onDone={refreshStatus} />
@@ -696,7 +709,13 @@ function AuthGate({ children }) {
         </button>
       </AuthScreen>
     )
-  return <MeContext.Provider value={status.user}>{children}</MeContext.Provider>
+  if (needs.includes('mfa_enroll'))
+    return (
+      <AuthScreen title={`Secure ${status.user.name}'s sign-in`}>
+        <EnrollMFA me={status.user} onDone={refreshStatus} onSignOut={signOut} />
+      </AuthScreen>
+    )
+  return <MeContext.Provider value={{ ...status.user, refresh: refreshStatus }}>{children}</MeContext.Provider>
 }
 
 // AccountButton is who's signed in - opening their password change.
@@ -715,7 +734,9 @@ function AccountButton() {
         createPortal(
           <div className="modal-backdrop" onClick={() => setOpen(false)}>
             <div className="modal card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-              <h2 style={{ marginBottom: '0.6rem' }}>Change your password</h2>
+              <h2 style={{ marginBottom: '0.6rem' }}>Second factors</h2>
+              <MFAPanel me={me} onChanged={me.refresh} />
+              <h2 style={{ margin: '1.2rem 0 0.6rem' }}>Change your password</h2>
               <PasswordForm
                 onCancel={() => setOpen(false)}
                 onDone={() => {

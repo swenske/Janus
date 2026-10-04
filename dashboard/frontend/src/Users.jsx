@@ -2,6 +2,7 @@ import { Clock, Copy, KeyRound, Plus, RotateCcw, Trash2, UserRound, Users, X } f
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { ROLES, useMe } from './me.jsx'
+import { MFABadge } from './MFA.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 
 // Accounts (admin): who may sign in, with which role, and the session
@@ -101,7 +102,12 @@ function SessionPolicy() {
   const save = async (e) => {
     e.preventDefault()
     const p = await run(
-      () => postJSON('/api/settings', { session_idle_minutes: Number(policy.session_idle_minutes), session_max_hours: Number(policy.session_max_hours) }, 'PUT'),
+      () =>
+        postJSON(
+          '/api/settings',
+          { session_idle_minutes: Number(policy.session_idle_minutes), session_max_hours: Number(policy.session_max_hours), mfa_required: policy.mfa_required },
+          'PUT',
+        ),
       'Session policy saved',
     )
     if (p) setPolicy(p)
@@ -117,12 +123,21 @@ function SessionPolicy() {
           <span>Ends after sign-in at most (hours)</span>
           <input type="number" min={1} max={720} value={policy.session_max_hours} onChange={(e) => setPolicy({ ...policy, session_max_hours: e.target.value })} required />
         </label>
+        <label className="field">
+          <span>A second factor is needed by</span>
+          <select value={policy.mfa_required} onChange={(e) => setPolicy({ ...policy, mfa_required: e.target.value })}>
+            <option value="admins">admins</option>
+            <option value="everyone">everyone</option>
+            <option value="nobody">nobody</option>
+          </select>
+        </label>
         <button className="primary" type="submit" disabled={busy} style={{ alignSelf: 'flex-end' }}>
           Save
         </button>
       </form>
       <div className="muted small" style={{ marginTop: '0.5rem' }}>
-        For every session, the live ones too. A page left open without anyone touching it doesn&apos;t count as use.
+        For every session, the live ones too. A page left open without anyone touching it doesn&apos;t count as use. An account the second-factor policy covers sets one up at its
+        next sign-in.
       </div>
     </Card>
   )
@@ -159,6 +174,20 @@ export default function UsersPage() {
     if (!ok) return
     const out = await patch(u, { reset_password: true })
     if (out?.password) setGiven({ name: u.name, password: out.password, reset: true })
+  }
+  const resetMFA = async (u) => {
+    const ok = await confirm({
+      title: `Reset ${u.name}'s second factors?`,
+      body: (
+        <p>
+          Their authenticator app, passkeys and recovery codes are forgotten and their sessions end. They sign in with their password and set a factor up again if their role needs
+          one.
+        </p>
+      ),
+      action: 'Reset',
+      danger: true,
+    })
+    if (ok) patch(u, { reset_mfa: true }, `${u.name}'s second factors reset`)
   }
   const toggle = async (u) => {
     if (!u.disabled) {
@@ -223,7 +252,7 @@ export default function UsersPage() {
                   <tr key={u.name} className={u.disabled ? 'muted' : ''}>
                     <td>
                       <strong>{u.name}</strong> {u.name === me.name && <Badge>you</Badge>} {u.disabled && <Badge tone="danger">disabled</Badge>}{' '}
-                      {u.must_change_password && !u.disabled && <Badge tone="warn">password to choose</Badge>}
+                      {u.must_change_password && !u.disabled && <Badge tone="warn">password to choose</Badge>} <MFABadge on={u.mfa} />
                     </td>
                     <td>
                       <select
@@ -253,6 +282,11 @@ export default function UsersPage() {
                       <button className="ghost small" onClick={() => reset(u)} disabled={busy} title="A new password to hand over">
                         <RotateCcw size={14} /> Reset password
                       </button>
+                      {u.mfa && (
+                        <button className="ghost small" onClick={() => resetMFA(u)} disabled={busy} title="A lost phone or key: the account sets one up again">
+                          Reset 2FA
+                        </button>
+                      )}
                       <button className="ghost small" onClick={() => toggle(u)} disabled={busy}>
                         {u.disabled ? 'Enable' : 'Disable'}
                       </button>
