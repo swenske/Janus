@@ -130,6 +130,37 @@ func (ca *CA) IssueCA(commonName string, validity time.Duration) (*CA, error) {
 	return &CA{Cert: cert, CertPEM: encodePEM(caCertPEMType, der), Key: priv}, nil
 }
 
+// CrossSign vouches for next with this CA's key: a certificate of next's
+// name and key, issued by this CA. A node serves it after its server
+// certificate once it replaced its CA, so whoever pinned the old CA
+// still verifies the node - and its new CA's client certificates, as the
+// Controller does browsers' - and can pin the new one (ServerCert.Rotate).
+// The node itself no longer trusts the old CA for anything.
+func (ca *CA) CrossSign(next *CA) ([]byte, error) {
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               next.Cert.Subject,
+		SubjectKeyId:          next.Cert.SubjectKeyId,
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              next.Cert.NotAfter,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		// No path length nor extended key usage, as the node's own CAs:
+		// once a client pins it, the next replacement's cross-signed CA
+		// comes below it, and the new CA's client certificates too.
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, next.Key.Public(), ca.Key)
+	if err != nil {
+		return nil, fmt.Errorf("cross-sign the new CA: %w", err)
+	}
+	return encodePEM(caCertPEMType, der), nil
+}
+
 // LoadCA parses a CA from its PEM-encoded certificate and private key
 // (as previously written by CA.KeyPEM/CertPEM).
 func LoadCA(certPEM, keyPEM []byte) (*CA, error) {

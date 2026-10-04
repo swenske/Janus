@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -45,7 +46,9 @@ const (
 )
 
 // Rotate replaces the node's own CA (local, kept in s's directory): a new
-// CA, a server certificate for hostname and ips, and an admin
+// CA - cross-signed by the old one, served after the server certificate
+// so whoever pinned the old CA still verifies the node and can learn the
+// new one -, a server certificate for hostname and ips, and an admin
 // certificate - for adminPub when given, its key never seen by the node,
 // else for a key made here and returned. Every certificate the old CA
 // issued stops working with the next connection. Serialized with
@@ -56,6 +59,10 @@ func (s *ServerCert) Rotate(local *Local, hostname string, ips []net.IP, adminPu
 	defer s.mu.Unlock()
 
 	ca, err := NewCA("Janus node CA: " + hostname)
+	if err != nil {
+		return nil, err
+	}
+	crossPEM, err := s.ca.CrossSign(ca)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +96,7 @@ func (s *ServerCert) Rotate(local *Local, hostname string, ips []net.IP, adminPu
 		{serverCertFile, serverPEM, 0o644},
 		{serverKeyFile, serverKeyPEM, 0o600},
 		{adminCertFile, r.AdminCertPEM, 0o600},
+		{crossFile, crossPEM, 0o644},
 	}
 	var remove []string
 	if r.AdminKeyPEM != nil {
@@ -101,7 +109,9 @@ func (s *ServerCert) Rotate(local *Local, hostname string, ips []net.IP, adminPu
 	}
 	local.ca.Store(ca)
 	s.ca = ca
-	s.cur.Store(&server)
+	block, _ := pem.Decode(crossPEM)
+	s.cross = block.Bytes
+	s.store(server)
 	return r, nil
 }
 

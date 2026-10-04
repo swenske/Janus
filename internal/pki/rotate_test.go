@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -154,5 +155,69 @@ func TestRotationInterrupted(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, adminKeyFile)); !os.IsNotExist(err) {
 			t.Errorf("ready (moved %v): admin.key not removed", moved)
 		}
+	}
+}
+
+// verifiesNode reports whether a client pinning roots verifies the
+// server certificate sc serves for localhost.
+func verifiesNode(t *testing.T, sc *ServerCert, roots *x509.CertPool) error {
+	t.Helper()
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{GetCertificate: sc.GetCertificate, MinVersion: tls.VersionTLS13})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		c, err := ln.Accept()
+		if err == nil {
+			_ = c.(*tls.Conn).Handshake()
+			c.Close()
+		}
+	}()
+	conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{RootCAs: roots, ServerName: "localhost", MinVersion: tls.VersionTLS13})
+	if err != nil {
+		return err
+	}
+	return conn.Close()
+}
+
+// TestRotationCrossSigned: after the node replaced its CA, a client that
+// pinned the old one still verifies it - through the new CA cross-signed
+// by the old - as does one with the new CA; after the server certificate
+// is renewed too, and once read back from disk.
+func TestRotationCrossSigned(t *testing.T) {
+	dir := t.TempDir()
+	b, err := LoadOrBootstrap(dir, "localhost", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := NewServerCert(b.CA, dir, b.ServerCert)
+	r, err := sc.Rotate(NewLocal(b.CA), "localhost", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(stage string, sc *ServerCert) {
+		t.Helper()
+		if err := verifiesNode(t, sc, b.CA.CertPool()); err != nil {
+			t.Errorf("%s: a client pinning the old CA: %v", stage, err)
+		}
+		if err := verifiesNode(t, sc, r.CA.CertPool()); err != nil {
+			t.Errorf("%s: a client pinning the new CA: %v", stage, err)
+		}
+	}
+	check("rotated", sc)
+	if _, err := sc.Refresh("localhost", []net.IP{net.ParseIP("192.0.2.7")}); err != nil {
+		t.Fatal(err)
+	}
+	check("server certificate renewed", sc)
+	again, err := LoadOrBootstrap(dir, "localhost", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("read back", NewServerCert(again.CA, dir, again.ServerCert))
+
+	stranger, _ := NewCA("stranger")
+	if err := verifiesNode(t, sc, stranger.CertPool()); err == nil {
+		t.Error("a client pinning another CA verifies the node")
 	}
 }

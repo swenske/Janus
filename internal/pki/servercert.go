@@ -3,6 +3,7 @@ package pki
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"os"
@@ -28,15 +29,34 @@ const renewBefore = 30 * 24 * time.Hour
 type ServerCert struct {
 	dir string
 
-	mu  sync.Mutex // serializes Refresh and Rotate, guards ca
-	ca  *CA
-	cur atomic.Pointer[tls.Certificate]
+	mu sync.Mutex // serializes Refresh and Rotate, guards ca and cross
+	ca *CA
+	// cross is the node's CA cross-signed by the one it replaced (DER):
+	// served after the server certificate (Rotate).
+	cross []byte
+	cur   atomic.Pointer[tls.Certificate]
 }
+
+// crossFile is the node's CA cross-signed by the previous one.
+const crossFile = "ca-cross.crt"
 
 func NewServerCert(ca *CA, dir string, initial tls.Certificate) *ServerCert {
 	s := &ServerCert{ca: ca, dir: dir}
-	s.cur.Store(&initial)
+	if p, err := os.ReadFile(filepath.Join(dir, crossFile)); err == nil {
+		if block, _ := pem.Decode(p); block != nil {
+			s.cross = block.Bytes
+		}
+	}
+	s.store(initial)
 	return s
+}
+
+// store serves c, followed by the cross-signed CA if there's one.
+func (s *ServerCert) store(c tls.Certificate) {
+	if s.cross != nil && len(c.Certificate) == 1 {
+		c.Certificate = append(c.Certificate, s.cross)
+	}
+	s.cur.Store(&c)
 }
 
 // NotAfter is the current certificate's expiry (zero if it can't be read).
@@ -99,7 +119,7 @@ func (s *ServerCert) Refresh(hostname string, ips []net.IP) (bool, error) {
 	if err := writeAtomic(filepath.Join(s.dir, serverCertFile), certPEM, 0o644); err != nil {
 		return false, err
 	}
-	s.cur.Store(&cert)
+	s.store(cert)
 	return true, nil
 }
 

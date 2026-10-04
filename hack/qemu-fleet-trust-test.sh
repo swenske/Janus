@@ -156,11 +156,12 @@ lets_in "the new admin certificate" local system hostname
 if "$CTL_BIN" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/old/admin.crt" -key "$WORKDIR/old/admin.key" system hostname >/dev/null 2>&1; then
   fail "the old CA's admin certificate still works after rotate-ca"
 fi
-if "$CTL_BIN" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/old/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" system hostname >/dev/null 2>&1; then
-  fail "the node still presents a server certificate of its old CA"
-fi
+# Whoever pinned the old CA still verifies the node: its new CA comes
+# cross-signed by the old one.
+"$CTL_BIN" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/old/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" system hostname >/dev/null 2>&1 \
+  || fail "a client pinning the old CA no longer verifies the node: $("$CTL_BIN" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/old/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" system hostname 2>&1)"
 lets_in "the fleet's certificates, untouched by the rotation" admin system hostname
-echo "  ok: rotate-ca - the new admin certificate's key made by janusctl, the old CA's certificates refused, the fleet's kept"
+echo "  ok: rotate-ca - the new admin certificate's key made by janusctl, the old CA's certificates refused, the fleet's kept, the node still verified by the old CA's pin"
 
 out="$(as local access rotate-ca -console "$WORKDIR/rot2")" || fail "rotate-ca -console: $out"
 deadline=$((SECONDS + 10))

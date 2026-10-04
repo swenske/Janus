@@ -53,7 +53,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 | `TrustGet` | | ✅ | The fleet's root, the bundle's version and issuing CAs (read-only) |
 | `TrustSet` | | ✅ | Pin the root (the first time) and apply a bundle it signed, newer than the node's - admin |
 | `TrustReset` | | ✅ | Forget the fleet - admin, and only with a certificate of the node's own CA |
-| `LocalCARotate` | | ✅ | Replace the node's own CA (admin): new CA, server and admin certificates; every certificate the old CA issued stops working, the fleet's don't. The new admin certificate is issued for the caller's public key (`janusctl access rotate-ca` makes the key locally), or the node makes the key and prints it on its console like at first boot. Written in two steps on STATE - a power cut leaves the old CA or the new one, whole |
+| `LocalCARotate` | | ✅ | Replace the node's own CA (admin): new CA, server and admin certificates; every certificate the old CA issued stops working, the fleet's don't. The new admin certificate is issued for the caller's public key (`janusctl access rotate-ca` makes the key locally), or the node makes the key and prints it on its console like at first boot. The new CA comes cross-signed by the old one, served after the server certificate: whoever pinned the old CA still verifies the node, and the Controller pins the new one by itself. Written in two steps on STATE - a power cut leaves the old CA or the new one, whole |
 
 ## SystemService
 
