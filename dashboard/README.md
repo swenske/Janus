@@ -225,6 +225,35 @@ tell what address a node will actually be able to reach it at, most
 notably under Docker bridge networking, see the `-advertise-address`
 note above).
 
+### Securing the fleet
+
+Until it has a fleet, the Controller reaches each node with a service
+credential it got when the node was added, kept for good. The **Secure
+your fleet** card on the main page replaces them, in three steps:
+
+1. **Create the fleet**: its root certificate authority, an issuing CA
+   the Controller keeps, and a recovery kit - the root's key, encrypted
+   with a passphrase shown this once.
+2. **Store the kit and its passphrase** - a password manager is ideal:
+   the kit is text (an [age](https://age-encryption.org) file, `age -d`
+   opens it), a secure note holds it.
+3. **Give them back**: once they open, the root's key is deleted from
+   the Controller, and every node is brought to trust the fleet - the
+   Controller then reaches it with certificates of its own, valid a day,
+   acting for whoever opened the node's page (the node logs it), and
+   deletes the node's service credential. Nothing changes for the nodes
+   before this step.
+
+A node too old to trust a fleet says **needs an update** on its card:
+the Controller keeps reaching it as before, until it's updated. The kit
+and its passphrase are needed again only to renew the fleet's keys, or
+to recover a lost Controller.
+
+The issuing CA's key is sealed with the Controller's master key,
+`JANUS_CONTROLLER_MASTER_KEY_FILE`: keep that file outside the data
+directory, as the Compose setup below does - otherwise a copy of the
+data holds both, and the Controller says so on its page.
+
 ### Creating nodes on a hypervisor
 
 Given a libvirt/KVM host (the **Hypervisors** tab), the Controller
@@ -275,8 +304,13 @@ services:
     container_name: janus-controller
     network_mode: host
     restart: unless-stopped
+    environment:
+      # The master key sealing the fleet's issuing key: outside the data
+      # volume, so a copy of the data (its backups) holds nothing usable.
+      JANUS_CONTROLLER_MASTER_KEY_FILE: /secrets/master.key
     volumes:
       - janus-controller-data:/data
+      - janus-controller-secrets:/secrets
       # Where the updater listens: the Controller asks it for an update
       # here, and tells it once started (no word from a new version
       # within 2 minutes, and the updater rolls back).
@@ -304,6 +338,7 @@ services:
 
 volumes:
   janus-controller-data:
+  janus-controller-secrets:
   janus-controller-updater:
   janus-controller-updater-state:
 ```
@@ -429,6 +464,7 @@ Environment variables, all optional:
 
 | Variable | Container | Default | What |
 |---|---|---|---|
+| `JANUS_CONTROLLER_MASTER_KEY_FILE` | Controller | `<data-dir>/master.key` | the master key sealing the fleet's issuing key - made there the first time; keep it outside the data directory |
 | `JANUS_CONTROLLER_UPDATER_SOCKET` | Controller | `/run/janus-updater/updater.sock` | where to find the updater (empty: never) |
 | `JANUS_UPDATER_SERVICE` | updater | `janus-controller` | the Controller's service name in `compose.yaml` |
 | `JANUS_UPDATER_VARIABLE` | updater | `JANUS_CONTROLLER_IMAGE` | the `.env` variable its `image:` comes from |

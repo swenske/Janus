@@ -112,3 +112,15 @@
 .net-pick { display: flex; gap: 0.3rem; min-width: 0; }
 .net-pick select { flex: 1; min-width: 0; }
 .net-pick input { width: 5.5rem; flex: none; }
+
+/* The fleet's setup (Fleet.jsx). */
+.fleet-setup { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.fleet-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.9rem; }
+.fleet-step { display: grid; grid-template-columns: 1.8rem 1fr; gap: 0.75rem; align-items: start; }
+.fleet-step-n { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; border-radius: 50%; border: 1px solid var(--border); color: var(--muted); font-weight: 600; font-size: 0.9rem; }
+.fleet-step.active .fleet-step-n { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.fleet-step.done .fleet-step-n { border-color: transparent; color: var(--ok); }
+.fleet-step:not(.active):not(.done) strong { color: var(--muted); font-weight: 500; }
+.fleet-step strong { line-height: 1.8rem; }
+.fleet-passphrase { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); }
+.fleet-passphrase .mono { font-size: 1.05rem; letter-spacing: 0.04em; overflow-wrap: anywhere; }

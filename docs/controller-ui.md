@@ -49,7 +49,11 @@ Rules:
 
 Three tabs (hash routes `#/`, `#/hypervisors`, `#/tokens`).
 
-**Nodes**: pending approvals first, then the nodes as cards, then
+**Nodes**: until the fleet is set up, **Secure your fleet**
+(`Fleet.jsx`: create it, store the recovery kit and its passphrase,
+give both back - `/api/fleet/*`, session only); pending approvals, then
+the nodes as cards - each with its **Trust** once the fleet is ready
+(`fleet`, `needs an update`, an error) - then the **Fleet** card and
 provisioning. A node the Controller created on a hypervisor shows its
 virtual machine on its card (state, reset/force-off/start, console) and
 **Destroy** instead of Remove; a pending registration from a machine it

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { call } from './call.js'
 import MachineConsole from './Console.jsx'
 import ControllerUpdate from './ControllerUpdate.jsx'
+import { FleetCard, FleetSetup, TrustBadge } from './Fleet.jsx'
 import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
 import { navigate, useHashRoute } from './shared/route.js'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
@@ -35,7 +36,7 @@ function uptime(bootUnix) {
 // A node the Controller created on a hypervisor shows its machine's
 // state, and the hypervisor-level actions - what's left when the node
 // itself doesn't answer.
-function NodeCard({ node, status, onRemove, machine, vm, machineActions }) {
+function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet }) {
   const st = status
   const reachable = st?.reachable
   return (
@@ -100,6 +101,14 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions }) {
           <dd>
             {st.active_slot ? `slot ${st.active_slot}` : 'no A/B'} · {uptime(st.boot_time_unix)}
           </dd>
+          {fleet?.state === 'ready' && (
+            <>
+              <dt>Trust</dt>
+              <dd>
+                <TrustBadge fleet={fleet} nodeID={node.id} />
+              </dd>
+            </>
+          )}
         </dl>
       )}
       <div className="row" style={{ marginTop: 'auto' }}>
@@ -526,6 +535,7 @@ function MainApp() {
   const [error, setError] = useState(null)
   const [adding, setAdding] = useState(false)
   const [version, setVersion] = useState('')
+  const [fleet, setFleet] = useState(null)
   const confirm = useConfirm()
   const toast = useToast()
 
@@ -537,6 +547,9 @@ function MainApp() {
       setHypervisors(h ?? [])
       setMachines(m ?? [])
       setError(null)
+      call('/api/fleet')
+        .then(setFleet)
+        .catch(() => {})
       return h ?? []
     } catch (err) {
       setError(err.message)
@@ -660,6 +673,7 @@ function MainApp() {
           <div className="stack">
             {error && <ErrorBox error={error} />}
             <ControllerUpdate />
+            <FleetSetup fleet={fleet} onChanged={reload} />
             <PendingList pending={pending} onApprove={approve} onReject={reject} busy={busy} machines={machines} />
             <div className="spread">
               <h1>Nodes</h1>
@@ -686,9 +700,19 @@ function MainApp() {
             )}
             <div className="node-grid">
               {(nodes || []).map((n) => (
-                <NodeCard key={n.id} node={n} status={statuses[n.id]} onRemove={remove} machine={machineOf(n)} vm={vmOf(machineOf(n))} machineActions={machineActions} />
+                <NodeCard
+                  key={n.id}
+                  node={n}
+                  status={statuses[n.id]}
+                  onRemove={remove}
+                  machine={machineOf(n)}
+                  vm={vmOf(machineOf(n))}
+                  machineActions={machineActions}
+                  fleet={fleet}
+                />
               ))}
             </div>
+            <FleetCard fleet={fleet} nodes={nodes} />
             <ProvisionInfo />
           </div>
         )}
