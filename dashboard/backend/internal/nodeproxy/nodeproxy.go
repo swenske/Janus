@@ -31,7 +31,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
@@ -60,7 +59,7 @@ type Listener struct {
 // listener never came up", not something to retry inline.
 func Start(node *store.Node, dashboardServerCert tls.Certificate, st *store.Store) (*Listener, error) {
 	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(node.CACertPEM) {
+	if !pool.AppendCertsFromPEM(node.CA()) {
 		return nil, fmt.Errorf("node %s: no valid certificates in stored ca.crt", node.ID)
 	}
 
@@ -158,6 +157,12 @@ func requireAdminCertificate(next http.Handler) http.Handler {
 				http.Error(w, fmt.Sprintf("This certificate's role is %s: a node's page needs an %s certificate - the Controller acts on the node as admin whatever the browser presents. Use this certificate with janusctl, and choose an admin certificate for this page (the browser remembers its choice per site: close it, or clear its SSL state, to be asked again).", role, pki.RoleAdmin), http.StatusForbidden)
 				return
 			}
+			// The node logs the certificate's name as who acted.
+			name := r.TLS.VerifiedChains[0][0].Subject.CommonName
+			if name == "" {
+				name = "browser"
+			}
+			r = r.WithContext(WithUser(r.Context(), User{Name: name, Roles: []string{pki.RoleAdmin}}))
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -199,17 +204,16 @@ func dialNode(node *store.Node) (*grpc.ClientConn, error) {
 	if c, ok := conns.Load(node.ID); ok {
 		return c.(*grpc.ClientConn), nil
 	}
-	tlsConfig, err := pki.ClientTLSConfig(node.CACertPEM, node.ServiceCertPEM, node.ServiceKeyPEM)
+	opts, err := dialOptions(node)
 	if err != nil {
-		return nil, fmt.Errorf("build TLS config: %w", err)
+		return nil, err
 	}
 	// A rebooting node should be reachable again within seconds of
 	// coming back, not after gRPC's default backoff (up to 2 minutes).
 	backoffCfg := backoff.DefaultConfig
 	backoffCfg.MaxDelay = 5 * time.Second
-	c, err := grpc.NewClient(node.Addr(),
-		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
-		grpc.WithConnectParams(grpc.ConnectParams{Backoff: backoffCfg, MinConnectTimeout: 5 * time.Second}))
+	c, err := grpc.NewClient(node.Addr(), append(opts,
+		grpc.WithConnectParams(grpc.ConnectParams{Backoff: backoffCfg, MinConnectTimeout: 5 * time.Second}))...)
 	if err != nil {
 		return nil, err
 	}

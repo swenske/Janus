@@ -114,6 +114,18 @@ every issuing CA is lost. The node's own CA always lets in, and only it
 can make the node forget its fleet. The TLS configuration is built per
 connection, so a new bundle counts from the next one.
 
+The Controller holds a fleet (`dashboard/backend/internal/fleet`): set
+up from its page, the root's key goes in a recovery kit the operator
+keeps - an age file encrypted with a passphrase - and leaves the
+Controller once the operator gave both back. It keeps the issuing CA,
+its key sealed with a master key kept outside its data directory
+(`internal/secrets`), and signs itself a `janus:controller` certificate
+valid a day. A background loop brings every node to trust the fleet -
+with the service credential it got when the node was added, then
+checked with the fleet certificate - and deletes that credential: from
+then on the Controller holds no credential per node, and every call it
+makes names the user it's made for.
+
 The node's own CA can be replaced too (`AccessService.LocalCARotate`):
 every certificate it issued stops working - the first-boot admin one, a
 Controller's service credential - while the fleet's keep letting in. The

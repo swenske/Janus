@@ -781,4 +781,56 @@ restart_relay_code="$(curl -sk -o /dev/null -w '%{http_code}' --cert "$WORKDIR/a
 [ "$restart_relay_code" = "200" ] || { echo "Dashboard test FAILED: per-node listener didn't come back after restart (got $restart_relay_code)" >&2; exit 1; }
 echo "Restart persistence OK: node registry and per-node listener both survived a dashboardd restart against the same data directory"
 
-echo "Dashboard test OK: add/list/relay/mTLS-gate/delete/restart-persistence all verified against a real running node"
+# --- the fleet (dashboard/backend/fleet.go): set up, its recovery kit
+# given back, then the node brought to trust it - the Controller reaches
+# it with its fleet certificate, acting for the browser's user, and no
+# longer keeps a credential for it ---
+API="https://127.0.0.1:${DASHBOARD_ADDR_PORT}"
+FLEET_NODE_ID="$(echo "$RESTART_LIST" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')"
+curl -sk -b "$COOKIE_JAR" "$API/api/fleet" | grep -q '"state":"none"' || { echo "Dashboard test FAILED: a fresh Controller has a fleet: $(curl -sk -b "$COOKIE_JAR" "$API/api/fleet")" >&2; exit 1; }
+curl -sk -b "$COOKIE_JAR" -X POST "$API/api/fleet/setup" -o "$WORKDIR/fleet-setup.json"
+PASSPHRASE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["passphrase"])' "$WORKDIR/fleet-setup.json")"
+curl -sk -b "$COOKIE_JAR" "$API/api/fleet/recovery-kit" -o "$WORKDIR/recovery-kit.age"
+head -1 "$WORKDIR/recovery-kit.age" | grep -q 'BEGIN AGE ENCRYPTED FILE' || { echo "Dashboard test FAILED: the recovery kit isn't an armored age file" >&2; exit 1; }
+confirm_body() { python3 -c 'import json,sys; print(json.dumps({"kit": open(sys.argv[1]).read(), "passphrase": sys.argv[2]}))' "$WORKDIR/recovery-kit.age" "$1" >"$WORKDIR/confirm.json"; }
+confirm_body "0000-0000-0000-0000-0000-0000"
+wrong_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/fleet/confirm" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/confirm.json")"
+[ "$wrong_code" = "400" ] || { echo "Dashboard test FAILED: a wrong passphrase should be refused with 400, got $wrong_code" >&2; exit 1; }
+curl -sk -b "$COOKIE_JAR" "$API/api/fleet" | grep -q '"state":"pending"' || { echo "Dashboard test FAILED: a wrong passphrase changed the fleet's state" >&2; exit 1; }
+confirm_body "$PASSPHRASE"
+ok_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/fleet/confirm" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/confirm.json")"
+[ "$ok_code" = "200" ] || { echo "Dashboard test FAILED: confirming the kit with its passphrase: $ok_code" >&2; exit 1; }
+for f in root.key.sealed recovery-kit.age; do
+  [ ! -e "$WORKDIR/data/fleet/$f" ] || { echo "Dashboard test FAILED: $f still on the Controller after the kit was confirmed" >&2; exit 1; }
+done
+trust_state() { curl -sk -b "$COOKIE_JAR" "$API/api/fleet" | python3 -c 'import json,sys; print(json.load(sys.stdin)["nodes"].get(sys.argv[1], {}).get("state", ""))' "$FLEET_NODE_ID"; }
+deadline=$((SECONDS + 60))
+until [ "$(trust_state)" = "trusted" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the node never came to trust the fleet: $(curl -sk -b "$COOKIE_JAR" "$API/api/fleet")" >&2; cat "$WORKDIR/dashboardd-restart.log" >&2; exit 1; }
+  sleep 1
+done
+[ ! -e "$WORKDIR/data/nodes/$FLEET_NODE_ID/service.key" ] || { echo "Dashboard test FAILED: the node's service key is still kept once it trusts the fleet" >&2; exit 1; }
+grep -q '"fleet":true' "$WORKDIR/data/nodes/$FLEET_NODE_ID/meta.json" || { echo "Dashboard test FAILED: the node isn't recorded as trusting the fleet" >&2; exit 1; }
+echo "Fleet setup OK: a wrong passphrase refused, the kit confirmed, the root key gone, the node trusts the fleet and its service key is deleted"
+
+fleet_relay() { # the node's page, now relayed with the fleet certificate
+  curl -sk -o /dev/null -w '%{http_code}' --cert "$WORKDIR/admin.crt" --key "$WORKDIR/admin.key" -X POST "https://127.0.0.1:${RESTART_PORT}/api/system/services/haproxy/restart"
+}
+[ "$(fleet_relay)" = "200" ] || { echo "Dashboard test FAILED: restarting HAProxy through the fleet relay" >&2; exit 1; }
+curl -sk -m 4 --cert "$WORKDIR/admin.crt" --key "$WORKDIR/admin.key" "https://127.0.0.1:${RESTART_PORT}/api/stream/logs?id=janusd&tail=200" >"$WORKDIR/node-janusd.log" || true
+grep -q 'api: SystemService/ServiceRestart: admin (os:admin) via janus-controller' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log the restart as the browser's user via the Controller: $(cat "$WORKDIR/node-janusd.log")" >&2; exit 1; }
+grep -q 'access: fleet root' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log taking the fleet" >&2; exit 1; }
+echo "Fleet relay OK: the node logs the browser's user acting through the Controller's fleet certificate"
+
+kill "$DASHBOARD_PID"
+wait "$DASHBOARD_PID" 2>/dev/null || true
+"$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data" > "$WORKDIR/dashboardd-restart2.log" 2>&1 &
+DASHBOARD_PID=$!
+deadline=$((SECONDS + 20))
+until [ "$(fleet_relay)" = "200" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the fleet relay didn't come back after a restart" >&2; cat "$WORKDIR/dashboardd-restart2.log" >&2; exit 1; }
+  sleep 1
+done
+echo "Fleet restart OK: the issuing CA unsealed with the master key, the node reached again with a fresh fleet certificate"
+
+echo "Dashboard test OK: add/list/relay/mTLS-gate/delete/restart-persistence/fleet all verified against a real running node"

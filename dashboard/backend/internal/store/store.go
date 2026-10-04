@@ -33,12 +33,42 @@ type Node struct {
 	Port    int    `json:"port"` // this dashboard's per-node listener port
 	// MachineID is set for a node the Controller created itself on a
 	// hypervisor (internal/machines) - the virtual machine it runs in.
-	MachineID      string `json:"machine_id,omitempty"`
+	MachineID string `json:"machine_id,omitempty"`
+	// CACertPEM is the node's own CA, the Controller's pin for its server
+	// certificate; ServiceCertPEM/ServiceKeyPEM, the credential the
+	// Controller got when it added the node - gone once the node trusts
+	// the Controller's fleet (Fleet), whose certificate it then uses. Set
+	// them only before the node is added; afterwards read them with CA
+	// and ServiceCredential.
 	CACertPEM      []byte `json:"-"`
 	ServiceCertPEM []byte `json:"-"`
 	ServiceKeyPEM  []byte `json:"-"`
+	Fleet          bool   `json:"-"`
 
-	mu sync.Mutex // guards Address once the node is in a Store
+	mu sync.Mutex // guards Address, the credentials and Fleet once the node is in a Store
+}
+
+// CA is the node's own CA (PEM), the pin for its server certificate.
+func (n *Node) CA() []byte {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.CACertPEM
+}
+
+// TrustsFleet reports whether the node trusts the Controller's fleet:
+// the Controller then reaches it with its fleet certificate.
+func (n *Node) TrustsFleet() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.Fleet
+}
+
+// ServiceCredential is the credential the Controller got when it added
+// the node - nil once the node trusts the fleet.
+func (n *Node) ServiceCredential() (certPEM, keyPEM []byte) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.ServiceCertPEM, n.ServiceKeyPEM
 }
 
 // Addr is the node's current gRPC address.
@@ -58,6 +88,9 @@ type meta struct {
 	Address   string `json:"address"`
 	Port      int    `json:"port"`
 	MachineID string `json:"machine_id,omitempty"`
+	// Fleet: the node trusts the Controller's fleet - no service
+	// credential is kept for it anymore.
+	Fleet bool `json:"fleet,omitempty"`
 }
 
 type Store struct {
@@ -109,19 +142,17 @@ func loadNode(dir string) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read ca.crt: %w", err)
 	}
-	cert, err := os.ReadFile(filepath.Join(dir, "service.crt"))
-	if err != nil {
+	n := &Node{ID: m.ID, Name: m.Name, Address: m.Address, Port: m.Port, MachineID: m.MachineID, CACertPEM: ca, Fleet: m.Fleet}
+	if m.Fleet {
+		return n, nil
+	}
+	if n.ServiceCertPEM, err = os.ReadFile(filepath.Join(dir, "service.crt")); err != nil {
 		return nil, fmt.Errorf("read service.crt: %w", err)
 	}
-	key, err := os.ReadFile(filepath.Join(dir, "service.key"))
-	if err != nil {
+	if n.ServiceKeyPEM, err = os.ReadFile(filepath.Join(dir, "service.key")); err != nil {
 		return nil, fmt.Errorf("read service.key: %w", err)
 	}
-
-	return &Node{
-		ID: m.ID, Name: m.Name, Address: m.Address, Port: m.Port, MachineID: m.MachineID,
-		CACertPEM: ca, ServiceCertPEM: cert, ServiceKeyPEM: key,
-	}, nil
+	return n, nil
 }
 
 // List returns every registered node, sorted by name for stable output -
@@ -209,21 +240,69 @@ func (s *Store) SetAddress(id, addr string) error {
 	if !ok {
 		return fmt.Errorf("no such node %q", id)
 	}
-	metaBytes, err := json.Marshal(meta{ID: n.ID, Name: n.Name, Address: addr, Port: n.Port, MachineID: n.MachineID})
-	if err != nil {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	m := meta{ID: n.ID, Name: n.Name, Address: addr, Port: n.Port, MachineID: n.MachineID, Fleet: n.Fleet}
+	if err := s.write(id, "meta.json", mustJSON(m)); err != nil {
 		return err
 	}
-	path := filepath.Join(s.dir, "nodes", id, "meta.json")
-	if err := os.WriteFile(path+".tmp", metaBytes, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(path+".tmp", path); err != nil {
-		return err
+	n.Address = addr
+	return nil
+}
+
+// SetFleet records that a node trusts the Controller's fleet, and
+// deletes the service credential kept for it: the fleet's certificate
+// reaches it from now on.
+func (s *Store) SetFleet(id string) error {
+	n, ok := s.Get(id)
+	if !ok {
+		return fmt.Errorf("no such node %q", id)
 	}
 	n.mu.Lock()
-	n.Address = addr
-	n.mu.Unlock()
+	defer n.mu.Unlock()
+	m := meta{ID: n.ID, Name: n.Name, Address: n.Address, Port: n.Port, MachineID: n.MachineID, Fleet: true}
+	if err := s.write(id, "meta.json", mustJSON(m)); err != nil {
+		return err
+	}
+	for _, name := range []string{"service.key", "service.crt"} {
+		if err := os.Remove(filepath.Join(s.dir, "nodes", id, name)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	n.Fleet, n.ServiceCertPEM, n.ServiceKeyPEM = true, nil, nil
 	return nil
+}
+
+// SetCA records the node's own CA anew (PEM) - after it replaced it.
+func (s *Store) SetCA(id string, caPEM []byte) error {
+	n, ok := s.Get(id)
+	if !ok {
+		return fmt.Errorf("no such node %q", id)
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if err := s.write(id, "ca.crt", caPEM); err != nil {
+		return err
+	}
+	n.CACertPEM = caPEM
+	return nil
+}
+
+// write replaces one of a node's files: temporary file, rename.
+func (s *Store) write(id, name string, data []byte) error {
+	path := filepath.Join(s.dir, "nodes", id, name)
+	if err := os.WriteFile(path+".tmp", data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(path+".tmp", path)
+}
+
+func mustJSON(v any) []byte {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
 
 // Remove deletes a node's files and forgets it - the caller is

@@ -38,6 +38,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -50,10 +51,12 @@ import (
 	"github.com/swenske/Janus/internal/pki"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
+	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/dashboard/updater/updaterapi"
 )
@@ -92,6 +95,7 @@ func main() {
 	dataDir := flag.String("data-dir", "/data", "persistent data directory (Docker volume) - node registry + this dashboard's own TLS identity")
 	advertiseAddresses := flag.String("advertise-address", envOr("JANUS_CONTROLLER_ADVERTISE_ADDRESS", ""), "comma-separated extra IPs/hostnames to add to this dashboard's TLS identity certificate, alongside loopback and this host's own local IPs (see loadOrCreateDashboardIdentity) - needed whenever a node or browser reaches -addr/-register-addr/the per-node ports through an address this process can't see on its own network interfaces (Docker bridge networking's host-side published port, a NAT/port-forwarded address, ...); only used the first time the identity is generated (or ignored entirely if -tls-cert/-tls-key are set), since it's cached to -data-dir afterward - delete <data-dir>/dashboard-identity.{crt,key} to regenerate after changing this; also settable via JANUS_CONTROLLER_ADVERTISE_ADDRESS, same reasoning as JANUS_CONTROLLER_ADDR above")
 	tlsCertFile := flag.String("tls-cert", "", "path to a PEM certificate for this dashboard's own TLS identity (used for -addr, -register-addr, and every per-node listener) - if set, together with -tls-key, replaces the auto-generated self-signed one entirely; both flags must be set together")
+	masterKeyFile := flag.String("master-key-file", envOr("JANUS_CONTROLLER_MASTER_KEY_FILE", ""), "the master key sealing the fleet's issuing CA key (internal/secrets), made there the first time - keep it outside -data-dir so a copy of the data holds nothing usable; empty: <data-dir>/master.key, which the Controller warns about; also settable via JANUS_CONTROLLER_MASTER_KEY_FILE")
 	tlsKeyFile := flag.String("tls-key", "", "path to the PEM private key matching -tls-cert")
 	imageFactory := flag.String("image-factory", envOr("JANUS_CONTROLLER_IMAGE_FACTORY", nodeproxy.ImageFactoryURL), "image factory that builds and serves the updates of nodes whose image has optional extensions (docs/image-factory.md) - empty to disable, in which case such nodes have no update source; nodes with the default schematic update from GitHub Releases either way; also settable via JANUS_CONTROLLER_IMAGE_FACTORY")
 	updaterSocket := flag.String("updater-socket", envOr("JANUS_CONTROLLER_UPDATER_SOCKET", updaterapi.DefaultSocket), "Unix socket of janus-controller-updater, which updates this Controller when asked from its page (dashboard/README.md, Updating the Controller) - nothing happens when it isn't there; empty to never use one; also settable via JANUS_CONTROLLER_UPDATER_SOCKET")
@@ -140,6 +144,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("open machine store: %v", err)
 	}
+	masterKey, err := secrets.LoadOrCreate(*masterKeyFile, *dataDir)
+	if err != nil {
+		log.Fatalf("master key: %v", err)
+	}
+	if masterKey.BesideData {
+		log.Printf("WARNING: the master key is %s, in the data directory: a copy of it holds the fleet's issuing CA key - set JANUS_CONTROLLER_MASTER_KEY_FILE to a file outside it (dashboard/README.md)", masterKey.Path)
+	}
+	fleetStore, err := fleet.Open(filepath.Join(*dataDir, "fleet"), masterKey, controllerID)
+	if err != nil {
+		log.Fatalf("open the fleet: %v", err)
+	}
+	nodeproxy.FleetIdentity = fleetStore.ClientCertificate
 
 	app := &app{
 		store:                 st,
@@ -155,6 +171,8 @@ func main() {
 		controllerID:          controllerID,
 		hypervisors:           hypervisorStore,
 		machines:              machineStore,
+		fleet:                 fleetStore,
+		trust:                 newTrustTracker(),
 	}
 	app.runner = newMachineRunner(app)
 	for _, n := range st.List() {
@@ -172,6 +190,7 @@ func main() {
 	}
 	app.runner.resume()
 	go app.runner.syncLoop(context.Background())
+	go app.trustLoop(context.Background())
 	// The node pages: a machine's lock, and its record read again after a
 	// change made there.
 	nodeproxy.LockedBy = func(n *store.Node) string {
@@ -206,6 +225,7 @@ func main() {
 	mux.HandleFunc("POST /api/tokens", app.requireSession(app.handleTokenCreate))
 	mux.HandleFunc("DELETE /api/tokens/{id}", app.requireSession(app.handleTokenRevoke))
 	app.registerHypervisorRoutes(mux)
+	app.registerFleetRoutes(mux)
 	app.registerMachineRoutes(mux)
 	mux.Handle("/", http.FileServerFS(spa))
 
@@ -255,6 +275,8 @@ type app struct {
 	controllerID string
 	hypervisors  *hypervisor.Store
 	machines     *machines.Store
+	fleet        *fleet.Store
+	trust        *trustTracker
 	runner       *machineRunner
 	consoles     consoleHub
 
@@ -440,6 +462,7 @@ func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("node registered but its listener failed to start: %v", err), http.StatusInternalServerError)
 		return
 	}
+	a.trust.Kick() // brought to trust the fleet at once
 
 	writeJSON(w, http.StatusCreated, struct {
 		ID   string `json:"id"`

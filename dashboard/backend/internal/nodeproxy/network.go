@@ -16,7 +16,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -24,7 +23,6 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/netconfig"
-	"github.com/swenske/Janus/internal/pki"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
@@ -320,11 +318,11 @@ func connectionLost(err error) bool {
 // confirmAt calls NetworkConfigConfirm over a fresh connection to
 // endpoint, with the node's stored credential.
 func confirmAt(node *store.Node, endpoint string) (string, error) {
-	tlsConfig, err := pki.ClientTLSConfig(node.CACertPEM, node.ServiceCertPEM, node.ServiceKeyPEM)
+	opts, err := dialOptions(node)
 	if err != nil {
 		return "", err
 	}
-	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	conn, err := grpc.NewClient(endpoint, opts...)
 	if err != nil {
 		return "", err
 	}

@@ -261,6 +261,7 @@ func (a *app) admit(p *pending.Node, machineID string) (*store.Node, error) {
 		}
 		return nil, fmt.Errorf("node approved but its listener failed to start: %w", err)
 	}
+	a.trust.Kick() // brought to trust the fleet at once
 	return node, nil
 }
 

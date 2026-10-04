@@ -8,13 +8,11 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
-	"github.com/swenske/Janus/internal/pki"
 )
 
 // The firewall (the nftables extension): the node's ruleset applied on
@@ -157,11 +155,11 @@ func confirmFirewall(node *store.Node, revertAt time.Time) (bool, string) {
 
 // firewallConfirmFresh calls FirewallConfirm over a connection of its own.
 func firewallConfirmFresh(node *store.Node) error {
-	tlsConfig, err := pki.ClientTLSConfig(node.CACertPEM, node.ServiceCertPEM, node.ServiceKeyPEM)
+	opts, err := dialOptions(node)
 	if err != nil {
 		return err
 	}
-	conn, err := grpc.NewClient(node.Addr(), grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	conn, err := grpc.NewClient(node.Addr(), opts...)
 	if err != nil {
 		return err
 	}
