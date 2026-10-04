@@ -1,9 +1,12 @@
 # Provisioning a new self-registering node
 
 Four ways to create a Janus node that registers itself with an existing
-Controller: on its first boot, the node sends the Controller a service
-certificate it has just created, and shows up in the Controller's
-approvals.
+Controller: on its first boot, the node announces itself and shows up in
+the Controller's approvals. To a Controller whose fleet is set up
+([dashboard/README.md](../dashboard/README.md#securing-the-fleet)) it
+sends no key at all - its CA's certificate, and a secret it then polls
+with until it's approved, when it takes the fleet's trust; to one
+without a fleet, or older, a service certificate it has just created.
 
 - **Method 1 - shared image + `seed-controller`**: recommended for
   several nodes that share the same environment/Controller. One generic
@@ -428,9 +431,13 @@ the console, keep it - and announces itself to the Controller.
 
 ### 5. Approve
 
-The node shows up in the Controller's **Waiting for approval** card:
-**Approve**. It announces itself only once (a marker on STATE remembers
-it), even after a reboot.
+The node shows up in the Controller's **Waiting for approval** card,
+with its CA's fingerprint - the node's console shows the same one when
+it announces itself (`selfregister: announced ... check it shows this
+node's CA as SHA-256 ...`): compare them, then **Approve**. A node that
+sent no key takes the fleet's trust within 15 seconds. It announces
+itself only once (a marker on STATE remembers it, and an enrollment
+waiting for approval survives a reboot), even after a reboot.
 
 Alternative: install without `-controller-*`, and attach a `cidata`
 volume (method 3) to the installed disk's first boot.

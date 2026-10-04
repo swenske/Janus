@@ -30,6 +30,7 @@ import (
 var SecretPaths = []string{
 	"/etc/janus/pki", "/etc/.state/pki", // CA, server and admin keys
 	"/etc/janus/controller/token", "/etc/.state/controller/token", // registration token
+	"/etc/janus/controller/enrollment.json", "/etc/.state/controller/enrollment.json", // the enrollment's poll secret
 	"/etc/janus/config/acme", "/etc/.state/config/acme", // ACME account key
 	"/etc/janus/config/letsencrypt.json", "/etc/.state/config/letsencrypt.json", // DNS provider credentials, EAB key
 }

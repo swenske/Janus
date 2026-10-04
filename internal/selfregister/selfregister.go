@@ -29,9 +29,12 @@ package selfregister
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -290,4 +293,195 @@ func DetectAdvertiseAddress(controllerAddr, grpcAddr string) (string, error) {
 	}
 
 	return net.JoinHostPort(localIP.IP.String(), grpcPort), nil
+}
+
+// Protocol 2: the node sends no key at all - its CA (public), its name
+// and address, its registration token if it has one, and a secret it
+// polls with. The Controller answers with its fleet's trust - the root
+// and the bundle it signed - at once for a token it made, or once a
+// human approved the node; the node applies it (AccessService's fleet
+// trust) and the Controller reaches it with its fleet certificate. A
+// Controller without a fleet, or older than protocol 2, says so, and the
+// node announces with a service credential instead (Register).
+
+// ErrFallback is a Controller that can't take protocol 2: announce with
+// Register.
+var ErrFallback = errors.New("the Controller takes no keyless registration")
+
+// ErrPending is an enrollment waiting for approval.
+var ErrPending = errors.New("waiting for approval")
+
+// ErrUnknown is an enrollment the Controller doesn't know: rejected, or
+// forgotten.
+var ErrUnknown = errors.New("the Controller doesn't know this enrollment - rejected, or forgotten")
+
+// Trust is what the Controller hands an admitted node: its fleet's root
+// and the bundle that root signed.
+type Trust struct {
+	RootCert string `json:"root_cert"`
+	Bundle   []byte `json:"bundle"`
+}
+
+// Answer is the Controller's answer to a keyless announcement.
+type Answer struct {
+	ID       string `json:"id"`
+	Admitted bool   `json:"admitted"`
+	Trust    *Trust `json:"trust,omitempty"`
+}
+
+type announceRequest struct {
+	Protocol          int    `json:"protocol"`
+	Name              string `json:"name"`
+	Address           string `json:"address"`
+	CACertPEM         string `json:"ca_cert_pem"`
+	RegistrationToken string `json:"registration_token,omitempty"`
+	PollSecret        string `json:"poll_secret"`
+}
+
+func (cfg *Config) client() (*http.Client, error) {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(cfg.CACertPEM) {
+		return nil, fmt.Errorf("controller CA certificate doesn't parse")
+	}
+	return &http.Client{Timeout: dialTimeout, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}, nil
+}
+
+// Announce announces the node with protocol 2: no key, its CA's
+// certificate (public), and secret to poll with. ErrFallback: the
+// Controller can't take it.
+func Announce(cfg *Config, caCertPEM []byte, hostname, advertiseAddr, secret string) (*Answer, error) {
+	client, err := cfg.client()
+	if err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(announceRequest{Protocol: 2, Name: hostname, Address: advertiseAddr, CACertPEM: string(caCertPEM), RegistrationToken: cfg.Token, PollSecret: secret})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Post("https://"+cfg.Address+"/register", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	switch {
+	case resp.StatusCode == http.StatusCreated:
+		var a Answer
+		if err := json.Unmarshal(respBody, &a); err != nil || a.ID == "" {
+			return nil, fmt.Errorf("controller at %s answered something else than an enrollment: %s", cfg.Address, strings.TrimSpace(string(respBody)))
+		}
+		return &a, nil
+	case resp.StatusCode == http.StatusConflict,
+		// An older Controller asks for the service credential.
+		resp.StatusCode == http.StatusBadRequest && strings.Contains(string(respBody), "service_cert_pem"):
+		return nil, fmt.Errorf("%w: %s", ErrFallback, strings.TrimSpace(string(respBody)))
+	}
+	return nil, fmt.Errorf("controller at %s refused registration (%s): %s", cfg.Address, resp.Status, strings.TrimSpace(string(respBody)))
+}
+
+// Poll asks the Controller whether enrollment id was approved: its trust
+// once it was, ErrPending while it waits, ErrUnknown when the Controller
+// doesn't know it.
+func Poll(cfg *Config, id, secret string) (*Trust, error) {
+	client, err := cfg.client()
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodGet, "https://"+cfg.Address+"/register/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var t Trust
+		if err := json.Unmarshal(respBody, &t); err != nil || t.RootCert == "" || len(t.Bundle) == 0 {
+			return nil, fmt.Errorf("controller at %s answered no trust: %s", cfg.Address, strings.TrimSpace(string(respBody)))
+		}
+		return &t, nil
+	case http.StatusAccepted:
+		return nil, ErrPending
+	case http.StatusNotFound:
+		return nil, ErrUnknown
+	}
+	return nil, fmt.Errorf("controller at %s (%s): %s", cfg.Address, resp.Status, strings.TrimSpace(string(respBody)))
+}
+
+const enrollmentFile = "enrollment.json"
+
+// Enrollment is an announcement waiting for approval, kept on STATE so a
+// reboot goes on polling it rather than announcing again.
+type Enrollment struct {
+	ID     string `json:"id"`
+	Secret string `json:"secret"`
+}
+
+// NewSecret is a secret to poll an enrollment with.
+func NewSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// ReadEnrollment is the enrollment waiting in dir, nil without one.
+func ReadEnrollment(dir string) (*Enrollment, error) {
+	data, err := os.ReadFile(filepath.Join(dir, enrollmentFile))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var e Enrollment
+	if err := json.Unmarshal(data, &e); err != nil || e.ID == "" || e.Secret == "" {
+		return nil, fmt.Errorf("%s doesn't parse", enrollmentFile)
+	}
+	return &e, nil
+}
+
+// SaveEnrollment keeps e in dir, durably.
+func SaveEnrollment(dir string, e Enrollment) error {
+	data, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(dir, "."+enrollmentFile+".tmp")
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	f, err := os.Open(tmp)
+	if err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	f.Close()
+	if err := os.Rename(tmp, filepath.Join(dir, enrollmentFile)); err != nil {
+		return err
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
+// RemoveEnrollment forgets the enrollment waiting in dir.
+func RemoveEnrollment(dir string) error {
+	err := os.Remove(filepath.Join(dir, enrollmentFile))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }

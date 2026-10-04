@@ -126,6 +126,15 @@ checked with the fleet certificate - and deletes that credential: from
 then on the Controller holds no credential per node, and every call it
 makes names the user it's made for.
 
+A node registering itself with a Controller whose fleet is ready sends
+no key at all (`internal/selfregister`, protocol 2): its CA's
+certificate, its token if the Controller created it, and a secret it
+polls with. Admitted - at once for a token, or once approved - it takes
+the fleet's trust from the Controller's answer; the Controller records
+it trusting the fleet from the start, with no credential for it. A
+Controller without a fleet, or older, answers that it can't, and the
+node announces itself with a service credential as before.
+
 The node's own CA can be replaced too (`AccessService.LocalCARotate`):
 every certificate it issued stops working - the first-boot admin one, a
 Controller's service credential - while the fleet's keep letting in. The

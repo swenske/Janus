@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -374,7 +375,7 @@ func main() {
 	// reasoning as bootcommit above: gRPC must start regardless, and
 	// the overwhelming majority of boots have no Controller configured
 	// at all.
-	go selfRegisterIfConfigured(local.CA, hostname, *addr)
+	go selfRegisterIfConfigured(local.CA, fleet, hostname, *addr)
 
 	// The server certificate follows the node's addresses and hostname
 	// (reissued on a change - see netMgr's OnChange above) and is renewed
@@ -578,7 +579,7 @@ func confirmBootHealth(marker *bootcommit.Marker, mgr *haproxy.Manager) {
 // fixed afterwards, registers without a reboot. Each failure is logged
 // on the console, where a Controller that created the node reads it
 // (dashboard/backend: the machine's warning).
-func selfRegisterIfConfigured(ca func() *pki.CA, hostname, grpcAddr string) {
+func selfRegisterIfConfigured(ca func() *pki.CA, fleet *pki.Fleet, hostname, grpcAddr string) {
 	cfg, err := selfregister.Read(selfregister.Dir)
 	if err != nil {
 		log.Printf("selfregister: read config: %v", err)
@@ -591,20 +592,117 @@ func selfRegisterIfConfigured(ca func() *pki.CA, hostname, grpcAddr string) {
 		return
 	}
 	for attempt := 1; ; attempt++ {
-		err := announce(cfg, ca(), hostname, grpcAddr)
-		if err == nil {
+		done, wait, err := enroll(cfg, ca(), fleet, hostname, grpcAddr)
+		if done {
 			return
 		}
-		delay := selfregister.RetryDelay(attempt)
-		log.Printf("selfregister: %v - retrying in %s", err, delay)
-		events.Publish("selfregister.failed", map[string]string{"controller": cfg.Address, "error": err.Error()})
-		time.Sleep(delay)
+		if err != nil {
+			delay := selfregister.RetryDelay(attempt)
+			log.Printf("selfregister: %v - retrying in %s", err, delay)
+			events.Publish("selfregister.failed", map[string]string{"controller": cfg.Address, "error": err.Error()})
+			time.Sleep(delay)
+			continue
+		}
+		attempt = 0
+		time.Sleep(wait)
 	}
 }
 
-// announce is one registration attempt. Once the Controller took it,
-// what's left to write locally is logged, never retried: announcing
-// again would only queue the node a second time.
+// Waiting for approval, the node asks every pollEvery; a Controller that
+// doesn't know its enrollment any more (rejected it, lost it) hears from
+// it again after reannounceAfter.
+const (
+	pollEvery       = 15 * time.Second
+	reannounceAfter = time.Hour
+)
+
+// enroll takes one step of the node's registration: it announces itself
+// - with no key (protocol 2), or with a service credential to a
+// Controller that can't take that - or asks whether the enrollment
+// waiting was approved. done: registered; otherwise wait before the
+// next step, or retry after err.
+func enroll(cfg *selfregister.Config, ca *pki.CA, fleet *pki.Fleet, hostname, grpcAddr string) (done bool, wait time.Duration, err error) {
+	e, err := selfregister.ReadEnrollment(selfregister.Dir)
+	if err != nil {
+		return false, 0, err
+	}
+	if e != nil {
+		trust, err := selfregister.Poll(cfg, e.ID, e.Secret)
+		switch {
+		case errors.Is(err, selfregister.ErrPending):
+			return false, pollEvery, nil
+		case errors.Is(err, selfregister.ErrUnknown):
+			if err := selfregister.RemoveEnrollment(selfregister.Dir); err != nil {
+				return false, 0, err
+			}
+			log.Printf("selfregister: the Controller at %s doesn't know this node's enrollment any more (rejected, or lost) - announcing again in %s", cfg.Address, reannounceAfter)
+			return false, reannounceAfter, nil
+		case err != nil:
+			return false, 0, fmt.Errorf("ask the Controller about the enrollment: %w", err)
+		}
+		if err := admitted(cfg, fleet, trust); err != nil {
+			return false, 0, err
+		}
+		return true, 0, nil
+	}
+
+	advertiseAddr, err := selfregister.DetectAdvertiseAddress(cfg.Address, grpcAddr)
+	if err != nil {
+		return false, 0, fmt.Errorf("reach the Controller at %s: %w", cfg.Address, err)
+	}
+	secret, err := selfregister.NewSecret()
+	if err != nil {
+		return false, 0, err
+	}
+	fingerprint := pki.Fingerprint(ca.Cert.Raw)
+	log.Printf("selfregister: announcing to Controller at %s as %s (%s) - the node's CA: SHA-256 %s", cfg.Address, hostname, advertiseAddr, fingerprint)
+	a, err := selfregister.Announce(cfg, ca.CertPEM, hostname, advertiseAddr, secret)
+	if errors.Is(err, selfregister.ErrFallback) {
+		log.Printf("selfregister: %v - announcing with a service credential instead", err)
+		if err := announce(cfg, ca, hostname, grpcAddr); err != nil {
+			return false, 0, err
+		}
+		return true, 0, nil
+	}
+	if err != nil {
+		return false, 0, fmt.Errorf("registration failed: %w", err)
+	}
+	if a.Admitted && a.Trust != nil {
+		if err := admitted(cfg, fleet, a.Trust); err != nil {
+			return false, 0, err
+		}
+		return true, 0, nil
+	}
+	if err := selfregister.SaveEnrollment(selfregister.Dir, selfregister.Enrollment{ID: a.ID, Secret: secret}); err != nil {
+		return false, 0, fmt.Errorf("keep the enrollment: %w", err)
+	}
+	if err := selfregister.RemoveToken(selfregister.Dir); err != nil {
+		log.Printf("selfregister: remove the registration token: %v", err)
+	}
+	log.Printf("selfregister: announced to Controller at %s, awaiting approval - check it shows this node's CA as SHA-256 %s", cfg.Address, fingerprint)
+	events.Publish("selfregister.announced", map[string]string{"controller": cfg.Address, "ca": fingerprint})
+	return false, pollEvery, nil
+}
+
+// admitted applies the fleet trust the Controller admitted the node with,
+// and records the node registered.
+func admitted(cfg *selfregister.Config, fleet *pki.Fleet, trust *selfregister.Trust) error {
+	if err := fleet.Set([]byte(trust.RootCert), trust.Bundle); err != nil {
+		return fmt.Errorf("apply the Controller's fleet trust: %w", err)
+	}
+	if err := selfregister.MarkRegistered(selfregister.Dir); err != nil {
+		log.Printf("selfregister: mark registered: %v", err)
+	}
+	for _, rm := range []func(string) error{selfregister.RemoveEnrollment, selfregister.RemoveToken} {
+		if err := rm(selfregister.Dir); err != nil {
+			log.Printf("selfregister: %v", err)
+		}
+	}
+	log.Printf("selfregister: admitted by Controller at %s - the node trusts its fleet", cfg.Address)
+	events.Publish("selfregister.admitted", map[string]string{"controller": cfg.Address})
+	return nil
+}
+
 func announce(cfg *selfregister.Config, ca *pki.CA, hostname, grpcAddr string) error {
 	advertiseAddr, err := selfregister.DetectAdvertiseAddress(cfg.Address, grpcAddr)
 	if err != nil {
