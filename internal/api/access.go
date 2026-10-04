@@ -7,9 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -73,8 +71,8 @@ func (a *Access) TrustSet(ctx context.Context, req *janusv1alpha1.TrustSetReques
 	}
 	st := a.state()
 	caller, _ := CallerFrom(ctx)
-	log.Printf("access: fleet root %s, bundle version %d (%d issuing CAs) - by %s", fingerprint(a.Fleet.Root().Raw), st.BundleVersion, len(st.IssuingCas), caller)
-	events.Publish("access.trust_set", map[string]any{"root": fingerprint(a.Fleet.Root().Raw), "bundle_version": st.BundleVersion, "by": caller.String()})
+	log.Printf("access: fleet root %s, bundle version %d (%d issuing CAs) - by %s", pki.Fingerprint(a.Fleet.Root().Raw), st.BundleVersion, len(st.IssuingCas), caller)
+	events.Publish("access.trust_set", map[string]any{"root": pki.Fingerprint(a.Fleet.Root().Raw), "bundle_version": st.BundleVersion, "by": caller.String()})
 	return st, nil
 }
 
@@ -109,8 +107,8 @@ func (a *Access) LocalCARotate(ctx context.Context, req *janusv1alpha1.LocalCARo
 		return nil, status.Errorf(codes.Internal, "replace the node's CA: %v", err)
 	}
 	caller, _ := CallerFrom(ctx)
-	log.Printf("access: the node's own CA replaced (SHA-256 %s) - every certificate the old one issued stops working - by %s", fingerprint(r.CA.Cert.Raw), caller)
-	events.Publish("access.local_ca_rotated", map[string]any{"ca": fingerprint(r.CA.Cert.Raw), "by": caller.String()})
+	log.Printf("access: the node's own CA replaced (SHA-256 %s) - every certificate the old one issued stops working - by %s", pki.Fingerprint(r.CA.Cert.Raw), caller)
+	events.Publish("access.local_ca_rotated", map[string]any{"ca": pki.Fingerprint(r.CA.Cert.Raw), "by": caller.String()})
 	resp := &janusv1alpha1.LocalCARotateResponse{CaCert: r.CA.CertPEM}
 	if r.AdminKeyPEM == nil {
 		resp.AdminCert = r.AdminCertPEM
@@ -166,12 +164,6 @@ func viaLocalCA(ctx context.Context, local []byte) bool {
 		}
 	}
 	return false
-}
-
-// fingerprint is a certificate's SHA-256, in hex.
-func fingerprint(der []byte) string {
-	sum := sha256.Sum256(der)
-	return hex.EncodeToString(sum[:])
 }
 
 func pemCert(der []byte) []byte {

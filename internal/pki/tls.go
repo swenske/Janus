@@ -1,8 +1,10 @@
 package pki
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 )
 
@@ -76,4 +78,10 @@ func NodeTLSConfig(local func() *CA, serverCert *ServerCert, fleet *Fleet) *tls.
 			}, nil
 		},
 	}
+}
+
+// Fingerprint is a certificate's SHA-256 (DER), in hex.
+func Fingerprint(der []byte) string {
+	sum := sha256.Sum256(der)
+	return hex.EncodeToString(sum[:])
 }
