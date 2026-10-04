@@ -276,11 +276,16 @@ func (r *machineRunner) create(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	var fleetRoot []byte
+	if a.fleet != nil {
+		fleetRoot, _ = a.fleet.RootPEM()
+	}
 	ci, err := cidata.Build(a.dataDir, cidata.UserData{
-		ControllerAddress: ctlAddr,
-		ControllerCACert:  string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.serverCert.Certificate[0]})),
-		RegistrationToken: token,
-		Network:           netcfg,
+		ControllerAddress:   ctlAddr,
+		ControllerCACert:    string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.serverCert.Certificate[0]})),
+		RegistrationToken:   token,
+		ControllerFleetRoot: string(fleetRoot),
+		Network:             netcfg,
 	})
 	if err != nil {
 		return fmt.Errorf("NoCloud volume: %w", err)

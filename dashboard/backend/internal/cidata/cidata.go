@@ -26,18 +26,22 @@ type UserData struct {
 	ControllerAddress string
 	ControllerCACert  string
 	RegistrationToken string
-	Network           *janusv1alpha1.NetworkConfig
+	// ControllerFleetRoot: the Controller's fleet root, once it has one -
+	// the node checks the Controller through it.
+	ControllerFleetRoot string
+	Network             *janusv1alpha1.NetworkConfig
 }
 
 // MarshalJSON writes the network the way netconfig stores it, so the
 // node parses exactly what netconfig.Validate accepted here.
 func (u UserData) MarshalJSON() ([]byte, error) {
 	doc := struct {
-		ControllerAddress string          `json:"controller_address"`
-		ControllerCACert  string          `json:"controller_ca_cert"`
-		RegistrationToken string          `json:"registration_token,omitempty"`
-		Network           json.RawMessage `json:"network,omitempty"`
-	}{u.ControllerAddress, u.ControllerCACert, u.RegistrationToken, nil}
+		ControllerAddress   string          `json:"controller_address"`
+		ControllerCACert    string          `json:"controller_ca_cert"`
+		RegistrationToken   string          `json:"registration_token,omitempty"`
+		ControllerFleetRoot string          `json:"controller_fleet_root_cert,omitempty"`
+		Network             json.RawMessage `json:"network,omitempty"`
+	}{u.ControllerAddress, u.ControllerCACert, u.RegistrationToken, u.ControllerFleetRoot, nil}
 	if u.Network != nil {
 		if err := netconfig.Validate(u.Network); err != nil {
 			return nil, fmt.Errorf("network: %w", err)

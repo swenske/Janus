@@ -33,10 +33,20 @@ import (
 // accept an announcement from a node the Controller has never seen
 // before, so there's no client certificate to require yet.
 func (a *app) startRegistrationListener(addr string) error {
+	// A node provisioned with the fleet's root asks for the fleet's name
+	// (SNI) and gets the fleet certificate; any other - provisioned with
+	// this Controller's own certificate - gets that one.
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{a.serverCert},
-		ClientAuth:   tls.NoClientCert,
-		MinVersion:   tls.VersionTLS13,
+		ClientAuth: tls.NoClientCert,
+		MinVersion: tls.VersionTLS13,
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			if hello.ServerName == pki.FleetControllerName && a.fleet != nil {
+				if c, err := a.fleet.ServerCertificate(); err == nil {
+					return c, nil
+				}
+			}
+			return &a.serverCert, nil
+		},
 	}
 
 	mux := http.NewServeMux()

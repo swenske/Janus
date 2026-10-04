@@ -195,8 +195,17 @@ NATIVE_CTL_ARGS=(-endpoint "127.0.0.1:${NATIVE_GRPC_PORT}" -ca "$PKI_DIR/ca.crt"
 BLANK_DISK="$WORKDIR/blank-disk.img"
 truncate -s "${DISK_MB}M" "$BLANK_DISK"
 
+# With a fleet, the node is provisioned with its root too, as the
+# Controller's Provision panel gives it: it checks the Controller through
+# the fleet.
+FLEET_ARGS=()
+if [ -n "$FLEET" ]; then
+  curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/controller-info" | python3 -c 'import json,sys; open(sys.argv[1], "w").write(json.load(sys.stdin)["fleet_root_pem"])' "$WORKDIR/fleet-root.crt"
+  grep -q 'BEGIN CERTIFICATE' "$WORKDIR/fleet-root.crt" || { echo "Self-register test FAILED: the Controller doesn't give its fleet root" >&2; exit 1; }
+  FLEET_ARGS=(-controller-fleet-root "$WORKDIR/fleet-root.crt")
+fi
 INSTALL_OUT="$(sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
-  -controller-address "${QEMU_HOST_GATEWAY}:${DASHBOARD_REGISTER_PORT}" -controller-ca "$CONTROLLER_CA" \
+  -controller-address "${QEMU_HOST_GATEWAY}:${DASHBOARD_REGISTER_PORT}" -controller-ca "$CONTROLLER_CA" "${FLEET_ARGS[@]}" \
   "$BLANK_DISK" "$BUNDLE")"
 echo "$INSTALL_OUT"
 if ! echo "$INSTALL_OUT" | grep -qi '\[done '; then
@@ -295,7 +304,8 @@ if [ -n "$FLEET" ]; then
   [ -n "$console_fp" ] && [ "$console_fp" = "$pending_fp" ] || { echo "Self-register test FAILED: the pending entry isn't keyless with the CA the node's console shows ($console_fp vs $pending_fp): $PENDING_JSON" >&2; exit 1; }
   PID_DIR="$(ls -d "$WORKDIR"/dashboard-data/pending/*/ | head -1)"
   [ ! -e "$PID_DIR/service.key" ] && [ ! -e "$PID_DIR/service.crt" ] || { echo "Self-register test FAILED: a credential was kept for a keyless announcement" >&2; exit 1; }
-  echo "Keyless announcement OK: no key sent, the pending entry shows the CA the node's console shows ($console_fp)"
+  grep -q "selfregister: the Controller at .* checked through its fleet's root" "$LOG" || { echo "Self-register test FAILED: the node didn't check the Controller through the fleet it was provisioned with" >&2; cat "$LOG" >&2; exit 1; }
+  echo "Keyless announcement OK: the Controller checked through the fleet's root, no key sent, the pending entry shows the CA the node's console shows ($console_fp)"
 else
   grep -q "selfregister: successfully announced" "$LOG" || { echo "Self-register test FAILED: guest console never logged a successful self-registration" >&2; cat "$LOG" >&2; exit 1; }
   grep -q "selfregister: .*fleet isn't set up yet.* - announcing with a service credential instead" "$LOG" || { echo "Self-register test FAILED: the node didn't say it fell back to a service credential" >&2; cat "$LOG" >&2; exit 1; }

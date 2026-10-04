@@ -96,6 +96,7 @@ type Store struct {
 	issuing  *pki.CA
 	bundle   []byte
 	identity *tls.Certificate
+	server   *tls.Certificate
 }
 
 // Open loads the fleet kept in dir.
@@ -248,7 +249,7 @@ func (s *Store) Setup() (passphrase string, err error) {
 	if err := s.writeState(st); err != nil {
 		return "", err
 	}
-	s.root, s.issuing, s.bundle, s.identity = root.Cert, issuing, bundle, nil
+	s.root, s.issuing, s.bundle, s.identity, s.server = root.Cert, issuing, bundle, nil, nil
 	return passphrase, nil
 }
 
@@ -344,6 +345,44 @@ func (s *Store) ClientCertificate() (*tls.Certificate, error) {
 	}
 	s.identity = &cert
 	return s.identity, nil
+}
+
+// ServerCertificate is the Controller's registration endpoint's
+// certificate for nodes provisioned with the fleet's root: named
+// pki.FleetControllerName, issued by the issuing CA (followed by it),
+// valid 30 days and renewed with less than 10 left. Only once the fleet
+// is ready.
+func (s *Store) ServerCertificate() (*tls.Certificate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.st.State != StateReady {
+		return nil, fmt.Errorf("%w: the fleet isn't set up", ErrState)
+	}
+	if s.server != nil && time.Until(s.server.Leaf.NotAfter) > 10*24*time.Hour {
+		return s.server, nil
+	}
+	certPEM, keyPEM, err := s.issuing.Issue(pki.IssueOptions{
+		CommonName:  pki.FleetControllerName,
+		DNSNames:    []string{pki.FleetControllerName},
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		Validity:    30 * 24 * time.Hour,
+	})
+	if err != nil {
+		return nil, err
+	}
+	cert, err := tls.X509KeyPair(append(certPEM, s.issuing.CertPEM...), keyPEM)
+	if err != nil {
+		return nil, err
+	}
+	s.server = &cert
+	return s.server, nil
+}
+
+// RootPEM is the fleet's root certificate (PEM), once the fleet is ready
+// - what a node is provisioned with.
+func (s *Store) RootPEM() ([]byte, bool) {
+	rootPEM, _, _, ok := s.Trust()
+	return rootPEM, ok
 }
 
 func (s *Store) writeState(st state) error {

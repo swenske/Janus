@@ -334,10 +334,12 @@ function ProvisionInfo() {
   const [open, setOpen] = useState(false)
   const [network, setNetwork] = useState('')
   const toast = useToast()
-  const refs = { address: useRef(null), ca: useRef(null), command: useRef(null), seed: useRef(null), nocloud: useRef(null) }
+  const refs = { address: useRef(null), ca: useRef(null), root: useRef(null), command: useRef(null), seed: useRef(null), nocloud: useRef(null) }
+  // Again each time it's opened: the fleet's root shows up once it's set
+  // up.
   useEffect(() => {
     call('/api/controller-info').then(setInfo).catch(() => {})
-  }, [])
+  }, [open])
   if (!info) return null
   const address = info.address || 'YOUR-CONTROLLER-ADDRESS'
   let netCfg = null
@@ -350,9 +352,20 @@ function ProvisionInfo() {
     }
   }
   const netFlag = netCfg ? ' -network-config network.json' : ''
-  const command = `janusctl lifecycle install -controller-address ${address} -controller-ca controller-ca.crt${netFlag} DISK BUNDLE_DIR`
-  const seed = `janusctl image seed-controller -controller-address ${address} -controller-ca controller-ca.crt DISK.raw${netCfg ? '\njanusctl image seed-network -config network.json DISK.raw' : ''}`
-  const nocloud = JSON.stringify({ controller_address: address, controller_ca_cert: info.ca_cert_pem, ...(netCfg ? { network: netCfg } : {}) }, null, 2)
+  // With a fleet, the node checks this Controller through its root too.
+  const rootFlag = info.fleet_root_pem ? ' -controller-fleet-root fleet-root.crt' : ''
+  const command = `janusctl lifecycle install -controller-address ${address} -controller-ca controller-ca.crt${rootFlag}${netFlag} DISK BUNDLE_DIR`
+  const seed = `janusctl image seed-controller -controller-address ${address} -controller-ca controller-ca.crt${rootFlag} DISK.raw${netCfg ? '\njanusctl image seed-network -config network.json DISK.raw' : ''}`
+  const nocloud = JSON.stringify(
+    {
+      controller_address: address,
+      controller_ca_cert: info.ca_cert_pem,
+      ...(info.fleet_root_pem ? { controller_fleet_root_cert: info.fleet_root_pem } : {}),
+      ...(netCfg ? { network: netCfg } : {}),
+    },
+    null,
+    2,
+  )
   const copy = async (ref, label) => {
     try {
       await navigator.clipboard.writeText(ref.current.value)
@@ -380,6 +393,15 @@ function ProvisionInfo() {
           {!info.address && <div className="notice warn">No address could be guessed - set -advertise-address on dashboardd, or fill it in yourself.</div>}
           <CopyField label="Controller address" value={address} inputRef={refs.address} onCopy={copy} />
           <CopyField label="Controller CA certificate (save as controller-ca.crt)" value={info.ca_cert_pem} inputRef={refs.ca} rows={5} onCopy={copy} />
+          {info.fleet_root_pem && (
+            <CopyField
+              label="Fleet root (save as fleet-root.crt) - nodes of this release on check the Controller through it, and only take this fleet's trust"
+              value={info.fleet_root_pem}
+              inputRef={refs.root}
+              rows={5}
+              onCopy={copy}
+            />
+          )}
           <div className="field">
             <div className="spread">
               <label htmlFor="provision-network" className="field-label">

@@ -697,10 +697,18 @@ func (a *app) handleControllerInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.serverCert.Certificate[0]})
+	var fleetRoot []byte
+	if a.fleet != nil {
+		fleetRoot, _ = a.fleet.RootPEM()
+	}
 	writeJSON(w, http.StatusOK, struct {
 		Address   string `json:"address"`
 		CACertPEM string `json:"ca_cert_pem"`
-	}{Address: a.suggestedRegisterAddr, CACertPEM: string(caPEM)})
+		// FleetRootPEM is what a node of this release on is better
+		// provisioned with: it checks the Controller through the fleet,
+		// whatever certificate the Controller serves meanwhile.
+		FleetRootPEM string `json:"fleet_root_pem,omitempty"`
+	}{Address: a.suggestedRegisterAddr, CACertPEM: string(caPEM), FleetRootPEM: string(fleetRoot)})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
