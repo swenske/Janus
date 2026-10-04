@@ -156,6 +156,7 @@ func main() {
 		log.Fatalf("open the fleet: %v", err)
 	}
 	nodeproxy.FleetIdentity = fleetStore.ClientCertificate
+	nodeproxy.NodeCA = func(n *store.Node, caPEM []byte) error { return st.SetCA(n.ID, caPEM) }
 
 	app := &app{
 		store:                 st,

@@ -58,16 +58,24 @@ type Listener struct {
 // immediately - callers should treat a returned error as "this node's
 // listener never came up", not something to retry inline.
 func Start(node *store.Node, dashboardServerCert tls.Certificate, st *store.Store) (*Listener, error) {
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(node.CA()) {
+	if !x509.NewCertPool().AppendCertsFromPEM(node.CA()) {
 		return nil, fmt.Errorf("node %s: no valid certificates in stored ca.crt", node.ID)
 	}
 
+	// The node's CA as the Controller pins it now - it follows the node
+	// replacing it (followCA), and the browser's certificates with it.
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{dashboardServerCert},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    pool,
-		MinVersion:   tls.VersionTLS13,
+		MinVersion: tls.VersionTLS13,
+		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+			pool := x509.NewCertPool()
+			pool.AppendCertsFromPEM(node.CA())
+			return &tls.Config{
+				Certificates: []tls.Certificate{dashboardServerCert},
+				ClientAuth:   tls.RequireAndVerifyClientCert,
+				ClientCAs:    pool,
+				MinVersion:   tls.VersionTLS13,
+			}, nil
+		},
 	}
 
 	handler, err := newHandler(node, st)

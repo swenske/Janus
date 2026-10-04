@@ -833,4 +833,29 @@ until [ "$(fleet_relay)" = "200" ]; do
 done
 echo "Fleet restart OK: the issuing CA unsealed with the master key, the node reached again with a fresh fleet certificate"
 
+# --- the node replaces its own CA (janusctl access rotate-ca): the
+# Controller follows it - the new CA comes cross-signed by the one it
+# pinned - and the new admin certificate opens the node's page ---
+go build -o "$WORKDIR/janusctl" ./cmd/janusctl
+"$WORKDIR/janusctl" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" access rotate-ca "$WORKDIR/rotated" >/dev/null \
+  || { echo "Dashboard test FAILED: janusctl access rotate-ca" >&2; exit 1; }
+cp "$WORKDIR/data/nodes/$FLEET_NODE_ID/ca.crt" "$WORKDIR/pinned-before.crt"
+kill "$DASHBOARD_PID"
+wait "$DASHBOARD_PID" 2>/dev/null || true
+"$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data" > "$WORKDIR/dashboardd-restart3.log" 2>&1 &
+DASHBOARD_PID=$!
+rotated_relay() {
+  curl -sk -o /dev/null -w '%{http_code}' --cert "$WORKDIR/rotated/admin.crt" --key "$WORKDIR/rotated/admin.key" "https://127.0.0.1:${RESTART_PORT}/api/info"
+}
+deadline=$((SECONDS + 30))
+until [ "$(rotated_relay)" = "200" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the node isn't reached after it replaced its CA" >&2; cat "$WORKDIR/dashboardd-restart3.log" >&2; exit 1; }
+  sleep 1
+done
+if cmp -s "$WORKDIR/pinned-before.crt" "$WORKDIR/data/nodes/$FLEET_NODE_ID/ca.crt"; then
+  echo "Dashboard test FAILED: the Controller still pins the node's old CA" >&2; exit 1
+fi
+grep -q 'replaced its CA - the Controller now pins the new one' "$WORKDIR/dashboardd-restart3.log" || { echo "Dashboard test FAILED: the Controller didn't say it follows the node's new CA" >&2; exit 1; }
+echo "CA rotation OK: the Controller follows the node's new CA, cross-signed by the old one, and the new admin certificate opens its page"
+
 echo "Dashboard test OK: add/list/relay/mTLS-gate/delete/restart-persistence/fleet all verified against a real running node"

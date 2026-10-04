@@ -1,11 +1,14 @@
 package nodeproxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 
@@ -65,24 +68,61 @@ func actingFor(ctx context.Context) context.Context {
 // node's server certificate checked against the node's own CA either
 // way.
 func nodeTLS(node *store.Node, fleet bool) (*tls.Config, error) {
+	var cfg *tls.Config
 	if !fleet {
 		cert, key := node.ServiceCredential()
-		return pki.ClientTLSConfig(node.CA(), cert, key)
+		c, err := pki.ClientTLSConfig(node.CA(), cert, key)
+		if err != nil {
+			return nil, err
+		}
+		cfg = c
+	} else {
+		if FleetIdentity == nil {
+			return nil, errors.New("the node trusts the fleet, but this Controller has no fleet certificate")
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(node.CA()) {
+			return nil, fmt.Errorf("node %s: no valid certificates in its CA", node.ID)
+		}
+		cfg = &tls.Config{
+			RootCAs:    pool,
+			MinVersion: tls.VersionTLS13,
+			GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+				return FleetIdentity()
+			},
+		}
 	}
-	if FleetIdentity == nil {
-		return nil, errors.New("the node trusts the fleet, but this Controller has no fleet certificate")
+	cfg.VerifyConnection = func(cs tls.ConnectionState) error {
+		followCA(node, cs.VerifiedChains)
+		return nil
 	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(node.CA()) {
-		return nil, fmt.Errorf("node %s: no valid certificates in its CA", node.ID)
+	return cfg, nil
+}
+
+// NodeCA records a node's new CA (PEM) - set by dashboardd (the store).
+var NodeCA func(node *store.Node, caPEM []byte) error
+
+// followCA records node's new CA when it replaced it: the chain then
+// goes through the new CA, cross-signed by the one pinned
+// (pki.ServerCert.Rotate) - pinned in its place, so the Controller keeps
+// reaching the node, and follows it again at its next rotation.
+func followCA(node *store.Node, chains [][]*x509.Certificate) {
+	if NodeCA == nil || len(chains) == 0 || len(chains[0]) < 3 {
+		return
 	}
-	return &tls.Config{
-		RootCAs:    pool,
-		MinVersion: tls.VersionTLS13,
-		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-			return FleetIdentity()
-		},
-	}, nil
+	next := chains[0][len(chains[0])-2]
+	if !next.IsCA {
+		return
+	}
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: next.Raw})
+	if bytes.Equal(caPEM, node.CA()) {
+		return
+	}
+	if err := NodeCA(node, caPEM); err != nil {
+		log.Printf("node %s (%s): replaced its CA, but recording the new one failed: %v", node.Name, node.ID, err)
+		return
+	}
+	log.Printf("node %s (%s): replaced its CA - the Controller now pins the new one", node.Name, node.ID)
 }
 
 // dialOptions are what every connection to node takes: nodeTLS, as the
