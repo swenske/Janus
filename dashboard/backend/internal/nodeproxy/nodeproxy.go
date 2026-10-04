@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -130,7 +132,35 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	registerHAProxyFileRoutes(mux, node)
 	mux.Handle("/", http.FileServerFS(view))
 
-	return http.NewCrossOriginProtection().Handler(mux), nil
+	return requireAdminCertificate(http.NewCrossOriginProtection().Handler(mux)), nil
+}
+
+// requireAdminCertificate lets only an os:admin client certificate in.
+// Whatever the browser presents, the Controller acts on the node with
+// its own admin service credential: a reader certificate opening this
+// page would be an admin in all but name. Read-only access comes with
+// the Controller's own accounts and roles. A request without TLS only
+// comes from a test calling the handler directly - the listener itself
+// requires a verified certificate.
+func requireAdminCertificate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS != nil {
+			var roles []string
+			if len(r.TLS.VerifiedChains) > 0 && len(r.TLS.VerifiedChains[0]) > 0 {
+				roles = r.TLS.VerifiedChains[0][0].Subject.Organization
+			}
+			if !slices.Contains(roles, pki.RoleAdmin) {
+				role := strings.Join(roles, ", ")
+				if role == "" {
+					role = "none"
+				}
+				w.Header().Set("Cache-Control", "no-store")
+				http.Error(w, fmt.Sprintf("This certificate's role is %s: a node's page needs an %s certificate - the Controller acts on the node as admin whatever the browser presents. Use this certificate with janusctl, and choose an admin certificate for this page (the browser remembers its choice per site: close it, or clear its SSL state, to be asked again).", role, pki.RoleAdmin), http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // sameOriginOrDirect reports whether a browser request came from this

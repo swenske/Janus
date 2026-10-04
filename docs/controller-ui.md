@@ -13,7 +13,10 @@ the API it drives is in [`api-routes.md`](api-routes.md).
 
 They are separate origins on purpose: the browser negotiates the node's
 client certificate per origin, so a node's page can't be a view inside
-the main page (see `nodeproxy.go`'s package doc). They share everything
+the main page (see `nodeproxy.go`'s package doc). Only an `os:admin`
+certificate opens a node's page (`requireAdminCertificate`): the
+Controller acts on the node with its admin service credential whatever
+the browser presents, so a reader certificate gets a 403 explaining it. They share everything
 else from `src/shared/`:
 
 - `theme.css` - design tokens (`--bg`, `--surface`, `--text`, `--muted`,

@@ -36,9 +36,10 @@ Design principles and how to verify a UI change:
 See the local `docs/plan` history (rebranding/dashboard/client-native
 initiative) for the full architecture and why it's shaped the way it
 is - the short version: your browser authenticates to *this dashboard*
-per node using a TLS client certificate issued by that node's own PKI
-(never uploaded - selected from what your browser already has
-installed), while the dashboard itself talks to the real node using a
+per node using an `os:admin` TLS client certificate issued by that
+node's own PKI (never uploaded - selected from what your browser already
+has installed; a reader certificate is refused, since the dashboard acts
+as admin on the node whatever certificate opened the page), while the dashboard itself talks to the real node using a
 separate service credential it generates for itself once, when you add
 the node. A TLS server can verify a client holds a private key, it can
 never extract that key - so your browser's certificate can never be

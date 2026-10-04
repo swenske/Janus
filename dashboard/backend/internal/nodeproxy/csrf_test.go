@@ -43,6 +43,7 @@ func TestPerNodeCSRF(t *testing.T) {
 	}
 	for _, c := range cases {
 		r := httptest.NewRequest(c.req.method, "https://controller.example:9500"+c.req.path, strings.NewReader(c.req.body))
+		r.TLS = withRoles("os:admin")
 		for k, v := range c.req.headers {
 			r.Header.Set(k, v)
 		}
