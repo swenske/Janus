@@ -39,10 +39,21 @@ function PemBlock({ label, value, file }) {
   )
 }
 
+// Validities offered, in seconds - 0 is the node's most, one year.
+const VALIDITIES = [
+  [3600, '1 hour'],
+  [86400, '1 day'],
+  [7 * 86400, '7 days'],
+  [30 * 86400, '30 days'],
+  [90 * 86400, '90 days'],
+  [0, '1 year'],
+]
+
 export default function Access() {
   const [role, setRole] = useState('os:reader')
   const [format, setFormat] = useState('pfx')
   const [name, setName] = useState('')
+  const [ttl, setTTL] = useState(0)
   const [password, setPassword] = useState('')
   const [pem, setPem] = useState(null)
   const [busy, run] = useAction()
@@ -50,7 +61,7 @@ export default function Access() {
   const issue = (e) => {
     e.preventDefault()
     setPem(null)
-    const body = { role, format, password, name }
+    const body = { role, format, password, name: name.trim(), ttl_seconds: ttl }
     run(
       () => (format === 'pfx' ? download('/api/pki/client', 'client.pfx', body) : postJSON('/api/pki/client', body).then(setPem)),
       format === 'pfx' ? (r) => `Saved ${r.name}` : 'Certificate issued',
@@ -79,10 +90,29 @@ export default function Access() {
                 </select>
               </label>
             </div>
-            <label className="field">
-              <span>Label (used in the file name)</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. alice-laptop" />
-            </label>
+            <div className="grid grid-2">
+              <label className="field">
+                <span>Name (who it's for)</span>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. alice-laptop"
+                  maxLength={64}
+                  pattern="[A-Za-z0-9][A-Za-z0-9 ._@:+\-]*"
+                  title="Letters, digits, spaces and ._@:+- - starting with a letter or digit"
+                />
+              </label>
+              <label className="field">
+                <span>Valid for</span>
+                <select value={ttl} onChange={(e) => setTTL(Number(e.target.value))}>
+                  {VALIDITIES.map(([seconds, label]) => (
+                    <option key={seconds} value={seconds}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             {format === 'pfx' && (
               <label className="field">
                 <span>.pfx password</span>
@@ -90,6 +120,9 @@ export default function Access() {
               </label>
             )}
             {role === 'os:admin' && <div className="notice warn">An admin certificate gives full control of this node, including reboot, reset and issuing more certificates.</div>}
+            {role === 'os:reader' && format === 'pfx' && (
+              <div className="notice">A reader certificate doesn't open this page in a browser - the Controller acts on the node as admin. Use it with janusctl.</div>
+            )}
             <div>
               <button className="primary" disabled={busy}>
                 <KeyRound size={15} /> Issue certificate
@@ -100,8 +133,9 @@ export default function Access() {
         <Card title="About node access">
           <div className="stack">
             <p style={{ margin: 0 }}>
-              Every Janus node has its own certificate authority. A certificate issued here is signed by this node's CA and valid for one year; it works with{' '}
-              <code>janusctl</code> (PEM) and, as a <code>.pfx</code>, for opening this page in a browser or adding the node to another Controller.
+              Every Janus node has its own certificate authority. A certificate issued here is signed by this node's CA, carries the name you give it and is valid for the time
+              you choose - one year at most. It works with <code>janusctl</code> (PEM) and, as an admin <code>.pfx</code>, for opening this page in a browser or adding the node to
+              another Controller.
             </p>
             <p className="muted" style={{ margin: 0 }}>
               The private key is generated on the node and passed through the Controller to your browser once - it isn't stored. There is no revocation yet: keep issued

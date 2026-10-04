@@ -162,7 +162,9 @@ theme toggle:
   remove)
 - **Tools** - packet capture, files
 - **System** - network (hostname, interfaces, VLANs, DNS, NTP), services,
-  update, access (client certificates), power
+  update, access (client certificates: role, name, validity - the
+  Controller refuses a certificate the node didn't issue as asked, which
+  an older node does), power
 
 The sidebar shows the Controller's version under its name, as the main
 page does under its title (`dashboardd`'s `main.version`, stamped by the

@@ -406,6 +406,7 @@ func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	cfg, err := janusv1alpha1.NewSystemServiceClient(conn).GenerateClientConfiguration(ctx, &janusv1alpha1.GenerateClientConfigurationRequest{
 		Roles: []string{pki.RoleAdmin},
+		Name:  "janus-controller", // a node older than names says "client"
 	})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("GenerateClientConfiguration against %s: %v - the provided bootstrap credential couldn't reach or authenticate to that node", address, err), http.StatusBadGateway)

@@ -24,6 +24,7 @@ import (
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/pki"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
@@ -587,10 +588,11 @@ func parseStatCSV(raw []byte) (*statTable, error) {
 // node or import into a browser) or as PEM files in JSON.
 func handleIssueClient(w http.ResponseWriter, r *http.Request, node *store.Node) {
 	var req struct {
-		Role     string `json:"role"`     // os:admin or os:reader
-		Format   string `json:"format"`   // pfx or pem
-		Password string `json:"password"` // pfx only
-		Name     string `json:"name"`     // used in the download's file name
+		Role       string `json:"role"`        // os:admin or os:reader
+		Format     string `json:"format"`      // pfx or pem
+		Password   string `json:"password"`    // pfx only
+		Name       string `json:"name"`        // the certificate's common name, and in the download's file name
+		TTLSeconds uint32 `json:"ttl_seconds"` // 0: one year
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -610,9 +612,19 @@ func handleIssueClient(w http.ResponseWriter, r *http.Request, node *store.Node)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), unaryTimeout)
 	defer cancel()
-	resp, err := janusv1alpha1.NewSystemServiceClient(conn).GenerateClientConfiguration(ctx, &janusv1alpha1.GenerateClientConfigurationRequest{Roles: []string{req.Role}})
+	resp, err := janusv1alpha1.NewSystemServiceClient(conn).GenerateClientConfiguration(ctx, &janusv1alpha1.GenerateClientConfigurationRequest{
+		Roles:      []string{req.Role},
+		Name:       req.Name,
+		TtlSeconds: req.TTLSeconds,
+	})
 	if err != nil {
 		http.Error(w, status.Convert(err).Message(), grpcHTTPStatus(err))
+		return
+	}
+	// Nothing is handed out unless it's what was asked for: the key never
+	// leaves this handler otherwise.
+	if err := pki.CheckIssued(resp.GetCrt(), req.Name, time.Duration(req.TTLSeconds)*time.Second); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
