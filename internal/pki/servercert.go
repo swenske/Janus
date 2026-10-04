@@ -26,10 +26,10 @@ const renewBefore = 30 * 24 * time.Hour
 // New TLS connections get the new certificate; established ones keep
 // theirs.
 type ServerCert struct {
-	ca  *CA
 	dir string
 
-	mu  sync.Mutex // serializes Refresh
+	mu  sync.Mutex // serializes Refresh and Rotate, guards ca
+	ca  *CA
 	cur atomic.Pointer[tls.Certificate]
 }
 

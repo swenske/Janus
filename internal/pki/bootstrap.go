@@ -60,6 +60,11 @@ func LoadOrBootstrap(dir, hostname string, extraIPs []net.IP) (*Bootstrap, error
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
+	// A CA rotation a power cut interrupted is finished, or forgotten if
+	// it wasn't ready (rotate.go).
+	if err := completeRotation(dir); err != nil {
+		return nil, fmt.Errorf("finish the CA rotation: %w", err)
+	}
 
 	caCertPath := filepath.Join(dir, caCertFile)
 	if _, err := os.Stat(caCertPath); err == nil {

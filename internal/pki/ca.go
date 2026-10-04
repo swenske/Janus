@@ -25,6 +25,7 @@
 package pki
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -190,11 +191,23 @@ func (ca *CA) Issue(opts IssueOptions) (certPEM, keyPEM []byte, err error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate leaf key: %w", err)
 	}
-	pub := &priv.PublicKey
-
-	serial, err := randomSerial()
+	certPEM, err = ca.IssueFor(&priv.PublicKey, opts)
 	if err != nil {
 		return nil, nil, err
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal leaf key: %w", err)
+	}
+	return certPEM, encodePEM(caKeyPEMType, keyDER), nil
+}
+
+// IssueFor signs a leaf certificate for pub, whose private key stays
+// with whoever holds it - as Issue does otherwise.
+func (ca *CA) IssueFor(pub crypto.PublicKey, opts IssueOptions) ([]byte, error) {
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, err
 	}
 	validity := opts.Validity
 	if validity == 0 {
@@ -217,15 +230,9 @@ func (ca *CA) Issue(opts IssueOptions) (certPEM, keyPEM []byte, err error) {
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, pub, ca.Key)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create leaf certificate: %w", err)
+		return nil, fmt.Errorf("create leaf certificate: %w", err)
 	}
-
-	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshal leaf key: %w", err)
-	}
-
-	return encodePEM(caCertPEMType, der), encodePEM(caKeyPEMType, keyDER), nil
+	return encodePEM(caCertPEMType, der), nil
 }
 
 func randomSerial() (*big.Int, error) {
