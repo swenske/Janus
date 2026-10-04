@@ -47,16 +47,22 @@ func (h *consoleHub) subscribe(id string, open func(ctx context.Context, w io.Wr
 		h.streams = map[string]*consoleStream{}
 	}
 	s, ok := h.streams[id]
+	var ctx context.Context
 	if !ok {
-		ctx, cancel := context.WithCancel(context.Background())
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(context.Background())
 		s = &consoleStream{id: id, cancel: cancel, subs: map[*consoleSub]struct{}{}}
 		h.streams[id] = s
-		go h.run(ctx, s, open)
 	}
 	sub := &consoleSub{s: s, w: w, done: make(chan error, 1)}
 	s.mu.Lock()
 	s.subs[sub] = struct{}{}
 	s.mu.Unlock()
+	// Started once its first reader is in: what the console prints
+	// first would otherwise go to nobody.
+	if !ok {
+		go h.run(ctx, s, open)
+	}
 	return sub
 }
 
