@@ -133,7 +133,12 @@ polls with. Admitted - at once for a token, or once approved - it takes
 the fleet's trust from the Controller's answer; the Controller records
 it trusting the fleet from the start, with no credential for it. A
 Controller without a fleet, or older, answers that it can't, and the
-node announces itself with a service credential as before.
+node announces itself with a service credential as before. A node
+provisioned with the fleet's root checks the Controller through it: it
+asks the registration endpoint for `controller.fleet.janus` (SNI) and
+gets a certificate the issuing CA signed, renewed by the Controller -
+nothing pinned that expires - and takes only that fleet's trust; the
+Controller's own certificate remains for nodes provisioned with it.
 
 The node's own CA can be replaced too (`AccessService.LocalCARotate`):
 every certificate it issued stops working - the first-boot admin one, a

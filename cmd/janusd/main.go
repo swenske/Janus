@@ -667,6 +667,9 @@ func enroll(cfg *selfregister.Config, ca *pki.CA, fleet *pki.Fleet, hostname, gr
 	if err != nil {
 		return false, 0, fmt.Errorf("registration failed: %w", err)
 	}
+	if cfg.Via == "fleet" {
+		log.Printf("selfregister: the Controller at %s checked through its fleet's root", cfg.Address)
+	}
 	if a.Admitted && a.Trust != nil {
 		if err := admitted(cfg, fleet, a.Trust); err != nil {
 			return false, 0, err
@@ -687,6 +690,9 @@ func enroll(cfg *selfregister.Config, ca *pki.CA, fleet *pki.Fleet, hostname, gr
 // admitted applies the fleet trust the Controller admitted the node with,
 // and records the node registered.
 func admitted(cfg *selfregister.Config, fleet *pki.Fleet, trust *selfregister.Trust) error {
+	if err := cfg.CheckTrust(trust); err != nil {
+		return err
+	}
 	if err := fleet.Set([]byte(trust.RootCert), trust.Bundle); err != nil {
 		return fmt.Errorf("apply the Controller's fleet trust: %w", err)
 	}

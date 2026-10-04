@@ -40,6 +40,12 @@ const (
 	RoleController = "janus:controller"
 )
 
+// FleetControllerName is the name a node asks the Controller's
+// registration endpoint for (TLS SNI) to get its fleet certificate - and
+// checks it against, chained to the fleet's root it was provisioned
+// with.
+const FleetControllerName = "controller.fleet.janus"
+
 // The call metadata through which a RoleController certificate says
 // whom it acts for: a user's name, and that user's roles, comma-separated.
 const (

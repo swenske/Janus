@@ -34,6 +34,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -61,10 +62,11 @@ import (
 var Dir = "/etc/janus/controller"
 
 const (
-	addressFile = "address"
-	caFile      = "ca.crt"
-	tokenFile   = "token"
-	markerFile  = "registered"
+	addressFile   = "address"
+	caFile        = "ca.crt"
+	fleetRootFile = "fleet-root.crt"
+	tokenFile     = "token"
+	markerFile    = "registered"
 
 	dialTimeout = 10 * time.Second
 
@@ -94,6 +96,13 @@ type Config struct {
 	// (internal/nocloud) - presented so that Controller admits the node
 	// directly instead of queueing it for manual approval.
 	Token string
+	// FleetRootPEM, optional: the Controller's fleet root. The node then
+	// checks the Controller through its fleet first, and takes only that
+	// fleet's trust (CheckTrust).
+	FleetRootPEM []byte
+	// Via says how the last call checked the Controller: "fleet", or
+	// "certificate" (CACertPEM).
+	Via string
 }
 
 // Read loads Config from dir. A missing address file means no
@@ -121,6 +130,13 @@ func Read(dir string) (*Config, error) {
 	}
 
 	cfg := &Config{Address: address, CACertPEM: ca}
+	root, err := os.ReadFile(filepath.Join(dir, fleetRootFile))
+	switch {
+	case err == nil:
+		cfg.FleetRootPEM = root
+	case !os.IsNotExist(err):
+		return nil, fmt.Errorf("read %s: %w", filepath.Join(dir, fleetRootFile), err)
+	}
 	tok, err := os.ReadFile(filepath.Join(dir, tokenFile))
 	switch {
 	case err == nil:
@@ -220,11 +236,6 @@ type registerResponse struct {
 // the node directly (cfg.Token accepted) rather than queueing it for
 // approval.
 func Register(cfg *Config, ca *pki.CA, hostname, advertiseAddr string) (admitted bool, err error) {
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(cfg.CACertPEM) {
-		return false, fmt.Errorf("controller CA certificate doesn't parse")
-	}
-
 	certPEM, keyPEM, err := ca.Issue(pki.IssueOptions{
 		CommonName:  hostname,
 		Roles:       []string{pki.RoleAdmin},
@@ -247,13 +258,7 @@ func Register(cfg *Config, ca *pki.CA, hostname, advertiseAddr string) (admitted
 		return false, fmt.Errorf("encode registration request: %w", err)
 	}
 
-	client := &http.Client{
-		Timeout: dialTimeout,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{RootCAs: pool},
-		},
-	}
-	resp, err := client.Post("https://"+cfg.Address+"/register", "application/json", bytes.NewReader(body))
+	resp, err := cfg.post("/register", body)
 	if err != nil {
 		return false, err // a *url.Error: it names the URL
 	}
@@ -338,27 +343,75 @@ type announceRequest struct {
 	PollSecret        string `json:"poll_secret"`
 }
 
-func (cfg *Config) client() (*http.Client, error) {
+// do sends the request build makes to the Controller - checked through
+// its fleet first when the node was provisioned with the fleet's root
+// (its fleet certificate, asked for by name), else, or when the
+// Controller serves none (no fleet yet, older), through the certificate
+// the node was provisioned with.
+func (cfg *Config) do(build func() (*http.Request, error)) (*http.Response, error) {
+	if len(cfg.FleetRootPEM) > 0 {
+		resp, err := cfg.send(build, cfg.FleetRootPEM, pki.FleetControllerName)
+		var verr *tls.CertificateVerificationError
+		if err == nil || !errors.As(err, &verr) || len(cfg.CACertPEM) == 0 {
+			if err == nil {
+				cfg.Via = "fleet"
+			}
+			return resp, err
+		}
+	}
+	resp, err := cfg.send(build, cfg.CACertPEM, "")
+	if err == nil {
+		cfg.Via = "certificate"
+	}
+	return resp, err
+}
+
+func (cfg *Config) post(path string, body []byte) (*http.Response, error) {
+	return cfg.do(func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodPost, "https://"+cfg.Address+path, bytes.NewReader(body))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		return req, err
+	})
+}
+
+func (cfg *Config) send(build func() (*http.Request, error), rootsPEM []byte, serverName string) (*http.Response, error) {
 	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(cfg.CACertPEM) {
+	if !pool.AppendCertsFromPEM(rootsPEM) {
 		return nil, fmt.Errorf("controller CA certificate doesn't parse")
 	}
-	return &http.Client{Timeout: dialTimeout, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}, nil
+	req, err := build()
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: dialTimeout, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: serverName}}}
+	return client.Do(req)
+}
+
+// CheckTrust refuses the trust of another fleet than the one the node
+// was provisioned with, if it was.
+func (cfg *Config) CheckTrust(t *Trust) error {
+	if len(cfg.FleetRootPEM) == 0 {
+		return nil
+	}
+	want, _ := pem.Decode(cfg.FleetRootPEM)
+	got, _ := pem.Decode([]byte(t.RootCert))
+	if want == nil || got == nil || !bytes.Equal(want.Bytes, got.Bytes) {
+		return errors.New("the Controller hands the trust of another fleet than the one this node was provisioned with")
+	}
+	return nil
 }
 
 // Announce announces the node with protocol 2: no key, its CA's
 // certificate (public), and secret to poll with. ErrFallback: the
 // Controller can't take it.
 func Announce(cfg *Config, caCertPEM []byte, hostname, advertiseAddr, secret string) (*Answer, error) {
-	client, err := cfg.client()
-	if err != nil {
-		return nil, err
-	}
 	body, err := json.Marshal(announceRequest{Protocol: 2, Name: hostname, Address: advertiseAddr, CACertPEM: string(caCertPEM), RegistrationToken: cfg.Token, PollSecret: secret})
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.Post("https://"+cfg.Address+"/register", "application/json", bytes.NewReader(body))
+	resp, err := cfg.post("/register", body)
 	if err != nil {
 		return nil, err
 	}
@@ -383,16 +436,13 @@ func Announce(cfg *Config, caCertPEM []byte, hostname, advertiseAddr, secret str
 // once it was, ErrPending while it waits, ErrUnknown when the Controller
 // doesn't know it.
 func Poll(cfg *Config, id, secret string) (*Trust, error) {
-	client, err := cfg.client()
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodGet, "https://"+cfg.Address+"/register/"+id, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+secret)
-	resp, err := client.Do(req)
+	resp, err := cfg.do(func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodGet, "https://"+cfg.Address+"/register/"+id, nil)
+		if err == nil {
+			req.Header.Set("Authorization", "Bearer "+secret)
+		}
+		return req, err
+	})
 	if err != nil {
 		return nil, err
 	}

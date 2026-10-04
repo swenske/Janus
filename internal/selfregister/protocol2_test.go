@@ -1,14 +1,18 @@
 package selfregister
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/swenske/Janus/internal/pki"
 )
@@ -131,5 +135,80 @@ func TestEnrollment(t *testing.T) {
 	}
 	if s, err := NewSecret(); err != nil || len(s) != 64 {
 		t.Errorf("secret %q, %v", s, err)
+	}
+}
+
+// controllerTLS serves the fleet's certificate to whoever asks for the
+// fleet's name - when fleet is true - and the legacy one otherwise, like
+// the Controller's registration endpoint.
+func controllerTLS(t *testing.T, fleet bool) (srv *httptest.Server, legacyCA, root *pki.CA) {
+	t.Helper()
+	legacyCA, err := pki.NewCA("legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPEM, legacyKey, err := legacyCA.Issue(pki.IssueOptions{CommonName: "controller", IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, _ := tls.X509KeyPair(legacyPEM, legacyKey)
+	root, err = pki.NewCAFor("fleet root", 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuing, _ := root.IssueCA("issuing", 24*time.Hour)
+	fleetPEM, fleetKey, err := issuing.Issue(pki.IssueOptions{CommonName: pki.FleetControllerName, DNSNames: []string{pki.FleetControllerName}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetCert, _ := tls.X509KeyPair(append(fleetPEM, issuing.CertPEM...), fleetKey)
+	srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(Answer{ID: "p1"})
+	}))
+	// Certificates set: httptest would add its own, and serve it to a
+	// client sending no name (GetCertificate is only asked when one does).
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{legacy}, GetCertificate: func(h *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		if fleet && h.ServerName == pki.FleetControllerName {
+			return &fleetCert, nil
+		}
+		return &legacy, nil
+	}}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	return srv, legacyCA, root
+}
+
+// TestFleetFirst: a node provisioned with the fleet's root checks the
+// Controller through its fleet; one whose Controller has no fleet
+// certificate yet falls back to the certificate it was provisioned with
+// - not without it - and only the provisioned fleet's trust is taken.
+func TestFleetFirst(t *testing.T) {
+	srv, legacyCA, root := controllerTLS(t, true)
+	cfg := &Config{Address: srv.Listener.Addr().String(), CACertPEM: legacyCA.CertPEM, FleetRootPEM: root.CertPEM}
+	if _, err := Announce(cfg, []byte("CA"), "lb1", "10.0.0.5:9505", "s"); err != nil || cfg.Via != "fleet" {
+		t.Errorf("a Controller with a fleet: via %q, %v", cfg.Via, err)
+	}
+
+	noFleet, legacyCA2, _ := controllerTLS(t, false)
+	cfg = &Config{Address: noFleet.Listener.Addr().String(), CACertPEM: legacyCA2.CertPEM, FleetRootPEM: root.CertPEM}
+	if _, err := Announce(cfg, []byte("CA"), "lb1", "10.0.0.5:9505", "s"); err != nil || cfg.Via != "certificate" {
+		t.Errorf("a Controller without one: via %q, %v", cfg.Via, err)
+	}
+	cfg = &Config{Address: noFleet.Listener.Addr().String(), FleetRootPEM: root.CertPEM}
+	if _, err := Announce(cfg, []byte("CA"), "lb1", "10.0.0.5:9505", "s"); err == nil {
+		t.Error("a Controller that can't be checked was trusted")
+	}
+
+	cfg = &Config{FleetRootPEM: root.CertPEM}
+	if err := cfg.CheckTrust(&Trust{RootCert: string(root.CertPEM)}); err != nil {
+		t.Errorf("the provisioned fleet: %v", err)
+	}
+	other, _ := pki.NewCA("another fleet")
+	if err := cfg.CheckTrust(&Trust{RootCert: string(other.CertPEM)}); err == nil {
+		t.Error("another fleet's trust taken")
+	}
+	if err := (&Config{}).CheckTrust(&Trust{RootCert: string(other.CertPEM)}); err != nil {
+		t.Errorf("not provisioned with a fleet: %v", err)
 	}
 }
