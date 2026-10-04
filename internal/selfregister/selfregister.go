@@ -8,9 +8,11 @@
 // node's own CA is already in memory - internal/pki, no RPC needed) and
 // POSTing it to the Controller's dedicated registration endpoint
 // (dashboard/backend/register.go's startRegistrationListener). The
-// node's root admin credential is never sent - only this freshly-minted,
-// narrowly-scoped one, so compromising the Controller only ever exposes
-// scoped, per-node credentials, never a fleet's root trust.
+// node's root admin credential is never sent - only this freshly-minted
+// one: an os:admin certificate valid a year, so compromising the
+// Controller exposes admin access to its nodes (not their CA's key, which
+// the file API never serves - internal/api/secretfiles.go), never their
+// root credential.
 //
 // The Controller's identity is verified against cfg.CACertPEM
 // specifically - the CA it was given at provisioning time, not the

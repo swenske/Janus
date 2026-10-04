@@ -307,6 +307,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("pki: %v", err)
 	}
+	// Its keys are never served by the file RPCs, wherever it is.
+	if dir, err := filepath.Abs(*pkiDir); err == nil {
+		api.SecretPaths = append(api.SecretPaths, dir)
+	}
 	if pkiBootstrap.AdminIssued {
 		log.SetOutput(os.Stderr) // console only - see serviceLogs above
 		log.Printf("pki: first boot - generated a new CA and admin client certificate in %s", *pkiDir)

@@ -3,6 +3,7 @@ package api
 import (
 	"archive/tar"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -88,7 +89,7 @@ func fileInfo(path, rel string, info fs.FileInfo) *janusv1alpha1.FileInfo {
 // FIFOs (a read with no writer would block the call forever) and sockets
 // are refused. The file is opened non-blocking and its type checked on
 // the open descriptor, so it can't be swapped for something else between
-// the check and the read.
+// the check and the read. The node's secrets are refused (secretfiles.go).
 func (s *System) Read(req *janusv1alpha1.ReadRequest, stream janusv1alpha1.SystemService_ReadServer) error {
 	path, err := cleanAbs(req.GetPath())
 	if err != nil {
@@ -112,9 +113,13 @@ func (s *System) Read(req *janusv1alpha1.ReadRequest, stream janusv1alpha1.Syste
 	case !mode.IsRegular():
 		return status.Errorf(codes.PermissionDenied, "%s is not a regular file (%s) - not readable through this API", path, mode.Type())
 	}
+	if err := checkServable(f); err != nil {
+		return secretError(path, err)
+	}
+	r := &keyGuard{r: f}
 	buf := make([]byte, fileChunk)
 	for {
-		n, err := f.Read(buf)
+		n, err := r.Read(buf)
 		if n > 0 {
 			if sendErr := stream.Send(&janusv1alpha1.Data{Bytes: append([]byte(nil), buf[:n]...)}); sendErr != nil {
 				return nil
@@ -124,15 +129,25 @@ func (s *System) Read(req *janusv1alpha1.ReadRequest, stream janusv1alpha1.Syste
 			return nil
 		}
 		if err != nil {
-			return status.Errorf(codes.Internal, "read %s: %v", path, err)
+			return secretError(path, err)
 		}
 	}
 }
 
+// secretError is the status for a file Read or Copy won't serve, or
+// couldn't read.
+func secretError(path string, err error) error {
+	if errors.Is(err, errSecretPath) || errors.Is(err, errPrivateKey) {
+		return status.Errorf(codes.PermissionDenied, "%s %v - never served by the file API", path, err)
+	}
+	return status.Errorf(codes.Internal, "read %s: %v", path, err)
+}
+
 // Copy streams root_path (a file or a whole directory tree) as a tar
 // archive: regular files, directories and symlinks; devices, sockets and
-// FIFOs are left out. /proc and /sys are refused - their files report a
-// size of 0, which a tar header can't carry correctly (use Read).
+// FIFOs are left out, and so are the node's secrets (secretfiles.go).
+// /proc and /sys are refused - their files report a size of 0, which a
+// tar header can't carry correctly (use Read).
 func (s *System) Copy(req *janusv1alpha1.CopyRequest, stream janusv1alpha1.SystemService_CopyServer) error {
 	root, err := cleanAbs(req.GetRootPath())
 	if err != nil {
@@ -141,8 +156,30 @@ func (s *System) Copy(req *janusv1alpha1.CopyRequest, stream janusv1alpha1.Syste
 	if root == "/proc" || strings.HasPrefix(root, "/proc/") || root == "/sys" || strings.HasPrefix(root, "/sys/") {
 		return status.Errorf(codes.InvalidArgument, "%s is a kernel pseudo-filesystem - use Read for individual files", root)
 	}
-	if _, err := os.Lstat(root); err != nil {
+	info, err := os.Lstat(root)
+	if err != nil {
 		return status.Errorf(codes.NotFound, "%v", err)
+	}
+	// Where root really is, to leave a secret directory out whole (each
+	// file is checked on its own anyway, wherever it's reached from).
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		realRoot = root
+	}
+	// A secret asked for by name is refused, not an empty archive.
+	if isSecretPath(realRoot) {
+		return secretError(root, errSecretPath)
+	}
+	if info.Mode().IsRegular() {
+		f, err := os.Open(root)
+		if err != nil {
+			return status.Errorf(codes.PermissionDenied, "%v", err)
+		}
+		err = checkServable(f)
+		f.Close()
+		if err != nil {
+			return secretError(root, err)
+		}
 	}
 
 	w := &dataWriter{send: func(b []byte) error { return stream.Send(&janusv1alpha1.Data{Bytes: b}) }}
@@ -153,6 +190,9 @@ func (s *System) Copy(req *janusv1alpha1.CopyRequest, stream janusv1alpha1.Syste
 			return nil // unreadable entry: left out, the rest still copied
 		}
 		if skipVirtual(root, path) {
+			return filepath.SkipDir
+		}
+		if rel, _ := filepath.Rel(root, path); d.IsDir() && isSecretPath(filepath.Join(realRoot, rel)) {
 			return filepath.SkipDir
 		}
 		info, err := d.Info()
@@ -185,13 +225,19 @@ func (s *System) Copy(req *janusv1alpha1.CopyRequest, stream janusv1alpha1.Syste
 			return nil
 		}
 		defer f.Close()
+		if checkServable(f) != nil {
+			return nil // a secret (or a file that can't be checked): left out
+		}
 		if err := tw.WriteHeader(hdr); err != nil {
 			return err
 		}
 		// A file that changed size meanwhile would corrupt the archive;
-		// copy exactly the size the header announced.
-		_, err = io.CopyN(tw, f, hdr.Size)
-		return err
+		// copy exactly the size the header announced. One that turned
+		// into a secret since it was checked aborts the archive.
+		if _, err := io.CopyN(tw, &keyGuard{r: f}, hdr.Size); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		return nil
 	})
 	if err != nil {
 		return status.Errorf(codes.Internal, "archive %s: %v", root, err)

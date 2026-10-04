@@ -93,6 +93,16 @@ GenerateClientConfiguration` issues further client certificates
 have one; roles are carried in the certificate's `Subject.Organization`
 field (the Kubernetes client-cert-auth idiom).
 
+The node's secrets never leave it through the file API: `Read` refuses
+and `Copy` leaves out the PKI's private keys, the Controller
+registration token, the ACME account key and DNS provider credentials
+(by location, checked on the path the kernel resolved for the open file,
+so symlinks and `/proc/self/root` don't go around it), and any file
+holding a PEM private key, wherever it is - HAProxy's certificates
+included (`internal/api/secretfiles.go`). No other API returns them
+either: without this, an `os:admin` certificate could read the CA's key
+and mint itself certificates valid long after its own expired.
+
 Roles are enforced, not just carried: `internal/api/authz.go`'s
 `UnaryAuthInterceptor`/`StreamAuthInterceptor` check every single RPC
 (both services are wired via `grpc.UnaryInterceptor`/

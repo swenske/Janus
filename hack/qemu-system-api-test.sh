@@ -125,6 +125,22 @@ echo "  ok: Copy (valid tar)"
 if out="$(ctl system cat /dev/vda 2>&1)"; then fail "Read of a block device was allowed"; fi
 echo "$out" | grep -q PermissionDenied || fail "Read(/dev/vda) didn't answer PermissionDenied: $out"
 echo "  ok: Read refuses devices"
+# The node's secrets are never served, however they're asked for: an
+# admin certificate must not carry the CA's key away.
+for p in /etc/janus/pki/ca.key /etc/.state/pki/admin.key /proc/self/root/etc/janus/pki/server.key; do
+  if out="$(ctl system cat "$p" 2>&1)"; then fail "Read($p) was allowed"; fi
+  grep -q PermissionDenied <<<"$out" || fail "Read($p) didn't answer PermissionDenied: $out"
+done
+if out="$(ctl system cp -o "$WORKDIR/pki.tar" /etc/janus/pki 2>&1)"; then fail "Copy(/etc/janus/pki) was allowed"; fi
+grep -q PermissionDenied <<<"$out" || fail "Copy(/etc/janus/pki) didn't answer PermissionDenied: $out"
+ctl system cp -o "$WORKDIR/etc-janus.tar" /etc/janus || fail "Copy(/etc/janus) failed"
+listing="$(tar tf "$WORKDIR/etc-janus.tar")"
+grep -q '^janus/network/' <<<"$listing" || fail "Copy(/etc/janus) lacks network/: $listing"
+if grep -q '^janus/pki' <<<"$listing"; then fail "Copy(/etc/janus) holds the PKI: $listing"; fi
+content="$(tar xOf "$WORKDIR/etc-janus.tar")"
+if grep -q 'PRIVATE KEY' <<<"$content"; then fail "Copy(/etc/janus) holds a private key"; fi
+echo "  ok: the PKI's keys are never served (Read, Copy, /proc/self/root)"
+
 expect "Dmesg" 'Linux version' ctl system dmesg
 expect "Logs janusd" 'listening on :9505' ctl system logs janusd
 expect "Logs haproxy" 'NOTICE' ctl system logs haproxy

@@ -55,8 +55,8 @@ are also technically non-mutating).
 | `ServiceList` | | ✅ | `janusd`, `haproxy` and the services of the image's extensions (`prometheus-node-exporter`, `qemu-guest-agent`...), with state and health (HAProxy healthy = answers on its stats socket; an extension service waiting for a device, like the QEMU guest agent's virtio port, is `waiting`) |
 | `ServiceStart` / `Stop` / `Restart` | | ✅ | `haproxy`: start; soft stop (finishes in-flight connections, 10s, then SIGTERM); restart = seamless reload. `janusd`: restart = `Restart`, stop refused (node would be unreachable). Extension services: stop (SIGTERM, then SIGKILL after 10s) keeps them stopped until started again |
 | `List` | server | ✅ | Directory listing (optionally recursive), symlinks not followed, per-entry errors inline |
-| `Read` | server | ✅ | One file's content; devices refused |
-| `Copy` | server | ✅ | Tar stream of a file or tree (regular files, directories, symlinks); `/proc` and `/sys` refused (use `Read`) |
+| `Read` | server | ✅ | One file's content; devices refused, and the node's secrets (PKI keys, registration token, ACME account and DNS credentials, any PEM private key) - `internal/api/secretfiles.go` |
+| `Copy` | server | ✅ | Tar stream of a file or tree (regular files, directories, symlinks); `/proc` and `/sys` refused (use `Read`); the node's secrets left out, refused when asked for by name |
 | `PacketCapture` | server | ✅ | tcpdump-equivalent over gRPC: pcap stream, kernel-side filter - see [packet-capture.md](packet-capture.md) |
 | `MetaWrite` / `MetaDelete` | | ⬜ | META partition key/value entries - Janus has no META partition |
 | `GenerateClientConfiguration` | | ✅ | Issue an mTLS client cert (`internal/pki`) - 1 year validity, no rotation flow yet |
