@@ -136,14 +136,14 @@ func TestSetupAndSignIn(t *testing.T) {
 		t.Fatal("a new store needs its setup")
 	}
 	for _, bad := range [][2]string{{"Admin", "long-enough"}, {"", "long-enough"}, {"admin", "short"}, {"admin", strings.Repeat("x", 73)}} {
-		if _, err := s.Setup(bad[0], bad[1]); err == nil {
+		if _, err := s.Setup(bad[0], bad[1], ""); err == nil {
 			t.Errorf("Setup(%q, %d characters) accepted", bad[0], len(bad[1]))
 		}
 	}
-	if _, err := s.Setup("root", "long-enough"); err != nil {
+	if _, err := s.Setup("root", "long-enough", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Setup("other", "long-enough"); err == nil {
+	if _, err := s.Setup("other", "long-enough", ""); err == nil {
 		t.Error("a second setup")
 	}
 	if fi, _ := os.Stat(filepath.Join(dir, usersFile)); fi.Mode().Perm() != 0o600 {
@@ -166,10 +166,10 @@ func TestSessionPolicy(t *testing.T) {
 	s := open(t, t.TempDir())
 	now := time.Unix(1_800_000_000, 0)
 	s.now = func() time.Time { return now }
-	if _, err := s.Setup("root", "long-enough"); err != nil {
+	if _, err := s.Setup("root", "long-enough", ""); err != nil {
 		t.Fatal(err)
 	}
-	tok, err := s.NewSession("root")
+	tok, err := s.NewSession("root", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestSessionPolicy(t *testing.T) {
 		t.Fatal("a refresh the page made kept the session alive")
 	}
 
-	tok, _ = s.NewSession("root")
+	tok, _ = s.NewSession("root", false)
 	for i := 0; i < 11*3; i++ { // used every 20 minutes for 11 hours
 		now = now.Add(20 * time.Minute)
 		if !live(true) {
@@ -207,7 +207,7 @@ func TestSessionPolicy(t *testing.T) {
 	if err := s.SetSettings(Settings{SessionIdleMinutes: 5, SessionMaxHours: 24}); err != nil {
 		t.Fatal(err)
 	}
-	tok, _ = s.NewSession("root")
+	tok, _ = s.NewSession("root", false)
 	now = now.Add(6 * time.Minute)
 	if live(false) {
 		t.Error("the new policy doesn't apply")
@@ -219,7 +219,7 @@ func TestSessionPolicy(t *testing.T) {
 func TestAccounts(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)
-	if _, err := s.Setup("root", "long-enough"); err != nil {
+	if _, err := s.Setup("root", "long-enough", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateUser("root", Reader, "long-enough"); err == nil {
@@ -232,7 +232,7 @@ func TestAccounts(t *testing.T) {
 	if err != nil || !bob.MustChangePassword {
 		t.Fatalf("CreateUser: %+v, %v", bob, err)
 	}
-	tok, _ := s.NewSession("bob")
+	tok, _ := s.NewSession("bob", false)
 
 	if err := s.ChangePassword("bob", "wrong", "bobs-own-password"); err == nil {
 		t.Error("changed with a wrong current password")
@@ -247,7 +247,7 @@ func TestAccounts(t *testing.T) {
 		t.Error("still must change it")
 	}
 
-	tok, _ = s.NewSession("bob")
+	tok, _ = s.NewSession("bob", false)
 	if _, err := s.UpdateUser("bob", Change{Disabled: ptr(true)}); err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestAccounts(t *testing.T) {
 	if _, err := s.UpdateUser("bob", Change{Disabled: ptr(false), Role: ptr(Admin)}); err != nil {
 		t.Fatal(err)
 	}
-	tok, _ = s.NewSession("bob")
+	tok, _ = s.NewSession("bob", false)
 	if _, err := s.UpdateUser("root", Change{Role: ptr(Reader)}); err != nil {
 		t.Fatal(err)
 	}
@@ -295,13 +295,13 @@ func TestAccounts(t *testing.T) {
 func TestResetFromHost(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)
-	if _, err := s.Setup("root", "long-enough"); err != nil {
+	if _, err := s.Setup("root", "long-enough", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.UpdateUser("root", Change{Role: ptr(Admin)}); err != nil {
 		t.Fatal(err)
 	}
-	tok, _ := s.NewSession("root")
+	tok, _ := s.NewSession("root", false)
 	time.Sleep(10 * time.Millisecond) // a modification time of its own
 
 	pw, err := ResetFromHost(dir, "root")
@@ -331,11 +331,11 @@ func TestSessionsSweptOnCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Setup("root", "long-enough"); err != nil {
+	if _, err := s.Setup("root", "long-enough", ""); err != nil {
 		t.Fatal(err)
 	}
 	s.sessions["stale"] = &Session{User: "root", Created: time.Now().Add(-13 * time.Hour), LastSeen: time.Now().Add(-time.Hour)}
-	live, err := s.NewSession("root")
+	live, err := s.NewSession("root", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,4 +345,9 @@ func TestSessionsSweptOnCreate(t *testing.T) {
 	if _, _, ok := s.Session(live, true); !ok {
 		t.Error("the new session isn't valid")
 	}
+}
+
+func readFile(t *testing.T, dir string) ([]byte, error) {
+	t.Helper()
+	return os.ReadFile(filepath.Join(dir, usersFile))
 }

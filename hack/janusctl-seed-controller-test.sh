@@ -81,7 +81,7 @@ if ! kill -0 "$DASHBOARD_PID" 2>/dev/null; then
 fi
 
 COOKIE_JAR="$WORKDIR/cookies.txt"
-setup_code="$(curl -sk -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/auth/setup" -H "Content-Type: application/json" -d '{"password":"seed-controller-test-admin-pw"}')"
+setup_code="$(curl -sk -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/auth/setup" -H "Content-Type: application/json" -d '{"password":"seed-controller-test-admin-pw","mfa_required":"nobody"}')"
 [ "$setup_code" = "204" ] || { echo "seed-controller test FAILED: dashboard admin setup returned $setup_code, want 204" >&2; exit 1; }
 echo "Part 1 OK: dashboardd running natively, admin auth established"
 

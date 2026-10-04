@@ -133,7 +133,9 @@ the Controller's checks can't make a reader an admin on a node. Every
 Controller route names the role a read of it and a change of it need
 (`gate`); an API token is its account's, with that role or less; every
 change and sign-in is in the Controller's audit, and what reaches a node
-in the node's log too.
+in the node's log too. A second factor - TOTP, its secret sealed with
+the master key, or a WebAuthn passkey - finishes the sign-in of an
+account that has one, required for admins by default.
 
 A node registering itself with a Controller whose fleet is ready sends
 no key at all (`internal/selfregister`, protocol 2): its CA's

@@ -73,7 +73,7 @@ lh_start() {
   docker exec -d "$NAME" sh -c 'cd /images && exec python3 -m http.server 8000 --bind 127.0.0.1 >/work/http.log 2>&1'
   lh_run_controller
   local code
-  code="$(curl -sk -c "$JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/auth/setup" -H 'Content-Type: application/json' -d "{\"password\":\"$LH_PASSWORD\"}")"
+  code="$(curl -sk -c "$JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/auth/setup" -H 'Content-Type: application/json' -d "{\"password\":\"$LH_PASSWORD\",\"mfa_required\":\"nobody\"}")"
   [ "$code" = 204 ] || fail "admin setup returned $code"
 }
 

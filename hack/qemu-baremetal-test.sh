@@ -65,7 +65,7 @@ DASH_PID=$!
 sleep 1
 JAR="$WORKDIR/jar"
 code="$(curl -sk -c "$JAR" -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:$DASH_PORT/api/auth/setup" \
-  -H 'Content-Type: application/json' -d '{"password":"baremetal-test-admin-pw"}')"
+  -H 'Content-Type: application/json' -d '{"password":"baremetal-test-admin-pw","mfa_required":"nobody"}')"
 [ "$code" = 204 ] || fail "Controller setup answered $code"
 CONTROLLER_CA="$WORKDIR/dash/dashboard-identity.crt"
 pending() { curl -sk -b "$JAR" "https://127.0.0.1:$DASH_PORT/api/pending" | python3 -c 'import json,sys; d=json.load(sys.stdin) or []; print(len(d))'; }

@@ -158,8 +158,9 @@ func main() {
 		log.Fatalf("master key: %v", err)
 	}
 	if masterKey.BesideData {
-		log.Printf("WARNING: the master key is %s, in the data directory: a copy of it holds the fleet's issuing CA key - set JANUS_CONTROLLER_MASTER_KEY_FILE to a file outside it (dashboard/README.md)", masterKey.Path)
+		log.Printf("WARNING: the master key is %s, in the data directory: a copy of it holds the fleet's issuing CA key and the accounts' authenticator secrets - set JANUS_CONTROLLER_MASTER_KEY_FILE to a file outside it (dashboard/README.md)", masterKey.Path)
 	}
+	authStore.SetSealer(masterKey)
 	fleetStore, err := fleet.Open(filepath.Join(*dataDir, "fleet"), masterKey, controllerID)
 	if err != nil {
 		log.Fatalf("open the fleet: %v", err)
@@ -250,6 +251,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/login", a.handleAuthLogin)
 	mux.HandleFunc("POST /api/auth/logout", a.handleAuthLogout)
 	mux.HandleFunc("POST /api/auth/password", a.handleAuthPassword)
+	a.registerMFARoutes(mux)
 	mux.HandleFunc("/api/nodes", a.gate(auth.Reader, auth.Admin, a.handleNodes))
 	mux.HandleFunc("GET /api/nodes/status", a.gate(auth.Reader, auth.Reader, a.handleNodesStatus))
 	mux.HandleFunc("GET /api/version", a.gate(auth.Reader, auth.Reader, func(w http.ResponseWriter, _ *http.Request) {

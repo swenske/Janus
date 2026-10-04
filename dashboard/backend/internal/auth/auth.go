@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -98,6 +99,8 @@ type User struct {
 	Epoch       int        `json:"epoch"`
 	CreatedAt   time.Time  `json:"created_at"`
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
+	// MFA is the account's second factors (mfa.go).
+	MFA MFA `json:"mfa,omitzero"`
 }
 
 // Settings is the session policy.
@@ -107,6 +110,9 @@ type Settings struct {
 	// SessionMaxHours ends a session that long after its sign-in,
 	// used or not.
 	SessionMaxHours int `json:"session_max_hours"`
+	// MFARequired says which accounts must have a second factor:
+	// "admins" (empty: the default), "everyone" or "nobody".
+	MFARequired string `json:"mfa_required,omitempty"`
 }
 
 // DefaultSettings: half an hour away ends a session, and none outlives a
@@ -125,6 +131,11 @@ func (s Settings) Check() error {
 	if s.SessionIdleMinutes > s.SessionMaxHours*60 {
 		return errors.New("a session can't stay idle longer than it lasts")
 	}
+	switch s.MFARequired {
+	case "", MFAAdmins, MFAEveryone, MFANobody:
+	default:
+		return errors.New("mfa_required: admins, everyone or nobody")
+	}
 	return nil
 }
 
@@ -138,6 +149,17 @@ type Session struct {
 	Epoch    int
 	Created  time.Time
 	LastSeen time.Time
+	// MFA: the sign-in gave its second factor - or set up the account's
+	// first one.
+	MFA bool
+	// Failures counts wrong second factors (mfaTries ends the session).
+	Failures int
+	// PendingTOTP is the secret being set up (StartTOTP), WebAuthn the
+	// passkey ceremony under way, PasskeyName the name of the one being
+	// registered.
+	PendingTOTP string
+	WebAuthn    *webauthn.SessionData
+	PasskeyName string
 }
 
 // Expires is when the session ends if nothing uses it again.
@@ -167,6 +189,7 @@ type Store struct {
 	users    map[string]*User
 	settings Settings
 	sessions map[string]*Session
+	sealer   Sealer
 	// stamp is users.json as last read or written: a change made from
 	// outside (dashboardd reset-user, on the host) is read again.
 	stamp fileStamp
@@ -332,10 +355,14 @@ func checkName(name string) error {
 	return nil
 }
 
-// view is a copy of u without its hash.
+// view is a copy of u without its secrets: no password hash, no sealed
+// TOTP secret, recovery codes blanked (their number kept).
 func view(u *User) User {
 	c := *u
 	c.PasswordHash = nil
+	c.MFA.TOTP = nil
+	c.MFA.RecoveryCodes = make([]string, len(u.MFA.RecoveryCodes))
+	c.MFA.Passkeys = append([]Passkey{}, u.MFA.Passkeys...)
 	return c
 }
 
@@ -347,8 +374,9 @@ func (s *Store) SetupRequired() bool {
 	return len(s.users) == 0
 }
 
-// Setup makes the first account, an admin - refused once any exists.
-func (s *Store) Setup(name, password string) (User, error) {
+// Setup makes the first account, an admin - refused once any exists -,
+// with the policy for second factors ("": the default, admins).
+func (s *Store) Setup(name, password, mfaRequired string) (User, error) {
 	if err := checkName(name); err != nil {
 		return User{}, err
 	}
@@ -362,10 +390,18 @@ func (s *Store) Setup(name, password string) (User, error) {
 	if len(s.users) > 0 {
 		return User{}, errors.New("the Controller is already set up")
 	}
+	policy := s.settings
+	policy.MFARequired = mfaRequired
+	if err := policy.Check(); err != nil {
+		return User{}, err
+	}
 	u := &User{Name: name, Role: Admin, PasswordHash: h, CreatedAt: s.now().UTC()}
 	s.users[name] = u
+	old := s.settings
+	s.settings = policy
 	if err := s.save(); err != nil {
 		delete(s.users, name)
+		s.settings = old
 		return User{}, err
 	}
 	return view(u), nil
@@ -405,8 +441,9 @@ func (s *Store) Authenticate(name, password string) (User, error) {
 	return view(u), nil
 }
 
-// NewSession signs user in.
-func (s *Store) NewSession(user string) (string, error) {
+// NewSession signs user in - mfa: the sign-in already gave its second
+// factor (a session replacing one that had, after a password change).
+func (s *Store) NewSession(user string, mfa bool) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("generate session token: %w", err)
@@ -426,13 +463,17 @@ func (s *Store) NewSession(user string) (string, error) {
 			delete(s.sessions, t)
 		}
 	}
-	s.sessions[token] = &Session{User: user, Epoch: u.Epoch, Created: now, LastSeen: now}
+	s.sessions[token] = &Session{User: user, Epoch: u.Epoch, Created: now, LastSeen: now, MFA: mfa}
 	return token, nil
 }
 
 func (s *Store) liveLocked(ss *Session, now time.Time) bool {
 	u, ok := s.users[ss.User]
-	return ok && !u.Disabled && u.Epoch == ss.Epoch && now.Before(ss.Expires(s.settings))
+	if !ok || u.Disabled || u.Epoch != ss.Epoch || !now.Before(ss.Expires(s.settings)) {
+		return false
+	}
+	// A sign-in waiting for its second factor doesn't wait long.
+	return !u.MFA.Enabled() || ss.MFA || now.Sub(ss.Created) < mfaPendingFor
 }
 
 // Session returns the account and the session token is, if it's live -
@@ -658,7 +699,8 @@ func (s *Store) ChangePassword(name, current, next string) error {
 }
 
 // ResetFromHost gives name a new random password to change at its next
-// sign-in, and enables it - making it an admin if it doesn't exist: the
+// sign-in, takes its second factors away, and enables it - making it an
+// admin if it doesn't exist: the
 // way back in when no admin can sign in (dashboardd reset-user, run on
 // the Controller's host). Its sessions end.
 func ResetFromHost(dataDir, name string) (string, error) {
@@ -686,6 +728,7 @@ func ResetFromHost(dataDir, name string) (string, error) {
 		s.users[name] = u
 	}
 	u.PasswordHash, u.MustChangePassword, u.Disabled = h, true, false
+	u.MFA = MFA{}
 	u.Epoch++
 	return password, s.save()
 }

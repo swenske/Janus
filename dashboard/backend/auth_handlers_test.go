@@ -27,7 +27,7 @@ func newAuthApp(t *testing.T) *authApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := authStore.Setup("root", "root-password"); err != nil {
+	if _, err := authStore.Setup("root", "root-password", auth.MFANobody); err != nil {
 		t.Fatal(err)
 	}
 	for name, role := range map[string]auth.Role{"olga": auth.Operator, "rita": auth.Reader} {

@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,8 +37,8 @@ type principal struct {
 	Role auth.Role
 	// Token is the API token's ID - empty for a session.
 	Token string
-	// Needs is what the session must do before anything else:
-	// "password" (change the one someone else set).
+	// Needs is what the session must do before anything else
+	// (auth.Store.Needs): "mfa", "password", "mfa_enroll".
 	Needs []string
 }
 
@@ -53,13 +54,6 @@ func (p principal) via() string {
 		return "token " + p.Token
 	}
 	return "session"
-}
-
-func needsOf(u auth.User) []string {
-	if u.MustChangePassword {
-		return []string{"password"}
-	}
-	return nil
 }
 
 // nodeRole is the role a node gives the calls the Controller makes for an
@@ -102,7 +96,7 @@ func (a *app) gated(read, write auth.Role, sessionOnly bool, next http.HandlerFu
 			return
 		}
 		if len(p.Needs) > 0 {
-			writeError(w, http.StatusForbidden, "change your password first")
+			writeError(w, http.StatusForbidden, needsMessage[p.Needs[0]])
 			return
 		}
 		need := write
@@ -153,12 +147,18 @@ func (a *app) authenticate(w http.ResponseWriter, r *http.Request) (principal, b
 		}
 		return principal{User: u.Name, Role: auth.Lower(t.Role, u.Role), Token: t.ID}, true
 	}
-	u, _, ok := a.session(r)
+	u, ss, ok := a.session(r)
 	if !ok {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return principal{}, false
 	}
-	return principal{User: u.Name, Role: u.Role, Needs: needsOf(u)}, true
+	return principal{User: u.Name, Role: u.Role, Needs: a.auth.Needs(u, ss)}, true
+}
+
+var needsMessage = map[string]string{
+	"mfa":        "finish signing in with your second factor",
+	"password":   "change your password first",
+	"mfa_enroll": "set up a second factor first: your role needs one",
 }
 
 // session is the request's live session - kept alive unless the page
@@ -179,6 +179,7 @@ type meView struct {
 	Needs []string  `json:"needs"`
 	// ExpiresAt is when the session ends if it isn't used again.
 	ExpiresAt time.Time `json:"expires_at"`
+	MFA       mfaView   `json:"mfa"`
 }
 
 // handleAuthStatus never requires auth itself - the SPA calls this on
@@ -192,7 +193,7 @@ func (a *app) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	}{SetupRequired: a.auth.SetupRequired()}
 	if u, ss, ok := a.session(r); ok {
 		out.Authenticated = true
-		out.User = &meView{Name: u.Name, Role: u.Role, Needs: nonNil(needsOf(u)), ExpiresAt: ss.Expires(a.auth.Settings())}
+		out.User = &meView{Name: u.Name, Role: u.Role, Needs: nonNil(a.auth.Needs(u, ss)), ExpiresAt: ss.Expires(a.auth.Settings()), MFA: a.viewMFA(r, u)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -202,6 +203,9 @@ type signIn struct {
 	// accounts, and what a script written for it signs in as.
 	Name     string `json:"name"`
 	Password string `json:"password"`
+	// MFARequired is the policy for second factors, at setup only
+	// (auth.Settings.MFARequired; empty: admins).
+	MFARequired string `json:"mfa_required"`
 }
 
 func (c *signIn) name() string {
@@ -220,12 +224,12 @@ func (a *app) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	noteAudit(r, req.name(), "")
-	u, err := a.auth.Setup(req.name(), req.Password)
+	u, err := a.auth.Setup(req.name(), req.Password, req.MFARequired)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	a.startSession(w, u.Name)
+	a.startSession(w, u.Name, false)
 }
 
 func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
@@ -253,7 +257,7 @@ func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.loginLimiter.Succeed(client)
-	a.startSession(w, u.Name)
+	a.startSession(w, u.Name, false)
 }
 
 func (a *app) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
@@ -274,12 +278,16 @@ func (a *app) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 // a session that must change it may do. Every session of the account
 // ends; this one starts again.
 func (a *app) handleAuthPassword(w http.ResponseWriter, r *http.Request) {
-	u, _, ok := a.session(r)
+	u, ss, ok := a.session(r)
 	if !ok {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
 	noteAudit(r, u.Name, "session")
+	if slices.Contains(a.auth.Needs(u, ss), "mfa") {
+		writeError(w, http.StatusForbidden, needsMessage["mfa"])
+		return
+	}
 	var req struct {
 		Current string `json:"current_password"`
 		New     string `json:"new_password"`
@@ -300,11 +308,12 @@ func (a *app) handleAuthPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a.startSession(w, u.Name)
+	a.startSession(w, u.Name, ss.MFA)
 }
 
-func (a *app) startSession(w http.ResponseWriter, user string) {
-	token, err := a.auth.NewSession(user)
+// startSession signs user in - mfa: the sign-in gave its second factor.
+func (a *app) startSession(w http.ResponseWriter, user string, mfa bool) {
+	token, err := a.auth.NewSession(user, mfa)
 	if err != nil {
 		http.Error(w, "create session: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -338,13 +347,15 @@ type userView struct {
 	CreatedAt          time.Time  `json:"created_at"`
 	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
 	Tokens             int        `json:"tokens"`
+	// MFA: the account has a second factor.
+	MFA bool `json:"mfa"`
 	// Password is set once: the one the Controller made for a new
 	// account or a reset, to hand over.
 	Password string `json:"password,omitempty"`
 }
 
 func (a *app) viewUser(u auth.User) userView {
-	return userView{Name: u.Name, Role: u.Role, Disabled: u.Disabled, MustChangePassword: u.MustChangePassword, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt, Tokens: len(a.tokens.List(u.Name))}
+	return userView{Name: u.Name, Role: u.Role, Disabled: u.Disabled, MustChangePassword: u.MustChangePassword, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt, Tokens: len(a.tokens.List(u.Name)), MFA: u.MFA.Enabled()}
 }
 
 func (a *app) registerUserRoutes(mux *http.ServeMux) {
@@ -415,9 +426,18 @@ func (a *app) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		// makes, answered once - its sessions end, and its owner changes
 		// it at the next sign-in.
 		ResetPassword bool `json:"reset_password"`
+		// ResetMFA takes its second factors away (a lost phone or key):
+		// its sessions end; it sets one up again if its role needs one.
+		ResetMFA bool `json:"reset_mfa"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
+	}
+	if req.ResetMFA {
+		if err := a.auth.ResetMFA(r.PathValue("name")); err != nil {
+			writeError(w, userErrorStatus(err), err.Error())
+			return
+		}
 	}
 	c := auth.Change{Role: req.Role, Disabled: req.Disabled}
 	var password string
@@ -465,19 +485,40 @@ func (a *app) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleSettingsGet(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, a.auth.Settings())
+	writeJSON(w, http.StatusOK, settingsView(a.auth.Settings()))
 }
 
+// settingsView is the policy with its MFA default spelled out.
+func settingsView(p auth.Settings) auth.Settings {
+	p.MFARequired = p.MFAPolicy()
+	return p
+}
+
+// handleSettingsSet changes the fields given, the others kept.
 func (a *app) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
-	var req auth.Settings
+	var req struct {
+		SessionIdleMinutes *int    `json:"session_idle_minutes"`
+		SessionMaxHours    *int    `json:"session_max_hours"`
+		MFARequired        *string `json:"mfa_required"`
+	}
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if err := a.auth.SetSettings(req); err != nil {
+	next := a.auth.Settings()
+	if req.SessionIdleMinutes != nil {
+		next.SessionIdleMinutes = *req.SessionIdleMinutes
+	}
+	if req.SessionMaxHours != nil {
+		next.SessionMaxHours = *req.SessionMaxHours
+	}
+	if req.MFARequired != nil {
+		next.MFARequired = *req.MFARequired
+	}
+	if err := a.auth.SetSettings(next); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, a.auth.Settings())
+	writeJSON(w, http.StatusOK, settingsView(a.auth.Settings()))
 }
 
 func (a *app) handleAudit(w http.ResponseWriter, r *http.Request) {

@@ -151,7 +151,7 @@ wait_for() { # wait_for SECONDS DESCRIPTION FUNCTION
 }
 controller_up() { curl -sk -o /dev/null "https://127.0.0.1:$MAIN_PORT/api/auth/status"; }
 wait_for 60 "the Controller" controller_up
-api -o /dev/null -H 'Content-Type: application/json' -d "{\"password\":\"$PASSWORD\"}" "https://127.0.0.1:$MAIN_PORT/api/auth/setup"
+api -o /dev/null -H 'Content-Type: application/json' -d "{\"password\":\"$PASSWORD\",\"mfa_required\":\"nobody\"}" "https://127.0.0.1:$MAIN_PORT/api/auth/setup"
 [ "$(login)" = 204 ] || fail "can't sign in"
 identity() { echo | openssl s_client -connect "127.0.0.1:$MAIN_PORT" 2>/dev/null | openssl x509 -noout -fingerprint -sha256; }
 IDENTITY=$(identity)

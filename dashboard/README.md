@@ -286,6 +286,19 @@ Sessions end after 30 minutes nobody touched the page, and 12 hours
 after the sign-in at most - both on the **Accounts** tab. A page left
 open refreshing itself doesn't count as use.
 
+**A second factor** - an authenticator app's code (TOTP), or a passkey
+or security key (WebAuthn) - finishes every sign-in of an account that
+has one; ten recovery codes come with the first, each good once. The
+policy (**Accounts** tab, or the first run's check box) says who must
+have one: admins by default, everyone, or nobody. Such an account
+without any sets one up at its next sign-in, before anything else -
+including the admin of a Controller updated from before second factors.
+The authenticator secrets are sealed with the Controller's master key;
+an admin's **Reset 2FA** takes an account's factors away (a lost phone).
+Passkeys need the Controller opened by its name, with a certificate the
+browser trusts - a self-signed one clicked through isn't: browsers
+refuse passkeys there, and an authenticator app works anywhere.
+
 The **Audit** tab is every change made on the Controller - from its
 pages or with an API token - and every sign-in, failed or not, with who
 made it (`<data-dir>/audit.jsonl`, and the container's log). What the
@@ -298,7 +311,8 @@ docker exec janus-controller /dashboardd reset-user admin
 ```
 
 prints a new password for that account - to change at the next sign-in
--, enables it, and makes it an admin if it doesn't exist. The running
+-, takes its second factors away, enables it, and makes it an admin if
+it doesn't exist. The running
 Controller takes it at once.
 
 ### API tokens and Terraform

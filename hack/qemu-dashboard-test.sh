@@ -155,6 +155,7 @@
 #
 # Usage: hack/qemu-dashboard-test.sh <disk.img> <dashboardd-bin>
 set -euo pipefail
+HACK="$(cd "$(dirname "$0")" && pwd)"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -261,6 +262,21 @@ second_setup_code="$(curl -sk -o /dev/null -w '%{http_code}' -X POST "https://12
 # expiry/name/value - the 4th field is TRUE/FALSE for Secure.
 grep -P 'janus_session' "$COOKIE_JAR" | awk -F'\t' '{print $4}' | grep -qx TRUE || { echo "Dashboard test FAILED: session cookie isn't marked Secure: $(cat "$COOKIE_JAR")" >&2; exit 1; }
 echo "Auth OK: /api/nodes refused with no session, setup validated (short password, second-setup refusal), session cookie established and marked Secure"
+
+# The admin needs a second factor (the default policy): nothing but
+# setting one up until then - an authenticator app here, its codes
+# computed like the app would (hack/totp.py).
+API="https://127.0.0.1:${DASHBOARD_ADDR_PORT}"
+before_mfa="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "$API/api/nodes")"
+[ "$before_mfa" = 403 ] || { echo "Dashboard test FAILED: an admin without a second factor read /api/nodes ($before_mfa)" >&2; exit 1; }
+curl -sk -b "$COOKIE_JAR" -X POST "$API/api/auth/mfa/totp/setup" -o "$WORKDIR/totp.json"
+TOTP_SECRET="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["secret"])' "$WORKDIR/totp.json")"
+curl -sk -b "$COOKIE_JAR" -X POST "$API/api/auth/mfa/totp/enable" -H 'Content-Type: application/json' -d "{\"code\":\"$(python3 "$HACK/totp.py" "$TOTP_SECRET")\"}" -o "$WORKDIR/recovery.json"
+python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["recovery_codes"]; assert len(c) == 10, c' "$WORKDIR/recovery.json" || { echo "Dashboard test FAILED: setting the authenticator app up: $(cat "$WORKDIR/recovery.json")" >&2; exit 1; }
+after_mfa="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "$API/api/nodes")"
+[ "$after_mfa" = 200 ] || { echo "Dashboard test FAILED: after setting a second factor up, /api/nodes answered $after_mfa" >&2; exit 1; }
+grep -q "$TOTP_SECRET" "$WORKDIR/data/users.json" && { echo "Dashboard test FAILED: the authenticator secret is in users.json in the clear" >&2; exit 1; }
+echo "Second factor OK: the admin set an authenticator app up before anything else, got 10 recovery codes, its secret sealed"
 
 # Accounts: a reader made by the admin chooses their password, reads,
 # and is refused every change - recorded in the audit with their name.
@@ -786,6 +802,9 @@ stale_session_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "
 [ "$stale_session_code" = "401" ] || { echo "Dashboard test FAILED: a pre-restart session should not survive dashboardd restarting, got $stale_session_code" >&2; exit 1; }
 relogin_code="$(curl -sk -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/auth/login" -H "Content-Type: application/json" -d '{"password":"dashboard-test-admin-pw"}')"
 [ "$relogin_code" = "204" ] || { echo "Dashboard test FAILED: re-login after restart with the same (persisted) password should succeed, got $relogin_code" >&2; exit 1; }
+# Its second factor: the next code (the current one may be the one used).
+code_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/auth/mfa/totp" -H 'Content-Type: application/json' -d "{\"code\":\"$(python3 "$HACK/totp.py" "$TOTP_SECRET" 1)\"}")"
+[ "$code_code" = "204" ] || { echo "Dashboard test FAILED: the second factor after the restart (the master key opening the secret) answered $code_code" >&2; exit 1; }
 echo "Auth persistence OK: the admin password survives a restart, the session doesn't - a fresh login is required"
 
 PENDING_AFTER_RESTART="$(curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/pending")"
