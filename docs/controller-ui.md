@@ -9,14 +9,22 @@ the API it drives is in [`api-routes.md`](api-routes.md).
 | Page | Served on | Source | Built into |
 |---|---|---|---|
 | Node list (login, approvals, node cards, provisioning) | the main port | `dashboard/frontend/index.html`, `src/App.jsx` | `dashboard/backend/static` |
-| One node's page | that node's own mTLS listener (`9500`-`9599`) | `dashboard/frontend/node/index.html`, `src/node/` | `dashboard/backend/internal/nodeproxy/static` |
+| One node's page | the main port, under `/nodes/<id>/` (`node_pages.go`) | `dashboard/frontend/node/index.html`, `src/node/` | `dashboard/backend/internal/nodeproxy/static` |
 
-They are separate origins on purpose: the browser negotiates the node's
-client certificate per origin, so a node's page can't be a view inside
-the main page (see `nodeproxy.go`'s package doc). Only an `os:admin`
-certificate opens a node's page (`requireAdminCertificate`): the
-Controller acts on the node with its admin service credential whatever
-the browser presents, so a reader certificate gets a 403 explaining it. They share everything
+The node page is a second app on the same origin, opened in its own tab
+(`openNode`): built with relative assets (`vite.node.config.js`'s
+`base: './'`), its API calls go through `apiURL` (`src/shared/base.js`:
+`/api/...` under `/nodes/<id>`), with the session cookie. Its static
+files are public like the main page's; its API needs a reader for a
+read and an operator for a change, and the Controller relays it for the
+account (`nodeproxy.WithUser`, `os:<role>`) - the node checks that role
+itself, and refuses what the role doesn't allow (403 with the node's
+message). A node that doesn't trust the fleet yet is reached with its
+service credential: only an admin uses its page. The page shows the
+account in the sidebar (`/api/me`), a banner for a reader, and a banner
+when the session ended (`SIGNED_OUT` from `api.js`). Its reads are
+background requests unless the user touched the page in the last
+minute (`src/shared/activity.js`). They share everything
 else from `src/shared/`:
 
 - `theme.css` - design tokens (`--bg`, `--surface`, `--text`, `--muted`,
@@ -318,16 +326,21 @@ scroll.
    through the API, then every touched page in a real browser - both
    themes, zero page/console errors, zero failed requests, and each new
    action actually performed and its effect checked on the node.
-   Headless Chromium with Playwright works well for this; the per-node
-   origin needs the node's client certificate:
+   Headless Chromium with Playwright works well for this - sign in
+   through the page, for each role the change concerns:
 
    ```js
    const ctx = await browser.newContext({
      ignoreHTTPSErrors: true, // the Controller's self-signed identity
      colorScheme: 'dark',
-     clientCertificates: [{ origin: 'https://127.0.0.1:9500', certPath: 'admin.crt', keyPath: 'admin.key' }],
    })
    ```
+
+   Passkeys need a certificate Chromium accepts (it refuses WebAuthn on
+   a certificate error): launch it with
+   `--ignore-certificate-errors-spki-list=<the identity's SPKI SHA-256>`
+   and open `https://localhost`, then add a virtual authenticator (CDP
+   `WebAuthn.addVirtualAuthenticator`).
 
    Look at the screenshots, not only at the absence of errors.
 4. Anything the `local-dev` container can't show (dmesg, A/B slots,

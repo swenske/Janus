@@ -35,13 +35,10 @@ import { SecurityBadge } from './SecurityBadge.jsx'
 import { worstSeverity } from './severity.js'
 import { Badge, Card, ErrorBox, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
 
-// dashboardd serves this SPA and its REST API on the same origin (its own
-// -addr) - see dashboard/backend/main.go. Each *node's own* page lives on
-// a different origin (its own allocated port, see dashboard/backend/
-// internal/nodeproxy): opening it is a full navigation, not a fetch - that
-// origin needs a TLS client certificate the browser negotiates per origin.
+// A node's page is on this origin too, under /nodes/<id>/ (dashboard/
+// backend/internal/nodeproxy): it acts for the signed-in account.
 function openNode(node) {
-  window.open(`https://${window.location.hostname}:${node.port}/`, '_blank', 'noopener,noreferrer')
+  window.open(`/nodes/${node.id}/`, '_blank', 'noopener')
 }
 
 function uptime(bootUnix) {

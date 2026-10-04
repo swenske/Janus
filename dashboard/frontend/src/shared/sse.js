@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { apiURL } from './base.js'
 
 // useSSE follows a Server-Sent Events stream while enabled; onMessage
 // gets each data payload, onFailure a node-side error ("failure" event).
@@ -13,7 +14,7 @@ export function useSSE(url, { enabled = true, onMessage, onFailure }) {
       return undefined
     }
     setStatus('connecting')
-    const es = new EventSource(url)
+    const es = new EventSource(apiURL(url))
     es.onopen = () => setStatus('live')
     es.onmessage = (e) => handlers.current.onMessage?.(e.data)
     es.addEventListener('failure', (e) => {

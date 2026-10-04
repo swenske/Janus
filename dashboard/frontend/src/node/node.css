@@ -227,3 +227,5 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 /* The sidebar's "Add or remove apps…" */
 .nav-item.nav-link { color: var(--muted); }
 .nav-item.nav-link:hover { color: var(--text); }
+.user-chip { display: flex; align-items: center; gap: 0.35rem; margin: 0 0.6rem 0.6rem; padding: 0.3rem 0.5rem; border-radius: var(--radius-sm); color: inherit; text-decoration: none; font-size: 0.9em; white-space: nowrap; }
+.user-chip:hover { background: var(--surface-2); }

@@ -1,6 +1,11 @@
-// Everything here talks to this node's own listener (same origin): the
-// Janus Controller relays each call to the node with its own service
-// credential - see dashboard/backend/internal/nodeproxy.
+import { backgroundHeaders, SIGNED_OUT } from '../shared/activity.js'
+import { apiURL } from '../shared/base.js'
+
+// Everything here is this node's API on the Controller (/nodes/<id>/api/,
+// same origin, the session cookie): the Controller relays each call to
+// the node for the signed-in account - see dashboard/backend/internal/
+// nodeproxy. A read is a background request unless the user just touched
+// the page (the views refresh themselves); a 401 means the session ended.
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -10,12 +15,14 @@ export class ApiError extends Error {
 }
 
 async function request(path, opts = {}) {
+  const read = !opts.method || opts.method === 'GET'
   let resp
   try {
-    resp = await fetch(path, opts)
+    resp = await fetch(apiURL(path), read ? { ...opts, headers: { ...(opts.headers || {}), ...backgroundHeaders() } } : opts)
   } catch (err) {
     throw new ApiError(`Controller unreachable: ${err.message}`, 0)
   }
+  if (resp.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
   if (!resp.ok) {
     const text = (await resp.text()).trim()
     throw new ApiError(text || `${resp.status} ${resp.statusText}`, resp.status)

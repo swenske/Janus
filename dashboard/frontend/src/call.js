@@ -1,3 +1,5 @@
+import { backgroundHeaders, SIGNED_OUT } from './shared/activity.js'
+
 // call is the main page's fetch: same origin, the session cookie, JSON
 // back. An error carries the Controller's message - the body as is, or
 // its "error" field for the endpoints that answer {"error": ...}.
@@ -26,18 +28,7 @@ export async function call(path, opts = {}) {
   return text ? JSON.parse(text) : null
 }
 
-export const SIGNED_OUT = 'janus-signed-out'
-
-const ACTIVE_FOR = 60 * 1000
-let lastActivity = Date.now()
-for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) {
-  window.addEventListener(ev, () => (lastActivity = Date.now()), { passive: true, capture: true })
-}
-
-// backgroundHeaders are the headers of a request the page makes by itself.
-export function backgroundHeaders() {
-  return Date.now() - lastActivity > ACTIVE_FOR ? { 'X-Janus-Background': '1' } : {}
-}
+export { backgroundHeaders, SIGNED_OUT }
 
 export function postJSON(path, body, method = 'POST') {
   return call(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) })

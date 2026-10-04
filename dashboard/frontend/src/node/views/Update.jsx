@@ -1,6 +1,7 @@
 import { Archive, CircleCheck, ExternalLink, Loader2, Puzzle, RefreshCcw, Rocket, Upload as UploadIcon, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, postJSON } from '../api.js'
+import { apiURL } from '../../shared/base.js'
 import { Badge, Card, ErrorBox, Loading, PageHeader, Tabs, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
 import { bytes, dateTime } from '../format.js'
 import { usePoll } from '../hooks.jsx'
@@ -96,8 +97,8 @@ export default function Update({ route = '' }) {
       body: (
         <>
           <p>
-            The new system is written to slot <strong>{slot}</strong> (the one not running), then the node reboots into it. The current slot stays intact, so{' '}
-            <em>Rollback</em> can always go back.
+            The new system is written to slot <strong>{slot}</strong> (the one not running), then the node reboots into it. The current slot stays intact, so <em>Rollback</em> can
+            always go back.
           </p>
           {waitHealth ? (
             <p>If HAProxy isn't healthy on the new slot within {timeout || 60} s, the node reverts to the current slot on its own.</p>
@@ -106,7 +107,8 @@ export default function Update({ route = '' }) {
           )}
           {allowUnsigned && (
             <p>
-              <strong>The bundle's signature won't be checked.</strong> Whoever could alter it on its way to the node controls what the node boots - only for a development build you produced yourself.
+              <strong>The bundle's signature won't be checked.</strong> Whoever could alter it on its way to the node controls what the node boots - only for a development build
+              you produced yourself.
             </p>
           )}
           {targetActive && target.schematic_change ? (
@@ -124,7 +126,12 @@ export default function Update({ route = '' }) {
       danger: true,
     })
     if (!ok) return
-    const health = { wait_for_health: waitHealth, health_timeout_seconds: Number(timeout) || 0, insecure_skip_signature_check: allowUnsigned, allow_schematic_change: allowSchematic }
+    const health = {
+      wait_for_health: waitHealth,
+      health_timeout_seconds: Number(timeout) || 0,
+      insecure_skip_signature_check: allowUnsigned,
+      allow_schematic_change: allowSchematic,
+    }
     const result = await run(async () => {
       if (mode === 'url') return postJSON('/api/lifecycle/upgrade-url', { reference, sha256: sha, ...health })
       if (mode === 'relay') return relayUpgrade({ reference, sha256: sha, ...health }, setRelay)
@@ -135,7 +142,7 @@ export default function Update({ route = '' }) {
       form.append('health_timeout_seconds', String(Number(timeout) || 0))
       form.append('insecure_skip_signature_check', String(allowUnsigned))
       form.append('allow_schematic_change', String(allowSchematic))
-      const resp = await fetch('/api/lifecycle/upgrade-upload', { method: 'POST', body: form })
+      const resp = await fetch(apiURL('/api/lifecycle/upgrade-upload'), { method: 'POST', body: form })
       if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
       return resp.json()
     })
@@ -157,7 +164,12 @@ export default function Update({ route = '' }) {
             label="Installing and rebooting"
             onBack={(o) => {
               const now = o.version?.version
-              toast(now && now !== following.from ? `Back on ${now} (slot ${o.version?.active_slot})` : `The node is back on ${now} - if that's the old version, the new one may have been reverted`, now !== following.from ? 'ok' : 'warn')
+              toast(
+                now && now !== following.from
+                  ? `Back on ${now} (slot ${o.version?.active_slot})`
+                  : `The node is back on ${now} - if that's the old version, the new one may have been reverted`,
+                now !== following.from ? 'ok' : 'warn',
+              )
               setFollowing(null)
               overview.reload()
             }}
@@ -216,11 +228,13 @@ export default function Update({ route = '' }) {
         <Card
           title={uc && !uc.default_schematic ? 'Latest update for this schematic' : 'Latest release'}
           icon={Rocket}
-          actions={uc?.release_url && (
-            <a href={uc.release_url} target="_blank" rel="noreferrer">
-              Release notes <ExternalLink size={12} />
-            </a>
-          )}
+          actions={
+            uc?.release_url && (
+              <a href={uc.release_url} target="_blank" rel="noreferrer">
+                Release notes <ExternalLink size={12} />
+              </a>
+            )
+          }
         >
           {check.error ? (
             <div className="muted">Unavailable: {String(check.error.message)}</div>
@@ -270,8 +284,7 @@ export default function Update({ route = '' }) {
         <Card title="Install a release" icon={UploadIcon}>
           {targetActive && (
             <div className="notice" style={{ marginBottom: '0.75rem' }}>
-              Installs <strong className="mono">{target.latest}</strong>{' '}
-              {target.source === 'github' ? 'from its GitHub release, ' : 'built by the image factory '}
+              Installs <strong className="mono">{target.latest}</strong> {target.source === 'github' ? 'from its GitHub release, ' : 'built by the image factory '}
               {target.extensions.length ? (
                 <>
                   with <ExtensionBadges names={target.extensions} />
@@ -330,10 +343,12 @@ export default function Update({ route = '' }) {
               {waitHealth && <input type="number" min={0} style={{ width: '9rem' }} placeholder="timeout (60 s)" value={timeout} onChange={(e) => setTimeoutS(e.target.value)} />}
             </div>
             <label className="check">
-              <input type="checkbox" checked={allowUnsigned} onChange={(e) => setAllowUnsigned(e.target.checked)} /> Accept a bundle not signed with a Janus release key (insecure - development builds only)
+              <input type="checkbox" checked={allowUnsigned} onChange={(e) => setAllowUnsigned(e.target.checked)} /> Accept a bundle not signed with a Janus release key (insecure -
+              development builds only)
             </label>
             <label className="check">
-              <input type="checkbox" checked={allowSchematic} onChange={(e) => setAllowSchematic(e.target.checked)} /> Accept a bundle built from another image schematic (changes the node's extensions)
+              <input type="checkbox" checked={allowSchematic} onChange={(e) => setAllowSchematic(e.target.checked)} /> Accept a bundle built from another image schematic (changes
+              the node's extensions)
             </label>
             <p className="muted small" style={{ margin: 0 }}>
               The node checks the release signature before writing anything; the sha256 above is only an early consistency check.
@@ -478,8 +493,8 @@ function ChangeExtensions({ uc, onReady, onClose }) {
         ) : (
           <div className="stack">
             <p className="muted small" style={{ margin: 0 }}>
-              A node runs the extensions built into its image. The image factory ({host}) builds the newest release, {catalog.data.version}, with the extensions chosen
-              here and signs it with the Janus release key; installing it is the usual update below - A/B, with automatic rollback.
+              A node runs the extensions built into its image. The image factory ({host}) builds the newest release, {catalog.data.version}, with the extensions chosen here and
+              signs it with the Janus release key; installing it is the usual update below - A/B, with automatic rollback.
             </p>
             <div className="ext-list">
               {list.map((e) => {
@@ -554,7 +569,7 @@ function Preparation({ prep }) {
 // progress line it streams (NDJSON) to onProgress; the last line says
 // whether it worked.
 async function relayUpgrade(body, onProgress) {
-  const resp = await fetch('/api/lifecycle/upgrade-relay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const resp = await fetch(apiURL('/api/lifecycle/upgrade-relay'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
   const reader = resp.body.getReader()
   const decoder = new TextDecoder()

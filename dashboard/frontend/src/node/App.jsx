@@ -28,8 +28,10 @@ import {
   Waypoints,
   Workflow,
   Lock,
+  UserRound,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { SIGNED_OUT } from '../shared/activity.js'
 import { Logo, ThemeToggle } from '../shared/theme.jsx'
 import { Badge } from '../shared/ui.jsx'
 import { SecurityBadge } from '../SecurityBadge.jsx'
@@ -151,6 +153,14 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false)
   const { latest, error } = useMetrics()
   const node = usePoll('/api/node', { every: 0 })
+  const me = usePoll('/api/me', { every: 0 })
+  const [ended, setEnded] = useState(false)
+  useEffect(() => {
+    const onEnded = () => setEnded(true)
+    window.addEventListener(SIGNED_OUT, onEnded)
+    return () => window.removeEventListener(SIGNED_OUT, onEnded)
+  }, [])
+  const role = (me.data?.roles?.[0] || '').replace(/^os:/, '')
   const modules = usePoll('/api/network/modules', { every: 0 })
   const check = usePoll('/api/update-check', { every: 120000 })
   const overview = usePoll('/api/system/overview', { every: 60000 })
@@ -185,6 +195,11 @@ export default function App() {
             <div className="muted small">Controller{node.data?.controller_version ? <span className="mono"> {node.data.controller_version}</span> : null}</div>
           </div>
         </div>
+        {me.data && (
+          <a href="/" className="user-chip" title="The Controller account this page acts for - back to the Controller">
+            <UserRound size={14} /> {me.data.name} {role && <Badge>{role}</Badge>}
+          </a>
+        )}
         <nav>
           {NAV.map((g) => (
             <div key={g.group} className="nav-group">
@@ -196,7 +211,10 @@ export default function App() {
                     <item.icon size={16} />
                     <span className="grow">{item.label}</span>
                     {item.path === '/system/update' && (securityUpdate || updateAvailable) && (
-                      <span className={`nav-dot ${securityUpdate ? securityTone(securityUpdate) : ''}`} title={securityUpdate ? securityText(securityUpdate) : 'Update available'} />
+                      <span
+                        className={`nav-dot ${securityUpdate ? securityTone(securityUpdate) : ''}`}
+                        title={securityUpdate ? securityText(securityUpdate) : 'Update available'}
+                      />
                     )}
                   </a>
                 )
@@ -226,7 +244,11 @@ export default function App() {
               </Badge>
             )}
             {version && (
-              <a href="#/system/update" className="version-link" title={securityUpdate ? securityText(securityUpdate) : updateAvailable ? `Update available: ${latestTag}` : 'Up to date'}>
+              <a
+                href="#/system/update"
+                className="version-link"
+                title={securityUpdate ? securityText(securityUpdate) : updateAvailable ? `Update available: ${latestTag}` : 'Up to date'}
+              >
                 <Badge tone={updateAvailable ? 'accent' : ''}>{version}</Badge>
                 {securityUpdate ? (
                   <SecurityBadge severity={securityUpdate}>security update → {latestTag}</SecurityBadge>
@@ -240,15 +262,21 @@ export default function App() {
           <RefreshSelect />
           <ThemeToggle />
         </header>
-        {error && (
+        {error && !ended && (
           <div className="banner danger">
             <AlertTriangle size={16} /> Can't reach the node: {String(error.message || error)} - retrying.
           </div>
         )}
         {node.data?.locked_by && (
           <div className="banner info">
-            <Lock size={16} /> Managed by {node.data.locked_by} and locked: its network and updates are changed there - this page refuses them. Release it on the
-            Controller&apos;s Hypervisors tab to change them here.
+            <Lock size={16} /> Managed by {node.data.locked_by} and locked: its network and updates are changed there - this page refuses them. Release it on the Controller&apos;s
+            Hypervisors tab to change them here.
+          </div>
+        )}
+        {role === 'reader' && <div className="banner info">You&apos;re a reader: this page shows everything and changes nothing - the node refuses it.</div>}
+        {ended && (
+          <div className="banner warn">
+            Your session on the Controller ended. <a href="/">Sign in again</a>, then reload this page.
           </div>
         )}
         <main className="content">

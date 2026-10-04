@@ -1,6 +1,7 @@
 import { Copy, KeyRound } from 'lucide-react'
 import { useState } from 'react'
 import { download, postJSON } from '../api.js'
+import { usePoll } from '../hooks.jsx'
 import { Card, PageHeader, useAction, useToast } from '../../shared/ui.jsx'
 
 function PemBlock({ label, value, file }) {
@@ -50,6 +51,7 @@ const VALIDITIES = [
 ]
 
 export default function Access() {
+  const node = usePoll('/api/node', { every: 0 }).data
   const [role, setRole] = useState('os:reader')
   const [format, setFormat] = useState('pfx')
   const [name, setName] = useState('')
@@ -85,7 +87,7 @@ export default function Access() {
               <label className="field">
                 <span>Format</span>
                 <select value={format} onChange={(e) => setFormat(e.target.value)}>
-                  <option value="pfx">.pfx (browser / Controller import)</option>
+                  <option value="pfx">.pfx (to add the node to a Controller)</option>
                   <option value="pem">PEM files (janusctl)</option>
                 </select>
               </label>
@@ -120,9 +122,6 @@ export default function Access() {
               </label>
             )}
             {role === 'os:admin' && <div className="notice warn">An admin certificate gives full control of this node, including reboot, reset and issuing more certificates.</div>}
-            {role === 'os:reader' && format === 'pfx' && (
-              <div className="notice">A reader certificate doesn't open this page in a browser - the Controller acts on the node as admin. Use it with janusctl.</div>
-            )}
             <div>
               <button className="primary" disabled={busy}>
                 <KeyRound size={15} /> Issue certificate
@@ -133,9 +132,9 @@ export default function Access() {
         <Card title="About node access">
           <div className="stack">
             <p style={{ margin: 0 }}>
-              Every Janus node has its own certificate authority. A certificate issued here is signed by this node's CA, carries the name you give it and is valid for the time
-              you choose - one year at most. It works with <code>janusctl</code> (PEM) and, as an admin <code>.pfx</code>, for opening this page in a browser or adding the node to
-              another Controller.
+              Every Janus node has its own certificate authority. A certificate issued here is signed by this node's CA, carries the name you give it and is valid for the time you
+              choose - one year at most. It works with <code>janusctl</code> (PEM) and, as an admin <code>.pfx</code>, for adding the node to another Controller. This page needs
+              none: it acts for your Controller account.
             </p>
             <p className="muted" style={{ margin: 0 }}>
               The private key is generated on the node and passed through the Controller to your browser once - it isn't stored. There is no revocation yet: keep issued
@@ -151,7 +150,7 @@ export default function Access() {
             <PemBlock label="Client certificate" value={pem.crt} file="client.crt" />
             <PemBlock label="Private key" value={pem.key} file="client.key" />
             <div className="muted small">
-              Use with: <code>janusctl -ca ca.crt -cert client.crt -key client.key -endpoint {window.location.hostname}:9505 version</code>
+              Use with: <code>janusctl -ca ca.crt -cert client.crt -key client.key -endpoint {node?.address || 'NODE:9505'} version</code>
             </div>
           </div>
         </Card>
