@@ -16,16 +16,43 @@ Status column: ✅ implemented · ⬜ contract defined, returns
 `cmd/janusd`) - there is no plaintext or unauthenticated mode. A
 node generates its own CA + server certificate + an initial admin client
 certificate on first boot; `GenerateClientConfiguration` issues
-additional client certificates once you already have one.
+additional client certificates once you already have one. Once it trusts
+a fleet (`AccessService` below), the client certificates of the fleet's
+issuing CAs let in too.
 
 **Every RPC is also role-checked** against the caller's certificate
 (`internal/api/authz.go`, fail-closed - an RPC with no explicit entry
-defaults to admin-only). Two roles: `os:admin` (everything) and
-`os:reader` (the ✅ methods marked "read-only" in the tables below, plus
-`Version`/`Hostname`/`Events`/`GetConfig`/`ValidateConfig`/`*Status`/
-`*List`/`*Get` - status and observability RPCs only, not file/log/
-packet-capture access or credential issuance, even though some of those
-are also technically non-mutating).
+defaults to admin-only). Three roles:
+
+- `os:reader`: status and observability - `Version`/`Hostname`/`Events`/
+  `GetConfig`/`ValidateConfig`/`*Status`/`*List`/`*Get` - not file/log/
+  packet-capture access or credential issuance, even though some of those
+  are also technically non-mutating;
+- `os:operator`: a reader that also runs what's set up - HAProxy's
+  configuration, reload, servers' state, maps, ACLs, certificates, files,
+  ACME; services and their logs; reboot, shutdown, janusd restart - not
+  how the node is set up (network, firewall, VRRP/BGP/Consul, upgrades,
+  reset, its files, packet capture, credentials, its fleet);
+- `os:admin`: everything.
+
+A Controller certificate (`janus:controller`) has no right of its own: it
+names the user it acts for in each call's metadata (`janus-as-user`,
+`janus-as-roles`) and the call gets that user's roles. Every call that
+isn't read-only is logged by janusd with who made it (`api:
+HAProxyService/ApplyConfig: alice (os:operator) via janus-controller`).
+
+## AccessService
+
+The fleet a node trusts besides its own CA (`internal/pki/fleet.go`): it
+pins the fleet's root once, then only takes a bundle that root signed,
+newer than its own, listing the issuing CAs whose certificates let in - a
+certificate the root signed itself lets in too. Its own CA always does.
+
+| Method | Streaming | Status | Purpose |
+|---|---|---|---|
+| `TrustGet` | | ✅ | The fleet's root, the bundle's version and issuing CAs (read-only) |
+| `TrustSet` | | ✅ | Pin the root (the first time) and apply a bundle it signed, newer than the node's - admin |
+| `TrustReset` | | ✅ | Forget the fleet - admin, and only with a certificate of the node's own CA |
 
 ## SystemService
 

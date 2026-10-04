@@ -95,6 +95,12 @@ var requiredRoles = map[string][]string{
 	"/janus.v1alpha1.LifecycleService/Rollback":          adminOnly,
 	"/janus.v1alpha1.LifecycleService/UploadReleaseFile": adminOnly, // writes to persistent STATE storage, same trust level as Upgrade itself
 
+	// AccessService - a fleet's trust decides who else gets in: admin,
+	// and TrustReset only through the node's own CA (access.go).
+	"/janus.v1alpha1.AccessService/TrustGet":   readers,
+	"/janus.v1alpha1.AccessService/TrustSet":   adminOnly,
+	"/janus.v1alpha1.AccessService/TrustReset": adminOnly,
+
 	// HAProxyService
 	"/janus.v1alpha1.HAProxyService/GetConfig":         readers,
 	"/janus.v1alpha1.HAProxyService/ApplyConfig":       operators,

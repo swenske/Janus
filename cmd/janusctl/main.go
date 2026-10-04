@@ -21,6 +21,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
@@ -30,6 +31,10 @@ import (
 )
 
 var version = "dev"
+
+// actingFor is the metadata through which a Controller certificate says
+// whom it acts for (-as-user, -as-roles; internal/api/authz.go).
+var actingFor metadata.MD
 
 func main() {
 	endpoint := flag.String("endpoint", "127.0.0.1:9505", "janusd gRPC endpoint")
@@ -42,7 +47,12 @@ func main() {
 	caFile := flag.String("ca", "/etc/janus/pki/ca.crt", "path to the CA certificate")
 	certFile := flag.String("cert", "/etc/janus/pki/admin.crt", "path to the client certificate")
 	keyFile := flag.String("key", "/etc/janus/pki/admin.key", "path to the client private key")
+	asUser := flag.String("as-user", "", "with a Controller certificate (role janus:controller): the user the calls are made for")
+	asRoles := flag.String("as-roles", "", "with -as-user: that user's roles, comma-separated (os:admin, os:operator, os:reader)")
 	flag.Parse()
+	if *asUser != "" || *asRoles != "" {
+		actingFor = metadata.Pairs(pki.AsUserKey, *asUser, pki.AsRolesKey, *asRoles)
+	}
 
 	if flag.NArg() == 0 {
 		usage()
@@ -80,6 +90,8 @@ func main() {
 		runHAProxy(conn, flag.Args()[1:])
 	case "pki":
 		runPKI(conn, flag.Args()[1:])
+	case "access":
+		runAccess(conn, flag.Args()[1:])
 	case "lifecycle":
 		runLifecycle(conn, flag.Args()[1:])
 	case "network":
@@ -112,7 +124,17 @@ func dial(endpoint, caFile, certFile, keyFile string) (*grpc.ClientConn, error) 
 		return nil, fmt.Errorf("build TLS config: %w", err)
 	}
 
-	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+	if actingFor != nil {
+		opts = append(opts,
+			grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, o ...grpc.CallOption) error {
+				return invoker(metadata.NewOutgoingContext(ctx, actingFor), method, req, reply, cc, o...)
+			}),
+			grpc.WithChainStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, o ...grpc.CallOption) (grpc.ClientStream, error) {
+				return streamer(metadata.NewOutgoingContext(ctx, actingFor), desc, cc, method, o...)
+			}))
+	}
+	conn, err := grpc.NewClient(endpoint, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", endpoint, err)
 	}
@@ -229,6 +251,9 @@ func usage() {
 		fmt.Fprintln(os.Stderr, "  "+line)
 	}
 	for _, line := range acmeUsage {
+		fmt.Fprintln(os.Stderr, "  "+line)
+	}
+	for _, line := range accessUsage {
 		fmt.Fprintln(os.Stderr, "  "+line)
 	}
 	fmt.Fprintln(os.Stderr, "  pki generate-client-config [-role os:admin|os:reader] [-name NAME] [-ttl DURATION] DIR  issue a new client certificate (named NAME, valid DURATION - one year at most), write ca.crt/client.crt/client.key to DIR")

@@ -104,11 +104,23 @@ included (`internal/api/secretfiles.go`). No other API returns them
 either: without this, an `os:admin` certificate could read the CA's key
 and mint itself certificates valid long after its own expired.
 
+A node also trusts its **fleet** once it joined one: it pins the fleet's
+root CA - whose key stays offline - and applies the bundles that root
+signs, each newer than the last, listing the issuing CAs whose client
+certificates it accepts (`internal/pki/fleet.go`, `AccessService`). An
+issuing CA leaves the fleet with the next bundle, without touching the
+nodes; a certificate the root signs itself lets in too - the way back if
+every issuing CA is lost. The node's own CA always lets in, and only it
+can make the node forget its fleet. The TLS configuration is built per
+connection, so a new bundle counts from the next one.
+
 Roles are enforced, not just carried: `internal/api/authz.go`'s
 `UnaryAuthInterceptor`/`StreamAuthInterceptor` check every single RPC
 (both services are wired via `grpc.UnaryInterceptor`/
 `grpc.StreamInterceptor` in `cmd/janusd`) against a static
-method -> required-roles table. Two roles exist: `os:admin` (everything)
+method -> required-roles table. Three roles exist: `os:admin`
+(everything), `os:operator` (runs what's set up - HAProxy, services,
+reboots - not how the node is set up; see [api-routes.md](api-routes.md))
 and `os:reader` (observability/status RPCs only - explicitly *not*
 `List`/`Read`/`Copy`/`Dmesg`/`Logs`/`DiskUsage`/`PacketCapture`, which
 don't mutate anything but can expose sensitive file contents or traffic,

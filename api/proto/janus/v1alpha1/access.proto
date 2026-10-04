@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package janus.v1alpha1;
+
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
+
+// AccessService: whom a node trusts besides its own certificate
+// authority - its fleet (internal/pki/fleet.go). A node pins its fleet's
+// root once; afterwards it only takes a bundle that root signed, newer
+// than its own, listing the issuing CAs whose client certificates it
+// accepts. Its own CA - the first-boot admin certificate - always lets
+// in.
+service AccessService {
+  // The fleet the node trusts: its root, its bundle. Empty when none.
+  rpc TrustGet(google.protobuf.Empty) returns (TrustState);
+
+  // Pins root_cert (the first time; afterwards it must be the same, or
+  // left empty) and applies bundle - signed by that root, newer than the
+  // node's. The same bundle again changes nothing.
+  rpc TrustSet(TrustSetRequest) returns (TrustState);
+
+  // Forgets the fleet: its certificates no longer let anyone in. Only a
+  // certificate of the node's own CA may do it - the way back when a
+  // fleet is lost, never for the fleet itself.
+  rpc TrustReset(google.protobuf.Empty) returns (TrustState);
+}
+
+message TrustState {
+  bytes root_cert = 1; // PEM; empty when the node trusts no fleet
+  uint64 bundle_version = 2; // 0 without a bundle
+  int64 bundle_issued_unix = 3;
+  repeated bytes issuing_cas = 4; // PEM
+}
+
+message TrustSetRequest {
+  bytes root_cert = 1; // PEM
+  bytes bundle = 2; // the signed bundle (pki.SignedBundle as JSON)
+}

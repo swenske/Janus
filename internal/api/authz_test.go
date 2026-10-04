@@ -31,6 +31,7 @@ func TestRequiredRolesCoversEveryRPC(t *testing.T) {
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &Lifecycle{})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &HAProxy{})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &Network{})
+	janusv1alpha1.RegisterAccessServiceServer(srv, &Access{})
 
 	seen := map[string]bool{}
 	for serviceName, info := range srv.GetServiceInfo() {

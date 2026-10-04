@@ -18,7 +18,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-network-config-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
 	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test local-dev-image ca-certificates seed-controller-test \
@@ -936,6 +936,11 @@ qemu-baremetal-test: build dashboard-build disk-image
 
 qemu-system-api-test: build disk-image
 	./hack/qemu-system-api-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# A node's fleet trust on a real enforcing node: its own CA always, a
+# test fleet's certificates by bundle, roles and the Controller's users.
+qemu-fleet-trust-test: build disk-image
+	./hack/qemu-fleet-trust-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
 # SystemService.PacketCapture on a real enforcing node: a filtered capture
 # of real HAProxy traffic over mTLS, the pcap parsed independently.

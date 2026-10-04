@@ -311,6 +311,19 @@ func main() {
 	if dir, err := filepath.Abs(*pkiDir); err == nil {
 		api.SecretPaths = append(api.SecretPaths, dir)
 	}
+	// The fleet it trusts besides its own CA (AccessService): what can't
+	// be read back leaves it trusting none - its own CA still lets in.
+	fleet, err := pki.OpenFleet(*pkiDir)
+	if err != nil {
+		log.Printf("pki: fleet trust: %v - the node trusts no fleet this boot", err)
+	} else if root := fleet.Root(); root != nil {
+		version := uint64(0)
+		if b, _ := fleet.Bundle(); b != nil {
+			version = b.Version
+		}
+		log.Printf("pki: trusts the fleet of root %q, bundle version %d", root.Subject.CommonName, version)
+	}
+	localCA := func() *pki.CA { return pkiBootstrap.CA }
 	if pkiBootstrap.AdminIssued {
 		log.SetOutput(os.Stderr) // console only - see serviceLogs above
 		log.Printf("pki: first boot - generated a new CA and admin client certificate in %s", *pkiDir)
@@ -392,7 +405,7 @@ func main() {
 		log.Printf("exporter: %v", err)
 	}
 
-	tlsConfig := pkiBootstrap.CA.ServerTLSConfigFor(serverCert)
+	tlsConfig := pki.NodeTLSConfig(localCA, serverCert, fleet)
 	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.StatsHandler(api.ConnStats{}),
@@ -402,6 +415,7 @@ func main() {
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, CA: pkiBootstrap.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr})
+	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, LocalCA: localCA})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr, Consul: consulMgr, Services: extMgr})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)

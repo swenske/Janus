@@ -705,6 +705,12 @@ jobs:
       - name: SystemService observability, files, services and machine control
         run: make qemu-system-api-test
 
+      # A node's fleet trust: its own CA always, a fleet's certificates by
+      # the bundle its root signed, roles and the Controller's users. See
+      # hack/qemu-fleet-trust-test.sh.
+      - name: AccessService fleet trust, roles and the Controller's users
+        run: make qemu-fleet-trust-test
+
       # Point 2 suite, tranche 5: proves a node provisioned with a
       # Controller at Install time (controller_address/
       # controller_ca_cert, tranche 4) genuinely self-registers with a

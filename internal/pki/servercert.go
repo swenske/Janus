@@ -165,14 +165,3 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	}
 	return os.Rename(tmp, path)
 }
-
-// ServerTLSConfigFor is ServerTLSConfig with a certificate that can
-// change (ServerCert).
-func (ca *CA) ServerTLSConfigFor(s *ServerCert) *tls.Config {
-	return &tls.Config{
-		GetCertificate: s.GetCertificate,
-		ClientAuth:     tls.RequireAndVerifyClientCert,
-		ClientCAs:      ca.CertPool(),
-		MinVersion:     tls.VersionTLS13,
-	}
-}
