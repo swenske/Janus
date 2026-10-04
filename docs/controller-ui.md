@@ -47,7 +47,7 @@ Rules:
 
 ## The main page
 
-Three tabs (hash routes `#/`, `#/hypervisors`, `#/tokens`).
+Three tabs (hash routes `#/`, `#/hypervisors`, `#/tokens`), and two more for an admin (`#/accounts`, `#/audit`).
 
 **Nodes**: until the fleet is set up, **Secure your fleet**
 (`Fleet.jsx`: create it, store the recovery kit and its passphrase,
@@ -103,9 +103,36 @@ A locked machine shows neither Edit nor Destroy. Its node's page shows a
 banner (`/api/node`'s `locked_by`), and refuses network changes and
 updates with 423.
 
-**API tokens** (`Tokens.jsx`): create one (name, validity) - shown once,
-with a copy button - see each one's last use, revoke. Only the admin's
-session reaches it, never a token.
+**API tokens** (`Tokens.jsx`): create one (name, role up to the
+account's, validity) - shown once, with a copy button - see each one's
+last use, revoke. Each account sees its own, an admin everyone's (an
+**Account** column). Sessions only, never a token.
+
+**Accounts** and **Audit** (`Users.jsx`, `Audit.jsx`) are admin tabs:
+accounts with their role (a select, applied at once), **Reset
+password** / **Disable** / **Delete**, a new account's or a reset's
+password shown once (`GivenPassword`), the session policy; the audit's
+newest 500 entries, filtered by account on submit.
+
+**Roles on the page.** `AuthGate` gives the signed-in account
+(`/api/auth/status`'s `user`) to `MeContext` (`me.jsx`); a component asks
+`useCan()('admin' | 'operator')` and leaves out what the role would be
+refused - buttons, forms, tabs - rather than showing them disabled. The
+backend refuses anyway (`gate` in `auth_handlers.go`, one role for reads
+and one for changes per route; `TestRoutesNeedTheirRole`). Reader:
+reads. Operator: + `PowerButtons` (start/reset/force-off, console).
+Admin: the rest. A session whose password was given (`needs:
+["password"]`) only gets the password form.
+
+**Sessions on the page.** A request the page makes by itself - every
+periodic refresh - is `call(path, { background: true })` (or
+`backgroundHeaders()` for a raw `fetch`): it carries `X-Janus-Background`
+unless the user touched the page (pointer, keys, wheel) in the last
+minute, and the Controller doesn't count it as use - an idle page lets
+its session end. Any 401 outside `/api/auth/` sends `SIGNED_OUT`:
+`AuthGate` shows the sign-in again ("Your session ended"). A dialog
+opened from the top bar renders in a portal (`createPortal`): the bar's
+backdrop blur would hold a fixed element inside it.
 
 On the Nodes tab, above the rest, `ControllerUpdate.jsx` is the
 Controller's own update

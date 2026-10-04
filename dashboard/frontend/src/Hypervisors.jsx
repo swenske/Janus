@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { call, gib, postJSON } from './call.js'
+import { useCan } from './me.jsx'
 import { Badge, Card, ErrorBox, Meter, stateTone, useAction, useConfirm, useToast } from './shared/ui.jsx'
 
 // The hypervisors this Controller creates its own nodes on, and those
@@ -285,9 +286,7 @@ function HypervisorForm({ hv, onSaved, onClose }) {
     )
     if (saved) onSaved(saved)
   }
-  const missing = pve
-    ? 'Fill in the name, API URL, node, token ID, pool, storages and networks first'
-    : 'Fill in the name, SSH host and user, pool and networks first'
+  const missing = pve ? 'Fill in the name, API URL, node, token ID, pool, storages and networks first' : 'Fill in the name, SSH host and user, pool and networks first'
   return (
     <Card
       title={hv ? `Edit ${hv.name}` : 'Add a hypervisor'}
@@ -316,13 +315,13 @@ function HypervisorForm({ hv, onSaved, onClose }) {
         <p className="muted small" style={{ margin: 0 }}>
           {pve ? (
             <>
-              A Proxmox VE node, through its API with a token whose rights cover one pool, two storages and the networks listed here - nothing else, not even
-              seeing other virtual machines. <strong>Show host preparation</strong> sets it up, the token included.
+              A Proxmox VE node, through its API with a token whose rights cover one pool, two storages and the networks listed here - nothing else, not even seeing other virtual
+              machines. <strong>Show host preparation</strong> sets it up, the token included.
             </>
           ) : (
             <>
-              A libvirt/KVM host, reached over SSH as a dedicated user in its <code>libvirt</code> group. The Controller only ever acts on the virtual machines
-              it created, in the pool and on the networks listed here - the host&apos;s preparation makes libvirt itself enforce it.
+              A libvirt/KVM host, reached over SSH as a dedicated user in its <code>libvirt</code> group. The Controller only ever acts on the virtual machines it created, in the
+              pool and on the networks listed here - the host&apos;s preparation makes libvirt itself enforce it.
             </>
           )}
         </p>
@@ -404,9 +403,7 @@ function HypervisorForm({ hv, onSaved, onClose }) {
             <textarea rows={3} className="mono" value={f.ca_cert} onChange={set('ca_cert')} placeholder="-----BEGIN CERTIFICATE-----" />
           </Field>
         )}
-        {hv && !pve && f.host.trim() !== (hv.libvirt?.host || '') && (
-          <div className="notice warn">Another host: its host key will have to be confirmed again.</div>
-        )}
+        {hv && !pve && f.host.trim() !== (hv.libvirt?.host || '') && <div className="notice warn">Another host: its host key will have to be confirmed again.</div>}
         {hv && pve && f.url.trim() !== (hv.proxmox?.url || '') && !f.ca_cert.trim() && (
           <div className="notice warn">Another address: its certificate will have to be confirmed again.</div>
         )}
@@ -484,8 +481,8 @@ function HostPrep({ body }) {
         <div>
           <strong>Preparing {body.proxmox ? `node ${body.proxmox.node}` : body.libvirt.host}</strong>
           <div className="muted small">
-            As root on the {body.proxmox ? 'node' : 'host'}: run <code>sh {file}</code>, or paste it into <code>sudo sh</code>. Each step can also run alone,
-            and running it again is harmless.
+            As root on the {body.proxmox ? 'node' : 'host'}: run <code>sh {file}</code>, or paste it into <code>sudo sh</code>. Each step can also run alone, and running it again
+            is harmless.
           </div>
         </div>
         <div className="row" style={{ flexShrink: 0 }}>
@@ -504,8 +501,8 @@ function HostPrep({ body }) {
       )}
       {!prep.has_key && !body.proxmox && (
         <div className="notice small">
-          The Controller&apos;s SSH key isn&apos;t in it yet: it&apos;s made when the hypervisor is added. Its card then gives the command that authorizes it -
-          or this preparation again, key included.
+          The Controller&apos;s SSH key isn&apos;t in it yet: it&apos;s made when the hypervisor is added. Its card then gives the command that authorizes it - or this preparation
+          again, key included.
         </div>
       )}
       <ol className="prep-steps">
@@ -618,9 +615,7 @@ function TrustSteps({ hv, onTrusted }) {
           )}
           <div className="muted small">
             Compare it with the {pve ? "node's own, on the node" : "host's own, on the host"}:{' '}
-            <code>
-              {pve ? 'openssl x509 -noout -fingerprint -sha256 -in /etc/pve/local/pveproxy-ssl.pem' : 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'}
-            </code>
+            <code>{pve ? 'openssl x509 -noout -fingerprint -sha256 -in /etc/pve/local/pveproxy-ssl.pem' : 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'}</code>
             {pve && " (pve-ssl.pem without a certificate of your own) - the preparation's last step prints it."}
           </div>
           <div className="row">
@@ -645,6 +640,7 @@ function pct(used, total) {
 }
 
 function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
+  const can = useCan()
   const host = status?.host
   const authError = status?.error && /unable to authenticate|permission denied \(publickey|401|authentication failure|invalid token/i.test(status.error)
   let badge = <Badge>checking…</Badge>
@@ -667,22 +663,18 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
         <div style={{ minWidth: 0 }}>
           <div className="node-card-name">{hv.name}</div>
           <div className="muted small mono">
-            {hv.kind === 'proxmox'
-              ? `${hv.proxmox?.node} · ${hv.proxmox?.token_id?.split('!')[0]} · Proxmox VE`
-              : `${hv.libvirt?.user}@${hv.libvirt?.host} · libvirt`}
+            {hv.kind === 'proxmox' ? `${hv.proxmox?.node} · ${hv.proxmox?.token_id?.split('!')[0]} · Proxmox VE` : `${hv.libvirt?.user}@${hv.libvirt?.host} · libvirt`}
           </div>
         </div>
         {badge}
       </div>
-      {!hv.trusted && <TrustSteps hv={hv} onTrusted={onTrusted} />}
+      {!hv.trusted && (can('admin') ? <TrustSteps hv={hv} onTrusted={onTrusted} /> : <div className="notice warn small">Not trusted yet: an admin checks its key.</div>)}
       {hv.trusted && status?.error && (
         <div className="error-box small">
           {status.error}
           {authError && (
             <div style={{ marginTop: '0.4rem' }}>
-              {hv.kind === 'proxmox'
-                ? "Check the API token's ID and secret (Edit)."
-                : "Add the Controller's public key to the user's authorized_keys (Edit shows it)."}
+              {hv.kind === 'proxmox' ? "Check the API token's ID and secret (Edit)." : "Add the Controller's public key to the user's authorized_keys (Edit shows it)."}
             </div>
           )}
         </div>
@@ -745,20 +737,22 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
           </dl>
         </>
       )}
-      <div className="row" style={{ marginTop: 'auto' }}>
-        <button className="small" onClick={() => onEdit(hv)}>
-          <Pencil size={14} /> Edit
-        </button>
-        <span className="grow" />
-        <button
-          className="ghost small danger"
-          onClick={() => onRemove(hv)}
-          disabled={hv.machines > 0}
-          title={hv.machines > 0 ? 'Destroy its machines first' : 'Forget this hypervisor'}
-        >
-          <Trash2 size={14} /> Remove
-        </button>
-      </div>
+      {can('admin') && (
+        <div className="row" style={{ marginTop: 'auto' }}>
+          <button className="small" onClick={() => onEdit(hv)}>
+            <Pencil size={14} /> Edit
+          </button>
+          <span className="grow" />
+          <button
+            className="ghost small danger"
+            onClick={() => onRemove(hv)}
+            disabled={hv.machines > 0}
+            title={hv.machines > 0 ? 'Destroy its machines first' : 'Forget this hypervisor'}
+          >
+            <Trash2 size={14} /> Remove
+          </button>
+        </div>
+      )}
     </section>
   )
 }
@@ -851,8 +845,8 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
     >
       <form className="stack" onSubmit={submit}>
         <p className="muted small" style={{ margin: 0 }}>
-          The Controller creates the virtual machine, boots it with its address and a one-time token, and admits the node as soon as it registers - no approval
-          step for a machine it created itself.
+          The Controller creates the virtual machine, boots it with its address and a one-time token, and admits the node as soon as it registers - no approval step for a machine
+          it created itself.
         </p>
         <div className="grid grid-4">
           <label className="field">
@@ -908,13 +902,7 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
                   aria-label="Gateway"
                   disabled={n.mode !== 'static'}
                 />
-                <button
-                  type="button"
-                  className="ghost icon"
-                  onClick={() => setNics(nics.filter((_, j) => j !== i))}
-                  disabled={nics.length === 1}
-                  aria-label="Remove interface"
-                >
+                <button type="button" className="ghost icon" onClick={() => setNics(nics.filter((_, j) => j !== i))} disabled={nics.length === 1} aria-label="Remove interface">
                   <X size={15} />
                 </button>
               </div>
@@ -925,8 +913,7 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
               <Plus size={14} /> Interface
             </button>
             <span className="muted small">
-              Interfaces are matched by their MAC address and renamed. Prefer static addresses: the kernel&apos;s DHCP lease is taken once at boot and never
-              renewed.
+              Interfaces are matched by their MAC address and renamed. Prefer static addresses: the kernel&apos;s DHCP lease is taken once at boot and never renewed.
             </span>
           </div>
         </div>
@@ -1054,8 +1041,8 @@ export function useMachineActions({ onChanged, onConsole }) {
       title: `Destroy ${m.spec.name}?`,
       body: (
         <p>
-          {m.node_id ? 'The node is shut down cleanly, then its' : 'Its'} virtual machine and disks are deleted from {m.hypervisor_name || 'its hypervisor'},
-          and the Controller forgets the node. This can&apos;t be undone.
+          {m.node_id ? 'The node is shut down cleanly, then its' : 'Its'} virtual machine and disks are deleted from {m.hypervisor_name || 'its hypervisor'}, and the Controller
+          forgets the node. This can&apos;t be undone.
         </p>
       ),
       action: 'Destroy',
@@ -1152,8 +1139,7 @@ function EditMachine({ m, hv, onClose, onSaved }) {
       }),
     }
     const removed = m.spec.nics.filter((o) => !nics.some((n) => n.mac === o.mac)).length
-    const hardware =
-      body.vcpus !== m.spec.vcpus || body.memory_mib !== m.spec.memory_mib || removed > 0 || nics.some((n) => n.isNew || n.network !== n.origNetwork)
+    const hardware = body.vcpus !== m.spec.vcpus || body.memory_mib !== m.spec.memory_mib || removed > 0 || nics.some((n) => n.isNew || n.network !== n.origNetwork)
     if (hardware) {
       const ok = await confirm({
         title: `Restart ${m.spec.name}?`,
@@ -1232,13 +1218,7 @@ function EditMachine({ m, hv, onClose, onSaved }) {
                         {n.mode === 'static' ? (n.addresses || []).join(' ') : n.mode} {n.gateway ? `via ${n.gateway}` : ''}
                       </span>
                     )}
-                    <button
-                      type="button"
-                      className="ghost icon"
-                      onClick={() => setNics(nics.filter((_, j) => j !== i))}
-                      disabled={nics.length === 1}
-                      aria-label="Remove interface"
-                    >
+                    <button type="button" className="ghost icon" onClick={() => setNics(nics.filter((_, j) => j !== i))} disabled={nics.length === 1} aria-label="Remove interface">
                       <X size={15} />
                     </button>
                   </div>
@@ -1272,7 +1252,8 @@ function EditMachine({ m, hv, onClose, onSaved }) {
 }
 
 export function PowerButtons({ machine, vm, actions }) {
-  if (!machine.vm_uuid || machine.phase === 'destroying') return null
+  const can = useCan()
+  if (!machine.vm_uuid || machine.phase === 'destroying' || !can('operator')) return null
   const off = vm?.power === 'off'
   return (
     <>
@@ -1282,20 +1263,10 @@ export function PowerButtons({ machine, vm, actions }) {
         </button>
       ) : (
         <>
-          <button
-            className="small ghost"
-            onClick={() => actions.power(machine, 'reset')}
-            disabled={actions.busy}
-            title="Reset the virtual machine (hypervisor)"
-          >
+          <button className="small ghost" onClick={() => actions.power(machine, 'reset')} disabled={actions.busy} title="Reset the virtual machine (hypervisor)">
             <RotateCcw size={14} />
           </button>
-          <button
-            className="small ghost"
-            onClick={() => actions.power(machine, 'force-off')}
-            disabled={actions.busy}
-            title="Force the virtual machine off (hypervisor)"
-          >
+          <button className="small ghost" onClick={() => actions.power(machine, 'force-off')} disabled={actions.busy} title="Force the virtual machine off (hypervisor)">
             <PowerOff size={14} />
           </button>
         </>
@@ -1310,6 +1281,7 @@ export function PowerButtons({ machine, vm, actions }) {
 // LockNotice says a machine is managed as code, and whether its pages may
 // change it.
 export function LockNotice({ m, actions }) {
+  const can = useCan()
   if (!m.spec.managed_by) return null
   const by = m.spec.managed_by
   return m.spec.locked ? (
@@ -1318,9 +1290,11 @@ export function LockNotice({ m, actions }) {
       <span className="grow">
         Managed by <strong>{by}</strong> and locked: change it there. A change made on this Controller would be undone by its next run.
       </span>
-      <button className="small ghost" onClick={() => actions.release(m)} disabled={actions.busy} title="Let its pages change it again">
-        <LockOpen size={14} /> Release
-      </button>
+      {can('admin') && (
+        <button className="small ghost" onClick={() => actions.release(m)} disabled={actions.busy} title="Let its pages change it again">
+          <LockOpen size={14} /> Release
+        </button>
+      )}
     </div>
   ) : (
     <div className="notice warn small">
@@ -1330,6 +1304,7 @@ export function LockNotice({ m, actions }) {
 }
 
 function MachineCard({ m, vm, vmError, actions, onEdit }) {
+  const can = useCan()
   const [history, setHistory] = useState(false)
   const last = m.events[m.events.length - 1]
   const synced = ago(m.synced_at)
@@ -1395,18 +1370,18 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
         <button className="small ghost" onClick={() => setHistory(!history)} title="History">
           <History size={14} />
         </button>
-        {m.phase === 'ready' && m.node_id && !m.spec.locked && (
+        {can('admin') && m.phase === 'ready' && m.node_id && !m.spec.locked && (
           <button className="small" onClick={() => onEdit(m)} disabled={actions.busy} title="vCPUs, memory, network interfaces">
             <Pencil size={14} /> Edit
           </button>
         )}
-        {m.phase === 'failed' && !m.node_id && (
+        {can('admin') && m.phase === 'failed' && !m.node_id && (
           <button className="small" onClick={() => actions.retry(m)} disabled={actions.busy}>
             <RotateCcw size={14} /> Retry
           </button>
         )}
         <span className="grow" />
-        {m.phase !== 'destroying' && !m.spec.locked && (
+        {can('admin') && m.phase !== 'destroying' && !m.spec.locked && (
           <button className="ghost small danger" onClick={() => actions.destroy(m)} disabled={actions.busy}>
             <Trash2 size={14} /> Destroy
           </button>
@@ -1419,6 +1394,7 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
 // --- the page ---
 
 export default function HypervisorsPage({ hypervisors, machines, hvStatus, onChanged, onConsole }) {
+  const can = useCan()
   const [form, setForm] = useState(null) // null, 'add', or a hypervisor to edit
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState(null) // a machine
@@ -1457,7 +1433,7 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
       )}
       <div className="spread">
         <h1>Hypervisors</h1>
-        {!form && (
+        {!form && can('admin') && (
           <button className="primary" onClick={() => setForm('add')}>
             <Plus size={15} /> Add hypervisor
           </button>
@@ -1476,11 +1452,17 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
       )}
       {hypervisors.length === 0 && !form && (
         <div className="card empty">
-          No hypervisor yet.{' '}
-          <button className="small" onClick={() => setForm('add')}>
-            Add one
-          </button>{' '}
-          - a libvirt/KVM host or a Proxmox VE node the Controller creates its nodes on.
+          {can('admin') ? (
+            <>
+              No hypervisor yet.{' '}
+              <button className="small" onClick={() => setForm('add')}>
+                Add one
+              </button>{' '}
+              - a libvirt/KVM host or a Proxmox VE node the Controller creates its nodes on.
+            </>
+          ) : (
+            'No hypervisor yet: the libvirt/KVM hosts and Proxmox VE nodes the Controller creates its nodes on appear here.'
+          )}
         </div>
       )}
       <div className="node-grid">
@@ -1491,13 +1473,8 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
 
       <div className="spread" style={{ marginTop: '0.6rem' }}>
         <h1>Machines</h1>
-        {!creating && (
-          <button
-            className="primary"
-            onClick={() => setCreating(true)}
-            disabled={trusted.length === 0}
-            title={trusted.length ? '' : 'Add and trust a hypervisor first'}
-          >
+        {!creating && can('admin') && (
+          <button className="primary" onClick={() => setCreating(true)} disabled={trusted.length === 0} title={trusted.length ? '' : 'Add and trust a hypervisor first'}>
             <Plus size={15} /> Create node
           </button>
         )}

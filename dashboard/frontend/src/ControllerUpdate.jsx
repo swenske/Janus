@@ -1,6 +1,8 @@
 import { ArrowUpRight, CheckCircle2, Copy, Loader2, Rocket, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, useConfirm, useToast } from './shared/ui.jsx'
+import { backgroundHeaders } from './call.js'
+import { useCan } from './me.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
 import { securityText, securityTone } from './severity.js'
 
@@ -44,6 +46,7 @@ function JobLog({ job }) {
 }
 
 export default function ControllerUpdate() {
+  const can = useCan()
   const [info, setInfo] = useState(null)
   // 'starting' from the click until the updater reports the job;
   // 'restarting' while the Controller doesn't answer.
@@ -63,7 +66,7 @@ export default function ControllerUpdate() {
     // new Controller doesn't know it, and the page has to sign in again.
     if (busyRef.current) {
       try {
-        const auth = await fetch('/api/auth/status')
+        const auth = await fetch('/api/auth/status', { headers: backgroundHeaders() })
         if (!auth.ok) return setPhase((p) => p || 'restarting')
         if (!(await auth.json()).authenticated) return window.location.reload()
       } catch {
@@ -72,7 +75,7 @@ export default function ControllerUpdate() {
     }
     let resp
     try {
-      resp = await fetch('/api/controller/update')
+      resp = await fetch('/api/controller/update', { headers: backgroundHeaders() })
     } catch {
       setPhase((p) => (p ? 'restarting' : p))
       return
@@ -105,8 +108,11 @@ export default function ControllerUpdate() {
       body: (
         <>
           <p style={{ margin: 0 }}>
-            The updater pulls <span className="mono small" style={{ wordBreak: 'break-all' }}>{latest.image}</span>, backs up the Controller&apos;s data and <code>.env</code>, then restarts the
-            Controller on the new version.
+            The updater pulls{' '}
+            <span className="mono small" style={{ wordBreak: 'break-all' }}>
+              {latest.image}
+            </span>
+            , backs up the Controller&apos;s data and <code>.env</code>, then restarts the Controller on the new version.
           </p>
           <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
             <li>This page reconnects by itself and asks you to sign in again. Open node pages reconnect too.</li>
@@ -232,9 +238,16 @@ export default function ControllerUpdate() {
               This Controller is a development build (<span className="mono">{info.version}</span>)
             </>
           )}
-          {latest.published_at && <> · {latest.version} published {new Date(latest.published_at).toLocaleDateString()}</>}
+          {latest.published_at && (
+            <>
+              {' '}
+              · {latest.version} published {new Date(latest.published_at).toLocaleDateString()}
+            </>
+          )}
         </div>
-        {updater.reachable && updater.ready ? (
+        {!can('admin') ? (
+          <div className="muted small">An admin can update it from here.</div>
+        ) : updater.reachable && updater.ready ? (
           <div className="row">
             <button className="primary" onClick={start}>
               <Rocket size={15} /> Update to {latest.version}
@@ -256,8 +269,7 @@ export default function ControllerUpdate() {
                   </ul>
                 ) : (
                   <div>
-                    It doesn&apos;t answer - is the <span className="mono">janus-controller-updater</span> container running?{' '}
-                    <span className="muted">({updater.error})</span>
+                    It doesn&apos;t answer - is the <span className="mono">janus-controller-updater</span> container running? <span className="muted">({updater.error})</span>
                   </div>
                 )}
               </div>
@@ -303,4 +315,3 @@ export default function ControllerUpdate() {
   if (!blocks.length) return null
   return <>{blocks}</>
 }
-

@@ -1,11 +1,14 @@
 import { Copy, KeyRound, Plus, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
+import { atLeast, ROLES, useMe } from './me.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import { roleTone } from './Users.jsx'
 
 // API tokens: what a program - the Terraform provider, a script - calls
 // the Controller's API with (Authorization: Bearer). Shown once, when
-// created; only the admin's session manages them.
+// created; each account manages its own from its session, with a role no
+// higher than its own - an admin sees everyone's.
 
 const VALIDITY = [
   { days: 90, label: '90 days' },
@@ -52,6 +55,8 @@ function NewToken({ token, onClose }) {
 }
 
 export default function TokensPage() {
+  const me = useMe()
+  const [role, setRole] = useState(me.role)
   const [tokens, setTokens] = useState(null)
   const [error, setError] = useState(null)
   const [name, setName] = useState('')
@@ -73,7 +78,7 @@ export default function TokensPage() {
 
   const create = async (e) => {
     e.preventDefault()
-    const t = await run(() => postJSON('/api/tokens', { name: name.trim(), expires_in_days: Number(days) }))
+    const t = await run(() => postJSON('/api/tokens', { name: name.trim(), expires_in_days: Number(days), role }))
     if (t) {
       setCreated(t)
       setName('')
@@ -98,8 +103,8 @@ export default function TokensPage() {
         <h1>API tokens</h1>
       </div>
       <p className="muted" style={{ margin: 0 }}>
-        A token lets a program use this Controller&apos;s API - the Terraform provider creating and changing nodes, a script - with the same rights as you,
-        except managing tokens. Only its fingerprint is kept: it&apos;s shown once.
+        A token lets a program use this Controller&apos;s API - the Terraform provider creating and changing nodes, a script - as you, with your role or a lower one, except
+        managing accounts and tokens. It follows your account: lowered with it, stopped with it. Only its fingerprint is kept: it&apos;s shown once.
       </p>
       {created && <NewToken token={created} onClose={() => setCreated(null)} />}
       <Card title="New token" icon={Plus}>
@@ -107,6 +112,16 @@ export default function TokensPage() {
           <label className="field grow">
             <span>Name (what uses it)</span>
             <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} placeholder="terraform-prod" />
+          </label>
+          <label className="field">
+            <span>Role</span>
+            <select value={role} onChange={(e) => setRole(e.target.value)}>
+              {ROLES.filter((r) => atLeast(me.role, r.id)).map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="field">
             <span>Valid</span>
@@ -131,6 +146,8 @@ export default function TokensPage() {
             <thead>
               <tr>
                 <th>Name</th>
+                {me.role === 'admin' && <th>Account</th>}
+                <th>Role</th>
                 <th>Created</th>
                 <th>Expires</th>
                 <th>Last used</th>
@@ -142,6 +159,10 @@ export default function TokensPage() {
                 <tr key={t.id}>
                   <td>
                     <strong>{t.name}</strong> <span className="muted mono small">janus_{t.id}_…</span> {t.expired && <Badge tone="danger">expired</Badge>}
+                  </td>
+                  {me.role === 'admin' && <td>{t.owner}</td>}
+                  <td>
+                    <Badge tone={roleTone(t.role)}>{t.role}</Badge>
                   </td>
                   <td>{when(t.created_at)}</td>
                   <td>{t.expires_at ? when(t.expires_at) : 'never'}</td>

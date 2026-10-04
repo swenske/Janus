@@ -1,13 +1,35 @@
-import { ArrowUpRight, Boxes, Check, ChevronDown, Copy, KeyRound, LogOut, Plus, RefreshCw, Rocket, Server, ShieldCheck, Trash2, X } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Boxes,
+  Check,
+  ChevronDown,
+  Copy,
+  KeyRound,
+  LogOut,
+  Plus,
+  RefreshCw,
+  Rocket,
+  ScrollText,
+  Server,
+  ShieldCheck,
+  Trash2,
+  UserRound,
+  Users,
+  X,
+} from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { call } from './call.js'
+import { createPortal } from 'react-dom'
+import AuditPage from './Audit.jsx'
+import { call, postJSON, SIGNED_OUT } from './call.js'
 import MachineConsole from './Console.jsx'
 import ControllerUpdate from './ControllerUpdate.jsx'
 import { FleetCard, FleetSetup, TrustBadge } from './Fleet.jsx'
 import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
 import { navigate, useHashRoute } from './shared/route.js'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
+import { MeContext, useCan, useMe } from './me.jsx'
 import TokensPage from './Tokens.jsx'
+import UsersPage from './Users.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
 import { worstSeverity } from './severity.js'
 import { Badge, Card, ErrorBox, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
@@ -37,6 +59,7 @@ function uptime(bootUnix) {
 // state, and the hypervisor-level actions - what's left when the node
 // itself doesn't answer.
 function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet }) {
+  const can = useCan()
   const st = status
   const reachable = st?.reachable
   return (
@@ -46,7 +69,17 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet }
           <div className="node-card-name">{node.name}</div>
           <div className="muted small mono">{node.address}</div>
         </div>
-        {!st ? <Badge>checking…</Badge> : reachable ? <Badge tone="ok" dot>online</Badge> : <Badge tone="danger" dot>unreachable</Badge>}
+        {!st ? (
+          <Badge>checking…</Badge>
+        ) : reachable ? (
+          <Badge tone="ok" dot>
+            online
+          </Badge>
+        ) : (
+          <Badge tone="danger" dot>
+            unreachable
+          </Badge>
+        )}
       </div>
       {machine && (
         <div className="machine-strip small">
@@ -116,7 +149,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet }
           Open <ArrowUpRight size={15} />
         </button>
         <span className="grow" />
-        {machine ? (
+        {!can('admin') ? null : machine ? (
           !machine.spec.locked && (
             <button className="ghost small danger" onClick={() => machineActions.destroy(machine)} disabled={machineActions.busy} title="Destroy its virtual machine">
               <Trash2 size={14} /> Destroy
@@ -136,6 +169,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet }
 // itself (see dashboard/backend/register.go) but isn't reachable until a
 // human approves it here - never fully automatic.
 function PendingList({ pending, onApprove, onReject, busy, machines }) {
+  const can = useCan()
   if (!pending.length) return null
   // A machine this Controller created whose image is too old to present
   // its registration token: approving it links the node to the machine.
@@ -160,14 +194,16 @@ function PendingList({ pending, onApprove, onReject, busy, machines }) {
                 </div>
               )}
             </div>
-            <div className="row">
-              <button className="primary small" disabled={busy} onClick={() => onApprove(p.id)}>
-                <Check size={14} /> Approve
-              </button>
-              <button className="small danger" disabled={busy} onClick={() => onReject(p.id)}>
-                <X size={14} /> Reject
-              </button>
-            </div>
+            {can('admin') && (
+              <div className="row">
+                <button className="primary small" disabled={busy} onClick={() => onApprove(p.id)}>
+                  <Check size={14} /> Approve
+                </button>
+                <button className="small danger" disabled={busy} onClick={() => onReject(p.id)}>
+                  <X size={14} /> Reject
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -224,7 +260,15 @@ function AddNodeForm({ onAdded, onClose }) {
   }
 
   return (
-    <Card title="Add a node" icon={Plus} actions={<button className="ghost icon" onClick={onClose} aria-label="Close"><X size={16} /></button>}>
+    <Card
+      title="Add a node"
+      icon={Plus}
+      actions={
+        <button className="ghost icon" onClick={onClose} aria-label="Close">
+          <X size={16} />
+        </button>
+      }
+    >
       <form className="stack" onSubmit={submit}>
         <div className="row">
           <label className="check">
@@ -338,7 +382,9 @@ function ProvisionInfo() {
   // Again each time it's opened: the fleet's root shows up once it's set
   // up.
   useEffect(() => {
-    call('/api/controller-info').then(setInfo).catch(() => {})
+    call('/api/controller-info')
+      .then(setInfo)
+      .catch(() => {})
   }, [open])
   if (!info) return null
   const address = info.address || 'YOUR-CONTROLLER-ADDRESS'
@@ -420,7 +466,11 @@ function ProvisionInfo() {
               value={network}
               onChange={(e) => setNetwork(e.target.value)}
             />
-            {netError && <span className="small" style={{ color: 'var(--danger)' }}>Not valid JSON: {netError}</span>}
+            {netError && (
+              <span className="small" style={{ color: 'var(--danger)' }}>
+                Not valid JSON: {netError}
+              </span>
+            )}
           </div>
           <CopyField label="Install command (fill in DISK and BUNDLE_DIR)" value={command} inputRef={refs.command} rows={2} onCopy={copy} />
           <CopyField label="Or seed an already-built raw image offline" value={seed} inputRef={refs.seed} rows={2} onCopy={copy} />
@@ -454,8 +504,9 @@ function AuthScreen({ title, children }) {
 }
 
 // SetupForm is forced on the very first visit (see dashboard/backend/
-// internal/auth): one admin password, no username - a single-operator tool.
+// internal/auth): the first account, an admin.
 function SetupForm({ onDone }) {
+  const [name, setName] = useState('admin')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [busy, setBusy] = useState(false)
@@ -466,7 +517,7 @@ function SetupForm({ onDone }) {
     setBusy(true)
     setError(null)
     try {
-      await call('/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
+      await postJSON('/api/auth/setup', { name: name.trim(), password })
       onDone()
     } catch (err) {
       setError(err.message)
@@ -475,26 +526,37 @@ function SetupForm({ onDone }) {
     }
   }
   return (
-    <AuthScreen title="First run - set the admin password">
+    <AuthScreen title="First run - make the first admin account">
       <form className="stack" onSubmit={submit}>
         <label className="field">
+          <span>Name</span>
+          <input value={name} onChange={(e) => setName(e.target.value.toLowerCase())} required pattern="[a-z0-9][a-z0-9._@\-]{0,63}" autoComplete="username" />
+        </label>
+        <label className="field">
           <span>Password (at least 8 characters)</span>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoFocus />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} maxLength={72} autoFocus autoComplete="new-password" />
         </label>
         <label className="field">
           <span>Confirm password</span>
-          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={8} />
+          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={8} maxLength={72} autoComplete="new-password" />
         </label>
         <ErrorBox error={error} />
         <button className="primary" type="submit" disabled={busy}>
-          {busy ? 'Setting up…' : 'Set password and continue'}
+          {busy ? 'Setting up…' : 'Make the account and continue'}
         </button>
       </form>
     </AuthScreen>
   )
 }
 
-function LoginForm({ onDone }) {
+function LoginForm({ onDone, ended }) {
+  const [name, setName] = useState(() => {
+    try {
+      return localStorage.getItem('janus-last-user') || ''
+    } catch {
+      return ''
+    }
+  })
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -503,7 +565,12 @@ function LoginForm({ onDone }) {
     setBusy(true)
     setError(null)
     try {
-      await call('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
+      await postJSON('/api/auth/login', { name: name.trim(), password })
+      try {
+        localStorage.setItem('janus-last-user', name.trim())
+      } catch {
+        // remembered for convenience only
+      }
       onDone()
     } catch (err) {
       setError(err.message)
@@ -514,9 +581,14 @@ function LoginForm({ onDone }) {
   return (
     <AuthScreen title="Sign in">
       <form className="stack" onSubmit={submit}>
+        {ended && <div className="notice small">Your session ended - sign in again.</div>}
+        <label className="field">
+          <span>Name</span>
+          <input value={name} onChange={(e) => setName(e.target.value.toLowerCase())} required autoFocus={!name} autoComplete="username" />
+        </label>
         <label className="field">
           <span>Password</span>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus={!!name} autoComplete="current-password" />
         </label>
         <ErrorBox error={error} />
         <button className="primary" type="submit" disabled={busy}>
@@ -527,22 +599,136 @@ function LoginForm({ onDone }) {
   )
 }
 
-// AuthGate renders setup, login, or the app - whatever /api/auth/status
-// says, re-checked after each setup/login rather than assumed.
+// PasswordForm changes the account's own password - forced when someone
+// else set it (an admin, a reset from the host).
+function PasswordForm({ onDone, forced, onCancel }) {
+  const [current, setCurrent] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  async function submit(e) {
+    e.preventDefault()
+    if (password !== confirm) return setError('passwords do not match')
+    setBusy(true)
+    setError(null)
+    try {
+      await postJSON('/api/auth/password', { current_password: current, new_password: password })
+      onDone()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <form className="stack" onSubmit={submit}>
+      {forced && <div className="notice small">This password was given to you: choose your own to continue.</div>}
+      <label className="field">
+        <span>{forced ? 'Password you were given' : 'Current password'}</span>
+        <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required autoFocus autoComplete="current-password" />
+      </label>
+      <label className="field">
+        <span>New password (at least 8 characters)</span>
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} maxLength={72} autoComplete="new-password" />
+      </label>
+      <label className="field">
+        <span>Confirm the new password</span>
+        <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={8} maxLength={72} autoComplete="new-password" />
+      </label>
+      <ErrorBox error={error} />
+      <div className="row" style={{ justifyContent: 'flex-end' }}>
+        {onCancel && (
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+        <button className="primary" type="submit" disabled={busy}>
+          {busy ? 'Changing…' : 'Change password'}
+        </button>
+      </div>
+      <div className="muted small">Your other sessions end: sign in again there.</div>
+    </form>
+  )
+}
+
+const signOut = async () => {
+  await fetch('/api/auth/logout', { method: 'POST' })
+  window.location.reload()
+}
+
+// AuthGate renders setup, sign-in, a forced password change, or the app -
+// whatever /api/auth/status says, re-checked after each of them, and when
+// a request finds the session ended.
 function AuthGate({ children }) {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
+  const [ended, setEnded] = useState(false)
   const refreshStatus = useCallback(() => {
-    call('/api/auth/status').then(setStatus).catch((err) => setError(err.message))
+    call('/api/auth/status')
+      .then(setStatus)
+      .catch((err) => setError(err.message))
   }, [])
   useEffect(() => {
     refreshStatus()
+    const onEnded = () => {
+      setEnded(true)
+      refreshStatus()
+    }
+    window.addEventListener(SIGNED_OUT, onEnded)
+    return () => window.removeEventListener(SIGNED_OUT, onEnded)
   }, [refreshStatus])
-  if (error) return <div className="auth-screen"><ErrorBox error={error} /></div>
+  if (error)
+    return (
+      <div className="auth-screen">
+        <ErrorBox error={error} />
+      </div>
+    )
   if (!status) return null
   if (status.setup_required) return <SetupForm onDone={refreshStatus} />
-  if (!status.authenticated) return <LoginForm onDone={refreshStatus} />
-  return children
+  if (!status.authenticated) return <LoginForm onDone={() => (setEnded(false), refreshStatus())} ended={ended} />
+  if (status.user?.needs?.includes('password'))
+    return (
+      <AuthScreen title={`Signed in as ${status.user.name}`}>
+        <PasswordForm forced onDone={refreshStatus} />
+        <button className="ghost small" onClick={signOut}>
+          <LogOut size={14} /> Sign out
+        </button>
+      </AuthScreen>
+    )
+  return <MeContext.Provider value={status.user}>{children}</MeContext.Provider>
+}
+
+// AccountButton is who's signed in - opening their password change.
+function AccountButton() {
+  const me = useMe()
+  const [open, setOpen] = useState(false)
+  const toast = useToast()
+  return (
+    <>
+      <button className="ghost" onClick={() => setOpen(true)} title="Your account">
+        <UserRound size={15} /> {me.name} <Badge tone={me.role === 'admin' ? 'accent' : me.role === 'operator' ? 'info' : undefined}>{me.role}</Badge>
+      </button>
+      {open &&
+        // On the page itself: the top bar's backdrop blur would hold a
+        // fixed dialog inside it.
+        createPortal(
+          <div className="modal-backdrop" onClick={() => setOpen(false)}>
+            <div className="modal card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <h2 style={{ marginBottom: '0.6rem' }}>Change your password</h2>
+              <PasswordForm
+                onCancel={() => setOpen(false)}
+                onDone={() => {
+                  setOpen(false)
+                  toast('Password changed')
+                }}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  )
 }
 
 // --- main ---
@@ -551,7 +737,8 @@ const STATUS_EVERY = 15000
 
 function MainApp() {
   const route = useHashRoute()
-  const tab = route.startsWith('/hypervisors') ? 'hypervisors' : route.startsWith('/tokens') ? 'tokens' : 'nodes'
+  const can = useCan()
+  const tab = ['hypervisors', 'tokens', 'accounts', 'audit'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
   const [nodes, setNodes] = useState(null)
   const [pending, setPending] = useState([])
   const [statuses, setStatuses] = useState({})
@@ -569,13 +756,14 @@ function MainApp() {
 
   const refresh = useCallback(async () => {
     try {
-      const [n, p, h, m] = await Promise.all([call('/api/nodes'), call('/api/pending'), call('/api/hypervisors'), call('/api/machines')])
+      const bg = { background: true }
+      const [n, p, h, m] = await Promise.all([call('/api/nodes', bg), call('/api/pending', bg), call('/api/hypervisors', bg), call('/api/machines', bg)])
       setNodes(n ?? [])
       setPending(p ?? [])
       setHypervisors(h ?? [])
       setMachines(m ?? [])
       setError(null)
-      call('/api/fleet')
+      call('/api/fleet', bg)
         .then(setFleet)
         .catch(() => {})
       return h ?? []
@@ -585,12 +773,12 @@ function MainApp() {
     }
   }, [])
   const refreshStatus = useCallback((hvs) => {
-    call('/api/nodes/status')
+    call('/api/nodes/status', { background: true })
       .then((s) => setStatuses(s || {}))
       .catch(() => {})
     for (const hv of hvs || []) {
       if (!hv.trusted) continue
-      call(`/api/hypervisors/${hv.id}/status`)
+      call(`/api/hypervisors/${hv.id}/status`, { background: true })
         .then((st) => setHvStatus((all) => ({ ...all, [hv.id]: st })))
         .catch(() => {})
     }
@@ -637,10 +825,6 @@ function MainApp() {
   }
   const approve = (id) => act(() => call(`/api/pending/${id}/approve`, { method: 'POST' }), 'Node approved')
   const reject = (id) => act(() => call(`/api/pending/${id}/reject`, { method: 'POST' }), 'Registration rejected')
-  const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' })
-    window.location.reload()
-  }
 
   const values = Object.values(statuses)
   const online = values.filter((s) => s.reachable).length
@@ -656,21 +840,37 @@ function MainApp() {
           <div>
             <div className="node-name">Janus Controller</div>
             <div className="muted small">
-              {version && <span className="mono" title="This Controller's version">{version}</span>}
+              {version && (
+                <span className="mono" title="This Controller's version">
+                  {version}
+                </span>
+              )}
               {version && ' · '}
               {nodes ? `${nodes.length} node${nodes.length === 1 ? '' : 's'}` : '…'}
             </div>
           </div>
         </div>
         <div className="row">
-          {online > 0 && <Badge tone="ok" dot>{online} online</Badge>}
-          {down > 0 && <Badge tone="danger" dot>{down} unreachable</Badge>}
+          {online > 0 && (
+            <Badge tone="ok" dot>
+              {online} online
+            </Badge>
+          )}
+          {down > 0 && (
+            <Badge tone="danger" dot>
+              {down} unreachable
+            </Badge>
+          )}
           {security.length > 0 && (
             <SecurityBadge severity={worstSeverity(security.map((s) => s.security_update))}>
               {security.length} security update{security.length === 1 ? '' : 's'}
             </SecurityBadge>
           )}
-          {updates > 0 && <Badge tone="accent">{updates} update{updates === 1 ? '' : 's'} available</Badge>}
+          {updates > 0 && (
+            <Badge tone="accent">
+              {updates} update{updates === 1 ? '' : 's'} available
+            </Badge>
+          )}
           {pending.length > 0 && <Badge tone="warn">{pending.length} pending</Badge>}
         </div>
         <span className="grow" />
@@ -678,7 +878,8 @@ function MainApp() {
           <RefreshCw size={16} />
         </button>
         <ThemeToggle />
-        <button className="ghost" onClick={logout}>
+        <AccountButton />
+        <button className="ghost" onClick={signOut}>
           <LogOut size={15} /> Log out
         </button>
       </header>
@@ -688,6 +889,12 @@ function MainApp() {
             { id: 'nodes', label: `Nodes${nodes ? ` (${nodes.length})` : ''}`, icon: Server },
             { id: 'hypervisors', label: `Hypervisors${hypervisors.length ? ` (${hypervisors.length})` : ''}`, icon: Boxes },
             { id: 'tokens', label: 'API tokens', icon: KeyRound },
+            ...(can('admin')
+              ? [
+                  { id: 'accounts', label: 'Accounts', icon: Users },
+                  { id: 'audit', label: 'Audit', icon: ScrollText },
+                ]
+              : []),
           ]}
           active={tab}
           onChange={(id) => navigate(id === 'nodes' ? '/' : `/${id}`)}
@@ -695,17 +902,21 @@ function MainApp() {
         {consoleOf && <MachineConsole machine={consoleOf} onClose={() => setConsoleOf(null)} />}
         {tab === 'tokens' ? (
           <TokensPage />
+        ) : tab === 'accounts' && can('admin') ? (
+          <UsersPage />
+        ) : tab === 'audit' && can('admin') ? (
+          <AuditPage />
         ) : tab === 'hypervisors' ? (
           <HypervisorsPage hypervisors={hypervisors} machines={machines} hvStatus={hvStatus} onChanged={reload} onConsole={setConsoleOf} />
         ) : (
           <div className="stack">
             {error && <ErrorBox error={error} />}
             <ControllerUpdate />
-            <FleetSetup fleet={fleet} onChanged={reload} />
+            {can('admin') && <FleetSetup fleet={fleet} onChanged={reload} />}
             <PendingList pending={pending} onApprove={approve} onReject={reject} busy={busy} machines={machines} />
             <div className="spread">
               <h1>Nodes</h1>
-              {!adding && (
+              {!adding && can('admin') && (
                 <button className="primary" onClick={() => setAdding(true)}>
                   <Plus size={15} /> Add node
                 </button>
@@ -722,8 +933,17 @@ function MainApp() {
             )}
             {nodes && nodes.length === 0 && !adding && (
               <div className="card empty">
-                No node yet. <button className="small" onClick={() => setAdding(true)}>Add one</button> with its admin certificate, or provision new ones to self-register
-                (below).
+                {can('admin') ? (
+                  <>
+                    No node yet.{' '}
+                    <button className="small" onClick={() => setAdding(true)}>
+                      Add one
+                    </button>{' '}
+                    with its admin certificate, or provision new ones to self-register (below).
+                  </>
+                ) : (
+                  'No node yet.'
+                )}
               </div>
             )}
             <div className="node-grid">
@@ -741,7 +961,7 @@ function MainApp() {
               ))}
             </div>
             <FleetCard fleet={fleet} nodes={nodes} />
-            <ProvisionInfo />
+            {can('admin') && <ProvisionInfo />}
           </div>
         )}
       </main>
