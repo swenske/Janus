@@ -57,7 +57,10 @@ import (
 // nothing" behavior - but here that's a caller mistake worth surfacing
 // rather than a silent no-op, since this function's entire purpose is
 // writing this one thing).
-func SeedController(diskPath, address string, caCertPEM []byte) error {
+// fleetRootPEM, optional, is the Controller's fleet root: the node then
+// checks the Controller through its fleet first (InstallRequest's
+// controller_fleet_root_cert).
+func SeedController(diskPath, address string, caCertPEM, fleetRootPEM []byte) error {
 	if address == "" {
 		return fmt.Errorf("controller address is required")
 	}
@@ -108,6 +111,11 @@ func SeedController(diskPath, address string, caCertPEM []byte) error {
 	}
 	if err := writeFSFile(fs, "controller/ca.crt", caCertPEM); err != nil {
 		return err
+	}
+	if len(fleetRootPEM) > 0 {
+		if err := writeFSFile(fs, "controller/fleet-root.crt", fleetRootPEM); err != nil {
+			return err
+		}
 	}
 
 	return nil

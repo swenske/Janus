@@ -355,5 +355,10 @@ func writeControllerConfig(fs filesystem.FileSystem, req *janusv1alpha1.InstallR
 	if err := writeFSFile(fs, "controller/ca.crt", req.GetControllerCaCert()); err != nil {
 		return status.Errorf(codes.Internal, "%v", err)
 	}
+	if root := req.GetControllerFleetRootCert(); len(root) > 0 {
+		if err := writeFSFile(fs, "controller/fleet-root.crt", root); err != nil {
+			return status.Errorf(codes.Internal, "%v", err)
+		}
+	}
 	return nil
 }

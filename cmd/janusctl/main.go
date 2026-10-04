@@ -426,11 +426,12 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		sha256Flag := fs.String("sha256", "", "expected sha256 of BUNDLE_DIR/rootfs.squashfs (defaults to reading BUNDLE_DIR/rootfs.squashfs.sha256, if present - see image/release/assemble.sh)")
 		controllerAddress := fs.String("controller-address", "", "address of a Controller (Janus Controller's node self-registration port, see dashboard/backend/register.go) for the installed node to announce itself to on first boot - if unset, the node never self-registers. Requires -controller-ca.")
 		controllerCA := fs.String("controller-ca", "", "path to the Controller's CA certificate (PEM) - the installed node uses this to verify it's talking to the real Controller before ever sending it a credential; required whenever -controller-address is set")
+		controllerFleetRoot := fs.String("controller-fleet-root", "", "path to the Controller's fleet root (PEM, its Provision panel) - optional: the node then checks the Controller through its fleet first, and takes only that fleet's trust")
 		networkConfig := fs.String("network-config", "", "path to a network configuration (JSON, as `janusctl network get` prints it) the installed node applies from its first boot - default: kernel boot DHCP")
 		insecureSkip := fs.Bool("insecure-skip-signature-check", false, "accept UKIs not signed by a Janus release key - development bundles only: without the check, whoever can alter the bundle on its way to the node controls what it boots")
 		_ = fs.Parse(args[1:])
 		if fs.NArg() != 2 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] [-network-config FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR")
+			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE [-controller-fleet-root FILE]] [-network-config FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR")
 			os.Exit(2)
 		}
 		disk, bundleDir := fs.Arg(0), fs.Arg(1)
@@ -451,6 +452,14 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			}
 			controllerCACert = data
 		}
+		var fleetRoot []byte
+		if *controllerFleetRoot != "" {
+			data, err := os.ReadFile(*controllerFleetRoot)
+			if err != nil {
+				log.Fatalf("Install: read -controller-fleet-root %s: %v", *controllerFleetRoot, err)
+			}
+			fleetRoot = data
+		}
 		var netCfg *janusv1alpha1.NetworkConfig
 		if *networkConfig != "" {
 			data, err := os.ReadFile(*networkConfig)
@@ -469,11 +478,12 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		c, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 		stream, err := janusv1alpha1.NewLifecycleServiceClient(conn).Install(c, &janusv1alpha1.InstallRequest{
-			Source:            &janusv1alpha1.ImageSource{Reference: bundleDir, Sha256: sum, InsecureSkipSignatureCheck: *insecureSkip},
-			Disk:              disk,
-			ControllerAddress: *controllerAddress,
-			ControllerCaCert:  controllerCACert,
-			NetworkConfig:     netCfg,
+			Source:                  &janusv1alpha1.ImageSource{Reference: bundleDir, Sha256: sum, InsecureSkipSignatureCheck: *insecureSkip},
+			Disk:                    disk,
+			ControllerAddress:       *controllerAddress,
+			ControllerCaCert:        controllerCACert,
+			ControllerFleetRootCert: fleetRoot,
+			NetworkConfig:           netCfg,
 		})
 		if err != nil {
 			log.Fatalf("Install: %v", err)
@@ -630,9 +640,10 @@ func runImage(args []string) {
 		fs := flag.NewFlagSet("image seed-controller", flag.ExitOnError)
 		controllerAddress := fs.String("controller-address", "", "address of a Controller (Janus Controller's node self-registration port, see dashboard/backend/register.go) for the node to announce itself to on first boot - required")
 		controllerCA := fs.String("controller-ca", "", "path to the Controller's CA certificate (PEM) - the node uses this to verify it's talking to the real Controller before ever sending it a credential; required")
+		controllerFleetRoot := fs.String("controller-fleet-root", "", "path to the Controller's fleet root (PEM) - optional: the node checks the Controller through its fleet first")
 		_ = fs.Parse(args[1:])
 		if fs.NArg() != 1 || *controllerAddress == "" || *controllerCA == "" {
-			fmt.Fprintln(os.Stderr, "usage: janusctl image seed-controller -controller-address HOST:PORT -controller-ca FILE DISK")
+			fmt.Fprintln(os.Stderr, "usage: janusctl image seed-controller -controller-address HOST:PORT -controller-ca FILE [-controller-fleet-root FILE] DISK")
 			os.Exit(2)
 		}
 		disk := fs.Arg(0)
@@ -640,7 +651,13 @@ func runImage(args []string) {
 		if err != nil {
 			log.Fatalf("seed-controller: read -controller-ca %s: %v", *controllerCA, err)
 		}
-		if err := diskseed.SeedController(disk, *controllerAddress, caCert); err != nil {
+		var fleetRoot []byte
+		if *controllerFleetRoot != "" {
+			if fleetRoot, err = os.ReadFile(*controllerFleetRoot); err != nil {
+				log.Fatalf("seed-controller: read -controller-fleet-root %s: %v", *controllerFleetRoot, err)
+			}
+		}
+		if err := diskseed.SeedController(disk, *controllerAddress, caCert, fleetRoot); err != nil {
 			log.Fatalf("seed-controller: %v", err)
 		}
 		fmt.Printf("wrote controller self-registration config to %s's STATE partition\n", disk)

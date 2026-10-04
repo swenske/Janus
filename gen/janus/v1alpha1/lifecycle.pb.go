@@ -130,6 +130,11 @@ type InstallRequest struct {
 	// is deliberately no trust-on-first-use fallback.
 	ControllerAddress string `protobuf:"bytes,3,opt,name=controller_address,json=controllerAddress,proto3" json:"controller_address,omitempty"`
 	ControllerCaCert  []byte `protobuf:"bytes,4,opt,name=controller_ca_cert,json=controllerCaCert,proto3" json:"controller_ca_cert,omitempty"`
+	// Optional, with controller_address: the Controller's fleet root (PEM).
+	// The node then checks the Controller through its fleet - asking for
+	// its fleet certificate (pki.FleetControllerName) - before falling
+	// back to controller_ca_cert, and takes only that fleet's trust.
+	ControllerFleetRootCert []byte `protobuf:"bytes,6,opt,name=controller_fleet_root_cert,json=controllerFleetRootCert,proto3" json:"controller_fleet_root_cert,omitempty"`
 	// Optional: the installed node's network configuration (hostname,
 	// interfaces, VLANs, DNS, NTP), written onto the new STATE filesystem
 	// and in effect from its first boot. Unset: the defaults (DHCP on
@@ -193,6 +198,13 @@ func (x *InstallRequest) GetControllerAddress() string {
 func (x *InstallRequest) GetControllerCaCert() []byte {
 	if x != nil {
 		return x.ControllerCaCert
+	}
+	return nil
+}
+
+func (x *InstallRequest) GetControllerFleetRootCert() []byte {
+	if x != nil {
+		return x.ControllerFleetRootCert
 	}
 	return nil
 }
@@ -560,12 +572,13 @@ const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\treference\x18\x01 \x01(\tR\treference\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12A\n" +
 	"\x1dinsecure_skip_signature_check\x18\x03 \x01(\bR\x1ainsecureSkipSignatureCheck\x124\n" +
-	"\x16allow_schematic_change\x18\x04 \x01(\bR\x14allowSchematicChange\"\xfc\x01\n" +
+	"\x16allow_schematic_change\x18\x04 \x01(\bR\x14allowSchematicChange\"\xb9\x02\n" +
 	"\x0eInstallRequest\x123\n" +
 	"\x06source\x18\x01 \x01(\v2\x1b.janus.v1alpha1.ImageSourceR\x06source\x12\x12\n" +
 	"\x04disk\x18\x02 \x01(\tR\x04disk\x12-\n" +
 	"\x12controller_address\x18\x03 \x01(\tR\x11controllerAddress\x12,\n" +
-	"\x12controller_ca_cert\x18\x04 \x01(\fR\x10controllerCaCert\x12D\n" +
+	"\x12controller_ca_cert\x18\x04 \x01(\fR\x10controllerCaCert\x12;\n" +
+	"\x1acontroller_fleet_root_cert\x18\x06 \x01(\fR\x17controllerFleetRootCert\x12D\n" +
 	"\x0enetwork_config\x18\x05 \x01(\v2\x1d.janus.v1alpha1.NetworkConfigR\rnetworkConfig\"]\n" +
 	"\x0fInstallResponse\x12\x14\n" +
 	"\x05stage\x18\x01 \x01(\tR\x05stage\x12\x1a\n" +

@@ -70,6 +70,9 @@ type Config struct {
 	// created this machine itself so it can admit it without the manual
 	// approval step. Optional; only meaningful with a Controller.
 	RegistrationToken string
+	// ControllerFleetRoot, optional with a Controller: its fleet's root -
+	// the node checks the Controller through its fleet first.
+	ControllerFleetRoot []byte
 	// The node's network configuration (internal/netconfig), as
 	// user-data's "network" object - the NetworkConfig message's JSON
 	// form, as `janusctl network get` prints it.
@@ -77,10 +80,11 @@ type Config struct {
 }
 
 type userData struct {
-	ControllerAddress string          `json:"controller_address"`
-	ControllerCACert  string          `json:"controller_ca_cert"`
-	RegistrationToken string          `json:"registration_token"`
-	Network           json.RawMessage `json:"network"`
+	ControllerAddress   string          `json:"controller_address"`
+	ControllerCACert    string          `json:"controller_ca_cert"`
+	RegistrationToken   string          `json:"registration_token"`
+	ControllerFleetRoot string          `json:"controller_fleet_root_cert"`
+	Network             json.RawMessage `json:"network"`
 }
 
 type metaData struct {
@@ -186,6 +190,9 @@ func parseUserData(raw []byte) (*Config, error) {
 	switch {
 	case ud.ControllerAddress != "" && ud.ControllerCACert != "":
 		cfg.ControllerAddress, cfg.ControllerCACert = ud.ControllerAddress, []byte(ud.ControllerCACert)
+		if ud.ControllerFleetRoot != "" {
+			cfg.ControllerFleetRoot = []byte(ud.ControllerFleetRoot)
+		}
 	case ud.ControllerAddress != "" || ud.ControllerCACert != "":
 		// No trust on first use: a Controller address is only usable with
 		// the CA to verify it against.

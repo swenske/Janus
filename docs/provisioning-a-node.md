@@ -31,7 +31,15 @@ it creates the virtual machine with a NoCloud volume of its own (method
 approval step - see [hypervisors.md](hypervisors.md).
 
 The Controller's address and CA certificate are in its **Provision new
-nodes with this Controller** panel (or `GET /api/controller-info`).
+nodes with this Controller** panel (or `GET /api/controller-info`) - and,
+once its fleet is set up, the fleet's root (`fleet-root.crt`). Give a node
+of this release on the root too: `-controller-fleet-root fleet-root.crt`
+(`lifecycle install`, `image seed-controller`), or
+`controller_fleet_root_cert` in NoCloud user-data. The node then checks
+the Controller through its fleet - asking for the fleet's certificate,
+`controller.fleet.janus` - before the CA certificate, and only takes that
+fleet's trust; the CA certificate stays for a Controller that has no
+fleet yet, and for older images, which ignore the root.
 
 ## Method 1: shared image + `seed-controller` (recommended)
 

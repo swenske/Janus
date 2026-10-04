@@ -95,6 +95,11 @@ message InstallRequest {
   // is deliberately no trust-on-first-use fallback.
   string controller_address = 3;
   bytes controller_ca_cert = 4;
+  // Optional, with controller_address: the Controller's fleet root (PEM).
+  // The node then checks the Controller through its fleet - asking for
+  // its fleet certificate (pki.FleetControllerName) - before falling
+  // back to controller_ca_cert, and takes only that fleet's trust.
+  bytes controller_fleet_root_cert = 6;
   // Optional: the installed node's network configuration (hostname,
   // interfaces, VLANs, DNS, NTP), written onto the new STATE filesystem
   // and in effect from its first boot. Unset: the defaults (DHCP on

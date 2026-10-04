@@ -114,6 +114,19 @@ func TestParseUserDataRegistrationToken(t *testing.T) {
 	}
 }
 
+func TestParseUserDataFleetRoot(t *testing.T) {
+	cfg, err := parseUserData([]byte(`{"controller_address":"c:8443","controller_ca_cert":"pem","controller_fleet_root_cert":"root"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(cfg.ControllerFleetRoot) != "root" {
+		t.Errorf("ControllerFleetRoot = %q, want root", cfg.ControllerFleetRoot)
+	}
+	if cfg, err := parseUserData([]byte(`{"controller_address":"c:8443","controller_ca_cert":"pem"}`)); err != nil || cfg.ControllerFleetRoot != nil {
+		t.Errorf("without one: %q, %v", cfg.ControllerFleetRoot, err)
+	}
+}
+
 func TestParseUserDataNetwork(t *testing.T) {
 	cfg, err := parseUserData([]byte(`{"network": {"hostname": "lb1", "interfaces": [{"name": "eth0", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.0.2.10/24"], "gateway": "192.0.2.1"}], "ntp": {"servers": ["ntp.example.net"]}}}`))
 	if err != nil {
