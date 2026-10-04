@@ -88,10 +88,11 @@ it also issues an initial admin client certificate and prints it once
 (there's no shell to retrieve it later) - the trust anchor a real
 deployment would instead hand out through `LifecycleService.Install`'s
 side channel (Phase 3, not built yet). `SystemService.
-GenerateClientConfiguration` issues further client certificates
-(currently 1 year validity, no renewal/rotation flow) once you already
-have one; roles are carried in the certificate's `Subject.Organization`
-field (the Kubernetes client-cert-auth idiom).
+GenerateClientConfiguration` issues further client certificates once
+you already have one, named after who they're for (the common name) and
+valid for the time asked - one year at most, no renewal/rotation flow;
+roles are carried in the certificate's `Subject.Organization` field (the
+Kubernetes client-cert-auth idiom).
 
 The node's secrets never leave it through the file API: `Read` refuses
 and `Copy` leaves out the PKI's private keys, the Controller

@@ -2967,7 +2967,14 @@ type GenerateClientConfigurationRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Role names to embed in the issued client certificate, validated
 	// against internal/pki's role set (e.g. "os:admin", "os:reader").
-	Roles         []string `protobuf:"bytes,1,rep,name=roles,proto3" json:"roles,omitempty"`
+	Roles []string `protobuf:"bytes,1,rep,name=roles,proto3" json:"roles,omitempty"`
+	// The certificate's common name: who or what it's for ("alice-laptop",
+	// "monitoring"). Up to 64 letters, digits, spaces and ._@:+-, starting
+	// with a letter or digit. Empty: "client".
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// How long it's valid, in seconds: 0 is the most, one year; at least
+	// 60.
+	TtlSeconds    uint32 `protobuf:"varint,3,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3007,6 +3014,20 @@ func (x *GenerateClientConfigurationRequest) GetRoles() []string {
 		return x.Roles
 	}
 	return nil
+}
+
+func (x *GenerateClientConfigurationRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *GenerateClientConfigurationRequest) GetTtlSeconds() uint32 {
+	if x != nil {
+		return x.TtlSeconds
+	}
+	return 0
 }
 
 type GenerateClientConfigurationResponse struct {
@@ -3281,9 +3302,12 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\rR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\"%\n" +
 	"\x11MetaDeleteRequest\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\rR\x03key\":\n" +
+	"\x03key\x18\x01 \x01(\rR\x03key\"o\n" +
 	"\"GenerateClientConfigurationRequest\x12\x14\n" +
-	"\x05roles\x18\x01 \x03(\tR\x05roles\"Y\n" +
+	"\x05roles\x18\x01 \x03(\tR\x05roles\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
+	"\vttl_seconds\x18\x03 \x01(\rR\n" +
+	"ttlSeconds\"Y\n" +
 	"#GenerateClientConfigurationResponse\x12\x0e\n" +
 	"\x02ca\x18\x01 \x01(\fR\x02ca\x12\x10\n" +
 	"\x03crt\x18\x02 \x01(\fR\x03crt\x12\x10\n" +

@@ -175,3 +175,34 @@ func pemDecode(t *testing.T, data []byte) ([]byte, []byte) {
 	}
 	return block.Bytes, rest
 }
+
+// TestCheckIssued: a certificate that isn't named or doesn't expire as
+// asked - what a node too old for these requests hands out - is caught.
+func TestCheckIssued(t *testing.T) {
+	ca, err := NewCA("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := func(name string, validity time.Duration) []byte {
+		certPEM, _, err := ca.Issue(IssueOptions{CommonName: name, Roles: []string{RoleReader}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, Validity: validity})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return certPEM
+	}
+	if err := CheckIssued(issue("alice", time.Hour), "alice", time.Hour); err != nil {
+		t.Errorf("as asked: %v", err)
+	}
+	if err := CheckIssued(issue("client", 0), "", 0); err != nil {
+		t.Errorf("nothing asked: %v", err)
+	}
+	if err := CheckIssued(issue("client", time.Hour), "alice", time.Hour); err == nil {
+		t.Error("another name passed")
+	}
+	if err := CheckIssued(issue("alice", 0), "alice", time.Hour); err == nil {
+		t.Error("a year instead of an hour passed")
+	}
+	if err := CheckIssued([]byte("junk"), "", 0); err == nil {
+		t.Error("junk passed")
+	}
+}

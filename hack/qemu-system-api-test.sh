@@ -141,6 +141,19 @@ content="$(tar xOf "$WORKDIR/etc-janus.tar")"
 if grep -q 'PRIVATE KEY' <<<"$content"; then fail "Copy(/etc/janus) holds a private key"; fi
 echo "  ok: the PKI's keys are never served (Read, Copy, /proc/self/root)"
 
+# A client certificate named after who it's for, valid for an hour - and
+# a reader one: read-only methods, not the file API.
+ctl pki generate-client-config -role os:reader -name ci-reader -ttl 1h "$WORKDIR/reader" >/dev/null || fail "generate-client-config -name -ttl failed"
+subject="$(openssl x509 -in "$WORKDIR/reader/client.crt" -noout -subject)"
+grep -Eq 'CN ?= ?ci-reader' <<<"$subject" || fail "the certificate isn't named ci-reader: $subject"
+grep -Eq 'O ?= ?os:reader' <<<"$subject" || fail "the certificate isn't os:reader: $subject"
+left=$(( $(date -d "$(openssl x509 -in "$WORKDIR/reader/client.crt" -noout -enddate | cut -d= -f2)" +%s) - $(date +%s) ))
+[ "$left" -gt 3300 ] && [ "$left" -le 3600 ] || fail "the 1h certificate is valid for ${left}s more"
+reader() { "$CTL_BIN" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/reader/ca.crt" -cert "$WORKDIR/reader/client.crt" -key "$WORKDIR/reader/client.key" "$@"; }
+expect "a reader certificate reads the hostname" '^[A-Za-z0-9.-]+$' reader system hostname
+if out="$(reader system cat /etc/haproxy/haproxy.cfg 2>&1)"; then fail "a reader certificate read a file"; fi
+grep -q PermissionDenied <<<"$out" || fail "Read with a reader certificate didn't answer PermissionDenied: $out"
+echo "  ok: named, 1-hour reader certificate"
 expect "Dmesg" 'Linux version' ctl system dmesg
 expect "Logs janusd" 'listening on :9505' ctl system logs janusd
 expect "Logs haproxy" 'NOTICE' ctl system logs haproxy

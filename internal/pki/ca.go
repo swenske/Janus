@@ -18,11 +18,10 @@
 //
 // Roles are carried in the leaf certificate's Subject.Organization field
 // (the same idiom Kubernetes client-cert auth uses for group membership)
-// so a future authorization layer can read them straight off the verified
-// peer certificate without a custom X.509 extension. No RPC actually
-// checks roles yet - see docs/architecture.md's Phase 2 notes: this
-// package covers authentication (proving who you are), not yet
-// authorization (what that identity is allowed to do).
+// so internal/api/authz.go reads them straight off the verified peer
+// certificate without a custom X.509 extension: this package covers
+// authentication (proving who you are), authz.go authorization (what
+// that identity is allowed to do).
 package pki
 
 import (
@@ -39,10 +38,13 @@ import (
 )
 
 const (
-	caKeyPEMType   = "PRIVATE KEY"
-	caCertPEMType  = "CERTIFICATE"
-	caValidity     = 10 * 365 * 24 * time.Hour // 10 years - this is the trust root, not meant to rotate casually
-	leafValidity   = 365 * 24 * time.Hour      // 1 year - no rotation/renewal flow yet (Phase 2+ gap, see docs)
+	caKeyPEMType  = "PRIVATE KEY"
+	caCertPEMType = "CERTIFICATE"
+	caValidity    = 10 * 365 * 24 * time.Hour // 10 years - this is the trust root, not meant to rotate casually
+	// LeafValidity is a leaf certificate's lifetime unless
+	// IssueOptions.Validity asks for less - 1 year: no renewal flow for
+	// client certificates yet.
+	LeafValidity   = 365 * 24 * time.Hour
 	serialBitsSize = 128
 )
 
@@ -138,10 +140,14 @@ type IssueOptions struct {
 	DNSNames    []string
 	IPAddresses []net.IP
 	ExtKeyUsage []x509.ExtKeyUsage
+	// Validity is how long the certificate is valid from now: 0 means
+	// LeafValidity.
+	Validity time.Duration
 }
 
 // Issue signs a new ECDSA P-256 leaf certificate with the CA's key,
-// valid for leafValidity from now. Returns (certPEM, keyPEM).
+// valid for opts.Validity (LeafValidity by default) from now. Returns
+// (certPEM, keyPEM).
 func (ca *CA) Issue(opts IssueOptions) (certPEM, keyPEM []byte, err error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -153,6 +159,10 @@ func (ca *CA) Issue(opts IssueOptions) (certPEM, keyPEM []byte, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	validity := opts.Validity
+	if validity == 0 {
+		validity = LeafValidity
+	}
 
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
@@ -161,7 +171,7 @@ func (ca *CA) Issue(opts IssueOptions) (certPEM, keyPEM []byte, err error) {
 			Organization: opts.Roles,
 		},
 		NotBefore:   time.Now().Add(-time.Hour),
-		NotAfter:    time.Now().Add(leafValidity),
+		NotAfter:    time.Now().Add(validity),
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: opts.ExtKeyUsage,
 		DNSNames:    opts.DNSNames,
@@ -192,4 +202,27 @@ func randomSerial() (*big.Int, error) {
 
 func encodePEM(blockType string, der []byte) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
+}
+
+// CheckIssued reports whether certPEM, a client certificate a node just
+// issued, is the one asked for: named name (when not empty), valid no
+// longer than validity (when not 0). A node older than these two
+// requests ignores them, and would hand out a certificate named "client"
+// valid for a year.
+func CheckIssued(certPEM []byte, name string, validity time.Duration) error {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return fmt.Errorf("no certificate PEM in the node's answer")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("parse the issued certificate: %w", err)
+	}
+	if name != "" && cert.Subject.CommonName != name {
+		return fmt.Errorf("the node named the certificate %q, not %q: it predates naming them - update it", cert.Subject.CommonName, name)
+	}
+	if validity != 0 && time.Until(cert.NotAfter) > validity+time.Minute {
+		return fmt.Errorf("the node made the certificate valid until %s, longer than asked: it predates choosing the validity - update it", cert.NotAfter.UTC().Format(time.RFC3339))
+	}
+	return nil
 }

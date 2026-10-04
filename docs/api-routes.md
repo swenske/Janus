@@ -59,7 +59,7 @@ are also technically non-mutating).
 | `Copy` | server | ✅ | Tar stream of a file or tree (regular files, directories, symlinks); `/proc` and `/sys` refused (use `Read`); the node's secrets left out, refused when asked for by name |
 | `PacketCapture` | server | ✅ | tcpdump-equivalent over gRPC: pcap stream, kernel-side filter - see [packet-capture.md](packet-capture.md) |
 | `MetaWrite` / `MetaDelete` | | ⬜ | META partition key/value entries - Janus has no META partition |
-| `GenerateClientConfiguration` | | ✅ | Issue an mTLS client cert (`internal/pki`) - 1 year validity, no rotation flow yet |
+| `GenerateClientConfiguration` | | ✅ | Issue an mTLS client cert (`internal/pki`) named after who it's for (`name`), valid `ttl_seconds` - one year at most, no rotation flow yet |
 | `MetricsConfigGet` | | ✅ | The node's Prometheus exporter settings, and whether it's listening ([metrics.md](metrics.md)) |
 | `MetricsConfigSet` | | ✅ | Turn the exporter on/off, move it to another port - applied at once, persisted; a port that can't be bound is refused |
 | `NodeExporterConfigGet` | | ✅ | prometheus-node-exporter's settings - running or not, listen address and port, collectors - and the collectors it offers ([metrics.md](metrics.md#the-node-exporter)); `FailedPrecondition` without the extension |

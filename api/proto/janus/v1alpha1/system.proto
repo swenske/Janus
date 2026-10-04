@@ -78,8 +78,9 @@ service SystemService {
   rpc MetaWrite(MetaWriteRequest) returns (google.protobuf.Empty);
   rpc MetaDelete(MetaDeleteRequest) returns (google.protobuf.Empty);
 
-  // GenerateClientConfiguration issues a short-lived client certificate
-  // for mTLS bootstrap (see internal/pki).
+  // GenerateClientConfiguration issues a client certificate signed by
+  // this node's CA (see internal/pki), for the given roles, named after
+  // who it's for and valid one year or less.
   rpc GenerateClientConfiguration(GenerateClientConfigurationRequest) returns (GenerateClientConfigurationResponse);
 
   // The node's Prometheus exporter (docs/metrics.md): Janus's own
@@ -422,6 +423,13 @@ message GenerateClientConfigurationRequest {
   // Role names to embed in the issued client certificate, validated
   // against internal/pki's role set (e.g. "os:admin", "os:reader").
   repeated string roles = 1;
+  // The certificate's common name: who or what it's for ("alice-laptop",
+  // "monitoring"). Up to 64 letters, digits, spaces and ._@:+-, starting
+  // with a letter or digit. Empty: "client".
+  string name = 2;
+  // How long it's valid, in seconds: 0 is the most, one year; at least
+  // 60.
+  uint32 ttl_seconds = 3;
 }
 
 message GenerateClientConfigurationResponse {

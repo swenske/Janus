@@ -8,8 +8,10 @@ import (
 	"context"
 	"crypto/x509"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -124,6 +126,10 @@ func CurrentActiveSlot() string {
 	return slot
 }
 
+// clientNamePattern is what an issued client certificate's common name
+// may be (64 is X.509's upper bound for one).
+var clientNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._@:+-]{0,63}$`)
+
 func (s *System) GenerateClientConfiguration(_ context.Context, req *janusv1alpha1.GenerateClientConfigurationRequest) (*janusv1alpha1.GenerateClientConfigurationResponse, error) {
 	roles := req.GetRoles()
 	if len(roles) == 0 {
@@ -138,10 +144,23 @@ func (s *System) GenerateClientConfiguration(_ context.Context, req *janusv1alph
 		}
 	}
 
+	name := req.GetName()
+	if name == "" {
+		name = "client"
+	}
+	if !clientNamePattern.MatchString(name) {
+		return nil, status.Errorf(codes.InvalidArgument, "name %q: up to 64 letters, digits, spaces and ._@:+-, starting with a letter or digit", name)
+	}
+	validity := time.Duration(req.GetTtlSeconds()) * time.Second
+	if validity != 0 && (validity < time.Minute || validity > pki.LeafValidity) {
+		return nil, status.Errorf(codes.InvalidArgument, "ttl_seconds %d: between 60 and %d (one year), or 0 for one year", req.GetTtlSeconds(), int(pki.LeafValidity.Seconds()))
+	}
+
 	certPEM, keyPEM, err := s.CA.Issue(pki.IssueOptions{
-		CommonName:  "client",
+		CommonName:  name,
 		Roles:       roles,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		Validity:    validity,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "issue client certificate: %v", err)

@@ -125,8 +125,9 @@ type SystemServiceClient interface {
 	// not general storage.
 	MetaWrite(ctx context.Context, in *MetaWriteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	MetaDelete(ctx context.Context, in *MetaDeleteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	// GenerateClientConfiguration issues a short-lived client certificate
-	// for mTLS bootstrap (see internal/pki).
+	// GenerateClientConfiguration issues a client certificate signed by
+	// this node's CA (see internal/pki), for the given roles, named after
+	// who it's for and valid one year or less.
 	GenerateClientConfiguration(ctx context.Context, in *GenerateClientConfigurationRequest, opts ...grpc.CallOption) (*GenerateClientConfigurationResponse, error)
 	// The node's Prometheus exporter (docs/metrics.md): Janus's own
 	// metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
@@ -660,8 +661,9 @@ type SystemServiceServer interface {
 	// not general storage.
 	MetaWrite(context.Context, *MetaWriteRequest) (*emptypb.Empty, error)
 	MetaDelete(context.Context, *MetaDeleteRequest) (*emptypb.Empty, error)
-	// GenerateClientConfiguration issues a short-lived client certificate
-	// for mTLS bootstrap (see internal/pki).
+	// GenerateClientConfiguration issues a client certificate signed by
+	// this node's CA (see internal/pki), for the given roles, named after
+	// who it's for and valid one year or less.
 	GenerateClientConfiguration(context.Context, *GenerateClientConfigurationRequest) (*GenerateClientConfigurationResponse, error)
 	// The node's Prometheus exporter (docs/metrics.md): Janus's own
 	// metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
