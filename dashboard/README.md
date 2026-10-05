@@ -306,15 +306,26 @@ Controller takes it at once.
 
 ### janusctl
 
-`janusctl login` signs in to the Controller with an API token of your
-account (`JANUS_TOKEN`) and gets a certificate of its fleet - an hour,
-for a key janusctl makes and keeps - and its nodes; janusctl then
-reaches the nodes directly, each checking the certificate's role itself
-([README](../README.md#using-janusctl)). The fleet must be set up. The
-API behind it: `POST /api/cli/certificate` (`{csr_pem}` → the
-certificate and the issuing CA, its role and end) and `GET
-/api/cli/inventory` (each node's address, CA and whether it trusts the
-fleet).
+`janusctl login` signs in to the Controller with an SSH key of your
+account - or, in CI, an API token (`JANUS_TOKEN`) - and gets a
+certificate of its fleet and its nodes; janusctl then reaches the nodes
+directly, each checking the certificate's role itself
+([README](../README.md#using-janusctl)). The fleet must be set up.
+
+Your SSH keys are in your account's dialog (**SSH keys for janusctl**):
+adding one needs a sign-in that gave a second factor - the key then
+signs janusctl in alone, for 12 hours at a time. A key can carry a
+lower role than the account, and expire; removing it stops new
+sign-ins.
+
+The API behind it: `POST /api/cli/challenge` then `POST
+/api/cli/ssh-login` (the challenge signed with the key, SSHSIG namespace
+`janus-login`, for the Controller's certificate fingerprint → a
+certificate for the key itself, and the nodes); `POST
+/api/cli/certificate` (an API token or a session: `{csr_pem}` → the
+certificate and the issuing CA, its role and end); `GET
+/api/cli/inventory`; `GET/POST/DELETE /api/auth/ssh-keys` (your own,
+from a session).
 
 ### API tokens and Terraform
 

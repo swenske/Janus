@@ -243,6 +243,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	a.registerTokenRoutes(mux)
 	a.registerUserRoutes(mux)
 	a.registerCLIRoutes(mux)
+	a.registerSSHKeyRoutes(mux)
 	a.registerHypervisorRoutes(mux)
 	a.registerFleetRoutes(mux)
 	a.registerMachineRoutes(mux)
@@ -278,6 +279,7 @@ type app struct {
 	runner       *machineRunner
 	consoles     consoleHub
 
+	challenges challenges
 	// pages holds each node's page handler (node_pages.go), made on its
 	// first request.
 	pagesMu sync.Mutex
@@ -650,7 +652,10 @@ func (a *app) handleControllerInfo(w http.ResponseWriter, r *http.Request) {
 		// provisioned with: it checks the Controller through the fleet,
 		// whatever certificate the Controller serves meanwhile.
 		FleetRootPEM string `json:"fleet_root_pem,omitempty"`
-	}{Address: a.suggestedRegisterAddr, CACertPEM: string(caPEM), FleetRootPEM: string(fleetRoot)})
+		// Fingerprint is the SHA-256 of the certificate this port serves
+		// - what janusctl login -controller-fingerprint checks.
+		Fingerprint string `json:"fingerprint"`
+	}{Address: a.suggestedRegisterAddr, CACertPEM: string(caPEM), FleetRootPEM: string(fleetRoot), Fingerprint: a.servedFingerprint()})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -4,13 +4,25 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"log"
+	"math"
 	"net/http"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/crypto/ssh"
+
+	"github.com/swenske/Janus/internal/sshsig"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
@@ -125,11 +137,219 @@ type cliNode struct {
 
 // handleCLIInventory lists the nodes janusctl reaches, and how.
 func (a *app) handleCLIInventory(w http.ResponseWriter, _ *http.Request) {
-	out := struct {
+	writeJSON(w, http.StatusOK, struct {
 		Nodes []cliNode `json:"nodes"`
-	}{Nodes: []cliNode{}}
+	}{a.cliNodes()})
+}
+
+func (a *app) cliNodes() []cliNode {
+	out := []cliNode{}
 	for _, n := range a.store.List() {
-		out.Nodes = append(out.Nodes, cliNode{ID: n.ID, Name: n.Name, Address: n.Addr(), CAPEM: string(n.CA()), Fleet: n.TrustsFleet()})
+		out = append(out, cliNode{ID: n.ID, Name: n.Name, Address: n.Addr(), CAPEM: string(n.CA()), Fleet: n.TrustsFleet()})
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out
+}
+
+// --- SSH keys: what janusctl signs in with ---
+
+// servedFingerprint is the SHA-256 (hex) of the certificate the main port
+// serves: what janusctl pins, and what an SSH sign-in's signature names -
+// a signature made for another server is worth nothing here.
+func (a *app) servedFingerprint() string {
+	sum := sha256.Sum256(a.serverCert.Certificate[0])
+	return hex.EncodeToString(sum[:])
+}
+
+func (a *app) registerSSHKeyRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/auth/ssh-keys", a.sessionGate(auth.Reader, auth.Reader, a.handleSSHKeyList))
+	mux.HandleFunc("POST /api/auth/ssh-keys", a.sessionGate(auth.Reader, auth.Reader, a.handleSSHKeyAdd))
+	mux.HandleFunc("DELETE /api/auth/ssh-keys/{fingerprint...}", a.sessionGate(auth.Reader, auth.Reader, a.handleSSHKeyRemove))
+	mux.HandleFunc("POST /api/cli/challenge", a.handleCLIChallenge)
+	mux.HandleFunc("POST /api/cli/ssh-login", a.handleCLISSHLogin)
+}
+
+func (a *app) handleSSHKeyList(w http.ResponseWriter, r *http.Request) {
+	p, _ := principalOf(r)
+	u, _ := a.auth.User(p.User)
+	writeJSON(w, http.StatusOK, nonNil(u.SSHKeys))
+}
+
+// handleSSHKeyAdd gives the account a key - from a sign-in that gave a
+// second factor: the key then signs janusctl in alone.
+func (a *app) handleSSHKeyAdd(w http.ResponseWriter, r *http.Request) {
+	p, _ := principalOf(r)
+	if !p.MFA {
+		writeError(w, http.StatusForbidden, "adding an SSH key needs a sign-in with a second factor - set one up (your account), then sign in again")
+		return
+	}
+	var req struct {
+		Name      string    `json:"name"`
+		PublicKey string    `json:"public_key"`
+		Role      auth.Role `json:"role"`
+		// ExpiresInDays: 0, until removed.
+		ExpiresInDays int `json:"expires_in_days"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.ExpiresInDays < 0 || req.ExpiresInDays > 3650 {
+		writeError(w, http.StatusBadRequest, "expires_in_days: 0 (never) to 3650")
+		return
+	}
+	k, err := a.auth.AddSSHKey(p.User, req.Name, req.PublicKey, req.Role, time.Duration(req.ExpiresInDays)*24*time.Hour)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, k)
+}
+
+func (a *app) handleSSHKeyRemove(w http.ResponseWriter, r *http.Request) {
+	p, _ := principalOf(r)
+	if err := a.auth.RemoveSSHKey(p.User, r.PathValue("fingerprint")); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// challenges are the SSH sign-ins under way: a random challenge each,
+// good once, for two minutes.
+type challenges struct {
+	mu sync.Mutex
+	m  map[string]challenge
+}
+
+type challenge struct {
+	user, fingerprint string
+	expires           time.Time
+}
+
+const (
+	challengeLife = 2 * time.Minute
+	maxChallenges = 10000
+)
+
+// SSHLoginNamespace is the SSHSIG namespace of janusctl's sign-ins.
+const SSHLoginNamespace = "janus-login"
+
+// sshLoginMessage is what janusctl signs: the challenge, for the server
+// whose certificate it saw - a signature relayed to another server says
+// so.
+func sshLoginMessage(serverFingerprint, challenge string) []byte {
+	return []byte("janus-login\n" + serverFingerprint + "\n" + challenge)
+}
+
+func (c *challenges) issue(user, fingerprint string) (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	id := base64.RawURLEncoding.EncodeToString(raw)
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = map[string]challenge{}
+	}
+	for k, v := range c.m {
+		if now.After(v.expires) {
+			delete(c.m, k)
+		}
+	}
+	if len(c.m) >= maxChallenges {
+		return "", errors.New("too many sign-ins under way - try again in a minute")
+	}
+	c.m[id] = challenge{user: user, fingerprint: fingerprint, expires: now.Add(challengeLife)}
+	return id, nil
+}
+
+// take is the challenge id, used up, if it's live and for user's key.
+func (c *challenges) take(id, user, fingerprint string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, ok := c.m[id]
+	delete(c.m, id)
+	return ok && time.Now().Before(v.expires) && v.user == user && v.fingerprint == fingerprint
+}
+
+type sshLoginRequest struct {
+	User        string `json:"user"`
+	Fingerprint string `json:"fingerprint"`
+	Challenge   string `json:"challenge"`
+	// Signature is the SSHSIG (armored) of sshLoginMessage.
+	Signature string `json:"signature"`
+}
+
+// handleCLIChallenge starts an SSH sign-in: a challenge for the key -
+// whether or not the account has it, so this tells nothing.
+func (a *app) handleCLIChallenge(w http.ResponseWriter, r *http.Request) {
+	var req sshLoginRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	noteAudit(r, strings.TrimSpace(req.User), "ssh key "+req.Fingerprint)
+	id, err := a.challenges.issue(strings.TrimSpace(req.User), req.Fingerprint)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"challenge": id, "server_fingerprint": a.servedFingerprint()})
+}
+
+// handleCLISSHLogin ends it: the challenge signed with the account's key
+// gets a certificate of the fleet for that key itself - its role, twelve
+// hours - and the nodes.
+func (a *app) handleCLISSHLogin(w http.ResponseWriter, r *http.Request) {
+	client := clientAddr(r)
+	if ok, wait := a.loginLimiter.Allow(client); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+		http.Error(w, "too many failed attempts - try again later", http.StatusTooManyRequests)
+		return
+	}
+	var req sshLoginRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	user := strings.TrimSpace(req.User)
+	noteAudit(r, user, "ssh key "+req.Fingerprint)
+	fail := func() {
+		a.loginLimiter.Fail(client)
+		writeError(w, http.StatusUnauthorized, "this key doesn't sign this account in (unknown, expired, or a signature for another server)")
+	}
+	if !a.challenges.take(req.Challenge, user, req.Fingerprint) {
+		fail()
+		return
+	}
+	pub, role, err := a.auth.SSHKeyFor(user, req.Fingerprint)
+	if err != nil {
+		fail()
+		return
+	}
+	if err := sshsig.Verify([]byte(req.Signature), pub, SSHLoginNamespace, sshLoginMessage(a.servedFingerprint(), req.Challenge)); err != nil {
+		fail()
+		return
+	}
+	a.loginLimiter.Succeed(client)
+	a.auth.SSHKeyUsed(user, req.Fingerprint)
+	cpk, ok := pub.(ssh.CryptoPublicKey)
+	if !ok || a.fleet == nil {
+		writeError(w, http.StatusConflict, "set up the fleet first: janusctl's certificates are the fleet's")
+		return
+	}
+	nodeR := nodeRole(role)
+	chain, notAfter, err := a.fleet.IssueUser(cpk.CryptoPublicKey(), user, nodeR, cliSessionTTL)
+	if errors.Is(err, fleet.ErrState) {
+		writeError(w, http.StatusConflict, "set up the fleet first: janusctl's certificates are the fleet's")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	log.Printf("issued a janusctl certificate to %s (%s, ssh key %s) until %s", user, nodeR, req.Fingerprint, notAfter.Format(time.RFC3339))
+	writeJSON(w, http.StatusOK, struct {
+		cliCertificate
+		Nodes []cliNode `json:"nodes"`
+	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: nodeR}, a.cliNodes()})
 }

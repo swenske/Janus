@@ -40,6 +40,8 @@ type principal struct {
 	// Needs is what the session must do before anything else
 	// (auth.Store.Needs): "mfa", "password", "mfa_enroll".
 	Needs []string
+	// MFA: a session that gave a second factor.
+	MFA bool
 }
 
 type principalKey struct{}
@@ -152,7 +154,7 @@ func (a *app) authenticate(w http.ResponseWriter, r *http.Request) (principal, b
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return principal{}, false
 	}
-	return principal{User: u.Name, Role: u.Role, Needs: a.auth.Needs(u, ss)}, true
+	return principal{User: u.Name, Role: u.Role, Needs: a.auth.Needs(u, ss), MFA: ss.MFA}, true
 }
 
 var needsMessage = map[string]string{

@@ -40,18 +40,7 @@ func TestCLICertificate(t *testing.T) {
 		t.Errorf("before the fleet: %d %s", code, body)
 	}
 
-	dir := t.TempDir()
-	mk, _ := secrets.LoadOrCreate("", dir)
-	f, err := fleet.Open(filepath.Join(dir, "fleet"), mk, "0123456789abcdef")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pass, _ := f.Setup()
-	kit, _ := f.RecoveryKit()
-	if err := f.Confirm(kit, pass); err != nil {
-		t.Fatal(err)
-	}
-	a.fleet = f
+	withReadyFleet(t, a.app)
 	if err := a.store.Add(&store.Node{Name: "edge-1", Address: "192.0.2.5:9505", CACertPEM: []byte("node CA"), Fleet: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -104,4 +93,21 @@ func TestCLICertificate(t *testing.T) {
 	if code, _ := a.req(t, "GET", "/api/cli/inventory", "", nil); code != http.StatusUnauthorized {
 		t.Errorf("inventory, signed out: %d", code)
 	}
+}
+
+// withReadyFleet gives a its fleet, set up and confirmed.
+func withReadyFleet(t *testing.T, a *app) {
+	t.Helper()
+	dir := t.TempDir()
+	mk, _ := secrets.LoadOrCreate("", dir)
+	f, err := fleet.Open(filepath.Join(dir, "fleet"), mk, "0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass, _ := f.Setup()
+	kit, _ := f.RecoveryKit()
+	if err := f.Confirm(kit, pass); err != nil {
+		t.Fatal(err)
+	}
+	a.fleet = f
 }

@@ -101,6 +101,8 @@ type User struct {
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
 	// MFA is the account's second factors (mfa.go).
 	MFA MFA `json:"mfa,omitzero"`
+	// SSHKeys are what janusctl signs in with (sshkeys.go).
+	SSHKeys []SSHKey `json:"ssh_keys,omitempty"`
 }
 
 // Settings is the session policy.
@@ -363,6 +365,7 @@ func view(u *User) User {
 	c.MFA.TOTP = nil
 	c.MFA.RecoveryCodes = make([]string, len(u.MFA.RecoveryCodes))
 	c.MFA.Passkeys = append([]Passkey{}, u.MFA.Passkeys...)
+	c.SSHKeys = append([]SSHKey{}, u.SSHKeys...)
 	return c
 }
 
