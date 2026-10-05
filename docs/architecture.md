@@ -180,8 +180,11 @@ fleet.go`, [fleet-without-controller.md](fleet-without-controller.md)) -
 the root in the same recovery kit (`internal/fleetkit`, shared with the
 Controller), an issuing CA per machine (its key a file of janusctl's
 configuration, signing that machine's 12-hour certificates on the spot),
-bundles signed with the kit when a machine joins or leaves and synced
-to the nodes by any machine (`TrustGet` returns the signed bundle; the
+bundles signed with the kit when a machine joins or leaves - each issuing
+CA limited, in the bundle, to the roles its machine's certificates may
+carry (`Bundle.Limits`, enforced by the node's `AcceptChains`: an
+operator's CI signs no admin, nor a Controller) - and synced to the nodes
+by any machine (`TrustGet` returns the signed bundle; the
 newest wins, versions in milliseconds). A node can trust the fleet from
 its first boot: provisioning writes the root and the bundle to STATE
 `pki/fleet/` (`Install`, `diskseed.SeedFleet`, NoCloud via

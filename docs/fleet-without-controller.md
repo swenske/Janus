@@ -106,9 +106,19 @@ janusctl -all haproxy show-info
 ```
 
 The request carries no secret (a CSR); the grant carries none either
-(the issuing CA's certificate, the bundle, the nodes). The role is the
-machine's choice for its certificates (`-role`); a CI that only runs
-HAProxy takes `os:operator`.
+(the issuing CA's certificate, the bundle, the nodes).
+
+`-role` is the most the machine's certificates may carry, and the
+bundle holds it to that: a CI requested as `os:operator` gets an issuing
+CA the bundle limits to `os:operator` and `os:reader` - the nodes refuse
+any other certificate it signs, an admin's or a Controller's (which acts
+for any role) - so its key, stolen, runs HAProxy and no more. The signer
+can tighten it (`issuer sign -role os:reader`); `os:admin` means no
+limit. `fleet issuer list` shows each CA's.
+
+Nodes older than this release ignore the limit and let such a CA sign
+anything: update the nodes before you give a machine a limited issuing
+CA.
 
 ## Take a machine out
 
@@ -147,7 +157,7 @@ Controller is gone and no backup restores it
 
 | Lost | Consequence | What to do |
 |---|---|---|
-| a machine (laptop, CI) | its issuing CA's key, its 12 h certificates | `fleet issuer revoke` + `fleet sync` from another machine |
+| a machine (laptop, CI) | its issuing CA's key - certificates up to its limit (an operator's CI: no admin) | `fleet issuer revoke` + `fleet sync` from another machine |
 | every machine | nothing on the nodes | `fleet recover -kit`, then `adopt -kit` each node |
 | the kit, not its passphrase | an encrypted file | nothing - keep them apart |
 | the kit and its passphrase | the fleet: whoever has both can sign a bundle | `janusctl access trust-reset` on each node with its own CA's credential, then a new fleet |

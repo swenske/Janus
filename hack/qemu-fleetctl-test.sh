@@ -10,7 +10,9 @@
 # console. Her certificates are signed on her machine, and the nodes log
 # them as the fleet's. bob's machine (CI, an operator) gets an issuing
 # CA of its own - requested there, signed where the kit is, synced to
-# the nodes -, runs HAProxy, is refused the node's files, then revoked.
+# the nodes, limited by the bundle to operators and readers (an admin's
+# or a Controller's certificate made with its key is refused) -, runs
+# HAProxy, is refused the node's files, then revoked.
 # carol's machine recovers the fleet from the kit alone - a lost
 # Controller's case - and takes node A over: alice's machine is refused
 # there, still let in on node B until it gets the new bundle. Fails on
@@ -23,6 +25,7 @@ export PATH="$PATH:/usr/sbin:/sbin"
 
 DISK="${1:?usage: $0 <disk.img> <janusctl-bin>}"
 CTL_BIN="$(realpath "${2:?usage: $0 <disk.img> <janusctl-bin>}")"
+REPO="$(pwd)"
 BOOT_TIMEOUT_SECS="${QEMU_FLEETCTL_BOOT_TIMEOUT:-90}"
 PORT_A="$((18240 + ${JANUS_TEST_PORT_OFFSET:-0}))"
 PORT_B="$((18241 + ${JANUS_TEST_PORT_OFFSET:-0}))"
@@ -134,6 +137,25 @@ grep -q "PermissionDenied" <<<"$out" || fail "bob reading a file, refused but: $
 bob -n edge-b system service restart haproxy >/dev/null || fail "bob restarting HAProxy"
 logs="$(alice -n edge-b system logs janusd 2>&1)"
 grep -q 'api: SystemService/ServiceRestart: bob (os:operator, fleet)' <<<"$logs" || fail "node B didn't log bob's restart"
+
+# bob's issuing CA may sign operators and readers only - the bundle says
+# so, and the nodes hold it to that: certificates made with its key by
+# hand (hack/fleetca, not janusctl, which refuses) for an admin or a
+# Controller - which acts for any role - are refused; an operator's,
+# made the same way, lets in.
+alice fleet issuer list | grep "bob-ci" | grep -q "os:operator, os:reader" || fail "bob-ci isn't limited in the bundle: $(alice fleet issuer list)"
+python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["contexts"]["lab"]; print([n for n in c["nodes"] if n["name"]=="edge-a"][0]["ca_pem"])' "$WORKDIR/alice/janusctl.json" >"$WORKDIR/edge-a-ca.crt"
+handmade() { # handmade NAME ROLE: a certificate bob's issuing CA signs, without janusctl
+  (cd "$REPO" && go run ./hack/fleetca sign "$WORKDIR/bob/lab/issuing.crt" "$WORKDIR/bob/lab/issuing.key" "$2" "$1" "$WORKDIR/$1") || fail "fleetca sign"
+}
+by_hand() { "$CTL_BIN" -endpoint "127.0.0.1:$PORT_A" -ca "$WORKDIR/edge-a-ca.crt" -cert "$WORKDIR/$1.crt" -key "$WORKDIR/$1.key" "${@:2}"; }
+handmade bob-op os:operator
+handmade bob-admin os:admin
+handmade bob-controller janus:controller
+out="$(by_hand bob-op haproxy show-info 2>&1)" || fail "an operator's certificate made by hand with bob's issuing CA was refused - the test's certificate is wrong: $out"
+if out="$(by_hand bob-admin version 2>&1)"; then fail "an admin's certificate from bob's operator-only issuing CA let in: $out"; fi
+if out="$(by_hand bob-controller -as-user mallory -as-roles os:admin version 2>&1)"; then fail "a Controller's certificate from bob's operator-only issuing CA let in: $out"; fi
+echo "Limits OK: bob's issuing CA may sign operators and readers only - the nodes refuse an admin's or a Controller's certificate made with its key"
 
 alice fleet issuer revoke -kit "$WORKDIR/kit.age" bob-ci >/dev/null || fail "issuer revoke"
 alice fleet sync >/dev/null || fail "sync after revoking"

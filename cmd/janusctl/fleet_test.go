@@ -34,13 +34,13 @@ func TestBundleVersions(t *testing.T) {
 	}
 	root, _ := pki.NewCAFor("root", time.Hour)
 	issuing, _ := root.IssueCA(issuingNamePrefix+"a", time.Hour)
-	a, _ := signBundle(root, 0, []*x509.Certificate{issuing.Cert})
+	a, _ := signBundle(root, 0, []*x509.Certificate{issuing.Cert}, nil)
 	var indented strings.Builder
 	var v any
 	_ = json.Unmarshal(a, &v)
 	out, _ := json.MarshalIndent(v, "", "  ")
 	indented.Write(out)
-	b, _ := signBundle(root, 0, []*x509.Certificate{issuing.Cert})
+	b, _ := signBundle(root, 0, []*x509.Certificate{issuing.Cert}, nil)
 	if !sameBundle(a, []byte(indented.String())) || sameBundle(a, b) {
 		t.Error("sameBundle")
 	}
@@ -53,7 +53,7 @@ func TestLocalSignIn(t *testing.T) {
 	t.Setenv(configEnv, filepath.Join(dir, "janusctl.json"))
 	root, _ := pki.NewCAFor("root", time.Hour*24*365)
 	issuing, _ := root.IssueCA(issuingNamePrefix+"laptop", time.Hour*24*365)
-	signed, _ := signBundle(root, 0, []*x509.Certificate{issuing.Cert})
+	signed, _ := signBundle(root, 0, []*x509.Certificate{issuing.Cert}, nil)
 	cfg, _ := loadConfig()
 	c := &cliContext{User: "alice", Role: pki.RoleOperator, Fleet: &ctxFleet{Name: "lab", Issuer: "laptop"}}
 	newFleetContext(cfg, "lab", c, root.CertPEM, issuing, signed)
@@ -113,5 +113,33 @@ func TestCheckNodeCA(t *testing.T) {
 	os, _ := parsePEMCert(otherServer)
 	if err := checkNodeCA(ca.CertPEM, [][]byte{os.Raw}, fp); err == nil {
 		t.Error("a server certificate of another CA")
+	}
+}
+
+// TestLimitedMachine: a machine whose issuing CA the bundle limits signs
+// itself no certificate above the limit.
+func TestLimitedMachine(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(configEnv, filepath.Join(dir, "janusctl.json"))
+	root, _ := pki.NewCAFor("root", time.Hour*24*365)
+	issuing, _ := root.IssueCA(issuingNamePrefix+"ci", time.Hour*24*365)
+	limits := map[string][]string{pki.Fingerprint(issuing.Cert.Raw): rolesUpTo(pki.RoleOperator)}
+	signed, err := signBundle(root, 0, []*x509.Certificate{issuing.Cert}, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	c := &cliContext{User: "ci", Role: pki.RoleOperator, Fleet: &ctxFleet{Name: "lab", Issuer: "ci"}}
+	newFleetContext(cfg, "lab", c, root.CertPEM, issuing, signed)
+	c.Role = pki.RoleAdmin
+	if err := localSignIn("lab", c); err == nil || !strings.Contains(err.Error(), "may sign os:operator, os:reader only") {
+		t.Errorf("an admin certificate from an operator's CA: %v", err)
+	}
+	f, _ := openLocalFleet("lab")
+	if l := limitOf(f.bundle, f.issuing.Cert); !slices.Equal(l, []string{pki.RoleOperator, pki.RoleReader}) {
+		t.Errorf("limit %v", l)
+	}
+	if rolesUpTo(pki.RoleAdmin) != nil || !slices.Equal(rolesUpTo(pki.RoleReader), []string{pki.RoleReader}) {
+		t.Error("rolesUpTo")
 	}
 }

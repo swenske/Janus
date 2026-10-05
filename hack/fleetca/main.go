@@ -5,6 +5,11 @@
 //
 // Usage: go run ./hack/fleetca DIR
 //
+//	go run ./hack/fleetca sign CA.crt CA.key ROLE NAME OUT - a client
+//	certificate an issuing CA signs, whatever role (OUT.crt, the chain,
+//	and OUT.key): what a machine holding that CA's key could make without
+//	janusctl, which keeps to the bundle's limit (hack/qemu-fleetctl-test.sh).
+//
 // DIR gets root.crt, stranger-root.crt (a CA of no fleet); bundle-1.json (lists issuing), bundle-2.json (lists
 // other); and <name>.crt/<name>.key, each certificate followed by the CA
 // that signed it when that's an issuing CA: admin, operator and
@@ -24,8 +29,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 7 && os.Args[1] == "sign" {
+		sign(os.Args[2], os.Args[3], os.Args[4], os.Args[5], os.Args[6])
+		return
+	}
 	if len(os.Args) != 2 {
-		log.Fatal("usage: fleetca DIR")
+		log.Fatal("usage: fleetca DIR | fleetca sign CA.crt CA.key ROLE NAME OUT")
 	}
 	dir := os.Args[1]
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -81,4 +90,26 @@ func must(ca *pki.CA, err error) *pki.CA {
 		log.Fatal(err)
 	}
 	return ca
+}
+
+func sign(certFile, keyFile, role, name, out string) {
+	certPEM, err := os.ReadFile(certFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	keyPEM, err := os.ReadFile(keyFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	ca := must(pki.LoadCA(certPEM, keyPEM))
+	leaf, key, err := ca.Issue(pki.IssueOptions{CommonName: name, Roles: []string{role}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, Validity: time.Hour})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile(out+".crt", append(leaf, ca.CertPEM...), 0o600); err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile(out+".key", key, 0o600); err != nil {
+		log.Fatal(err)
+	}
 }

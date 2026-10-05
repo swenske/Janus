@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"maps"
 	"net"
 	"os"
 	"os/user"
@@ -146,7 +147,7 @@ func sameBundle(a, b []byte) bool {
 // resign signs f's issuing CAs again into a bundle newer than above - the
 // kit at hand: this machine's view of the fleet wins (fleet recover).
 func resign(f *localFleet, root *pki.CA, above uint64) error {
-	signed, err := signBundle(root, max(above, f.bundle.Version), f.cas)
+	signed, err := signBundle(root, max(above, f.bundle.Version), f.cas, f.bundle.Limits)
 	if err != nil {
 		return err
 	}
@@ -167,13 +168,37 @@ func issuerName(c *x509.Certificate) string {
 	return strings.TrimPrefix(c.Subject.CommonName, issuingNamePrefix)
 }
 
-// signBundle is a new bundle of root listing cas, newer than prev.
-func signBundle(root *pki.CA, prev uint64, cas []*x509.Certificate) ([]byte, error) {
-	var pems []string
+// signBundle is a new bundle of root listing cas, newer than prev - with
+// the limits of those of cas that have one.
+func signBundle(root *pki.CA, prev uint64, cas []*x509.Certificate, limits map[string][]string) ([]byte, error) {
+	b := pki.Bundle{Version: nextVersion(prev), Issued: time.Now().UTC()}
 	for _, c := range cas {
-		pems = append(pems, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw})))
+		b.IssuingCAs = append(b.IssuingCAs, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw})))
+		if l, ok := limits[pki.Fingerprint(c.Raw)]; ok {
+			if b.Limits == nil {
+				b.Limits = map[string][]string{}
+			}
+			b.Limits[pki.Fingerprint(c.Raw)] = l
+		}
 	}
-	return pki.SignBundle(root, pki.Bundle{Version: nextVersion(prev), Issued: time.Now().UTC(), IssuingCAs: pems})
+	return pki.SignBundle(root, b)
+}
+
+// rolesUpTo is the limit of a machine whose certificates carry role at
+// most: nil for an admin (no limit), else that role and those below.
+func rolesUpTo(role string) []string {
+	switch role {
+	case pki.RoleOperator:
+		return []string{pki.RoleOperator, pki.RoleReader}
+	case pki.RoleReader:
+		return []string{pki.RoleReader}
+	}
+	return nil
+}
+
+// limitOf is what the bundle lets ca sign: nil when anything.
+func limitOf(b *pki.Bundle, ca *x509.Certificate) []string {
+	return b.Limits[pki.Fingerprint(ca.Raw)]
 }
 
 // contextKey is the context's key - made the first time, kept in
@@ -212,6 +237,9 @@ func localSignIn(name string, c *cliContext) error {
 	f, err := openLocalFleet(name)
 	if err != nil {
 		return fmt.Errorf("the fleet's files: %w", err)
+	}
+	if l := limitOf(f.bundle, f.issuing.Cert); l != nil && !slices.Contains(l, c.Role) {
+		return fmt.Errorf("this machine's issuing CA may sign %s only, not %s", strings.Join(l, ", "), c.Role)
 	}
 	if time.Until(f.issuing.Cert.NotAfter) < fleetCertValidity {
 		return fmt.Errorf("this machine's issuing CA ends %s: ask for a new one (janusctl fleet issuer request)", f.issuing.Cert.NotAfter.Local().Format("2006-01-02"))
@@ -470,7 +498,7 @@ func fleetInit(globalCtx string, args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	signed, err := signBundle(root, 0, []*x509.Certificate{issuing.Cert})
+	signed, err := signBundle(root, 0, []*x509.Certificate{issuing.Cert}, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -543,7 +571,7 @@ func fleetRecover(globalCtx string, args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	signed, err := signBundle(root, 0, []*x509.Certificate{issuing.Cert})
+	signed, err := signBundle(root, 0, []*x509.Certificate{issuing.Cert}, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1020,7 +1048,10 @@ func fleetFiles(ctxName, rootFile, bundleFile string) (root, bundle []byte) {
 type issuerRequestFile struct {
 	Format string `json:"format"`
 	Name   string `json:"name"`
-	CSR    string `json:"csr"`
+	// Role is the most its certificates will carry: the bundle limits
+	// the issuing CA to it (and the roles below) unless it's os:admin.
+	Role string `json:"role"`
+	CSR  string `json:"csr"`
 }
 
 type issuerGrantFile struct {
@@ -1049,7 +1080,11 @@ func issuerList(globalCtx string) {
 		if ca.Equal(f.issuing.Cert) {
 			mark = "  (this machine)"
 		}
-		fmt.Printf("  %-32s until %s  %s…%s\n", issuerName(ca), ca.NotAfter.Local().Format("2006-01-02"), pki.Fingerprint(ca.Raw)[:16], mark)
+		limit := "any role"
+		if l := limitOf(f.bundle, ca); l != nil {
+			limit = strings.Join(l, ", ")
+		}
+		fmt.Printf("  %-24s %-28s until %s  %s…%s\n", issuerName(ca), limit, ca.NotAfter.Local().Format("2006-01-02"), pki.Fingerprint(ca.Raw)[:16], mark)
 	}
 }
 
@@ -1057,7 +1092,7 @@ func issuerRequest(globalCtx string, args []string) {
 	fs := flag.NewFlagSet("fleet issuer request", flag.ExitOnError)
 	issuer := fs.String("issuer", defaultIssuer(), "this machine's issuing CA's name")
 	userName := fs.String("user", defaultUser(), "who this machine's certificates are for")
-	role := fs.String("role", pki.RoleAdmin, "the role of this machine's certificates")
+	role := fs.String("role", pki.RoleAdmin, "the most this machine's certificates carry - the bundle limits its issuing CA to it, unless os:admin")
 	parseAnywhere(fs, args)
 	if fs.NArg() != 1 {
 		fleetUsage()
@@ -1084,7 +1119,7 @@ func issuerRequest(globalCtx string, args []string) {
 	if err := writeFileAtomic(filepath.Join(contextDir(name), fleetIssuingKey), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
 		log.Fatal(err)
 	}
-	req, _ := json.MarshalIndent(issuerRequestFile{Format: issuerRequestForm, Name: *issuer, CSR: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr}))}, "", "  ")
+	req, _ := json.MarshalIndent(issuerRequestFile{Format: issuerRequestForm, Name: *issuer, Role: *role, CSR: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr}))}, "", "  ")
 	if err := os.WriteFile(fs.Arg(0), append(req, '\n'), 0o644); err != nil {
 		log.Fatal(err)
 	}
@@ -1100,6 +1135,7 @@ func issuerSign(globalCtx string, args []string) {
 	fs := flag.NewFlagSet("fleet issuer sign", flag.ExitOnError)
 	kitPath := fs.String("kit", "", "the fleet's recovery kit (required)")
 	replace := fs.Bool("replace", false, "an issuing CA of that name is in the bundle already: replace it (a machine's lost key)")
+	roleFlag := fs.String("role", "", "the most the machine's certificates may carry (default: what its request says) - os:admin for no limit")
 	parseAnywhere(fs, args)
 	if *kitPath == "" || fs.NArg() != 2 {
 		fleetUsage()
@@ -1113,6 +1149,14 @@ func issuerSign(globalCtx string, args []string) {
 	if err := json.Unmarshal(data, &req); err != nil || req.Format != issuerRequestForm || req.Name == "" {
 		log.Fatalf("janusctl fleet issuer sign: %s isn't an issuer request", fs.Arg(0))
 	}
+	role := req.Role
+	if *roleFlag != "" {
+		role = *roleFlag
+	}
+	if role == "" {
+		role = pki.RoleAdmin
+	}
+	checkRole(role)
 	b, _ := pem.Decode([]byte(req.CSR))
 	if b == nil {
 		log.Fatal("janusctl fleet issuer sign: the request has no CSR")
@@ -1149,7 +1193,14 @@ func issuerSign(globalCtx string, args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	signed, err := signBundle(root, f.bundle.Version, append(cas, cert))
+	limits := maps.Clone(f.bundle.Limits)
+	if l := rolesUpTo(role); l != nil {
+		if limits == nil {
+			limits = map[string][]string{}
+		}
+		limits[pki.Fingerprint(cert.Raw)] = l
+	}
+	signed, err := signBundle(root, f.bundle.Version, append(cas, cert), limits)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1160,7 +1211,11 @@ func issuerSign(globalCtx string, args []string) {
 	if err := os.WriteFile(fs.Arg(1), append(grant, '\n'), 0o644); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Issuing CA %q signed into bundle version %d. Now: janusctl fleet sync - the nodes take it -, and give %s back (janusctl fleet issuer accept %s).\n", req.Name, f.bundle.Version, fs.Arg(1), fs.Arg(1))
+	limit := "any role"
+	if l := rolesUpTo(role); l != nil {
+		limit = strings.Join(l, ", ") + " only"
+	}
+	fmt.Printf("Issuing CA %q (%s) signed into bundle version %d. Now: janusctl fleet sync - the nodes take it -, and give %s back (janusctl fleet issuer accept %s).\n", req.Name, limit, f.bundle.Version, fs.Arg(1), fs.Arg(1))
 }
 
 func issuerAccept(globalCtx string, args []string) {
@@ -1207,6 +1262,12 @@ func issuerAccept(globalCtx string, args []string) {
 	if !slices.ContainsFunc(cas, func(ca *x509.Certificate) bool { return ca.Equal(issuing.Cert) }) {
 		log.Fatal("janusctl fleet issuer accept: the bundle doesn't list this machine's issuing CA")
 	}
+	if b, _, _ := pki.VerifyBundle(root, []byte(g.Bundle)); b != nil {
+		if l := limitOf(b, issuing.Cert); l != nil && !slices.Contains(l, c.Role) {
+			c.Role = l[0]
+			fmt.Fprintf(os.Stderr, "This machine's issuing CA may sign %s only: its certificates are %s.\n", strings.Join(l, ", "), c.Role)
+		}
+	}
 	c.Fleet = &ctxFleet{Name: g.Fleet, Issuer: g.Issuer}
 	c.Nodes = g.Nodes
 	newFleetContext(cfg, name, c, []byte(g.RootCert), issuing, []byte(g.Bundle))
@@ -1241,7 +1302,7 @@ func issuerRevoke(globalCtx string, args []string) {
 	if err != nil {
 		log.Fatalf("janusctl fleet issuer revoke: %v", err)
 	}
-	signed, err := signBundle(root, f.bundle.Version, cas)
+	signed, err := signBundle(root, f.bundle.Version, cas, f.bundle.Limits)
 	if err != nil {
 		log.Fatal(err)
 	}
