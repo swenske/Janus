@@ -125,11 +125,11 @@ func TestNodeTLS(t *testing.T) {
 	if err := writeFileAtomic(filepath.Join(dir, "home", "key.pem"), keyPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := nodeTLS("home", ctxNode{Name: "edge-1", CAPEM: string(ca.CertPEM)})
+	cfg, err := nodeTLS("home", &cliContext{}, ctxNode{Name: "edge-1", CAPEM: string(ca.CertPEM)})
 	if err != nil || len(cfg.Certificates) != 1 || cfg.MinVersion != tls.VersionTLS13 {
 		t.Fatalf("nodeTLS: %v", err)
 	}
-	if _, err := nodeTLS("home", ctxNode{Name: "edge-1"}); err == nil {
+	if _, err := nodeTLS("home", &cliContext{}, ctxNode{Name: "edge-1"}); err == nil {
 		t.Error("a node without a CA")
 	}
 }

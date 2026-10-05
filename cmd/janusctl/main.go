@@ -102,11 +102,11 @@ func main() {
 				log.Fatalf("janusctl: %v", err)
 			}
 			if len(nodes) > 1 {
-				runOnEach(name, nodes, flag.Args())
+				runOnEach(name, ctx, nodes, flag.Args())
 				return
 			}
 			node := nodes[0]
-			tlsConfig, err := nodeTLS(name, node)
+			tlsConfig, err := nodeTLS(name, ctx, node)
 			if err != nil {
 				log.Fatalf("janusctl: %v", err)
 			}
@@ -261,7 +261,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: janusctl [-context NAME] [-n NODE[,NODE...] | -all] <command>        with a context (janusctl login)")
 	fmt.Fprintln(os.Stderr, "       janusctl -endpoint host:port -ca FILE -cert FILE -key FILE <command>   with a node's own certificate")
 	fmt.Fprintln(os.Stderr, "commands:")
-	fmt.Fprintln(os.Stderr, "  login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE | -controller-fingerprint SHA256]  sign in to a Controller with the API token in JANUS_TOKEN: a certificate of its fleet for your account (an hour), and its nodes")
+	fmt.Fprintln(os.Stderr, "  login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE | -controller-fingerprint SHA256] -user NAME [-ssh-key FILE]  sign in to a Controller with an SSH key of your account (or JANUS_TOKEN, an API token): a certificate of its fleet (12 h; 1 h with a token), and its nodes")
 	fmt.Fprintln(os.Stderr, "  context [list | use NAME | delete NAME]  the Controllers signed in to")
 	fmt.Fprintln(os.Stderr, "  nodes                      the context's nodes (refreshed with JANUS_TOKEN)")
 	fmt.Fprintln(os.Stderr, "  version                    print janusctl's own version and the connected node's version")

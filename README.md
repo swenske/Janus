@@ -89,12 +89,11 @@ Sign in to your Janus Controller once; janusctl then reaches its nodes
 directly, with a certificate of the Controller's fleet for your account:
 
 ```sh
-# An API token of your account (the Controller's API tokens tab) - its
-# role is the certificate's. The certificate lasts an hour; with
-# JANUS_TOKEN set, janusctl renews it by itself.
-export JANUS_TOKEN=janus_...
+# With an SSH key of your account - added on the Controller's page (your
+# account, "SSH keys for janusctl"), which also shows this command:
 janusctl login -controller janus-controller.example.com \
-  -controller-fingerprint DC:CC:FF:...   # the Controller's certificate, checked
+  -controller-fingerprint DC:CC:FF:... \  # the Controller's certificate, checked
+  -user sam -ssh-key ~/.ssh/id_ed25519.pub
 janusctl nodes                            # the nodes, and which trust the fleet
 janusctl -n edge-1 system info            # one node
 janusctl -n edge-1,edge-2 haproxy show-info
@@ -102,9 +101,23 @@ janusctl -all version                     # every node of the fleet
 janusctl context list                     # the Controllers signed in to
 ```
 
+The certificate is for the SSH key itself and lasts 12 hours: with the
+key in ssh-agent, janusctl renews it by itself. `-ssh-key` takes the key
+in ssh-agent (its `.pub`; Ed25519 - the agent can't sign a TLS handshake
+with ECDSA or RSA) or a private key file (Ed25519, ECDSA or RSA; its
+passphrase asked); a FIDO key (`sk-...`) can't sign janusctl's
+connections. Each key can carry a lower role than your account's.
+
+In CI, an API token of the account instead (`JANUS_TOKEN=janus_...
+janusctl login -controller ...`): a certificate for an hour, with the
+token's role, renewed while `JANUS_TOKEN` is set.
+
 The first login asks for the Controller's certificate: `-controller-
-fingerprint` (on its host: `openssl x509 -in <data-dir>/dashboard-
-identity.crt -noout -fingerprint -sha256`) or `-controller-ca FILE`.
+fingerprint` (the account dialog's command has it; on its host:
+`openssl x509 -in <data-dir>/dashboard-identity.crt -noout -fingerprint
+-sha256`) or `-controller-ca FILE`. The SSH key signs a challenge for
+the certificate janusctl saw: a signature relayed by another server is
+refused.
 Each node checks the role itself and logs who acted. The configuration
 is `~/.config/janus/janusctl.json` (`JANUSCONFIG` elsewhere), each
 context's key and certificate next to it.

@@ -27,6 +27,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swenske/Janus/internal/sshsig"
 )
 
 // Contexts: janusctl signed in to a Controller (janusctl login). The
@@ -62,6 +64,14 @@ type cliContext struct {
 	Role         string    `json:"role,omitempty"`
 	Expires      time.Time `json:"expires,omitzero"`
 	Nodes        []ctxNode `json:"nodes,omitempty"`
+	// SSHKey is the SSH key the context signs in with ("agent:<SHA256
+	// fingerprint>" or "file:<path>") - the certificate's key too; empty
+	// for an API token's context (a key made here, key.pem).
+	SSHKey string `json:"ssh_key,omitempty"`
+
+	// seen is the SHA-256 of the certificate the Controller presented on
+	// the last call - what an SSH sign-in's signature names.
+	seen string
 }
 
 type ctxNode struct {
@@ -133,15 +143,15 @@ func runLogin(args []string) {
 	controller := fs.String("controller", "", "the Controller's address, host[:port] (port 443 by default) - required the first time")
 	caFile := fs.String("controller-ca", "", "check the Controller's certificate against this PEM file (its CA, or the certificate itself)")
 	fingerprint := fs.String("controller-fingerprint", "", "trust the Controller's certificate with this SHA-256 fingerprint (hex, colons allowed)")
+	user := fs.String("user", "", "your account on the Controller (with an SSH key; kept in the context)")
+	keyFlag := fs.String("ssh-key", "", "the SSH key to sign in with: its private key file, or its .pub to use it from ssh-agent (default: ssh-agent's Ed25519 key)")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: JANUS_TOKEN=janus_... janusctl login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE | -controller-fingerprint SHA256]")
+		fmt.Fprintln(fs.Output(), "usage: janusctl login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE | -controller-fingerprint SHA256] -user NAME [-ssh-key FILE]")
+		fmt.Fprintln(fs.Output(), "       JANUS_TOKEN=janus_... janusctl login [-context NAME] [-controller ...]   with an API token instead (CI)")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(args)
 	token := os.Getenv(tokenEnv)
-	if token == "" {
-		log.Fatalf("janusctl login: set %s to an API token of your account (the Controller's API tokens tab) - its role is the certificate's", tokenEnv)
-	}
 	cfg, err := loadConfig()
 	if err != nil {
 		log.Fatal(err)
@@ -189,8 +199,29 @@ func runLogin(args []string) {
 		}
 		log.Fatalf("janusctl login: the Controller at %s presents a certificate with SHA-256\n  %s\nCheck it (on the Controller's host: openssl x509 -in <data-dir>/dashboard-identity.crt -noout -fingerprint -sha256), then pass it as -controller-fingerprint, or give -controller-ca", ctx.Controller, colonHex(certFingerprint(leaf)))
 	}
-	if err := ctx.signIn(ctxName, token); err != nil {
-		log.Fatalf("janusctl login: %v", err)
+	if token != "" {
+		if err := ctx.signIn(ctxName, token); err != nil {
+			log.Fatalf("janusctl login: %v", err)
+		}
+	} else {
+		if *user != "" {
+			ctx.User = *user
+		}
+		if ctx.User == "" {
+			log.Fatalf("janusctl login: -user NAME - your account on the Controller (or %s with an API token)", tokenEnv)
+		}
+		spec := *keyFlag
+		if spec == "" {
+			spec = ctx.SSHKey
+		}
+		key, err := openSSHKey(spec)
+		if err != nil {
+			log.Fatalf("janusctl login: %v", err)
+		}
+		defer key.Close()
+		if err := ctx.sshSignIn(ctxName, key); err != nil {
+			log.Fatalf("janusctl login: %v", err)
+		}
 	}
 	cfg.Contexts[ctxName] = ctx
 	cfg.Current = ctxName
@@ -275,6 +306,7 @@ func (c *cliContext) controllerTLS() (*tls.Config, error) {
 				return errors.New("no certificate from the Controller")
 			}
 			leaf := cs.PeerCertificates[0]
+			c.seen = certFingerprint(leaf)
 			for _, p := range pinned {
 				if p.Equal(leaf) {
 					return nil
@@ -315,7 +347,9 @@ func (c *cliContext) call(method, path, token string, body, out any) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	client := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig}}
 	resp, err := client.Do(req)
@@ -375,6 +409,43 @@ func (c *cliContext) signIn(name, token string) error {
 		return err
 	}
 	c.User, c.Role, c.Expires, c.Nodes = cert.User, cert.Role, cert.ExpiresAt, inv.Nodes
+	return nil
+}
+
+// sshSignIn gets a new certificate - for the SSH key itself - and the
+// nodes, signing the Controller's challenge with key, for the certificate
+// janusctl saw the Controller present.
+func (c *cliContext) sshSignIn(name string, key *sshKey) error {
+	fp := key.fingerprint()
+	var ch struct {
+		Challenge string `json:"challenge"`
+	}
+	if err := c.call("POST", "/api/cli/challenge", "", map[string]string{"user": c.User, "fingerprint": fp}, &ch); err != nil {
+		return err
+	}
+	sig, err := sshsig.Sign(randReader, key.ssh, "janus-login", []byte("janus-login\n"+c.seen+"\n"+ch.Challenge))
+	if err != nil {
+		return fmt.Errorf("sign with the SSH key: %w", err)
+	}
+	var out struct {
+		CertificatePEM string    `json:"certificate_pem"`
+		ExpiresAt      time.Time `json:"expires_at"`
+		User           string    `json:"user"`
+		Role           string    `json:"role"`
+		Nodes          []ctxNode `json:"nodes"`
+	}
+	err = c.call("POST", "/api/cli/ssh-login", "", map[string]string{"user": c.User, "fingerprint": fp, "challenge": ch.Challenge, "signature": string(sig)}, &out)
+	if err != nil {
+		return fmt.Errorf("%w - is the key %s added to %s's account (the Controller's page, your account)?", err, fp, c.User)
+	}
+	dir := contextDir(name)
+	if err := writeFileAtomic(filepath.Join(dir, "cert.pem"), []byte(out.CertificatePEM), 0o600); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(dir, "key.pem")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	c.User, c.Role, c.Expires, c.Nodes, c.SSHKey = out.User, out.Role, out.ExpiresAt, out.Nodes, key.spec
 	return nil
 }
 
@@ -440,27 +511,43 @@ func nodeNames(nodes []ctxNode) string {
 	return strings.Join(names, ", ")
 }
 
-// fresh renews the context's certificate when it's ending - with
-// JANUS_TOKEN, else it says to sign in again.
+// fresh renews the context's certificate when it's ending - with its SSH
+// key, or JANUS_TOKEN; else it says to sign in again.
 func fresh(cfg *cliConfig, name string, ctx *cliContext) error {
 	if time.Until(ctx.Expires) > renewBefore {
 		return nil
 	}
-	token := os.Getenv(tokenEnv)
-	if token == "" {
+	if token := os.Getenv(tokenEnv); token != "" && ctx.SSHKey == "" {
+		if err := ctx.signIn(name, token); err != nil {
+			return fmt.Errorf("renew the certificate: %w", err)
+		}
+		return cfg.save()
+	}
+	if ctx.SSHKey == "" {
 		return fmt.Errorf("the certificate of context %q ended at %s: janusctl login", name, ctx.Expires.Local().Format("2006-01-02 15:04"))
 	}
-	if err := ctx.signIn(name, token); err != nil {
+	key, err := openSSHKey(ctx.SSHKey)
+	if err != nil {
+		return fmt.Errorf("renew the certificate: %w", err)
+	}
+	defer key.Close()
+	if err := ctx.sshSignIn(name, key); err != nil {
 		return fmt.Errorf("renew the certificate: %w", err)
 	}
 	return cfg.save()
 }
 
-// nodeTLS is janusctl's TLS to node: the context's certificate, the
-// node's own CA.
-func nodeTLS(name string, n ctxNode) (*tls.Config, error) {
+// nodeTLS is janusctl's TLS to node: the context's certificate - with its
+// SSH key, or the key made for it -, the node's own CA.
+func nodeTLS(name string, ctx *cliContext, n ctxNode) (*tls.Config, error) {
 	dir := contextDir(name)
-	cert, err := tls.LoadX509KeyPair(filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem"))
+	var cert tls.Certificate
+	var err error
+	if ctx.SSHKey != "" {
+		cert, err = sshKeyPair(filepath.Join(dir, "cert.pem"), ctx.SSHKey)
+	} else {
+		cert, err = tls.LoadX509KeyPair(filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem"))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("the context's certificate: %w (janusctl login)", err)
 	}
@@ -471,12 +558,44 @@ func nodeTLS(name string, n ctxNode) (*tls.Config, error) {
 	return &tls.Config{Certificates: []tls.Certificate{cert}, RootCAs: pool, MinVersion: tls.VersionTLS13}, nil
 }
 
+// sshKeyPair is the certificate at certFile with the SSH key spec names -
+// its signer stays open (an agent's connection) for the process's life.
+func sshKeyPair(certFile, spec string) (tls.Certificate, error) {
+	data, err := os.ReadFile(certFile)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	var cert tls.Certificate
+	for rest := data; ; {
+		var b *pem.Block
+		if b, rest = pem.Decode(rest); b == nil {
+			break
+		}
+		cert.Certificate = append(cert.Certificate, b.Bytes)
+	}
+	if len(cert.Certificate) == 0 {
+		return tls.Certificate{}, errors.New("no certificate")
+	}
+	if cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0]); err != nil {
+		return tls.Certificate{}, err
+	}
+	key, err := openSSHKey(spec)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	cert.PrivateKey = key.tls
+	return cert, nil
+}
+
 // runOnEach runs the command on each node: janusctl again, once per
 // node, at once - each line of their output prefixed with the node's
 // name. Exits with the first failure's status.
-func runOnEach(ctxName string, nodes []ctxNode, cmdArgs []string) {
+func runOnEach(ctxName string, ctx *cliContext, nodes []ctxNode, cmdArgs []string) {
 	if len(cmdArgs) >= 2 && cmdArgs[0] == "system" && cmdArgs[1] == "pcap" {
 		log.Fatal("janusctl: a packet capture is one node at a time (-n NAME)")
+	}
+	if encryptedKeyFile(ctx.SSHKey) {
+		log.Fatal("janusctl: the context's SSH key file has a passphrase - each node would ask it: add the key to ssh-agent (ssh-add) to run on several nodes")
 	}
 	self, err := os.Executable()
 	if err != nil {

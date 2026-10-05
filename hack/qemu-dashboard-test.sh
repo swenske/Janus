@@ -906,6 +906,29 @@ curl -sk -m 4 -b "$COOKIE_JAR" "${NODE_BASE}/api/stream/logs?id=janusd&tail=300"
 grep -qE 'api: SystemService/ServiceRestart: admin \(os:admin\)$' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log janusctl's restart as the account's, directly: $(grep ServiceRestart "$WORKDIR/node-janusd.log")" >&2; exit 1; }
 echo "janusctl OK: signed in with an API token (the Controller pinned), it reached the node directly with the fleet's certificate as admin; a reader read and was refused a restart by the node"
 
+# janusctl signed in with an SSH key of the account - added from the
+# admin's sign-in that gave its second factor -, from ssh-agent: the
+# certificate is for the key itself, which signs the TLS handshakes with
+# the node too.
+ssh-keygen -q -t ed25519 -N '' -C dashboard-test -f "$WORKDIR/id_ed25519"
+python3 -c 'import json,sys; print(json.dumps({"name": "test laptop", "public_key": open(sys.argv[1]).read()}))' "$WORKDIR/id_ed25519.pub" >"$WORKDIR/ssh-key.json"
+ssh_add_code="$(curl -sk -b "$COOKIE_JAR" -o "$WORKDIR/ssh-key-out.json" -w '%{http_code}' -X POST "$API/api/auth/ssh-keys" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/ssh-key.json")"
+[ "$ssh_add_code" = 201 ] || { echo "Dashboard test FAILED: adding an SSH key: $ssh_add_code $(cat "$WORKDIR/ssh-key-out.json")" >&2; exit 1; }
+eval "$(ssh-agent -s)" >/dev/null
+trap 'ssh-agent -k >/dev/null 2>&1 || true; cleanup' EXIT
+ssh-add -q "$WORKDIR/id_ed25519"
+"$WORKDIR/janusctl" login -context ssh -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" -controller-fingerprint "$CONTROLLER_FP" -user admin -ssh-key "$WORKDIR/id_ed25519.pub" >"$WORKDIR/janusctl-ssh.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: janusctl login with an SSH key from ssh-agent: $(cat "$WORKDIR/janusctl-ssh.txt")" >&2; exit 1; }
+grep -q 'as admin (os:admin)' "$WORKDIR/janusctl-ssh.txt" || { echo "Dashboard test FAILED: janusctl SSH login: $(cat "$WORKDIR/janusctl-ssh.txt")" >&2; exit 1; }
+[ ! -e "$WORKDIR/janusctl-config/ssh/key.pem" ] || { echo "Dashboard test FAILED: an SSH context keeps a private key of its own" >&2; exit 1; }
+"$WORKDIR/janusctl" -context ssh -n test-node system service restart haproxy >/dev/null \
+  || { echo "Dashboard test FAILED: janusctl with the agent's key restarting HAProxy on the node" >&2; exit 1; }
+ssh-add -q -D
+if "$WORKDIR/janusctl" -context ssh -n test-node version >/dev/null 2>&1; then
+  echo "Dashboard test FAILED: janusctl reached the node with the key gone from ssh-agent" >&2; exit 1
+fi
+echo "janusctl SSH OK: signed in with the account's Ed25519 key from ssh-agent, the agent signed the TLS handshake with the node, which took the certificate; nothing reached it once the key left the agent"
+
 kill "$DASHBOARD_PID"
 wait "$DASHBOARD_PID" 2>/dev/null || true
 "$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data" > "$WORKDIR/dashboardd-restart2.log" 2>&1 &
