@@ -168,7 +168,7 @@ func authorize(ctx context.Context, fullMethod string) (Caller, error) {
 				return Caller{}, status.Errorf(codes.PermissionDenied, "%s: once at most", pki.AsDomainsKey)
 			}
 			for _, dom := range strings.Split(d[0], ",") {
-				if !slices.Contains(rbac.NodeDomains, dom) {
+				if !slices.Contains(rbac.NodeDomains, dom) && dom != rbac.DomainObserve {
 					return Caller{}, status.Errorf(codes.PermissionDenied, "%s: unknown domain %q", pki.AsDomainsKey, dom)
 				}
 				caller.Domains = append(caller.Domains, dom)

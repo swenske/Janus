@@ -220,6 +220,8 @@ func TestControllerNarrowsDomains(t *testing.T) {
 		{"haproxy,services", "/janus.v1alpha1.SystemService/Reboot", codes.OK},
 		{"haproxy", "/janus.v1alpha1.NetworkService/NetworkConfigApply", codes.PermissionDenied},
 		{"root", "/janus.v1alpha1.SystemService/Stats", codes.PermissionDenied},
+		{"observe", "/janus.v1alpha1.SystemService/Stats", codes.OK},
+		{"observe", "/janus.v1alpha1.HAProxyService/ApplyConfig", codes.PermissionDenied},
 	} {
 		if got := status.Code(checkRole(as(c.domains), c.method)); got != c.want {
 			t.Errorf("%s, %s: %v, want %v", c.domains, c.method, got, c.want)
