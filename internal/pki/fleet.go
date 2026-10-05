@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 )
@@ -70,7 +71,16 @@ type Bundle struct {
 	Issued  time.Time `json:"issued"`
 	// IssuingCAs are PEM certificates, each signed by the root.
 	IssuingCAs []string `json:"issuing_cas"`
+	// Limits are, by an issuing CA's SHA-256 (hex), the roles its
+	// certificates may carry - all of them: a CI's CA that may sign
+	// operators and readers only can't make an admin, nor a Controller
+	// (janus:controller acts for any role). A CA without one signs any.
+	// Nodes older than this field ignore it.
+	Limits map[string][]string `json:"limits,omitempty"`
 }
+
+// fleetRoles are the roles a limit may name.
+var fleetRoles = []string{RoleAdmin, RoleOperator, RoleReader, RoleController}
 
 // SignedBundle is a Bundle as the root signed it: the exact bytes, and
 // their ECDSA (SHA-256, ASN.1) signature.
@@ -136,6 +146,19 @@ func VerifyBundle(root *x509.Certificate, signed []byte) (*Bundle, []*x509.Certi
 			return nil, nil, fmt.Errorf("issuing CA %d (%s) isn't a CA the fleet's root signed", i, c.Subject.CommonName)
 		}
 		cas = append(cas, c)
+	}
+	for fp, roles := range b.Limits {
+		if !slices.ContainsFunc(cas, func(c *x509.Certificate) bool { return Fingerprint(c.Raw) == fp }) {
+			return nil, nil, fmt.Errorf("the bundle limits an issuing CA it doesn't list (%s)", fp)
+		}
+		if len(roles) == 0 {
+			return nil, nil, fmt.Errorf("issuing CA %s: a limit without any role", fp)
+		}
+		for _, r := range roles {
+			if !slices.Contains(fleetRoles, r) {
+				return nil, nil, fmt.Errorf("issuing CA %s: unknown role %q", fp, r)
+			}
+		}
 	}
 	return &b, cas, nil
 }
@@ -334,7 +357,8 @@ func (f *Fleet) Reset() error {
 // AcceptChains is the TLS check behind ClientCAs (local CA and fleet
 // root): a chain the node's own CA anchors, or one the fleet's root
 // anchors whose leaf the root itself or an issuing CA of the bundle
-// signed. A CA the bundle dropped no longer lets anyone in.
+// signed - with only roles the bundle lets that CA sign. A CA the
+// bundle dropped no longer lets anyone in.
 func (f *Fleet) AcceptChains(chains [][]*x509.Certificate, local *x509.Certificate) error {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -353,9 +377,15 @@ func (f *Fleet) AcceptChains(chains [][]*x509.Certificate, local *x509.Certifica
 			return nil
 		}
 		for _, ca := range f.issuers {
-			if issuer.Equal(ca) {
-				return nil
+			if !issuer.Equal(ca) {
+				continue
 			}
+			allowed, limited := f.bundle.Limits[Fingerprint(ca.Raw)]
+			roles := chain[0].Subject.Organization
+			if limited && (len(roles) == 0 || slices.ContainsFunc(roles, func(r string) bool { return !slices.Contains(allowed, r) })) {
+				return fmt.Errorf("the client certificate carries %v, more than its issuing CA may sign (%v)", roles, allowed)
+			}
+			return nil
 		}
 	}
 	return errors.New("the client certificate's issuer isn't one this node trusts")

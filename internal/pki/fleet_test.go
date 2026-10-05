@@ -251,3 +251,69 @@ func TestProvisionFleet(t *testing.T) {
 		t.Errorf("the same bundle indented: %v", err)
 	}
 }
+
+// TestFleetLimits: an issuing CA the bundle limits signs only those
+// roles - an operator's CI makes no admin, and no Controller certificate
+// (which acts for any role); the others, and the root, sign any.
+func TestFleetLimits(t *testing.T) {
+	tf := newTestFleet(t)
+	limited := Fingerprint(tf.other.Cert.Raw)
+	b := Bundle{Version: 1, Issued: time.Now(), IssuingCAs: []string{string(tf.issuing.CertPEM), string(tf.other.CertPEM)},
+		Limits: map[string][]string{limited: {RoleOperator, RoleReader}}}
+	signed, err := SignBundle(tf.root, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _ := OpenFleet(t.TempDir())
+	if err := f.Set(tf.root.CertPEM, signed); err != nil {
+		t.Fatal(err)
+	}
+	local, _ := NewCA("node")
+	chainOf := func(ca *CA, roles ...string) [][]*x509.Certificate {
+		certPEM, _, err := ca.Issue(IssueOptions{CommonName: "x", Roles: roles, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		der, _ := pemDecode(t, certPEM)
+		leaf, err := x509.ParseCertificate(der)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ca == tf.root {
+			return [][]*x509.Certificate{{leaf, tf.root.Cert}}
+		}
+		return [][]*x509.Certificate{{leaf, ca.Cert, tf.root.Cert}}
+	}
+	for _, c := range []struct {
+		name  string
+		chain [][]*x509.Certificate
+		ok    bool
+	}{
+		{"the limited CA's operator", chainOf(tf.other, RoleOperator), true},
+		{"the limited CA's reader", chainOf(tf.other, RoleReader), true},
+		{"the limited CA's admin", chainOf(tf.other, RoleAdmin), false},
+		{"the limited CA's Controller", chainOf(tf.other, RoleController), false},
+		{"the limited CA's operator and admin", chainOf(tf.other, RoleOperator, RoleAdmin), false},
+		{"the limited CA's certificate without a role", chainOf(tf.other), false},
+		{"the other CA's admin", chainOf(tf.issuing, RoleAdmin), true},
+		{"the root's admin", chainOf(tf.root, RoleAdmin), true},
+	} {
+		if err := f.AcceptChains(c.chain, local.Cert); (err == nil) != c.ok {
+			t.Errorf("%s: %v", c.name, err)
+		}
+	}
+
+	// A limit must name a CA of the bundle, and known roles.
+	for name, limits := range map[string]map[string][]string{
+		"a CA not listed": {Fingerprint(local.Cert.Raw): {RoleReader}},
+		"an unknown role": {limited: {"os:root"}},
+		"no role":         {limited: {}},
+	} {
+		bad := b
+		bad.Version, bad.Limits = 2, limits
+		signed, _ := SignBundle(tf.root, bad)
+		if _, _, err := VerifyBundle(tf.root.Cert, signed); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
