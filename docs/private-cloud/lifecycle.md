@@ -61,9 +61,8 @@ directory it prints. Terraform: change a node's `version` (or `extensions`), and
 
 ## Going back
 
-`janusctl -n lb1 lifecycle rollback` - or **Rollback** on the node's
-page - boots the other slot: the previous release, with the same
-configuration. Nothing to re-apply.
+`janusctl -n lb1 lifecycle rollback` boots the other slot: the previous
+release, with the same configuration. Nothing to re-apply.
 
 ## The Controller
 

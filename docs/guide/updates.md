@@ -1,0 +1,87 @@
+# Updating nodes
+
+A node updates as a whole: the next release's system is written to its
+idle slot, checked, and booted - its configuration kept - and the node
+goes back to the previous release by itself if HAProxy doesn't come back
+healthy. How it works: [lifecycle](../private-cloud/lifecycle.md).
+
+## When there's an update
+
+The Controller checks for new releases and shows, on each node's card,
+whether an update is available - with a 🔒 when it fixes a
+vulnerability on that node (an extension's fix only for the nodes that
+have it). Only the latest release is supported: install security updates
+promptly ([security policy](../../SECURITY.md)).
+
+## From the Controller
+
+On the node's page, **System › Update**:
+
+1. It shows the node's release, slot and extensions, and the release to
+   install - from its GitHub release, or built by the image factory for
+   the node's extensions.
+2. **Install a release**, in one of three ways:
+   - **the node downloads it** - from GitHub or the image factory;
+   - **the Controller pushes it** - for a node that can't reach the
+     internet: the Controller downloads the bundle and streams it to the
+     node;
+   - **upload files** - a bundle from your computer, through the
+     Controller.
+3. Keep **automatic revert** on: the node confirms itself only once
+   HAProxy answers healthily after the reboot, and goes back otherwise.
+4. **Install and reboot**: the page follows the node through its reboot
+   until it's back, on its new slot.
+
+Update the nodes of a pair one at a time: before rebooting, a node gives
+its virtual IP or its BGP route up, so the other one serves alone for
+the minute it takes.
+
+**Changing extensions** is an update too: **Change extensions…** on the
+same page asks the image factory for the newest release built with the
+extensions you pick, and the installation confirms which ones the node
+gains and loses ([images and extensions](../image-factory.md#updates-keep-the-schematic)).
+
+## With janusctl
+
+```sh
+v=v2026.10.05-5
+janusctl -n lb1 lifecycle upgrade -wait-for-health \
+  https://github.com/swenske/Janus/releases/download/$v/
+janusctl -n lb1 version           # the release now running, and its slot
+```
+
+- `-wait-for-health` is the automatic revert; `-health-timeout` how long
+  HAProxy has to be healthy.
+- A node with extensions takes its schematic's bundle - the URL the
+  [image factory](../image-factory.md#getting-an-image-janussw-serversnet)
+  gives for it - and refuses another schematic's unless
+  `-allow-schematic-change`.
+- A node that can't reach the URL: `janusctl lifecycle upload-release
+  DIR` streams a bundle from where `janusctl` runs, then `upgrade` takes
+  the directory it prints.
+
+## Going back
+
+`janusctl -n lb1 lifecycle rollback`: the node reboots into its other
+slot - the release it ran before, with the same configuration.
+
+## When an update reverted
+
+The node is back on its previous release, serving as before. Its event
+log and janusd's output say why:
+
+```sh
+janusctl -n lb1 system events
+janusctl -n lb1 system logs -n 100 janusd
+```
+
+The usual cause is a HAProxy configuration the new release refuses - a
+keyword its TLS library doesn't support, say ([TLS:
+AWS-LC](../haproxy-config.md#tls-aws-lc)): fix it on the node, then
+update again.
+
+## The Controller itself
+
+One click on the Controller's page, with its updater running next to it
+- and if the new version doesn't come up, the previous one comes back
+with its data: [updating the Controller](../../dashboard/README.md#updating-the-controller).

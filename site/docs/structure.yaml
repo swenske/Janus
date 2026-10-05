@@ -26,6 +26,11 @@ topics:
       - path: guide
         index: docs/guide/README.md
         groups:
+          - label: Getting started
+            pages:
+              - { file: docs/guide/quickstart.md, label: Quick start }
+              - { file: docs/image-factory.md, label: Images and extensions }
+              - { file: docs/provisioning-a-node.md, label: Provisioning a node }
           - label: The Controller
             pages:
               - { file: dashboard/README.md, slug: controller, title: The Controller, label: The Controller }
@@ -47,14 +52,12 @@ topics:
               - { file: docs/vrrp.md, label: VRRP (keepalived) }
               - { file: docs/bgp.md, label: BGP (BIRD) }
               - { file: docs/consul.md, label: Consul }
-          - label: Images and provisioning
-            pages:
-              - { file: docs/image-factory.md, label: Images and extensions }
-              - { file: docs/provisioning-a-node.md, label: Provisioning a node }
           - label: Operate
             pages:
+              - { file: docs/guide/updates.md, label: Updating nodes }
               - { file: docs/metrics.md, label: Metrics }
               - { file: docs/packet-capture.md, label: Packet capture }
+              - { file: docs/guide/troubleshooting.md, label: Troubleshooting }
               - { file: SECURITY.md, label: Security policy }
 
   - id: technical
@@ -120,6 +123,7 @@ topics:
 # The pages most readers come for: the docs' home lists them, and search
 # suggests them before anything is typed.
 popular:
+  - docs/guide/quickstart.md
   - docs/provisioning-a-node.md
   - dashboard/README.md
   - docs/janusctl.md

@@ -12,6 +12,12 @@ Install, configure and operate Janus nodes and the Controller.
 
 - [User guide](guide/README.md)
 
+### Getting started
+
+- [Quick start](guide/quickstart.md)
+- [Images and extensions](image-factory.md)
+- [Provisioning a node](provisioning-a-node.md)
+
 ### The Controller
 
 - [The Controller](../dashboard/README.md)
@@ -37,15 +43,12 @@ Install, configure and operate Janus nodes and the Controller.
 - [BGP (BIRD)](bgp.md)
 - [Consul](consul.md)
 
-### Images and provisioning
-
-- [Images and extensions](image-factory.md)
-- [Provisioning a node](provisioning-a-node.md)
-
 ### Operate
 
+- [Updating nodes](guide/updates.md)
 - [Metrics](metrics.md)
 - [Packet capture](packet-capture.md)
+- [Troubleshooting](guide/troubleshooting.md)
 - [Security policy](../SECURITY.md)
 
 ## Technical

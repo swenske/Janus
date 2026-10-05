@@ -63,8 +63,8 @@ service - plus its event log and the kernel's messages, and streams them
 through its API:
 
 ```sh
-janusctl -n lb1 system logs haproxy -f      # follow HAProxy's output
-janusctl -n lb1 system logs janusd -n 200
+janusctl -n lb1 system logs -f haproxy      # follow HAProxy's output
+janusctl -n lb1 system logs -n 200 janusd   # its last 200 lines
 janusctl -n lb1 system events               # the node's event log, live
 janusctl -n lb1 system dmesg -f             # the kernel: AVC denials, OOM kills...
 ```
@@ -72,7 +72,7 @@ janusctl -n lb1 system dmesg -f             # the kernel: AVC denials, OOM kills
 The Controller's **Logs** page shows the same, with filters, pause and
 download. To keep logs longer than the node does, a collector on the
 management network can follow them through the API - `janusctl ...
-system logs haproxy -f` into the collector's input.
+system logs -f haproxy` into the collector's input.
 
 **Who did what**: each node logs every call that changes something with
 the account behind it (`api: <Method>: <caller>`), the Controller
