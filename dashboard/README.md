@@ -316,7 +316,9 @@ Your SSH keys are in your account's dialog (**SSH keys for janusctl**):
 adding one needs a sign-in that gave a second factor - the key then
 signs janusctl in alone, for 12 hours at a time. A key can carry a
 lower role than the account, and expire; removing it stops new
-sign-ins.
+sign-ins. An admin sees each account's keys on **Accounts** and can
+revoke them all at once - a lost laptop: the certificates they already
+got end within 12 hours (disable the account to cut them sooner).
 
 Without an SSH key, janusctl signs in through this page: `janusctl
 login -controller ...` opens it - you approve a certificate for the key
@@ -358,7 +360,10 @@ back from where you keep it, Let's Encrypt's are issued again.
    can decrypt them too (optional).
 2. **Where and when**: an S3 bucket - AWS, MinIO, Garage, Ceph,
    Backblaze B2, Cloudflare R2... - once a day by default, the last 30
-   kept. **Back up now**, or **Download a backup** without a bucket.
+   kept. **Back up now**, or **Download a backup** without a bucket. A
+   failed backup is tried again an hour later; until one works - or
+   when none did for twice the interval - admins see **Backup failing**
+   (or **late**) at the top of the Controller.
 
 Each backup is one `.janusbackup` object: its manifest, signed by the
 Controller (Ed25519 - age alone doesn't say who encrypted a file), then

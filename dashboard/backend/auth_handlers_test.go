@@ -129,6 +129,7 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 		{"POST", "/api/users", auth.Admin},
 		{"PATCH", "/api/users/rita", auth.Admin},
 		{"DELETE", "/api/users/rita", auth.Admin},
+		{"DELETE", "/api/users/rita/ssh-keys", auth.Admin},
 		{"GET", "/api/settings", auth.Admin},
 		{"PUT", "/api/settings", auth.Admin},
 		{"GET", "/api/audit", auth.Admin},

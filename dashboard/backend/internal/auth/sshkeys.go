@@ -132,6 +132,25 @@ func (s *Store) RemoveSSHKey(user, fingerprint string) error {
 	return nil
 }
 
+// RemoveSSHKeys takes every key away from user - an admin's help for a
+// lost laptop.
+func (s *Store) RemoveSSHKeys(user string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fresh()
+	u, ok := s.users[user]
+	if !ok {
+		return 0, ErrNoUser
+	}
+	n, old := len(u.SSHKeys), u.SSHKeys
+	u.SSHKeys = nil
+	if err := s.save(); err != nil {
+		u.SSHKeys = old
+		return 0, err
+	}
+	return n, nil
+}
+
 // SSHKeyFor is user's key fingerprint if it may sign in now - the
 // account enabled, the key not expired -, with the role it signs in with.
 func (s *Store) SSHKeyFor(user, fingerprint string) (ssh.PublicKey, Role, error) {

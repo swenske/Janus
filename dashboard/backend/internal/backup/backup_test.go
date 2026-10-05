@@ -176,9 +176,22 @@ func TestKitLifecycle(t *testing.T) {
 	if s.Due(now.Add(23*time.Hour)) || !s.Due(now.Add(24*time.Hour)) {
 		t.Error("due once a day")
 	}
+	if a := s.alertLocked(now.Add(47 * time.Hour)); a != "" {
+		t.Errorf("a day late: %q", a)
+	}
+	if a := s.alertLocked(now.Add(49 * time.Hour)); a != AlertLate {
+		t.Errorf("two days late: %q", a)
+	}
 	s.Record(Run{Time: now.Add(24 * time.Hour), Error: "S3: no"})
 	if s.Due(now.Add(24*time.Hour+30*time.Minute)) || !s.Due(now.Add(25*time.Hour+time.Minute)) {
 		t.Error("an hour after a failure")
+	}
+	if st := s.Status(); st.Alert != AlertFailed {
+		t.Errorf("after a failure: %q", st.Alert)
+	}
+	s.Record(Run{Time: now.Add(25 * time.Hour), Key: "janus/y.janusbackup"})
+	if st := s.Status(); st.Alert != "" {
+		t.Errorf("after a success again: %q", st.Alert)
 	}
 }
 

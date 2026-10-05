@@ -130,6 +130,11 @@ func TestSSHLogin(t *testing.T) {
 		t.Errorf("the same challenge again: %d", code)
 	}
 
+	// An admin sees the account's keys, and can take them all away.
+	if code, body := a.req(t, "GET", "/api/users", root, nil); code != http.StatusOK || !strings.Contains(body, `"name":"laptop"`) {
+		t.Errorf("the accounts' keys: %d %s", code, body)
+	}
+
 	// Removed, it signs in no more.
 	if code, _ := a.req(t, "DELETE", "/api/auth/ssh-keys/"+fp, root, nil); code != http.StatusNoContent {
 		t.Fatalf("remove: %d", code)
@@ -137,6 +142,16 @@ func TestSSHLogin(t *testing.T) {
 	a.loginLimiter = auth.NewLoginLimiter()
 	if code, _ := sshLogin(t, a, "root", signer, SSHLoginNamespace, ""); code != http.StatusUnauthorized {
 		t.Errorf("a removed key: %d", code)
+	}
+	if code, _ := a.req(t, "POST", "/api/auth/ssh-keys", root, map[string]any{"name": "again", "public_key": line}); code != http.StatusCreated {
+		t.Fatal(code)
+	}
+	if code, body := a.req(t, "DELETE", "/api/users/root/ssh-keys", root, nil); code != http.StatusOK || !strings.Contains(body, `"removed":1`) {
+		t.Errorf("revoking root's keys: %d %s", code, body)
+	}
+	a.loginLimiter = auth.NewLoginLimiter()
+	if code, _ := sshLogin(t, a, "root", signer, SSHLoginNamespace, ""); code != http.StatusUnauthorized {
+		t.Errorf("a revoked key: %d", code)
 	}
 	entries, _ := a.audit.Recent(50, func(e audit.Entry) bool { return e.Path == "/api/cli/ssh-login" })
 	if len(entries) == 0 || entries[len(entries)-1].User != "root" || !strings.HasPrefix(entries[len(entries)-1].Via, "ssh key SHA256:") {

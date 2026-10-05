@@ -166,7 +166,16 @@ type Status struct {
 	History    []Run  `json:"history"`
 	// Next is when the next backup is due, when they're on.
 	Next *time.Time `json:"next,omitempty"`
+	// Alert, when backups are on: AlertFailed (the last one failed) or
+	// AlertLate (none succeeded for twice the interval).
+	Alert string `json:"alert,omitempty"`
 }
+
+// Alerts in Status.
+const (
+	AlertFailed = "failed"
+	AlertLate   = "late"
+)
 
 func (s *Store) Status() Status {
 	s.mu.Lock()
@@ -184,6 +193,7 @@ func (s *Store) Status() Status {
 		}
 		st.Next = &next
 	}
+	st.Alert = s.alertLocked(time.Now())
 	return st
 }
 
@@ -383,6 +393,23 @@ func (s *Store) nextLocked() (time.Time, bool) {
 		}
 	}
 	return time.Time{}, true // never backed up: at once
+}
+
+// alertLocked is what's wrong with the backups when they're on: the last
+// one failed, or the last success is twice the interval old (the loop
+// stuck, the Controller stopped for days).
+func (s *Store) alertLocked(now time.Time) string {
+	next, ok := s.nextLocked()
+	if !ok {
+		return ""
+	}
+	if len(s.st.History) > 0 && s.st.History[0].Error != "" {
+		return AlertFailed
+	}
+	if !next.IsZero() && now.After(next.Add(time.Duration(s.st.Settings.IntervalHours)*time.Hour)) {
+		return AlertLate
+	}
+	return ""
 }
 
 // Due reports whether a backup should run now.

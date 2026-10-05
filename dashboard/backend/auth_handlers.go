@@ -349,6 +349,8 @@ type userView struct {
 	CreatedAt          time.Time  `json:"created_at"`
 	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
 	Tokens             int        `json:"tokens"`
+	// SSHKeys are the account's keys for janusctl.
+	SSHKeys []auth.SSHKey `json:"ssh_keys"`
 	// MFA: the account has a second factor.
 	MFA bool `json:"mfa"`
 	// Password is set once: the one the Controller made for a new
@@ -357,7 +359,7 @@ type userView struct {
 }
 
 func (a *app) viewUser(u auth.User) userView {
-	return userView{Name: u.Name, Role: u.Role, Disabled: u.Disabled, MustChangePassword: u.MustChangePassword, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt, Tokens: len(a.tokens.List(u.Name)), MFA: u.MFA.Enabled()}
+	return userView{Name: u.Name, Role: u.Role, Disabled: u.Disabled, MustChangePassword: u.MustChangePassword, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt, Tokens: len(a.tokens.List(u.Name)), SSHKeys: nonNil(u.SSHKeys), MFA: u.MFA.Enabled()}
 }
 
 func (a *app) registerUserRoutes(mux *http.ServeMux) {
@@ -365,6 +367,7 @@ func (a *app) registerUserRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/users", a.sessionGate(auth.Admin, auth.Admin, a.handleUserCreate))
 	mux.HandleFunc("PATCH /api/users/{name}", a.sessionGate(auth.Admin, auth.Admin, a.handleUserUpdate))
 	mux.HandleFunc("DELETE /api/users/{name}", a.sessionGate(auth.Admin, auth.Admin, a.handleUserDelete))
+	mux.HandleFunc("DELETE /api/users/{name}/ssh-keys", a.sessionGate(auth.Admin, auth.Admin, a.handleUserSSHKeysRevoke))
 	mux.HandleFunc("GET /api/settings", a.gate(auth.Admin, auth.Admin, a.handleSettingsGet))
 	mux.HandleFunc("PUT /api/settings", a.sessionGate(auth.Admin, auth.Admin, a.handleSettingsSet))
 	mux.HandleFunc("GET /api/audit", a.gate(auth.Admin, auth.Admin, a.handleAudit))
@@ -469,6 +472,18 @@ func userErrorStatus(err error) int {
 		return http.StatusConflict
 	}
 	return http.StatusBadRequest
+}
+
+// handleUserSSHKeysRevoke takes every SSH key away from an account (a
+// lost laptop): janusctl signs in with none of them any more; the
+// certificates they got end within twelve hours.
+func (a *app) handleUserSSHKeysRevoke(w http.ResponseWriter, r *http.Request) {
+	n, err := a.auth.RemoveSSHKeys(r.PathValue("name"))
+	if err != nil {
+		writeError(w, userErrorStatus(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"removed": n})
 }
 
 // handleUserDelete removes an account - its tokens with it.
