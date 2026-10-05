@@ -875,6 +875,28 @@ reader_read="$(curl -sk -b "$READER_JAR" -o /dev/null -w '%{http_code}' "${NODE_
 reader_change="$(curl -sk -b "$READER_JAR" -o /dev/null -w '%{http_code}' -X POST "${NODE_BASE}/api/system/services/haproxy/restart")"
 [ "$op_restart/$op_issue/$reader_read/$reader_change" = 200/403/200/403 ] || { echo "Dashboard test FAILED: operator restart $op_restart, operator issuing a certificate $op_issue ($(cat "$WORKDIR/op-issue.txt")), reader read $reader_read, reader restart $reader_change (want 200/403/200/403)" >&2; exit 1; }
 grep -q 'requires role \[os:admin\], olga has \[os:operator\]' "$WORKDIR/op-issue.txt" || { echo "Dashboard test FAILED: the operator's certificate refused by someone else than the node: $(cat "$WORKDIR/op-issue.txt")" >&2; exit 1; }
+
+# A scoped account (no role over everything; operator on team=web,
+# HAProxy only): it reaches the node once labelled, reloads HAProxy - the
+# node logs it with its domain, having checked it -, and the Controller
+# refuses the rest before it leaves; none of the Controller's own routes.
+SCOPED_NODE="${NODE_BASE##*/}"
+lab_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X PATCH "$API/api/nodes/$SCOPED_NODE" -H 'Content-Type: application/json' -d '{"labels":{"team":"web"}}')"
+[ "$lab_code" = 200 ] || { echo "Dashboard test FAILED: labelling the node: $lab_code" >&2; exit 1; }
+TF_JAR="$WORKDIR/tf-cookies.txt"
+curl -sk -b "$COOKIE_JAR" -o /dev/null -X POST "$API/api/users" -H 'Content-Type: application/json' \
+  -d '{"name":"tf","role":"none","password":"tf-given-password","grants":[{"role":"operator","selector":{"team":"web"},"domains":["haproxy"]}]}'
+curl -sk -c "$TF_JAR" -o /dev/null -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d '{"name":"tf","password":"tf-given-password"}'
+curl -sk -b "$TF_JAR" -c "$TF_JAR" -o /dev/null -X POST "$API/api/auth/password" -H 'Content-Type: application/json' -d '{"current_password":"tf-given-password","new_password":"tfs-own-password"}'
+tf_nodes="$(curl -sk -b "$TF_JAR" "$API/api/nodes" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+tf_reload="$(curl -sk -b "$TF_JAR" -o /dev/null -w '%{http_code}' -X POST "${NODE_BASE}/api/haproxy/reload")"
+tf_restart="$(curl -sk -b "$TF_JAR" -o "$WORKDIR/tf-restart.txt" -w '%{http_code}' -X POST "${NODE_BASE}/api/system/services/haproxy/restart")"
+tf_users="$(curl -sk -b "$TF_JAR" -o /dev/null -w '%{http_code}' "$API/api/users")"
+[ "$tf_nodes/$tf_reload/$tf_restart/$tf_users" = 1/200/403/403 ] || { echo "Dashboard test FAILED: the scoped account: nodes $tf_nodes, reload $tf_reload, restart $tf_restart ($(cat "$WORKDIR/tf-restart.txt")), accounts $tf_users (want 1/200/403/403)" >&2; exit 1; }
+grep -q 'may not call SystemService/ServiceRestart' "$WORKDIR/tf-restart.txt" || { echo "Dashboard test FAILED: the scoped restart refused by someone else than the Controller: $(cat "$WORKDIR/tf-restart.txt")" >&2; exit 1; }
+curl -sk -m 4 -b "$COOKIE_JAR" "${NODE_BASE}/api/stream/logs?id=janusd&tail=100" >"$WORKDIR/node-janusd-tf.log" || true
+grep -q 'api: HAProxyService/Reload: tf (os:operator; haproxy) via janus-controller' "$WORKDIR/node-janusd-tf.log" || { echo "Dashboard test FAILED: the node didn't log the scoped reload with its domain: $(grep Reload "$WORKDIR/node-janusd-tf.log")" >&2; exit 1; }
+echo "Scopes OK: an account with a grant on team=web over HAProxy reloads it - the node checked and logged its domain -, its restart refused before leaving, the Controller's routes closed"
 curl -sk -m 4 -b "$COOKIE_JAR" "${NODE_BASE}/api/stream/logs?id=janusd&tail=300" >"$WORKDIR/node-janusd.log" || true
 grep -q 'api: SystemService/ServiceRestart: admin (os:admin) via janus-controller' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log the admin's restart via the Controller: $(cat "$WORKDIR/node-janusd.log")" >&2; exit 1; }
 grep -q 'api: SystemService/ServiceRestart: olga (os:operator) via janus-controller' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log the operator's restart as hers" >&2; exit 1; }

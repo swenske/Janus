@@ -39,7 +39,9 @@ do). Three roles:
 
 A Controller certificate (`janus:controller`) has no right of its own: it
 names the user it acts for in each call's metadata (`janus-as-user`,
-`janus-as-roles`) and the call gets that user's roles. Every call that
+`janus-as-roles`) and the call gets that user's roles - narrowed, when
+`janus-as-domains` names some, to those domains (`internal/rbac.Domain`:
+observe, haproxy, services, network, system; observing always allowed). Every call that
 isn't read-only is logged by janusd with who made it (`api:
 HAProxyService/ApplyConfig: alice (os:operator) via janus-controller`).
 
