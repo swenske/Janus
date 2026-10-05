@@ -178,7 +178,7 @@ export default function Landing() {
             <span className="step-n">3</span>
             <h3>Manage</h3>
             <p className="muted">
-              Add it to the <a href={`${DOCS}/controller-ui.md`}>Janus Controller</a>, or drive it with <a href={`${REPO}#installing-janusctl`}>janusctl</a> (<code>apt install janusctl</code>): HAProxy configuration, certificates, network, monitoring.
+              Add it to the <a href={`${DOCS}/dashboard/README.md`}>Janus Controller</a>, or drive it with <a href={`${REPO}#installing-janusctl`}>janusctl</a> (<code>apt install janusctl</code>): HAProxy configuration, certificates, network, monitoring.
             </p>
           </div>
           <div className="step">

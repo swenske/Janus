@@ -20,7 +20,9 @@ export const postJSON = (path, body) =>
   request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
 
 export const REPO = 'https://github.com/swenske/Janus'
-export const DOCS = `${REPO}/blob/main/docs`
+// The docs, served by this site: /docs/<file>.md - a docs/ file's path -
+// redirects to its page (site/backend/docs.go).
+export const DOCS = '/docs'
 
 export function bytes(n) {
   if (!n) return ''

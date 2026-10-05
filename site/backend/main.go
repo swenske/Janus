@@ -55,13 +55,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	mux.Handle("/", spa(static))
+	frontend, err := loadStatic(static)
+	if err != nil || frontend["index.html"] == nil {
+		log.Fatalf("static: %v (index.html: %v)", err, frontend["index.html"] != nil)
+	}
+	mux.Handle("/", spa(frontend))
 	docs, err := loadDocs(docsDist)
 	if err != nil {
 		log.Fatalf("docs: %v", err)
 	}
 	mux.Handle("/docs", docs)
 	mux.Handle("/docs/", docs)
+	a.seoRoutes(mux, docs)
 	for name, ch := range map[string]*docsChannel{"/docs/": docs.latest, "/docs/next/": docs.next} {
 		if ch == nil {
 			log.Printf("docs: %s not built into this binary", name)
@@ -77,24 +82,42 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
-// spa serves the built frontend, and index.html for its client-side
-// routes (/builder...).
-func spa(static fs.FS) http.Handler {
-	files := http.FileServerFS(static)
+// spaRoutes are the frontend's own pages (App.jsx): index.html answers
+// them, and the sitemap lists them.
+var spaRoutes = []string{"/", "/builder"}
+
+// spa serves the built frontend: its files, index.html for its routes
+// (/builder... too: the builder keeps its state in the path's query) -
+// and for anything else index.html again, with a 404 (the frontend shows
+// its "not found" page; a crawler sees the status).
+func spa(files staticSet) http.Handler {
+	index := files["index.html"]
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		name := strings.TrimPrefix(r.URL.Path, "/")
-		if name != "" {
-			if _, err := fs.Stat(static, name); err != nil {
-				r2 := r.Clone(r.Context())
-				r2.URL.Path = "/"
-				files.ServeHTTP(w, r2)
-				return
+		if name == "index.html" {
+			redirect(w, r, "/")
+			return
+		}
+		if f := files[name]; f != nil && name != "" {
+			if strings.HasPrefix(name, "assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				w.Header().Set("Cache-Control", "public, max-age=3600")
 			}
+			f.serve(w, r, http.StatusOK)
+			return
 		}
-		if strings.HasPrefix(name, "assets/") {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		status := http.StatusNotFound
+		if name == "" || name == "builder" || strings.HasPrefix(name, "builder/") {
+			status = http.StatusOK
 		}
-		files.ServeHTTP(w, r)
+		w.Header().Set("Cache-Control", "no-cache")
+		index.serve(w, r, status)
 	})
 }
 
