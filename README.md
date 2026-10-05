@@ -133,6 +133,22 @@ A node's own certificate still works, and comes first: `janusctl
 -endpoint NODE:9505 -ca ca.crt -cert admin.crt -key admin.key ...` - the
 first-boot admin certificate, the way in when nothing else does.
 
+### Without a Controller
+
+janusctl can keep a fleet itself - its root's key in a recovery kit,
+offline, each machine signing itself 12-hour certificates with an
+issuing CA of its own:
+
+```sh
+janusctl -context lab fleet init -issuer alice-laptop janus-kit.age
+janusctl fleet export provision/        # for image seed-fleet, install, NoCloud
+janusctl fleet adopt edge-1 -endpoint 192.0.2.10 -ca-fingerprint 9bc3...   # its console's "ca sha256"
+janusctl -all haproxy show-info
+```
+
+More machines, revoking one, recovering from the kit (a lost
+Controller's too): [docs/fleet-without-controller.md](docs/fleet-without-controller.md).
+
 ## Repository layout
 
 - `api/proto/janus/v1alpha1/` - the gRPC contract (source of truth).

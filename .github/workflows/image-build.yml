@@ -711,6 +711,13 @@ jobs:
       - name: AccessService fleet trust, roles and the Controller's users
         run: make qemu-fleet-trust-test
 
+      # A fleet without a Controller (janusctl fleet): two nodes
+      # provisioned with it (NoCloud, seed), adopted on their consoles'
+      # fingerprints, machines added, revoked, recovered from the kit.
+      # See hack/qemu-fleetctl-test.sh.
+      - name: A fleet without a Controller (janusctl fleet)
+        run: make qemu-fleetctl-test
+
       # Point 2 suite, tranche 5: proves a node provisioned with a
       # Controller at Install time (controller_address/
       # controller_ca_cert, tranche 4) genuinely self-registers with a

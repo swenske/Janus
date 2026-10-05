@@ -70,7 +70,7 @@ func main() {
 	// unreachable -endpoint never gets in the way.
 	switch flag.Arg(0) {
 	case "image":
-		runImage(flag.Args()[1:])
+		runImage(*ctxFlag, flag.Args()[1:])
 		return
 	case "login":
 		runLogin(flag.Args()[1:])
@@ -80,6 +80,9 @@ func main() {
 		return
 	case "nodes":
 		runNodes(*ctxFlag)
+		return
+	case "fleet":
+		runFleet(*ctxFlag, flag.Args()[1:])
 		return
 	}
 
@@ -315,6 +318,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  lifecycle rollback         switch the ESP to the other A/B slot's staged UKI and reboot into it")
 	fmt.Fprintln(os.Stderr, "  lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] BUNDLE_DIR  write a release bundle (image/release/assemble.sh), whose UKIs must be signed by a Janus release key, to the inactive slot, switch, and reboot into it - with -wait-for-health, reverts and reboots back automatically if the new slot never stays up long enough to confirm healthy")
 	fmt.Fprintln(os.Stderr, "  lifecycle upload-release BUNDLE_DIR  stream a local release bundle's 4 files to this node's own staging storage, for a node that can't dial out to fetch one itself - prints the staging path to pass as BUNDLE_DIR to a later 'lifecycle upgrade'")
+	fmt.Fprintln(os.Stderr, "  image seed-fleet [-fleet-root FILE -fleet-bundle FILE] DISK  write a fleet (default: the current fleet context's) onto an already-built DISK's STATE partition: the node lets its certificates in from its first boot")
+	fmt.Fprintln(os.Stderr, "  fleet init|adopt|sync|status|export|forget|issuer|recover ...  a fleet without a Controller: its root in a recovery kit, this machine's certificates signed here (janusctl fleet for the list)")
 	fmt.Fprintln(os.Stderr, "  image seed-network -config FILE DISK  write a network configuration onto an already-built DISK's STATE partition, offline, applied from the node's first boot (raw disk images only)")
 	fmt.Fprintln(os.Stderr, "  image seed-controller -controller-address HOST:PORT -controller-ca FILE DISK  write controller self-registration config directly onto an already-built DISK's existing STATE partition - no janusd/gRPC needed, doesn't touch partitioning or the rootfs (raw disk images only; qemu-img convert a qcow2 to raw first, see docs/provisioning-a-node.md)")
 }
@@ -482,10 +487,12 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		controllerCA := fs.String("controller-ca", "", "path to the Controller's CA certificate (PEM) - the installed node uses this to verify it's talking to the real Controller before ever sending it a credential; required whenever -controller-address is set")
 		controllerFleetRoot := fs.String("controller-fleet-root", "", "path to the Controller's fleet root (PEM, its Provision panel) - optional: the node then checks the Controller through its fleet first, and takes only that fleet's trust")
 		networkConfig := fs.String("network-config", "", "path to a network configuration (JSON, as `janusctl network get` prints it) the installed node applies from its first boot - default: kernel boot DHCP")
+		fleetRootFile := fs.String("fleet-root", "", "with -fleet-bundle: a fleet for the installed node to trust from its first boot (janusctl fleet export)")
+		fleetBundleFile := fs.String("fleet-bundle", "", "with -fleet-root: the bundle the fleet's root signed")
 		insecureSkip := fs.Bool("insecure-skip-signature-check", false, "accept UKIs not signed by a Janus release key - development bundles only: without the check, whoever can alter the bundle on its way to the node controls what it boots")
 		_ = fs.Parse(args[1:])
 		if fs.NArg() != 2 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE [-controller-fleet-root FILE]] [-network-config FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR")
+			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE [-controller-fleet-root FILE]] [-network-config FILE] [-fleet-root FILE -fleet-bundle FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR")
 			os.Exit(2)
 		}
 		disk, bundleDir := fs.Arg(0), fs.Arg(1)
@@ -514,6 +521,13 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			}
 			fleetRoot = data
 		}
+		var fleetRootPEM, fleetBundle []byte
+		if (*fleetRootFile == "") != (*fleetBundleFile == "") {
+			log.Fatal("Install: -fleet-root and -fleet-bundle go together")
+		}
+		if *fleetRootFile != "" {
+			fleetRootPEM, fleetBundle = fleetFiles("", *fleetRootFile, *fleetBundleFile)
+		}
 		var netCfg *janusv1alpha1.NetworkConfig
 		if *networkConfig != "" {
 			data, err := os.ReadFile(*networkConfig)
@@ -538,6 +552,8 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			ControllerCaCert:        controllerCACert,
 			ControllerFleetRootCert: fleetRoot,
 			NetworkConfig:           netCfg,
+			FleetRootCert:           fleetRootPEM,
+			FleetBundle:             fleetBundle,
 		})
 		if err != nil {
 			log.Fatalf("Install: %v", err)
@@ -683,7 +699,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 // this file, these never take a *grpc.ClientConn: they operate directly
 // on a disk file offline, no janusd involved at all (see
 // internal/diskseed's own package doc for why this exists).
-func runImage(args []string) {
+func runImage(ctxName string, args []string) {
 	if len(args) == 0 {
 		usage()
 		os.Exit(2)
@@ -715,6 +731,21 @@ func runImage(args []string) {
 			log.Fatalf("seed-controller: %v", err)
 		}
 		fmt.Printf("wrote controller self-registration config to %s's STATE partition\n", disk)
+
+	case "seed-fleet":
+		fs := flag.NewFlagSet("image seed-fleet", flag.ExitOnError)
+		rootFile := fs.String("fleet-root", "", "the fleet's root (PEM; janusctl fleet export) - default: the current fleet context's")
+		bundleFile := fs.String("fleet-bundle", "", "the bundle the root signed (janusctl fleet export) - default: the current fleet context's")
+		_ = fs.Parse(args[1:])
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "usage: janusctl [-context NAME] image seed-fleet [-fleet-root FILE -fleet-bundle FILE] DISK")
+			os.Exit(2)
+		}
+		root, bundle := fleetFiles(ctxName, *rootFile, *bundleFile)
+		if err := diskseed.SeedFleet(fs.Arg(0), root, bundle); err != nil {
+			log.Fatalf("seed-fleet: %v", err)
+		}
+		fmt.Printf("wrote the fleet to %s's STATE partition: the node lets its certificates in from its first boot\n", fs.Arg(0))
 
 	case "seed-network":
 		fs := flag.NewFlagSet("image seed-network", flag.ExitOnError)

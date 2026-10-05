@@ -175,6 +175,24 @@ gets a certificate the issuing CA signed, renewed by the Controller -
 nothing pinned that expires - and takes only that fleet's trust; the
 Controller's own certificate remains for nodes provisioned with it.
 
+A fleet needs no Controller: janusctl keeps one itself (`cmd/janusctl/
+fleet.go`, [fleet-without-controller.md](fleet-without-controller.md)) -
+the root in the same recovery kit (`internal/fleetkit`, shared with the
+Controller), an issuing CA per machine (its key a file of janusctl's
+configuration, signing that machine's 12-hour certificates on the spot),
+bundles signed with the kit when a machine joins or leaves and synced
+to the nodes by any machine (`TrustGet` returns the signed bundle; the
+newest wins, versions in milliseconds). A node can trust the fleet from
+its first boot: provisioning writes the root and the bundle to STATE
+`pki/fleet/` (`Install`, `diskseed.SeedFleet`, NoCloud via
+`pki.ProvisionFleet` in init), where `Fleet.Set` keeps them. janusctl
+pins each node's own CA (`TrustGet.local_ca_cert`), checked against the
+fingerprint the node's console prints and against the server
+certificate the node presented - never trusted on first use. With the
+kit, a machine reaches a node with a certificate the root signs, and
+re-signs its bundle above the node's: the way back when every machine,
+or a Controller, is lost.
+
 The node's own CA can be replaced too (`AccessService.LocalCARotate`):
 every certificate it issued stops working - the first-boot admin one, a
 Controller's service credential - while the fleet's keep letting in. The

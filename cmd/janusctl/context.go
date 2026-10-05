@@ -68,6 +68,8 @@ type cliContext struct {
 	// fingerprint>" or "file:<path>") - the certificate's key too; empty
 	// for an API token's context (a key made here, key.pem).
 	SSHKey string `json:"ssh_key,omitempty"`
+	// Fleet: no Controller - janusctl keeps the fleet itself (fleet.go).
+	Fleet *ctxFleet `json:"fleet,omitempty"`
 
 	// seen is the SHA-256 of the certificate the Controller presented on
 	// the last call - what an SSH sign-in's signature names.
@@ -169,6 +171,9 @@ func runLogin(args []string) {
 	ctx := cfg.Contexts[ctxName]
 	if ctx == nil {
 		ctx = &cliContext{}
+	}
+	if ctx.Fleet != nil {
+		log.Fatalf("janusctl login: %q is a fleet context, without a Controller: its certificate is signed here (janusctl fleet)", ctxName)
 	}
 	if *controller != "" {
 		addr := normalizeController(*controller)
@@ -534,8 +539,17 @@ func nodeNames(nodes []ctxNode) string {
 // fresh renews the context's certificate when it's ending - with its SSH
 // key, or JANUS_TOKEN; else it says to sign in again.
 func fresh(cfg *cliConfig, name string, ctx *cliContext) error {
+	if ctx.Fleet != nil && ctx.Fleet.Pending {
+		return fmt.Errorf("context %q waits for its issuing CA: janusctl fleet issuer accept GRANT", name)
+	}
 	if time.Until(ctx.Expires) > renewBefore {
 		return nil
+	}
+	if ctx.Fleet != nil {
+		if err := localSignIn(name, ctx); err != nil {
+			return fmt.Errorf("renew the certificate: %w", err)
+		}
+		return cfg.save()
 	}
 	if token := os.Getenv(tokenEnv); token != "" && ctx.SSHKey == "" {
 		if err := ctx.signIn(name, token); err != nil {
@@ -708,7 +722,14 @@ func runContext(args []string) {
 			if time.Now().After(c.Expires) {
 				state = "ended - janusctl login"
 			}
-			fmt.Printf("%s %-12s %s  %s (%s), %s\n", mark, name, c.Controller, c.User, c.Role, state)
+			where := c.Controller
+			if f := c.Fleet; f != nil {
+				where, state = fmt.Sprintf("fleet %s, issuer %s", f.Name, f.Issuer), "renewed here"
+				if f.Pending {
+					state = "waits for its issuing CA"
+				}
+			}
+			fmt.Printf("%s %-12s %s  %s (%s), %s\n", mark, name, where, c.User, c.Role, state)
 		}
 		return
 	}
@@ -744,7 +765,7 @@ func runNodes(ctxFlag string) {
 	if ctx == nil {
 		log.Fatal("no context: janusctl login -controller HOST")
 	}
-	if token := os.Getenv(tokenEnv); token != "" {
+	if token := os.Getenv(tokenEnv); token != "" && ctx.Fleet == nil {
 		var inv struct {
 			Nodes []ctxNode `json:"nodes"`
 		}

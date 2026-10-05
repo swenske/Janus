@@ -236,7 +236,11 @@ your fleet** card on the main page replaces them, in three steps:
 A node too old to trust a fleet says **needs an update** on its card:
 the Controller keeps reaching it as before, until it's updated. The kit
 and its passphrase are needed again only to renew the fleet's keys, or
-to recover a lost Controller.
+to recover a lost Controller: from a backup ([Backups](#backups)), or,
+with none, from janusctl alone - `janusctl fleet recover -kit KIT` then
+`janusctl fleet adopt ... -kit KIT` per node brings the nodes under
+janusctl, without a Controller
+([docs/fleet-without-controller.md](../docs/fleet-without-controller.md)).
 
 The issuing CA's key is sealed with the Controller's master key,
 `JANUS_CONTROLLER_MASTER_KEY_FILE`: keep that file outside the data
