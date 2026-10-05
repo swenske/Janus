@@ -153,19 +153,22 @@
 #      not just that https:// happens to be the URL scheme used
 #      throughout this script).
 #
-# Usage: hack/qemu-dashboard-test.sh <disk.img> <dashboardd-bin>
+# Usage: hack/qemu-dashboard-test.sh <disk.img> <dashboardd-bin> <versitygw-bin>
 set -euo pipefail
 HACK="$(cd "$(dirname "$0")" && pwd)"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
 DISK="${1:?usage: $0 <disk.img> <dashboardd-bin>}"
-DASHBOARDD="${2:?usage: $0 <disk.img> <dashboardd-bin>}"
+DASHBOARDD="${2:?usage: $0 <disk.img> <dashboardd-bin> <versitygw-bin>}"
+VERSITYGW="${3:?usage: $0 <disk.img> <dashboardd-bin> <versitygw-bin>}"
 HTTP_TIMEOUT_SECS="${QEMU_DASHBOARD_HTTP_TIMEOUT:-40}"
 HOST_HTTP_PORT="${QEMU_DASHBOARD_NODE_HTTP_PORT:-$((18120 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 HOST_GRPC_PORT="${QEMU_DASHBOARD_NODE_GRPC_PORT:-$((18121 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 DASHBOARD_ADDR_PORT="${QEMU_DASHBOARD_ADDR_PORT:-$((18122 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 DASHBOARD_REGISTER_PORT="${QEMU_DASHBOARD_REGISTER_PORT:-$((18123 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+S3_PORT="$((18124 + ${JANUS_TEST_PORT_OFFSET:-0}))"
+VGW_PID=""
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -177,6 +180,7 @@ QEMU_PID=""
 DASHBOARD_PID=""
 cleanup() {
   [ -n "$DASHBOARD_PID" ] && kill "$DASHBOARD_PID" 2>/dev/null || true
+  [ -n "$VGW_PID" ] && kill "$VGW_PID" 2>/dev/null || true
   [ -n "$QEMU_PID" ] && kill "$QEMU_PID" 2>/dev/null || true
   rm -rf "$WORKDIR"
 }
@@ -275,7 +279,7 @@ curl -sk -b "$COOKIE_JAR" -X POST "$API/api/auth/mfa/totp/enable" -H 'Content-Ty
 python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["recovery_codes"]; assert len(c) == 10, c' "$WORKDIR/recovery.json" || { echo "Dashboard test FAILED: setting the authenticator app up: $(cat "$WORKDIR/recovery.json")" >&2; exit 1; }
 after_mfa="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "$API/api/nodes")"
 [ "$after_mfa" = 200 ] || { echo "Dashboard test FAILED: after setting a second factor up, /api/nodes answered $after_mfa" >&2; exit 1; }
-grep -q "$TOTP_SECRET" "$WORKDIR/data/users.json" && { echo "Dashboard test FAILED: the authenticator secret is in users.json in the clear" >&2; exit 1; }
+if grep -q "$TOTP_SECRET" "$WORKDIR/data/users.json"; then echo "Dashboard test FAILED: the authenticator secret is in users.json in the clear" >&2; exit 1; fi
 echo "Second factor OK: the admin set an authenticator app up before anything else, got 10 recovery codes, its secret sealed"
 
 # Accounts: a reader made by the admin chooses their password, reads,
@@ -990,4 +994,53 @@ grep -q 'replaced its CA - the Controller now pins the new one' "$WORKDIR/dashbo
   || { echo "Dashboard test FAILED: the new admin certificate doesn't reach the node" >&2; exit 1; }
 echo "CA rotation OK: the Controller follows the node's new CA, cross-signed by the old one, and the new admin certificate reaches the node"
 
-echo "Dashboard test OK: add/list/relay/accounts on node pages/delete/restart-persistence/fleet all verified against a real running node"
+# --- backups (dashboard/backend/backups.go): the Controller backs itself
+# up to a real S3 bucket - versitygw, which checks S3's signatures -,
+# encrypted to its backup kit and signed; a new Controller restores it
+# from its first page, and reaches the node through the restored fleet ---
+mkdir -p "$WORKDIR/s3/janus-backups"
+"$VERSITYGW" --access janus-test --secret janus-test-secret-1234 --port "127.0.0.1:$S3_PORT" posix "$WORKDIR/s3" >"$WORKDIR/versitygw.log" 2>&1 &
+VGW_PID=$!
+S3_URL="http://127.0.0.1:$S3_PORT"
+JANUS_TEST_S3="http://janus-test:janus-test-secret-1234@127.0.0.1:$S3_PORT/janus-backups" go test ./dashboard/backend/internal/s3 -run TestLive -count=1 >/dev/null \
+  || { echo "Dashboard test FAILED: the S3 client against versitygw" >&2; exit 1; }
+BACKUP_PASS="$(curl -sk -b "$COOKIE_JAR" -X POST "$API/api/backups/kit" | python3 -c 'import json,sys; print(json.load(sys.stdin)["passphrase"])')"
+curl -sk -b "$COOKIE_JAR" "$API/api/backups/kit" -o "$WORKDIR/backup-kit.age"
+python3 -c 'import json,sys; print(json.dumps({"kit": open(sys.argv[1]).read(), "passphrase": sys.argv[2]}))' "$WORKDIR/backup-kit.age" "$BACKUP_PASS" >"$WORKDIR/backup-confirm.json"
+kit_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/backups/kit/confirm" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/backup-confirm.json")"
+[ "$kit_code" = 200 ] || { echo "Dashboard test FAILED: confirming the backup kit: $kit_code" >&2; exit 1; }
+S3_SETTINGS="{\"enabled\":true,\"endpoint\":\"$S3_URL\",\"region\":\"us-east-1\",\"bucket\":\"janus-backups\",\"prefix\":\"janus/\",\"access_key\":\"janus-test\",\"path_style\":true,\"interval_hours\":24,\"keep\":30,\"recipients\":[]}"
+set_code="$(curl -sk -b "$COOKIE_JAR" -o "$WORKDIR/backup-set.json" -w '%{http_code}' -X PUT "$API/api/backups/settings" -H 'Content-Type: application/json' -d "${S3_SETTINGS%\}},\"secret_key\":\"janus-test-secret-1234\"}")"
+[ "$set_code" = 200 ] || { echo "Dashboard test FAILED: the backup settings: $set_code $(cat "$WORKDIR/backup-set.json")" >&2; exit 1; }
+curl -sk -b "$COOKIE_JAR" -X POST "$API/api/backups/run" -o "$WORKDIR/backup-run.json"
+BACKUP_KEY="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["key"])' "$WORKDIR/backup-run.json" 2>/dev/null)" \
+  || { echo "Dashboard test FAILED: backing up: $(cat "$WORKDIR/backup-run.json")" >&2; exit 1; }
+[ -s "$WORKDIR/s3/janus-backups/$BACKUP_KEY" ] || { echo "Dashboard test FAILED: no $BACKUP_KEY in the bucket" >&2; exit 1; }
+sed -n 3p "$WORKDIR/s3/janus-backups/$BACKUP_KEY" | grep -q '^age-encryption.org/v1' || { echo "Dashboard test FAILED: the backup isn't age-encrypted after its manifest" >&2; exit 1; }
+python3 -c 'import json,sys; m=json.load(open(sys.argv[1]))["manifest"]; assert m["nodes"] and all(v == "" for v in m["nodes"].values()), m' "$WORKDIR/backup-run.json" \
+  || { echo "Dashboard test FAILED: the backup didn't take every node's configuration: $(cat "$WORKDIR/backup-run.json")" >&2; exit 1; }
+echo "Backup OK: the Controller backed itself and the node's configuration up to versitygw, encrypted to its backup kit, signed"
+
+kill "$DASHBOARD_PID"
+wait "$DASHBOARD_PID" 2>/dev/null || true
+"$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data2" > "$WORKDIR/dashboardd-new.log" 2>&1 &
+DASHBOARD_PID=$!
+deadline=$((SECONDS + 20))
+until curl -sk "$API/api/auth/status" | grep -q '"setup_required":true'; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the new Controller didn't come up" >&2; exit 1; }
+  sleep 0.5
+done
+restore_code="$(curl -sk -o "$WORKDIR/restore.json" -w '%{http_code}' -X POST "$API/api/restore" -F "kit=@$WORKDIR/backup-kit.age" -F "passphrase=$BACKUP_PASS" \
+  -F "s3=${S3_SETTINGS%\}},\"secret_key\":\"janus-test-secret-1234\"}" -F "key=$BACKUP_KEY")"
+[ "$restore_code" = 200 ] || { echo "Dashboard test FAILED: restoring on the new Controller: $restore_code $(cat "$WORKDIR/restore.json")" >&2; exit 1; }
+deadline=$((SECONDS + 30))
+until curl -sk "$API/api/auth/status" 2>/dev/null | grep -q '"setup_required":false'; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: the restored Controller didn't start again: $(tail -5 "$WORKDIR/dashboardd-new.log")" >&2; exit 1; }
+  sleep 0.5
+done
+signin || { echo "Dashboard test FAILED: signing in to the restored Controller" >&2; exit 1; }
+restored_relay="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "${NODE_BASE}/api/info")"
+[ "$restored_relay" = 200 ] || { echo "Dashboard test FAILED: the restored Controller doesn't reach the node: $restored_relay $(tail -5 "$WORKDIR/dashboardd-new.log")" >&2; exit 1; }
+echo "Restore OK: a new Controller restored the backup from the bucket with the kit, started again as the one backed up - its accounts, its fleet - and reached the node"
+
+echo "Dashboard test OK: add/list/relay/accounts on node pages/delete/restart-persistence/fleet/backup and restore all verified against a real running node"

@@ -53,6 +53,7 @@ no component follows.
 | `docker-compose` | its major | upstream's `.sha256` and GitHub's asset digest | govulncheck on the binary |
 | `opentofu` (tests only) | its major | OpenTofu's signed SHA256SUMS | - |
 | `pebble` (tests only) | its major | Go's checksum database (`go install`) | - |
+| `versitygw` (tests only) | its major | Go's checksum database (`go install`) | - |
 | `consul` | its major | HashiCorp's signed SHA256SUMS | govulncheck on the binary |
 
 "Follows" is what gets proposed on its own: a patch release of a pinned

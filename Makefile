@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -749,8 +749,12 @@ site-build: site-frontend-build
 # add-node/list/per-node-mTLS-relay/delete/restart-persistence flow
 # works against a real running node, not a mock - see
 # dashboard/backend and hack/qemu-dashboard-test.sh.
-qemu-dashboard-test: dashboard-build disk-image
-	./hack/qemu-dashboard-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/dashboardd
+# versitygw, the S3 bucket the dashboard test backs the Controller up to.
+versitygw:
+	GOBIN=$(abspath $(BUILD_DIR))/versitygw go install github.com/versity/versitygw/cmd/versitygw@$(VERSITYGW_VERSION)
+
+qemu-dashboard-test: dashboard-build disk-image versitygw
+	./hack/qemu-dashboard-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/dashboardd $(BUILD_DIR)/versitygw/versitygw
 
 # Dashboard prep, tranche 5: builds dashboard/Dockerfile's runnable
 # image locally (see that file's own comment for why it needs no

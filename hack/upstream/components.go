@@ -318,6 +318,12 @@ var components = []*component{
 		note: "go install'ed: Go's checksum database checks it",
 	},
 	{
+		name: "versitygw", title: "versitygw (Controller backup tests)", kind: kindTest,
+		versionVar: "VERSITYGW_VERSION",
+		feed:       githubReleases{repo: "versity/versitygw"}, track: trackMajor,
+		note: "go install'ed: Go's checksum database checks it",
+	},
+	{
 		name: "consul", title: "Consul (Consul extension)", kind: kindExtension,
 		versionVar: "CONSUL_VERSION",
 		sumVars:    map[string]string{"amd64": "CONSUL_SHA256_amd64", "arm64": "CONSUL_SHA256_arm64"},

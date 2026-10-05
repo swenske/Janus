@@ -149,6 +149,11 @@ OPENTOFU_SHA256_AMD64 := 378ada19d4bc70c43732004e8159be771b23b9a5afdf059e5f8a2b3
 # this tag - never shipped in an image).
 PEBBLE_VERSION := v2.10.1
 
+# versitygw, Versity's S3 gateway: the bucket hack/qemu-dashboard-test.sh
+# backs the Controller up to and restores it from - it checks S3's
+# signatures for real (go install'ed at this tag - never shipped).
+VERSITYGW_VERSION := v1.8.0
+
 # The Consul agent (consul extension): HashiCorp's release zip, checked
 # against these (from consul_<version>_SHA256SUMS, whose signature by
 # HashiCorp's release key C874 011F 0AB4 0511 0D02 1055 3436 5D94 72D7
