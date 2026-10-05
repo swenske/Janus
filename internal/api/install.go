@@ -62,6 +62,9 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 	if bundleDir == "" {
 		return status.Errorf(codes.InvalidArgument, "source.reference is required - a local release bundle directory (see image/release/assemble.sh); real OCI/HTTPS distribution isn't implemented yet")
 	}
+	if req.GetRegistrationToken() != "" && req.GetControllerAddress() == "" {
+		return status.Errorf(codes.InvalidArgument, "registration_token needs controller_address: it's presented to that Controller")
+	}
 	if req.GetControllerAddress() != "" && len(req.GetControllerCaCert()) == 0 {
 		return status.Errorf(codes.InvalidArgument, "controller_ca_cert is required whenever controller_address is set - the node has to already know which CA to trust before it ever dials the Controller")
 	}
@@ -388,6 +391,11 @@ func writeControllerConfig(fs filesystem.FileSystem, req *janusv1alpha1.InstallR
 	}
 	if root := req.GetControllerFleetRootCert(); len(root) > 0 {
 		if err := writeFSFile(fs, "controller/fleet-root.crt", root); err != nil {
+			return status.Errorf(codes.Internal, "%v", err)
+		}
+	}
+	if tok := req.GetRegistrationToken(); tok != "" {
+		if err := writeFSFile(fs, "controller/token", []byte(tok)); err != nil {
 			return status.Errorf(codes.Internal, "%v", err)
 		}
 	}

@@ -61,7 +61,7 @@ import (
 // fleetRootPEM, optional, is the Controller's fleet root: the node then
 // checks the Controller through its fleet first (InstallRequest's
 // controller_fleet_root_cert).
-func SeedController(diskPath, address string, caCertPEM, fleetRootPEM []byte) error {
+func SeedController(diskPath, address string, caCertPEM, fleetRootPEM []byte, token string) error {
 	if address == "" {
 		return fmt.Errorf("controller address is required")
 	}
@@ -115,6 +115,13 @@ func SeedController(diskPath, address string, caCertPEM, fleetRootPEM []byte) er
 	}
 	if len(fleetRootPEM) > 0 {
 		if err := writeFSFile(fs, "controller/fleet-root.crt", fleetRootPEM); err != nil {
+			return err
+		}
+	}
+	// A registration token - an enrollment token of the Controller's
+	// admits the node without approval, labelled -, sent once.
+	if token != "" {
+		if err := writeFSFile(fs, "controller/token", []byte(token)); err != nil {
 			return err
 		}
 	}

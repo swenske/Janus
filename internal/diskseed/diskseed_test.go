@@ -75,7 +75,7 @@ func readPath(t *testing.T, diskPath, path string) []byte {
 func TestSeedControllerWritesFiles(t *testing.T) {
 	path := buildTestDisk(t)
 
-	if err := SeedController(path, "controller.example.com:8443", []byte("fake-ca-cert-1"), []byte("fake-fleet-root")); err != nil {
+	if err := SeedController(path, "controller.example.com:8443", []byte("fake-ca-cert-1"), []byte("fake-fleet-root"), ""); err != nil {
 		t.Fatalf("SeedController: %v", err)
 	}
 
@@ -88,15 +88,23 @@ func TestSeedControllerWritesFiles(t *testing.T) {
 	if got := string(readBack(t, path, "fleet-root.crt")); got != "fake-fleet-root" {
 		t.Errorf("controller/fleet-root.crt = %q, want %q", got, "fake-fleet-root")
 	}
+	// With a registration token too.
+	path = buildTestDisk(t)
+	if err := SeedController(path, "c:8443", []byte("ca"), nil, "janus-enroll_ab_cd"); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(readBack(t, path, "token")); got != "janus-enroll_ab_cd" {
+		t.Errorf("controller/token = %q", got)
+	}
 }
 
 func TestSeedControllerRefusesAnAlreadySeededDisk(t *testing.T) {
 	path := buildTestDisk(t)
 
-	if err := SeedController(path, "old.example.com:8443", []byte("old-ca-cert"), nil); err != nil {
+	if err := SeedController(path, "old.example.com:8443", []byte("old-ca-cert"), nil, ""); err != nil {
 		t.Fatalf("first SeedController: %v", err)
 	}
-	err := SeedController(path, "new.example.com:9999", []byte("new-ca-cert"), nil)
+	err := SeedController(path, "new.example.com:9999", []byte("new-ca-cert"), nil, "")
 	if err == nil {
 		t.Fatal("expected the second SeedController call to be refused, got nil error")
 	}
@@ -114,10 +122,10 @@ func TestSeedControllerRefusesAnAlreadySeededDisk(t *testing.T) {
 func TestSeedControllerRequiresAddressAndCA(t *testing.T) {
 	path := buildTestDisk(t)
 
-	if err := SeedController(path, "", []byte("ca"), nil); err == nil {
+	if err := SeedController(path, "", []byte("ca"), nil, ""); err == nil {
 		t.Error("expected an error with an empty address")
 	}
-	if err := SeedController(path, "host:8443", nil, nil); err == nil {
+	if err := SeedController(path, "host:8443", nil, nil, ""); err == nil {
 		t.Error("expected an error with an empty CA cert")
 	}
 }
@@ -128,7 +136,7 @@ func TestSeedControllerRejectsDiskWithNoStatePartition(t *testing.T) {
 		t.Fatalf("write blank disk: %v", err)
 	}
 
-	if err := SeedController(path, "host:8443", []byte("ca"), nil); err == nil {
+	if err := SeedController(path, "host:8443", []byte("ca"), nil, ""); err == nil {
 		t.Error("expected an error against a disk with no partition table at all")
 	}
 }
@@ -159,7 +167,7 @@ func TestSeedNetwork(t *testing.T) {
 		t.Error("a second seed was accepted")
 	}
 	// The Controller can still be seeded next to it.
-	if err := SeedController(path, "controller.example.com:8443", []byte("ca"), nil); err != nil {
+	if err := SeedController(path, "controller.example.com:8443", []byte("ca"), nil, ""); err != nil {
 		t.Errorf("SeedController after SeedNetwork: %v", err)
 	}
 }
@@ -178,7 +186,7 @@ func TestSeedFleet(t *testing.T) {
 	}
 	// Next to a Controller's configuration, and a pki/ directory that's
 	// already there.
-	if err := SeedController(path, "controller.example.com:8443", []byte("ca"), nil); err != nil {
+	if err := SeedController(path, "controller.example.com:8443", []byte("ca"), nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	d, err := diskfs.Open(path, diskfs.WithOpenMode(diskfs.ReadWrite))

@@ -135,6 +135,11 @@ type InstallRequest struct {
 	// its fleet certificate (pki.FleetControllerName) - before falling
 	// back to controller_ca_cert, and takes only that fleet's trust.
 	ControllerFleetRootCert []byte `protobuf:"bytes,6,opt,name=controller_fleet_root_cert,json=controllerFleetRootCert,proto3" json:"controller_fleet_root_cert,omitempty"`
+	// Optional, with controller_address: a registration token the node
+	// presents when it announces itself - a Controller's enrollment token
+	// admits it without the approval step, with the token's labels. Sent
+	// once, then deleted from the node.
+	RegistrationToken string `protobuf:"bytes,9,opt,name=registration_token,json=registrationToken,proto3" json:"registration_token,omitempty"`
 	// Optional: the installed node's network configuration (hostname,
 	// interfaces, VLANs, DNS, NTP), written onto the new STATE filesystem
 	// and in effect from its first boot. Unset: the defaults (DHCP on
@@ -215,6 +220,13 @@ func (x *InstallRequest) GetControllerFleetRootCert() []byte {
 		return x.ControllerFleetRootCert
 	}
 	return nil
+}
+
+func (x *InstallRequest) GetRegistrationToken() string {
+	if x != nil {
+		return x.RegistrationToken
+	}
+	return ""
 }
 
 func (x *InstallRequest) GetNetworkConfig() *NetworkConfig {
@@ -594,13 +606,14 @@ const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\treference\x18\x01 \x01(\tR\treference\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12A\n" +
 	"\x1dinsecure_skip_signature_check\x18\x03 \x01(\bR\x1ainsecureSkipSignatureCheck\x124\n" +
-	"\x16allow_schematic_change\x18\x04 \x01(\bR\x14allowSchematicChange\"\x84\x03\n" +
+	"\x16allow_schematic_change\x18\x04 \x01(\bR\x14allowSchematicChange\"\xb3\x03\n" +
 	"\x0eInstallRequest\x123\n" +
 	"\x06source\x18\x01 \x01(\v2\x1b.janus.v1alpha1.ImageSourceR\x06source\x12\x12\n" +
 	"\x04disk\x18\x02 \x01(\tR\x04disk\x12-\n" +
 	"\x12controller_address\x18\x03 \x01(\tR\x11controllerAddress\x12,\n" +
 	"\x12controller_ca_cert\x18\x04 \x01(\fR\x10controllerCaCert\x12;\n" +
-	"\x1acontroller_fleet_root_cert\x18\x06 \x01(\fR\x17controllerFleetRootCert\x12D\n" +
+	"\x1acontroller_fleet_root_cert\x18\x06 \x01(\fR\x17controllerFleetRootCert\x12-\n" +
+	"\x12registration_token\x18\t \x01(\tR\x11registrationToken\x12D\n" +
 	"\x0enetwork_config\x18\x05 \x01(\v2\x1d.janus.v1alpha1.NetworkConfigR\rnetworkConfig\x12&\n" +
 	"\x0ffleet_root_cert\x18\a \x01(\fR\rfleetRootCert\x12!\n" +
 	"\ffleet_bundle\x18\b \x01(\fR\vfleetBundle\"]\n" +

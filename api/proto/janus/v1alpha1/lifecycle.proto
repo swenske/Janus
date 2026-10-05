@@ -100,6 +100,11 @@ message InstallRequest {
   // its fleet certificate (pki.FleetControllerName) - before falling
   // back to controller_ca_cert, and takes only that fleet's trust.
   bytes controller_fleet_root_cert = 6;
+  // Optional, with controller_address: a registration token the node
+  // presents when it announces itself - a Controller's enrollment token
+  // admits it without the approval step, with the token's labels. Sent
+  // once, then deleted from the node.
+  string registration_token = 9;
   // Optional: the installed node's network configuration (hostname,
   // interfaces, VLANs, DNS, NTP), written onto the new STATE filesystem
   // and in effect from its first boot. Unset: the defaults (DHCP on
