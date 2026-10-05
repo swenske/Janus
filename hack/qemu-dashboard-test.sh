@@ -929,6 +929,22 @@ if "$WORKDIR/janusctl" -context ssh -n test-node version >/dev/null 2>&1; then
 fi
 echo "janusctl SSH OK: signed in with the account's Ed25519 key from ssh-agent, the agent signed the TLS handshake with the node, which took the certificate; nothing reached it once the key left the agent"
 
+# janusctl login -device: its code approved on the Controller's page -
+# here through the page's API, with the admin's session -, as a reader.
+"$WORKDIR/janusctl" login -context device -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" -controller-fingerprint "$CONTROLLER_FP" -device >"$WORKDIR/janusctl-device.txt" 2>&1 &
+DEVICE_PID=$!
+deadline=$((SECONDS + 20))
+until DEVICE_CODE="$(grep -oE '\b[0-9A-Z]{4}-[0-9A-Z]{4}\b' "$WORKDIR/janusctl-device.txt" | head -1)" && [ -n "$DEVICE_CODE" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || { echo "Dashboard test FAILED: janusctl login -device showed no code: $(cat "$WORKDIR/janusctl-device.txt")" >&2; exit 1; }
+  sleep 0.5
+done
+approve_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/cli/device/$DEVICE_CODE/approve" -H 'Content-Type: application/json' -d '{"role":"reader"}')"
+[ "$approve_code" = 204 ] || { echo "Dashboard test FAILED: approving janusctl's device code: $approve_code" >&2; exit 1; }
+wait "$DEVICE_PID" || { echo "Dashboard test FAILED: janusctl login -device: $(cat "$WORKDIR/janusctl-device.txt")" >&2; exit 1; }
+grep -q 'as admin (os:reader)' "$WORKDIR/janusctl-device.txt" || { echo "Dashboard test FAILED: janusctl login -device: $(cat "$WORKDIR/janusctl-device.txt")" >&2; exit 1; }
+"$WORKDIR/janusctl" -context device -n test-node version >/dev/null || { echo "Dashboard test FAILED: janusctl signed in with -device can't read the node" >&2; exit 1; }
+echo "janusctl device OK: its code approved for the account as a reader, janusctl got its certificate and read the node"
+
 kill "$DASHBOARD_PID"
 wait "$DASHBOARD_PID" 2>/dev/null || true
 "$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data" > "$WORKDIR/dashboardd-restart2.log" 2>&1 &

@@ -143,7 +143,10 @@ key of the account - an SSHSIG of the Controller's challenge, bound to
 the certificate it saw - and the certificate is for that key, which
 then signs the TLS handshakes with the nodes (from ssh-agent, Ed25519
 only: TLS 1.3 hands other keys a digest, an agent signs messages); in
-CI, with an API token, for a key janusctl makes.
+CI, with an API token, for a key janusctl makes; without an SSH key,
+through the Controller's page, which approves a key janusctl made by its
+fingerprint (a code handed back to janusctl on 127.0.0.1, or typed on
+the page from another machine).
 A second factor - TOTP, its secret sealed with
 the master key, or a WebAuthn passkey - finishes the sign-in of an
 account that has one, required for admins by default.

@@ -145,8 +145,11 @@ func runLogin(args []string) {
 	fingerprint := fs.String("controller-fingerprint", "", "trust the Controller's certificate with this SHA-256 fingerprint (hex, colons allowed)")
 	user := fs.String("user", "", "your account on the Controller (with an SSH key; kept in the context)")
 	keyFlag := fs.String("ssh-key", "", "the SSH key to sign in with: its private key file, or its .pub to use it from ssh-agent (default: ssh-agent's Ed25519 key)")
+	browser := fs.Bool("browser", false, "sign in on the Controller's page, opened in the browser (the default without -user, -ssh-key or JANUS_TOKEN)")
+	noOpen := fs.Bool("no-open", false, "with -browser: only print the page's address")
+	deviceFlag := fs.Bool("device", false, "sign in on the Controller's page from another machine: a code to enter there")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: janusctl login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE | -controller-fingerprint SHA256] -user NAME [-ssh-key FILE]")
+		fmt.Fprintln(fs.Output(), "usage: janusctl login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE | -controller-fingerprint SHA256] [-browser | -device | -user NAME [-ssh-key FILE]]")
 		fmt.Fprintln(fs.Output(), "       JANUS_TOKEN=janus_... janusctl login [-context NAME] [-controller ...]   with an API token instead (CI)")
 		fs.PrintDefaults()
 	}
@@ -199,11 +202,20 @@ func runLogin(args []string) {
 		}
 		log.Fatalf("janusctl login: the Controller at %s presents a certificate with SHA-256\n  %s\nCheck it (on the Controller's host: openssl x509 -in <data-dir>/dashboard-identity.crt -noout -fingerprint -sha256), then pass it as -controller-fingerprint, or give -controller-ca", ctx.Controller, colonHex(certFingerprint(leaf)))
 	}
-	if token != "" {
+	switch {
+	case token != "":
 		if err := ctx.signIn(ctxName, token); err != nil {
 			log.Fatalf("janusctl login: %v", err)
 		}
-	} else {
+	case *deviceFlag:
+		if err := ctx.deviceSignIn(ctxName); err != nil {
+			log.Fatalf("janusctl login: %v", err)
+		}
+	case *browser || (*user == "" && *keyFlag == "" && ctx.SSHKey == ""):
+		if err := ctx.browserSignIn(ctxName, !*noOpen); err != nil {
+			log.Fatalf("janusctl login: %v", err)
+		}
+	default:
 		if *user != "" {
 			ctx.User = *user
 		}
@@ -366,10 +378,18 @@ func (c *cliContext) call(method, path, token string, body, out any) error {
 		if json.Unmarshal(data, &e) == nil && e.Error != "" {
 			msg = e.Error
 		}
-		return fmt.Errorf("%s %s: %s", method, path, msg)
+		return &apiError{status: resp.StatusCode, msg: fmt.Sprintf("%s %s: %s", method, path, msg)}
 	}
 	return json.Unmarshal(data, out)
 }
+
+// apiError is the Controller's answer to a call that failed.
+type apiError struct {
+	status int
+	msg    string
+}
+
+func (e *apiError) Error() string { return e.msg }
 
 // signIn gets a new certificate - for a key made here - and the nodes,
 // with token.

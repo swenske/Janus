@@ -108,6 +108,13 @@ with ECDSA or RSA) or a private key file (Ed25519, ECDSA or RSA; its
 passphrase asked); a FIDO key (`sk-...`) can't sign janusctl's
 connections. Each key can carry a lower role than your account's.
 
+Without an SSH key: `janusctl login -controller ...` alone opens the
+Controller's page in the browser - sign in there (second factor and
+all), compare the key it shows with the one janusctl printed, approve;
+`-device` instead shows a code to enter on the page from any machine (a
+server without a browser). Either way the certificate is for a key
+janusctl made and lasts 12 hours; then `janusctl login` again.
+
 In CI, an API token of the account instead (`JANUS_TOKEN=janus_...
 janusctl login -controller ...`): a certificate for an hour, with the
 token's role, renewed while `JANUS_TOKEN` is set.
