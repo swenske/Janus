@@ -53,10 +53,14 @@ const (
 	AsRolesKey = "janus-as-roles"
 )
 
+// A node keeps its fleet under its PKI directory - FleetDir/
+// FleetRootFile and FleetDir/FleetBundleFile -, where Fleet.Set writes
+// it and where provisioning (Install, janusctl image seed-fleet, NoCloud)
+// puts it on STATE for the first boot.
 const (
-	fleetDir        = "fleet"
-	fleetRootFile   = "root.crt"
-	fleetBundleFile = "bundle.json"
+	FleetDir        = "fleet"
+	FleetRootFile   = "root.crt"
+	FleetBundleFile = "bundle.json"
 )
 
 // Bundle is what the fleet's root says a node accepts.
@@ -87,6 +91,17 @@ func SignBundle(root *CA, b Bundle) ([]byte, error) {
 		return nil, fmt.Errorf("sign the bundle: %w", err)
 	}
 	return json.Marshal(SignedBundle{Payload: payload, Signature: sig})
+}
+
+// CanonicalBundle is signed as SignBundle writes it - what a node keeps
+// and compares: the same bundle, indented or not (a NoCloud user-data),
+// is the same bundle.
+func CanonicalBundle(signed []byte) ([]byte, error) {
+	var sb SignedBundle
+	if err := json.Unmarshal(signed, &sb); err != nil {
+		return nil, fmt.Errorf("not a signed bundle: %w", err)
+	}
+	return json.Marshal(sb)
 }
 
 // VerifyBundle checks signed against root: its signature, and that each
@@ -125,6 +140,43 @@ func VerifyBundle(root *x509.Certificate, signed []byte) (*Bundle, []*x509.Certi
 	return &b, cas, nil
 }
 
+// CheckFleet checks a fleet to provision a node with: rootPEM a
+// self-signed CA, signed a bundle it signed.
+func CheckFleet(rootPEM, signed []byte) (*Bundle, error) {
+	root, err := parseFleetRoot(rootPEM)
+	if err != nil {
+		return nil, err
+	}
+	b, _, err := VerifyBundle(root, signed)
+	return b, err
+}
+
+// ProvisionFleet writes a fleet under pkiDir for janusd to trust when it
+// starts - rootfs/init's NoCloud seeding, before janusd runs. Checked
+// first; refused when pkiDir already has one. The root is written last:
+// its presence is what "provisioned" means, so a power cut in between
+// leaves nothing half done.
+func ProvisionFleet(pkiDir string, rootPEM, signed []byte) error {
+	if _, err := CheckFleet(rootPEM, signed); err != nil {
+		return err
+	}
+	signed, err := CanonicalBundle(signed)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(pkiDir, FleetDir)
+	if _, err := os.Stat(filepath.Join(dir, FleetRootFile)); err == nil {
+		return errors.New("a fleet is already there")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := writeDurably(filepath.Join(dir, FleetBundleFile), signed, 0o644); err != nil {
+		return err
+	}
+	return writeDurably(filepath.Join(dir, FleetRootFile), rootPEM, 0o644)
+}
+
 // Fleet is what a node trusts of its fleet, kept on STATE (dir/fleet).
 type Fleet struct {
 	dir string
@@ -143,8 +195,8 @@ var ErrFleetRootMismatch = errors.New("the node trusts another fleet root: reset
 // back is reported, and the node trusts no fleet: its own CA still lets
 // it in.
 func OpenFleet(pkiDir string) (*Fleet, error) {
-	f := &Fleet{dir: filepath.Join(pkiDir, fleetDir)}
-	rootPEM, err := os.ReadFile(filepath.Join(f.dir, fleetRootFile))
+	f := &Fleet{dir: filepath.Join(pkiDir, FleetDir)}
+	rootPEM, err := os.ReadFile(filepath.Join(f.dir, FleetRootFile))
 	if os.IsNotExist(err) {
 		return f, nil
 	}
@@ -155,7 +207,7 @@ func OpenFleet(pkiDir string) (*Fleet, error) {
 	if err != nil {
 		return f, err
 	}
-	signed, err := os.ReadFile(filepath.Join(f.dir, fleetBundleFile))
+	signed, err := os.ReadFile(filepath.Join(f.dir, FleetBundleFile))
 	if os.IsNotExist(err) {
 		f.root = root
 		return f, nil
@@ -201,6 +253,13 @@ func (f *Fleet) Bundle() (*Bundle, []*x509.Certificate) {
 	return f.bundle, f.issuers
 }
 
+// Signed is the bundle as the root signed it, nil without one.
+func (f *Fleet) Signed() []byte {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.signed
+}
+
 // Set pins rootPEM (only when no root is pinned; afterwards it must be
 // the same, or empty) and applies signed, a bundle the root signed and
 // newer than the node's - the same one again changes nothing.
@@ -228,6 +287,9 @@ func (f *Fleet) Set(rootPEM, signed []byte) error {
 	if err != nil {
 		return err
 	}
+	if signed, err = CanonicalBundle(signed); err != nil {
+		return err
+	}
 	if f.bundle != nil {
 		switch {
 		case b.Version < f.bundle.Version:
@@ -242,11 +304,11 @@ func (f *Fleet) Set(rootPEM, signed []byte) error {
 		return err
 	}
 	if f.root == nil {
-		if err := writeDurably(filepath.Join(f.dir, fleetRootFile), encodePEM(caCertPEMType, root.Raw), 0o644); err != nil {
+		if err := writeDurably(filepath.Join(f.dir, FleetRootFile), encodePEM(caCertPEMType, root.Raw), 0o644); err != nil {
 			return err
 		}
 	}
-	if err := writeDurably(filepath.Join(f.dir, fleetBundleFile), signed, 0o644); err != nil {
+	if err := writeDurably(filepath.Join(f.dir, FleetBundleFile), signed, 0o644); err != nil {
 		return err
 	}
 	f.root, f.bundle, f.signed, f.issuers = root, b, signed, issuers
@@ -257,7 +319,7 @@ func (f *Fleet) Set(rootPEM, signed []byte) error {
 func (f *Fleet) Reset() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for _, name := range []string{fleetBundleFile, fleetRootFile} {
+	for _, name := range []string{FleetBundleFile, FleetRootFile} {
 		if err := os.Remove(filepath.Join(f.dir, name)); err != nil && !os.IsNotExist(err) {
 			return err
 		}

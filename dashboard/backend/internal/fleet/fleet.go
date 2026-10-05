@@ -21,26 +21,20 @@
 package fleet
 
 import (
-	"bytes"
 	"crypto"
-	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
-	"filippo.io/age"
-	"filippo.io/age/armor"
-
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
+	"github.com/swenske/Janus/internal/fleetkit"
 	"github.com/swenske/Janus/internal/pki"
 )
 
@@ -55,8 +49,6 @@ const (
 	// IdentityName is the Controller's client certificate's common name,
 	// as the nodes log it ("alice (os:admin) via janus-controller").
 	IdentityName = "janus-controller"
-
-	kitFormat = "janus-recovery-kit/1"
 )
 
 // The files in the fleet directory.
@@ -207,12 +199,12 @@ func (s *Store) Setup() (passphrase string, err error) {
 	if err != nil {
 		return "", err
 	}
-	passphrase, err = newPassphrase()
+	passphrase, err = fleetkit.NewPassphrase()
 	if err != nil {
 		return "", err
 	}
 	now := time.Now().UTC()
-	kit, err := makeKit(kitContent{Format: kitFormat, Controller: s.controllerID, Created: now, RootCert: string(root.CertPEM), RootKey: string(rootKeyPEM)}, passphrase)
+	kit, err := fleetkit.Make(fleetkit.Kit{Controller: s.controllerID, Created: now, RootCert: string(root.CertPEM), RootKey: string(rootKeyPEM)}, passphrase)
 	if err != nil {
 		return "", err
 	}
@@ -290,11 +282,11 @@ func (s *Store) Confirm(kit []byte, passphrase string) error {
 	if s.st.State != StatePending {
 		return fmt.Errorf("%w: nothing waits to be confirmed", ErrState)
 	}
-	content, err := OpenKit(kit, passphrase)
+	content, err := fleetkit.Open(kit, passphrase)
 	if err != nil {
-		return err
+		return ErrKit
 	}
-	root, err := pki.LoadCA([]byte(content.RootCert), []byte(content.RootKey))
+	root, err := content.Root()
 	if err != nil || !root.Cert.Equal(s.root) {
 		return ErrKit
 	}
@@ -454,86 +446,4 @@ func parseCert(p []byte) (*x509.Certificate, error) {
 		return nil, errors.New("no PEM certificate")
 	}
 	return x509.ParseCertificate(block.Bytes)
-}
-
-// kitContent is what a recovery kit holds once opened.
-type kitContent struct {
-	Format     string    `json:"format"`
-	Controller string    `json:"controller"`
-	Created    time.Time `json:"created"`
-	RootCert   string    `json:"root_cert"`
-	RootKey    string    `json:"root_key"`
-}
-
-// makeKit encrypts content with passphrase: an armored age file - text,
-// so it fits a password manager's note - that `age -d` opens too.
-func makeKit(content kitContent, passphrase string) ([]byte, error) {
-	plain, err := json.MarshalIndent(content, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	r, err := age.NewScryptRecipient(passphrase)
-	if err != nil {
-		return nil, err
-	}
-	var out bytes.Buffer
-	aw := armor.NewWriter(&out)
-	w, err := age.Encrypt(aw, r)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := w.Write(plain); err != nil {
-		return nil, err
-	}
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-	if err := aw.Close(); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
-}
-
-// OpenKit decrypts a recovery kit (armored or not) with its passphrase.
-func OpenKit(kit []byte, passphrase string) (*kitContent, error) {
-	id, err := age.NewScryptIdentity(strings.ToUpper(strings.TrimSpace(passphrase)))
-	if err != nil {
-		return nil, ErrKit
-	}
-	var in io.Reader = bytes.NewReader(kit)
-	if bytes.HasPrefix(bytes.TrimSpace(kit), []byte(armor.Header)) {
-		in = armor.NewReader(bytes.NewReader(bytes.TrimSpace(kit)))
-	}
-	r, err := age.Decrypt(in, id)
-	if err != nil {
-		return nil, ErrKit
-	}
-	plain, err := io.ReadAll(io.LimitReader(r, 1<<20))
-	if err != nil {
-		return nil, ErrKit
-	}
-	var c kitContent
-	if err := json.Unmarshal(plain, &c); err != nil || c.Format != kitFormat {
-		return nil, ErrKit
-	}
-	return &c, nil
-}
-
-// passphraseAlphabet is Crockford's base 32: no I, L, O or U to mistake.
-const passphraseAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-
-// newPassphrase is six groups of four characters - 120 bits.
-func newPassphrase() (string, error) {
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	var sb strings.Builder
-	for i, c := range b {
-		if i > 0 && i%4 == 0 {
-			sb.WriteByte('-')
-		}
-		sb.WriteByte(passphraseAlphabet[int(c)%len(passphraseAlphabet)])
-	}
-	return sb.String(), nil
 }

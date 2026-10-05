@@ -105,6 +105,28 @@ func (ca *CA) IssueCA(commonName string, validity time.Duration) (*CA, error) {
 	if err != nil {
 		return nil, fmt.Errorf("generate CA key: %w", err)
 	}
+	der, err := ca.issueCADER(&priv.PublicKey, commonName, validity)
+	if err != nil {
+		return nil, err
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA certificate: %w", err)
+	}
+	return &CA{Cert: cert, CertPEM: encodePEM(caCertPEMType, der), Key: priv}, nil
+}
+
+// IssueCAFor is IssueCA for a key made elsewhere (its public half, from
+// a certificate request): the subordinate CA's certificate, PEM.
+func (ca *CA) IssueCAFor(pub crypto.PublicKey, commonName string, validity time.Duration) ([]byte, error) {
+	der, err := ca.issueCADER(pub, commonName, validity)
+	if err != nil {
+		return nil, err
+	}
+	return encodePEM(caCertPEMType, der), nil
+}
+
+func (ca *CA) issueCADER(pub crypto.PublicKey, commonName string, validity time.Duration) ([]byte, error) {
 	serial, err := randomSerial()
 	if err != nil {
 		return nil, err
@@ -119,15 +141,11 @@ func (ca *CA) IssueCA(commonName string, validity time.Duration) (*CA, error) {
 		IsCA:                  true,
 		MaxPathLenZero:        true,
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, &priv.PublicKey, ca.Key)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, pub, ca.Key)
 	if err != nil {
 		return nil, fmt.Errorf("create CA certificate: %w", err)
 	}
-	cert, err := x509.ParseCertificate(der)
-	if err != nil {
-		return nil, fmt.Errorf("parse CA certificate: %w", err)
-	}
-	return &CA{Cert: cert, CertPEM: encodePEM(caCertPEMType, der), Key: priv}, nil
+	return der, nil
 }
 
 // CrossSign vouches for next with this CA's key: a certificate of next's

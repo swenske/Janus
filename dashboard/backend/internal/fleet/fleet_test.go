@@ -17,6 +17,7 @@ import (
 	"filippo.io/age/armor"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
+	"github.com/swenske/Janus/internal/fleetkit"
 	"github.com/swenske/Janus/internal/pki"
 )
 
@@ -63,7 +64,7 @@ func TestSetupConfirm(t *testing.T) {
 	if err != nil || !bytes.HasPrefix(kit, []byte(armor.Header)) {
 		t.Fatalf("kit: %v, %.40q", err, kit)
 	}
-	content, err := OpenKit(kit, strings.ToLower(pass))
+	content, err := fleetkit.Open(kit, strings.ToLower(pass))
 	if err != nil || !strings.Contains(content.RootKey, "PRIVATE KEY") {
 		t.Fatalf("the kit with its passphrase, lowercased: %v", err)
 	}

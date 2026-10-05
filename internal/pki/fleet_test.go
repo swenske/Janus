@@ -1,8 +1,10 @@
 package pki
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"net"
 	"strings"
@@ -209,4 +211,43 @@ func TestNodeTLSConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("bundle 2 drops the first issuing CA", map[string]bool{"local": true, "issuing": false, "other issuing": true, "root itself": true})
+}
+
+// TestProvisionFleet: a fleet put under a PKI directory before janusd
+// starts is the one OpenFleet loads; a second one is refused, and so is
+// a bundle another root signed.
+func TestProvisionFleet(t *testing.T) {
+	dir := t.TempDir()
+	root, _ := NewCAFor("root", time.Hour)
+	issuing, _ := root.IssueCA("issuing", time.Hour)
+	signed, err := SignBundle(root, Bundle{Version: 4, Issued: time.Now(), IssuingCAs: []string{string(issuing.CertPEM)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := NewCAFor("another root", time.Hour)
+	if err := ProvisionFleet(dir, other.CertPEM, signed); err == nil {
+		t.Error("a bundle another root signed was provisioned")
+	}
+	if err := ProvisionFleet(dir, root.CertPEM, signed); err != nil {
+		t.Fatal(err)
+	}
+	f, err := OpenFleet(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, cas := f.Bundle(); f.Root() == nil || !f.Root().Equal(root.Cert) || b == nil || b.Version != 4 || len(cas) != 1 {
+		t.Errorf("loaded: root %v, bundle %v", f.Root(), b)
+	}
+	if err := ProvisionFleet(dir, root.CertPEM, signed); err == nil {
+		t.Error("a second fleet was provisioned")
+	}
+	// The same bundle, indented (as a user-data may carry it), is the
+	// same bundle.
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, signed, "", "  "); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Set(nil, indented.Bytes()); err != nil {
+		t.Errorf("the same bundle indented: %v", err)
+	}
 }
