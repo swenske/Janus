@@ -7,31 +7,35 @@ import (
 	"strings"
 )
 
-// motdLogo is brand/favicon/favicon.svg rasterized onto half-block
+// motdLogo is brand/favicon/favicon.svg drawn with half-block
 // characters (one character = two square "pixels" vertically, 3 SVG
-// units per pixel): the two outward-facing triangles are Janus's two
-// faces, the taller bar between them is the brand-orange stroke.
-// Columns [motdBarStart, motdBarEnd) are the bar.
+// units per pixel) - only glyphs the kernel's 8x16 console font has
+// (█ ▀ ▄ ▌ ▐). The two outward-facing triangles are Janus's two faces,
+// their edges a regular 45° staircase so they read as straight; the
+// taller bar between them is the brand-orange stroke, five cells wide
+// visually (▐ and ▌ are half cells) with its corners left out for the
+// SVG's rounded ones. Columns [motdBarStart, motdBarEnd) are the bar;
+// the drawing is symmetric around its middle.
 var motdLogo = []string{
-	"           ▄▄▄▄▄▄           ",
-	"           ██████           ",
-	"           ██████           ",
-	"         ▄ ██████ ▄         ",
-	"       ▄██ ██████ ██▄       ",
-	"    ▄▄████ ██████ ████▄▄    ",
-	"  ▄███████ ██████ ███████▄  ",
-	"  ▀███████ ██████ ███████▀  ",
-	"    ▀▀████ ██████ ████▀▀    ",
-	"       ▀██ ██████ ██▀       ",
-	"         ▀ ██████ ▀         ",
-	"           ██████           ",
-	"           ██████           ",
-	"           ▀▀▀▀▀▀           ",
+	"           ▄▄▄▄           ",
+	"          ▐████▌          ",
+	"          ▐████▌          ",
+	"        ▄ ▐████▌ ▄        ",
+	"      ▄██ ▐████▌ ██▄      ",
+	"    ▄████ ▐████▌ ████▄    ",
+	"  ▄██████ ▐████▌ ██████▄  ",
+	"  ▀██████ ▐████▌ ██████▀  ",
+	"    ▀████ ▐████▌ ████▀    ",
+	"      ▀██ ▐████▌ ██▀      ",
+	"        ▀ ▐████▌ ▀        ",
+	"          ▐████▌          ",
+	"          ▐████▌          ",
+	"           ▀▀▀▀           ",
 }
 
 const (
-	motdBarStart = 11
-	motdBarEnd   = 17
+	motdBarStart = 10
+	motdBarEnd   = 16
 
 	ansiReset  = "\x1b[0m"
 	ansiBold   = "\x1b[1m"

@@ -13,9 +13,31 @@ func TestMOTDLogoIsRectangular(t *testing.T) {
 			t.Errorf("logo row %d is %d runes wide, want %d", i, n, width)
 		}
 		bar := string([]rune(row)[motdBarStart:motdBarEnd])
-		if strings.Trim(bar, "█▄▀") != "" {
+		if strings.Trim(bar, "█▄▀▐▌ ") != "" {
 			t.Errorf("logo row %d: bar columns %q contain something other than the bar", i, bar)
 		}
+		if strings.Trim(row, "█▄▀▐▌ ") != "" {
+			t.Errorf("logo row %d: %q uses a glyph the console font may not have", i, row)
+		}
+		// Janus's two faces mirror each other: read right to left (with
+		// the half blocks swapped), every row is itself.
+		r := []rune(row)
+		mirror := make([]rune, len(r))
+		for j, c := range r {
+			switch c {
+			case '▐':
+				c = '▌'
+			case '▌':
+				c = '▐'
+			}
+			mirror[len(r)-1-j] = c
+		}
+		if string(mirror) != row {
+			t.Errorf("logo row %d isn't symmetric: %q vs %q", i, row, string(mirror))
+		}
+	}
+	if motdBarStart+motdBarEnd-1 != len([]rune(motdLogo[0]))-1 {
+		t.Errorf("bar columns [%d, %d) aren't centered in a %d-column logo", motdBarStart, motdBarEnd, len([]rune(motdLogo[0])))
 	}
 }
 
