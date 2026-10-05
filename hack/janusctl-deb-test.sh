@@ -34,6 +34,9 @@ for deb in "$amd64" "$arm64"; do
   files="$(dpkg-deb -c "$deb" | awk '{print $1, $2, $6}')"
   grep -qx -- '-rwxr-xr-x root/root ./usr/bin/janusctl' <<<"$files" || fail "$deb: no root-owned 0755 /usr/bin/janusctl"
   grep -qx -- '-rw-r--r-- root/root ./usr/share/doc/janusctl/copyright' <<<"$files" || fail "$deb: no copyright file"
+  for f in ./usr/share/bash-completion/completions/janusctl ./usr/share/zsh/vendor-completions/_janusctl ./usr/share/fish/vendor_completions.d/janusctl.fish; do
+    grep -qx -- "-rw-r--r-- root/root $f" <<<"$files" || fail "$deb: no shell completion $f"
+  done
   tmp="$(mktemp -d)"
   dpkg-deb -x "$deb" "$tmp"
   case "$arch" in
@@ -63,11 +66,15 @@ for image in debian:trixie debian:bookworm ubuntu:24.04; do
     test "$(command -v janusctl)" = /usr/bin/janusctl
     janusctl version 2>&1 || true
     janusctl image seed-controller 2>&1 || true
+    bash -c ". /usr/share/bash-completion/completions/janusctl && complete -p janusctl" 2>&1
+    janusctl __complete bash -- janusctl sys
     dpkg -r janusctl >/dev/null
     test ! -e /usr/bin/janusctl
   ')" || fail "$image: install/run/remove failed: $out"
   grep -qx "Client: $tag" <<<"$out" || fail "$image: janusctl version didn't print $tag: $out"
-  echo "OK $image: dpkg -i, janusctl version (Client: $tag), dpkg -r"
+  grep -qx "complete -F _janusctl janusctl" <<<"$out" || fail "$image: the bash completion doesn't load: $out"
+  grep -qx "system" <<<"$out" || fail "$image: janusctl __complete didn't offer system: $out"
+  echo "OK $image: dpkg -i, janusctl version (Client: $tag), bash completion, dpkg -r"
 done
 
 echo "janusctl-deb-test OK: $version"

@@ -16,17 +16,6 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
 
-var firewallUsage = []string{
-	"network firewall status            the firewall (nftables extension): saved or not, a ruleset on trial, the live ruleset",
-	"network firewall get               the saved ruleset (nft syntax)",
-	"network firewall check FILE        validate a ruleset, change nothing",
-	"network firewall apply [-timeout 30s] [-no-confirm] FILE  apply a ruleset on trial, then confirm it over a new connection - unconfirmed, the node reverts by itself (an empty FILE removes the firewall)",
-	"network firewall confirm           confirm the ruleset on trial",
-	"network firewall sets              the live ruleset's named sets and their elements",
-	"network firewall set-add [-timeout D] FAMILY TABLE SET ELEMENT...  add elements live - kept across reboots unless they have a timeout",
-	"network firewall set-del FAMILY TABLE SET ELEMENT...  delete elements",
-}
-
 func runFirewall(conn *grpc.ClientConn, endpoint string, redial redialer, args []string) {
 	if len(args) == 0 {
 		usage()

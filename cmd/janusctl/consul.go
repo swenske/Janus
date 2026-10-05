@@ -13,13 +13,6 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
 
-var consulUsage = []string{
-	"network consul status             Consul agent (consul extension): the service, the node, its cluster's leader and members",
-	"network consul get                the saved configuration (and the names of its files)",
-	"network consul check [-file NAME=PATH]... FILE  have consul validate a configuration, change nothing",
-	"network consul apply [-file NAME=PATH]... [-only-files] FILE  check, save and apply a configuration (the agent restarts); -file: a file it names, as /run/janus/consul/files/NAME - the saved ones are kept unless -only-files; an empty FILE removes it all and stops the agent",
-}
-
 type fileFlags map[string]string
 
 func (f fileFlags) String() string { return "" }

@@ -11,13 +11,6 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
 
-var haproxyFilesUsage = []string{
-	"haproxy files                      HAProxy's own files (/etc/haproxy/files): error pages, maps, certificates haproxy.cfg references",
-	"haproxy file-get NAME              print a file (never one holding a private key)",
-	"haproxy file-put [-reload] NAME FILE  write a file - refused if haproxy.cfg wouldn't load with it; -reload: HAProxy uses it at once",
-	"haproxy file-delete [-reload] NAME    remove a file - refused while haproxy.cfg needs it",
-}
-
 // runHAProxyFiles handles the file subcommands; false if sub isn't one.
 func runHAProxyFiles(client janusv1alpha1.HAProxyServiceClient, sub string, args []string) bool {
 	c, cancel := ctx()

@@ -12,13 +12,6 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
 
-var vrrpUsage = []string{
-	"network vrrp status                VRRP (keepalived extension): each instance's state, interface, priority, virtual IPs",
-	"network vrrp get                   the saved keepalived.conf",
-	"network vrrp check FILE            have keepalived check a keepalived.conf, change nothing",
-	"network vrrp apply FILE            check, save and reload keepalived.conf (an empty FILE stops keepalived)",
-}
-
 func runVRRP(conn *grpc.ClientConn, args []string) {
 	if len(args) == 0 {
 		usage()

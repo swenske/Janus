@@ -83,6 +83,24 @@ Without the repository, each release also carries
 `janusctl_<version>_<amd64|arm64>.deb` (`sudo apt install
 ./janusctl_<version>_amd64.deb`); `make build` builds it from source.
 
+### Shell completion
+
+The package installs completion for bash, zsh and fish: commands and
+their flags, your contexts and nodes, and what's on the node itself -
+services, maps and their keys, certificates, HAProxy files, interfaces,
+firewall sets, paths (`system cat /etc/hap<Tab>`) - asked of it in a
+couple of seconds at most, never prompting. zsh and fish show what each
+candidate is (with [fzf-tab](https://github.com/Aloxaf/fzf-tab), zsh's
+menu becomes a fuzzy finder). Without the package:
+
+```sh
+source <(janusctl completion bash)                 # ~/.bashrc
+source <(janusctl completion zsh)                  # ~/.zshrc, after compinit
+janusctl completion fish > ~/.config/fish/completions/janusctl.fish
+```
+
+`janusctl help [COMMAND]` lists the commands, or one's flags.
+
 ## Using janusctl
 
 Sign in to your Janus Controller once; janusctl then reaches its nodes

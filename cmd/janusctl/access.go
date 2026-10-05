@@ -22,13 +22,6 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
 
-var accessUsage = []string{
-	"access trust                       the fleet the node trusts besides its own CA: root, bundle, issuing CAs",
-	"access trust-set [-root FILE] BUNDLE  pin the fleet's root (the first time) and apply BUNDLE, signed by it and newer than the node's",
-	"access trust-reset                 forget the fleet - only with a certificate of the node's own CA",
-	"access rotate-ca [-console] DIR    replace the node's own CA: every certificate it issued stops working; writes DIR/{ca.crt,admin.crt,admin.key}, the key made here and never sent (-console: the node makes it and prints it on its console; only DIR/ca.crt)",
-}
-
 func runAccess(conn *grpc.ClientConn, args []string) {
 	if len(args) == 0 {
 		usage()

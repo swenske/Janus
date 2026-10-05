@@ -42,11 +42,18 @@ root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
 
 mkdir -p "$root/DEBIAN" "$root/usr/bin" "$root/usr/share/doc/janusctl" \
-  "$root/usr/share/lintian/overrides"
+  "$root/usr/share/lintian/overrides" "$root/usr/share/bash-completion/completions" \
+  "$root/usr/share/zsh/vendor-completions" "$root/usr/share/fish/vendor_completions.d"
 (cd "$repo" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
   -ldflags "-s -w -buildid= -X main.version=$version" \
   -o "$root/usr/bin/janusctl" ./cmd/janusctl)
 chmod 0755 "$root/usr/bin/janusctl"
+
+# Shell completion: the scripts janusctl completion prints, copied from
+# the source it embeds them from (the binary may be another arch's).
+install -m 0644 "$repo/cmd/janusctl/completion/janusctl.bash" "$root/usr/share/bash-completion/completions/janusctl"
+install -m 0644 "$repo/cmd/janusctl/completion/_janusctl" "$root/usr/share/zsh/vendor-completions/_janusctl"
+install -m 0644 "$repo/cmd/janusctl/completion/janusctl.fish" "$root/usr/share/fish/vendor_completions.d/janusctl.fish"
 
 {
   echo "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/"

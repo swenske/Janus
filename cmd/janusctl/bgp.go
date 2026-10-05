@@ -11,13 +11,6 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
 
-var bgpUsage = []string{
-	"network bgp status                 BGP (bird extension): each protocol's state, BGP sessions, routes",
-	"network bgp get                    the saved bird.conf",
-	"network bgp check FILE             have BIRD check a bird.conf, change nothing",
-	"network bgp apply FILE             check, save and reconfigure bird.conf (an empty FILE stops BIRD)",
-}
-
 func runBGP(conn *grpc.ClientConn, args []string) {
 	if len(args) == 0 {
 		usage()

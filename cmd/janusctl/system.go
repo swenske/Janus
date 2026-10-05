@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"text/tabwriter"
 	"time"
 
 	"google.golang.org/grpc"
@@ -24,31 +23,6 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 )
-
-var systemUsage = []string{
-	"system hostname                       print the node's hostname",
-	"system reboot [-powercycle]           soft-stop HAProxy, then reboot the machine",
-	"system shutdown                       soft-stop HAProxy, then power the machine off",
-	"system restart                        restart janusd only - HAProxy keeps serving",
-	"system reset -wipe-state [-wipe-ephemeral]  wipe the persistent STATE partition (PKI, applied config, Controller registration) and reboot - a new CA/admin cert is printed on the console",
-	"system events [-since ID]             stream the node's event log (Ctrl-C to stop)",
-	"system dmesg [-f]                     kernel ring buffer (-f: follow)",
-	"system logs [-f] [-n LINES] SERVICE   janusd or haproxy output (-f: follow)",
-	"system stats                          CPU/memory of janusd and haproxy",
-	"system systemstat                     boot time, context switches, processes created",
-	"system ps                             every process",
-	"system du [-r] PATH...                disk usage (-r: one line per directory)",
-	"system netdev                         network interface counters",
-	"system netstat                        TCP/UDP sockets",
-	"system mounts                         mounted filesystems",
-	"system services                       managed services and their health",
-	"system metrics [-enable|-disable] [-port N]  the node's Prometheus exporter: show or change (docs/metrics.md)",
-	"system node-exporter [-enable|-disable] [-address IP] [-port N] [-collectors a,b,c]  prometheus-node-exporter's settings: show or change (docs/metrics.md)",
-	"system service start|stop|restart ID  control a managed service (haproxy; janusd: restart only)",
-	"system ls [-r] PATH                   list a directory (-r: recursive)",
-	"system cat PATH                       print a file",
-	"system cp [-o FILE] PATH              tar archive of PATH (stdout by default)",
-}
 
 // runSystemCommand handles the system subcommands beyond info and pcap;
 // false means cmd isn't one of them.
@@ -487,8 +461,10 @@ func copyData(c context.Context, what string, recv func() (*janusv1alpha1.Data, 
 	}
 }
 
-func table(headers ...string) *tabwriter.Writer {
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+// table is a table on stdout, headers first (ui.go: bold, its states
+// coloured, on a terminal).
+func table(headers ...string) *tableWriter {
+	tw := newTable(os.Stdout)
 	fmt.Fprintln(tw, strings.Join(headers, "\t"))
 	return tw
 }

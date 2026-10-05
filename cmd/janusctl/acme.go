@@ -15,14 +15,6 @@ import (
 	"github.com/swenske/Janus/internal/acme"
 )
 
-var acmeUsage = []string{
-	"haproxy acme status               Let's Encrypt (letsencrypt extension): the account, each certificate's state, expiry and last error",
-	"haproxy acme get                  the configuration, as JSON (secrets come back empty: applying it keeps them)",
-	"haproxy acme check FILE           check a configuration, change nothing",
-	"haproxy acme apply [-account-key FILE] FILE  save a configuration; certificates are obtained in the background (-account-key: an existing account's private key)",
-	"haproxy acme renew [NAME...]      obtain certificates now (every one if no NAME), due or not",
-}
-
 func runACME(conn *grpc.ClientConn, args []string) {
 	if len(args) == 0 {
 		usage()

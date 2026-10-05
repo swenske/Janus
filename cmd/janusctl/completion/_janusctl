@@ -1,0 +1,32 @@
+#compdef janusctl
+# zsh completion for janusctl - `janusctl completion zsh`.
+# Installed by the .deb in /usr/share/zsh/vendor-completions/_janusctl;
+# else: janusctl completion zsh > "${fpath[1]}/_janusctl", or
+#       source <(janusctl completion zsh)  (in ~/.zshrc, after compinit)
+# Each candidate comes with what it is: menus show it, and fzf-tab
+# turns them into a fuzzy finder.
+_janusctl() {
+    local -a lines cands
+    local line nospace=0
+    lines=("${(@f)$(janusctl __complete zsh -- "${(@)words[1,CURRENT]}" 2>/dev/null)}")
+    for line in "${lines[@]}"; do
+        case "$line" in
+            :files) _files; return ;;
+            :dirs) _files -/; return ;;
+            :nospace) nospace=1 ;;
+            '') ;;
+            *) cands+=("$line") ;;
+        esac
+    done
+    (( ${#cands} )) || return 1
+    if (( nospace )); then
+        _describe -t janusctl 'janusctl' cands -S '' -o nosort
+    else
+        _describe -t janusctl 'janusctl' cands -o nosort
+    fi
+}
+if [[ "${funcstack[1]}" == _janusctl ]]; then
+    _janusctl "$@"
+else
+    compdef _janusctl janusctl
+fi

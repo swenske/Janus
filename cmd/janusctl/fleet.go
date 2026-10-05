@@ -398,24 +398,7 @@ func runFleet(globalCtx string, args []string) {
 }
 
 func fleetUsage() {
-	for _, l := range []string{
-		"usage: janusctl [-context NAME] fleet <command> - a fleet without a Controller",
-		"  init [-name FLEET] [-issuer NAME] [-user NAME] [-role ROLE] [-yes] KIT   a new fleet: its root's key in KIT (a recovery kit, its passphrase shown once), this machine's issuing CA here",
-		"  adopt NAME -endpoint HOST:PORT (-ca FILE -cert FILE -key FILE | -ca-fingerprint SHA256) [-kit KIT]   a node into the fleet: with its first boot's admin credential, or - already in the fleet (provisioned) - checked on its CA's fingerprint (its console)",
-		"  sync [-kit KIT]                the newest bundle - here or on a node - everywhere",
-		"  status                         each node's bundle, this machine's certificate and issuing CA",
-		"  export DIR                     root.crt, bundle.json and user-data.json (NoCloud) to provision nodes with the fleet",
-		"  forget NAME                    a node out of this context (the node keeps trusting the fleet)",
-		"  issuer list                    the issuing CAs of the bundle",
-		"  issuer request [-issuer NAME] [-user NAME] [-role ROLE] REQUEST   a new machine: its issuing CA's key here, REQUEST to sign where the kit is",
-		"  issuer sign -kit KIT [-replace] REQUEST GRANT   sign a machine's issuing CA into the bundle (then fleet sync); GRANT goes back to it",
-		"  issuer accept GRANT            the machine's issuing CA, the fleet and its nodes",
-		"  issuer revoke -kit KIT NAME    a bundle without NAME's issuing CA (then fleet sync)",
-		"  recover -kit KIT [-name FLEET] [-issuer NAME] [-user NAME]   a fleet from its kit - a Controller's too -: this machine's issuing CA alone in a new bundle (then adopt -kit each node)",
-		"the kit's passphrase is asked, or read from " + kitPassphraseEnv,
-	} {
-		fmt.Fprintln(os.Stderr, l)
-	}
+	printHelp(os.Stderr, commands.sub("fleet"), []string{"fleet"})
 }
 
 func checkRole(role string) {

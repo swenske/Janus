@@ -53,6 +53,8 @@ func main() {
 	ctxFlag := flag.String("context", "", "the context to use (janusctl login; default: the current one)")
 	nodesFlag := flag.String("n", "", "with a context: the node(s) to run the command on, by name or ID, comma-separated")
 	allFlag := flag.Bool("all", false, "with a context: run the command on every node of the fleet")
+	setupLog()
+	flag.Usage = usage
 	flag.Parse()
 	if *asUser != "" || *asRoles != "" {
 		actingFor = metadata.Pairs(pki.AsUserKey, *asUser, pki.AsRolesKey, *asRoles)
@@ -69,6 +71,15 @@ func main() {
 	// own package doc) - dispatched before dial() so a missing/
 	// unreachable -endpoint never gets in the way.
 	switch flag.Arg(0) {
+	case "help":
+		runHelp(flag.Args()[1:])
+		return
+	case "completion":
+		runCompletion(flag.Args()[1:])
+		return
+	case "__complete":
+		runComplete(flag.Args()[1:])
+		return
 	case "image":
 		runImage(*ctxFlag, flag.Args()[1:])
 		return
@@ -84,6 +95,21 @@ func main() {
 	case "fleet":
 		runFleet(*ctxFlag, flag.Args()[1:])
 		return
+	}
+
+	// Known before reaching any node: a group without one of its
+	// commands gets its help.
+	if c := commands.sub(flag.Arg(0)); c == nil || c.hidden {
+		fmt.Fprintf(os.Stderr, "janusctl: unknown command %q\n", flag.Arg(0))
+		printHelp(os.Stderr, commands, nil)
+		os.Exit(2)
+	}
+	if c, rest := commands.find(flag.Args()); len(c.subs) > 0 {
+		if len(rest) > 0 {
+			fmt.Fprintf(os.Stderr, "janusctl: unknown command %q\n", strings.Join(flag.Args()[:len(flag.Args())-len(rest)+1], " "))
+		}
+		printHelp(os.Stderr, c, flag.Args()[:len(flag.Args())-len(rest)])
+		os.Exit(2)
 	}
 
 	// A context (janusctl login) unless the node's own certificate is
@@ -258,70 +284,6 @@ func runPcap(conn *grpc.ClientConn, args []string) {
 	if *out != "-" {
 		fmt.Fprintf(os.Stderr, "wrote %d bytes to %s\n", total, *out)
 	}
-}
-
-func usage() {
-	fmt.Fprintln(os.Stderr, "usage: janusctl [-context NAME] [-n NODE[,NODE...] | -all] <command>        with a context (janusctl login)")
-	fmt.Fprintln(os.Stderr, "       janusctl -endpoint host:port -ca FILE -cert FILE -key FILE <command>   with a node's own certificate")
-	fmt.Fprintln(os.Stderr, "commands:")
-	fmt.Fprintln(os.Stderr, "  login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE | -controller-fingerprint SHA256] -user NAME [-ssh-key FILE]  sign in to a Controller with an SSH key of your account (or JANUS_TOKEN, an API token): a certificate of its fleet (12 h; 1 h with a token), and its nodes")
-	fmt.Fprintln(os.Stderr, "  context [list | use NAME | delete NAME]  the Controllers signed in to")
-	fmt.Fprintln(os.Stderr, "  nodes                      the context's nodes (refreshed with JANUS_TOKEN)")
-	fmt.Fprintln(os.Stderr, "  version                    print janusctl's own version and the connected node's version")
-	fmt.Fprintln(os.Stderr, "  system info                print version/kernel/active slot + memory/CPU/load/disk stats (the dashboard's own single-node fetch)")
-	fmt.Fprintln(os.Stderr, "  system pcap -i IFACE [-f FILTER] [-promisc] [-include-own-stream] [-snaplen N] [-duration D] [-o FILE]  live packet capture as a pcap file (stdout by default - pipe into tcpdump -r - or wireshark -k -i -); see docs/packet-capture.md")
-	for _, line := range systemUsage {
-		fmt.Fprintln(os.Stderr, "  "+line)
-	}
-	fmt.Fprintln(os.Stderr, "  network status             hostname, interfaces, addresses, boot DHCP lease, routes, DNS, clock synchronization")
-	fmt.Fprintln(os.Stderr, "  network get                the network configuration, as JSON (the format apply, Install and NoCloud take)")
-	fmt.Fprintln(os.Stderr, "  network apply [-timeout 30s] [-no-confirm] FILE  apply a configuration on trial, then confirm it over the node's new address - unconfirmed, the node reverts by itself")
-	fmt.Fprintln(os.Stderr, "  network confirm            confirm the configuration on trial (over an address it keeps)")
-	fmt.Fprintln(os.Stderr, "  network modules            optional modules (bird, keepalived, nftables) and whether this image has them")
-	for _, line := range firewallUsage {
-		fmt.Fprintln(os.Stderr, "  "+line)
-	}
-	for _, line := range vrrpUsage {
-		fmt.Fprintln(os.Stderr, "  "+line)
-	}
-	for _, line := range bgpUsage {
-		fmt.Fprintln(os.Stderr, "  "+line)
-	}
-	for _, line := range consulUsage {
-		fmt.Fprintln(os.Stderr, "  "+line)
-	}
-	fmt.Fprintln(os.Stderr, "  haproxy backends           backends, their servers, addresses and states")
-	fmt.Fprintln(os.Stderr, "  haproxy show-info          HAProxy version/uptime/connections (stats socket)")
-	fmt.Fprintln(os.Stderr, "  haproxy stats              raw 'show stat' CSV from the stats socket")
-	fmt.Fprintln(os.Stderr, "  haproxy get-config         print the currently active haproxy.cfg")
-	fmt.Fprintln(os.Stderr, "  haproxy apply-config FILE  validate + apply + seamlessly reload with FILE's contents")
-	fmt.Fprintln(os.Stderr, "  haproxy map-list                  list file-backed maps known to the running config")
-	fmt.Fprintln(os.Stderr, "  haproxy map-get MAP                dump MAP's key/value entries")
-	fmt.Fprintln(os.Stderr, "  haproxy map-set MAP KEY VALUE      upsert one entry in MAP")
-	fmt.Fprintln(os.Stderr, "  haproxy map-delete MAP KEY          delete one entry from MAP")
-	fmt.Fprintln(os.Stderr, "  haproxy acl-add ACL VALUE           add one pattern value to ACL")
-	fmt.Fprintln(os.Stderr, "  haproxy acl-delete ACL VALUE        delete one pattern value from ACL")
-	fmt.Fprintln(os.Stderr, "  haproxy cert-list                   list certificates in HAProxy's cert store")
-	fmt.Fprintln(os.Stderr, "  haproxy cert-upload [-crt-list PATH] [-sni host1,host2] NAME FILE  upload a PEM cert+key bundle as NAME, optionally binding it into crt-list PATH")
-	fmt.Fprintln(os.Stderr, "  haproxy cert-delete [-crt-list PATH] NAME  delete a certificate (unbinding from crt-list PATH first if given)")
-	for _, line := range haproxyFilesUsage {
-		fmt.Fprintln(os.Stderr, "  "+line)
-	}
-	for _, line := range acmeUsage {
-		fmt.Fprintln(os.Stderr, "  "+line)
-	}
-	for _, line := range accessUsage {
-		fmt.Fprintln(os.Stderr, "  "+line)
-	}
-	fmt.Fprintln(os.Stderr, "  pki generate-client-config [-role os:admin|os:operator|os:reader] [-name NAME] [-ttl DURATION] DIR  issue a new client certificate (named NAME, valid DURATION - one year at most), write ca.crt/client.crt/client.key to DIR")
-	fmt.Fprintln(os.Stderr, "  lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] [-network-config FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR  partition a blank DISK from scratch and write a release bundle (image/release/assemble.sh) to both A/B slots - does not reboot anything; -controller-address/-controller-ca make the installed node self-register with that Controller on first boot")
-	fmt.Fprintln(os.Stderr, "  lifecycle rollback         switch the ESP to the other A/B slot's staged UKI and reboot into it")
-	fmt.Fprintln(os.Stderr, "  lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] BUNDLE_DIR  write a release bundle (image/release/assemble.sh), whose UKIs must be signed by a Janus release key, to the inactive slot, switch, and reboot into it - with -wait-for-health, reverts and reboots back automatically if the new slot never stays up long enough to confirm healthy")
-	fmt.Fprintln(os.Stderr, "  lifecycle upload-release BUNDLE_DIR  stream a local release bundle's 4 files to this node's own staging storage, for a node that can't dial out to fetch one itself - prints the staging path to pass as BUNDLE_DIR to a later 'lifecycle upgrade'")
-	fmt.Fprintln(os.Stderr, "  image seed-fleet [-fleet-root FILE -fleet-bundle FILE] DISK  write a fleet (default: the current fleet context's) onto an already-built DISK's STATE partition: the node lets its certificates in from its first boot")
-	fmt.Fprintln(os.Stderr, "  fleet init|adopt|sync|status|export|forget|issuer|recover ...  a fleet without a Controller: its root in a recovery kit, this machine's certificates signed here (janusctl fleet for the list)")
-	fmt.Fprintln(os.Stderr, "  image seed-network -config FILE DISK  write a network configuration onto an already-built DISK's STATE partition, offline, applied from the node's first boot (raw disk images only)")
-	fmt.Fprintln(os.Stderr, "  image seed-controller -controller-address HOST:PORT -controller-ca FILE DISK  write controller self-registration config directly onto an already-built DISK's existing STATE partition - no janusd/gRPC needed, doesn't touch partitioning or the rootfs (raw disk images only; qemu-img convert a qcow2 to raw first, see docs/provisioning-a-node.md)")
 }
 
 func ctx() (context.Context, context.CancelFunc) {
