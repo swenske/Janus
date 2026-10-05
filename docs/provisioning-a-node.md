@@ -41,6 +41,17 @@ the Controller through its fleet - asking for the fleet's certificate,
 fleet's trust; the CA certificate stays for a Controller that has no
 fleet yet, and for older images, which ignore the root.
 
+**A batch without approval: enrollment tokens.** On the Controller's
+Nodes page (admins), **Enrollment tokens** makes a token that admits up
+to a number of nodes before a date - a rack, bare metal - without the
+approval step, each labelled with the token's labels (so the grants
+that pick them). Give it to the nodes as their registration token:
+`-registration-token TOKEN` on `janusctl lifecycle install` or `image
+seed-controller`, or `registration_token` in NoCloud user-data (the
+Provision panel puts it in its commands). A node presents it once; the
+next one past its uses, or after its date, or once it's revoked, waits
+for approval like any other. Only the token's SHA-256 is kept.
+
 Without a Controller, give nodes a fleet janusctl keeps instead
 ([fleet-without-controller.md](fleet-without-controller.md)): `janusctl
 image seed-fleet`, `lifecycle install -fleet-root -fleet-bundle`, or

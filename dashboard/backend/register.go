@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/enroll"
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/internal/pki"
@@ -138,7 +139,14 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// creating it was the approval, so it's admitted directly. Anything
 	// else - no token, an unknown, used or expired one - joins the queue
 	// like every other registration.
-	if req.RegistrationToken != "" {
+	if admitted, ok := a.admitEnrolled(node, req.RegistrationToken); ok {
+		writeJSON(w, http.StatusCreated, struct {
+			ID       string `json:"id"`
+			Admitted bool   `json:"admitted"`
+		}{ID: admitted.ID, Admitted: true})
+		return
+	}
+	if req.RegistrationToken != "" && !enroll.Is(req.RegistrationToken) {
 		if m, ok := a.machines.ClaimToken(req.RegistrationToken); ok {
 			admitted, err := a.admit(node, m.ID)
 			if err == nil {
@@ -272,6 +280,11 @@ func (a *app) approvePending(w http.ResponseWriter, id string) {
 // already carries the node's credential (see internal/pending's doc
 // comment): nothing is exchanged with the node.
 func (a *app) admit(p *pending.Node, machineID string) (*store.Node, error) {
+	return a.admitLabelled(p, machineID, nil)
+}
+
+// admitLabelled is admit, the node given labels.
+func (a *app) admitLabelled(p *pending.Node, machineID string, l map[string]string) (*store.Node, error) {
 	node := &store.Node{
 		Name:           p.Name,
 		Address:        p.Address,
@@ -281,13 +294,37 @@ func (a *app) admit(p *pending.Node, machineID string) (*store.Node, error) {
 		ServiceKeyPEM:  p.ServiceKeyPEM,
 		// A keyless node takes the fleet's trust when admitted: the
 		// Controller reaches it with its fleet certificate from the start.
-		Fleet: p.Keyless(),
+		Fleet:  p.Keyless(),
+		Labels: l,
 	}
 	if err := a.store.Add(node); err != nil {
 		return nil, fmt.Errorf("persist node: %w", err)
 	}
 	a.trust.Kick() // brought to trust the fleet at once
 	return node, nil
+}
+
+// admitEnrolled admits node on an enrollment token (internal/enroll) - a
+// use of it - with the token's labels: false when the token admits
+// nobody (unknown, used up, expired, revoked), and the node waits for
+// approval like any other.
+func (a *app) admitEnrolled(node *pending.Node, token string) (*store.Node, bool) {
+	if a.enroll == nil || !enroll.Is(token) {
+		return nil, false
+	}
+	t, ok := a.enroll.Claim(token)
+	if !ok {
+		log.Printf("node self-registered with an enrollment token that admits nobody (unknown, used up, expired or revoked): %s (%s) - awaiting approval", node.Name, node.Address)
+		return nil, false
+	}
+	admitted, err := a.admitLabelled(node, "", t.Labels)
+	if err != nil {
+		log.Printf("enrollment token %q: admitting %s failed, queueing it for approval instead: %v", t.Name, node.Name, err)
+		return nil, false
+	}
+	a.enroll.Admitted(t.ID, admitted.ID)
+	log.Printf("node self-registered: %s (%s), admitted on enrollment token %q (use %d of %d)", admitted.Name, admitted.Address, t.Name, t.Uses, t.MaxUses)
+	return admitted, true
 }
 
 // rejectPending just discards the announcement - the node itself isn't
@@ -332,7 +369,15 @@ func (a *app) registerKeyless(w http.ResponseWriter, req registerRequest) {
 	node := &pending.Node{Name: req.Name, Address: req.Address, CACertPEM: []byte(req.CACertPEM), PollSecretHash: sum[:]}
 	fingerprint := pki.Fingerprint(ca.Raw)
 
-	if req.RegistrationToken != "" {
+	if admitted, ok := a.admitEnrolled(node, req.RegistrationToken); ok {
+		writeJSON(w, http.StatusCreated, struct {
+			ID       string        `json:"id"`
+			Admitted bool          `json:"admitted"`
+			Trust    *keylessTrust `json:"trust"`
+		}{admitted.ID, true, &keylessTrust{RootCert: string(rootPEM), Bundle: bundle}})
+		return
+	}
+	if req.RegistrationToken != "" && !enroll.Is(req.RegistrationToken) {
 		if m, ok := a.machines.ClaimToken(req.RegistrationToken); ok {
 			admitted, err := a.admit(node, m.ID)
 			if err == nil {

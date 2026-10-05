@@ -123,7 +123,11 @@ role, the labels it picks nodes by, the domains it's narrowed to),
 **Reset password** / **Disable** / **Delete**, a new account's or a
 reset's password shown once (`GivenPassword`), the session policy; the
 audit's newest 500 entries, filtered by account on submit. A node card
-shows its labels (`NodeLabels`), edited in place by an admin. The API
+shows its labels (`NodeLabels`), edited in place by an admin. Under the
+Provision panel (which takes an enrollment token into its commands),
+**Enrollment tokens** (`Enroll.jsx`, admins): made with a name, a
+number of nodes, a validity and labels, shown once with where it goes;
+listed with their uses, revoked. The API
 tokens page takes a scope - labels and domains - and lists it.
 
 **Roles on the page.** `AuthGate` gives the signed-in account

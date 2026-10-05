@@ -35,6 +35,7 @@ import { SSHKeys } from './SSHKeys.jsx'
 import { CliDevicePage, CliLoginPage } from './CliLogin.jsx'
 import { backupAlert } from './backupAlert.js'
 import BackupsPage from './Backups.jsx'
+import EnrollTokens from './Enroll.jsx'
 import { RestoreForm } from './Restore.jsx'
 import TokensPage from './Tokens.jsx'
 import UsersPage from './Users.jsx'
@@ -437,6 +438,7 @@ function ProvisionInfo() {
   const [info, setInfo] = useState(null)
   const [open, setOpen] = useState(false)
   const [network, setNetwork] = useState('')
+  const [regToken, setRegToken] = useState('')
   const toast = useToast()
   const refs = { address: useRef(null), ca: useRef(null), root: useRef(null), command: useRef(null), seed: useRef(null), nocloud: useRef(null) }
   // Again each time it's opened: the fleet's root shows up once it's set
@@ -460,13 +462,15 @@ function ProvisionInfo() {
   const netFlag = netCfg ? ' -network-config network.json' : ''
   // With a fleet, the node checks this Controller through its root too.
   const rootFlag = info.fleet_root_pem ? ' -controller-fleet-root fleet-root.crt' : ''
-  const command = `janusctl lifecycle install -controller-address ${address} -controller-ca controller-ca.crt${rootFlag}${netFlag} DISK BUNDLE_DIR`
-  const seed = `janusctl image seed-controller -controller-address ${address} -controller-ca controller-ca.crt${rootFlag} DISK.raw${netCfg ? '\njanusctl image seed-network -config network.json DISK.raw' : ''}`
+  const tokenFlag = regToken.trim() ? ` -registration-token ${regToken.trim()}` : ''
+  const command = `janusctl lifecycle install -controller-address ${address} -controller-ca controller-ca.crt${rootFlag}${tokenFlag}${netFlag} DISK BUNDLE_DIR`
+  const seed = `janusctl image seed-controller -controller-address ${address} -controller-ca controller-ca.crt${rootFlag}${tokenFlag} DISK.raw${netCfg ? '\njanusctl image seed-network -config network.json DISK.raw' : ''}`
   const nocloud = JSON.stringify(
     {
       controller_address: address,
       controller_ca_cert: info.ca_cert_pem,
       ...(info.fleet_root_pem ? { controller_fleet_root_cert: info.fleet_root_pem } : {}),
+      ...(regToken.trim() ? { registration_token: regToken.trim() } : {}),
       ...(netCfg ? { network: netCfg } : {}),
     },
     null,
@@ -532,6 +536,10 @@ function ProvisionInfo() {
               </span>
             )}
           </div>
+          <label className="field">
+            <span>Enrollment token (optional - an enrollment token below admits the nodes without approval, labelled)</span>
+            <input className="mono" value={regToken} onChange={(e) => setRegToken(e.target.value)} placeholder="janus-enroll_…" />
+          </label>
           <CopyField label="Install command (fill in DISK and BUNDLE_DIR)" value={command} inputRef={refs.command} rows={2} onCopy={copy} />
           <CopyField label="Or seed an already-built raw image offline" value={seed} inputRef={refs.seed} rows={2} onCopy={copy} />
           <CopyField label="Or NoCloud user-data (a cidata-labeled volume attached at first boot)" value={nocloud} inputRef={refs.nocloud} rows={6} onCopy={copy} />
@@ -1088,6 +1096,7 @@ function MainApp() {
             </div>
             <FleetCard fleet={fleet} nodes={nodes} />
             {can('admin') && <ProvisionInfo />}
+            {can('admin') && <EnrollTokens />}
           </div>
         )}
       </main>

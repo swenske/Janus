@@ -54,6 +54,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
+	"github.com/swenske/Janus/dashboard/backend/internal/enroll"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/labels"
@@ -144,6 +145,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("open hypervisor store: %v", err)
 	}
+	enrollStore, err := enroll.Open(*dataDir)
+	if err != nil {
+		log.Fatalf("open the enrollment tokens: %v", err)
+	}
 	machineStore, err := machines.Open(*dataDir)
 	if err != nil {
 		log.Fatalf("open machine store: %v", err)
@@ -183,6 +188,7 @@ func main() {
 		controllerID:          controllerID,
 		hypervisors:           hypervisorStore,
 		machines:              machineStore,
+		enroll:                enrollStore,
 		fleet:                 fleetStore,
 		trust:                 newTrustTracker(),
 	}
@@ -258,6 +264,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/controller/update", a.gate(auth.Reader, auth.Admin, a.handleControllerUpdate))
 	mux.HandleFunc("/nodes/", a.handleNodePage)
 	a.registerTokenRoutes(mux)
+	a.registerEnrollRoutes(mux)
 	a.registerUserRoutes(mux)
 	a.registerCLIRoutes(mux)
 	a.registerSSHKeyRoutes(mux)
@@ -297,10 +304,12 @@ type app struct {
 	controllerID string
 	hypervisors  *hypervisor.Store
 	machines     *machines.Store
-	fleet        *fleet.Store
-	trust        *trustTracker
-	runner       *machineRunner
-	consoles     consoleHub
+	// enroll: enrollment tokens - a batch of nodes admitted on one.
+	enroll   *enroll.Store
+	fleet    *fleet.Store
+	trust    *trustTracker
+	runner   *machineRunner
+	consoles consoleHub
 
 	challenges challenges
 	// restored: a backup was restored - the process starts again.

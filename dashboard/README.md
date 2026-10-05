@@ -214,6 +214,15 @@ tell what address a node will actually be able to reach it at, most
 notably under Docker bridge networking, see the `-advertise-address`
 note above).
 
+For a batch - a rack, bare metal -, an admin makes an **enrollment
+token** under that panel: a name, how many nodes, how long, and labels.
+Each node provisioned with it (`-registration-token` on `janusctl
+lifecycle install` or `image seed-controller`, or `registration_token`
+in NoCloud user-data - the panel puts it in its commands) is admitted at
+once, with those labels, without the approval step; one past its uses,
+its date, or its revocation waits for approval like any other. Only its
+SHA-256 is kept (`enroll-tokens.json`).
+
 ### Securing the fleet
 
 Until it has a fleet, the Controller reaches each node with a service

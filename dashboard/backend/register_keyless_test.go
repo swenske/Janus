@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/enroll"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
@@ -212,5 +214,59 @@ func TestMachineKeylessToken(t *testing.T) {
 	}
 	if cert, key := n.ServiceCredential(); cert != nil || key != nil {
 		t.Error("a credential kept for the machine's keyless node")
+	}
+}
+
+// TestEnrollmentToken: a token admits its batch of nodes - keyless or
+// with a service credential - without approval, labelled; then the next
+// one waits for approval.
+func TestEnrollmentToken(t *testing.T) {
+	a, _ := newTestApp(t)
+	withFleet(t, a)
+	es, err := enroll.Open(a.dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.enroll = es
+	secret, tok, err := es.Create("rack-3", "root", 2, 1, map[string]string{"team": "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admitted := func(rec *httptest.ResponseRecorder) string {
+		t.Helper()
+		var ans struct {
+			ID       string
+			Admitted bool
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &ans)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("registration: %d %s", rec.Code, rec.Body)
+		}
+		if !ans.Admitted {
+			return ""
+		}
+		return ans.ID
+	}
+	id1 := admitted(call(t, a.handleRegister, "POST", "/register", "/register", keylessRegistration(t, "rack3-a", secret)))
+	n, ok := a.store.Get(id1)
+	if id1 == "" || !ok || n.LabelSet()["team"] != "web" || !n.TrustsFleet() {
+		t.Fatalf("the first node: %q %+v", id1, n)
+	}
+	// With a service credential (a Controller's older protocol).
+	ca, _ := pki.NewCA("node b")
+	cert, key, _ := ca.Issue(pki.IssueOptions{CommonName: "svc", Roles: []string{pki.RoleAdmin}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	legacy := registerRequest{Name: "rack3-b", Address: "127.0.0.1:1", CACertPEM: string(ca.CertPEM), ServiceCertPEM: string(cert), ServiceKeyPEM: string(key), RegistrationToken: secret}
+	if id := admitted(call(t, a.handleRegister, "POST", "/register", "/register", legacy)); id == "" {
+		t.Fatal("the second node, with a service credential, wasn't admitted")
+	}
+	// The third waits for approval: the token is used up.
+	if id := admitted(call(t, a.handleRegister, "POST", "/register", "/register", keylessRegistration(t, "rack3-c", secret))); id != "" {
+		t.Error("a third node admitted on a token of two")
+	}
+	if len(a.pending.List()) != 1 {
+		t.Errorf("pending: %d", len(a.pending.List()))
+	}
+	if l := es.List(); l[0].Uses != 2 || len(l[0].Nodes) != 2 || l[0].ID != tok.ID {
+		t.Errorf("the token: %+v", l[0])
 	}
 }

@@ -35,7 +35,7 @@ const (
 	grantLife  = 2 * time.Minute
 	deviceLife = 10 * time.Minute
 	// devicePoll is how often janusctl asks.
-	devicePoll = 5 * time.Second
+	devicePoll    = 5 * time.Second
 	maxCLIPending = 10000
 )
 

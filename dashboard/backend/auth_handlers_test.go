@@ -145,6 +145,9 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 		{"POST", "/api/backups/run", auth.Admin},
 		{"GET", "/api/backups/download", auth.Admin},
 		{"GET", "/api/backups/list", auth.Admin},
+		{"GET", "/api/enroll-tokens", auth.Admin},
+		{"POST", "/api/enroll-tokens", auth.Admin},
+		{"DELETE", "/api/enroll-tokens/e1", auth.Admin},
 	} {
 		if code, _ := a.req(t, tc.method, tc.path, "", nil); code != http.StatusUnauthorized {
 			t.Errorf("%s %s with nothing: %d", tc.method, tc.path, code)
