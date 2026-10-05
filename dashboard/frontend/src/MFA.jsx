@@ -1,5 +1,5 @@
-import { Copy, Download, Fingerprint, KeyRound, LogOut, Plus, ShieldCheck, Smartphone, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { Copy, Download, Fingerprint, KeyRound, LogOut, MonitorSmartphone, Plus, ShieldCheck, Smartphone, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { Badge, ErrorBox, useAction, useToast } from './shared/ui.jsx'
 import { createPasskey, passkeysSupported, signWithPasskey } from './webauthn.js'
@@ -54,14 +54,24 @@ export function RecoveryCodes({ name, codes, onDone }) {
   )
 }
 
-// SecondFactorForm finishes a sign-in waiting for its second factor.
-export function SecondFactorForm({ me, onDone, onSignOut }) {
+// trustLabel is how long a trusted browser skips the second factor.
+function trustLabel(hours) {
+  return hours % 24 === 0 ? `${hours / 24} day${hours === 24 ? '' : 's'}` : `${hours} hour${hours === 1 ? '' : 's'}`
+}
+
+// SecondFactorForm finishes a sign-in waiting for its second factor -
+// offering to trust the browser, when the policy allows it -, or with
+// confirming, confirms it in a sign-in a trusted browser skipped it in
+// (what only a factor given now may do: adding an SSH key).
+export function SecondFactorForm({ me, onDone, onSignOut, confirming = false }) {
   const here = (me.mfa?.passkeys || []).filter((p) => p.here)
   const elsewhere = (me.mfa?.passkeys || []).filter((p) => !p.here)
   const [recovery, setRecovery] = useState(!me.mfa?.totp && here.length === 0)
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const trustHours = confirming ? 0 : me.mfa?.trust_hours || 0
+  const [trust, setTrust] = useState(false)
   const attempt = async (fn) => {
     setBusy(true)
     setError(null)
@@ -78,22 +88,32 @@ export function SecondFactorForm({ me, onDone, onSignOut }) {
   }
   const submit = (e) => {
     e.preventDefault()
-    attempt(() => postJSON(recovery ? '/api/auth/mfa/recovery' : '/api/auth/mfa/totp', { code: code.trim() }))
+    attempt(() => postJSON(recovery ? '/api/auth/mfa/recovery' : '/api/auth/mfa/totp', { code: code.trim(), trust: trust && trustHours > 0 }))
   }
   const passkey = () =>
     attempt(async () => {
       const options = await postJSON('/api/auth/mfa/passkey/begin')
       const answer = await signWithPasskey(options)
-      await postJSON('/api/auth/mfa/passkey/finish', answer)
+      await postJSON(`/api/auth/mfa/passkey/finish${trust && trustHours > 0 ? '?trust=1' : ''}`, answer)
     })
+  const codeForm = me.mfa?.totp || recovery
+  // Ticked before giving the factor: with the code's form, or above the
+  // passkey when there's no form.
+  const trustBox = trustHours > 0 && (
+    <label className="check" title="Your password is still asked; you can forget this browser from your account">
+      <input type="checkbox" checked={trust} onChange={(e) => setTrust(e.target.checked)} />
+      <span>Trust this browser for {trustLabel(trustHours)} - no second factor here until then</span>
+    </label>
+  )
   return (
     <div className="stack">
+      {!codeForm && trustBox}
       {here.length > 0 && passkeysSupported() && (
         <button className="primary" onClick={passkey} disabled={busy}>
           <Fingerprint size={15} /> Use a passkey
         </button>
       )}
-      {(me.mfa?.totp || recovery) && (
+      {codeForm && (
         <form className="stack" onSubmit={submit}>
           <label className="field">
             <span>{recovery ? 'A recovery code' : 'The code from your authenticator app'}</span>
@@ -108,6 +128,7 @@ export function SecondFactorForm({ me, onDone, onSignOut }) {
               className="mono"
             />
           </label>
+          {trustBox}
           <button className={here.length > 0 ? '' : 'primary'} type="submit" disabled={busy}>
             {busy ? 'Checking…' : 'Continue'}
           </button>
@@ -124,9 +145,11 @@ export function SecondFactorForm({ me, onDone, onSignOut }) {
           </button>
         )}
         <span className="grow" />
-        <button className="ghost small" onClick={onSignOut}>
-          <LogOut size={14} /> Sign out
-        </button>
+        {onSignOut && (
+          <button className="ghost small" onClick={onSignOut}>
+            <LogOut size={14} /> Sign out
+          </button>
+        )}
       </div>
     </div>
   )
@@ -394,4 +417,58 @@ export function MFABadge({ on }) {
       <ShieldCheck size={11} /> 2FA
     </Badge>
   ) : null
+}
+
+// TrustedBrowsers are the browsers the account trusts for its second
+// factor - this one marked -, each forgotten in a click.
+export function TrustedBrowsers({ me }) {
+  const [list, setList] = useState(null)
+  const [error, setError] = useState(null)
+  const [busy, run] = useAction()
+  const load = useCallback(() => {
+    call('/api/auth/trusted-browsers').then(setList, setError)
+  }, [])
+  useEffect(load, [load])
+  const forget = async (id) => {
+    await run(() => call(`/api/auth/trusted-browsers${id ? `/${encodeURIComponent(id)}` : ''}`, { method: 'DELETE' }), id ? 'Browser forgotten' : 'Every browser forgotten')
+    load()
+  }
+  const hours = me.mfa?.trust_hours || 0
+  return (
+    <div className="stack">
+      <ErrorBox error={error} />
+      {list && list.length === 0 && (
+        <div className="muted small">
+          {hours > 0
+            ? `None: tick “Trust this browser” when giving your second factor to skip it there for ${trustLabel(hours)}.`
+            : 'This Controller asks for the second factor at every sign-in.'}
+        </div>
+      )}
+      {list && list.length > 0 && (
+        <div className="factor-list">
+          {list.map((b) => (
+            <div className="factor" key={b.id}>
+              <MonitorSmartphone size={15} />
+              <span className="grow">
+                {b.label} {b.current && <Badge tone="info">this browser</Badge>}{' '}
+                <span className="muted small">
+                  from {b.client} · used {when(b.last_used_at || b.created_at)} · until {when(b.expires_at)}
+                </span>
+              </span>
+              <button className="ghost small danger" onClick={() => forget(b.id)} disabled={busy} aria-label={`Forget ${b.label}`} title="Forget: the second factor is asked there again">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {list && list.length > 1 && (
+        <div>
+          <button className="small" onClick={() => forget('')} disabled={busy}>
+            Forget them all
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }

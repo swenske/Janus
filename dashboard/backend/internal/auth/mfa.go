@@ -37,6 +37,10 @@ type MFA struct {
 
 	// RecoveryCodes are the SHA-256 of the codes left, each good once.
 	RecoveryCodes []string `json:"recovery_codes,omitempty"`
+
+	// Trusted are the browsers whose sign-ins skip the second factor
+	// for a while (trust.go).
+	Trusted []TrustedBrowser `json:"trusted_browsers,omitempty"`
 }
 
 // Passkey is one WebAuthn credential.
@@ -165,9 +169,10 @@ func (s *Store) failLocked(token string, ss *Session) error {
 	return ErrSecondFactor
 }
 
-// passLocked marks the session's second factor given.
+// passLocked marks the session's second factor given - in this sign-in,
+// even if a trusted browser had skipped it (a confirmation).
 func passLocked(ss *Session) {
-	ss.MFA, ss.Failures = true, 0
+	ss.MFA, ss.Trusted, ss.Failures = true, false, 0
 }
 
 // VerifyTOTP finishes token's sign-in with an authenticator app's code.
@@ -540,7 +545,7 @@ func (s *Store) removeFactor(name, password string, remove func(*MFA) bool) erro
 			u.MFA = old
 			return ErrFactorRequired
 		}
-		u.MFA.RecoveryCodes = nil
+		u.MFA.RecoveryCodes, u.MFA.Trusted = nil, nil
 	}
 	if err := s.save(); err != nil {
 		u.MFA = old

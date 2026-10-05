@@ -51,8 +51,11 @@ type principal struct {
 	// Needs is what the session must do before anything else
 	// (auth.Store.Needs): "mfa", "password", "mfa_enroll".
 	Needs []string
-	// MFA: a session that gave a second factor.
-	MFA bool
+	// MFA: a session that gave a second factor; Trusted, a trusted
+	// browser stood for it (what only a factor given now may do still
+	// asks for one).
+	MFA     bool
+	Trusted bool
 }
 
 type principalKey struct{}
@@ -173,7 +176,7 @@ func (a *app) authenticate(w http.ResponseWriter, r *http.Request) (principal, b
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return principal{}, false
 	}
-	return principal{User: u.Name, Role: u.Role, Base: u.Role, Grants: u.Grants, Max: u.MaxRole(), Needs: a.auth.Needs(u, ss), MFA: ss.MFA}, true
+	return principal{User: u.Name, Role: u.Role, Base: u.Role, Grants: u.Grants, Max: u.MaxRole(), Needs: a.auth.Needs(u, ss), MFA: ss.MFA, Trusted: ss.Trusted}, true
 }
 
 var needsMessage = map[string]string{
@@ -218,7 +221,7 @@ func (a *app) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	}{SetupRequired: a.auth.SetupRequired()}
 	if u, ss, ok := a.session(r); ok {
 		out.Authenticated = true
-		out.User = &meView{Name: u.Name, Role: u.Role, Grants: nonNil(u.Grants), Max: u.MaxRole(), Needs: nonNil(a.auth.Needs(u, ss)), ExpiresAt: ss.Expires(a.auth.Settings()), MFA: a.viewMFA(r, u)}
+		out.User = &meView{Name: u.Name, Role: u.Role, Grants: nonNil(u.Grants), Max: u.MaxRole(), Needs: nonNil(a.auth.Needs(u, ss)), ExpiresAt: ss.Expires(a.auth.Settings()), MFA: a.viewMFA(r, u, ss)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -282,6 +285,11 @@ func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.loginLimiter.Succeed(client)
+	if a.trustedSignIn(r, u.Name) {
+		noteAudit(r, u.Name, "trusted browser")
+		a.startTrustedSession(w, u.Name)
+		return
+	}
 	a.startSession(w, u.Name, false)
 }
 
@@ -333,12 +341,27 @@ func (a *app) handleAuthPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if ss.Trusted {
+		a.startTrustedSession(w, u.Name)
+		return
+	}
 	a.startSession(w, u.Name, ss.MFA)
 }
 
 // startSession signs user in - mfa: the sign-in gave its second factor.
 func (a *app) startSession(w http.ResponseWriter, user string, mfa bool) {
 	token, err := a.auth.NewSession(user, mfa)
+	a.setSession(w, token, err)
+}
+
+// startTrustedSession signs user in from a browser trusted for its
+// second factor.
+func (a *app) startTrustedSession(w http.ResponseWriter, user string) {
+	token, err := a.auth.NewTrustedSession(user)
+	a.setSession(w, token, err)
+}
+
+func (a *app) setSession(w http.ResponseWriter, token string, err error) {
 	if err != nil {
 		http.Error(w, "create session: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -547,9 +570,11 @@ func (a *app) handleSettingsGet(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, settingsView(a.auth.Settings()))
 }
 
-// settingsView is the policy with its MFA default spelled out.
+// settingsView is the policy with its defaults spelled out.
 func settingsView(p auth.Settings) auth.Settings {
 	p.MFARequired = p.MFAPolicy()
+	hours := p.TrustHours()
+	p.TrustBrowserHours = &hours
 	return p
 }
 
@@ -559,6 +584,7 @@ func (a *app) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 		SessionIdleMinutes *int    `json:"session_idle_minutes"`
 		SessionMaxHours    *int    `json:"session_max_hours"`
 		MFARequired        *string `json:"mfa_required"`
+		TrustBrowserHours  *int    `json:"trust_browser_hours"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -572,6 +598,9 @@ func (a *app) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.MFARequired != nil {
 		next.MFARequired = *req.MFARequired
+	}
+	if req.TrustBrowserHours != nil {
+		next.TrustBrowserHours = req.TrustBrowserHours
 	}
 	if err := a.auth.SetSettings(next); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

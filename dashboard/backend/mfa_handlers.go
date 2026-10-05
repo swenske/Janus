@@ -43,11 +43,17 @@ type mfaView struct {
 	// RPID is the name passkeys are made and used for here - empty when
 	// the page is opened by an IP address, where browsers refuse them.
 	RPID string `json:"rp_id"`
+	// TrustHours is how long a sign-in may have its browser trusted for
+	// the second factor (0: never); Trusted, this session's browser
+	// stood for it.
+	TrustHours int  `json:"trust_hours"`
+	Trusted    bool `json:"trusted"`
 }
 
-func (a *app) viewMFA(r *http.Request, u auth.User) mfaView {
+func (a *app) viewMFA(r *http.Request, u auth.User, ss auth.Session) mfaView {
 	_, rp, _ := relyingParty(r)
-	v := mfaView{TOTP: u.MFA.TOTPAddedAt != nil, Passkeys: []passkeyView{}, RecoveryCodes: len(u.MFA.RecoveryCodes), Required: a.auth.Settings().Requires(u.MaxRole()), RPID: rp}
+	settings := a.auth.Settings()
+	v := mfaView{TOTP: u.MFA.TOTPAddedAt != nil, Passkeys: []passkeyView{}, RecoveryCodes: len(u.MFA.RecoveryCodes), Required: settings.Requires(u.MaxRole()), RPID: rp, TrustHours: settings.TrustHours(), Trusted: ss.Trusted}
 	for _, p := range u.MFA.Passkeys {
 		v.Passkeys = append(v.Passkeys, passkeyView{ID: p.ID(), Name: p.Name, RPID: p.RPID, CreatedAt: p.CreatedAt, LastUsedAt: p.LastUsedAt, Here: p.RPID == rp && rp != ""})
 	}
@@ -94,8 +100,9 @@ func (a *app) registerMFARoutes(mux *http.ServeMux) {
 }
 
 // mfaSession is the request's session for a second-factor call: signIn,
-// one finishing a sign-in that waits for its second factor; else one
-// setting factors up, refused to a sign-in still waiting.
+// one finishing a sign-in that waits for its second factor - or
+// confirming it in a sign-in a trusted browser skipped it in -; else
+// one setting factors up, refused to a sign-in still waiting.
 func (a *app) mfaSession(w http.ResponseWriter, r *http.Request, signIn bool) (string, auth.User, bool) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil {
@@ -110,7 +117,7 @@ func (a *app) mfaSession(w http.ResponseWriter, r *http.Request, signIn bool) (s
 	noteAudit(r, u.Name, "session")
 	waiting := slices.Contains(a.auth.Needs(u, ss), "mfa")
 	switch {
-	case signIn && !waiting:
+	case signIn && !waiting && !ss.Trusted:
 		writeError(w, http.StatusConflict, "this sign-in needs no second factor now")
 		return "", auth.User{}, false
 	case !signIn && waiting:
@@ -153,6 +160,8 @@ func (a *app) handleMFACode(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Code string `json:"code"`
+		// Trust: trust this browser for the second factor from now on.
+		Trust bool `json:"trust"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -166,6 +175,9 @@ func (a *app) handleMFACode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.loginLimiter.Succeed(clientAddr(r))
+	if req.Trust {
+		a.trustBrowser(w, r, token)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -207,6 +219,11 @@ func (a *app) handleMFAPasskeyFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.loginLimiter.Succeed(clientAddr(r))
+	// The body is the browser's answer, read by go-webauthn: trusting
+	// this browser is asked in the query.
+	if r.URL.Query().Get("trust") == "1" {
+		a.trustBrowser(w, r, token)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

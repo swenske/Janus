@@ -331,6 +331,18 @@ Passkeys need the Controller opened by its name, with a certificate the
 browser trusts - a self-signed one clicked through isn't: browsers
 refuse passkeys there, and an authenticator app works anywhere.
 
+**Trust this browser**: when giving the second factor, a box keeps it
+from being asked again in that browser for 12 hours (**Accounts** tab:
+*Trust a browser for at most (hours)*, up to 30 days, 0 to always ask)
+- signing out and in again, or an idle session ending, then takes the
+password only. The browser keeps a secret in a cookie (HttpOnly,
+Secure, sent to `/api/auth/` only), the account its SHA-256. Your
+account's dialog lists your trusted browsers and forgets any of them; a
+password change, a **Reset 2FA**, a disabled account or a shorter
+policy forgets them too. A sign-in a trusted browser skipped the factor
+in gives it once more to add an SSH key (a key outlives the browser's
+trust). The audit shows such a sign-in `via trusted browser`.
+
 The **Audit** tab is every change made on the Controller - from its
 pages or with an API token - and every sign-in, failed or not, with who
 made it (`<data-dir>/audit.jsonl`, and the container's log). What the

@@ -249,6 +249,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/logout", a.handleAuthLogout)
 	mux.HandleFunc("POST /api/auth/password", a.handleAuthPassword)
 	a.registerMFARoutes(mux)
+	a.registerTrustRoutes(mux)
 	// The nodes an account reaches - its role over everything, or its
 	// grants' labels (access.go); adding, removing and labelling them is
 	// an admin's.

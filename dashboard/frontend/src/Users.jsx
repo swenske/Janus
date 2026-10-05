@@ -202,7 +202,12 @@ function SessionPolicy() {
       () =>
         postJSON(
           '/api/settings',
-          { session_idle_minutes: Number(policy.session_idle_minutes), session_max_hours: Number(policy.session_max_hours), mfa_required: policy.mfa_required },
+          {
+            session_idle_minutes: Number(policy.session_idle_minutes),
+            session_max_hours: Number(policy.session_max_hours),
+            mfa_required: policy.mfa_required,
+            trust_browser_hours: Number(policy.trust_browser_hours),
+          },
           'PUT',
         ),
       'Session policy saved',
@@ -228,13 +233,26 @@ function SessionPolicy() {
             <option value="nobody">nobody</option>
           </select>
         </label>
+        <label className="field">
+          <span>Trust a browser for at most (hours)</span>
+          <input
+            type="number"
+            min={0}
+            max={720}
+            value={policy.trust_browser_hours}
+            onChange={(e) => setPolicy({ ...policy, trust_browser_hours: e.target.value })}
+            required
+            title="0: the second factor is asked at every sign-in"
+          />
+        </label>
         <button className="primary" type="submit" disabled={busy} style={{ alignSelf: 'flex-end' }}>
           Save
         </button>
       </form>
       <div className="muted small" style={{ marginTop: '0.5rem' }}>
         For every session, the live ones too. A page left open without anyone touching it doesn&apos;t count as use. An account the second-factor policy covers sets one up at its
-        next sign-in.
+        next sign-in. A sign-in can ask to trust its browser: the second factor isn&apos;t asked there again for that many hours (the password still is) - 0 asks at every
+        sign-in; a shorter value applies to the browsers trusted already.
       </div>
     </Card>
   )

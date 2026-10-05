@@ -30,7 +30,7 @@ import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, Powe
 import { navigate, useHashRoute } from './shared/route.js'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
-import { EnrollMFA, MFAPanel, SecondFactorForm } from './MFA.jsx'
+import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
 import { CliDevicePage, CliLoginPage } from './CliLogin.jsx'
 import { backupAlert } from './backupAlert.js'
@@ -814,6 +814,12 @@ function AccountButton() {
             <div className="modal card account-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
               <h2 style={{ marginBottom: '0.6rem' }}>Second factors</h2>
               <MFAPanel me={me} onChanged={me.refresh} />
+              {(me.mfa?.totp || me.mfa?.passkeys?.length > 0) && (
+                <>
+                  <h2 style={{ margin: '1.2rem 0 0.6rem' }}>Trusted browsers</h2>
+                  <TrustedBrowsers me={me} />
+                </>
+              )}
               <h2 style={{ margin: '1.2rem 0 0.6rem' }}>SSH keys for janusctl</h2>
               <SSHKeys me={me} />
               <h2 style={{ margin: '1.2rem 0 0.6rem' }}>Change your password</h2>

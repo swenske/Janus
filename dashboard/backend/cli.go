@@ -180,11 +180,17 @@ func (a *app) handleSSHKeyList(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSSHKeyAdd gives the account a key - from a sign-in that gave a
-// second factor: the key then signs janusctl in alone.
+// second factor: the key then signs janusctl in alone. A trusted
+// browser's sign-in confirms it first (POST /api/auth/mfa/*): a browser
+// secret alone mustn't leave a key that outlives the browser's trust.
 func (a *app) handleSSHKeyAdd(w http.ResponseWriter, r *http.Request) {
 	p, _ := principalOf(r)
 	if !p.MFA {
 		writeError(w, http.StatusForbidden, "adding an SSH key needs a sign-in with a second factor - set one up (your account), then sign in again")
+		return
+	}
+	if p.Trusted {
+		writeError(w, http.StatusForbidden, "this sign-in skipped the second factor (a trusted browser): confirm it with your second factor first")
 		return
 	}
 	var req struct {

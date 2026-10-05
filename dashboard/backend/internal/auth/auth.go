@@ -117,6 +117,10 @@ type Settings struct {
 	// MFARequired says which accounts must have a second factor:
 	// "admins" (empty: the default), "everyone" or "nobody".
 	MFARequired string `json:"mfa_required,omitempty"`
+	// TrustBrowserHours is how long a browser a sign-in asked to trust
+	// skips the second factor (trust.go): absent = the default
+	// (DefaultTrustBrowserHours), 0 = never.
+	TrustBrowserHours *int `json:"trust_browser_hours,omitempty"`
 }
 
 // DefaultSettings: half an hour away ends a session, and none outlives a
@@ -140,6 +144,9 @@ func (s Settings) Check() error {
 	default:
 		return errors.New("mfa_required: admins, everyone or nobody")
 	}
+	if h := s.TrustBrowserHours; h != nil && (*h < 0 || *h > 30*24) {
+		return errors.New("trust_browser_hours: 0 (never) to 720")
+	}
 	return nil
 }
 
@@ -154,8 +161,11 @@ type Session struct {
 	Created  time.Time
 	LastSeen time.Time
 	// MFA: the sign-in gave its second factor - or set up the account's
-	// first one.
+	// first one, or came from a browser trusted for it (Trusted).
 	MFA bool
+	// Trusted: a trusted browser stood for the second factor (trust.go)
+	// - what only a factor given now may do still asks for one.
+	Trusted bool
 	// Failures counts wrong second factors (mfaTries ends the session).
 	Failures int
 	// PendingTOTP is the secret being set up (StartTOTP), WebAuthn the
@@ -449,6 +459,16 @@ func (s *Store) Authenticate(name, password string) (User, error) {
 // NewSession signs user in - mfa: the sign-in already gave its second
 // factor (a session replacing one that had, after a password change).
 func (s *Store) NewSession(user string, mfa bool) (string, error) {
+	return s.newSession(Session{User: user, MFA: mfa})
+}
+
+// NewTrustedSession signs user in from a browser trusted for its second
+// factor (TrustedSignIn).
+func (s *Store) NewTrustedSession(user string) (string, error) {
+	return s.newSession(Session{User: user, MFA: true, Trusted: true})
+}
+
+func (s *Store) newSession(ss Session) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("generate session token: %w", err)
@@ -456,19 +476,20 @@ func (s *Store) NewSession(user string, mfa bool) (string, error) {
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	u, ok := s.users[user]
+	u, ok := s.users[ss.User]
 	if !ok {
 		return "", ErrNoUser
 	}
 	now := s.now()
 	// Sessions nobody presents again would stay until a restart: swept
 	// here, which bounds the map by the sign-ins of one session's life.
-	for t, ss := range s.sessions {
-		if !s.liveLocked(ss, now) {
+	for t, other := range s.sessions {
+		if !s.liveLocked(other, now) {
 			delete(s.sessions, t)
 		}
 	}
-	s.sessions[token] = &Session{User: user, Epoch: u.Epoch, Created: now, LastSeen: now, MFA: mfa}
+	ss.Epoch, ss.Created, ss.LastSeen = u.Epoch, now, now
+	s.sessions[token] = &ss
 	return token, nil
 }
 

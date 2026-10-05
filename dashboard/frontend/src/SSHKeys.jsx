@@ -2,11 +2,13 @@ import { Copy, KeyRound, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { atLeast, ROLES } from './me.jsx'
+import { SecondFactorForm } from './MFA.jsx'
 import { Badge, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 
 // The account's SSH keys: what janusctl signs in with (janusctl login
 // -ssh-key) - dashboard/backend/cli.go. Adding one needs a sign-in that
-// gave a second factor: the key then signs janusctl in alone.
+// gave a second factor: the key then signs janusctl in alone. A sign-in
+// a trusted browser skipped it in confirms it first.
 
 const VALIDITY = [
   { days: 0, label: 'until removed' },
@@ -102,6 +104,16 @@ export function SSHKeys({ me }) {
       )}
       {!hasFactor ? (
         <div className="muted small">Adding an SSH key needs a second factor: set one up above, then sign in again.</div>
+      ) : adding && me.mfa?.trusted ? (
+        <div className="stack">
+          <div className="muted small">This sign-in skipped your second factor (a trusted browser): give it once more to add a key - a key outlives the browser&apos;s trust.</div>
+          <SecondFactorForm me={me} confirming onDone={me.refresh} />
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : adding ? (
         <form className="stack" onSubmit={add}>
           <label className="field">

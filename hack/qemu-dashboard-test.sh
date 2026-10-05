@@ -824,6 +824,32 @@ signin() {
   [ "$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/auth/mfa/recovery" -H 'Content-Type: application/json' -d "{\"code\":\"$code\"}")" = 204 ]
 }
 
+# --- a trusted browser (dashboard/backend/trust_handlers.go): a sign-in
+# that gives its second factor and asks to trust its browser gets a
+# cookie - Secure, HttpOnly, scoped to /api/auth/ - that skips the
+# factor at the next sign-ins; the password is still checked, and
+# forgetting the browser asks for the factor again ---
+TRUST_JAR="$WORKDIR/trust-cookies.txt"
+login_trust() { curl -sk -b "$TRUST_JAR" -c "$TRUST_JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d "{\"password\":\"$1\"}"; }
+trust_needs() { curl -sk -b "$TRUST_JAR" "$API/api/auth/status" | python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)["user"]["needs"]))'; }
+[ "$(login_trust dashboard-test-admin-pw)" = 204 ] || { echo "Dashboard test FAILED: sign-in for the trusted browser" >&2; exit 1; }
+code="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["recovery_codes"][int(sys.argv[2])])' "$WORKDIR/recovery.json" "$RECOVERY_USED")"
+RECOVERY_USED=$((RECOVERY_USED + 1))
+trust_code="$(curl -sk -b "$TRUST_JAR" -c "$TRUST_JAR" -o /dev/null -w '%{http_code}' -X POST "$API/api/auth/mfa/recovery" -H 'Content-Type: application/json' -d "{\"code\":\"$code\",\"trust\":true}")"
+[ "$trust_code" = 204 ] || { echo "Dashboard test FAILED: a second factor asking to trust the browser answered $trust_code" >&2; exit 1; }
+# Netscape jar: an HttpOnly cookie's domain is prefixed #HttpOnly_; then
+# flag, path, secure, expiry, name, value.
+awk -F'\t' '$6 == "janus_trust" && $1 ~ /^#HttpOnly_/ && $3 == "/api/auth/" && $4 == "TRUE"' "$TRUST_JAR" | grep -q . || { echo "Dashboard test FAILED: no HttpOnly, Secure trust cookie scoped to /api/auth/: $(cat "$TRUST_JAR")" >&2; exit 1; }
+curl -sk -b "$TRUST_JAR" -c "$TRUST_JAR" -o /dev/null -X POST "$API/api/auth/logout"
+[ "$(login_trust wrong-password)" = 401 ] || { echo "Dashboard test FAILED: a trusted browser signed in with a wrong password" >&2; exit 1; }
+[ "$(login_trust dashboard-test-admin-pw)" = 204 ] || { echo "Dashboard test FAILED: the trusted browser's sign-in" >&2; exit 1; }
+[ "$(trust_needs)" = "" ] || { echo "Dashboard test FAILED: the trusted browser's sign-in still needs $(trust_needs)" >&2; exit 1; }
+[ "$(curl -sk -b "$TRUST_JAR" -o /dev/null -w '%{http_code}' "$API/api/nodes")" = 200 ] || { echo "Dashboard test FAILED: the trusted browser's session can't read the nodes" >&2; exit 1; }
+curl -sk -b "$TRUST_JAR" "$API/api/auth/trusted-browsers" | grep -q '"current":true' || { echo "Dashboard test FAILED: the trusted browser isn't listed as this one: $(curl -sk -b "$TRUST_JAR" "$API/api/auth/trusted-browsers")" >&2; exit 1; }
+[ "$(curl -sk -b "$TRUST_JAR" -c "$TRUST_JAR" -o /dev/null -w '%{http_code}' -X DELETE "$API/api/auth/trusted-browsers")" = 204 ] || { echo "Dashboard test FAILED: forgetting the trusted browsers" >&2; exit 1; }
+[ "$(login_trust dashboard-test-admin-pw)" = 204 ] && [ "$(trust_needs)" = mfa ] || { echo "Dashboard test FAILED: a forgotten browser's sign-in doesn't ask for the second factor ($(trust_needs))" >&2; exit 1; }
+echo "Trusted browser OK: the second factor skipped at the next sign-in (password still checked), cookie HttpOnly/Secure/scoped, forgotten on request"
+
 # --- the fleet (dashboard/backend/fleet.go): set up, its recovery kit
 # given back, then the node brought to trust it - the Controller reaches
 # it with its fleet certificate, acting for the browser's user, and no
