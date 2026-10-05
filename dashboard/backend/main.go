@@ -244,6 +244,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	a.registerUserRoutes(mux)
 	a.registerCLIRoutes(mux)
 	a.registerSSHKeyRoutes(mux)
+	a.registerCLIBrowserRoutes(mux)
 	a.registerHypervisorRoutes(mux)
 	a.registerFleetRoutes(mux)
 	a.registerMachineRoutes(mux)
@@ -280,6 +281,7 @@ type app struct {
 	consoles     consoleHub
 
 	challenges challenges
+	cliLogins  cliLogins
 	// pages holds each node's page handler (node_pages.go), made on its
 	// first request.
 	pagesMu sync.Mutex

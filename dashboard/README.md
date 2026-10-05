@@ -318,7 +318,20 @@ signs janusctl in alone, for 12 hours at a time. A key can carry a
 lower role than the account, and expire; removing it stops new
 sign-ins.
 
-The API behind it: `POST /api/cli/challenge` then `POST
+Without an SSH key, janusctl signs in through this page: `janusctl
+login -controller ...` opens it - you approve a certificate for the key
+janusctl made, shown by its fingerprint, and the page hands it back to
+janusctl on `127.0.0.1` -, or `janusctl login -device` shows a code to
+enter on the page (**/#/cli-device**) from another machine. Only approve
+a code you started yourself.
+
+The API behind it: `POST /api/cli/grant` (the page, from a session:
+`{key_fingerprint, role}` → a code for janusctl's listener, good once
+for two minutes and for that key only) and `POST /api/cli/exchange`
+(`{code, csr_pem}`); `POST /api/cli/device` (`{csr_pem}` → a code to
+type, one to poll with), `GET /api/cli/device/{code}` and `POST
+.../approve` / `.../deny` (the page), `POST /api/cli/device/token`
+(janusctl's poll: 428 while pending); `POST /api/cli/challenge` then `POST
 /api/cli/ssh-login` (the challenge signed with the key, SSHSIG namespace
 `janus-login`, for the Controller's certificate fingerprint → a
 certificate for the key itself, and the nodes); `POST

@@ -570,6 +570,9 @@ func (a *app) audited(next http.Handler) http.Handler {
 		n := &auditNote{}
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), auditNoteKey{}, n)))
+		if rec.status == http.StatusPreconditionRequired {
+			return // a poll still waiting (janusctl login -device): nothing happened
+		}
 		e := audit.Entry{Time: time.Now().UTC(), User: n.user, Via: n.via, Method: r.Method, Path: r.URL.Path, Status: rec.status, Client: clientAddr(r)}
 		log.Printf("audit: %s %s %d: %s (%s) from %s", e.Method, e.Path, e.Status, or(e.User, "-"), or(e.Via, "no credential"), e.Client)
 		if a.audit == nil {
