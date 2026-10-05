@@ -310,7 +310,7 @@ func usage() {
 	for _, line := range accessUsage {
 		fmt.Fprintln(os.Stderr, "  "+line)
 	}
-	fmt.Fprintln(os.Stderr, "  pki generate-client-config [-role os:admin|os:reader] [-name NAME] [-ttl DURATION] DIR  issue a new client certificate (named NAME, valid DURATION - one year at most), write ca.crt/client.crt/client.key to DIR")
+	fmt.Fprintln(os.Stderr, "  pki generate-client-config [-role os:admin|os:operator|os:reader] [-name NAME] [-ttl DURATION] DIR  issue a new client certificate (named NAME, valid DURATION - one year at most), write ca.crt/client.crt/client.key to DIR")
 	fmt.Fprintln(os.Stderr, "  lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE] [-network-config FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR  partition a blank DISK from scratch and write a release bundle (image/release/assemble.sh) to both A/B slots - does not reboot anything; -controller-address/-controller-ca make the installed node self-register with that Controller on first boot")
 	fmt.Fprintln(os.Stderr, "  lifecycle rollback         switch the ESP to the other A/B slot's staged UKI and reboot into it")
 	fmt.Fprintln(os.Stderr, "  lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] BUNDLE_DIR  write a release bundle (image/release/assemble.sh), whose UKIs must be signed by a Janus release key, to the inactive slot, switch, and reboot into it - with -wait-for-health, reverts and reboots back automatically if the new slot never stays up long enough to confirm healthy")
@@ -420,12 +420,12 @@ func runPKI(conn *grpc.ClientConn, args []string) {
 	switch sub := args[0]; sub {
 	case "generate-client-config":
 		fs := flag.NewFlagSet("pki generate-client-config", flag.ExitOnError)
-		role := fs.String("role", "os:admin", "role to request (os:admin or os:reader - see internal/api/authz.go)")
+		role := fs.String("role", "os:admin", "role to request (os:admin, os:operator or os:reader - see internal/rbac)")
 		name := fs.String("name", "", "who or what the certificate is for, its common name (e.g. alice-laptop) - default: client")
 		ttl := fs.Duration("ttl", 0, "how long the certificate is valid, e.g. 12h or 720h - default and most: one year")
 		_ = fs.Parse(args[1:])
 		if fs.NArg() != 1 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl pki generate-client-config [-role os:admin|os:reader] [-name NAME] [-ttl DURATION] DIR")
+			fmt.Fprintln(os.Stderr, "usage: janusctl pki generate-client-config [-role os:admin|os:operator|os:reader] [-name NAME] [-ttl DURATION] DIR")
 			os.Exit(2)
 		}
 		if *ttl < 0 || *ttl%time.Second != 0 || *ttl > math.MaxUint32*time.Second {

@@ -51,8 +51,8 @@ func TestRequiredRolesCoversEveryRPC(t *testing.T) {
 }
 
 func TestCheckRole(t *testing.T) {
-	requiredRoles["/test.Service/AdminOnly"] = adminOnly
-	requiredRoles["/test.Service/AdminOrReader"] = readers
+	requiredRoles["/test.Service/AdminOnly"] = []string{pki.RoleAdmin}
+	requiredRoles["/test.Service/AdminOrReader"] = []string{pki.RoleAdmin, pki.RoleOperator, pki.RoleReader}
 	t.Cleanup(func() {
 		delete(requiredRoles, "/test.Service/AdminOnly")
 		delete(requiredRoles, "/test.Service/AdminOrReader")
@@ -176,5 +176,29 @@ func TestControllerActsForAUser(t *testing.T) {
 	plain := metadata.NewIncomingContext(peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "r", Organization: []string{"os:reader"}}}), metadata.Pairs(pki.AsUserKey, "root", pki.AsRolesKey, "os:admin"))
 	if got := status.Code(checkRole(plain, apply)); got != codes.PermissionDenied {
 		t.Errorf("a reader naming an admin: %v", got)
+	}
+}
+
+// TestFleetCaller: a certificate chained to the fleet's root is told
+// apart from the node's own CA's - the same name in both.
+func TestFleetCaller(t *testing.T) {
+	root := &x509.Certificate{Raw: []byte("fleet root"), Subject: pkix.Name{CommonName: "root"}}
+	local := &x509.Certificate{Raw: []byte("node CA"), Subject: pkix.Name{CommonName: "node"}}
+	prev := FleetRoot
+	FleetRoot = func() *x509.Certificate { return root }
+	t.Cleanup(func() { FleetRoot = prev })
+	leaf := &x509.Certificate{Subject: pkix.Name{CommonName: "admin", Organization: []string{"os:admin"}}}
+	with := func(chainRoot *x509.Certificate) context.Context {
+		return peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{}, AuthInfo: credentials.TLSInfo{State: tls.ConnectionState{
+			PeerCertificates: []*x509.Certificate{leaf},
+			VerifiedChains:   [][]*x509.Certificate{{leaf, chainRoot}},
+		}}})
+	}
+	const show = "/janus.v1alpha1.HAProxyService/ShowInfo"
+	if c, err := authorize(with(root), show); err != nil || c.String() != "admin (os:admin, fleet)" {
+		t.Errorf("the fleet's: %q %v", c, err)
+	}
+	if c, err := authorize(with(local), show); err != nil || c.String() != "admin (os:admin)" {
+		t.Errorf("the node's own: %q %v", c, err)
 	}
 }

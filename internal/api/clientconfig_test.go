@@ -52,8 +52,14 @@ func TestGenerateClientConfiguration(t *testing.T) {
 		t.Errorf("named, 1h: CN %q, roles %v, valid %s", c.Subject.CommonName, c.Subject.Organization, until(c))
 	}
 
+	c, err = issue(&janusv1alpha1.GenerateClientConfigurationRequest{Roles: []string{pki.RoleOperator}, Name: "ci"})
+	if err != nil || !slices.Equal(c.Subject.Organization, []string{pki.RoleOperator}) {
+		t.Errorf("an operator: %v %v", c.Subject.Organization, err)
+	}
+
 	for _, req := range []*janusv1alpha1.GenerateClientConfigurationRequest{
 		{Roles: []string{"os:root"}},
+		{Roles: []string{pki.RoleController}},
 		{Name: "-dash"},
 		{Name: "line\nbreak"},
 		{Name: "a/b"},

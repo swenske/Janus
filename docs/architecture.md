@@ -192,7 +192,8 @@ Roles are enforced, not just carried: `internal/api/authz.go`'s
 `UnaryAuthInterceptor`/`StreamAuthInterceptor` check every single RPC
 (both services are wired via `grpc.UnaryInterceptor`/
 `grpc.StreamInterceptor` in `cmd/janusd`) against a static
-method -> required-roles table. Three roles exist: `os:admin`
+method -> required-roles table (`internal/rbac`, which the Controller
+reads too: a node's page offers only what the account's role may call). Three roles exist: `os:admin`
 (everything), `os:operator` (runs what's set up - HAProxy, services,
 reboots - not how the node is set up; see [api-routes.md](api-routes.md))
 and `os:reader` (observability/status RPCs only - explicitly *not*

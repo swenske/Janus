@@ -137,11 +137,11 @@ func (s *System) GenerateClientConfiguration(_ context.Context, req *janusv1alph
 		roles = []string{pki.RoleAdmin}
 	}
 	for _, role := range roles {
-		// Reject anything not in internal/pki's known role set rather
-		// than silently issuing a certificate whose role nothing checks
-		// for (see internal/api/authz.go's requiredRoles).
-		if role != pki.RoleAdmin && role != pki.RoleReader {
-			return nil, status.Errorf(codes.InvalidArgument, "unknown role %q (known roles: %q, %q)", role, pki.RoleAdmin, pki.RoleReader)
+		// Reject anything but the three human roles rather than silently
+		// issuing a certificate whose role nothing checks for (see
+		// internal/rbac) - or the Controller's, which a fleet issues.
+		if role != pki.RoleAdmin && role != pki.RoleOperator && role != pki.RoleReader {
+			return nil, status.Errorf(codes.InvalidArgument, "unknown role %q (known roles: %q, %q, %q)", role, pki.RoleAdmin, pki.RoleOperator, pki.RoleReader)
 		}
 	}
 
