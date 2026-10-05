@@ -181,3 +181,80 @@
   --sl-card-border: var(--sl-color-accent);
   --sl-card-bg: var(--sl-color-accent-low);
 }
+
+/* Search (lib/search-suggest.ts): suggestions before typing, the
+   completion drawn over the field, "did you mean". */
+.janus-suggestions {
+  padding: 0.5rem 0 1rem;
+}
+.janus-suggestions p {
+  margin: 1rem 0 0.4rem;
+  font-size: var(--sl-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sl-color-gray-3);
+}
+.janus-suggestions ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.janus-suggestions a {
+  display: inline-block;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 999px;
+  color: var(--sl-color-white);
+  font-size: var(--sl-text-sm);
+  text-decoration: none;
+}
+.janus-suggestions a:hover,
+.janus-suggestions a:focus-visible {
+  border-color: var(--sl-color-accent);
+  color: var(--sl-color-text-accent);
+}
+.janus-suggestions .janus-hint {
+  margin-top: 1.25rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.janus-suggestions kbd {
+  padding: 0 0.3rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.25rem;
+  font-family: var(--__sl-font-mono);
+}
+.janus-ghost {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
+.janus-ghost span:first-child {
+  color: transparent;
+}
+.janus-ghost-rest {
+  color: var(--sl-color-gray-3);
+}
+.janus-didyoumean {
+  margin: 0.75rem 0;
+  color: var(--sl-color-gray-2);
+}
+.janus-didyoumean button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--sl-color-text-accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}

@@ -45,6 +45,7 @@ export default defineConfig({
         Banner: './src/components/Banner.astro',
         LastUpdated: './src/components/LastUpdated.astro',
         PageTitle: './src/components/PageTitle.astro',
+        Search: './src/components/Search.astro',
         SiteTitle: './src/components/SiteTitle.astro',
         SocialIcons: './src/components/SocialIcons.astro',
         ThemeProvider: './src/components/ThemeProvider.astro',

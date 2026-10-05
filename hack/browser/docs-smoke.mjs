@@ -2,8 +2,8 @@
 // channel, reached by following the site's own links from its home, in
 // both themes - no console error or warning, no page error, no CSP
 // violation, every image loaded, every Mermaid diagram drawn; no
-// horizontal scroll on a phone; search answering; axe finding nothing
-// serious.
+// horizontal scroll on a phone; search answering - suggestions,
+// completion, "did you mean" too; axe finding nothing serious.
 //   node docs-smoke.mjs <site URL> <channel path: /docs/ or /docs/next/>
 import AxeBuilder from '@axe-core/playwright'
 import { chromium } from 'playwright'
@@ -78,11 +78,32 @@ for (const scheme of ['light', 'dark']) {
   for (const u of seen) pages.add(u)
   console.log(`${scheme}: ${seen.size} pages`)
 
-  // Search: Ctrl+K, a query, the expected page among the results.
+  // Search: Ctrl+K - suggestions before typing; the word being typed
+  // completed in the field (Tab takes it); "did you mean" for a typo;
+  // and for each query, the expected page among the results.
   await page.goto(site + root, { waitUntil: 'networkidle' })
+  {
+    await page.keyboard.press('Control+k')
+    const input = page.locator('dialog[open] input.pagefind-ui__search-input')
+    await input.waitFor()
+    if (!(await page.locator('dialog[open] .janus-suggestions').isVisible())) problems.push(`search (${scheme}): no suggestions before typing`)
+    await input.pressSequentially('keepal', { delay: 30 })
+    await page.waitForTimeout(500)
+    await page.keyboard.press('Tab')
+    if ((await input.inputValue()) !== 'keepalived') problems.push(`search (${scheme}): "keepal" + Tab gave "${await input.inputValue()}", not "keepalived"`)
+    await input.fill('')
+    await input.pressSequentially('certficate', { delay: 30 })
+    const dym = await page
+      .locator('dialog[open] .janus-didyoumean button', { hasText: 'certificate' })
+      .waitFor({ timeout: 10000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!dym) problems.push(`search (${scheme}): no "did you mean certificate" for "certficate"`)
+    await page.keyboard.press('Escape')
+  }
   for (const [query, title] of searches) {
     await page.keyboard.press('Control+k')
-    const input = page.locator('dialog[open] input[type="search"], dialog[open] input').first()
+    const input = page.locator('dialog[open] input.pagefind-ui__search-input')
     await input.waitFor()
     await input.fill(query)
     const found = await page

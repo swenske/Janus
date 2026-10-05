@@ -1,0 +1,28 @@
+---
+// Starlight's search (Pagefind: full text, results as you type, all in
+// the browser), plus what search-suggest.ts adds: suggestions before
+// anything is typed - the most read pages, a door per audience - the
+// completion of the word being typed, and "did you mean" when nothing
+// matches.
+import Default from '@astrojs/starlight/components/Search.astro'
+import { pageMeta } from '../lib/meta.mjs'
+import { popular, topics } from '../lib/structure.mjs'
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+const pages = popular.map((p) => ({ href: `${base}/${p.id}/`, title: p.label ?? p.title ?? pageMeta(p.file).title }))
+const doors = topics.map((t) => ({ href: `${base}/${t.sections[0].path}/`, title: t.label }))
+---
+
+<Default />
+<template id="janus-search-suggestions">
+  <nav class="janus-suggestions" aria-label="Suggestions">
+    <p>Most read</p>
+    <ul>{pages.map((p) => <li><a href={p.href}>{p.title}</a></li>)}</ul>
+    <p>By audience</p>
+    <ul>{doors.map((d) => <li><a href={d.href}>{d.title}</a></li>)}</ul>
+    <p class="janus-hint">Type to search every page. <kbd>→</kbd> or <kbd>Tab</kbd> completes the word you're typing.</p>
+  </nav>
+</template>
+<script>
+  import '../lib/search-suggest.ts'
+</script>
