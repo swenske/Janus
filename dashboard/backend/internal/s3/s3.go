@@ -58,6 +58,12 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
+	if e.Code == "IncompleteBody" {
+		// This client always sends the whole body it announced: Backblaze
+		// B2 answers so to an upload whose signature is wrong, once it
+		// stopped reading it.
+		return fmt.Sprintf("S3: %s (%d): %s - check the access key and its secret", e.Code, e.Status, e.Message)
+	}
 	if e.Code != "" {
 		return fmt.Sprintf("S3: %s (%d): %s", e.Code, e.Status, e.Message)
 	}
