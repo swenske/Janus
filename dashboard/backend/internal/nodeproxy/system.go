@@ -588,7 +588,7 @@ func parseStatCSV(raw []byte) (*statTable, error) {
 // node or import into a browser) or as PEM files in JSON.
 func handleIssueClient(w http.ResponseWriter, r *http.Request, node *store.Node) {
 	var req struct {
-		Role       string `json:"role"`        // os:admin or os:reader
+		Role       string `json:"role"`        // os:admin, os:operator or os:reader
 		Format     string `json:"format"`      // pfx or pem
 		Password   string `json:"password"`    // pfx only
 		Name       string `json:"name"`        // the certificate's common name, and in the download's file name
@@ -597,8 +597,8 @@ func handleIssueClient(w http.ResponseWriter, r *http.Request, node *store.Node)
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if req.Role != "os:admin" && req.Role != "os:reader" {
-		http.Error(w, "role must be os:admin or os:reader", http.StatusBadRequest)
+	if req.Role != pki.RoleAdmin && req.Role != pki.RoleOperator && req.Role != pki.RoleReader {
+		http.Error(w, "role must be os:admin, os:operator or os:reader", http.StatusBadRequest)
 		return
 	}
 	if req.Format != "pfx" && req.Format != "pem" {

@@ -907,7 +907,7 @@ grep -q 'requires role .*rita has \[os:reader\]' "$WORKDIR/janusctl-reader.txt" 
 wrong_pin="$(JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" login -context x -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" -controller-fingerprint "00:11" 2>&1 || true)"
 grep -q 'not trusted' <<<"$wrong_pin" || { echo "Dashboard test FAILED: janusctl trusted a Controller with another fingerprint: $wrong_pin" >&2; exit 1; }
 curl -sk -m 4 -b "$COOKIE_JAR" "${NODE_BASE}/api/stream/logs?id=janusd&tail=300" >"$WORKDIR/node-janusd.log" || true
-grep -qE 'api: SystemService/ServiceRestart: admin \(os:admin\)$' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log janusctl's restart as the account's, directly: $(grep ServiceRestart "$WORKDIR/node-janusd.log")" >&2; exit 1; }
+grep -qE 'api: SystemService/ServiceRestart: admin \(os:admin, fleet\)$' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log janusctl's restart as the account's, directly: $(grep ServiceRestart "$WORKDIR/node-janusd.log")" >&2; exit 1; }
 echo "janusctl OK: signed in with an API token (the Controller pinned), it reached the node directly with the fleet's certificate as admin; a reader read and was refused a restart by the node"
 
 # janusctl signed in with an SSH key of the account - added from the
@@ -993,6 +993,35 @@ grep -q 'replaced its CA - the Controller now pins the new one' "$WORKDIR/dashbo
 "$WORKDIR/janusctl" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/rotated/ca.crt" -cert "$WORKDIR/rotated/admin.crt" -key "$WORKDIR/rotated/admin.key" version >/dev/null \
   || { echo "Dashboard test FAILED: the new admin certificate doesn't reach the node" >&2; exit 1; }
 echo "CA rotation OK: the Controller follows the node's new CA, cross-signed by the old one, and the new admin certificate reaches the node"
+
+# --- the same from the node's page (Access, nodeproxy/access.go): the
+# admin's key made by the browser - openssl here -, only its public half
+# sent; the page offers it because the account's role may call it ---
+curl -sk -b "$COOKIE_JAR" "${NODE_BASE}/api/me" -o "$WORKDIR/me.json"
+python3 -c 'import json,sys; m=json.load(open(sys.argv[1]))["may"]; assert "AccessService/LocalCARotate" in m and "LifecycleService/Upgrade" in m, m' "$WORKDIR/me.json" \
+  || { echo "Dashboard test FAILED: the admin's node page isn't offered what an admin may do: $(cat "$WORKDIR/me.json")" >&2; exit 1; }
+mkdir -p "$WORKDIR/relayed"
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$WORKDIR/relayed/admin.key" 2>/dev/null
+openssl pkey -in "$WORKDIR/relayed/admin.key" -pubout -out "$WORKDIR/relayed/admin.pub"
+python3 -c 'import json,sys; print(json.dumps({"admin_public_key": open(sys.argv[1]).read()}))' "$WORKDIR/relayed/admin.pub" >"$WORKDIR/rotate.json"
+rotate_code="$(curl -sk -b "$COOKIE_JAR" -o "$WORKDIR/rotate-out.json" -w '%{http_code}' -X POST "${NODE_BASE}/api/access/rotate-ca" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/rotate.json")"
+[ "$rotate_code" = 200 ] || { echo "Dashboard test FAILED: replacing the CA from the node's page: $rotate_code $(cat "$WORKDIR/rotate-out.json")" >&2; exit 1; }
+python3 - "$WORKDIR/rotate-out.json" "$WORKDIR/relayed" <<'PYEOF'
+import json, sys
+out = json.load(open(sys.argv[1]))
+open(sys.argv[2] + "/ca.crt", "w").write(out["ca_cert"])
+open(sys.argv[2] + "/admin.crt", "w").write(out["admin_cert"])
+PYEOF
+"$WORKDIR/janusctl" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/relayed/ca.crt" -cert "$WORKDIR/relayed/admin.crt" -key "$WORKDIR/relayed/admin.key" version >/dev/null \
+  || { echo "Dashboard test FAILED: the admin certificate from the node's page doesn't reach the node" >&2; exit 1; }
+if "$WORKDIR/janusctl" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/relayed/ca.crt" -cert "$WORKDIR/rotated/admin.crt" -key "$WORKDIR/rotated/admin.key" version >/dev/null 2>&1; then
+  echo "Dashboard test FAILED: the previous CA's admin certificate still reaches the node" >&2; exit 1
+fi
+[ "$(rotated_relay)" = 200 ] || { echo "Dashboard test FAILED: the Controller lost the node after replacing its CA from the page" >&2; exit 1; }
+curl -sk -m 4 -b "$COOKIE_JAR" "${NODE_BASE}/api/stream/logs?id=janusd&tail=50" >"$WORKDIR/node-janusd-rotate.log" || true
+grep -q "access: the node's own CA replaced .* by admin (os:admin) via janus-controller" "$WORKDIR/node-janusd-rotate.log" \
+  || { echo "Dashboard test FAILED: the node didn't log who replaced its CA: $(cat "$WORKDIR/node-janusd-rotate.log")" >&2; exit 1; }
+echo "CA rotation from the node's page OK: the browser's key got the new admin certificate, the previous one stopped working, the Controller kept the node"
 
 # --- backups (dashboard/backend/backups.go): the Controller backs itself
 # up to a real S3 bucket - versitygw, which checks S3's signatures -,

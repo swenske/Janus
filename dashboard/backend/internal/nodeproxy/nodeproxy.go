@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/rbac"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
@@ -61,11 +62,12 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
 		handleInfo(w, r, node)
 	})
-	// Who the page acts for: the Controller's account and the node role
-	// the node gives it.
+	// Who the page acts for: the Controller's account, the node role the
+	// node gives it, and the RPCs that role may call ("Service/Method",
+	// internal/rbac) - the page shows only what it may do.
 	mux.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
 		u := userOf(r.Context())
-		writeJSONBody(w, http.StatusOK, map[string]any{"name": u.Name, "roles": u.Roles})
+		writeJSONBody(w, http.StatusOK, map[string]any{"name": u.Name, "roles": u.Roles, "may": nonNilStrings(rbac.Allowing(u.Roles))})
 	})
 	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
 		writeJSONBody(w, http.StatusOK, map[string]string{"id": node.ID, "name": node.Name, "address": node.Addr(), "controller_version": ControllerVersion, "locked_by": LockedBy(node)})
@@ -83,6 +85,7 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	registerConsulRoutes(mux, node)
 	registerACMERoutes(mux, node)
 	registerHAProxyFileRoutes(mux, node)
+	registerAccessRoutes(mux, node)
 	mux.Handle("/", http.FileServerFS(view))
 
 	return http.NewCrossOriginProtection().Handler(mux), nil
@@ -246,3 +249,10 @@ func handleInfo(w http.ResponseWriter, r *http.Request, node *store.Node) {
 // Conn is node's shared gRPC connection, for the Controller's own reads
 // of it (its backups): Automation unless the context says who.
 func Conn(node *store.Node) (*grpc.ClientConn, error) { return dialNode(node) }
+
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
