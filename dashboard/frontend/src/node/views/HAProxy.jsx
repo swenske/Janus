@@ -10,13 +10,15 @@ import Files from './haproxy/Files.jsx'
 import MapsAcls from './haproxy/MapsAcls.jsx'
 import Status from './haproxy/Status.jsx'
 
+// The state - status, backends - is everyone's; the configuration's tabs
+// the haproxy domain's (needs: what each reads).
 const TABS = [
   { id: 'status', label: 'Status', icon: Shuffle, view: Status },
   { id: 'backends', label: 'Backends', icon: Server, view: Backends },
-  { id: 'config', label: 'Configuration', icon: FileCode2, view: Config },
-  { id: 'maps', label: 'Maps & ACLs', icon: ListTree, view: MapsAcls },
-  { id: 'certificates', label: 'Certificates', icon: KeyRound, view: Certificates },
-  { id: 'files', label: 'Files', icon: FileText, view: Files },
+  { id: 'config', label: 'Configuration', icon: FileCode2, view: Config, needs: 'HAProxyService/GetConfig' },
+  { id: 'maps', label: 'Maps & ACLs', icon: ListTree, view: MapsAcls, needs: 'HAProxyService/MapList' },
+  { id: 'certificates', label: 'Certificates', icon: KeyRound, view: Certificates, needs: 'HAProxyService/CertificateList' },
+  { id: 'files', label: 'Files', icon: FileText, view: Files, needs: 'HAProxyService/FileList' },
 ]
 
 function ServiceControls() {
@@ -78,13 +80,15 @@ function ServiceControls() {
 }
 
 export default function HAProxy({ route }) {
+  const may = useMay()
+  const tabs = TABS.filter((t) => !t.needs || may(t.needs))
   const sub = route.split('/')[2] || 'status'
-  const tab = TABS.find((t) => t.id === sub) || TABS[0]
+  const tab = tabs.find((t) => t.id === sub) || tabs[0]
   const View = tab.view
   return (
     <>
       <PageHeader title="HAProxy" subtitle="The load balancer this node runs" actions={<ServiceControls />} />
-      <Tabs tabs={TABS} active={tab.id} onChange={(id) => navigate(id === 'status' ? '/haproxy' : `/haproxy/${id}`)} />
+      <Tabs tabs={tabs} active={tab.id} onChange={(id) => navigate(id === 'status' ? '/haproxy' : `/haproxy/${id}`)} />
       <View />
     </>
   )

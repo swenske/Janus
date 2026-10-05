@@ -117,10 +117,14 @@ last use, revoke. Each account sees its own, an admin everyone's (an
 **Account** column). Sessions only, never a token.
 
 **Accounts** and **Audit** (`Users.jsx`, `Audit.jsx`) are admin tabs:
-accounts with their role (a select, applied at once), **Reset
-password** / **Disable** / **Delete**, a new account's or a reset's
-password shown once (`GivenPassword`), the session policy; the audit's
-newest 500 entries, filtered by account on submit.
+accounts with their role (a select, applied at once - "None": its
+grants only), their **grants** (`GrantsEditor`, a dialog: per grant a
+role, the labels it picks nodes by, the domains it's narrowed to),
+**Reset password** / **Disable** / **Delete**, a new account's or a
+reset's password shown once (`GivenPassword`), the session policy; the
+audit's newest 500 entries, filtered by account on submit. A node card
+shows its labels (`NodeLabels`), edited in place by an admin. The API
+tokens page takes a scope - labels and domains - and lists it.
 
 **Roles on the page.** `AuthGate` gives the signed-in account
 (`/api/auth/status`'s `user`) to `MeContext` (`me.jsx`); a component asks
@@ -129,7 +133,13 @@ refused - buttons, forms, tabs - rather than showing them disabled. The
 backend refuses anyway (`gate` in `auth_handlers.go`, one role for reads
 and one for changes per route; `TestRoutesNeedTheirRole`). Reader:
 reads. Operator: + `PowerButtons` (start/reset/force-off, console).
-Admin: the rest. A session that needs something first (`needs`) gets only that:
+Admin: the rest. An account's grants (`me.grants`) count where a node is:
+`nodeCan(me, labels, role, domain)` (`me.jsx`, the Controller's
+`access.go` mirrored) - `PowerButtons` takes the node's labels and the
+machines domain. An account without a role over everything gets neither
+the Hypervisors tab, nor the Controller's update card, nor the fleet's
+(`/api/fleet` isn't asked); the Controller answers its node list and
+statuses with the nodes it reaches, hypervisors and pending ones empty. A session that needs something first (`needs`) gets only that:
 `mfa` - `SecondFactorForm` (passkey, app code, recovery code) -, then
 `password` - the forced change -, then `mfa_enroll` - `EnrollMFA`, the
 role's required first factor, then its recovery codes once
@@ -242,8 +252,14 @@ theme toggle:
   power
 
 **Only what the role may do.** `/api/me` carries `may`: the RPCs the
-account's node role may call (`internal/rbac`, the table janusd
-enforces). `useMay()` (`src/node/may.js`) answers per RPC: the nav hides
+account's permissions on the node allow - roles and domains
+(`internal/rbac`, the tables janusd enforces; `nodeproxy.User.May`).
+Nothing is offered, and no view mounts, before it's known (a loader).
+Reading a configuration is its domain's: HAProxy's configuration, maps,
+certificates and files tabs, Let's Encrypt, the network's saved
+configuration, the firewall's ruleset and sets, VRRP's and BGP's
+configuration aren't fetched without it (`readMethod` on
+`ModuleConfigEditor`) - the state stays. `useMay()` (`src/node/may.js`) answers per RPC: the nav hides
 what the role can't open (logs, dmesg, capture, files, "Add or remove
 apps…"), a group left empty goes too, a route opened by hand says the
 role doesn't reach it; views hide their actions (Apply, Reload, maps,

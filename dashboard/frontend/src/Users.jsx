@@ -1,7 +1,8 @@
-import { Clock, Copy, KeyRound, KeySquare, Plus, RotateCcw, Trash2, UserRound, Users, X } from 'lucide-react'
+import { Clock, Copy, KeyRound, KeySquare, Plus, RotateCcw, Tags, Trash2, UserRound, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { call, postJSON } from './call.js'
-import { ROLES, useMe } from './me.jsx'
+import { DOMAINS, labelString, parseLabels, ROLES, useMe } from './me.jsx'
 import { MFABadge } from './MFA.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 
@@ -10,6 +11,102 @@ import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared
 
 function when(t) {
   return t ? new Date(t).toLocaleString() : 'never'
+}
+
+// ACCOUNT_ROLES: an account's role over everything - or none, then only
+// its grants.
+const ACCOUNT_ROLES = [...ROLES, { id: 'none', label: 'None - its grants only', about: 'reaches only the nodes its grants give it, none of the Controller own pages' }]
+
+// grantSummary is one grant, in a few words.
+function grantSummary(g) {
+  const where = Object.keys(g.selector || {}).length ? labelString(g.selector) : 'every node'
+  const what = g.domains?.length ? g.domains.join(', ') : 'every domain'
+  return `${g.role} on ${where} - ${what}`
+}
+
+// GrantsEditor edits an account's grants: a role on the nodes whose
+// labels match, narrowed to some domains.
+function GrantsEditor({ user, onClose, onSaved }) {
+  const [rows, setRows] = useState(() => (user.grants || []).map((g) => ({ role: g.role, labels: labelString(g.selector), domains: g.domains || [] })))
+  const [error, setError] = useState(null)
+  const [busy, run] = useAction()
+  const set = (i, patch) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const save = async () => {
+    let grants
+    try {
+      grants = rows.map((r) => ({ role: r.role, selector: parseLabels(r.labels), domains: r.domains }))
+    } catch (err) {
+      setError(err.message)
+      return
+    }
+    setError(null)
+    const out = await run(() => postJSON(`/api/users/${encodeURIComponent(user.name)}`, { grants }, 'PATCH'), `${user.name}'s grants saved`)
+    if (out) onSaved()
+  }
+  return createPortal(
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal card wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ marginBottom: '0.4rem' }}>{user.name}&apos;s grants</h2>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          A role on the nodes whose labels match (empty: every node), narrowed to some domains (none: all of them). Reading a node&apos;s state comes with any grant on it;
+          the account&apos;s strongest permission on a node wins.
+        </p>
+        <div className="stack" style={{ gap: '0.7rem' }}>
+          {rows.length === 0 && <div className="muted">No grant.</div>}
+          {rows.map((r, i) => (
+            <div key={i} className="card" style={{ padding: '0.7rem' }}>
+              <div className="row" style={{ alignItems: 'flex-end' }}>
+                <label className="field">
+                  <span>Role</span>
+                  <select value={r.role} onChange={(e) => set(i, { role: e.target.value })} aria-label={`Grant ${i + 1}'s role`}>
+                    {ROLES.map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field grow">
+                  <span>On the nodes labelled</span>
+                  <input className="mono" value={r.labels} onChange={(e) => set(i, { labels: e.target.value })} placeholder="team=web, env=prod - empty: every node" aria-label={`Grant ${i + 1}'s labels`} />
+                </label>
+                <button className="ghost small danger" onClick={() => setRows(rows.filter((_, j) => j !== i))} title="Remove this grant">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              <div className="row" style={{ marginTop: '0.5rem', flexWrap: 'wrap', gap: '0.8rem' }}>
+                <span className="muted small">Only:</span>
+                {DOMAINS.map((d) => (
+                  <label key={d.id} className="check small" title={d.about}>
+                    <input
+                      type="checkbox"
+                      checked={r.domains.includes(d.id)}
+                      onChange={(e) => set(i, { domains: e.target.checked ? [...r.domains, d.id] : r.domains.filter((x) => x !== d.id) })}
+                    />{' '}
+                    {d.label}
+                  </label>
+                ))}
+                {!r.domains.length && <span className="muted small">(none ticked: every domain)</span>}
+              </div>
+            </div>
+          ))}
+          <div>
+            <button className="small" onClick={() => setRows([...rows, { role: 'operator', labels: '', domains: [] }])}>
+              <Plus size={14} /> Add a grant
+            </button>
+          </div>
+          <ErrorBox error={error} />
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button onClick={onClose}>Cancel</button>
+            <button className="primary" onClick={save} disabled={busy}>
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
 }
 
 export function roleTone(role) {
@@ -72,7 +169,7 @@ function NewAccount({ onCreated }) {
         <label className="field">
           <span>Role</span>
           <select value={role} onChange={(e) => setRole(e.target.value)}>
-            {ROLES.map((r) => (
+            {ACCOUNT_ROLES.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.label}
               </option>
@@ -84,7 +181,7 @@ function NewAccount({ onCreated }) {
         </button>
       </form>
       <div className="muted small" style={{ marginTop: '0.5rem' }}>
-        {ROLES.find((r) => r.id === role)?.about}. The Controller makes a password to hand over; its owner chooses their own at the first sign-in.
+        {ACCOUNT_ROLES.find((r) => r.id === role)?.about}. The Controller makes a password to hand over; its owner chooses their own at the first sign-in.
       </div>
     </Card>
   )
@@ -148,6 +245,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState(null)
   const [error, setError] = useState(null)
   const [given, setGiven] = useState(null)
+  const [grantsOf, setGrantsOf] = useState(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
 
@@ -244,6 +342,16 @@ export default function UsersPage() {
         Who may sign in to this Controller. A role applies on the Controller and on the nodes it reaches for the account: each node logs who acted.
       </p>
       {given && <GivenPassword given={given} onClose={() => setGiven(null)} />}
+      {grantsOf && (
+        <GrantsEditor
+          user={grantsOf}
+          onClose={() => setGrantsOf(null)}
+          onSaved={() => {
+            setGrantsOf(null)
+            load()
+          }}
+        />
+      )}
       <NewAccount
         onCreated={(u) => {
           setGiven({ name: u.name, password: u.password })
@@ -259,6 +367,7 @@ export default function UsersPage() {
                 <tr>
                   <th>Name</th>
                   <th>Role</th>
+                  <th>Grants</th>
                   <th>Last sign-in</th>
                   <th>API tokens</th>
                   <th>SSH keys</th>
@@ -274,17 +383,27 @@ export default function UsersPage() {
                     </td>
                     <td>
                       <select
-                        value={u.role}
+                        value={u.role || 'none'}
                         disabled={busy}
                         onChange={(e) => patch(u, { role: e.target.value }, `${u.name} is now ${e.target.value}`)}
                         aria-label={`${u.name}'s role`}
                       >
-                        {ROLES.map((r) => (
+                        {ACCOUNT_ROLES.map((r) => (
                           <option key={r.id} value={r.id}>
-                            {r.label}
+                            {r.id === 'none' ? 'None' : r.label}
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className="small">
+                      {u.grants.map((g, i) => (
+                        <div key={i} className="nowrap">
+                          {grantSummary(g)}
+                        </div>
+                      ))}
+                      <button className="ghost small" onClick={() => setGrantsOf(u)} disabled={busy} title="Roles on the nodes whose labels match">
+                        <Tags size={13} /> {u.grants.length ? 'Edit' : 'Grants'}
+                      </button>
                     </td>
                     <td>{when(u.last_login_at)}</td>
                     <td>

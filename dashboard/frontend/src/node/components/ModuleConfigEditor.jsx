@@ -12,9 +12,20 @@ import { DiffView, Editor } from './Editor.jsx'
 // fills the editor while nothing is saved. extraBody goes with check and
 // apply (Consul's files); extraDirty is a change of it, extraSummary what
 // the confirmation says of it. applyMethod is the RPC apply and check
-// call: without it, the configuration is only shown.
-export default function ModuleConfigEditor({ base, file, daemon, starter, applyNote, onApplied, extraBody, extraDirty, extraSummary, applyMethod }) {
-  const canApply = useMay()(applyMethod)
+// call: without it, the configuration is only shown; readMethod the RPC
+// reading it: without it, not even that.
+export default function ModuleConfigEditor(props) {
+  const may = useMay()
+  if (props.readMethod && !may(props.readMethod))
+    return (
+      <div className="notice">
+        {props.file}: its configuration is the network domain&apos;s - your permission on this node doesn&apos;t reach it.
+      </div>
+    )
+  return <ModuleConfig {...props} canApply={may(props.applyMethod)} />
+}
+
+function ModuleConfig({ base, file, daemon, starter, applyNote, onApplied, extraBody, extraDirty, extraSummary, canApply }) {
   const [saved, setSaved] = useState(null) // { config, is_default }
   const [draft, setDraft] = useState('')
   const [loadError, setLoadError] = useState(null)

@@ -140,6 +140,7 @@ export default function BGP() {
         <ModuleConfigEditor
           base="/api/network/bgp"
           applyMethod="NetworkService/BGPApplyConfig"
+          readMethod="NetworkService/BGPGetConfig"
           file="bird.conf"
           daemon="BIRD"
           starter={STARTER}

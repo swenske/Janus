@@ -521,9 +521,12 @@ export default function NetworkConfig() {
   const [loadError, setLoadError] = useState(null)
   const [generation, setGeneration] = useState(0)
   const [result, setResult] = useState(null)
-  const canApply = useMay()('NetworkService/NetworkConfigApply')
+  const may = useMay()
+  const canApply = may('NetworkService/NetworkConfigApply')
+  const canRead = may('NetworkService/NetworkConfigGet')
 
   useEffect(() => {
+    if (!canRead) return undefined
     let cancelled = false
     Promise.all([getJSON('/api/network/config'), getJSON('/api/node')])
       .then(([c, node]) => !cancelled && setLoaded({ ...c, address: node.address }))
@@ -531,7 +534,7 @@ export default function NetworkConfig() {
     return () => {
       cancelled = true
     }
-  }, [generation])
+  }, [generation, canRead])
 
   return (
     <>
@@ -544,7 +547,9 @@ export default function NetworkConfig() {
           <StatusPanel status={status.data} />
           <div style={{ marginTop: '1rem' }}>
             {result && <ApplyResult result={result} previousAddress={result.previousAddress} />}
-            {loaded && !canApply ? (
+            {!canRead ? (
+              <div className="notice">The saved configuration is the network domain&apos;s - your permission on this node doesn&apos;t reach it.</div>
+            ) : loaded && !canApply ? (
               <Card title="Saved configuration">
                 <p className="small muted" style={{ marginTop: 0 }}>
                   Changing the node&apos;s network is an admin&apos;s.

@@ -114,6 +114,7 @@ export default function VRRP() {
         <ModuleConfigEditor
           base="/api/network/vrrp"
           applyMethod="NetworkService/VRRPApplyConfig"
+          readMethod="NetworkService/VRRPGetConfig"
           file="keepalived.conf"
           daemon="keepalived"
           starter={STARTER}

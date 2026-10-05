@@ -1,7 +1,7 @@
 import { Copy, KeyRound, Plus, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
-import { atLeast, ROLES, useMe } from './me.jsx'
+import { atLeast, DOMAINS, labelString, parseLabels, ROLES, useMe } from './me.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 import { roleTone } from './Users.jsx'
 
@@ -56,7 +56,9 @@ function NewToken({ token, onClose }) {
 
 export default function TokensPage() {
   const me = useMe()
-  const [role, setRole] = useState(me.role)
+  const [role, setRole] = useState(me.max_role || me.role)
+  const [labels, setLabels] = useState('')
+  const [domains, setDomains] = useState([])
   const [tokens, setTokens] = useState(null)
   const [error, setError] = useState(null)
   const [name, setName] = useState('')
@@ -78,10 +80,12 @@ export default function TokensPage() {
 
   const create = async (e) => {
     e.preventDefault()
-    const t = await run(() => postJSON('/api/tokens', { name: name.trim(), expires_in_days: Number(days), role }))
+    const t = await run(() => postJSON('/api/tokens', { name: name.trim(), expires_in_days: Number(days), role, scope: { selector: parseLabels(labels), domains } }))
     if (t) {
       setCreated(t)
       setName('')
+      setLabels('')
+      setDomains([])
       load()
     }
   }
@@ -116,7 +120,7 @@ export default function TokensPage() {
           <label className="field">
             <span>Role</span>
             <select value={role} onChange={(e) => setRole(e.target.value)}>
-              {ROLES.filter((r) => atLeast(me.role, r.id)).map((r) => (
+              {ROLES.filter((r) => atLeast(me.max_role || me.role, r.id)).map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.label}
                 </option>
@@ -136,6 +140,25 @@ export default function TokensPage() {
           <button className="primary" type="submit" disabled={busy} style={{ alignSelf: 'flex-end' }}>
             <KeyRound size={15} /> Create token
           </button>
+          <div className="stack" style={{ flexBasis: '100%', gap: '0.4rem' }}>
+            <label className="field">
+              <span>Only the nodes labelled (empty: all you reach)</span>
+              <input className="mono" value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="team=web, env=prod" />
+            </label>
+            <div className="row" style={{ flexWrap: 'wrap', gap: '0.8rem' }}>
+              <span className="muted small">Only:</span>
+              {DOMAINS.map((d) => (
+                <label key={d.id} className="check small" title={d.about}>
+                  <input type="checkbox" checked={domains.includes(d.id)} onChange={(e) => setDomains(e.target.checked ? [...domains, d.id] : domains.filter((x) => x !== d.id))} />{' '}
+                  {d.label}
+                </label>
+              ))}
+            </div>
+            <span className="muted small">
+              A token narrowed to some nodes or domains reaches those nodes only - none of the Controller&apos;s own pages: for a Terraform user who may only change HAProxy on
+              team=web, labels team=web and HAProxy alone.
+            </span>
+          </div>
         </form>
       </Card>
       <ErrorBox error={error} />
@@ -148,6 +171,7 @@ export default function TokensPage() {
                 <th>Name</th>
                 {me.role === 'admin' && <th>Account</th>}
                 <th>Role</th>
+                <th>Scope</th>
                 <th>Created</th>
                 <th>Expires</th>
                 <th>Last used</th>
@@ -163,6 +187,16 @@ export default function TokensPage() {
                   {me.role === 'admin' && <td>{t.owner}</td>}
                   <td>
                     <Badge tone={roleTone(t.role)}>{t.role}</Badge>
+                  </td>
+                  <td className="small">
+                    {Object.keys(t.scope?.selector || {}).length || t.scope?.domains?.length ? (
+                      <>
+                        {Object.keys(t.scope.selector).length ? <span className="mono">{labelString(t.scope.selector)}</span> : 'all its nodes'}
+                        {t.scope.domains.length ? ` - ${t.scope.domains.join(', ')}` : ''}
+                      </>
+                    ) : (
+                      <span className="muted">–</span>
+                    )}
                   </td>
                   <td>{when(t.created_at)}</td>
                   <td>{t.expires_at ? when(t.expires_at) : 'never'}</td>

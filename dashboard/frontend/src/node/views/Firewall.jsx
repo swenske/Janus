@@ -53,6 +53,7 @@ export default function Firewall() {
   const left = useCountdown(st?.trial_pending ? st.trial_revert_at_unix : 0)
   const [busy, run] = useAction()
   const may = useMay()
+  const shown = (tab === 'ruleset' && !may('NetworkService/FirewallGetRuleset')) || (tab === 'sets' && !may('NetworkService/FirewallSets')) ? 'live' : tab
 
   if (st?.state === 'not_enabled' || (status.error && /isn't in this node's image/.test(String(status.error.message)))) return <Module module="firewall" />
 
@@ -102,16 +103,18 @@ export default function Firewall() {
       <div style={{ marginTop: '1rem' }}>
         <Tabs
           tabs={[
-            { id: 'ruleset', label: 'Ruleset' },
-            { id: 'sets', label: 'Sets' },
+            // The saved ruleset and the sets are the network domain's; the
+            // live ruleset is the node's state.
+            ...(may('NetworkService/FirewallGetRuleset') ? [{ id: 'ruleset', label: 'Ruleset' }] : []),
+            ...(may('NetworkService/FirewallSets') ? [{ id: 'sets', label: 'Sets' }] : []),
             { id: 'live', label: 'Live ruleset' },
           ]}
-          active={tab}
+          active={shown}
           onChange={setTab}
         />
-        {tab === 'ruleset' && <RulesetEditor onApplied={status.reload} />}
-        {tab === 'sets' && <Sets />}
-        {tab === 'live' && (
+        {shown === 'ruleset' && <RulesetEditor onApplied={status.reload} />}
+        {shown === 'sets' && <Sets />}
+        {shown === 'live' && (
           <Card title="What the kernel has now">
             {st ? <pre className="code" style={{ maxHeight: '70vh' }}>{st.ruleset || '(empty ruleset)'}</pre> : <Loading />}
           </Card>

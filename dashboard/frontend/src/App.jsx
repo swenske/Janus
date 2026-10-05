@@ -13,6 +13,7 @@ import {
   ScrollText,
   Server,
   ShieldCheck,
+  Tag,
   Trash2,
   UserRound,
   Users,
@@ -28,7 +29,7 @@ import { FleetCard, FleetSetup, TrustBadge } from './Fleet.jsx'
 import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
 import { navigate, useHashRoute } from './shared/route.js'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
-import { MeContext, useCan, useMe } from './me.jsx'
+import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
 import { CliDevicePage, CliLoginPage } from './CliLogin.jsx'
@@ -62,7 +63,61 @@ function uptime(bootUnix) {
 // A node the Controller created on a hypervisor shows its machine's
 // state, and the hypervisor-level actions - what's left when the node
 // itself doesn't answer.
-function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet }) {
+// NodeLabels shows a node's labels - what grants and scoped tokens pick
+// it by -, edited in place by an admin.
+function NodeLabels({ node, onChanged }) {
+  const can = useCan()
+  const toast = useToast()
+  const [editing, setEditing] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const l = node.labels || {}
+  const save = async (e) => {
+    e.preventDefault()
+    setBusy(true)
+    try {
+      await postJSON(`/api/nodes/${node.id}`, { labels: parseLabels(editing) }, 'PATCH')
+      toast(`${node.name}'s labels saved`)
+      setEditing(null)
+      onChanged()
+    } catch (err) {
+      toast(err, 'danger')
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (editing !== null)
+    return (
+      <form className="row" style={{ gap: '0.3rem' }} onSubmit={save}>
+        <input className="mono small grow" aria-label={`${node.name}'s labels`} value={editing} onChange={(e) => setEditing(e.target.value)} placeholder="team=web, env=prod" autoFocus />
+        <button className="small primary" disabled={busy}>
+          Save
+        </button>
+        <button type="button" className="small ghost" onClick={() => setEditing(null)}>
+          Cancel
+        </button>
+      </form>
+    )
+  const keys = Object.keys(l).sort()
+  if (!keys.length && !can('admin')) return null
+  return (
+    <div className="row" style={{ gap: '0.3rem', flexWrap: 'wrap' }}>
+      {keys.map((k) => (
+        <Badge key={k}>
+          <span className="mono">
+            {k}={l[k]}
+          </span>
+        </Badge>
+      ))}
+      {can('admin') && (
+        <button className="ghost small" onClick={() => setEditing(labelString(l))} title="Its labels: grants and scoped tokens pick nodes by them">
+          <Tag size={13} /> {keys.length ? 'Edit' : 'Labels'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, onChanged }) {
   const can = useCan()
   const st = status
   const reachable = st?.reachable
@@ -98,10 +153,11 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet }
             <PowerBadge power={vm?.power} />
             {machine.phase !== 'ready' && <PhaseBadge phase={machine.phase} />}
             <span className="grow" />
-            <PowerButtons machine={machine} vm={vm} actions={machineActions} />
+            <PowerButtons machine={machine} vm={vm} actions={machineActions} labels={node.labels} />
           </div>
         </div>
       )}
+      <NodeLabels node={node} onChanged={onChanged} />
       {machine && <LockNotice m={machine} actions={machineActions} />}
       {st && !reachable && <div className="error-box small">{st.error || 'no answer'}</div>}
       {reachable && (
@@ -740,7 +796,7 @@ function AccountButton() {
   return (
     <>
       <button className="ghost" onClick={() => setOpen(true)} title="Your account">
-        <UserRound size={15} /> {me.name} <Badge tone={me.role === 'admin' ? 'accent' : me.role === 'operator' ? 'info' : undefined}>{me.role}</Badge>
+        <UserRound size={15} /> {me.name} <Badge tone={me.role === 'admin' ? 'accent' : me.role === 'operator' ? 'info' : undefined}>{me.role || 'scoped'}</Badge>
       </button>
       {open &&
         // On the page itself: the top bar's backdrop blur would hold a
@@ -789,6 +845,7 @@ function MainApp() {
   const [version, setVersion] = useState('')
   const [fleet, setFleet] = useState(null)
   const [backups, setBackups] = useState(null)
+  const isReader = can('reader')
   const confirm = useConfirm()
   const toast = useToast()
 
@@ -801,15 +858,16 @@ function MainApp() {
       setHypervisors(h ?? [])
       setMachines(m ?? [])
       setError(null)
-      call('/api/fleet', bg)
-        .then(setFleet)
-        .catch(() => {})
+      if (isReader)
+        call('/api/fleet', bg)
+          .then(setFleet)
+          .catch(() => {})
       return h ?? []
     } catch (err) {
       setError(err.message)
       return []
     }
-  }, [])
+  }, [isReader])
   const refreshStatus = useCallback((hvs) => {
     call('/api/nodes/status', { background: true })
       .then((s) => setStatuses(s || {}))
@@ -947,7 +1005,7 @@ function MainApp() {
         <Tabs
           tabs={[
             { id: 'nodes', label: `Nodes${nodes ? ` (${nodes.length})` : ''}`, icon: Server },
-            { id: 'hypervisors', label: `Hypervisors${hypervisors.length ? ` (${hypervisors.length})` : ''}`, icon: Boxes },
+            ...(can('reader') ? [{ id: 'hypervisors', label: `Hypervisors${hypervisors.length ? ` (${hypervisors.length})` : ''}`, icon: Boxes }] : []),
             { id: 'tokens', label: 'API tokens', icon: KeyRound },
             ...(can('admin')
               ? [
@@ -978,7 +1036,7 @@ function MainApp() {
         ) : (
           <div className="stack">
             {error && <ErrorBox error={error} />}
-            <ControllerUpdate />
+            {can('reader') && <ControllerUpdate />}
             {can('admin') && <FleetSetup fleet={fleet} onChanged={reload} />}
             <PendingList pending={pending} onApprove={approve} onReject={reject} busy={busy} machines={machines} />
             <div className="spread">
@@ -1024,6 +1082,7 @@ function MainApp() {
                   vm={vmOf(machineOf(n))}
                   machineActions={machineActions}
                   fleet={fleet}
+                  onChanged={reload}
                 />
               ))}
             </div>

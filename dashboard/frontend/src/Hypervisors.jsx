@@ -25,7 +25,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { call, gib, postJSON } from './call.js'
-import { useCan } from './me.jsx'
+import { nodeCan, useCan, useMe } from './me.jsx'
 import { Badge, Card, ErrorBox, Meter, stateTone, useAction, useConfirm, useToast } from './shared/ui.jsx'
 
 // The hypervisors this Controller creates its own nodes on, and those
@@ -1251,9 +1251,11 @@ function EditMachine({ m, hv, onClose, onSaved }) {
   )
 }
 
-export function PowerButtons({ machine, vm, actions }) {
-  const can = useCan()
-  if (!machine.vm_uuid || machine.phase === 'destroying' || !can('operator')) return null
+// PowerButtons: an operator over everything's, or over the machines
+// domain of the node it became (labels).
+export function PowerButtons({ machine, vm, actions, labels }) {
+  const me = useMe()
+  if (!machine.vm_uuid || machine.phase === 'destroying' || !nodeCan(me, labels, 'operator', 'machines')) return null
   const off = vm?.power === 'off'
   return (
     <>

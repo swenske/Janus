@@ -33,7 +33,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
 import { Logo, ThemeToggle } from '../shared/theme.jsx'
-import { Badge } from '../shared/ui.jsx'
+import { Badge, Loading } from '../shared/ui.jsx'
 import { SecurityBadge } from '../SecurityBadge.jsx'
 import { securityText, securityTone } from '../severity.js'
 import { INTERVALS, navigate, useHashRoute, useMetrics, usePoll, useRefresh } from './hooks.jsx'
@@ -95,7 +95,7 @@ const NAV = [
       { path: '/apps/bgp', label: 'BGP · bird', icon: Workflow, view: BGP, moduleKey: 'bgp' },
       { path: '/apps/vrrp', label: 'VRRP · keepalived', icon: Boxes, view: VRRP, moduleKey: 'vrrp' },
       { path: '/apps/firewall', label: 'Firewall · nftables', icon: Shield, view: Firewall, moduleKey: 'firewall' },
-      { path: '/apps/letsencrypt', label: "Let's Encrypt", icon: LockKeyhole, view: LetsEncrypt, extension: ['letsencrypt'] },
+      { path: '/apps/letsencrypt', label: "Let's Encrypt", icon: LockKeyhole, view: LetsEncrypt, extension: ['letsencrypt'], needs: 'HAProxyService/ACMEStatus' },
       { path: '/apps/consul', label: 'Consul', icon: Waypoints, view: Consul, extension: ['consul'] },
       { path: '/system/update?extensions', label: 'Add or remove apps…', icon: CirclePlus, link: true, needs: 'LifecycleService/Upgrade' },
     ],
@@ -162,9 +162,10 @@ export default function App() {
     return () => window.removeEventListener(SIGNED_OUT, onEnded)
   }, [])
   const role = (me.data?.roles?.[0] || '').replace(/^os:/, '')
-  // What the account may call on the node: everything until /api/me says.
+  // What the account may call on the node: nothing until /api/me says -
+  // never a flash of what it may not do, nor a read it would be refused.
   const mayList = me.data?.may
-  const may = useCallback((method) => !mayList || mayList.includes(method), [mayList])
+  const may = useCallback((method) => !!mayList && mayList.includes(method), [mayList])
   const modules = usePoll('/api/network/modules', { every: 0 })
   const check = usePoll('/api/update-check', { every: 120000 })
   const overview = usePoll('/api/system/overview', { every: 60000 })
@@ -288,7 +289,9 @@ export default function App() {
         )}
         <main className="content">
           {/* Update reads its query (?extensions) when it mounts: a new query, a new instance. */}
-          {allowed ? (
+          {!me.data && !me.error ? (
+            <Loading />
+          ) : allowed ? (
             <View key={current.view === Update ? route : current.path} {...(current.props || {})} route={route} navigate={navigate} />
           ) : (
             <div className="notice">{current.label}: your role ({role}) doesn&apos;t reach it on this node.</div>
