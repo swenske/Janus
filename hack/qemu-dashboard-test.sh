@@ -971,6 +971,58 @@ grep -q 'as admin (os:reader)' "$WORKDIR/janusctl-device.txt" || { echo "Dashboa
 "$WORKDIR/janusctl" -context device -n test-node version >/dev/null || { echo "Dashboard test FAILED: janusctl signed in with -device can't read the node" >&2; exit 1; }
 echo "janusctl device OK: its code approved for the account as a reader, janusctl got its certificate and read the node"
 
+# janusctl for an account without a role over everything: a scoped
+# certificate - operator over HAProxy on the nodes labelled team=web,
+# named by their CA's key. The node itself holds it to that (janusctl
+# reaches it directly, the Controller isn't on the way): HAProxy yes, a
+# service restart no; and a certificate naming another node only opens
+# nothing here.
+TF_TOKEN="$(curl -sk -b "$TF_JAR" -X POST "$API/api/tokens" -H 'Content-Type: application/json' -d '{"name":"janusctl-tf","expires_in_days":1}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+[ -n "$TF_TOKEN" ] || { echo "Dashboard test FAILED: no token for the scoped account" >&2; exit 1; }
+tf_login() {
+  JANUS_TOKEN="$TF_TOKEN" "$WORKDIR/janusctl" login -context "$1" -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" -controller-fingerprint "$CONTROLLER_FP" >"$WORKDIR/janusctl-$1.txt" 2>&1 \
+    || { echo "Dashboard test FAILED: janusctl login as the scoped account: $(cat "$WORKDIR/janusctl-$1.txt")" >&2; exit 1; }
+}
+tf_login tf
+grep -q 'as tf (scoped: os:operator (haproxy) on 1 node)' "$WORKDIR/janusctl-tf.txt" || { echo "Dashboard test FAILED: the scoped account's certificate: $(cat "$WORKDIR/janusctl-tf.txt")" >&2; exit 1; }
+"$WORKDIR/janusctl" -context tf -n test-node haproxy get-config >"$WORKDIR/tf-haproxy.cfg" || { echo "Dashboard test FAILED: the scoped certificate reading haproxy.cfg" >&2; exit 1; }
+"$WORKDIR/janusctl" -context tf -n test-node haproxy apply-config "$WORKDIR/tf-haproxy.cfg" >"$WORKDIR/tf-apply.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: the scoped certificate applying haproxy.cfg: $(cat "$WORKDIR/tf-apply.txt")" >&2; exit 1; }
+if "$WORKDIR/janusctl" -context tf -n test-node system service restart haproxy >"$WORKDIR/tf-cli-restart.txt" 2>&1; then
+  echo "Dashboard test FAILED: the scoped certificate restarted a service" >&2; exit 1
+fi
+grep -q 'is in the services domain: tf may only haproxy on this node' "$WORKDIR/tf-cli-restart.txt" || { echo "Dashboard test FAILED: the scoped restart refused by someone else than the node: $(cat "$WORKDIR/tf-cli-restart.txt")" >&2; exit 1; }
+curl -sk -m 4 -b "$COOKIE_JAR" "${NODE_BASE}/api/stream/logs?id=janusd&tail=200" >"$WORKDIR/node-janusd-tf-cli.log" || true
+grep -qE 'api: HAProxyService/ApplyConfig: tf \(os:operator, fleet, scoped; haproxy\)$' "$WORKDIR/node-janusd-tf-cli.log" || { echo "Dashboard test FAILED: the node didn't log the scoped apply as its certificate's: $(grep ApplyConfig "$WORKDIR/node-janusd-tf-cli.log")" >&2; exit 1; }
+# Another node labelled team=web (a synthetic one), this one team=db: a
+# new certificate names the other only.
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -keyout "$WORKDIR/elsewhere-service.key" -out "$WORKDIR/elsewhere-service.csr" -nodes -subj "/CN=service-elsewhere" >/dev/null 2>&1
+openssl x509 -req -in "$WORKDIR/elsewhere-service.csr" -CA "$WORKDIR/reg-node-ca.crt" -CAkey "$WORKDIR/reg-node-ca.key" -CAcreateserial -out "$WORKDIR/elsewhere-service.crt" -days 1 >/dev/null 2>&1
+python3 -c '
+import json, sys
+ca, crt, key, out = sys.argv[1:5]
+open(out, "w").write(json.dumps({"name": "scope-elsewhere", "address": "10.0.0.10:9505", "ca_cert_pem": open(ca).read(), "service_cert_pem": open(crt).read(), "service_key_pem": open(key).read()}))
+' "$WORKDIR/reg-node-ca.crt" "$WORKDIR/elsewhere-service.crt" "$WORKDIR/elsewhere-service.key" "$WORKDIR/register-elsewhere.json"
+ELSEWHERE_PENDING="$(curl -sk -X POST "https://127.0.0.1:${DASHBOARD_REGISTER_PORT}/register" -H "Content-Type: application/json" -d @"$WORKDIR/register-elsewhere.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+ELSEWHERE_ID="$(curl -sk -b "$COOKIE_JAR" -X POST "$API/api/pending/${ELSEWHERE_PENDING}/approve" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+[ -n "$ELSEWHERE_ID" ] || { echo "Dashboard test FAILED: the synthetic node for the scope" >&2; exit 1; }
+relabel() {
+  [ "$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X PATCH "$API/api/nodes/$1" -H 'Content-Type: application/json' -d "{\"labels\":{\"team\":\"$2\"}}")" = 200 ] \
+    || { echo "Dashboard test FAILED: labelling node $1 team=$2" >&2; exit 1; }
+}
+relabel "$ELSEWHERE_ID" web
+relabel "$SCOPED_NODE" db
+tf_login tf-elsewhere
+grep -q 'as tf (scoped: os:operator (haproxy) on 1 node)' "$WORKDIR/janusctl-tf-elsewhere.txt" || { echo "Dashboard test FAILED: the certificate naming the other node: $(cat "$WORKDIR/janusctl-tf-elsewhere.txt")" >&2; exit 1; }
+TF_ELSEWHERE_DIR="$WORKDIR/janusctl-config/tf-elsewhere"
+if "$WORKDIR/janusctl" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$TF_ELSEWHERE_DIR/cert.pem" -key "$TF_ELSEWHERE_DIR/key.pem" version >"$WORKDIR/tf-elsewhere.txt" 2>&1; then
+  echo "Dashboard test FAILED: a certificate naming another node opened this one" >&2; exit 1
+fi
+grep -q "tf's certificate doesn't open this node: its scope names other nodes" "$WORKDIR/tf-elsewhere.txt" || { echo "Dashboard test FAILED: the other node's certificate refused by someone else than the node: $(cat "$WORKDIR/tf-elsewhere.txt")" >&2; exit 1; }
+relabel "$SCOPED_NODE" web
+curl -sk -b "$COOKIE_JAR" -o /dev/null -X DELETE "$API/api/nodes/$ELSEWHERE_ID"
+echo "janusctl scoped OK: an account without a role over everything got a certificate naming its nodes by their CA's key; the node applied haproxy.cfg with it, refused it a service restart itself, and refused one naming another node"
+
 kill "$DASHBOARD_PID"
 wait "$DASHBOARD_PID" 2>/dev/null || true
 "$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data" > "$WORKDIR/dashboardd-restart2.log" 2>&1 &
@@ -1015,6 +1067,13 @@ grep -q 'replaced its CA - the Controller now pins the new one' "$WORKDIR/dashbo
 "$WORKDIR/janusctl" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/rotated/ca.crt" -cert "$WORKDIR/rotated/admin.crt" -key "$WORKDIR/rotated/admin.key" version >/dev/null \
   || { echo "Dashboard test FAILED: the new admin certificate doesn't reach the node" >&2; exit 1; }
 echo "CA rotation OK: the Controller follows the node's new CA, cross-signed by the old one, and the new admin certificate reaches the node"
+# A scoped certificate names the node by its CA's key: the key of the
+# cross-signed certificate the Controller pins now - a new sign-in opens
+# the node again.
+tf_login tf
+"$WORKDIR/janusctl" -context tf -n test-node haproxy get-config >/dev/null 2>"$WORKDIR/tf-rotated.txt" \
+  || { echo "Dashboard test FAILED: a scoped certificate doesn't open the node after it replaced its CA: $(cat "$WORKDIR/tf-rotated.txt")" >&2; exit 1; }
+echo "Scoped after the CA rotation OK: a new certificate names the node by its new CA's key, and opens it"
 
 # --- the same from the node's page (Access, nodeproxy/access.go): the
 # admin's key made by the browser - openssl here -, only its public half
