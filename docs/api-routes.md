@@ -52,7 +52,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
-| `TrustGet` | | ✅ | The fleet's root, the bundle's version and issuing CAs (read-only) |
+| `TrustGet` | | ✅ | The fleet's root, the bundle (its version, issuing CAs, and the signed bundle itself - `janusctl fleet sync` takes a newer one), and the node's own CA (`local_ca_cert`: what a client of the fleet pins, checked on the fingerprint the console shows) - read-only |
 | `TrustSet` | | ✅ | Pin the root (the first time) and apply a bundle it signed, newer than the node's - admin |
 | `TrustReset` | | ✅ | Forget the fleet - admin, and only with a certificate of the node's own CA |
 | `LocalCARotate` | | ✅ | Replace the node's own CA (admin): new CA, server and admin certificates; every certificate the old CA issued stops working, the fleet's don't. The new admin certificate is issued for the caller's public key (`janusctl access rotate-ca` makes the key locally), or the node makes the key and prints it on its console like at first boot. The new CA comes cross-signed by the old one, served after the server certificate: whoever pinned the old CA still verifies the node, and the Controller pins the new one by itself. Written in two steps on STATE - a power cut leaves the old CA or the new one, whole |
@@ -99,7 +99,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
-| `Install` | server | ✅ | Partition a blank target disk from scratch (GPT + ESP/FAT32 + STATE/ext4, pure Go via go-diskfs) and write a release bundle's rootfs identically to both A/B slots - doesn't reboot anything; optional `controller_address`/`controller_ca_cert` (and `controller_fleet_root_cert`, the Controller's fleet root) write a `controller/` directory onto STATE for the installed node to self-register with on first boot |
+| `Install` | server | ✅ | Partition a blank target disk from scratch (GPT + ESP/FAT32 + STATE/ext4, pure Go via go-diskfs) and write a release bundle's rootfs identically to both A/B slots - doesn't reboot anything; optional `controller_address`/`controller_ca_cert` (and `controller_fleet_root_cert`, the Controller's fleet root) write a `controller/` directory onto STATE for the installed node to self-register with on first boot; optional `fleet_root_cert` + `fleet_bundle` (checked first) write `pki/fleet/` - the node trusts that fleet from its first boot, without a Controller ([fleet-without-controller.md](fleet-without-controller.md)) |
 | `Upgrade` | server | ✅ | Write a release bundle's rootfs to the inactive A/B slot, switch + reboot - `wait_for_health` auto-reverts if the new slot's HAProxy (real stats-socket check) never comes up healthy in time, or if janusd itself never stays running long enough to check |
 | `Rollback` | | ✅ | Switch back to the other A/B slot, reboot |
 

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	diskfs "github.com/diskfs/go-diskfs"
 	"github.com/diskfs/go-diskfs/disk"
@@ -12,6 +13,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/netconfig"
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // buildTestDisk creates a minimal disk with a single GPT partition
@@ -159,5 +161,47 @@ func TestSeedNetwork(t *testing.T) {
 	// The Controller can still be seeded next to it.
 	if err := SeedController(path, "controller.example.com:8443", []byte("ca"), nil); err != nil {
 		t.Errorf("SeedController after SeedNetwork: %v", err)
+	}
+}
+
+func TestSeedFleet(t *testing.T) {
+	path := buildTestDisk(t)
+	root, _ := pki.NewCAFor("root", time.Hour)
+	issuing, _ := root.IssueCA("issuing", time.Hour)
+	signed, err := pki.SignBundle(root, pki.Bundle{Version: 7, Issued: time.Now(), IssuingCAs: []string{string(issuing.CertPEM)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := pki.NewCAFor("another root", time.Hour)
+	if err := SeedFleet(path, other.CertPEM, signed); err == nil {
+		t.Error("a bundle another root signed was seeded")
+	}
+	// Next to a Controller's configuration, and a pki/ directory that's
+	// already there.
+	if err := SeedController(path, "controller.example.com:8443", []byte("ca"), nil); err != nil {
+		t.Fatal(err)
+	}
+	d, err := diskfs.Open(path, diskfs.WithOpenMode(diskfs.ReadWrite))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, err := d.GetFilesystem(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.Mkdir("pki"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SeedFleet(path, root.CertPEM, signed); err != nil {
+		t.Fatalf("SeedFleet: %v", err)
+	}
+	if got := readPath(t, path, "pki/fleet/root.crt"); string(got) != string(root.CertPEM) {
+		t.Errorf("root: %q", got)
+	}
+	if got := readPath(t, path, "pki/fleet/bundle.json"); string(got) != string(signed) {
+		t.Errorf("bundle: %q", got)
+	}
+	if err := SeedFleet(path, root.CertPEM, signed); err == nil {
+		t.Error("a second fleet was seeded")
 	}
 }

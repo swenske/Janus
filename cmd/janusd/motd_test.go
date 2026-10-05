@@ -26,9 +26,11 @@ func TestRenderMOTD(t *testing.T) {
 		ActiveSlot:     "B",
 		APIAddresses:   []string{"172.16.1.78:9505"},
 		HAProxyRunning: true,
+		CAFingerprint:  "0123456789abcdef0123456789abcdef89abcdef0123456789abcdef01234567",
 	}
 	out := renderMOTD(info, false)
-	for _, want := range []string{"J A N U S", "v2026.09.30", "6.18.53 · boot slot B", "172.16.1.78:9505 (gRPC, mTLS)", "haproxy   running", "janusctl"} {
+	for _, want := range []string{"J A N U S", "v2026.09.30", "6.18.53 · boot slot B", "172.16.1.78:9505 (gRPC, mTLS)", "haproxy   running", "janusctl",
+		"ca sha256 01234567 89abcdef 01234567 89abcdef\n", "          89abcdef 01234567 89abcdef 01234567\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("MOTD missing %q:\n%s", want, out)
 		}

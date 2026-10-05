@@ -46,6 +46,9 @@ type motdInfo struct {
 	APIAddresses   []string
 	HAProxyRunning bool
 	FirstBoot      bool
+	// CAFingerprint is the SHA-256 of the node's own CA (hex): what
+	// janusctl fleet adopt -ca-fingerprint checks the node against.
+	CAFingerprint string
 }
 
 // renderMOTD builds the console banner janusd prints once it's
@@ -82,10 +85,16 @@ func renderMOTD(info motdInfo, color bool) string {
 		"kernel    " + info.KernelVersion + slot,
 		"api       " + api + " (gRPC, mTLS)",
 		"haproxy   " + haproxyState,
+	}
+	if fp := info.CAFingerprint; len(fp) == 64 {
+		group := func(s string) string { return s[0:8] + " " + s[8:16] + " " + s[16:24] + " " + s[24:32] }
+		text = append(text, "ca sha256 "+group(fp[:32]), "          "+group(fp[32:]))
+	}
+	text = append(text,
 		"",
 		"No shell, no SSH: manage this node through",
 		"its API, with janusctl or the Janus Controller.",
-	}
+	)
 	if info.FirstBoot {
 		text = append(text, "", paint(ansiOrange, "First boot: the admin credentials are printed above - save them now."))
 	}

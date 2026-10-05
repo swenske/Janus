@@ -428,6 +428,7 @@ func main() {
 		APIAddresses:   apiAddresses(*addr, pki.LocalIPs()),
 		HAProxyRunning: haproxyRunning,
 		FirstBoot:      pkiBootstrap.AdminIssued,
+		CAFingerprint:  pki.Fingerprint(local.CA().Cert.Raw),
 	})
 	if err := srv.Serve(lis); err != nil {
 		fmt.Fprintln(os.Stderr, "serve:", err)

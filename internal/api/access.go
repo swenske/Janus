@@ -44,13 +44,16 @@ type Access struct {
 
 func (a *Access) state() *janusv1alpha1.TrustState {
 	st := &janusv1alpha1.TrustState{}
+	if a.Local != nil {
+		st.LocalCaCert = a.Local.CA().CertPEM
+	}
 	root := a.Fleet.Root()
 	if root == nil {
 		return st
 	}
 	st.RootCert = pemCert(root.Raw)
 	if b, cas := a.Fleet.Bundle(); b != nil {
-		st.BundleVersion, st.BundleIssuedUnix = b.Version, b.Issued.Unix()
+		st.BundleVersion, st.BundleIssuedUnix, st.Bundle = b.Version, b.Issued.Unix(), a.Fleet.Signed()
 		for _, c := range cas {
 			st.IssuingCas = append(st.IssuingCas, pemCert(c.Raw))
 		}

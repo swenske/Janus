@@ -105,6 +105,14 @@ message InstallRequest {
   // and in effect from its first boot. Unset: the defaults (DHCP on
   // every Ethernet interface).
   NetworkConfig network_config = 5;
+  // Optional: a fleet for the installed node to trust from its first
+  // boot - its root (PEM) and a bundle that root signed (pki.SignedBundle
+  // as JSON), both required together. The fleet's certificates then let
+  // in without anyone copying the first boot's admin credential
+  // (janusctl fleet adopt -ca-fingerprint). Checked before anything is
+  // written.
+  bytes fleet_root_cert = 7;
+  bytes fleet_bundle = 8;
 }
 
 message InstallResponse {

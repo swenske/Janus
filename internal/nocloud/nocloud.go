@@ -49,6 +49,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/netconfig"
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // ErrNotFound is returned by FindVolume when no candidate device
@@ -77,6 +78,12 @@ type Config struct {
 	// user-data's "network" object - the NetworkConfig message's JSON
 	// form, as `janusctl network get` prints it.
 	Network *janusv1alpha1.NetworkConfig
+	// A fleet for the node to trust from its first boot, without a
+	// Controller (janusctl fleet): its root (PEM) and a bundle that root
+	// signed - user-data's "fleet_root_cert" and "fleet_bundle" (the
+	// bundle file's JSON object, or that JSON as a string). Checked here.
+	FleetRoot   []byte
+	FleetBundle []byte
 }
 
 type userData struct {
@@ -85,6 +92,8 @@ type userData struct {
 	RegistrationToken   string          `json:"registration_token"`
 	ControllerFleetRoot string          `json:"controller_fleet_root_cert"`
 	Network             json.RawMessage `json:"network"`
+	FleetRoot           string          `json:"fleet_root_cert"`
+	FleetBundle         json.RawMessage `json:"fleet_bundle"`
 }
 
 type metaData struct {
@@ -211,8 +220,19 @@ func parseUserData(raw []byte) (*Config, error) {
 		}
 		cfg.Network = n
 	}
-	if cfg.ControllerAddress == "" && cfg.Network == nil {
-		return nil, errors.New("user-data has neither controller_address/controller_ca_cert nor network")
+	if ud.FleetRoot != "" || len(ud.FleetBundle) > 0 {
+		bundle := []byte(ud.FleetBundle)
+		var s string
+		if json.Unmarshal(ud.FleetBundle, &s) == nil {
+			bundle = []byte(s)
+		}
+		if _, err := pki.CheckFleet([]byte(ud.FleetRoot), bundle); err != nil {
+			return nil, fmt.Errorf("user-data: fleet_root_cert, fleet_bundle: %w", err)
+		}
+		cfg.FleetRoot, cfg.FleetBundle = []byte(ud.FleetRoot), bundle
+	}
+	if cfg.ControllerAddress == "" && cfg.Network == nil && cfg.FleetRoot == nil {
+		return nil, errors.New("user-data has none of controller_address/controller_ca_cert, network, fleet_root_cert/fleet_bundle")
 	}
 	return cfg, nil
 }

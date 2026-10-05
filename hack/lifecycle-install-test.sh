@@ -196,9 +196,13 @@ truncate -s "${DISK_MB}M" "$BLANK_DISK"
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
   -keyout "$WORKDIR/controller-ca.key" -out "$WORKDIR/controller-ca.crt" -days 1 -nodes -subj "/CN=test Controller CA" >/dev/null 2>&1
 CONTROLLER_ADDRESS="10.20.30.40:8443"
+# A fleet for the node to trust from its first boot (janusctl fleet):
+# a test fleet's root and a bundle it signed.
+go run ./hack/fleetca "$WORKDIR/fleet" >/dev/null
 
 INSTALL_OUT="$(sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
   -controller-address "$CONTROLLER_ADDRESS" -controller-ca "$WORKDIR/controller-ca.crt" \
+  -fleet-root "$WORKDIR/fleet/root.crt" -fleet-bundle "$WORKDIR/fleet/bundle-1.json" \
   "$BLANK_DISK" "$BUNDLE")"
 echo "$INSTALL_OUT"
 if ! echo "$INSTALL_OUT" | grep -qi '\[done '; then
@@ -220,6 +224,17 @@ fi
 grep -qi "controller-ca is required" "$WORKDIR/no-ca-denied.log" || { echo "Install test FAILED: expected a '-controller-ca is required' refusal, got:" >&2; cat "$WORKDIR/no-ca-denied.log" >&2; exit 1; }
 echo "Part 1b OK: -controller-address without -controller-ca correctly refused client-side"
 
+# A bundle another root signed is refused by the node before anything is
+# written.
+if sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
+  -fleet-root "$WORKDIR/fleet/stranger-root.crt" -fleet-bundle "$WORKDIR/fleet/bundle-1.json" "$WORKDIR/unused-disk.img" "$BUNDLE" 2>"$WORKDIR/fleet-denied.log"; then
+  echo "Install test FAILED: a bundle another root signed was accepted" >&2
+  exit 1
+fi
+grep -qi "fleet_root_cert, fleet_bundle" "$WORKDIR/fleet-denied.log" || { echo "Install test FAILED: expected the fleet refused, got:" >&2; cat "$WORKDIR/fleet-denied.log" >&2; exit 1; }
+[ ! -e "$WORKDIR/unused-disk.img" ] || { echo "Install test FAILED: the refused Install wrote a disk" >&2; exit 1; }
+echo "Part 1b' OK: a fleet whose bundle another root signed refused before anything was written"
+
 # --- the controller/ directory Install wrote onto STATE must contain
 # exactly what was passed above - extracted directly off the blank
 # disk's own STATE partition, no boot required (this tranche only
@@ -238,6 +253,11 @@ debugfs -R "dump controller/ca.crt $WORKDIR/extracted-controller-ca.crt" "$CTRL_
 [ "$(cat "$WORKDIR/extracted-controller-address")" = "$CONTROLLER_ADDRESS" ] || { echo "Install test FAILED: controller/address was $(cat "$WORKDIR/extracted-controller-address"), want $CONTROLLER_ADDRESS" >&2; exit 1; }
 cmp -s "$WORKDIR/controller-ca.crt" "$WORKDIR/extracted-controller-ca.crt" || { echo "Install test FAILED: controller/ca.crt on STATE doesn't match what was passed to Install" >&2; exit 1; }
 echo "Part 1c OK: controller/address and controller/ca.crt both written correctly to STATE"
+debugfs -R "dump pki/fleet/root.crt $WORKDIR/extracted-fleet-root.crt" "$CTRL_STATE_IMG" >/dev/null 2>&1
+debugfs -R "dump pki/fleet/bundle.json $WORKDIR/extracted-fleet-bundle.json" "$CTRL_STATE_IMG" >/dev/null 2>&1
+cmp -s "$WORKDIR/fleet/root.crt" "$WORKDIR/extracted-fleet-root.crt" || { echo "Install test FAILED: pki/fleet/root.crt on STATE doesn't match the fleet's root" >&2; exit 1; }
+cmp -s "$WORKDIR/fleet/bundle-1.json" "$WORKDIR/extracted-fleet-bundle.json" || { echo "Install test FAILED: pki/fleet/bundle.json on STATE doesn't match the bundle" >&2; exit 1; }
+echo "Part 1d OK: the fleet written to STATE where janusd keeps the one it trusts (pki/fleet/)"
 
 # --- verify the partition table matches image/disk/assemble.sh's own
 # convention exactly, independent of go-diskfs's own view of what it

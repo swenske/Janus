@@ -19,6 +19,7 @@ import (
 	"github.com/swenske/Janus/internal/espswitch"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/netconfig"
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // Install writes a full Janus image to a blank disk for the first
@@ -68,6 +69,11 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 	if nc := req.GetNetworkConfig(); nc != nil {
 		if err := netconfig.Validate(nc); err != nil {
 			return status.Errorf(codes.InvalidArgument, "network_config: %v", err)
+		}
+	}
+	if len(req.GetFleetRootCert()) > 0 || len(req.GetFleetBundle()) > 0 {
+		if _, err := pki.CheckFleet(req.GetFleetRootCert(), req.GetFleetBundle()); err != nil {
+			return status.Errorf(codes.InvalidArgument, "fleet_root_cert, fleet_bundle: %v", err)
 		}
 	}
 
@@ -187,6 +193,9 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 	}
 	if err := writeNetworkConfig(stateFS, req.GetNetworkConfig()); err != nil {
 		return err
+	}
+	if err := writeFleet(stateFS, req.GetFleetRootCert(), req.GetFleetBundle()); err != nil {
+		return status.Errorf(codes.Internal, "%v", err)
 	}
 
 	if err := send("writing-esp", 0.8, "building the ESP"); err != nil {
@@ -318,6 +327,28 @@ func writeNetworkConfig(fs filesystem.FileSystem, cfg *janusv1alpha1.NetworkConf
 		return status.Errorf(codes.Internal, "%v", err)
 	}
 	return nil
+}
+
+// writeFleet puts a fleet on the new STATE filesystem where janusd keeps
+// the one it trusts (pki/fleet/, pki.FleetDir) - in effect from the first
+// boot. Nothing without one.
+func writeFleet(fs filesystem.FileSystem, rootPEM, signed []byte) error {
+	if len(rootPEM) == 0 {
+		return nil
+	}
+	signed, err := pki.CanonicalBundle(signed)
+	if err != nil {
+		return err
+	}
+	for _, dir := range []string{"pki", "pki/" + pki.FleetDir} { // no leading slash - see writeControllerConfig
+		if err := fs.Mkdir(dir); err != nil {
+			return fmt.Errorf("mkdir STATE %s/: %w", dir, err)
+		}
+	}
+	if err := writeFSFile(fs, "pki/"+pki.FleetDir+"/"+pki.FleetRootFile, rootPEM); err != nil {
+		return err
+	}
+	return writeFSFile(fs, "pki/"+pki.FleetDir+"/"+pki.FleetBundleFile, signed)
 }
 
 // writeControllerConfig writes the node self-registration config

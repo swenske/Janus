@@ -41,6 +41,13 @@ the Controller through its fleet - asking for the fleet's certificate,
 fleet's trust; the CA certificate stays for a Controller that has no
 fleet yet, and for older images, which ignore the root.
 
+Without a Controller, give nodes a fleet janusctl keeps instead
+([fleet-without-controller.md](fleet-without-controller.md)): `janusctl
+image seed-fleet`, `lifecycle install -fleet-root -fleet-bundle`, or
+`fleet_root_cert` + `fleet_bundle` in NoCloud user-data - the node trusts
+the fleet from its first boot, and `janusctl fleet adopt -ca-fingerprint`
+takes it in on the fingerprint its console shows.
+
 ## Method 1: shared image + `seed-controller` (recommended)
 
 How it works: `image/kvm-proxmox/assemble.sh` (or `make proxmox-image`)

@@ -19,6 +19,8 @@ import (
 	diskfs "github.com/diskfs/go-diskfs"
 	"github.com/diskfs/go-diskfs/disk"
 	"github.com/diskfs/go-diskfs/filesystem"
+
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // buildVolume creates a whole-disk (no partition table - the real
@@ -261,4 +263,36 @@ func certToPEM(t *testing.T, cert *x509.Certificate) string {
 func escapeJSON(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b[1 : len(b)-1]) // strip the surrounding quotes json.Marshal added
+}
+
+func TestParseUserDataFleet(t *testing.T) {
+	root, _ := pki.NewCAFor("root", time.Hour)
+	issuing, _ := root.IssueCA("issuing", time.Hour)
+	signed, err := pki.SignBundle(root, pki.Bundle{Version: 2, Issued: time.Now(), IssuingCAs: []string{string(issuing.CertPEM)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootJSON, _ := json.Marshal(string(root.CertPEM))
+	asString, _ := json.Marshal(string(signed))
+	// The bundle file's object as is, or that JSON as a string.
+	for _, bundle := range []string{string(signed), string(asString)} {
+		cfg, err := parseUserData([]byte(`{"fleet_root_cert":` + string(rootJSON) + `,"fleet_bundle":` + bundle + `}`))
+		if err != nil {
+			t.Fatalf("%.30s: %v", bundle, err)
+		}
+		if string(cfg.FleetRoot) != string(root.CertPEM) {
+			t.Errorf("root %q", cfg.FleetRoot)
+		}
+		if _, err := pki.CheckFleet(cfg.FleetRoot, cfg.FleetBundle); err != nil {
+			t.Errorf("the bundle read back: %v", err)
+		}
+	}
+	other, _ := pki.NewCAFor("another root", time.Hour)
+	otherJSON, _ := json.Marshal(string(other.CertPEM))
+	if _, err := parseUserData([]byte(`{"fleet_root_cert":` + string(otherJSON) + `,"fleet_bundle":` + string(signed) + `}`)); err == nil {
+		t.Error("a bundle another root signed was taken")
+	}
+	if _, err := parseUserData([]byte(`{"fleet_root_cert":` + string(rootJSON) + `}`)); err == nil {
+		t.Error("a root without its bundle was taken")
+	}
 }

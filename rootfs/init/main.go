@@ -36,9 +36,14 @@ import (
 	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/nocloud"
+	"github.com/swenske/Janus/internal/pki"
 )
 
 const daemonPath = "/sbin/janusd"
+
+// pkiStateDir is janusd's -pki-dir, bind-mounted from STATE by
+// mountState.
+const pkiStateDir = "/etc/janus/pki"
 
 func mount(source, target, fstype string) {
 	mountData(source, target, fstype, "")
@@ -329,7 +334,9 @@ func seedFromNoCloud() {
 	_, err := os.Stat(addressPath)
 	haveController := err == nil
 	haveNetwork := netconfig.Exists()
-	if haveController && haveNetwork {
+	_, err = os.Stat(filepath.Join(pkiStateDir, pki.FleetDir, pki.FleetRootFile))
+	haveFleet := err == nil
+	if haveController && haveNetwork && haveFleet {
 		return
 	}
 
@@ -363,6 +370,16 @@ func seedFromNoCloud() {
 			fmt.Printf("init: nocloud: save the network configuration: %v\n", err)
 		} else {
 			fmt.Printf("init: nocloud: seeded network config from %s\n", volume)
+		}
+	}
+
+	// A fleet to trust from this first boot, without a Controller
+	// (janusctl fleet) - checked by nocloud.Read already, and again here.
+	if !haveFleet && cfg.FleetRoot != nil {
+		if err := pki.ProvisionFleet(pkiStateDir, cfg.FleetRoot, cfg.FleetBundle); err != nil {
+			fmt.Printf("init: nocloud: the fleet: %v\n", err)
+		} else {
+			fmt.Printf("init: nocloud: seeded the fleet from %s\n", volume)
 		}
 	}
 

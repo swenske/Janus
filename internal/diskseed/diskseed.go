@@ -43,6 +43,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/netconfig"
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // SeedController writes address/caCertPEM onto diskPath's existing
@@ -156,6 +157,50 @@ func SeedNetwork(diskPath string, cfg *janusv1alpha1.NetworkConfig) error {
 		return fmt.Errorf("mkdir STATE network/: %w", err)
 	}
 	return writeFSFile(fs, path, data)
+}
+
+// SeedFleet writes a fleet - its root (PEM) and a bundle the root
+// signed - onto an already-built disk's STATE partition, where janusd
+// keeps the fleet it trusts (pki/fleet/): the node lets the fleet's
+// certificates in from its first boot, without a Controller (janusctl
+// fleet). Checked first; refuses a disk that already trusts a fleet
+// (same go-diskfs reasons as SeedController).
+func SeedFleet(diskPath string, rootPEM, signed []byte) error {
+	if _, err := pki.CheckFleet(rootPEM, signed); err != nil {
+		return err
+	}
+	signed, err := pki.CanonicalBundle(signed)
+	if err != nil {
+		return err
+	}
+	d, err := diskfs.Open(diskPath, diskfs.WithOpenMode(diskfs.ReadWrite))
+	if err != nil {
+		return fmt.Errorf("open %s: %w", diskPath, err)
+	}
+	partIndex, err := findStatePartition(d)
+	if err != nil {
+		return fmt.Errorf("%s: %w", diskPath, err)
+	}
+	fs, err := d.GetFilesystem(partIndex)
+	if err != nil {
+		return fmt.Errorf("open STATE filesystem: %w", err)
+	}
+	dir := "pki/" + pki.FleetDir
+	if _, err := fs.OpenFile(dir+"/"+pki.FleetRootFile, os.O_RDONLY); err == nil {
+		return fmt.Errorf("%s already trusts a fleet - re-run against a fresh, unseeded image instead of patching this one in place", diskPath)
+	}
+	for _, d := range []string{"pki", dir} {
+		if _, err := fs.ReadDir(d); err == nil {
+			continue
+		}
+		if err := fs.Mkdir(d); err != nil {
+			return fmt.Errorf("mkdir STATE %s/: %w", d, err)
+		}
+	}
+	if err := writeFSFile(fs, dir+"/"+pki.FleetRootFile, rootPEM); err != nil {
+		return err
+	}
+	return writeFSFile(fs, dir+"/"+pki.FleetBundleFile, signed)
 }
 
 func findStatePartition(d *diskpkg.Disk) (int, error) {

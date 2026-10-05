@@ -52,6 +52,12 @@ message TrustState {
   uint64 bundle_version = 2; // 0 without a bundle
   int64 bundle_issued_unix = 3;
   repeated bytes issuing_cas = 4; // PEM
+  // The node's own CA (PEM): what a client of the fleet pins to verify
+  // the node - checked against its fingerprint, shown on the console.
+  bytes local_ca_cert = 5;
+  // The signed bundle as the node applies it (pki.SignedBundle as JSON):
+  // whoever holds an older one takes it (janusctl fleet sync).
+  bytes bundle = 6;
 }
 
 message TrustSetRequest {

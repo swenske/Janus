@@ -124,8 +124,14 @@ type TrustState struct {
 	BundleVersion    uint64                 `protobuf:"varint,2,opt,name=bundle_version,json=bundleVersion,proto3" json:"bundle_version,omitempty"` // 0 without a bundle
 	BundleIssuedUnix int64                  `protobuf:"varint,3,opt,name=bundle_issued_unix,json=bundleIssuedUnix,proto3" json:"bundle_issued_unix,omitempty"`
 	IssuingCas       [][]byte               `protobuf:"bytes,4,rep,name=issuing_cas,json=issuingCas,proto3" json:"issuing_cas,omitempty"` // PEM
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The node's own CA (PEM): what a client of the fleet pins to verify
+	// the node - checked against its fingerprint, shown on the console.
+	LocalCaCert []byte `protobuf:"bytes,5,opt,name=local_ca_cert,json=localCaCert,proto3" json:"local_ca_cert,omitempty"`
+	// The signed bundle as the node applies it (pki.SignedBundle as JSON):
+	// whoever holds an older one takes it (janusctl fleet sync).
+	Bundle        []byte `protobuf:"bytes,6,opt,name=bundle,proto3" json:"bundle,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TrustState) Reset() {
@@ -182,6 +188,20 @@ func (x *TrustState) GetBundleIssuedUnix() int64 {
 func (x *TrustState) GetIssuingCas() [][]byte {
 	if x != nil {
 		return x.IssuingCas
+	}
+	return nil
+}
+
+func (x *TrustState) GetLocalCaCert() []byte {
+	if x != nil {
+		return x.LocalCaCert
+	}
+	return nil
+}
+
+func (x *TrustState) GetBundle() []byte {
+	if x != nil {
+		return x.Bundle
 	}
 	return nil
 }
@@ -248,14 +268,16 @@ const file_janus_v1alpha1_access_proto_rawDesc = "" +
 	"\x15LocalCARotateResponse\x12\x17\n" +
 	"\aca_cert\x18\x01 \x01(\fR\x06caCert\x12\x1d\n" +
 	"\n" +
-	"admin_cert\x18\x02 \x01(\fR\tadminCert\"\x9f\x01\n" +
+	"admin_cert\x18\x02 \x01(\fR\tadminCert\"\xdb\x01\n" +
 	"\n" +
 	"TrustState\x12\x1b\n" +
 	"\troot_cert\x18\x01 \x01(\fR\brootCert\x12%\n" +
 	"\x0ebundle_version\x18\x02 \x01(\x04R\rbundleVersion\x12,\n" +
 	"\x12bundle_issued_unix\x18\x03 \x01(\x03R\x10bundleIssuedUnix\x12\x1f\n" +
 	"\vissuing_cas\x18\x04 \x03(\fR\n" +
-	"issuingCas\"F\n" +
+	"issuingCas\x12\"\n" +
+	"\rlocal_ca_cert\x18\x05 \x01(\fR\vlocalCaCert\x12\x16\n" +
+	"\x06bundle\x18\x06 \x01(\fR\x06bundle\"F\n" +
 	"\x0fTrustSetRequest\x12\x1b\n" +
 	"\troot_cert\x18\x01 \x01(\fR\brootCert\x12\x16\n" +
 	"\x06bundle\x18\x02 \x01(\fR\x06bundle2\xb8\x02\n" +
