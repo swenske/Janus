@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -49,6 +50,9 @@ func main() {
 	keyFile := flag.String("key", "/etc/janus/pki/admin.key", "path to the client private key")
 	asUser := flag.String("as-user", "", "with a Controller certificate (role janus:controller): the user the calls are made for")
 	asRoles := flag.String("as-roles", "", "with -as-user: that user's roles, comma-separated (os:admin, os:operator, os:reader)")
+	ctxFlag := flag.String("context", "", "the context to use (janusctl login; default: the current one)")
+	nodesFlag := flag.String("n", "", "with a context: the node(s) to run the command on, by name or ID, comma-separated")
+	allFlag := flag.Bool("all", false, "with a context: run the command on every node of the fleet")
 	flag.Parse()
 	if *asUser != "" || *asRoles != "" {
 		actingFor = metadata.Pairs(pki.AsUserKey, *asUser, pki.AsRolesKey, *asRoles)
@@ -64,9 +68,53 @@ func main() {
 	// connection at all (that's the entire point, see internal/diskseed's
 	// own package doc) - dispatched before dial() so a missing/
 	// unreachable -endpoint never gets in the way.
-	if flag.Arg(0) == "image" {
+	switch flag.Arg(0) {
+	case "image":
 		runImage(flag.Args()[1:])
 		return
+	case "login":
+		runLogin(flag.Args()[1:])
+		return
+	case "context":
+		runContext(flag.Args()[1:])
+		return
+	case "nodes":
+		runNodes(*ctxFlag)
+		return
+	}
+
+	// A context (janusctl login) unless the node's own certificate is
+	// given: -endpoint/-ca/-cert/-key.
+	explicit := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	redial := func(ep string) (*grpc.ClientConn, error) { return dial(ep, *caFile, *certFile, *keyFile) }
+	if !explicit["endpoint"] && !explicit["ca"] && !explicit["cert"] && !explicit["key"] {
+		cfg, err := loadConfig()
+		if err != nil {
+			log.Fatal(err)
+		}
+		if name, ctx := currentContext(cfg, *ctxFlag); ctx != nil {
+			nodes, err := selectNodes(ctx, *nodesFlag, *allFlag)
+			if err != nil {
+				log.Fatalf("janusctl: %v", err)
+			}
+			if err := fresh(cfg, name, ctx); err != nil {
+				log.Fatalf("janusctl: %v", err)
+			}
+			if len(nodes) > 1 {
+				runOnEach(name, nodes, flag.Args())
+				return
+			}
+			node := nodes[0]
+			tlsConfig, err := nodeTLS(name, node)
+			if err != nil {
+				log.Fatalf("janusctl: %v", err)
+			}
+			*endpoint = node.Address
+			redial = func(ep string) (*grpc.ClientConn, error) { return dialTLS(ep, tlsConfig) }
+		} else if *ctxFlag != "" || *nodesFlag != "" || *allFlag {
+			log.Fatal("janusctl: no context - janusctl login -controller HOST")
+		}
 	}
 
 	// janusctl's own version first: shown even when no node is
@@ -75,7 +123,7 @@ func main() {
 		fmt.Println("Client:", version)
 	}
 
-	conn, err := dial(*endpoint, *caFile, *certFile, *keyFile)
+	conn, err := redial(*endpoint)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -95,9 +143,7 @@ func main() {
 	case "lifecycle":
 		runLifecycle(conn, flag.Args()[1:])
 	case "network":
-		runNetwork(conn, *endpoint, func(ep string) (*grpc.ClientConn, error) {
-			return dial(ep, *caFile, *certFile, *keyFile)
-		}, flag.Args()[1:])
+		runNetwork(conn, *endpoint, redial, flag.Args()[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl: unknown command %q\n", cmd)
 		usage()
@@ -123,8 +169,12 @@ func dial(endpoint, caFile, certFile, keyFile string) (*grpc.ClientConn, error) 
 	if err != nil {
 		return nil, fmt.Errorf("build TLS config: %w", err)
 	}
+	return dialTLS(endpoint, tlsConfig)
+}
 
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
+// dialTLS connects to a node with tlsConfig.
+func dialTLS(endpoint string, tlsConfig *tls.Config) (*grpc.ClientConn, error) {
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig.Clone()))}
 	if actingFor != nil {
 		opts = append(opts,
 			grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, o ...grpc.CallOption) error {
@@ -208,8 +258,12 @@ func runPcap(conn *grpc.ClientConn, args []string) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: janusctl [-endpoint host:port] <command>")
+	fmt.Fprintln(os.Stderr, "usage: janusctl [-context NAME] [-n NODE[,NODE...] | -all] <command>        with a context (janusctl login)")
+	fmt.Fprintln(os.Stderr, "       janusctl -endpoint host:port -ca FILE -cert FILE -key FILE <command>   with a node's own certificate")
 	fmt.Fprintln(os.Stderr, "commands:")
+	fmt.Fprintln(os.Stderr, "  login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE | -controller-fingerprint SHA256]  sign in to a Controller with the API token in JANUS_TOKEN: a certificate of its fleet for your account (an hour), and its nodes")
+	fmt.Fprintln(os.Stderr, "  context [list | use NAME | delete NAME]  the Controllers signed in to")
+	fmt.Fprintln(os.Stderr, "  nodes                      the context's nodes (refreshed with JANUS_TOKEN)")
 	fmt.Fprintln(os.Stderr, "  version                    print janusctl's own version and the connected node's version")
 	fmt.Fprintln(os.Stderr, "  system info                print version/kernel/active slot + memory/CPU/load/disk stats (the dashboard's own single-node fetch)")
 	fmt.Fprintln(os.Stderr, "  system pcap -i IFACE [-f FILTER] [-promisc] [-include-own-stream] [-snaplen N] [-duration D] [-o FILE]  live packet capture as a pcap file (stdout by default - pipe into tcpdump -r - or wireshark -k -i -); see docs/packet-capture.md")

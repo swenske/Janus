@@ -135,6 +135,10 @@ Controller route names the role a read of it and a change of it need
 change and sign-in is in the Controller's audit, and what reaches a node
 in the node's log too. A node's page is the Controller's too, under
 `/nodes/<id>/` behind the session, with no certificate in the browser.
+janusctl signs in to the Controller (`janusctl login`) and gets a short
+certificate of the fleet for the account - for its own key, the
+account's name and role in it -, then reaches the nodes directly: each
+node takes it through its bundle, applies the role and logs the account.
 A second factor - TOTP, its secret sealed with
 the master key, or a WebAuthn passkey - finishes the sign-in of an
 account that has one, required for admins by default.

@@ -877,6 +877,35 @@ grep -q 'api: SystemService/ServiceRestart: olga (os:operator) via janus-control
 grep -q 'access: fleet root' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log taking the fleet" >&2; exit 1; }
 echo "Fleet relay OK: the node logs each account acting through the Controller - an operator restarted HAProxy and was refused an admin's call by the node itself, a reader read"
 
+# janusctl signed in to the Controller with an API token: a certificate
+# of the fleet for the account - an hour, for a key janusctl made - and
+# the nodes; it reaches the node directly, which applies the role.
+go build -o "$WORKDIR/janusctl" ./cmd/janusctl
+export JANUSCONFIG="$WORKDIR/janusctl-config/config.json"
+CONTROLLER_FP="$(openssl x509 -in "$WORKDIR/data/dashboard-identity.crt" -noout -fingerprint -sha256 | cut -d= -f2)"
+cli_token() { # cli_token JAR ROLE
+  curl -sk -b "$1" -X POST "$API/api/tokens" -H 'Content-Type: application/json' -d "{\"name\":\"janusctl-$2\",\"role\":\"$2\"}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
+}
+ADMIN_TOKEN="$(cli_token "$COOKIE_JAR" admin)"
+READER_TOKEN="$(cli_token "$READER_JAR" reader)"
+JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" login -context admin -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" -controller-fingerprint "$CONTROLLER_FP" >"$WORKDIR/janusctl-login.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: janusctl login: $(cat "$WORKDIR/janusctl-login.txt")" >&2; exit 1; }
+grep -q 'as admin (os:admin)' "$WORKDIR/janusctl-login.txt" || { echo "Dashboard test FAILED: janusctl login: $(cat "$WORKDIR/janusctl-login.txt")" >&2; exit 1; }
+"$WORKDIR/janusctl" -context admin -n test-node system service restart haproxy >/dev/null \
+  || { echo "Dashboard test FAILED: janusctl, signed in as admin, restarting HAProxy on the node" >&2; exit 1; }
+JANUS_TOKEN="$READER_TOKEN" "$WORKDIR/janusctl" login -context reader -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" -controller-fingerprint "$CONTROLLER_FP" >/dev/null 2>&1 \
+  || { echo "Dashboard test FAILED: janusctl login as a reader" >&2; exit 1; }
+"$WORKDIR/janusctl" -context reader -n test-node version >/dev/null || { echo "Dashboard test FAILED: janusctl as a reader can't read the node" >&2; exit 1; }
+if "$WORKDIR/janusctl" -context reader -n test-node system service restart haproxy >"$WORKDIR/janusctl-reader.txt" 2>&1; then
+  echo "Dashboard test FAILED: janusctl as a reader restarted HAProxy" >&2; exit 1
+fi
+grep -q 'requires role .*rita has \[os:reader\]' "$WORKDIR/janusctl-reader.txt" || { echo "Dashboard test FAILED: the reader refused by someone else than the node: $(cat "$WORKDIR/janusctl-reader.txt")" >&2; exit 1; }
+wrong_pin="$(JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" login -context x -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" -controller-fingerprint "00:11" 2>&1 || true)"
+grep -q 'not trusted' <<<"$wrong_pin" || { echo "Dashboard test FAILED: janusctl trusted a Controller with another fingerprint: $wrong_pin" >&2; exit 1; }
+curl -sk -m 4 -b "$COOKIE_JAR" "${NODE_BASE}/api/stream/logs?id=janusd&tail=300" >"$WORKDIR/node-janusd.log" || true
+grep -qE 'api: SystemService/ServiceRestart: admin \(os:admin\)$' "$WORKDIR/node-janusd.log" || { echo "Dashboard test FAILED: the node didn't log janusctl's restart as the account's, directly: $(grep ServiceRestart "$WORKDIR/node-janusd.log")" >&2; exit 1; }
+echo "janusctl OK: signed in with an API token (the Controller pinned), it reached the node directly with the fleet's certificate as admin; a reader read and was refused a restart by the node"
+
 kill "$DASHBOARD_PID"
 wait "$DASHBOARD_PID" 2>/dev/null || true
 "$DASHBOARDD" -addr ":${DASHBOARD_ADDR_PORT}" -register-addr ":${DASHBOARD_REGISTER_PORT}" -data-dir "$WORKDIR/data" > "$WORKDIR/dashboardd-restart2.log" 2>&1 &
@@ -895,7 +924,6 @@ echo "Fleet restart OK: the issuing CA unsealed with the master key, the node re
 # --- the node replaces its own CA (janusctl access rotate-ca): the
 # Controller follows it - the new CA comes cross-signed by the one it
 # pinned - and the new admin certificate opens the node's page ---
-go build -o "$WORKDIR/janusctl" ./cmd/janusctl
 "$WORKDIR/janusctl" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" access rotate-ca "$WORKDIR/rotated" >/dev/null \
   || { echo "Dashboard test FAILED: janusctl access rotate-ca" >&2; exit 1; }
 cp "$WORKDIR/data/nodes/$FLEET_NODE_ID/ca.crt" "$WORKDIR/pinned-before.crt"
