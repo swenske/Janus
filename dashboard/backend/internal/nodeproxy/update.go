@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	"github.com/swenske/Janus/dashboard/updater/updaterapi"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/schematic"
 )
@@ -152,7 +153,7 @@ func resolveUpdate(ctx context.Context, uc *updateCheck) {
 		uc.State = "ready"
 		uc.Latest, uc.ReleaseURL, uc.PublishedAt = rel.TagName, rel.HTMLURL, rel.PublishedAt
 		uc.BundleURL, uc.SHA256 = rel.BundleBaseURL, rel.SHA256
-		uc.UpdateAvailable = uc.Latest != uc.Version
+		uc.UpdateAvailable = updateAvailable(uc.Latest, uc.Version)
 		return
 	}
 
@@ -170,7 +171,7 @@ func resolveUpdate(ctx context.Context, uc *updateCheck) {
 	uc.Latest, uc.ReleaseURL = up.Version, up.ReleaseURL
 	uc.BundleURL, uc.SHA256 = up.BundleURL, up.SHA256
 	uc.State, uc.Message = up.State, up.Message
-	uc.UpdateAvailable = up.Version != "" && up.Version != uc.Version
+	uc.UpdateAvailable = updateAvailable(up.Version, uc.Version)
 	if len(up.Renamed) > 0 && up.Schematic != "" && up.Schematic != uc.SchematicID {
 		uc.Renamed, uc.TargetSchematicID = up.Renamed, up.Schematic
 		uc.TargetExtensions = []string{}
@@ -180,6 +181,21 @@ func resolveUpdate(ctx context.Context, uc *updateCheck) {
 		slices.Sort(uc.TargetExtensions)
 		uc.UpdateAvailable = up.Version != ""
 	}
+}
+
+// updateAvailable reports whether latest is an update for a node
+// running running: newer by CalVer - a node that just installed a
+// release the cached latest predates isn't offered the older one, nor a
+// build after a release that release again. A version that isn't
+// CalVer ("dev") only compares as different.
+func updateAvailable(latest, running string) bool {
+	if latest == "" {
+		return false
+	}
+	if newer, known := updaterapi.Newer(latest, running); known {
+		return newer
+	}
+	return latest != running
 }
 
 // extensionsUpdate is POST /api/factory/update: the newest update built

@@ -325,7 +325,16 @@ scroll.
 
 - **Polling** follows the global refresh interval (Off, 1 s … 30 s,
   remembered per browser) through `usePoll`, and pauses while the tab is
-  hidden. Use a longer fixed `every` only for slow-changing data.
+  hidden. Use a longer fixed `every` only for slow-changing data. A
+  failed poll is retried after 5 s at most, so a node coming back from
+  a reboot replaces what it left on screen quickly.
+- **The node itself** (`/api/system/overview`, `/api/update-check`:
+  version, CPU, boot time, latest release, security fixes) lives in
+  `NodeStatusProvider` - one fetch for the top bar, the Update dot and
+  every page (`useNodeStatus()`, never a page's own `usePoll` of
+  them). It's reloaded as soon as the node changes: the metrics poll
+  seeing a new boot time or the node answering again, `WaitForNode`
+  seeing it back, or "Refresh now".
 - **Metrics history** lives in `MetricsProvider`, app-wide, so charts
   keep their data across page changes; it holds the last 900 samples in
   the browser only. Counters are turned into rates client-side, and a

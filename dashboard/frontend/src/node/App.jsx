@@ -36,7 +36,7 @@ import { Logo, ThemeToggle } from '../shared/theme.jsx'
 import { Badge, Loading } from '../shared/ui.jsx'
 import { SecurityBadge } from '../SecurityBadge.jsx'
 import { securityText, securityTone } from '../severity.js'
-import { INTERVALS, navigate, useHashRoute, useMetrics, usePoll, useRefresh } from './hooks.jsx'
+import { INTERVALS, navigate, useHashRoute, useMetrics, useNodeStatus, usePoll, useRefresh } from './hooks.jsx'
 import { MayContext } from './may.js'
 import Access from './views/Access.jsx'
 import Capture from './views/Capture.jsx'
@@ -132,9 +132,17 @@ function findRoute(full) {
 function RefreshSelect() {
   const { interval, setInterval } = useRefresh()
   const { refresh } = useMetrics()
+  const { reload } = useNodeStatus()
   return (
     <div className="refresh">
-      <button className="ghost icon" title="Refresh now" onClick={refresh}>
+      <button
+        className="ghost icon"
+        title="Refresh now"
+        onClick={() => {
+          refresh()
+          reload()
+        }}
+      >
         <RefreshCw size={16} />
       </button>
       <select value={interval} onChange={(e) => setInterval(Number(e.target.value))} title="Auto-refresh interval">
@@ -167,8 +175,7 @@ export default function App() {
   const mayList = me.data?.may
   const may = useCallback((method) => !!mayList && mayList.includes(method), [mayList])
   const modules = usePoll('/api/network/modules', { every: 0 })
-  const check = usePoll('/api/update-check', { every: 120000 })
-  const overview = usePoll('/api/system/overview', { every: 60000 })
+  const { check, overview } = useNodeStatus()
 
   useEffect(() => setNavOpen(false), [route])
   const name = node.data?.name || 'Janus node'

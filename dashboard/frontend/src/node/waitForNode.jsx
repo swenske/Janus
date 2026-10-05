@@ -1,11 +1,15 @@
 import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getJSON } from './api.js'
+import { useNodeStatus } from './hooks.jsx'
 
 // WaitForNode follows a node through a disruptive action: it waits for
 // the node to go away (when it's expected to), then for it to answer
 // again, and reports what came back.
+// Once it's back, everything the page shows of the node itself (top bar,
+// Update dot, version) is reloaded - not left as it was before.
 export function WaitForNode({ expectDown = true, previousBoot, onBack, label = 'Waiting for the node…' }) {
+  const { reload } = useNodeStatus()
   const [phase, setPhase] = useState(expectDown ? 'going-down' : 'coming-back')
   const [elapsed, setElapsed] = useState(0)
 
@@ -25,6 +29,7 @@ export function WaitForNode({ expectDown = true, previousBoot, onBack, label = '
         if (sawDown || rebooted || longEnough) {
           stopped = true
           setPhase('back')
+          reload()
           onBack?.(o)
           return
         }

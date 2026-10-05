@@ -407,3 +407,26 @@ func TestReleaseErrorCachedBriefly(t *testing.T) {
 		t.Fatalf("after errorCacheTTL: %+v %v, %d calls", rel, err, calls.Load())
 	}
 }
+
+func TestUpdateAvailable(t *testing.T) {
+	for _, tc := range []struct {
+		latest, running string
+		want            bool
+	}{
+		{"v2026.10.05-3", "v2026.10.05-2", true},
+		{"v2026.10.05-3", "v2026.10.05-3", false},
+		// The cached latest predates the release the node just installed.
+		{"v2026.10.05-2", "v2026.10.05-3", false},
+		// A build after a release isn't offered that release again.
+		{"v2026.10.05-3", "v2026.10.05-3-4-g0123abc", false},
+		{"v2026.10.06", "v2026.10.05-3-4-g0123abc-dirty", true},
+		// Not CalVer: only "different" means anything.
+		{"v2", "v1", true},
+		{"v2026.10.05", "dev", true},
+		{"", "v2026.10.05", false},
+	} {
+		if got := updateAvailable(tc.latest, tc.running); got != tc.want {
+			t.Errorf("updateAvailable(%q, %q) = %v, want %v", tc.latest, tc.running, got, tc.want)
+		}
+	}
+}

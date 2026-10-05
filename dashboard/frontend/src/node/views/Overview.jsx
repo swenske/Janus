@@ -3,7 +3,7 @@ import { useState } from 'react'
 import Chart from '../components/Chart.jsx'
 import { Badge, Card, Meter, PageHeader, Stat, stateTone } from '../../shared/ui.jsx'
 import { bytes, compact, cpuModels, cpuShape, dateTime, duration, num, percent, rate } from '../format.js'
-import { useMetrics, usePoll, useSSE } from '../hooks.jsx'
+import { useMetrics, useNodeStatus, usePoll, useSSE } from '../hooks.jsx'
 import { UpdateBadge } from './Update.jsx'
 
 const WINDOW = 5 * 60 * 1000
@@ -47,9 +47,8 @@ function RecentEvents() {
 
 export default function Overview() {
   const { points, latest } = useMetrics()
-  const overview = usePoll('/api/system/overview', { every: 30000 })
+  const { overview, check } = useNodeStatus()
   const services = usePoll('/api/system/services')
-  const check = usePoll('/api/update-check', { every: 120000 })
 
   const v = overview.data?.version
   const cpu = overview.data?.cpu

@@ -4,7 +4,7 @@ import { ApiError, postJSON } from '../api.js'
 import { apiURL } from '../../shared/base.js'
 import { Badge, Card, ErrorBox, Loading, PageHeader, Tabs, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
 import { bytes, dateTime } from '../format.js'
-import { usePoll } from '../hooks.jsx'
+import { useNodeStatus } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import { WaitForNode } from '../waitForNode.jsx'
 import { SecurityBadge } from '../../SecurityBadge.jsx'
@@ -18,8 +18,7 @@ const FILES = [
 ]
 
 export default function Update({ route = '' }) {
-  const check = usePoll('/api/update-check', { every: 60000 })
-  const overview = usePoll('/api/system/overview', { every: 0 })
+  const { check, overview } = useNodeStatus()
   // How the bundle reaches the node, remembered per browser: "url" (the
   // node downloads it), "relay" (the Controller downloads it and pushes
   // it to the node), "upload" (files from this computer).
@@ -173,7 +172,6 @@ export default function Update({ route = '' }) {
                 now !== following.from ? 'ok' : 'warn',
               )
               setFollowing(null)
-              overview.reload()
             }}
           />
         </div>

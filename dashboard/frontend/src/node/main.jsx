@@ -4,7 +4,7 @@ import '../shared/theme.css'
 import './node.css'
 import App from './App.jsx'
 import { ConfirmProvider, ToastProvider } from '../shared/ui.jsx'
-import { MetricsProvider, RefreshProvider } from './hooks.jsx'
+import { MetricsProvider, NodeStatusProvider, RefreshProvider } from './hooks.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -12,7 +12,9 @@ createRoot(document.getElementById('root')).render(
       <ConfirmProvider>
         <RefreshProvider>
           <MetricsProvider>
-            <App />
+            <NodeStatusProvider>
+              <App />
+            </NodeStatusProvider>
           </MetricsProvider>
         </RefreshProvider>
       </ConfirmProvider>

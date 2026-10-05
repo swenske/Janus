@@ -2,7 +2,7 @@ import { Eraser, Power as PowerIcon, RefreshCcw, RotateCw } from 'lucide-react'
 import { useState } from 'react'
 import { postJSON } from '../api.js'
 import { Card, PageHeader, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
-import { usePoll } from '../hooks.jsx'
+import { useNodeStatus } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import { WaitForNode } from '../waitForNode.jsx'
 
@@ -55,7 +55,7 @@ const ACTIONS = [
 ]
 
 export default function Power() {
-  const overview = usePoll('/api/system/overview', { every: 0 })
+  const { overview } = useNodeStatus()
   const [waiting, setWaiting] = useState(null)
   const [resetDone, setResetDone] = useState(false)
   const [busy, run] = useAction()
@@ -95,7 +95,6 @@ export default function Power() {
             onBack={() => {
               toast(`${waiting.action.title}: the node is back`)
               setWaiting(null)
-              overview.reload()
             }}
           />
         </div>

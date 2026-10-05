@@ -50,6 +50,8 @@ function usePageVisible() {
   return visible
 }
 
+const RETRY_MS = 5000
+
 // usePoll fetches path now, then again at the global refresh interval
 // (or `every`, if given; 0 = once). Pauses while the tab is hidden.
 export function usePoll(path, { every, enabled = true } = {}) {
@@ -65,13 +67,17 @@ export function usePoll(path, { every, enabled = true } = {}) {
     let cancelled = false
     let timer
     const run = async () => {
+      let failed = false
       try {
         const data = await getJSON(path)
         if (!cancelled) setState({ data, error: null, loading: false })
       } catch (error) {
+        failed = true
         if (!cancelled) setState((s) => ({ data: s.data, error, loading: false }))
       }
-      if (!cancelled && period > 0 && visible) timer = setTimeout(run, period)
+      // A failure (the node rebooting, say) is retried sooner: what it
+      // left on screen is stale until the next answer.
+      if (!cancelled && period > 0 && visible) timer = setTimeout(run, failed ? Math.min(period, RETRY_MS) : period)
     }
     run()
     return () => {
@@ -204,6 +210,52 @@ export function MetricsProvider({ children }) {
 
 export function useMetrics() {
   return useContext(MetricsContext)
+}
+
+// --- the node's version and update state (app-wide, one truth) ---
+
+const NodeStatusContext = createContext(null)
+
+// NodeStatusProvider holds what the top bar, the Update dot and several
+// pages show of the node itself - /api/system/overview (hostname,
+// version, CPU, boot time) and /api/update-check (latest release,
+// security fixes) - fetched once for all of them. Both change on a
+// reboot, so they're reloaded as soon as one shows: the metrics poll
+// seeing a new boot time or the node answering again after failing
+// (a reboot started from anywhere, janusctl included), WaitForNode
+// seeing the node back, or "Refresh now".
+export function NodeStatusProvider({ children }) {
+  const overview = usePoll('/api/system/overview', { every: 60000 })
+  const check = usePoll('/api/update-check', { every: 120000 })
+  const { latest, error } = useMetrics()
+  const reloadOverview = overview.reload
+  const reloadCheck = check.reload
+  const reload = useCallback(() => {
+    reloadOverview()
+    reloadCheck()
+  }, [reloadOverview, reloadCheck])
+
+  const boot = latest?.bootTime
+  const lastBoot = useRef(boot)
+  const wasDown = useRef(false)
+  useEffect(() => {
+    if (error) {
+      wasDown.current = true
+      return
+    }
+    const rebooted = boot && lastBoot.current && boot !== lastBoot.current
+    if (boot) lastBoot.current = boot
+    if (rebooted || (wasDown.current && latest)) {
+      wasDown.current = false
+      reload()
+    }
+  }, [boot, error, latest, reload])
+
+  return <NodeStatusContext.Provider value={{ overview, check, reload }}>{children}</NodeStatusContext.Provider>
+}
+
+export function useNodeStatus() {
+  return useContext(NodeStatusContext)
 }
 
 // Shared with the main page.
