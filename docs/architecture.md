@@ -34,21 +34,24 @@ tooling ships into the target rootfs.
 
 ## Immutability: A/B partition layout
 
-Modeled directly on Talos's own disk layout:
+Modeled on Talos's own disk layout:
 
 | Partition  | Purpose                                                        |
 |------------|-----------------------------------------------------------------|
-| `BOOT-A`   | Kernel + squashfs rootfs, slot A (Unified Kernel Image)          |
-| `BOOT-B`   | Kernel + squashfs rootfs, slot B                                 |
-| `STATE`    | Node identity, mTLS certs, applied declarative configuration     |
-| `EPHEMERAL`| Writable overlay for paths that must persist but aren't part of the image (e.g. `/var/lib/haproxy`) |
-| `META`     | Small key/value store for install-time metadata (`MetaWrite`/`MetaDelete`, see `docs/api-routes.md`) |
+| ESP        | The active slot's Unified Kernel Image at the firmware's default path, and both slots' images |
+| `BOOT-A-DATA`, `BOOT-A-HASH` | Slot A: the squashfs rootfs and its dm-verity hash tree |
+| `BOOT-B-DATA`, `BOOT-B-HASH` | Slot B, the same |
+| `STATE`    | Node identity, mTLS certs, the applied configuration - shared by both slots |
 
-Only one of `BOOT-A`/`BOOT-B` is active at a time. `LifecycleService.Upgrade`
-writes the new image to the *inactive* slot, switches the bootloader
-default, reboots, and watches the new slot's health; if it doesn't report
-healthy within the configured timeout, the bootloader default is switched
-back automatically (`Rollback`) - no manual intervention needed.
+There is no writable overlay and no META partition: what persists is on
+STATE, everything else is the read-only image or memory.
+
+Only one slot is active at a time. `LifecycleService.Upgrade` writes the
+new image to the *inactive* slot, switches the ESP's default image,
+reboots, and watches the new slot's health; if it doesn't report healthy
+within the configured timeout, the default is switched back
+automatically - no manual intervention needed. Step by step, with the
+boot chain: [boot, disk layout and A/B updates](internals/boot.md).
 
 ## Trusted boot
 

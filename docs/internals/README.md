@@ -28,6 +28,14 @@ flowchart LR
 - [Architecture](../architecture.md) - the design: immutability and the
   A/B partition layout, trusted boot, the PKI, SELinux, the no-shell API,
   extensions.
+- [Boot and A/B updates](boot.md) - the disk, the boot chain from the
+  firmware to the API, and an update step by step.
+- [Trust and certificates](trust.md) - who signs what, and what a node
+  accepts.
+- [The Controller](controller.md) - its ports, the relay to the nodes,
+  what it keeps, its background work.
+- [How an image is built](image-build.md) - from pinned sources to a
+  signed image and its update bundle.
 - [The gRPC API](../api-routes.md) - every service and method, and which
   are implemented.
 - [Roadmap](../roadmap.md) - how Janus was built, phase by phase, and
