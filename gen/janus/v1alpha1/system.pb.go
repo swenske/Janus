@@ -1492,8 +1492,12 @@ func (x *MemoryResponse) GetCachedBytes() uint64 {
 }
 
 type CPUInfoResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Cpus          []*CPUInfo             `protobuf:"bytes,1,rep,name=cpus,proto3" json:"cpus,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Cpus  []*CPUInfo             `protobuf:"bytes,1,rep,name=cpus,proto3" json:"cpus,omitempty"`
+	// Physical packages and physical cores behind the logical CPUs above,
+	// from sysfs topology; 0 = the kernel doesn't say.
+	Sockets       uint32 `protobuf:"varint,2,opt,name=sockets,proto3" json:"sockets,omitempty"`
+	Cores         uint32 `protobuf:"varint,3,opt,name=cores,proto3" json:"cores,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1535,11 +1539,29 @@ func (x *CPUInfoResponse) GetCpus() []*CPUInfo {
 	return nil
 }
 
+func (x *CPUInfoResponse) GetSockets() uint32 {
+	if x != nil {
+		return x.Sockets
+	}
+	return 0
+}
+
+func (x *CPUInfoResponse) GetCores() uint32 {
+	if x != nil {
+		return x.Cores
+	}
+	return 0
+}
+
 type CPUInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Processor     uint32                 `protobuf:"varint,1,opt,name=processor,proto3" json:"processor,omitempty"`
-	ModelName     string                 `protobuf:"bytes,2,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
-	Mhz           float64                `protobuf:"fixed64,3,opt,name=mhz,proto3" json:"mhz,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Processor uint32                 `protobuf:"varint,1,opt,name=processor,proto3" json:"processor,omitempty"`
+	// /proc/cpuinfo's "model name", or on arm64 (which has none) the core
+	// named from its implementer and part numbers, e.g. "ARM Cortex-A72".
+	ModelName string `protobuf:"bytes,2,opt,name=model_name,json=modelName,proto3" json:"model_name,omitempty"`
+	// Current frequency where /proc/cpuinfo has one (x86), else cpufreq's
+	// maximum; 0 = unknown.
+	Mhz           float64 `protobuf:"fixed64,3,opt,name=mhz,proto3" json:"mhz,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3201,9 +3223,11 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\vtotal_bytes\x18\x01 \x01(\x04R\n" +
 	"totalBytes\x12'\n" +
 	"\x0favailable_bytes\x18\x02 \x01(\x04R\x0eavailableBytes\x12!\n" +
-	"\fcached_bytes\x18\x03 \x01(\x04R\vcachedBytes\">\n" +
+	"\fcached_bytes\x18\x03 \x01(\x04R\vcachedBytes\"n\n" +
 	"\x0fCPUInfoResponse\x12+\n" +
-	"\x04cpus\x18\x01 \x03(\v2\x17.janus.v1alpha1.CPUInfoR\x04cpus\"X\n" +
+	"\x04cpus\x18\x01 \x03(\v2\x17.janus.v1alpha1.CPUInfoR\x04cpus\x12\x18\n" +
+	"\asockets\x18\x02 \x01(\rR\asockets\x12\x14\n" +
+	"\x05cores\x18\x03 \x01(\rR\x05cores\"X\n" +
 	"\aCPUInfo\x12\x1c\n" +
 	"\tprocessor\x18\x01 \x01(\rR\tprocessor\x12\x1d\n" +
 	"\n" +

@@ -352,6 +352,20 @@ func runVersion(conn *grpc.ClientConn) {
 // into one CLI command for now - see docs/architecture.md's dashboard
 // design (Point 2 in the rebranding plan): one HTTP request per node
 // view will call the same set of RPCs this prints.
+// cpuTopology is "C cores, S sockets" when the node knows, else "".
+func cpuTopology(cpu *janusv1alpha1.CPUInfoResponse) string {
+	if cpu.GetCores() == 0 {
+		return ""
+	}
+	plural := func(n uint32, what string) string {
+		if n == 1 {
+			return fmt.Sprintf("1 %s", what)
+		}
+		return fmt.Sprintf("%d %ss", n, what)
+	}
+	return plural(cpu.GetCores(), "core") + ", " + plural(cpu.GetSockets(), "socket")
+}
+
 func runSystem(conn *grpc.ClientConn, args []string) {
 	if len(args) > 0 && args[0] == "pcap" {
 		runPcap(conn, args[1:])
@@ -393,7 +407,14 @@ func runSystem(conn *grpc.ClientConn, args []string) {
 	}
 	fmt.Printf("cpus: %d\n", len(cpu.GetCpus()))
 	for _, info := range cpu.GetCpus() {
-		fmt.Printf("  cpu%d: %s (%.0f MHz)\n", info.GetProcessor(), info.GetModelName(), info.GetMhz())
+		mhz := ""
+		if info.GetMhz() > 0 {
+			mhz = fmt.Sprintf(" (%.0f MHz)", info.GetMhz())
+		}
+		fmt.Printf("  cpu%d: %s%s\n", info.GetProcessor(), info.GetModelName(), mhz)
+	}
+	if t := cpuTopology(cpu); t != "" {
+		fmt.Printf("cpu topology: %s\n", t)
 	}
 
 	c, cancel = ctx()

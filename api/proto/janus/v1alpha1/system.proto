@@ -262,11 +262,19 @@ message MemoryResponse {
 
 message CPUInfoResponse {
   repeated CPUInfo cpus = 1;
+  // Physical packages and physical cores behind the logical CPUs above,
+  // from sysfs topology; 0 = the kernel doesn't say.
+  uint32 sockets = 2;
+  uint32 cores = 3;
 }
 
 message CPUInfo {
   uint32 processor = 1;
+  // /proc/cpuinfo's "model name", or on arm64 (which has none) the core
+  // named from its implementer and part numbers, e.g. "ARM Cortex-A72".
   string model_name = 2;
+  // Current frequency where /proc/cpuinfo has one (x86), else cpufreq's
+  // maximum; 0 = unknown.
   double mhz = 3;
 }
 

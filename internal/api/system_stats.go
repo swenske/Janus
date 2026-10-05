@@ -64,8 +64,9 @@ func parseMeminfoLine(line string) (key string, kb uint64, ok bool) {
 	return key, value, true
 }
 
-// CPUInfo reads /proc/cpuinfo - one block of "key\t: value" lines per
-// logical CPU, blocks separated by a blank line.
+// CPUInfo reads /proc/cpuinfo (parseCPUInfo), plus what sysfs adds:
+// the physical topology and, where /proc/cpuinfo has no frequency,
+// cpufreq's maximum.
 func (s *System) CPUInfo(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.CPUInfoResponse, error) {
 	f, err := os.Open("/proc/cpuinfo")
 	if err != nil {
@@ -73,43 +74,10 @@ func (s *System) CPUInfo(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.CP
 	}
 	defer f.Close()
 
-	resp := &janusv1alpha1.CPUInfoResponse{}
-	var cur *janusv1alpha1.CPUInfo
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := sc.Text()
-		if line == "" {
-			cur = nil
-			continue
-		}
-		key, value, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-
-		if key == "processor" {
-			n, err := strconv.ParseUint(value, 10, 32)
-			if err != nil {
-				continue
-			}
-			cur = &janusv1alpha1.CPUInfo{Processor: uint32(n)}
-			resp.Cpus = append(resp.Cpus, cur)
-			continue
-		}
-		if cur == nil {
-			continue
-		}
-		switch key {
-		case "model name":
-			cur.ModelName = value
-		case "cpu MHz":
-			if mhz, err := strconv.ParseFloat(value, 64); err == nil {
-				cur.Mhz = mhz
-			}
-		}
-	}
+	resp := &janusv1alpha1.CPUInfoResponse{Cpus: parseCPUInfo(f)}
+	cpuDir := os.DirFS("/sys/devices/system/cpu")
+	fillMaxMHz(cpuDir, resp.Cpus)
+	resp.Sockets, resp.Cores = cpuTopology(cpuDir, resp.Cpus)
 	return resp, nil
 }
 
