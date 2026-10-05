@@ -1,8 +1,8 @@
 # Continuous integration: lint, test, and build the Janus control
 # plane (cmd/, internal/, gen/, dashboard/), the Terraform provider
-# (terraform-provider-janus/) and the Controller's frontend's lint and
-# unit tests (dashboard/frontend/) on every push to main and every pull
-# request (including from forks). Always runs on GitHub-hosted runners -
+# (terraform-provider-janus/), the Controller's frontend's lint and
+# unit tests (dashboard/frontend/) and the docs site (site/docs/) on
+# every push to main and every pull request (including from forks). Always runs on GitHub-hosted runners -
 # free/unlimited on a public repo, and this is the one workflow that MUST
 # accept untrusted fork PRs, so it never touches the self-hosted runner or
 # any secret. It does NOT build the kernel/rootfs/image - see
@@ -144,3 +144,19 @@ jobs:
             echo "::error::the committed frontend build doesn't match its sources - run make dashboard-frontend-build and commit the result"
             exit 1
           fi
+
+  # The docs site (site/docs/, served at janus.sw-servers.net/docs/), built
+  # the way site-deploy builds it - in Docker, no Node on the runner:
+  # markdownlint; the Astro build, which a relative link to nothing or a
+  # diagram without its accessible title fails; then check-dist on the
+  # built site - every link and #fragment resolves, every page has its
+  # title and description and is in its sidebar, the sitemap and the
+  # search index are whole. Full history: git describe names the build.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - run: make docs-build
