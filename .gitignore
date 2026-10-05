@@ -21,3 +21,8 @@
 
 # User-requested: never commit this - local planning note only.
 /docs/companion-site-builder-scope.md
+
+# The docs site's build output (hack/docs-build.sh): embedded by janus-site
+# when it's built, never committed - only the placeholder is.
+/site/backend/docsdist/*
+!/site/backend/docsdist/README.md

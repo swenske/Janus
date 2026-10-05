@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -744,6 +744,29 @@ site-frontend-build:
 site-build: site-frontend-build
 	mkdir -p $(BIN_DIR)
 	go build -trimpath -o $(BIN_DIR)/janus-site ./site/backend
+
+# The docs site (site/docs: Starlight over docs/ and the READMEs, see
+# site/docs/structure.yaml), built in Docker by hack/docs-build.sh - Node
+# pinned by digest in site/docs/Dockerfile, npm never on the host. One
+# channel, from the working tree, into site/backend/docsdist/<channel>:
+# latest is served at /docs/, next at /docs/next/.
+DOCS_CHANNEL ?= latest
+docs-build:
+	./hack/docs-build.sh $(DOCS_CHANNEL)
+
+# Both channels, as site-deploy deploys them: next from HEAD, latest from
+# the newest release tag that has the docs site.
+docs-site:
+	./hack/docs-build.sh site
+
+# The docs site's dev server, reloading on every change:
+# http://localhost:4321/docs/ - in the same pinned Node image (its
+# node_modules in site/docs, ignored by git).
+DOCS_NODE_IMAGE := $(shell sed -n 's/^FROM \(node:[^ ]*\) AS deps$$/\1/p' site/docs/Dockerfile)
+docs-dev:
+	docker run --rm -it -p 127.0.0.1:4321:4321 -u $$(id -u):$$(id -g) -e HOME=/tmp \
+		-e ASTRO_TELEMETRY_DISABLED=1 -v $(CURDIR):/src -w /src/site/docs $(DOCS_NODE_IMAGE) \
+		sh -c 'npm ci --ignore-scripts && npx astro dev --host 0.0.0.0'
 
 # Dashboard prep, tranche 2: proves the dashboard backend's whole
 # add-node/list/per-node-mTLS-relay/delete/restart-persistence flow
