@@ -89,6 +89,23 @@ Contribute to Janus, or integrate it into your private cloud.
 
 - [Janus in a private cloud](private-cloud/README.md)
 
-#### Automated deployment
+#### Deploying
 
+- [Images and formats](private-cloud/images.md)
+- [First boot](private-cloud/first-boot.md)
+- [Automated deployment](private-cloud/automation.md)
 - [Terraform / OpenTofu](terraform.md)
+
+#### Running
+
+- [Networking](private-cloud/networking.md)
+- [Observability](private-cloud/observability.md)
+- [Lifecycle](private-cloud/lifecycle.md)
+- [Security](private-cloud/security.md)
+
+#### Platforms
+
+- [libvirt/KVM](private-cloud/platforms/kvm-libvirt.md)
+- [Proxmox VE](private-cloud/platforms/proxmox.md)
+- [Bare metal](private-cloud/platforms/bare-metal.md)
+- [VMware vSphere](private-cloud/platforms/vmware.md)

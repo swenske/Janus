@@ -25,7 +25,7 @@ function slugOf(file, section) {
   return path.posix.basename(file, '.md')
 }
 
-const pageKeys = new Set(['file', 'slug', 'title', 'label', 'description'])
+const pageKeys = new Set(['file', 'slug', 'title', 'label', 'description', 'badge'])
 export const topics = raw.topics
 export const pages = []
 for (const topic of topics) {

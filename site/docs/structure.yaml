@@ -98,9 +98,24 @@ topics:
         label: Private cloud integration
         index: docs/private-cloud/README.md
         groups:
-          - label: Automated deployment
+          - label: Deploying
             pages:
+              - { file: docs/private-cloud/images.md, label: Images and formats }
+              - { file: docs/private-cloud/first-boot.md, label: First boot }
+              - { file: docs/private-cloud/automation.md, label: Automated deployment }
               - { file: docs/terraform.md, label: Terraform / OpenTofu }
+          - label: Running
+            pages:
+              - { file: docs/private-cloud/networking.md, label: Networking }
+              - { file: docs/private-cloud/observability.md, label: Observability }
+              - { file: docs/private-cloud/lifecycle.md, label: Lifecycle }
+              - { file: docs/private-cloud/security.md, label: Security }
+          - label: Platforms
+            pages:
+              - { file: docs/private-cloud/platforms/kvm-libvirt.md, label: libvirt/KVM }
+              - { file: docs/private-cloud/platforms/proxmox.md, label: Proxmox VE }
+              - { file: docs/private-cloud/platforms/bare-metal.md, label: Bare metal }
+              - { file: docs/private-cloud/platforms/vmware.md, label: VMware vSphere, badge: unverified }
 
 # The pages most readers come for: the docs' home lists them, and search
 # suggests them before anything is typed.

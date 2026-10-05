@@ -35,7 +35,7 @@ function fields(id: string) {
   return {
     title: page.title ?? meta.title,
     description: meta.description || page.description || topic.description,
-    sidebar: { label: page.label ?? page.title ?? meta.title },
+    sidebar: { label: page.label ?? page.title ?? meta.title, ...(page.badge ? { badge: { text: page.badge, variant: 'caution' } } : {}) },
     editUrl: `${repo}/edit/main/${page.file}`,
     ...(lastUpdated.has(page.file) ? { lastUpdated: new Date(lastUpdated.get(page.file)) } : {}),
   }
