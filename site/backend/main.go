@@ -1,6 +1,7 @@
 // Command janus-site serves janus.sw-servers.net: the landing page, the
-// image builder (a React SPA, built into static/ and embedded), and the
-// image factory API behind it - schematics, the extension catalog of each
+// image builder (a React SPA, built into static/ and embedded), the docs
+// (/docs/, built into docsdist/ and embedded - docs.go), and the image
+// factory API behind it - schematics, the extension catalog of each
 // release, custom builds (run by the schematic-build workflow on the
 // project's runner, which uploads its results here), downloads, and the
 // update lookup nodes and Controllers use. See docs/image-factory.md.
@@ -55,6 +56,19 @@ func main() {
 		log.Fatal(err)
 	}
 	mux.Handle("/", spa(static))
+	docs, err := loadDocs(docsDist)
+	if err != nil {
+		log.Fatalf("docs: %v", err)
+	}
+	mux.Handle("/docs", docs)
+	mux.Handle("/docs/", docs)
+	for name, ch := range map[string]*docsChannel{"/docs/": docs.latest, "/docs/next/": docs.next} {
+		if ch == nil {
+			log.Printf("docs: %s not built into this binary", name)
+			continue
+		}
+		log.Printf("docs: %s = %s (%s, %d files)", name, ch.build.Version, ch.build.Commit, len(ch.files))
+	}
 
 	go a.maintain(context.Background(), *keep)
 

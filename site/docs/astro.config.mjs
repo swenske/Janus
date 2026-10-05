@@ -8,6 +8,7 @@ import starlight from '@astrojs/starlight'
 import mermaid from 'astro-mermaid'
 import starlightSidebarTopics from 'starlight-sidebar-topics'
 import { base, channel, ref, repo, site } from './src/lib/build-info.mjs'
+import janusFiles from './src/lib/janus-files.mjs'
 import janusProblems from './src/lib/problems.mjs'
 import remarkDiagrams from './src/lib/remark-diagrams.mjs'
 import remarkGitHubAlerts from './src/lib/remark-github-alerts.mjs'
@@ -49,6 +50,7 @@ export default defineConfig({
       plugins: [starlightSidebarTopics(sidebarTopics(), { exclude: ['/'] })],
     }),
     janusProblems(),
+    janusFiles(),
   ],
   vite: { server: { fs: { allow: ['../..'] } } },
 })
