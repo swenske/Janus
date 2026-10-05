@@ -1,0 +1,101 @@
+# The docs site's structure (janus.sw-servers.net/docs/): which Markdown
+# file of this repository is which page. Files are read where they are:
+# a published file never moves, nor a heading a published link points
+# at - release notes, Controllers, janusctl and every node's haproxy.cfg
+# link github.com/swenske/Janus/blob/main/<file>#<anchor>.
+#
+# - topics: the audiences, one sidebar each (the topic list at the top of
+#   the sidebar). A topic has sections; a section's `path` is its URL
+#   prefix (/docs/<path>/...) and its `index` the page at that prefix.
+# - a page's route is /docs/<section>/<slug>/: the slug is the file's
+#   path under docs/<section>/ (README.md = that folder's index), else
+#   its name - a README.md's is its folder's - unless `slug` says
+#   otherwise.
+# - a page's title is its H1 (`title` overrides it on the site only), its
+#   description its first paragraph; `label` is its name in the sidebar.
+#
+# Every docs/**/*.md file is a page or listed in `exclude`: the build
+# fails otherwise (see docs/contributing/README.md).
+
+topics:
+  - id: guide
+    label: User guide
+    icon: open-book
+    description: Install, configure and operate Janus nodes and the Controller.
+    sections:
+      - path: guide
+        index: docs/guide/README.md
+        groups:
+          - label: The Controller
+            pages:
+              - { file: dashboard/README.md, slug: controller, title: The Controller, label: The Controller }
+              - { file: docs/hypervisors.md, label: Hypervisors }
+              - { file: docs/fleet-without-controller.md, label: A fleet without a Controller }
+          - label: HAProxy
+            pages:
+              - { file: docs/haproxy-config.md, label: Your haproxy.cfg }
+              - { file: docs/haproxy-files.md, label: Files, maps and certificates }
+              - { file: docs/letsencrypt.md, label: Let's Encrypt }
+          - label: Network
+            pages:
+              - { file: docs/network-configuration.md, label: Network configuration }
+              - { file: docs/firewall.md, label: Firewall (nftables) }
+              - { file: docs/vrrp.md, label: VRRP (keepalived) }
+              - { file: docs/bgp.md, label: BGP (BIRD) }
+              - { file: docs/consul.md, label: Consul }
+          - label: Images and provisioning
+            pages:
+              - { file: docs/image-factory.md, label: Images and extensions }
+              - { file: docs/provisioning-a-node.md, label: Provisioning a node }
+          - label: Operate
+            pages:
+              - { file: docs/metrics.md, label: Metrics }
+              - { file: docs/packet-capture.md, label: Packet capture }
+              - { file: SECURITY.md, label: Security policy }
+
+  - id: technical
+    label: Technical
+    icon: setting
+    description: How Janus works inside - the architecture, the boot chain, the images, the API.
+    sections:
+      - path: internals
+        index: docs/internals/README.md
+        groups:
+          - label: Architecture
+            pages:
+              - { file: docs/architecture.md, title: Architecture, label: Architecture }
+              - { file: docs/api-routes.md, title: The gRPC API, label: The gRPC API }
+          - label: Images
+            pages:
+              - { file: image/disk/README.md, slug: disk-image, title: The disk image, label: The disk image }
+              - { file: image/iso/README.md, slug: iso-image, title: The ISO image, label: The ISO image }
+              - { file: image/pxe/README.md, slug: pxe, title: Network boot (PXE / HTTP Boot), label: Network boot }
+
+  - id: developer
+    label: Developer
+    icon: puzzle
+    description: Contribute to Janus, or integrate it into your private cloud.
+    sections:
+      - path: contributing
+        label: Contributing
+        index: docs/contributing/README.md
+        groups:
+          - label: Develop
+            pages:
+              - { file: local-dev/README.md, title: The local dev container, label: Local dev container }
+              - { file: docs/controller-ui.md, title: Controller UI design notes, label: Controller UI design }
+              - { file: docs/raspberry-pi-testing.md, label: Raspberry Pi hardware tests }
+          - label: Ship
+            pages:
+              - { file: docs/ci-runners.md, label: CI runners }
+              - { file: docs/upstreams.md, label: Following upstreams }
+      - path: private-cloud
+        label: Private cloud integration
+        index: docs/private-cloud/README.md
+        groups:
+          - label: Automated deployment
+            pages:
+              - { file: docs/terraform.md, label: Terraform / OpenTofu }
+
+exclude:
+  - docs/security-audit-2026-09-30.md   # a dated report, in French

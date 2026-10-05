@@ -1,0 +1,35 @@
+---
+// The docs' home page: one door per audience.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components'
+const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+---
+
+<StarlightPage
+  frontmatter={{
+    title: 'Janus documentation',
+    description:
+      'Install, operate and integrate Janus, the immutable, API-driven Linux distribution for HAProxy load balancers - and learn how it works inside.',
+    template: 'splash',
+    hero: {
+      tagline:
+        'An immutable, API-driven Linux distribution for HAProxy load balancers: no shell, no SSH, no package manager - every change goes through an mTLS API.',
+    },
+  }}
+>
+  <CardGrid>
+    <Card title="User guide" icon="open-book">
+      Install Janus, run the Controller, configure HAProxy, the network and the extensions, and operate your nodes.
+      <LinkCard title="Start with the user guide" href={`${base}/guide/`} />
+    </Card>
+    <Card title="Technical" icon="setting">
+      How Janus works inside: the architecture, the boot chain and A/B updates, the images, the gRPC API.
+      <LinkCard title="Read how it works" href={`${base}/internals/`} />
+    </Card>
+    <Card title="Developer" icon="puzzle">
+      Contribute to Janus - or integrate it into your private cloud: images, first boot, automation, networking.
+      <LinkCard title="Contribute" href={`${base}/contributing/`} />
+      <LinkCard title="Integrate into a private cloud" href={`${base}/private-cloud/`} />
+    </Card>
+  </CardGrid>
+</StarlightPage>

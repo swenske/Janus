@@ -1,0 +1,28 @@
+// markdownlint over every page of the docs site (npm run lint, run by
+// the Docker build). The prose is hard-wrapped and its tables are
+// written for GitHub: no line-length or table-spacing rule. Never run it
+// with --fix on docs/: docs/hypervisors.md's scripts are compared byte
+// for byte with what the Controller generates.
+{
+  "config": {
+    "default": true,
+    "MD010": { "code_blocks": false },
+    "MD013": false,
+    "MD024": { "siblings_only": true },
+    "MD032": false,
+    "MD033": false,
+    "MD041": false,
+    "MD060": false
+  },
+  "globs": [
+    "../../docs/**/*.md",
+    "../../dashboard/README.md",
+    "../../SECURITY.md",
+    "../../local-dev/README.md",
+    "../../image/*/README.md"
+  ],
+  "ignores": [
+    "../../docs/security-audit-2026-09-30.md",
+    "../../docs/companion-site-builder-scope.md"
+  ]
+}
