@@ -113,3 +113,63 @@ func TestClient(t *testing.T) {
 		}
 	}
 }
+
+// TestNodesAndHAProxy: nodes found by ID or name, their labels, a node's
+// haproxy.cfg read and applied - a refused one is an error.
+func TestNodesAndHAProxy(t *testing.T) {
+	var applied string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/api/nodes":
+			_, _ = w.Write([]byte(`[{"id":"n1","name":"edge-1","labels":{}},{"id":"n2","name":"dup"},{"id":"n3","name":"dup"}]`))
+		case r.Method == "PATCH" && r.URL.Path == "/api/nodes/n1":
+			var b map[string]map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			out, _ := json.Marshal(Node{ID: "n1", Name: "edge-1", Labels: b["labels"]})
+			_, _ = w.Write(out)
+		case r.Method == "GET" && r.URL.Path == "/nodes/n1/api/haproxy/config":
+			_, _ = w.Write([]byte(`{"config":"` + applied + `","sha256":"abc"}`))
+		case r.Method == "POST" && r.URL.Path == "/nodes/n1/api/haproxy/config":
+			var b map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			if strings.Contains(b["config"], "bad") {
+				_, _ = w.Write([]byte(`{"accepted":false,"message":"[ALERT] unknown keyword"}`))
+				return
+			}
+			applied = b["config"]
+			_, _ = w.Write([]byte(`{"accepted":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c, err := New(srv.URL, "janus_x_y", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if n, err := c.FindNode(ctx, "edge-1"); err != nil || n.ID != "n1" {
+		t.Errorf("by name: %v %v", n, err)
+	}
+	if n, err := c.FindNode(ctx, "n1"); err != nil || n.Name != "edge-1" {
+		t.Errorf("by ID: %v %v", n, err)
+	}
+	if _, err := c.FindNode(ctx, "dup"); err == nil || !strings.Contains(err.Error(), "give its ID") {
+		t.Errorf("an ambiguous name: %v", err)
+	}
+	if _, err := c.FindNode(ctx, "nope"); !IsNotFound(err) {
+		t.Errorf("no such node: %v", err)
+	}
+	if n, err := c.SetNodeLabels(ctx, "n1", map[string]string{"team": "web"}); err != nil || n.Labels["team"] != "web" {
+		t.Errorf("labels: %v %v", n, err)
+	}
+	if err := c.ApplyHAProxyConfig(ctx, "n1", "global"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.NodeHAProxyConfig(ctx, "n1"); err != nil || got.Config != "global" || got.SHA256 != "abc" {
+		t.Errorf("read back: %+v %v", got, err)
+	}
+	if err := c.ApplyHAProxyConfig(ctx, "n1", "bad"); err == nil || !strings.Contains(err.Error(), "unknown keyword") {
+		t.Errorf("a refused configuration: %v", err)
+	}
+}

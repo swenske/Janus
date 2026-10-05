@@ -93,7 +93,7 @@ func (p *janusProvider) Configure(ctx context.Context, req provider.ConfigureReq
 }
 
 func (p *janusProvider) Resources(_ context.Context) []func() resource.Resource {
-	return []func() resource.Resource{NewNodeResource, NewHypervisorResource, NewProxmoxHypervisorResource}
+	return []func() resource.Resource{NewNodeResource, NewHypervisorResource, NewProxmoxHypervisorResource, NewHAProxyConfigResource}
 }
 
 func (p *janusProvider) DataSources(_ context.Context) []func() datasource.DataSource {

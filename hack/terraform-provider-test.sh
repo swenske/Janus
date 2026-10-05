@@ -16,7 +16,11 @@
 #      locks it again;
 #   6. an interface added, then removed - in place;
 #   7. a new name plans a replacement; an imported node plans nothing;
-#   8. destroy: nothing left.
+#   8. labels on the node; a user without a role over everything,
+#      operator on team=web over HAProxy only, terraforms the node's
+#      haproxy.cfg with a token narrowed the same way - HAProxy refusing
+#      a bad one -, and may change nothing else;
+#   9. destroy: nothing left.
 #
 # Without /dev/net/tun no machine boots (a CI runner without it): only
 # the hypervisor's part runs, with a CI warning.
@@ -81,6 +85,10 @@ variable "name" { default = "tf-node1" }
 variable "memory" { default = 1024 }
 variable "address" { default = "" }
 variable "extra_nic" { default = false }
+variable "labels" {
+  type    = map(string)
+  default = null
+}
 
 resource "janus_hypervisor" "host" {
   name                 = "testhost"
@@ -94,6 +102,7 @@ resource "janus_hypervisor" "host" {
 resource "janus_node" "n" {
   count         = var.nodes
   name          = var.name
+  labels        = var.labels
   hypervisor_id = janus_hypervisor.host.id
   vcpus         = 1
   memory_mib    = var.memory
@@ -119,6 +128,7 @@ resource "janus_node" "n" {
 output "authorized_key" { value = janus_hypervisor.host.authorized_key }
 output "node_address" { value = try(janus_node.n[0].node_address, "") }
 output "node_id" { value = try(janus_node.n[0].id, "") }
+output "janus_node_id" { value = try(janus_node.n[0].node_id, "") }
 EOF
 tofu() { (cd "$WORKDIR/tf" && "$TOFU" "$@" -no-color -var "fingerprint=$FINGERPRINT" -var "image_sha256=$SUM" 2>&1); }
 tofu_bare() { (cd "$WORKDIR/tf" && "$TOFU" "$@" 2>&1); }
@@ -245,12 +255,83 @@ no_changes "importing the node" -var nodes=1 -var memory=1536 -var address=192.1
 echo "Part 8 OK: a new name plans a replacement; the node imported by its ID plans nothing"
 
 # =========================================================================
-# 8. Destroy.
+# 8. Labels; a user who may only terraform HAProxy on team=web.
 # =========================================================================
-tofu destroy -auto-approve -var nodes=1 -var memory=1536 -var address=192.168.123.50/24 >"$WORKDIR/destroy.log" || fail "destroy: $(tail -30 "$WORKDIR/destroy.log")"
+V="-var nodes=1 -var memory=1536 -var address=192.168.123.50/24"
+# shellcheck disable=SC2086
+apply $V -var 'labels={team="web"}'
+JNODE="$(tofu_out janus_node_id)"
+[ "$(api "$API/api/nodes" | json "[n for n in d if n['id']=='$JNODE'][0]['labels']")" = "{'team': 'web'}" ] || fail "the node's labels: $(api "$API/api/nodes")"
+# shellcheck disable=SC2086
+no_changes "labelling the node" $V -var 'labels={team="web"}'
+
+# Scoped access is through the fleet: a node the Controller still reaches
+# with its own service credential opens for admins only.
+FLEET_PASS="$(api -X POST "$API/api/fleet/setup" | json "d['passphrase']")"
+api "$API/api/fleet/recovery-kit" -o "$WORKDIR/fleet-kit.age"
+python3 -c 'import json,sys; print(json.dumps({"kit": open(sys.argv[1]).read(), "passphrase": sys.argv[2]}))' "$WORKDIR/fleet-kit.age" "$FLEET_PASS" >"$WORKDIR/fleet-confirm.json"
+[ "$(api -o /dev/null -w '%{http_code}' -X POST "$API/api/fleet/confirm" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/fleet-confirm.json")" = 200 ] || fail "confirming the fleet"
+for _ in $(seq 1 60); do
+  [ "$(api "$API/api/fleet" | json "d['nodes'].get('$JNODE', {}).get('state', '')")" = trusted ] && break
+  sleep 2
+done
+[ "$(api "$API/api/fleet" | json "d['nodes'].get('$JNODE', {}).get('state', '')")" = trusted ] || fail "the node doesn't trust the fleet: $(api "$API/api/fleet")"
+
+WEB_JAR="$WORKDIR/web-dev.jar"
+api -o /dev/null -X POST "$API/api/users" -H 'Content-Type: application/json' \
+  -d '{"name":"web-dev","role":"none","password":"web-dev-given-pw","grants":[{"role":"operator","selector":{"team":"web"},"domains":["haproxy"]}]}'
+curl -sk -c "$WEB_JAR" -o /dev/null -X POST "$API/api/auth/login" -H 'Content-Type: application/json' -d '{"name":"web-dev","password":"web-dev-given-pw"}'
+curl -sk -b "$WEB_JAR" -c "$WEB_JAR" -o /dev/null -X POST "$API/api/auth/password" -H 'Content-Type: application/json' -d '{"current_password":"web-dev-given-pw","new_password":"web-dev-own-password"}'
+WEB_TOKEN="$(curl -sk -b "$WEB_JAR" -X POST "$API/api/tokens" -H 'Content-Type: application/json' \
+  -d '{"name":"terraform-haproxy","expires_in_days":1,"scope":{"selector":{"team":"web"},"domains":["haproxy"]}}' | json "d['token']")"
+[ -n "$WEB_TOKEN" ] || fail "no token for web-dev"
+mkdir -p "$WORKDIR/tf-web"
+api "$API/nodes/$JNODE/api/haproxy/config" | json "d['config']" >"$WORKDIR/tf-web/haproxy.cfg"
+printf '\n# terraformed by web-dev\n' >>"$WORKDIR/tf-web/haproxy.cfg"
+printf 'global\n  this-is-not-a-keyword\n' >"$WORKDIR/tf-web/bad.cfg"
+cat >"$WORKDIR/tf-web/main.tf" <<'TFEOF'
+terraform {
+  required_providers {
+    janus = { source = "swenske/janus" }
+  }
+}
+
+provider "janus" {}
+
+variable "node" { type = string }
+variable "file" { default = "haproxy.cfg" }
+
+resource "janus_haproxy_config" "web" {
+  node   = var.node
+  config = file(var.file)
+}
+TFEOF
+tofu_web() { (cd "$WORKDIR/tf-web" && JANUS_TOKEN="$WEB_TOKEN" "$TOFU" "$@" -no-color -var "node=$JNODE" 2>&1); }
+tofu_web apply -auto-approve >"$WORKDIR/apply-web.log" || fail "web-dev's apply: $(grep -A12 'Error' "$WORKDIR/apply-web.log" | head -20)"
+api "$API/nodes/$JNODE/api/haproxy/config" | json "d['config']" | grep -q '# terraformed by web-dev' || fail "the node doesn't have web-dev's configuration"
+rc=0
+tofu_web plan -detailed-exitcode >"$WORKDIR/plan-web.log" || rc=$?
+[ "$rc" = 0 ] || fail "a plan after web-dev's apply isn't empty (exit $rc): $(tail -20 "$WORKDIR/plan-web.log")"
+if tofu_web apply -auto-approve -var file=bad.cfg >"$WORKDIR/apply-bad.log"; then fail "a configuration HAProxy refuses was applied"; fi
+grep -q 'the node refused the configuration' "$WORKDIR/apply-bad.log" || fail "the bad configuration refused, but not by HAProxy: $(grep -A12 'Error' "$WORKDIR/apply-bad.log" | head -20)"
+api "$API/nodes/$JNODE/api/haproxy/config" | json "d['config']" | grep -q '# terraformed by web-dev' || fail "the refused configuration changed the node's"
+# Its token changes nothing else: not the machine, not a service, not the Controller.
+code="$(curl -sk -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $WEB_TOKEN" -X PATCH "$API/api/machines/$NODE_MID" -H 'Content-Type: application/json' -d '{"memory_mib":2048}')"
+[ "$code" = 403 ] || fail "web-dev's token resized the machine ($code)"
+code="$(curl -sk -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $WEB_TOKEN" -X POST "$API/nodes/$JNODE/api/system/services/haproxy/restart")"
+[ "$code" = 403 ] || fail "web-dev's token restarted a service ($code)"
+[ "$(curl -sk -H "Authorization: Bearer $WEB_TOKEN" "$API/api/hypervisors")" = "[]" ] || fail "web-dev's token sees the hypervisors"
+tofu_web destroy -auto-approve >"$WORKDIR/destroy-web.log" || fail "web-dev's destroy: $(tail -10 "$WORKDIR/destroy-web.log")"
+api "$API/nodes/$JNODE/api/haproxy/config" | json "d['config']" | grep -q '# terraformed by web-dev' || fail "destroying janus_haproxy_config changed the node's configuration"
+echo "Part 9 OK: labels on janus_node; web-dev - operator on team=web over HAProxy only - terraformed its haproxy.cfg with a token narrowed the same way (a bad one refused by HAProxy, nothing changed), and may resize nothing, restart nothing, see no hypervisor"
+
+# =========================================================================
+# 9. Destroy.
+# =========================================================================
+tofu destroy -auto-approve -var nodes=1 -var memory=1536 -var address=192.168.123.50/24 -var 'labels={team="web"}' >"$WORKDIR/destroy.log" || fail "destroy: $(tail -30 "$WORKDIR/destroy.log")"
 [ "$(api "$API/api/machines" | json "len(d)")" = 0 ] || fail "machines left: $(api "$API/api/machines")"
 [ "$(api "$API/api/hypervisors" | json "len(d)")" = 0 ] || fail "the hypervisor wasn't removed"
 if in_host virsh list --all --name | grep -q janus-tf; then fail "a virtual machine is left"; fi
-echo "Part 9 OK: destroyed - the node, its virtual machine and the hypervisor"
+echo "Part 10 OK: destroyed - the node, its virtual machine and the hypervisor"
 
 echo "terraform-provider test OK"

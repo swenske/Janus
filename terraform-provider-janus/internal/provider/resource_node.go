@@ -59,6 +59,7 @@ type nodeModel struct {
 	DNS          types.List       `tfsdk:"dns"`
 	NTP          types.List       `tfsdk:"ntp"`
 	LockUI       types.Bool       `tfsdk:"lock_ui"`
+	Labels       types.Map        `tfsdk:"labels"`
 	NodeID       types.String     `tfsdk:"node_id"`
 	NodeAddress  types.String     `tfsdk:"node_address"`
 	VMName       types.String     `tfsdk:"vm_name"`
@@ -136,6 +137,10 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 			"lock_ui": schema.BoolAttribute{
 				Optional: true, Computed: true, Default: booldefault.StaticBool(true),
 				Description: "Lock the node against changes from the Controller's pages (its hardware, network, version and extensions, destroying it) - they'd be undone by the next apply. Its pages still show it, restart it, open its console. Released on the Controller, it's locked again by the next apply.",
+			},
+			"labels": schema.MapAttribute{
+				ElementType: types.StringType, Optional: true,
+				Description: "The node's labels (team = \"web\"): the Controller's grants and scoped tokens pick nodes by them. Unset, Terraform leaves them alone; set, it owns them - an empty map clears them.",
 			},
 			"node_id": schema.StringAttribute{
 				Computed: true, Description: "The node's ID on the Controller once it registered.",
@@ -469,6 +474,9 @@ func (r *nodeResource) Create(ctx context.Context, req resource.CreateRequest, r
 		return
 	}
 	fromMachine(m, &plan)
+	if m.Phase != "failed" {
+		r.putLabels(ctx, plan.NodeID.ValueString(), plan.Labels, &resp.Diagnostics)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	if m.Phase == "failed" {
 		resp.Diagnostics.AddError("Creating the node", fmt.Sprintf("%s (its console on the Controller may say why)", m.Error))
@@ -491,7 +499,33 @@ func (r *nodeResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 		return
 	}
 	fromMachine(m, &state)
+	if !state.Labels.IsNull() && state.NodeID.ValueString() != "" {
+		n, err := r.c.FindNode(ctx, state.NodeID.ValueString())
+		switch {
+		case err == nil:
+			l, d := types.MapValueFrom(ctx, types.StringType, n.Labels)
+			resp.Diagnostics.Append(d...)
+			state.Labels = l
+		case !client.IsNotFound(err):
+			resp.Diagnostics.AddError("Reading the node's labels", err.Error())
+		}
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+// putLabels gives the node labels - when Terraform owns them (set).
+func (r *nodeResource) putLabels(ctx context.Context, nodeID string, labels types.Map, diags *diag.Diagnostics) {
+	if labels.IsNull() || labels.IsUnknown() || nodeID == "" {
+		return
+	}
+	l := map[string]string{}
+	diags.Append(labels.ElementsAs(ctx, &l, false)...)
+	if diags.HasError() {
+		return
+	}
+	if _, err := r.c.SetNodeLabels(ctx, nodeID, l); err != nil {
+		diags.AddError("Setting the node's labels", err.Error())
+	}
 }
 
 func (r *nodeResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -526,6 +560,10 @@ func (r *nodeResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 	plan.Timeouts = state.Timeouts
 	fromMachine(m, &plan)
+	// Unset, they're no longer Terraform's: left as they are.
+	if !plan.Labels.IsNull() && !plan.Labels.Equal(state.Labels) {
+		r.putLabels(ctx, plan.NodeID.ValueString(), plan.Labels, &resp.Diagnostics)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	if m.Error != "" {
 		resp.Diagnostics.AddError("Changing the node", m.Error)

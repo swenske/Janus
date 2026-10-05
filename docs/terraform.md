@@ -217,6 +217,12 @@ destroying it. Those pages still show it, restart it and open its
 console. Released on the Controller for a change by hand, that change
 shows in the next plan; `apply` undoes it and locks the node again.
 
+**`labels`** (`labels = { team = "web" }`) are the node's labels on the
+Controller: the grants and scoped tokens of its accounts pick nodes by
+them ([dashboard/README.md](../dashboard/README.md#accounts-and-roles)).
+Unset, Terraform leaves them alone; set, it owns them - a change made on
+the Controller shows in the next plan, and `{}` clears them.
+
 **Drift.** The provider reads the node as it is: the Controller reads it
 from the node and the hypervisor before answering. A change made
 anywhere else - the node's page, `janusctl`, the hypervisor - shows in
@@ -249,6 +255,44 @@ ID from `GET /api/machines`.
 `timeouts = { create = "45m" }` attribute. An extension the image
 factory has to build first can take a while.
 
+### `janus_haproxy_config`
+
+A node's `haproxy.cfg`:
+
+```hcl
+resource "janus_haproxy_config" "web" {
+  node   = "lb1"                      # its name or ID - janus_node.lb1.node_id
+  config = file("${path.module}/haproxy.cfg")
+}
+```
+
+Applying it has HAProxy check the configuration first: one it refuses
+fails the apply - its message in the error - and changes nothing; an
+accepted one is taken over by a new HAProxy process without dropping
+connections. A change made elsewhere (the node's page, `janusctl haproxy
+apply-config`) shows in the next plan. Destroying the resource leaves
+the node's configuration as it is.
+
+It needs only HAProxy on its node: an account (or just a token) narrowed
+to the `haproxy` domain on the node's labels - the case of a team that
+terraforms its load balancer's configuration while the infrastructure
+stays the admins':
+
+```sh
+# An admin: the team's nodes labelled team=web (janus_node.labels), and
+# an account that reaches them for HAProxy only.
+curl ... -X POST /api/users -d '{"name":"web-dev","role":"none",
+  "grants":[{"role":"operator","selector":{"team":"web"},"domains":["haproxy"]}]}'
+# web-dev, on the Controller's API tokens page: a token for team=web,
+# HAProxy alone - it reaches those nodes, resizes nothing, restarts
+# nothing, sees no hypervisor.
+```
+
+**Computed:** `id` (the node's ID), `sha256` (the applied configuration's).
+
+**Import:** `terraform import janus_haproxy_config.web lb1` - the node's
+name or ID.
+
 ## Terragrunt
 
 Nothing specific: one Controller per environment through the provider
@@ -266,6 +310,10 @@ container of [hypervisors.md](hypervisors.md)'s test. It checks:
 - memory, then a static address, changed in place;
 - a new name planning a replacement;
 - an imported node;
+- labels on the node; a user operator on `team=web` over HAProxy only
+  terraforming its `haproxy.cfg` with a token narrowed the same way - a
+  configuration HAProxy refuses failing, nothing changed - and refused
+  a resize, a service restart, the hypervisors;
 - destroy.
 
 After each step it checks that a plan has nothing left to change.

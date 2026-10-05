@@ -318,3 +318,78 @@ func (m *Machine) LastEvent() string {
 	}
 	return m.Events[len(m.Events)-1].Message
 }
+
+// --- nodes ---
+
+// Node is a node of the Controller, as the token reaches it.
+type Node struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Address   string            `json:"address"`
+	MachineID string            `json:"machine_id"`
+	Labels    map[string]string `json:"labels"`
+}
+
+// Nodes are the nodes the token reaches.
+func (c *Client) Nodes(ctx context.Context) ([]Node, error) {
+	var out []Node
+	return out, c.do(ctx, http.MethodGet, "/api/nodes", nil, &out)
+}
+
+// FindNode is the node of that ID or name the token reaches.
+func (c *Client) FindNode(ctx context.Context, idOrName string) (*Node, error) {
+	nodes, err := c.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var found []Node
+	for _, n := range nodes {
+		if n.ID == idOrName || n.Name == idOrName {
+			found = append(found, n)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return nil, &Error{Status: http.StatusNotFound, Message: fmt.Sprintf("no node %q that this token reaches", idOrName)}
+	case 1:
+		return &found[0], nil
+	}
+	return nil, fmt.Errorf("%d nodes are named %q: give its ID", len(found), idOrName)
+}
+
+// SetNodeLabels replaces a node's labels.
+func (c *Client) SetNodeLabels(ctx context.Context, id string, labels map[string]string) (*Node, error) {
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	var out Node
+	return &out, c.do(ctx, http.MethodPatch, "/api/nodes/"+url.PathEscape(id), map[string]any{"labels": labels}, &out)
+}
+
+// HAProxyConfig is a node's haproxy.cfg.
+type HAProxyConfig struct {
+	Config string `json:"config"`
+	SHA256 string `json:"sha256"`
+}
+
+// NodeHAProxyConfig reads the node's haproxy.cfg.
+func (c *Client) NodeHAProxyConfig(ctx context.Context, nodeID string) (*HAProxyConfig, error) {
+	var out HAProxyConfig
+	return &out, c.do(ctx, http.MethodGet, "/nodes/"+url.PathEscape(nodeID)+"/api/haproxy/config", nil, &out)
+}
+
+// ApplyHAProxyConfig applies config on the node: HAProxy checks it first,
+// then takes it over without dropping connections.
+func (c *Client) ApplyHAProxyConfig(ctx context.Context, nodeID, config string) error {
+	var out struct {
+		Accepted bool   `json:"accepted"`
+		Message  string `json:"message"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/nodes/"+url.PathEscape(nodeID)+"/api/haproxy/config", map[string]string{"config": config}, &out); err != nil {
+		return err
+	}
+	if !out.Accepted {
+		return fmt.Errorf("the node refused the configuration: %s", out.Message)
+	}
+	return nil
+}
