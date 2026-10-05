@@ -242,6 +242,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	mux.HandleFunc("/nodes/", a.handleNodePage)
 	a.registerTokenRoutes(mux)
 	a.registerUserRoutes(mux)
+	a.registerCLIRoutes(mux)
 	a.registerHypervisorRoutes(mux)
 	a.registerFleetRoutes(mux)
 	a.registerMachineRoutes(mux)

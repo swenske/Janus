@@ -2,12 +2,17 @@ package fleet
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"filippo.io/age/armor"
 
@@ -166,5 +171,58 @@ func TestSetupAgain(t *testing.T) {
 	}
 	if err := s.Confirm(firstKit, first); !errors.Is(err, ErrKit) {
 		t.Errorf("the first kit after starting over: %v", err)
+	}
+}
+
+// TestIssueUser: an account's certificate for its own key - its name, its
+// role, its validity - lets it into a node of the fleet directly.
+func TestIssueUser(t *testing.T) {
+	s := newStore(t, t.TempDir())
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if _, _, err := s.IssueUser(&key.PublicKey, "sam", pki.RoleOperator, time.Hour); !errors.Is(err, ErrState) {
+		t.Errorf("before the fleet: %v", err)
+	}
+	pass, _ := s.Setup()
+	kit, _ := s.RecoveryKit()
+	if err := s.Confirm(kit, pass); err != nil {
+		t.Fatal(err)
+	}
+	chainPEM, notAfter, err := s.IssueUser(&key.PublicKey, "sam", pki.RoleOperator, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Until(notAfter); d > time.Hour || d < 59*time.Minute {
+		t.Errorf("valid for %v", d)
+	}
+	var certs []*x509.Certificate
+	for rest := chainPEM; ; {
+		var b *pem.Block
+		if b, rest = pem.Decode(rest); b == nil {
+			break
+		}
+		c, err := x509.ParseCertificate(b.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		certs = append(certs, c)
+	}
+	if len(certs) != 2 || certs[0].Subject.CommonName != "sam" || len(certs[0].Subject.Organization) != 1 || certs[0].Subject.Organization[0] != pki.RoleOperator || !certs[0].PublicKey.(*ecdsa.PublicKey).Equal(&key.PublicKey) {
+		t.Fatalf("chain: %d certificates, leaf %v", len(certs), certs[0].Subject)
+	}
+	rootPEM, bundle, _, _ := s.Trust()
+	node, _ := pki.OpenFleet(t.TempDir())
+	if err := node.Set(rootPEM, bundle); err != nil {
+		t.Fatal(err)
+	}
+	roots, inter := x509.NewCertPool(), x509.NewCertPool()
+	roots.AddCert(node.Root())
+	inter.AddCert(certs[1])
+	chains, err := certs[0].Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, _ := pki.NewCA("a node CA")
+	if err := node.AcceptChains(chains, local.Cert); err != nil {
+		t.Errorf("a node of the fleet refuses the account's certificate: %v", err)
 	}
 }

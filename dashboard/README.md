@@ -304,6 +304,18 @@ prints a new password for that account - to change at the next sign-in
 it doesn't exist. The running
 Controller takes it at once.
 
+### janusctl
+
+`janusctl login` signs in to the Controller with an API token of your
+account (`JANUS_TOKEN`) and gets a certificate of its fleet - an hour,
+for a key janusctl makes and keeps - and its nodes; janusctl then
+reaches the nodes directly, each checking the certificate's role itself
+([README](../README.md#using-janusctl)). The fleet must be set up. The
+API behind it: `POST /api/cli/certificate` (`{csr_pem}` → the
+certificate and the issuing CA, its role and end) and `GET
+/api/cli/inventory` (each node's address, CA and whether it trusts the
+fleet).
+
 ### API tokens and Terraform
 
 A program uses the Controller's API with an API token (the **API tokens**

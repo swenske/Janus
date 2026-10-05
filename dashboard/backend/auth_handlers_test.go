@@ -334,3 +334,18 @@ func TestAudit(t *testing.T) {
 		t.Errorf("the audit, for one name: %d %s", code, body)
 	}
 }
+
+// tokenFor makes an API token from session with role, answering its ID
+// and its "Bearer ..." credential.
+func (a *authApp) tokenFor(t *testing.T, session, role string) (string, string) {
+	t.Helper()
+	code, out := a.req(t, "POST", "/api/tokens", session, map[string]any{"name": "t-" + role, "role": role})
+	var tok struct {
+		ID    string `json:"id"`
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(out), &tok); err != nil || code != http.StatusCreated {
+		t.Fatalf("token: %d %s", code, out)
+	}
+	return tok.ID, "Bearer " + tok.Token
+}

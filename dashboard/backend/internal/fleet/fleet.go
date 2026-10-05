@@ -22,6 +22,7 @@ package fleet
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -376,6 +377,35 @@ func (s *Store) ServerCertificate() (*tls.Certificate, error) {
 	}
 	s.server = &cert
 	return s.server, nil
+}
+
+// IssueUser signs an account's client certificate for pub - janusctl's,
+// for its own key: name as the common name, role (os:admin, os:operator,
+// os:reader) for the nodes, valid ttl at most (never past the issuing
+// CA), followed by the issuing CA. Only once the fleet is ready.
+func (s *Store) IssueUser(pub crypto.PublicKey, name, role string, ttl time.Duration) (chainPEM []byte, notAfter time.Time, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.st.State != StateReady {
+		return nil, time.Time{}, fmt.Errorf("%w: the fleet isn't set up", ErrState)
+	}
+	if left := time.Until(s.issuing.Cert.NotAfter); left < ttl {
+		ttl = left
+	}
+	certPEM, err := s.issuing.IssueFor(pub, pki.IssueOptions{
+		CommonName:  name,
+		Roles:       []string{role},
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		Validity:    ttl,
+	})
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	leaf, err := parseCert(certPEM)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return append(certPEM, s.issuing.CertPEM...), leaf.NotAfter, nil
 }
 
 // RootPEM is the fleet's root certificate (PEM), once the fleet is ready
