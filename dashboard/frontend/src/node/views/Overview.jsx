@@ -2,7 +2,7 @@ import { Activity, Archive, Cpu, Gauge, Server, Shuffle } from 'lucide-react'
 import { useState } from 'react'
 import Chart from '../components/Chart.jsx'
 import { Badge, Card, Meter, PageHeader, Stat, stateTone } from '../../shared/ui.jsx'
-import { bytes, compact, dateTime, duration, num, percent, rate } from '../format.js'
+import { bytes, compact, cpuModels, cpuShape, dateTime, duration, num, percent, rate } from '../format.js'
 import { useMetrics, usePoll, useSSE } from '../hooks.jsx'
 import { UpdateBadge } from './Update.jsx'
 
@@ -52,6 +52,7 @@ export default function Overview() {
   const check = usePoll('/api/update-check', { every: 120000 })
 
   const v = overview.data?.version
+  const cpu = overview.data?.cpu
   const hap = latest?.hap
   const uptime = latest?.bootTime ? Date.now() / 1000 - latest.bootTime : undefined
   const uc = check.data
@@ -60,7 +61,11 @@ export default function Overview() {
     <>
       <PageHeader title="Overview" subtitle="Live state of this node" />
       <div className="grid grid-4" style={{ marginBottom: '1rem' }}>
-        <Stat label="CPU" value={percent(latest?.cpu)} sub={latest ? `load ${num(latest.load1, 2)} · ${num(latest.load5, 2)} · ${num(latest.load15, 2)}` : ''} />
+        <Stat
+          label="CPU"
+          value={percent(latest?.cpu)}
+          sub={latest ? `${cpu ? `${cpu.count} CPU${cpu.count === 1 ? '' : 's'} · ` : ''}load ${num(latest.load1, 2)} · ${num(latest.load5, 2)} · ${num(latest.load15, 2)}` : ''}
+        />
         <Stat label="Memory" value={percent(latest?.memPct)} sub={latest?.memTotal ? `${bytes(latest.memUsed)} of ${bytes(latest.memTotal)}` : ''} />
         <Stat
           label="HAProxy connections"
@@ -119,6 +124,19 @@ export default function Overview() {
             <dd>{v?.active_slot ? <Badge tone="info">slot {v.active_slot}</Badge> : <span className="muted">not an A/B boot</span>}</dd>
             <dt>Kernel</dt>
             <dd className="mono">{v?.kernel_version || '…'}</dd>
+            <dt>CPU</dt>
+            <dd>
+              {cpu ? (
+                <>
+                  <div>{cpuModels(cpu)}</div>
+                  <div className="muted small">{cpuShape(cpu)}</div>
+                </>
+              ) : (
+                <span className="muted">{overview.data ? '–' : '…'}</span>
+              )}
+            </dd>
+            <dt>Architecture</dt>
+            <dd className="mono">{v ? v.arch || '–' : '…'}</dd>
             <dt>Go</dt>
             <dd className="mono">{v?.go_version || '…'}</dd>
             <dt>HAProxy</dt>

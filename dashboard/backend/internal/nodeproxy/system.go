@@ -62,7 +62,13 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"hostname": h.GetHostname(), "version": v, "system": st}, nil
+		out := map[string]any{"hostname": h.GetHostname(), "version": v, "system": st}
+		// The CPU is a nice-to-have on this page: without it, the rest
+		// is still worth showing.
+		if cpu, err := c.CPUInfo(ctx, empty); err == nil {
+			out["cpu"] = summarizeCPUs(cpu)
+		}
+		return out, nil
 	}))
 	mux.HandleFunc("GET /api/system/processes", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
 		return c.Processes(ctx, empty)
@@ -673,4 +679,39 @@ func encodePFX(caPEM, certPEM, keyPEM []byte, password string) ([]byte, error) {
 		}
 	}
 	return pkcs12.Modern.Encode(key, cert, []*x509.Certificate{ca}, password)
+}
+
+// cpuSummary is what a page shows of a node's CPUs: how many, the
+// physical topology when the node knows it (0 = unknown, left out),
+// and the models - several on a hybrid (big.LITTLE) chip.
+type cpuSummary struct {
+	Count   int        `json:"count"`
+	Cores   uint32     `json:"cores,omitempty"`
+	Sockets uint32     `json:"sockets,omitempty"`
+	Models  []cpuModel `json:"models"`
+	MaxMHz  float64    `json:"max_mhz,omitempty"`
+}
+
+type cpuModel struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+func summarizeCPUs(r *janusv1alpha1.CPUInfoResponse) cpuSummary {
+	out := cpuSummary{Count: len(r.GetCpus()), Cores: r.GetCores(), Sockets: r.GetSockets(), Models: []cpuModel{}}
+	at := map[string]int{}
+	for _, c := range r.GetCpus() {
+		name := c.GetModelName()
+		if name == "" {
+			name = "unknown"
+		}
+		if i, ok := at[name]; ok {
+			out.Models[i].Count++
+		} else {
+			at[name] = len(out.Models)
+			out.Models = append(out.Models, cpuModel{Name: name, Count: 1})
+		}
+		out.MaxMHz = max(out.MaxMHz, c.GetMhz())
+	}
+	return out
 }

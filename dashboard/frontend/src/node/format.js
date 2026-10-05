@@ -80,3 +80,22 @@ export function fileMode(mode) {
 export function isDirMode(mode) {
   return ((mode >>> 0) & ((1 << 31) >>> 0)) !== 0
 }
+
+// cpuModels names a node's CPUs: the model alone when they're all the
+// same, "4 × A + 4 × B" on a hybrid chip.
+export function cpuModels(cpu) {
+  const models = cpu?.models || []
+  if (models.length === 1) return models[0].name
+  return models.map((m) => `${m.count} × ${m.name}`).join(' + ')
+}
+
+// cpuShape is how many CPUs there are behind them: logical CPUs, then
+// cores and sockets when the node knows, then the frequency.
+export function cpuShape(cpu) {
+  if (!cpu) return ''
+  const plural = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`
+  const parts = [plural(cpu.count, 'logical CPU')]
+  if (cpu.cores) parts.push(plural(cpu.cores, 'core'), plural(cpu.sockets, 'socket'))
+  if (cpu.max_mhz) parts.push(cpu.max_mhz >= 1000 ? `${(cpu.max_mhz / 1000).toFixed(1)} GHz` : `${Math.round(cpu.max_mhz)} MHz`)
+  return parts.join(' · ')
+}

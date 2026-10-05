@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/pki"
 )
 
@@ -96,5 +97,28 @@ func TestGRPCHTTPStatus(t *testing.T) {
 		if got := grpcHTTPStatus(status.Error(code, "x")); got != want {
 			t.Errorf("%v -> %d, want %d", code, got, want)
 		}
+	}
+}
+
+func TestSummarizeCPUs(t *testing.T) {
+	// A hybrid chip: four big cores at 2.4 GHz, four little ones.
+	r := &janusv1alpha1.CPUInfoResponse{Cores: 8, Sockets: 1}
+	for i := range 8 {
+		c := &janusv1alpha1.CPUInfo{Processor: uint32(i), ModelName: "ARM Cortex-A76", Mhz: 2400}
+		if i >= 4 {
+			c.ModelName, c.Mhz = "ARM Cortex-A55", 1800
+		}
+		r.Cpus = append(r.Cpus, c)
+	}
+	got := summarizeCPUs(r)
+	if got.Count != 8 || got.Cores != 8 || got.Sockets != 1 || got.MaxMHz != 2400 || len(got.Models) != 2 ||
+		got.Models[0] != (cpuModel{"ARM Cortex-A76", 4}) || got.Models[1] != (cpuModel{"ARM Cortex-A55", 4}) {
+		t.Errorf("summarizeCPUs(hybrid) = %+v", got)
+	}
+
+	// An older node: no topology, a CPU without a name.
+	got = summarizeCPUs(&janusv1alpha1.CPUInfoResponse{Cpus: []*janusv1alpha1.CPUInfo{{Processor: 0}}})
+	if got.Count != 1 || got.Cores != 0 || len(got.Models) != 1 || got.Models[0].Name != "unknown" {
+		t.Errorf("summarizeCPUs(old node) = %+v", got)
 	}
 }
