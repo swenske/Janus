@@ -89,6 +89,38 @@ func TestControllerPin(t *testing.T) {
 	}
 }
 
+// TestControllerSystemTrust: without a pin, a certificate the system
+// trusts for the Controller's name - and only that.
+func TestControllerSystemTrust(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"ok":true}`)) }))
+	defer srv.Close()
+	addr := strings.TrimPrefix(srv.URL, "https://")
+	defer func() { systemRoots = nil }()
+
+	// The system doesn't know httptest's CA: refused, at login and after.
+	systemRoots = x509.NewCertPool()
+	if err := verifySystemTrust(addr); err == nil {
+		t.Error("a certificate the system doesn't trust passed")
+	}
+	ctx := &cliContext{Controller: addr, ControllerSystemTrust: true}
+	var out map[string]bool
+	if err := ctx.call("GET", "/", "t", nil, &out); err == nil {
+		t.Error("called a Controller the system doesn't trust")
+	}
+
+	// It does now (httptest's certificate names 127.0.0.1).
+	systemRoots.AddCert(srv.Certificate())
+	if err := verifySystemTrust(addr); err != nil {
+		t.Fatalf("a certificate the system trusts: %v", err)
+	}
+	if err := ctx.call("GET", "/", "t", nil, &out); err != nil || !out["ok"] {
+		t.Fatalf("calling it: %v", err)
+	}
+	if ctx.seen != certFingerprint(srv.Certificate()) {
+		t.Error("the certificate seen isn't noted (an SSH sign-in signs it)")
+	}
+}
+
 // TestConfigRoundTrip: contexts saved 0600 under $JANUSCONFIG, their files
 // next to it.
 func TestConfigRoundTrip(t *testing.T) {

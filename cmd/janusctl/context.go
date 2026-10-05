@@ -58,12 +58,16 @@ type cliContext struct {
 	// Controller is the Controller's host:port.
 	Controller string `json:"controller"`
 	// ControllerCA is what the Controller's certificate is checked
-	// against (PEM): its own certificate, pinned, or its CA.
-	ControllerCA string    `json:"controller_ca"`
-	User         string    `json:"user,omitempty"`
-	Role         string    `json:"role,omitempty"`
-	Expires      time.Time `json:"expires,omitzero"`
-	Nodes        []ctxNode `json:"nodes,omitempty"`
+	// against (PEM): its own certificate, pinned, or its CA. Empty with
+	// ControllerSystemTrust: a certificate this system trusts for the
+	// Controller's name (a public one, or the organization's CA
+	// installed) - renewed without janusctl noticing.
+	ControllerCA          string    `json:"controller_ca"`
+	ControllerSystemTrust bool      `json:"controller_system_trust,omitempty"`
+	User                  string    `json:"user,omitempty"`
+	Role                  string    `json:"role,omitempty"`
+	Expires               time.Time `json:"expires,omitzero"`
+	Nodes                 []ctxNode `json:"nodes,omitempty"`
 	// SSHKey is the SSH key the context signs in with ("agent:<SHA256
 	// fingerprint>" or "file:<path>") - the certificate's key too; empty
 	// for an API token's context (a key made here, key.pem).
@@ -152,6 +156,7 @@ func runLogin(args []string) {
 	deviceFlag := fs.Bool("device", false, "sign in on the Controller's page from another machine: a code to enter there")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "usage: janusctl login [-context NAME] [-controller HOST[:PORT]] [-controller-ca FILE | -controller-fingerprint SHA256] [-browser | -device | -user NAME [-ssh-key FILE]]")
+		fmt.Fprintln(fs.Output(), "       (neither -controller-ca nor -controller-fingerprint: a Controller certificate this system trusts)")
 		fmt.Fprintln(fs.Output(), "       JANUS_TOKEN=janus_... janusctl login [-context NAME] [-controller ...]   with an API token instead (CI)")
 		fs.PrintDefaults()
 	}
@@ -190,7 +195,7 @@ func runLogin(args []string) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		ctx.ControllerCA = string(pemBytes)
+		ctx.ControllerCA, ctx.ControllerSystemTrust = string(pemBytes), false
 	case *fingerprint != "":
 		leaf, err := fetchLeaf(ctx.Controller)
 		if err != nil {
@@ -199,13 +204,22 @@ func runLogin(args []string) {
 		if got := certFingerprint(leaf); got != normalizeFingerprint(*fingerprint) {
 			log.Fatalf("janusctl login: the Controller at %s presents a certificate with SHA-256 %s, not %s - not trusted", ctx.Controller, colonHex(got), *fingerprint)
 		}
-		ctx.ControllerCA = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw}))
-	case ctx.ControllerCA == "":
+		ctx.ControllerCA, ctx.ControllerSystemTrust = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})), false
+	case ctx.ControllerCA == "" && !ctx.ControllerSystemTrust:
+		// Neither given: a certificate this system trusts for the
+		// Controller's name will do - the page's own (dashboard
+		// README: HTTPS certificate). The self-signed identity won't.
+		sysErr := verifySystemTrust(ctx.Controller)
+		if sysErr == nil {
+			ctx.ControllerSystemTrust = true
+			fmt.Fprintf(os.Stderr, "The Controller's certificate is one this system trusts for %s.\n", ctx.Controller)
+			break
+		}
 		leaf, err := fetchLeaf(ctx.Controller)
 		if err != nil {
 			log.Fatalf("janusctl login: %v", err)
 		}
-		log.Fatalf("janusctl login: the Controller at %s presents a certificate with SHA-256\n  %s\nCheck it (on the Controller's host: openssl x509 -in <data-dir>/dashboard-identity.crt -noout -fingerprint -sha256), then pass it as -controller-fingerprint, or give -controller-ca", ctx.Controller, colonHex(certFingerprint(leaf)))
+		log.Fatalf("janusctl login: the Controller at %s presents a certificate this system doesn't trust (%v), with SHA-256\n  %s\nCheck it (on the Controller's page: your account, SSH keys; or on its host: openssl x509 -in <data-dir>/dashboard-identity.crt -noout -fingerprint -sha256), then pass it as -controller-fingerprint, or give its CA as -controller-ca", ctx.Controller, sysErr, colonHex(certFingerprint(leaf)))
 	}
 	switch {
 	case token != "":
@@ -296,9 +310,43 @@ func fetchLeaf(addr string) (*x509.Certificate, error) {
 	return certs[0], nil
 }
 
+// systemRoots is the trust store a Controller's certificate is checked
+// against without a pin (nil: the system's) - a test's CA in tests.
+var systemRoots *x509.CertPool
+
+// verifySystemTrust reports whether the Controller at addr presents a
+// certificate this system trusts for its name.
+func verifySystemTrust(addr string) error {
+	host, _, _ := net.SplitHostPort(addr)
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, &tls.Config{ServerName: host, RootCAs: systemRoots, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		var cv *tls.CertificateVerificationError
+		if errors.As(err, &cv) {
+			return cv.Err
+		}
+		return err
+	}
+	return conn.Close()
+}
+
 // controllerTLS checks the Controller: its certificate pinned exactly,
-// or a chain to the given CA for the name dialed.
+// or a chain to the given CA for the name dialed - or, with
+// ControllerSystemTrust, to this system's trust store.
 func (c *cliContext) controllerTLS() (*tls.Config, error) {
+	host, _, _ := net.SplitHostPort(c.Controller)
+	if c.ControllerCA == "" && c.ControllerSystemTrust {
+		return &tls.Config{
+			ServerName: host,
+			RootCAs:    systemRoots,
+			MinVersion: tls.VersionTLS12,
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				if len(cs.PeerCertificates) > 0 {
+					c.seen = certFingerprint(cs.PeerCertificates[0])
+				}
+				return nil
+			},
+		}, nil
+	}
 	var pinned []*x509.Certificate
 	for rest := []byte(c.ControllerCA); ; {
 		var b *pem.Block
@@ -314,7 +362,6 @@ func (c *cliContext) controllerTLS() (*tls.Config, error) {
 	if len(pinned) == 0 {
 		return nil, errors.New("no Controller certificate to check it against: janusctl login -controller-fingerprint")
 	}
-	host, _, _ := net.SplitHostPort(c.Controller)
 	return &tls.Config{
 		MinVersion:         tls.VersionTLS12,
 		InsecureSkipVerify: true, //nolint:gosec // verified in VerifyConnection below
@@ -338,7 +385,7 @@ func (c *cliContext) controllerTLS() (*tls.Config, error) {
 			}
 			_, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, DNSName: host})
 			if err != nil {
-				return fmt.Errorf("the Controller's certificate isn't the one trusted: %w", err)
+				return fmt.Errorf("the Controller's certificate isn't the one trusted (%w) - if it was changed on purpose, check its new SHA-256 %s and sign in again: janusctl login -controller-fingerprint SHA256, -controller-ca FILE, or neither for a certificate this system trusts", err, colonHex(c.seen))
 			}
 			return nil
 		},
