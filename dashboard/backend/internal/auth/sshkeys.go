@@ -86,8 +86,8 @@ func (s *Store) AddSSHKey(user, name, line string, role Role, ttl time.Duration)
 	if !ok {
 		return SSHKey{}, ErrNoUser
 	}
-	if role != "" && !u.Role.AtLeast(role) {
-		return SSHKey{}, fmt.Errorf("a key can't do more than its account: %s is %s", u.Name, u.Role)
+	if role != "" && !u.MaxRole().AtLeast(role) {
+		return SSHKey{}, fmt.Errorf("a key can't do more than its account: %s is %s at most", u.Name, u.MaxRole())
 	}
 	fp := ssh.FingerprintSHA256(pub)
 	for _, other := range s.users {
@@ -152,28 +152,25 @@ func (s *Store) RemoveSSHKeys(user string) (int, error) {
 }
 
 // SSHKeyFor is user's key fingerprint if it may sign in now - the
-// account enabled, the key not expired -, with the role it signs in with.
-func (s *Store) SSHKeyFor(user, fingerprint string) (ssh.PublicKey, Role, error) {
+// account enabled, the key not expired -, with the account and the role
+// the key is limited to (none: the account's).
+func (s *Store) SSHKeyFor(user, fingerprint string) (ssh.PublicKey, User, Role, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.fresh()
 	u, ok := s.users[user]
 	if !ok || u.Disabled {
-		return nil, "", ErrInvalid
+		return nil, User{}, "", ErrInvalid
 	}
 	i := slices.IndexFunc(u.SSHKeys, func(k SSHKey) bool { return k.Fingerprint == fingerprint })
 	if i < 0 || u.SSHKeys[i].Expired(s.now()) {
-		return nil, "", ErrInvalid
+		return nil, User{}, "", ErrInvalid
 	}
 	pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(u.SSHKeys[i].PublicKey))
 	if err != nil {
-		return nil, "", ErrInvalid
+		return nil, User{}, "", ErrInvalid
 	}
-	role := u.Role
-	if r := u.SSHKeys[i].Role; r != "" {
-		role = Lower(r, u.Role)
-	}
-	return pub, role, nil
+	return pub, view(u), u.SSHKeys[i].Role, nil
 }
 
 // SSHKeyUsed records a sign-in with a key.

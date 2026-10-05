@@ -50,9 +50,12 @@ func keyFingerprint(pub any) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// grant is a page's approval of janusctl's key: for what the account
+// may do, limited to the role asked.
 type grant struct {
-	user, role, fingerprint string
-	expires                 time.Time
+	p           principal
+	fingerprint string
+	expires     time.Time
 }
 
 type device struct {
@@ -62,8 +65,9 @@ type device struct {
 	client      string
 	created     time.Time
 	// state: "pending", "approved", "denied".
-	state      string
-	user, role string
+	state string
+	// p is the approving account, limited to the role asked.
+	p principal
 }
 
 type cliLogins struct {
@@ -119,28 +123,28 @@ func normalizeUserCode(s string) string {
 }
 
 func (a *app) registerCLIBrowserRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/cli/grant", a.sessionGate(auth.Reader, auth.Reader, a.handleCLIGrant))
+	mux.HandleFunc("POST /api/cli/grant", a.sessionGate(anyone, anyone, a.handleCLIGrant))
 	mux.HandleFunc("POST /api/cli/exchange", a.handleCLIExchange)
 	mux.HandleFunc("POST /api/cli/device", a.handleCLIDevice)
-	mux.HandleFunc("GET /api/cli/device/{code}", a.sessionGate(auth.Reader, auth.Reader, a.handleCLIDeviceShow))
-	mux.HandleFunc("POST /api/cli/device/{code}/approve", a.sessionGate(auth.Reader, auth.Reader, a.handleCLIDeviceDecide))
-	mux.HandleFunc("POST /api/cli/device/{code}/deny", a.sessionGate(auth.Reader, auth.Reader, a.handleCLIDeviceDecide))
+	mux.HandleFunc("GET /api/cli/device/{code}", a.sessionGate(anyone, anyone, a.handleCLIDeviceShow))
+	mux.HandleFunc("POST /api/cli/device/{code}/approve", a.sessionGate(anyone, anyone, a.handleCLIDeviceDecide))
+	mux.HandleFunc("POST /api/cli/device/{code}/deny", a.sessionGate(anyone, anyone, a.handleCLIDeviceDecide))
 	mux.HandleFunc("POST /api/cli/device/token", a.handleCLIDeviceToken)
 }
 
-// approvedRole is the role a page approves: the account's, or the lower
-// one asked.
-func approvedRole(p principal, asked auth.Role) (auth.Role, error) {
+// approved is what a page approves: what the account may do, or less -
+// limited to the role asked.
+func approved(p principal, asked auth.Role) (principal, error) {
 	if asked == "" {
-		return p.Role, nil
+		return p, nil
 	}
 	if _, err := auth.ParseRole(string(asked)); err != nil {
-		return "", err
+		return principal{}, err
 	}
-	if !p.Role.AtLeast(asked) {
-		return "", errors.New("a certificate can't do more than its account: " + p.User + " is " + string(p.Role))
+	if !p.Max.AtLeast(asked) {
+		return principal{}, errors.New("a certificate can't do more than its account: " + p.User + " is " + string(p.Max) + " at most")
 	}
-	return asked, nil
+	return p.capped(asked), nil
 }
 
 // handleCLIGrant is the page approving janusctl's key: a code for
@@ -159,7 +163,7 @@ func (a *app) handleCLIGrant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "key_fingerprint: the SHA-256 of janusctl's key, hex")
 		return
 	}
-	role, err := approvedRole(p, req.Role)
+	ap, err := approved(p, req.Role)
 	if err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
@@ -180,18 +184,24 @@ func (a *app) handleCLIGrant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "too many sign-ins under way - try again in a minute")
 		return
 	}
-	a.cliLogins.grants[code] = grant{user: p.User, role: nodeRole(role), fingerprint: fp, expires: now.Add(grantLife)}
+	a.cliLogins.grants[code] = grant{p: ap, fingerprint: fp, expires: now.Add(grantLife)}
 	writeJSON(w, http.StatusOK, map[string]string{"code": code})
 }
 
-// issueForCSR answers janusctl a certificate for csr's key - for user,
-// with role, twelve hours - and the nodes.
-func (a *app) issueForCSR(w http.ResponseWriter, csr *x509.CertificateRequest, user, role, how string) {
+// issueForCSR answers janusctl a certificate for csr's key - for what p
+// may do, twelve hours - and the nodes.
+func (a *app) issueForCSR(w http.ResponseWriter, csr *x509.CertificateRequest, p principal, how string) {
 	if a.fleet == nil {
 		writeError(w, http.StatusConflict, "set up the fleet first: janusctl's certificates are the fleet's")
 		return
 	}
-	chain, notAfter, err := a.fleet.IssueUser(csr.PublicKey, user, role, cliSessionTTL)
+	id, err := a.cliIdentityFor(p)
+	if err != nil {
+		writeError(w, http.StatusForbidden, p.User+" "+err.Error())
+		return
+	}
+	user := p.User
+	chain, notAfter, err := a.fleet.IssueUser(csr.PublicKey, user, id.Role, id.Scope, cliSessionTTL)
 	if errors.Is(err, fleet.ErrState) {
 		writeError(w, http.StatusConflict, "set up the fleet first: janusctl's certificates are the fleet's")
 		return
@@ -200,11 +210,11 @@ func (a *app) issueForCSR(w http.ResponseWriter, csr *x509.CertificateRequest, u
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	log.Printf("issued a janusctl certificate to %s (%s, %s) until %s", user, role, how, notAfter.Format(time.RFC3339))
+	log.Printf("issued a janusctl certificate to %s (%s, %s) until %s", user, id.Summary, how, notAfter.Format(time.RFC3339))
 	writeJSON(w, http.StatusOK, struct {
 		cliCertificate
 		Nodes []cliNode `json:"nodes"`
-	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: role}, a.cliNodes()})
+	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: id.Summary}, a.cliNodes(p)})
 }
 
 func (a *app) throttledCLI(w http.ResponseWriter, r *http.Request) bool {
@@ -241,7 +251,7 @@ func (a *app) handleCLIExchange(w http.ResponseWriter, r *http.Request) {
 		fail("this code isn't good (any more): janusctl login again")
 		return
 	}
-	noteAudit(r, g.user, "browser")
+	noteAudit(r, g.p.User, "browser")
 	csr, err := parseCSR([]byte(req.CSRPEM))
 	if err != nil {
 		fail(err.Error())
@@ -252,7 +262,7 @@ func (a *app) handleCLIExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.loginLimiter.Succeed(clientAddr(r))
-	a.issueForCSR(w, csr, g.user, g.role, "browser")
+	a.issueForCSR(w, csr, g.p, "browser")
 }
 
 // handleCLIDevice starts a sign-in from a machine without a browser: a
@@ -349,7 +359,7 @@ func (a *app) handleCLIDeviceDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	approve := strings.HasSuffix(r.URL.Path, "/approve")
-	role, err := approvedRole(p, req.Role)
+	ap, err := approved(p, req.Role)
 	if approve && err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
@@ -362,7 +372,7 @@ func (a *app) handleCLIDeviceDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if approve {
-		d.state, d.user, d.role = "approved", p.User, nodeRole(role)
+		d.state, d.p = "approved", ap
 	} else {
 		d.state = "denied"
 	}
@@ -392,7 +402,7 @@ func (a *app) handleCLIDeviceToken(w http.ResponseWriter, r *http.Request) {
 	case d.state == "denied":
 		writeError(w, http.StatusForbidden, "the sign-in was denied on the Controller's page")
 	default:
-		noteAudit(r, d.user, "device")
-		a.issueForCSR(w, d.csr, d.user, d.role, "device")
+		noteAudit(r, d.p.User, "device")
+		a.issueForCSR(w, d.csr, d.p, "device")
 	}
 }

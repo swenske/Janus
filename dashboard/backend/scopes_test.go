@@ -120,7 +120,7 @@ func TestScopes(t *testing.T) {
 			t.Errorf("wes %s: %d %q", path, code, body)
 		}
 	}
-	for _, path := range []string{"/api/users", "/api/fleet", "/api/backups", "/api/cli/inventory"} {
+	for _, path := range []string{"/api/users", "/api/fleet", "/api/backups"} {
 		if code, _ := a.req(t, "GET", path, wes, nil); code != http.StatusForbidden {
 			t.Errorf("wes %s: %d", path, code)
 		}

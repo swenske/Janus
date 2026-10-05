@@ -147,6 +147,20 @@ CI, with an API token, for a key janusctl makes; without an SSH key,
 through the Controller's page, which approves a key janusctl made by its
 fingerprint (a code handed back to janusctl on 127.0.0.1, or typed on
 the page from another machine).
+An account whose permissions differ from node to node - grants on the
+nodes some labels pick, a token narrowed to some, no role over all of
+them - gets a scoped certificate instead (`internal/pki/scope.go`): no
+role in its subject (`janus:scoped` stands there, so a node of an older
+release refuses it), and an extension listing what it may do on every
+node and on each node it reaches, by the SHA-256 of that node's CA's
+key - the key, not the certificate: after a CA rotation the Controller
+pins the new CA's cross-signed certificate, same key. The node finds its
+own entry and applies its roles and domains, as for the Controller's
+calls; a node it doesn't name, or one labelled after the sign-in, is
+refused until the next one. The extension isn't critical: Go fails a
+TLS handshake on a critical extension it doesn't know, before the node
+reads it - on this release too. A role-limited issuing CA signs no
+scope giving more than its roles.
 A second factor - TOTP, its secret sealed with
 the master key, or a WebAuthn passkey - finishes the sign-in of an
 account that has one, required for admins by default.

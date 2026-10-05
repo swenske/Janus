@@ -153,8 +153,11 @@ keys: add - only once the account has a second factor -, remove, and the
 `janusctl login` command with the Controller's fingerprint from
 `/api/controller-info`) and the password form. `#/cli-login` and `#/cli-device` (`CliLogin.jsx`,
 rendered in place of the tabs once signed in) approve a janusctl
-certificate: the key's fingerprint, a role up to the account's; the
-first sends the browser back to janusctl's `127.0.0.1` listener.
+certificate: the key's fingerprint, and what it carries - the account's
+role, or for an account with grants "what your account may do, node by
+node" (a scoped certificate) -, or a lower role up to the account's
+highest (`max_role`); the first sends the browser back to janusctl's
+`127.0.0.1` listener.
 
 A failed backup, or none for twice the interval, puts **Backup
 failing**/**Backup late** in the main page's header for admins (a link

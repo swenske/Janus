@@ -119,6 +119,13 @@ In CI, an API token of the account instead (`JANUS_TOKEN=janus_...
 janusctl login -controller ...`): a certificate for an hour, with the
 token's role, renewed while `JANUS_TOKEN` is set.
 
+An account with grants on labelled nodes (or a token narrowed to some)
+gets a scoped certificate: what it may do on each node it reaches -
+`janusctl login` says it, e.g. `scoped: os:operator (haproxy) on 3
+nodes` -, checked by each node itself; `janusctl nodes` lists those
+nodes only. A node labelled after the sign-in needs a new one. Scoped
+certificates open nodes of this release on; an older node refuses them.
+
 The first login asks for the Controller's certificate: `-controller-
 fingerprint` (the account dialog's command has it; on its host:
 `openssl x509 -in <data-dir>/dashboard-identity.crt -noout -fingerprint

@@ -63,30 +63,30 @@ func TestSSHKeys(t *testing.T) {
 		}
 	}
 
-	if _, role, err := s.SSHKeyFor("sam", k.Fingerprint); err != nil || role != Operator {
-		t.Errorf("the laptop key: %v %v", role, err)
+	if _, u, limit, err := s.SSHKeyFor("sam", k.Fingerprint); err != nil || limit != "" || u.Role != Operator {
+		t.Errorf("the laptop key: %v %v %v", u.Role, limit, err)
 	}
-	if _, role, err := s.SSHKeyFor("sam", ro.Fingerprint); err != nil || role != Reader {
-		t.Errorf("the reader key: %v %v", role, err)
+	if _, _, limit, err := s.SSHKeyFor("sam", ro.Fingerprint); err != nil || limit != Reader {
+		t.Errorf("the reader key: %v %v", limit, err)
 	}
-	if _, _, err := s.SSHKeyFor("root", k.Fingerprint); err == nil {
+	if _, _, _, err := s.SSHKeyFor("root", k.Fingerprint); err == nil {
 		t.Error("sam's key signs root in")
 	}
 	// Demoted, the account's keys follow; expired or disabled, they stop.
 	if _, err := s.UpdateUser("sam", Change{Role: ptr(Reader)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, role, _ := s.SSHKeyFor("sam", k.Fingerprint); role != Reader {
-		t.Errorf("after a demotion: %v", role)
+	if _, u, _, _ := s.SSHKeyFor("sam", k.Fingerprint); u.Role != Reader {
+		t.Errorf("after a demotion: %v", u.Role)
 	}
 	now = now.Add(2 * time.Hour)
-	if _, _, err := s.SSHKeyFor("sam", ro.Fingerprint); err == nil {
+	if _, _, _, err := s.SSHKeyFor("sam", ro.Fingerprint); err == nil {
 		t.Error("an expired key")
 	}
 	if _, err := s.UpdateUser("sam", Change{Disabled: ptr(true)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.SSHKeyFor("sam", k.Fingerprint); err == nil {
+	if _, _, _, err := s.SSHKeyFor("sam", k.Fingerprint); err == nil {
 		t.Error("a disabled account's key")
 	}
 	if err := s.RemoveSSHKey("sam", k.Fingerprint); err != nil {

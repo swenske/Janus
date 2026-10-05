@@ -31,8 +31,8 @@ import (
 // janusctl's side of the Controller (/api/cli/*): a short certificate of
 // the fleet for an account - signed for janusctl's own key, never one
 // the Controller makes -, and the nodes to use it with. janusctl then
-// talks to the nodes directly; each one checks the certificate's role
-// itself.
+// talks to the nodes directly; each one checks the certificate's role -
+// or its scope (cli_scope.go) - itself.
 
 // Certificate lifetimes: a working day from a sign-in, an hour from an
 // API token (a CI job).
@@ -42,8 +42,8 @@ const (
 )
 
 func (a *app) registerCLIRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/cli/certificate", a.gate(auth.Reader, auth.Reader, a.handleCLICertificate))
-	mux.HandleFunc("GET /api/cli/inventory", a.gate(auth.Reader, auth.Reader, a.handleCLIInventory))
+	mux.HandleFunc("POST /api/cli/certificate", a.gate(anyone, anyone, a.handleCLICertificate))
+	mux.HandleFunc("GET /api/cli/inventory", a.gate(anyone, anyone, a.handleCLIInventory))
 }
 
 type cliCertificate struct {
@@ -52,13 +52,13 @@ type cliCertificate struct {
 	CertificatePEM string    `json:"certificate_pem"`
 	ExpiresAt      time.Time `json:"expires_at"`
 	User           string    `json:"user"`
-	// Role is the node role it carries.
+	// Role is what it carries: the node role, or what its scope gives.
 	Role string `json:"role"`
 }
 
 // handleCLICertificate signs the request's CSR (its key janusctl's own)
-// for the account, with the request's role: an hour from an API token,
-// twelve from a session.
+// for the account, with what the request may do (cliIdentityFor): an
+// hour from an API token, twelve from a session.
 func (a *app) handleCLICertificate(w http.ResponseWriter, r *http.Request) {
 	p, _ := principalOf(r)
 	var req struct {
@@ -80,8 +80,12 @@ func (a *app) handleCLICertificate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "set up the fleet first: janusctl's certificates are the fleet's")
 		return
 	}
-	role := nodeRole(p.Role)
-	chain, notAfter, err := a.fleet.IssueUser(csr.PublicKey, p.User, role, ttl)
+	id, err := a.cliIdentityFor(p)
+	if err != nil {
+		writeError(w, http.StatusForbidden, p.User+" "+err.Error())
+		return
+	}
+	chain, notAfter, err := a.fleet.IssueUser(csr.PublicKey, p.User, id.Role, id.Scope, ttl)
 	if errors.Is(err, fleet.ErrState) {
 		writeError(w, http.StatusConflict, "set up the fleet first: janusctl's certificates are the fleet's")
 		return
@@ -90,8 +94,8 @@ func (a *app) handleCLICertificate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	log.Printf("issued a janusctl certificate to %s (%s, %s) until %s", p.User, role, p.via(), notAfter.Format(time.RFC3339))
-	writeJSON(w, http.StatusOK, cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: p.User, Role: role})
+	log.Printf("issued a janusctl certificate to %s (%s, %s) until %s", p.User, id.Summary, p.via(), notAfter.Format(time.RFC3339))
+	writeJSON(w, http.StatusOK, cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: p.User, Role: id.Summary})
 }
 
 // parseCSR reads a CSR, checks it's signed by its own key - the caller
@@ -136,15 +140,16 @@ type cliNode struct {
 }
 
 // handleCLIInventory lists the nodes janusctl reaches, and how.
-func (a *app) handleCLIInventory(w http.ResponseWriter, _ *http.Request) {
+func (a *app) handleCLIInventory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, struct {
 		Nodes []cliNode `json:"nodes"`
-	}{a.cliNodes()})
+	}{a.cliNodes(requestPrincipal(r))})
 }
 
-func (a *app) cliNodes() []cliNode {
+// cliNodes are the nodes p reaches.
+func (a *app) cliNodes(p principal) []cliNode {
 	out := []cliNode{}
-	for _, n := range a.store.List() {
+	for _, n := range a.visibleNodes(p) {
 		out = append(out, cliNode{ID: n.ID, Name: n.Name, Address: n.Addr(), CAPEM: string(n.CA()), Fleet: n.TrustsFleet()})
 	}
 	return out
@@ -161,9 +166,9 @@ func (a *app) servedFingerprint() string {
 }
 
 func (a *app) registerSSHKeyRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/auth/ssh-keys", a.sessionGate(auth.Reader, auth.Reader, a.handleSSHKeyList))
-	mux.HandleFunc("POST /api/auth/ssh-keys", a.sessionGate(auth.Reader, auth.Reader, a.handleSSHKeyAdd))
-	mux.HandleFunc("DELETE /api/auth/ssh-keys/{fingerprint...}", a.sessionGate(auth.Reader, auth.Reader, a.handleSSHKeyRemove))
+	mux.HandleFunc("GET /api/auth/ssh-keys", a.sessionGate(anyone, anyone, a.handleSSHKeyList))
+	mux.HandleFunc("POST /api/auth/ssh-keys", a.sessionGate(anyone, anyone, a.handleSSHKeyAdd))
+	mux.HandleFunc("DELETE /api/auth/ssh-keys/{fingerprint...}", a.sessionGate(anyone, anyone, a.handleSSHKeyRemove))
 	mux.HandleFunc("POST /api/cli/challenge", a.handleCLIChallenge)
 	mux.HandleFunc("POST /api/cli/ssh-login", a.handleCLISSHLogin)
 }
@@ -321,7 +326,7 @@ func (a *app) handleCLISSHLogin(w http.ResponseWriter, r *http.Request) {
 		fail()
 		return
 	}
-	pub, role, err := a.auth.SSHKeyFor(user, req.Fingerprint)
+	pub, account, limit, err := a.auth.SSHKeyFor(user, req.Fingerprint)
 	if err != nil {
 		fail()
 		return
@@ -337,8 +342,13 @@ func (a *app) handleCLISSHLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "set up the fleet first: janusctl's certificates are the fleet's")
 		return
 	}
-	nodeR := nodeRole(role)
-	chain, notAfter, err := a.fleet.IssueUser(cpk.CryptoPublicKey(), user, nodeR, cliSessionTTL)
+	p := userPrincipal(account, limit)
+	id, err := a.cliIdentityFor(p)
+	if err != nil {
+		writeError(w, http.StatusForbidden, user+" "+err.Error())
+		return
+	}
+	chain, notAfter, err := a.fleet.IssueUser(cpk.CryptoPublicKey(), user, id.Role, id.Scope, cliSessionTTL)
 	if errors.Is(err, fleet.ErrState) {
 		writeError(w, http.StatusConflict, "set up the fleet first: janusctl's certificates are the fleet's")
 		return
@@ -347,9 +357,9 @@ func (a *app) handleCLISSHLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	log.Printf("issued a janusctl certificate to %s (%s, ssh key %s) until %s", user, nodeR, req.Fingerprint, notAfter.Format(time.RFC3339))
+	log.Printf("issued a janusctl certificate to %s (%s, ssh key %s) until %s", user, id.Summary, req.Fingerprint, notAfter.Format(time.RFC3339))
 	writeJSON(w, http.StatusOK, struct {
 		cliCertificate
 		Nodes []cliNode `json:"nodes"`
-	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: nodeR}, a.cliNodes()})
+	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: id.Summary}, a.cliNodes(p)})
 }

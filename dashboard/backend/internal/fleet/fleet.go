@@ -373,9 +373,10 @@ func (s *Store) ServerCertificate() (*tls.Certificate, error) {
 
 // IssueUser signs an account's client certificate for pub - janusctl's,
 // for its own key: name as the common name, role (os:admin, os:operator,
-// os:reader) for the nodes, valid ttl at most (never past the issuing
-// CA), followed by the issuing CA. Only once the fleet is ready.
-func (s *Store) IssueUser(pub crypto.PublicKey, name, role string, ttl time.Duration) (chainPEM []byte, notAfter time.Time, err error) {
+// os:reader) for the nodes - or, with scope, what it may do on each
+// (pki.Scope) -, valid ttl at most (never past the issuing CA), followed
+// by the issuing CA. Only once the fleet is ready.
+func (s *Store) IssueUser(pub crypto.PublicKey, name, role string, scope *pki.Scope, ttl time.Duration) (chainPEM []byte, notAfter time.Time, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.st.State != StateReady {
@@ -387,6 +388,7 @@ func (s *Store) IssueUser(pub crypto.PublicKey, name, role string, ttl time.Dura
 	certPEM, err := s.issuing.IssueFor(pub, pki.IssueOptions{
 		CommonName:  name,
 		Roles:       []string{role},
+		Scope:       scope,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		Validity:    ttl,
 	})

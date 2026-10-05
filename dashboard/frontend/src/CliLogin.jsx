@@ -14,16 +14,21 @@ function groups(hex) {
   return (hex || '').toUpperCase().match(/.{2}/g)?.join(':') || ''
 }
 
+// RoleSelect: the certificate does what the account does - its role,
+// or its grants on the nodes they pick (a scoped certificate) -, or is
+// limited to a lower role.
 function RoleSelect({ value, onChange }) {
   const me = useMe()
+  const most = me.max_role || me.role
+  const yours = me.role && me.role === most ? `your role (${me.role})` : 'what your account may do, node by node'
   return (
     <label className="field">
       <span>Its role</span>
       <select value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">your role ({me.role})</option>
-        {ROLES.filter((r) => r.id !== me.role && atLeast(me.role, r.id)).map((r) => (
+        <option value="">{yours}</option>
+        {ROLES.filter((r) => r.id !== me.role && atLeast(most, r.id)).map((r) => (
           <option key={r.id} value={r.id}>
-            {r.label}
+            {r.label} at most
           </option>
         ))}
       </select>

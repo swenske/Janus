@@ -180,7 +180,7 @@ func TestSetupAgain(t *testing.T) {
 func TestIssueUser(t *testing.T) {
 	s := newStore(t, t.TempDir())
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if _, _, err := s.IssueUser(&key.PublicKey, "sam", pki.RoleOperator, time.Hour); !errors.Is(err, ErrState) {
+	if _, _, err := s.IssueUser(&key.PublicKey, "sam", pki.RoleOperator, nil, time.Hour); !errors.Is(err, ErrState) {
 		t.Errorf("before the fleet: %v", err)
 	}
 	pass, _ := s.Setup()
@@ -188,7 +188,7 @@ func TestIssueUser(t *testing.T) {
 	if err := s.Confirm(kit, pass); err != nil {
 		t.Fatal(err)
 	}
-	chainPEM, notAfter, err := s.IssueUser(&key.PublicKey, "sam", pki.RoleOperator, time.Hour)
+	chainPEM, notAfter, err := s.IssueUser(&key.PublicKey, "sam", pki.RoleOperator, nil, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -354,6 +354,12 @@ account - or, in CI, an API token (`JANUS_TOKEN`) - and gets a
 certificate of its fleet and its nodes; janusctl then reaches the nodes
 directly, each checking the certificate's role itself
 ([README](../README.md#using-janusctl)). The fleet must be set up.
+An account whose permissions differ from node to node - grants, no role
+over everything, a token narrowed to some nodes or domains, an SSH key
+or an approval with a lower role on top - gets a scoped certificate:
+what it may do on each node it reaches, those nodes named by their CA's
+key, each node checking its own entry; and only those nodes in its
+inventory. One that reaches no node gets none (403).
 
 Your SSH keys are in your account's dialog (**SSH keys for janusctl**):
 adding one needs a sign-in that gave a second factor - the key then
