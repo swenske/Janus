@@ -52,6 +52,10 @@ const FleetControllerName = "controller.fleet.janus"
 const (
 	AsUserKey  = "janus-as-user"
 	AsRolesKey = "janus-as-roles"
+	// AsDomainsKey, optional: the domains the user's permission is
+	// narrowed to on this node (internal/rbac.NodeDomains),
+	// comma-separated - absent, every domain.
+	AsDomainsKey = "janus-as-domains"
 )
 
 // A node keeps its fleet under its PKI directory - FleetDir/

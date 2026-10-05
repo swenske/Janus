@@ -50,12 +50,17 @@ type Caller struct {
 	// Controller), not one the node's own CA issued - an "admin" of each
 	// isn't the same.
 	Fleet bool
+	// Domains narrow what the caller may do (internal/rbac); none: all.
+	Domains []string
 }
 
 func (c Caller) String() string {
 	s := c.Name + " (" + strings.Join(c.Roles, ", ")
 	if c.Fleet && c.Via == "" {
 		s += ", fleet"
+	}
+	if len(c.Domains) > 0 {
+		s += "; " + strings.Join(c.Domains, ", ")
 	}
 	s += ")"
 	if c.Via != "" {
@@ -158,13 +163,28 @@ func authorize(ctx context.Context, fullMethod string) (Caller, error) {
 			}
 		}
 		caller = Caller{Name: users[0], Roles: as, Via: leaf.Subject.CommonName}
+		if d := md.Get(pki.AsDomainsKey); len(d) > 0 {
+			if len(d) != 1 {
+				return Caller{}, status.Errorf(codes.PermissionDenied, "%s: once at most", pki.AsDomainsKey)
+			}
+			for _, dom := range strings.Split(d[0], ",") {
+				if !slices.Contains(rbac.NodeDomains, dom) {
+					return Caller{}, status.Errorf(codes.PermissionDenied, "%s: unknown domain %q", pki.AsDomainsKey, dom)
+				}
+				caller.Domains = append(caller.Domains, dom)
+			}
+		}
 	}
 
 	required := rolesFor(fullMethod)
 	for _, have := range caller.Roles {
-		if slices.Contains(required, have) {
-			return caller, nil
+		if !slices.Contains(required, have) {
+			continue
 		}
+		if !rbac.InDomains(fullMethod, caller.Domains) {
+			return Caller{}, status.Errorf(codes.PermissionDenied, "%s is in the %s domain: %s may only %s", fullMethod, rbac.DomainOf(fullMethod), caller.Name, strings.Join(caller.Domains, ", "))
+		}
+		return caller, nil
 	}
 	return Caller{}, status.Errorf(codes.PermissionDenied, "%s requires role %v, %s has %v", fullMethod, required, caller.Name, caller.Roles)
 }

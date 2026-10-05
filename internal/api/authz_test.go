@@ -202,3 +202,31 @@ func TestFleetCaller(t *testing.T) {
 		t.Errorf("the node's own: %q %v", c, err)
 	}
 }
+
+// TestControllerNarrowsDomains: the Controller can narrow the user it
+// acts for to some domains - the node holds it to them.
+func TestControllerNarrowsDomains(t *testing.T) {
+	ctl := peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "janus-controller", Organization: []string{"janus:controller"}}})
+	as := func(domains string) context.Context {
+		return metadata.NewIncomingContext(ctl, metadata.Pairs(pki.AsUserKey, "tf", pki.AsRolesKey, "os:operator", pki.AsDomainsKey, domains))
+	}
+	for _, c := range []struct {
+		domains, method string
+		want            codes.Code
+	}{
+		{"haproxy", "/janus.v1alpha1.HAProxyService/ApplyConfig", codes.OK},
+		{"haproxy", "/janus.v1alpha1.SystemService/Stats", codes.OK},
+		{"haproxy", "/janus.v1alpha1.SystemService/Reboot", codes.PermissionDenied},
+		{"haproxy,services", "/janus.v1alpha1.SystemService/Reboot", codes.OK},
+		{"haproxy", "/janus.v1alpha1.NetworkService/NetworkConfigApply", codes.PermissionDenied},
+		{"root", "/janus.v1alpha1.SystemService/Stats", codes.PermissionDenied},
+	} {
+		if got := status.Code(checkRole(as(c.domains), c.method)); got != c.want {
+			t.Errorf("%s, %s: %v, want %v", c.domains, c.method, got, c.want)
+		}
+	}
+	caller, err := authorize(as("haproxy"), "/janus.v1alpha1.HAProxyService/ApplyConfig")
+	if err != nil || caller.String() != "tf (os:operator; haproxy) via janus-controller" {
+		t.Errorf("caller %q, %v", caller, err)
+	}
+}
