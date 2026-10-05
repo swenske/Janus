@@ -64,8 +64,9 @@ func TestPermFor(t *testing.T) {
 		{"/janus.v1alpha1.HAProxyService/ApplyConfig", true, "os:operator"},
 		{"/janus.v1alpha1.SystemService/Stats", true, "os:operator"},
 		{"/janus.v1alpha1.NetworkService/NetworkConfigGet", true, "os:reader"},
-		{"/janus.v1alpha1.SystemService/Reboot", false, ""},
-		{"/janus.v1alpha1.NetworkService/NetworkConfigApply", false, ""},
+		// The reader's reaches every domain: the node refuses its role.
+		{"/janus.v1alpha1.SystemService/Reboot", true, "os:reader"},
+		{"/janus.v1alpha1.NetworkService/NetworkConfigApply", true, "os:reader"},
 	} {
 		ctx := WithUser(context.Background(), u)
 		out, err := actingFor(ctx, c.method)
@@ -86,5 +87,16 @@ func TestPermFor(t *testing.T) {
 	}
 	if may := u.May(); !slices.Contains(may, "HAProxyService/ApplyConfig") || slices.Contains(may, "SystemService/Reboot") {
 		t.Errorf("may %v", may)
+	}
+	// No permission's domains reach it: refused here.
+	haproxyOnly := User{Name: "tf", Perms: []Perm{{Role: "os:operator", Domains: []string{"haproxy"}}}}
+	if _, err := actingFor(WithUser(context.Background(), haproxyOnly), "/janus.v1alpha1.SystemService/Reboot"); err == nil {
+		t.Error("a reboot outside the domains left")
+	}
+	// The role, the node judges: an operator issuing a certificate goes
+	// to the node as such.
+	op := User{Name: "olga", Perms: []Perm{{Role: "os:operator"}}}
+	if _, err := actingFor(WithUser(context.Background(), op), "/janus.v1alpha1.SystemService/GenerateClientConfiguration"); err != nil {
+		t.Errorf("an operator's call left for the node to judge: %v", err)
 	}
 }

@@ -35,9 +35,11 @@ var FleetIdentity func() (*tls.Certificate, error)
 // and logs that user.
 type User struct {
 	Name string
-	// Perms are the ways the user may act on this node - the first that
-	// lets a call through makes it; none, and the Controller refuses it
-	// before it leaves.
+	// Perms are the ways the user may act on this node, the strongest
+	// first. A call goes with the first whose role and domains allow it -
+	// or, when none's role does, the first whose domains reach it: the
+	// node is the judge of roles, and says why it refuses. One no
+	// permission's domains reach, the Controller refuses before it leaves.
 	Perms []Perm
 }
 
@@ -48,21 +50,42 @@ type Perm struct {
 	Domains []string
 }
 
-// permFor is the first of u's permissions that lets it call method.
+// permFor is the permission a call of method goes with (Perms).
 func (u User) permFor(method string) (Perm, bool) {
-	for _, p := range u.Perms {
-		if rbac.Allowed(method, []string{p.Role}) && rbac.InDomains(method, p.Domains) {
+	var reaching *Perm
+	for i, p := range u.Perms {
+		if !rbac.InDomains(method, p.Domains) {
+			continue
+		}
+		if rbac.Allowed(method, []string{p.Role}) {
 			return p, true
 		}
+		if reaching == nil {
+			reaching = &u.Perms[i]
+		}
+	}
+	if reaching != nil {
+		return *reaching, true
 	}
 	return Perm{}, false
+}
+
+// allows reports whether u may call method: a permission's role and
+// domains.
+func (u User) allows(method string) bool {
+	for _, p := range u.Perms {
+		if rbac.InDomains(method, p.Domains) && rbac.Allowed(method, []string{p.Role}) {
+			return true
+		}
+	}
+	return false
 }
 
 // May is the RPCs u may call ("Service/Method"), sorted.
 func (u User) May() []string {
 	var out []string
 	for m := range rbac.Required {
-		if _, ok := u.permFor(m); ok {
+		if u.allows(m) {
 			out = append(out, strings.TrimPrefix(m, "/janus.v1alpha1."))
 		}
 	}
