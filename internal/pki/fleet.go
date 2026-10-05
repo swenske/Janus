@@ -385,8 +385,14 @@ func (f *Fleet) AcceptChains(chains [][]*x509.Certificate, local *x509.Certifica
 				continue
 			}
 			allowed, limited := f.bundle.Limits[Fingerprint(ca.Raw)]
-			roles := chain[0].Subject.Organization
-			if limited && (len(roles) == 0 || slices.ContainsFunc(roles, func(r string) bool { return !slices.Contains(allowed, r) })) {
+			if !limited {
+				return nil
+			}
+			roles, err := rolesOf(chain[0])
+			if err != nil {
+				return err
+			}
+			if len(roles) == 0 || slices.ContainsFunc(roles, func(r string) bool { return !slices.Contains(allowed, r) }) {
 				return fmt.Errorf("the client certificate carries %v, more than its issuing CA may sign (%v)", roles, allowed)
 			}
 			return nil

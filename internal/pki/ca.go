@@ -230,6 +230,9 @@ type IssueOptions struct {
 	// Validity is how long the certificate is valid from now: 0 means
 	// LeafValidity.
 	Validity time.Duration
+	// Scope makes a scoped certificate (scope.go): Roles is then
+	// RoleScoped alone.
+	Scope *Scope
 }
 
 // Issue signs a new ECDSA P-256 leaf certificate with the CA's key,
@@ -263,18 +266,28 @@ func (ca *CA) IssueFor(pub crypto.PublicKey, opts IssueOptions) ([]byte, error) 
 		validity = LeafValidity
 	}
 
+	roles := opts.Roles
+	var extra []pkix.Extension
+	if opts.Scope != nil {
+		ext, err := opts.Scope.Extension()
+		if err != nil {
+			return nil, err
+		}
+		roles, extra = []string{RoleScoped}, []pkix.Extension{ext}
+	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName:   opts.CommonName,
-			Organization: opts.Roles,
+			Organization: roles,
 		},
-		NotBefore:   time.Now().Add(-time.Hour),
-		NotAfter:    time.Now().Add(validity),
-		KeyUsage:    x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: opts.ExtKeyUsage,
-		DNSNames:    opts.DNSNames,
-		IPAddresses: opts.IPAddresses,
+		ExtraExtensions: extra,
+		NotBefore:       time.Now().Add(-time.Hour),
+		NotAfter:        time.Now().Add(validity),
+		KeyUsage:        x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:     opts.ExtKeyUsage,
+		DNSNames:        opts.DNSNames,
+		IPAddresses:     opts.IPAddresses,
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, pub, ca.Key)
