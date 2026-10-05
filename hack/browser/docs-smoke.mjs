@@ -50,8 +50,13 @@ async function visit(page, url, scheme) {
   }
   const broken = await page.evaluate(() => [...document.images].filter((i) => !i.complete || i.naturalWidth === 0).map((i) => i.src))
   for (const src of broken) problems.push(`${url}: image not loaded: ${src}`)
+  // This channel's pages only: /docs/'s version menu links /docs/next/.
   return page.evaluate(
-    (root) => [...document.querySelectorAll('a[href]')].map((a) => new URL(a.href, location.href)).filter((u) => u.origin === location.origin && u.pathname.startsWith(root)).map((u) => u.origin + u.pathname),
+    (root) =>
+      [...document.querySelectorAll('a[href]')]
+        .map((a) => new URL(a.href, location.href))
+        .filter((u) => u.origin === location.origin && u.pathname.startsWith(root) && !(root === '/docs/' && u.pathname.startsWith('/docs/next/')))
+        .map((u) => u.origin + u.pathname),
     root,
   )
 }
