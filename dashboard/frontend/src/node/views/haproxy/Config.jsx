@@ -4,6 +4,7 @@ import { getJSON, postJSON } from '../../api.js'
 import { Badge, Card, ErrorBox, Loading, useAction, useConfirm, useToast } from '../../../shared/ui.jsx'
 import { DiffView, Editor } from '../../components/Editor.jsx'
 import { hunks, lineDiff } from '../../diff.js'
+import { useMay } from '../../may.js'
 
 export default function Config() {
   const [original, setOriginal] = useState(null)
@@ -14,6 +15,7 @@ export default function Config() {
   const [busy, run] = useAction()
   const confirm = useConfirm()
   const toast = useToast()
+  const may = useMay()
 
   const load = async () => {
     try {
@@ -106,9 +108,11 @@ export default function Config() {
           <button disabled={busy} onClick={validate}>
             <CheckCircle2 size={15} /> Validate
           </button>
-          <button className="primary" disabled={busy || !dirty} onClick={apply}>
-            <Upload size={15} /> Apply…
-          </button>
+          {may('HAProxyService/ApplyConfig') && (
+            <button className="primary" disabled={busy || !dirty} onClick={apply}>
+              <Upload size={15} /> Apply…
+            </button>
+          )}
           <button disabled={busy || !dirty} onClick={() => setDraft(original)}>
             <RotateCcw size={15} /> Revert
           </button>

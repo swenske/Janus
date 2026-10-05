@@ -139,6 +139,7 @@ export default function BGP() {
       <div style={{ marginTop: '1rem' }}>
         <ModuleConfigEditor
           base="/api/network/bgp"
+          applyMethod="NetworkService/BGPApplyConfig"
           file="bird.conf"
           daemon="BIRD"
           starter={STARTER}

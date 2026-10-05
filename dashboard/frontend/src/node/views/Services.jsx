@@ -2,6 +2,7 @@ import { Play, RotateCw, Server, Square } from 'lucide-react'
 import { postJSON } from '../api.js'
 import { Badge, Card, ErrorBox, PageHeader, stateTone, useAction, useConfirm } from '../../shared/ui.jsx'
 import { usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 
 const ABOUT = {
   janusd: 'The node control plane: this API, PKI, lifecycle. Restarting it does not interrupt HAProxy.',
@@ -12,6 +13,7 @@ export default function Services() {
   const { data, error, reload } = usePoll('/api/system/services')
   const [busy, run] = useAction()
   const confirm = useConfirm()
+  const may = useMay()
   const act = async (id, action) => {
     if (action === 'stop') {
       const ok = await confirm({ title: `Stop ${id}?`, body: <p>It finishes in-flight connections (up to 10 s) and then stops serving traffic until started again.</p>, action: 'Stop', danger: true })
@@ -43,7 +45,7 @@ export default function Services() {
             <p className="muted" style={{ marginTop: 0 }}>
               {ABOUT[s.id]}
             </p>
-            <div className="row">
+            <div className="row" hidden={!may('SystemService/ServiceRestart')}>
               {s.id === 'haproxy' && s.state !== 'running' && (
                 <button className="primary" disabled={busy} onClick={() => act(s.id, 'start')}>
                   <Play size={15} /> Start

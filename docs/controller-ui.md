@@ -142,6 +142,10 @@ rendered in place of the tabs once signed in) approve a janusctl
 certificate: the key's fingerprint, a role up to the account's; the
 first sends the browser back to janusctl's `127.0.0.1` listener.
 
+A failed backup, or none for twice the interval, puts **Backup
+failing**/**Backup late** in the main page's header for admins (a link
+to the tab, `backupAlert.js`) and a notice on the tab.
+
 **Backups** (`Backups.jsx`, admins): the backup kit - the fleet
 wizard's three steps (`Step` from `Fleet.jsx`) -, then the bucket and
 schedule (the secret write-only: "kept - type to change it"), **Back up
@@ -228,9 +232,25 @@ theme toggle:
   remove)
 - **Tools** - packet capture, files
 - **System** - network (hostname, interfaces, VLANs, DNS, NTP), services,
-  update, access (client certificates: role, name, validity - the
-  Controller refuses a certificate the node didn't issue as asked, which
-  an older node does), power
+  update, access (who the node lets in - its fleet's root, bundle and
+  issuing CAs, its own CA -; replacing its own CA, the new admin
+  credential for a key the browser makes with WebCrypto (P-256, the
+  private half never sent) or printed on the node's console, refused
+  while the Controller holds a credential that CA issued; client
+  certificates: role, name, validity - the Controller refuses a
+  certificate the node didn't issue as asked, which an older node does),
+  power
+
+**Only what the role may do.** `/api/me` carries `may`: the RPCs the
+account's node role may call (`internal/rbac`, the table janusd
+enforces). `useMay()` (`src/node/may.js`) answers per RPC: the nav hides
+what the role can't open (logs, dmesg, capture, files, "Add or remove
+apps…"), a group left empty goes too, a route opened by hand says the
+role doesn't reach it; views hide their actions (Apply, Reload, maps,
+certificates, servers' state, the modules' check/apply, power actions
+one by one, updates, the CA) and keep what reads - an editor stays
+editable, to validate and download. Consul's configuration (it may hold
+secrets) isn't even fetched. The node still refuses anything else.
 
 The sidebar shows the Controller's version under its name, as the main
 page does under its title (`dashboardd`'s `main.version`, stamped by the

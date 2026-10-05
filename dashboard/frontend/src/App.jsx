@@ -32,6 +32,7 @@ import { MeContext, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
 import { CliDevicePage, CliLoginPage } from './CliLogin.jsx'
+import { backupAlert } from './backupAlert.js'
 import BackupsPage from './Backups.jsx'
 import { RestoreForm } from './Restore.jsx'
 import TokensPage from './Tokens.jsx'
@@ -787,6 +788,7 @@ function MainApp() {
   const [adding, setAdding] = useState(false)
   const [version, setVersion] = useState('')
   const [fleet, setFleet] = useState(null)
+  const [backups, setBackups] = useState(null)
   const confirm = useConfirm()
   const toast = useToast()
 
@@ -819,7 +821,14 @@ function MainApp() {
         .catch(() => {})
     }
   }, [])
-  const reload = useCallback(async () => refreshStatus(await refresh()), [refresh, refreshStatus])
+  const isAdmin = can('admin')
+  const reload = useCallback(async () => {
+    if (isAdmin)
+      call('/api/backups', { background: true })
+        .then(setBackups)
+        .catch(() => {})
+    refreshStatus(await refresh())
+  }, [refresh, refreshStatus, isAdmin])
 
   // Faster while a machine is being created or destroyed: its phase moves
   // every few seconds.
@@ -908,6 +917,21 @@ function MainApp() {
             </Badge>
           )}
           {pending.length > 0 && <Badge tone="warn">{pending.length} pending</Badge>}
+          {isAdmin && backups?.alert && (
+            <a
+              href="#/backups"
+              className="badge-link"
+              title={backupAlert(backups)}
+              onClick={(e) => {
+                e.preventDefault()
+                navigate('/backups')
+              }}
+            >
+              <Badge tone={backups.alert === 'failed' ? 'danger' : 'warn'} dot>
+                {backups.alert === 'failed' ? 'Backup failing' : 'Backup late'}
+              </Badge>
+            </a>
+          )}
         </div>
         <span className="grow" />
         <button className="ghost icon" title="Refresh" onClick={reload}>

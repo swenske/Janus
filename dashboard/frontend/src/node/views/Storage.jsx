@@ -5,6 +5,7 @@ import DataTable from '../components/DataTable.jsx'
 import { Badge, Card, ErrorBox, Meter, PageHeader, useAction } from '../../shared/ui.jsx'
 import { bytes, num } from '../format.js'
 import { usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 
 function DiskUsage() {
   const [path, setPath] = useState('/etc')
@@ -58,6 +59,7 @@ function DiskUsage() {
 export default function Storage() {
   const mounts = usePoll('/api/system/mounts', { every: 30000 })
   const disks = usePoll('/api/system/disks')
+  const may = useMay()
   const rows = (mounts.data?.mounts || []).map((m, i) => ({
     ...m,
     __key: i,
@@ -108,7 +110,7 @@ export default function Storage() {
               ]}
             />
           </Card>
-          <DiskUsage />
+          {may('SystemService/DiskUsage') && <DiskUsage />}
         </div>
       </div>
     </>

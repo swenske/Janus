@@ -4,6 +4,7 @@ import { getJSON, postJSON } from '../../api.js'
 import DataTable from '../../components/DataTable.jsx'
 import { Card, Empty, ErrorBox, useAction } from '../../../shared/ui.jsx'
 import { usePoll } from '../../hooks.jsx'
+import { useMay } from '../../may.js'
 
 function MapEntries({ name }) {
   const [entries, setEntries] = useState(null)
@@ -11,6 +12,8 @@ function MapEntries({ name }) {
   const [key, setKey] = useState('')
   const [value, setValue] = useState('')
   const [busy, run] = useAction()
+  const may = useMay()
+  const canUpdate = may('HAProxyService/MapUpdate')
   const load = async () => {
     try {
       const r = await getJSON(`/api/haproxy/maps/${encodeURIComponent(name)}`)
@@ -29,6 +32,7 @@ function MapEntries({ name }) {
   return (
     <div className="stack">
       <ErrorBox error={error} />
+      {canUpdate && (
       <form
         className="row"
         onSubmit={(e) => {
@@ -45,13 +49,14 @@ function MapEntries({ name }) {
           <Plus size={15} /> Set
         </button>
       </form>
+      )}
       <DataTable
         rows={Object.entries(entries || {}).map(([k, v]) => ({ __key: k, key: k, value: v }))}
         empty="This map is empty."
         columns={[
           { key: 'key', label: 'Key', render: (r) => <span className="mono">{r.key}</span> },
           { key: 'value', label: 'Value', render: (r) => <span className="mono">{r.value}</span> },
-          {
+          canUpdate && {
             key: 'actions',
             label: '',
             render: (r) => (
@@ -68,7 +73,7 @@ function MapEntries({ name }) {
               </div>
             ),
           },
-        ]}
+        ].filter(Boolean)}
       />
       <p className="muted small">Runtime changes apply immediately but live in memory: they're lost at the next reload unless the map file is updated too.</p>
     </div>
@@ -101,6 +106,7 @@ function Acls() {
 
 export default function MapsAcls() {
   const maps = usePoll('/api/haproxy/maps', { every: 0 })
+  const may = useMay()
   const [selected, setSelected] = useState('')
   const names = maps.data?.maps || []
   const current = selected || names[0] || ''
@@ -123,7 +129,7 @@ export default function MapsAcls() {
           </>
         )}
       </Card>
-      <Acls />
+      {may('HAProxyService/ACLUpdate') && <Acls />}
     </div>
   )
 }

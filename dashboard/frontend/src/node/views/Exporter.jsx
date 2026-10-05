@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { postJSON } from '../api.js'
 import { Badge, Card, ErrorBox, useAction } from '../../shared/ui.jsx'
 import { usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 
 const DEFAULT_PORT = 10056
 const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/metrics.md'
@@ -17,6 +18,7 @@ export default function ExporterCard() {
   // configuration showing until then.
   const [draft, setDraft] = useState(null)
   const [busy, run] = useAction()
+  const canSet = useMay()('SystemService/MetricsConfigSet')
 
   const cfg = data?.config
   const enabled = draft ? draft.enabled : !!cfg?.enabled
@@ -63,7 +65,7 @@ export default function ExporterCard() {
             {badge}
           </div>
           {data?.error && <div className="small">{data.error}</div>}
-          <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <fieldset className="plain row" style={{ alignItems: 'flex-end', flexWrap: 'wrap' }} disabled={!canSet}>
             <label className="check">
               <input type="checkbox" checked={enabled} onChange={(e) => edit({ enabled: e.target.checked })} /> Enabled
             </label>
@@ -71,10 +73,12 @@ export default function ExporterCard() {
               <span>Port</span>
               <input className="mono" inputMode="numeric" value={port} placeholder={String(DEFAULT_PORT)} onChange={(e) => edit({ port: e.target.value.trim() })} disabled={!enabled} />
             </label>
-            <button className="primary" disabled={busy || !changed || !portValid} onClick={save}>
-              {busy ? 'Saving…' : 'Save'}
-            </button>
-          </div>
+            {canSet && (
+              <button className="primary" disabled={busy || !changed || !portValid} onClick={save}>
+                {busy ? 'Saving…' : 'Save'}
+              </button>
+            )}
+          </fieldset>
           {cfg?.enabled && (
             <>
               <div className="small">

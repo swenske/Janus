@@ -5,6 +5,7 @@ import { apiURL } from '../../shared/base.js'
 import { Badge, Card, ErrorBox, Loading, PageHeader, Tabs, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
 import { bytes, dateTime } from '../format.js'
 import { usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 import { WaitForNode } from '../waitForNode.jsx'
 import { SecurityBadge } from '../../SecurityBadge.jsx'
 import { securityText, securityTone } from '../../severity.js'
@@ -56,6 +57,7 @@ export default function Update({ route = '' }) {
   const [busy, run] = useAction()
   const confirm = useConfirm()
   const toast = useToast()
+  const canUpgrade = useMay()('LifecycleService/Upgrade')
 
   const v = overview.data?.version
   const uc = check.data
@@ -181,7 +183,8 @@ export default function Update({ route = '' }) {
           title="This node"
           icon={Archive}
           actions={
-            uc && (
+            uc &&
+            canUpgrade && (
               <button className="small" onClick={() => setChanging(true)} disabled={changing}>
                 <Puzzle size={13} /> Change extensions…
               </button>
@@ -270,17 +273,19 @@ export default function Update({ route = '' }) {
                 </div>
               )}
               <div className="muted small">Source: {uc.source === 'github' ? 'GitHub Releases' : 'image factory'}</div>
-              <div>
-                <button className="primary small" onClick={useLatest} disabled={uc.state !== 'ready' || !uc.bundle_base_url}>
-                  Use this update
-                </button>
-              </div>
+              {canUpgrade && (
+                <div>
+                  <button className="primary small" onClick={useLatest} disabled={uc.state !== 'ready' || !uc.bundle_base_url}>
+                    Use this update
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </Card>
       </div>
-      {changing && uc && <ChangeExtensions uc={uc} onReady={applyTarget} onClose={() => setChanging(false)} />}
-      <div ref={installRef}>
+      {changing && uc && canUpgrade && <ChangeExtensions uc={uc} onReady={applyTarget} onClose={() => setChanging(false)} />}
+      <div ref={installRef} hidden={!canUpgrade}>
         <Card title="Install a release" icon={UploadIcon}>
           {targetActive && (
             <div className="notice" style={{ marginBottom: '0.75rem' }}>

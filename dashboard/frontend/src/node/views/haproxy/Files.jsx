@@ -6,6 +6,7 @@ import DataTable from '../../components/DataTable.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from '../../../shared/ui.jsx'
 import { bytes, dateTime } from '../../format.js'
 import { usePoll } from '../../hooks.jsx'
+import { useMay } from '../../may.js'
 
 const NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$/
 
@@ -93,6 +94,8 @@ export default function Files() {
   const [busy, run] = useAction()
   const confirm = useConfirm()
   const toast = useToast()
+  const may = useMay()
+  const canPut = may('HAProxyService/FilePut')
   const dir = files.data?.dir
 
   const edit = (f) =>
@@ -130,9 +133,11 @@ export default function Files() {
         title="Files"
         icon={FileText}
         actions={
-          <button className="small primary" onClick={() => setEditing('new')}>
-            <Plus size={13} /> Add a file
-          </button>
+          canPut && (
+            <button className="small primary" onClick={() => setEditing('new')}>
+              <Plus size={13} /> Add a file
+            </button>
+          )
         }
       >
         <p className="small muted" style={{ marginTop: 0 }}>
@@ -165,9 +170,11 @@ export default function Files() {
                 <span className="row nowrap" style={{ justifyContent: 'flex-end' }}>
                   {!r.secret && (
                     <>
-                      <button className="small" disabled={busy} title="Edit" onClick={() => edit(r)}>
-                        <Pencil size={13} />
-                      </button>
+                      {canPut && (
+                        <button className="small" disabled={busy} title="Edit" onClick={() => edit(r)}>
+                          <Pencil size={13} />
+                        </button>
+                      )}
                       <button
                         className="small"
                         disabled={busy}
@@ -178,14 +185,16 @@ export default function Files() {
                       </button>
                     </>
                   )}
-                  {r.secret && (
+                  {r.secret && canPut && (
                     <button className="small" disabled={busy} title="Replace" onClick={() => setEditing({ name: r.name, text: '' })}>
                       <Upload size={13} />
                     </button>
                   )}
-                  <button className="small danger" disabled={busy} title="Remove" onClick={() => remove(r)}>
-                    <Trash2 size={13} />
-                  </button>
+                  {may('HAProxyService/FileDelete') && (
+                    <button className="small danger" disabled={busy} title="Remove" onClick={() => remove(r)}>
+                      <Trash2 size={13} />
+                    </button>
+                  )}
                 </span>
               ),
             },

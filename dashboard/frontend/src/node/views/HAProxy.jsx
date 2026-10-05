@@ -2,6 +2,7 @@ import { FileCode2, FileText, KeyRound, ListTree, Play, RefreshCw, RotateCw, Ser
 import { postJSON } from '../api.js'
 import { Badge, PageHeader, Tabs, stateTone, useAction, useConfirm } from '../../shared/ui.jsx'
 import { navigate, useMetrics, usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 import Backends from './haproxy/Backends.jsx'
 import Certificates from './haproxy/Certificates.jsx'
 import Config from './haproxy/Config.jsx'
@@ -23,6 +24,7 @@ function ServiceControls() {
   const { refresh } = useMetrics()
   const [busy, run] = useAction()
   const confirm = useConfirm()
+  const may = useMay()
   const hap = services.data?.services?.find((s) => s.id === 'haproxy')
   const act = async (action, label) => {
     if (action === 'stop') {
@@ -48,14 +50,16 @@ function ServiceControls() {
           <Badge tone={stateTone(hap.health)}>{hap.health}</Badge>
         </>
       )}
-      <button
-        disabled={busy}
-        onClick={() => run(() => postJSON('/api/haproxy/reload'), 'HAProxy reloaded seamlessly').then(() => services.reload())}
-        title="Re-read the current configuration without dropping connections"
-      >
-        <RefreshCw size={15} /> Reload
-      </button>
-      {hap?.state === 'running' ? (
+      {may('HAProxyService/Reload') && (
+        <button
+          disabled={busy}
+          onClick={() => run(() => postJSON('/api/haproxy/reload'), 'HAProxy reloaded seamlessly').then(() => services.reload())}
+          title="Re-read the current configuration without dropping connections"
+        >
+          <RefreshCw size={15} /> Reload
+        </button>
+      )}
+      {!may('SystemService/ServiceRestart') ? null : hap?.state === 'running' ? (
         <>
           <button disabled={busy} onClick={() => act('restart', 'HAProxy restarted seamlessly')} title="New process takes over the sockets; the old one finishes its connections">
             <RotateCw size={15} /> Restart

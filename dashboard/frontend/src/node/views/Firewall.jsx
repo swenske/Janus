@@ -5,6 +5,7 @@ import { Badge, Card, ErrorBox, Loading, PageHeader, Tabs, useAction, useConfirm
 import { DiffView, Editor } from '../components/Editor.jsx'
 import { hunks, lineDiff } from '../diff.js'
 import { usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 import Module from './Module.jsx'
 
 const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/firewall.md'
@@ -51,6 +52,7 @@ export default function Firewall() {
   const st = status.data
   const left = useCountdown(st?.trial_pending ? st.trial_revert_at_unix : 0)
   const [busy, run] = useAction()
+  const may = useMay()
 
   if (st?.state === 'not_enabled' || (status.error && /isn't in this node's image/.test(String(status.error.message)))) return <Module module="firewall" />
 
@@ -76,18 +78,20 @@ export default function Firewall() {
           <div className="row">
             <span className="small">A ruleset is on trial. Unless it's confirmed over a new connection, the node puts the previous one back in {left}s.</span>
             <span className="grow" />
-            <button
-              className="primary small"
-              disabled={busy}
-              onClick={() =>
-                run(async () => {
-                  await postJSON('/api/network/firewall/confirm', {})
-                  status.reload()
-                }, 'Ruleset confirmed and saved')
-              }
-            >
-              Confirm now
-            </button>
+            {may('NetworkService/FirewallConfirm') && (
+              <button
+                className="primary small"
+                disabled={busy}
+                onClick={() =>
+                  run(async () => {
+                    await postJSON('/api/network/firewall/confirm', {})
+                    status.reload()
+                  }, 'Ruleset confirmed and saved')
+                }
+              >
+                Confirm now
+              </button>
+            )}
           </div>
         ) : st?.configured ? (
           <span className="small">The saved ruleset is applied - at every boot too.</span>
@@ -126,6 +130,7 @@ function RulesetEditor({ onApplied }) {
   const [result, setResult] = useState(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
+  const canApply = useMay()('NetworkService/FirewallApplyRuleset')
   const toast = useToast()
 
   const load = async () => {
@@ -229,21 +234,25 @@ function RulesetEditor({ onApplied }) {
           }}
         />
         <div className="row" style={{ marginTop: '0.8rem', flexWrap: 'wrap' }}>
-          <button disabled={busy} onClick={doCheck}>
-            <CheckCircle2 size={15} /> Check
-          </button>
-          <button className="primary" disabled={busy || (!dirty && !saved.is_default) || !draft.trim()} onClick={() => apply(draft, 'Apply this ruleset?')}>
-            <Upload size={15} /> Apply…
-          </button>
-          <label className="field" style={{ width: '10rem' }} title="How long the node waits for the confirmation before reverting">
-            <input className="mono" aria-label="Seconds to confirm" inputMode="numeric" value={timeout} onChange={(e) => setTimeoutS(e.target.value.replace(/\D/g, ''))} placeholder="30" />
-          </label>
-          <span className="small muted">s to confirm</span>
+          {canApply && (
+            <>
+              <button disabled={busy} onClick={doCheck}>
+                <CheckCircle2 size={15} /> Check
+              </button>
+              <button className="primary" disabled={busy || (!dirty && !saved.is_default) || !draft.trim()} onClick={() => apply(draft, 'Apply this ruleset?')}>
+                <Upload size={15} /> Apply…
+              </button>
+              <label className="field" style={{ width: '10rem' }} title="How long the node waits for the confirmation before reverting">
+                <input className="mono" aria-label="Seconds to confirm" inputMode="numeric" value={timeout} onChange={(e) => setTimeoutS(e.target.value.replace(/\D/g, ''))} placeholder="30" />
+              </label>
+              <span className="small muted">s to confirm</span>
+            </>
+          )}
           <button disabled={busy || !dirty} onClick={() => setDraft(original || STARTER)}>
             <RotateCcw size={15} /> Revert
           </button>
           <span className="grow" />
-          {!saved.is_default && (
+          {!saved.is_default && canApply && (
             <button className="danger small" disabled={busy} onClick={() => apply('', 'Remove the firewall?')}>
               <ShieldOff size={14} /> Remove the firewall…
             </button>
@@ -305,6 +314,7 @@ function SetCard({ set, reload }) {
   const confirm = useConfirm()
   const elements = set.elements || []
   const canTimeout = (set.flags || []).includes('timeout')
+  const canUpdate = useMay()('NetworkService/FirewallSetUpdate')
   const update = (body, msg) =>
     run(async () => {
       await postJSON('/api/network/firewall/sets', { family: set.family, table: set.table, set: set.name, ...body })
@@ -343,6 +353,7 @@ function SetCard({ set, reload }) {
         </span>
       }
     >
+      {canUpdate && (
       <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '0.8rem' }}>
         <label className="field grow">
           <span>Add elements (comma-separated, nft syntax: 192.0.2.7, 198.51.100.0/24, 10.0.0.1-10.0.0.9)</span>
@@ -358,6 +369,7 @@ function SetCard({ set, reload }) {
           Add
         </button>
       </div>
+      )}
       <p className="small muted" style={{ marginTop: 0 }}>
         Elements added without an expiry are kept: on the node, they come back after every apply and reboot. Elements with one expire, and don't survive re-applying the ruleset.
       </p>
@@ -379,9 +391,11 @@ function SetCard({ set, reload }) {
                   <td>{e.persistent ? <Badge tone="ok">kept</Badge> : <span className="muted small">{e.timeout_seconds ? 'expires' : 'from the ruleset'}</span>}</td>
                   <td className="mono small">{e.timeout_seconds ? fmtDuration(e.expires_seconds || 0) : '–'}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <button className="small danger" disabled={busy} onClick={() => remove(e.value)} title="Remove">
-                      <Trash2 size={13} />
-                    </button>
+                    {canUpdate && (
+                      <button className="small danger" disabled={busy} onClick={() => remove(e.value)} title="Remove">
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

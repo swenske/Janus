@@ -113,6 +113,7 @@ export default function VRRP() {
       <div style={{ marginTop: '1rem' }}>
         <ModuleConfigEditor
           base="/api/network/vrrp"
+          applyMethod="NetworkService/VRRPApplyConfig"
           file="keepalived.conf"
           daemon="keepalived"
           starter={STARTER}

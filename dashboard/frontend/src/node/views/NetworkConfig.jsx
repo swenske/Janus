@@ -4,6 +4,7 @@ import { getJSON, postJSON } from '../api.js'
 import { hunks, lineDiff } from '../diff.js'
 import { dateTime, duration } from '../format.js'
 import { usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 import { Badge, Card, Empty, ErrorBox, Loading, PageHeader, Tabs, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
 
 // The node's own network configuration: hostname, interfaces (physical
@@ -520,6 +521,7 @@ export default function NetworkConfig() {
   const [loadError, setLoadError] = useState(null)
   const [generation, setGeneration] = useState(0)
   const [result, setResult] = useState(null)
+  const canApply = useMay()('NetworkService/NetworkConfigApply')
 
   useEffect(() => {
     let cancelled = false
@@ -542,7 +544,14 @@ export default function NetworkConfig() {
           <StatusPanel status={status.data} />
           <div style={{ marginTop: '1rem' }}>
             {result && <ApplyResult result={result} previousAddress={result.previousAddress} />}
-            {loaded ? (
+            {loaded && !canApply ? (
+              <Card title="Saved configuration">
+                <p className="small muted" style={{ marginTop: 0 }}>
+                  Changing the node&apos;s network is an admin&apos;s.
+                </p>
+                <pre className="mono small">{loaded.is_default ? 'None saved: the node runs on its defaults.' : JSON.stringify(loaded.config, null, 2)}</pre>
+              </Card>
+            ) : loaded ? (
               <Editor
                 key={generation}
                 loaded={loaded}

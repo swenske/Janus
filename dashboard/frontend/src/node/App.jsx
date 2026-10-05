@@ -30,13 +30,14 @@ import {
   Lock,
   UserRound,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
 import { Logo, ThemeToggle } from '../shared/theme.jsx'
 import { Badge } from '../shared/ui.jsx'
 import { SecurityBadge } from '../SecurityBadge.jsx'
 import { securityText, securityTone } from '../severity.js'
 import { INTERVALS, navigate, useHashRoute, useMetrics, usePoll, useRefresh } from './hooks.jsx'
+import { MayContext } from './may.js'
 import Access from './views/Access.jsx'
 import Capture from './views/Capture.jsx'
 import Events from './views/Events.jsx'
@@ -76,9 +77,9 @@ const NAV = [
   {
     group: 'Logs',
     items: [
-      { path: '/logs', label: 'Service logs', icon: ScrollText, view: Logs },
+      { path: '/logs', label: 'Service logs', icon: ScrollText, view: Logs, needs: 'SystemService/Logs' },
       { path: '/events', label: 'Events', icon: Activity, view: Events },
-      { path: '/kernel', label: 'Kernel (dmesg)', icon: Terminal, view: Kernel },
+      { path: '/kernel', label: 'Kernel (dmesg)', icon: Terminal, view: Kernel, needs: 'SystemService/Dmesg' },
     ],
   },
   {
@@ -96,14 +97,14 @@ const NAV = [
       { path: '/apps/firewall', label: 'Firewall · nftables', icon: Shield, view: Firewall, moduleKey: 'firewall' },
       { path: '/apps/letsencrypt', label: "Let's Encrypt", icon: LockKeyhole, view: LetsEncrypt, extension: ['letsencrypt'] },
       { path: '/apps/consul', label: 'Consul', icon: Waypoints, view: Consul, extension: ['consul'] },
-      { path: '/system/update?extensions', label: 'Add or remove apps…', icon: CirclePlus, link: true },
+      { path: '/system/update?extensions', label: 'Add or remove apps…', icon: CirclePlus, link: true, needs: 'LifecycleService/Upgrade' },
     ],
   },
   {
     group: 'Tools',
     items: [
-      { path: '/tools/capture', label: 'Packet capture', icon: Radar, view: Capture },
-      { path: '/tools/files', label: 'Files', icon: FolderOpen, view: Files },
+      { path: '/tools/capture', label: 'Packet capture', icon: Radar, view: Capture, needs: 'SystemService/PacketCapture' },
+      { path: '/tools/files', label: 'Files', icon: FolderOpen, view: Files, needs: 'SystemService/List' },
     ],
   },
   {
@@ -161,6 +162,9 @@ export default function App() {
     return () => window.removeEventListener(SIGNED_OUT, onEnded)
   }, [])
   const role = (me.data?.roles?.[0] || '').replace(/^os:/, '')
+  // What the account may call on the node: everything until /api/me says.
+  const mayList = me.data?.may
+  const may = useCallback((method) => !mayList || mayList.includes(method), [mayList])
   const modules = usePoll('/api/network/modules', { every: 0 })
   const check = usePoll('/api/update-check', { every: 120000 })
   const overview = usePoll('/api/system/overview', { every: 60000 })
@@ -175,6 +179,7 @@ export default function App() {
   const extensions = (overview.data?.version?.extensions || []).map((e) => e.name)
   // Apps the node doesn't have aren't listed: they'd only say "n/a".
   const shown = (item) => {
+    if (item.needs && !may(item.needs)) return false
     if (item.moduleKey) return !!modules.data && modules.data[item.moduleKey]?.state !== 'not_enabled'
     if (item.extension) return item.extension.some((n) => extensions.includes(n))
     return true
@@ -184,8 +189,10 @@ export default function App() {
   const securityUpdate = check.data?.security_update
   const hap = latest?.hap
   const View = current.view
+  const allowed = !current.needs || may(current.needs)
 
   return (
+    <MayContext.Provider value={may}>
     <div className={`layout ${navOpen ? 'nav-open' : ''}`}>
       <aside className="sidebar">
         <div className="sidebar-brand">
@@ -201,7 +208,7 @@ export default function App() {
           </a>
         )}
         <nav>
-          {NAV.map((g) => (
+          {NAV.filter((g) => g.items.some(shown)).map((g) => (
             <div key={g.group} className="nav-group">
               <div className="nav-group-title">{g.group}</div>
               {g.items.filter(shown).map((item) => {
@@ -273,7 +280,7 @@ export default function App() {
             Hypervisors tab to change them here.
           </div>
         )}
-        {role === 'reader' && <div className="banner info">You&apos;re a reader: this page shows everything and changes nothing - the node refuses it.</div>}
+        {role === 'reader' && <div className="banner info">You&apos;re a reader: this page shows the node, and offers nothing that changes it.</div>}
         {ended && (
           <div className="banner warn">
             Your session on the Controller ended. <a href="/">Sign in again</a>, then reload this page.
@@ -281,10 +288,15 @@ export default function App() {
         )}
         <main className="content">
           {/* Update reads its query (?extensions) when it mounts: a new query, a new instance. */}
-          <View key={current.view === Update ? route : current.path} {...(current.props || {})} route={route} navigate={navigate} />
+          {allowed ? (
+            <View key={current.view === Update ? route : current.path} {...(current.props || {})} route={route} navigate={navigate} />
+          ) : (
+            <div className="notice">{current.label}: your role ({role}) doesn&apos;t reach it on this node.</div>
+          )}
         </main>
       </div>
       {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} />}
     </div>
+    </MayContext.Provider>
   )
 }

@@ -136,3 +136,11 @@
 .modal.account-modal { width: min(640px, 100%); }
 .cli-login { max-width: 640px; }
 .key-fp { word-break: break-all; font-size: 0.9rem; }
+
+/* A badge that leads somewhere (the topbar's backup alert). */
+.badge-link {
+  text-decoration: none;
+}
+.badge-link:hover .badge {
+  filter: brightness(0.95);
+}

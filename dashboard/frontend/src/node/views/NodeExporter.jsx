@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { postJSON } from '../api.js'
 import { Badge, Card, ErrorBox, Loading, PageHeader, useAction } from '../../shared/ui.jsx'
 import { usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 
 const DEFAULT_PORT = 9100
 const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/metrics.md'
@@ -16,6 +17,7 @@ export default function NodeExporter() {
   // The form's edits; null until something changes.
   const [draft, setDraft] = useState(null)
   const [busy, run] = useAction()
+  const canSet = useMay()('SystemService/NodeExporterConfigSet')
 
   if (error) {
     return (
@@ -112,7 +114,7 @@ export default function NodeExporter() {
           </p>
         </Card>
         <Card title="Settings" icon={SlidersHorizontal}>
-          <div className="stack">
+          <fieldset className="plain stack" disabled={!canSet}>
             <label className="check">
               <input type="checkbox" checked={form.enabled} onChange={(e) => edit({ enabled: e.target.checked })} /> Run node_exporter
             </label>
@@ -129,7 +131,7 @@ export default function NodeExporter() {
             {!addressValid && <div className="small">The address must be one of the node's IP addresses, or empty for every address.</div>}
             {group('Collected by default', defaults)}
             {group('More collectors', available.filter((c) => !c.default).map((c) => c.name))}
-            <div className="row">
+            <div className="row" hidden={!canSet}>
               <button className="primary" disabled={busy || !changed || !portValid || !addressValid || (form.enabled && form.collectors.length === 0)} onClick={save}>
                 {busy ? 'Saving…' : 'Save and restart'}
               </button>
@@ -143,7 +145,7 @@ export default function NodeExporter() {
               )}
             </div>
             {data.is_default && !draft && <div className="muted small">The defaults: nothing was changed on this node.</div>}
-          </div>
+          </fieldset>
         </Card>
       </div>
     </>

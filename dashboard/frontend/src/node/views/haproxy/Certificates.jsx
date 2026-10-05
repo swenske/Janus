@@ -4,6 +4,7 @@ import { del, postJSON } from '../../api.js'
 import DataTable from '../../components/DataTable.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm } from '../../../shared/ui.jsx'
 import { usePoll } from '../../hooks.jsx'
+import { useMay } from '../../may.js'
 
 function UploadForm({ onDone }) {
   const [name, setName] = useState('')
@@ -75,6 +76,8 @@ export default function Certificates() {
   const [crtList, setCrtList] = useState('')
   const [busy, run] = useAction()
   const confirm = useConfirm()
+  const may = useMay()
+  const canDelete = may('HAProxyService/CertificateDelete')
   const remove = async (name) => {
     const ok = await confirm({
       title: `Delete ${name}?`,
@@ -95,7 +98,7 @@ export default function Certificates() {
       <Card
         title="Certificate store"
         icon={KeyRound}
-        actions={<input className="mono small" style={{ width: '17rem' }} placeholder="crt-list to unbind from on delete" value={crtList} onChange={(e) => setCrtList(e.target.value)} />}
+        actions={canDelete && <input className="mono small" style={{ width: '17rem' }} placeholder="crt-list to unbind from on delete" value={crtList} onChange={(e) => setCrtList(e.target.value)} />}
       >
         <ErrorBox error={certs.error} />
         <DataTable
@@ -105,7 +108,7 @@ export default function Certificates() {
             { key: 'name', label: 'Name', render: (r) => <span className="mono">{r.name}</span> },
             { key: 'not_after', label: 'Expires', render: (r) => r.not_after || '–' },
             { key: 'status', label: 'Status', render: (r) => <Badge tone={r.status === 'Used' ? 'ok' : ''}>{r.status || '–'}</Badge> },
-            {
+            canDelete && {
               key: 'a',
               label: '',
               render: (r) => (
@@ -114,15 +117,17 @@ export default function Certificates() {
                 </button>
               ),
             },
-          ]}
+          ].filter(Boolean)}
         />
       </Card>
+      {may('HAProxyService/CertificateUpload') && (
       <Card title="Upload a certificate" icon={Upload}>
         <p className="small muted" style={{ marginTop: 0 }}>
           Loaded into HAProxy at once and kept on the node: it's put back - crt-list binding included - after every reload, restart and reboot.
         </p>
         <UploadForm onDone={certs.reload} />
       </Card>
+      )}
     </div>
   )
 }

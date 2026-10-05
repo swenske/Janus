@@ -1,4 +1,4 @@
-import { Clock, Copy, KeyRound, Plus, RotateCcw, Trash2, UserRound, Users, X } from 'lucide-react'
+import { Clock, Copy, KeyRound, KeySquare, Plus, RotateCcw, Trash2, UserRound, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { ROLES, useMe } from './me.jsx'
@@ -201,6 +201,23 @@ export default function UsersPage() {
     }
     patch(u, { disabled: !u.disabled }, `${u.name} ${u.disabled ? 'enabled' : 'disabled'}`)
   }
+  const revokeKeys = async (u) => {
+    const n = u.ssh_keys.length
+    const ok = await confirm({
+      title: `Revoke ${u.name}'s SSH key${n === 1 ? '' : 's'}?`,
+      body: (
+        <>
+          <p>janusctl signs in with none of them any more ({u.ssh_keys.map((k) => k.name).join(', ')}): a lost or stolen laptop.</p>
+          <p className="muted">The certificates janusctl already got with them end within twelve hours; to cut them sooner, disable the account.</p>
+        </>
+      ),
+      action: 'Revoke',
+      danger: true,
+    })
+    if (!ok) return
+    await run(() => call(`/api/users/${encodeURIComponent(u.name)}/ssh-keys`, { method: 'DELETE' }), `${u.name}'s SSH keys revoked`)
+    load()
+  }
   const remove = async (u) => {
     const ok = await confirm({
       title: `Delete ${u.name}?`,
@@ -244,6 +261,7 @@ export default function UsersPage() {
                   <th>Role</th>
                   <th>Last sign-in</th>
                   <th>API tokens</th>
+                  <th>SSH keys</th>
                   <th />
                 </tr>
               </thead>
@@ -273,6 +291,18 @@ export default function UsersPage() {
                       {u.tokens > 0 ? (
                         <span>
                           <KeyRound size={12} /> {u.tokens}
+                        </span>
+                      ) : (
+                        <span className="muted">–</span>
+                      )}
+                    </td>
+                    <td>
+                      {u.ssh_keys?.length > 0 ? (
+                        <span title={u.ssh_keys.map((k) => `${k.name} - ${k.fingerprint}`).join('\n')}>
+                          <KeySquare size={12} /> {u.ssh_keys.length}{' '}
+                          <button className="ghost small danger" onClick={() => revokeKeys(u)} disabled={busy} title="A lost laptop: janusctl signs in with none of them">
+                            Revoke
+                          </button>
                         </span>
                       ) : (
                         <span className="muted">–</span>

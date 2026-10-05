@@ -3,11 +3,13 @@ import { useState } from 'react'
 import { postJSON } from '../api.js'
 import { Card, PageHeader, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
 import { usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 import { WaitForNode } from '../waitForNode.jsx'
 
 const ACTIONS = [
   {
     id: 'restart',
+    method: 'SystemService/Restart',
     icon: RefreshCcw,
     title: 'Restart janusd',
     text: "Restarts the node's control-plane daemon only. HAProxy keeps serving traffic throughout: the new janusd takes it over without a reload gap.",
@@ -17,6 +19,7 @@ const ACTIONS = [
   },
   {
     id: 'reboot',
+    method: 'SystemService/Reboot',
     icon: RotateCw,
     title: 'Reboot',
     text: 'HAProxy is soft-stopped first (in-flight connections get 5 s), then the machine reboots into its active slot.',
@@ -26,6 +29,7 @@ const ACTIONS = [
   },
   {
     id: 'shutdown',
+    method: 'SystemService/Shutdown',
     icon: PowerIcon,
     title: 'Shut down',
     text: 'Same graceful stop, then the machine powers off. Bringing it back needs your hypervisor or physical access - not this page.',
@@ -35,6 +39,7 @@ const ACTIONS = [
   },
   {
     id: 'reset',
+    method: 'SystemService/Reset',
     icon: Eraser,
     title: 'Reset',
     text: 'Wipes the persistent state - PKI, applied HAProxy config, Controller registration - and reboots. The node generates a new CA and admin certificate, printed once on its console: the Controller and every current certificate lose access to it.',
@@ -56,6 +61,7 @@ export default function Power() {
   const [busy, run] = useAction()
   const confirm = useConfirm()
   const toast = useToast()
+  const may = useMay()
   const hostname = overview.data?.hostname
 
   const act = async (a) => {
@@ -95,7 +101,7 @@ export default function Power() {
         </div>
       )}
       <div className="grid grid-2">
-        {ACTIONS.map((a) => (
+        {ACTIONS.filter((a) => may(a.method)).map((a) => (
           <Card key={a.id} title={a.title} icon={a.icon}>
             <p className="muted" style={{ marginTop: 0 }}>
               {a.text}

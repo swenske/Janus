@@ -6,6 +6,7 @@ import { hunks, lineDiff } from '../diff.js'
 import { DiffView, Editor } from '../components/Editor.jsx'
 import { dateTime } from '../format.js'
 import { usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 
 const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/letsencrypt.md'
 
@@ -118,6 +119,9 @@ export default function LetsEncrypt() {
   const [busy, run] = useAction()
   const confirm = useConfirm()
   const toast = useToast()
+  const may = useMay()
+  const canApply = may('HAProxyService/ACMEApplyConfig')
+  const canRenew = may('HAProxyService/ACMERenew')
 
   const cfg = saved?.config || {}
   const st = status.data
@@ -206,9 +210,11 @@ export default function LetsEncrypt() {
           title="Account"
           icon={KeyRound}
           actions={
-            <button className="small" onClick={() => setEditing({ kind: 'account' })}>
-              <Pencil size={13} /> Edit
-            </button>
+            canApply && (
+              <button className="small" onClick={() => setEditing({ kind: 'account' })}>
+                <Pencil size={13} /> Edit
+              </button>
+            )
           }
         >
           <dl className="kv">
@@ -269,14 +275,16 @@ export default function LetsEncrypt() {
           icon={ShieldCheck}
           actions={
             <div className="row">
-              {certs.length > 0 && (
+              {certs.length > 0 && canRenew && (
                 <button className="small" disabled={busy} onClick={() => renew([])}>
                   <RefreshCw size={13} /> Renew all
                 </button>
               )}
-              <button className="small primary" onClick={() => setEditing({ kind: 'cert', index: -1 })}>
-                <Plus size={13} /> Add a certificate
-              </button>
+              {canApply && (
+                <button className="small primary" onClick={() => setEditing({ kind: 'cert', index: -1 })}>
+                  <Plus size={13} /> Add a certificate
+                </button>
+              )}
             </div>
           }
         >
@@ -324,9 +332,13 @@ export default function LetsEncrypt() {
                         <td className="small nowrap">{s.renew_at_unix ? dateTime(s.renew_at_unix * 1000) : '–'}</td>
                         <td className="small">{s.issuer || '–'}</td>
                         <td className="nowrap">
-                          <button className="small" disabled={busy || s.in_progress} onClick={() => renew([c.name])} title="Obtain it again now">
-                            <RefreshCw size={13} />
-                          </button>{' '}
+                          {canRenew && (
+                            <button className="small" disabled={busy || s.in_progress} onClick={() => renew([c.name])} title="Obtain it again now">
+                              <RefreshCw size={13} />
+                            </button>
+                          )}{' '}
+                          {canApply && (
+                            <>
                           <button className="small" onClick={() => setEditing({ kind: 'cert', index: i })} title="Edit">
                             <Pencil size={13} />
                           </button>{' '}
@@ -343,6 +355,8 @@ export default function LetsEncrypt() {
                           >
                             <Trash2 size={13} />
                           </button>
+                            </>
+                          )}
                         </td>
                       </tr>
                     )
@@ -373,9 +387,11 @@ export default function LetsEncrypt() {
           title="DNS providers"
           icon={Waypoints}
           actions={
-            <button className="small" onClick={() => setEditing({ kind: 'provider', index: -1 })}>
-              <Plus size={13} /> Add a provider
-            </button>
+            canApply && (
+              <button className="small" onClick={() => setEditing({ kind: 'provider', index: -1 })}>
+                <Plus size={13} /> Add a provider
+              </button>
+            )
           }
         >
           <p className="small muted" style={{ marginTop: 0 }}>
@@ -402,6 +418,8 @@ export default function LetsEncrypt() {
                       <td className="mono">{p.type}</td>
                       <td className="mono small">{Object.keys(p.settings || {}).join(' ')}</td>
                       <td className="nowrap">
+                        {canApply && (
+                          <>
                         <button className="small" onClick={() => setEditing({ kind: 'provider', index: i })} title="Edit">
                           <Pencil size={13} />
                         </button>{' '}
@@ -413,6 +431,8 @@ export default function LetsEncrypt() {
                         >
                           <Trash2 size={13} />
                         </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -436,7 +456,7 @@ export default function LetsEncrypt() {
         />
       )}
 
-      <JSONCard key={pretty(cfg)} config={cfg} isDefault={saved.is_default} busy={busy} run={run} onApply={(next) => apply(next)} />
+      <JSONCard key={pretty(cfg)} config={cfg} isDefault={saved.is_default} busy={busy} run={run} onApply={canApply ? (next) => apply(next) : null} />
     </>
   )
 }
@@ -749,9 +769,11 @@ function JSONCard({ config, isDefault, busy, run, onApply }) {
             <button disabled={busy || !!parseError} onClick={() => run(async () => setCheck(await postJSON('/api/haproxy/acme/check', { config: parsed })))}>
               <CheckCircle2 size={15} /> Check
             </button>
-            <button className="primary" disabled={busy || !dirty || !!parseError} onClick={() => onApply(parsed)}>
-              <Upload size={15} /> Apply…
-            </button>
+            {onApply && (
+              <button className="primary" disabled={busy || !dirty || !!parseError} onClick={() => onApply(parsed)}>
+                <Upload size={15} /> Apply…
+              </button>
+            )}
             <button disabled={!dirty} onClick={() => setDraft(text)}>
               Revert
             </button>

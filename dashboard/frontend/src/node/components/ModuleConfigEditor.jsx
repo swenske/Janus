@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { getJSON, postJSON } from '../api.js'
 import { Badge, Card, ErrorBox, Loading, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
 import { hunks, lineDiff } from '../diff.js'
+import { useMay } from '../may.js'
 import { DiffView, Editor } from './Editor.jsx'
 
 // ModuleConfigEditor edits an optional module daemon's configuration
@@ -10,8 +11,10 @@ import { DiffView, Editor } from './Editor.jsx'
 // has the daemon check it, `${base}/apply` saves and reloads it. starter
 // fills the editor while nothing is saved. extraBody goes with check and
 // apply (Consul's files); extraDirty is a change of it, extraSummary what
-// the confirmation says of it.
-export default function ModuleConfigEditor({ base, file, daemon, starter, applyNote, onApplied, extraBody, extraDirty, extraSummary }) {
+// the confirmation says of it. applyMethod is the RPC apply and check
+// call: without it, the configuration is only shown.
+export default function ModuleConfigEditor({ base, file, daemon, starter, applyNote, onApplied, extraBody, extraDirty, extraSummary, applyMethod }) {
+  const canApply = useMay()(applyMethod)
   const [saved, setSaved] = useState(null) // { config, is_default }
   const [draft, setDraft] = useState('')
   const [loadError, setLoadError] = useState(null)
@@ -108,17 +111,21 @@ export default function ModuleConfigEditor({ base, file, daemon, starter, applyN
           }}
         />
         <div className="row" style={{ marginTop: '0.8rem', flexWrap: 'wrap' }}>
-          <button disabled={busy} onClick={doCheck}>
-            <CheckCircle2 size={15} /> Check
-          </button>
-          <button className="primary" disabled={busy || (!dirty && !saved.is_default && !extraDirty) || !draft.trim()} onClick={() => apply(draft)}>
-            <Upload size={15} /> Apply…
-          </button>
+          {canApply && (
+            <>
+              <button disabled={busy} onClick={doCheck}>
+                <CheckCircle2 size={15} /> Check
+              </button>
+              <button className="primary" disabled={busy || (!dirty && !saved.is_default && !extraDirty) || !draft.trim()} onClick={() => apply(draft)}>
+                <Upload size={15} /> Apply…
+              </button>
+            </>
+          )}
           <button disabled={busy || !dirty} onClick={() => setDraft(original || starter)}>
             <RotateCcw size={15} /> Revert
           </button>
           <span className="grow" />
-          {!saved.is_default && (
+          {!saved.is_default && canApply && (
             <button className="danger small" disabled={busy} onClick={() => apply('')}>
               <Trash2 size={14} /> Remove…
             </button>

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Badge, Card, ErrorBox, Loading, PageHeader } from '../../shared/ui.jsx'
 import ModuleConfigEditor from '../components/ModuleConfigEditor.jsx'
 import { usePoll } from '../hooks.jsx'
+import { useMay } from '../may.js'
 
 const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/consul.md'
 
@@ -41,7 +42,9 @@ const MEMBER_TONES = { alive: 'ok', leaving: 'warn', left: '', failed: 'danger' 
 // files its configuration names, and the configuration itself.
 export default function Consul() {
   const status = usePoll('/api/network/consul', { every: 5000 })
-  const saved = usePoll('/api/network/consul/config', { every: 0 })
+  // Its configuration may hold the gossip key and ACL tokens: admins only.
+  const canConfig = useMay()('NetworkService/ConsulGetConfig')
+  const saved = usePoll('/api/network/consul/config', { every: 0, enabled: canConfig })
   const [pending, setPending] = useState({}) // name -> new content
   const [removed, setRemoved] = useState([]) // saved names to remove
   const st = status.data
@@ -171,83 +174,92 @@ export default function Consul() {
         </div>
       )}
 
-      <div style={{ marginTop: '1rem' }}>
-        <Card
-          title="Files"
-          icon={FileKey}
-          actions={
-            <label className="button small">
-              <Upload size={13} /> Add files…
-              <input type="file" multiple hidden onChange={addFiles} />
-            </label>
-          }
-        >
-          <p className="small muted" style={{ marginTop: 0 }}>
-            What the configuration names - CA, certificates, keys: <span className="mono">{st?.files_dir || '/run/janus/consul/files'}/&lt;name&gt;</span>. Kept
-            on the node, never shown again. They go with the next Apply.
-          </p>
-          {!savedFiles.length && !Object.keys(pending).length ? (
-            <span className="muted small">None.</span>
-          ) : (
-            <div className="stack" style={{ gap: '0.3rem' }}>
-              {savedFiles.map((n) => (
-                <div className="row" key={n}>
-                  <span
-                    className={`mono grow ${removed.includes(n) ? 'muted' : ''}`}
-                    style={removed.includes(n) ? { textDecoration: 'line-through' } : undefined}
-                  >
-                    {n}
-                  </span>
-                  {pending[n] != null ? <Badge tone="info">replaced</Badge> : removed.includes(n) ? <Badge tone="warn">removed</Badge> : <Badge>saved</Badge>}
-                  {removed.includes(n) ? (
-                    <button className="small" onClick={() => setRemoved(removed.filter((x) => x !== n))} title="Keep it">
-                      <Undo2 size={13} />
-                    </button>
-                  ) : (
-                    <button className="small" onClick={() => setRemoved([...removed, n])} title="Remove it">
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </div>
-              ))}
-              {Object.keys(pending)
-                .filter((n) => !savedFiles.includes(n))
-                .map((n) => (
+      {canConfig ? (
+        <>
+        <div style={{ marginTop: '1rem' }}>
+          <Card
+            title="Files"
+            icon={FileKey}
+            actions={
+              <label className="button small">
+                <Upload size={13} /> Add files…
+                <input type="file" multiple hidden onChange={addFiles} />
+              </label>
+            }
+          >
+            <p className="small muted" style={{ marginTop: 0 }}>
+              What the configuration names - CA, certificates, keys: <span className="mono">{st?.files_dir || '/run/janus/consul/files'}/&lt;name&gt;</span>. Kept
+              on the node, never shown again. They go with the next Apply.
+            </p>
+            {!savedFiles.length && !Object.keys(pending).length ? (
+              <span className="muted small">None.</span>
+            ) : (
+              <div className="stack" style={{ gap: '0.3rem' }}>
+                {savedFiles.map((n) => (
                   <div className="row" key={n}>
-                    <span className="mono grow">{n}</span>
-                    <Badge tone="info">new</Badge>
-                    <button
-                      className="small"
-                      onClick={() => setPending(Object.fromEntries(Object.entries(pending).filter(([k]) => k !== n)))}
-                      title="Don't add it"
+                    <span
+                      className={`mono grow ${removed.includes(n) ? 'muted' : ''}`}
+                      style={removed.includes(n) ? { textDecoration: 'line-through' } : undefined}
                     >
-                      <Trash2 size={13} />
-                    </button>
+                      {n}
+                    </span>
+                    {pending[n] != null ? <Badge tone="info">replaced</Badge> : removed.includes(n) ? <Badge tone="warn">removed</Badge> : <Badge>saved</Badge>}
+                    {removed.includes(n) ? (
+                      <button className="small" onClick={() => setRemoved(removed.filter((x) => x !== n))} title="Keep it">
+                        <Undo2 size={13} />
+                      </button>
+                    ) : (
+                      <button className="small" onClick={() => setRemoved([...removed, n])} title="Remove it">
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </div>
                 ))}
-            </div>
-          )}
-        </Card>
-      </div>
+                {Object.keys(pending)
+                  .filter((n) => !savedFiles.includes(n))
+                  .map((n) => (
+                    <div className="row" key={n}>
+                      <span className="mono grow">{n}</span>
+                      <Badge tone="info">new</Badge>
+                      <button
+                        className="small"
+                        onClick={() => setPending(Object.fromEntries(Object.entries(pending).filter(([k]) => k !== n)))}
+                        title="Don't add it"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </Card>
+        </div>
 
-      <div style={{ marginTop: '1rem' }}>
-        <ModuleConfigEditor
-          base="/api/network/consul"
-          file="consul.hcl"
-          daemon="consul validate"
-          starter={STARTER}
-          applyNote="consul validate checks it, then the agent restarts with it."
-          extraBody={{ files }}
-          extraDirty={filesDirty}
-          extraSummary={
-            <p>
-              Files: {Object.keys(files).sort().join(', ') || 'none'}
-              {removed.length > 0 && ` - removed: ${removed.join(', ')}`}.
-            </p>
-          }
-          onApplied={applied}
-        />
-      </div>
+        <div style={{ marginTop: '1rem' }}>
+          <ModuleConfigEditor
+            base="/api/network/consul"
+            applyMethod="NetworkService/ConsulApplyConfig"
+            file="consul.hcl"
+            daemon="consul validate"
+            starter={STARTER}
+            applyNote="consul validate checks it, then the agent restarts with it."
+            extraBody={{ files }}
+            extraDirty={filesDirty}
+            extraSummary={
+              <p>
+                Files: {Object.keys(files).sort().join(', ') || 'none'}
+                {removed.length > 0 && ` - removed: ${removed.join(', ')}`}.
+              </p>
+            }
+            onApplied={applied}
+          />
+        </div>
+        </>
+      ) : (
+        <div className="notice" style={{ marginTop: '1rem' }}>
+          The agent&apos;s configuration may hold its gossip key and ACL tokens: only an admin sees and changes it.
+        </div>
+      )}
     </>
   )
 }

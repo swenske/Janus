@@ -1,6 +1,7 @@
 import { Archive, CheckCircle2, Copy, Download, KeyRound, Play, Upload } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
+import { backupAlert } from './backupAlert.js'
 import { Step } from './Fleet.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 
@@ -316,6 +317,7 @@ export default function BackupsPage() {
         network, firewall, VRRP, BGP, Consul, Let&apos;s Encrypt, exporters), never a node&apos;s private keys. Encrypted to your backup kit, signed by the Controller. A new
         Controller restores one from its first page.
       </p>
+      {status.alert && <div className="notice warn">{backupAlert(status)}</div>}
       <KitCard status={status} onChanged={load} />
       {ready && <SettingsCard status={status} onChanged={load} />}
       {ready && (
