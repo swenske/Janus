@@ -737,6 +737,11 @@ jobs:
       - name: janusd self-registers with no key, then trusts the Controller's fleet
         run: make qemu-self-register-fleet-test
 
+      # The same, installed with an enrollment token: admitted at once,
+      # labelled, no approval (internal/enroll).
+      - name: janusd enrolls on a token, labelled, without approval
+        run: make qemu-self-register-enroll-test
+
       # Phase 3 cont'd: LifecycleService.Install is real - unlike
       # Rollback/Upgrade, it has no existing partition table to build
       # on, so it can't get away with only ever moving pre-built bytes

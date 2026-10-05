@@ -154,6 +154,11 @@ CONTROLLER_CA="$WORKDIR/dashboard-data/dashboard-identity.crt"
 # trust. Without it, the node finds no fleet and falls back to
 # announcing with a service credential.
 FLEET="${SELF_REGISTER_FLEET:-}"
+# SELF_REGISTER_ENROLL=1 (with the fleet): the node is installed with an
+# enrollment token - one use, labelled rack=r3 - and admitted at once,
+# labelled, with no approval.
+ENROLL="${SELF_REGISTER_ENROLL:-}"
+[ -z "$ENROLL" ] || FLEET=1
 if [ -n "$FLEET" ]; then
   curl -sk -b "$COOKIE_JAR" -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/fleet/setup" -o "$WORKDIR/fleet-setup.json"
   curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/fleet/recovery-kit" -o "$WORKDIR/kit.age"
@@ -161,6 +166,14 @@ if [ -n "$FLEET" ]; then
   fleet_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/fleet/confirm" -H 'Content-Type: application/json' --data-binary @"$WORKDIR/confirm.json")"
   [ "$fleet_code" = "200" ] || { echo "Self-register test FAILED: setting up the fleet: $fleet_code" >&2; exit 1; }
   echo "Fleet set up: the node will announce itself with no key"
+fi
+ENROLL_ARGS=()
+if [ -n "$ENROLL" ]; then
+  ENROLL_TOKEN="$(curl -sk -b "$COOKIE_JAR" -X POST "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/enroll-tokens" -H 'Content-Type: application/json' \
+    -d '{"name":"rack-3","max_uses":1,"expires_in_days":1,"labels":{"rack":"r3"}}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+  case "$ENROLL_TOKEN" in janus-enroll_*) ;; *) echo "Self-register test FAILED: no enrollment token: $ENROLL_TOKEN" >&2; exit 1 ;; esac
+  ENROLL_ARGS=(-registration-token "$ENROLL_TOKEN")
+  echo "Enrollment token made: one node, labelled rack=r3"
 fi
 [ -s "$CONTROLLER_CA" ] || { echo "Self-register test FAILED: dashboardd never wrote its own identity cert to $CONTROLLER_CA" >&2; exit 1; }
 
@@ -204,7 +217,7 @@ if [ -n "$FLEET" ]; then
   FLEET_ARGS=(-controller-fleet-root "$WORKDIR/fleet-root.crt")
 fi
 INSTALL_OUT="$(sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
-  -controller-address "${QEMU_HOST_GATEWAY}:${DASHBOARD_REGISTER_PORT}" -controller-ca "$CONTROLLER_CA" "${FLEET_ARGS[@]}" \
+  -controller-address "${QEMU_HOST_GATEWAY}:${DASHBOARD_REGISTER_PORT}" -controller-ca "$CONTROLLER_CA" "${FLEET_ARGS[@]}" "${ENROLL_ARGS[@]}" \
   "$BLANK_DISK" "$BUNDLE")"
 echo "$INSTALL_OUT"
 if ! echo "$INSTALL_OUT" | grep -qi '\[done '; then
@@ -281,6 +294,30 @@ done
 [ "$login_code" = "204" ] || { echo "Self-register test FAILED: login after restarting dashboardd returned $login_code" >&2; cat "$WORKDIR/dashboardd.log" >&2; exit 1; }
 echo "Part 3b OK: with the Controller down, the node logged its failed attempt and retries: $(grep -m1 'selfregister: registration failed' "$LOG" | tr -d '\r')"
 
+if [ -n "$ENROLL" ]; then
+  # Admitted at once on the token: a node, labelled, nothing pending.
+  DEADLINE=$((SECONDS + REGISTER_TIMEOUT_SECS))
+  until [ "$(curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/nodes" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" = 1 ]; do
+    [ "$SECONDS" -lt "$DEADLINE" ] || { echo "Self-register test FAILED: the enrolled node was never admitted" >&2; cat "$WORKDIR/dashboardd.log" >&2; exit 1; }
+    sleep 1
+  done
+  NODES_JSON="$(curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/nodes")"
+  APPROVED_ID="$(echo "$NODES_JSON" | python3 -c 'import json,sys; n=json.load(sys.stdin)[0]; assert n["labels"]=={"rack":"r3"}, n; print(n["id"])')" \
+    || { echo "Self-register test FAILED: the enrolled node isn't labelled rack=r3: $NODES_JSON" >&2; exit 1; }
+  # An empty queue is null.
+  PENDING_JSON="$(curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/pending")"
+  [ "$PENDING_JSON" = "null" ] || { echo "Self-register test FAILED: the enrolled node is pending too: $PENDING_JSON" >&2; exit 1; }
+  ENROLL_JSON="$(curl -sk -b "$COOKIE_JAR" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/enroll-tokens")"
+  ID="$APPROVED_ID" python3 -c 'import json,sys,os; t=json.load(sys.stdin)[0]; assert t["uses"]==1 and not t["usable"] and t["nodes"]==[os.environ["ID"]], t' <<<"$ENROLL_JSON" \
+    || { echo "Self-register test FAILED: the enrollment token: $ENROLL_JSON" >&2; exit 1; }
+  grep -q "admitted on enrollment token \"rack-3\" (use 1 of 1)" "$WORKDIR/dashboardd.log" || { echo "Self-register test FAILED: the Controller didn't log the enrollment" >&2; exit 1; }
+  DEADLINE=$((SECONDS + 60))
+  until grep -q "selfregister: admitted by Controller at .* - the node trusts its fleet" "$LOG"; do
+    [ "$SECONDS" -lt "$DEADLINE" ] || { echo "Self-register test FAILED: the enrolled node never took the fleet's trust" >&2; cat "$LOG" >&2; exit 1; }
+    sleep 1
+  done
+  echo "Part 4 OK: enrolled - admitted at once on its token (used up), labelled rack=r3, nothing pending, the node trusts the fleet"
+else
 # --- poll the real dashboardd's own pending queue - no RPC call here
 # drives the registration, only cmd/janusd's own background attempt ---
 PENDING_JSON=""
@@ -356,6 +393,7 @@ if [ -n "$FLEET" ]; then
     || { echo "Self-register test FAILED: the approved keyless node isn't recorded trusting the fleet with no credential" >&2; exit 1; }
   echo "Keyless approval OK: the node polled, took the fleet's trust, and the Controller keeps no credential for it"
 fi
+fi # ENROLL
 
 # The CA the Controller pins for the node is the one the node reported -
 # compared with the booted guest's own (partition 6, STATE - the same
@@ -434,4 +472,8 @@ if grep -a "avc:.*denied" "$LOG" "$LOG2"; then
   exit 1
 fi
 
-echo "Self-register test OK: a node provisioned with a Controller at Install time genuinely self-registered on first boot, was approved through the real API, the Controller pinned the self-reported CA, and it never announced itself again on a second boot"
+if [ -n "$ENROLL" ]; then
+  echo "Self-register test OK: a node installed with an enrollment token self-registered on first boot and was admitted on it at once, labelled, with no approval; the Controller pinned the self-reported CA, and it never announced itself again on a second boot"
+else
+  echo "Self-register test OK: a node provisioned with a Controller at Install time genuinely self-registered on first boot, was approved through the real API, the Controller pinned the self-reported CA, and it never announced itself again on a second boot"
+fi
