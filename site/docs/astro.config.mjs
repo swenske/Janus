@@ -37,7 +37,18 @@ export default defineConfig({
     starlight({
       title: 'Janus',
       description: 'Janus - an immutable, API-driven Linux distribution for HAProxy load balancers.',
+      logo: { src: './public/favicon.svg', alt: '' },
+      favicon: '/favicon.svg',
       social: [{ icon: 'github', label: 'GitHub', href: repo }],
+      customCss: ['./src/styles/janus.css'],
+      components: {
+        Banner: './src/components/Banner.astro',
+        LastUpdated: './src/components/LastUpdated.astro',
+        PageTitle: './src/components/PageTitle.astro',
+        SiteTitle: './src/components/SiteTitle.astro',
+        SocialIcons: './src/components/SocialIcons.astro',
+        ThemeProvider: './src/components/ThemeProvider.astro',
+      },
       // Starlight's own Markdown transforms (asides, heading links) only
       // touch files under these folders: the pages live all over the
       // repository.
@@ -48,7 +59,12 @@ export default defineConfig({
       lastUpdated: false,
       credits: false,
       tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
-      head: channel === 'next' ? [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }] : [],
+      head: [
+        { tag: 'link', attrs: { rel: 'icon', href: `${base}/favicon.ico`, sizes: '32x32' } },
+        { tag: 'link', attrs: { rel: 'apple-touch-icon', href: `${base}/apple-touch-icon.png` } },
+        { tag: 'meta', attrs: { name: 'theme-color', content: '#1D1C1A' } },
+        ...(channel === 'next' ? [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }] : []),
+      ],
       plugins: [starlightSidebarTopics(sidebarTopics(), { exclude: ['/'] })],
     }),
     janusProblems(),

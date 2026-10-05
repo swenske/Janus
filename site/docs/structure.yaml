@@ -97,5 +97,16 @@ topics:
             pages:
               - { file: docs/terraform.md, label: Terraform / OpenTofu }
 
+# The pages most readers come for: the docs' home lists them, and search
+# suggests them before anything is typed.
+popular:
+  - docs/provisioning-a-node.md
+  - dashboard/README.md
+  - docs/haproxy-config.md
+  - docs/network-configuration.md
+  - docs/vrrp.md
+  - docs/terraform.md
+  - docs/architecture.md
+
 exclude:
   - docs/security-audit-2026-09-30.md   # a dated report, in French

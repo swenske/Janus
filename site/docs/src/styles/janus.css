@@ -1,0 +1,183 @@
+/* The docs in Janus's colours: the tokens of the Controller and the
+   landing page (dashboard/frontend/src/shared/theme.css) - warm
+   off-white and near-black, the logo's orange - mapped onto Starlight's
+   palette, and the system fonts they use. Starlight's scale runs from
+   --sl-color-white (the most contrasted: text) to --sl-color-black (the
+   page): in light mode its names are inverted. */
+
+:root {
+  --sl-font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --sl-font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+
+  /* Dark (Starlight's default). */
+  --sl-color-white: #f3efe6;
+  --sl-color-gray-1: #e6e1d6;
+  --sl-color-gray-2: #cdc7bb;
+  --sl-color-gray-3: #a39d91;
+  --sl-color-gray-4: #6e685e;
+  --sl-color-gray-5: #3a3631;
+  --sl-color-gray-6: #1d1c1a;
+  --sl-color-black: #131211;
+  --sl-color-accent-low: #3d2216;
+  --sl-color-accent: #d8643c;
+  --sl-color-accent-high: #f2b49a;
+}
+
+:root[data-theme='light'] {
+  --sl-color-white: #1d1c1a;
+  --sl-color-gray-1: #2b2925;
+  --sl-color-gray-2: #3d3a35;
+  --sl-color-gray-3: #6b665c;
+  --sl-color-gray-4: #948e83;
+  --sl-color-gray-5: #d3cdc1;
+  --sl-color-gray-6: #ebe7de;
+  --sl-color-gray-7: #f6f4ef;
+  --sl-color-black: #fffefc;
+  --sl-color-accent-low: #f7dfd3;
+  --sl-color-accent: #c2502a;
+  --sl-color-accent-high: #8a3518;
+}
+
+/* The title as on the landing page: the symbol, then "Janus" in the
+   text colour. */
+.site-title {
+  color: var(--sl-color-white);
+}
+
+/* The title and its version menu. */
+.janus-title {
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.janus-version {
+  position: relative;
+  font-size: var(--sl-text-xs);
+}
+.janus-version summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 999px;
+  color: var(--sl-color-gray-2);
+  white-space: nowrap;
+}
+.janus-version summary::-webkit-details-marker {
+  display: none;
+}
+.janus-version summary::after {
+  content: ' ▾';
+}
+.janus-version summary:hover {
+  border-color: var(--sl-color-accent);
+}
+/* Fixed: the header clips what overflows its title. */
+.janus-version ul {
+  position: fixed;
+  z-index: var(--sl-z-index-menu);
+  top: calc(var(--sl-nav-height) - 0.35rem);
+  left: var(--sl-nav-pad-x);
+  min-width: 15rem;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  background: var(--sl-color-bg-nav);
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+  box-shadow: var(--sl-shadow-md);
+}
+.janus-version a {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.35rem;
+  color: var(--sl-color-white);
+  text-decoration: none;
+}
+.janus-version a span {
+  color: var(--sl-color-gray-3);
+}
+.janus-version a:hover,
+.janus-version a[aria-current] {
+  background: var(--sl-color-gray-6);
+}
+.janus-version a[aria-current] strong {
+  color: var(--sl-color-text-accent);
+}
+
+/* The header's links to the rest of the site: text, not icons. */
+.janus-site-link {
+  color: var(--sl-color-gray-2);
+  font-size: var(--sl-text-sm);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.janus-site-link:hover {
+  color: var(--sl-color-white);
+}
+
+/* Breadcrumbs above the title. */
+.janus-breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+}
+.janus-breadcrumbs li + li::before {
+  content: '›';
+  margin-inline-end: 0.25rem;
+  color: var(--sl-color-gray-4);
+}
+.janus-breadcrumbs a {
+  color: var(--sl-color-gray-2);
+  text-decoration: none;
+}
+.janus-breadcrumbs a:hover {
+  color: var(--sl-color-text-accent);
+  text-decoration: underline;
+}
+
+/* The next channel's banner. */
+.janus-next {
+  padding: var(--sl-nav-pad-y) var(--sl-nav-pad-x);
+  background: var(--sl-color-accent-low);
+  color: var(--sl-color-white);
+  font-size: var(--sl-text-sm);
+  line-height: var(--sl-line-height-headings);
+  text-align: center;
+  text-wrap: balance;
+}
+.janus-next a {
+  color: var(--sl-color-white);
+  font-weight: 600;
+}
+
+/* Under each page: last change, and whose docs these are. */
+.janus-stamp {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  margin-inline-start: auto;
+}
+.janus-stamp p {
+  margin: 0;
+}
+
+/* A link set in code sits on the inline-code background: in light mode
+   the orange is too pale there (axe: color-contrast) - the darker tone
+   reads. */
+:root[data-theme='light'] .sl-markdown-content a code {
+  color: var(--sl-color-accent-high);
+}
+
+/* Cards in the logo's orange, not Starlight's rainbow. */
+.card {
+  --sl-card-border: var(--sl-color-accent);
+  --sl-card-bg: var(--sl-color-accent-low);
+}

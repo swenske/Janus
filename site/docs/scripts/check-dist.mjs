@@ -17,7 +17,10 @@ const dist = path.resolve(process.argv[2] ?? 'dist')
 const channel = process.env.DOCS_CHANNEL === 'next' ? 'next' : 'latest'
 const base = channel === 'next' ? '/docs/next' : '/docs'
 // Links out of the docs, to the rest of janus.sw-servers.net.
-const siteRoutes = new Set(['/', '/builder/'])
+const siteRoutes = new Set(['/', '/builder'])
+// The other channel's pages (the version menu, next's banner) are built
+// by another build: links to them are out of this one's reach.
+const otherChannel = (pathname) => (channel === 'latest' ? pathname.startsWith('/docs/next/') : pathname.startsWith('/docs/') && !pathname.startsWith('/docs/next/'))
 const problems = []
 
 function htmlFiles(dir) {
@@ -91,6 +94,7 @@ for (const page of pages.values()) {
       problems.push(`${where}: a link to ${href} - a Markdown file, not a page`)
       continue
     }
+    if (otherChannel(pathname)) continue
     if (!pathname.startsWith(`${base}/`)) {
       if (!siteRoutes.has(pathname)) problems.push(`${where}: a link to ${href}, outside the docs and the site`)
       continue

@@ -1,8 +1,36 @@
 ---
-// The docs' home page: one door per audience.
+// The docs' home page: one door per audience, and the pages most readers
+// come for (structure.yaml's popular).
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
-import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components'
+import { Icon } from '@astrojs/starlight/components'
+import { pageMeta } from '../lib/meta.mjs'
+import { popular } from '../lib/structure.mjs'
+
 const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+const doors = [
+  {
+    icon: 'open-book',
+    title: 'User guide',
+    text: 'Install Janus, run the Controller, configure HAProxy, the network and the extensions, and operate your nodes.',
+    links: [{ label: 'Start with the user guide', href: `${base}/guide/` }],
+  },
+  {
+    icon: 'setting',
+    title: 'Technical',
+    text: 'How Janus works inside: the architecture, the boot chain and A/B updates, the images, the gRPC API.',
+    links: [{ label: 'Read how it works', href: `${base}/internals/` }],
+  },
+  {
+    icon: 'puzzle',
+    title: 'Developer',
+    text: 'Contribute to Janus - or integrate it into your private cloud: images, first boot, automation, networking.',
+    links: [
+      { label: 'Contribute', href: `${base}/contributing/` },
+      { label: 'Integrate into a private cloud', href: `${base}/private-cloud/` },
+    ],
+  },
+]
+const pages = popular.map((p) => ({ href: `${base}/${p.id}/`, title: p.label ?? p.title ?? pageMeta(p.file).title, text: pageMeta(p.file).description }))
 ---
 
 <StarlightPage
@@ -14,22 +42,137 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '')
     hero: {
       tagline:
         'An immutable, API-driven Linux distribution for HAProxy load balancers: no shell, no SSH, no package manager - every change goes through an mTLS API.',
+      actions: [
+        { text: 'Get started', link: `${base}/guide/`, icon: 'right-arrow' },
+        { text: 'Build an image', link: '/builder', variant: 'minimal', icon: 'external' },
+      ],
     },
   }}
 >
-  <CardGrid>
-    <Card title="User guide" icon="open-book">
-      Install Janus, run the Controller, configure HAProxy, the network and the extensions, and operate your nodes.
-      <LinkCard title="Start with the user guide" href={`${base}/guide/`} />
-    </Card>
-    <Card title="Technical" icon="setting">
-      How Janus works inside: the architecture, the boot chain and A/B updates, the images, the gRPC API.
-      <LinkCard title="Read how it works" href={`${base}/internals/`} />
-    </Card>
-    <Card title="Developer" icon="puzzle">
-      Contribute to Janus - or integrate it into your private cloud: images, first boot, automation, networking.
-      <LinkCard title="Contribute" href={`${base}/contributing/`} />
-      <LinkCard title="Integrate into a private cloud" href={`${base}/private-cloud/`} />
-    </Card>
-  </CardGrid>
+  <div class="doors">
+    {
+      doors.map((d) => (
+        <section class="door">
+          <h2>
+            <span class="icon">
+              <Icon name={d.icon} size="1.25rem" />
+            </span>
+            {d.title}
+          </h2>
+          <p>{d.text}</p>
+          <ul>
+            {d.links.map((l) => (
+              <li>
+                <a href={l.href}>
+                  {l.label} <Icon name="right-arrow" />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </div>
+
+  <h2 class="popular-title">Most read</h2>
+  <ul class="popular">
+    {
+      pages.map((p) => (
+        <li>
+          <a href={p.href}>{p.title}</a>
+          <span>{p.text}</span>
+        </li>
+      ))
+    }
+  </ul>
 </StarlightPage>
+
+<style>
+  .doors {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  }
+  .door {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 1.5rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.75rem;
+    background: var(--sl-color-black);
+  }
+  .door h2 {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0;
+    font-size: var(--sl-text-h4);
+  }
+  .door .icon {
+    display: inline-flex;
+    padding: 0.35rem;
+    border: 1px solid var(--sl-color-accent);
+    border-radius: 0.4rem;
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-white);
+  }
+  .door p {
+    margin: 0;
+    flex: 1;
+    color: var(--sl-color-gray-2);
+  }
+  .door ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .door li + li {
+    margin-top: 0.5rem;
+  }
+  .door a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    color: var(--sl-color-white);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .door a:hover {
+    border-color: var(--sl-color-accent);
+  }
+  .popular-title {
+    margin-top: 3rem;
+    font-size: var(--sl-text-h3);
+  }
+  .popular {
+    display: grid;
+    gap: 0.25rem 2rem;
+    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+    padding: 0;
+    list-style: none;
+  }
+  .popular li {
+    display: flex;
+    flex-direction: column;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--sl-color-gray-6);
+  }
+  .popular a {
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--sl-color-text-accent);
+  }
+  .popular span {
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+</style>

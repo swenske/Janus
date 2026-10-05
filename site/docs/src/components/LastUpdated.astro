@@ -1,0 +1,12 @@
+---
+// Under each page: when it last changed, and which docs these are.
+import Default from '@astrojs/starlight/components/LastUpdated.astro'
+import { channel, commit, version } from '../lib/build-info.mjs'
+
+const label = channel === 'latest' ? `Janus ${version}` : `main @ ${commit.slice(0, 7)}`
+---
+
+<div class="janus-stamp">
+  <Default />
+  <p>Docs for {label}</p>
+</div>

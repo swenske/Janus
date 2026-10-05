@@ -1,0 +1,18 @@
+---
+// On the next channel - main's docs - a banner on every page: what this
+// is, and the same page in the latest release's docs.
+import Default from '@astrojs/starlight/components/Banner.astro'
+import { channel, commit, latestVersion } from '../lib/build-info.mjs'
+
+const here = Astro.url.pathname.replace(/^\/docs\/next\//, '').replace(/^404(\.html|\/)?$/, '')
+---
+
+{
+  channel === 'next' && (
+    <div class="janus-next" data-pagefind-ignore>
+      Development docs, for main{commit && ` @ ${commit.slice(0, 7)}`} - what's coming, not yet released.{' '}
+      <a href={`/docs/${here}`}>{latestVersion ? `This page for ${latestVersion}, the latest release` : 'The latest release'} →</a>
+    </div>
+  )
+}
+<Default />

@@ -1,0 +1,41 @@
+---
+// The site's title, and which docs these are: a menu to the other
+// channel's same page - /docs/ is the newest release's, /docs/next/
+// main's - and to older releases' docs, on GitHub at their tag.
+import Default from '@astrojs/starlight/components/SiteTitle.astro'
+import { channel, commit, latestVersion, repo, version } from '../lib/build-info.mjs'
+
+// The same page in the other channel - its home, from the 404 page.
+const here = Astro.url.pathname.replace(/^\/docs\/(next\/)?/, '').replace(/^404(\.html|\/)?$/, '')
+const release = channel === 'latest' ? version : latestVersion
+const main = channel === 'next' ? `main @ ${commit.slice(0, 7)}` : 'main'
+---
+
+<div class="janus-title sl-flex">
+  <Default />
+  <details class="janus-version">
+    <summary aria-label={`These docs: ${channel === 'latest' ? `the latest release, ${release}` : `development, ${main}`}`}>
+      {channel}
+    </summary>
+    <ul>
+      <li>
+        <a href={`/docs/${here}`} aria-current={channel === 'latest' ? 'true' : undefined}>
+          <strong>Latest release</strong> <span>{release}</span>
+        </a>
+      </li>
+      <li>
+        <a href={`/docs/next/${here}`} aria-current={channel === 'next' ? 'true' : undefined}>
+          <strong>Development</strong> <span>{main}</span>
+        </a>
+      </li>
+      <li>
+        <a href={`${repo}/tags`}>
+          <strong>Older releases</strong> <span>on GitHub, at their tag</span>
+        </a>
+      </li>
+    </ul>
+  </details>
+</div>
+<script>
+  import '../lib/version-menu.ts'
+</script>

@@ -46,6 +46,10 @@ build() {
     docs_ref=main
   fi
   date=$(git log -1 --format=%cI "$commit")
+  # When each Markdown file last changed - the build itself has no git.
+  git log --format='@%cI' --name-only "$commit" -- '*.md' |
+    awk '/^@/ { d = substr($0, 2); next } NF && !($0 in seen) { seen[$0] = 1; print $0 "\t" d }' \
+      >"$src/site/docs/lastupdated.tsv"
   echo "docs: building $channel from ${ref:-the working tree} ($version)"
   rm -rf "${out_root:?}/$channel"
   docker build -f "$src/site/docs/Dockerfile" --target export \

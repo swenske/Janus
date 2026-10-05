@@ -3,11 +3,21 @@
 // route; to any other file or folder of the repository, GitHub at the
 // build's ref (the release tag, or main). A relative link to nothing is
 // a problem (problems.mjs).
+//
+// Two GitHub-isms read better on the site: a link whose text is the file
+// it points at ([hypervisors.md](hypervisors.md)) shows the page's name
+// instead, and a page's path in code (`docs/vrrp.md`) becomes a link to
+// it, code kept.
 import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { visit } from 'unist-util-visit'
+import { SKIP, visit } from 'unist-util-visit'
+import { pageMeta } from './meta.mjs'
 import { report } from './problems.mjs'
 import { pageOfFile, repoRoot } from './structure.mjs'
+
+// A page's name in running text: its sidebar label, but for a section's
+// index ("Overview") its title.
+const nameOf = (page) => (page.label && page.label !== 'Overview' ? page.label : (page.title ?? pageMeta(page.file).title))
 
 export default function remarkRepoLinks({ base, ref, repo }) {
   return (tree, file) => {
@@ -24,6 +34,8 @@ export default function remarkRepoLinks({ base, ref, repo }) {
       const page = pageOfFile(rel)
       if (page) {
         node.url = `${base}/${page.id}/${hash}`
+        const only = node.children?.length === 1 ? node.children[0] : null
+        if (only?.type === 'text' && [target, rel, path.posix.basename(rel)].includes(only.value)) only.value = nameOf(page)
         return
       }
       const abs = path.join(repoRoot, rel)
@@ -33,6 +45,15 @@ export default function remarkRepoLinks({ base, ref, repo }) {
       }
       const kind = statSync(abs).isDirectory() ? 'tree' : 'blob'
       node.url = `${repo}/${kind}/${ref}/${rel.replace(/\/$/, '')}${hash}`
+    })
+    // A page's path in code, outside a link or a heading (whose anchor
+    // would change): a link to that page.
+    visit(tree, 'inlineCode', (node, index, parent) => {
+      if (!parent || parent.type === 'link' || parent.type === 'heading') return
+      const page = pageOfFile(node.value)
+      if (!page) return
+      parent.children[index] = { type: 'link', url: `${base}/${page.id}/`, children: [node] }
+      return [SKIP, index + 1]
     })
   }
 }

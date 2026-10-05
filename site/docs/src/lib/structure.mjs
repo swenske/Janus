@@ -4,13 +4,14 @@
 // build, DOCS_STRICT=1) a docs/ page listed nowhere fail the build.
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { parse } from 'yaml'
 
-export const repoRoot = path.resolve(fileURLToPath(new URL('../../../..', import.meta.url)))
+// Paths from where Astro runs - site/docs - not from this module, which
+// pages get bundled elsewhere (dist/.prerender/chunks/).
+export const repoRoot = path.resolve(process.cwd(), '../..')
 const strict = process.env.DOCS_STRICT === '1'
 
-const raw = parse(readFileSync(new URL('../../structure.yaml', import.meta.url), 'utf8'))
+const raw = parse(readFileSync(path.join(repoRoot, 'site/docs/structure.yaml'), 'utf8'))
 const problems = []
 
 // slugOf is a page's slug in its section (see structure.yaml).
@@ -75,6 +76,11 @@ for (const file of markdownFiles('docs')) {
   if (strict) problems.push(msg)
   else console.warn(`[janus-docs] ${msg}`)
 }
+
+export const popular = (raw.popular ?? []).map((file) => {
+  if (!byFile.has(file)) problems.push(`${file}: in popular, but not a page`)
+  return byFile.get(file)
+})
 
 if (problems.length) throw new Error(`site/docs/structure.yaml:\n  ${problems.join('\n  ')}`)
 

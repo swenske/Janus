@@ -1,0 +1,18 @@
+---
+// One theme choice for the whole site: the landing page keeps it in
+// localStorage's janus-theme (system, light or dark), Starlight in
+// starlight-theme. Before Starlight reads its own, the landing page's
+// choice is copied over; a choice made here goes back (theme-sync.ts).
+import Default from '@astrojs/starlight/components/ThemeProvider.astro'
+---
+
+<script is:inline>
+  try {
+    const t = localStorage.getItem('janus-theme')
+    if (t) localStorage.setItem('starlight-theme', t === 'light' || t === 'dark' ? t : '')
+  } catch {}
+</script>
+<Default />
+<script>
+  import '../lib/theme-sync.ts'
+</script>
