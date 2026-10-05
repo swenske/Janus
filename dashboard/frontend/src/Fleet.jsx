@@ -7,7 +7,7 @@ import { Badge, Card, useAction, useConfirm, useToast } from './shared/ui.jsx'
 // recovery kit and its passphrase, give both back - only then does the
 // root's key leave the Controller and do the nodes change anything.
 
-function Step({ n, done, active, title, children }) {
+export function Step({ n, done, active, title, children }) {
   return (
     <li className={`fleet-step${done ? ' done' : ''}${active ? ' active' : ''}`}>
       <span className="fleet-step-n">{done ? <CheckCircle2 size={18} /> : n}</span>

@@ -141,6 +141,15 @@ keys: add - only once the account has a second factor -, remove, and the
 rendered in place of the tabs once signed in) approve a janusctl
 certificate: the key's fingerprint, a role up to the account's; the
 first sends the browser back to janusctl's `127.0.0.1` listener.
+
+**Backups** (`Backups.jsx`, admins): the backup kit - the fleet
+wizard's three steps (`Step` from `Fleet.jsx`) -, then the bucket and
+schedule (the secret write-only: "kept - type to change it"), **Back up
+now**, **Download a backup**, the recent runs and the signing key. A new
+Controller's first page offers **Restore a backup instead**
+(`Restore.jsx`): the bucket (listed) or a file, the kit and its
+passphrase; it then waits for the Controller to start again and reloads
+into its sign-in.
 Passkeys go through `webauthn.js` (base64url options to
 `navigator.credentials` and back); they're offered only where the page's
 host is a name (`mfa.rp_id`), and the TOTP QR code is an SVG the

@@ -1,4 +1,5 @@
 import {
+  Archive,
   ArrowUpRight,
   Boxes,
   Check,
@@ -31,6 +32,8 @@ import { MeContext, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
 import { CliDevicePage, CliLoginPage } from './CliLogin.jsx'
+import BackupsPage from './Backups.jsx'
+import { RestoreForm } from './Restore.jsx'
 import TokensPage from './Tokens.jsx'
 import UsersPage from './Users.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
@@ -505,7 +508,7 @@ function AuthScreen({ title, children }) {
 
 // SetupForm is forced on the very first visit (see dashboard/backend/
 // internal/auth): the first account, an admin.
-function SetupForm({ onDone }) {
+function SetupForm({ onDone, onRestore }) {
   const [name, setName] = useState('admin')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -548,6 +551,9 @@ function SetupForm({ onDone }) {
         <ErrorBox error={error} />
         <button className="primary" type="submit" disabled={busy}>
           {busy ? 'Setting up…' : 'Make the account and continue'}
+        </button>
+        <button type="button" className="ghost small" onClick={onRestore}>
+          Restore a backup instead
         </button>
       </form>
     </AuthScreen>
@@ -669,6 +675,7 @@ function AuthGate({ children }) {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
   const [ended, setEnded] = useState(false)
+  const [restoring, setRestoring] = useState(false)
   const refreshStatus = useCallback(() => {
     call('/api/auth/status')
       .then(setStatus)
@@ -690,7 +697,14 @@ function AuthGate({ children }) {
       </div>
     )
   if (!status) return null
-  if (status.setup_required) return <SetupForm onDone={refreshStatus} />
+  if (status.setup_required)
+    return restoring ? (
+      <AuthScreen title="First run - restore a backup">
+        <RestoreForm onCancel={() => setRestoring(false)} />
+      </AuthScreen>
+    ) : (
+      <SetupForm onDone={refreshStatus} onRestore={() => setRestoring(true)} />
+    )
   if (!status.authenticated) return <LoginForm onDone={() => (setEnded(false), refreshStatus())} ended={ended} />
   const needs = status.user?.needs || []
   if (needs.includes('mfa'))
@@ -760,7 +774,7 @@ const STATUS_EVERY = 15000
 function MainApp() {
   const route = useHashRoute()
   const can = useCan()
-  const tab = ['hypervisors', 'tokens', 'accounts', 'audit'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
+  const tab = ['hypervisors', 'tokens', 'accounts', 'audit', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
   const [nodes, setNodes] = useState(null)
   const [pending, setPending] = useState([])
   const [statuses, setStatuses] = useState({})
@@ -915,6 +929,7 @@ function MainApp() {
               ? [
                   { id: 'accounts', label: 'Accounts', icon: Users },
                   { id: 'audit', label: 'Audit', icon: ScrollText },
+                  { id: 'backups', label: 'Backups', icon: Archive },
                 ]
               : []),
           ]}
@@ -932,6 +947,8 @@ function MainApp() {
           <UsersPage />
         ) : tab === 'audit' && can('admin') ? (
           <AuditPage />
+        ) : tab === 'backups' && can('admin') ? (
+          <BackupsPage />
         ) : tab === 'hypervisors' ? (
           <HypervisorsPage hypervisors={hypervisors} machines={machines} hvStatus={hvStatus} onChanged={reload} onConsole={setConsoleOf} />
         ) : (
