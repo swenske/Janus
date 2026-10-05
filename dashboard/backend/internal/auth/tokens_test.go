@@ -14,7 +14,7 @@ func TestTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret, tok, err := s.Create("alice", Operator, "terraform", 0)
+	secret, tok, err := s.Create("alice", Operator, "terraform", 0, TokenScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestTokenExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret, _, err := s.Create("alice", Reader, "short", time.Nanosecond)
+	secret, _, err := s.Create("alice", Reader, "short", time.Nanosecond, TokenScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestTokenExpiry(t *testing.T) {
 	if _, ok := s.Verify(secret); ok {
 		t.Error("expired token accepted")
 	}
-	if _, _, err := s.Create("alice", Reader, " ", 0); err == nil {
+	if _, _, err := s.Create("alice", Reader, " ", 0, TokenScope{}); err == nil {
 		t.Error("empty name accepted")
 	}
 }
@@ -90,11 +90,11 @@ func TestTokenOwners(t *testing.T) {
 	if old, ok := s.Get("0123456789ab"); !ok || old.Owner != LegacyAdmin || old.Role != Admin {
 		t.Fatalf("a token from before accounts: %+v", old)
 	}
-	if _, _, err := s.Create("alice", "root", "x", 0); err == nil {
+	if _, _, err := s.Create("alice", "root", "x", 0, TokenScope{}); err == nil {
 		t.Error("a token with an unknown role")
 	}
-	_, a1, _ := s.Create("alice", Reader, "a1", 0)
-	_, _, _ = s.Create("alice", Operator, "a2", 0)
+	_, a1, _ := s.Create("alice", Reader, "a1", 0, TokenScope{})
+	_, _, _ = s.Create("alice", Operator, "a2", 0, TokenScope{})
 	if got := s.List("alice"); len(got) != 2 || got[0].Owner != "alice" {
 		t.Fatalf("alice's tokens: %+v", got)
 	}

@@ -47,7 +47,7 @@ type mfaView struct {
 
 func (a *app) viewMFA(r *http.Request, u auth.User) mfaView {
 	_, rp, _ := relyingParty(r)
-	v := mfaView{TOTP: u.MFA.TOTPAddedAt != nil, Passkeys: []passkeyView{}, RecoveryCodes: len(u.MFA.RecoveryCodes), Required: a.auth.Settings().Requires(u.Role), RPID: rp}
+	v := mfaView{TOTP: u.MFA.TOTPAddedAt != nil, Passkeys: []passkeyView{}, RecoveryCodes: len(u.MFA.RecoveryCodes), Required: a.auth.Settings().Requires(u.MaxRole()), RPID: rp}
 	for _, p := range u.MFA.Passkeys {
 		v.Passkeys = append(v.Passkeys, passkeyView{ID: p.ID(), Name: p.Name, RPID: p.RPID, CreatedAt: p.CreatedAt, LastUsedAt: p.LastUsedAt, Here: p.RPID == rp && rp != ""})
 	}

@@ -275,6 +275,36 @@ admin can't be demoted, disabled or deleted. A Controller from before
 accounts had one admin password: it's the account `admin`'s now, and
 its API tokens are admin's.
 
+**Scopes**: nodes carry **labels** (`team=web`, `env=prod` - an admin
+sets them on the node's card), and an account can have **grants** - a
+role on the nodes whose labels match, narrowed to some **domains** if
+you like:
+
+| Domain | What it is |
+|---|---|
+| `haproxy` | HAProxy's configuration, files, maps, ACLs, certificates, Let's Encrypt, servers' state, reloads |
+| `services` | services, reboots, their logs |
+| `network` | network, firewall, VRRP, BGP, Consul |
+| `system` | updates, access and certificates, files, packet capture, the exporters' settings, reset |
+| `machines` | a machine's power and console (the Controller's own) |
+
+Reading a node's state comes with any grant on it. An account can have
+a role over everything, grants, or both - its strongest permission on a
+node wins; with role **none**, it reaches only its grants' nodes, sees
+no other node, and none of the Controller's own pages (hypervisors,
+accounts, the fleet). Each call the Controller relays goes with the
+permission that allows it, or is refused before it leaves; the node
+checks it again (`janus-as-domains`), and logs it: `tf (os:operator;
+haproxy) via janus-controller`. janusctl's certificate carries the
+account's role over everything, never a grant: an account with none
+gets none yet.
+
+An **API token** can be narrowed further: a role at most, a selector
+(only the nodes with those labels), domains. Such a scoped token reaches
+its nodes and nothing of the Controller's own - a Terraform user's
+token that may only change HAProxy on `team=web`: role operator, labels
+`team=web`, domain `haproxy`.
+
 Sessions end after 30 minutes nobody touched the page, and 12 hours
 after the sign-in at most - both on the **Accounts** tab. A page left
 open refreshing itself doesn't count as use.

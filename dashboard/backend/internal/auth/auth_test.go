@@ -222,13 +222,13 @@ func TestAccounts(t *testing.T) {
 	if _, err := s.Setup("root", "long-enough", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateUser("root", Reader, "long-enough"); err == nil {
+	if _, err := s.CreateUser("root", Reader, "long-enough", nil); err == nil {
 		t.Error("a second account with the same name")
 	}
-	if _, err := s.CreateUser("bob", "boss", "long-enough"); err == nil {
+	if _, err := s.CreateUser("bob", "boss", "long-enough", nil); err == nil {
 		t.Error("an unknown role")
 	}
-	bob, err := s.CreateUser("bob", Operator, "given-by-admin")
+	bob, err := s.CreateUser("bob", Operator, "given-by-admin", nil)
 	if err != nil || !bob.MustChangePassword {
 		t.Fatalf("CreateUser: %+v, %v", bob, err)
 	}

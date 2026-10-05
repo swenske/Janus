@@ -34,8 +34,10 @@ type Token struct {
 	Name string `json:"name"`
 	// Owner is the account the token acts for, with Role at most - a
 	// token from before accounts is the "admin" account's, as admin.
-	Owner      string     `json:"owner"`
-	Role       Role       `json:"role"`
+	Owner string `json:"owner"`
+	Role  Role   `json:"role"`
+	// Scope narrows the token further: some nodes, some domains.
+	Scope      TokenScope `json:"scope,omitzero"`
 	Hash       string     `json:"hash"`
 	CreatedAt  time.Time  `json:"created_at"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
@@ -85,8 +87,11 @@ func OpenTokens(dataDir string) (*TokenStore, error) {
 // Create makes a token named name for owner, acting with role, valid for
 // ttl (0: until revoked), and returns it - the only time its secret
 // exists outside the caller.
-func (s *TokenStore) Create(owner string, role Role, name string, ttl time.Duration) (string, *Token, error) {
+func (s *TokenStore) Create(owner string, role Role, name string, ttl time.Duration, scope TokenScope) (string, *Token, error) {
 	if _, err := ParseRole(string(role)); err != nil {
+		return "", nil, err
+	}
+	if err := scope.Check(); err != nil {
 		return "", nil, err
 	}
 	name = strings.TrimSpace(name)
@@ -106,7 +111,7 @@ func (s *TokenStore) Create(owner string, role Role, name string, ttl time.Durat
 	}
 	token := TokenPrefix + id + "_" + secret
 	now := time.Now().UTC()
-	t := &Token{ID: id, Name: name, Owner: owner, Role: role, Hash: hashToken(token), CreatedAt: now}
+	t := &Token{ID: id, Name: name, Owner: owner, Role: role, Scope: scope, Hash: hashToken(token), CreatedAt: now}
 	if ttl > 0 {
 		exp := now.Add(ttl)
 		t.ExpiresAt = &exp

@@ -32,7 +32,7 @@ func newMFAApp(t *testing.T) *authApp {
 	if _, err := st.Setup("root", "root-password", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateUser("olga", auth.Operator, "given-password"); err != nil {
+	if _, err := st.CreateUser("olga", auth.Operator, "given-password", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.ChangePassword("olga", "given-password", "olga-password"); err != nil {

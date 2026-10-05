@@ -10,14 +10,18 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"strings"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/internal/pki"
+	"github.com/swenske/Janus/internal/rbac"
 )
 
 // FleetIdentity is the Controller's own client certificate once its
@@ -30,12 +34,55 @@ var FleetIdentity func() (*tls.Certificate, error)
 // certificate act only for the user it names (internal/api/authz.go),
 // and logs that user.
 type User struct {
-	Name  string
-	Roles []string
+	Name string
+	// Perms are the ways the user may act on this node - the first that
+	// lets a call through makes it; none, and the Controller refuses it
+	// before it leaves.
+	Perms []Perm
+}
+
+// Perm is a node role (os:...) narrowed to some domains (internal/rbac;
+// none: every domain).
+type Perm struct {
+	Role    string
+	Domains []string
+}
+
+// permFor is the first of u's permissions that lets it call method.
+func (u User) permFor(method string) (Perm, bool) {
+	for _, p := range u.Perms {
+		if rbac.Allowed(method, []string{p.Role}) && rbac.InDomains(method, p.Domains) {
+			return p, true
+		}
+	}
+	return Perm{}, false
+}
+
+// May is the RPCs u may call ("Service/Method"), sorted.
+func (u User) May() []string {
+	var out []string
+	for m := range rbac.Required {
+		if _, ok := u.permFor(m); ok {
+			out = append(out, strings.TrimPrefix(m, "/janus.v1alpha1."))
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Roles are u's node roles, the highest first.
+func (u User) Roles() []string {
+	var out []string
+	for _, p := range u.Perms {
+		if !slices.Contains(out, p.Role) {
+			out = append(out, p.Role)
+		}
+	}
+	return out
 }
 
 // Automation is the Controller's own work - what no page asked for.
-var Automation = User{Name: "automation", Roles: []string{pki.RoleAdmin}}
+var Automation = User{Name: "automation", Perms: []Perm{{Role: pki.RoleAdmin}}}
 
 type userKey struct{}
 
@@ -54,12 +101,22 @@ func userOf(ctx context.Context) User {
 // userName is a name a node accepts for a user (its userNamePattern).
 var userName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._@:+-]{0,63}$`)
 
-func actingFor(ctx context.Context) context.Context {
+// actingFor is ctx for a call of method made for its user, with the
+// permission that lets it through - refused here when none does.
+func actingFor(ctx context.Context, method string) (context.Context, error) {
 	u := userOf(ctx)
+	p, ok := u.permFor(method)
+	if !ok {
+		return nil, status.Errorf(codes.PermissionDenied, "%s may not call %s on this node", u.Name, strings.TrimPrefix(method, "/janus.v1alpha1."))
+	}
 	if !userName.MatchString(u.Name) {
 		u.Name = "unnamed"
 	}
-	return metadata.AppendToOutgoingContext(ctx, pki.AsUserKey, u.Name, pki.AsRolesKey, strings.Join(u.Roles, ","))
+	kv := []string{pki.AsUserKey, u.Name, pki.AsRolesKey, p.Role}
+	if len(p.Domains) > 0 {
+		kv = append(kv, pki.AsDomainsKey, strings.Join(p.Domains, ","))
+	}
+	return metadata.AppendToOutgoingContext(ctx, kv...), nil
 }
 
 // nodeTLS is how the Controller authenticates to node, and checks it's
@@ -140,10 +197,18 @@ func dialOptionsWith(node *store.Node, fleet bool) ([]grpc.DialOption, error) {
 	return []grpc.DialOption{
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
 		grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-			return invoker(actingFor(ctx), method, req, reply, cc, opts...)
+			ctx, err := actingFor(ctx, method)
+			if err != nil {
+				return err
+			}
+			return invoker(ctx, method, req, reply, cc, opts...)
 		}),
 		grpc.WithChainStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-			return streamer(actingFor(ctx), desc, cc, method, opts...)
+			ctx, err := actingFor(ctx, method)
+			if err != nil {
+				return nil, err
+			}
+			return streamer(ctx, desc, cc, method, opts...)
 		}),
 	}, nil
 }

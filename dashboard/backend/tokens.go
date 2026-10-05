@@ -17,20 +17,33 @@ type tokenView struct {
 	Name       string     `json:"name"`
 	Owner      string     `json:"owner"`
 	Role       auth.Role  `json:"role"`
+	Scope      tokenScope `json:"scope"`
 	CreatedAt  time.Time  `json:"created_at"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	Expired    bool       `json:"expired"`
 }
 
+// tokenScope is a token's scope as the API shows it: never null.
+type tokenScope struct {
+	Selector map[string]string `json:"selector"`
+	Domains  []string          `json:"domains"`
+}
+
 func viewToken(t auth.Token) tokenView {
-	return tokenView{ID: t.ID, Name: t.Name, Owner: t.Owner, Role: t.Role, CreatedAt: t.CreatedAt, ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt, Expired: t.Expired(time.Now())}
+	sel := t.Scope.Selector
+	if sel == nil {
+		sel = map[string]string{}
+	}
+	return tokenView{ID: t.ID, Name: t.Name, Owner: t.Owner, Role: t.Role, Scope: tokenScope{Selector: sel, Domains: nonNil(t.Scope.Domains)}, CreatedAt: t.CreatedAt, ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt, Expired: t.Expired(time.Now())}
 }
 
 func (a *app) registerTokenRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/tokens", a.sessionGate(auth.Reader, auth.Reader, a.handleTokenList))
-	mux.HandleFunc("POST /api/tokens", a.sessionGate(auth.Reader, auth.Reader, a.handleTokenCreate))
-	mux.HandleFunc("DELETE /api/tokens/{id}", a.sessionGate(auth.Reader, auth.Reader, a.handleTokenRevoke))
+	// Every account manages its own - a scoped one too (its tokens for
+	// Terraform).
+	mux.HandleFunc("GET /api/tokens", a.sessionGate(anyone, anyone, a.handleTokenList))
+	mux.HandleFunc("POST /api/tokens", a.sessionGate(anyone, anyone, a.handleTokenCreate))
+	mux.HandleFunc("DELETE /api/tokens/{id}", a.sessionGate(anyone, anyone, a.handleTokenRevoke))
 }
 
 func (a *app) handleTokenList(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +67,9 @@ func (a *app) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 		ExpiresInDays int `json:"expires_in_days"`
 		// Role defaults to the account's; never more.
 		Role auth.Role `json:"role"`
+		// Scope narrows it to some nodes (labels) and domains: then it
+		// reaches only those nodes, none of the Controller's own routes.
+		Scope auth.TokenScope `json:"scope"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -63,17 +79,17 @@ func (a *app) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role == "" {
-		req.Role = p.Role
+		req.Role = p.Max
 	}
 	if _, err := auth.ParseRole(string(req.Role)); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !p.Role.AtLeast(req.Role) {
-		writeError(w, http.StatusForbidden, "a token can't do more than its account: "+p.User+" is "+string(p.Role))
+	if !p.Max.AtLeast(req.Role) {
+		writeError(w, http.StatusForbidden, "a token can't do more than its account: "+p.User+" is "+string(p.Max)+" at most")
 		return
 	}
-	secret, t, err := a.tokens.Create(p.User, req.Role, req.Name, time.Duration(req.ExpiresInDays)*24*time.Hour)
+	secret, t, err := a.tokens.Create(p.User, req.Role, req.Name, time.Duration(req.ExpiresInDays)*24*time.Hour, req.Scope)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

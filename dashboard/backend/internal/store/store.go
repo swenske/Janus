@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -43,8 +44,25 @@ type Node struct {
 	ServiceCertPEM []byte `json:"-"`
 	ServiceKeyPEM  []byte `json:"-"`
 	Fleet          bool   `json:"-"`
+	// Labels say what the node is (team=web, env=prod): scoped grants
+	// and tokens pick nodes by them. Set them only before the node is
+	// added; afterwards read them with LabelSet, change them with
+	// Store.SetLabels.
+	Labels map[string]string `json:"-"`
 
-	mu sync.Mutex // guards Address, the credentials and Fleet once the node is in a Store
+	mu sync.Mutex // guards Address, the credentials, Fleet and Labels once the node is in a Store
+}
+
+// LabelSet is a copy of the node's labels.
+func (n *Node) LabelSet() map[string]string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return maps.Clone(n.Labels)
+}
+
+// metaLocked is the node's meta.json - n.mu held.
+func (n *Node) metaLocked() meta {
+	return meta{ID: n.ID, Name: n.Name, Address: n.Address, MachineID: n.MachineID, Fleet: n.Fleet, Labels: n.Labels}
 }
 
 // CA is the node's own CA (PEM), the pin for its server certificate.
@@ -88,7 +106,8 @@ type meta struct {
 	MachineID string `json:"machine_id,omitempty"`
 	// Fleet: the node trusts the Controller's fleet - no service
 	// credential is kept for it anymore.
-	Fleet bool `json:"fleet,omitempty"`
+	Fleet  bool              `json:"fleet,omitempty"`
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 type Store struct {
@@ -140,7 +159,7 @@ func loadNode(dir string) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read ca.crt: %w", err)
 	}
-	n := &Node{ID: m.ID, Name: m.Name, Address: m.Address, MachineID: m.MachineID, CACertPEM: ca, Fleet: m.Fleet}
+	n := &Node{ID: m.ID, Name: m.Name, Address: m.Address, MachineID: m.MachineID, CACertPEM: ca, Fleet: m.Fleet, Labels: m.Labels}
 	if m.Fleet {
 		return n, nil
 	}
@@ -191,7 +210,7 @@ func (s *Store) Add(node *Node) error {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	metaBytes, err := json.Marshal(meta{ID: id, Name: node.Name, Address: node.Address, MachineID: node.MachineID, Fleet: node.Fleet})
+	metaBytes, err := json.Marshal(node.metaLocked())
 	if err != nil {
 		return fmt.Errorf("marshal meta.json: %w", err)
 	}
@@ -226,11 +245,29 @@ func (s *Store) SetAddress(id, addr string) error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	m := meta{ID: n.ID, Name: n.Name, Address: addr, MachineID: n.MachineID, Fleet: n.Fleet}
+	m := n.metaLocked()
+	m.Address = addr
 	if err := s.write(id, "meta.json", mustJSON(m)); err != nil {
 		return err
 	}
 	n.Address = addr
+	return nil
+}
+
+// SetLabels replaces a node's labels.
+func (s *Store) SetLabels(id string, l map[string]string) error {
+	n, ok := s.Get(id)
+	if !ok {
+		return fmt.Errorf("no such node %q", id)
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	m := n.metaLocked()
+	m.Labels = maps.Clone(l)
+	if err := s.write(id, "meta.json", mustJSON(m)); err != nil {
+		return err
+	}
+	n.Labels = m.Labels
 	return nil
 }
 
@@ -244,7 +281,8 @@ func (s *Store) SetFleet(id string) error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	m := meta{ID: n.ID, Name: n.Name, Address: n.Address, MachineID: n.MachineID, Fleet: true}
+	m := n.metaLocked()
+	m.Fleet = true
 	if err := s.write(id, "meta.json", mustJSON(m)); err != nil {
 		return err
 	}

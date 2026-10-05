@@ -32,9 +32,20 @@ const backgroundHeader = "X-Janus-Background"
 // one of its API tokens.
 type principal struct {
 	User string
-	// Role is what the request may do: the account's, or less for a
-	// token made with less.
+	// Role is what the request may do over everything - the Controller's
+	// own routes, every node: the account's, or less for a token made
+	// with less; none for an account without one, or a scoped token.
 	Role auth.Role
+	// Base is the account's role over every node, a token's cap applied
+	// (a scoped token's too); Grants, its roles on some nodes (access.go).
+	Base   auth.Role
+	Grants []auth.Grant
+	// Cap is a token's role (none for a session), Scope its selector and
+	// domains.
+	Cap   auth.Role
+	Scope auth.TokenScope
+	// Max is the most the account can do anywhere.
+	Max auth.Role
 	// Token is the API token's ID - empty for a session.
 	Token string
 	// Needs is what the session must do before anything else
@@ -105,8 +116,12 @@ func (a *app) gated(read, write auth.Role, sessionOnly bool, next http.HandlerFu
 		if safeMethod(r.Method) {
 			need = read
 		}
-		if !p.Role.AtLeast(need) {
-			writeError(w, http.StatusForbidden, fmt.Sprintf("this needs the %s role: %s is %s", need, p.User, p.Role))
+		if need != anyone && !p.Role.AtLeast(need) {
+			have := string(p.Role)
+			if have == "" {
+				have = "only scoped"
+			}
+			writeError(w, http.StatusForbidden, fmt.Sprintf("this needs the %s role: %s is %s", need, p.User, have))
 			return
 		}
 		ctx := context.WithValue(r.Context(), principalKey{}, p)
@@ -115,10 +130,10 @@ func (a *app) gated(read, write auth.Role, sessionOnly bool, next http.HandlerFu
 			kind = authToken
 		}
 		ctx = context.WithValue(ctx, authKindKey{}, kind)
-		if !safeMethod(r.Method) {
+		if !safeMethod(r.Method) && p.Role != auth.None {
 			// What the request changes on a node, the node logs as this
 			// account's.
-			ctx = nodeproxy.WithUser(ctx, nodeproxy.User{Name: p.User, Roles: []string{nodeRole(p.Role)}})
+			ctx = nodeproxy.WithUser(ctx, nodeproxy.User{Name: p.User, Perms: []nodeproxy.Perm{{Role: nodeRole(p.Role)}}})
 		}
 		next(w, r.WithContext(ctx))
 	}
@@ -147,14 +162,18 @@ func (a *app) authenticate(w http.ResponseWriter, r *http.Request) (principal, b
 			http.Error(w, "invalid or expired API token", http.StatusUnauthorized)
 			return principal{}, false
 		}
-		return principal{User: u.Name, Role: auth.Lower(t.Role, u.Role), Token: t.ID}, true
+		p := principal{User: u.Name, Role: auth.Lower(t.Role, u.Role), Base: auth.Lower(t.Role, u.Role), Grants: u.Grants, Cap: t.Role, Scope: t.Scope, Max: auth.Lower(t.Role, u.MaxRole()), Token: t.ID}
+		if len(t.Scope.Selector) > 0 || len(t.Scope.Domains) > 0 {
+			p.Role = auth.None // a scoped token reaches its nodes only
+		}
+		return p, true
 	}
 	u, ss, ok := a.session(r)
 	if !ok {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return principal{}, false
 	}
-	return principal{User: u.Name, Role: u.Role, Needs: a.auth.Needs(u, ss), MFA: ss.MFA}, true
+	return principal{User: u.Name, Role: u.Role, Base: u.Role, Grants: u.Grants, Max: u.MaxRole(), Needs: a.auth.Needs(u, ss), MFA: ss.MFA}, true
 }
 
 var needsMessage = map[string]string{
@@ -176,9 +195,13 @@ func (a *app) session(r *http.Request) (auth.User, auth.Session, bool) {
 // --- signing in: /api/auth/* ---
 
 type meView struct {
-	Name  string    `json:"name"`
-	Role  auth.Role `json:"role"`
-	Needs []string  `json:"needs"`
+	Name string `json:"name"`
+	// Role is over everything ("" for none); Grants on some nodes; Max
+	// the most anywhere.
+	Role   auth.Role    `json:"role"`
+	Grants []auth.Grant `json:"grants"`
+	Max    auth.Role    `json:"max_role"`
+	Needs  []string     `json:"needs"`
 	// ExpiresAt is when the session ends if it isn't used again.
 	ExpiresAt time.Time `json:"expires_at"`
 	MFA       mfaView   `json:"mfa"`
@@ -195,7 +218,7 @@ func (a *app) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	}{SetupRequired: a.auth.SetupRequired()}
 	if u, ss, ok := a.session(r); ok {
 		out.Authenticated = true
-		out.User = &meView{Name: u.Name, Role: u.Role, Needs: nonNil(a.auth.Needs(u, ss)), ExpiresAt: ss.Expires(a.auth.Settings()), MFA: a.viewMFA(r, u)}
+		out.User = &meView{Name: u.Name, Role: u.Role, Grants: nonNil(u.Grants), Max: u.MaxRole(), Needs: nonNil(a.auth.Needs(u, ss)), ExpiresAt: ss.Expires(a.auth.Settings()), MFA: a.viewMFA(r, u)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -351,6 +374,8 @@ type userView struct {
 	Tokens             int        `json:"tokens"`
 	// SSHKeys are the account's keys for janusctl.
 	SSHKeys []auth.SSHKey `json:"ssh_keys"`
+	// Grants are its roles on some nodes.
+	Grants []auth.Grant `json:"grants"`
 	// MFA: the account has a second factor.
 	MFA bool `json:"mfa"`
 	// Password is set once: the one the Controller made for a new
@@ -359,7 +384,7 @@ type userView struct {
 }
 
 func (a *app) viewUser(u auth.User) userView {
-	return userView{Name: u.Name, Role: u.Role, Disabled: u.Disabled, MustChangePassword: u.MustChangePassword, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt, Tokens: len(a.tokens.List(u.Name)), SSHKeys: nonNil(u.SSHKeys), MFA: u.MFA.Enabled()}
+	return userView{Name: u.Name, Role: u.Role, Disabled: u.Disabled, MustChangePassword: u.MustChangePassword, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt, Tokens: len(a.tokens.List(u.Name)), SSHKeys: nonNil(u.SSHKeys), Grants: nonNil(u.Grants), MFA: u.MFA.Enabled()}
 }
 
 func (a *app) registerUserRoutes(mux *http.ServeMux) {
@@ -393,14 +418,22 @@ func newPassword() (string, error) {
 
 func (a *app) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name string    `json:"name"`
-		Role auth.Role `json:"role"`
+		Name string `json:"name"`
+		// Role over everything: reader, operator, admin, or "none" -
+		// then only its grants.
+		Role   string       `json:"role"`
+		Grants []auth.Grant `json:"grants"`
 		// Password is optional: without one, the Controller makes one,
 		// answered once. Either way its owner changes it at the first
 		// sign-in.
 		Password string `json:"password"`
 	}
 	if !decodeBody(w, r, &req) {
+		return
+	}
+	role, err := auth.ParseAccountRole(req.Role)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	made := req.Password == ""
@@ -411,7 +444,7 @@ func (a *app) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	u, err := a.auth.CreateUser(strings.TrimSpace(req.Name), req.Role, req.Password)
+	u, err := a.auth.CreateUser(strings.TrimSpace(req.Name), role, req.Password, req.Grants)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -425,8 +458,9 @@ func (a *app) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Role     *auth.Role `json:"role"`
-		Disabled *bool      `json:"disabled"`
+		Role     *string       `json:"role"`
+		Grants   *[]auth.Grant `json:"grants"`
+		Disabled *bool         `json:"disabled"`
 		// ResetPassword gives the account a new password the Controller
 		// makes, answered once - its sessions end, and its owner changes
 		// it at the next sign-in.
@@ -444,7 +478,15 @@ func (a *app) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	c := auth.Change{Role: req.Role, Disabled: req.Disabled}
+	c := auth.Change{Grants: req.Grants, Disabled: req.Disabled}
+	if req.Role != nil {
+		role, err := auth.ParseAccountRole(*req.Role)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		c.Role = &role
+	}
 	var password string
 	if req.ResetPassword {
 		var err error

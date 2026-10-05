@@ -26,6 +26,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
@@ -235,10 +236,19 @@ func call(t *testing.T, h http.HandlerFunc, method, path, pattern string, body a
 		rd = bytes.NewReader(raw)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc(pattern, h)
+	mux.HandleFunc(pattern, asAdmin(h))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(method, path, rd))
 	return rec
+}
+
+// asAdmin is h called for an admin over everything, as the gates would
+// set it.
+func asAdmin(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p := principal{User: "root", Role: auth.Admin, Base: auth.Admin, Max: auth.Admin}
+		h(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
+	}
 }
 
 func waitPhase(t *testing.T, a *app, id string, want machines.Phase) *machines.Machine {

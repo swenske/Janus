@@ -138,7 +138,7 @@ func (s *Store) Needs(u User, ss Session) []string {
 	if u.MustChangePassword {
 		out = append(out, "password")
 	}
-	if !u.MFA.Enabled() && s.Settings().Requires(u.Role) {
+	if !u.MFA.Enabled() && s.Settings().Requires(u.MaxRole()) {
 		out = append(out, "mfa_enroll")
 	}
 	return out
@@ -536,7 +536,7 @@ func (s *Store) removeFactor(name, password string, remove func(*MFA) bool) erro
 		return errors.New("no such factor")
 	}
 	if !u.MFA.Enabled() {
-		if s.settings.Requires(u.Role) {
+		if s.settings.Requires(u.MaxRole()) {
 			u.MFA = old
 			return ErrFactorRequired
 		}

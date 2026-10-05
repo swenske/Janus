@@ -32,7 +32,7 @@ func TestSSHKeys(t *testing.T) {
 	if _, err := s.Setup("root", "long-enough", MFANobody); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateUser("sam", Operator, "long-enough"); err != nil {
+	if _, err := s.CreateUser("sam", Operator, "long-enough", nil); err != nil {
 		t.Fatal(err)
 	}
 	edPub, _, _ := ed25519.GenerateKey(rand.Reader)

@@ -21,14 +21,17 @@ import (
 // disappears (404) once destroyed.
 
 func (a *app) registerMachineRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/machines", a.gate(auth.Reader, auth.Admin, a.handleMachineList))
+	// Listing and reading a machine, its power and console: also for whom
+	// a grant gives the node it became (the machines domain for power and
+	// console) - the handlers check.
+	mux.HandleFunc("GET /api/machines", a.gate(anyone, auth.Admin, a.handleMachineList))
 	mux.HandleFunc("POST /api/machines", a.gate(auth.Reader, auth.Admin, a.handleMachineCreate))
-	mux.HandleFunc("GET /api/machines/{id}", a.gate(auth.Reader, auth.Admin, a.handleMachineGet))
+	mux.HandleFunc("GET /api/machines/{id}", a.gate(anyone, auth.Admin, a.handleMachineGet))
 	mux.HandleFunc("PATCH /api/machines/{id}", a.gate(auth.Reader, auth.Admin, a.handleMachineUpdate))
 	mux.HandleFunc("DELETE /api/machines/{id}", a.gate(auth.Reader, auth.Admin, a.handleMachineDelete))
 	mux.HandleFunc("POST /api/machines/{id}/retry", a.gate(auth.Reader, auth.Admin, a.handleMachineRetry))
-	mux.HandleFunc("POST /api/machines/{id}/power", a.gate(auth.Reader, auth.Operator, a.handleMachinePower))
-	mux.HandleFunc("GET /api/machines/{id}/console", a.gate(auth.Operator, auth.Operator, a.handleMachineConsole))
+	mux.HandleFunc("POST /api/machines/{id}/power", a.gate(anyone, anyone, a.handleMachinePower))
+	mux.HandleFunc("GET /api/machines/{id}/console", a.gate(anyone, anyone, a.handleMachineConsole))
 	mux.HandleFunc("GET /api/catalog", a.gate(auth.Reader, auth.Admin, a.handleCatalog))
 }
 
@@ -71,20 +74,25 @@ func (a *app) machineView(m *machines.Machine) machineView {
 	return v
 }
 
-func (a *app) handleMachineList(w http.ResponseWriter, _ *http.Request) {
+func (a *app) handleMachineList(w http.ResponseWriter, r *http.Request) {
+	p := requestPrincipal(r)
 	out := []machineView{}
 	for _, m := range a.machines.List() {
-		out = append(out, a.machineView(m))
+		if a.seesMachine(p, m) {
+			out = append(out, a.machineView(m))
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
+// getMachine is the request's machine - one the account sees, else 404.
 func (a *app) getMachine(w http.ResponseWriter, r *http.Request) (*machines.Machine, bool) {
 	m, ok := a.machines.Get(r.PathValue("id"))
-	if !ok {
+	if !ok || !a.seesMachine(requestPrincipal(r), m) {
 		writeError(w, http.StatusNotFound, "no such machine")
+		return nil, false
 	}
-	return m, ok
+	return m, true
 }
 
 // handleMachineGet answers a machine; ?refresh=true reads it from its
@@ -207,6 +215,10 @@ func (a *app) handleMachinePower(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.mayMachine(requestPrincipal(r), m, auth.Operator) {
+		writeError(w, http.StatusForbidden, "powering this machine needs the operator role on it, over the machines domain")
+		return
+	}
 	var req struct {
 		Action hypervisor.PowerAction `json:"action"`
 	}
@@ -256,6 +268,10 @@ func (a *app) handleMachinePower(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleMachineConsole(w http.ResponseWriter, r *http.Request) {
 	m, ok := a.getMachine(w, r)
 	if !ok {
+		return
+	}
+	if !a.mayMachine(requestPrincipal(r), m, auth.Operator) {
+		writeError(w, http.StatusForbidden, "this machine's console needs the operator role on it, over the machines domain")
 		return
 	}
 	open, err := a.machineConsole(m)

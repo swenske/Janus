@@ -56,6 +56,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
+	"github.com/swenske/Janus/dashboard/backend/internal/labels"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
@@ -242,13 +243,16 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/logout", a.handleAuthLogout)
 	mux.HandleFunc("POST /api/auth/password", a.handleAuthPassword)
 	a.registerMFARoutes(mux)
-	mux.HandleFunc("/api/nodes", a.gate(auth.Reader, auth.Admin, a.handleNodes))
-	mux.HandleFunc("GET /api/nodes/status", a.gate(auth.Reader, auth.Reader, a.handleNodesStatus))
-	mux.HandleFunc("GET /api/version", a.gate(auth.Reader, auth.Reader, func(w http.ResponseWriter, _ *http.Request) {
+	// The nodes an account reaches - its role over everything, or its
+	// grants' labels (access.go); adding, removing and labelling them is
+	// an admin's.
+	mux.HandleFunc("/api/nodes", a.gate(anyone, auth.Admin, a.handleNodes))
+	mux.HandleFunc("GET /api/nodes/status", a.gate(anyone, anyone, a.handleNodesStatus))
+	mux.HandleFunc("GET /api/version", a.gate(anyone, anyone, func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"version": version})
 	}))
 	mux.HandleFunc("/api/nodes/", a.gate(auth.Reader, auth.Admin, a.handleNode))
-	mux.HandleFunc("/api/pending", a.gate(auth.Reader, auth.Admin, a.handlePendingList))
+	mux.HandleFunc("/api/pending", a.gate(anyone, auth.Admin, a.handlePendingList)) // none for an account without a role over everything
 	mux.HandleFunc("/api/pending/", a.gate(auth.Reader, auth.Admin, a.handlePendingAction))
 	mux.HandleFunc("/api/controller-info", a.gate(auth.Reader, auth.Admin, a.handleControllerInfo))
 	mux.HandleFunc("/api/controller/update", a.gate(auth.Reader, auth.Admin, a.handleControllerUpdate))
@@ -389,15 +393,9 @@ func parseAddNodeRequest(r *http.Request) (name, address string, caPEM, certPEM,
 func (a *app) handleNodes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		type nodeView struct {
-			ID        string `json:"id"`
-			Name      string `json:"name"`
-			Address   string `json:"address"`
-			MachineID string `json:"machine_id,omitempty"`
-		}
-		var out []nodeView
-		for _, n := range a.store.List() {
-			out = append(out, nodeView{ID: n.ID, Name: n.Name, Address: n.Addr(), MachineID: n.MachineID})
+		out := []nodeView{}
+		for _, n := range a.visibleNodes(requestPrincipal(r)) {
+			out = append(out, viewNode(n))
 		}
 		writeJSON(w, http.StatusOK, out)
 
@@ -464,14 +462,54 @@ func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
 	}{ID: node.ID})
 }
 
-func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+type nodeView struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Address   string            `json:"address"`
+	MachineID string            `json:"machine_id,omitempty"`
+	Labels    map[string]string `json:"labels"`
+}
+
+func viewNode(n *store.Node) nodeView {
+	l := n.LabelSet()
+	if l == nil {
+		l = map[string]string{}
 	}
+	return nodeView{ID: n.ID, Name: n.Name, Address: n.Addr(), MachineID: n.MachineID, Labels: l}
+}
+
+func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path[len("/api/nodes/"):]
 	if id == "" {
 		http.Error(w, "missing node id", http.StatusBadRequest)
+		return
+	}
+	if r.Method == http.MethodPatch {
+		// PATCH {"labels": {...}}: the node's labels, replaced.
+		var req struct {
+			Labels map[string]string `json:"labels"`
+		}
+		if !decodeBody(w, r, &req) {
+			return
+		}
+		if err := labels.Check(req.Labels); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		n, ok := a.store.Get(id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "no such node")
+			return
+		}
+		if err := a.store.SetLabels(id, req.Labels); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, viewNode(n))
+		return
+	}
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	// Removing the node alone would leave its virtual machine running,
@@ -494,7 +532,7 @@ func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 // concurrently with a short timeout so one unreachable node can't stall
 // the node list.
 func (a *app) handleNodesStatus(w http.ResponseWriter, r *http.Request) {
-	nodes := a.store.List()
+	nodes := a.visibleNodes(requestPrincipal(r))
 	out := make(map[string]nodeproxy.NodeStatus, len(nodes))
 	var mu sync.Mutex
 	var wg sync.WaitGroup

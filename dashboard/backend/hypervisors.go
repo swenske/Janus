@@ -27,7 +27,7 @@ import (
 // operator confirmed its fingerprint on the host itself.
 
 func (a *app) registerHypervisorRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/hypervisors", a.gate(auth.Reader, auth.Admin, a.handleHypervisorList))
+	mux.HandleFunc("GET /api/hypervisors", a.gate(anyone, auth.Admin, a.handleHypervisorList)) // none for an account without a role over everything
 	mux.HandleFunc("POST /api/hypervisors", a.gate(auth.Reader, auth.Admin, a.handleHypervisorCreate))
 	mux.HandleFunc("GET /api/hypervisors/{id}", a.gate(auth.Reader, auth.Admin, a.handleHypervisorGet))
 	mux.HandleFunc("PATCH /api/hypervisors/{id}", a.gate(auth.Reader, auth.Admin, a.handleHypervisorUpdate))
@@ -97,8 +97,12 @@ func (a *app) hypervisorView(h *hypervisor.Hypervisor) hypervisorView {
 	return v
 }
 
-func (a *app) handleHypervisorList(w http.ResponseWriter, _ *http.Request) {
+func (a *app) handleHypervisorList(w http.ResponseWriter, r *http.Request) {
 	out := []hypervisorView{}
+	if requestPrincipal(r).Role == auth.None {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
 	for _, h := range a.hypervisors.List() {
 		out = append(out, a.hypervisorView(h))
 	}

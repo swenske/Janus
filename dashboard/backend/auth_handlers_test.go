@@ -11,6 +11,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
 
@@ -32,7 +33,7 @@ func newAuthApp(t *testing.T) *authApp {
 		t.Fatal(err)
 	}
 	for name, role := range map[string]auth.Role{"olga": auth.Operator, "rita": auth.Reader} {
-		if _, err := authStore.CreateUser(name, role, "given-password"); err != nil {
+		if _, err := authStore.CreateUser(name, role, "given-password", nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := authStore.ChangePassword(name, "given-password", name+"-password"); err != nil {
@@ -51,7 +52,11 @@ func newAuthApp(t *testing.T) *authApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{auth: authStore, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: st}
+	ms, err := machines.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{auth: authStore, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: st, machines: ms}
 	return &authApp{app: a, h: a.audited(a.routes(fstest.MapFS{}))}
 }
 
@@ -96,8 +101,9 @@ func (a *authApp) login(t *testing.T, name, password string) string {
 }
 
 // TestRoutesNeedTheirRole: what each role is refused, before any handler
-// runs - every change for a reader, all but powering machines and their
-// consoles for an operator.
+// runs - every change for a reader, all of these for an operator.
+// Powering machines and their consoles are checked on the machine
+// (TestScopes).
 func TestRoutesNeedTheirRole(t *testing.T) {
 	a := newAuthApp(t)
 	rita, olga := a.login(t, "rita", "rita-password"), a.login(t, "olga", "olga-password")
@@ -114,8 +120,6 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 		{"PATCH", "/api/machines/m1", auth.Admin},
 		{"DELETE", "/api/machines/m1", auth.Admin},
 		{"POST", "/api/machines/m1/retry", auth.Admin},
-		{"POST", "/api/machines/m1/power", auth.Operator},
-		{"GET", "/api/machines/m1/console", auth.Operator},
 		{"POST", "/api/hypervisors", auth.Admin},
 		{"PATCH", "/api/hypervisors/h1", auth.Admin},
 		{"DELETE", "/api/hypervisors/h1", auth.Admin},
@@ -316,7 +320,7 @@ func TestAudit(t *testing.T) {
 	a := newAuthApp(t)
 	rita := a.login(t, "rita", "rita-password")
 	a.req(t, "POST", "/api/auth/login", "", map[string]string{"name": "mallory", "password": "guess-guess"})
-	a.req(t, "POST", "/api/machines/m1/power", rita, map[string]string{"action": "stop"})
+	a.req(t, "POST", "/api/hypervisors", rita, map[string]string{"name": "h"})
 	a.req(t, "GET", "/api/version", rita, nil)
 	root := a.login(t, "root", "root-password")
 	a.req(t, "PUT", "/api/settings", root, map[string]int{"session_idle_minutes": 60, "session_max_hours": 8})
@@ -332,7 +336,7 @@ func TestAudit(t *testing.T) {
 	want := []string{
 		"root session PUT /api/settings OK",
 		"root  POST /api/auth/login No Content",
-		"rita session POST /api/machines/m1/power Forbidden",
+		"rita session POST /api/hypervisors Forbidden",
 		"mallory  POST /api/auth/login Unauthorized",
 		"rita  POST /api/auth/login No Content",
 	}

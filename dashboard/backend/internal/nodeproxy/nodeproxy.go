@@ -23,7 +23,6 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
-	"github.com/swenske/Janus/internal/rbac"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
@@ -67,7 +66,7 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	// internal/rbac) - the page shows only what it may do.
 	mux.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
 		u := userOf(r.Context())
-		writeJSONBody(w, http.StatusOK, map[string]any{"name": u.Name, "roles": u.Roles, "may": nonNilStrings(rbac.Allowing(u.Roles))})
+		writeJSONBody(w, http.StatusOK, map[string]any{"name": u.Name, "roles": nonNilStrings(u.Roles()), "may": nonNilStrings(u.May())})
 	})
 	mux.HandleFunc("GET /api/node", func(w http.ResponseWriter, r *http.Request) {
 		writeJSONBody(w, http.StatusOK, map[string]string{"id": node.ID, "name": node.Name, "address": node.Addr(), "controller_version": ControllerVersion, "locked_by": LockedBy(node)})

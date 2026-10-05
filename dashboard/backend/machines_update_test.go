@@ -452,7 +452,7 @@ func TestMachineSync(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/api/machines/"+m.ID+"?refresh=true", nil)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/machines/{id}", a.handleMachineGet)
+	mux.HandleFunc("GET /api/machines/{id}", asAdmin(a.handleMachineGet))
 	prev := syncFresh
 	syncFresh = 0 // the first read was just now
 	defer func() { syncFresh = prev }()

@@ -49,3 +49,36 @@ func TestSetFleet(t *testing.T) {
 		t.Fatalf("reloaded: %+v", r)
 	}
 }
+
+// TestLabels: a node's labels, set and kept across a restart - with the
+// other changes to its metadata.
+func TestLabels(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := &Node{Name: "web-1", Address: "192.0.2.1:9505", CACertPEM: []byte("ca"), Fleet: true, Labels: map[string]string{"team": "web"}}
+	if err := s.Add(n); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLabels(n.ID, map[string]string{"team": "web", "env": "prod"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAddress(n.ID, "192.0.2.2:9505"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := again.Get(n.ID)
+	if l := got.LabelSet(); l["env"] != "prod" || l["team"] != "web" || got.Addr() != "192.0.2.2:9505" {
+		t.Errorf("reopened: %v %s", l, got.Addr())
+	}
+	l := got.LabelSet()
+	l["team"] = "changed"
+	if got.LabelSet()["team"] != "web" {
+		t.Error("LabelSet isn't a copy")
+	}
+}

@@ -103,6 +103,8 @@ type User struct {
 	MFA MFA `json:"mfa,omitzero"`
 	// SSHKeys are what janusctl signs in with (sshkeys.go).
 	SSHKeys []SSHKey `json:"ssh_keys,omitempty"`
+	// Grants are roles on some nodes, besides Role (grants.go).
+	Grants []Grant `json:"grants,omitempty"`
 }
 
 // Settings is the session policy.
@@ -563,11 +565,14 @@ func (s *Store) User(name string) (User, bool) {
 
 // CreateUser makes an account whose password its owner changes at the
 // first sign-in.
-func (s *Store) CreateUser(name string, role Role, password string) (User, error) {
+func (s *Store) CreateUser(name string, role Role, password string, grants []Grant) (User, error) {
 	if err := checkName(name); err != nil {
 		return User{}, err
 	}
-	if _, err := ParseRole(string(role)); err != nil {
+	if _, err := ParseAccountRole(string(role)); err != nil {
+		return User{}, err
+	}
+	if err := CheckGrants(grants); err != nil {
 		return User{}, err
 	}
 	h, err := hash(password)
@@ -580,7 +585,7 @@ func (s *Store) CreateUser(name string, role Role, password string) (User, error
 	if _, ok := s.users[name]; ok {
 		return User{}, fmt.Errorf("an account %q already exists", name)
 	}
-	u := &User{Name: name, Role: role, PasswordHash: h, MustChangePassword: true, CreatedAt: s.now().UTC()}
+	u := &User{Name: name, Role: role, PasswordHash: h, MustChangePassword: true, CreatedAt: s.now().UTC(), Grants: grants}
 	s.users[name] = u
 	if err := s.save(); err != nil {
 		delete(s.users, name)
@@ -591,7 +596,9 @@ func (s *Store) CreateUser(name string, role Role, password string) (User, error
 
 // Change is what UpdateUser changes - nil fields are left alone.
 type Change struct {
-	Role     *Role
+	Role *Role
+	// Grants replace the account's.
+	Grants   *[]Grant
 	Disabled *bool
 	// Password is set by an admin: its owner changes it at the next
 	// sign-in, and the account's sessions are over.
@@ -608,7 +615,12 @@ func (s *Store) UpdateUser(name string, c Change) (User, error) {
 		}
 	}
 	if c.Role != nil {
-		if _, err := ParseRole(string(*c.Role)); err != nil {
+		if _, err := ParseAccountRole(string(*c.Role)); err != nil {
+			return User{}, err
+		}
+	}
+	if c.Grants != nil {
+		if err := CheckGrants(*c.Grants); err != nil {
 			return User{}, err
 		}
 	}
@@ -622,6 +634,9 @@ func (s *Store) UpdateUser(name string, c Change) (User, error) {
 	next := *u
 	if c.Role != nil {
 		next.Role = *c.Role
+	}
+	if c.Grants != nil {
+		next.Grants = *c.Grants
 	}
 	if c.Disabled != nil && *c.Disabled != next.Disabled {
 		next.Disabled = *c.Disabled

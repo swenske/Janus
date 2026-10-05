@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/internal/pki"
@@ -171,6 +172,10 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 func (a *app) handlePendingList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if requestPrincipal(r).Role == auth.None {
+		writeJSON(w, http.StatusOK, []struct{}{})
 		return
 	}
 	type pendingView struct {
