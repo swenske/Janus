@@ -78,7 +78,7 @@ directly into the image rather than delivering it separately at boot.
 - The generic image, already built: `make proxmox-image` (or
   `image/disk/assemble.sh` for the raw disk before its qcow2
   conversion).
-- `janusctl`: [the Debian package](../README.md#installing-janusctl), or
+- `janusctl`: [the Debian package](janusctl.md#installing-janusctl), or
   `make build` (then `./bin/janusctl` instead of `janusctl` below).
 - The Controller's CA certificate (not sensitive, retrievable without
   credentials):

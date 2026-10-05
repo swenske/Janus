@@ -20,6 +20,13 @@ from the Controller's web UI, from `janusctl`, or from Terraform.
   installing it, accounts and roles, adding nodes, backups, updates.
 - [Hypervisors](../hypervisors.md) - nodes the Controller creates
   itself, on libvirt/KVM or Proxmox VE.
+
+## janusctl
+
+- [Using janusctl](../janusctl.md) - installing it, signing in to a
+  Controller, reaching nodes; shell completion.
+- [janusctl reference](janusctl-reference.md) - every command, its
+  arguments and its flags.
 - [A fleet without a Controller](../fleet-without-controller.md) - the
   same trust model, driven from `janusctl` alone.
 

@@ -30,6 +30,8 @@ flowchart LR
   extensions.
 - [The gRPC API](../api-routes.md) - every service and method, and which
   are implemented.
+- [Roadmap](../roadmap.md) - how Janus was built, phase by phase, and
+  what's planned.
 - [The disk image](../../image/disk/README.md), [the ISO
   image](../../image/iso/README.md) and [network
   boot](../../image/pxe/README.md) - how the images are laid out and

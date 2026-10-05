@@ -397,7 +397,7 @@ Controller takes it at once.
 account - or, in CI, an API token (`JANUS_TOKEN`) - and gets a
 certificate of its fleet and its nodes; janusctl then reaches the nodes
 directly, each checking the certificate's role itself
-([README](../README.md#using-janusctl)). The fleet must be set up.
+([janusctl](../docs/janusctl.md#using-janusctl)). The fleet must be set up.
 An account whose permissions differ from node to node - grants, no role
 over everything, a token narrowed to some nodes or domains, an SSH key
 or an approval with a lower role on top - gets a scoped certificate:
