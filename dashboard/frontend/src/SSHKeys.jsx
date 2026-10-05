@@ -69,7 +69,12 @@ export function SSHKeys({ me }) {
     load()
   }
   const host = window.location.host
-  const command = `janusctl login -controller ${host} -controller-fingerprint ${colonHex(info?.fingerprint)} -user ${me.name} -ssh-key ~/.ssh/id_ed25519.pub`
+  // The page's own certificate (not the self-signed identity): janusctl
+  // takes it when the machine trusts its CA - nothing to pin, and it
+  // survives a renewal.
+  const ownCert = info?.ui_source && info.ui_source !== 'self-signed'
+  const pin = ownCert ? '' : ` -controller-fingerprint ${colonHex(info?.fingerprint)}`
+  const command = `janusctl login -controller ${host}${pin} -user ${me.name} -ssh-key ~/.ssh/id_ed25519.pub`
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(command)
@@ -168,7 +173,10 @@ export function SSHKeys({ me }) {
       )}
       {keys && keys.length > 0 && info && (
         <div className="stack" style={{ gap: '0.3rem' }}>
-          <div className="muted small">Then, on your machine (a certificate for 12 hours, renewed by itself while the key is in ssh-agent):</div>
+          <div className="muted small">
+            Then, on your machine (a certificate for 12 hours, renewed by itself while the key is in ssh-agent)
+            {ownCert ? ' - add -controller-ca with its CA if the machine doesn\'t trust it' : ''}:
+          </div>
           <div className="row">
             <code className="mono small grow copy-command">{command}</code>
             <button className="ghost small" onClick={copy} aria-label="Copy the command">

@@ -129,7 +129,8 @@ certificates open nodes of this release on; an older node refuses them.
 The first login asks for the Controller's certificate: `-controller-
 fingerprint` (the account dialog's command has it; on its host:
 `openssl x509 -in <data-dir>/dashboard-identity.crt -noout -fingerprint
--sha256`) or `-controller-ca FILE`. The SSH key signs a challenge for
+-sha256`) or `-controller-ca FILE` - or nothing, when the Controller's
+page has a certificate of its own that this machine trusts. The SSH key signs a challenge for
 the certificate janusctl saw: a signature relayed by another server is
 refused.
 Each node checks the role itself and logs who acted. The configuration

@@ -997,6 +997,49 @@ grep -q 'as admin (os:reader)' "$WORKDIR/janusctl-device.txt" || { echo "Dashboa
 "$WORKDIR/janusctl" -context device -n test-node version >/dev/null || { echo "Dashboard test FAILED: janusctl signed in with -device can't read the node" >&2; exit 1; }
 echo "janusctl device OK: its code approved for the account as a reader, janusctl got its certificate and read the node"
 
+# The page's own certificate (dashboard/backend/controller_tls.go): one
+# of an organization's CA uploaded by the admin is what the main port
+# serves at once - the registration port keeps the self-signed identity
+# nodes trust -; janusctl takes it with -controller-ca, or with nothing
+# when the system trusts its CA, an SSH sign-in's signature naming it;
+# a context that pinned the self-signed one is told; then back.
+UI_PKI="$WORKDIR/ui-pki"
+mkdir -p "$UI_PKI"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$UI_PKI/ca.key" -out "$UI_PKI/ca.crt" -days 30 -subj "/CN=Dashboard Test Org" 2>/dev/null
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$UI_PKI/leaf.key" -out "$UI_PKI/leaf.csr" -subj "/CN=127.0.0.1" 2>/dev/null
+printf 'subjectAltName=IP:127.0.0.1,DNS:localhost\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n' >"$UI_PKI/ext.cnf"
+openssl x509 -req -in "$UI_PKI/leaf.csr" -CA "$UI_PKI/ca.crt" -CAkey "$UI_PKI/ca.key" -CAcreateserial -out "$UI_PKI/leaf.crt" -days 20 -extfile "$UI_PKI/ext.cnf" 2>/dev/null
+python3 -c 'import json,sys; print(json.dumps({"pem": "".join(open(f).read() for f in sys.argv[1:])}))' "$UI_PKI/leaf.crt" "$UI_PKI/ca.crt" "$UI_PKI/leaf.key" >"$UI_PKI/bundle.json"
+issuer_on() { openssl s_client -connect "127.0.0.1:$1" </dev/null 2>/dev/null | openssl x509 -noout -issuer; }
+check_code="$(curl -sk -b "$COOKIE_JAR" -o "$UI_PKI/check.json" -w '%{http_code}' -X POST "$API/api/controller/tls/check" -H 'Content-Type: application/json' --data-binary @"$UI_PKI/bundle.json")"
+[ "$check_code" = 200 ] && grep -q '"issuer":"CN=Dashboard Test Org"' "$UI_PKI/check.json" || { echo "Dashboard test FAILED: checking the page's certificate: $check_code $(cat "$UI_PKI/check.json")" >&2; exit 1; }
+issuer_on "$DASHBOARD_ADDR_PORT" | grep -q 'CN *= *dashboard' || { echo "Dashboard test FAILED: a check served the certificate already: $(issuer_on "$DASHBOARD_ADDR_PORT")" >&2; exit 1; }
+put_code="$(curl -sk -b "$COOKIE_JAR" -o "$UI_PKI/put.json" -w '%{http_code}' -X PUT "$API/api/controller/tls" -H 'Content-Type: application/json' --data-binary @"$UI_PKI/bundle.json")"
+[ "$put_code" = 200 ] && grep -q '"source":"uploaded"' "$UI_PKI/put.json" || { echo "Dashboard test FAILED: serving the page's certificate: $put_code $(cat "$UI_PKI/put.json")" >&2; exit 1; }
+issuer_on "$DASHBOARD_ADDR_PORT" | grep -q 'Dashboard Test Org' || { echo "Dashboard test FAILED: the main port doesn't serve the uploaded certificate: $(issuer_on "$DASHBOARD_ADDR_PORT")" >&2; exit 1; }
+issuer_on "$DASHBOARD_REGISTER_PORT" | grep -q 'CN *= *dashboard' || { echo "Dashboard test FAILED: the registration port no longer serves the self-signed identity: $(issuer_on "$DASHBOARD_REGISTER_PORT")" >&2; exit 1; }
+if grep -q 'PRIVATE KEY' "$WORKDIR/data/ui-tls.json"; then echo "Dashboard test FAILED: the page certificate's key is stored in the clear" >&2; exit 1; fi
+pinned_out="$(JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" -context admin nodes 2>&1 || true)"
+grep -q "isn't the one trusted" <<<"$pinned_out" || { echo "Dashboard test FAILED: a context that pinned the self-signed certificate wasn't told: $pinned_out" >&2; exit 1; }
+JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" login -context own -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" -controller-ca "$UI_PKI/ca.crt" >"$WORKDIR/janusctl-own.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: janusctl login -controller-ca with the page's certificate: $(cat "$WORKDIR/janusctl-own.txt")" >&2; exit 1; }
+"$WORKDIR/janusctl" -context own -n test-node version >/dev/null || { echo "Dashboard test FAILED: janusctl signed in through the page's certificate can't read the node" >&2; exit 1; }
+if JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" login -context sys -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" >"$WORKDIR/janusctl-sys.txt" 2>&1; then
+  echo "Dashboard test FAILED: janusctl trusted a certificate this system doesn't, without a pin" >&2; exit 1
+fi
+SSL_CERT_FILE="$UI_PKI/ca.crt" JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" login -context sys -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" >"$WORKDIR/janusctl-sys.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: janusctl login with a certificate the system trusts: $(cat "$WORKDIR/janusctl-sys.txt")" >&2; exit 1; }
+grep -q 'one this system trusts' "$WORKDIR/janusctl-sys.txt" || { echo "Dashboard test FAILED: janusctl login (system trust): $(cat "$WORKDIR/janusctl-sys.txt")" >&2; exit 1; }
+SSL_CERT_FILE="$UI_PKI/ca.crt" JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" -context sys nodes >/dev/null || { echo "Dashboard test FAILED: janusctl (system trust) listing the nodes" >&2; exit 1; }
+ssh-add -q "$WORKDIR/id_ed25519"
+"$WORKDIR/janusctl" login -context ssh-own -controller "127.0.0.1:${DASHBOARD_ADDR_PORT}" -controller-ca "$UI_PKI/ca.crt" -user admin -ssh-key "$WORKDIR/id_ed25519.pub" >"$WORKDIR/janusctl-ssh-own.txt" 2>&1 \
+  || { echo "Dashboard test FAILED: janusctl SSH login through the page's certificate (its signature names the certificate served): $(cat "$WORKDIR/janusctl-ssh-own.txt")" >&2; exit 1; }
+ssh-add -q -D
+del_code="$(curl -sk -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -X DELETE "$API/api/controller/tls")"
+[ "$del_code" = 200 ] && issuer_on "$DASHBOARD_ADDR_PORT" | grep -q 'CN *= *dashboard' || { echo "Dashboard test FAILED: back to the self-signed certificate: $del_code $(issuer_on "$DASHBOARD_ADDR_PORT")" >&2; exit 1; }
+JANUS_TOKEN="$ADMIN_TOKEN" "$WORKDIR/janusctl" -context admin nodes >/dev/null || { echo "Dashboard test FAILED: the pinned context after going back" >&2; exit 1; }
+echo "Page certificate OK: an uploaded one served at once on the main port (key sealed), the registration port unchanged; janusctl through it with -controller-ca, the system's trust or an SSH key; pinned contexts told; back to self-signed"
+
 # janusctl for an account without a role over everything: a scoped
 # certificate - operator over HAProxy on the nodes labelled team=web,
 # named by their CA's key. The node itself holds it to that (janusctl

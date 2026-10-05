@@ -161,7 +161,8 @@ func (a *app) cliNodes(p principal) []cliNode {
 // serves: what janusctl pins, and what an SSH sign-in's signature names -
 // a signature made for another server is worth nothing here.
 func (a *app) servedFingerprint() string {
-	sum := sha256.Sum256(a.serverCert.Certificate[0])
+	cert, _ := a.ui.Current()
+	sum := sha256.Sum256(cert.Certificate[0])
 	return hex.EncodeToString(sum[:])
 }
 

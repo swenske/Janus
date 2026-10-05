@@ -10,17 +10,16 @@
 // already holding a valid client cert for that node gets prompted to
 // select it the first time it connects to that node's own port.
 //
-// Every TLS surface this process serves (the main UI, node self-
-// registration, and every per-node listener) shares one identity
-// certificate - see loadOrCreateDashboardIdentity: self-signed and
-// auto-generated on first run by default (persisted to -data-dir, so
-// it's stable across restarts - a fresh one every restart would mean a
-// new browser trust warning every time for no reason), or -tls-cert/
-// -tls-key to supply a real one instead (e.g. a Let's Encrypt
-// certificate, or an internal CA's). Either way it's self-signed or
-// otherwise not in a browser's default trust store, so a first visit to
-// the main UI needs the same one-time click-through a per-node view
-// already needed.
+// The Controller has one identity certificate of its own - see
+// loadOrCreateDashboardIdentity: self-signed, auto-generated on first
+// run and persisted to -data-dir (a fresh one every restart would mean
+// a new browser trust warning every time for no reason). Node
+// self-registration (-register-addr) always serves it: nodes are
+// provisioned with it. The main port (-addr: the page, janusctl,
+// Terraform) serves it too, until the page is given a certificate of
+// its own - -tls-cert/-tls-key, or uploaded by an admin (internal/
+// uitls, controller_tls.go) -, e.g. a Let's Encrypt one or an internal
+// CA's.
 package main
 
 import (
@@ -63,6 +62,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	"github.com/swenske/Janus/dashboard/backend/internal/uitls"
 	"github.com/swenske/Janus/dashboard/updater/updaterapi"
 )
 
@@ -95,9 +95,9 @@ func main() {
 	registerAddr := flag.String("register-addr", ":8443", "TLS address nodes self-register against (see internal/pending) - not the same port pool as approved nodes' own per-node listeners")
 	dataDir := flag.String("data-dir", "/data", "persistent data directory (Docker volume) - node registry + this dashboard's own TLS identity")
 	advertiseAddresses := flag.String("advertise-address", envOr("JANUS_CONTROLLER_ADVERTISE_ADDRESS", ""), "comma-separated extra IPs/hostnames to add to this dashboard's TLS identity certificate, alongside loopback and this host's own local IPs (see loadOrCreateDashboardIdentity) - needed whenever a node or browser reaches -addr/-register-addr/the per-node ports through an address this process can't see on its own network interfaces (Docker bridge networking's host-side published port, a NAT/port-forwarded address, ...); only used the first time the identity is generated (or ignored entirely if -tls-cert/-tls-key are set), since it's cached to -data-dir afterward - delete <data-dir>/dashboard-identity.{crt,key} to regenerate after changing this; also settable via JANUS_CONTROLLER_ADVERTISE_ADDRESS, same reasoning as JANUS_CONTROLLER_ADDR above")
-	tlsCertFile := flag.String("tls-cert", "", "path to a PEM certificate for this dashboard's own TLS identity (used for -addr, -register-addr, and every per-node listener) - if set, together with -tls-key, replaces the auto-generated self-signed one entirely; both flags must be set together")
+	tlsCertFile := flag.String("tls-cert", envOr("JANUS_CONTROLLER_TLS_CERT", ""), "path to a PEM certificate (then its chain) the main HTTPS port (-addr) serves - the page, janusctl, Terraform - instead of the Controller's self-signed identity, read again when the file changes (a renewal needs no restart); with -tls-key, both or neither; nodes keep registering against the self-signed identity on -register-addr; also settable via JANUS_CONTROLLER_TLS_CERT; without it, an admin can upload one on the page")
 	masterKeyFile := flag.String("master-key-file", envOr("JANUS_CONTROLLER_MASTER_KEY_FILE", ""), "the master key sealing the fleet's issuing CA key (internal/secrets), made there the first time - keep it outside -data-dir so a copy of the data holds nothing usable; empty: <data-dir>/master.key, which the Controller warns about; also settable via JANUS_CONTROLLER_MASTER_KEY_FILE")
-	tlsKeyFile := flag.String("tls-key", "", "path to the PEM private key matching -tls-cert")
+	tlsKeyFile := flag.String("tls-key", envOr("JANUS_CONTROLLER_TLS_KEY", ""), "path to the PEM private key matching -tls-cert; also settable via JANUS_CONTROLLER_TLS_KEY")
 	imageFactory := flag.String("image-factory", envOr("JANUS_CONTROLLER_IMAGE_FACTORY", nodeproxy.ImageFactoryURL), "image factory that builds and serves the updates of nodes whose image has optional extensions (docs/image-factory.md) - empty to disable, in which case such nodes have no update source; nodes with the default schematic update from GitHub Releases either way; also settable via JANUS_CONTROLLER_IMAGE_FACTORY")
 	updaterSocket := flag.String("updater-socket", envOr("JANUS_CONTROLLER_UPDATER_SOCKET", updaterapi.DefaultSocket), "Unix socket of janus-controller-updater, which updates this Controller when asked from its page (dashboard/README.md, Updating the Controller) - nothing happens when it isn't there; empty to never use one; also settable via JANUS_CONTROLLER_UPDATER_SOCKET")
 	releasesURL := flag.String("releases-url", envOr("JANUS_CONTROLLER_RELEASES_URL", nodeproxy.ReleasesURL), "GitHub API URL listing Janus releases, newest first - where the Controller learns about new releases for itself and its nodes (a mirror, or a test's fake); also settable via JANUS_CONTROLLER_RELEASES_URL")
@@ -132,7 +132,7 @@ func main() {
 		log.Fatalf("open the audit: %v", err)
 	}
 
-	serverCert, err := loadOrCreateDashboardIdentity(*dataDir, *advertiseAddresses, *tlsCertFile, *tlsKeyFile)
+	serverCert, err := loadOrCreateDashboardIdentity(*dataDir, *advertiseAddresses)
 	if err != nil {
 		log.Fatalf("dashboard TLS identity: %v", err)
 	}
@@ -161,6 +161,10 @@ func main() {
 		log.Printf("WARNING: the master key is %s, in the data directory: a copy of it holds the fleet's issuing CA key and the accounts' authenticator secrets - set JANUS_CONTROLLER_MASTER_KEY_FILE to a file outside it (dashboard/README.md)", masterKey.Path)
 	}
 	authStore.SetSealer(masterKey)
+	uiCert, err := uitls.Open(*dataDir, masterKey, serverCert, *tlsCertFile, *tlsKeyFile)
+	if err != nil {
+		log.Fatalf("HTTPS certificate: %v", err)
+	}
 	backupStore, err := backup.OpenStore(filepath.Join(*dataDir, "backup"), masterKey, controllerID)
 	if err != nil {
 		log.Fatalf("open the backups: %v", err)
@@ -182,6 +186,7 @@ func main() {
 		backups:               backupStore,
 		masterKeyPath:         masterKey.Path,
 		serverCert:            serverCert,
+		ui:                    uiCert,
 		suggestedRegisterAddr: suggestRegisterAddress(*advertiseAddresses, *registerAddr),
 		selfUpdate:            newSelfUpdate(*updaterSocket),
 		dataDir:               *dataDir,
@@ -223,7 +228,7 @@ func main() {
 		// from another origin outright, the same protection every
 		// per-node listener has (see nodeproxy.newHandler).
 		Handler:   app.unlessRestored(http.NewCrossOriginProtection().Handler(app.audited(app.routes(spa)))),
-		TLSConfig: &tls.Config{Certificates: []tls.Certificate{serverCert}},
+		TLSConfig: &tls.Config{GetCertificate: uiCert.GetCertificate},
 	}
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
@@ -233,9 +238,9 @@ func main() {
 	// Listening now: an update waiting for this version to start can stop
 	// waiting.
 	go app.selfUpdate.announce()
-	// Empty cert/key file arguments: srv.TLSConfig.Certificates above is
-	// what's actually used - ServeTLS falls back to it exactly for this
-	// case (see its own doc comment).
+	// Empty cert/key file arguments: srv.TLSConfig.GetCertificate above
+	// is what's actually used - ServeTLS falls back to it exactly for
+	// this case (see its own doc comment).
 	log.Fatal(srv.ServeTLS(ln, "", ""))
 }
 
@@ -263,6 +268,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	mux.HandleFunc("/api/pending/", a.gate(auth.Reader, auth.Admin, a.handlePendingAction))
 	mux.HandleFunc("/api/controller-info", a.gate(auth.Reader, auth.Admin, a.handleControllerInfo))
 	mux.HandleFunc("/api/controller/update", a.gate(auth.Reader, auth.Admin, a.handleControllerUpdate))
+	a.registerControllerTLSRoutes(mux)
 	mux.HandleFunc("/nodes/", a.handleNodePage)
 	a.registerTokenRoutes(mux)
 	a.registerEnrollRoutes(mux)
@@ -289,7 +295,11 @@ type app struct {
 	backups      *backup.Store
 	// masterKeyPath is the master key's file - a backup takes it.
 	masterKeyPath string
-	serverCert    tls.Certificate
+	// serverCert is the Controller's own identity: what nodes register
+	// against (-register-addr) and are provisioned with. ui is what the
+	// main port serves - that identity, or the page's own certificate.
+	serverCert tls.Certificate
+	ui         *uitls.Store
 	// suggestedRegisterAddr is handleControllerInfo's best guess at the
 	// address a node should be given as -controller-address at
 	// provisioning time - see suggestRegisterAddress's own doc comment.
@@ -597,14 +607,7 @@ func (a *app) handleNodesStatus(w http.ResponseWriter, r *http.Request) {
 // auto-generated identity - ignored entirely when a real certificate is
 // supplied via -tls-cert/-tls-key, since that certificate's own SANs
 // are the operator's responsibility.
-func loadOrCreateDashboardIdentity(dataDir, extraAdvertiseAddresses, tlsCertFile, tlsKeyFile string) (tls.Certificate, error) {
-	if tlsCertFile != "" || tlsKeyFile != "" {
-		if tlsCertFile == "" || tlsKeyFile == "" {
-			return tls.Certificate{}, fmt.Errorf("-tls-cert and -tls-key must both be set together")
-		}
-		return tls.LoadX509KeyPair(tlsCertFile, tlsKeyFile)
-	}
-
+func loadOrCreateDashboardIdentity(dataDir, extraAdvertiseAddresses string) (tls.Certificate, error) {
 	certPath := dataDir + "/dashboard-identity.crt"
 	keyPath := dataDir + "/dashboard-identity.key"
 
@@ -711,6 +714,7 @@ func (a *app) handleControllerInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.serverCert.Certificate[0]})
+	_, source := a.ui.Current()
 	var fleetRoot []byte
 	if a.fleet != nil {
 		fleetRoot, _ = a.fleet.RootPEM()
@@ -723,9 +727,12 @@ func (a *app) handleControllerInfo(w http.ResponseWriter, r *http.Request) {
 		// whatever certificate the Controller serves meanwhile.
 		FleetRootPEM string `json:"fleet_root_pem,omitempty"`
 		// Fingerprint is the SHA-256 of the certificate this port serves
-		// - what janusctl login -controller-fingerprint checks.
+		// - what janusctl login -controller-fingerprint checks; UISource
+		// where it comes from (internal/uitls): with the page's own,
+		// janusctl takes it when the machine trusts its CA.
 		Fingerprint string `json:"fingerprint"`
-	}{Address: a.suggestedRegisterAddr, CACertPEM: string(caPEM), FleetRootPEM: string(fleetRoot), Fingerprint: a.servedFingerprint()})
+		UISource    string `json:"ui_source"`
+	}{Address: a.suggestedRegisterAddr, CACertPEM: string(caPEM), FleetRootPEM: string(fleetRoot), Fingerprint: a.servedFingerprint(), UISource: source})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -32,7 +32,7 @@ func TestEnvOr(t *testing.T) {
 func TestLoadOrCreateDashboardIdentityAdvertiseAddressSAN(t *testing.T) {
 	dir := t.TempDir()
 
-	cert, err := loadOrCreateDashboardIdentity(dir, "controller.example.com, 203.0.113.5", "", "")
+	cert, err := loadOrCreateDashboardIdentity(dir, "controller.example.com, 203.0.113.5")
 	if err != nil {
 		t.Fatalf("loadOrCreateDashboardIdentity: %v", err)
 	}
@@ -61,21 +61,12 @@ func TestLoadOrCreateDashboardIdentityAdvertiseAddressSAN(t *testing.T) {
 	if _, err := os.Stat(certPath); err != nil {
 		t.Fatalf("expected %s to exist after first call: %v", certPath, err)
 	}
-	cert2, err := loadOrCreateDashboardIdentity(dir, "a-different-hostname-that-must-be-ignored.example", "", "")
+	cert2, err := loadOrCreateDashboardIdentity(dir, "a-different-hostname-that-must-be-ignored.example")
 	if err != nil {
 		t.Fatalf("loadOrCreateDashboardIdentity (second call): %v", err)
 	}
 	if string(cert2.Certificate[0]) != string(cert.Certificate[0]) {
 		t.Error("second call against the same dir returned a different certificate - identity should be cached, not regenerated")
-	}
-}
-
-func TestLoadOrCreateDashboardIdentityTLSCertRequiresBoth(t *testing.T) {
-	if _, err := loadOrCreateDashboardIdentity(t.TempDir(), "", "cert-only.pem", ""); err == nil {
-		t.Error("expected an error with -tls-cert set but not -tls-key")
-	}
-	if _, err := loadOrCreateDashboardIdentity(t.TempDir(), "", "", "key-only.pem"); err == nil {
-		t.Error("expected an error with -tls-key set but not -tls-cert")
 	}
 }
 

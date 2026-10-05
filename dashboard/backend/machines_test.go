@@ -176,7 +176,7 @@ func newTestApp(t *testing.T) (*app, *fakeDriver) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert, err := loadOrCreateDashboardIdentity(dir, "", "", "")
+	cert, err := loadOrCreateDashboardIdentity(dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}

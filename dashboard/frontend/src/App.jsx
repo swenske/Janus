@@ -36,6 +36,7 @@ import { CliDevicePage, CliLoginPage } from './CliLogin.jsx'
 import { backupAlert } from './backupAlert.js'
 import BackupsPage from './Backups.jsx'
 import EnrollTokens from './Enroll.jsx'
+import HTTPSCertificate from './HTTPSCert.jsx'
 import { RestoreForm } from './Restore.jsx'
 import TokensPage from './Tokens.jsx'
 import UsersPage from './Users.jsx'
@@ -1103,6 +1104,7 @@ function MainApp() {
             <FleetCard fleet={fleet} nodes={nodes} />
             {can('admin') && <ProvisionInfo />}
             {can('admin') && <EnrollTokens />}
+            {can('admin') && <HTTPSCertificate />}
           </div>
         )}
       </main>

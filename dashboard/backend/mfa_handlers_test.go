@@ -13,6 +13,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	"github.com/swenske/Janus/dashboard/backend/internal/uitls"
 )
 
 // newMFAApp is an app whose admins must have a second factor: root
@@ -44,11 +45,15 @@ func newMFAApp(t *testing.T) *authApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cert, err := loadOrCreateDashboardIdentity(dir, "", "", "")
+	cert, err := loadOrCreateDashboardIdentity(dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &app{auth: st, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: nodes, serverCert: cert}
+	ui, err := uitls.Open(dir, key, cert, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{auth: st, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: nodes, serverCert: cert, ui: ui}
 	return &authApp{app: a, h: a.audited(a.routes(fstest.MapFS{}))}
 }
 

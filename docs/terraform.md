@@ -25,10 +25,12 @@ is pointed at the binary with a development override (below).
    - Revoke it there.
    - It's sent as `Authorization: Bearer`.
 2. **The Controller's certificate**: the Controller's self-signed
-   identity, unless you gave it a real one. Get it from its **Provision**
-   panel, or `GET /api/controller-info` (`ca_cert_pem`). The provider
-   checks the Controller against it, so the token never goes to whoever
-   answers.
+   identity - from its **Provision** panel, or `GET
+   /api/controller-info` (`ca_cert_pem`) -, unless its page has a
+   certificate of its own (**HTTPS certificate**, dashboard README):
+   then that certificate's CA, or nothing for a public one (the
+   system's trust store). The provider checks the Controller against
+   it, so the token never goes to whoever answers.
 3. **The provider binary**, from the release that matches your
    Controller - `terraform-provider-janus_<version>_<os>_<arch>.tar.gz`,
    checked against `terraform-provider-janus_<version>_SHA256SUMS`:

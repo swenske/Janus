@@ -128,12 +128,14 @@ also invalidates the certificate your browser already trusted.
 
 ### TLS identity
 
-Every port above shares one TLS server certificate
-(`loadOrCreateDashboardIdentity`) - by default a self-signed one,
-generated on first run and persisted to `-data-dir`, so your browser's
-one-time trust click-through survives restarts (passkeys need a
-certificate the browser really trusts: give the Controller one with
-`-tls-cert`, or trust its own). Its SAN list covers `localhost`/`127.0.0.1`/`::1`
+The Controller has its own self-signed TLS identity
+(`loadOrCreateDashboardIdentity`), generated on first run and persisted
+to `-data-dir`: what nodes register against (`-register-addr`) and are
+provisioned with, and what the page is served with until you give it a
+certificate of your own (below) - your browser's one-time trust
+click-through survives restarts (passkeys need a certificate the
+browser really trusts: give the page one, or trust the Controller's).
+Its SAN list covers `localhost`/`127.0.0.1`/`::1`
 plus every real address this process can see on its own network
 interfaces - with `--network host`, that's the host's actual LAN
 address(es) directly, no extra configuration needed. Pass
@@ -172,9 +174,30 @@ volumes:
   janus-controller-data:
 ```
 
-To use your own certificate instead (a Let's Encrypt one, or one from
-an internal CA) - modifiable at any time, unlike the auto-generated
-one - mount it in and point `-tls-cert`/`-tls-key` at it:
+### HTTPS certificate
+
+The page (`-addr`) - and janusctl and the Terraform provider, which
+reach the same port - can be served with a certificate of your own: a
+public one (Let's Encrypt...) or one of your organization's CA. Nodes
+keep registering against the Controller's self-signed identity on
+`-register-addr` whatever the page uses: a node provisioned with it
+(`controller-ca.crt`, the Provision panel) never notices.
+
+- **On the page**: **HTTPS certificate** (an admin, at the bottom of
+  the Nodes tab) - paste or load the certificate, its chain and its
+  private key (PEM), **Check** what it is (its names, issuer, expiry,
+  and a warning when it doesn't name the address the page is opened
+  by), then **Serve it**: new connections get it at once. Its key is
+  sealed with the master key in `<data-dir>/ui-tls.json` (so in the
+  backups); **Back to self-signed** removes it. Refused: an expired or
+  not-yet-valid certificate, one not for servers, a key that isn't its,
+  an encrypted key, a chain out of order, Ed25519 (browsers refuse it)
+  or RSA under 2048 bits. `PUT /api/controller/tls` with an admin API
+  token does the same from a script.
+- **As files**: mount them in and point `-tls-cert`/`-tls-key` (or
+  `JANUS_CONTROLLER_TLS_CERT`/`JANUS_CONTROLLER_TLS_KEY`) at them - both
+  or neither. They win over an uploaded one, and are read again within
+  30 seconds of changing: a renewal (certbot...) needs no restart.
 
 ```sh
 docker run -d \
@@ -185,9 +208,18 @@ docker run -d \
   swenske/janus-controller -tls-cert /certs/fullchain.pem -tls-key /certs/privkey.pem
 ```
 
-Both flags must be set together; when set, `-advertise-address` and the
-auto-generated identity are skipped entirely - that certificate's own
-SAN list is then your responsibility.
+janusctl then takes the page's certificate with `janusctl login` alone
+when the machine trusts its CA (the system's trust store - renewals go
+unnoticed), or with `-controller-ca` and the CA's certificate; a
+context that pinned the self-signed certificate is told to sign in
+again. Terraform: `ca_cert` is that CA's certificate, or nothing for a
+public one.
+
+Before this release, `-tls-cert` also replaced the registration port's
+certificate: a node provisioned since with that certificate as its
+`controller-ca.crt` and not registered yet needs the Controller's own
+(`controller-ca.crt` from the Provision panel) - or the fleet root,
+which it checks first.
 
 ### Adding a node
 
@@ -673,6 +705,7 @@ Environment variables, all optional:
 |---|---|---|---|
 | `JANUS_CONTROLLER_MASTER_KEY_FILE` | Controller | `<data-dir>/master.key` | the master key sealing the fleet's issuing key - made there the first time; keep it outside the data directory |
 | `JANUS_CONTROLLER_UPDATER_SOCKET` | Controller | `/run/janus-updater/updater.sock` | where to find the updater (empty: never) |
+| `JANUS_CONTROLLER_TLS_CERT`, `JANUS_CONTROLLER_TLS_KEY` | Controller | - | the page's own certificate (then its chain) and key as files, read again when they change ([HTTPS certificate](#https-certificate)) |
 | `JANUS_UPDATER_SERVICE` | updater | `janus-controller` | the Controller's service name in `compose.yaml` |
 | `JANUS_UPDATER_VARIABLE` | updater | `JANUS_CONTROLLER_IMAGE` | the `.env` variable its `image:` comes from |
 | `JANUS_UPDATER_START_TIMEOUT` | updater | `2m` | how long a new version has to start |
