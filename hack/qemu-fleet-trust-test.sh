@@ -144,7 +144,7 @@ refuses "the Controller for an operator, reading a file" PermissionDenied contro
 refuses "the Controller with an unknown role" PermissionDenied controller -as-user mallory -as-roles os:root system hostname
 logs="$(as local system logs janusd)"
 grep -q 'api: HAProxyService/ApplyConfig: alice (os:operator) via controller' <<<"$logs" || fail "janusd didn't log the Controller's call for alice: $logs"
-grep -q 'api: HAProxyService/ApplyConfig: operator (os:operator)' <<<"$logs" || fail "janusd didn't log the operator's call: $logs"
+grep -q 'api: HAProxyService/ApplyConfig: operator (os:operator, fleet)' <<<"$logs" || fail "janusd didn't log the operator's call: $logs"
 echo "  ok: the Controller acts only for the user it names, and the node logs who did what"
 
 # --- replacing the node's own CA: the old CA's certificates stop working ---
