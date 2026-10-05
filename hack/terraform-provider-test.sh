@@ -359,7 +359,11 @@ image                = { url = "http://127.0.0.1:8000/janus-kvm.qcow2", sha256 =
 TFVARS
 tofu_ex() { (cd "$EX/terraform/libvirt" && "$TOFU" "$@" -no-color 2>&1); }
 tofu_ex apply -auto-approve -target=janus_hypervisor.kvm >"$WORKDIR/apply-example-hv.log" || fail "the example's hypervisor: $(grep -A12 'Error' "$WORKDIR/apply-example-hv.log" | head -20)"
-tofu_ex output -raw authorized_key | in_host_i sh -c 'cat >> /home/janus-ctl/.ssh/authorized_keys'
+# On a line of its own: Part 2's key went in without a newline (output
+# -raw prints none), and this one glued onto it was refused.
+EX_KEY="$(cd "$EX/terraform/libvirt" && "$TOFU" output -raw authorized_key)"
+[ -n "$EX_KEY" ] || fail "the example's hypervisor has no authorized_key output"
+printf '\n%s\n' "$EX_KEY" | in_host_i sh -c 'cat >> /home/janus-ctl/.ssh/authorized_keys'
 tofu_ex apply -auto-approve >"$WORKDIR/apply-example.log" || fail "the example's apply: $(grep -A12 'Error' "$WORKDIR/apply-example.log" | head -20)"
 for n in ex1:192.168.123.61 ex2:192.168.123.62; do
   name="${n%%:*}" ip="${n#*:}"
