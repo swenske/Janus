@@ -1,0 +1,9 @@
+{
+  "hostname": "lb1",
+  "interfaces": [
+    {"name": "mgmt", "mac": "52:54:00:00:10:21", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["10.0.0.21/24"]},
+    {"name": "front", "mac": "52:54:00:00:20:21", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.0.2.21/24"], "gateway": "192.0.2.1"}
+  ],
+  "dns": {"servers": ["10.0.0.53"], "search": ["example.net"]},
+  "ntp": {"servers": ["10.0.0.1"]}
+}

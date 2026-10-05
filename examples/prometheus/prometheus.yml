@@ -1,0 +1,24 @@
+# Prometheus scraping a fleet of Janus nodes: the Janus exporter every
+# node serves (:10056), node_exporter where the image has the
+# prometheus-node-exporter extension (:9100), and HAProxy's own
+# exporter where the configuration serves it (:8405, as in
+# ../haproxy/web.cfg). The alerts: janus-rules.yml. Checked by promtool
+# (make examples-check).
+global:
+  scrape_interval: 15s
+
+rule_files:
+  - janus-rules.yml
+
+scrape_configs:
+  - job_name: janus
+    static_configs:
+      - targets: ['lb1.example.net:10056', 'lb2.example.net:10056']
+
+  - job_name: node
+    static_configs:
+      - targets: ['lb1.example.net:9100', 'lb2.example.net:9100']
+
+  - job_name: haproxy
+    static_configs:
+      - targets: ['lb1.example.net:8405', 'lb2.example.net:8405']

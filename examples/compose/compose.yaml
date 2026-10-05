@@ -1,0 +1,47 @@
+# /opt/janus-controller/compose.yaml
+services:
+  janus-controller:
+    # The image comes from .env: the updater sets JANUS_CONTROLLER_IMAGE
+    # there to the release it installs, pinned to its digest. Without
+    # the variable, :latest.
+    image: ${JANUS_CONTROLLER_IMAGE:-swenske/janus-controller:latest}
+    container_name: janus-controller
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # The master key sealing the fleet's issuing key: outside the data
+      # volume, so a copy of the data (its backups) holds nothing usable.
+      JANUS_CONTROLLER_MASTER_KEY_FILE: /secrets/master.key
+    volumes:
+      - janus-controller-data:/data
+      - janus-controller-secrets:/secrets
+      # Where the updater listens: the Controller asks it for an update
+      # here, and tells it once started (no word from a new version
+      # within 2 minutes, and the updater rolls back).
+      - janus-controller-updater:/run/janus-updater
+
+  janus-controller-updater:
+    image: ${JANUS_CONTROLLER_IMAGE:-swenske/janus-controller:latest}
+    container_name: janus-controller-updater
+    entrypoint: ["/janus-controller-updater"]
+    # Talks to the Docker daemon over its socket only: no network.
+    network_mode: none
+    restart: unless-stopped
+    volumes:
+      # To pull the new image and recreate the Controller's container.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # This directory, at the SAME path: the updater runs docker compose
+      # on this compose.yaml and rewrites .env next to it.
+      - /opt/janus-controller:/opt/janus-controller
+      # The Controller's data, to back it up before an update and put it
+      # back if the update is rolled back.
+      - janus-controller-data:/data
+      - janus-controller-updater:/run/janus-updater
+      # Its own state: the last update and the backup it made.
+      - janus-controller-updater-state:/var/lib/janus-updater
+
+volumes:
+  janus-controller-data:
+  janus-controller-secrets:
+  janus-controller-updater:
+  janus-controller-updater-state:

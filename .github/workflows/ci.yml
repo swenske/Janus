@@ -172,6 +172,11 @@ jobs:
 
       - run: make docs-smoke
 
+      # The examples the docs show (examples/): OpenTofu validates the
+      # Terraform ones against the provider built here, promtool the
+      # Prometheus ones, docker compose the Controller's compose.yaml.
+      - run: make examples-check
+
   # The site's frontend (site/frontend/): its lint, and its committed build
   # (site/backend/static) checked against its sources - which include the
   # Controller's shared components (dashboard/frontend/src/shared).

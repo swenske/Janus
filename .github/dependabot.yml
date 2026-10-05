@@ -53,6 +53,7 @@ updates:
       - "/extensions/*"
       - "/hack/browser"
       - "/hack/libvirt-host"
+      - "/hack/promtool"
       - "/kernel"
       - "/local-dev"
       - "/pkgs/*"

@@ -118,7 +118,7 @@ synchronization yet, no configuration applied yet, no extension.
 
 ## Alerts
 
-```yaml
+```yaml title="examples/prometheus/janus-rules.yml"
 groups:
   - name: janus
     rules:

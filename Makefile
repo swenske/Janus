@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples browser-image docs-smoke qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -860,6 +860,19 @@ $(TOFU_BIN):
 terraform-provider-test: kvm-image terraform-provider-build $(TOFU_BIN)
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/dashboardd-static ./dashboard/backend
 	./hack/terraform-provider-test.sh $(BUILD_DIR)/janus-kvm.qcow2 $(BIN_DIR)/dashboardd-static $(BIN_DIR)/terraform-provider-janus $(TOFU_BIN)
+
+# The docs' examples (examples/), checked by the tools that read them:
+# OpenTofu validates the Terraform ones against the provider built here,
+# promtool the Prometheus ones, docker compose the Controller's
+# compose.yaml (hack/examples-check.sh - ci.yml runs it). The NoCloud and
+# network JSON are go test's.
+examples-check: terraform-provider-build $(TOFU_BIN)
+	./hack/examples-check.sh $(TOFU_BIN) $(BIN_DIR)/terraform-provider-janus
+
+# The docs' haproxy.cfg examples, checked by the node's own HAProxy (the
+# static AWS-LC build).
+examples-test: haproxy-build
+	for f in examples/haproxy/*.cfg; do echo "examples-test: $$f"; $(BUILD_DIR)/haproxy -c -f $$f || exit 1; done
 
 # The Controller creating, admitting, powering and destroying its own
 # node on a libvirt/KVM host (a container: hack/libvirt-host), and

@@ -482,6 +482,12 @@ jobs:
       - name: Build control-plane binaries
         run: make build haproxy-build
 
+      # The docs' haproxy.cfg examples (examples/haproxy), checked by the
+      # node's own HAProxy just built - the configurations the docs show
+      # and Terraform applies must be ones it accepts.
+      - name: The docs' HAProxy examples
+        run: make examples-test
+
       - name: HAProxy gRPC API integration test (mTLS)
         run: |
           set -euo pipefail

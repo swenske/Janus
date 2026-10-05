@@ -1,0 +1,12 @@
+{
+  "controller_address": "controller.example.net:8443",
+  "controller_ca_cert": "-----BEGIN CERTIFICATE-----\nMIIB... the Controller's CA certificate, from its Provision panel ...\n-----END CERTIFICATE-----\n",
+  "registration_token": "janus-enroll_<id>_<secret>",
+  "network": {
+    "hostname": "lb1",
+    "interfaces": [
+      {"name": "front", "mac": "52:54:00:00:20:21", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.0.2.21/24"], "gateway": "192.0.2.1"}
+    ],
+    "dns": {"servers": ["192.0.2.53"]}
+  }
+}

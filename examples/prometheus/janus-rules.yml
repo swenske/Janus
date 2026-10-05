@@ -1,0 +1,54 @@
+groups:
+  - name: janus
+    rules:
+      - alert: JanusCertificateExpiresSoon
+        expr: janus_certificate_expiry_timestamp_seconds - time() < 14 * 86400
+        labels: {severity: warning}
+        annotations:
+          summary: '{{ $labels.certificate }} ({{ $labels.cn }}) on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}'
+      - alert: JanusHAProxyDown
+        expr: janus_haproxy_up == 0
+        for: 1m
+        labels: {severity: critical}
+      - alert: JanusHAProxyCrashed
+        expr: increase(janus_haproxy_unexpected_exits_total[15m]) > 0
+        labels: {severity: warning}
+      - alert: JanusExtensionServiceDown
+        expr: janus_service_state{state="restarting"} == 1
+        for: 5m
+        labels: {severity: warning}
+      - alert: JanusSELinuxDenials
+        expr: increase(janus_selinux_denials_total[1h]) > 0
+        labels: {severity: warning}
+      - alert: JanusOOMKill
+        expr: increase(janus_kernel_oom_kills_total[1h]) > 0
+        labels: {severity: warning}
+      - alert: JanusStateErrors
+        expr: janus_state_filesystem_errors > 0
+        labels: {severity: critical}
+      - alert: JanusClockNotSynchronized
+        expr: janus_time_synchronized == 0 or time() - janus_time_last_sync_timestamp_seconds > 3600
+        for: 15m
+        labels: {severity: warning}
+      - alert: JanusUpgradeUnconfirmed
+        expr: janus_upgrade_pending_confirmation == 1
+        for: 10m
+        labels: {severity: warning}
+      - alert: JanusAPIRefusals
+        expr: sum by (instance) (increase(janus_api_requests_total{code=~"PermissionDenied|Unauthenticated"}[15m])) > 10
+        labels: {severity: warning}
+      - alert: JanusVRRPFault
+        expr: janus_vrrp_instance_state{state="FAULT"} == 1
+        for: 1m
+        labels: {severity: critical}
+      - alert: JanusBGPSessionDown
+        expr: janus_bgp_session_established == 0
+        for: 2m
+        labels: {severity: critical}
+      - alert: JanusACMERenewalFailing
+        expr: janus_acme_certificate_failures >= 3
+        labels: {severity: warning}
+      - alert: JanusACMECertificateNotObtained
+        expr: janus_acme_certificate_state{state=~"pending|expired"} == 1
+        for: 1h
+        labels: {severity: critical}

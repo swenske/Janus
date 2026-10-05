@@ -532,7 +532,7 @@ Put this `compose.yaml` in its own directory - `/opt/janus-controller`
 here; **use your directory's real path in place of
 `/opt/janus-controller`, on both sides of its line**:
 
-```yaml
+```yaml title="examples/compose/compose.yaml"
 # /opt/janus-controller/compose.yaml
 services:
   janus-controller:
