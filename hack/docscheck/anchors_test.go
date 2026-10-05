@@ -16,7 +16,7 @@ import (
 )
 
 // A published link to a file of this repository with an anchor -
-// github.com/swenske/Janus/blob/main/docs/x.md#heading - lives on outside
+// github.com/swenske/Janus/blob/main/<file>#<heading> - lives on outside
 // it: in release notes, in the Controllers and nodes already deployed,
 // in issues. Its file must stay, and so must the heading.
 var publishedLink = regexp.MustCompile(`github\.com/swenske/Janus/blob/main/([A-Za-z0-9_./-]+\.md)#([A-Za-z0-9_-]+)`)
