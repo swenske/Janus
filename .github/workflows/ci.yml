@@ -1,8 +1,9 @@
 # Continuous integration: lint, test, and build the Janus control
 # plane (cmd/, internal/, gen/, dashboard/), the Terraform provider
 # (terraform-provider-janus/), the Controller's frontend's lint and
-# unit tests (dashboard/frontend/) and the docs site (site/docs/) on
-# every push to main and every pull request (including from forks). Always runs on GitHub-hosted runners -
+# unit tests (dashboard/frontend/), the site's frontend (site/frontend/)
+# and the docs site (site/docs/) on every push to main and every pull
+# request (including from forks). Always runs on GitHub-hosted runners -
 # free/unlimited on a public repo, and this is the one workflow that MUST
 # accept untrusted fork PRs, so it never touches the self-hosted runner or
 # any secret. It does NOT build the kernel/rootfs/image - see
@@ -170,3 +171,27 @@ jobs:
       - run: make docs-build
 
       - run: make docs-smoke
+
+  # The site's frontend (site/frontend/): its lint, and its committed build
+  # (site/backend/static) checked against its sources - which include the
+  # Controller's shared components (dashboard/frontend/src/shared).
+  site-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site/frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - name: Check the committed build is up to date
+        run: |
+          npm run build
+          if [ -n "$(git status --porcelain -- ../backend/static)" ]; then
+            git status --short -- ../backend/static
+            echo "::error::the committed site build doesn't match its sources - run make site-frontend-build and commit the result"
+            exit 1
+          fi
