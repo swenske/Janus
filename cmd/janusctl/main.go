@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -60,9 +61,35 @@ func main() {
 		actingFor = metadata.Pairs(pki.AsUserKey, *asUser, pki.AsRolesKey, *asRoles)
 	}
 
-	if flag.NArg() == 0 {
-		usage()
-		os.Exit(2)
+	// In a terminal, what's left out is asked (pickers.go): the command,
+	// the node, an argument janusctl can list - then the command line
+	// that would have done it is shown.
+	args := slices.Clone(flag.Args())
+	picked := false
+	if len(args) > 0 && args[0] == "__complete" {
+		runComplete(args[1:])
+		return
+	}
+	if len(args) == 0 {
+		if !canPick() {
+			usage()
+			os.Exit(2)
+		}
+		args, picked = pickCommand(commands, nil), true
+	}
+	if c, rest := commands.find(args); len(c.subs) > 0 && len(rest) == 0 && c != commands && canPick() {
+		args, picked = pickCommand(c, args), true
+	}
+	globalWords := slices.Clone(os.Args[1 : len(os.Args)-flag.NArg()])
+	echo := func() {
+		if picked {
+			echoCommand(globalWords, args)
+		}
+	}
+	if c := commands.sub(args[0]); c != nil && c.offline && canPick() {
+		var asked bool
+		args, asked = fillMissing(args, nil)
+		picked = picked || asked
 	}
 
 	// "image" subcommands operate directly on a disk file offline -
@@ -70,45 +97,51 @@ func main() {
 	// connection at all (that's the entire point, see internal/diskseed's
 	// own package doc) - dispatched before dial() so a missing/
 	// unreachable -endpoint never gets in the way.
-	switch flag.Arg(0) {
+	switch args[0] {
 	case "help":
-		runHelp(flag.Args()[1:])
+		runHelp(args[1:])
 		return
 	case "completion":
-		runCompletion(flag.Args()[1:])
+		echo()
+		runCompletion(args[1:])
 		return
 	case "__complete":
-		runComplete(flag.Args()[1:])
+		runComplete(args[1:])
 		return
 	case "image":
-		runImage(*ctxFlag, flag.Args()[1:])
+		echo()
+		runImage(*ctxFlag, args[1:])
 		return
 	case "login":
-		runLogin(flag.Args()[1:])
+		echo()
+		runLogin(args[1:])
 		return
 	case "context":
-		runContext(flag.Args()[1:])
+		echo()
+		runContext(args[1:])
 		return
 	case "nodes":
+		echo()
 		runNodes(*ctxFlag)
 		return
 	case "fleet":
-		runFleet(*ctxFlag, flag.Args()[1:])
+		echo()
+		runFleet(*ctxFlag, args[1:])
 		return
 	}
 
 	// Known before reaching any node: a group without one of its
 	// commands gets its help.
-	if c := commands.sub(flag.Arg(0)); c == nil || c.hidden {
-		fmt.Fprintf(os.Stderr, "janusctl: unknown command %q\n", flag.Arg(0))
+	if c := commands.sub(args[0]); c == nil || c.hidden {
+		fmt.Fprintf(os.Stderr, "janusctl: unknown command %q\n", args[0])
 		printHelp(os.Stderr, commands, nil)
 		os.Exit(2)
 	}
-	if c, rest := commands.find(flag.Args()); len(c.subs) > 0 {
+	if c, rest := commands.find(args); len(c.subs) > 0 {
 		if len(rest) > 0 {
-			fmt.Fprintf(os.Stderr, "janusctl: unknown command %q\n", strings.Join(flag.Args()[:len(flag.Args())-len(rest)+1], " "))
+			fmt.Fprintf(os.Stderr, "janusctl: unknown command %q\n", strings.Join(args[:len(args)-len(rest)+1], " "))
 		}
-		printHelp(os.Stderr, c, flag.Args()[:len(flag.Args())-len(rest)])
+		printHelp(os.Stderr, c, args[:len(args)-len(rest)])
 		os.Exit(2)
 	}
 
@@ -123,7 +156,20 @@ func main() {
 			log.Fatal(err)
 		}
 		if name, ctx := currentContext(cfg, *ctxFlag); ctx != nil {
+			if *nodesFlag == "?" {
+				if !canPick() {
+					log.Fatal("janusctl: -n ? picks the nodes in a terminal")
+				}
+				*nodesFlag, picked = pickNodes(ctx), true
+				globalWords = slices.DeleteFunc(slices.Clone(globalWords), func(w string) bool { return w == "?" || w == "-n" || w == "-n=?" })
+				globalWords = append(globalWords, "-n", *nodesFlag)
+			}
 			nodes, err := selectNodes(ctx, *nodesFlag, *allFlag)
+			if err != nil && *nodesFlag == "" && !*allFlag && canPick() {
+				*nodesFlag, picked = pickNodes(ctx), true
+				globalWords = append(slices.Clone(globalWords), "-n", *nodesFlag)
+				nodes, err = selectNodes(ctx, *nodesFlag, false)
+			}
 			if err != nil {
 				log.Fatalf("janusctl: %v", err)
 			}
@@ -131,7 +177,8 @@ func main() {
 				log.Fatalf("janusctl: %v", err)
 			}
 			if len(nodes) > 1 {
-				runOnEach(name, ctx, nodes, flag.Args())
+				echo()
+				runOnEach(name, ctx, nodes, args)
 				return
 			}
 			node := nodes[0]
@@ -148,7 +195,7 @@ func main() {
 
 	// janusctl's own version first: shown even when no node is
 	// reachable (checking an installed package).
-	if flag.Arg(0) == "version" {
+	if args[0] == "version" {
 		fmt.Println("Client:", version)
 	}
 
@@ -157,22 +204,28 @@ func main() {
 		log.Fatal(err)
 	}
 	defer conn.Close()
+	if canPick() && args[0] != "lifecycle" { // never a guess at what to install
+		var asked bool
+		args, asked = fillMissing(args, conn)
+		picked = picked || asked
+	}
+	echo()
 
-	switch cmd := flag.Arg(0); cmd {
+	switch cmd := args[0]; cmd {
 	case "version":
 		runVersion(conn)
 	case "system":
-		runSystem(conn, flag.Args()[1:])
+		runSystem(conn, args[1:])
 	case "haproxy":
-		runHAProxy(conn, flag.Args()[1:])
+		runHAProxy(conn, args[1:])
 	case "pki":
-		runPKI(conn, flag.Args()[1:])
+		runPKI(conn, args[1:])
 	case "access":
-		runAccess(conn, flag.Args()[1:])
+		runAccess(conn, args[1:])
 	case "lifecycle":
-		runLifecycle(conn, flag.Args()[1:])
+		runLifecycle(conn, args[1:])
 	case "network":
-		runNetwork(conn, *endpoint, redial, flag.Args()[1:])
+		runNetwork(conn, *endpoint, redial, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl: unknown command %q\n", cmd)
 		usage()
@@ -551,7 +604,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			if err != nil {
 				log.Fatalf("Install: %v", err)
 			}
-			fmt.Printf("[%s %.0f%%] %s\n", resp.GetStage(), resp.GetProgress()*100, resp.GetMessage())
+			fmt.Println(progressLine(os.Stdout, resp.GetStage(), resp.GetProgress(), true, resp.GetMessage()))
 		}
 
 	case "rollback":
@@ -607,7 +660,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			if err != nil {
 				log.Fatalf("Upgrade: %v", err)
 			}
-			fmt.Printf("[%s %.0f%%] %s\n", resp.GetStage(), resp.GetProgress()*100, resp.GetMessage())
+			fmt.Println(progressLine(os.Stdout, resp.GetStage(), resp.GetProgress(), true, resp.GetMessage()))
 		}
 
 	case "upload-release":
@@ -845,7 +898,7 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 			if err != nil {
 				log.Fatalf("ApplyConfig: %v", err)
 			}
-			fmt.Printf("[%s] %s\n", resp.GetStage(), resp.GetMessage())
+			fmt.Println(progressLine(os.Stdout, resp.GetStage(), 0, false, resp.GetMessage()))
 			last = resp
 		}
 		if last != nil && !last.GetAccepted() {

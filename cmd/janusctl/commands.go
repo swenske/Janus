@@ -95,7 +95,7 @@ var (
 // globalFlags come before the command.
 var globalFlags = []flagDef{
 	valFlag("context", "NAME", "the context to use (default: the current one)", argContext),
-	valFlag("n", "NODE[,NODE]", "the node(s) to run the command on - ? to pick", argNodes),
+	valFlag("n", "NODE[,NODE]", "the node(s) to run the command on - '?' to pick", argNodes),
 	boolFlag("all", "run the command on every node of the fleet"),
 	valFlag("endpoint", "HOST:PORT", "a node's API, with its own certificate", argNone),
 	valFlag("ca", "FILE", "the node's CA certificate", argFile),

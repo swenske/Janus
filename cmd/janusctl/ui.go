@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -107,4 +108,38 @@ func (t *tableWriter) Flush() error {
 	}
 	_, err := io.WriteString(t.out, text)
 	return err
+}
+
+// progressLine is a step a long call streams - "[stage 42%] message"
+// as it always was, or on a terminal a symbol for how it stands, the
+// stage, a bar for its progress.
+func progressLine(w io.Writer, stage string, progress float64, withProgress bool, msg string) string {
+	st := styleFor(w)
+	if !st.on {
+		if withProgress {
+			return fmt.Sprintf("[%s %.0f%%] %s", stage, progress*100, msg)
+		}
+		return fmt.Sprintf("[%s] %s", stage, msg)
+	}
+	symbol := st.cyan("▸")
+	switch stage {
+	case "done", "confirmed":
+		symbol = "✅"
+	case "rejected", "failed", "reverted", "error":
+		symbol = "❌"
+	case "rebooting":
+		symbol = "🔁"
+	case "awaiting-confirmation":
+		symbol = "⏳"
+	}
+	line := symbol + " " + st.bold(stage)
+	if withProgress {
+		const cells = 20
+		full := min(cells, max(0, int(progress*cells+0.5)))
+		line += fmt.Sprintf(" %s %3.0f%%", st.cyan(strings.Repeat("█", full))+st.dim(strings.Repeat("░", cells-full)), progress*100)
+	}
+	if msg != "" {
+		line += "  " + msg
+	}
+	return line
 }

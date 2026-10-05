@@ -120,7 +120,7 @@ func runNetworkApply(client janusv1alpha1.NetworkServiceClient, endpoint string,
 			fmt.Printf("(connection lost while applying - expected if the node's address changed: %s)\n", status.Convert(err).Message())
 			break
 		}
-		fmt.Printf("[%s] %s\n", resp.GetStage(), resp.GetMessage())
+		fmt.Println(progressLine(os.Stdout, resp.GetStage(), 0, false, resp.GetMessage()))
 		if resp.GetRevertAtUnix() != 0 {
 			revertAt = time.Unix(resp.GetRevertAtUnix(), 0)
 		}

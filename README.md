@@ -101,6 +101,19 @@ janusctl completion fish > ~/.config/fish/completions/janusctl.fish
 
 `janusctl help [COMMAND]` lists the commands, or one's flags.
 
+### In a terminal
+
+What's left out is asked instead of refused, in a list filtered as you
+type (↑↓, Enter; Tab marks several): `janusctl` alone picks a command
+(`janusctl system` one of its commands), a context with several nodes
+and no `-n` picks them (`-n '?'` too), and an argument janusctl can list
+is picked - `system logs` the service, `haproxy map-get` the map,
+`system cat` a file, browsing the node's directories. The command line
+that would have done it is shown after, to type next time. Output gets
+colours and symbols there too - never in a pipe, a script or with
+`NO_COLOR`; `JANUS_NO_PICKER=1` keeps the usage errors instead of the
+lists.
+
 ## Using janusctl
 
 Sign in to your Janus Controller once; janusctl then reaches its nodes
