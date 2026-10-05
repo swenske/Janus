@@ -923,9 +923,10 @@ jobs:
     runs-on: [self-hosted, docker, janus, janus-publish]
     # contents: write is only for the optional "Publish a real GitHub
     # Release" step at the very end (gated on release_version being
-    # set).
+    # set); actions: write for dispatching site-deploy after it.
     permissions:
       contents: write
+      actions: write
     steps:
       # Full history, not the default depth-1 clone: the Makefile's
       # VERSION comes from `git describe --tags`, which can only find a
@@ -1399,6 +1400,21 @@ jobs:
               "upload $(basename "$deb")" < "$deb"
           done
           ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key" "$host" publish
+
+      # /docs/ on janus.sw-servers.net is the newest release's: site-deploy
+      # rebuilds both docs channels and redeploys - on main, never this
+      # run's commit (main may be ahead: deploying it would roll the site
+      # back). A workflow GITHUB_TOKEN creates starts no workflow - but a
+      # workflow_dispatch it sends does.
+      - name: Deploy this release's docs
+        if: ${{ inputs.release_version != '' }}
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          curl -sS --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/site-deploy.yml/dispatches" \
+            --data '{"ref":"main"}'
+          echo "site-deploy dispatched: its /docs/ will follow ${{ inputs.release_version }}"
 
       # Repository security advisories - public and citable on the Security
       # tab, GitHub notifies nobody for one (docs/upstreams.md): one per
