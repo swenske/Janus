@@ -14,6 +14,7 @@ import remarkDiagrams from './src/lib/remark-diagrams.mjs'
 import remarkGitHubAlerts from './src/lib/remark-github-alerts.mjs'
 import remarkRepoLinks from './src/lib/remark-repo-links.mjs'
 import remarkStripTitle from './src/lib/remark-strip-title.mjs'
+import rehypeTables from './src/lib/rehype-tables.mjs'
 import { sidebarTopics } from './src/lib/structure.mjs'
 
 export default defineConfig({
@@ -27,6 +28,7 @@ export default defineConfig({
     // These run before astro-mermaid's and Starlight's own.
     processor: unified({
       remarkPlugins: [remarkStripTitle, remarkGitHubAlerts, remarkDiagrams, [remarkRepoLinks, { base, ref, repo }]],
+      rehypePlugins: [rehypeTables],
     }),
   },
   integrations: [

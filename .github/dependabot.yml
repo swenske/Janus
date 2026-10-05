@@ -23,13 +23,16 @@ updates:
 
   # The Controller's frontend (built into the Controller's binary - its
   # built output is committed: rebuild it with make dashboard-frontend-build
-  # on the pull request), the site's, and the docs site's (built in
-  # Docker by make docs-build - nothing committed to rebuild).
+  # on the pull request), the site's, the docs site's (built in Docker
+  # by make docs-build - nothing committed to rebuild), and the pinned
+  # browser's (hack/browser: its playwright package must move with its
+  # Playwright image, below - the image's build fails otherwise).
   - package-ecosystem: "npm"
     directories:
       - "/dashboard/frontend"
       - "/site/frontend"
       - "/site/docs"
+      - "/hack/browser"
     schedule:
       interval: "weekly"
     commit-message:
@@ -48,6 +51,7 @@ updates:
       - "/ca-certificates"
       - "/dashboard"
       - "/extensions/*"
+      - "/hack/browser"
       - "/hack/libvirt-host"
       - "/kernel"
       - "/local-dev"

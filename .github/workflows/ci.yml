@@ -151,7 +151,10 @@ jobs:
   # diagram without its accessible title fails; then check-dist on the
   # built site - every link and #fragment resolves, every page has its
   # title and description and is in its sidebar, the sitemap and the
-  # search index are whole. Full history: git describe names the build.
+  # search index are whole. Then janus-site serves it, and the pinned
+  # browser (hack/browser) walks every page: both themes, a phone,
+  # search, axe, no console error, no CSP violation. Full history: git
+  # describe names the build.
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -159,4 +162,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
       - run: make docs-build
+
+      - run: make docs-smoke

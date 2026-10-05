@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev browser-image docs-smoke qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -767,6 +767,20 @@ docs-dev:
 	docker run --rm -it -p 127.0.0.1:4321:4321 -u $$(id -u):$$(id -g) -e HOME=/tmp \
 		-e ASTRO_TELEMETRY_DISABLED=1 -v $(CURDIR):/src -w /src/site/docs $(DOCS_NODE_IMAGE) \
 		sh -c 'npm ci --ignore-scripts && npx astro dev --host 0.0.0.0'
+
+# Headless Chromium, pinned (hack/browser/Dockerfile): Playwright's image
+# by digest and its npm package at the same version.
+BROWSER_IMAGE ?= janus-browser
+browser-image:
+	docker build -t $(BROWSER_IMAGE) hack/browser
+
+# The built docs as readers get them: janus-site built with what
+# docs-build / docs-site left, and every page of each channel walked in
+# the browser - both themes, a phone, search, axe, no console error, no
+# CSP violation (hack/docs-smoke.sh). DOCS_SMOKE_URL checks a deployed
+# site instead.
+docs-smoke: browser-image
+	./hack/docs-smoke.sh $(BROWSER_IMAGE) $(DOCS_SMOKE_URL)
 
 # Dashboard prep, tranche 2: proves the dashboard backend's whole
 # add-node/list/per-node-mTLS-relay/delete/restart-persistence flow
