@@ -1,10 +1,15 @@
 name: Site Deploy
 
 # Builds and deploys janus.sw-servers.net (site/) to its container, CT 222,
-# from the self-hosted runner. The frontend's built assets are committed
-# (site/backend/static, like the Controller's), so this only builds Go.
-# Deploying needs SITE_DEPLOY_KEY and the SITE_DEPLOY_TARGET/SITE_HOST_KEY
-# variables - see site/deploy/setup-ct.sh.
+# from the self-hosted runner: the docs site's two channels first
+# (hack/docs-build.sh, in Docker - npm never runs on this runner, which
+# holds the apt signing key: /docs/ is the newest release's docs, /docs/
+# next/ main's), then the Go binary that embeds them - the landing page's
+# built assets are committed (site/backend/static, like the Controller's).
+# The docs are checked in a browser before the deploy, and once deployed.
+# image-build's publish job dispatches this after a release, for /docs/ to
+# follow it. Deploying needs SITE_DEPLOY_KEY and the SITE_DEPLOY_TARGET/
+# SITE_HOST_KEY variables - see site/deploy/setup-ct.sh.
 
 on:
   push:
@@ -13,6 +18,17 @@ on:
       - site/**
       - internal/schematic/**
       - dashboard/frontend/src/shared/**
+      - docs/**
+      - examples/**
+      - README.md
+      - SECURITY.md
+      - dashboard/README.md
+      - local-dev/README.md
+      - image/*/README.md
+      - brand/**
+      - hack/docs-build.sh
+      - hack/docs-smoke.sh
+      - hack/browser/**
       - .github/workflows/site-deploy.yml
   workflow_dispatch:
 
@@ -29,16 +45,26 @@ jobs:
     runs-on: [self-hosted, docker, janus, janus-publish]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # main, whatever dispatched this: deploying an older commit would
+          # roll the site back. Full history and tags: the docs' latest
+          # channel is built from the newest release tag.
+          ref: main
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           # The runner keeps Go's caches on disk; GitHub's cache only
           # added a slow restore and save.
           cache: false
+      - name: Build the docs - next from main, latest from the newest release
+        run: make docs-site
       - name: Test
         run: go test ./site/... ./internal/schematic/...
       - name: Build
         run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o build/janus-site ./site/backend
+      - name: Check the docs in a browser
+        run: make docs-smoke
       - name: Deploy
         env:
           SITE_DEPLOY_KEY: ${{ secrets.SITE_DEPLOY_KEY }}
@@ -48,6 +74,7 @@ jobs:
           set -euo pipefail
           if [ -z "$SITE_DEPLOY_KEY" ] || [ -z "$SITE_DEPLOY_TARGET" ]; then
             echo "::warning::SITE_DEPLOY_KEY or SITE_DEPLOY_TARGET isn't set - built, not deployed"
+            echo "SITE_DEPLOYED=" >> "$GITHUB_ENV"
             exit 0
           fi
           D="$(mktemp -d)"
@@ -58,3 +85,22 @@ jobs:
           SSH="ssh -i $D/key -o UserKnownHostsFile=$D/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes"
           rsync -t --chmod=F755 -e "$SSH" build/janus-site "$SITE_DEPLOY_TARGET:janus-site"
           $SSH "$SITE_DEPLOY_TARGET" activate
+          echo "SITE_DEPLOYED=1" >> "$GITHUB_ENV"
+      # The public site answers with what was just built (each channel's
+      # X-Janus-Docs-Version), and its docs pass the same browser check.
+      - name: Check the deployed docs
+        if: ${{ env.SITE_DEPLOYED == '1' }}
+        run: |
+          set -euo pipefail
+          for ch in latest next; do
+            want=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "site/backend/docsdist/$ch/_janus/build.json")
+            path=/docs/; [ "$ch" = next ] && path=/docs/next/
+            for i in $(seq 1 30); do
+              got=$(curl -sfI "https://janus.sw-servers.net$path" | tr -d '\r' | sed -n 's/^[Xx]-[Jj]anus-[Dd]ocs-[Vv]ersion: //p')
+              [ "$got" = "$want" ] && break
+              [ "$i" = 30 ] && { echo "::error::$path serves ${got:-nothing}, not $want"; exit 1; }
+              sleep 2
+            done
+            echo "$path: $got"
+          done
+          make docs-smoke DOCS_SMOKE_URL=https://janus.sw-servers.net
