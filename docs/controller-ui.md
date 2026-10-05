@@ -128,7 +128,18 @@ Provision panel (which takes an enrollment token into its commands),
 **Enrollment tokens** (`Enroll.jsx`, admins): made with a name, a
 number of nodes, a validity and labels, shown once with where it goes;
 listed with their uses, revoked. The API
-tokens page takes a scope - labels and domains - and lists it.
+tokens page takes a scope - labels and domains - and lists it. Last,
+**HTTPS certificate** (`HTTPSCert.jsx`, admins, folded like the
+Provision panel): what the page is served with (self-signed, uploaded,
+or from `-tls-cert`), a bundle checked before it's served, and back to
+self-signed.
+
+**Your account** (`AccountButton`, a dialog): second factors
+(`MFAPanel`), **Trusted browsers** (`TrustedBrowsers`: "this browser"
+marked, each forgotten), SSH keys (`SSHKeys` - from a trusted browser's
+sign-in, `SecondFactorForm confirming` first), the password. Giving the
+second factor offers "Trust this browser for N h" when the policy
+(Accounts › Sessions) allows it.
 
 **Roles on the page.** `AuthGate` gives the signed-in account
 (`/api/auth/status`'s `user`) to `MeContext` (`me.jsx`); a component asks

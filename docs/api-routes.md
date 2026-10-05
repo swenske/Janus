@@ -76,7 +76,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 | `Stats` | | ✅ | CPU (lifetime average, like `ps`) and RSS of `janusd` and `haproxy`, summed over processes |
 | `SystemStat` | | ✅ | `/proc/stat`: boot time, context switches, processes created |
 | `Memory` | | ✅ | `/proc/meminfo` |
-| `CPUInfo` | | ✅ | `/proc/cpuinfo` |
+| `CPUInfo` | | ✅ | `/proc/cpuinfo` (arm64: the core named from its MIDR), sockets and cores from sysfs topology |
 | `LoadAvg` | | ✅ | `/proc/loadavg` |
 | `DiskStats` | | ✅ | `/proc/diskstats` |
 | `DiskUsage` | server | ✅ | Apparent size of each path; `recursive` adds one entry per directory (deepest first). Doesn't descend into `/proc`, `/sys`, `/dev` |
