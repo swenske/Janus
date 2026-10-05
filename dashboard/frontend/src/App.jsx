@@ -29,6 +29,7 @@ import { navigate, useHashRoute } from './shared/route.js'
 import { Logo, ThemeToggle } from './shared/theme.jsx'
 import { MeContext, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm } from './MFA.jsx'
+import { SSHKeys } from './SSHKeys.jsx'
 import TokensPage from './Tokens.jsx'
 import UsersPage from './Users.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
@@ -730,9 +731,11 @@ function AccountButton() {
         // fixed dialog inside it.
         createPortal(
           <div className="modal-backdrop" onClick={() => setOpen(false)}>
-            <div className="modal card" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="modal card account-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
               <h2 style={{ marginBottom: '0.6rem' }}>Second factors</h2>
               <MFAPanel me={me} onChanged={me.refresh} />
+              <h2 style={{ margin: '1.2rem 0 0.6rem' }}>SSH keys for janusctl</h2>
+              <SSHKeys me={me} />
               <h2 style={{ margin: '1.2rem 0 0.6rem' }}>Change your password</h2>
               <PasswordForm
                 onCancel={() => setOpen(false)}

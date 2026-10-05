@@ -134,7 +134,10 @@ Admin: the rest. A session that needs something first (`needs`) gets only that:
 `password` - the forced change -, then `mfa_enroll` - `EnrollMFA`, the
 role's required first factor, then its recovery codes once
 (`RecoveryCodes`). The account button opens `MFAPanel` (factors, add,
-remove and new recovery codes with the password) and the password form.
+remove and new recovery codes with the password), `SSHKeys` (janusctl's
+keys: add - only once the account has a second factor -, remove, and the
+`janusctl login` command with the Controller's fingerprint from
+`/api/controller-info`) and the password form.
 Passkeys go through `webauthn.js` (base64url options to
 `navigator.credentials` and back); they're offered only where the page's
 host is a name (`mfa.rp_id`), and the TOTP QR code is an SVG the
