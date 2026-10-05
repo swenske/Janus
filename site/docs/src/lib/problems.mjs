@@ -4,6 +4,17 @@
 // report here instead (a warning in `astro dev`), and the build fails at
 // its end with the whole list.
 const found = []
+const atEnd = []
+
+// problem notes a problem found outside a page.
+export function problem(message) {
+  found.push(message)
+}
+
+// atBuildEnd runs fn once every page is built, before the list is read.
+export function atBuildEnd(fn) {
+  atEnd.push(fn)
+}
 
 export function report(file, node, message) {
   const where = node?.position ? `:${node.position.start.line}` : ''
@@ -17,6 +28,7 @@ export default function janusProblems() {
     name: 'janus-docs-problems',
     hooks: {
       'astro:build:done': () => {
+        for (const fn of atEnd) fn()
         if (found.length) throw new Error(`the docs have ${found.length} problem(s):\n  ${found.join('\n  ')}`)
       },
     },

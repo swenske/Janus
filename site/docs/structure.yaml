@@ -30,11 +30,15 @@ topics:
             pages:
               - { file: dashboard/README.md, slug: controller, title: The Controller, label: The Controller }
               - { file: docs/hypervisors.md, label: Hypervisors }
+          - label: janusctl
+            pages:
+              - { file: docs/janusctl.md, title: Using janusctl, label: Using janusctl }
+              - { file: docs/guide/janusctl-reference.md, label: janusctl reference }
               - { file: docs/fleet-without-controller.md, label: A fleet without a Controller }
           - label: HAProxy
             pages:
               - { file: docs/haproxy-config.md, label: Your haproxy.cfg }
-              - { file: docs/haproxy-files.md, label: Files, maps and certificates }
+              - { file: docs/haproxy-files.md, label: "Files, maps and certificates" }
               - { file: docs/letsencrypt.md, label: Let's Encrypt }
           - label: Network
             pages:
@@ -65,6 +69,7 @@ topics:
             pages:
               - { file: docs/architecture.md, title: Architecture, label: Architecture }
               - { file: docs/api-routes.md, title: The gRPC API, label: The gRPC API }
+              - { file: docs/roadmap.md, label: Roadmap }
           - label: Images
             pages:
               - { file: image/disk/README.md, slug: disk-image, title: The disk image, label: The disk image }
@@ -102,11 +107,12 @@ topics:
 popular:
   - docs/provisioning-a-node.md
   - dashboard/README.md
+  - docs/janusctl.md
   - docs/haproxy-config.md
   - docs/network-configuration.md
   - docs/vrrp.md
   - docs/terraform.md
-  - docs/architecture.md
 
 exclude:
+  - docs/README.md                      # the index for GitHub readers (make docs-index)
   - docs/security-audit-2026-09-30.md   # a dated report, in French

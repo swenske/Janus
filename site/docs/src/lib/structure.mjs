@@ -25,12 +25,16 @@ function slugOf(file, section) {
   return path.posix.basename(file, '.md')
 }
 
+const pageKeys = new Set(['file', 'slug', 'title', 'label', 'description'])
 export const topics = raw.topics
 export const pages = []
 for (const topic of topics) {
   for (const section of topic.sections) {
     const add = (entry, group) => {
       const page = typeof entry === 'string' ? { file: entry } : { ...entry }
+      for (const key of Object.keys(page)) {
+        if (!pageKeys.has(key)) problems.push(`${page.file}: unknown key "${key}" - an unquoted value with a comma?`)
+      }
       const slug = (page.slug ?? slugOf(page.file, section.path)).toLowerCase()
       page.id = slug ? `${section.path}/${slug}` : section.path
       Object.assign(page, { topic: topic.id, section: section.path, group })

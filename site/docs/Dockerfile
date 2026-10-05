@@ -26,6 +26,7 @@ ENV DOCS_CHANNEL=$DOCS_CHANNEL DOCS_VERSION=$DOCS_VERSION DOCS_COMMIT=$DOCS_COMM
 # Astro logs a page that fails to render, or a code block in an unknown
 # language, and carries on: here either fails the build.
 RUN npm run lint \
+    && node scripts/github-index.mjs --check \
     && npm run build 2>&1 | tee /tmp/build.log \
     && ! grep -E '\[ERROR\]|\[WARN\] \[astro-expressive-code\]' /tmp/build.log \
     && npm run check

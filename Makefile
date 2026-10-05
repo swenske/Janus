@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev browser-image docs-smoke qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples browser-image docs-smoke qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -758,6 +758,18 @@ docs-build:
 # the newest release tag that has the docs site.
 docs-site:
 	./hack/docs-build.sh site
+
+# docs/README.md - the docs' index for GitHub readers - generated from
+# site/docs/structure.yaml (the docs build fails when it's stale).
+docs-index:
+	docker run --rm -u $$(id -u):$$(id -g) -e HOME=/tmp -v $(CURDIR):/src -w /src/site/docs $(DOCS_NODE_IMAGE) \
+		sh -c 'npm ci --ignore-scripts --no-audit --no-fund >/dev/null && node scripts/github-index.mjs --write'
+
+# Copies each example (examples/) into the docs' code blocks titled with
+# its path - the docs build fails while one differs.
+docs-examples:
+	docker run --rm -u $$(id -u):$$(id -g) -e HOME=/tmp -v $(CURDIR):/src -w /src/site/docs $(DOCS_NODE_IMAGE) \
+		sh -c 'npm ci --ignore-scripts --no-audit --no-fund >/dev/null && node scripts/sync-examples.mjs'
 
 # The docs site's dev server, reloading on every change:
 # http://localhost:4321/docs/ - in the same pinned Node image (its
