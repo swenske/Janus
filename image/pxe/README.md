@@ -20,7 +20,7 @@ project already relies on.
 
 **Legacy PXE (TFTP)** - a `dnsmasq` example:
 
-```
+```ini
 dhcp-range=192.0.2.10,192.0.2.100,12h
 dhcp-boot=janus.efi
 enable-tftp
@@ -32,7 +32,7 @@ Copy the UKI to `/srv/tftp/janus.efi`.
 **UEFI HTTP Boot** - simpler, no TFTP at all, and what most current
 firmware prefers:
 
-```
+```ini
 dhcp-range=192.0.2.10,192.0.2.100,12h
 dhcp-option=tag:efi-http,60,HTTPClient
 dhcp-boot=tag:efi-http,"http://192.0.2.1:8080/janus.efi"

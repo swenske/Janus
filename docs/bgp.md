@@ -10,7 +10,7 @@ static routes and BIRD's other protocols. The configuration is BIRD's own
 
 ## A configuration
 
-```
+```bird2
 router id 192.0.2.1;                 # this node's own address
 
 protocol device {}

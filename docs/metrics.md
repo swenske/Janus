@@ -180,7 +180,7 @@ groups:
 Janus's HAProxy is built with its Prometheus exporter. Serve it from any
 frontend of your configuration:
 
-```
+```haproxy
 frontend prometheus
   bind :8405
   http-request use-service prometheus-exporter if { path /metrics }

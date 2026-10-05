@@ -8,7 +8,7 @@ Controller's ([dashboard/README.md](../dashboard/README.md#securing-the-fleet)):
 the same kit, the same bundle the nodes apply
 (`internal/pki/fleet.go`, [api-routes.md](api-routes.md) AccessService).
 
-```
+```text
 recovery kit (offline)          root ──signs──> issuing CA "alice-laptop" ──signs──> alice's 12 h certificates
   root's key + passphrase         │             issuing CA "ci"           ──signs──> the CI's 12 h certificates
                                   └──signs──> bundle (version, the issuing CAs) ──> every node
@@ -59,7 +59,7 @@ Give a new node the fleet with any of:
 The node trusts the fleet from its first boot. Its console shows its CA's
 fingerprint:
 
-```
+```text
 ca sha256 9bc33016 3d392669 a236a5b6 e747f07c
           f0bcfafd fa39f46d 22c5a3b4 a38098cd
 ```

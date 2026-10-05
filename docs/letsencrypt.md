@@ -62,7 +62,7 @@ for `<token>.<account thumbprint>`. HAProxy answers it itself, for every
 domain and every token, with one rule - nothing to put in place per
 challenge:
 
-```
+```haproxy
 frontend http
     bind :80
     http-request return status 200 content-type text/plain lf-string "%[path,field(-1,/)].${JANUS_ACME_THUMBPRINT}" if { path_beg /.well-known/acme-challenge/ }

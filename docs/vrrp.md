@@ -12,7 +12,7 @@ extension, the image has no keepalived at all.
 Every node of a group gets the same file, but for its `priority` - the
 highest one holds the virtual IP:
 
-```
+```text
 global_defs {
     vrrp_version 3          # for sub-second adverts
 }

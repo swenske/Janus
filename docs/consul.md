@@ -70,7 +70,7 @@ The agent answers DNS on `127.0.0.1:8600` (Consul's default
 `client_addr` and port): a backend takes its servers from a service's SRV
 records, and follows them as instances come and go or fail their checks.
 
-```
+```haproxy
 resolvers consul
     nameserver consul 127.0.0.1:8600
     accepted_payload_size 8192
@@ -129,7 +129,7 @@ The agent gossips on 8301 (TCP and UDP) with every member, and talks to
 the servers on 8300; servers also use 8302 across datacenters. With the
 [firewall](firewall.md), accept them from the cluster's network:
 
-```
+```nft
 tcp dport { 8300, 8301 } ip saddr 192.0.2.0/24 accept
 udp dport 8301 ip saddr 192.0.2.0/24 accept
 ```

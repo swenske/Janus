@@ -13,7 +13,7 @@ letters, digits, `.`, `-` and `_`, not starting with `.` or `-`, with at
 most one subdirectory (`errors/503.http`, `certs/_.example.com.pem`). Up
 to 256 files of 1 MiB each.
 
-```
+```haproxy
 defaults
     errorfile 503 /etc/haproxy/files/errors/503.http
 

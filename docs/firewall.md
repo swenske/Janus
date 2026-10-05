@@ -14,7 +14,7 @@ it filters nothing until you apply one.
 
 A starting point, also the Controller's:
 
-```
+```nft
 table inet filter {
 	# Addresses to drop - editable live (below).
 	set blocklist {

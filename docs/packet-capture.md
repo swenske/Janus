@@ -84,7 +84,7 @@ capture the gRPC connection carrying it).
 | Networks | `net 10.0.0.0/8`, `src net 192.168.1.0/24`, `net 2001:db8::/32` |
 | Ports | `port 443`, `dst port 53`, `tcp port 8080`, `udp src port 123` |
 | Port ranges | `portrange 8000-8999`, `tcp dst portrange 1-1023` |
-| Operators | `and` / `&&`, `or` / `||`, `not` / `!`, parentheses |
+| Operators | `and` / `&&`, `or` / `\|\|`, `not` / `!`, parentheses |
 
 The semantics match tcpdump:
 

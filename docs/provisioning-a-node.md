@@ -294,7 +294,7 @@ ssh root@<CONTROLLER_HOST> "docker logs janus-controller -f"
 
 Wait for the line:
 
-```
+```text
 node self-registered: <node-ip> (<node-ip>:9505), awaiting approval
 ```
 
