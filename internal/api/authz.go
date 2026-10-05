@@ -15,8 +15,10 @@
 //
 // The Controller's certificate (pki.RoleController) has no right of its
 // own: it says whom it acts for - janus-as-user, janus-as-roles in the
-// call's metadata - and the call gets that user's roles. Every call that
-// isn't read-only is logged with who made it.
+// call's metadata - and the call gets that user's roles. A scoped
+// certificate (pki.Scope) gives the roles and domains it names for this
+// node, by its CA's key. Every call that isn't read-only is logged with
+// who made it.
 package api
 
 import (
@@ -52,12 +54,18 @@ type Caller struct {
 	Fleet bool
 	// Domains narrow what the caller may do (internal/rbac); none: all.
 	Domains []string
+	// Scoped: the roles and domains are those a scoped certificate
+	// gives on this node.
+	Scoped bool
 }
 
 func (c Caller) String() string {
 	s := c.Name + " (" + strings.Join(c.Roles, ", ")
 	if c.Fleet && c.Via == "" {
 		s += ", fleet"
+	}
+	if c.Scoped {
+		s += ", scoped"
 	}
 	if len(c.Domains) > 0 {
 		s += "; " + strings.Join(c.Domains, ", ")
@@ -72,6 +80,10 @@ func (c Caller) String() string {
 // FleetRoot is the node's fleet's root, if it has one (janusd sets it):
 // a certificate chained to it is the fleet's.
 var FleetRoot func() *x509.Certificate
+
+// LocalCA is the node's own CA (janusd sets it): what a scoped
+// certificate names the node by.
+var LocalCA func() *x509.Certificate
 
 type callerKey struct{}
 
@@ -176,6 +188,10 @@ func authorize(ctx context.Context, fullMethod string) (Caller, error) {
 		}
 	}
 
+	if slices.Contains(leaf.Subject.Organization, pki.RoleScoped) && !slices.Contains(leaf.Subject.Organization, pki.RoleController) {
+		return authorizeScoped(leaf, caller, fullMethod)
+	}
+
 	required := rolesFor(fullMethod)
 	for _, have := range caller.Roles {
 		if !slices.Contains(required, have) {
@@ -187,4 +203,59 @@ func authorize(ctx context.Context, fullMethod string) (Caller, error) {
 		return caller, nil
 	}
 	return Caller{}, status.Errorf(codes.PermissionDenied, "%s requires role %v, %s has %v", fullMethod, required, caller.Name, caller.Roles)
+}
+
+// authorizeScoped checks a scoped certificate's call: the permissions its
+// scope gives this node - every node's, and those of the entries naming
+// it by its CA's key -, one with a role the method takes, in its domain.
+func authorizeScoped(leaf *x509.Certificate, caller Caller, fullMethod string) (Caller, error) {
+	if len(leaf.Subject.Organization) != 1 {
+		return Caller{}, status.Error(codes.PermissionDenied, "a scoped certificate carries no role of its own")
+	}
+	scope, ok, err := pki.ParseScope(leaf)
+	if err != nil || !ok {
+		return Caller{}, status.Errorf(codes.PermissionDenied, "%s's scoped certificate: %v", caller.Name, cmpOr(err, "no scope"))
+	}
+	var perms []pki.ScopePerm
+	if LocalCA != nil {
+		if ca := LocalCA(); ca != nil {
+			perms = scope.For(pki.CAKey(ca))
+		}
+	}
+	if len(perms) == 0 {
+		return Caller{}, status.Errorf(codes.PermissionDenied, "%s's certificate doesn't open this node: its scope names other nodes (sign in again if this node was just added to it, or replaced its CA)", caller.Name)
+	}
+	required := rolesFor(fullMethod)
+	var has []string
+	var narrowed *pki.ScopePerm
+	for _, p := range perms {
+		for _, d := range p.Domains {
+			if !slices.Contains(rbac.NodeDomains, d) && d != rbac.DomainObserve {
+				return Caller{}, status.Errorf(codes.PermissionDenied, "%s's scope: unknown domain %q", caller.Name, d)
+			}
+		}
+		if !slices.Contains(has, p.Role) {
+			has = append(has, p.Role)
+		}
+		if !slices.Contains(required, p.Role) {
+			continue
+		}
+		if !rbac.InDomains(fullMethod, p.Domains) {
+			narrowed = &p
+			continue
+		}
+		caller.Roles, caller.Domains, caller.Scoped = []string{p.Role}, p.Domains, true
+		return caller, nil
+	}
+	if narrowed != nil {
+		return Caller{}, status.Errorf(codes.PermissionDenied, "%s is in the %s domain: %s may only %s on this node", fullMethod, rbac.DomainOf(fullMethod), caller.Name, strings.Join(narrowed.Domains, ", "))
+	}
+	return Caller{}, status.Errorf(codes.PermissionDenied, "%s requires role %v, %s has %v on this node", fullMethod, required, caller.Name, has)
+}
+
+func cmpOr(err error, otherwise string) string {
+	if err != nil {
+		return err.Error()
+	}
+	return otherwise
 }

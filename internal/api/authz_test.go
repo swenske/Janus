@@ -5,7 +5,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"net"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -230,5 +232,72 @@ func TestControllerNarrowsDomains(t *testing.T) {
 	caller, err := authorize(as("haproxy"), "/janus.v1alpha1.HAProxyService/ApplyConfig")
 	if err != nil || caller.String() != "tf (os:operator; haproxy) via janus-controller" {
 		t.Errorf("caller %q, %v", caller, err)
+	}
+}
+
+// TestScopedCertificate: a scoped certificate opens this node only as its
+// scope names it - by the node's CA's key -, with the role and domains it
+// gives here.
+func TestScopedCertificate(t *testing.T) {
+	local, err := pki.NewCA("this node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := pki.NewCA("another node")
+	issuing, _ := pki.NewCA("fleet issuing CA")
+	prev := LocalCA
+	LocalCA = func() *x509.Certificate { return local.Cert }
+	t.Cleanup(func() { LocalCA = prev })
+	leafOf := func(s *pki.Scope) context.Context {
+		t.Helper()
+		certPEM, _, err := issuing.Issue(pki.IssueOptions{CommonName: "web-dev", Scope: s, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		block, _ := pem.Decode(certPEM)
+		leaf, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return peerWith(leaf)
+	}
+	here := [][]byte{pki.CAKey(local.Cert)}
+	there := [][]byte{pki.CAKey(other.Cert)}
+	webHere := leafOf(&pki.Scope{Nodes: []pki.ScopeNodes{{CAKeys: here, Perms: []pki.ScopePerm{{Role: pki.RoleOperator, Domains: []string{"haproxy"}}}}}})
+	webThere := leafOf(&pki.Scope{Nodes: []pki.ScopeNodes{{CAKeys: there, Perms: []pki.ScopePerm{{Role: pki.RoleAdmin}}}}})
+	readerEverywhere := leafOf(&pki.Scope{Any: []pki.ScopePerm{{Role: pki.RoleReader}}, Nodes: []pki.ScopeNodes{{CAKeys: there, Perms: []pki.ScopePerm{{Role: pki.RoleAdmin}}}}})
+	unknownDomain := leafOf(&pki.Scope{Any: []pki.ScopePerm{{Role: pki.RoleOperator, Domains: []string{"root"}}}})
+	const apply, restart, stats, upgrade = "/janus.v1alpha1.HAProxyService/ApplyConfig", "/janus.v1alpha1.SystemService/ServiceRestart", "/janus.v1alpha1.SystemService/Stats", "/janus.v1alpha1.LifecycleService/Upgrade"
+	for _, c := range []struct {
+		name   string
+		ctx    context.Context
+		method string
+		want   codes.Code
+		msg    string
+	}{
+		{"operator on HAProxy here, applying", webHere, apply, codes.OK, ""},
+		{"operator on HAProxy here, observing", webHere, stats, codes.OK, ""},
+		{"operator on HAProxy here, restarting a service", webHere, restart, codes.PermissionDenied, "in the services domain: web-dev may only haproxy on this node"},
+		{"operator on HAProxy here, upgrading", webHere, upgrade, codes.PermissionDenied, "requires role [os:admin], web-dev has [os:operator] on this node"},
+		{"admin elsewhere", webThere, stats, codes.PermissionDenied, "doesn't open this node"},
+		{"reader everywhere, admin elsewhere, reading", readerEverywhere, stats, codes.OK, ""},
+		{"reader everywhere, admin elsewhere, applying", readerEverywhere, apply, codes.PermissionDenied, "has [os:reader] on this node"},
+		{"an unknown domain", unknownDomain, stats, codes.PermissionDenied, "unknown domain"},
+	} {
+		err := checkRole(c.ctx, c.method)
+		if got := status.Code(err); got != c.want || c.msg != "" && !strings.Contains(err.Error(), c.msg) {
+			t.Errorf("%s: %v, want %v (%q)", c.name, err, c.want, c.msg)
+		}
+	}
+	caller, err := authorize(webHere, apply)
+	if err != nil || caller.String() != "web-dev (os:operator, scoped; haproxy)" {
+		t.Errorf("caller %q, %v", caller, err)
+	}
+	// The marker beside a role of its own, or without its scope: refused.
+	for name, o := range map[string][]string{"with a role": {pki.RoleScoped, pki.RoleAdmin}, "without its scope": {pki.RoleScoped}} {
+		ctx := peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "x", Organization: o}})
+		if got := status.Code(checkRole(ctx, stats)); got != codes.PermissionDenied {
+			t.Errorf("%s: %v", name, got)
+		}
 	}
 }

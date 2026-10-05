@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -408,6 +409,7 @@ func main() {
 
 	tlsConfig := pki.NodeTLSConfig(local.CA, serverCert, fleet)
 	api.FleetRoot = fleet.Root
+	api.LocalCA = func() *x509.Certificate { return local.CA().Cert }
 	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.StatsHandler(api.ConnStats{}),
