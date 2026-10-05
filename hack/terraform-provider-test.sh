@@ -20,7 +20,9 @@
 #      operator on team=web over HAProxy only, terraforms the node's
 #      haproxy.cfg with a token narrowed the same way - HAProxy refusing
 #      a bad one -, and may change nothing else;
-#   9. destroy: nothing left.
+#   9. destroy: nothing left;
+#  10. the docs' example (examples/terraform/libvirt), applied as written:
+#      two nodes admitted and serving examples/haproxy/web.cfg.
 #
 # Without /dev/net/tun no machine boots (a CI runner without it): only
 # the hypervisor's part runs, with a CI warning.
@@ -333,5 +335,45 @@ tofu destroy -auto-approve -var nodes=1 -var memory=1536 -var address=192.168.12
 [ "$(api "$API/api/hypervisors" | json "len(d)")" = 0 ] || fail "the hypervisor wasn't removed"
 if in_host virsh list --all --name | grep -q janus-tf; then fail "a virtual machine is left"; fi
 echo "Part 10 OK: destroyed - the node, its virtual machine and the hypervisor"
+
+# =========================================================================
+# 10. The docs' end-to-end example, examples/terraform/libvirt, applied as
+#     written - only its variables given (docs/private-cloud/platforms/
+#     kvm-libvirt.md): the hypervisor, its key authorized, then two nodes
+#     created and admitted, each serving examples/haproxy/web.cfg.
+# =========================================================================
+EX="$WORKDIR/example"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+mkdir -p "$EX/terraform"
+cp -r "$REPO/examples/terraform/libvirt" "$EX/terraform/libvirt"
+cp -r "$REPO/examples/haproxy" "$EX/haproxy"
+cat >"$EX/terraform/libvirt/terraform.tfvars" <<TFVARS
+hypervisor_name      = "kvm-example"
+hypervisor_host      = "127.0.0.1"
+host_key_fingerprint = "$FINGERPRINT"
+network              = "janus-test"
+gateway              = "192.168.123.1"
+nodes                = { ex1 = "192.168.123.61/24", ex2 = "192.168.123.62/24" }
+memory_mib           = 1024
+image                = { url = "http://127.0.0.1:8000/janus-kvm.qcow2", sha256 = "$SUM" }
+TFVARS
+tofu_ex() { (cd "$EX/terraform/libvirt" && "$TOFU" "$@" -no-color 2>&1); }
+tofu_ex apply -auto-approve -target=janus_hypervisor.kvm >"$WORKDIR/apply-example-hv.log" || fail "the example's hypervisor: $(grep -A12 'Error' "$WORKDIR/apply-example-hv.log" | head -20)"
+tofu_ex output -raw authorized_key | in_host_i sh -c 'cat >> /home/janus-ctl/.ssh/authorized_keys'
+tofu_ex apply -auto-approve >"$WORKDIR/apply-example.log" || fail "the example's apply: $(grep -A12 'Error' "$WORKDIR/apply-example.log" | head -20)"
+for n in ex1:192.168.123.61 ex2:192.168.123.62; do
+  name="${n%%:*}" ip="${n#*:}"
+  id="$(api "$API/api/nodes" | json "[x['id'] for x in d if x['name'] == '$name'][0]")"
+  api "$API/nodes/$id/api/haproxy/config" | json "d['config']" >"$WORKDIR/example-$name.cfg"
+  cmp -s "$WORKDIR/example-$name.cfg" "$REPO/examples/haproxy/web.cfg" || fail "$name doesn't run examples/haproxy/web.cfg"
+  got="$(in_host python3 -c 'import sys, urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=10).read().decode().strip())' "http://$ip/healthz" 2>&1 || true)"
+  [ "$got" = ok ] || fail "$name doesn't answer ok on $ip/healthz: $got"
+done
+rc=0
+tofu_ex plan -detailed-exitcode >"$WORKDIR/plan-example.log" || rc=$?
+[ "$rc" = 0 ] || fail "a plan after the example's apply isn't empty (exit $rc): $(tail -20 "$WORKDIR/plan-example.log")"
+tofu_ex destroy -auto-approve >"$WORKDIR/destroy-example.log" || fail "the example's destroy: $(tail -20 "$WORKDIR/destroy-example.log")"
+[ "$(api "$API/api/machines" | json "len(d)")" = 0 ] || fail "the example left machines: $(api "$API/api/machines")"
+echo "Part 11 OK: the docs' example applied as written - two nodes created, admitted and serving examples/haproxy/web.cfg, nothing left to plan, destroyed"
 
 echo "terraform-provider test OK"
