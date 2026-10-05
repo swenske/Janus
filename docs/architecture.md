@@ -151,6 +151,16 @@ A second factor - TOTP, its secret sealed with
 the master key, or a WebAuthn passkey - finishes the sign-in of an
 account that has one, required for admins by default.
 
+The Controller backs itself up (`dashboard/backend/internal/backup`,
+`backups.go`): its data directory, its master key and its nodes'
+configurations (through their API - never their private keys), a tar.gz
+encrypted with age to a backup kit's identity - the Controller keeps
+only its public half - and admins' keys, behind a manifest it signs
+with Ed25519; to an S3 bucket (`internal/s3`: SigV4, put/get/list/
+delete), on a schedule. A new Controller restores one from its first
+page or `dashboardd restore`, the signature checked with the key the kit
+holds: it's the same Controller again, its fleet with it.
+
 A node registering itself with a Controller whose fleet is ready sends
 no key at all (`internal/selfregister`, protocol 2): its CA's
 certificate, its token if the Controller created it, and a secret it

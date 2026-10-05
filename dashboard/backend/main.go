@@ -41,6 +41,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -52,6 +53,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
+	"github.com/swenske/Janus/dashboard/backend/internal/backup"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
@@ -81,6 +83,10 @@ var version = "dev"
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "reset-user" {
 		resetUser(os.Args[2:])
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "restore" {
+		restoreCommand(os.Args[2:])
 		return
 	}
 	addr := flag.String("addr", envOr("JANUS_CONTROLLER_ADDR", ":8080"), "main HTTPS address (node list, add/remove - never a credential) - e.g. \":443\" to run the UI on the standard HTTPS port; also settable via JANUS_CONTROLLER_ADDR (same \":port\"/\"host:port\" format - a flag takes precedence over the env var if both are given), for Docker Compose deployments where an environment: entry is more natural than overriding the container's command")
@@ -149,6 +155,10 @@ func main() {
 		log.Printf("WARNING: the master key is %s, in the data directory: a copy of it holds the fleet's issuing CA key and the accounts' authenticator secrets - set JANUS_CONTROLLER_MASTER_KEY_FILE to a file outside it (dashboard/README.md)", masterKey.Path)
 	}
 	authStore.SetSealer(masterKey)
+	backupStore, err := backup.OpenStore(filepath.Join(*dataDir, "backup"), masterKey, controllerID)
+	if err != nil {
+		log.Fatalf("open the backups: %v", err)
+	}
 	fleetStore, err := fleet.Open(filepath.Join(*dataDir, "fleet"), masterKey, controllerID)
 	if err != nil {
 		log.Fatalf("open the fleet: %v", err)
@@ -163,6 +173,8 @@ func main() {
 		tokens:                tokenStore,
 		loginLimiter:          auth.NewLoginLimiter(),
 		audit:                 auditLog,
+		backups:               backupStore,
+		masterKeyPath:         masterKey.Path,
 		serverCert:            serverCert,
 		suggestedRegisterAddr: suggestRegisterAddress(*advertiseAddresses, *registerAddr),
 		selfUpdate:            newSelfUpdate(*updaterSocket),
@@ -180,6 +192,7 @@ func main() {
 	app.runner.resume()
 	go app.runner.syncLoop(context.Background())
 	go app.trustLoop(context.Background())
+	go app.backupLoop(context.Background())
 	// The node pages: a machine's lock, and its record read again after a
 	// change made there.
 	nodeproxy.LockedBy = func(n *store.Node) string {
@@ -202,7 +215,7 @@ func main() {
 		// or subdomain of the same host) - refuse any non-safe request
 		// from another origin outright, the same protection every
 		// per-node listener has (see nodeproxy.newHandler).
-		Handler:   http.NewCrossOriginProtection().Handler(app.audited(app.routes(spa))),
+		Handler:   app.unlessRestored(http.NewCrossOriginProtection().Handler(app.audited(app.routes(spa)))),
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{serverCert}},
 	}
 	ln, err := net.Listen("tcp", *addr)
@@ -245,6 +258,8 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	a.registerCLIRoutes(mux)
 	a.registerSSHKeyRoutes(mux)
 	a.registerCLIBrowserRoutes(mux)
+	a.registerBackupRoutes(mux)
+	a.registerRestoreRoutes(mux)
 	a.registerHypervisorRoutes(mux)
 	a.registerFleetRoutes(mux)
 	a.registerMachineRoutes(mux)
@@ -259,7 +274,10 @@ type app struct {
 	tokens       *auth.TokenStore
 	loginLimiter *auth.LoginLimiter
 	audit        *audit.Log
-	serverCert   tls.Certificate
+	backups      *backup.Store
+	// masterKeyPath is the master key's file - a backup takes it.
+	masterKeyPath string
+	serverCert    tls.Certificate
 	// suggestedRegisterAddr is handleControllerInfo's best guess at the
 	// address a node should be given as -controller-address at
 	// provisioning time - see suggestRegisterAddress's own doc comment.
@@ -281,7 +299,9 @@ type app struct {
 	consoles     consoleHub
 
 	challenges challenges
-	cliLogins  cliLogins
+	// restored: a backup was restored - the process starts again.
+	restored  atomic.Bool
+	cliLogins cliLogins
 	// pages holds each node's page handler (node_pages.go), made on its
 	// first request.
 	pagesMu sync.Mutex

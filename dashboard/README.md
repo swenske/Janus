@@ -340,6 +340,59 @@ certificate and the issuing CA, its role and end); `GET
 /api/cli/inventory`; `GET/POST/DELETE /api/auth/ssh-keys` (your own,
 from a session).
 
+### Backups
+
+The **Backups** tab (admins) backs the Controller up: everything it
+keeps - accounts, nodes, the fleet, hypervisors, machines, the audit,
+its master key - and each node's configuration read through its API
+(HAProxy's configuration, maps and files, network, firewall, VRRP, BGP,
+Consul, Let's Encrypt, the exporters), never a node's private keys: the
+API doesn't hand them out, by design - a certificate you uploaded comes
+back from where you keep it, Let's Encrypt's are issued again.
+
+1. **Make the backup kit**: the age key the backups are encrypted to,
+   in a kit encrypted with a passphrase - store both together (a
+   password manager's secure note), give them back to prove it, like
+   the fleet's recovery kit. The Controller keeps only the public half:
+   it writes backups and can't read them. Admins' SSH or age public keys
+   can decrypt them too (optional).
+2. **Where and when**: an S3 bucket - AWS, MinIO, Garage, Ceph,
+   Backblaze B2, Cloudflare R2... - once a day by default, the last 30
+   kept. **Back up now**, or **Download a backup** without a bucket.
+
+Each backup is one `.janusbackup` object: its manifest, signed by the
+Controller (Ed25519 - age alone doesn't say who encrypted a file), then
+the encrypted archive. Give the Controller credentials that may only
+write, and turn the bucket's versioning or Object Lock on: whoever took
+the Controller could then stop the backups, not erase the past ones;
+without the right to delete, the Controller leaves expiry to the
+bucket's own rules.
+
+**Restoring**: on a new Controller, its first page - **Restore a backup
+instead**: the bucket (or a file), the backup kit and its passphrase.
+It starts again as the Controller backed up - its accounts, second
+factors, fleet and nodes: the nodes keep trusting it. Or on the host,
+with the Controller stopped:
+
+```sh
+docker run --rm -it -v janus-controller-data:/data -v ./backup:/b swenske/janus-controller \
+  restore -kit /b/janus-backup-kit.age /b/janus-controller-....janusbackup
+# with an admin's key instead of the kit (the signing key is on the Backups tab):
+#   restore -identity /b/id_ed25519 -signing-key BASE64 /b/....janusbackup
+```
+
+The passphrase is asked, or read from `JANUS_BACKUP_PASSPHRASE`; the
+master key goes to `JANUS_CONTROLLER_MASTER_KEY_FILE` (or the data
+directory). A changed byte, or a backup another Controller signed, is
+refused.
+
+| If someone gets... | they have |
+|---|---|
+| the bucket | encrypted backups: nothing without the kit and its passphrase |
+| the kit, not its passphrase | an encrypted file |
+| the Controller, running | what the Controller can do while they hold it - it can't read past backups, and versioning or Object Lock keeps them |
+| the kit and its passphrase | the backups: keep them like the fleet's recovery kit |
+
 ### API tokens and Terraform
 
 A program uses the Controller's API with an API token (the **API tokens**

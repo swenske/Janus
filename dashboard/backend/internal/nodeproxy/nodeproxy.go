@@ -242,3 +242,7 @@ func handleInfo(w http.ResponseWriter, r *http.Request, node *store.Node) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
+
+// Conn is node's shared gRPC connection, for the Controller's own reads
+// of it (its backups): Automation unless the context says who.
+func Conn(node *store.Node) (*grpc.ClientConn, error) { return dialNode(node) }
