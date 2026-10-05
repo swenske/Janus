@@ -369,6 +369,16 @@ back from where you keep it, Let's Encrypt's are issued again.
    when none did for twice the interval - admins see **Backup failing**
    (or **late**) at the top of the Controller.
 
+With **Backblaze B2** (10 GB free - a backup is tens of KiB): a private
+bucket with Object Lock (a default retention of 30 days) and a lifecycle
+rule that deletes files after 31; an application key for that bucket
+only, with `listBuckets`, `listFiles` and `writeFiles` - no
+`readFiles`, no `deleteFiles`; then endpoint
+`https://s3.<region>.backblazeb2.com` (e.g. `s3.eu-central-003...`),
+region `eu-central-003`, path-style. A restore needs a key that may
+read (`readFiles`, `listFiles`). Synology's Cloud Sync, download-only
+with such a key, keeps a copy on a NAS.
+
 Each backup is one `.janusbackup` object: its manifest, signed by the
 Controller (Ed25519 - age alone doesn't say who encrypted a file), then
 the encrypted archive. Give the Controller credentials that may only
