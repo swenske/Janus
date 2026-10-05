@@ -174,4 +174,3 @@ func TestTrustPolicy(t *testing.T) {
 		t.Errorf("%d browsers kept, want %d", len(list), maxTrustedBrowsers)
 	}
 }
-
