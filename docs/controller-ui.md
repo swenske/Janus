@@ -137,7 +137,10 @@ role's required first factor, then its recovery codes once
 remove and new recovery codes with the password), `SSHKeys` (janusctl's
 keys: add - only once the account has a second factor -, remove, and the
 `janusctl login` command with the Controller's fingerprint from
-`/api/controller-info`) and the password form.
+`/api/controller-info`) and the password form. `#/cli-login` and `#/cli-device` (`CliLogin.jsx`,
+rendered in place of the tabs once signed in) approve a janusctl
+certificate: the key's fingerprint, a role up to the account's; the
+first sends the browser back to janusctl's `127.0.0.1` listener.
 Passkeys go through `webauthn.js` (base64url options to
 `navigator.credentials` and back); they're offered only where the page's
 host is a name (`mfa.rp_id`), and the TOTP QR code is an SVG the

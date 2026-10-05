@@ -30,6 +30,7 @@ import { Logo, ThemeToggle } from './shared/theme.jsx'
 import { MeContext, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
+import { CliDevicePage, CliLoginPage } from './CliLogin.jsx'
 import TokensPage from './Tokens.jsx'
 import UsersPage from './Users.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
@@ -921,7 +922,11 @@ function MainApp() {
           onChange={(id) => navigate(id === 'nodes' ? '/' : `/${id}`)}
         />
         {consoleOf && <MachineConsole machine={consoleOf} onClose={() => setConsoleOf(null)} />}
-        {tab === 'tokens' ? (
+        {route.startsWith('/cli-login') ? (
+          <CliLoginPage route={route} />
+        ) : route.startsWith('/cli-device') ? (
+          <CliDevicePage route={route} />
+        ) : tab === 'tokens' ? (
           <TokensPage />
         ) : tab === 'accounts' && can('admin') ? (
           <UsersPage />

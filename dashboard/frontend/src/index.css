@@ -134,3 +134,5 @@
 .factor { display: flex; align-items: center; gap: 0.55rem; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius); }
 .copy-command { padding: 0.35rem 0.5rem; border-radius: var(--radius-sm); background: var(--surface-2); word-break: break-all; }
 .modal.account-modal { width: min(640px, 100%); }
+.cli-login { max-width: 640px; }
+.key-fp { word-break: break-all; font-size: 0.9rem; }
