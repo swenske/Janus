@@ -71,10 +71,14 @@ topics:
           - label: Architecture
             pages:
               - { file: docs/architecture.md, title: Architecture, label: Architecture }
+              - { file: docs/internals/boot.md, label: Boot and A/B updates }
+              - { file: docs/internals/trust.md, label: Trust and certificates }
+              - { file: docs/internals/controller.md, label: The Controller }
               - { file: docs/api-routes.md, title: The gRPC API, label: The gRPC API }
               - { file: docs/roadmap.md, label: Roadmap }
           - label: Images
             pages:
+              - { file: docs/internals/image-build.md, label: How an image is built }
               - { file: image/disk/README.md, slug: disk-image, title: The disk image, label: The disk image }
               - { file: image/iso/README.md, slug: iso-image, title: The ISO image, label: The ISO image }
               - { file: image/pxe/README.md, slug: pxe, title: Network boot (PXE / HTTP Boot), label: Network boot }
@@ -90,11 +94,17 @@ topics:
         groups:
           - label: Develop
             pages:
+              - { file: docs/contributing/development.md, label: Development environment }
+              - { file: docs/contributing/testing.md, label: Testing }
+              - { file: docs/contributing/conventions.md, label: Conventions }
               - { file: local-dev/README.md, title: The local dev container, label: Local dev container }
               - { file: docs/controller-ui.md, title: Controller UI design notes, label: Controller UI design }
+              - { file: docs/contributing/extensions.md, label: Writing an extension }
+              - { file: docs/contributing/writing-docs.md, label: Writing docs }
               - { file: docs/raspberry-pi-testing.md, label: Raspberry Pi hardware tests }
           - label: Ship
             pages:
+              - { file: docs/contributing/releasing.md, label: Releasing }
               - { file: docs/ci-runners.md, label: CI runners }
               - { file: docs/upstreams.md, label: Following upstreams }
       - path: private-cloud

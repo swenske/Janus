@@ -60,11 +60,15 @@ How Janus works inside - the architecture, the boot chain, the images, the API.
 ### Architecture
 
 - [Architecture](architecture.md)
+- [Boot and A/B updates](internals/boot.md)
+- [Trust and certificates](internals/trust.md)
+- [The Controller](internals/controller.md)
 - [The gRPC API](api-routes.md)
 - [Roadmap](roadmap.md)
 
 ### Images
 
+- [How an image is built](internals/image-build.md)
 - [The disk image](../image/disk/README.md)
 - [The ISO image](../image/iso/README.md)
 - [Network boot](../image/pxe/README.md)
@@ -79,12 +83,18 @@ Contribute to Janus, or integrate it into your private cloud.
 
 #### Develop
 
+- [Development environment](contributing/development.md)
+- [Testing](contributing/testing.md)
+- [Conventions](contributing/conventions.md)
 - [Local dev container](../local-dev/README.md)
 - [Controller UI design](controller-ui.md)
+- [Writing an extension](contributing/extensions.md)
+- [Writing docs](contributing/writing-docs.md)
 - [Raspberry Pi hardware tests](raspberry-pi-testing.md)
 
 #### Ship
 
+- [Releasing](contributing/releasing.md)
 - [CI runners](ci-runners.md)
 - [Following upstreams](upstreams.md)
 

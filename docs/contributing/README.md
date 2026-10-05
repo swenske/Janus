@@ -36,6 +36,14 @@ container](../../local-dev/README.md).
 
 ## In this section
 
+- [Development environment](development.md) - what to install, the
+  usual loop, the Controller and an image locally.
+- [Testing](testing.md) - unit and system tests, SELinux's rule, the
+  habits and traps.
+- [Conventions](conventions.md) - commits, code, design rules,
+  upstreams.
+- [Writing an extension](extensions.md) and [writing docs](writing-docs.md).
+- [Releasing](releasing.md) - how a release is cut and what it publishes.
 - [Local dev container](../../local-dev/README.md) - a real janusd and
   HAProxy in an ordinary container.
 - [Controller UI design](../controller-ui.md) - the Controller's design
