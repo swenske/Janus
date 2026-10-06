@@ -85,6 +85,14 @@ func (m *metricsSources) node() []exporter.Family {
 		}
 	}
 	fams = append(fams, gauge("janus_extension_info", "The optional extensions built into the node's image.", exts...))
+	var comps []exporter.Sample
+	if info := api.ImageInfo(); info != nil {
+		pinned := func(b bool) string { return strconv.FormatBool(b) }
+		comps = append(comps,
+			sample(1, "component", "haproxy", "variant", info.HAProxy.Variant, "version", info.HAProxy.Version, "pinned", pinned(info.HAProxy.Pinned)),
+			sample(1, "component", "kernel", "variant", info.Kernel.Variant, "version", info.Kernel.Version, "pinned", pinned(info.Kernel.Pinned)))
+	}
+	fams = append(fams, gauge("janus_component_info", "The HAProxy branch and kernel track the node's image is built with, and their versions - pinned=\"true\" when its schematic names the variant, else it follows each release's default.", comps...))
 	marker, err := bootcommit.Read()
 	pending := err == nil && marker != nil
 	fams = append(fams, gauge("janus_upgrade_pending_confirmation", "1 while an upgrade waits for its health confirmation - the node reverts to the previous slot if it doesn't come.",

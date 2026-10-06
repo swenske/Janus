@@ -1,6 +1,7 @@
 package schematic
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -285,5 +286,33 @@ func TestParseCatalogRefusesVariants(t *testing.T) {
 		if _, err := ParseCatalog([]byte(doc)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+func TestImageInfo(t *testing.T) {
+	c, _ := ParseCatalog([]byte(variantCatalog))
+	sc, _ := Parse([]byte(`{"customization":{"extensions":["qemu-guest-agent"],"kernel":"longterm"}}`))
+	r, err := c.Resolve(sc, "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := NewImageInfo(sc, r, "v2", "amd64")
+	// As extpack writes it: indented, the schematic too.
+	data, _ := json.MarshalIndent(info, "", "  ")
+	got, gotSc, err := ParseImageInfo(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotSc.ID() != sc.ID() || string(got.Schematic) != string(sc.Canonical()) || got.HAProxy != (ImageComponent{Variant: "3.4", Version: "3.4.6", Default: true}) ||
+		got.Kernel != (ImageComponent{Variant: "longterm", Version: "6.18.55", Pinned: true}) {
+		t.Errorf("image info: %s", data)
+	}
+	// A schematic that isn't its ID's.
+	bad := strings.Replace(string(data), `"kernel": "longterm"`, `"kernel": "stable"`, 1)
+	if bad == string(data) {
+		t.Fatal("the test's edit changed nothing")
+	}
+	if _, _, err := ParseImageInfo([]byte(bad)); err == nil {
+		t.Error("a schematic that doesn't match its ID accepted")
 	}
 }

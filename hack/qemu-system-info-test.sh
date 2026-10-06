@@ -115,7 +115,26 @@ if [ -z "$mem_total" ] || [ "$mem_total" -le 0 ]; then
   fail=1
 fi
 
+# What the image says it is built with (its /usr/lib/janus/image.json):
+# the HAProxy it really runs, the kernel it really booted - and, when the
+# Makefile says which, the variants the build picked.
+ctl() { "$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
+VERSION_OUT="$(ctl version)"
+echo "$VERSION_OUT"
+running_haproxy="$(ctl haproxy show-info | awk '/^Version:/ {print $2}' | cut -d- -f1)"
+running_kernel="$(echo "$OUT" | awk '/^kernel version:/ {print $3}')"
+haproxy_line="$(grep '^HAProxy: ' <<< "$VERSION_OUT" || true)"
+kernel_line="$(grep '^Kernel track: ' <<< "$VERSION_OUT" || true)"
+case "$haproxy_line" in
+  "HAProxy: $running_haproxy (branch ${EXPECT_HAPROXY_BRANCH:-}"*) ;;
+  *) echo "System info test FAILED: Version says '$haproxy_line', HAProxy runs $running_haproxy (expected branch: ${EXPECT_HAPROXY_BRANCH:-any})" >&2; fail=1 ;;
+esac
+case "$kernel_line" in
+  "Kernel track: ${EXPECT_KERNEL_TRACK:-}"*"(version $running_kernel, "*) ;;
+  *) echo "System info test FAILED: Version says '$kernel_line', the kernel is $running_kernel (expected track: ${EXPECT_KERNEL_TRACK:-any})" >&2; fail=1 ;;
+esac
+
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi
-echo "System info test OK: Memory/CPUInfo/LoadAvg/DiskStats and VersionResponse's active_slot/kernel_version/go_version all returned real, sane values from a real boot"
+echo "System info test OK: Memory/CPUInfo/LoadAvg/DiskStats and VersionResponse's active_slot/kernel_version/go_version, HAProxy branch and kernel track all returned real, sane values from a real boot"

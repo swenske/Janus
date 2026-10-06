@@ -14,12 +14,18 @@ import (
 
 // NodeStatus is the at-a-glance state the node list shows for each node.
 type NodeStatus struct {
-	Reachable       bool   `json:"reachable"`
-	Error           string `json:"error,omitempty"`
-	Hostname        string `json:"hostname,omitempty"`
-	Version         string `json:"version,omitempty"`
-	ActiveSlot      string `json:"active_slot,omitempty"`
-	KernelVersion   string `json:"kernel_version,omitempty"`
+	Reachable     bool   `json:"reachable"`
+	Error         string `json:"error,omitempty"`
+	Hostname      string `json:"hostname,omitempty"`
+	Version       string `json:"version,omitempty"`
+	ActiveSlot    string `json:"active_slot,omitempty"`
+	KernelVersion string `json:"kernel_version,omitempty"`
+	// KernelTrack, HAProxyVersion and HAProxyBranch: what the node's image
+	// says it is built with (VersionResponse) - empty for a node that
+	// doesn't say.
+	KernelTrack     string `json:"kernel_track,omitempty"`
+	HAProxyVersion  string `json:"haproxy_version,omitempty"`
+	HAProxyBranch   string `json:"haproxy_branch,omitempty"`
 	BootTimeUnix    uint64 `json:"boot_time_unix,omitempty"`
 	HAProxyState    string `json:"haproxy_state,omitempty"`
 	HAProxyHealth   string `json:"haproxy_health,omitempty"`
@@ -68,6 +74,8 @@ func Status(ctx context.Context, node *store.Node) NodeStatus {
 		}
 		mu.Lock()
 		st.Version, st.ActiveSlot, st.KernelVersion = v.GetVersion(), v.GetActiveSlot(), v.GetKernelVersion()
+		st.KernelTrack = v.GetKernel().GetVariant()
+		st.HAProxyVersion, st.HAProxyBranch = v.GetHaproxy().GetVersion(), v.GetHaproxy().GetVariant()
 		for _, e := range v.GetExtensions() {
 			extensions = append(extensions, e.GetName())
 		}

@@ -7,10 +7,12 @@ package api
 import (
 	"context"
 	"crypto/x509"
+	"log"
 	"os"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -76,13 +78,88 @@ func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Ve
 			resp.Extensions = append(resp.Extensions, &janusv1alpha1.ExtensionInfo{Name: m.Name, Version: m.Version, Description: m.Description})
 		}
 	}
+	if info := ImageInfo(); info != nil {
+		resp.Schematic = string(info.Schematic)
+		resp.Haproxy = imageComponent(info.HAProxy)
+		resp.Kernel = imageComponent(info.Kernel)
+		return resp, nil
+	}
+	// An image that doesn't say (a local or test build): what can be told
+	// from the running system.
+	if resp.SchematicId == schematic.DefaultID() {
+		resp.Schematic = string(schematic.Default().Canonical())
+	}
+	if s.HAProxy != nil {
+		if info, err := s.HAProxy.ShowInfo(); err == nil {
+			v := HAProxyVersion(info.Version)
+			resp.Haproxy = &janusv1alpha1.ImageComponent{Version: v, Variant: haproxyBranch(v)}
+		}
+	}
 	return resp, nil
+}
+
+func imageComponent(c schematic.ImageComponent) *janusv1alpha1.ImageComponent {
+	return &janusv1alpha1.ImageComponent{Variant: c.Variant, Version: c.Version, Pinned: c.Pinned, ReleaseDefault: c.Default}
+}
+
+// HAProxyVersion is the release in show info's Version ("3.4.6-56332c5":
+// "3.4.6").
+func HAProxyVersion(v string) string {
+	v, _, _ = strings.Cut(v, "-")
+	return v
+}
+
+// haproxyBranch is a HAProxy version's branch ("3.4.6": "3.4").
+func haproxyBranch(v string) string {
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) < 3 {
+		return ""
+	}
+	return parts[0] + "." + parts[1]
+}
+
+var (
+	imageInfoOnce sync.Once
+	imageInfo     *schematic.ImageInfo
+	// imageInfoPath and cmdlinePath are variables for tests.
+	imageInfoPath = schematic.ImageInfoPath
+	cmdlinePath   = "/proc/cmdline"
+)
+
+// ImageInfo is what the node's image says it is built with
+// (schematic.ImageInfoPath, under dm-verity with the rest of the
+// rootfs), read once: nil when the image doesn't say, or when its
+// schematic isn't the one the node booted (logged - the signed command
+// line is authoritative).
+func ImageInfo() *schematic.ImageInfo {
+	imageInfoOnce.Do(func() {
+		data, err := os.ReadFile(imageInfoPath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				log.Printf("image: %v", err)
+			}
+			return
+		}
+		info, _, err := schematic.ParseImageInfo(data)
+		if err != nil {
+			log.Printf("image: %s: %v", imageInfoPath, err)
+			return
+		}
+		if booted := currentSchematic(cmdlinePath); booted != info.SchematicID {
+			log.Printf("image: %s describes schematic %s, but this node booted %s - not reported", imageInfoPath, info.SchematicID, booted)
+			return
+		}
+		imageInfo = info
+	})
+	return imageInfo
 }
 
 // CurrentSchematic is the image schematic this node booted, from its
 // signed kernel command line; empty if it can't be read.
-func CurrentSchematic() string {
-	cmdline, err := os.ReadFile("/proc/cmdline")
+func CurrentSchematic() string { return currentSchematic(cmdlinePath) }
+
+func currentSchematic(path string) string {
+	cmdline, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}

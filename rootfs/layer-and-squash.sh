@@ -6,6 +6,9 @@
 #
 # Usage: rootfs/layer-and-squash.sh <tree> <out-dir>
 #   JANUS_EXTENSIONS  space-separated extension tars (hack/extpack)
+#   JANUS_IMAGE_INFO  the image's image.json (hack/extpack image-info):
+#                     its schematic and the HAProxy branch and kernel
+#                     track it is built with - what the node reports
 #
 # <tree>/.janus-labels ("path type" lines) gives the SELinux types of the
 # executables; each extension tar brings its own. It's consumed here and
@@ -40,6 +43,11 @@ for ext in ${JANUS_EXTENSIONS:-}; do
   fi
   echo "Layered extension $(basename "$ext")"
 done
+
+if [ -n "${JANUS_IMAGE_INFO:-}" ]; then
+  mkdir -p "$TREE/usr/lib/janus"
+  install -m 0644 "$JANUS_IMAGE_INFO" "$TREE/usr/lib/janus/image.json"
+fi
 
 # SELinux types via mksquashfs's pseudo-file `x` action, not setfattr on
 # the tree before mksquashfs runs, which turned out not to work at all:

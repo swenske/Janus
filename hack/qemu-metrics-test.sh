@@ -115,6 +115,13 @@ grep -q "^janus_build_info{version=\"[^\"]\+\",go_version=\"go[0-9.]\+\",arch=\"
 echo "  ok: build info with the default schematic"
 grep -q '^janus_boot_info{slot="A",kernel="[0-9.]\+"} 1$' "$WORKDIR/metrics.txt" || fail "janus_boot_info isn't slot A"
 echo "  ok: boot slot A"
+# The image's HAProxy branch and kernel track (its image.json): the
+# defaults, which a default image doesn't pin.
+grep -q '^janus_component_info{component="haproxy",variant="[0-9]\+\.[0-9]\+",version="[0-9.]\+",pinned="false"} 1$' "$WORKDIR/metrics.txt" \
+  || fail "janus_component_info doesn't carry the image's HAProxy branch"
+grep -q '^janus_component_info{component="kernel",variant="[a-z]\+",version="[0-9.]\+",pinned="false"} 1$' "$WORKDIR/metrics.txt" \
+  || fail "janus_component_info doesn't carry the image's kernel track"
+echo "  ok: the image's HAProxy branch and kernel track"
 expect "the API CA expires in years" 'janus_certificate_expiry_timestamp_seconds{source="api",certificate="ca",cn="Janus node CA: *' 'v > now + 5*365*86400'
 expect "the API server certificate is valid" 'janus_certificate_expiry_timestamp_seconds{source="api",certificate="server",cn=""}' 'v > now + 30*86400'
 expect "the uploaded HAProxy certificate's real expiry" 'janus_certificate_expiry_timestamp_seconds{source="haproxy",certificate="metrics-test.pem",cn="metrics.example.test"}' "v == $CERT_NOT_AFTER"

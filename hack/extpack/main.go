@@ -29,6 +29,12 @@
 //
 // variant prints the HAProxy branch or kernel track a schematic gets
 // (variants.mk, in the current directory): the Makefile builds with it.
+//
+//	extpack image-info [-schematic FILE] [-catalog FILE] -arch ARCH [-version V] -out FILE
+//
+// image-info writes the image.json of an image of the schematic
+// (schematic.ImageInfoPath): the variants it gets from the release's
+// catalog, or from variants.mk without -catalog.
 package main
 
 import (
@@ -69,6 +75,8 @@ func main() {
 		check(os.Args[2:])
 	case "variant":
 		variant(os.Args[2:])
+	case "image-info":
+		imageInfo(os.Args[2:])
 	default:
 		log.Fatalf("unknown command %q", os.Args[1])
 	}
@@ -354,5 +362,46 @@ func variant(args []string) {
 		fmt.Println(haproxy.Name)
 	} else {
 		fmt.Println(kernel.Name)
+	}
+}
+
+func imageInfo(args []string) {
+	fl := flag.NewFlagSet("image-info", flag.ExitOnError)
+	file := fl.String("schematic", "", "schematic JSON (default: the default schematic)")
+	catalogFile := fl.String("catalog", "", "the release's schematic-catalog.json (default: variants.mk)")
+	arch := fl.String("arch", "", "architecture")
+	version := fl.String("version", "", "Janus release")
+	out := fl.String("out", "", "output file")
+	_ = fl.Parse(args)
+	if *arch == "" || *out == "" {
+		fl.Usage()
+		os.Exit(2)
+	}
+	sc := loadSchematic(*file)
+	var c *schematic.Catalog
+	if *catalogFile != "" {
+		data, err := os.ReadFile(*catalogFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if c, err = schematic.ParseCatalog(data); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		set, err := variants.Load(".")
+		if err != nil {
+			log.Fatal(err)
+		}
+		c = set.CatalogVariants()
+	}
+	// Only the variants: the extensions are checked where they're layered.
+	r, err := c.Resolve(&schematic.Schematic{Customization: schematic.Customization{
+		HAProxy: sc.HAProxyBranch(), Kernel: sc.KernelTrack()}}, *arch)
+	if err != nil {
+		log.Fatal(err)
+	}
+	data, _ := json.MarshalIndent(schematic.NewImageInfo(sc, r, *version, *arch), "", "  ")
+	if err := os.WriteFile(*out, append(data, '\n'), 0o644); err != nil {
+		log.Fatal(err)
 	}
 }

@@ -361,6 +361,31 @@ func runVersion(conn *grpc.ClientConn) {
 	for _, e := range resp.GetExtensions() {
 		fmt.Printf("Extension: %s %s\n", e.GetName(), e.GetVersion())
 	}
+	if h := resp.GetHaproxy(); h.GetVersion() != "" {
+		fmt.Printf("HAProxy: %s%s\n", h.GetVersion(), variantNote("branch", h))
+	}
+	if k := resp.GetKernel(); k.GetVariant() != "" {
+		fmt.Printf("Kernel track: %s%s\n", k.GetVariant(), variantNote("version", k))
+	}
+}
+
+// variantNote says what an image component is: its branch (or version),
+// and whether the image's schematic pins it.
+func variantNote(what string, c *janusv1alpha1.ImageComponent) string {
+	detail := c.GetVariant()
+	if what == "version" {
+		detail = c.GetVersion()
+	}
+	if detail == "" {
+		return ""
+	}
+	switch {
+	case c.GetPinned():
+		return " (" + what + " " + detail + ", pinned by the schematic)"
+	case c.GetReleaseDefault():
+		return " (" + what + " " + detail + ", the release's default)"
+	}
+	return " (" + what + " " + detail + ")"
 }
 
 // runSystem is the dashboard's own planned single-node fetch, bundled

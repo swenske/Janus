@@ -44,10 +44,14 @@ const (
 )
 
 type motdInfo struct {
-	Version        string
-	KernelVersion  string
+	Version       string
+	KernelVersion string
+	// KernelTrack and HAProxyVersion: what the image says it is built with
+	// (api.ImageInfo), when it says.
+	KernelTrack    string
 	ActiveSlot     string
 	APIAddresses   []string
+	HAProxyVersion string
 	HAProxyRunning bool
 	FirstBoot      bool
 	// CAFingerprint is the SHA-256 of the node's own CA (hex): what
@@ -74,6 +78,13 @@ func renderMOTD(info motdInfo, color bool) string {
 	if info.HAProxyRunning {
 		haproxyState = "running"
 	}
+	if info.HAProxyVersion != "" {
+		haproxyState = info.HAProxyVersion + " · " + haproxyState
+	}
+	kernel := info.KernelVersion
+	if info.KernelTrack != "" {
+		kernel += " " + info.KernelTrack
+	}
 	api := "(no address yet)"
 	if len(info.APIAddresses) > 0 {
 		api = strings.Join(info.APIAddresses, ", ")
@@ -86,7 +97,7 @@ func renderMOTD(info motdInfo, color bool) string {
 		paint(ansiDim, "Immutable HAProxy appliance · alpha"),
 		"",
 		"version   " + info.Version,
-		"kernel    " + info.KernelVersion + slot,
+		"kernel    " + kernel + slot,
 		"api       " + api + " (gRPC, mTLS)",
 		"haproxy   " + haproxyState,
 	}

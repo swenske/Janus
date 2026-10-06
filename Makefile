@@ -398,7 +398,8 @@ qemu-arm64-network-test: rpi4-kernel-build rpi4-initramfs-full
 # and moves on, same tolerant pattern as a missing STATE drive.
 rpi4-rootfs-build: rpi4-init rpi4-daemon-static rpi4-haproxy-build selinux-policy ca-certificates
 	mkdir -p $(BUILD_DIR)/rpi4/rootfs
-	JANUS_VERSION=$(VERSION) ./rootfs/assemble.sh $(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rpi4/init $(BUILD_DIR)/rpi4/janusd \
+	go run ./hack/extpack image-info -arch arm64 -version $(VERSION) -out $(BUILD_DIR)/rpi4/rootfs/image.json
+	JANUS_VERSION=$(VERSION) JANUS_IMAGE_INFO=$(BUILD_DIR)/rpi4/rootfs/image.json ./rootfs/assemble.sh $(BUILD_DIR)/rpi4/rootfs $(BUILD_DIR)/rpi4/init $(BUILD_DIR)/rpi4/janusd \
 		$(BUILD_DIR)/rpi4/haproxy rootfs/base/etc/haproxy/haproxy.cfg \
 		$(BUILD_DIR)/selinux/janus.policy $(BUILD_DIR)/ca-certificates/ca-certificates.crt
 
@@ -558,8 +559,11 @@ ca-certificates:
 
 rootfs-build: init shutdown-bin daemon-static haproxy-build selinux-policy ca-certificates
 	mkdir -p $(BUILD_DIR)/rootfs
+	go run ./hack/extpack image-info $(if $(SCHEMATIC),-schematic $(SCHEMATIC)) -arch amd64 -version $(VERSION) \
+		-out $(BUILD_DIR)/rootfs/image.json
 	layers="$$($(if $(SCHEMATIC),go run ./hack/extpack layers -schematic $(SCHEMATIC) -arch amd64 -dir $(EXT_DIR),true))" && \
 	JANUS_SHUTDOWN_BIN=$(BUILD_DIR)/shutdown JANUS_VERSION=$(VERSION) JANUS_EXTENSIONS="$$layers" \
+	JANUS_IMAGE_INFO=$(BUILD_DIR)/rootfs/image.json \
 	./rootfs/assemble.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/init $(BUILD_DIR)/janusd \
 		$(BUILD_DIR)/haproxy rootfs/base/etc/haproxy/haproxy.cfg \
 		$(BUILD_DIR)/selinux/janus.policy $(BUILD_DIR)/ca-certificates/ca-certificates.crt
@@ -737,6 +741,7 @@ qemu-lifecycle-rollback-test: build disk-image
 # sane values from a real boot - see internal/api/system_stats.go and
 # hack/qemu-system-info-test.sh.
 qemu-system-info-test: build disk-image
+	EXPECT_HAPROXY_BRANCH=$(HAPROXY_BRANCH) EXPECT_KERNEL_TRACK=$(KERNEL_TRACK) \
 	./hack/qemu-system-info-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
 # Dashboard prep, tranche 2: builds dashboardd (dashboard/backend) -

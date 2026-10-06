@@ -63,7 +63,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
-| `Version` | | ✅ | Daemon version, Go version, kernel version, active A/B slot, architecture, image schematic ID and extensions ([image-factory.md](image-factory.md)) - connectivity check |
+| `Version` | | ✅ | Daemon version, Go version, kernel version, active A/B slot, architecture, image schematic (ID and canonical JSON) and extensions, and the HAProxy branch and kernel track the image is built with, pinned or default ([image-factory.md](image-factory.md)) - connectivity check |
 | `Hostname` | | ✅ | `janusctl system hostname` |
 | `Reboot` | | ✅ | Soft-stops HAProxy (in-flight connections get 5s), syncs, reboots - both modes are a full firmware reboot (no kexec) |
 | `Shutdown` | | ✅ | Same graceful stop, then powers off |

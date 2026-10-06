@@ -193,6 +193,30 @@ message VersionResponse {
   // The node's CPU architecture, as Go names it ("amd64", "arm64") - which
   // release bundles fit it.
   string arch = 9;
+  // The image's schematic in canonical JSON (schematic_id is its SHA-256):
+  // the extensions, HAProxy branch and kernel track it picks - unset ones
+  // follow each release's default. From the image's own
+  // /usr/lib/janus/image.json; empty for an image that doesn't say.
+  string schematic = 10;
+  // The HAProxy the image is built with: its LTS branch and version.
+  ImageComponent haproxy = 11;
+  // The kernel track the image is built with, and that track's version in
+  // the image (kernel_version is the running kernel's).
+  ImageComponent kernel = 12;
+}
+
+// A HAProxy branch or kernel track an image is built with.
+message ImageComponent {
+  // The HAProxy branch ("3.2") or kernel track ("stable"); empty when the
+  // image doesn't say.
+  string variant = 1;
+  // Its version in the image: "3.2.25", "7.2.9".
+  string version = 2;
+  // The image's schematic names this variant; false: the image got its
+  // release's default, and moves with it from release to release.
+  bool pinned = 3;
+  // The variant is its release's default.
+  bool release_default = 4;
 }
 
 // An optional extension built into the node's image.

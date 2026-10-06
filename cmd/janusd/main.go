@@ -54,6 +54,7 @@ import (
 	"github.com/swenske/Janus/internal/nodeexporter"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/ring"
+	"github.com/swenske/Janus/internal/schematic"
 	"github.com/swenske/Janus/internal/selfregister"
 	"github.com/swenske/Janus/internal/timesync"
 	"github.com/swenske/Janus/internal/vrrp"
@@ -427,11 +428,14 @@ func main() {
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr, Consul: consulMgr, Services: extMgr})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
+	kernelTrack, haproxyVersion := logImage(haproxyMgr)
 	printMOTD(motdInfo{
 		Version:        version,
 		KernelVersion:  api.KernelVersion(),
+		KernelTrack:    kernelTrack,
 		ActiveSlot:     api.CurrentActiveSlot(),
 		APIAddresses:   apiAddresses(*addr, pki.LocalIPs()),
+		HAProxyVersion: haproxyVersion,
 		HAProxyRunning: haproxyRunning,
 		FirstBoot:      pkiBootstrap.AdminIssued,
 		CAFingerprint:  pki.Fingerprint(local.CA().Cert.Raw),
@@ -440,6 +444,35 @@ func main() {
 		fmt.Fprintln(os.Stderr, "serve:", err)
 		os.Exit(1)
 	}
+}
+
+// logImage logs what the image says it is built with (api.ImageInfo),
+// and returns its kernel track and HAProxy version for the console
+// banner - from the running HAProxy for an image that doesn't say.
+func logImage(m *haproxy.Manager) (kernelTrack, haproxyVersion string) {
+	info := api.ImageInfo()
+	if info == nil {
+		if hi, err := m.ShowInfo(); err == nil {
+			haproxyVersion = api.HAProxyVersion(hi.Version)
+		}
+		return "", haproxyVersion
+	}
+	choice := func(c schematic.ImageComponent) string {
+		switch {
+		case c.Pinned:
+			return "pinned"
+		case c.Default:
+			return "the release's default"
+		}
+		return "default"
+	}
+	log.Printf("image: schematic %s - HAProxy %s (branch %s, %s), kernel %s %s (%s)", info.SchematicID,
+		info.HAProxy.Version, info.HAProxy.Variant, choice(info.HAProxy),
+		info.Kernel.Variant, info.Kernel.Version, choice(info.Kernel))
+	if running := api.KernelVersion(); running != "" && running != info.Kernel.Version {
+		log.Printf("image: running kernel %s, but the image says its %s track is %s", running, info.Kernel.Variant, info.Kernel.Version)
+	}
+	return info.Kernel.Variant, info.HAProxy.Version
 }
 
 // refreshServerCert reissues the server certificate if the node's

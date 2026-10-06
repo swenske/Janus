@@ -43,7 +43,10 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$OUT"
 
 echo "== rootfs: $VERSION base + extensions [${LAYERS:-none}], schematic $JANUS_SCHEMATIC"
-JANUS_EXTENSIONS="$LAYERS" ./rootfs/assemble-from-base.sh "$WORK/rootfs" "$IN/rootfs-base-$ARCH.tar"
+extpack image-info -schematic "$SCHEMATIC_FILE" -catalog "$IN/schematic-catalog.json" -arch "$ARCH" \
+  -version "$VERSION" -out "$WORK/image.json"
+JANUS_EXTENSIONS="$LAYERS" JANUS_IMAGE_INFO="$WORK/image.json" \
+  ./rootfs/assemble-from-base.sh "$WORK/rootfs" "$IN/rootfs-base-$ARCH.tar"
 ./rootfs/state-image.sh "$WORK/state.img" 128
 
 case "$ARCH" in

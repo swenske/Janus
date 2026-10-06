@@ -74,6 +74,7 @@ authentication: restrict who reaches the port.
 |---|---|---|---|
 | `janus_build_info` | gauge | `version`, `go_version`, `arch`, `schematic` | Always 1: the release and [image schematic](image-factory.md) the node runs |
 | `janus_extension_info` | gauge | `extension`, `version` | Always 1, per extension in the image |
+| `janus_component_info` | gauge | `component` (`haproxy`, `kernel`), `variant`, `version`, `pinned` | Always 1, per component: the HAProxy branch and kernel track the image is built with, and their versions - `pinned="true"` when its schematic names the variant, else it follows each release's default ([image-factory.md](image-factory.md)) |
 | `janus_boot_info` | gauge | `slot`, `kernel` | Always 1: the A/B slot booted, and the kernel |
 | `janus_daemon_start_time_seconds` | gauge | | When janusd started - it changes when janusd restarts |
 | `janus_upgrade_pending_confirmation` | gauge | | 1 while an upgrade waits for its health confirmation; the node reverts if it doesn't come |
