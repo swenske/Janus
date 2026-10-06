@@ -47,8 +47,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src/musl-cross-make
 COPY --from=fetch /src/musl-cross-make .
+# GCC, binutils, GMP, MPC and MPFR from kernel.org's GNU mirror rather
+# than upstream's default, ftpmirror.gnu.org: that redirector and
+# ftp.gnu.org behind it went down together on 2026-10-06, and a runner
+# with a cold cache couldn't build this toolchain at all. musl-cross-
+# make checks every tarball against its own hashes/, whichever mirror
+# served it.
 RUN echo 'TARGET = aarch64-linux-musl' > config.mak \
     && echo 'OUTPUT = /out' >> config.mak \
+    && echo 'GNU_SITE = https://mirrors.kernel.org/gnu' >> config.mak \
     && make -j"$(nproc)" \
     && make install
 
