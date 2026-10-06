@@ -733,7 +733,8 @@ starts, rolled back by itself.
 For local development without Docker:
 
 ```sh
-make dashboard-build   # -> bin/dashboardd
+make dashboard-build   # the frontend rebuilt (Node.js 24), then bin/dashboardd
+make dashboard-bin     # or bin/dashboardd alone, from the committed frontend - Go only
 ./bin/dashboardd -addr :8080 -data-dir ./dashboard-data
 ```
 

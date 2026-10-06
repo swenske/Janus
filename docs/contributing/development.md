@@ -12,11 +12,13 @@ builds and tests the control plane; QEMU builds and boots the images.
 | The gRPC contract | [`buf`](https://buf.build), `protoc-gen-go`, `protoc-gen-go-grpc` - only to change `api/proto` |
 | The images, the kernel, HAProxy, extensions, the docs site | Docker (BuildKit), and for the images: `qemu-utils`, `squashfs-tools`, `cryptsetup-bin`, `e2fsprogs`, `gdisk`, `mtools`, `dosfstools`, `xorriso`, `systemd-ukify`, `sbsigntool` |
 | Booting them | `qemu-system-x86` (and `-arm` for the Pi), `ovmf` (and `qemu-efi-aarch64`), `python3-virt-firmware` for Secure Boot - access to `/dev/kvm` |
-| The Controller's and the site's frontends | Node.js 20.19 or later (Vite 8) - their builds are committed, so only to change them |
+| The Controller's and the site's frontends | Node.js 24, the active LTS (their `.nvmrc`) - their builds are committed, so only to change them |
 
-The self-hosted runners install the same list
-(`.github/actions/runner-setup/action.yml`). The docs site needs no Node
-on the machine: it builds in Docker ([writing docs](writing-docs.md)).
+The self-hosted runners install the same list but Node
+(`.github/actions/runner-setup/action.yml`): their tests build the
+Controller from its committed frontend (`make dashboard-bin`). The docs
+site needs no Node on the machine either: it builds in Docker ([writing
+docs](writing-docs.md)).
 
 ## The usual loop
 

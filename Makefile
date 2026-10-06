@@ -20,7 +20,7 @@ GEN_DIR := gen
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test \
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
-	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build \
+	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
 	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test local-dev-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
@@ -730,10 +730,17 @@ qemu-system-info-test: build disk-image
 dashboard-frontend-build:
 	cd dashboard/frontend && npm ci && npm run build
 
-dashboard-build: dashboard-frontend-build
+# The Controller's binaries from the committed frontend build - Go only,
+# what the tests need: no Node.js and no npm on the runners (ci.yml
+# checks the committed build matches its sources).
+dashboard-bin:
 	mkdir -p $(BIN_DIR)
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/dashboardd ./dashboard/backend
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/janus-controller-updater ./dashboard/updater
+
+# The frontend rebuilt from its sources, then the binaries.
+dashboard-build: dashboard-frontend-build
+	$(MAKE) dashboard-bin
 
 # The companion site, janus.sw-servers.net (site/): frontend built into
 # site/backend/static (committed, like the Controller's), then the Go
@@ -831,7 +838,7 @@ docs-screenshots-check: browser-image local-dev-image
 versitygw:
 	GOBIN=$(abspath $(BUILD_DIR))/versitygw go install github.com/versity/versitygw/cmd/versitygw@$(VERSITYGW_VERSION)
 
-qemu-dashboard-test: dashboard-build disk-image versitygw
+qemu-dashboard-test: dashboard-bin disk-image versitygw
 	./hack/qemu-dashboard-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/dashboardd $(BUILD_DIR)/versitygw/versitygw
 
 # Dashboard prep, tranche 5: builds dashboard/Dockerfile's runnable
@@ -1026,7 +1033,7 @@ qemu-consul-test: build extension-consul-amd64
 # Bare metal: the same images on NVMe/SATA/pvscsi/USB/virtio-scsi disks
 # and e1000e/igb/vmxnet3/e1000 NICs, 4 CPUs, a cloud-init CD-ROM, the ISO
 # installing a disk that registers with a Controller - see the script.
-qemu-baremetal-test: build dashboard-build disk-image
+qemu-baremetal-test: build dashboard-bin disk-image
 	./hack/qemu-baremetal-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
 qemu-system-api-test: build disk-image
@@ -1099,17 +1106,17 @@ lifecycle-install-test: build rootfs-build
 # drives the registration itself, only cmd/janusd's own background
 # attempt (internal/selfregister). Requires root (sudo, same reasoning
 # as lifecycle-install-test above) and janusctl/dashboardd built.
-qemu-self-register-test: build dashboard-build rootfs-build
+qemu-self-register-test: build dashboard-bin rootfs-build
 	./hack/qemu-self-register-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
 # The same with the Controller's fleet set up: the node announces itself
 # with no key, polls until approved, and takes the fleet's trust.
-qemu-self-register-fleet-test: build dashboard-build rootfs-build
+qemu-self-register-fleet-test: build dashboard-bin rootfs-build
 	SELF_REGISTER_FLEET=1 ./hack/qemu-self-register-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
 # The same, installed with an enrollment token: admitted at once,
 # labelled, no approval.
-qemu-self-register-enroll-test: build dashboard-build rootfs-build
+qemu-self-register-enroll-test: build dashboard-bin rootfs-build
 	SELF_REGISTER_ENROLL=1 ./hack/qemu-self-register-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
 # Scaling-provisioning follow-up: proves `janusctl image seed-controller`
@@ -1120,7 +1127,7 @@ qemu-self-register-enroll-test: build dashboard-build rootfs-build
 # actually has), seeding it offline, and confirming it still
 # self-registers with a real dashboardd on first boot, same as
 # qemu-self-register-test's own Install-time-provisioned disk does.
-seed-controller-test: build dashboard-build rootfs-build
+seed-controller-test: build dashboard-bin rootfs-build
 	./hack/janusctl-seed-controller-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
 # NoCloud/cidata follow-up: proves internal/nocloud + rootfs/init's
@@ -1130,7 +1137,7 @@ seed-controller-test: build dashboard-build rootfs-build
 # controller_ca_cert read from that volume - the external,
 # delivered-at-boot complement to seed-controller-test's embedded-at-
 # generation-time approach (see internal/nocloud's own package doc).
-nocloud-seed-test: build dashboard-build rootfs-build
+nocloud-seed-test: build dashboard-bin rootfs-build
 	./hack/nocloud-seed-test.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/bzImage $(BUILD_DIR)/haproxy $(BUILD_DIR)/janusd $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
 # Phase 3 cont'd: assembles a real Unified Kernel Image (UKI) - kernel +
