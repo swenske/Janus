@@ -51,13 +51,13 @@ type platform struct {
 // names for every schematic.
 var platforms = []platform{
 	{ID: "proxmox", Name: "Proxmox VE", Group: "Virtualization", Arch: "amd64", File: "janus.qcow2",
-		Description: "qcow2 disk to import with qm importdisk; UEFI (OVMF), serial console.", Docs: "image/kvm-proxmox/README.md"},
+		Description: "qcow2 disk to import with qm importdisk; UEFI (OVMF), serial console.", Docs: "docs/private-cloud/platforms/proxmox.md"},
 	{ID: "kvm", Name: "KVM / libvirt", Group: "Virtualization", Arch: "amd64", File: "janus-kvm.qcow2",
-		Description: "qcow2 disk for virt-install --boot uefi, OpenStack or any KVM host.", Docs: "image/kvm/README.md"},
+		Description: "qcow2 disk for virt-install --boot uefi or any KVM host.", Docs: "docs/private-cloud/platforms/kvm-libvirt.md"},
 	{ID: "vmware", Name: "VMware ESXi", Group: "Virtualization", Arch: "amd64", File: "janus.vmdk",
-		Description: "streamOptimized VMDK; EFI firmware, a PVSCSI, SATA or NVMe disk controller (not LSI Logic).", Docs: "image/vmware/README.md"},
+		Description: "streamOptimized VMDK; EFI firmware, a PVSCSI, SATA or NVMe disk controller (not LSI Logic).", Docs: "docs/private-cloud/platforms/vmware.md"},
 	{ID: "iso", Name: "Bare metal (ISO / USB)", Group: "Bare metal", Arch: "amd64", File: "janus.iso",
-		Description: "Installer: write it to a USB stick (not a CD), boot it, install the machine's disk with janusctl lifecycle install - registered with your Controller if you give it one.", Docs: "docs/provisioning-a-node.md"},
+		Description: "Installer: write it to a USB stick (not a CD), boot it, install the machine's disk with janusctl lifecycle install - registered with your Controller if you give it one.", Docs: "docs/private-cloud/platforms/bare-metal.md"},
 	{ID: "rpi4", Name: "Raspberry Pi 4 / CM4", Group: "Single-board computer", Arch: "arm64", File: "pi4-disk.img",
 		Description: "SD card image with UEFI firmware (pftf/RPi4).", Docs: "docs/raspberry-pi-testing.md"},
 	{ID: "rpi5", Name: "Raspberry Pi 5", Group: "Single-board computer", Arch: "arm64", File: "pi5-disk.img", Experimental: true,

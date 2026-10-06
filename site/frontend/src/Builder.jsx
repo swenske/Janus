@@ -271,8 +271,9 @@ export default function Builder() {
                   )}
                   {mainFile?.sha256 && <div className="muted small mono break">sha256 {mainFile.sha256}</div>}
                   {platform.docs && (
-                    <a href={`${REPO}/blob/main/${platform.docs}`} className="small">
-                      How to install on {platform.name} <ExternalLink size={11} />
+                    // The page's permalink on the docs site: the file's path, docs/ dropped.
+                    <a href={`${DOCS}/${platform.docs.replace(/^docs\//, '')}`} className="small">
+                      How to install on {platform.name}
                     </a>
                   )}
                 </div>
