@@ -331,3 +331,5 @@ if (MODE === 'check' && drifted) {
   process.exit(1)
 }
 console.log(MODE === 'check' ? 'shots: every screenshot matches the committed one' : `shots: ${written} written`)
+// The site's landing page embeds some of them (site/frontend, @screens).
+if (written) console.log('shots: the landing page shows some of them - make site-frontend-build, and commit site/backend/static with them')

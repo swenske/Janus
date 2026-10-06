@@ -22,6 +22,12 @@ import { useEffect, useState } from 'react'
 import { Badge, Card } from '@shared/ui.jsx'
 import { DOCS, REPO, getJSON } from './api.js'
 import { Link } from './App.jsx'
+import nodesDark from '@screens/controller-nodes-dark.webp'
+import nodesLight from '@screens/controller-nodes-light.webp'
+import configDark from '@screens/node-haproxy-config-dark.webp'
+import configLight from '@screens/node-haproxy-config-light.webp'
+import overviewDark from '@screens/node-overview-dark.webp'
+import overviewLight from '@screens/node-overview-light.webp'
 
 const PILLARS = [
   {
@@ -78,6 +84,43 @@ function LatestRelease() {
     <a className="release-pill" href={rel.url}>
       <Badge tone="accent">new</Badge> {rel.version} is out <ArrowRight size={14} />
     </a>
+  )
+}
+
+// The Controller as the docs show it: screenshots of a real Controller
+// and real nodes (make docs-screenshots), the one matching the theme.
+const SCREENS = [
+  {
+    light: nodesLight,
+    dark: nodesDark,
+    alt: "The Controller's node list: three nodes online, with their labels, version, HAProxy health, uptime and fleet trust",
+    caption: 'Your fleet at a glance: every node, its release, its HAProxy, its trust.',
+  },
+  {
+    light: overviewLight,
+    dark: overviewDark,
+    alt: "A node's overview: CPU, memory, HAProxy connections and uptime, with live charts",
+    caption: 'Each node live: its system and its traffic.',
+  },
+  {
+    light: configLight,
+    dark: configDark,
+    alt: "A node's HAProxy configuration in the Controller's editor",
+    caption: 'HAProxy configured from the page - checked by the node before it applies.',
+  },
+]
+
+function Screens() {
+  return (
+    <div className="screens">
+      {SCREENS.map((s) => (
+        <figure key={s.caption} className="screen">
+          <img className="screen-light" src={s.light} alt={s.alt} width="1280" height="800" loading="lazy" decoding="async" />
+          <img className="screen-dark" src={s.dark} alt={s.alt} width="1280" height="800" loading="lazy" decoding="async" />
+          <figcaption className="muted">{s.caption}</figcaption>
+        </figure>
+      ))}
+    </div>
   )
 }
 
@@ -142,6 +185,11 @@ export default function Landing() {
             </Card>
           ))}
         </div>
+      </section>
+
+      <section className="section">
+        <h2 className="section-title">Run a fleet from one page</h2>
+        <Screens />
       </section>
 
       <section className="section">

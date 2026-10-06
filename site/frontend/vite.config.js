@@ -4,18 +4,23 @@ import { defineConfig } from 'vite'
 
 // The site shares the Controller's design system: dashboard/frontend/
 // src/shared (tokens, cards, badges, theme toggle), imported as
-// "@shared". dedupe keeps one React - the shared files would otherwise
+// "@shared" - and the docs' screenshots of the Controller (docs/assets/
+// screenshots, make docs-screenshots) as "@screens". dedupe keeps one
+// React - the shared files would otherwise
 // resolve it from dashboard/frontend/node_modules. The build goes
 // straight into site/backend/static, embedded by the Go server and
 // committed like the Controller's (a plain `go build` needs no Node.js).
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { '@shared': fileURLToPath(new URL('../../dashboard/frontend/src/shared', import.meta.url)) },
+    alias: {
+      '@shared': fileURLToPath(new URL('../../dashboard/frontend/src/shared', import.meta.url)),
+      '@screens': fileURLToPath(new URL('../../docs/assets/screenshots', import.meta.url)),
+    },
     dedupe: ['react', 'react-dom', 'lucide-react'],
   },
   server: {
-    fs: { allow: ['..', '../../dashboard/frontend/src/shared'] },
+    fs: { allow: ['..', '../../dashboard/frontend/src/shared', '../../docs/assets/screenshots'] },
     proxy: { '/api': 'http://127.0.0.1:8080', '/image': 'http://127.0.0.1:8080' },
   },
   build: {

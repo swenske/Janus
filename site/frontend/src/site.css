@@ -59,6 +59,21 @@ a.button.primary:hover { filter: brightness(1.07); }
 .feature-icon { color: var(--accent); flex: none; margin-top: 0.15rem; }
 .feature p { margin: 0.3rem 0 0; }
 .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+
+/* The Controller's screenshots: the fleet wide, then two side by side;
+   the image of the theme in use. */
+.screens { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem 1.2rem; }
+.screen { margin: 0; }
+.screen:first-child { grid-column: 1 / -1; }
+.screen img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.screen figcaption { margin-top: 0.6rem; text-align: center; font-size: 0.92rem; }
+.screen .screen-dark { display: none; }
+:root[data-theme='dark'] .screen .screen-light { display: none; }
+:root[data-theme='dark'] .screen .screen-dark { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .screen .screen-light { display: none; }
+  :root:not([data-theme='light']) .screen .screen-dark { display: block; }
+}
 .step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; }
 .step h3 { margin: 0.5rem 0 0.3rem; }
 .step p { margin: 0; }
@@ -108,6 +123,7 @@ a.button.primary:hover { filter: brightness(1.07); }
 details summary { cursor: pointer; margin-top: 0.8rem; color: var(--muted); }
 
 @media (max-width: 640px) {
+  .screens { grid-template-columns: 1fr; }
   .nav-label { display: none; }
   .topbar nav { flex-wrap: nowrap; gap: 0.1rem; }
   .hero { padding-top: 2.5rem; }
