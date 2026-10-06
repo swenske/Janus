@@ -263,3 +263,15 @@ export function useNodeStatus() {
 // Shared with the main page.
 export { navigate, useHashRoute } from '../shared/route.js'
 export { useSSE } from '../shared/sse.js'
+
+// useCountdown is the seconds left until unix (a trial's revert time),
+// ticking every second; 0 without one.
+export function useCountdown(unix) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!unix) return undefined
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [unix])
+  return unix ? Math.max(0, Math.round(unix - now / 1000)) : 0
+}

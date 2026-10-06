@@ -621,6 +621,29 @@ else
   echo "Dashboard test FAILED: extension catalog -> $code: $body" >&2; exit 1
 fi
 expect_json /api/system/metrics-config 'd["config"]["enabled"] and d["config"]["port"] == 10056 and d["listening"] and d["is_default"]' "exporter config"
+# Kernel parameters (nodeproxy/sysctl.go): the list and the CIS
+# benchmark, a CIS key refused, a change on trial then confirmed over a
+# fresh connection - the node's history records it -, then every
+# parameter back to its default.
+expect_json /api/system/sysctl 'd["managed"] and d["cis"]["compliant"] == d["cis"]["total"] == 33 and any(p["name"] == "net.core.somaxconn" and p["class"] == "editable" and p["value"] == p["default"] == "60000" for p in d["parameters"]) and d["trial"] is None' "sysctl list"
+out="$(jpost /api/system/sysctl/check '{"changes":[{"name":"net.ipv4.tcp_syncookies","value":"0"}]}')"; code="${out##*$'\n'}"; body="${out%$'\n'*}"
+[ "$code" = "200" ] && python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert not d["accepted"] and "3.3.1.18" in d["errors"][0]["message"]' "$body" 2>/dev/null ||
+  { echo "Dashboard test FAILED: a CIS key should be refused, got $code: $body" >&2; exit 1; }
+out="$(jpost /api/system/sysctl/apply '{"changes":[{"name":"net.ipv4.tcp_fin_timeout","value":"45"}],"confirm_timeout_seconds":300}')"; code="${out##*$'\n'}"; body="${out%$'\n'*}"
+[ "$code" = "200" ] && python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["accepted"] and d["trial"]["changes"] == [{"name": "net.ipv4.tcp_fin_timeout", "old": "30", "new": "45", "reset": False}]' "$body" 2>/dev/null ||
+  { echo "Dashboard test FAILED: sysctl apply -> $code: $body" >&2; exit 1; }
+expect_json /api/system/sysctl 'd["trial"] and any(p["name"] == "net.ipv4.tcp_fin_timeout" and p["value"] == "45" and p["on_trial"] for p in d["parameters"])' "sysctl on trial"
+out="$(jpost /api/system/sysctl/confirm '{}')"; code="${out##*$'\n'}"; body="${out%$'\n'*}"
+[ "$code" = "200" ] && grep -q '"confirmed":true' <<<"$body" || { echo "Dashboard test FAILED: sysctl confirm -> $code: $body" >&2; exit 1; }
+# The node doesn't trust the fleet yet: the Controller's service
+# credential is who acts (once it does, the user, via the Controller).
+expect_json '/api/system/sysctl/history?limit=2' 'd["entries"][0]["action"] == "confirm" and d["entries"][0]["actor"]["roles"] == ["os:admin"] and d["entries"][0]["actor"]["name"] and d["entries"][1]["action"] == "trial"' "sysctl history"
+out="$(jpost /api/system/sysctl/apply '{"reset_all":true}')"; code="${out##*$'\n'}"
+[ "$code" = "200" ] || { echo "Dashboard test FAILED: sysctl reset all -> $code: ${out%$'\n'*}" >&2; exit 1; }
+out="$(jpost /api/system/sysctl/confirm '{}')"; code="${out##*$'\n'}"
+[ "$code" = "200" ] || { echo "Dashboard test FAILED: sysctl confirm of the reset -> $code: ${out%$'\n'*}" >&2; exit 1; }
+expect_json /api/system/sysctl 'd["trial"] is None and not any(p["saved"] for p in d["parameters"]) and any(p["name"] == "net.ipv4.tcp_fin_timeout" and p["value"] == "30" for p in d["parameters"])' "sysctl back to the defaults"
+echo "Sysctl relay OK: list and benchmark, a CIS key refused, a trial confirmed over a fresh connection, the history, a reset"
 expect_json /api/network/firewall 'd["state"] == "not_enabled"' "firewall module (not in the default image)"
 expect_json /api/network/vrrp 'd["state"] == "not_enabled"' "VRRP module (not in the default image)"
 expect_json /api/network/bgp 'd["state"] == "not_enabled"' "BGP module (not in the default image)"

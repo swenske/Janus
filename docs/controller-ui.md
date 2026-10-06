@@ -261,7 +261,11 @@ theme toggle:
   the shared ModuleConfigEditor (check by the daemon itself, diff, apply,
   remove)
 - **Tools** - packet capture, files
-- **System** - network (hostname, interfaces, VLANs, DNS, NTP), services,
+- **System** - network (hostname, interfaces, VLANs, DNS, NTP), sysctl
+  (the kernel parameters HAProxy depends on: edited in the table, checked
+  as typed from the node's own bounds, tested on trial with a countdown -
+  Apply over a fresh connection, Cancel -, reset one or all; the CIS
+  benchmark's controls, locked; the read-only ones; the history), services,
   update, access (who the node lets in - its fleet's root, bundle and
   issuing CAs, its own CA -; replacing its own CA, the new admin
   credential for a key the browser makes with WebCrypto (P-256, the

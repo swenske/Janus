@@ -4,7 +4,7 @@ import { getJSON, postJSON } from '../api.js'
 import { Badge, Card, ErrorBox, Loading, PageHeader, Tabs, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
 import { DiffView, Editor } from '../components/Editor.jsx'
 import { hunks, lineDiff } from '../diff.js'
-import { usePoll } from '../hooks.jsx'
+import { useCountdown, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import Module from './Module.jsx'
 
@@ -36,16 +36,6 @@ table inet filter {
 \t}
 }
 `
-
-function useCountdown(unix) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!unix) return undefined
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [unix])
-  return unix ? Math.max(0, Math.round(unix - now / 1000)) : 0
-}
 
 export default function Firewall() {
   const status = usePoll('/api/network/firewall', { every: 5000 })

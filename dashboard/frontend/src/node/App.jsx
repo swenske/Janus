@@ -24,6 +24,7 @@ import {
   Server,
   Shield,
   Shuffle,
+  SlidersHorizontal,
   Terminal,
   Waypoints,
   Workflow,
@@ -61,6 +62,7 @@ import PowerView from './views/Power.jsx'
 import Processes from './views/Processes.jsx'
 import Services from './views/Services.jsx'
 import Storage from './views/Storage.jsx'
+import Sysctl from './views/Sysctl.jsx'
 import Update from './views/Update.jsx'
 
 const NAV = [
@@ -111,6 +113,7 @@ const NAV = [
     group: 'System',
     items: [
       { path: '/system/network', label: 'Network', icon: Cable, view: NetworkConfig },
+      { path: '/system/sysctl', label: 'Sysctl', icon: SlidersHorizontal, view: Sysctl, needs: 'SystemService/SysctlList' },
       { path: '/system/services', label: 'Services', icon: Server, view: Services },
       { path: '/system/update', label: 'Update', icon: Archive, view: Update },
       { path: '/system/access', label: 'Access', icon: KeyRound, view: Access },

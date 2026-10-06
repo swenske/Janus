@@ -79,6 +79,7 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	registerSystemRoutes(mux, node)
 	registerNetworkRoutes(mux, node, st)
 	registerFirewallRoutes(mux, node)
+	registerSysctlRoutes(mux, node)
 	registerVRRPRoutes(mux, node)
 	registerBGPRoutes(mux, node)
 	registerConsulRoutes(mux, node)
