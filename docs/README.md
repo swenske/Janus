@@ -116,6 +116,14 @@ Contribute to Janus, or integrate it into your private cloud.
 - [Lifecycle](private-cloud/lifecycle.md)
 - [Security](private-cloud/security.md)
 
+#### Your own orchestrator
+
+- [Without the Controller](private-cloud/own-orchestrator.md)
+- [Certificates and the fleet](private-cloud/orchestrator-certificates.md)
+- [First contact](private-cloud/first-contact.md)
+- [Driving nodes](private-cloud/driving-nodes.md)
+- [Node API reference](private-cloud/api-reference.md)
+
 #### Platforms
 
 - [libvirt/KVM](private-cloud/platforms/kvm-libvirt.md)

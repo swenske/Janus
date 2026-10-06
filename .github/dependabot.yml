@@ -52,6 +52,7 @@ updates:
       - "/dashboard"
       - "/extensions/*"
       - "/hack/browser"
+      - "/hack/grpcurl"
       - "/hack/libvirt-host"
       - "/hack/promtool"
       - "/kernel"

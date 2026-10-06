@@ -789,6 +789,13 @@ jobs:
       - name: LifecycleService.Install partitions a blank disk from scratch for real (Phase 3 cont'd)
         run: make lifecycle-install-test
 
+      # The custom orchestrator example (examples/orchestrator, docs/
+      # private-cloud/own-orchestrator.md) as the docs show it: three
+      # nodes driven with openssl, jq, grpcurl and a Python registration
+      # endpoint - no Controller, no janusctl.
+      - name: A custom orchestrator drives nodes through their contracts alone
+        run: make qemu-orchestrator-test
+
   test-network:
     name: "Tests: Network config, extensions, firewall, VRRP, BGP"
     runs-on: [self-hosted, docker, janus]

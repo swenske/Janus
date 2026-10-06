@@ -20,6 +20,13 @@ site sends it to the page wherever it lives, in the docs of the newest
 release - the one the notes announce once it's out - and
 `hack/docscheck` keeps the file and the heading there.
 
+## 🔌 The node API
+
+A change to `api/proto` - a call or a field added, changed, removed, a
+call's role - gets a line in the notes: orchestrators that drive nodes
+themselves generate their code from each release's `.proto` files
+([stability](../../docs/private-cloud/own-orchestrator.md#stability)).
+
 ## 🔒 Security
 
 When the release fixes vulnerabilities - an upstream component, a Go

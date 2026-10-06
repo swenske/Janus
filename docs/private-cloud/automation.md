@@ -9,6 +9,7 @@ it's made for:
 | **Terraform / OpenTofu** with the Janus provider | Hypervisors, nodes - their virtual machine, network, size, version and extensions -, their labels and their `haproxy.cfg` | The Controller's API, with an API token |
 | **The Controller's API** | All of the above, and machines' power and consoles - for scripts and other tools | The Controller, with an API token |
 | **`janusctl`** | Everything a node does: VRRP, BGP, the firewall, Consul, Let's Encrypt, certificates, updates, logs... | Each node's API directly, with a certificate of the fleet |
+| **Your own orchestrator**, instead of the Controller | Everything a node does, from its contracts - in any language ([your own orchestrator](own-orchestrator.md)) | Each node's API directly, with certificates of a fleet it keeps |
 
 The usual split: Terraform owns the nodes and their HAProxy
 configuration; `janusctl` - in the same pipeline - applies what

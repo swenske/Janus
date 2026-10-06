@@ -19,6 +19,7 @@ private cloud: on libvirt/KVM, Proxmox VE, VMware or bare metal.
 | [Observability](observability.md) | Prometheus - Janus's exporter, node_exporter, HAProxy's own - alerts, logs, packet captures |
 | [Lifecycle](lifecycle.md) | Updates with an automatic revert, rollbacks, scaling, the Controller's own updates and backups |
 | [Security](security.md) | What protects a node, the secrets of a deployment and who holds them, certificates, what to expose |
+| [Your own orchestrator](own-orchestrator.md) | Driving nodes without the Controller, from a private cloud's own orchestration in any language: the certificates, first contact, the API and its reference |
 
 And one end-to-end guide per platform, each with a complete example:
 

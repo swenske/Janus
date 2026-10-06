@@ -17,7 +17,7 @@ GEN_DIR := gen
 	qemu-verity-boot-test state-image qemu-state-persist-test \
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
-	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test \
+	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-orchestrator-test \
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
@@ -1086,6 +1086,15 @@ qemu-lifecycle-upgrade-relay-test: build disk-image
 # `build`).
 qemu-lifecycle-upgrade-health-test: build disk-image
 	./hack/qemu-lifecycle-upgrade-health-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl
+
+# The custom orchestrator example (examples/orchestrator) as the docs
+# show it, driving three real nodes with openssl, jq, grpcurl and a
+# Python registration endpoint - no Controller, no janusctl: a fleet,
+# both first contacts (the console's CA, a registration with and without
+# a token), configurations, a user's role, a network trial, an update
+# (docs/private-cloud/own-orchestrator.md).
+qemu-orchestrator-test: disk-image
+	./hack/qemu-orchestrator-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR)
 
 # Phase 3 cont'd: proves LifecycleService.Install partitions a genuinely
 # blank disk from scratch (internal/diskimage + go-diskfs) and produces

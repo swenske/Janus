@@ -123,6 +123,13 @@ topics:
               - { file: docs/private-cloud/observability.md, label: Observability }
               - { file: docs/private-cloud/lifecycle.md, label: Lifecycle }
               - { file: docs/private-cloud/security.md, label: Security }
+          - label: Your own orchestrator
+            pages:
+              - { file: docs/private-cloud/own-orchestrator.md, label: Without the Controller }
+              - { file: docs/private-cloud/orchestrator-certificates.md, label: Certificates and the fleet }
+              - { file: docs/private-cloud/first-contact.md, label: First contact }
+              - { file: docs/private-cloud/driving-nodes.md, label: Driving nodes }
+              - { file: docs/private-cloud/api-reference.md, label: Node API reference }
           - label: Platforms
             pages:
               - { file: docs/private-cloud/platforms/kvm-libvirt.md, label: libvirt/KVM }

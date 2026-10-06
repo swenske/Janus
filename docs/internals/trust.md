@@ -75,6 +75,9 @@ counts from the next connection.
   console printed ([a fleet without a Controller](../fleet-without-controller.md)).
 - **From the first boot**: the fleet's root and bundle given on the
   installer, a seeded image or NoCloud.
+- **By an orchestrator of your own**: the same fleet, kept by your
+  PKI - the certificate profile and the bundle's format, as a
+  specification: [certificates and the fleet](../private-cloud/orchestrator-certificates.md).
 
 The Controller never holds a node's admin credential, and a node never
 sends its own anywhere.

@@ -24,6 +24,6 @@ runs:
       run: |
         pkgs="make qemu-system-x86 qemu-utils squashfs-tools cryptsetup-bin e2fsprogs gdisk
           ovmf systemd-ukify mtools dosfstools sbsigntool python3-virt-firmware xorriso ipxe
-          qemu-system-arm crossbuild-essential-arm64 qemu-efi-aarch64 unzip openssh-client"
+          qemu-system-arm crossbuild-essential-arm64 qemu-efi-aarch64 unzip openssh-client jq"
         dpkg -s $pkgs >/dev/null 2>&1 || sudo flock /var/lock/janus-runner-setup.lock sh -c "
           apt-get update -qq && apt-get install -y -qq $(echo $pkgs)"
