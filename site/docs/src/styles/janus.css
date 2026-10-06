@@ -271,3 +271,26 @@
 :root[data-theme='dark'] starlight-image-zoom-zoomable:has(> img.dark\:sl-hidden) {
   display: none;
 }
+
+/* Mermaid diagrams (diagrams.mjs): the source until it's drawn, wrapped,
+   then the drawing, centred and as wide as the page at most - neither
+   scrolls (a scrolling region would need to take the keyboard's focus). */
+pre.mermaid {
+  display: flex;
+  justify-content: center;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  overflow: hidden;
+  border: none;
+  background: transparent;
+}
+pre.mermaid:not([data-drawn]) {
+  min-height: 12rem;
+  white-space: pre-wrap;
+  font-size: var(--sl-text-xs);
+  color: var(--sl-color-gray-3);
+}
+pre.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}

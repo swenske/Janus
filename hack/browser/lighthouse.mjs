@@ -15,10 +15,12 @@ const site = (process.argv[2] ?? 'http://127.0.0.1:18600').replace(/\/$/, '')
 const pages = process.argv.length > 3 ? process.argv.slice(3) : ['/docs/', '/docs/guide/quickstart/', '/docs/internals/boot/', '/docs/guide/controller/']
 
 // The budget: scores out of 100, by form factor - and the JavaScript a
-// docs page without diagrams may load (the landing page and the builder
-// are a React application, 80 KB). Mermaid's renderer, loaded only where
-// there's a diagram, is 250 KB: such a page measured 89 to 92 on a phone
-// where the others measure 97 to 100, hence its own floor.
+// docs page may load before its diagrams (the landing page and the
+// builder are a React application, 80 KB). Mermaid's renderer, 250 KB,
+// loads once a diagram comes near the screen (site/docs/src/lib/
+// diagrams.mjs): a page that opens on a diagram loads it at once - such
+// pages measured 79 on a phone in CI when every page with a diagram did,
+// hence their own floor there.
 const BUDGET = {
   desktop: { performance: 95, accessibility: 100, 'best-practices': 100, seo: 100 },
   mobile: { performance: 90, accessibility: 100, 'best-practices': 100, seo: 100 },

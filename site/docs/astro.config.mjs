@@ -5,7 +5,6 @@
 import { defineConfig, passthroughImageService } from 'astro/config'
 import { unified } from '@astrojs/markdown-remark'
 import starlight from '@astrojs/starlight'
-import mermaid from 'astro-mermaid'
 import starlightImageZoom from 'starlight-image-zoom'
 import starlightSidebarTopics from 'starlight-sidebar-topics'
 import { base, channel, ref, repo, site } from './src/lib/build-info.mjs'
@@ -28,15 +27,18 @@ export default defineConfig({
   trailingSlash: 'always',
   markdown: {
     // Astro 7's own Markdown engine runs no remark plugins: unified() does.
-    // These run before astro-mermaid's and Starlight's own.
+    // These run before Starlight's own.
     processor: unified({
       remarkPlugins: [remarkStripTitle, remarkGitHubAlerts, remarkDiagrams, remarkExamples, remarkScreenshots, [remarkRepoLinks, { base, ref, repo }]],
       rehypePlugins: [rehypeTables],
     }),
   },
   integrations: [
-    // Before Starlight (astro-mermaid's own instructions).
-    mermaid({ theme: 'default', autoTheme: true, enableLog: false }),
+    // The diagrams' drawing, on every page that has some (diagrams.mjs).
+    {
+      name: 'janus-diagrams',
+      hooks: { 'astro:config:setup': ({ injectScript }) => injectScript('page', "import '/src/lib/diagrams.mjs'") },
+    },
     starlight({
       title: 'Janus',
       description: 'Janus - an immutable, API-driven Linux distribution for HAProxy load balancers.',
