@@ -2,10 +2,13 @@
 # The docs site as readers get it (make docs-smoke): janus-site built with
 # whatever make docs-build / docs-site left in site/backend/docsdist,
 # started on 127.0.0.1, and each built channel walked by
-# hack/browser/docs-smoke.mjs in the pinned browser image.
+# hack/browser/docs-smoke.mjs in the pinned browser image - then the
+# latest channel's pages measured against their budget
+# (hack/browser/lighthouse.mjs).
 #   hack/docs-smoke.sh <browser image> [<site URL>]
 # With a site URL, no local janus-site: that site is checked (site-deploy
-# runs it against janus.sw-servers.net once deployed).
+# runs it against janus.sw-servers.net once deployed) - the landing page
+# and the image builder measured too, with their data.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 image=$1
@@ -46,3 +49,10 @@ fi
 for ch in "${channels[@]}"; do
   docker run --rm --network host --ipc host "$image" node docs-smoke.mjs "$url" "$ch"
 done
+pages=(/docs/ /docs/guide/quickstart/ /docs/internals/boot/ /docs/guide/controller/)
+if [ -n "${2:-}" ]; then
+  pages+=(/ /builder)
+elif [ ! -d site/backend/docsdist/latest ]; then
+  exit 0
+fi
+docker run --rm --network host --ipc host "$image" node lighthouse.mjs "$url" "${pages[@]}"

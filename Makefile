@@ -789,8 +789,9 @@ browser-image:
 # The built docs as readers get them: janus-site built with what
 # docs-build / docs-site left, and every page of each channel walked in
 # the browser - both themes, a phone, search, axe, no console error, no
-# CSP violation (hack/docs-smoke.sh). DOCS_SMOKE_URL checks a deployed
-# site instead.
+# CSP violation - then pages of each kind against their Lighthouse
+# budget (hack/docs-smoke.sh). DOCS_SMOKE_URL checks a deployed site
+# instead - its landing page and builder measured too.
 docs-smoke: browser-image
 	./hack/docs-smoke.sh $(BROWSER_IMAGE) $(DOCS_SMOKE_URL)
 
