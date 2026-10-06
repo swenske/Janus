@@ -109,6 +109,16 @@ boot_and_check() {
     echo "--- console output ---" >&2; cat "$log" >&2
     exit 1
   fi
+  # The policy must know every class and permission this kernel checks:
+  # it is compiled with `checkpolicy -U allow`, so one it doesn't know is
+  # allowed without a word in the AVC log - only these load-time lines
+  # tell (selinux/classes.conf comes from the newest kernel an image can
+  # carry: make selinux-classes).
+  if grep -qE "SELinux: +(Class .* not defined in policy|Permission .* not defined in policy|the above unknown classes)" "$log"; then
+    echo "SELinux test FAILED ($label): this kernel checks classes or permissions the policy doesn't define:" >&2
+    grep -E "SELinux: +(Class|Permission|the above unknown)" "$log" >&2
+    exit 1
+  fi
   echo "SELinux test OK ($label): policy loaded, HTTP 200, zero AVC denials"
 }
 
