@@ -5,14 +5,14 @@
 #
 # workflow_dispatch only, on purpose - never triggered by push/pull_request.
 #
-# Five test jobs run in parallel, each on its own runner instance (a
+# The test jobs run in parallel, each on its own runner instance (a
 # machine runs several, each with its own JANUS_TEST_PORT_OFFSET in its
 # .env, so tests on one machine never share a port); each job builds what
 # its tests need itself - the Docker build cache makes that seconds - so
 # nothing passes between jobs. The tests boot their guests with KVM when
 # the runner has it (-accel kvm -accel tcg). publish needs every test job:
 # a failing test still blocks every image, the Docker Hub push and the
-# release, as when this was one job.
+# release, as when this was one job. docs-screenshots only reports.
 
 name: Image Build
 
@@ -919,6 +919,33 @@ jobs:
       # See hack/terraform-provider-test.sh and docs/terraform.md.
       - name: Terraform provider against a real Controller and libvirt host
         run: make terraform-provider-test
+
+  # The docs' screenshots of the Controller (make docs-screenshots-check):
+  # taken again against a real Controller and real nodes, compared with
+  # the committed ones. Never in the way of a release - publish doesn't
+  # need it, and a failure leaves the run green: a page that changed only
+  # says its screenshots are due, the new images and a map of what
+  # changed left as an artifact.
+  docs-screenshots:
+    name: "Docs: the Controller's screenshots"
+    runs-on: [self-hosted, docker, janus]
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/runner-setup
+      - name: The screenshots, taken again and compared
+        id: check
+        run: make docs-screenshots-check
+      - name: Keep what drifted
+        if: failure() && steps.check.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docs-screenshots-drift-${{ github.sha }}
+          path: build/screenshots-drift/
+          retention-days: 14
+      - name: Say so
+        if: failure() && steps.check.outcome == 'failure'
+        run: echo "::warning::The docs' screenshots differ from the committed ones - make docs-screenshots, look at them, commit them (the artifact docs-screenshots-drift-${{ github.sha }} shows what changed)"
 
   publish:
     name: Images and release
