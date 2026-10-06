@@ -103,3 +103,4 @@ ARG KERNEL_VERSION
 COPY --from=build /src/linux-${KERNEL_VERSION}/arch/arm64/boot/Image /Image
 COPY --from=build /src/linux-${KERNEL_VERSION}/arch/arm64/boot/dts/broadcom/bcm2711-rpi-4-b.dtb /bcm2711-rpi-4-b.dtb
 COPY --from=build /built-files.txt /built-files.txt
+COPY --from=build /src/linux-${KERNEL_VERSION}/.config /config

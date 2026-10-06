@@ -58,8 +58,12 @@ while read -r name latest <&3; do
     # they're reviewed) and the SELinux classes of the newest kernel.
     if [ "$(echo "$from" | cut -d. -f1,2)" != "$(echo "$to" | cut -d. -f1,2)" ]; then
       extra_labels=",kernel-branch"
-      make kernel-config-refresh selinux-classes KERNEL_TRACK="$track" >"$WORK/kernel.log" 2>&1 || {
-        echo "::warning::$name $latest: make kernel-config-refresh selinux-classes failed"; tail -20 "$WORK/kernel.log"
+      targets="kernel-config-refresh selinux-classes"
+      # The default track's arm64 config too: Raspberry Pi images have it.
+      [ "$track" = "$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)" ] && targets="$targets rpi4-kernel-config-refresh"
+      # shellcheck disable=SC2086
+      make $targets KERNEL_TRACK="$track" >"$WORK/kernel.log" 2>&1 || {
+        echo "::warning::$name $latest: make $targets failed"; tail -20 "$WORK/kernel.log"
         git checkout --quiet --force "$base"; continue
       }
     fi

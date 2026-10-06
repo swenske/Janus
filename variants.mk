@@ -26,7 +26,7 @@ HAPROXY_3_0_EOL  := 2029-04-01
 # files its build reads (kernel/built-files-<track>-<arch>.txt). arm64
 # images are only built with the default track.
 KERNEL_TRACKS        := longterm stable
-KERNEL_DEFAULT_TRACK := longterm
+KERNEL_DEFAULT_TRACK := stable
 
 # Variants a release no longer offers, as component:name:last-release
 # (the newest release with it), e.g. haproxy:2.8:v2027.06.01: an image

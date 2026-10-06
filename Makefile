@@ -34,12 +34,12 @@ GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
 	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
-	kernel-build kernel-builds kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
+	kernel-build kernel-builds kernel-config-refresh rpi4-kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
-	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-orchestrator-test \
+	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-lifecycle-upgrade-from-release-test release-bundle qemu-orchestrator-test \
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
@@ -351,6 +351,14 @@ rpi4-kernel-build:
 		--build-arg ARCH=arm64 --build-arg CROSS_COMPILE=aarch64-linux-gnu- \
 		--build-arg DEFCONFIG=janus_rpi4_defconfig --build-arg MAKE_TARGETS="Image dtbs" \
 		-o $(BUILD_DIR)/rpi4 kernel
+
+# The Raspberry Pi config (kernel/configs/janus_rpi4_defconfig) as kbuild
+# resolves it for the default track's version, without a question: what
+# a version bump needs when the default track moves to a new branch
+# (review the diff). image-build.yml fails when the committed one isn't.
+rpi4-kernel-config-refresh: rpi4-kernel-build
+	./kernel/save-config.sh $(BUILD_DIR)/rpi4/config kernel/configs/janus_rpi4_defconfig
+	@echo "Refreshed kernel/configs/janus_rpi4_defconfig - review with 'git diff' and commit."
 
 # Cross-builds rootfs/init for arm64 (same static Go PID 1, just a
 # different GOARCH - no source changes needed).
@@ -1168,6 +1176,18 @@ qemu-lifecycle-upgrade-relay-test: build disk-image
 # reboots back automatically (Supervisor.GiveUpAfter/OnGiveUp), with no
 # RPC call driving the revert itself. Requires janusctl built (see
 # `build`).
+# This tree's default image as an update bundle (unsigned without
+# SIGNING_KEY/SIGNING_CERT): build/release.
+release-bundle: kernel-build rootfs-build
+	./image/release/assemble.sh $(BUILD_DIR)/release $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs "$(SIGNING_KEY)" "$(SIGNING_CERT)"
+
+# A node of the previous published release (PREV_RELEASE: the newest tag)
+# updated to this tree's default image and rolled back - what moves the
+# nodes taking the defaults when a release changes a default variant.
+PREV_RELEASE ?= $(shell git describe --tags --abbrev=0 --match 'v20*' 2>/dev/null)
+qemu-lifecycle-upgrade-from-release-test: build release-bundle
+	./hack/qemu-lifecycle-upgrade-from-release-test.sh $(PREV_RELEASE) $(BUILD_DIR)/release $(BIN_DIR)/janusctl
+
 # A node moved to another kernel track (variants.mk: the first that isn't
 # the default) through an A/B update, and rolled back.
 UPGRADE_TO_TRACK ?= $(firstword $(filter-out $(KERNEL_DEFAULT_TRACK),$(KERNEL_TRACKS)))

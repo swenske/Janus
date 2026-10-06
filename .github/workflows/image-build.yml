@@ -260,11 +260,14 @@ jobs:
       - name: Raspberry Pi 4 (aarch64/BCM2711) console boot (Single Board Computer tranche)
         run: make qemu-raspi4-boot-test
 
-      - name: The arm64 kernel's list of built files is current
+      - name: The arm64 kernel's config and list of built files are current
         run: |
           track="$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)"
           cmp build/rpi4/built-files.txt "kernel/built-files-$track-arm64.txt" \
             || { echo "::error::kernel/built-files-$track-arm64.txt doesn't match this build - run make kernel-built-files-$track and commit"; exit 1; }
+          symbols() { grep -E '^(CONFIG_[A-Za-z0-9_]+=|# CONFIG_[A-Za-z0-9_]+ is not set$)' "$1"; }
+          diff <(symbols kernel/configs/janus_rpi4_defconfig) <(symbols build/rpi4/config) \
+            || { echo "::error::kernel/configs/janus_rpi4_defconfig isn't what kbuild resolves it to - run make rpi4-kernel-config-refresh, review and commit"; exit 1; }
 
       # Single Board Computer tranche's own Phase-2-equivalent: the
       # same init+janusd+haproxy stack qemu-network-test proves on
@@ -817,6 +820,15 @@ jobs:
       # with the automatic revert on.
       - name: Updating a node to another kernel track and back
         run: make qemu-lifecycle-upgrade-variant-test
+
+      # The previous release's published image, updated to this tree's
+      # default image and rolled back: the update that moves the nodes
+      # taking the defaults when a release changes a default variant,
+      # their STATE (PKI, configuration) kept.
+      - name: Updating a node of the previous release to the defaults, and back
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make qemu-lifecycle-upgrade-from-release-test
 
   test-hardware:
     name: "Tests: Secure Boot, bare metal, Controller self-update, hypervisors and Terraform"

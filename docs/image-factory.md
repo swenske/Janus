@@ -54,11 +54,14 @@ An image carries one HAProxy and one kernel. A release offers several:
 | Choice | Offered | Default |
 |---|---|---|
 | `haproxy` | the newest HAProxy **LTS branches** that build with AWS-LC, Janus's TLS library: today 3.4, 3.2 and 3.0 (2.8 can't use AWS-LC) | the newest LTS branch |
-| `kernel` | a **kernel track**: kernel.org's newest `longterm` release (6.18 today) or its newest `stable` one (7.2) | `longterm` |
+| `kernel` | a **kernel track**: kernel.org's newest `stable` release (7.2 today) or its newest `longterm` one (6.18) | `stable` |
 
 A schematic that names none gets each release's default, and follows it:
 when a release makes a newer LTS branch the default, such an image moves
-to it with that update. A schematic that names a branch (`"haproxy":
+to it with that update - as the images of the releases up to
+v2026.10.06-2, which only had the longterm kernel, move to the stable
+track with the release that made it the default: pin `"kernel":
+"longterm"` before updating to stay on it. A schematic that names a branch (`"haproxy":
 "3.2"`) keeps it from release to release - each release ships that
 branch's newest version - until the branch leaves the releases'
 offer: an image on it then gets no more updates and is told so (the
