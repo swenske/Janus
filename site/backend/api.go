@@ -451,6 +451,14 @@ type update struct {
 	// built from the migrated schematic, Schematic, not the one asked
 	// about - installing it is a schematic change.
 	Renamed map[string]string `json:"renamed,omitempty"`
+	// Components are the HAProxy branch and kernel track the update is
+	// built with ("haproxy", "kernel"), when its release says.
+	Components map[string]schematic.Variant `json:"components,omitempty"`
+	// Retired is set when the newest releases no longer offer the
+	// schematic's HAProxy branch or kernel track: Version is the last
+	// release that does, and no newer update will come - moving to
+	// another branch is a schematic change, made on purpose.
+	Retired *schematic.Retired `json:"retired,omitempty"`
 }
 
 func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
@@ -478,6 +486,7 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var target *release
+	var retired *schematic.RetiredError
 	targetSC, renamed := sc, map[string]string(nil)
 	for i := range rels { // newest first
 		rel := &rels[i]
@@ -495,7 +504,8 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 		if err != nil || c == nil {
 			continue
 		}
-		if c.Check(sc, arch) == nil {
+		err = c.Check(sc, arch)
+		if err == nil {
 			target = rel
 			break
 		}
@@ -503,9 +513,21 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 			target, targetSC, renamed = rel, m, rn
 			break
 		}
+		if re := (*schematic.RetiredError)(nil); retired == nil && errors.As(err, &re) {
+			retired = re // the newest release's word on it
+		}
+	}
+	// A retired branch's last release may be older than the releases
+	// walked above: its catalog says which.
+	if target == nil && retired != nil {
+		if rel, err := a.gh.Release(r.Context(), retired.LastRelease); err == nil {
+			if c, err := a.gh.Catalog(r.Context(), rel.Version); err == nil && c != nil && c.Check(sc, arch) == nil {
+				target = rel
+			}
+		}
 	}
 	if target == nil {
-		writeError(w, http.StatusNotFound, "no release offers this schematic's extensions")
+		writeError(w, http.StatusNotFound, "no release offers this schematic's extensions, HAProxy branch and kernel track")
 		return
 	}
 	if renamed != nil {
@@ -517,12 +539,24 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 	}
 	up := update{Schematic: id, Version: target.Version, ReleaseURL: target.URL, Renamed: renamed}
 	up.UpToDate = r.URL.Query().Get("from") == target.Version && renamed == nil
+	if c, err := a.gh.Catalog(r.Context(), target.Version); err == nil && c != nil {
+		if res, err := c.Resolve(targetSC, arch); err == nil && res.HAProxy.Name != "" {
+			up.Components = map[string]schematic.Variant{schematic.ComponentHAProxy: res.HAProxy, schematic.ComponentKernel: res.Kernel}
+		}
+	}
+	reply := func() {
+		if retired != nil {
+			up.Retired = &retired.Retired
+			up.Message = strings.TrimSpace(retired.Error() + ": no newer update will come for this image. " + up.Message)
+		}
+		writeJSON(w, http.StatusOK, up)
+	}
 
 	if id == schematic.DefaultID() {
 		up.State = "ready"
 		up.BundleURL = strings.TrimSuffix(target.Assets["uki-b.efi"], "/uki-b.efi")
 		up.SHA256 = a.releaseSHA256(r.Context(), target)
-		writeJSON(w, http.StatusOK, up)
+		reply()
 		return
 	}
 	st, _, code, err := a.status(r.Context(), id, target.Version, arch)
@@ -547,7 +581,7 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 			up.State = "building"
 		}
 	}
-	writeJSON(w, http.StatusOK, up)
+	reply()
 }
 
 // releaseSHA256 reads a release's rootfs.squashfs.sha256 asset.

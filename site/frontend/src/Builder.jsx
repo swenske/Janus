@@ -1,17 +1,20 @@
-import { AlertTriangle, Check, Copy, Cpu, Download, ExternalLink, Hammer, Loader2, Package, RefreshCcw, Rocket } from 'lucide-react'
+import { AlertTriangle, Check, Copy, Cpu, Download, ExternalLink, Hammer, Layers, Loader2, Package, RefreshCcw, Rocket } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge, Card, ErrorBox, Loading, useToast } from '@shared/ui.jsx'
 import { DOCS, REPO, bytes, getJSON, postJSON } from './api.js'
 
 // The image builder, after factory.talos.dev: where the image runs, which
-// release, which extensions - giving a schematic ID, then the images. The
-// choices live in the URL, so a configuration can be shared.
+// release, which HAProxy branch and kernel track, which extensions -
+// giving a schematic ID, then the images. The choices live in the URL, so
+// a configuration can be shared.
 
 function readQuery() {
   const q = new URLSearchParams(window.location.search)
   return {
     platform: q.get('platform') || '',
     version: q.get('version') || '',
+    haproxy: q.get('haproxy') || '',
+    kernel: q.get('kernel') || '',
     extensions: (q.get('extensions') || '').split(',').filter(Boolean),
   }
 }
@@ -20,6 +23,8 @@ function writeQuery(s) {
   const q = new URLSearchParams()
   if (s.platform) q.set('platform', s.platform)
   if (s.version) q.set('version', s.version)
+  if (s.haproxy) q.set('haproxy', s.haproxy)
+  if (s.kernel) q.set('kernel', s.kernel)
   if (s.extensions.length) q.set('extensions', s.extensions.join(','))
   const url = `/builder${q.toString() ? `?${q}` : ''}`
   window.history.replaceState(null, '', url)
@@ -34,6 +39,35 @@ function Step({ n, title, done, children }) {
       </div>
       {children}
     </section>
+  )
+}
+
+// VariantChoice picks a HAProxy branch or kernel track: the release's
+// default (unset - the image follows it from release to release), or
+// one of those it offers, pinned.
+function VariantChoice({ variants, value, arch, onChange, follows, name, until }) {
+  const def = variants.find((v) => v.default)
+  return (
+    <div className="choice-grid">
+      <button className={`choice ${value === '' ? 'selected' : ''}`} onClick={() => onChange('')}>
+        <span className="choice-title">The default</span>
+        <span className="muted small">{follows}</span>
+        <span className="choice-meta">
+          {name(def)} · {def.version}
+        </span>
+      </button>
+      {variants.map((v) => {
+        const ok = v.arches.includes(arch)
+        return (
+          <button key={v.name} disabled={!ok} className={`choice ${value === v.name ? 'selected' : ''} ${ok ? '' : 'disabled'}`} onClick={() => onChange(v.name)}>
+            <span className="choice-title">{name(v)}</span>
+            <span className="muted small">{until(v)}</span>
+            <span className="choice-meta">{v.version}</span>
+            {!ok && <span className="small warn-text">amd64 only</span>}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -97,17 +131,25 @@ export default function Builder() {
 
   const available = useMemo(() => (catalog?.extensions || []).filter((e) => !arch || e.arches.includes(arch)), [catalog, arch])
   const chosen = choice.extensions.filter((e) => available.some((a) => a.name === e))
+  // A branch or track this release offers for this architecture, else the
+  // default.
+  const offered = (list, name) => (list || []).some((v) => v.name === name && (!arch || v.arches.includes(arch)))
+  const haproxy = offered(catalog?.haproxy, choice.haproxy) ? choice.haproxy : ''
+  const kernel = offered(catalog?.kernel, choice.kernel) ? choice.kernel : ''
 
   // The schematic of the current choices (posted so the site knows it).
   useEffect(() => {
     if (!version || !catalog) return
     setSchematic(null)
     setImage(null)
-    postJSON('/api/v1/schematics', { customization: { extensions: chosen } })
+    const customization = { extensions: chosen }
+    if (haproxy) customization.haproxy = haproxy
+    if (kernel) customization.kernel = kernel
+    postJSON('/api/v1/schematics', { customization })
       .then(setSchematic)
       .catch(setError)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, catalog, chosen.join(',')])
+  }, [version, catalog, chosen.join(','), haproxy, kernel])
 
   const loadImage = useCallback(() => {
     if (!schematic || !version || !arch) return Promise.resolve()
@@ -164,8 +206,8 @@ export default function Builder() {
       <div className="builder-intro">
         <h1>Image builder</h1>
         <p className="muted">
-          Pick where Janus runs, which release, and the optional extensions you want. Your choices form a <strong>schematic</strong>: the same choices always give the same ID, and nodes
-          built from it get updates built from it - extensions included.
+          Pick where Janus runs, which release, its HAProxy branch and kernel track, and the optional extensions you want. Your choices form a <strong>schematic</strong>: the same choices
+          always give the same ID, and nodes built from it get updates built from it - extensions, branch and track included.
         </p>
       </div>
       <ErrorBox error={error} />
@@ -215,7 +257,51 @@ export default function Builder() {
       )}
 
       {platform && version && (
-        <Step n={3} title="Extensions" done={!!catalog}>
+        <Step n={3} title="HAProxy and kernel" done={!!catalog}>
+          {!catalog ? (
+            <Loading />
+          ) : !catalog.haproxy?.length ? (
+            <p className="muted">{version.version} predates the choice: its images come with its one HAProxy and kernel.</p>
+          ) : (
+            <div className="stack">
+              <div>
+                <div className="muted small group-label">
+                  <Layers size={12} /> HAProxy LTS branch
+                </div>
+                <VariantChoice
+                  variants={catalog.haproxy}
+                  value={haproxy}
+                  arch={arch}
+                  onChange={(v) => update({ haproxy: v })}
+                  follows="The newest LTS branch - the image moves to the next one with the release that makes it the default"
+                  name={(v) => `HAProxy ${v.name}`}
+                  until={(v) => `Stays on ${v.name}${v.eol ? ` - supported upstream until ${v.eol.slice(0, 7)}` : ''}`}
+                />
+              </div>
+              <div>
+                <div className="muted small group-label">
+                  <Cpu size={12} /> Kernel track
+                </div>
+                <VariantChoice
+                  variants={catalog.kernel}
+                  value={kernel}
+                  arch={arch}
+                  onChange={(v) => update({ kernel: v })}
+                  follows="The release's default track"
+                  name={(v) => `${v.name.charAt(0).toUpperCase()}${v.name.slice(1)}`}
+                  until={(v) => `kernel.org's newest ${v.name} release, from branch to branch`}
+                />
+              </div>
+              <p className="muted small" style={{ margin: 0 }}>
+                Another HAProxy branch accepts another configuration: <a href={`${DOCS}/haproxy-config.md#haproxy-branches`}>what differs between branches</a>.
+              </p>
+            </div>
+          )}
+        </Step>
+      )}
+
+      {platform && version && (
+        <Step n={4} title="Extensions" done={!!catalog}>
           {!catalog ? (
             <Loading />
           ) : catalog.extensions.length === 0 ? (
@@ -255,7 +341,7 @@ export default function Builder() {
       )}
 
       {platform && version && schematic && (
-        <Step n={4} title="Your image" done={image?.state === 'ready'}>
+        <Step n={5} title="Your image" done={image?.state === 'ready'}>
           <div className="grid grid-2">
             <Card title="Schematic">
               <div className="stack">
@@ -267,7 +353,7 @@ export default function Builder() {
                   <div className="muted small">Definition</div>
                   <CopyBlock text={schematic.yaml.trim()} label="Schematic" />
                 </div>
-                {schematic.default && <p className="muted small">No extension: this is the default schematic of the official releases.</p>}
+                {schematic.default && <p className="muted small">No extension, the default HAProxy and kernel: this is the default schematic of the official releases.</p>}
               </div>
             </Card>
             <Card title={`${platform.name} · ${version.version} · ${arch}`}>
@@ -356,7 +442,7 @@ export default function Builder() {
             </Card>
           )}
           <p className="muted small">
-            See <a href={`${DOCS}/image-factory.md`}>image schematics and extensions</a> for what each extension does and how updates keep them.
+            See <a href={`${DOCS}/image-factory.md`}>image schematics and extensions</a> for what each extension, branch and track brings, and how updates keep them.
           </p>
         </Step>
       )}

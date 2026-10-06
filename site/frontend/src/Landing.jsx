@@ -64,7 +64,11 @@ const PILLARS = [
 ]
 
 const FEATURES = [
-  { icon: Server, title: 'HAProxy 3.4', text: 'Static, with AWS-LC for fast TLS and the Prometheus exporter. Seamless reloads, runtime maps, ACLs and certificates through the API.' },
+  {
+    icon: Server,
+    title: 'HAProxy LTS',
+    text: 'The LTS branch you choose - 3.4, 3.2 or 3.0 - static, with AWS-LC for fast TLS and the Prometheus exporter. Seamless reloads, runtime maps, ACLs and certificates through the API.',
+  },
   { icon: Undo2, title: 'A/B updates', text: 'The new version is written to the idle slot and booted on trial; if HAProxy isn’t healthy, the node switches back by itself.' },
   { icon: Network, title: 'Network', text: 'Static addressing, 802.1Q VLANs, several interfaces, DNS and NTP - configured through the API, confirmed or reverted.' },
   { icon: Terminal, title: 'No shell, still observable', text: 'Logs, kernel messages, processes, files and packet capture over the API - read-only and scoped, never a command line.' },

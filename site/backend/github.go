@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,7 @@ type gitHub struct {
 	releases []release
 	fetched  time.Time
 	catalogs map[string]*schematic.Catalog // by version; nil entry: the release has none
+	older    map[string]*release           // releases older than Releases' list, by version
 }
 
 type release struct {
@@ -49,7 +51,7 @@ const releasesTTL = 10 * time.Minute
 
 func newGitHub(api, repo, token, workflow string) *gitHub {
 	return &gitHub{api: strings.TrimRight(api, "/"), repo: repo, token: token, workflow: workflow,
-		client: &http.Client{Timeout: 30 * time.Second}, catalogs: map[string]*schematic.Catalog{}}
+		client: &http.Client{Timeout: 30 * time.Second}, catalogs: map[string]*schematic.Catalog{}, older: map[string]*release{}}
 }
 
 func (g *gitHub) do(ctx context.Context, method, url string, body any, auth bool) (*http.Response, error) {
@@ -91,18 +93,7 @@ func (g *gitHub) Releases(ctx context.Context) ([]release, error) {
 	if resp.StatusCode != http.StatusOK {
 		return g.stale(fmt.Errorf("GitHub releases: %s", resp.Status))
 	}
-	var raw []struct {
-		TagName     string    `json:"tag_name"`
-		Name        string    `json:"name"`
-		HTMLURL     string    `json:"html_url"`
-		Draft       bool      `json:"draft"`
-		Prerelease  bool      `json:"prerelease"`
-		PublishedAt time.Time `json:"published_at"`
-		Assets      []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
+	var raw []rawRelease
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return g.stale(fmt.Errorf("GitHub releases: %w", err))
 	}
@@ -111,17 +102,35 @@ func (g *gitHub) Releases(ctx context.Context) ([]release, error) {
 		if r.Draft {
 			continue
 		}
-		rel := release{Version: r.TagName, Name: r.Name, URL: r.HTMLURL, PublishedAt: r.PublishedAt, Prerelease: r.Prerelease, Assets: map[string]string{}}
-		for _, a := range r.Assets {
-			rel.Assets[a.Name] = a.URL
-		}
-		_, rel.Schematics = rel.Assets["schematic-catalog.json"]
-		out = append(out, rel)
+		out = append(out, *r.release())
 	}
 	g.mu.Lock()
 	g.releases, g.fetched = out, time.Now()
 	g.mu.Unlock()
 	return out, nil
+}
+
+// rawRelease is a release as GitHub's API gives it.
+type rawRelease struct {
+	TagName     string    `json:"tag_name"`
+	Name        string    `json:"name"`
+	HTMLURL     string    `json:"html_url"`
+	Draft       bool      `json:"draft"`
+	Prerelease  bool      `json:"prerelease"`
+	PublishedAt time.Time `json:"published_at"`
+	Assets      []struct {
+		Name string `json:"name"`
+		URL  string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
+func (r rawRelease) release() *release {
+	rel := &release{Version: r.TagName, Name: r.Name, URL: r.HTMLURL, PublishedAt: r.PublishedAt, Prerelease: r.Prerelease, Assets: map[string]string{}}
+	for _, a := range r.Assets {
+		rel.Assets[a.Name] = a.URL
+	}
+	_, rel.Schematics = rel.Assets["schematic-catalog.json"]
+	return rel
 }
 
 // stale serves the last known releases when GitHub fails, rather than
@@ -135,7 +144,9 @@ func (g *gitHub) stale(err error) ([]release, error) {
 	return nil, err
 }
 
-// Release returns one release by version.
+// Release returns one release by version: from the newest ones
+// (Releases), else asked for by its tag - the last release offering a
+// retired HAProxy branch can be older than those.
 func (g *gitHub) Release(ctx context.Context, version string) (*release, error) {
 	rels, err := g.Releases(ctx)
 	if err != nil {
@@ -146,7 +157,35 @@ func (g *gitHub) Release(ctx context.Context, version string) (*release, error) 
 			return &rels[i], nil
 		}
 	}
-	return nil, errNotFound
+	g.mu.Lock()
+	rel, ok := g.older[version]
+	g.mu.Unlock()
+	if ok {
+		return rel, nil
+	}
+	resp, err := g.do(ctx, http.MethodGet, g.api+"/repos/"+g.repo+"/releases/tags/"+url.PathEscape(version), nil, true)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub release %s: %s", version, resp.Status)
+	}
+	var r rawRelease
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return nil, fmt.Errorf("GitHub release %s: %w", version, err)
+	}
+	if r.Draft {
+		return nil, errNotFound
+	}
+	rel = r.release()
+	g.mu.Lock()
+	g.older[version] = rel
+	g.mu.Unlock()
+	return rel, nil
 }
 
 var errNotFound = errors.New("not found")

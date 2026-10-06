@@ -49,6 +49,16 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 			{"name":"node-exporter","version":"1.12.1","description":"metrics","arches":["amd64","arm64"]},
 			{"name":"qemu-guest-agent","version":"11.1.2","description":"agent","arches":["amd64"]}]}`)
 	})
+	// An older release than the list: the last one offering HAProxy 3.0.
+	mux.HandleFunc("GET /repos/swenske/Janus/releases/tags/v2026.10.01", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v2026.10.01", "html_url": "https://github.com/swenske/Janus/releases/tag/v2026.10.01",
+			"assets": []map[string]string{asset("v2026.10.01", "schematic-catalog.json")}})
+	})
+	mux.HandleFunc("GET /dl/v2026.10.01/schematic-catalog.json", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"version":"v2026.10.01","extensions":[],
+			"haproxy":[{"name":"3.4","version":"3.4.5","default":true,"arches":["amd64","arm64"]},{"name":"3.0","version":"3.0.28","arches":["amd64"]}],
+			"kernel":[{"name":"longterm","version":"6.18.54","default":true,"arches":["amd64","arm64"]}]}`)
+	})
 	mux.HandleFunc("GET /dl/v2026.10.02/rootfs.squashfs.sha256", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, strings.Repeat("c", 64)+"  rootfs.squashfs\n")
 	})
@@ -389,5 +399,33 @@ func TestSchematicVariants(t *testing.T) {
 		if code := call(t, "POST", srv.URL+"/api/v1/schematics", doc, &e); code != 400 {
 			t.Errorf("%s: %d %v", doc, code, e)
 		}
+	}
+}
+
+// An update for a schematic with a HAProxy branch says what it's built
+// with; one whose branch the newest releases retired gets the last
+// release that had it, told so.
+func TestUpdateVariants(t *testing.T) {
+	a, gh, srv := newTestApp(t)
+	gh.catalog = variantCatalog
+	pinned, _ := schematic.Parse([]byte(`{"customization":{"haproxy":"3.2"}}`))
+	id, _ := a.store.PutSchematic(pinned)
+	var up update
+	if code := call(t, "GET", srv.URL+"/api/v1/updates/"+id, "", &up); code != http.StatusOK {
+		t.Fatalf("updates: %d", code)
+	}
+	if up.Version != "v2026.10.02" || up.Components["haproxy"].Version != "3.2.25" || up.Components["kernel"].Name != "stable" || up.Retired != nil {
+		t.Fatalf("update = %+v", up)
+	}
+
+	old, _ := schematic.Parse([]byte(`{"customization":{"haproxy":"3.0"}}`))
+	oldID, _ := a.store.PutSchematic(old)
+	up = update{}
+	if code := call(t, "GET", srv.URL+"/api/v1/updates/"+oldID+"?from=v2026.10.01", "", &up); code != http.StatusOK {
+		t.Fatalf("updates: %d", code)
+	}
+	if up.Version != "v2026.10.01" || up.Retired == nil || up.Retired.LastRelease != "v2026.10.01" || !up.UpToDate ||
+		!strings.Contains(up.Message, "no longer offered") || up.Components["haproxy"].Version != "3.0.28" {
+		t.Fatalf("update = %+v", up)
 	}
 }
