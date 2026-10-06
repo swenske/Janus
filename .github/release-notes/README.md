@@ -13,6 +13,13 @@ them and what they have to do, not how it was built. Build them from
 `git log <previous tag>..HEAD`, whose `<theme>: message` subjects give
 the grouping.
 
+Link the docs on the docs site, by a file's permalink - the file's path
+under `docs/` (or in the repository, for a page outside it), an anchor
+if it helps: `https://janus.sw-servers.net/docs/vrrp.md#applying`. The
+site sends it to the page wherever it lives, in the docs of the newest
+release - the one the notes announce once it's out - and
+`hack/docscheck` keeps the file and the heading there.
+
 ## 🔒 Security
 
 When the release fixes vulnerabilities - an upstream component, a Go

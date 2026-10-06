@@ -9,7 +9,7 @@ and watched for vulnerabilities - and how a release says what it fixes.
 
 | What | Pinned in | Followed by |
 |---|---|---|
-| Go modules (both modules), npm packages (both frontends), base images, GitHub Actions | `go.mod`, `package-lock.json`, `FROM image:tag@digest`, `uses: action@sha # vX` | Dependabot (`.github/dependabot.yml`): weekly pull requests, minor/patch grouped; Dependabot alerts and security updates are on |
+| Go modules (both modules), npm packages (both frontends, the docs site, the browser image), base images, GitHub Actions | `go.mod`, `package-lock.json`, `FROM image:tag@digest`, `uses: action@sha # vX` | Dependabot (`.github/dependabot.yml`): weekly pull requests, minor/patch grouped; Dependabot alerts and security updates are on. The browser image (`hack/browser`) pins Playwright twice - its image and its npm package - and refuses to build when Dependabot bumps one without the other |
 | Every upstream release the build downloads | [`versions.mk`](../versions.mk): version + sha256 | `hack/upstream` (this page) |
 
 Dependabot can't follow `versions.mk`: nothing there is a package it knows,

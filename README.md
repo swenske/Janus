@@ -15,6 +15,12 @@ manager on the running system - everything is driven through a gRPC API
 secured with mTLS. **Janus Controller** (see [`dashboard/`](dashboard/)) is
 the companion management dashboard for running one or more nodes.
 
+**Documentation: [janus.sw-servers.net/docs](https://janus.sw-servers.net/docs/)**
+- a [quick start](https://janus.sw-servers.net/docs/guide/quickstart/), the
+user guide, how it works inside, and how to contribute or integrate it
+into a private cloud. The same pages are the Markdown files of this
+repository ([`docs/README.md`](docs/README.md) is their index).
+
 Optional network features, chosen per image and configured through the
 API and the Controller: [BGP](docs/bgp.md) via [BIRD](https://bird.nic.cz/),
 [VRRP](docs/vrrp.md) via [keepalived](https://www.keepalived.org/), a

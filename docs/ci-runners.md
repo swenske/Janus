@@ -23,6 +23,15 @@ self-hosted runners, labeled `self-hosted, docker, janus`.
   4 s with KVM against 13 s emulated. arm64 guests are always emulated.
 - **Tests that share host paths** (the native janusd and HAProxy ones)
   are all in `test-api`, so two of them never run at once.
+- **`docs-screenshots`** takes the docs' screenshots of the Controller
+  again (`make docs-screenshots-check`) and reports, never blocks:
+  `publish` doesn't need it, a drift is a warning and an artifact. Its
+  Docker network is a fixed `10.0.10.0/24`, so a host runs one at a
+  time (a lock in `/tmp`).
+- **npm runs in Docker only**: the docs site (`site/docs/Dockerfile`)
+  and the browser image (`hack/browser`) install their packages in
+  their own pinned images - never as the runner's user, which holds the
+  publishing keys.
 - **What gets published is built only on trusted runners**: `publish`,
   `schematic-build.yml` (images users download, signed) and
   `site-deploy.yml` also need the label `janus-publish`. A runner without
