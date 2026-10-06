@@ -122,6 +122,7 @@ var argTitles = map[argKind]string{
 	argLogService: "Whose logs?", argMap: "Which map?", argMapKey: "Which key?", argCert: "Which certificate?",
 	argHAProxyFile: "Which file?", argACMEName: "Which certificate?", argFamily: "Which family?",
 	argTable: "Which table?", argSet: "Which set?", argInterface: "Which interface?", argShell: "Which shell?",
+	argSysctl: "Which parameter?",
 }
 
 // pickArg asks for one argument of kind, if janusctl can list it.

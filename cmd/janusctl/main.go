@@ -215,7 +215,7 @@ func main() {
 	case "version":
 		runVersion(conn)
 	case "system":
-		runSystem(conn, args[1:])
+		runSystem(conn, *endpoint, redial, args[1:])
 	case "haproxy":
 		runHAProxy(conn, args[1:])
 	case "pki":
@@ -406,9 +406,13 @@ func cpuTopology(cpu *janusv1alpha1.CPUInfoResponse) string {
 	return plural(cpu.GetCores(), "core") + ", " + plural(cpu.GetSockets(), "socket")
 }
 
-func runSystem(conn *grpc.ClientConn, args []string) {
+func runSystem(conn *grpc.ClientConn, endpoint string, redial redialer, args []string) {
 	if len(args) > 0 && args[0] == "pcap" {
 		runPcap(conn, args[1:])
+		return
+	}
+	if len(args) > 0 && args[0] == "sysctl" {
+		runSysctl(conn, endpoint, redial, args[1:])
 		return
 	}
 	if len(args) > 0 && args[0] != "info" && runSystemCommand(conn, args[0], args[1:]) {

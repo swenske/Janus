@@ -620,6 +620,13 @@ jobs:
       - name: SystemService observability, files, services and machine control
         run: make qemu-system-api-test
 
+      # The kernel parameters on a real enforcing node: the CIS benchmark
+      # at boot, every whitelisted parameter's bounds on trial, reverts,
+      # cancels, confirmations kept across a reboot, refusals, a tampered
+      # saved file refused at boot. See hack/qemu-sysctl-test.sh.
+      - name: Kernel parameters - CIS baseline, trials, refusals
+        run: make qemu-sysctl-test
+
       # A node's fleet trust: its own CA always, a fleet's certificates by
       # the bundle its root signed, roles and the Controller's users. See
       # hack/qemu-fleet-trust-test.sh.

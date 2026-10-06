@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -18,29 +19,31 @@ import (
 type argKind int
 
 const (
-	argNone        argKind = iota
-	argFile                // a file on this machine
-	argDir                 // a directory on this machine
-	argRemote              // a path on the node
-	argContext             // a context's name
-	argNodes               // node names or IDs, comma-separated (-n)
-	argFleetNode           // a node of the context
-	argIssuer              // an issuing CA of the local fleet
-	argRole                // os:admin, os:operator, os:reader
-	argService             // a managed service's ID
-	argServiceAction       // start, stop, restart
-	argLogService          // janusd, haproxy
-	argMap                 // a map of the running config
-	argMapKey              // a key of the map given before it
-	argCert                // a certificate in HAProxy's store
-	argHAProxyFile         // a file in /etc/haproxy/files
-	argACMEName            // a Let's Encrypt certificate's name
-	argFamily              // an nftables family
-	argTable               // an nftables table
-	argSet                 // an nftables named set
-	argInterface           // a network interface of the node
-	argContextAction       // list, use, delete
-	argShell               // bash, zsh, fish
+	argNone          argKind = iota
+	argFile                  // a file on this machine
+	argDir                   // a directory on this machine
+	argRemote                // a path on the node
+	argContext               // a context's name
+	argNodes                 // node names or IDs, comma-separated (-n)
+	argFleetNode             // a node of the context
+	argIssuer                // an issuing CA of the local fleet
+	argRole                  // os:admin, os:operator, os:reader
+	argService               // a managed service's ID
+	argServiceAction         // start, stop, restart
+	argLogService            // janusd, haproxy
+	argMap                   // a map of the running config
+	argMapKey                // a key of the map given before it
+	argCert                  // a certificate in HAProxy's store
+	argHAProxyFile           // a file in /etc/haproxy/files
+	argACMEName              // a Let's Encrypt certificate's name
+	argFamily                // an nftables family
+	argTable                 // an nftables table
+	argSet                   // an nftables named set
+	argInterface             // a network interface of the node
+	argContextAction         // list, use, delete
+	argShell                 // bash, zsh, fish
+	argSysctl                // a kernel parameter the node lets change
+	argSysctlAssign          // NAME=VALUE for such a parameter
 )
 
 // fixedValues are the kinds whose values are known here.
@@ -77,19 +80,21 @@ type command struct {
 	// switch) - no context needed.
 	offline bool
 	// note follows a group's usage line.
-	note string
-	hidden  bool
+	note   string
+	hidden bool
 }
 
 // valFlag is a flag taking a value, boolFlag one that doesn't.
 func valFlag(name, value, help string, kind argKind) flagDef { return flagDef{name, value, help, kind} }
-func boolFlag(name, help string) flagDef                      { return flagDef{name: name, help: help} }
+func boolFlag(name, help string) flagDef                     { return flagDef{name: name, help: help} }
 
 var (
 	timeoutFlag = valFlag("timeout", "DURATION", "how long the node waits for the confirmation before reverting", argNone)
 	noConfirm   = boolFlag("no-confirm", "apply only - confirm yourself before the timeout")
-	reloadFlag  = boolFlag("reload", "HAProxy uses it at once")
-	kitFlag     = valFlag("kit", "KIT", "the fleet's recovery kit", argFile)
+	// sysctlApplyFlags are system sysctl set's and reset's.
+	sysctlApplyFlags = []flagDef{timeoutFlag, noConfirm, boolFlag("no-reload", "don't reload HAProxy for what it reads at its listeners")}
+	reloadFlag       = boolFlag("reload", "HAProxy uses it at once")
+	kitFlag          = valFlag("kit", "KIT", "the fleet's recovery kit", argFile)
 )
 
 // globalFlags come before the command.
@@ -153,6 +158,15 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("address", "IP", "listen on this address only (* for all)", argNone),
 			valFlag("port", "PORT", "listen on this port", argNone),
 			valFlag("collectors", "A,B", "the collectors to run", argNone),
+		}},
+		{name: "sysctl", help: "kernel parameters: HAProxy's on trial, the CIS benchmark's read-only (docs/guide/kernel-tuning.md)", subs: []*command{
+			{name: "list", help: "the parameters, their values and defaults, the CIS benchmark", flags: []flagDef{boolFlag("cis", "every CIS control too")}},
+			{name: "get", args: "NAME", help: "one parameter: value, default, bounds, effect on HAProxy, risk", pos: []argKind{argSysctl}, required: 1},
+			{name: "set", args: "NAME=VALUE...", help: "change parameters on trial, then confirm them", flags: sysctlApplyFlags, pos: []argKind{argSysctlAssign}, required: 1, variadic: true},
+			{name: "reset", args: "NAME...", help: "put parameters back to Janus's defaults on trial, then confirm", flags: append(slices.Clone(sysctlApplyFlags), boolFlag("all", "every parameter")), pos: []argKind{argSysctl}, variadic: true},
+			{name: "confirm", help: "save the values on trial: every boot applies them"},
+			{name: "cancel", help: "put the values from before the trial back now"},
+			{name: "history", help: "who changed what, when", flags: []flagDef{valFlag("n", "N", "the newest N changes", argNone)}},
 		}},
 		{name: "reboot", help: "soft-stop HAProxy, then reboot", flags: []flagDef{boolFlag("powercycle", "a power cycle")}},
 		{name: "shutdown", help: "soft-stop HAProxy, then power off"},

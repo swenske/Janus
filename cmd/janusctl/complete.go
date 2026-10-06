@@ -493,6 +493,21 @@ func onlineCandidates(c context.Context, conn *grpc.ClientConn, kind argKind, pr
 			}
 			out = append(out, candidate{i.GetName(), state})
 		}
+	case argSysctl, argSysctlAssign:
+		resp, err := sys.SysctlList(c, &emptypb.Empty{})
+		if err != nil {
+			return nil, nil
+		}
+		for _, p := range resp.GetParameters() {
+			if p.GetClass() != janusv1alpha1.SysctlClass_SYSCTL_CLASS_EDITABLE {
+				continue
+			}
+			value := p.GetName()
+			if kind == argSysctlAssign {
+				value += "="
+			}
+			out = append(out, candidate{value, shown(p.GetValue())})
+		}
 	case argRemote:
 		return remoteEntries(c, sys, cur)
 	}

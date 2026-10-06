@@ -33,7 +33,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-sysctl-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build kernel-builds kernel-config-refresh rpi4-kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -586,8 +586,9 @@ initramfs-full: init daemon-static haproxy-build
 qemu-network-test: kernel-build initramfs-full
 	./hack/qemu-network-test.sh $(BUILD_DIR)/bzImage $(BUILD_DIR)/initramfs-full.cpio.gz
 
-# Phase 4: proves rootfs/init/main.go's hardenSysctls actually applies
-# every kernel-hardening sysctl it claims to on a real boot (not just
+# Phase 4: proves the kernel parameters rootfs/init writes at boot
+# (internal/sysctl's Baseline: the CIS benchmark's, Janus's own,
+# HAProxy's defaults) all take effect on a real boot (not just
 # that the Go code runs without panicking, and not just that the
 # matching kernel/configs/janus_<track>_defconfig options compile in - see
 # hack/qemu-hardening-test.sh's own comment for the real gap that
@@ -1130,6 +1131,13 @@ qemu-baremetal-test: build dashboard-bin disk-image
 
 qemu-system-api-test: build disk-image
 	./hack/qemu-system-api-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# The kernel parameters (internal/sysctl) on a real enforcing node: the
+# CIS benchmark at boot, every whitelisted parameter's bounds on trial,
+# reverts, cancels, confirmations kept across a reboot, refusals, a
+# tampered saved file refused at boot - see the script's header.
+qemu-sysctl-test: build disk-image
+	./hack/qemu-sysctl-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
 # A node's fleet trust on a real enforcing node: its own CA always, a
 # test fleet's certificates by bundle, roles and the Controller's users.

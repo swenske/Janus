@@ -28,7 +28,7 @@ boots. The catalog:
 | The boot chain | `qemu-boot-test`, `qemu-network-test`, `qemu-hardening-test`, `qemu-verity-boot-test`, `qemu-state-persist-test`, `qemu-selinux-test`, `qemu-ab-boot-test`, `qemu-uefi-boot-test`, `qemu-uefi-ab-boot-test`, `qemu-secureboot-test`, `qemu-baremetal-test` |
 | Lifecycle | `qemu-lifecycle-rollback-test`, `qemu-lifecycle-upgrade-test` (and its `-url-`, `-https-`, `-relay-`, `-health-` variants), `lifecycle-install-test`, `qemu-iso-boot-test`, `qemu-iso-install-test`, `qemu-pxe-fetch-test` |
 | Provisioning | `qemu-self-register-test`, `seed-controller-test`, `nocloud-seed-test`, `qemu-network-config-test` |
-| The API and the features | `qemu-system-api-test`, `qemu-system-info-test`, `qemu-packet-capture-test`, `qemu-metrics-test`, `qemu-fleet-trust-test`, `qemu-fleetctl-test`, `qemu-orchestrator-test`, `qemu-extensions-test`, `qemu-firewall-test`, `qemu-vrrp-test`, `qemu-bgp-test`, `qemu-acme-test`, `qemu-consul-test` |
+| The API and the features | `qemu-system-api-test`, `qemu-system-info-test`, `qemu-packet-capture-test`, `qemu-metrics-test`, `qemu-sysctl-test`, `qemu-fleet-trust-test`, `qemu-fleetctl-test`, `qemu-orchestrator-test`, `qemu-extensions-test`, `qemu-firewall-test`, `qemu-vrrp-test`, `qemu-bgp-test`, `qemu-acme-test`, `qemu-consul-test` |
 | The Controller | `qemu-dashboard-test`, `controller-self-update-test`, `controller-libvirt-test`, `terraform-provider-test` |
 | arm64 | `qemu-raspi4-boot-test`, `qemu-raspi4-daemon-test`, `qemu-arm64-network-test`, `qemu-arm64-uefi-boot-test`, `pi4-sdcard-image-test`, `pi5-sdcard-image-test` |
 | The docs | `docs-build`, `docs-smoke`, `docs-screenshots-check`, `examples-check`, `examples-test` ([writing docs](writing-docs.md)) |

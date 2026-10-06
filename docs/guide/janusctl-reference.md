@@ -294,6 +294,87 @@ janusctl system node-exporter [-enable] [-disable] [-address IP] [-port PORT] [-
 | `-port PORT` | listen on this port |
 | `-collectors A,B` | the collectors to run |
 
+#### janusctl system sysctl
+
+Kernel parameters: HAProxy's on trial, the CIS benchmark's read-only (docs/guide/kernel-tuning.md).
+
+##### janusctl system sysctl list
+
+The parameters, their values and defaults, the CIS benchmark.
+
+```text
+janusctl system sysctl list [-cis]
+```
+
+| Flag | |
+|---|---|
+| `-cis` | every CIS control too |
+
+##### janusctl system sysctl get
+
+One parameter: value, default, bounds, effect on HAProxy, risk.
+
+```text
+janusctl system sysctl get NAME
+```
+
+##### janusctl system sysctl set
+
+Change parameters on trial, then confirm them.
+
+```text
+janusctl system sysctl set [-timeout DURATION] [-no-confirm] [-no-reload] NAME=VALUE...
+```
+
+| Flag | |
+|---|---|
+| `-timeout DURATION` | how long the node waits for the confirmation before reverting |
+| `-no-confirm` | apply only - confirm yourself before the timeout |
+| `-no-reload` | don't reload HAProxy for what it reads at its listeners |
+
+##### janusctl system sysctl reset
+
+Put parameters back to Janus's defaults on trial, then confirm.
+
+```text
+janusctl system sysctl reset [-timeout DURATION] [-no-confirm] [-no-reload] [-all] NAME...
+```
+
+| Flag | |
+|---|---|
+| `-timeout DURATION` | how long the node waits for the confirmation before reverting |
+| `-no-confirm` | apply only - confirm yourself before the timeout |
+| `-no-reload` | don't reload HAProxy for what it reads at its listeners |
+| `-all` | every parameter |
+
+##### janusctl system sysctl confirm
+
+Save the values on trial: every boot applies them.
+
+```text
+janusctl system sysctl confirm
+```
+
+##### janusctl system sysctl cancel
+
+Put the values from before the trial back now.
+
+```text
+janusctl system sysctl cancel
+```
+
+##### janusctl system sysctl history
+
+Who changed what, when.
+
+```text
+janusctl system sysctl history [-n N]
+```
+
+| Flag | |
+|---|---|
+| `-n N` | the newest N changes |
+
 #### janusctl system reboot
 
 Soft-stop HAProxy, then reboot.
