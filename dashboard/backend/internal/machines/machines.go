@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
+
+	"github.com/swenske/Janus/internal/schematic"
 )
 
 // Phase is where a machine stands.
@@ -66,6 +68,11 @@ type Spec struct {
 	// machine is created (Machine.Version records which).
 	Version    string   `json:"version,omitempty"`
 	Extensions []string `json:"extensions,omitempty"`
+	// HAProxy and Kernel: the HAProxy branch ("3.2") and kernel track
+	// ("longterm") its image is built with; empty: each release's
+	// default.
+	HAProxy string `json:"haproxy,omitempty"`
+	Kernel  string `json:"kernel,omitempty"`
 	// Image, when set, is used instead of the release's (or image
 	// factory's) image: a mirror, an air-gapped copy, a development
 	// build.
@@ -82,6 +89,13 @@ type Spec struct {
 	// program's API token still can.
 	ManagedBy string `json:"managed_by,omitempty"`
 	Locked    bool   `json:"locked,omitempty"`
+}
+
+// Schematic is the image schematic the spec asks for: its extensions,
+// HAProxy branch and kernel track.
+func (s Spec) Schematic() *schematic.Schematic {
+	return &schematic.Schematic{Customization: schematic.Customization{
+		Extensions: append([]string(nil), s.Extensions...), HAProxy: s.HAProxy, Kernel: s.Kernel}}
 }
 
 type ImageSource struct {

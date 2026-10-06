@@ -44,7 +44,13 @@ type updateCheck struct {
 	Arch        string   `json:"arch"`
 	SchematicID string   `json:"schematic_id"`
 	Extensions  []string `json:"extensions"`
-	Default     bool     `json:"default_schematic"`
+	// HAProxy and Kernel: the HAProxy branch and kernel track its
+	// schematic pins, "" for each release's default.
+	HAProxy string `json:"haproxy,omitempty"`
+	Kernel  string `json:"kernel,omitempty"`
+	Default bool   `json:"default_schematic"`
+	// schematic is the node's whole schematic (NodeSchematic).
+	schematic *schematic.Schematic
 
 	// Its newest update. Source is "github" or "image-factory"; State is
 	// "ready" (BundleURL and SHA256 set), "building", "failed" or
@@ -92,15 +98,21 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 		writeJSONBody(w, http.StatusOK, view)
 	})
 	mux.HandleFunc("POST /api/factory/update", func(w http.ResponseWriter, r *http.Request) {
+		// The image to change to: these extensions, and the HAProxy branch
+		// and kernel track given ("" for the release's default) - those
+		// left out stay what the node's schematic picks.
 		var req struct {
 			Extensions []string `json:"extensions"`
+			HAProxy    *string  `json:"haproxy"`
+			Kernel     *string  `json:"kernel"`
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		sc := &schematic.Schematic{Customization: schematic.Customization{Extensions: req.Extensions}}
-		if err := sc.Normalize(); err != nil {
+		probe := &schematic.Schematic{Customization: schematic.Customization{Extensions: req.Extensions,
+			HAProxy: deref(req.HAProxy), Kernel: deref(req.Kernel)}}
+		if err := probe.Normalize(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -108,6 +120,14 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 			v, err := janusv1alpha1.NewSystemServiceClient(c).Version(ctx, &emptypb.Empty{})
 			if err != nil {
 				return nil, err
+			}
+			sc := NodeSchematic(v).Clone()
+			sc.Customization.Extensions = probe.Customization.Extensions
+			if req.HAProxy != nil {
+				sc.Customization.HAProxy = *req.HAProxy
+			}
+			if req.Kernel != nil {
+				sc.Customization.Kernel = *req.Kernel
 			}
 			return updateFor(ctx, v, sc), nil
 		})
@@ -137,7 +157,34 @@ func nodeUpdateCheck(v *janusv1alpha1.VersionResponse) *updateCheck {
 		uc.SchematicID = schematic.DefaultID() // older than schematics
 	}
 	uc.Default = uc.SchematicID == schematic.DefaultID()
+	uc.schematic = NodeSchematic(v)
+	uc.HAProxy, uc.Kernel = uc.schematic.HAProxyBranch(), uc.schematic.KernelTrack()
 	return uc
+}
+
+// NodeSchematic is the schematic a node's image is built from: the one
+// its image reports (VersionResponse.schematic), checked against the ID
+// its signed command line names; a node whose image doesn't report it -
+// built before images did - only ever had extensions.
+func NodeSchematic(v *janusv1alpha1.VersionResponse) *schematic.Schematic {
+	if doc := v.GetSchematic(); doc != "" {
+		if sc, err := schematic.Parse([]byte(doc)); err == nil && (v.GetSchematicId() == "" || sc.ID() == v.GetSchematicId()) {
+			return sc
+		}
+	}
+	sc := &schematic.Schematic{}
+	for _, e := range v.GetExtensions() {
+		sc.Customization.Extensions = append(sc.Customization.Extensions, e.GetName())
+	}
+	_ = sc.Normalize() // names a node's extension manifests passed: valid
+	return sc
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // resolveUpdate fills in the newest update built from uc's schematic for
@@ -211,8 +258,9 @@ type extensionsUpdate struct {
 }
 
 // updateFor finds the update that would give the node running v the
-// extensions of sc (normalized). An image factory builds it if it
-// doesn't exist yet - State says so.
+// image of sc (normalized): its extensions, HAProxy branch and kernel
+// track. An image factory builds it if it doesn't exist yet - State says
+// so.
 func updateFor(ctx context.Context, v *janusv1alpha1.VersionResponse, sc *schematic.Schematic) *extensionsUpdate {
 	node := nodeUpdateCheck(v)
 	exts := sc.Extensions()
@@ -225,7 +273,10 @@ func updateFor(ctx context.Context, v *janusv1alpha1.VersionResponse, sc *schema
 			Arch:        node.Arch,
 			SchematicID: sc.ID(),
 			Extensions:  exts,
+			HAProxy:     sc.HAProxyBranch(),
+			Kernel:      sc.KernelTrack(),
 			Default:     sc.ID() == schematic.DefaultID(),
+			schematic:   sc,
 		},
 		NodeSchematicID: node.SchematicID,
 		NodeExtensions:  node.Extensions,
@@ -357,12 +408,9 @@ func factoryUpdate(ctx context.Context, base string, uc *updateCheck) (*factoryU
 }
 
 func fetchFactoryUpdate(ctx context.Context, base string, uc *updateCheck) (*factoryUpdateResponse, error) {
-	sc := &schematic.Schematic{Customization: schematic.Customization{Extensions: append([]string(nil), uc.Extensions...)}}
-	if err := sc.Normalize(); err != nil {
-		return nil, fmt.Errorf("the node's extensions: %w", err)
-	}
-	if sc.ID() != uc.SchematicID {
-		return nil, fmt.Errorf("the node's extensions (%s) don't make up its schematic %s", strings.Join(uc.Extensions, ", "), short(uc.SchematicID))
+	sc := uc.schematic
+	if sc == nil || sc.ID() != uc.SchematicID {
+		return nil, fmt.Errorf("the node's extensions (%s) don't make up its schematic %s, and its image doesn't say what it is", strings.Join(uc.Extensions, ", "), short(uc.SchematicID))
 	}
 	var created struct {
 		ID string `json:"id"`

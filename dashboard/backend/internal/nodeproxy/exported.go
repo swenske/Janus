@@ -113,11 +113,14 @@ func Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageS
 }
 
 // NodeInfo is what node runs: its Janus version, image schematic and
-// that schematic's extensions.
+// that schematic's extensions, HAProxy branch and kernel track ("" for
+// the release's default).
 type NodeInfo struct {
 	Version    string
 	Schematic  string
 	Extensions []string
+	HAProxy    string
+	Kernel     string
 }
 
 func GetNodeInfo(ctx context.Context, node *store.Node) (*NodeInfo, error) {
@@ -136,6 +139,8 @@ func GetNodeInfo(ctx context.Context, node *store.Node) (*NodeInfo, error) {
 	for _, e := range v.GetExtensions() {
 		info.Extensions = append(info.Extensions, e.GetName())
 	}
+	sc := NodeSchematic(v)
+	info.HAProxy, info.Kernel = sc.HAProxyBranch(), sc.KernelTrack()
 	return info, nil
 }
 
@@ -173,11 +178,11 @@ type Bundle struct {
 	SHA256    string // rootfs.squashfs's
 }
 
-// ResolveBundle finds version's update bundle built with extensions -
+// ResolveBundle finds version's update bundle built from schematic sc -
 // GitHub's release for the default schematic, the image factory's build
 // otherwise (State "building" in the error: ask again later).
-func ResolveBundle(ctx context.Context, version string, extensions []string) (*Bundle, string, error) {
-	img, err := ResolveVMImage(ctx, version, extensions, "rootfs.squashfs")
+func ResolveBundle(ctx context.Context, version string, sc *schematic.Schematic) (*Bundle, string, error) {
+	img, err := ResolveVMImage(ctx, version, sc, "rootfs.squashfs")
 	if err != nil {
 		return nil, "", err
 	}

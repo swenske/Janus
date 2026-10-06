@@ -35,6 +35,8 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/internal/nocloud"
 	"github.com/swenske/Janus/internal/pki"
+
+	"github.com/swenske/Janus/internal/schematic"
 )
 
 // fakeDriver is a hypervisor that keeps its machines in memory.
@@ -653,7 +655,7 @@ func TestResolveImageRetries(t *testing.T) {
 		ok       bool
 	}{{0, true}, {imageAttempts - 1, true}, {imageAttempts, false}} {
 		calls := 0
-		resolveVMImage = func(context.Context, string, []string, string) (*nodeproxy.VMImage, error) {
+		resolveVMImage = func(context.Context, string, *schematic.Schematic, string) (*nodeproxy.VMImage, error) {
 			calls++
 			if calls <= tc.failures {
 				return nil, errors.New(`Get "https://api.github.com/repos/swenske/Janus/releases": context deadline exceeded`)

@@ -391,6 +391,24 @@ type imageSource struct {
 	Size   int64 // 0: unknown
 }
 
+// describeImage says what a spec's image carries beyond the default one.
+func describeImage(spec machines.Spec) string {
+	var parts []string
+	if len(spec.Extensions) > 0 {
+		parts = append(parts, strings.Join(spec.Extensions, ", "))
+	}
+	if spec.HAProxy != "" {
+		parts = append(parts, "HAProxy "+spec.HAProxy)
+	}
+	if spec.Kernel != "" {
+		parts = append(parts, "kernel "+spec.Kernel)
+	}
+	if len(parts) == 0 {
+		return "the default image"
+	}
+	return strings.Join(parts, ", ")
+}
+
 // resolveVMImage finds a release's (or the image factory's) image - a
 // variable so tests can give answers of their own.
 var resolveVMImage = nodeproxy.ResolveVMImage
@@ -420,7 +438,7 @@ func (r *machineRunner) resolveImage(ctx context.Context, m *machines.Machine) (
 		if !ok {
 			return nil, hypervisor.Image{}, errors.New("its hypervisor no longer exists")
 		}
-		vi, err := resolveVMImage(ctx, m.Spec.Version, m.Spec.Extensions, vmImageFile(h))
+		vi, err := resolveVMImage(ctx, m.Spec.Version, m.Spec.Schematic(), vmImageFile(h))
 		if err != nil {
 			failures++
 			if failures >= imageAttempts || ctx.Err() != nil {
@@ -449,7 +467,7 @@ func (r *machineRunner) resolveImage(ctx context.Context, m *machines.Machine) (
 			return &imageSource{URL: vi.URL, SHA256: vi.SHA256, Size: vi.Size}, hypervisor.Image{Name: name}, nil
 		case "building":
 			if !reported {
-				r.logEvent(m.ID, "the image factory is building Janus %s with %s", vi.Version, strings.Join(m.Spec.Extensions, ", "))
+				r.logEvent(m.ID, "the image factory is building Janus %s, schematic %.8s (%s)", vi.Version, vi.Schematic, describeImage(m.Spec))
 				reported = true
 			}
 			if time.Now().After(deadline) {
@@ -702,6 +720,9 @@ func (a *app) checkSpec(spec *machines.Spec) error {
 	if spec.Version != "" && !versionRe.MatchString(spec.Version) {
 		return fmt.Errorf("version %q isn't a Janus release (vYYYY.MM.DD[-N])", spec.Version)
 	}
+	if err := spec.Schematic().Normalize(); err != nil {
+		return err
+	}
 	if src := spec.Image; src != nil {
 		src.SHA256 = strings.ToLower(strings.TrimSpace(src.SHA256))
 		u, err := url.Parse(src.URL)
@@ -711,8 +732,8 @@ func (a *app) checkSpec(spec *machines.Spec) error {
 		if !sha256Re.MatchString(src.SHA256) {
 			return errors.New("image sha256: 64 hexadecimal characters")
 		}
-		if len(spec.Extensions) > 0 || spec.Version != "" {
-			return errors.New("an image URL replaces version and extensions: give one or the other")
+		if len(spec.Extensions) > 0 || spec.Version != "" || spec.HAProxy != "" || spec.Kernel != "" {
+			return errors.New("an image URL replaces version, extensions, HAProxy branch and kernel track: give one or the other")
 		}
 	}
 	if len(spec.NICs) == 0 || len(spec.NICs) > 8 {

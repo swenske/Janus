@@ -430,3 +430,54 @@ func TestUpdateAvailable(t *testing.T) {
 		}
 	}
 }
+
+// A node whose image reports its schematic - a HAProxy branch, a kernel
+// track - is checked for updates of that schematic, not of its
+// extensions alone; changing its extensions keeps the branch.
+func TestCheckUpdateVariantSchematic(t *testing.T) {
+	sc, _ := schematic.Parse([]byte(`{"customization":{"extensions":["node-exporter"],"haproxy":"3.2"}}`))
+	var posted atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/schematics":
+			data, _ := io.ReadAll(r.Body)
+			got, err := schematic.Parse(data)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			posted.Store(string(data))
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": got.ID()})
+		case strings.HasPrefix(r.URL.Path, "/api/v1/updates/"):
+			id := strings.TrimPrefix(r.URL.Path, "/api/v1/updates/")
+			_, _ = io.WriteString(w, `{"schematic":"`+id+`","version":"v2","bundle_url":"https://factory.invalid/b","sha256":"abc","state":"ready"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	resetFactory(t, srv.URL)
+
+	node := &janusv1alpha1.VersionResponse{Version: "v1", Arch: "amd64", SchematicId: sc.ID(), Schematic: string(sc.Canonical()),
+		Extensions: []*janusv1alpha1.ExtensionInfo{{Name: "node-exporter"}}}
+	uc := checkUpdate(context.Background(), node)
+	if uc.State != "ready" || uc.HAProxy != "3.2" || posted.Load() != string(sc.Canonical()) {
+		t.Fatalf("update check = %+v, posted %v", uc, posted.Load())
+	}
+
+	eu := updateFor(context.Background(), node, func() *schematic.Schematic {
+		s := NodeSchematic(node).Clone()
+		s.Customization.Extensions = nil
+		return s
+	}())
+	want, _ := schematic.Parse([]byte(`{"customization":{"haproxy":"3.2"}}`))
+	if eu.SchematicID != want.ID() || eu.HAProxy != "3.2" || !eu.SchematicChange || eu.Default {
+		t.Fatalf("update = %+v", eu)
+	}
+
+	// A schematic that isn't the one the node booted is ignored.
+	node.Schematic = `{"customization":{"haproxy":"3.0"}}`
+	if got := NodeSchematic(node); got.HAProxyBranch() != "" || len(got.Extensions()) != 1 {
+		t.Errorf("trusted a schematic that isn't the node's: %s", got.Canonical())
+	}
+}

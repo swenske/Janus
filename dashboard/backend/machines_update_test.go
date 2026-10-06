@@ -29,6 +29,8 @@ type fakeNodes struct {
 	version    string
 	schematic  string
 	extensions []string
+	haproxy    string
+	kernel     string
 	cfg        *janusv1alpha1.NetworkConfig
 	shutdowns  int
 	applied    []*janusv1alpha1.NetworkConfig
@@ -84,18 +86,26 @@ func (f *fakeNodes) Upgrade(_ context.Context, _ *store.Node, src *janusv1alpha1
 		return f.upgradeErr
 	}
 	f.upgrades = append(f.upgrades, src)
-	// The bundle's version, as the node reports it once rebooted.
-	f.version = strings.TrimPrefix(src.Reference, "https://bundles/")
-	if src.AllowSchematicChange {
-		f.schematic, f.extensions = "changed", []string{"keepalived"}
+	// The bundle's version and schematic (ResolveBundle's URL), as the
+	// node reports them once rebooted.
+	ref := strings.TrimPrefix(src.Reference, "https://bundles/")
+	version, doc, _ := strings.Cut(ref, "/")
+	f.version = version
+	sc, err := schematic.Parse([]byte(doc))
+	if err != nil {
+		return err
 	}
+	if sc.ID() != f.schematic && !src.AllowSchematicChange {
+		return errors.New("another schematic, and allow_schematic_change isn't set")
+	}
+	f.schematic, f.extensions, f.haproxy, f.kernel = sc.ID(), sc.Extensions(), sc.HAProxyBranch(), sc.KernelTrack()
 	return nil
 }
 
 func (f *fakeNodes) Info(context.Context, *store.Node) (*nodeproxy.NodeInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return &nodeproxy.NodeInfo{Version: f.version, Schematic: f.schematic, Extensions: f.extensions}, nil
+	return &nodeproxy.NodeInfo{Version: f.version, Schematic: f.schematic, Extensions: f.extensions, HAProxy: f.haproxy, Kernel: f.kernel}, nil
 }
 
 func (f *fakeNodes) Network(context.Context, *store.Node) (*janusv1alpha1.NetworkConfig, error) {
@@ -111,12 +121,10 @@ func (f *fakeNodes) NetworkStatus(context.Context, *store.Node) (*janusv1alpha1.
 	}}, nil
 }
 
-func (f *fakeNodes) ResolveBundle(_ context.Context, version string, extensions []string) (*nodeproxy.Bundle, string, error) {
-	sc := schematic.DefaultID()
-	if len(extensions) > 0 {
-		sc = "changed"
-	}
-	return &nodeproxy.Bundle{Version: version, Schematic: sc, BaseURL: "https://bundles/" + version, SHA256: strings.Repeat("a", 64)}, "ready", nil
+// ResolveBundle: the bundle's URL carries its version and schematic, for
+// Upgrade.
+func (f *fakeNodes) ResolveBundle(_ context.Context, version string, sc *schematic.Schematic) (*nodeproxy.Bundle, string, error) {
+	return &nodeproxy.Bundle{Version: version, Schematic: sc.ID(), BaseURL: "https://bundles/" + version + "/" + string(sc.Canonical()), SHA256: strings.Repeat("a", 64)}, "ready", nil
 }
 
 const mgmtMAC, frontMAC = "52:54:00:00:00:01", "52:54:00:00:00:02"
@@ -241,7 +249,7 @@ func TestMachineUpdateVersionAndExtensions(t *testing.T) {
 	if got.Error != "" || got.Version != "v2026.10.05" || got.Spec.Version != "v2026.10.05" {
 		t.Fatalf("after the update: %+v", got)
 	}
-	if len(f.upgrades) != 1 || f.upgrades[0].GetReference() != "https://bundles/v2026.10.05" || f.upgrades[0].GetAllowSchematicChange() {
+	if len(f.upgrades) != 1 || f.upgrades[0].GetReference() != `https://bundles/v2026.10.05/{"customization":{}}` || f.upgrades[0].GetAllowSchematicChange() {
 		t.Errorf("upgrade %v", f.upgrades)
 	}
 
@@ -249,11 +257,37 @@ func TestMachineUpdateVersionAndExtensions(t *testing.T) {
 		t.Fatalf("PATCH extensions: %d %s", code, body)
 	}
 	got = waitReady(t, a, m.ID)
-	if got.Error != "" || got.Schematic != "changed" || len(got.Spec.Extensions) != 1 {
+	withKeepalived := &schematic.Schematic{Customization: schematic.Customization{Extensions: []string{"keepalived"}}}
+	if got.Error != "" || got.Schematic != withKeepalived.ID() || len(got.Spec.Extensions) != 1 {
 		t.Fatalf("after the extensions: %+v", got)
 	}
 	if !f.upgrades[1].GetAllowSchematicChange() {
 		t.Error("a schematic change wasn't allowed explicitly")
+	}
+
+	// Another HAProxy branch and kernel track: the same schematic change,
+	// the extensions kept.
+	if code, body := patch(t, a, m.ID, map[string]any{"haproxy": "3.2", "kernel": "longterm"}); code != http.StatusAccepted {
+		t.Fatalf("PATCH haproxy/kernel: %d %s", code, body)
+	}
+	got = waitReady(t, a, m.ID)
+	want := &schematic.Schematic{Customization: schematic.Customization{Extensions: []string{"keepalived"}, HAProxy: "3.2", Kernel: "longterm"}}
+	if got.Error != "" || got.Schematic != want.ID() || got.Spec.HAProxy != "3.2" || got.Spec.Kernel != "longterm" || len(got.Spec.Extensions) != 1 {
+		t.Fatalf("after the branch change: %+v", got)
+	}
+	if len(f.upgrades) != 3 || !f.upgrades[2].GetAllowSchematicChange() {
+		t.Errorf("upgrades %v", f.upgrades)
+	}
+	// Back to the release's default branch.
+	if code, body := patch(t, a, m.ID, map[string]any{"haproxy": ""}); code != http.StatusAccepted {
+		t.Fatalf("PATCH haproxy default: %d %s", code, body)
+	}
+	got = waitReady(t, a, m.ID)
+	if got.Error != "" || got.Spec.HAProxy != "" || got.Spec.Kernel != "longterm" {
+		t.Fatalf("after going back to the default branch: %+v", got)
+	}
+	if code, _ := patch(t, a, m.ID, map[string]any{"haproxy": "3.2.25"}); code != http.StatusBadRequest {
+		t.Errorf("a HAProxy version instead of a branch: %d", code)
 	}
 }
 

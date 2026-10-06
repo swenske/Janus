@@ -49,7 +49,7 @@ type nodeAPI interface {
 	Info(ctx context.Context, node *store.Node) (*nodeproxy.NodeInfo, error)
 	Network(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkConfig, error)
 	NetworkStatus(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkStatusResponse, error)
-	ResolveBundle(ctx context.Context, version string, extensions []string) (*nodeproxy.Bundle, string, error)
+	ResolveBundle(ctx context.Context, version string, sc *schematic.Schematic) (*nodeproxy.Bundle, string, error)
 }
 
 type realNodeAPI struct{}
@@ -78,8 +78,8 @@ func (realNodeAPI) NetworkStatus(ctx context.Context, node *store.Node) (*janusv
 	return nodeproxy.NetworkStatus(ctx, node)
 }
 
-func (realNodeAPI) ResolveBundle(ctx context.Context, version string, extensions []string) (*nodeproxy.Bundle, string, error) {
-	return nodeproxy.ResolveBundle(ctx, version, extensions)
+func (realNodeAPI) ResolveBundle(ctx context.Context, version string, sc *schematic.Schematic) (*nodeproxy.Bundle, string, error) {
+	return nodeproxy.ResolveBundle(ctx, version, sc)
 }
 
 var nodes nodeAPI = realNodeAPI{}
@@ -90,6 +90,8 @@ type machineUpdate struct {
 	MemoryMiB  *int            `json:"memory_mib,omitempty"`
 	Version    *string         `json:"version,omitempty"`
 	Extensions *[]string       `json:"extensions,omitempty"`
+	HAProxy    *string         `json:"haproxy,omitempty"`
+	Kernel     *string         `json:"kernel,omitempty"`
 	NICs       *[]machines.NIC `json:"nics,omitempty"`
 	DNS        *[]string       `json:"dns,omitempty"`
 	NTP        *[]string       `json:"ntp,omitempty"`
@@ -101,7 +103,7 @@ type machineUpdate struct {
 // machine (or says who manages it) - what a locked machine's page may
 // still do.
 func (u machineUpdate) onlyRelease() bool {
-	return u.VCPUs == nil && u.MemoryMiB == nil && u.Version == nil && u.Extensions == nil && u.NICs == nil &&
+	return u.VCPUs == nil && u.MemoryMiB == nil && u.Version == nil && u.Extensions == nil && u.HAProxy == nil && u.Kernel == nil && u.NICs == nil &&
 		u.DNS == nil && u.NTP == nil && (u.Locked == nil || !*u.Locked)
 }
 
@@ -118,10 +120,11 @@ type updatePlan struct {
 	// moved: interfaces moved to another network, by MAC.
 	moved   []string
 	upgrade bool
-	// The version and extensions to upgrade to.
-	version    string
-	extensions []string
-	meta       bool
+	// The version and schematic (extensions, HAProxy branch, kernel
+	// track) to upgrade to.
+	version string
+	image   *schematic.Schematic
+	meta    bool
 }
 
 func (p *updatePlan) changes() bool {
@@ -139,7 +142,7 @@ func planUpdate(m *machines.Machine, u machineUpdate, allowed func(string) bool)
 	cur := m.Spec
 	next := cur
 	next.NICs = append([]machines.NIC(nil), cur.NICs...)
-	p := &updatePlan{version: m.Version, extensions: cur.Extensions}
+	p := &updatePlan{version: m.Version, image: cur.Schematic()}
 
 	if u.VCPUs != nil {
 		next.VCPUs = *u.VCPUs
@@ -155,9 +158,9 @@ func planUpdate(m *machines.Machine, u machineUpdate, allowed func(string) bool)
 	}
 	p.hardware = next.VCPUs != cur.VCPUs || next.MemoryMiB != cur.MemoryMiB
 
-	if u.Version != nil || u.Extensions != nil {
+	if u.Version != nil || u.Extensions != nil || u.HAProxy != nil || u.Kernel != nil {
 		if cur.Image != nil {
-			return nil, errors.New("this machine was created from an image URL: its version and extensions can't be changed, only replaced")
+			return nil, errors.New("this machine was created from an image URL: its version, extensions, HAProxy branch and kernel track can't be changed, only replaced")
 		}
 		if u.Version != nil {
 			if !versionRe.MatchString(*u.Version) {
@@ -167,17 +170,20 @@ func planUpdate(m *machines.Machine, u machineUpdate, allowed func(string) bool)
 			next.Version = *u.Version
 		}
 		if u.Extensions != nil {
-			sc := &schematic.Schematic{Customization: schematic.Customization{Extensions: append([]string(nil), *u.Extensions...)}}
-			if err := sc.Normalize(); err != nil {
-				return nil, err
-			}
-			p.extensions = sc.Customization.Extensions
-			next.Extensions = sc.Customization.Extensions
+			next.Extensions = append([]string(nil), *u.Extensions...)
 		}
-		want := &schematic.Schematic{Customization: schematic.Customization{Extensions: append([]string(nil), p.extensions...)}}
+		if u.HAProxy != nil {
+			next.HAProxy = *u.HAProxy
+		}
+		if u.Kernel != nil {
+			next.Kernel = *u.Kernel
+		}
+		want := next.Schematic()
 		if err := want.Normalize(); err != nil {
 			return nil, err
 		}
+		next.Extensions = want.Customization.Extensions
+		p.image = want
 		p.upgrade = p.version != m.Version || want.ID() != m.Schematic
 	}
 
@@ -532,7 +538,7 @@ func (r *machineRunner) update(ctx context.Context, id string, p *updatePlan) er
 		} else {
 			m.Error = ""
 			m.Spec.VCPUs, m.Spec.MemoryMiB, m.Spec.NICs, m.Spec.DNS, m.Spec.NTP = p.next.VCPUs, p.next.MemoryMiB, p.next.NICs, p.next.DNS, p.next.NTP
-			m.Spec.Extensions = p.next.Extensions
+			m.Spec.Extensions, m.Spec.HAProxy, m.Spec.Kernel = p.next.Extensions, p.next.HAProxy, p.next.Kernel
 			m.Log("updated")
 		}
 		return nil
@@ -626,7 +632,7 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 	}
 
 	if p.upgrade {
-		b, err := r.resolveBundle(ctx, id, p.version, p.extensions)
+		b, err := r.resolveBundle(ctx, id, p.version, p.image)
 		if err != nil {
 			return err
 		}
@@ -654,11 +660,11 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 
 // resolveBundle finds the update bundle, waiting while the image
 // factory builds it.
-func (r *machineRunner) resolveBundle(ctx context.Context, id, version string, extensions []string) (*nodeproxy.Bundle, error) {
+func (r *machineRunner) resolveBundle(ctx context.Context, id, version string, sc *schematic.Schematic) (*nodeproxy.Bundle, error) {
 	deadline := time.Now().Add(factoryBuildTimeout)
 	reported := false
 	for {
-		b, state, err := nodes.ResolveBundle(ctx, version, extensions)
+		b, state, err := nodes.ResolveBundle(ctx, version, sc)
 		if err == nil {
 			return b, nil
 		}

@@ -30,11 +30,11 @@ type VMImage struct {
 }
 
 // ResolveVMImage finds the disk image file (e.g. "janus-kvm.qcow2") of
-// version (empty: the newest release) built with extensions, asking the
-// image factory to build it when it doesn't exist yet - call it again
-// until it's ready.
-func ResolveVMImage(ctx context.Context, version string, extensions []string, file string) (*VMImage, error) {
-	sc := &schematic.Schematic{Customization: schematic.Customization{Extensions: append([]string(nil), extensions...)}}
+// version (empty: the newest release) built from schematic sc, asking
+// the image factory to build it when it doesn't exist yet - call it
+// again until it's ready.
+func ResolveVMImage(ctx context.Context, version string, sc *schematic.Schematic, file string) (*VMImage, error) {
+	sc = sc.Clone()
 	if err := sc.Normalize(); err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func releaseAsset(ctx context.Context, img *VMImage, file string) error {
 func factoryImage(ctx context.Context, img *VMImage, sc *schematic.Schematic, file string) error {
 	base := strings.TrimRight(ImageFactoryURL, "/")
 	if base == "" {
-		return fmt.Errorf("extensions need an image factory, and none is configured (dashboardd -image-factory)")
+		return fmt.Errorf("extensions, a HAProxy branch or a kernel track need an image factory, and none is configured (dashboardd -image-factory)")
 	}
 	var created struct {
 		ID string `json:"id"`

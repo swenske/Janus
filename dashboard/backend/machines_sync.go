@@ -128,6 +128,14 @@ func (r *machineRunner) syncAs(ctx context.Context, id, label string) error {
 				note("extensions [%s] → [%s]", strings.Join(m.Spec.Extensions, " "), strings.Join(sc.Customization.Extensions, " "))
 				m.Spec.Extensions = sc.Customization.Extensions
 			}
+			if info.HAProxy != m.Spec.HAProxy {
+				note("HAProxy branch %s → %s", or(m.Spec.HAProxy, "default"), or(info.HAProxy, "default"))
+				m.Spec.HAProxy = info.HAProxy
+			}
+			if info.Kernel != m.Spec.Kernel {
+				note("kernel track %s → %s", or(m.Spec.Kernel, "default"), or(info.Kernel, "default"))
+				m.Spec.Kernel = info.Kernel
+			}
 		}
 		if cfg != nil {
 			m.NodeHostname = cfg.GetHostname()
