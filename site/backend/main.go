@@ -59,7 +59,7 @@ func main() {
 	if err != nil || frontend["index.html"] == nil {
 		log.Fatalf("static: %v (index.html: %v)", err, frontend["index.html"] != nil)
 	}
-	mux.Handle("/", spa(frontend))
+	mux.Handle("/", spa(frontend, a.publicURL))
 	docs, err := loadDocs(docsDist)
 	if err != nil {
 		log.Fatalf("docs: %v", err)
@@ -90,8 +90,14 @@ var spaRoutes = []string{"/", "/builder"}
 // (/builder... too: the builder keeps its state in the path's query) -
 // and for anything else index.html again, with a 404 (the frontend shows
 // its "not found" page; a crawler sees the status).
-func spa(files staticSet) http.Handler {
+func spa(files staticSet, publicURL string) http.Handler {
 	index := files["index.html"]
+	// Each page's own index.html: its title, description, canonical link,
+	// cards and JSON-LD (seo.go).
+	pages := map[string]*staticFile{}
+	for route, p := range spaPages(publicURL) {
+		pages[route] = newStaticFile("index.html", withMeta(index.body, route, p, publicURL))
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
@@ -112,12 +118,15 @@ func spa(files staticSet) http.Handler {
 			f.serve(w, r, http.StatusOK)
 			return
 		}
-		status := http.StatusNotFound
-		if name == "" || name == "builder" || strings.HasPrefix(name, "builder/") {
-			status = http.StatusOK
-		}
 		w.Header().Set("Cache-Control", "no-cache")
-		index.serve(w, r, status)
+		switch {
+		case name == "":
+			pages["/"].serve(w, r, http.StatusOK)
+		case name == "builder" || strings.HasPrefix(name, "builder/"):
+			pages["/builder"].serve(w, r, http.StatusOK)
+		default:
+			index.serve(w, r, http.StatusNotFound)
+		}
 	})
 }
 

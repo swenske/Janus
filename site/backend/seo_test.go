@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -16,7 +18,7 @@ func TestSPARoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := spa(files)
+	h := spa(files, "https://janus.example")
 	for _, c := range []struct {
 		method, target string
 		code           int
@@ -77,5 +79,53 @@ func TestRobotsAndSitemap(t *testing.T) {
 	}
 	if rec.Header().Get("Content-Type") != "application/xml; charset=utf-8" {
 		t.Errorf("sitemap content type %q", rec.Header().Get("Content-Type"))
+	}
+}
+
+// The site's own pages tell link previews and search engines what they
+// are - index.html doesn't: each gets its title, description, canonical
+// link, OpenGraph card and JSON-LD; anything else none of it.
+func TestSPAPagesMeta(t *testing.T) {
+	files, err := loadStatic(fstest.MapFS{
+		"index.html": {Data: []byte(`<!doctype html><html><head><title>Janus</title><meta name="description" content="generic" /></head><body></body></html>`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := spa(files, "https://janus.example")
+	for _, c := range []struct {
+		target, title, canonical, card, ld string
+	}{
+		{"/", "Janus - an immutable Linux for HAProxy load balancers", "https://janus.example/", "https://janus.example/og/janus.png", `"@type":"SoftwareApplication"`},
+		{"/builder?arch=amd64", "Image builder - Janus", "https://janus.example/builder", "https://janus.example/og/builder.png", `"@type":"WebApplication"`},
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", c.target, nil))
+		body := rec.Body.String()
+		for _, want := range []string{
+			"<title>" + c.title + "</title>",
+			`<link rel="canonical" href="` + c.canonical + `" />`,
+			`<meta property="og:image" content="` + c.card + `" />`,
+			`<meta name="twitter:card" content="summary_large_image" />`,
+			c.ld,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: no %s in\n%s", c.target, want, body)
+			}
+		}
+		if strings.Contains(body, `content="generic"`) || strings.Count(body, "<title>") != 1 {
+			t.Errorf("%s: the generic title or description left:\n%s", c.target, body)
+		}
+		start := strings.Index(body, `<script type="application/ld+json">`)
+		end := strings.Index(body[start:], "</script>")
+		var ld map[string]any
+		if err := json.Unmarshal([]byte(body[start+len(`<script type="application/ld+json">`):start+end]), &ld); err != nil {
+			t.Errorf("%s: JSON-LD: %v", c.target, err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/nope", nil))
+	if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "canonical") {
+		t.Errorf("/nope: %d, %s", rec.Code, rec.Body)
 	}
 }
