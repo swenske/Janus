@@ -60,10 +60,13 @@ type env struct {
 	// CVEs are filtered with ("" for the working tree).
 	ref string
 
-	mu    sync.Mutex
-	cna   *kernelCVEs
-	kev   map[string]bool
-	sevOf map[string]string
+	mu sync.Mutex
+	// cnaCVEs: the kernel CNA's records; cna: with each kernel track's
+	// built files.
+	cnaCVEs []kernelCVE
+	cna     map[string]*kernelCVEs
+	kev     map[string]bool
+	sevOf   map[string]string
 }
 
 // osvVuln is the part of an OSV record the tool reads.

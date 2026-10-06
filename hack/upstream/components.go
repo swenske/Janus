@@ -66,8 +66,8 @@ type component struct {
 	// component is, as schematic.ComponentHAProxy/ComponentKernel and the
 	// name; empty for every other component.
 	variantComponent, variant string
-	feed       feed
-	track      track
+	feed                      feed
+	track                     track
 	// prerelease: follow pre-releases too (an upstream that only makes
 	// those).
 	prerelease bool
@@ -186,6 +186,7 @@ func pinOf(c *component, vars map[string]string) string {
 // components is everything versions.mk pins, in its order.
 var components = []*component{
 	kernelTrack("longterm", "the newest longterm release", "KERNEL_VERSION"),
+	kernelTrack("stable", "the newest stable release", ""),
 	haproxyBranch("3.4", "HAPROXY_VERSION"),
 	haproxyBranch("3.2", "HAPROXY_VERSION"),
 	haproxyBranch("3.0", "HAPROXY_VERSION"),

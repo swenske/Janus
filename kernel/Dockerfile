@@ -1,12 +1,17 @@
 # syntax=docker/dockerfile:1
 #
-# Fetches and verifies the pinned kernel source (see ../versions.mk),
-# provides a "config" stage used interactively by `make kernel-menuconfig`
-# (see ../Makefile) to run `make menuconfig`, a "build" stage that compiles
-# bzImage from configs/janus_defconfig, and an "export" stage
-# (`FROM scratch`) that holds just the resulting bzImage so
-# `docker build --target export --output type=local,dest=<dir>` can pull it
-# out without a container filesystem attached.
+# Fetches and verifies the pinned kernel source of a track (see
+# ../versions.mk, ../variants.mk), provides a "config" stage used
+# interactively by `make kernel-menuconfig` (see ../Makefile) to run
+# `make menuconfig`, a "build" stage that compiles bzImage from the
+# track's configs/janus_<track>_defconfig, and an "export" stage
+# (`FROM scratch`) that holds just the resulting bzImage, the files the
+# build read and the configuration kbuild resolved (the committed one must
+# be it: `make kernel-config-refresh` otherwise), so `docker build
+# --target export --output type=local,dest=<dir>` can pull them out
+# without a container filesystem attached. "selinux-classes" exports the
+# SELinux classes this kernel compiles in (scripts/selinux/mdp - `make
+# selinux-classes`).
 #
 # Proven end-to-end locally (bzImage boots under QEMU with rootfs/init as
 # PID 1, see ../hack/qemu-run.sh) before being encoded here - see
@@ -42,7 +47,7 @@ RUN test -n "${KERNEL_SHA256}" \
 
 FROM fetch AS config
 ARG KERNEL_VERSION
-ARG DEFCONFIG=janus_defconfig
+ARG DEFCONFIG=janus_longterm_defconfig
 # crossbuild-essential-arm64 pulls in the aarch64-linux-gnu- cross
 # toolchain alongside the native one - installed unconditionally so this
 # one image serves both ARCH=x86_64 and ARCH=arm64 builds without a
@@ -65,7 +70,7 @@ RUN make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} olddefconfig \
     && make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} -j"$(nproc)" ${MAKE_TARGETS}
 # Every source file and header the build read, from kbuild's .o.cmd files
 # (source_<obj> and deps_<obj>): hack/upstream keeps the kernel CVEs whose
-# fixes touch one of them - kernel/built-files-<arch>.txt (make
+# fixes touch one of them - kernel/built-files-<track>-<arch>.txt (make
 # kernel-built-files). Host tools (tools/, scripts/) and system headers
 # aren't the kernel.
 RUN find . -name '.*.o.cmd' -print0 | xargs -0 cat \
@@ -77,6 +82,21 @@ FROM scratch AS export
 ARG KERNEL_VERSION
 COPY --from=build /src/linux-${KERNEL_VERSION}/arch/x86/boot/bzImage /bzImage
 COPY --from=build /built-files.txt /built-files.txt
+COPY --from=build /src/linux-${KERNEL_VERSION}/.config /config
+
+# The object classes, permissions and policy capabilities this kernel
+# compiles in, as the policy's first half (../selinux/classes.conf, made
+# from the newest kernel track's by `make selinux-classes`).
+FROM config AS mdp
+ARG KERNEL_VERSION
+RUN make ARCH=x86_64 olddefconfig >/dev/null \
+    && make ARCH=x86_64 prepare >/dev/null \
+    && make ARCH=x86_64 scripts/selinux/ >/dev/null \
+    && cd scripts/selinux/mdp && ./mdp policy.conf file_contexts \
+    && sed '/^type base_t/,$d' policy.conf > /classes.conf
+
+FROM scratch AS selinux-classes
+COPY --from=mdp /classes.conf /classes.conf
 
 FROM scratch AS export-arm64
 ARG KERNEL_VERSION

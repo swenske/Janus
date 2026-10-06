@@ -29,6 +29,7 @@ base="$(git rev-parse HEAD)"
 if [ -z "$DRY_RUN" ]; then
   gh label create upstream --repo "$REPO" --color 0E8A16 --description "An upstream component's new release" --force >/dev/null
   gh label create security --repo "$REPO" --color B60205 --description "Fixes or reports a vulnerability" --force >/dev/null
+  gh label create kernel-branch --repo "$REPO" --color 5319E7 --description "A kernel track moves to a new branch: review its config" --force >/dev/null
 fi
 
 while read -r name latest <&3; do
@@ -44,20 +45,32 @@ while read -r name latest <&3; do
     continue
   fi
   cat "$WORK/$name.log"
-  case "$name" in
-  linux-*)
-    # The kernel's list of built files may change with its source.
-    make kernel-built-files KERNEL_TRACK="${name#linux-}" >"$WORK/kernel.log" 2>&1 || {
-      echo "::warning::$name $latest: make kernel-built-files failed"; tail -20 "$WORK/kernel.log"
-      git checkout --quiet --force "$base"; continue
-    }
-    ;;
-  esac
   from="$(jq -r .from "$WORK/$name.json")"
   to="$(jq -r .to "$WORK/$name.json")"
   title="$(jq -r .title "$WORK/$name.json")"
   severity="$(jq -r .max_severity "$WORK/$name.json")"
-  git add versions.mk kernel/built-files-*.txt
+  extra_labels=""
+  case "$name" in
+  linux-*)
+    track="${name#linux-}"
+    # A track moving to a new branch: its config resolved for the new
+    # source (new symbols get their defaults - the pull request is where
+    # they're reviewed) and the SELinux classes of the newest kernel.
+    if [ "$(echo "$from" | cut -d. -f1,2)" != "$(echo "$to" | cut -d. -f1,2)" ]; then
+      extra_labels=",kernel-branch"
+      make kernel-config-refresh selinux-classes KERNEL_TRACK="$track" >"$WORK/kernel.log" 2>&1 || {
+        echo "::warning::$name $latest: make kernel-config-refresh selinux-classes failed"; tail -20 "$WORK/kernel.log"
+        git checkout --quiet --force "$base"; continue
+      }
+    fi
+    # The kernel's list of built files may change with its source.
+    make "kernel-built-files-$track" >>"$WORK/kernel.log" 2>&1 || {
+      echo "::warning::$name $latest: make kernel-built-files-$track failed"; tail -20 "$WORK/kernel.log"
+      git checkout --quiet --force "$base"; continue
+    }
+    ;;
+  esac
+  git add versions.mk kernel/built-files-*.txt kernel/configs/ selinux/classes.conf
   git commit --quiet -m "upstream: $name $to" -m "$title $from -> $to, proposed by hack/upstream-watch.sh."
   if [ -n "$DRY_RUN" ]; then
     echo "--- dry run: would propose $branch"
@@ -66,7 +79,7 @@ while read -r name latest <&3; do
     continue
   fi
   git push --quiet --force "https://x-access-token:${GH_TOKEN}@github.com/$REPO.git" "HEAD:refs/heads/$branch"
-  labels=upstream
+  labels="upstream$extra_labels"
   if [ "$(jq '.fixed | length' "$WORK/$name.json")" -gt 0 ]; then
     labels="$labels,security"
   fi

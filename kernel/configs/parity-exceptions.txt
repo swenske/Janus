@@ -1,0 +1,31 @@
+# What may differ between the kernel tracks' configurations
+# (janus_<track>_defconfig, go test ./hack/kconfig): a symbol per line,
+# then why. Everything else a track's config says, every other track's
+# says too - a symbol both have with the same value, a symbol the older
+# kernel sets that the newer one still has. A line no difference needs
+# any more fails the test too: remove it.
+#
+# longterm 6.18 -> stable 7.2: preemption. 7.x has no PREEMPT_NONE on
+# x86 (lazy preemption replaced NONE and VOLUNTARY): PREEMPT_LAZY, and
+# with preemption the lock functions are no longer inlined.
+CONFIG_PREEMPT_LAZY             7.x replaces PREEMPT_NONE with lazy preemption on x86
+CONFIG_PREEMPT_NONE             not offered on x86 by 7.x (lazy preemption)
+CONFIG_PREEMPT_NONE_BUILD       follows PREEMPT_NONE
+CONFIG_INLINE_READ_UNLOCK       only inlined without preemption
+CONFIG_INLINE_READ_UNLOCK_IRQ   only inlined without preemption
+CONFIG_INLINE_SPIN_UNLOCK_IRQ   only inlined without preemption
+CONFIG_INLINE_WRITE_UNLOCK      only inlined without preemption
+CONFIG_INLINE_WRITE_UNLOCK_IRQ  only inlined without preemption
+#
+# longterm 6.18 -> stable 7.2: removed or replaced upstream.
+CONFIG_CLOCKSOURCE_WATCHDOG_MAX_SKEW_US  removed with 7.x's clocksource watchdog rework
+CONFIG_GENERIC_TIME_VSYSCALL             removed with 7.x's vDSO rework
+CONFIG_IOMMU_IO_PGTABLE                  7.x's AMD and Intel IOMMUs use the generic page table (IOMMU_PT)
+CONFIG_MDIO_BUS                          7.x's MDIO and PHY_PACKAGE
+CONFIG_NET_VENDOR_ALTEON                 its drivers were removed in 7.x
+CONFIG_NET_VENDOR_NETERION               its drivers were removed in 7.x
+CONFIG_NET_VENDOR_PACKET_ENGINES         its drivers were removed in 7.x
+CONFIG_NF_CT_PROTO_UDPLITE               UDP-Lite was removed in 7.x
+CONFIG_SERIAL_8250_DEPRECATED_OPTIONS    removed in 7.x
+CONFIG_SLUB_CPU_PARTIAL                  7.x's slab sheaves replace it
+CONFIG_TCP_SIGPOOL                       removed with 7.x's TCP-AO/MD5 rework (TCP_MD5SIG stays)

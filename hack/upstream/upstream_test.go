@@ -583,3 +583,28 @@ func TestNewLTS(t *testing.T) {
 		}
 	}
 }
+
+// TestBuiltFilesPerTrack: each kernel track has its own lists, and a
+// release from before tracks is read through its single one.
+func TestBuiltFilesPerTrack(t *testing.T) {
+	t.Chdir("../..")
+	set, err := variants.Load(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range set.Kernel {
+		built, err := builtFilesAt("", k.Name)
+		if err != nil || len(built) < 1000 {
+			t.Errorf("%s: %d files, %v - make kernel-built-files", k.Name, len(built), err)
+		}
+	}
+	// v2026.10.06 had kernel/built-files-{amd64,arm64}.txt only.
+	if err := exec.Command("git", "cat-file", "-e", "v2026.10.06:kernel/built-files-amd64.txt").Run(); err != nil {
+		t.Skip("no v2026.10.06 tag in this clone")
+	}
+	old, err := builtFiles("v2026.10.06", "longterm")
+	if err != nil || len(old) < 1000 {
+		t.Errorf("v2026.10.06's lists: %d files, %v", len(old), err)
+	}
+}
+

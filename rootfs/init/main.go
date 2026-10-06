@@ -488,7 +488,7 @@ func bindMount(src, dst string) {
 
 // hardenSysctls applies the runtime half of Phase 4's kernel hardening
 // pass - the half that can't be baked into kernel/configs/
-// janus_defconfig at build time (a tunable *value*, not a feature
+// janus_<track>_defconfig at build time (a tunable *value*, not a feature
 // being compiled in or out at all) and has to be written to /proc/sys
 // at boot instead, since there's no sysctl(8)/procps binary, and no
 // /etc/sysctl.d for one to read anyway, on this rootfs. Runs right
@@ -512,7 +512,7 @@ func hardenSysctls() {
 		// KASLR via an info leak.
 		"/proc/sys/kernel/dmesg_restrict": "1",
 		"/proc/sys/kernel/kptr_restrict":  "2",
-		// Yama (kernel/configs/janus_defconfig's own CONFIG_SECURITY_YAMA):
+		// Yama (kernel/configs/janus_<track>_defconfig's own CONFIG_SECURITY_YAMA):
 		// 2 ("admin-only") means only a process with CAP_SYS_PTRACE can
 		// ptrace another - janusd (root) still can, but the
 		// unprivileged haproxy worker (chroot + uid 1000, no such
@@ -611,7 +611,7 @@ const selinuxPolicyPath = "/etc/selinux/janus.policy"
 // squashfs at all, so there's no policy file to find) is non-fatal, the
 // same tolerant pattern mount() and mountState() already use for a
 // missing STATE drive: log and move on. The kernel stays functionally
-// as if SELinux were absent (kernel/configs/janus_defconfig's own
+// as if SELinux were absent (kernel/configs/janus_<track>_defconfig's own
 // SECURITY_SELINUX_DEVELOP=y keeps it permissive with no policy loaded
 // regardless), so those tests' own boots are unaffected either way.
 //

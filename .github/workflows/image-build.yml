@@ -61,12 +61,11 @@ jobs:
       - name: Kernel boot test (Phase 1)
         run: make qemu-boot-test
 
-      # hack/upstream keeps the kernel CVEs whose fixes touch a file the
-      # kernel builds: its list (kernel/Dockerfile) must be the build's.
-      - name: The kernel's list of built files is current
-        run: |
-          cmp build/built-files.txt kernel/built-files-amd64.txt \
-            || { echo "::error::kernel/built-files-amd64.txt doesn't match this build - run make kernel-built-files and commit"; exit 1; }
+      # The default kernel track's committed config is what kbuild
+      # resolves it to, and hack/upstream's list of the files it builds
+      # (the kernel CVEs whose fixes touch one apply) is the build's.
+      - name: The default kernel track's config and list of built files are current
+        run: ./kernel/check-track.sh "$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)"
 
       # Phase 2: builds the static musl+OpenSSL haproxy binary (pkgs/
       # haproxy/Dockerfile) and janusd, packages init + janusd +
@@ -82,7 +81,7 @@ jobs:
       # benchmark's kernel-adjacent controls call out (loadable-module
       # restrictions, /dev/mem, kexec, hibernation, USB/Firewire/
       # staging drivers) was already true by construction from
-      # allnoconfig; kernel/configs/janus_defconfig's own new
+      # allnoconfig; kernel/configs/janus_<track>_defconfig's own new
       # KSPP-style self-protection block (STACKPROTECTOR_STRONG,
       # SLAB_FREELIST_RANDOM/_HARDENED, HARDENED_USERCOPY,
       # FORTIFY_SOURCE, INIT_ON_ALLOC/_FREE_DEFAULT_ON, CONFIG_SECURITY
@@ -263,8 +262,9 @@ jobs:
 
       - name: The arm64 kernel's list of built files is current
         run: |
-          cmp build/rpi4/built-files.txt kernel/built-files-arm64.txt \
-            || { echo "::error::kernel/built-files-arm64.txt doesn't match this build - run make kernel-built-files and commit"; exit 1; }
+          track="$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)"
+          cmp build/rpi4/built-files.txt "kernel/built-files-$track-arm64.txt" \
+            || { echo "::error::kernel/built-files-$track-arm64.txt doesn't match this build - run make kernel-built-files-$track and commit"; exit 1; }
 
       # Single Board Computer tranche's own Phase-2-equivalent: the
       # same init+janusd+haproxy stack qemu-network-test proves on
@@ -772,12 +772,16 @@ jobs:
       - name: Consul - a server, a client, HAProxy service discovery
         run: make qemu-consul-test
 
-  # Images built with each HAProxy branch other than the default
-  # (variants.mk): the HAProxy runtime API is tested against every branch
-  # in test-api; here, a real enforcing boot of each, HAProxy serving,
-  # Version reporting the branch HAProxy really runs.
+  # Images built with each HAProxy branch and kernel track other than the
+  # defaults (variants.mk): the HAProxy runtime API is tested against
+  # every branch in test-api; here, a real enforcing boot of each, HAProxy
+  # serving, Version reporting what the image really runs - and for each
+  # other kernel track, what the default one goes through in test-boot
+  # and test-api: its config and built files current, the boot chain,
+  # the hardening sysctls, the firewall (nf_tables), an A/B update to
+  # and from it.
   test-variants:
-    name: "Tests: HAProxy branches"
+    name: "Tests: HAProxy branches, kernel tracks"
     runs-on: [self-hosted, docker, janus]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -790,6 +794,29 @@ jobs:
 
       - name: HAProxy 3.0 - SELinux enforcing, Version
         run: make qemu-selinux-test qemu-system-info-test SCHEMATIC=hack/testdata/schematic-haproxy-3.0.json
+
+      - name: The other kernel tracks - config, boot chain, hardening, SELinux, Version, firewall
+        run: |
+          set -euo pipefail
+          default="$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)"
+          for t in $(sed -n 's/^KERNEL_TRACKS *:= *//p' variants.mk); do
+            [ "$t" = "$default" ] && continue
+            echo "::group::kernel track $t"
+            make qemu-boot-test KERNEL_TRACK="$t"
+            ./kernel/check-track.sh "$t"
+            make qemu-hardening-test qemu-network-test KERNEL_TRACK="$t"
+            printf '{"customization":{"kernel":"%s"}}' "$t" > "build/schematic-kernel-$t.json"
+            make qemu-selinux-test qemu-system-info-test SCHEMATIC="build/schematic-kernel-$t.json"
+            printf '{"customization":{"extensions":["nftables"],"kernel":"%s"}}' "$t" > "build/schematic-firewall-$t.json"
+            make qemu-firewall-test SCHEMATIC="build/schematic-firewall-$t.json"
+            echo "::endgroup::"
+          done
+
+      # An A/B update from the default kernel track to the other one and
+      # back - a schematic change, so only with allow_schematic_change -
+      # with the automatic revert on.
+      - name: Updating a node to another kernel track and back
+        run: make qemu-lifecycle-upgrade-variant-test
 
   test-hardware:
     name: "Tests: Secure Boot, bare metal, Controller self-update, hypervisors and Terraform"

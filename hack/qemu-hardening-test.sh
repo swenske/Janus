@@ -2,7 +2,7 @@
 # Proves Phase 4's runtime kernel hardening (rootfs/init/main.go's
 # hardenSysctls) actually applies every sysctl it claims to, on a real
 # boot - not just that the Go code doesn't panic, and not just that the
-# matching kernel/configs/janus_defconfig options compile in (a
+# matching kernel/configs/janus_<track>_defconfig options compile in (a
 # real gap this test's own first draft caught: CONFIG_SYN_COOKIES
 # wasn't set, so /proc/sys/net/ipv4/tcp_syncookies didn't exist at all
 # and that one write silently logged "no such file or directory" while

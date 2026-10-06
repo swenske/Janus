@@ -73,7 +73,7 @@ trap 'rm -f "$CMDLINE_FILE"' EXIT
   # proved a clean, zero-denial boot under enforcing mode (see
   # hack/qemu-selinux-test.sh) - this is what actually makes that the
   # shipped default rather than just a fact proven about a test boot.
-  # kernel/configs/janus_defconfig's own SECURITY_SELINUX_DEVELOP=y
+  # kernel/configs/janus_<track>_defconfig's own SECURITY_SELINUX_DEVELOP=y
   # deliberately stays on regardless (so /sys/fs/selinux/enforce can
   # still be toggled interactively for debugging, and the kernel's own
   # default without this cmdline override would still be the safer

@@ -38,7 +38,7 @@ no component follows.
 
 | Component | Follows | Checked by | Vulnerabilities |
 |---|---|---|---|
-| `linux-longterm` | kernel.org's newest "longterm" release, moving to a newer longterm branch from its x.y.2 | Greg Kroah-Hartman's or Linus Torvalds's signature on the tar, and kernel.org's signed sha256sums | kernel.org CNA, filtered by the files Janus's kernels build |
+| `linux-longterm`, `linux-stable` | kernel.org's newest "longterm" and "stable" release, moving to a newer branch from its x.y.2 | Greg Kroah-Hartman's or Linus Torvalds's signature on the tar, and kernel.org's signed sha256sums | kernel.org CNA, filtered by the files each track's kernels build |
 | `haproxy-3.4`, `haproxy-3.2`, `haproxy-3.0` | its LTS branch (3.4.x, 3.2.x, 3.0.x) | haproxy.org's published sha256 (`.sha256`, `releases.json`) - HAProxy signs nothing | haproxy.org's per-version bug lists |
 | `zlib` | every release | Mark Adler's signature, and Alpine's sha512 | osv.dev |
 | `aws-lc` | every release | Alpine's or FreeBSD's checksum of GitHub's tag archive - AWS-LC signs nothing | AWS-LC's own GitHub advisories |
@@ -73,8 +73,13 @@ defaults. Each one is a component of its own, pinned on its own:
 component, or a component follows a variant `variants.mk` doesn't offer.
 A kernel track follows its kernel.org moniker from branch to branch by
 itself: the bump that crosses to a newer branch is proposed from that
-branch's x.y.2 on, and is more than a version number - review its
-resolved config like any config change.
+branch's x.y.2 on, and is more than a version number. Its pull request
+(labeled `kernel-branch`) also carries the track's config resolved for
+the new source (`make kernel-config-refresh`: new symbols get their
+defaults - review them) and the SELinux classes of the newest kernel
+(`make selinux-classes`); `go test ./hack/kconfig` fails until every
+track's config says what the default's says, or
+`kernel/configs/parity-exceptions.txt` says why not.
 
 Adding a HAProxy branch (a new LTS): its pins in `versions.mk` (`make
 upstream-bump` can't add a variable - write them by hand after checking
@@ -111,11 +116,11 @@ what the old version had and the new one no longer has. Some can't apply to
 Janus - they're counted, with the reason, never silently dropped:
 
 - **Kernel**: every stable release fixes CVEs (the kernel's CNA assigns one
-  to most fixes). Only those whose fix changes a file Janus's kernels build
-  apply: `kernel/built-files-{amd64,arm64}.txt`, from kbuild's own records
-  of each build (`make kernel-built-files`; `image-build.yml` fails when
-  they no longer match the build - regenerate them whenever a defconfig
-  changes).
+  to most fixes). Only those whose fix changes a file the track's kernels
+  build apply: `kernel/built-files-<track>-{amd64,arm64}.txt` (arm64: the
+  default track only), from kbuild's own records of each build (`make
+  kernel-built-files`; `image-build.yml` fails when they no longer match
+  the build - regenerate them whenever a config changes).
 - **HAProxy**: haproxy.org rates every fix. CRITICAL ("a short-term
   reliability or security issue") and MAJOR count as security fixes for a
   load balancer, MEDIUM and MINOR as bugs. Fixes in what Janus's HAProxy is

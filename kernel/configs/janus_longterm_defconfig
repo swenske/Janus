@@ -1,3 +1,9 @@
+# Janus kernel config, longterm track (variants.mk): kernel.org's newest
+# longterm release, following that moniker from branch to branch (make
+# kernel-config-refresh KERNEL_TRACK=longterm when it moves to a new
+# branch). janus_stable_defconfig is the stable track's: the two must say
+# the same thing (go test ./hack/kconfig, parity-exceptions.txt).
+#
 # Janus kernel config. Boots under QEMU (virtio-net + DHCP-assigned
 # IP via kernel-builtin IP_PNP, no userspace network tooling needed) with
 # a static Go init as PID 1, which supervises janusd -> a real static
@@ -7,9 +13,10 @@
 # a real GPT A/B disk layout (image/disk/assemble.sh), and ACPI+EFI+
 # EFI_STUB for UEFI boot via a Unified Kernel Image (image/uki/assemble.sh).
 #
-# Regenerate via `make kernel-menuconfig` (see ../../Makefile), which
-# seeds from this file; or from scratch via `make ARCH=x86_64
-# allnoconfig` + `scripts/kconfig/merge_config.sh -m fragment.config` +
+# Regenerate via `make kernel-menuconfig KERNEL_TRACK=<track>` (see
+# ../../Makefile), which seeds from this file; or from scratch via
+# `make ARCH=x86_64 allnoconfig` + `scripts/kconfig/merge_config.sh -m
+# fragment.config` +
 # `make ARCH=x86_64 olddefconfig`, where fragment.config is the union of:
 #
 #   # boot-proof baseline (console, initramfs, devtmpfs, binfmt_elf)

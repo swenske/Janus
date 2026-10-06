@@ -44,8 +44,8 @@ type kernelCVEs struct {
 	built map[string]bool // nil: no built-files list, every CVE applies
 }
 
-func (kernelCNA) affecting(e *env, _ *component, v string) ([]vuln, error) {
-	k, err := e.kernelCVEs()
+func (kernelCNA) affecting(e *env, c *component, v string) ([]vuln, error) {
+	k, err := e.kernelCVEs(c.variant)
 	if err != nil {
 		return nil, err
 	}
@@ -135,26 +135,34 @@ func (k *kernelCVEs) applies(c kernelCVE) bool {
 // kernelVulnsRepo is the CNA's repository, cloned shallow into the cache.
 const kernelVulnsRepo = "https://git.kernel.org/pub/scm/linux/security/vulns.git"
 
-func (e *env) kernelCVEs() (*kernelCVEs, error) {
+// kernelCVEs is the CNA's records, with what a kernel track builds: the
+// records are read once, each track's built files once.
+func (e *env) kernelCVEs(track string) (*kernelCVEs, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.cna != nil {
-		return e.cna, nil
+	if k := e.cna[track]; k != nil {
+		return k, nil
 	}
-	dir := filepath.Join(cacheDir(), "kernel-vulns")
-	if err := syncRepo(dir, kernelVulnsRepo); err != nil {
-		return nil, err
+	if e.cnaCVEs == nil {
+		dir := filepath.Join(cacheDir(), "kernel-vulns")
+		if err := syncRepo(dir, kernelVulnsRepo); err != nil {
+			return nil, err
+		}
+		cves, err := loadKernelCVEs(filepath.Join(dir, "cve", "published"))
+		if err != nil {
+			return nil, err
+		}
+		e.cnaCVEs = cves
 	}
-	cves, err := loadKernelCVEs(filepath.Join(dir, "cve", "published"))
+	built, err := builtFiles(e.ref, track)
 	if err != nil {
 		return nil, err
 	}
-	built, err := builtFiles(e.ref)
-	if err != nil {
-		return nil, err
+	if e.cna == nil {
+		e.cna = map[string]*kernelCVEs{}
 	}
-	e.cna = &kernelCVEs{cves: cves, built: built}
-	return e.cna, nil
+	e.cna[track] = &kernelCVEs{cves: e.cnaCVEs, built: built}
+	return e.cna[track], nil
 }
 
 func cacheDir() string {
@@ -260,22 +268,30 @@ func parseKernelCVE(data []byte) (kernelCVE, error) {
 	return c, nil
 }
 
-// builtFiles is the union of kernel/built-files-*.txt at ref ("" for the
-// working tree): every source file and header the kernel builds read, as
-// paths in its tree. A ref older than those lists gets the working tree's;
-// nil when there is none at all.
-func builtFiles(ref string) (map[string]bool, error) {
-	built, err := builtFilesAt(ref)
+// builtFiles is the union of a kernel track's
+// kernel/built-files-<track>-<arch>.txt at ref ("" for the working tree):
+// every source file and header the track's kernel builds read, as paths
+// in its tree. A ref from before kernel tracks has
+// kernel/built-files-<arch>.txt, its only kernel's; a ref older than any
+// list gets the working tree's; nil when there is none at all.
+func builtFiles(ref, track string) (map[string]bool, error) {
+	built, err := builtFilesAt(ref, track)
+	if built == nil && err == nil && track != "" {
+		built, err = builtFilesAt(ref, "")
+	}
 	if built == nil && err == nil && ref != "" {
-		return builtFilesAt("")
+		return builtFiles("", track)
 	}
 	return built, err
 }
 
-func builtFilesAt(ref string) (map[string]bool, error) {
+func builtFilesAt(ref, track string) (map[string]bool, error) {
 	var built map[string]bool
 	for _, arch := range []string{"amd64", "arm64"} {
 		path := "kernel/built-files-" + arch + ".txt"
+		if track != "" {
+			path = "kernel/built-files-" + track + "-" + arch + ".txt"
+		}
 		var data []byte
 		var err error
 		if ref == "" {

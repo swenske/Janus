@@ -8,7 +8,7 @@
 # distribution) is noted next to it.
 
 # Linux, one pin per kernel track an image can be built with (variants.mk):
-# the newest release of kernel.org's "longterm" (and "stable") moniker.
+# the newest release of kernel.org's "longterm" and "stable" monikers.
 # sha256 of the .tar.xz, pinned after checking the tarball's signature
 # (.tar.sign, over the uncompressed tar) by Greg Kroah-Hartman's key
 # 647F28654894E3BD457199BE38DBBDC86092693E and kernel.org's signed
@@ -16,6 +16,8 @@
 # B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1), which agree.
 KERNEL_LONGTERM_VERSION := 6.18.55
 KERNEL_LONGTERM_SHA256  := f410638061a165c12f42ab871d2f3fcd525515359b5faeee80969cff84524df9
+KERNEL_STABLE_VERSION   := 7.2.9
+KERNEL_STABLE_SHA256    := b4c5dfbe51a364a6c7f03869200f88c8e1f77403539005f14b7fc6bc91b8d8ba
 
 # HAProxy, one pin per LTS branch an image can be built with (variants.mk,
 # haproxy.org). HAProxy doesn't sign its tarballs: sha256 as published by

@@ -225,7 +225,7 @@ func checkSchematic(src *janusv1alpha1.ImageSource, nodeCmdline string, uki []by
 		return fmt.Sprintf("image schematic changes from %s to %s (allowed)", current[:12], target[:12]), nil
 	}
 	return "", status.Errorf(codes.FailedPrecondition,
-		"this bundle is built from image schematic %s, but the node runs schematic %s: it would not keep the node's extensions. Use the update built for schematic %s (janus.sw-servers.net), or set allow_schematic_change to switch",
+		"this bundle is built from image schematic %s, but the node runs schematic %s: it would not keep the node's extensions, HAProxy branch and kernel track. Use the update built for schematic %s (janus.sw-servers.net), or set allow_schematic_change to switch",
 		target[:12], current[:12], current)
 }
 

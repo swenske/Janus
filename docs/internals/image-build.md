@@ -11,7 +11,7 @@ flowchart TB
     accTitle: The pipeline that builds a Janus image
     accDescr: The kernel, HAProxy with AWS-LC, the Go binaries, the SELinux policy and the extensions are built in Docker from pinned sources. They are layered into a root tree, which becomes a squashfs with its dm-verity hash tree. The kernel and a command line carrying that tree's root hash become a signed unified kernel image. The disk image takes both slots, the EFI partition and STATE, and is converted to qcow2, VMDK, the installer ISO and SD card images; the root filesystem, its hash tree and the kernel images form the update bundle.
     subgraph sources [Built in Docker, pinned]
-        kernel["Linux kernel - janus_defconfig"]
+        kernel["Linux kernel - janus_TRACK_defconfig"]
         haproxy["HAProxy - static, musl, AWS-LC"]
         gobin["janusd, init, janus-acme - static Go"]
         policy[SELinux policy]
@@ -35,8 +35,8 @@ flowchart TB
 
 | Piece | Built by | Notes |
 |---|---|---|
-| The kernel | `make kernel-build` (`kernel/`) | `kernel/configs/janus_defconfig`, made with `make kernel-menuconfig`, never hand-edited: KSPP hardening, SELinux, dm-verity, nf_tables, the drivers bare metal needs - no firmware files. `kernel/built-files-*.txt` list what the build reads, for the vulnerability checks |
-| HAProxy | `make haproxy-build` (`pkgs/haproxy`) | Static, against musl and [AWS-LC](../haproxy-config.md#tls-aws-lc) built from source, with its Prometheus exporter; no PCRE2, no Lua |
+| The kernel | `make kernel-build` (`kernel/`) | One per kernel track (`variants.mk`): `kernel/configs/janus_<track>_defconfig`, made with `make kernel-menuconfig KERNEL_TRACK=<track>`, never hand-edited, every track's saying what the others' say (`go test ./hack/kconfig`): KSPP hardening, SELinux, dm-verity, nf_tables, the drivers bare metal needs - no firmware files. `kernel/built-files-<track>-*.txt` list what each build reads, for the vulnerability checks |
+| HAProxy | `make haproxy-build` (`pkgs/haproxy`) | One per LTS branch (`variants.mk`, `make haproxy-build-<branch>`), laid onto the base tree as a layer of its own. Static, against musl and [AWS-LC](../haproxy-config.md#tls-aws-lc) built from source, with its Prometheus exporter; no PCRE2, no Lua |
 | janusd, init, janus-acme | `make build`, statically | No C library anywhere in the base system: Go is static |
 | The SELinux policy | `make selinux-policy` (`selinux/`) | Monolithic, hand-written: a domain per daemon, every rule from a real denial |
 | Extensions | `make extensions-amd64` (`extensions/<name>/`) | A manifest and a Dockerfile each, packed into a tar layered onto the root tree - never replacing a file |

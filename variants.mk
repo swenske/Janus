@@ -25,7 +25,7 @@ HAPROXY_3_0_EOL  := 2029-04-01
 # its config (kernel/configs/janus_<track>_defconfig) and the list of
 # files its build reads (kernel/built-files-<track>-<arch>.txt). arm64
 # images are only built with the default track.
-KERNEL_TRACKS        := longterm
+KERNEL_TRACKS        := longterm stable
 KERNEL_DEFAULT_TRACK := longterm
 
 # Variants a release no longer offers, as component:name:last-release

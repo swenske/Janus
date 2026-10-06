@@ -34,12 +34,12 @@ GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
 	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
-	kernel-build init initramfs qemu-boot-test haproxy-build haproxy-builds \
+	kernel-build kernel-builds kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
-	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-orchestrator-test \
+	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-orchestrator-test \
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
@@ -96,37 +96,79 @@ clean:
 
 # Opens an interactive `make menuconfig` inside a throwaway container built
 # from kernel/Dockerfile's "config" stage, seeded from the currently
-# committed kernel/configs/janus_defconfig, and writes the resulting
-# defconfig back out so it can be reviewed with `git diff` and committed.
-# This is the whole "module selection" workflow for Phase 0/1 - a Proxmox-
-# hosted UI wrapping the same container is Phase 6, not required to get
-# started.
+# committed kernel/configs/janus_<track>_defconfig (KERNEL_TRACK, the
+# default track's otherwise), and writes the result back - its
+# hand-written header kept (kernel/save-config.sh) - to be reviewed with
+# `git diff` and committed. A change made to one track is made to the
+# other too: go test ./hack/kconfig holds them together.
 kernel-menuconfig:
 	docker build --target config -t janus-kernel-config \
 		--build-arg KERNEL_VERSION=$(KERNEL_VERSION) \
-		--build-arg KERNEL_SHA256=$(KERNEL_SHA256) kernel
-	docker run --rm -it \
-		-v "$(CURDIR)/kernel/configs:/out" \
-		janus-kernel-config \
-		sh -c 'make menuconfig && cp .config /out/janus_defconfig'
-	@echo "Updated kernel/configs/janus_defconfig - review with 'git diff' and commit."
-
-# Builds bzImage from kernel/configs/janus_defconfig via kernel/
-# Dockerfile's "export" stage (needs Docker Buildx - `docker buildx
-# version` to check) and pulls it out to build/bzImage.
-kernel-build:
-	mkdir -p $(BUILD_DIR)
-	docker build --target export --build-arg KERNEL_VERSION=$(KERNEL_VERSION) \
 		--build-arg KERNEL_SHA256=$(KERNEL_SHA256) \
-		-o $(BUILD_DIR) kernel
+		--build-arg DEFCONFIG=janus_$(KERNEL_TRACK)_defconfig kernel
+	mkdir -p $(BUILD_DIR)/kernel-config
+	docker run --rm -it \
+		-v "$(CURDIR)/$(BUILD_DIR)/kernel-config:/out" \
+		janus-kernel-config \
+		sh -c 'make menuconfig && cp .config /out/config'
+	./kernel/save-config.sh $(BUILD_DIR)/kernel-config/config kernel/configs/janus_$(KERNEL_TRACK)_defconfig
+	@echo "Updated kernel/configs/janus_$(KERNEL_TRACK)_defconfig - review with 'git diff' and commit."
+
+# The track's configuration as kbuild resolves it for the pinned version,
+# without a question: what a version bump - above all one that moves the
+# track to a new branch - needs (new symbols get their defaults: review
+# the diff). image-build.yml fails when a committed config isn't that.
+kernel-config-refresh: kernel-build
+	./kernel/save-config.sh $(BUILD_DIR)/kernel-$(KERNEL_TRACK)/config kernel/configs/janus_$(KERNEL_TRACK)_defconfig
+	@echo "Refreshed kernel/configs/janus_$(KERNEL_TRACK)_defconfig - review with 'git diff' and commit."
+
+# Builds bzImage from kernel/configs/janus_<track>_defconfig via kernel/
+# Dockerfile's "export" stage (needs Docker Buildx - `docker buildx
+# version` to check): kernel-build-<track> into build/kernel-<track>/
+# (bzImage, built-files.txt, config - not in .PHONY: GNU make skips
+# pattern rules for phony targets), kernel-build copies KERNEL_TRACK's to
+# build/bzImage, what the images and the tests take.
+kernel-build-%:
+	mkdir -p $(BUILD_DIR)/kernel-$*
+	docker build --target export \
+		--build-arg KERNEL_VERSION=$(KERNEL_$(shell echo '$*' | tr a-z A-Z)_VERSION) \
+		--build-arg KERNEL_SHA256=$(KERNEL_$(shell echo '$*' | tr a-z A-Z)_SHA256) \
+		--build-arg DEFCONFIG=janus_$*_defconfig \
+		-o $(BUILD_DIR)/kernel-$* kernel
+
+kernel-build: kernel-build-$(KERNEL_TRACK)
+	cp $(BUILD_DIR)/kernel-$(KERNEL_TRACK)/bzImage $(BUILD_DIR)/bzImage
+	cp $(BUILD_DIR)/kernel-$(KERNEL_TRACK)/built-files.txt $(BUILD_DIR)/built-files.txt
+
+kernel-builds: $(addprefix kernel-build-,$(KERNEL_TRACKS))
 
 # The files each kernel build reads (kernel/Dockerfile exports the list),
-# for hack/upstream to keep only the kernel CVEs that apply to Janus.
-# Regenerate whenever a defconfig changes - image-build.yml fails when
-# they no longer match the build.
-kernel-built-files: kernel-build rpi4-kernel-build
-	cp $(BUILD_DIR)/built-files.txt kernel/built-files-amd64.txt
-	cp $(BUILD_DIR)/rpi4/built-files.txt kernel/built-files-arm64.txt
+# for hack/upstream to keep only the kernel CVEs that apply to Janus: one
+# list per track and architecture (arm64: the default track only).
+# Regenerate whenever a config changes - image-build.yml fails when they
+# no longer match the build. kernel-built-files-<track> does one track.
+kernel-built-files-%: kernel-build-%
+	cp $(BUILD_DIR)/kernel-$*/built-files.txt kernel/built-files-$*-amd64.txt
+	$(if $(filter $*,$(KERNEL_DEFAULT_TRACK)),$(MAKE) rpi4-kernel-build && cp $(BUILD_DIR)/rpi4/built-files.txt kernel/built-files-$*-arm64.txt)
+
+kernel-built-files: $(addprefix kernel-built-files-,$(KERNEL_TRACKS))
+
+# selinux/classes.conf's classes, permissions and initial SIDs: what the
+# newest kernel track compiles in (scripts/selinux/mdp) - a policy that
+# defines a class an older kernel lacks is fine, the other way round the
+# kernel allows what the policy doesn't know without a word. Keeps the
+# file's header and its reviewed policy capabilities (selinux/classes.sh
+# says which mdp emitted that it doesn't keep).
+SELINUX_CLASSES_TRACK := $(firstword $(filter stable,$(KERNEL_TRACKS)) $(KERNEL_DEFAULT_TRACK))
+selinux-classes:
+	mkdir -p $(BUILD_DIR)/selinux-classes
+	docker build --target selinux-classes \
+		--build-arg KERNEL_VERSION=$(KERNEL_$(shell echo '$(SELINUX_CLASSES_TRACK)' | tr a-z A-Z)_VERSION) \
+		--build-arg KERNEL_SHA256=$(KERNEL_$(shell echo '$(SELINUX_CLASSES_TRACK)' | tr a-z A-Z)_SHA256) \
+		--build-arg DEFCONFIG=janus_$(SELINUX_CLASSES_TRACK)_defconfig \
+		-o $(BUILD_DIR)/selinux-classes kernel
+	./selinux/classes.sh $(BUILD_DIR)/selinux-classes/classes.conf selinux/classes.conf \
+		"$(KERNEL_$(shell echo '$(SELINUX_CLASSES_TRACK)' | tr a-z A-Z)_VERSION)"
 
 # Following upstreams (docs/upstreams.md, hack/upstream): what's new and
 # what's vulnerable in every component versions.mk pins; a checked bump
@@ -539,7 +581,7 @@ qemu-network-test: kernel-build initramfs-full
 # Phase 4: proves rootfs/init/main.go's hardenSysctls actually applies
 # every kernel-hardening sysctl it claims to on a real boot (not just
 # that the Go code runs without panicking, and not just that the
-# matching kernel/configs/janus_defconfig options compile in - see
+# matching kernel/configs/janus_<track>_defconfig options compile in - see
 # hack/qemu-hardening-test.sh's own comment for the real gap that
 # distinction caught: CONFIG_SYN_COOKIES missing, silently failing only
 # the tcp_syncookies write while every other sysctl and the boot itself
@@ -1126,6 +1168,12 @@ qemu-lifecycle-upgrade-relay-test: build disk-image
 # reboots back automatically (Supervisor.GiveUpAfter/OnGiveUp), with no
 # RPC call driving the revert itself. Requires janusctl built (see
 # `build`).
+# A node moved to another kernel track (variants.mk: the first that isn't
+# the default) through an A/B update, and rolled back.
+UPGRADE_TO_TRACK ?= $(firstword $(filter-out $(KERNEL_DEFAULT_TRACK),$(KERNEL_TRACKS)))
+qemu-lifecycle-upgrade-variant-test: build disk-image kernel-build-$(UPGRADE_TO_TRACK)
+	./hack/qemu-lifecycle-upgrade-variant-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR) $(BIN_DIR)/janusctl $(UPGRADE_TO_TRACK)
+
 qemu-lifecycle-upgrade-health-test: build disk-image
 	./hack/qemu-lifecycle-upgrade-health-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl
 
