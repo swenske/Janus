@@ -48,6 +48,11 @@ const (
 	factoryBuildTimeout = 60 * time.Minute
 )
 
+// answerTimeout bounds the wait, once a machine's node is admitted, for
+// it to answer the Controller (awaitAnswer); answerRetry is how often it
+// is asked meanwhile.
+var answerTimeout, answerRetry = 2 * time.Minute, 2 * time.Second
+
 // vmImageFile is the release (or image factory) asset for a kind of
 // hypervisor - the same disk, named as the site offers it.
 func vmImageFile(h *hypervisor.Hypervisor) string {
@@ -99,6 +104,11 @@ func (r *machineRunner) resume() {
 				m.Phase = machines.PhaseFailed
 				return nil
 			})
+		case m.Phase == machines.PhaseRegistering && m.NodeID != "":
+			// Admitted, not yet answering when the Controller stopped.
+			if node, ok := r.a.store.Get(m.NodeID); ok {
+				r.awaitAnswer(m.ID, node)
+			}
 		case m.Phase == machines.PhaseRegistering:
 			r.watchRegistration(m.ID, time.Until(m.UpdatedAt.Add(registrationTimeout)))
 			r.watchNode(m.ID)
@@ -178,16 +188,62 @@ func (r *machineRunner) phase(id string, p machines.Phase, format string, args .
 }
 
 // registered is called once the machine's node announced itself with
-// its token and was admitted.
+// its token and was admitted. The machine is ready once the node answers
+// the Controller (awaitAnswer).
 func (r *machineRunner) registered(id string, node *store.Node) {
 	_, _ = r.a.machines.Update(id, func(m *machines.Machine) error {
 		m.NodeID, m.Warning = node.ID, ""
-		if m.Phase != machines.PhaseDestroying {
-			m.Phase, m.Error = machines.PhaseReady, ""
-		}
 		m.Log("the node registered from %s and was admitted", node.Address)
 		return nil
 	})
+	r.awaitAnswer(id, node)
+}
+
+// awaitAnswer makes the machine ready once its node answers the
+// Controller, in the background. A keyless node takes the fleet's trust
+// from the answer to its registration and applies it a moment later:
+// until then it refuses the Controller's certificate, and a client told
+// "ready" - Terraform, applying the node's HAProxy configuration next -
+// would fail. A node still silent after answerTimeout is ready all the
+// same, with a warning: it was admitted.
+func (r *machineRunner) awaitAnswer(id string, node *store.Node) {
+	r.watchers.Add(1)
+	go func() {
+		defer r.watchers.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), answerTimeout)
+		defer cancel()
+		var err error
+		for {
+			call, done := context.WithTimeout(ctx, 10*time.Second)
+			_, err = nodes.Info(call, node)
+			done()
+			if err == nil {
+				break
+			}
+			select {
+			case <-r.quit:
+				return // picked up again at the next start (resume)
+			case <-ctx.Done():
+			case <-time.After(answerRetry):
+			}
+			if ctx.Err() != nil {
+				break
+			}
+		}
+		_, _ = r.a.machines.Update(id, func(m *machines.Machine) error {
+			if m.NodeID != node.ID || m.Phase == machines.PhaseDestroying {
+				return errSkip
+			}
+			m.Phase, m.Error = machines.PhaseReady, ""
+			if err != nil {
+				m.Warning = fmt.Sprintf("the node was admitted but doesn't answer the Controller: %v", err)
+				m.Log("%s", m.Warning)
+			} else {
+				m.Log("the node answers the Controller")
+			}
+			return nil
+		})
+	}()
 }
 
 // waitingFor is the machine named name still waiting for its node, if
@@ -210,7 +266,7 @@ func (r *machineRunner) watchRegistration(id string, timeout time.Duration) {
 	}
 	time.AfterFunc(timeout, func() {
 		_, _ = r.a.machines.Update(id, func(m *machines.Machine) error {
-			if m.Phase != machines.PhaseRegistering {
+			if m.Phase != machines.PhaseRegistering || m.NodeID != "" {
 				return nil
 			}
 			m.Phase = machines.PhaseFailed

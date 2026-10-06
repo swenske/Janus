@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -204,8 +205,13 @@ func newTestApp(t *testing.T) (*app, *fakeDriver) {
 	prev := newDriver
 	newDriver = func(*hypervisor.Hypervisor, string) (hypervisor.Driver, error) { return fake, nil }
 	t.Cleanup(func() { newDriver = prev })
-	t.Cleanup(a.runner.waitJobs)     // jobs and console readers use newDriver:
-	t.Cleanup(a.runner.stopWatching) // done with them first
+	// Admitted nodes answer the Controller at once, unless a test says
+	// otherwise.
+	prevNodes := nodes
+	nodes = answeringNodes{}
+	t.Cleanup(func() { nodes = prevNodes })
+	t.Cleanup(a.runner.waitJobs)     // jobs, console readers and the wait for an
+	t.Cleanup(a.runner.stopWatching) // admitted node use newDriver and nodes: done with them first
 	return a, fake
 }
 
@@ -453,10 +459,78 @@ func TestManualApprovalLinksTheMachine(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("approve: %d %s", rec.Code, rec.Body)
 	}
-	got, _ := a.machines.Get(m.ID)
+	got := waitPhase(t, a, m.ID, machines.PhaseReady)
 	node, ok := a.store.Get(got.NodeID)
-	if got.Phase != machines.PhaseReady || !ok || node.MachineID != m.ID {
+	if !ok || node.MachineID != m.ID {
 		t.Errorf("machine %s node %q, node %+v", got.Phase, got.NodeID, node)
+	}
+}
+
+// answeringNodes is the real node API - a test's nodes don't exist, so
+// calls fail fast - except that every node answers Info.
+type answeringNodes struct{ realNodeAPI }
+
+func (answeringNodes) Info(context.Context, *store.Node) (*nodeproxy.NodeInfo, error) {
+	return &nodeproxy.NodeInfo{}, nil
+}
+
+// silentNodes answers Info only once `answers` is set.
+type silentNodes struct {
+	answeringNodes
+	answers atomic.Bool
+}
+
+func (s *silentNodes) Info(ctx context.Context, n *store.Node) (*nodeproxy.NodeInfo, error) {
+	if !s.answers.Load() {
+		return nil, errors.New("remote error: tls: unknown certificate authority")
+	}
+	return s.answeringNodes.Info(ctx, n)
+}
+
+// A machine is ready once its admitted node answers the Controller - a
+// keyless one applies the fleet's trust a moment after registering, and
+// Terraform applies its HAProxy configuration as soon as it's ready.
+func TestMachineReadyOnceItsNodeAnswers(t *testing.T) {
+	a, _ := newTestApp(t)
+	silent := &silentNodes{}
+	nodes = silent
+	prevRetry := answerRetry
+	answerRetry = 20 * time.Millisecond
+	t.Cleanup(func() { answerRetry = prevRetry })
+
+	m := &machines.Machine{Spec: machines.Spec{Name: "lb1"}, Phase: machines.PhaseRegistering, Ref: &hypervisor.MachineRef{UUID: "u", Name: "janus-lb1"}}
+	if err := a.machines.Add(m); err != nil {
+		t.Fatal(err)
+	}
+	a.runner.registered(m.ID, &store.Node{ID: "n1", Address: "10.0.0.5:9505"})
+	time.Sleep(200 * time.Millisecond)
+	if got, _ := a.machines.Get(m.ID); got.Phase != machines.PhaseRegistering || got.NodeID != "n1" {
+		t.Fatalf("before the node answers: phase %s, node %q", got.Phase, got.NodeID)
+	}
+	silent.answers.Store(true)
+	got := waitPhase(t, a, m.ID, machines.PhaseReady)
+	if got.Warning != "" || got.Events[len(got.Events)-1].Message != "the node answers the Controller" {
+		t.Errorf("warning %q, events %+v", got.Warning, got.Events)
+	}
+}
+
+// A node that never answers leaves its machine ready all the same - it
+// was admitted - with a warning saying why it may not be reachable.
+func TestMachineReadyWithAWarningWhenItsNodeStaysSilent(t *testing.T) {
+	a, _ := newTestApp(t)
+	nodes = &silentNodes{}
+	prevRetry, prevTimeout := answerRetry, answerTimeout
+	answerRetry, answerTimeout = 10*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { answerRetry, answerTimeout = prevRetry, prevTimeout })
+
+	m := &machines.Machine{Spec: machines.Spec{Name: "lb1"}, Phase: machines.PhaseRegistering, Ref: &hypervisor.MachineRef{UUID: "u", Name: "janus-lb1"}}
+	if err := a.machines.Add(m); err != nil {
+		t.Fatal(err)
+	}
+	a.runner.registered(m.ID, &store.Node{ID: "n1", Address: "10.0.0.5:9505"})
+	got := waitPhase(t, a, m.ID, machines.PhaseReady)
+	if !strings.Contains(got.Warning, "doesn't answer the Controller") || !strings.Contains(got.Warning, "unknown certificate authority") {
+		t.Errorf("warning %q", got.Warning)
 	}
 }
 

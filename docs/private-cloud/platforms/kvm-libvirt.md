@@ -286,8 +286,8 @@ tofu apply
 Each node's creation - the image downloaded and checked (once per
 release), its virtual machine made with a NoCloud volume, its first
 boot, its registration on a one-time token - takes a few minutes;
-`apply` waits until both are admitted, then applies their HAProxy
-configuration. The Controller's
+`apply` waits until both are admitted and answer, then applies their
+HAProxy configuration. The Controller's
 **Hypervisors** tab shows each machine's progress and console.
 
 ## 6. Check

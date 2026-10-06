@@ -526,6 +526,12 @@ What happens then, followed on the machine's card:
    - **Autostart.**
 3. **The node registers.** It presents its token and is admitted at
    once: no approval, and the node is linked to its machine.
+4. **The node answers.** The machine is ready once the Controller
+   reaches the node - a moment after its registration, the time for the
+   node to apply the fleet's trust it got in return. A node still silent
+   after two minutes leaves its machine ready all the same, with a
+   warning on its card: it was admitted, and something between the
+   Controller and the node - a firewall, a route - needs a look.
    - An image released before registration tokens (before the version
      that introduced them) registers like any node and waits in
      **Waiting for approval**, marked as a machine this Controller

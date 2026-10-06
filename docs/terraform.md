@@ -181,11 +181,13 @@ resource "janus_node" "lb1" {
 }
 ```
 
-Creating a node waits until it's admitted. Its creation:
+Creating a node waits until it's admitted and answers the Controller,
+so the same `apply` can configure it. Its creation:
 1. the image;
 2. the virtual machine;
 3. the boot;
-4. its registration on its token.
+4. its registration on its token;
+5. its first answer to the Controller.
 
 A node whose creation fails is tainted: the next apply destroys it and
 starts again. The machine's history on the Controller (**Hypervisors**

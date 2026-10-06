@@ -181,9 +181,8 @@ func TestMachineWarning(t *testing.T) {
 	}
 
 	a.runner.registered(m.ID, &store.Node{ID: "n1", Address: "10.0.0.5:9505"})
-	got, _ := a.machines.Get(m.ID)
-	if got.Warning != "" || got.Phase != machines.PhaseReady {
-		t.Errorf("admitted: warning %q, phase %s", got.Warning, got.Phase)
+	if got := waitPhase(t, a, m.ID, machines.PhaseReady); got.Warning != "" {
+		t.Errorf("admitted: warning %q", got.Warning)
 	}
 	// Its watcher lets go of the console.
 	deadline = time.Now().Add(10 * time.Second)

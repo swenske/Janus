@@ -243,7 +243,7 @@ factory's build, with extensions - checks it, uploads it once to
 `janus-images`, then makes each node's virtual machine: a copy of the
 image, a NoCloud CD-ROM with its network and a one-time token, UEFI
 with Secure Boot off, a serial console. `apply` waits until both nodes
-are admitted, then applies their HAProxy configuration.
+are admitted and answer, then applies their HAProxy configuration.
 
 ## 6. Check, and a virtual IP
 
