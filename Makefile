@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-screenshots docs-screenshots-check qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -793,6 +793,21 @@ browser-image:
 # site instead.
 docs-smoke: browser-image
 	./hack/docs-smoke.sh $(BROWSER_IMAGE) $(DOCS_SMOKE_URL)
+
+# The OpenGraph cards shown when a link to the site or the docs is
+# shared (hack/browser/og.mjs): the landing page's and the builder's in
+# site/frontend/public/og, the docs' (one per audience) in
+# site/docs/public/og - committed. Again after a change to the docs'
+# audiences (site/docs/structure.yaml) or the brand.
+docs-og: browser-image
+	mkdir -p $(BUILD_DIR)/og
+	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp \
+		-v $(CURDIR)/hack/browser/og.mjs:/browser/og.mjs:ro -v $(CURDIR)/site/docs/structure.yaml:/structure.yaml:ro \
+		-v $(CURDIR)/brand/favicon/favicon.svg:/favicon.svg:ro -v $(CURDIR)/$(BUILD_DIR)/og:/out \
+		$(BROWSER_IMAGE) node og.mjs
+	mkdir -p site/frontend/public/og site/docs/public/og
+	cp $(BUILD_DIR)/og/site/og/*.png site/frontend/public/og/
+	cp $(BUILD_DIR)/og/docs/og/*.png site/docs/public/og/
 
 # The Controller's screenshots in the docs and on the landing page
 # (docs/assets/screenshots), taken by Playwright against a real

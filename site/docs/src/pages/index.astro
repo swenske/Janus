@@ -4,6 +4,7 @@
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import { Icon } from '@astrojs/starlight/components'
 import { pageMeta } from '../lib/meta.mjs'
+import { cardHead, cardURL, jsonLD } from '../lib/seo.mjs'
 import { popular } from '../lib/structure.mjs'
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '')
@@ -38,6 +39,17 @@ const pages = popular.map((p) => ({ href: `${base}/${p.id}/`, title: p.label ?? 
     title: 'Janus documentation',
     description:
       'Install, operate and integrate Janus, the immutable, API-driven Linux distribution for HAProxy load balancers - and learn how it works inside.',
+    head: [
+      ...cardHead('docs', 'Janus documentation'),
+      ...jsonLD({
+        '@context': 'https://schema.org',
+        '@type': 'WebSite',
+        name: 'Janus documentation',
+        url: new URL(`${base}/`, Astro.site ?? 'https://janus.sw-servers.net').href,
+        image: cardURL('docs'),
+        inLanguage: 'en',
+      }),
+    ],
     template: 'splash',
     hero: {
       tagline:

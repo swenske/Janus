@@ -8,6 +8,7 @@ import { glob } from 'astro/loaders'
 import { docsSchema, i18nSchema } from '@astrojs/starlight/schema'
 import { repo } from './lib/build-info.mjs'
 import { pageMeta } from './lib/meta.mjs'
+import { pageHead } from './lib/seo.mjs'
 import { pageOfFile, pageOfId, pages, repoRoot, topics } from './lib/structure.mjs'
 
 // When each file last changed: hack/docs-build.sh writes it from git
@@ -32,12 +33,16 @@ function fields(id: string) {
   const page = pageOfId(id)
   const meta = pageMeta(page.file)
   const topic = topics.find((t) => t.id === page.topic)
+  const title = page.title ?? meta.title
+  const description = meta.description || page.description || topic.description
+  const updated = lastUpdated.has(page.file) ? new Date(lastUpdated.get(page.file)) : undefined
   return {
-    title: page.title ?? meta.title,
-    description: meta.description || page.description || topic.description,
+    title,
+    description,
     sidebar: { label: page.label ?? page.title ?? meta.title, ...(page.badge ? { badge: { text: page.badge, variant: 'caution' } } : {}) },
     editUrl: `${repo}/edit/main/${page.file}`,
-    ...(lastUpdated.has(page.file) ? { lastUpdated: new Date(lastUpdated.get(page.file)) } : {}),
+    ...(updated ? { lastUpdated: updated } : {}),
+    head: pageHead({ id, title, description, topic, lastUpdated: updated }),
   }
 }
 

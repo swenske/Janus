@@ -3,8 +3,9 @@
 // - every link inside the site leads to a page that exists, and its
 //   #fragment to an element of that page;
 // - no relative or .md link survived the rewriting (remark-repo-links);
-// - each page has one H1, a title, a description, content, and is in
-//   its sidebar; the latest channel's pages a canonical link;
+// - each page has one H1, a title, a description, content, an
+//   OpenGraph card, and is in its sidebar; the latest channel's pages a
+//   canonical link and JSON-LD;
 // - the sitemap only lists pages that exist, and the search index isn't
 //   empty.
 // Exits 1 with the list of problems.
@@ -40,7 +41,7 @@ const pages = new Map()
 for (const file of htmlFiles(dist)) {
   const rel = path.relative(dist, file).split(path.sep).join('/')
   const tree = fromHtml(readFileSync(file, 'utf8'))
-  const page = { rel, ids: new Set(['_top']), links: [], h1: 0, title: '', description: '', canonical: false, content: null, current: false }
+  const page = { rel, ids: new Set(['_top']), links: [], h1: 0, title: '', description: '', canonical: false, content: null, current: false, card: '', jsonld: [] }
   visit(tree, 'element', (node) => {
     const p = node.properties ?? {}
     if (p.id) page.ids.add(String(p.id))
@@ -48,6 +49,8 @@ for (const file of htmlFiles(dist)) {
     if (node.tagName === 'title') page.title = text(node).trim()
     if (node.tagName === 'meta' && p.name === 'description') page.description = String(p.content ?? '').trim()
     if (node.tagName === 'link' && [].concat(p.rel ?? []).includes('canonical')) page.canonical = true
+    if (node.tagName === 'meta' && p.property === 'og:image') page.card = String(p.content ?? '')
+    if (node.tagName === 'script' && p.type === 'application/ld+json') page.jsonld.push(text(node))
     if (node.tagName === 'a' && typeof p.href === 'string') {
       page.links.push(p.href)
       if (p.ariaCurrent === 'page') page.current = true
@@ -73,6 +76,21 @@ for (const page of pages.values()) {
   if (!page.description) problems.push(`${where}: no meta description`)
   if (channel === 'latest' && !special && !page.canonical) problems.push(`${where}: no canonical link`)
   if (channel === 'next' && page.canonical) problems.push(`${where}: a canonical link on the next channel`)
+  // Its OpenGraph card (seo.mjs), built with the site; its JSON-LD, on
+  // the canonical channel only.
+  if (!special) {
+    const card = page.card.startsWith(`https://janus.sw-servers.net${base}/`) && path.join(dist, page.card.slice(`https://janus.sw-servers.net${base}/`.length))
+    if (!card || !existsSync(card)) problems.push(`${where}: no OpenGraph card (${page.card || 'no og:image'})`)
+    if (channel === 'latest' && !page.jsonld.length) problems.push(`${where}: no JSON-LD`)
+    if (channel === 'next' && page.jsonld.length) problems.push(`${where}: JSON-LD on the next channel`)
+  }
+  for (const data of page.jsonld) {
+    try {
+      JSON.parse(data)
+    } catch (err) {
+      problems.push(`${where}: JSON-LD that doesn't parse: ${err.message}`)
+    }
+  }
   if (where !== 'index.html' && !special) {
     if (!page.content) problems.push(`${where}: empty - did the page fail to render? (look for [ERROR] in the build's output)`)
     if (!page.current) problems.push(`${where}: not in its sidebar`)
