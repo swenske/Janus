@@ -1402,10 +1402,10 @@ jobs:
       # janusctl on https://apt.sw-servers.net/janus (suite "stable",
       # component "main" - README.md), after the GitHub Release so apt
       # never offers a version that has no release. Same design as
-      # swenske/gotochanger: a key that only exists on this runner
-      # (~actions-runner/.ssh/id_janus_aptly, never a GitHub secret)
-      # reaches a forced-command account on apt.int.sw-servers.net that
-      # only accepts "upload janusctl_<version>_<arch>.deb" (stdin) and
+      # swenske/gotochanger: a key per janus-publish machine that never
+      # leaves it (~actions-runner/.ssh/id_janus_aptly, never a GitHub
+      # secret) reaches a forced-command account on apt.int.sw-servers.net
+      # that only accepts "upload janusctl_<version>_<arch>.deb" (stdin) and
       # "publish" (/usr/local/sbin/janus-publish-dispatch.sh and
       # janus-aptly-publish.sh there). A rerun uploads the same bytes,
       # which aptly accepts again (the packages are reproducible).

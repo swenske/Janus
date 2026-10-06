@@ -43,16 +43,15 @@ emulated.
 
 ## Runner machines
 
-`janus-runner01` and `janus-runner02` are unprivileged LXC containers on
-Proxmox hosts; `janus-runner03` is a laptop running Debian 13 itself.
-Each machine runs several runner instances - one job each - named
-`<machine>`, `<machine>-2`, `<machine>-3`...
+`janus-runner01` is an unprivileged LXC container on a Proxmox host;
+`janus-runner03` is a laptop running Debian 13 itself. Each machine runs
+several runner instances - one job each - named `<machine>`,
+`<machine>-2`, `<machine>-3`...
 
 | Machine | Instances | Labels | Size |
 |---|---|---|---|
 | `janus-runner01` | 5 | `docker`, `janus`, `janus-publish` | 12 cores, 24 GB, 64 GB disk |
-| `janus-runner02` | 2 | `docker`, `janus` - tests only, see below | 8 cores, 12 GB, 64 GB disk |
-| `janus-runner03` | 3 | `docker`, `janus` - tests only, sometimes offline | 8 cores / 16 threads, 32 GB, 3.6 TB disk |
+| `janus-runner03` | 5 | `docker`, `janus`, `janus-publish` | 8 cores / 16 threads, 32 GB, 3.6 TB disk |
 
 **Instances on a machine never share a port.** Each instance's `.env`
 (next to its `config.sh`) sets `JANUS_TEST_PORT_OFFSET` - 0, 2000, 4000,
@@ -60,22 +59,18 @@ Each machine runs several runner instances - one job each - named
 18080-19530 with no offset, so instances must stay 2000 apart; the
 highest offset must keep ports below 32768 (Linux's ephemeral range).
 
-`janus-runner02` runs tests only: its host's memory has been flipping
-bits (corrupted downloads that had passed their checksum, compilers
-crashing with `fatal error: fault`, a host that ended up hanging), so
-nothing it builds is ever published. Its container was rebuilt from
-scratch after the host's crash. Give it `janus-publish` only once the
-host's memory has passed a memory test.
+`janus-runner02`, a container on a host whose memory flipped bits, ran
+test jobs only until 2026-10-06: unregistered, its container stopped.
 
-### A runner that is sometimes offline
+### Switching a runner machine off
 
-`janus-runner03` is switched off now and then. GitHub only gives jobs
-to runners that are online, so the workflows need nothing for it, and
-it never gets `janus-publish`: nothing that publishes waits for it.
+GitHub only gives jobs to runners that are online, so the workflows need
+nothing when a machine is off - as long as the other one carries
+`janus-publish`.
 
-- **Before switching it off**, stop its services once it is idle (no
-  `Runner.Worker` process, or "Idle" under Settings → Runners):
-  `sudo systemctl stop 'actions.runner.*'`. Stopping them during a job
+- **Before switching it off**, stop its services once it is idle -
+  `pgrep -x Runner.Worker || sudo systemctl stop 'actions.runner.*'`
+  (or "Idle" under Settings → Runners). Stopping them during a job
   cancels that job, and a machine that just disappears fails its jobs
   with "lost communication with the server" after a few minutes - "Re-run
   failed jobs" then.
@@ -86,9 +81,9 @@ it never gets `janus-publish`: nothing that publishes waits for it.
   again: `sudo ./svc.sh uninstall`, delete `.runner`, `.credentials` and
   `.credentials_rsaparams`, then the `config.sh` and `svc.sh` steps
   below.
-- **A test that fails only there** blocks `publish` like any other, and
-  a re-run may land on it again (GitHub doesn't let you pick the
-  runner): stop its services, re-run, then look into it.
+- **A test that fails only on one machine** blocks `publish` like any
+  other, and a re-run may land on it again (GitHub doesn't let you pick
+  the runner): stop its services, re-run, then look into it.
 
 ## Setting up a runner machine
 
@@ -175,24 +170,31 @@ repos/swenske/Janus/actions/runners/registration-token -q .token`.
 ## Publishing janusctl on apt.sw-servers.net
 
 A release run ends by publishing janusctl's Debian packages on
-`https://apt.sw-servers.net/janus` (README.md). The `janus-publish`
-machine holds the only key for it, as the `actions-runner` user - never a
-GitHub secret:
+`https://apt.sw-servers.net/janus` (README.md). Each `janus-publish`
+machine holds its own key for it, as the `actions-runner` user - never a
+GitHub secret, never copied to another machine:
 
 ```sh
 su - actions-runner -c 'ssh-keygen -t ed25519 -N "" \
   -C "janus-runnerNN janus-publish@apt.int.sw-servers.net" -f ~/.ssh/id_janus_aptly'
 ```
 
-On the aptly server (`apt.int.sw-servers.net`), once, with that public
-key - it creates the `janus` aptly repo and a `janus-publish` account
-whose key can only upload a `janusctl_<version>_<arch>.deb` and publish
-the repo:
+On the aptly server (`apt.int.sw-servers.net`), with every
+`janus-publish` machine's public key - it creates the `janus` aptly repo
+and a `janus-publish` account whose keys can only upload a
+`janusctl_<version>_<arch>.deb` and publish the repo:
 
 ```sh
 scp -r packaging/apt apt.int.sw-servers.net:
-ssh -t apt.int.sw-servers.net sudo ./apt/setup-server.sh "$(cat id_janus_aptly.pub)"
+ssh -t apt.int.sw-servers.net sudo ./apt/setup-server.sh \
+  "$(cat janus-runner01.pub)" "$(cat janus-runner03.pub)"
 ```
 
-A new `janus-publish` machine (or a new key): `setup-server.sh` again
-with its public key - it replaces the previous one.
+The keys it is given replace every key accepted before: a new
+`janus-publish` machine, a new key or a machine taken out means running
+it again with all the keys that remain. Pin the server's host key in the
+new machine's `~actions-runner/.ssh/known_hosts` (read from
+`/etc/ssh/ssh_host_ed25519_key.pub` on the server), and check its key
+reaches the forced command - `ssh -i ~/.ssh/id_janus_aptly
+janus-publish@apt.int.sw-servers.net check-key` answers `rejected:
+unrecognized command`.
