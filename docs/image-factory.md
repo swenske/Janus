@@ -179,7 +179,7 @@ runs the release's own binaries:
 
 | Asset | Content |
 |---|---|
-| `kernel-<arch>` | the release's kernel |
+| `kernel-<track>-<arch>` | each kernel track's kernel (amd64: every track the release offers; arm64: the default one) |
 | `rootfs-base-<arch>.tar` | the base system tree: `init`, `janusd`, the SELinux policy, the CA bundle, ... with the SELinux types of its executables |
 | `haproxy-<branch>-<arch>.tar` | each HAProxy branch, laid onto the base tree (amd64: every branch the release offers; arm64: the default one) |
 | `extension-<name>-<arch>.tar` | each extension's files, manifest and SELinux types |

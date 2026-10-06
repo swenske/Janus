@@ -311,7 +311,7 @@ schematic-catalog:
 # without rebuilding anything (image/schematic/build.sh): per
 # architecture, the kernel, the base rootfs tree and the extension packs,
 # plus the catalog. Into build/inputs/.
-schematic-inputs: kernel-build rpi4-kernel-build extensions-amd64 extensions-arm64 schematic-catalog haproxy-builds
+schematic-inputs: kernel-builds rpi4-kernel-build extensions-amd64 extensions-arm64 schematic-catalog haproxy-builds
 	rm -rf $(BUILD_DIR)/inputs && mkdir -p $(BUILD_DIR)/inputs
 	JANUS_EXPORT_BASE=$(CURDIR)/$(BUILD_DIR)/inputs/rootfs-base-amd64.tar $(MAKE) rootfs-build
 	JANUS_EXPORT_BASE=$(CURDIR)/$(BUILD_DIR)/inputs/rootfs-base-arm64.tar $(MAKE) rpi4-rootfs-build
@@ -319,8 +319,8 @@ schematic-inputs: kernel-build rpi4-kernel-build extensions-amd64 extensions-arm
 		./rootfs/haproxy-layer.sh $(BUILD_DIR)/haproxy-$$b/haproxy $(BUILD_DIR)/inputs/haproxy-$$b-amd64.tar || exit 1; \
 	done
 	./rootfs/haproxy-layer.sh $(BUILD_DIR)/rpi4/haproxy $(BUILD_DIR)/inputs/haproxy-$(firstword $(HAPROXY_BRANCHES))-arm64.tar
-	cp $(BUILD_DIR)/bzImage $(BUILD_DIR)/inputs/kernel-amd64
-	cp $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/inputs/kernel-arm64
+	for t in $(KERNEL_TRACKS); do cp $(BUILD_DIR)/kernel-$$t/bzImage $(BUILD_DIR)/inputs/kernel-$$t-amd64 || exit 1; done
+	cp $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/inputs/kernel-$(KERNEL_DEFAULT_TRACK)-arm64
 	cp $(EXT_DIR)/extension-*.tar $(EXT_DIR)/schematic-catalog.json $(BUILD_DIR)/inputs/
 
 # SCHEMATIC=path/to/schematic.json builds the rootfs with that schematic's

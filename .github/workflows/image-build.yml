@@ -1390,8 +1390,8 @@ jobs:
             build/rpi-uefi/pi4-disk.img
             build/rpi-uefi/pi5-disk.img
             build/inputs/schematic-catalog.json
-            build/inputs/kernel-amd64
-            build/inputs/kernel-arm64
+            build/inputs/kernel-*-amd64
+            build/inputs/kernel-*-arm64
             build/inputs/rootfs-base-amd64.tar
             build/inputs/rootfs-base-arm64.tar
             build/inputs/haproxy-*.tar

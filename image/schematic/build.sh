@@ -9,7 +9,8 @@
 # <inputs-dir> holds, as a release names them: schematic-catalog.json and
 # what `hack/extpack inputs` lists for the schematic - rootfs-base-<arch>.tar,
 # the HAProxy layer of its branch (haproxy-<branch>-<arch>.tar), the
-# kernel (kernel-<arch>) and its extensions (extension-<name>-<arch>.tar).
+# kernel of its track (kernel-<track>-<arch>) and its extensions
+# (extension-<name>-<arch>.tar).
 # <out-dir> gets, with the release's own file names:
 #   amd64: the update bundle (rootfs.squashfs, .sha256, rootfs.verity,
 #          uki-a.efi, uki-b.efi - signed when a key is given), janus.qcow2,
@@ -48,6 +49,14 @@ mkdir -p "$OUT"
 echo "== rootfs: $VERSION base + layers [$LAYERS], schematic $JANUS_SCHEMATIC"
 extpack image-info -schematic "$SCHEMATIC_FILE" -catalog "$IN/schematic-catalog.json" -arch "$ARCH" \
   -version "$VERSION" -out "$WORK/image.json"
+# The kernel is the one image.json says: never an image that says one
+# kernel and boots another.
+want="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["kernel"]["version"])' "$WORK/image.json")"
+case "$ARCH" in
+amd64) got="$(file -b "$KERNEL" | sed -n 's/.*, version \([^ ]*\) .*/\1/p')" ;;
+*) got="$(strings -n 8 "$KERNEL" | sed -n 's/^Linux version \([^ ]*\) .*/\1/p' | head -1)" ;;
+esac
+[ -z "$want" ] || [ "$got" = "$want" ] || { echo "$KERNEL is Linux ${got:-?}, but the image's kernel track is $want" >&2; exit 1; }
 JANUS_EXTENSIONS="$LAYERS" JANUS_IMAGE_INFO="$WORK/image.json" \
   ./rootfs/assemble-from-base.sh "$WORK/rootfs" "$IN/rootfs-base-$ARCH.tar"
 ./rootfs/state-image.sh "$WORK/state.img" 128

@@ -100,6 +100,19 @@ jobs:
           base="https://github.com/$REPO/releases/download/$VERSION"
           curl -fsSL -o "$IN/schematic-catalog.json" "$base/schematic-catalog.json" \
             || { echo "::error::$VERSION has no schematic-catalog.json - it predates custom schematics"; exit 1; }
+          # A kernel track other than the default needs that track's kernel:
+          # v2026.10.06-3 offered the longterm track but published only the
+          # default one (kernel-<arch>) - never build an image that says
+          # one kernel and boots another.
+          track="$(python3 -c '
+          import json, sys
+          sc = json.load(open(sys.argv[1]))["customization"]
+          default = next((k["name"] for k in json.load(open(sys.argv[2])).get("kernel") or [] if k.get("default")), "")
+          print(sc.get("kernel", "") if sc.get("kernel", "") not in ("", default) else "")' build/schematic/schematic.json "$IN/schematic-catalog.json")"
+          if [ -n "$track" ] && ! curl -fsSLI -o /dev/null "$base/kernel-$track-$ARCH"; then
+            echo "::error::$VERSION doesn't publish the $track kernel track's kernel (kernel-$track-$ARCH): build this schematic from a newer release"
+            exit 1
+          fi
           # What the image is built from: the release checked out above
           # says (its extpack inputs - the HAProxy layer of the schematic's
           # branch included); a release from before HAProxy branches has

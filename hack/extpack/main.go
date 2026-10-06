@@ -353,8 +353,10 @@ type inputSet struct {
 }
 
 // releaseInputs is what an image of sc for arch is built from, by the
-// names a release publishes them under. A catalog from before variants
-// has no HAProxy layer: its base tree carries HAProxy.
+// names a release publishes them under: the kernel of its track
+// (kernel-<track>-<arch>), the HAProxy layer of its branch. A catalog
+// from before variants has one kernel-<arch> and no HAProxy layer: its
+// base tree carries HAProxy.
 func releaseInputs(sc *schematic.Schematic, c *schematic.Catalog, arch string) inputSet {
 	r, err := c.Resolve(sc, arch)
 	if err != nil {
@@ -363,6 +365,9 @@ func releaseInputs(sc *schematic.Schematic, c *schematic.Catalog, arch string) i
 	in := inputSet{base: "rootfs-base-" + arch + ".tar", kernel: "kernel-" + arch}
 	if r.HAProxy.Name != "" {
 		in.haproxy = "haproxy-" + r.HAProxy.Name + "-" + arch + ".tar"
+	}
+	if r.Kernel.Name != "" {
+		in.kernel = "kernel-" + r.Kernel.Name + "-" + arch
 	}
 	for _, name := range sc.Extensions() {
 		in.extensions = append(in.extensions, "extension-"+name+"-"+arch+".tar")
