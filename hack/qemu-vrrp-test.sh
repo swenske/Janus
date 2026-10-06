@@ -136,6 +136,15 @@ done
 
 state() { ctl "$1" network vrrp status 2>/dev/null | awk '$1 == "VI_1" {print $2}'; }
 has_vip() { ctl "$1" network status 2>/dev/null | grep -q "192.168.77.100/24"; }
+# keepalived reports MASTER a moment before the address is up: a node
+# that just took over gets a few seconds to show it.
+got_vip() {
+  local deadline=$((SECONDS + 10))
+  until has_vip "$1"; do
+    [ "$SECONDS" -lt "$deadline" ] || return 1
+    sleep 1
+  done
+}
 wait_state() { # wait_state NODE STATE
   local deadline=$((SECONDS + 30))
   until [ "$(state "$1")" = "$2" ]; do
@@ -145,7 +154,7 @@ wait_state() { # wait_state NODE STATE
 }
 wait_state a MASTER
 wait_state b BACKUP
-has_vip a || fail "A is MASTER without the virtual IP"
+got_vip a || fail "A is MASTER without the virtual IP"
 if has_vip b; then fail "B holds the virtual IP while backup"; fi
 echo "  ok: A is master with the virtual IP, B is backup"
 
@@ -153,7 +162,7 @@ echo "  ok: A is master with the virtual IP, B is backup"
 ctl a system service stop haproxy >/dev/null || fail "stopping HAProxy on A"
 wait_state a FAULT
 wait_state b MASTER
-has_vip b || fail "B is MASTER without the virtual IP"
+got_vip b || fail "B is MASTER without the virtual IP"
 echo "  ok: A's HAProxy down - A in FAULT, B took the virtual IP"
 ctl a system service start haproxy >/dev/null || fail "starting HAProxy on A"
 wait_state a MASTER
@@ -168,7 +177,7 @@ echo "  ok: the exporter reports the instance"
 kill "${PID[a]}"
 unset 'PID[a]'
 wait_state b MASTER
-has_vip b || fail "B is MASTER without the virtual IP after A went away"
+got_vip b || fail "B is MASTER without the virtual IP after A went away"
 echo "  ok: A gone - B took the virtual IP"
 
 # Removing the configuration stops keepalived.
