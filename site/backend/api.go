@@ -171,9 +171,13 @@ func (a *app) handleExtensions(w http.ResponseWriter, r *http.Request) {
 type schematicView struct {
 	ID         string   `json:"id"`
 	Extensions []string `json:"extensions"`
-	YAML       string   `json:"yaml"`
-	JSON       string   `json:"json"`
-	Default    bool     `json:"default"`
+	// HAProxy and Kernel are the branch and track the schematic picks, ""
+	// for each release's default.
+	HAProxy string `json:"haproxy"`
+	Kernel  string `json:"kernel"`
+	YAML    string `json:"yaml"`
+	JSON    string `json:"json"`
+	Default bool   `json:"default"`
 }
 
 func viewOf(sc *schematic.Schematic) schematicView {
@@ -181,11 +185,12 @@ func viewOf(sc *schematic.Schematic) schematicView {
 	if exts == nil {
 		exts = []string{}
 	}
-	return schematicView{ID: sc.ID(), Extensions: exts, YAML: sc.YAML(), JSON: string(sc.Canonical()), Default: sc.ID() == schematic.DefaultID()}
+	return schematicView{ID: sc.ID(), Extensions: exts, HAProxy: sc.HAProxyBranch(), Kernel: sc.KernelTrack(),
+		YAML: sc.YAML(), JSON: string(sc.Canonical()), Default: sc.ID() == schematic.DefaultID()}
 }
 
-// handlePostSchematic stores a schematic whose extensions some release
-// offers, and returns its ID.
+// handlePostSchematic stores a schematic whose extensions, HAProxy branch
+// and kernel track some release offers, and returns its ID.
 func (a *app) handlePostSchematic(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(io.LimitReader(r.Body, 16<<10))
 	if err != nil {
@@ -197,7 +202,7 @@ func (a *app) handlePostSchematic(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.checkKnownExtensions(r.Context(), sc); err != nil {
+	if err := a.checkKnown(r.Context(), sc); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -208,11 +213,12 @@ func (a *app) handlePostSchematic(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, viewOf(sc))
 }
 
-// checkKnownExtensions refuses a schematic naming an extension no
-// release offers - stored schematics stay meaningful.
-func (a *app) checkKnownExtensions(ctx context.Context, sc *schematic.Schematic) error {
+// checkKnown refuses a schematic naming an extension, a HAProxy branch or
+// a kernel track no release offers - stored schematics stay meaningful.
+// A variant some release retired still counts: older releases build it.
+func (a *app) checkKnown(ctx context.Context, sc *schematic.Schematic) error {
 	exts := sc.Extensions()
-	if len(exts) == 0 {
+	if len(exts) == 0 && sc.HAProxyBranch() == "" && sc.KernelTrack() == "" {
 		return nil
 	}
 	rels, err := a.gh.Releases(ctx)
@@ -220,6 +226,7 @@ func (a *app) checkKnownExtensions(ctx context.Context, sc *schematic.Schematic)
 		return err
 	}
 	known := map[string]bool{}
+	variants := map[string]bool{} // "<component> <name>"
 	for _, rel := range rels {
 		if !rel.Schematics {
 			continue
@@ -231,11 +238,26 @@ func (a *app) checkKnownExtensions(ctx context.Context, sc *schematic.Schematic)
 		for _, e := range c.Extensions {
 			known[e.Name] = true
 		}
+		for _, v := range c.HAProxy {
+			variants[schematic.ComponentHAProxy+" "+v.Name] = true
+		}
+		for _, v := range c.Kernel {
+			variants[schematic.ComponentKernel+" "+v.Name] = true
+		}
+		for _, r := range c.Retired {
+			variants[r.Component+" "+r.Name] = true
+		}
 	}
 	for _, e := range exts {
 		if !known[e] {
 			return fmt.Errorf("no release offers the extension %q", e)
 		}
+	}
+	if b := sc.HAProxyBranch(); b != "" && !variants[schematic.ComponentHAProxy+" "+b] {
+		return fmt.Errorf("no release offers HAProxy %s", b)
+	}
+	if t := sc.KernelTrack(); t != "" && !variants[schematic.ComponentKernel+" "+t] {
+		return fmt.Errorf("no release offers the kernel track %q", t)
 	}
 	return nil
 }

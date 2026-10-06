@@ -1,8 +1,9 @@
 // Package schematic is the image schematic: what goes into a Janus image
-// beyond the base system - today, the optional extensions it carries.
-// Modeled on Talos Image Factory's schematics: the schematic says what the
-// image contains, while the version, platform, architecture and format
-// are chosen separately, at download time.
+// beyond the base system - the optional extensions it carries, and the
+// HAProxy branch and kernel track it is built with. Modeled on Talos Image
+// Factory's schematics: the schematic says what the image contains, while
+// the version, platform, architecture and format are chosen separately,
+// at download time.
 //
 // A schematic is identified by the sha256 of its canonical JSON form, so
 // the same choices always give the same ID. The ID is written into the
@@ -32,27 +33,50 @@ const CmdlineParam = "janus.schematic"
 const MaxExtensions = 32
 
 // Schematic is the document. It holds choices, never content: an
-// extension is named, and only extensions from the catalog of the
-// version being built can be named.
+// extension, a HAProxy branch or a kernel track is named, and only what
+// the catalog of the version being built offers can be named.
 type Schematic struct {
 	Customization Customization `json:"customization"`
 }
 
+// Customization's fields are in their canonical order: never reorder
+// them, and never add one that isn't omitted when unset - every ID ever
+// issued would change.
 type Customization struct {
 	// Extensions to include, by name ("prometheus-node-exporter"). Order and
 	// duplicates don't matter: Normalize sorts and deduplicates.
 	Extensions []string `json:"extensions,omitempty"`
+	// HAProxy pins the image to a HAProxy LTS branch ("3.2"). Unset: the
+	// release's default, its newest LTS branch - such an image moves to
+	// the next LTS branch with the release that makes it the default.
+	HAProxy string `json:"haproxy,omitempty"`
+	// Kernel picks the kernel track ("stable", "longterm"). Unset: the
+	// release's default track.
+	Kernel string `json:"kernel,omitempty"`
 }
 
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
 
 var idPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+// A HAProxy branch is "major.minor", exactly as HAProxy names its
+// branches - no leading zero, no patch level: a schematic names a branch,
+// the release decides the version.
+var branchPattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$`)
+
+var trackPattern = regexp.MustCompile(`^[a-z]{1,32}$`)
+
 // ValidName reports whether name can name an extension.
 func ValidName(name string) bool { return namePattern.MatchString(name) }
 
 // ValidID reports whether id has the form of a schematic ID.
 func ValidID(id string) bool { return idPattern.MatchString(id) }
+
+// ValidHAProxyBranch reports whether b can name a HAProxy branch.
+func ValidHAProxyBranch(b string) bool { return branchPattern.MatchString(b) }
+
+// ValidKernelTrack reports whether t can name a kernel track.
+func ValidKernelTrack(t string) bool { return trackPattern.MatchString(t) }
 
 // Parse reads a schematic from its JSON form, strictly (unknown fields
 // refused), and normalizes it.
@@ -72,9 +96,17 @@ func Parse(data []byte) (*Schematic, error) {
 	return &s, nil
 }
 
-// Normalize validates the extension names, then sorts and deduplicates
-// them.
+// Normalize validates the schematic, then sorts and deduplicates the
+// extensions. A HAProxy branch or kernel track equal to the default is
+// kept as written: the default changes from release to release, an ID
+// must not.
 func (s *Schematic) Normalize() error {
+	if b := s.Customization.HAProxy; b != "" && !ValidHAProxyBranch(b) {
+		return fmt.Errorf("schematic: %q isn't a HAProxy branch (\"3.2\", say)", b)
+	}
+	if t := s.Customization.Kernel; t != "" && !ValidKernelTrack(t) {
+		return fmt.Errorf("schematic: %q isn't a kernel track (\"stable\", \"longterm\")", t)
+	}
 	exts := make([]string, 0, len(s.Customization.Extensions))
 	for _, name := range s.Customization.Extensions {
 		if !ValidName(name) {
@@ -119,22 +151,46 @@ func (s *Schematic) Extensions() []string {
 	return n.Customization.Extensions
 }
 
+// HAProxyBranch is the HAProxy branch the schematic pins, "" for the
+// release's default.
+func (s *Schematic) HAProxyBranch() string { return s.Customization.HAProxy }
+
+// KernelTrack is the kernel track the schematic picks, "" for the
+// release's default.
+func (s *Schematic) KernelTrack() string { return s.Customization.Kernel }
+
 // YAML renders the schematic for display, in the shape Talos users know.
 func (s *Schematic) YAML() string {
 	exts := s.Extensions()
-	if len(exts) == 0 {
+	c := s.Customization
+	if len(exts) == 0 && c.HAProxy == "" && c.Kernel == "" {
 		return "customization: {}\n"
 	}
 	var b strings.Builder
-	b.WriteString("customization:\n  extensions:\n")
-	for _, e := range exts {
-		b.WriteString("    - " + e + "\n")
+	b.WriteString("customization:\n")
+	if len(exts) > 0 {
+		b.WriteString("  extensions:\n")
+		for _, e := range exts {
+			b.WriteString("    - " + e + "\n")
+		}
+	}
+	if c.HAProxy != "" {
+		// Quoted: YAML would read 3.2 as a number.
+		b.WriteString("  haproxy: \"" + c.HAProxy + "\"\n")
+	}
+	if c.Kernel != "" {
+		b.WriteString("  kernel: " + c.Kernel + "\n")
 	}
 	return b.String()
 }
 
+// Clone returns a copy of s that can be changed on its own.
+func (s *Schematic) Clone() *Schematic { return s.clone() }
+
 func (s *Schematic) clone() *Schematic {
-	return &Schematic{Customization: Customization{Extensions: slices.Clone(s.Customization.Extensions)}}
+	c := s.Customization
+	c.Extensions = slices.Clone(c.Extensions)
+	return &Schematic{Customization: c}
 }
 
 // Default is the schematic of the official releases: no extension.

@@ -1,6 +1,7 @@
 package schematic
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -146,5 +147,143 @@ func TestCatalogMigrate(t *testing.T) {
 
 	if _, err := ParseCatalog([]byte(`{"version":"v2","extensions":[{"name":"a","replaces":["Not Valid"]}]}`)); err == nil {
 		t.Fatal("an invalid former name was accepted")
+	}
+}
+
+func TestVariantIDs(t *testing.T) {
+	// Pinned like the default ID: the canonical form puts the fields in
+	// Customization's order and leaves out what isn't set.
+	for doc, want := range map[string]string{
+		`{"customization":{"haproxy":"3.2"}}`:                                                       "a61a31f5721c12f561a397efd26a2e4b481c4ccc3506c17d54d868b070767dc1",
+		`{"customization":{"kernel":"longterm"}}`:                                                   "b38088e282bf172ceeb50fb1e7e9f8dd5342a5741a335917da2c9ad87e465541",
+		`{"customization":{"kernel":"longterm","haproxy":"3.0","extensions":["qemu-guest-agent"]}}`: "5cafac9ce1190f1c2ebb845d7d6d13007f056a9ddf135a5d57bab4211a0b9f37",
+	} {
+		s, err := Parse([]byte(doc))
+		if err != nil {
+			t.Fatalf("%s: %v", doc, err)
+		}
+		if s.ID() != want {
+			t.Errorf("%s: ID %s, canonical %s", doc, s.ID(), s.Canonical())
+		}
+	}
+	s, _ := Parse([]byte(`{"customization":{"kernel":"longterm","haproxy":"3.0","extensions":["qemu-guest-agent"]}}`))
+	if got := string(s.Canonical()); got != `{"customization":{"extensions":["qemu-guest-agent"],"haproxy":"3.0","kernel":"longterm"}}` {
+		t.Errorf("canonical form: %s", got)
+	}
+	// Unset and empty are the same: the release's default.
+	empty, _ := Parse([]byte(`{"customization":{"haproxy":"","kernel":""}}`))
+	if empty.ID() != DefaultID() {
+		t.Error("empty variants aren't the default schematic")
+	}
+	// A variant equal to today's default stays a choice of its own: the
+	// default moves, the ID mustn't.
+	stable, _ := Parse([]byte(`{"customization":{"kernel":"stable"}}`))
+	if stable.ID() == DefaultID() {
+		t.Error("an explicit kernel track was dropped")
+	}
+}
+
+func TestParseRefusesVariants(t *testing.T) {
+	for _, doc := range []string{
+		`{"customization":{"haproxy":"3.2.1"}}`,
+		`{"customization":{"haproxy":"3"}}`,
+		`{"customization":{"haproxy":"03.2"}}`,
+		`{"customization":{"haproxy":"latest"}}`,
+		`{"customization":{"haproxy":3.2}}`,
+		`{"customization":{"kernel":"Stable"}}`,
+		`{"customization":{"kernel":"6.18"}}`,
+		`{"customization":{"kernel":"long-term"}}`,
+	} {
+		if _, err := Parse([]byte(doc)); err == nil {
+			t.Errorf("%s: accepted", doc)
+		}
+	}
+}
+
+func TestVariantYAML(t *testing.T) {
+	s, _ := Parse([]byte(`{"customization":{"extensions":["qemu-guest-agent"],"haproxy":"3.0","kernel":"longterm"}}`))
+	want := "customization:\n  extensions:\n    - qemu-guest-agent\n  haproxy: \"3.0\"\n  kernel: longterm\n"
+	if s.YAML() != want {
+		t.Errorf("YAML:\n%s", s.YAML())
+	}
+	k, _ := Parse([]byte(`{"customization":{"kernel":"longterm"}}`))
+	if k.YAML() != "customization:\n  kernel: longterm\n" {
+		t.Errorf("YAML:\n%s", k.YAML())
+	}
+}
+
+const variantCatalog = `{"version":"v2","extensions":[
+	{"name":"qemu-guest-agent","arches":["amd64"]},
+	{"name":"prometheus-node-exporter","arches":["amd64","arm64"],"replaces":["node-exporter"]}],
+	"haproxy":[
+		{"name":"3.4","version":"3.4.6","default":true,"eol":"2031-04-01","arches":["amd64","arm64"]},
+		{"name":"3.2","version":"3.2.25","eol":"2030-04-01","arches":["amd64"]}],
+	"kernel":[
+		{"name":"stable","version":"7.2.9","default":true,"arches":["amd64","arm64"]},
+		{"name":"longterm","version":"6.18.55","arches":["amd64"]}],
+	"retired":[{"component":"haproxy","name":"3.0","last_release":"v1"}]}`
+
+func TestCatalogResolve(t *testing.T) {
+	c, err := ParseCatalog([]byte(variantCatalog))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.Resolve(Default(), "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.HAProxy.Version != "3.4.6" || r.Kernel.Version != "7.2.9" {
+		t.Errorf("default: %+v", r)
+	}
+	pinned, _ := Parse([]byte(`{"customization":{"haproxy":"3.2","kernel":"longterm"}}`))
+	r, err = c.Resolve(pinned, "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.HAProxy.Name != "3.2" || r.Kernel.Name != "longterm" {
+		t.Errorf("pinned: %+v", r)
+	}
+	if err := c.Check(pinned, "arm64"); err == nil {
+		t.Error("an amd64-only variant accepted on arm64")
+	}
+	unknown, _ := Parse([]byte(`{"customization":{"haproxy":"2.6"}}`))
+	if err := c.Check(unknown, "amd64"); err == nil || !strings.Contains(err.Error(), "only 3.4, 3.2") {
+		t.Errorf("unknown branch: %v", err)
+	}
+	retired, _ := Parse([]byte(`{"customization":{"haproxy":"3.0"}}`))
+	var re *RetiredError
+	if err := c.Check(retired, "amd64"); !errors.As(err, &re) || re.LastRelease != "v1" {
+		t.Errorf("retired branch: %v", err)
+	}
+
+	// A catalog from before variants: only the default image, which a
+	// schematic can't name.
+	old, _ := ParseCatalog([]byte(`{"version":"v1","extensions":[{"name":"qemu-guest-agent","arches":["amd64"]}]}`))
+	if r, err := old.Resolve(Default(), "amd64"); err != nil || r.HAProxy.Name != "" {
+		t.Errorf("old catalog, default: %+v %v", r, err)
+	}
+	if err := old.Check(pinned, "amd64"); err == nil {
+		t.Error("an old catalog accepted a HAProxy branch")
+	}
+
+	// Migrate renames extensions and never moves a variant.
+	m, renamed := c.Migrate(&Schematic{Customization: Customization{Extensions: []string{"node-exporter"}, HAProxy: "3.2"}})
+	if renamed["node-exporter"] != "prometheus-node-exporter" || m.HAProxyBranch() != "3.2" {
+		t.Errorf("migrated: %s %v", m.Canonical(), renamed)
+	}
+}
+
+func TestParseCatalogRefusesVariants(t *testing.T) {
+	for name, doc := range map[string]string{
+		"no default":       `{"version":"v","haproxy":[{"name":"3.4","arches":["amd64"]}]}`,
+		"two defaults":     `{"version":"v","kernel":[{"name":"stable","default":true},{"name":"longterm","default":true}]}`,
+		"bad branch":       `{"version":"v","haproxy":[{"name":"3.4.6","default":true}]}`,
+		"listed twice":     `{"version":"v","haproxy":[{"name":"3.4","default":true},{"name":"3.4"}]}`,
+		"retired unknown":  `{"version":"v","retired":[{"component":"openssl","name":"3.5","last_release":"v1"}]}`,
+		"retired bad name": `{"version":"v","retired":[{"component":"haproxy","name":"x","last_release":"v1"}]}`,
+	} {
+		if _, err := ParseCatalog([]byte(doc)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

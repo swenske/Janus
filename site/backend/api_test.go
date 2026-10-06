@@ -355,3 +355,39 @@ func TestPrebuildMigratesRenamedExtensions(t *testing.T) {
 		t.Fatalf("dispatches = %v", gh.dispatches)
 	}
 }
+
+// variantCatalog is v2026.10.02 offering HAProxy branches and kernel
+// tracks.
+const variantCatalog = `{"version":"v2026.10.02","extensions":[
+	{"name":"qemu-guest-agent","version":"11.1.2","description":"agent","arches":["amd64"]}],
+	"haproxy":[{"name":"3.4","version":"3.4.6","default":true,"arches":["amd64","arm64"]},{"name":"3.2","version":"3.2.25","arches":["amd64"]}],
+	"kernel":[{"name":"stable","version":"7.2.9","default":true,"arches":["amd64","arm64"]},{"name":"longterm","version":"6.18.55","arches":["amd64"]}],
+	"retired":[{"component":"haproxy","name":"3.0","last_release":"v2026.10.01"}]}`
+
+func TestSchematicVariants(t *testing.T) {
+	_, _, srv := newTestApp(t)
+	var e map[string]string
+	// No release offers a choice yet.
+	if code := call(t, "POST", srv.URL+"/api/v1/schematics", `{"customization":{"haproxy":"3.2"}}`, &e); code != 400 {
+		t.Errorf("a branch no release offers: %d %v", code, e)
+	}
+
+	_, gh, srv := newTestApp(t) // catalogs are cached per release
+	gh.catalog = variantCatalog
+	var v schematicView
+	if code := call(t, "POST", srv.URL+"/api/v1/schematics", `{"customization":{"haproxy":"3.2","kernel":"longterm"}}`, &v); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if v.HAProxy != "3.2" || v.Kernel != "longterm" || v.Default || !strings.Contains(v.YAML, `haproxy: "3.2"`) {
+		t.Errorf("view %+v", v)
+	}
+	// A retired branch: older releases still build it.
+	if code := call(t, "POST", srv.URL+"/api/v1/schematics", `{"customization":{"haproxy":"3.0"}}`, &v); code != 201 {
+		t.Errorf("a retired branch: %d", code)
+	}
+	for _, doc := range []string{`{"customization":{"haproxy":"2.8"}}`, `{"customization":{"kernel":"mainline"}}`} {
+		if code := call(t, "POST", srv.URL+"/api/v1/schematics", doc, &e); code != 400 {
+			t.Errorf("%s: %d %v", doc, code, e)
+		}
+	}
+}
