@@ -11,7 +11,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-screenshots docs-screenshots-check qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build init initramfs qemu-boot-test haproxy-build \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -793,6 +793,19 @@ browser-image:
 # site instead.
 docs-smoke: browser-image
 	./hack/docs-smoke.sh $(BROWSER_IMAGE) $(DOCS_SMOKE_URL)
+
+# The Controller's screenshots in the docs and on the landing page
+# (docs/assets/screenshots), taken by Playwright against a real
+# Controller and three real nodes (janus-local-dev) on a private Docker
+# network - hack/docs-screenshots.sh, what to shoot in
+# hack/browser/shots.yaml. Rewritten only when they changed;
+# docs-screenshots-check writes nothing and fails when one drifted
+# (build/screenshots-drift/: the new image and where it changed).
+docs-screenshots: browser-image local-dev-image
+	./hack/docs-screenshots.sh write $(BROWSER_IMAGE)
+
+docs-screenshots-check: browser-image local-dev-image
+	./hack/docs-screenshots.sh check $(BROWSER_IMAGE)
 
 # Dashboard prep, tranche 2: proves the dashboard backend's whole
 # add-node/list/per-node-mTLS-relay/delete/restart-persistence flow

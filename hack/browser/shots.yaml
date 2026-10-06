@@ -1,0 +1,66 @@
+# The Controller's screenshots in the docs and on the landing page (make
+# docs-screenshots, hack/docs-screenshots.sh). Each shot is
+# docs/assets/screenshots/<id>-light.webp and <id>-dark.webp, taken in a
+# real Controller with three real nodes - edge-par-1 to 3, labelled, in
+# a fleet, running examples/haproxy/web.cfg.
+#
+#   id       the files' name
+#   page     a route of the Controller's page ("#/accounts"), or of a
+#            node's page with node:
+#   node     the node whose page it is
+#   wait     a text the page shows once it has loaded
+#   samples  metrics samples the charts get first, 5 s of the page's
+#            clock apart
+#   crop     a selector: the shot is that element, not the window
+#   ignore   selectors left out of the comparison with the committed
+#            image - what still changes from one run to the next
+#   size     the window, when not `size` below
+#
+# A page the docs show that changes should be shot again in the same
+# commit: make docs-screenshots.
+
+# The pages' clock: every time the Controller sends is moved to match.
+clock: 2026-10-06T09:41:00Z
+size: { width: 1280, height: 800 }
+# What a container shares with its host is shown as this small VM's.
+node:
+  cpus: 4
+  cpu_model: Intel Xeon Processor (Icelake)
+  cpu_mhz: 2593.906
+  memory_bytes: 4294967296
+  uptime_seconds: 1052220
+  load: [0.21, 0.17, 0.11]
+
+shots:
+  - id: controller-nodes
+    page: '#/'
+    wait: edge-par-3
+
+  - id: controller-accounts
+    page: '#/accounts'
+    wait: web-dev
+
+  - id: controller-tokens
+    page: '#/tokens'
+    wait: terraform
+
+  - id: node-overview
+    node: edge-par-1
+    page: '#/'
+    wait: Recent events
+    samples: 36
+
+  - id: node-haproxy-config
+    node: edge-par-1
+    page: '#/haproxy/config'
+    wait: frontend web
+
+  - id: node-haproxy-backends
+    node: edge-par-1
+    page: '#/haproxy/backends'
+    wait: app2
+
+  - id: node-update
+    node: edge-par-1
+    page: '#/system/update'
+    wait: v2026.10.06

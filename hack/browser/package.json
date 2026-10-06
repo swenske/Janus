@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "playwright": "1.63.0"
+    "playwright": "1.63.0",
+    "yaml": "^2.9.1"
   }
 }
