@@ -45,6 +45,7 @@ topics:
               - { file: docs/haproxy-config.md, label: Your haproxy.cfg }
               - { file: docs/haproxy-files.md, label: "Files, maps and certificates" }
               - { file: docs/letsencrypt.md, label: Let's Encrypt }
+              - { file: docs/guide/kernel-tuning.md, label: Kernel tuning }
           - label: Network
             pages:
               - { file: docs/network-configuration.md, label: Network configuration }

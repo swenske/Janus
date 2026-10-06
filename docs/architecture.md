@@ -256,8 +256,15 @@ call `HAProxyService.ShowInfo` but gets `PermissionDenied` calling
   they need (Phase 4) - not a stock distro policy.
 - Kernel hardening: `lockdown=confidentiality`, no loadable kernel modules
   at runtime in production builds (or a tightly restricted allow-list if
-  a specific driver genuinely needs to load late), hardened sysctls baked
-  into the image rather than left to runtime configuration.
+  a specific driver genuinely needs to load late), and the kernel
+  parameters of the CIS benchmark's controls (CIS Debian Linux 13
+  Benchmark v1.0.0, Level 2 - Server, sections 1.5 and 3.3) written by
+  init at every boot - also on every network interface, where the kernel
+  reads its own value - and audited. Only a whitelist of the parameters
+  HAProxy depends on can change at runtime (`internal/sysctl`, within
+  bounds, on trial - see [kernel tuning](guide/kernel-tuning.md)): never
+  one of the benchmark's, which SELinux keeps out of janusd's reach too
+  (only the whitelist's files are `sysctl_tunable_t`).
 - No setuid binaries beyond what's strictly required; `janusd` runs as
   the sole privileged process, dropping capabilities it doesn't need.
 

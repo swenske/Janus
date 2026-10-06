@@ -55,11 +55,14 @@ flowchart TB
    extensions. No initramfs.
 3. **init** - a Go program, PID 1 - prepares the system: the SELinux
    policy (before `/etc` is covered), `devtmpfs`, the console mirrored to
-   the serial port and the screen, the hardening sysctls, a file limit
+   the serial port and the screen, the kernel parameters (the CIS
+   benchmark's and HAProxy's defaults - [kernel tuning](../guide/kernel-tuning.md)), a file limit
    for HAProxy, memory filesystems over `/run`, `/tmp` and `/etc` (with
    HAProxy's bootstrap configuration and the CA bundle carried over),
    STATE on `/etc/.state` with its directories bind-mounted where the
-   system expects them, the installer's bundle on the ISO, a NoCloud
+   system expects them - then the kernel parameters an operator saved
+   there, and the CIS benchmark's values once more -, the installer's
+   bundle on the ISO, a NoCloud
    volume read into STATE, and a pending update's boot tries counted.
    Every optional step is non-fatal: a node with a broken extra still
    boots to its API.

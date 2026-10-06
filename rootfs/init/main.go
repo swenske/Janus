@@ -26,7 +26,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"syscall"
 	"time"
 
@@ -37,6 +36,7 @@ import (
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/nocloud"
 	"github.com/swenske/Janus/internal/pki"
+	"github.com/swenske/Janus/internal/sysctl"
 )
 
 const daemonPath = "/sbin/janusd"
@@ -486,91 +486,41 @@ func bindMount(src, dst string) {
 	}
 }
 
-// hardenSysctls applies the runtime half of Phase 4's kernel hardening
-// pass - the half that can't be baked into kernel/configs/
-// janus_<track>_defconfig at build time (a tunable *value*, not a feature
-// being compiled in or out at all) and has to be written to /proc/sys
-// at boot instead, since there's no sysctl(8)/procps binary, and no
-// /etc/sysctl.d for one to read anyway, on this rootfs. Runs right
-// after mount("proc", ...) - nothing else here needs anything more than
-// that.
+// hardenSysctls writes the node's kernel parameters at boot
+// (internal/sysctl): the CIS benchmark's values (its kernel-parameter
+// controls - docs/guide/kernel-tuning.md), Janus's own, and the
+// defaults of the parameters HAProxy depends on - the half of the
+// kernel's hardening that is a value written to /proc/sys, not a
+// feature compiled in or out (kernel/configs/janus_<track>_defconfig).
+// There's no sysctl(8) and no /etc/sysctl.d on this rootfs. Runs right
+// after mount("proc", ...).
 //
-// Each entry is independent and non-fatal on its own: a kernel built
-// without some feature (CONFIG_SECURITY_YAMA, say) simply won't have
-// the matching /proc/sys node at all, and that one write logs and moves
-// on rather than aborting the boot - the same tolerant pattern mount()
-// itself already uses for a missing STATE drive. Logged either way
-// (success or failure) specifically so a real boot's console output is
-// enough to verify every value actually took effect, not just that
-// this function ran without panicking.
+// Each write is independent and non-fatal: a kernel without some feature
+// has no file for it, and that one write logs and moves on. Logged
+// either way ("init: sysctl <path>=<value>", with the error when it
+// failed), so a real boot's console shows every value took effect -
+// hack/qemu-hardening-test.sh reads these lines.
 func hardenSysctls() {
-	sysctls := map[string]string{
-		// Kernel self-protection: hide the ring buffer and kernel
-		// pointers from anything without CAP_SYSLOG/CAP_SYSLOG-adjacent
-		// privilege - defense in depth against a compromised janusd
-		// or haproxy (uid 1000, no such capability) trying to defeat
-		// KASLR via an info leak.
-		"/proc/sys/kernel/dmesg_restrict": "1",
-		"/proc/sys/kernel/kptr_restrict":  "2",
-		// Yama (kernel/configs/janus_<track>_defconfig's own CONFIG_SECURITY_YAMA):
-		// 2 ("admin-only") means only a process with CAP_SYS_PTRACE can
-		// ptrace another - janusd (root) still can, but the
-		// unprivileged haproxy worker (chroot + uid 1000, no such
-		// capability) can no longer ptrace anything at all, including
-		// itself/siblings.
-		"/proc/sys/kernel/yama/ptrace_scope": "2",
-		// Anti-spoofing / anti-redirect network hardening - meaningful
-		// for a network-facing reverse proxy specifically, not just a
-		// generic checklist item: reject packets whose reverse path
-		// doesn't match the interface they arrived on, never honor ICMP
-		// redirects (a classic MITM vector) or source-routed packets,
-		// and never originate ICMP redirects either.
-		"/proc/sys/net/ipv4/conf/all/rp_filter":                "1",
-		"/proc/sys/net/ipv4/conf/default/rp_filter":            "1",
-		"/proc/sys/net/ipv4/conf/all/accept_redirects":         "0",
-		"/proc/sys/net/ipv4/conf/default/accept_redirects":     "0",
-		"/proc/sys/net/ipv4/conf/all/send_redirects":           "0",
-		"/proc/sys/net/ipv4/conf/default/send_redirects":       "0",
-		"/proc/sys/net/ipv4/conf/all/accept_source_route":      "0",
-		"/proc/sys/net/ipv4/conf/default/accept_source_route":  "0",
-		"/proc/sys/net/ipv4/icmp_echo_ignore_broadcasts":       "1",
-		"/proc/sys/net/ipv4/icmp_ignore_bogus_error_responses": "1",
-		// SYN flood protection - not a generic checklist item here
-		// either: this node's entire purpose is accepting inbound
-		// connections from the internet as a reverse proxy/load
-		// balancer, exactly the exposure tcp_syncookies protects.
-		"/proc/sys/net/ipv4/tcp_syncookies": "1",
-		// Not hardening, but a network sysctl every node needs: when an
-		// interface's primary IPv4 address is removed (janusd moving it
-		// to another one in the same subnet), promote a secondary rather
-		// than delete them all with it - the kernel's default, which a
-		// real reconfiguration hit (internal/netmgr).
-		"/proc/sys/net/ipv4/conf/all/promote_secondaries":     "1",
-		"/proc/sys/net/ipv4/conf/default/promote_secondaries": "1",
-		// VFS-level protections against following an attacker-created
-		// hardlink/symlink in a world-writable sticky directory - no
-		// such directory actually exists on this rootfs today, but this
-		// is cheap, harmless, and forward-looking (STATE, /tmp).
-		"/proc/sys/fs/protected_hardlinks": "1",
-		"/proc/sys/fs/protected_symlinks":  "1",
-	}
+	sysctl.ApplyBaseline(initLogf)
+}
 
-	// Sorted, not map iteration order, so console output (and this
-	// function's own tests) are deterministic.
-	paths := make([]string, 0, len(sysctls))
-	for p := range sysctls {
-		paths = append(paths, p)
+// tuneSysctls runs once STATE is mounted, before janusd - so HAProxy
+// opens its listeners with these values: it records the kernel's own
+// values of the parameters whose default depends on the machine, applies
+// the ones an operator confirmed (STATE's config/sysctl.d, each line
+// checked against the same whitelist and bounds as the API), then
+// writes the CIS benchmark's values once more and audits them. The last
+// word goes to the benchmark.
+func tuneSysctls() {
+	if err := sysctl.CaptureBootDefaults(); err != nil {
+		fmt.Printf("init: sysctl: record the kernel's own values: %v\n", err)
 	}
-	sort.Strings(paths)
+	sysctl.ApplySaved(initLogf)
+	sysctl.EnforceCIS(initLogf)
+}
 
-	for _, path := range paths {
-		value := sysctls[path]
-		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
-			fmt.Printf("init: sysctl %s=%s: %v\n", path, value, err)
-			continue
-		}
-		fmt.Printf("init: sysctl %s=%s\n", path, value)
-	}
+func initLogf(format string, args ...any) {
+	fmt.Printf("init: "+format+"\n", args...)
 }
 
 // fileLimit is the open-file limit janusd and what it starts may raise
@@ -651,6 +601,7 @@ func main() {
 	// /etc/resolv.conf, like the rest of the network, is janusd's
 	// (internal/netmgr): the kernel's boot DHCP resolvers by default.
 	mountState()
+	tuneSysctls()
 	mountReleaseBundle()
 	seedFromNoCloud()
 	pendingMarker := checkBootCommit()

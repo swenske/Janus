@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Proves Phase 4's runtime kernel hardening (rootfs/init/main.go's
-# hardenSysctls) actually applies every sysctl it claims to, on a real
+# Proves the kernel parameters rootfs/init writes at boot (internal/
+# sysctl's Baseline: the CIS benchmark's, Janus's own, HAProxy's
+# defaults) actually take effect - every one of them, on a real
 # boot - not just that the Go code doesn't panic, and not just that the
 # matching kernel/configs/janus_<track>_defconfig options compile in (a
 # real gap this test's own first draft caught: CONFIG_SYN_COOKIES
@@ -24,29 +25,60 @@ INITRD="${2:?usage: $0 <bzImage> <initramfs.cpio.gz>}"
 HOST_PORT="${QEMU_HARDENING_TEST_PORT:-$((18099 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 TIMEOUT_SECS="${QEMU_HARDENING_TEST_TIMEOUT:-30}"
 
-# Every sysctl rootfs/init/main.go's hardenSysctls sets, and the value
-# it's expected to end up with - kept in sync with that function by
-# hand (no way to import Go constants into a shell script), so a real
-# boot's console output is checked against this list line for line.
+# Every key internal/sysctl's Baseline writes at boot, and its value -
+# the CIS benchmark's controls, Janus's own settings, then the defaults
+# of the parameters HAProxy depends on. internal/sysctl's
+# TestHardeningScriptMatchesBaseline keeps this list equal to Baseline(),
+# so a real boot's console output is checked against it line for line.
 declare -A EXPECTED=(
   ["/proc/sys/fs/protected_hardlinks"]="1"
   ["/proc/sys/fs/protected_symlinks"]="1"
+  ["/proc/sys/kernel/yama/ptrace_scope"]="2"
+  ["/proc/sys/fs/suid_dumpable"]="0"
   ["/proc/sys/kernel/dmesg_restrict"]="1"
   ["/proc/sys/kernel/kptr_restrict"]="2"
-  ["/proc/sys/kernel/yama/ptrace_scope"]="2"
-  ["/proc/sys/net/ipv4/conf/all/accept_redirects"]="0"
-  ["/proc/sys/net/ipv4/conf/all/accept_source_route"]="0"
-  ["/proc/sys/net/ipv4/conf/all/rp_filter"]="1"
+  ["/proc/sys/kernel/randomize_va_space"]="2"
+  ["/proc/sys/net/ipv4/ip_forward"]="0"
+  ["/proc/sys/net/ipv4/conf/all/forwarding"]="0"
+  ["/proc/sys/net/ipv4/conf/default/forwarding"]="0"
   ["/proc/sys/net/ipv4/conf/all/send_redirects"]="0"
-  ["/proc/sys/net/ipv4/conf/default/accept_redirects"]="0"
-  ["/proc/sys/net/ipv4/conf/default/accept_source_route"]="0"
-  ["/proc/sys/net/ipv4/conf/default/rp_filter"]="1"
   ["/proc/sys/net/ipv4/conf/default/send_redirects"]="0"
-  ["/proc/sys/net/ipv4/icmp_echo_ignore_broadcasts"]="1"
   ["/proc/sys/net/ipv4/icmp_ignore_bogus_error_responses"]="1"
+  ["/proc/sys/net/ipv4/icmp_echo_ignore_broadcasts"]="1"
+  ["/proc/sys/net/ipv4/conf/all/accept_redirects"]="0"
+  ["/proc/sys/net/ipv4/conf/default/accept_redirects"]="0"
+  ["/proc/sys/net/ipv4/conf/all/secure_redirects"]="0"
+  ["/proc/sys/net/ipv4/conf/default/secure_redirects"]="0"
+  ["/proc/sys/net/ipv4/conf/all/rp_filter"]="1"
+  ["/proc/sys/net/ipv4/conf/default/rp_filter"]="1"
+  ["/proc/sys/net/ipv4/conf/all/accept_source_route"]="0"
+  ["/proc/sys/net/ipv4/conf/default/accept_source_route"]="0"
+  ["/proc/sys/net/ipv4/conf/all/log_martians"]="1"
+  ["/proc/sys/net/ipv4/conf/default/log_martians"]="1"
   ["/proc/sys/net/ipv4/tcp_syncookies"]="1"
+  ["/proc/sys/net/ipv6/conf/all/forwarding"]="0"
+  ["/proc/sys/net/ipv6/conf/default/forwarding"]="0"
+  ["/proc/sys/net/ipv6/conf/all/accept_redirects"]="0"
+  ["/proc/sys/net/ipv6/conf/default/accept_redirects"]="0"
+  ["/proc/sys/net/ipv6/conf/all/accept_source_route"]="0"
+  ["/proc/sys/net/ipv6/conf/default/accept_source_route"]="0"
+  ["/proc/sys/net/ipv6/conf/all/accept_ra"]="0"
+  ["/proc/sys/net/ipv6/conf/default/accept_ra"]="0"
   ["/proc/sys/net/ipv4/conf/all/promote_secondaries"]="1"
   ["/proc/sys/net/ipv4/conf/default/promote_secondaries"]="1"
+  ["/proc/sys/net/core/somaxconn"]="60000"
+  ["/proc/sys/net/ipv4/ip_local_port_range"]="10240 65023"
+  ["/proc/sys/net/ipv4/ip_local_reserved_ports"]=""
+  ["/proc/sys/net/ipv4/tcp_tw_reuse"]="1"
+  ["/proc/sys/net/ipv4/tcp_fin_timeout"]="30"
+  ["/proc/sys/net/ipv4/tcp_synack_retries"]="3"
+  ["/proc/sys/net/ipv4/ip_nonlocal_bind"]="1"
+  ["/proc/sys/net/ipv6/ip_nonlocal_bind"]="1"
+  ["/proc/sys/net/core/netdev_max_backlog"]="10000"
+  ["/proc/sys/net/ipv4/tcp_keepalive_time"]="7200"
+  ["/proc/sys/net/ipv4/tcp_keepalive_intvl"]="75"
+  ["/proc/sys/net/ipv4/tcp_keepalive_probes"]="9"
+  ["/proc/sys/net/ipv4/tcp_fastopen"]="1"
 )
 
 LOG="$(mktemp)"
@@ -99,7 +131,24 @@ if [ "$fail" -ne 0 ]; then
   echo "--- console output ---" >&2; cat "$LOG" >&2
   exit 1
 fi
-echo "All ${#EXPECTED[@]} hardening sysctls confirmed set to their expected values on a real boot"
+echo "All ${#EXPECTED[@]} baseline sysctls confirmed set to their expected values on a real boot"
+
+# IPv6 doesn't copy all/default onto the interfaces that already exist -
+# eth0 comes up with the kernel's boot DHCP, before init: the CIS keys
+# the kernel reads per interface are written on eth0 itself.
+for leaf in accept_ra accept_redirects; do
+  if ! grep -qF "init: sysctl /proc/sys/net/ipv6/conf/eth0/${leaf}=0" "$LOG"; then
+    echo "Hardening test FAILED: eth0's IPv6 ${leaf} wasn't set to 0" >&2
+    exit 1
+  fi
+done
+# And the audit after the saved values: every control compliant.
+if ! grep -qE "^init: sysctl: CIS .*: 33/33 controls compliant" <(tr -d '\r' < "$LOG"); then
+  echo "Hardening test FAILED: no compliant CIS audit on the console:" >&2
+  grep -a "init: sysctl: " "$LOG" >&2
+  exit 1
+fi
+echo "CIS benchmark: 33/33 controls compliant, eth0's own IPv6 values included"
 
 # The one failure mode this test exists specifically to catch: a
 # sysctl write that *failed* (a missing /proc/sys node - e.g. the real

@@ -63,6 +63,10 @@ vrrp_instance VI_1 {
   rolling update therefore needs no manual step to keep the service up.
 - The interface needs an address of its own on the VRRP network - set it
   with the [network configuration](network-configuration.md).
+- HAProxy may bind the virtual IP itself (`bind 192.0.2.100:443`) on
+  every node, the one holding it or not: `net.ipv4.ip_nonlocal_bind` and
+  its IPv6 twin are on by default, as HAProxy advises
+  ([kernel tuning](guide/kernel-tuning.md)).
 - With the [firewall](firewall.md), accept VRRP: `ip protocol 112 accept`
   (by number: nft can't name it here).
 - keepalived is built for VRRP only: no LVS/IPVS, no iptables or nftables

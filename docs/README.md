@@ -34,6 +34,7 @@ Install, configure and operate Janus nodes and the Controller.
 - [Your haproxy.cfg](haproxy-config.md)
 - [Files, maps and certificates](haproxy-files.md)
 - [Let's Encrypt](letsencrypt.md)
+- [Kernel tuning](guide/kernel-tuning.md)
 
 ### Network
 

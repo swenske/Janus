@@ -63,8 +63,12 @@ in this exact format.
 
 Once `interfaces` lists anything, it is the whole picture: physical
 interfaces not listed are brought down (unless they carry a listed VLAN),
-and VLANs not listed are deleted. IPv6 link-local and router-advertised
-(SLAAC) addresses are left to the kernel.
+and VLANs not listed are deleted. IPv6 link-local addresses are left to
+the kernel; IPv6 is otherwise static: a node accepts no router
+advertisement (the CIS benchmark's 3.3.2.7 - see
+[kernel tuning](guide/kernel-tuning.md#the-cis-benchmark)), so it gets no
+SLAAC address and no route from a router - give its `addresses` and its
+`gateway6`.
 
 ### DHCP is the kernel's, for now
 

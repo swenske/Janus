@@ -29,8 +29,12 @@ vulnerability: [security policy](../../SECURITY.md).
   which parses what the internet sends, in a narrow one - and every rule
   of the policy comes from an observed need, none guessed. A denial is
   counted (`janus_selinux_denials_total`): there should be none.
-- **A hardened kernel**: the KSPP's recommendations, the hardening
-  sysctls set at boot, only the drivers and protocols Janus uses.
+- **A hardened kernel**: the KSPP's recommendations, the CIS
+  benchmark's kernel parameters (CIS Debian Linux 13 v1.0.0, Level 2 -
+  Server) written at every boot and locked - the parameters HAProxy
+  depends on are the only ones that change, within bounds
+  ([kernel tuning](../guide/kernel-tuning.md)) -, only the drivers and
+  protocols Janus uses.
 - **Optional features stay out**: a node without BGP has no BGP daemon
   at all - extensions are chosen per image ([images](images.md)).
 
