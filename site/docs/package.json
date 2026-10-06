@@ -16,7 +16,7 @@
     "@astrojs/starlight": "^0.42.5",
     "astro": "^7.3.5",
     "hast-util-from-html": "^2.0.3",
-    "mermaid": "^11.17.2",
+    "mermaid": "^12.1.0",
     "starlight-image-zoom": "^0.16.0",
     "starlight-sidebar-topics": "^0.9.0",
     "unist-util-visit": "^5.1.0",

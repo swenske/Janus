@@ -14,7 +14,10 @@ if (diagrams.length) {
   const draw = (pre) =>
     (queue = queue.then(async () => {
       mermaid ??= (await import('mermaid')).default
-      mermaid.initialize({ startOnLoad: false, theme: theme() })
+      // Mermaid 12 lays out with ELK and draws in a new look by default:
+      // dagre and the classic look keep the diagrams as they were drawn
+      // (and ELK's 500 KB unloaded).
+      mermaid.initialize({ startOnLoad: false, theme: theme(), layout: 'dagre', look: 'classic' })
       pre.dataset.source ??= pre.textContent
       try {
         const { svg } = await mermaid.render(`diagram-${diagrams.indexOf(pre)}`, pre.dataset.source)
