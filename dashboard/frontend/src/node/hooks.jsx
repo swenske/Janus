@@ -16,8 +16,10 @@ const RefreshContext = createContext({ interval: 5000, setInterval: () => {} })
 
 function storedInterval() {
   try {
-    const v = Number(localStorage.getItem('janus-refresh'))
-    return INTERVALS.some((i) => i.ms === v) ? v : 5000
+    // Nothing stored is null, and Number(null) is 0 - "Off".
+    const stored = localStorage.getItem('janus-refresh')
+    const v = Number(stored)
+    return stored !== null && INTERVALS.some((i) => i.ms === v) ? v : 5000
   } catch {
     return 5000
   }
