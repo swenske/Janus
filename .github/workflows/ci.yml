@@ -120,8 +120,8 @@ jobs:
   # tests (node --test - the console's terminal colors, src/ansi.js). Its
   # built output is committed (make dashboard-frontend-build), so the job
   # rebuilds it and fails when the commit doesn't carry what its sources
-  # build - a Dependabot npm update, say, without the rebuild. The
-  # runner's own Node.
+  # build - a Dependabot npm update, say, without the rebuild. Node from
+  # its .nvmrc: 24, the active LTS, as the docs build.
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -129,6 +129,10 @@ jobs:
         working-directory: dashboard/frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: dashboard/frontend/.nvmrc
 
       - run: npm ci
 
@@ -179,7 +183,8 @@ jobs:
 
   # The site's frontend (site/frontend/): its lint, and its committed build
   # (site/backend/static) checked against its sources - which include the
-  # Controller's shared components (dashboard/frontend/src/shared).
+  # Controller's shared components (dashboard/frontend/src/shared). Node
+  # from its .nvmrc: 24, the active LTS.
   site-frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -187,6 +192,10 @@ jobs:
         working-directory: site/frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: site/frontend/.nvmrc
 
       - run: npm ci
 

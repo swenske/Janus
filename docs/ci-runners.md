@@ -16,8 +16,8 @@ self-hosted runners, labeled `self-hosted, docker, janus`.
   gets published.
 - **Shared setup** is a composite action, `.github/actions/runner-setup`:
   Go (setup-go without its GitHub cache - the runners keep Go's caches on
-  disk), the QEMU and image tools, and Node.js. Tools are installed only
-  when missing, under a lock, since several jobs share a machine.
+  disk), and the QEMU and image tools. Tools are installed only when
+  missing, under a lock, since several jobs share a machine.
 - **KVM**: every x86 test asks for it and falls back to emulation
   (`-accel kvm -accel tcg`). A UEFI boot to HAProxy answering takes about
   4 s with KVM against 13 s emulated. arm64 guests are always emulated.
@@ -28,11 +28,11 @@ self-hosted runners, labeled `self-hosted, docker, janus`.
   `publish` doesn't need it, a drift is a warning and an artifact. Its
   Docker network is a fixed `10.0.10.0/24`, so a host runs one at a
   time (a lock in `/tmp`).
-- **npm in Docker**: the docs site (`site/docs/Dockerfile`) and the
-  browser image (`hack/browser`) install their packages in their own
-  pinned images, not as the runner's user, which holds the publishing
-  keys. The tests that build the Controller with `make dashboard-build`
-  still run its frontend's `npm ci` on the runner.
+- **No Node.js on the runners**: the tests build the Controller from its
+  committed frontend (`make dashboard-bin`, Go only), and the docs site
+  (`site/docs/Dockerfile`) and the browser image (`hack/browser`)
+  install their npm packages in their own pinned images - never as the
+  runner's user, which holds the publishing keys.
 - **What gets published is built only on trusted runners**: `publish`,
   `schematic-build.yml` (images users download, signed) and
   `site-deploy.yml` also need the label `janus-publish`. A runner without

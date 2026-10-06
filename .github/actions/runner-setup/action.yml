@@ -1,8 +1,11 @@
 # Shared setup of every Janus image-build job, on a Janus self-hosted
 # runner (.github/workflows/image-build.yml): Go, the QEMU and image
-# tools, Node.js. Expects the repository checked out.
+# tools. No Node.js: the tests build the Controller from its committed
+# frontend (make dashboard-bin), and what needs Node - the docs, the
+# browser checks - runs it in its own pinned image. Expects the
+# repository checked out.
 name: Janus runner setup
-description: Go, QEMU and the image tools, and Node.js, on a Janus self-hosted runner.
+description: Go, QEMU and the image tools on a Janus self-hosted runner.
 runs:
   using: composite
   steps:
@@ -24,21 +27,3 @@ runs:
           qemu-system-arm crossbuild-essential-arm64 qemu-efi-aarch64 unzip openssh-client"
         dpkg -s $pkgs >/dev/null 2>&1 || sudo flock /var/lock/janus-runner-setup.lock sh -c "
           apt-get update -qq && apt-get install -y -qq $(echo $pkgs)"
-
-    # dashboard/frontend (Vite 8) needs Node >=20.19 - Debian's own
-    # default `nodejs` apt package version isn't reliably that recent,
-    # so NodeSource's own setup script is used instead of a plain
-    # `apt-get install nodejs npm`, the same reasoning every other
-    # tool-version pin in this project follows (verify what's actually
-    # available rather than assume a distro package is recent enough).
-    - name: Install Node.js (dashboard/frontend build)
-      shell: bash
-      run: |
-        if ! node --version 2>/dev/null | grep -Eq '^v(2[0-9]|[3-9][0-9])\.'; then
-          setup=$(mktemp)
-          curl -fsSL https://deb.nodesource.com/setup_20.x -o "$setup"
-          sudo flock /var/lock/janus-runner-setup.lock sh -c "bash $setup && apt-get install -y -qq nodejs"
-          rm -f "$setup"
-        fi
-        node --version
-        npm --version
