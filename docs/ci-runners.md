@@ -43,14 +43,16 @@ emulated.
 
 ## Runner machines
 
-Each machine is an unprivileged LXC container on a Proxmox host and runs
-several runner instances - one job each - named `<machine>`,
-`<machine>-2`, `<machine>-3`...
+`janus-runner01` and `janus-runner02` are unprivileged LXC containers on
+Proxmox hosts; `janus-runner03` is a laptop running Debian 13 itself.
+Each machine runs several runner instances - one job each - named
+`<machine>`, `<machine>-2`, `<machine>-3`...
 
 | Machine | Instances | Labels | Size |
 |---|---|---|---|
 | `janus-runner01` | 5 | `docker`, `janus`, `janus-publish` | 12 cores, 24 GB, 64 GB disk |
 | `janus-runner02` | 2 | `docker`, `janus` - tests only, see below | 8 cores, 12 GB, 64 GB disk |
+| `janus-runner03` | 3 | `docker`, `janus` - tests only, sometimes offline | 8 cores / 16 threads, 32 GB, 3.6 TB disk |
 
 **Instances on a machine never share a port.** Each instance's `.env`
 (next to its `config.sh`) sets `JANUS_TEST_PORT_OFFSET` - 0, 2000, 4000,
@@ -64,6 +66,29 @@ crashing with `fatal error: fault`, a host that ended up hanging), so
 nothing it builds is ever published. Its container was rebuilt from
 scratch after the host's crash. Give it `janus-publish` only once the
 host's memory has passed a memory test.
+
+### A runner that is sometimes offline
+
+`janus-runner03` is switched off now and then. GitHub only gives jobs
+to runners that are online, so the workflows need nothing for it, and
+it never gets `janus-publish`: nothing that publishes waits for it.
+
+- **Before switching it off**, stop its services once it is idle (no
+  `Runner.Worker` process, or "Idle" under Settings → Runners):
+  `sudo systemctl stop 'actions.runner.*'`. Stopping them during a job
+  cancels that job, and a machine that just disappears fails its jobs
+  with "lost communication with the server" after a few minutes - "Re-run
+  failed jobs" then.
+- **After a long absence**, its Docker build cache is cold: the first
+  jobs it takes rebuild the kernel, AWS-LC and HAProxy, and take much
+  longer than usual.
+- **After 14 days offline**, GitHub removes it. Configure each instance
+  again: `sudo ./svc.sh uninstall`, delete `.runner`, `.credentials` and
+  `.credentials_rsaparams`, then the `config.sh` and `svc.sh` steps
+  below.
+- **A test that fails only there** blocks `publish` like any other, and
+  a re-run may land on it again (GitHub doesn't let you pick the
+  runner): stop its services, re-run, then look into it.
 
 ## Setting up a runner machine
 
@@ -111,6 +136,28 @@ Inside the container:
   packages and run some tests as root), in the `docker` and `kvm` groups
   (`root` in `kvm` too);
 - check: `su - actions-runner -c 'python3 -c "import os; os.open(\"/dev/kvm\", os.O_RDWR)"'`.
+
+A physical machine (`janus-runner03`, a laptop) needs no container:
+Debian 13 installed on it - a desktop doesn't hurt - with the CPU's
+virtualization (SVM / VT-x) on in the firmware, so `/dev/kvm` and
+`/dev/net/tun` are simply there. Then:
+
+- apt from `apt.sw-servers.net` (its `debian` mirror for `trixie`,
+  `trixie-updates` and `trixie-security`, its `docker-trixie` mirror for
+  Docker CE), the same user and groups as above;
+- never asleep: the sleep targets masked (`systemctl mask sleep.target
+  suspend.target hibernate.target hybrid-sleep.target
+  suspend-then-hibernate.target` - a desktop's login screen suspends an
+  idle machine otherwise) and a `logind.conf.d` drop-in setting
+  `HandleLidSwitch`, `HandleLidSwitchExternalPower` and
+  `HandleLidSwitchDocked` to `ignore`;
+- its battery always on mains, so charging stops at 60 %
+  (`battery-charge-limit.service` writes
+  `/sys/class/power_supply/BAT0/charge_control_end_threshold` at boot);
+- its NVIDIA GPU unused: no test or build uses a GPU, and the docs'
+  screenshots must render in software to stay identical between
+  runners. With the default `nouveau` driver it stays powered off
+  (`runtime_status` `suspended`).
 
 Then each instance, from the official runner tarball (check its sha256
 against the release) into `/opt/actions-runner`, `/opt/actions-runner-2`...:

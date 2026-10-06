@@ -1,6 +1,6 @@
 # Full Janus image build and tests: kernel, pkgs/*, rootfs, every disk
 # image, and the QEMU tests that boot them - on the self-hosted runners
-# (janus-runner01 on lgspve02, janus-runner02 on lgspve01), kept strictly
+# (which machines: docs/ci-runners.md), kept strictly
 # separate from ci.yml (GitHub-hosted, safe for forks).
 #
 # workflow_dispatch only, on purpose - never triggered by push/pull_request.
