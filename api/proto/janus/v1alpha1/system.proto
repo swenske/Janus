@@ -140,6 +140,206 @@ service SystemService {
   // NodeExporterConfigSet changes node_exporter's settings: it restarts
   // with them, and they're kept.
   rpc NodeExporterConfigSet(NodeExporterConfig) returns (NodeExporterConfigResponse);
+
+  // The node's kernel parameters (docs/guide/kernel-tuning.md): a
+  // whitelist of the ones HAProxy depends on, which an operator may
+  // change - on trial, kept once confirmed, back to Janus's defaults on
+  // request - and the CIS benchmark's, which no call changes. Changes
+  // answer FailedPrecondition unless janusd runs a Janus node.
+
+  // SysctlList reports every parameter the node shows - its value,
+  // Janus's default, the saved one, its bounds, what it does to HAProxy
+  // and its risks -, the CIS benchmark's controls, and what's on trial.
+  rpc SysctlList(google.protobuf.Empty) returns (SysctlListResponse);
+  // SysctlApply checks changes against the whitelist, each parameter's
+  // bounds and the node's state, and applies them on trial: unless
+  // SysctlConfirm comes within the timeout, the values from before the
+  // trial come back by themselves. A trial already running grows by
+  // these changes. With validate_only, it only checks them.
+  rpc SysctlApply(SysctlApplyRequest) returns (SysctlApplyResponse);
+  // SysctlConfirm saves the values on trial, which every boot then
+  // applies. It must come over a connection opened after the latest
+  // SysctlApply - proof that the node still takes new connections.
+  rpc SysctlConfirm(google.protobuf.Empty) returns (SysctlTrialResponse);
+  // SysctlCancel puts the values from before the trial back at once.
+  rpc SysctlCancel(google.protobuf.Empty) returns (SysctlTrialResponse);
+  // SysctlHistory returns the changes made to the parameters, newest
+  // first: who, when, and each value before and after.
+  rpc SysctlHistory(SysctlHistoryRequest) returns (SysctlHistoryResponse);
+}
+
+// Kernel parameters (internal/sysctl).
+
+enum SysctlClass {
+  SYSCTL_CLASS_UNSPECIFIED = 0;
+  SYSCTL_CLASS_EDITABLE = 1; // the whitelist
+  SYSCTL_CLASS_READ_ONLY = 2; // shown for diagnosis (why says why)
+  SYSCTL_CLASS_FORBIDDEN = 3; // never changed, for Janus's own security
+}
+
+enum SysctlKind {
+  SYSCTL_KIND_UNSPECIFIED = 0;
+  SYSCTL_KIND_INT = 1;
+  SYSCTL_KIND_ENUM = 2; // one of allowed
+  SYSCTL_KIND_PAIR = 3; // "low high"
+  SYSCTL_KIND_TRIPLE = 4; // "minimum default maximum"
+  SYSCTL_KIND_PORTS = 5; // "8080,9100-9110", empty for none
+  SYSCTL_KIND_TEXT = 6;
+}
+
+// When a change reaches what the parameter governs.
+enum SysctlApplies {
+  SYSCTL_APPLIES_UNSPECIFIED = 0;
+  SYSCTL_APPLIES_IMMEDIATELY = 1;
+  SYSCTL_APPLIES_NEW_CONNECTIONS = 2;
+  SYSCTL_APPLIES_HAPROXY_RELOAD = 3; // HAProxy reads it when it opens its listeners
+}
+
+message SysctlBound {
+  int64 min = 1;
+  int64 max = 2;
+}
+
+message SysctlSource {
+  string title = 1;
+  string url = 2;
+}
+
+message SysctlParameter {
+  string name = 1; // "net.core.somaxconn"
+  SysctlClass class = 2;
+  SysctlKind kind = 3;
+  string unit = 4;
+  string value = 5; // live, normalized: numbers separated by one space
+  string missing = 6; // why there's no value - the kernel hasn't the file
+  string default_value = 7; // Janus's default (editable only)
+  bool default_dynamic = 8; // the default is the kernel's own value at boot
+  bool saved = 9; // a value is saved - saved_value, which may be empty (no reserved port)
+  string saved_value = 10;
+  bool on_trial = 11;
+  repeated SysctlBound bounds = 12; // one per number of the value
+  repeated int64 allowed = 13; // SYSCTL_KIND_ENUM
+  uint32 max_items = 14; // SYSCTL_KIND_PORTS
+  SysctlApplies applies = 15;
+  string requires = 16; // what it only matters with: "nftables"
+  string summary = 17;
+  string effect = 18; // on HAProxy
+  string risk = 19;
+  string why = 20; // read-only and forbidden: why it can't change
+  string kernel_default = 21;
+  string haproxy_value = 22; // HAProxy's recommendation, empty when none
+  repeated SysctlSource sources = 23;
+  repeated string warnings = 24; // about the live value
+  // A value suggested for this machine, and why - not offered yet.
+  SysctlRecommendation recommendation = 25;
+}
+
+message SysctlMeasurement {
+  string name = 1;
+  string value = 2;
+  string window = 3; // empty for a fact about the machine
+}
+
+message SysctlRecommendation {
+  string value = 1;
+  string rule_id = 2;
+  string rule = 3; // in words: tiers or formula
+  repeated SysctlMeasurement measured = 4;
+  repeated SysctlSource sources = 5;
+}
+
+message SysctlCISControl {
+  repeated string ids = 1; // the benchmark's: "3.3.1.18"
+  uint32 level = 2; // server profile level, 1 or 2
+  string key = 3;
+  string value = 4; // on the node
+  repeated string want = 5; // compliant values
+  bool compliant = 6;
+  repeated string problems = 7;
+  string interfaces = 8; // "ipv4", "ipv6": checked on every interface too
+}
+
+message SysctlCIS {
+  string benchmark = 1;
+  string profile = 2;
+  uint32 compliant = 3; // controls
+  repeated SysctlCISControl controls = 4;
+}
+
+message SysctlActor {
+  string name = 1; // a certificate's name; "boot", "timeout"
+  repeated string roles = 2;
+  string via = 3; // the Controller acting for name
+}
+
+message SysctlChange {
+  string name = 1;
+  string old_value = 2;
+  string new_value = 3;
+  bool to_default = 4; // back to Janus's default
+}
+
+message SysctlTrial {
+  int64 started_unix = 1; // the latest apply
+  int64 revert_at_unix = 2;
+  repeated SysctlChange changes = 3; // old_value: before the trial
+  SysctlActor actor = 4; // who applied last
+  bool haproxy_reloaded = 5;
+}
+
+message SysctlListResponse {
+  bool managed = 1; // false: janusd doesn't run a Janus node - nothing changes
+  repeated SysctlParameter parameters = 2;
+  SysctlCIS cis = 3;
+  SysctlTrial trial = 4; // unset: nothing on trial
+}
+
+message SysctlChangeRequest {
+  string name = 1;
+  string value = 2;
+  bool to_default = 3; // back to Janus's default, value ignored
+}
+
+message SysctlApplyRequest {
+  repeated SysctlChangeRequest changes = 1;
+  bool reset_all = 2; // every editable parameter back to its default
+  uint32 confirm_timeout_seconds = 3; // 60 to 3600; 0: 600
+  // Reload HAProxy, if it runs, when a parameter it reads at its
+  // listeners' opening changes - and again when the trial is undone.
+  bool reload_haproxy = 4;
+  bool validate_only = 5;
+}
+
+message SysctlFieldError {
+  string name = 1; // empty: the request as a whole
+  string message = 2;
+}
+
+message SysctlApplyResponse {
+  bool accepted = 1;
+  repeated SysctlFieldError errors = 2;
+  repeated SysctlChange changes = 3; // what changed - with validate_only, what would
+  SysctlTrial trial = 4;
+}
+
+message SysctlTrialResponse {
+  SysctlTrial trial = 1; // the trial confirmed or cancelled
+}
+
+message SysctlHistoryRequest {
+  uint32 limit = 1; // 0: 100
+}
+
+message SysctlHistoryEntry {
+  int64 time_unix = 1;
+  SysctlActor actor = 2;
+  string action = 3; // trial, confirm, cancel, revert, boot-refused
+  repeated SysctlChange changes = 4;
+  string detail = 5;
+}
+
+message SysctlHistoryResponse {
+  repeated SysctlHistoryEntry entries = 1;
 }
 
 message MetricsConfig {

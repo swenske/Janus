@@ -167,6 +167,16 @@ The prometheus-node-exporter extension's settings ([docs/metrics.md](../metrics.
 | `NodeExporterConfigGet` | `Empty` → `NodeExporterConfigResponse` | `os:reader` | observe | NodeExporterConfigGet reports node_exporter's settings. |
 | `NodeExporterConfigSet` | `NodeExporterConfig` → `NodeExporterConfigResponse` | `os:admin` | system | NodeExporterConfigSet changes node_exporter's settings: it restarts with them, and they're kept. |
 
+The node's kernel parameters ([docs/guide/kernel-tuning.md](../guide/kernel-tuning.md)): a whitelist of the ones HAProxy depends on, which an operator may change - on trial, kept once confirmed, back to Janus's defaults on request - and the CIS benchmark's, which no call changes. Changes answer FailedPrecondition unless janusd runs a Janus node.
+
+| Call | Request → response | Role | Domain | What it does |
+|---|---|---|---|---|
+| `SysctlList` | `Empty` → `SysctlListResponse` | `os:reader` | observe | SysctlList reports every parameter the node shows - its value, Janus's default, the saved one, its bounds, what it does to HAProxy and its risks -, the CIS benchmark's controls, and what's on trial. |
+| `SysctlApply` | `SysctlApplyRequest` → `SysctlApplyResponse` | `os:admin` | system | SysctlApply checks changes against the whitelist, each parameter's bounds and the node's state, and applies them on trial: unless SysctlConfirm comes within the timeout, the values from before the trial come back by themselves. A trial already running grows by these changes. With validate_only, it only checks them. |
+| `SysctlConfirm` | `Empty` → `SysctlTrialResponse` | `os:admin` | system | SysctlConfirm saves the values on trial, which every boot then applies. It must come over a connection opened after the latest SysctlApply - proof that the node still takes new connections. |
+| `SysctlCancel` | `Empty` → `SysctlTrialResponse` | `os:admin` | system | SysctlCancel puts the values from before the trial back at once. |
+| `SysctlHistory` | `SysctlHistoryRequest` → `SysctlHistoryResponse` | `os:reader` | observe | SysctlHistory returns the changes made to the parameters, newest first: who, when, and each value before and after. |
+
 ## LifecycleService
 
 LifecycleService handles installation, upgrade and rollback: writing a new immutable image to the inactive A/B slot, switching the bootloader to it, and rolling back automatically if the new slot doesn't become healthy within its grace period. See [docs/architecture.md](../architecture.md) for the A/B partition layout this is built on.

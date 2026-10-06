@@ -56,6 +56,7 @@ import (
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/schematic"
 	"github.com/swenske/Janus/internal/selfregister"
+	"github.com/swenske/Janus/internal/sysctl"
 	"github.com/swenske/Janus/internal/timesync"
 	"github.com/swenske/Janus/internal/vrrp"
 )
@@ -197,6 +198,19 @@ func main() {
 	} else {
 		delete(serviceLogs, acme.LogID)
 	}
+
+	// The kernel parameters (internal/sysctl). init applied the saved
+	// ones at boot; a janusd restarted during a trial puts them back
+	// here, before HAProxy opens its listeners. A trial's reload never
+	// starts an HAProxy someone stopped.
+	sysctl.Dir = *configDir
+	sysctlMgr := sysctl.NewManager(*manageHost, nil, func() error {
+		if !haproxyMgr.Serving() {
+			return nil
+		}
+		return haproxyMgr.Reload()
+	})
+	sysctlMgr.Boot()
 
 	// Start haproxy from whatever config is already on disk (the
 	// bootstrap default at first boot - see rootfs/base/etc/haproxy -
@@ -421,7 +435,7 @@ func main() {
 		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})

@@ -66,6 +66,11 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.SystemService/MetricsConfigSet":            adminOnly,
 	"/janus.v1alpha1.SystemService/NodeExporterConfigGet":       readers,
 	"/janus.v1alpha1.SystemService/NodeExporterConfigSet":       adminOnly,
+	"/janus.v1alpha1.SystemService/SysctlList":                  readers,
+	"/janus.v1alpha1.SystemService/SysctlApply":                 adminOnly, // kernel parameters, node-wide
+	"/janus.v1alpha1.SystemService/SysctlConfirm":               adminOnly,
+	"/janus.v1alpha1.SystemService/SysctlCancel":                adminOnly,
+	"/janus.v1alpha1.SystemService/SysctlHistory":               readers,
 
 	// LifecycleService - installing/upgrading/rolling back the machine
 	// is always privileged, no reader carve-out.

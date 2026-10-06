@@ -96,6 +96,11 @@ certificate the root signed itself lets in too. Its own CA always does.
 | `MetricsConfigSet` | | ✅ | Turn the exporter on/off, move it to another port - applied at once, persisted; a port that can't be bound is refused |
 | `NodeExporterConfigGet` | | ✅ | prometheus-node-exporter's settings - running or not, listen address and port, collectors - and the collectors it offers ([metrics.md](metrics.md#the-node-exporter)); `FailedPrecondition` without the extension |
 | `NodeExporterConfigSet` | | ✅ | Change them: node_exporter restarts with them (or stops), persisted |
+| `SysctlList` | | ✅ | The kernel parameters the node shows ([kernel-tuning.md](guide/kernel-tuning.md)): the whitelist HAProxy depends on - each value, Janus's default, the saved one, bounds, effect on HAProxy, risk -, the read-only ones, the CIS benchmark's controls and their compliance, what's on trial |
+| `SysctlApply` | | ✅ | Change whitelisted parameters (or back to their defaults) on trial: checked against the whitelist, bounds and the node's state, the CIS benchmark audited after the write; reverted by itself unless confirmed; `validate_only` checks only; `FailedPrecondition` off a Janus node |
+| `SysctlConfirm` | | ✅ | Save the values on trial - over a connection opened after the apply; every boot applies them, after the baseline and before the CIS values are written again |
+| `SysctlCancel` | | ✅ | Put the values from before the trial back at once |
+| `SysctlHistory` | | ✅ | Who changed which parameter, when, each value before and after - kept on STATE |
 
 ## LifecycleService
 

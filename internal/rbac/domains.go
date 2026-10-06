@@ -57,6 +57,11 @@ var Domain = map[string]string{
 	"SystemService/MetricsConfigSet":            DomainSystem,
 	"SystemService/NodeExporterConfigGet":       DomainObserve,
 	"SystemService/NodeExporterConfigSet":       DomainSystem,
+	"SystemService/SysctlList":                  DomainObserve,
+	"SystemService/SysctlApply":                 DomainSystem,
+	"SystemService/SysctlConfirm":               DomainSystem,
+	"SystemService/SysctlCancel":                DomainSystem,
+	"SystemService/SysctlHistory":               DomainObserve,
 
 	"LifecycleService/Install":           DomainSystem,
 	"LifecycleService/Upgrade":           DomainSystem,

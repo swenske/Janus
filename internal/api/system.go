@@ -27,6 +27,7 @@ import (
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/schematic"
+	"github.com/swenske/Janus/internal/sysctl"
 )
 
 // System implements janusv1alpha1.SystemServiceServer. Every method it
@@ -62,6 +63,9 @@ type System struct {
 
 	// Exporter serves the node's Prometheus metrics (MetricsConfig*).
 	Exporter *exporter.Server
+
+	// Sysctl changes the whitelisted kernel parameters (Sysctl*).
+	Sysctl *sysctl.Manager
 }
 
 func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.VersionResponse, error) {

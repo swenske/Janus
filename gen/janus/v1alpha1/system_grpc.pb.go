@@ -56,6 +56,11 @@ const (
 	SystemService_MetricsConfigSet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigSet"
 	SystemService_NodeExporterConfigGet_FullMethodName       = "/janus.v1alpha1.SystemService/NodeExporterConfigGet"
 	SystemService_NodeExporterConfigSet_FullMethodName       = "/janus.v1alpha1.SystemService/NodeExporterConfigSet"
+	SystemService_SysctlList_FullMethodName                  = "/janus.v1alpha1.SystemService/SysctlList"
+	SystemService_SysctlApply_FullMethodName                 = "/janus.v1alpha1.SystemService/SysctlApply"
+	SystemService_SysctlConfirm_FullMethodName               = "/janus.v1alpha1.SystemService/SysctlConfirm"
+	SystemService_SysctlCancel_FullMethodName                = "/janus.v1alpha1.SystemService/SysctlCancel"
+	SystemService_SysctlHistory_FullMethodName               = "/janus.v1alpha1.SystemService/SysctlHistory"
 )
 
 // SystemServiceClient is the client API for SystemService service.
@@ -171,6 +176,25 @@ type SystemServiceClient interface {
 	// NodeExporterConfigSet changes node_exporter's settings: it restarts
 	// with them, and they're kept.
 	NodeExporterConfigSet(ctx context.Context, in *NodeExporterConfig, opts ...grpc.CallOption) (*NodeExporterConfigResponse, error)
+	// SysctlList reports every parameter the node shows - its value,
+	// Janus's default, the saved one, its bounds, what it does to HAProxy
+	// and its risks -, the CIS benchmark's controls, and what's on trial.
+	SysctlList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SysctlListResponse, error)
+	// SysctlApply checks changes against the whitelist, each parameter's
+	// bounds and the node's state, and applies them on trial: unless
+	// SysctlConfirm comes within the timeout, the values from before the
+	// trial come back by themselves. A trial already running grows by
+	// these changes. With validate_only, it only checks them.
+	SysctlApply(ctx context.Context, in *SysctlApplyRequest, opts ...grpc.CallOption) (*SysctlApplyResponse, error)
+	// SysctlConfirm saves the values on trial, which every boot then
+	// applies. It must come over a connection opened after the latest
+	// SysctlApply - proof that the node still takes new connections.
+	SysctlConfirm(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SysctlTrialResponse, error)
+	// SysctlCancel puts the values from before the trial back at once.
+	SysctlCancel(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SysctlTrialResponse, error)
+	// SysctlHistory returns the changes made to the parameters, newest
+	// first: who, when, and each value before and after.
+	SysctlHistory(ctx context.Context, in *SysctlHistoryRequest, opts ...grpc.CallOption) (*SysctlHistoryResponse, error)
 }
 
 type systemServiceClient struct {
@@ -622,6 +646,56 @@ func (c *systemServiceClient) NodeExporterConfigSet(ctx context.Context, in *Nod
 	return out, nil
 }
 
+func (c *systemServiceClient) SysctlList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SysctlListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SysctlListResponse)
+	err := c.cc.Invoke(ctx, SystemService_SysctlList_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) SysctlApply(ctx context.Context, in *SysctlApplyRequest, opts ...grpc.CallOption) (*SysctlApplyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SysctlApplyResponse)
+	err := c.cc.Invoke(ctx, SystemService_SysctlApply_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) SysctlConfirm(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SysctlTrialResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SysctlTrialResponse)
+	err := c.cc.Invoke(ctx, SystemService_SysctlConfirm_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) SysctlCancel(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SysctlTrialResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SysctlTrialResponse)
+	err := c.cc.Invoke(ctx, SystemService_SysctlCancel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) SysctlHistory(ctx context.Context, in *SysctlHistoryRequest, opts ...grpc.CallOption) (*SysctlHistoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SysctlHistoryResponse)
+	err := c.cc.Invoke(ctx, SystemService_SysctlHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SystemServiceServer is the server API for SystemService service.
 // All implementations must embed UnimplementedSystemServiceServer
 // for forward compatibility.
@@ -735,6 +809,25 @@ type SystemServiceServer interface {
 	// NodeExporterConfigSet changes node_exporter's settings: it restarts
 	// with them, and they're kept.
 	NodeExporterConfigSet(context.Context, *NodeExporterConfig) (*NodeExporterConfigResponse, error)
+	// SysctlList reports every parameter the node shows - its value,
+	// Janus's default, the saved one, its bounds, what it does to HAProxy
+	// and its risks -, the CIS benchmark's controls, and what's on trial.
+	SysctlList(context.Context, *emptypb.Empty) (*SysctlListResponse, error)
+	// SysctlApply checks changes against the whitelist, each parameter's
+	// bounds and the node's state, and applies them on trial: unless
+	// SysctlConfirm comes within the timeout, the values from before the
+	// trial come back by themselves. A trial already running grows by
+	// these changes. With validate_only, it only checks them.
+	SysctlApply(context.Context, *SysctlApplyRequest) (*SysctlApplyResponse, error)
+	// SysctlConfirm saves the values on trial, which every boot then
+	// applies. It must come over a connection opened after the latest
+	// SysctlApply - proof that the node still takes new connections.
+	SysctlConfirm(context.Context, *emptypb.Empty) (*SysctlTrialResponse, error)
+	// SysctlCancel puts the values from before the trial back at once.
+	SysctlCancel(context.Context, *emptypb.Empty) (*SysctlTrialResponse, error)
+	// SysctlHistory returns the changes made to the parameters, newest
+	// first: who, when, and each value before and after.
+	SysctlHistory(context.Context, *SysctlHistoryRequest) (*SysctlHistoryResponse, error)
 	mustEmbedUnimplementedSystemServiceServer()
 }
 
@@ -852,6 +945,21 @@ func (UnimplementedSystemServiceServer) NodeExporterConfigGet(context.Context, *
 }
 func (UnimplementedSystemServiceServer) NodeExporterConfigSet(context.Context, *NodeExporterConfig) (*NodeExporterConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method NodeExporterConfigSet not implemented")
+}
+func (UnimplementedSystemServiceServer) SysctlList(context.Context, *emptypb.Empty) (*SysctlListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SysctlList not implemented")
+}
+func (UnimplementedSystemServiceServer) SysctlApply(context.Context, *SysctlApplyRequest) (*SysctlApplyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SysctlApply not implemented")
+}
+func (UnimplementedSystemServiceServer) SysctlConfirm(context.Context, *emptypb.Empty) (*SysctlTrialResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SysctlConfirm not implemented")
+}
+func (UnimplementedSystemServiceServer) SysctlCancel(context.Context, *emptypb.Empty) (*SysctlTrialResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SysctlCancel not implemented")
+}
+func (UnimplementedSystemServiceServer) SysctlHistory(context.Context, *SysctlHistoryRequest) (*SysctlHistoryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SysctlHistory not implemented")
 }
 func (UnimplementedSystemServiceServer) mustEmbedUnimplementedSystemServiceServer() {}
 func (UnimplementedSystemServiceServer) testEmbeddedByValue()                       {}
@@ -1459,6 +1567,96 @@ func _SystemService_NodeExporterConfigSet_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemService_SysctlList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).SysctlList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_SysctlList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).SysctlList(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_SysctlApply_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SysctlApplyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).SysctlApply(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_SysctlApply_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).SysctlApply(ctx, req.(*SysctlApplyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_SysctlConfirm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).SysctlConfirm(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_SysctlConfirm_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).SysctlConfirm(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_SysctlCancel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).SysctlCancel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_SysctlCancel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).SysctlCancel(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_SysctlHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SysctlHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).SysctlHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_SysctlHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).SysctlHistory(ctx, req.(*SysctlHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SystemService_ServiceDesc is the grpc.ServiceDesc for SystemService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1573,6 +1771,26 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "NodeExporterConfigSet",
 			Handler:    _SystemService_NodeExporterConfigSet_Handler,
+		},
+		{
+			MethodName: "SysctlList",
+			Handler:    _SystemService_SysctlList_Handler,
+		},
+		{
+			MethodName: "SysctlApply",
+			Handler:    _SystemService_SysctlApply_Handler,
+		},
+		{
+			MethodName: "SysctlConfirm",
+			Handler:    _SystemService_SysctlConfirm_Handler,
+		},
+		{
+			MethodName: "SysctlCancel",
+			Handler:    _SystemService_SysctlCancel_Handler,
+		},
+		{
+			MethodName: "SysctlHistory",
+			Handler:    _SystemService_SysctlHistory_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

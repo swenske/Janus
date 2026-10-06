@@ -22,6 +22,172 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type SysctlClass int32
+
+const (
+	SysctlClass_SYSCTL_CLASS_UNSPECIFIED SysctlClass = 0
+	SysctlClass_SYSCTL_CLASS_EDITABLE    SysctlClass = 1 // the whitelist
+	SysctlClass_SYSCTL_CLASS_READ_ONLY   SysctlClass = 2 // shown for diagnosis (why says why)
+	SysctlClass_SYSCTL_CLASS_FORBIDDEN   SysctlClass = 3 // never changed, for Janus's own security
+)
+
+// Enum value maps for SysctlClass.
+var (
+	SysctlClass_name = map[int32]string{
+		0: "SYSCTL_CLASS_UNSPECIFIED",
+		1: "SYSCTL_CLASS_EDITABLE",
+		2: "SYSCTL_CLASS_READ_ONLY",
+		3: "SYSCTL_CLASS_FORBIDDEN",
+	}
+	SysctlClass_value = map[string]int32{
+		"SYSCTL_CLASS_UNSPECIFIED": 0,
+		"SYSCTL_CLASS_EDITABLE":    1,
+		"SYSCTL_CLASS_READ_ONLY":   2,
+		"SYSCTL_CLASS_FORBIDDEN":   3,
+	}
+)
+
+func (x SysctlClass) Enum() *SysctlClass {
+	p := new(SysctlClass)
+	*p = x
+	return p
+}
+
+func (x SysctlClass) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SysctlClass) Descriptor() protoreflect.EnumDescriptor {
+	return file_janus_v1alpha1_system_proto_enumTypes[0].Descriptor()
+}
+
+func (SysctlClass) Type() protoreflect.EnumType {
+	return &file_janus_v1alpha1_system_proto_enumTypes[0]
+}
+
+func (x SysctlClass) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SysctlClass.Descriptor instead.
+func (SysctlClass) EnumDescriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{0}
+}
+
+type SysctlKind int32
+
+const (
+	SysctlKind_SYSCTL_KIND_UNSPECIFIED SysctlKind = 0
+	SysctlKind_SYSCTL_KIND_INT         SysctlKind = 1
+	SysctlKind_SYSCTL_KIND_ENUM        SysctlKind = 2 // one of allowed
+	SysctlKind_SYSCTL_KIND_PAIR        SysctlKind = 3 // "low high"
+	SysctlKind_SYSCTL_KIND_TRIPLE      SysctlKind = 4 // "minimum default maximum"
+	SysctlKind_SYSCTL_KIND_PORTS       SysctlKind = 5 // "8080,9100-9110", empty for none
+	SysctlKind_SYSCTL_KIND_TEXT        SysctlKind = 6
+)
+
+// Enum value maps for SysctlKind.
+var (
+	SysctlKind_name = map[int32]string{
+		0: "SYSCTL_KIND_UNSPECIFIED",
+		1: "SYSCTL_KIND_INT",
+		2: "SYSCTL_KIND_ENUM",
+		3: "SYSCTL_KIND_PAIR",
+		4: "SYSCTL_KIND_TRIPLE",
+		5: "SYSCTL_KIND_PORTS",
+		6: "SYSCTL_KIND_TEXT",
+	}
+	SysctlKind_value = map[string]int32{
+		"SYSCTL_KIND_UNSPECIFIED": 0,
+		"SYSCTL_KIND_INT":         1,
+		"SYSCTL_KIND_ENUM":        2,
+		"SYSCTL_KIND_PAIR":        3,
+		"SYSCTL_KIND_TRIPLE":      4,
+		"SYSCTL_KIND_PORTS":       5,
+		"SYSCTL_KIND_TEXT":        6,
+	}
+)
+
+func (x SysctlKind) Enum() *SysctlKind {
+	p := new(SysctlKind)
+	*p = x
+	return p
+}
+
+func (x SysctlKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SysctlKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_janus_v1alpha1_system_proto_enumTypes[1].Descriptor()
+}
+
+func (SysctlKind) Type() protoreflect.EnumType {
+	return &file_janus_v1alpha1_system_proto_enumTypes[1]
+}
+
+func (x SysctlKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SysctlKind.Descriptor instead.
+func (SysctlKind) EnumDescriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{1}
+}
+
+// When a change reaches what the parameter governs.
+type SysctlApplies int32
+
+const (
+	SysctlApplies_SYSCTL_APPLIES_UNSPECIFIED     SysctlApplies = 0
+	SysctlApplies_SYSCTL_APPLIES_IMMEDIATELY     SysctlApplies = 1
+	SysctlApplies_SYSCTL_APPLIES_NEW_CONNECTIONS SysctlApplies = 2
+	SysctlApplies_SYSCTL_APPLIES_HAPROXY_RELOAD  SysctlApplies = 3 // HAProxy reads it when it opens its listeners
+)
+
+// Enum value maps for SysctlApplies.
+var (
+	SysctlApplies_name = map[int32]string{
+		0: "SYSCTL_APPLIES_UNSPECIFIED",
+		1: "SYSCTL_APPLIES_IMMEDIATELY",
+		2: "SYSCTL_APPLIES_NEW_CONNECTIONS",
+		3: "SYSCTL_APPLIES_HAPROXY_RELOAD",
+	}
+	SysctlApplies_value = map[string]int32{
+		"SYSCTL_APPLIES_UNSPECIFIED":     0,
+		"SYSCTL_APPLIES_IMMEDIATELY":     1,
+		"SYSCTL_APPLIES_NEW_CONNECTIONS": 2,
+		"SYSCTL_APPLIES_HAPROXY_RELOAD":  3,
+	}
+)
+
+func (x SysctlApplies) Enum() *SysctlApplies {
+	p := new(SysctlApplies)
+	*p = x
+	return p
+}
+
+func (x SysctlApplies) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SysctlApplies) Descriptor() protoreflect.EnumDescriptor {
+	return file_janus_v1alpha1_system_proto_enumTypes[2].Descriptor()
+}
+
+func (SysctlApplies) Type() protoreflect.EnumType {
+	return &file_janus_v1alpha1_system_proto_enumTypes[2]
+}
+
+func (x SysctlApplies) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SysctlApplies.Descriptor instead.
+func (SysctlApplies) EnumDescriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{2}
+}
+
 type RebootMode int32
 
 const (
@@ -52,11 +218,11 @@ func (x RebootMode) String() string {
 }
 
 func (RebootMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_janus_v1alpha1_system_proto_enumTypes[0].Descriptor()
+	return file_janus_v1alpha1_system_proto_enumTypes[3].Descriptor()
 }
 
 func (RebootMode) Type() protoreflect.EnumType {
-	return &file_janus_v1alpha1_system_proto_enumTypes[0]
+	return &file_janus_v1alpha1_system_proto_enumTypes[3]
 }
 
 func (x RebootMode) Number() protoreflect.EnumNumber {
@@ -65,7 +231,7 @@ func (x RebootMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RebootMode.Descriptor instead.
 func (RebootMode) EnumDescriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{0}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{3}
 }
 
 type ApplyConfigurationRequest_Mode int32
@@ -104,11 +270,11 @@ func (x ApplyConfigurationRequest_Mode) String() string {
 }
 
 func (ApplyConfigurationRequest_Mode) Descriptor() protoreflect.EnumDescriptor {
-	return file_janus_v1alpha1_system_proto_enumTypes[1].Descriptor()
+	return file_janus_v1alpha1_system_proto_enumTypes[4].Descriptor()
 }
 
 func (ApplyConfigurationRequest_Mode) Type() protoreflect.EnumType {
-	return &file_janus_v1alpha1_system_proto_enumTypes[1]
+	return &file_janus_v1alpha1_system_proto_enumTypes[4]
 }
 
 func (x ApplyConfigurationRequest_Mode) Number() protoreflect.EnumNumber {
@@ -117,7 +283,1390 @@ func (x ApplyConfigurationRequest_Mode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ApplyConfigurationRequest_Mode.Descriptor instead.
 func (ApplyConfigurationRequest_Mode) EnumDescriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{15, 0}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{34, 0}
+}
+
+type SysctlBound struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Min           int64                  `protobuf:"varint,1,opt,name=min,proto3" json:"min,omitempty"`
+	Max           int64                  `protobuf:"varint,2,opt,name=max,proto3" json:"max,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlBound) Reset() {
+	*x = SysctlBound{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlBound) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlBound) ProtoMessage() {}
+
+func (x *SysctlBound) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlBound.ProtoReflect.Descriptor instead.
+func (*SysctlBound) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *SysctlBound) GetMin() int64 {
+	if x != nil {
+		return x.Min
+	}
+	return 0
+}
+
+func (x *SysctlBound) GetMax() int64 {
+	if x != nil {
+		return x.Max
+	}
+	return 0
+}
+
+type SysctlSource struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Title         string                 `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
+	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlSource) Reset() {
+	*x = SysctlSource{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlSource) ProtoMessage() {}
+
+func (x *SysctlSource) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlSource.ProtoReflect.Descriptor instead.
+func (*SysctlSource) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SysctlSource) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *SysctlSource) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+type SysctlParameter struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // "net.core.somaxconn"
+	Class          SysctlClass            `protobuf:"varint,2,opt,name=class,proto3,enum=janus.v1alpha1.SysctlClass" json:"class,omitempty"`
+	Kind           SysctlKind             `protobuf:"varint,3,opt,name=kind,proto3,enum=janus.v1alpha1.SysctlKind" json:"kind,omitempty"`
+	Unit           string                 `protobuf:"bytes,4,opt,name=unit,proto3" json:"unit,omitempty"`
+	Value          string                 `protobuf:"bytes,5,opt,name=value,proto3" json:"value,omitempty"`                                          // live, normalized: numbers separated by one space
+	Missing        string                 `protobuf:"bytes,6,opt,name=missing,proto3" json:"missing,omitempty"`                                      // why there's no value - the kernel hasn't the file
+	DefaultValue   string                 `protobuf:"bytes,7,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`        // Janus's default (editable only)
+	DefaultDynamic bool                   `protobuf:"varint,8,opt,name=default_dynamic,json=defaultDynamic,proto3" json:"default_dynamic,omitempty"` // the default is the kernel's own value at boot
+	Saved          bool                   `protobuf:"varint,9,opt,name=saved,proto3" json:"saved,omitempty"`                                         // a value is saved - saved_value, which may be empty (no reserved port)
+	SavedValue     string                 `protobuf:"bytes,10,opt,name=saved_value,json=savedValue,proto3" json:"saved_value,omitempty"`
+	OnTrial        bool                   `protobuf:"varint,11,opt,name=on_trial,json=onTrial,proto3" json:"on_trial,omitempty"`
+	Bounds         []*SysctlBound         `protobuf:"bytes,12,rep,name=bounds,proto3" json:"bounds,omitempty"`                      // one per number of the value
+	Allowed        []int64                `protobuf:"varint,13,rep,packed,name=allowed,proto3" json:"allowed,omitempty"`            // SYSCTL_KIND_ENUM
+	MaxItems       uint32                 `protobuf:"varint,14,opt,name=max_items,json=maxItems,proto3" json:"max_items,omitempty"` // SYSCTL_KIND_PORTS
+	Applies        SysctlApplies          `protobuf:"varint,15,opt,name=applies,proto3,enum=janus.v1alpha1.SysctlApplies" json:"applies,omitempty"`
+	Requires       string                 `protobuf:"bytes,16,opt,name=requires,proto3" json:"requires,omitempty"` // what it only matters with: "nftables"
+	Summary        string                 `protobuf:"bytes,17,opt,name=summary,proto3" json:"summary,omitempty"`
+	Effect         string                 `protobuf:"bytes,18,opt,name=effect,proto3" json:"effect,omitempty"` // on HAProxy
+	Risk           string                 `protobuf:"bytes,19,opt,name=risk,proto3" json:"risk,omitempty"`
+	Why            string                 `protobuf:"bytes,20,opt,name=why,proto3" json:"why,omitempty"` // read-only and forbidden: why it can't change
+	KernelDefault  string                 `protobuf:"bytes,21,opt,name=kernel_default,json=kernelDefault,proto3" json:"kernel_default,omitempty"`
+	HaproxyValue   string                 `protobuf:"bytes,22,opt,name=haproxy_value,json=haproxyValue,proto3" json:"haproxy_value,omitempty"` // HAProxy's recommendation, empty when none
+	Sources        []*SysctlSource        `protobuf:"bytes,23,rep,name=sources,proto3" json:"sources,omitempty"`
+	Warnings       []string               `protobuf:"bytes,24,rep,name=warnings,proto3" json:"warnings,omitempty"` // about the live value
+	// A value suggested for this machine, and why - not offered yet.
+	Recommendation *SysctlRecommendation `protobuf:"bytes,25,opt,name=recommendation,proto3" json:"recommendation,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SysctlParameter) Reset() {
+	*x = SysctlParameter{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlParameter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlParameter) ProtoMessage() {}
+
+func (x *SysctlParameter) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlParameter.ProtoReflect.Descriptor instead.
+func (*SysctlParameter) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SysctlParameter) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetClass() SysctlClass {
+	if x != nil {
+		return x.Class
+	}
+	return SysctlClass_SYSCTL_CLASS_UNSPECIFIED
+}
+
+func (x *SysctlParameter) GetKind() SysctlKind {
+	if x != nil {
+		return x.Kind
+	}
+	return SysctlKind_SYSCTL_KIND_UNSPECIFIED
+}
+
+func (x *SysctlParameter) GetUnit() string {
+	if x != nil {
+		return x.Unit
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetMissing() string {
+	if x != nil {
+		return x.Missing
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetDefaultValue() string {
+	if x != nil {
+		return x.DefaultValue
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetDefaultDynamic() bool {
+	if x != nil {
+		return x.DefaultDynamic
+	}
+	return false
+}
+
+func (x *SysctlParameter) GetSaved() bool {
+	if x != nil {
+		return x.Saved
+	}
+	return false
+}
+
+func (x *SysctlParameter) GetSavedValue() string {
+	if x != nil {
+		return x.SavedValue
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetOnTrial() bool {
+	if x != nil {
+		return x.OnTrial
+	}
+	return false
+}
+
+func (x *SysctlParameter) GetBounds() []*SysctlBound {
+	if x != nil {
+		return x.Bounds
+	}
+	return nil
+}
+
+func (x *SysctlParameter) GetAllowed() []int64 {
+	if x != nil {
+		return x.Allowed
+	}
+	return nil
+}
+
+func (x *SysctlParameter) GetMaxItems() uint32 {
+	if x != nil {
+		return x.MaxItems
+	}
+	return 0
+}
+
+func (x *SysctlParameter) GetApplies() SysctlApplies {
+	if x != nil {
+		return x.Applies
+	}
+	return SysctlApplies_SYSCTL_APPLIES_UNSPECIFIED
+}
+
+func (x *SysctlParameter) GetRequires() string {
+	if x != nil {
+		return x.Requires
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetEffect() string {
+	if x != nil {
+		return x.Effect
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetRisk() string {
+	if x != nil {
+		return x.Risk
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetWhy() string {
+	if x != nil {
+		return x.Why
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetKernelDefault() string {
+	if x != nil {
+		return x.KernelDefault
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetHaproxyValue() string {
+	if x != nil {
+		return x.HaproxyValue
+	}
+	return ""
+}
+
+func (x *SysctlParameter) GetSources() []*SysctlSource {
+	if x != nil {
+		return x.Sources
+	}
+	return nil
+}
+
+func (x *SysctlParameter) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
+}
+
+func (x *SysctlParameter) GetRecommendation() *SysctlRecommendation {
+	if x != nil {
+		return x.Recommendation
+	}
+	return nil
+}
+
+type SysctlMeasurement struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Window        string                 `protobuf:"bytes,3,opt,name=window,proto3" json:"window,omitempty"` // empty for a fact about the machine
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlMeasurement) Reset() {
+	*x = SysctlMeasurement{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlMeasurement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlMeasurement) ProtoMessage() {}
+
+func (x *SysctlMeasurement) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlMeasurement.ProtoReflect.Descriptor instead.
+func (*SysctlMeasurement) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SysctlMeasurement) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SysctlMeasurement) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *SysctlMeasurement) GetWindow() string {
+	if x != nil {
+		return x.Window
+	}
+	return ""
+}
+
+type SysctlRecommendation struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	RuleId        string                 `protobuf:"bytes,2,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
+	Rule          string                 `protobuf:"bytes,3,opt,name=rule,proto3" json:"rule,omitempty"` // in words: tiers or formula
+	Measured      []*SysctlMeasurement   `protobuf:"bytes,4,rep,name=measured,proto3" json:"measured,omitempty"`
+	Sources       []*SysctlSource        `protobuf:"bytes,5,rep,name=sources,proto3" json:"sources,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlRecommendation) Reset() {
+	*x = SysctlRecommendation{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlRecommendation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlRecommendation) ProtoMessage() {}
+
+func (x *SysctlRecommendation) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlRecommendation.ProtoReflect.Descriptor instead.
+func (*SysctlRecommendation) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *SysctlRecommendation) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *SysctlRecommendation) GetRuleId() string {
+	if x != nil {
+		return x.RuleId
+	}
+	return ""
+}
+
+func (x *SysctlRecommendation) GetRule() string {
+	if x != nil {
+		return x.Rule
+	}
+	return ""
+}
+
+func (x *SysctlRecommendation) GetMeasured() []*SysctlMeasurement {
+	if x != nil {
+		return x.Measured
+	}
+	return nil
+}
+
+func (x *SysctlRecommendation) GetSources() []*SysctlSource {
+	if x != nil {
+		return x.Sources
+	}
+	return nil
+}
+
+type SysctlCISControl struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ids           []string               `protobuf:"bytes,1,rep,name=ids,proto3" json:"ids,omitempty"`      // the benchmark's: "3.3.1.18"
+	Level         uint32                 `protobuf:"varint,2,opt,name=level,proto3" json:"level,omitempty"` // server profile level, 1 or 2
+	Key           string                 `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
+	Value         string                 `protobuf:"bytes,4,opt,name=value,proto3" json:"value,omitempty"` // on the node
+	Want          []string               `protobuf:"bytes,5,rep,name=want,proto3" json:"want,omitempty"`   // compliant values
+	Compliant     bool                   `protobuf:"varint,6,opt,name=compliant,proto3" json:"compliant,omitempty"`
+	Problems      []string               `protobuf:"bytes,7,rep,name=problems,proto3" json:"problems,omitempty"`
+	Interfaces    string                 `protobuf:"bytes,8,opt,name=interfaces,proto3" json:"interfaces,omitempty"` // "ipv4", "ipv6": checked on every interface too
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlCISControl) Reset() {
+	*x = SysctlCISControl{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlCISControl) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlCISControl) ProtoMessage() {}
+
+func (x *SysctlCISControl) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlCISControl.ProtoReflect.Descriptor instead.
+func (*SysctlCISControl) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SysctlCISControl) GetIds() []string {
+	if x != nil {
+		return x.Ids
+	}
+	return nil
+}
+
+func (x *SysctlCISControl) GetLevel() uint32 {
+	if x != nil {
+		return x.Level
+	}
+	return 0
+}
+
+func (x *SysctlCISControl) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *SysctlCISControl) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *SysctlCISControl) GetWant() []string {
+	if x != nil {
+		return x.Want
+	}
+	return nil
+}
+
+func (x *SysctlCISControl) GetCompliant() bool {
+	if x != nil {
+		return x.Compliant
+	}
+	return false
+}
+
+func (x *SysctlCISControl) GetProblems() []string {
+	if x != nil {
+		return x.Problems
+	}
+	return nil
+}
+
+func (x *SysctlCISControl) GetInterfaces() string {
+	if x != nil {
+		return x.Interfaces
+	}
+	return ""
+}
+
+type SysctlCIS struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Benchmark     string                 `protobuf:"bytes,1,opt,name=benchmark,proto3" json:"benchmark,omitempty"`
+	Profile       string                 `protobuf:"bytes,2,opt,name=profile,proto3" json:"profile,omitempty"`
+	Compliant     uint32                 `protobuf:"varint,3,opt,name=compliant,proto3" json:"compliant,omitempty"` // controls
+	Controls      []*SysctlCISControl    `protobuf:"bytes,4,rep,name=controls,proto3" json:"controls,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlCIS) Reset() {
+	*x = SysctlCIS{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlCIS) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlCIS) ProtoMessage() {}
+
+func (x *SysctlCIS) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlCIS.ProtoReflect.Descriptor instead.
+func (*SysctlCIS) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SysctlCIS) GetBenchmark() string {
+	if x != nil {
+		return x.Benchmark
+	}
+	return ""
+}
+
+func (x *SysctlCIS) GetProfile() string {
+	if x != nil {
+		return x.Profile
+	}
+	return ""
+}
+
+func (x *SysctlCIS) GetCompliant() uint32 {
+	if x != nil {
+		return x.Compliant
+	}
+	return 0
+}
+
+func (x *SysctlCIS) GetControls() []*SysctlCISControl {
+	if x != nil {
+		return x.Controls
+	}
+	return nil
+}
+
+type SysctlActor struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // a certificate's name; "boot", "timeout"
+	Roles         []string               `protobuf:"bytes,2,rep,name=roles,proto3" json:"roles,omitempty"`
+	Via           string                 `protobuf:"bytes,3,opt,name=via,proto3" json:"via,omitempty"` // the Controller acting for name
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlActor) Reset() {
+	*x = SysctlActor{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlActor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlActor) ProtoMessage() {}
+
+func (x *SysctlActor) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlActor.ProtoReflect.Descriptor instead.
+func (*SysctlActor) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *SysctlActor) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SysctlActor) GetRoles() []string {
+	if x != nil {
+		return x.Roles
+	}
+	return nil
+}
+
+func (x *SysctlActor) GetVia() string {
+	if x != nil {
+		return x.Via
+	}
+	return ""
+}
+
+type SysctlChange struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	OldValue      string                 `protobuf:"bytes,2,opt,name=old_value,json=oldValue,proto3" json:"old_value,omitempty"`
+	NewValue      string                 `protobuf:"bytes,3,opt,name=new_value,json=newValue,proto3" json:"new_value,omitempty"`
+	ToDefault     bool                   `protobuf:"varint,4,opt,name=to_default,json=toDefault,proto3" json:"to_default,omitempty"` // back to Janus's default
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlChange) Reset() {
+	*x = SysctlChange{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlChange) ProtoMessage() {}
+
+func (x *SysctlChange) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlChange.ProtoReflect.Descriptor instead.
+func (*SysctlChange) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SysctlChange) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SysctlChange) GetOldValue() string {
+	if x != nil {
+		return x.OldValue
+	}
+	return ""
+}
+
+func (x *SysctlChange) GetNewValue() string {
+	if x != nil {
+		return x.NewValue
+	}
+	return ""
+}
+
+func (x *SysctlChange) GetToDefault() bool {
+	if x != nil {
+		return x.ToDefault
+	}
+	return false
+}
+
+type SysctlTrial struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	StartedUnix     int64                  `protobuf:"varint,1,opt,name=started_unix,json=startedUnix,proto3" json:"started_unix,omitempty"` // the latest apply
+	RevertAtUnix    int64                  `protobuf:"varint,2,opt,name=revert_at_unix,json=revertAtUnix,proto3" json:"revert_at_unix,omitempty"`
+	Changes         []*SysctlChange        `protobuf:"bytes,3,rep,name=changes,proto3" json:"changes,omitempty"` // old_value: before the trial
+	Actor           *SysctlActor           `protobuf:"bytes,4,opt,name=actor,proto3" json:"actor,omitempty"`     // who applied last
+	HaproxyReloaded bool                   `protobuf:"varint,5,opt,name=haproxy_reloaded,json=haproxyReloaded,proto3" json:"haproxy_reloaded,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SysctlTrial) Reset() {
+	*x = SysctlTrial{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlTrial) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlTrial) ProtoMessage() {}
+
+func (x *SysctlTrial) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlTrial.ProtoReflect.Descriptor instead.
+func (*SysctlTrial) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SysctlTrial) GetStartedUnix() int64 {
+	if x != nil {
+		return x.StartedUnix
+	}
+	return 0
+}
+
+func (x *SysctlTrial) GetRevertAtUnix() int64 {
+	if x != nil {
+		return x.RevertAtUnix
+	}
+	return 0
+}
+
+func (x *SysctlTrial) GetChanges() []*SysctlChange {
+	if x != nil {
+		return x.Changes
+	}
+	return nil
+}
+
+func (x *SysctlTrial) GetActor() *SysctlActor {
+	if x != nil {
+		return x.Actor
+	}
+	return nil
+}
+
+func (x *SysctlTrial) GetHaproxyReloaded() bool {
+	if x != nil {
+		return x.HaproxyReloaded
+	}
+	return false
+}
+
+type SysctlListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Managed       bool                   `protobuf:"varint,1,opt,name=managed,proto3" json:"managed,omitempty"` // false: janusd doesn't run a Janus node - nothing changes
+	Parameters    []*SysctlParameter     `protobuf:"bytes,2,rep,name=parameters,proto3" json:"parameters,omitempty"`
+	Cis           *SysctlCIS             `protobuf:"bytes,3,opt,name=cis,proto3" json:"cis,omitempty"`
+	Trial         *SysctlTrial           `protobuf:"bytes,4,opt,name=trial,proto3" json:"trial,omitempty"` // unset: nothing on trial
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlListResponse) Reset() {
+	*x = SysctlListResponse{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlListResponse) ProtoMessage() {}
+
+func (x *SysctlListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlListResponse.ProtoReflect.Descriptor instead.
+func (*SysctlListResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SysctlListResponse) GetManaged() bool {
+	if x != nil {
+		return x.Managed
+	}
+	return false
+}
+
+func (x *SysctlListResponse) GetParameters() []*SysctlParameter {
+	if x != nil {
+		return x.Parameters
+	}
+	return nil
+}
+
+func (x *SysctlListResponse) GetCis() *SysctlCIS {
+	if x != nil {
+		return x.Cis
+	}
+	return nil
+}
+
+func (x *SysctlListResponse) GetTrial() *SysctlTrial {
+	if x != nil {
+		return x.Trial
+	}
+	return nil
+}
+
+type SysctlChangeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	ToDefault     bool                   `protobuf:"varint,3,opt,name=to_default,json=toDefault,proto3" json:"to_default,omitempty"` // back to Janus's default, value ignored
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlChangeRequest) Reset() {
+	*x = SysctlChangeRequest{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlChangeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlChangeRequest) ProtoMessage() {}
+
+func (x *SysctlChangeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlChangeRequest.ProtoReflect.Descriptor instead.
+func (*SysctlChangeRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SysctlChangeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SysctlChangeRequest) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *SysctlChangeRequest) GetToDefault() bool {
+	if x != nil {
+		return x.ToDefault
+	}
+	return false
+}
+
+type SysctlApplyRequest struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Changes               []*SysctlChangeRequest `protobuf:"bytes,1,rep,name=changes,proto3" json:"changes,omitempty"`
+	ResetAll              bool                   `protobuf:"varint,2,opt,name=reset_all,json=resetAll,proto3" json:"reset_all,omitempty"`                                          // every editable parameter back to its default
+	ConfirmTimeoutSeconds uint32                 `protobuf:"varint,3,opt,name=confirm_timeout_seconds,json=confirmTimeoutSeconds,proto3" json:"confirm_timeout_seconds,omitempty"` // 60 to 3600; 0: 600
+	// Reload HAProxy, if it runs, when a parameter it reads at its
+	// listeners' opening changes - and again when the trial is undone.
+	ReloadHaproxy bool `protobuf:"varint,4,opt,name=reload_haproxy,json=reloadHaproxy,proto3" json:"reload_haproxy,omitempty"`
+	ValidateOnly  bool `protobuf:"varint,5,opt,name=validate_only,json=validateOnly,proto3" json:"validate_only,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlApplyRequest) Reset() {
+	*x = SysctlApplyRequest{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlApplyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlApplyRequest) ProtoMessage() {}
+
+func (x *SysctlApplyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlApplyRequest.ProtoReflect.Descriptor instead.
+func (*SysctlApplyRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SysctlApplyRequest) GetChanges() []*SysctlChangeRequest {
+	if x != nil {
+		return x.Changes
+	}
+	return nil
+}
+
+func (x *SysctlApplyRequest) GetResetAll() bool {
+	if x != nil {
+		return x.ResetAll
+	}
+	return false
+}
+
+func (x *SysctlApplyRequest) GetConfirmTimeoutSeconds() uint32 {
+	if x != nil {
+		return x.ConfirmTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *SysctlApplyRequest) GetReloadHaproxy() bool {
+	if x != nil {
+		return x.ReloadHaproxy
+	}
+	return false
+}
+
+func (x *SysctlApplyRequest) GetValidateOnly() bool {
+	if x != nil {
+		return x.ValidateOnly
+	}
+	return false
+}
+
+type SysctlFieldError struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // empty: the request as a whole
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlFieldError) Reset() {
+	*x = SysctlFieldError{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlFieldError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlFieldError) ProtoMessage() {}
+
+func (x *SysctlFieldError) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlFieldError.ProtoReflect.Descriptor instead.
+func (*SysctlFieldError) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *SysctlFieldError) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SysctlFieldError) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type SysctlApplyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Errors        []*SysctlFieldError    `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"`
+	Changes       []*SysctlChange        `protobuf:"bytes,3,rep,name=changes,proto3" json:"changes,omitempty"` // what changed - with validate_only, what would
+	Trial         *SysctlTrial           `protobuf:"bytes,4,opt,name=trial,proto3" json:"trial,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlApplyResponse) Reset() {
+	*x = SysctlApplyResponse{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlApplyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlApplyResponse) ProtoMessage() {}
+
+func (x *SysctlApplyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlApplyResponse.ProtoReflect.Descriptor instead.
+func (*SysctlApplyResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SysctlApplyResponse) GetAccepted() bool {
+	if x != nil {
+		return x.Accepted
+	}
+	return false
+}
+
+func (x *SysctlApplyResponse) GetErrors() []*SysctlFieldError {
+	if x != nil {
+		return x.Errors
+	}
+	return nil
+}
+
+func (x *SysctlApplyResponse) GetChanges() []*SysctlChange {
+	if x != nil {
+		return x.Changes
+	}
+	return nil
+}
+
+func (x *SysctlApplyResponse) GetTrial() *SysctlTrial {
+	if x != nil {
+		return x.Trial
+	}
+	return nil
+}
+
+type SysctlTrialResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Trial         *SysctlTrial           `protobuf:"bytes,1,opt,name=trial,proto3" json:"trial,omitempty"` // the trial confirmed or cancelled
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlTrialResponse) Reset() {
+	*x = SysctlTrialResponse{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlTrialResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlTrialResponse) ProtoMessage() {}
+
+func (x *SysctlTrialResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlTrialResponse.ProtoReflect.Descriptor instead.
+func (*SysctlTrialResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *SysctlTrialResponse) GetTrial() *SysctlTrial {
+	if x != nil {
+		return x.Trial
+	}
+	return nil
+}
+
+type SysctlHistoryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Limit         uint32                 `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"` // 0: 100
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlHistoryRequest) Reset() {
+	*x = SysctlHistoryRequest{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlHistoryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlHistoryRequest) ProtoMessage() {}
+
+func (x *SysctlHistoryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlHistoryRequest.ProtoReflect.Descriptor instead.
+func (*SysctlHistoryRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *SysctlHistoryRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type SysctlHistoryEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TimeUnix      int64                  `protobuf:"varint,1,opt,name=time_unix,json=timeUnix,proto3" json:"time_unix,omitempty"`
+	Actor         *SysctlActor           `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
+	Action        string                 `protobuf:"bytes,3,opt,name=action,proto3" json:"action,omitempty"` // trial, confirm, cancel, revert, boot-refused
+	Changes       []*SysctlChange        `protobuf:"bytes,4,rep,name=changes,proto3" json:"changes,omitempty"`
+	Detail        string                 `protobuf:"bytes,5,opt,name=detail,proto3" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlHistoryEntry) Reset() {
+	*x = SysctlHistoryEntry{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlHistoryEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlHistoryEntry) ProtoMessage() {}
+
+func (x *SysctlHistoryEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlHistoryEntry.ProtoReflect.Descriptor instead.
+func (*SysctlHistoryEntry) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *SysctlHistoryEntry) GetTimeUnix() int64 {
+	if x != nil {
+		return x.TimeUnix
+	}
+	return 0
+}
+
+func (x *SysctlHistoryEntry) GetActor() *SysctlActor {
+	if x != nil {
+		return x.Actor
+	}
+	return nil
+}
+
+func (x *SysctlHistoryEntry) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *SysctlHistoryEntry) GetChanges() []*SysctlChange {
+	if x != nil {
+		return x.Changes
+	}
+	return nil
+}
+
+func (x *SysctlHistoryEntry) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+type SysctlHistoryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*SysctlHistoryEntry  `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SysctlHistoryResponse) Reset() {
+	*x = SysctlHistoryResponse{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SysctlHistoryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SysctlHistoryResponse) ProtoMessage() {}
+
+func (x *SysctlHistoryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SysctlHistoryResponse.ProtoReflect.Descriptor instead.
+func (*SysctlHistoryResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *SysctlHistoryResponse) GetEntries() []*SysctlHistoryEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
 }
 
 type MetricsConfig struct {
@@ -130,7 +1679,7 @@ type MetricsConfig struct {
 
 func (x *MetricsConfig) Reset() {
 	*x = MetricsConfig{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[0]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -142,7 +1691,7 @@ func (x *MetricsConfig) String() string {
 func (*MetricsConfig) ProtoMessage() {}
 
 func (x *MetricsConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[0]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -155,7 +1704,7 @@ func (x *MetricsConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricsConfig.ProtoReflect.Descriptor instead.
 func (*MetricsConfig) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{0}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *MetricsConfig) GetEnabled() bool {
@@ -184,7 +1733,7 @@ type NodeExporterConfig struct {
 
 func (x *NodeExporterConfig) Reset() {
 	*x = NodeExporterConfig{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[1]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -196,7 +1745,7 @@ func (x *NodeExporterConfig) String() string {
 func (*NodeExporterConfig) ProtoMessage() {}
 
 func (x *NodeExporterConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[1]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -209,7 +1758,7 @@ func (x *NodeExporterConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeExporterConfig.ProtoReflect.Descriptor instead.
 func (*NodeExporterConfig) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{1}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *NodeExporterConfig) GetEnabled() bool {
@@ -251,7 +1800,7 @@ type NodeExporterCollector struct {
 
 func (x *NodeExporterCollector) Reset() {
 	*x = NodeExporterCollector{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[2]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -263,7 +1812,7 @@ func (x *NodeExporterCollector) String() string {
 func (*NodeExporterCollector) ProtoMessage() {}
 
 func (x *NodeExporterCollector) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[2]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -276,7 +1825,7 @@ func (x *NodeExporterCollector) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeExporterCollector.ProtoReflect.Descriptor instead.
 func (*NodeExporterCollector) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{2}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *NodeExporterCollector) GetName() string {
@@ -313,7 +1862,7 @@ type NodeExporterConfigResponse struct {
 
 func (x *NodeExporterConfigResponse) Reset() {
 	*x = NodeExporterConfigResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[3]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -325,7 +1874,7 @@ func (x *NodeExporterConfigResponse) String() string {
 func (*NodeExporterConfigResponse) ProtoMessage() {}
 
 func (x *NodeExporterConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[3]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -338,7 +1887,7 @@ func (x *NodeExporterConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeExporterConfigResponse.ProtoReflect.Descriptor instead.
 func (*NodeExporterConfigResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{3}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *NodeExporterConfigResponse) GetConfig() *NodeExporterConfig {
@@ -388,7 +1937,7 @@ type MetricsConfigResponse struct {
 
 func (x *MetricsConfigResponse) Reset() {
 	*x = MetricsConfigResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[4]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -400,7 +1949,7 @@ func (x *MetricsConfigResponse) String() string {
 func (*MetricsConfigResponse) ProtoMessage() {}
 
 func (x *MetricsConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[4]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -413,7 +1962,7 @@ func (x *MetricsConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricsConfigResponse.ProtoReflect.Descriptor instead.
 func (*MetricsConfigResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{4}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *MetricsConfigResponse) GetConfig() *MetricsConfig {
@@ -479,7 +2028,7 @@ type VersionResponse struct {
 
 func (x *VersionResponse) Reset() {
 	*x = VersionResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[5]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -491,7 +2040,7 @@ func (x *VersionResponse) String() string {
 func (*VersionResponse) ProtoMessage() {}
 
 func (x *VersionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[5]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -504,7 +2053,7 @@ func (x *VersionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VersionResponse.ProtoReflect.Descriptor instead.
 func (*VersionResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{5}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *VersionResponse) GetVersion() string {
@@ -610,7 +2159,7 @@ type ImageComponent struct {
 
 func (x *ImageComponent) Reset() {
 	*x = ImageComponent{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[6]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -622,7 +2171,7 @@ func (x *ImageComponent) String() string {
 func (*ImageComponent) ProtoMessage() {}
 
 func (x *ImageComponent) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[6]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -635,7 +2184,7 @@ func (x *ImageComponent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageComponent.ProtoReflect.Descriptor instead.
 func (*ImageComponent) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{6}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ImageComponent) GetVariant() string {
@@ -678,7 +2227,7 @@ type ExtensionInfo struct {
 
 func (x *ExtensionInfo) Reset() {
 	*x = ExtensionInfo{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[7]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -690,7 +2239,7 @@ func (x *ExtensionInfo) String() string {
 func (*ExtensionInfo) ProtoMessage() {}
 
 func (x *ExtensionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[7]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -703,7 +2252,7 @@ func (x *ExtensionInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExtensionInfo.ProtoReflect.Descriptor instead.
 func (*ExtensionInfo) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{7}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ExtensionInfo) GetName() string {
@@ -736,7 +2285,7 @@ type HostnameResponse struct {
 
 func (x *HostnameResponse) Reset() {
 	*x = HostnameResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[8]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -748,7 +2297,7 @@ func (x *HostnameResponse) String() string {
 func (*HostnameResponse) ProtoMessage() {}
 
 func (x *HostnameResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[8]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -761,7 +2310,7 @@ func (x *HostnameResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostnameResponse.ProtoReflect.Descriptor instead.
 func (*HostnameResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{8}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *HostnameResponse) GetHostname() string {
@@ -780,7 +2329,7 @@ type RebootRequest struct {
 
 func (x *RebootRequest) Reset() {
 	*x = RebootRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[9]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -792,7 +2341,7 @@ func (x *RebootRequest) String() string {
 func (*RebootRequest) ProtoMessage() {}
 
 func (x *RebootRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[9]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -805,7 +2354,7 @@ func (x *RebootRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RebootRequest.ProtoReflect.Descriptor instead.
 func (*RebootRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{9}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *RebootRequest) GetMode() RebootMode {
@@ -823,7 +2372,7 @@ type RebootResponse struct {
 
 func (x *RebootResponse) Reset() {
 	*x = RebootResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[10]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -835,7 +2384,7 @@ func (x *RebootResponse) String() string {
 func (*RebootResponse) ProtoMessage() {}
 
 func (x *RebootResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[10]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -848,7 +2397,7 @@ func (x *RebootResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RebootResponse.ProtoReflect.Descriptor instead.
 func (*RebootResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{10}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{29}
 }
 
 type ShutdownResponse struct {
@@ -859,7 +2408,7 @@ type ShutdownResponse struct {
 
 func (x *ShutdownResponse) Reset() {
 	*x = ShutdownResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[11]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -871,7 +2420,7 @@ func (x *ShutdownResponse) String() string {
 func (*ShutdownResponse) ProtoMessage() {}
 
 func (x *ShutdownResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[11]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -884,7 +2433,7 @@ func (x *ShutdownResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShutdownResponse.ProtoReflect.Descriptor instead.
 func (*ShutdownResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{11}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{30}
 }
 
 type RestartResponse struct {
@@ -895,7 +2444,7 @@ type RestartResponse struct {
 
 func (x *RestartResponse) Reset() {
 	*x = RestartResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[12]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -907,7 +2456,7 @@ func (x *RestartResponse) String() string {
 func (*RestartResponse) ProtoMessage() {}
 
 func (x *RestartResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[12]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -920,7 +2469,7 @@ func (x *RestartResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestartResponse.ProtoReflect.Descriptor instead.
 func (*RestartResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{12}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{31}
 }
 
 type ResetRequest struct {
@@ -933,7 +2482,7 @@ type ResetRequest struct {
 
 func (x *ResetRequest) Reset() {
 	*x = ResetRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[13]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -945,7 +2494,7 @@ func (x *ResetRequest) String() string {
 func (*ResetRequest) ProtoMessage() {}
 
 func (x *ResetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[13]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -958,7 +2507,7 @@ func (x *ResetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResetRequest.ProtoReflect.Descriptor instead.
 func (*ResetRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{13}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ResetRequest) GetWipeState() bool {
@@ -983,7 +2532,7 @@ type ResetResponse struct {
 
 func (x *ResetResponse) Reset() {
 	*x = ResetResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[14]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -995,7 +2544,7 @@ func (x *ResetResponse) String() string {
 func (*ResetResponse) ProtoMessage() {}
 
 func (x *ResetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[14]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1008,7 +2557,7 @@ func (x *ResetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResetResponse.ProtoReflect.Descriptor instead.
 func (*ResetResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{14}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{33}
 }
 
 type ApplyConfigurationRequest struct {
@@ -1023,7 +2572,7 @@ type ApplyConfigurationRequest struct {
 
 func (x *ApplyConfigurationRequest) Reset() {
 	*x = ApplyConfigurationRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[15]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1035,7 +2584,7 @@ func (x *ApplyConfigurationRequest) String() string {
 func (*ApplyConfigurationRequest) ProtoMessage() {}
 
 func (x *ApplyConfigurationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[15]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1048,7 +2597,7 @@ func (x *ApplyConfigurationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyConfigurationRequest.ProtoReflect.Descriptor instead.
 func (*ApplyConfigurationRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{15}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ApplyConfigurationRequest) GetConfigYaml() []byte {
@@ -1082,7 +2631,7 @@ type ApplyConfigurationResponse struct {
 
 func (x *ApplyConfigurationResponse) Reset() {
 	*x = ApplyConfigurationResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[16]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1094,7 +2643,7 @@ func (x *ApplyConfigurationResponse) String() string {
 func (*ApplyConfigurationResponse) ProtoMessage() {}
 
 func (x *ApplyConfigurationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[16]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1107,7 +2656,7 @@ func (x *ApplyConfigurationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyConfigurationResponse.ProtoReflect.Descriptor instead.
 func (*ApplyConfigurationResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{16}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ApplyConfigurationResponse) GetMessage() string {
@@ -1134,7 +2683,7 @@ type EventsRequest struct {
 
 func (x *EventsRequest) Reset() {
 	*x = EventsRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[17]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1146,7 +2695,7 @@ func (x *EventsRequest) String() string {
 func (*EventsRequest) ProtoMessage() {}
 
 func (x *EventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[17]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1159,7 +2708,7 @@ func (x *EventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventsRequest.ProtoReflect.Descriptor instead.
 func (*EventsRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{17}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *EventsRequest) GetSinceId() uint64 {
@@ -1181,7 +2730,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[18]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1193,7 +2742,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[18]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1206,7 +2755,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{18}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *Event) GetId() uint64 {
@@ -1246,7 +2795,7 @@ type DmesgRequest struct {
 
 func (x *DmesgRequest) Reset() {
 	*x = DmesgRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[19]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1258,7 +2807,7 @@ func (x *DmesgRequest) String() string {
 func (*DmesgRequest) ProtoMessage() {}
 
 func (x *DmesgRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[19]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1271,7 +2820,7 @@ func (x *DmesgRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DmesgRequest.ProtoReflect.Descriptor instead.
 func (*DmesgRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{19}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *DmesgRequest) GetFollow() bool {
@@ -1294,7 +2843,7 @@ type LogsRequest struct {
 
 func (x *LogsRequest) Reset() {
 	*x = LogsRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[20]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1306,7 +2855,7 @@ func (x *LogsRequest) String() string {
 func (*LogsRequest) ProtoMessage() {}
 
 func (x *LogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[20]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1319,7 +2868,7 @@ func (x *LogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogsRequest.ProtoReflect.Descriptor instead.
 func (*LogsRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{20}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *LogsRequest) GetId() string {
@@ -1352,7 +2901,7 @@ type StatsResponse struct {
 
 func (x *StatsResponse) Reset() {
 	*x = StatsResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[21]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1364,7 +2913,7 @@ func (x *StatsResponse) String() string {
 func (*StatsResponse) ProtoMessage() {}
 
 func (x *StatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[21]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1377,7 +2926,7 @@ func (x *StatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatsResponse.ProtoReflect.Descriptor instead.
 func (*StatsResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{21}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *StatsResponse) GetProcesses() []*ProcessStat {
@@ -1402,7 +2951,7 @@ type ProcessStat struct {
 
 func (x *ProcessStat) Reset() {
 	*x = ProcessStat{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[22]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1414,7 +2963,7 @@ func (x *ProcessStat) String() string {
 func (*ProcessStat) ProtoMessage() {}
 
 func (x *ProcessStat) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[22]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1427,7 +2976,7 @@ func (x *ProcessStat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessStat.ProtoReflect.Descriptor instead.
 func (*ProcessStat) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{22}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ProcessStat) GetId() string {
@@ -1474,7 +3023,7 @@ type SystemStatResponse struct {
 
 func (x *SystemStatResponse) Reset() {
 	*x = SystemStatResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[23]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1486,7 +3035,7 @@ func (x *SystemStatResponse) String() string {
 func (*SystemStatResponse) ProtoMessage() {}
 
 func (x *SystemStatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[23]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1499,7 +3048,7 @@ func (x *SystemStatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SystemStatResponse.ProtoReflect.Descriptor instead.
 func (*SystemStatResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{23}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *SystemStatResponse) GetBootTimeUnix() uint64 {
@@ -1548,7 +3097,7 @@ type MemoryResponse struct {
 
 func (x *MemoryResponse) Reset() {
 	*x = MemoryResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[24]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1560,7 +3109,7 @@ func (x *MemoryResponse) String() string {
 func (*MemoryResponse) ProtoMessage() {}
 
 func (x *MemoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[24]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1573,7 +3122,7 @@ func (x *MemoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemoryResponse.ProtoReflect.Descriptor instead.
 func (*MemoryResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{24}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *MemoryResponse) GetTotalBytes() uint64 {
@@ -1610,7 +3159,7 @@ type CPUInfoResponse struct {
 
 func (x *CPUInfoResponse) Reset() {
 	*x = CPUInfoResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[25]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1622,7 +3171,7 @@ func (x *CPUInfoResponse) String() string {
 func (*CPUInfoResponse) ProtoMessage() {}
 
 func (x *CPUInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[25]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1635,7 +3184,7 @@ func (x *CPUInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPUInfoResponse.ProtoReflect.Descriptor instead.
 func (*CPUInfoResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{25}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *CPUInfoResponse) GetCpus() []*CPUInfo {
@@ -1674,7 +3223,7 @@ type CPUInfo struct {
 
 func (x *CPUInfo) Reset() {
 	*x = CPUInfo{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[26]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1686,7 +3235,7 @@ func (x *CPUInfo) String() string {
 func (*CPUInfo) ProtoMessage() {}
 
 func (x *CPUInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[26]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1699,7 +3248,7 @@ func (x *CPUInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPUInfo.ProtoReflect.Descriptor instead.
 func (*CPUInfo) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{26}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *CPUInfo) GetProcessor() uint32 {
@@ -1734,7 +3283,7 @@ type LoadAvgResponse struct {
 
 func (x *LoadAvgResponse) Reset() {
 	*x = LoadAvgResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[27]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1746,7 +3295,7 @@ func (x *LoadAvgResponse) String() string {
 func (*LoadAvgResponse) ProtoMessage() {}
 
 func (x *LoadAvgResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[27]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1759,7 +3308,7 @@ func (x *LoadAvgResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoadAvgResponse.ProtoReflect.Descriptor instead.
 func (*LoadAvgResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{27}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *LoadAvgResponse) GetLoad1() float64 {
@@ -1792,7 +3341,7 @@ type DiskStatsResponse struct {
 
 func (x *DiskStatsResponse) Reset() {
 	*x = DiskStatsResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[28]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1804,7 +3353,7 @@ func (x *DiskStatsResponse) String() string {
 func (*DiskStatsResponse) ProtoMessage() {}
 
 func (x *DiskStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[28]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1817,7 +3366,7 @@ func (x *DiskStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiskStatsResponse.ProtoReflect.Descriptor instead.
 func (*DiskStatsResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{28}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *DiskStatsResponse) GetDisks() []*DiskStat {
@@ -1838,7 +3387,7 @@ type DiskStat struct {
 
 func (x *DiskStat) Reset() {
 	*x = DiskStat{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[29]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1850,7 +3399,7 @@ func (x *DiskStat) String() string {
 func (*DiskStat) ProtoMessage() {}
 
 func (x *DiskStat) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[29]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1863,7 +3412,7 @@ func (x *DiskStat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiskStat.ProtoReflect.Descriptor instead.
 func (*DiskStat) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{29}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *DiskStat) GetDeviceName() string {
@@ -1897,7 +3446,7 @@ type DiskUsageRequest struct {
 
 func (x *DiskUsageRequest) Reset() {
 	*x = DiskUsageRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[30]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1909,7 +3458,7 @@ func (x *DiskUsageRequest) String() string {
 func (*DiskUsageRequest) ProtoMessage() {}
 
 func (x *DiskUsageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[30]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1922,7 +3471,7 @@ func (x *DiskUsageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiskUsageRequest.ProtoReflect.Descriptor instead.
 func (*DiskUsageRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{30}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *DiskUsageRequest) GetPaths() []string {
@@ -1950,7 +3499,7 @@ type DiskUsageInfo struct {
 
 func (x *DiskUsageInfo) Reset() {
 	*x = DiskUsageInfo{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[31]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1962,7 +3511,7 @@ func (x *DiskUsageInfo) String() string {
 func (*DiskUsageInfo) ProtoMessage() {}
 
 func (x *DiskUsageInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[31]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1975,7 +3524,7 @@ func (x *DiskUsageInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiskUsageInfo.ProtoReflect.Descriptor instead.
 func (*DiskUsageInfo) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{31}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *DiskUsageInfo) GetPath() string {
@@ -2008,7 +3557,7 @@ type NetworkDeviceStatsResponse struct {
 
 func (x *NetworkDeviceStatsResponse) Reset() {
 	*x = NetworkDeviceStatsResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[32]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2020,7 +3569,7 @@ func (x *NetworkDeviceStatsResponse) String() string {
 func (*NetworkDeviceStatsResponse) ProtoMessage() {}
 
 func (x *NetworkDeviceStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[32]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2033,7 +3582,7 @@ func (x *NetworkDeviceStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkDeviceStatsResponse.ProtoReflect.Descriptor instead.
 func (*NetworkDeviceStatsResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{32}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *NetworkDeviceStatsResponse) GetDevices() []*NetworkDeviceStat {
@@ -2056,7 +3605,7 @@ type NetworkDeviceStat struct {
 
 func (x *NetworkDeviceStat) Reset() {
 	*x = NetworkDeviceStat{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[33]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2068,7 +3617,7 @@ func (x *NetworkDeviceStat) String() string {
 func (*NetworkDeviceStat) ProtoMessage() {}
 
 func (x *NetworkDeviceStat) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[33]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2081,7 +3630,7 @@ func (x *NetworkDeviceStat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkDeviceStat.ProtoReflect.Descriptor instead.
 func (*NetworkDeviceStat) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{33}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *NetworkDeviceStat) GetName() string {
@@ -2128,7 +3677,7 @@ type NetstatResponse struct {
 
 func (x *NetstatResponse) Reset() {
 	*x = NetstatResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[34]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2140,7 +3689,7 @@ func (x *NetstatResponse) String() string {
 func (*NetstatResponse) ProtoMessage() {}
 
 func (x *NetstatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[34]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2153,7 +3702,7 @@ func (x *NetstatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetstatResponse.ProtoReflect.Descriptor instead.
 func (*NetstatResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{34}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *NetstatResponse) GetConnections() []*Connection {
@@ -2175,7 +3724,7 @@ type Connection struct {
 
 func (x *Connection) Reset() {
 	*x = Connection{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[35]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2187,7 +3736,7 @@ func (x *Connection) String() string {
 func (*Connection) ProtoMessage() {}
 
 func (x *Connection) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[35]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2200,7 +3749,7 @@ func (x *Connection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Connection.ProtoReflect.Descriptor instead.
 func (*Connection) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{35}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *Connection) GetLocalAddress() string {
@@ -2240,7 +3789,7 @@ type MountsResponse struct {
 
 func (x *MountsResponse) Reset() {
 	*x = MountsResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[36]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2252,7 +3801,7 @@ func (x *MountsResponse) String() string {
 func (*MountsResponse) ProtoMessage() {}
 
 func (x *MountsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[36]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2265,7 +3814,7 @@ func (x *MountsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MountsResponse.ProtoReflect.Descriptor instead.
 func (*MountsResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{36}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *MountsResponse) GetMounts() []*MountStat {
@@ -2288,7 +3837,7 @@ type MountStat struct {
 
 func (x *MountStat) Reset() {
 	*x = MountStat{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[37]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2300,7 +3849,7 @@ func (x *MountStat) String() string {
 func (*MountStat) ProtoMessage() {}
 
 func (x *MountStat) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[37]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2313,7 +3862,7 @@ func (x *MountStat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MountStat.ProtoReflect.Descriptor instead.
 func (*MountStat) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{37}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *MountStat) GetFilesystem() string {
@@ -2360,7 +3909,7 @@ type ProcessesResponse struct {
 
 func (x *ProcessesResponse) Reset() {
 	*x = ProcessesResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[38]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2372,7 +3921,7 @@ func (x *ProcessesResponse) String() string {
 func (*ProcessesResponse) ProtoMessage() {}
 
 func (x *ProcessesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[38]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2385,7 +3934,7 @@ func (x *ProcessesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessesResponse.ProtoReflect.Descriptor instead.
 func (*ProcessesResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{38}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ProcessesResponse) GetProcesses() []*ProcessInfo {
@@ -2407,7 +3956,7 @@ type ProcessInfo struct {
 
 func (x *ProcessInfo) Reset() {
 	*x = ProcessInfo{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[39]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2419,7 +3968,7 @@ func (x *ProcessInfo) String() string {
 func (*ProcessInfo) ProtoMessage() {}
 
 func (x *ProcessInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[39]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2432,7 +3981,7 @@ func (x *ProcessInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessInfo.ProtoReflect.Descriptor instead.
 func (*ProcessInfo) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{39}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *ProcessInfo) GetPid() int32 {
@@ -2478,7 +4027,7 @@ type ServiceInfo struct {
 
 func (x *ServiceInfo) Reset() {
 	*x = ServiceInfo{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[40]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2490,7 +4039,7 @@ func (x *ServiceInfo) String() string {
 func (*ServiceInfo) ProtoMessage() {}
 
 func (x *ServiceInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[40]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2503,7 +4052,7 @@ func (x *ServiceInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceInfo.ProtoReflect.Descriptor instead.
 func (*ServiceInfo) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{40}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *ServiceInfo) GetId() string {
@@ -2550,7 +4099,7 @@ type ServiceListResponse struct {
 
 func (x *ServiceListResponse) Reset() {
 	*x = ServiceListResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[41]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2562,7 +4111,7 @@ func (x *ServiceListResponse) String() string {
 func (*ServiceListResponse) ProtoMessage() {}
 
 func (x *ServiceListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[41]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2575,7 +4124,7 @@ func (x *ServiceListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceListResponse.ProtoReflect.Descriptor instead.
 func (*ServiceListResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{41}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *ServiceListResponse) GetServices() []*ServiceInfo {
@@ -2594,7 +4143,7 @@ type ServiceRequest struct {
 
 func (x *ServiceRequest) Reset() {
 	*x = ServiceRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[42]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2606,7 +4155,7 @@ func (x *ServiceRequest) String() string {
 func (*ServiceRequest) ProtoMessage() {}
 
 func (x *ServiceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[42]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2619,7 +4168,7 @@ func (x *ServiceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceRequest.ProtoReflect.Descriptor instead.
 func (*ServiceRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{42}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *ServiceRequest) GetId() string {
@@ -2638,7 +4187,7 @@ type ServiceResponse struct {
 
 func (x *ServiceResponse) Reset() {
 	*x = ServiceResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[43]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2650,7 +4199,7 @@ func (x *ServiceResponse) String() string {
 func (*ServiceResponse) ProtoMessage() {}
 
 func (x *ServiceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[43]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2663,7 +4212,7 @@ func (x *ServiceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceResponse.ProtoReflect.Descriptor instead.
 func (*ServiceResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{43}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *ServiceResponse) GetService() *ServiceInfo {
@@ -2683,7 +4232,7 @@ type ListRequest struct {
 
 func (x *ListRequest) Reset() {
 	*x = ListRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[44]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2695,7 +4244,7 @@ func (x *ListRequest) String() string {
 func (*ListRequest) ProtoMessage() {}
 
 func (x *ListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[44]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2708,7 +4257,7 @@ func (x *ListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRequest.ProtoReflect.Descriptor instead.
 func (*ListRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{44}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *ListRequest) GetRoot() string {
@@ -2739,7 +4288,7 @@ type FileInfo struct {
 
 func (x *FileInfo) Reset() {
 	*x = FileInfo{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[45]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2751,7 +4300,7 @@ func (x *FileInfo) String() string {
 func (*FileInfo) ProtoMessage() {}
 
 func (x *FileInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[45]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2764,7 +4313,7 @@ func (x *FileInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileInfo.ProtoReflect.Descriptor instead.
 func (*FileInfo) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{45}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *FileInfo) GetName() string {
@@ -2818,7 +4367,7 @@ type ReadRequest struct {
 
 func (x *ReadRequest) Reset() {
 	*x = ReadRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[46]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2830,7 +4379,7 @@ func (x *ReadRequest) String() string {
 func (*ReadRequest) ProtoMessage() {}
 
 func (x *ReadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[46]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2843,7 +4392,7 @@ func (x *ReadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadRequest.ProtoReflect.Descriptor instead.
 func (*ReadRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{46}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *ReadRequest) GetPath() string {
@@ -2863,7 +4412,7 @@ type CopyRequest struct {
 
 func (x *CopyRequest) Reset() {
 	*x = CopyRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[47]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2875,7 +4424,7 @@ func (x *CopyRequest) String() string {
 func (*CopyRequest) ProtoMessage() {}
 
 func (x *CopyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[47]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2888,7 +4437,7 @@ func (x *CopyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CopyRequest.ProtoReflect.Descriptor instead.
 func (*CopyRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{47}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *CopyRequest) GetRootPath() string {
@@ -2925,7 +4474,7 @@ type PacketCaptureRequest struct {
 
 func (x *PacketCaptureRequest) Reset() {
 	*x = PacketCaptureRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[48]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2937,7 +4486,7 @@ func (x *PacketCaptureRequest) String() string {
 func (*PacketCaptureRequest) ProtoMessage() {}
 
 func (x *PacketCaptureRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[48]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2950,7 +4499,7 @@ func (x *PacketCaptureRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PacketCaptureRequest.ProtoReflect.Descriptor instead.
 func (*PacketCaptureRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{48}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *PacketCaptureRequest) GetInterface() string {
@@ -3005,7 +4554,7 @@ type MetaWriteRequest struct {
 
 func (x *MetaWriteRequest) Reset() {
 	*x = MetaWriteRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[49]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3017,7 +4566,7 @@ func (x *MetaWriteRequest) String() string {
 func (*MetaWriteRequest) ProtoMessage() {}
 
 func (x *MetaWriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[49]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3030,7 +4579,7 @@ func (x *MetaWriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetaWriteRequest.ProtoReflect.Descriptor instead.
 func (*MetaWriteRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{49}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *MetaWriteRequest) GetKey() uint32 {
@@ -3056,7 +4605,7 @@ type MetaDeleteRequest struct {
 
 func (x *MetaDeleteRequest) Reset() {
 	*x = MetaDeleteRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[50]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3068,7 +4617,7 @@ func (x *MetaDeleteRequest) String() string {
 func (*MetaDeleteRequest) ProtoMessage() {}
 
 func (x *MetaDeleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[50]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3081,7 +4630,7 @@ func (x *MetaDeleteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetaDeleteRequest.ProtoReflect.Descriptor instead.
 func (*MetaDeleteRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{50}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *MetaDeleteRequest) GetKey() uint32 {
@@ -3109,7 +4658,7 @@ type GenerateClientConfigurationRequest struct {
 
 func (x *GenerateClientConfigurationRequest) Reset() {
 	*x = GenerateClientConfigurationRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[51]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3121,7 +4670,7 @@ func (x *GenerateClientConfigurationRequest) String() string {
 func (*GenerateClientConfigurationRequest) ProtoMessage() {}
 
 func (x *GenerateClientConfigurationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[51]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3134,7 +4683,7 @@ func (x *GenerateClientConfigurationRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use GenerateClientConfigurationRequest.ProtoReflect.Descriptor instead.
 func (*GenerateClientConfigurationRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{51}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *GenerateClientConfigurationRequest) GetRoles() []string {
@@ -3169,7 +4718,7 @@ type GenerateClientConfigurationResponse struct {
 
 func (x *GenerateClientConfigurationResponse) Reset() {
 	*x = GenerateClientConfigurationResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[52]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3181,7 +4730,7 @@ func (x *GenerateClientConfigurationResponse) String() string {
 func (*GenerateClientConfigurationResponse) ProtoMessage() {}
 
 func (x *GenerateClientConfigurationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[52]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3194,7 +4743,7 @@ func (x *GenerateClientConfigurationResponse) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use GenerateClientConfigurationResponse.ProtoReflect.Descriptor instead.
 func (*GenerateClientConfigurationResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{52}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *GenerateClientConfigurationResponse) GetCa() []byte {
@@ -3222,7 +4771,121 @@ var File_janus_v1alpha1_system_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\n" +
-	"\x1bjanus/v1alpha1/system.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1bjanus/v1alpha1/common.proto\"=\n" +
+	"\x1bjanus/v1alpha1/system.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1bjanus/v1alpha1/common.proto\"1\n" +
+	"\vSysctlBound\x12\x10\n" +
+	"\x03min\x18\x01 \x01(\x03R\x03min\x12\x10\n" +
+	"\x03max\x18\x02 \x01(\x03R\x03max\"6\n" +
+	"\fSysctlSource\x12\x14\n" +
+	"\x05title\x18\x01 \x01(\tR\x05title\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\"\xf3\x06\n" +
+	"\x0fSysctlParameter\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
+	"\x05class\x18\x02 \x01(\x0e2\x1b.janus.v1alpha1.SysctlClassR\x05class\x12.\n" +
+	"\x04kind\x18\x03 \x01(\x0e2\x1a.janus.v1alpha1.SysctlKindR\x04kind\x12\x12\n" +
+	"\x04unit\x18\x04 \x01(\tR\x04unit\x12\x14\n" +
+	"\x05value\x18\x05 \x01(\tR\x05value\x12\x18\n" +
+	"\amissing\x18\x06 \x01(\tR\amissing\x12#\n" +
+	"\rdefault_value\x18\a \x01(\tR\fdefaultValue\x12'\n" +
+	"\x0fdefault_dynamic\x18\b \x01(\bR\x0edefaultDynamic\x12\x14\n" +
+	"\x05saved\x18\t \x01(\bR\x05saved\x12\x1f\n" +
+	"\vsaved_value\x18\n" +
+	" \x01(\tR\n" +
+	"savedValue\x12\x19\n" +
+	"\bon_trial\x18\v \x01(\bR\aonTrial\x123\n" +
+	"\x06bounds\x18\f \x03(\v2\x1b.janus.v1alpha1.SysctlBoundR\x06bounds\x12\x18\n" +
+	"\aallowed\x18\r \x03(\x03R\aallowed\x12\x1b\n" +
+	"\tmax_items\x18\x0e \x01(\rR\bmaxItems\x127\n" +
+	"\aapplies\x18\x0f \x01(\x0e2\x1d.janus.v1alpha1.SysctlAppliesR\aapplies\x12\x1a\n" +
+	"\brequires\x18\x10 \x01(\tR\brequires\x12\x18\n" +
+	"\asummary\x18\x11 \x01(\tR\asummary\x12\x16\n" +
+	"\x06effect\x18\x12 \x01(\tR\x06effect\x12\x12\n" +
+	"\x04risk\x18\x13 \x01(\tR\x04risk\x12\x10\n" +
+	"\x03why\x18\x14 \x01(\tR\x03why\x12%\n" +
+	"\x0ekernel_default\x18\x15 \x01(\tR\rkernelDefault\x12#\n" +
+	"\rhaproxy_value\x18\x16 \x01(\tR\fhaproxyValue\x126\n" +
+	"\asources\x18\x17 \x03(\v2\x1c.janus.v1alpha1.SysctlSourceR\asources\x12\x1a\n" +
+	"\bwarnings\x18\x18 \x03(\tR\bwarnings\x12L\n" +
+	"\x0erecommendation\x18\x19 \x01(\v2$.janus.v1alpha1.SysctlRecommendationR\x0erecommendation\"U\n" +
+	"\x11SysctlMeasurement\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\x12\x16\n" +
+	"\x06window\x18\x03 \x01(\tR\x06window\"\xd0\x01\n" +
+	"\x14SysctlRecommendation\x12\x14\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value\x12\x17\n" +
+	"\arule_id\x18\x02 \x01(\tR\x06ruleId\x12\x12\n" +
+	"\x04rule\x18\x03 \x01(\tR\x04rule\x12=\n" +
+	"\bmeasured\x18\x04 \x03(\v2!.janus.v1alpha1.SysctlMeasurementR\bmeasured\x126\n" +
+	"\asources\x18\x05 \x03(\v2\x1c.janus.v1alpha1.SysctlSourceR\asources\"\xd0\x01\n" +
+	"\x10SysctlCISControl\x12\x10\n" +
+	"\x03ids\x18\x01 \x03(\tR\x03ids\x12\x14\n" +
+	"\x05level\x18\x02 \x01(\rR\x05level\x12\x10\n" +
+	"\x03key\x18\x03 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x04 \x01(\tR\x05value\x12\x12\n" +
+	"\x04want\x18\x05 \x03(\tR\x04want\x12\x1c\n" +
+	"\tcompliant\x18\x06 \x01(\bR\tcompliant\x12\x1a\n" +
+	"\bproblems\x18\a \x03(\tR\bproblems\x12\x1e\n" +
+	"\n" +
+	"interfaces\x18\b \x01(\tR\n" +
+	"interfaces\"\x9f\x01\n" +
+	"\tSysctlCIS\x12\x1c\n" +
+	"\tbenchmark\x18\x01 \x01(\tR\tbenchmark\x12\x18\n" +
+	"\aprofile\x18\x02 \x01(\tR\aprofile\x12\x1c\n" +
+	"\tcompliant\x18\x03 \x01(\rR\tcompliant\x12<\n" +
+	"\bcontrols\x18\x04 \x03(\v2 .janus.v1alpha1.SysctlCISControlR\bcontrols\"I\n" +
+	"\vSysctlActor\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05roles\x18\x02 \x03(\tR\x05roles\x12\x10\n" +
+	"\x03via\x18\x03 \x01(\tR\x03via\"{\n" +
+	"\fSysctlChange\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
+	"\told_value\x18\x02 \x01(\tR\boldValue\x12\x1b\n" +
+	"\tnew_value\x18\x03 \x01(\tR\bnewValue\x12\x1d\n" +
+	"\n" +
+	"to_default\x18\x04 \x01(\bR\ttoDefault\"\xec\x01\n" +
+	"\vSysctlTrial\x12!\n" +
+	"\fstarted_unix\x18\x01 \x01(\x03R\vstartedUnix\x12$\n" +
+	"\x0erevert_at_unix\x18\x02 \x01(\x03R\frevertAtUnix\x126\n" +
+	"\achanges\x18\x03 \x03(\v2\x1c.janus.v1alpha1.SysctlChangeR\achanges\x121\n" +
+	"\x05actor\x18\x04 \x01(\v2\x1b.janus.v1alpha1.SysctlActorR\x05actor\x12)\n" +
+	"\x10haproxy_reloaded\x18\x05 \x01(\bR\x0fhaproxyReloaded\"\xcf\x01\n" +
+	"\x12SysctlListResponse\x12\x18\n" +
+	"\amanaged\x18\x01 \x01(\bR\amanaged\x12?\n" +
+	"\n" +
+	"parameters\x18\x02 \x03(\v2\x1f.janus.v1alpha1.SysctlParameterR\n" +
+	"parameters\x12+\n" +
+	"\x03cis\x18\x03 \x01(\v2\x19.janus.v1alpha1.SysctlCISR\x03cis\x121\n" +
+	"\x05trial\x18\x04 \x01(\v2\x1b.janus.v1alpha1.SysctlTrialR\x05trial\"^\n" +
+	"\x13SysctlChangeRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\x12\x1d\n" +
+	"\n" +
+	"to_default\x18\x03 \x01(\bR\ttoDefault\"\xf4\x01\n" +
+	"\x12SysctlApplyRequest\x12=\n" +
+	"\achanges\x18\x01 \x03(\v2#.janus.v1alpha1.SysctlChangeRequestR\achanges\x12\x1b\n" +
+	"\treset_all\x18\x02 \x01(\bR\bresetAll\x126\n" +
+	"\x17confirm_timeout_seconds\x18\x03 \x01(\rR\x15confirmTimeoutSeconds\x12%\n" +
+	"\x0ereload_haproxy\x18\x04 \x01(\bR\rreloadHaproxy\x12#\n" +
+	"\rvalidate_only\x18\x05 \x01(\bR\fvalidateOnly\"@\n" +
+	"\x10SysctlFieldError\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xd6\x01\n" +
+	"\x13SysctlApplyResponse\x12\x1a\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\x128\n" +
+	"\x06errors\x18\x02 \x03(\v2 .janus.v1alpha1.SysctlFieldErrorR\x06errors\x126\n" +
+	"\achanges\x18\x03 \x03(\v2\x1c.janus.v1alpha1.SysctlChangeR\achanges\x121\n" +
+	"\x05trial\x18\x04 \x01(\v2\x1b.janus.v1alpha1.SysctlTrialR\x05trial\"H\n" +
+	"\x13SysctlTrialResponse\x121\n" +
+	"\x05trial\x18\x01 \x01(\v2\x1b.janus.v1alpha1.SysctlTrialR\x05trial\",\n" +
+	"\x14SysctlHistoryRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\rR\x05limit\"\xcc\x01\n" +
+	"\x12SysctlHistoryEntry\x12\x1b\n" +
+	"\ttime_unix\x18\x01 \x01(\x03R\btimeUnix\x121\n" +
+	"\x05actor\x18\x02 \x01(\v2\x1b.janus.v1alpha1.SysctlActorR\x05actor\x12\x16\n" +
+	"\x06action\x18\x03 \x01(\tR\x06action\x126\n" +
+	"\achanges\x18\x04 \x03(\v2\x1c.janus.v1alpha1.SysctlChangeR\achanges\x12\x16\n" +
+	"\x06detail\x18\x05 \x01(\tR\x06detail\"U\n" +
+	"\x15SysctlHistoryResponse\x12<\n" +
+	"\aentries\x18\x01 \x03(\v2\".janus.v1alpha1.SysctlHistoryEntryR\aentries\"=\n" +
 	"\rMetricsConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\"|\n" +
@@ -3450,11 +5113,30 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"#GenerateClientConfigurationResponse\x12\x0e\n" +
 	"\x02ca\x18\x01 \x01(\fR\x02ca\x12\x10\n" +
 	"\x03crt\x18\x02 \x01(\fR\x03crt\x12\x10\n" +
-	"\x03key\x18\x03 \x01(\fR\x03key*A\n" +
+	"\x03key\x18\x03 \x01(\fR\x03key*~\n" +
+	"\vSysctlClass\x12\x1c\n" +
+	"\x18SYSCTL_CLASS_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15SYSCTL_CLASS_EDITABLE\x10\x01\x12\x1a\n" +
+	"\x16SYSCTL_CLASS_READ_ONLY\x10\x02\x12\x1a\n" +
+	"\x16SYSCTL_CLASS_FORBIDDEN\x10\x03*\xaf\x01\n" +
+	"\n" +
+	"SysctlKind\x12\x1b\n" +
+	"\x17SYSCTL_KIND_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fSYSCTL_KIND_INT\x10\x01\x12\x14\n" +
+	"\x10SYSCTL_KIND_ENUM\x10\x02\x12\x14\n" +
+	"\x10SYSCTL_KIND_PAIR\x10\x03\x12\x16\n" +
+	"\x12SYSCTL_KIND_TRIPLE\x10\x04\x12\x15\n" +
+	"\x11SYSCTL_KIND_PORTS\x10\x05\x12\x14\n" +
+	"\x10SYSCTL_KIND_TEXT\x10\x06*\x96\x01\n" +
+	"\rSysctlApplies\x12\x1e\n" +
+	"\x1aSYSCTL_APPLIES_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aSYSCTL_APPLIES_IMMEDIATELY\x10\x01\x12\"\n" +
+	"\x1eSYSCTL_APPLIES_NEW_CONNECTIONS\x10\x02\x12!\n" +
+	"\x1dSYSCTL_APPLIES_HAPROXY_RELOAD\x10\x03*A\n" +
 	"\n" +
 	"RebootMode\x12\x17\n" +
 	"\x13REBOOT_MODE_DEFAULT\x10\x00\x12\x1a\n" +
-	"\x16REBOOT_MODE_POWERCYCLE\x10\x012\xc9\x15\n" +
+	"\x16REBOOT_MODE_POWERCYCLE\x10\x012\xe4\x18\n" +
 	"\rSystemService\x12B\n" +
 	"\aVersion\x12\x16.google.protobuf.Empty\x1a\x1f.janus.v1alpha1.VersionResponse\x12D\n" +
 	"\bHostname\x12\x16.google.protobuf.Empty\x1a .janus.v1alpha1.HostnameResponse\x12G\n" +
@@ -3493,7 +5175,13 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\x10MetricsConfigGet\x12\x16.google.protobuf.Empty\x1a%.janus.v1alpha1.MetricsConfigResponse\x12X\n" +
 	"\x10MetricsConfigSet\x12\x1d.janus.v1alpha1.MetricsConfig\x1a%.janus.v1alpha1.MetricsConfigResponse\x12[\n" +
 	"\x15NodeExporterConfigGet\x12\x16.google.protobuf.Empty\x1a*.janus.v1alpha1.NodeExporterConfigResponse\x12g\n" +
-	"\x15NodeExporterConfigSet\x12\".janus.v1alpha1.NodeExporterConfig\x1a*.janus.v1alpha1.NodeExporterConfigResponseB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
+	"\x15NodeExporterConfigSet\x12\".janus.v1alpha1.NodeExporterConfig\x1a*.janus.v1alpha1.NodeExporterConfigResponse\x12H\n" +
+	"\n" +
+	"SysctlList\x12\x16.google.protobuf.Empty\x1a\".janus.v1alpha1.SysctlListResponse\x12V\n" +
+	"\vSysctlApply\x12\".janus.v1alpha1.SysctlApplyRequest\x1a#.janus.v1alpha1.SysctlApplyResponse\x12L\n" +
+	"\rSysctlConfirm\x12\x16.google.protobuf.Empty\x1a#.janus.v1alpha1.SysctlTrialResponse\x12K\n" +
+	"\fSysctlCancel\x12\x16.google.protobuf.Empty\x1a#.janus.v1alpha1.SysctlTrialResponse\x12\\\n" +
+	"\rSysctlHistory\x12$.janus.v1alpha1.SysctlHistoryRequest\x1a%.janus.v1alpha1.SysctlHistoryResponseB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
 
 var (
 	file_janus_v1alpha1_system_proto_rawDescOnce sync.Once
@@ -3507,162 +5195,216 @@ func file_janus_v1alpha1_system_proto_rawDescGZIP() []byte {
 	return file_janus_v1alpha1_system_proto_rawDescData
 }
 
-var file_janus_v1alpha1_system_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_janus_v1alpha1_system_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
+var file_janus_v1alpha1_system_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_janus_v1alpha1_system_proto_msgTypes = make([]protoimpl.MessageInfo, 72)
 var file_janus_v1alpha1_system_proto_goTypes = []any{
-	(RebootMode)(0),                             // 0: janus.v1alpha1.RebootMode
-	(ApplyConfigurationRequest_Mode)(0),         // 1: janus.v1alpha1.ApplyConfigurationRequest.Mode
-	(*MetricsConfig)(nil),                       // 2: janus.v1alpha1.MetricsConfig
-	(*NodeExporterConfig)(nil),                  // 3: janus.v1alpha1.NodeExporterConfig
-	(*NodeExporterCollector)(nil),               // 4: janus.v1alpha1.NodeExporterCollector
-	(*NodeExporterConfigResponse)(nil),          // 5: janus.v1alpha1.NodeExporterConfigResponse
-	(*MetricsConfigResponse)(nil),               // 6: janus.v1alpha1.MetricsConfigResponse
-	(*VersionResponse)(nil),                     // 7: janus.v1alpha1.VersionResponse
-	(*ImageComponent)(nil),                      // 8: janus.v1alpha1.ImageComponent
-	(*ExtensionInfo)(nil),                       // 9: janus.v1alpha1.ExtensionInfo
-	(*HostnameResponse)(nil),                    // 10: janus.v1alpha1.HostnameResponse
-	(*RebootRequest)(nil),                       // 11: janus.v1alpha1.RebootRequest
-	(*RebootResponse)(nil),                      // 12: janus.v1alpha1.RebootResponse
-	(*ShutdownResponse)(nil),                    // 13: janus.v1alpha1.ShutdownResponse
-	(*RestartResponse)(nil),                     // 14: janus.v1alpha1.RestartResponse
-	(*ResetRequest)(nil),                        // 15: janus.v1alpha1.ResetRequest
-	(*ResetResponse)(nil),                       // 16: janus.v1alpha1.ResetResponse
-	(*ApplyConfigurationRequest)(nil),           // 17: janus.v1alpha1.ApplyConfigurationRequest
-	(*ApplyConfigurationResponse)(nil),          // 18: janus.v1alpha1.ApplyConfigurationResponse
-	(*EventsRequest)(nil),                       // 19: janus.v1alpha1.EventsRequest
-	(*Event)(nil),                               // 20: janus.v1alpha1.Event
-	(*DmesgRequest)(nil),                        // 21: janus.v1alpha1.DmesgRequest
-	(*LogsRequest)(nil),                         // 22: janus.v1alpha1.LogsRequest
-	(*StatsResponse)(nil),                       // 23: janus.v1alpha1.StatsResponse
-	(*ProcessStat)(nil),                         // 24: janus.v1alpha1.ProcessStat
-	(*SystemStatResponse)(nil),                  // 25: janus.v1alpha1.SystemStatResponse
-	(*MemoryResponse)(nil),                      // 26: janus.v1alpha1.MemoryResponse
-	(*CPUInfoResponse)(nil),                     // 27: janus.v1alpha1.CPUInfoResponse
-	(*CPUInfo)(nil),                             // 28: janus.v1alpha1.CPUInfo
-	(*LoadAvgResponse)(nil),                     // 29: janus.v1alpha1.LoadAvgResponse
-	(*DiskStatsResponse)(nil),                   // 30: janus.v1alpha1.DiskStatsResponse
-	(*DiskStat)(nil),                            // 31: janus.v1alpha1.DiskStat
-	(*DiskUsageRequest)(nil),                    // 32: janus.v1alpha1.DiskUsageRequest
-	(*DiskUsageInfo)(nil),                       // 33: janus.v1alpha1.DiskUsageInfo
-	(*NetworkDeviceStatsResponse)(nil),          // 34: janus.v1alpha1.NetworkDeviceStatsResponse
-	(*NetworkDeviceStat)(nil),                   // 35: janus.v1alpha1.NetworkDeviceStat
-	(*NetstatResponse)(nil),                     // 36: janus.v1alpha1.NetstatResponse
-	(*Connection)(nil),                          // 37: janus.v1alpha1.Connection
-	(*MountsResponse)(nil),                      // 38: janus.v1alpha1.MountsResponse
-	(*MountStat)(nil),                           // 39: janus.v1alpha1.MountStat
-	(*ProcessesResponse)(nil),                   // 40: janus.v1alpha1.ProcessesResponse
-	(*ProcessInfo)(nil),                         // 41: janus.v1alpha1.ProcessInfo
-	(*ServiceInfo)(nil),                         // 42: janus.v1alpha1.ServiceInfo
-	(*ServiceListResponse)(nil),                 // 43: janus.v1alpha1.ServiceListResponse
-	(*ServiceRequest)(nil),                      // 44: janus.v1alpha1.ServiceRequest
-	(*ServiceResponse)(nil),                     // 45: janus.v1alpha1.ServiceResponse
-	(*ListRequest)(nil),                         // 46: janus.v1alpha1.ListRequest
-	(*FileInfo)(nil),                            // 47: janus.v1alpha1.FileInfo
-	(*ReadRequest)(nil),                         // 48: janus.v1alpha1.ReadRequest
-	(*CopyRequest)(nil),                         // 49: janus.v1alpha1.CopyRequest
-	(*PacketCaptureRequest)(nil),                // 50: janus.v1alpha1.PacketCaptureRequest
-	(*MetaWriteRequest)(nil),                    // 51: janus.v1alpha1.MetaWriteRequest
-	(*MetaDeleteRequest)(nil),                   // 52: janus.v1alpha1.MetaDeleteRequest
-	(*GenerateClientConfigurationRequest)(nil),  // 53: janus.v1alpha1.GenerateClientConfigurationRequest
-	(*GenerateClientConfigurationResponse)(nil), // 54: janus.v1alpha1.GenerateClientConfigurationResponse
-	(*emptypb.Empty)(nil),                       // 55: google.protobuf.Empty
-	(*Data)(nil),                                // 56: janus.v1alpha1.Data
+	(SysctlClass)(0),                            // 0: janus.v1alpha1.SysctlClass
+	(SysctlKind)(0),                             // 1: janus.v1alpha1.SysctlKind
+	(SysctlApplies)(0),                          // 2: janus.v1alpha1.SysctlApplies
+	(RebootMode)(0),                             // 3: janus.v1alpha1.RebootMode
+	(ApplyConfigurationRequest_Mode)(0),         // 4: janus.v1alpha1.ApplyConfigurationRequest.Mode
+	(*SysctlBound)(nil),                         // 5: janus.v1alpha1.SysctlBound
+	(*SysctlSource)(nil),                        // 6: janus.v1alpha1.SysctlSource
+	(*SysctlParameter)(nil),                     // 7: janus.v1alpha1.SysctlParameter
+	(*SysctlMeasurement)(nil),                   // 8: janus.v1alpha1.SysctlMeasurement
+	(*SysctlRecommendation)(nil),                // 9: janus.v1alpha1.SysctlRecommendation
+	(*SysctlCISControl)(nil),                    // 10: janus.v1alpha1.SysctlCISControl
+	(*SysctlCIS)(nil),                           // 11: janus.v1alpha1.SysctlCIS
+	(*SysctlActor)(nil),                         // 12: janus.v1alpha1.SysctlActor
+	(*SysctlChange)(nil),                        // 13: janus.v1alpha1.SysctlChange
+	(*SysctlTrial)(nil),                         // 14: janus.v1alpha1.SysctlTrial
+	(*SysctlListResponse)(nil),                  // 15: janus.v1alpha1.SysctlListResponse
+	(*SysctlChangeRequest)(nil),                 // 16: janus.v1alpha1.SysctlChangeRequest
+	(*SysctlApplyRequest)(nil),                  // 17: janus.v1alpha1.SysctlApplyRequest
+	(*SysctlFieldError)(nil),                    // 18: janus.v1alpha1.SysctlFieldError
+	(*SysctlApplyResponse)(nil),                 // 19: janus.v1alpha1.SysctlApplyResponse
+	(*SysctlTrialResponse)(nil),                 // 20: janus.v1alpha1.SysctlTrialResponse
+	(*SysctlHistoryRequest)(nil),                // 21: janus.v1alpha1.SysctlHistoryRequest
+	(*SysctlHistoryEntry)(nil),                  // 22: janus.v1alpha1.SysctlHistoryEntry
+	(*SysctlHistoryResponse)(nil),               // 23: janus.v1alpha1.SysctlHistoryResponse
+	(*MetricsConfig)(nil),                       // 24: janus.v1alpha1.MetricsConfig
+	(*NodeExporterConfig)(nil),                  // 25: janus.v1alpha1.NodeExporterConfig
+	(*NodeExporterCollector)(nil),               // 26: janus.v1alpha1.NodeExporterCollector
+	(*NodeExporterConfigResponse)(nil),          // 27: janus.v1alpha1.NodeExporterConfigResponse
+	(*MetricsConfigResponse)(nil),               // 28: janus.v1alpha1.MetricsConfigResponse
+	(*VersionResponse)(nil),                     // 29: janus.v1alpha1.VersionResponse
+	(*ImageComponent)(nil),                      // 30: janus.v1alpha1.ImageComponent
+	(*ExtensionInfo)(nil),                       // 31: janus.v1alpha1.ExtensionInfo
+	(*HostnameResponse)(nil),                    // 32: janus.v1alpha1.HostnameResponse
+	(*RebootRequest)(nil),                       // 33: janus.v1alpha1.RebootRequest
+	(*RebootResponse)(nil),                      // 34: janus.v1alpha1.RebootResponse
+	(*ShutdownResponse)(nil),                    // 35: janus.v1alpha1.ShutdownResponse
+	(*RestartResponse)(nil),                     // 36: janus.v1alpha1.RestartResponse
+	(*ResetRequest)(nil),                        // 37: janus.v1alpha1.ResetRequest
+	(*ResetResponse)(nil),                       // 38: janus.v1alpha1.ResetResponse
+	(*ApplyConfigurationRequest)(nil),           // 39: janus.v1alpha1.ApplyConfigurationRequest
+	(*ApplyConfigurationResponse)(nil),          // 40: janus.v1alpha1.ApplyConfigurationResponse
+	(*EventsRequest)(nil),                       // 41: janus.v1alpha1.EventsRequest
+	(*Event)(nil),                               // 42: janus.v1alpha1.Event
+	(*DmesgRequest)(nil),                        // 43: janus.v1alpha1.DmesgRequest
+	(*LogsRequest)(nil),                         // 44: janus.v1alpha1.LogsRequest
+	(*StatsResponse)(nil),                       // 45: janus.v1alpha1.StatsResponse
+	(*ProcessStat)(nil),                         // 46: janus.v1alpha1.ProcessStat
+	(*SystemStatResponse)(nil),                  // 47: janus.v1alpha1.SystemStatResponse
+	(*MemoryResponse)(nil),                      // 48: janus.v1alpha1.MemoryResponse
+	(*CPUInfoResponse)(nil),                     // 49: janus.v1alpha1.CPUInfoResponse
+	(*CPUInfo)(nil),                             // 50: janus.v1alpha1.CPUInfo
+	(*LoadAvgResponse)(nil),                     // 51: janus.v1alpha1.LoadAvgResponse
+	(*DiskStatsResponse)(nil),                   // 52: janus.v1alpha1.DiskStatsResponse
+	(*DiskStat)(nil),                            // 53: janus.v1alpha1.DiskStat
+	(*DiskUsageRequest)(nil),                    // 54: janus.v1alpha1.DiskUsageRequest
+	(*DiskUsageInfo)(nil),                       // 55: janus.v1alpha1.DiskUsageInfo
+	(*NetworkDeviceStatsResponse)(nil),          // 56: janus.v1alpha1.NetworkDeviceStatsResponse
+	(*NetworkDeviceStat)(nil),                   // 57: janus.v1alpha1.NetworkDeviceStat
+	(*NetstatResponse)(nil),                     // 58: janus.v1alpha1.NetstatResponse
+	(*Connection)(nil),                          // 59: janus.v1alpha1.Connection
+	(*MountsResponse)(nil),                      // 60: janus.v1alpha1.MountsResponse
+	(*MountStat)(nil),                           // 61: janus.v1alpha1.MountStat
+	(*ProcessesResponse)(nil),                   // 62: janus.v1alpha1.ProcessesResponse
+	(*ProcessInfo)(nil),                         // 63: janus.v1alpha1.ProcessInfo
+	(*ServiceInfo)(nil),                         // 64: janus.v1alpha1.ServiceInfo
+	(*ServiceListResponse)(nil),                 // 65: janus.v1alpha1.ServiceListResponse
+	(*ServiceRequest)(nil),                      // 66: janus.v1alpha1.ServiceRequest
+	(*ServiceResponse)(nil),                     // 67: janus.v1alpha1.ServiceResponse
+	(*ListRequest)(nil),                         // 68: janus.v1alpha1.ListRequest
+	(*FileInfo)(nil),                            // 69: janus.v1alpha1.FileInfo
+	(*ReadRequest)(nil),                         // 70: janus.v1alpha1.ReadRequest
+	(*CopyRequest)(nil),                         // 71: janus.v1alpha1.CopyRequest
+	(*PacketCaptureRequest)(nil),                // 72: janus.v1alpha1.PacketCaptureRequest
+	(*MetaWriteRequest)(nil),                    // 73: janus.v1alpha1.MetaWriteRequest
+	(*MetaDeleteRequest)(nil),                   // 74: janus.v1alpha1.MetaDeleteRequest
+	(*GenerateClientConfigurationRequest)(nil),  // 75: janus.v1alpha1.GenerateClientConfigurationRequest
+	(*GenerateClientConfigurationResponse)(nil), // 76: janus.v1alpha1.GenerateClientConfigurationResponse
+	(*emptypb.Empty)(nil),                       // 77: google.protobuf.Empty
+	(*Data)(nil),                                // 78: janus.v1alpha1.Data
 }
 var file_janus_v1alpha1_system_proto_depIdxs = []int32{
-	3,  // 0: janus.v1alpha1.NodeExporterConfigResponse.config:type_name -> janus.v1alpha1.NodeExporterConfig
-	4,  // 1: janus.v1alpha1.NodeExporterConfigResponse.available_collectors:type_name -> janus.v1alpha1.NodeExporterCollector
-	2,  // 2: janus.v1alpha1.MetricsConfigResponse.config:type_name -> janus.v1alpha1.MetricsConfig
-	9,  // 3: janus.v1alpha1.VersionResponse.extensions:type_name -> janus.v1alpha1.ExtensionInfo
-	8,  // 4: janus.v1alpha1.VersionResponse.haproxy:type_name -> janus.v1alpha1.ImageComponent
-	8,  // 5: janus.v1alpha1.VersionResponse.kernel:type_name -> janus.v1alpha1.ImageComponent
-	0,  // 6: janus.v1alpha1.RebootRequest.mode:type_name -> janus.v1alpha1.RebootMode
-	1,  // 7: janus.v1alpha1.ApplyConfigurationRequest.mode:type_name -> janus.v1alpha1.ApplyConfigurationRequest.Mode
-	24, // 8: janus.v1alpha1.StatsResponse.processes:type_name -> janus.v1alpha1.ProcessStat
-	28, // 9: janus.v1alpha1.CPUInfoResponse.cpus:type_name -> janus.v1alpha1.CPUInfo
-	31, // 10: janus.v1alpha1.DiskStatsResponse.disks:type_name -> janus.v1alpha1.DiskStat
-	35, // 11: janus.v1alpha1.NetworkDeviceStatsResponse.devices:type_name -> janus.v1alpha1.NetworkDeviceStat
-	37, // 12: janus.v1alpha1.NetstatResponse.connections:type_name -> janus.v1alpha1.Connection
-	39, // 13: janus.v1alpha1.MountsResponse.mounts:type_name -> janus.v1alpha1.MountStat
-	41, // 14: janus.v1alpha1.ProcessesResponse.processes:type_name -> janus.v1alpha1.ProcessInfo
-	42, // 15: janus.v1alpha1.ServiceListResponse.services:type_name -> janus.v1alpha1.ServiceInfo
-	42, // 16: janus.v1alpha1.ServiceResponse.service:type_name -> janus.v1alpha1.ServiceInfo
-	55, // 17: janus.v1alpha1.SystemService.Version:input_type -> google.protobuf.Empty
-	55, // 18: janus.v1alpha1.SystemService.Hostname:input_type -> google.protobuf.Empty
-	11, // 19: janus.v1alpha1.SystemService.Reboot:input_type -> janus.v1alpha1.RebootRequest
-	55, // 20: janus.v1alpha1.SystemService.Shutdown:input_type -> google.protobuf.Empty
-	55, // 21: janus.v1alpha1.SystemService.Restart:input_type -> google.protobuf.Empty
-	15, // 22: janus.v1alpha1.SystemService.Reset:input_type -> janus.v1alpha1.ResetRequest
-	17, // 23: janus.v1alpha1.SystemService.ApplyConfiguration:input_type -> janus.v1alpha1.ApplyConfigurationRequest
-	19, // 24: janus.v1alpha1.SystemService.Events:input_type -> janus.v1alpha1.EventsRequest
-	21, // 25: janus.v1alpha1.SystemService.Dmesg:input_type -> janus.v1alpha1.DmesgRequest
-	22, // 26: janus.v1alpha1.SystemService.Logs:input_type -> janus.v1alpha1.LogsRequest
-	55, // 27: janus.v1alpha1.SystemService.Stats:input_type -> google.protobuf.Empty
-	55, // 28: janus.v1alpha1.SystemService.SystemStat:input_type -> google.protobuf.Empty
-	55, // 29: janus.v1alpha1.SystemService.Memory:input_type -> google.protobuf.Empty
-	55, // 30: janus.v1alpha1.SystemService.CPUInfo:input_type -> google.protobuf.Empty
-	55, // 31: janus.v1alpha1.SystemService.LoadAvg:input_type -> google.protobuf.Empty
-	55, // 32: janus.v1alpha1.SystemService.DiskStats:input_type -> google.protobuf.Empty
-	32, // 33: janus.v1alpha1.SystemService.DiskUsage:input_type -> janus.v1alpha1.DiskUsageRequest
-	55, // 34: janus.v1alpha1.SystemService.NetworkDeviceStats:input_type -> google.protobuf.Empty
-	55, // 35: janus.v1alpha1.SystemService.Netstat:input_type -> google.protobuf.Empty
-	55, // 36: janus.v1alpha1.SystemService.Mounts:input_type -> google.protobuf.Empty
-	55, // 37: janus.v1alpha1.SystemService.Processes:input_type -> google.protobuf.Empty
-	55, // 38: janus.v1alpha1.SystemService.ServiceList:input_type -> google.protobuf.Empty
-	44, // 39: janus.v1alpha1.SystemService.ServiceStart:input_type -> janus.v1alpha1.ServiceRequest
-	44, // 40: janus.v1alpha1.SystemService.ServiceStop:input_type -> janus.v1alpha1.ServiceRequest
-	44, // 41: janus.v1alpha1.SystemService.ServiceRestart:input_type -> janus.v1alpha1.ServiceRequest
-	46, // 42: janus.v1alpha1.SystemService.List:input_type -> janus.v1alpha1.ListRequest
-	48, // 43: janus.v1alpha1.SystemService.Read:input_type -> janus.v1alpha1.ReadRequest
-	49, // 44: janus.v1alpha1.SystemService.Copy:input_type -> janus.v1alpha1.CopyRequest
-	50, // 45: janus.v1alpha1.SystemService.PacketCapture:input_type -> janus.v1alpha1.PacketCaptureRequest
-	51, // 46: janus.v1alpha1.SystemService.MetaWrite:input_type -> janus.v1alpha1.MetaWriteRequest
-	52, // 47: janus.v1alpha1.SystemService.MetaDelete:input_type -> janus.v1alpha1.MetaDeleteRequest
-	53, // 48: janus.v1alpha1.SystemService.GenerateClientConfiguration:input_type -> janus.v1alpha1.GenerateClientConfigurationRequest
-	55, // 49: janus.v1alpha1.SystemService.MetricsConfigGet:input_type -> google.protobuf.Empty
-	2,  // 50: janus.v1alpha1.SystemService.MetricsConfigSet:input_type -> janus.v1alpha1.MetricsConfig
-	55, // 51: janus.v1alpha1.SystemService.NodeExporterConfigGet:input_type -> google.protobuf.Empty
-	3,  // 52: janus.v1alpha1.SystemService.NodeExporterConfigSet:input_type -> janus.v1alpha1.NodeExporterConfig
-	7,  // 53: janus.v1alpha1.SystemService.Version:output_type -> janus.v1alpha1.VersionResponse
-	10, // 54: janus.v1alpha1.SystemService.Hostname:output_type -> janus.v1alpha1.HostnameResponse
-	12, // 55: janus.v1alpha1.SystemService.Reboot:output_type -> janus.v1alpha1.RebootResponse
-	13, // 56: janus.v1alpha1.SystemService.Shutdown:output_type -> janus.v1alpha1.ShutdownResponse
-	14, // 57: janus.v1alpha1.SystemService.Restart:output_type -> janus.v1alpha1.RestartResponse
-	16, // 58: janus.v1alpha1.SystemService.Reset:output_type -> janus.v1alpha1.ResetResponse
-	18, // 59: janus.v1alpha1.SystemService.ApplyConfiguration:output_type -> janus.v1alpha1.ApplyConfigurationResponse
-	20, // 60: janus.v1alpha1.SystemService.Events:output_type -> janus.v1alpha1.Event
-	56, // 61: janus.v1alpha1.SystemService.Dmesg:output_type -> janus.v1alpha1.Data
-	56, // 62: janus.v1alpha1.SystemService.Logs:output_type -> janus.v1alpha1.Data
-	23, // 63: janus.v1alpha1.SystemService.Stats:output_type -> janus.v1alpha1.StatsResponse
-	25, // 64: janus.v1alpha1.SystemService.SystemStat:output_type -> janus.v1alpha1.SystemStatResponse
-	26, // 65: janus.v1alpha1.SystemService.Memory:output_type -> janus.v1alpha1.MemoryResponse
-	27, // 66: janus.v1alpha1.SystemService.CPUInfo:output_type -> janus.v1alpha1.CPUInfoResponse
-	29, // 67: janus.v1alpha1.SystemService.LoadAvg:output_type -> janus.v1alpha1.LoadAvgResponse
-	30, // 68: janus.v1alpha1.SystemService.DiskStats:output_type -> janus.v1alpha1.DiskStatsResponse
-	33, // 69: janus.v1alpha1.SystemService.DiskUsage:output_type -> janus.v1alpha1.DiskUsageInfo
-	34, // 70: janus.v1alpha1.SystemService.NetworkDeviceStats:output_type -> janus.v1alpha1.NetworkDeviceStatsResponse
-	36, // 71: janus.v1alpha1.SystemService.Netstat:output_type -> janus.v1alpha1.NetstatResponse
-	38, // 72: janus.v1alpha1.SystemService.Mounts:output_type -> janus.v1alpha1.MountsResponse
-	40, // 73: janus.v1alpha1.SystemService.Processes:output_type -> janus.v1alpha1.ProcessesResponse
-	43, // 74: janus.v1alpha1.SystemService.ServiceList:output_type -> janus.v1alpha1.ServiceListResponse
-	45, // 75: janus.v1alpha1.SystemService.ServiceStart:output_type -> janus.v1alpha1.ServiceResponse
-	45, // 76: janus.v1alpha1.SystemService.ServiceStop:output_type -> janus.v1alpha1.ServiceResponse
-	45, // 77: janus.v1alpha1.SystemService.ServiceRestart:output_type -> janus.v1alpha1.ServiceResponse
-	47, // 78: janus.v1alpha1.SystemService.List:output_type -> janus.v1alpha1.FileInfo
-	56, // 79: janus.v1alpha1.SystemService.Read:output_type -> janus.v1alpha1.Data
-	56, // 80: janus.v1alpha1.SystemService.Copy:output_type -> janus.v1alpha1.Data
-	56, // 81: janus.v1alpha1.SystemService.PacketCapture:output_type -> janus.v1alpha1.Data
-	55, // 82: janus.v1alpha1.SystemService.MetaWrite:output_type -> google.protobuf.Empty
-	55, // 83: janus.v1alpha1.SystemService.MetaDelete:output_type -> google.protobuf.Empty
-	54, // 84: janus.v1alpha1.SystemService.GenerateClientConfiguration:output_type -> janus.v1alpha1.GenerateClientConfigurationResponse
-	6,  // 85: janus.v1alpha1.SystemService.MetricsConfigGet:output_type -> janus.v1alpha1.MetricsConfigResponse
-	6,  // 86: janus.v1alpha1.SystemService.MetricsConfigSet:output_type -> janus.v1alpha1.MetricsConfigResponse
-	5,  // 87: janus.v1alpha1.SystemService.NodeExporterConfigGet:output_type -> janus.v1alpha1.NodeExporterConfigResponse
-	5,  // 88: janus.v1alpha1.SystemService.NodeExporterConfigSet:output_type -> janus.v1alpha1.NodeExporterConfigResponse
-	53, // [53:89] is the sub-list for method output_type
-	17, // [17:53] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	0,  // 0: janus.v1alpha1.SysctlParameter.class:type_name -> janus.v1alpha1.SysctlClass
+	1,  // 1: janus.v1alpha1.SysctlParameter.kind:type_name -> janus.v1alpha1.SysctlKind
+	5,  // 2: janus.v1alpha1.SysctlParameter.bounds:type_name -> janus.v1alpha1.SysctlBound
+	2,  // 3: janus.v1alpha1.SysctlParameter.applies:type_name -> janus.v1alpha1.SysctlApplies
+	6,  // 4: janus.v1alpha1.SysctlParameter.sources:type_name -> janus.v1alpha1.SysctlSource
+	9,  // 5: janus.v1alpha1.SysctlParameter.recommendation:type_name -> janus.v1alpha1.SysctlRecommendation
+	8,  // 6: janus.v1alpha1.SysctlRecommendation.measured:type_name -> janus.v1alpha1.SysctlMeasurement
+	6,  // 7: janus.v1alpha1.SysctlRecommendation.sources:type_name -> janus.v1alpha1.SysctlSource
+	10, // 8: janus.v1alpha1.SysctlCIS.controls:type_name -> janus.v1alpha1.SysctlCISControl
+	13, // 9: janus.v1alpha1.SysctlTrial.changes:type_name -> janus.v1alpha1.SysctlChange
+	12, // 10: janus.v1alpha1.SysctlTrial.actor:type_name -> janus.v1alpha1.SysctlActor
+	7,  // 11: janus.v1alpha1.SysctlListResponse.parameters:type_name -> janus.v1alpha1.SysctlParameter
+	11, // 12: janus.v1alpha1.SysctlListResponse.cis:type_name -> janus.v1alpha1.SysctlCIS
+	14, // 13: janus.v1alpha1.SysctlListResponse.trial:type_name -> janus.v1alpha1.SysctlTrial
+	16, // 14: janus.v1alpha1.SysctlApplyRequest.changes:type_name -> janus.v1alpha1.SysctlChangeRequest
+	18, // 15: janus.v1alpha1.SysctlApplyResponse.errors:type_name -> janus.v1alpha1.SysctlFieldError
+	13, // 16: janus.v1alpha1.SysctlApplyResponse.changes:type_name -> janus.v1alpha1.SysctlChange
+	14, // 17: janus.v1alpha1.SysctlApplyResponse.trial:type_name -> janus.v1alpha1.SysctlTrial
+	14, // 18: janus.v1alpha1.SysctlTrialResponse.trial:type_name -> janus.v1alpha1.SysctlTrial
+	12, // 19: janus.v1alpha1.SysctlHistoryEntry.actor:type_name -> janus.v1alpha1.SysctlActor
+	13, // 20: janus.v1alpha1.SysctlHistoryEntry.changes:type_name -> janus.v1alpha1.SysctlChange
+	22, // 21: janus.v1alpha1.SysctlHistoryResponse.entries:type_name -> janus.v1alpha1.SysctlHistoryEntry
+	25, // 22: janus.v1alpha1.NodeExporterConfigResponse.config:type_name -> janus.v1alpha1.NodeExporterConfig
+	26, // 23: janus.v1alpha1.NodeExporterConfigResponse.available_collectors:type_name -> janus.v1alpha1.NodeExporterCollector
+	24, // 24: janus.v1alpha1.MetricsConfigResponse.config:type_name -> janus.v1alpha1.MetricsConfig
+	31, // 25: janus.v1alpha1.VersionResponse.extensions:type_name -> janus.v1alpha1.ExtensionInfo
+	30, // 26: janus.v1alpha1.VersionResponse.haproxy:type_name -> janus.v1alpha1.ImageComponent
+	30, // 27: janus.v1alpha1.VersionResponse.kernel:type_name -> janus.v1alpha1.ImageComponent
+	3,  // 28: janus.v1alpha1.RebootRequest.mode:type_name -> janus.v1alpha1.RebootMode
+	4,  // 29: janus.v1alpha1.ApplyConfigurationRequest.mode:type_name -> janus.v1alpha1.ApplyConfigurationRequest.Mode
+	46, // 30: janus.v1alpha1.StatsResponse.processes:type_name -> janus.v1alpha1.ProcessStat
+	50, // 31: janus.v1alpha1.CPUInfoResponse.cpus:type_name -> janus.v1alpha1.CPUInfo
+	53, // 32: janus.v1alpha1.DiskStatsResponse.disks:type_name -> janus.v1alpha1.DiskStat
+	57, // 33: janus.v1alpha1.NetworkDeviceStatsResponse.devices:type_name -> janus.v1alpha1.NetworkDeviceStat
+	59, // 34: janus.v1alpha1.NetstatResponse.connections:type_name -> janus.v1alpha1.Connection
+	61, // 35: janus.v1alpha1.MountsResponse.mounts:type_name -> janus.v1alpha1.MountStat
+	63, // 36: janus.v1alpha1.ProcessesResponse.processes:type_name -> janus.v1alpha1.ProcessInfo
+	64, // 37: janus.v1alpha1.ServiceListResponse.services:type_name -> janus.v1alpha1.ServiceInfo
+	64, // 38: janus.v1alpha1.ServiceResponse.service:type_name -> janus.v1alpha1.ServiceInfo
+	77, // 39: janus.v1alpha1.SystemService.Version:input_type -> google.protobuf.Empty
+	77, // 40: janus.v1alpha1.SystemService.Hostname:input_type -> google.protobuf.Empty
+	33, // 41: janus.v1alpha1.SystemService.Reboot:input_type -> janus.v1alpha1.RebootRequest
+	77, // 42: janus.v1alpha1.SystemService.Shutdown:input_type -> google.protobuf.Empty
+	77, // 43: janus.v1alpha1.SystemService.Restart:input_type -> google.protobuf.Empty
+	37, // 44: janus.v1alpha1.SystemService.Reset:input_type -> janus.v1alpha1.ResetRequest
+	39, // 45: janus.v1alpha1.SystemService.ApplyConfiguration:input_type -> janus.v1alpha1.ApplyConfigurationRequest
+	41, // 46: janus.v1alpha1.SystemService.Events:input_type -> janus.v1alpha1.EventsRequest
+	43, // 47: janus.v1alpha1.SystemService.Dmesg:input_type -> janus.v1alpha1.DmesgRequest
+	44, // 48: janus.v1alpha1.SystemService.Logs:input_type -> janus.v1alpha1.LogsRequest
+	77, // 49: janus.v1alpha1.SystemService.Stats:input_type -> google.protobuf.Empty
+	77, // 50: janus.v1alpha1.SystemService.SystemStat:input_type -> google.protobuf.Empty
+	77, // 51: janus.v1alpha1.SystemService.Memory:input_type -> google.protobuf.Empty
+	77, // 52: janus.v1alpha1.SystemService.CPUInfo:input_type -> google.protobuf.Empty
+	77, // 53: janus.v1alpha1.SystemService.LoadAvg:input_type -> google.protobuf.Empty
+	77, // 54: janus.v1alpha1.SystemService.DiskStats:input_type -> google.protobuf.Empty
+	54, // 55: janus.v1alpha1.SystemService.DiskUsage:input_type -> janus.v1alpha1.DiskUsageRequest
+	77, // 56: janus.v1alpha1.SystemService.NetworkDeviceStats:input_type -> google.protobuf.Empty
+	77, // 57: janus.v1alpha1.SystemService.Netstat:input_type -> google.protobuf.Empty
+	77, // 58: janus.v1alpha1.SystemService.Mounts:input_type -> google.protobuf.Empty
+	77, // 59: janus.v1alpha1.SystemService.Processes:input_type -> google.protobuf.Empty
+	77, // 60: janus.v1alpha1.SystemService.ServiceList:input_type -> google.protobuf.Empty
+	66, // 61: janus.v1alpha1.SystemService.ServiceStart:input_type -> janus.v1alpha1.ServiceRequest
+	66, // 62: janus.v1alpha1.SystemService.ServiceStop:input_type -> janus.v1alpha1.ServiceRequest
+	66, // 63: janus.v1alpha1.SystemService.ServiceRestart:input_type -> janus.v1alpha1.ServiceRequest
+	68, // 64: janus.v1alpha1.SystemService.List:input_type -> janus.v1alpha1.ListRequest
+	70, // 65: janus.v1alpha1.SystemService.Read:input_type -> janus.v1alpha1.ReadRequest
+	71, // 66: janus.v1alpha1.SystemService.Copy:input_type -> janus.v1alpha1.CopyRequest
+	72, // 67: janus.v1alpha1.SystemService.PacketCapture:input_type -> janus.v1alpha1.PacketCaptureRequest
+	73, // 68: janus.v1alpha1.SystemService.MetaWrite:input_type -> janus.v1alpha1.MetaWriteRequest
+	74, // 69: janus.v1alpha1.SystemService.MetaDelete:input_type -> janus.v1alpha1.MetaDeleteRequest
+	75, // 70: janus.v1alpha1.SystemService.GenerateClientConfiguration:input_type -> janus.v1alpha1.GenerateClientConfigurationRequest
+	77, // 71: janus.v1alpha1.SystemService.MetricsConfigGet:input_type -> google.protobuf.Empty
+	24, // 72: janus.v1alpha1.SystemService.MetricsConfigSet:input_type -> janus.v1alpha1.MetricsConfig
+	77, // 73: janus.v1alpha1.SystemService.NodeExporterConfigGet:input_type -> google.protobuf.Empty
+	25, // 74: janus.v1alpha1.SystemService.NodeExporterConfigSet:input_type -> janus.v1alpha1.NodeExporterConfig
+	77, // 75: janus.v1alpha1.SystemService.SysctlList:input_type -> google.protobuf.Empty
+	17, // 76: janus.v1alpha1.SystemService.SysctlApply:input_type -> janus.v1alpha1.SysctlApplyRequest
+	77, // 77: janus.v1alpha1.SystemService.SysctlConfirm:input_type -> google.protobuf.Empty
+	77, // 78: janus.v1alpha1.SystemService.SysctlCancel:input_type -> google.protobuf.Empty
+	21, // 79: janus.v1alpha1.SystemService.SysctlHistory:input_type -> janus.v1alpha1.SysctlHistoryRequest
+	29, // 80: janus.v1alpha1.SystemService.Version:output_type -> janus.v1alpha1.VersionResponse
+	32, // 81: janus.v1alpha1.SystemService.Hostname:output_type -> janus.v1alpha1.HostnameResponse
+	34, // 82: janus.v1alpha1.SystemService.Reboot:output_type -> janus.v1alpha1.RebootResponse
+	35, // 83: janus.v1alpha1.SystemService.Shutdown:output_type -> janus.v1alpha1.ShutdownResponse
+	36, // 84: janus.v1alpha1.SystemService.Restart:output_type -> janus.v1alpha1.RestartResponse
+	38, // 85: janus.v1alpha1.SystemService.Reset:output_type -> janus.v1alpha1.ResetResponse
+	40, // 86: janus.v1alpha1.SystemService.ApplyConfiguration:output_type -> janus.v1alpha1.ApplyConfigurationResponse
+	42, // 87: janus.v1alpha1.SystemService.Events:output_type -> janus.v1alpha1.Event
+	78, // 88: janus.v1alpha1.SystemService.Dmesg:output_type -> janus.v1alpha1.Data
+	78, // 89: janus.v1alpha1.SystemService.Logs:output_type -> janus.v1alpha1.Data
+	45, // 90: janus.v1alpha1.SystemService.Stats:output_type -> janus.v1alpha1.StatsResponse
+	47, // 91: janus.v1alpha1.SystemService.SystemStat:output_type -> janus.v1alpha1.SystemStatResponse
+	48, // 92: janus.v1alpha1.SystemService.Memory:output_type -> janus.v1alpha1.MemoryResponse
+	49, // 93: janus.v1alpha1.SystemService.CPUInfo:output_type -> janus.v1alpha1.CPUInfoResponse
+	51, // 94: janus.v1alpha1.SystemService.LoadAvg:output_type -> janus.v1alpha1.LoadAvgResponse
+	52, // 95: janus.v1alpha1.SystemService.DiskStats:output_type -> janus.v1alpha1.DiskStatsResponse
+	55, // 96: janus.v1alpha1.SystemService.DiskUsage:output_type -> janus.v1alpha1.DiskUsageInfo
+	56, // 97: janus.v1alpha1.SystemService.NetworkDeviceStats:output_type -> janus.v1alpha1.NetworkDeviceStatsResponse
+	58, // 98: janus.v1alpha1.SystemService.Netstat:output_type -> janus.v1alpha1.NetstatResponse
+	60, // 99: janus.v1alpha1.SystemService.Mounts:output_type -> janus.v1alpha1.MountsResponse
+	62, // 100: janus.v1alpha1.SystemService.Processes:output_type -> janus.v1alpha1.ProcessesResponse
+	65, // 101: janus.v1alpha1.SystemService.ServiceList:output_type -> janus.v1alpha1.ServiceListResponse
+	67, // 102: janus.v1alpha1.SystemService.ServiceStart:output_type -> janus.v1alpha1.ServiceResponse
+	67, // 103: janus.v1alpha1.SystemService.ServiceStop:output_type -> janus.v1alpha1.ServiceResponse
+	67, // 104: janus.v1alpha1.SystemService.ServiceRestart:output_type -> janus.v1alpha1.ServiceResponse
+	69, // 105: janus.v1alpha1.SystemService.List:output_type -> janus.v1alpha1.FileInfo
+	78, // 106: janus.v1alpha1.SystemService.Read:output_type -> janus.v1alpha1.Data
+	78, // 107: janus.v1alpha1.SystemService.Copy:output_type -> janus.v1alpha1.Data
+	78, // 108: janus.v1alpha1.SystemService.PacketCapture:output_type -> janus.v1alpha1.Data
+	77, // 109: janus.v1alpha1.SystemService.MetaWrite:output_type -> google.protobuf.Empty
+	77, // 110: janus.v1alpha1.SystemService.MetaDelete:output_type -> google.protobuf.Empty
+	76, // 111: janus.v1alpha1.SystemService.GenerateClientConfiguration:output_type -> janus.v1alpha1.GenerateClientConfigurationResponse
+	28, // 112: janus.v1alpha1.SystemService.MetricsConfigGet:output_type -> janus.v1alpha1.MetricsConfigResponse
+	28, // 113: janus.v1alpha1.SystemService.MetricsConfigSet:output_type -> janus.v1alpha1.MetricsConfigResponse
+	27, // 114: janus.v1alpha1.SystemService.NodeExporterConfigGet:output_type -> janus.v1alpha1.NodeExporterConfigResponse
+	27, // 115: janus.v1alpha1.SystemService.NodeExporterConfigSet:output_type -> janus.v1alpha1.NodeExporterConfigResponse
+	15, // 116: janus.v1alpha1.SystemService.SysctlList:output_type -> janus.v1alpha1.SysctlListResponse
+	19, // 117: janus.v1alpha1.SystemService.SysctlApply:output_type -> janus.v1alpha1.SysctlApplyResponse
+	20, // 118: janus.v1alpha1.SystemService.SysctlConfirm:output_type -> janus.v1alpha1.SysctlTrialResponse
+	20, // 119: janus.v1alpha1.SystemService.SysctlCancel:output_type -> janus.v1alpha1.SysctlTrialResponse
+	23, // 120: janus.v1alpha1.SystemService.SysctlHistory:output_type -> janus.v1alpha1.SysctlHistoryResponse
+	80, // [80:121] is the sub-list for method output_type
+	39, // [39:80] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_janus_v1alpha1_system_proto_init() }
@@ -3676,8 +5418,8 @@ func file_janus_v1alpha1_system_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_system_proto_rawDesc), len(file_janus_v1alpha1_system_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   53,
+			NumEnums:      5,
+			NumMessages:   72,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
