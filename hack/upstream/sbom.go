@@ -66,7 +66,7 @@ func sbom(version string, when time.Time) ([]byte, error) {
 		case kindBuild:
 			cc.Type = "application"
 		}
-		if c.name == "linux" {
+		if c.variantComponent == "kernel" {
 			cc.Type = "operating-system"
 		}
 		for _, arch := range c.archs() {

@@ -1,4 +1,26 @@
 include versions.mk
+include variants.mk
+
+# The HAProxy branch and kernel track of the image being built: what a
+# SCHEMATIC given on the command line picks, else the defaults
+# (variants.mk). Set them by hand only for targets that build that one
+# component (haproxy-build, kernel-build, kernel-menuconfig,
+# local-dev-image): an image's content must match its schematic.
+ifeq ($(origin HAPROXY_BRANCH),undefined)
+HAPROXY_BRANCH := $(if $(SCHEMATIC),$(shell go run ./hack/extpack variant -schematic $(SCHEMATIC) haproxy),$(firstword $(HAPROXY_BRANCHES)))
+endif
+ifeq ($(origin KERNEL_TRACK),undefined)
+KERNEL_TRACK := $(if $(SCHEMATIC),$(shell go run ./hack/extpack variant -schematic $(SCHEMATIC) kernel),$(KERNEL_DEFAULT_TRACK))
+endif
+HAPROXY_PIN    := HAPROXY_$(subst .,_,$(HAPROXY_BRANCH))
+HAPROXY_VERSION := $($(HAPROXY_PIN)_VERSION)
+HAPROXY_SHA256  := $($(HAPROXY_PIN)_SHA256)
+KERNEL_PIN     := KERNEL_$(shell echo '$(KERNEL_TRACK)' | tr a-z A-Z)
+KERNEL_VERSION := $($(KERNEL_PIN)_VERSION)
+KERNEL_SHA256  := $($(KERNEL_PIN)_SHA256)
+# arm64 images only come with the default variants.
+KERNEL_ARM64_PIN  := KERNEL_$(shell echo '$(KERNEL_DEFAULT_TRACK)' | tr a-z A-Z)
+HAPROXY_ARM64_PIN := HAPROXY_$(subst .,_,$(firstword $(HAPROXY_BRANCHES)))
 
 MODULE  := github.com/swenske/Janus
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -278,8 +300,8 @@ qemu-boot-test: kernel-build initramfs
 # via kernel/Dockerfile's "export-arm64" stage, pulled out to build/rpi4/.
 rpi4-kernel-build:
 	mkdir -p $(BUILD_DIR)/rpi4
-	docker build --target export-arm64 --build-arg KERNEL_VERSION=$(KERNEL_VERSION) \
-		--build-arg KERNEL_SHA256=$(KERNEL_SHA256) \
+	docker build --target export-arm64 --build-arg KERNEL_VERSION=$($(KERNEL_ARM64_PIN)_VERSION) \
+		--build-arg KERNEL_SHA256=$($(KERNEL_ARM64_PIN)_SHA256) \
 		--build-arg ARCH=arm64 --build-arg CROSS_COMPILE=aarch64-linux-gnu- \
 		--build-arg DEFCONFIG=janus_rpi4_defconfig --build-arg MAKE_TARGETS="Image dtbs" \
 		-o $(BUILD_DIR)/rpi4 kernel
@@ -326,8 +348,8 @@ musl-toolchain-arm64:
 rpi4-haproxy-build: musl-toolchain-arm64
 	mkdir -p $(BUILD_DIR)/rpi4
 	docker build --target export-arm64 \
-		--build-arg HAPROXY_VERSION=$(HAPROXY_VERSION) \
-		--build-arg HAPROXY_SHA256=$(HAPROXY_SHA256) \
+		--build-arg HAPROXY_VERSION=$($(HAPROXY_ARM64_PIN)_VERSION) \
+		--build-arg HAPROXY_SHA256=$($(HAPROXY_ARM64_PIN)_SHA256) \
 		--build-arg ZLIB_VERSION=$(ZLIB_VERSION) --build-arg ZLIB_SHA256=$(ZLIB_SHA256) \
 		--build-arg AWSLC_VERSION=$(AWSLC_VERSION) \
 		--build-arg AWSLC_SHA256=$(AWSLC_SHA256) \

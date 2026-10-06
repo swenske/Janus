@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/swenske/Janus/internal/variants"
 )
 
 func TestVersionCompare(t *testing.T) {
@@ -153,13 +155,21 @@ func TestSigningKeys(t *testing.T) {
 }
 
 func TestNewestVersions(t *testing.T) {
-	linux := findComponent("linux")
-	kernel := []string{"7.2.9", "6.18.55", "6.12.112", "6.6.158"}
-	if l, n := newestVersions(linux, "6.18.53", kernel); l != "6.18.55" || n != "7.2.9" {
+	// A kernel track's feed lists its moniker's releases only.
+	linux := findComponent("linux-longterm")
+	longterm := []string{"6.18.55", "6.12.112", "6.6.158"}
+	if l, n := newestVersions(linux, "6.18.53", longterm); l != "6.18.55" || n != "" {
 		t.Errorf("linux: %q, %q", l, n)
 	}
-	if l, n := newestVersions(linux, "6.18.55", kernel); l != "" || n != "7.2.9" {
+	if l, n := newestVersions(linux, "6.18.55", longterm); l != "" || n != "" {
 		t.Errorf("linux newest: %q, %q", l, n)
+	}
+	// A newer branch from its x.y.2 on.
+	if l, n := newestVersions(linux, "7.2.9", []string{"7.3.1", "7.2.10"}); l != "7.2.10" || n != "7.3.1" {
+		t.Errorf("linux, new branch at .1: %q, %q", l, n)
+	}
+	if l, _ := newestVersions(linux, "7.2.10", []string{"7.3.2", "7.2.10"}); l != "7.3.2" {
+		t.Errorf("linux, new branch at .2: %q", l)
 	}
 	bird := findComponent("bird")
 	if l, n := newestVersions(bird, "2.19.2", []string{"2.19.2", "3.1.8", "3.3.2", "2.19.1"}); l != "" || n != "3.3.2" {
@@ -284,7 +294,7 @@ func TestHAProxyFixed(t *testing.T) {
 		"https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json": `={"vulnerabilities":[]}`,
 	}}
 	res := &bumpResult{}
-	if err := fixedBetween(e, findComponent("haproxy"), "3.4.0", "3.4.6", res); err != nil {
+	if err := fixedBetween(e, findComponent("haproxy-3.4"), "3.4.0", "3.4.6", res); err != nil {
 		t.Fatal(err)
 	}
 	var fixed, skipped []string
@@ -499,5 +509,53 @@ func TestExtensionComponents(t *testing.T) {
 	u := updateRecord{Target: "node", Extension: "prometheus-node-exporter"}
 	if w := whereText(u); w != "nodes with the prometheus-node-exporter extension" {
 		t.Errorf("whereText = %q", w)
+	}
+}
+
+// TestComponentsCoverVariants: every HAProxy branch and kernel track an
+// image can be built with (variants.mk) is followed by its own component,
+// and no component follows a variant variants.mk doesn't offer.
+func TestComponentsCoverVariants(t *testing.T) {
+	set, err := variants.Load("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{}
+	for _, v := range set.All() {
+		want[v.Component+" "+v.Name] = true
+		c := findComponent(map[string]string{"haproxy": "haproxy-", "kernel": "linux-"}[v.Component] + v.Name)
+		if c == nil || c.variantComponent != v.Component || c.variant != v.Name {
+			t.Errorf("%s %s: no component follows it", v.Component, v.Name)
+			continue
+		}
+		if c.versionVar != variants.VersionVar(v.Component, v.Name) {
+			t.Errorf("%s: pinned by %s, variants.mk reads %s", c.name, c.versionVar, variants.VersionVar(v.Component, v.Name))
+		}
+	}
+	for _, c := range components {
+		if c.variant != "" && !want[c.variantComponent+" "+c.variant] {
+			t.Errorf("%s follows %s %s, which variants.mk doesn't offer", c.name, c.variantComponent, c.variant)
+		}
+	}
+}
+
+// TestPinOfLegacy: a release from before variants pinned KERNEL_VERSION
+// and HAPROXY_VERSION - security-notes reads them as the variants they
+// were.
+func TestPinOfLegacy(t *testing.T) {
+	old := parseVersionsMk([]byte("KERNEL_VERSION := 6.18.53\nHAPROXY_VERSION := 3.4.0\n"))
+	if got := pinOf(findComponent("linux-longterm"), old); got != "6.18.53" {
+		t.Errorf("linux-longterm: %q", got)
+	}
+	if got := pinOf(findComponent("haproxy-3.4"), old); got != "3.4.0" {
+		t.Errorf("haproxy-3.4: %q", got)
+	}
+	other := haproxyBranch("3.2", "HAPROXY_VERSION")
+	if got := pinOf(other, old); got != "" {
+		t.Errorf("haproxy-3.2 read 3.4's legacy pin: %q", got)
+	}
+	cur := parseVersionsMk([]byte("KERNEL_LONGTERM_VERSION := 6.18.55\nKERNEL_VERSION := 1.0.0\n"))
+	if got := pinOf(findComponent("linux-longterm"), cur); got != "6.18.55" {
+		t.Errorf("the current pin first: %q", got)
 	}
 }

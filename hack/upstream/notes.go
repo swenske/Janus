@@ -80,7 +80,7 @@ func securityNotes(e *env, from, to, version, extDir string) (*securityDoc, erro
 	e.ref = to
 
 	for _, c := range components {
-		a, b := oldVars[c.versionVar], newVars[c.versionVar]
+		a, b := pinOf(c, oldVars), pinOf(c, newVars)
 		target := targetOf(c.kind)
 		if a == b || a == "" || b == "" || target == "" {
 			continue

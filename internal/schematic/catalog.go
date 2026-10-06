@@ -68,6 +68,14 @@ func (e *RetiredError) Error() string {
 		componentTitle(e.Component), e.Name, e.Release, e.LastRelease)
 }
 
+// release names the catalog's release in messages.
+func (c *Catalog) release() string {
+	if c.Version == "" {
+		return "this build (variants.mk)"
+	}
+	return "Janus " + c.Version
+}
+
 func componentTitle(c string) string {
 	if c == ComponentHAProxy {
 		return "HAProxy"
@@ -101,11 +109,20 @@ func ParseCatalog(data []byte) (*Catalog, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
-	if err := checkVariants(ComponentHAProxy, c.HAProxy, ValidHAProxyBranch); err != nil {
+	if err := c.Validate(); err != nil {
 		return nil, err
 	}
+	return &c, nil
+}
+
+// Validate checks the names a catalog lists, and that each component with
+// variants has exactly one default.
+func (c *Catalog) Validate() error {
+	if err := checkVariants(ComponentHAProxy, c.HAProxy, ValidHAProxyBranch); err != nil {
+		return err
+	}
 	if err := checkVariants(ComponentKernel, c.Kernel, ValidKernelTrack); err != nil {
-		return nil, err
+		return err
 	}
 	for _, r := range c.Retired {
 		valid := ValidKernelTrack
@@ -114,23 +131,23 @@ func ParseCatalog(data []byte) (*Catalog, error) {
 			valid = ValidHAProxyBranch
 		case ComponentKernel:
 		default:
-			return nil, fmt.Errorf("catalog: retired: unknown component %q", r.Component)
+			return fmt.Errorf("catalog: retired: unknown component %q", r.Component)
 		}
 		if !valid(r.Name) {
-			return nil, fmt.Errorf("catalog: retired: invalid %s %q", r.Component, r.Name)
+			return fmt.Errorf("catalog: retired: invalid %s %q", r.Component, r.Name)
 		}
 	}
 	for _, e := range c.Extensions {
 		if !ValidName(e.Name) {
-			return nil, fmt.Errorf("catalog: invalid extension name %q", e.Name)
+			return fmt.Errorf("catalog: invalid extension name %q", e.Name)
 		}
 		for _, old := range e.Replaces {
 			if !ValidName(old) {
-				return nil, fmt.Errorf("catalog: %s: invalid former name %q", e.Name, old)
+				return fmt.Errorf("catalog: %s: invalid former name %q", e.Name, old)
 			}
 		}
 	}
-	return &c, nil
+	return nil
 }
 
 // Lookup returns the entry for name.
@@ -202,7 +219,7 @@ func (c *Catalog) variant(component string, offered []Variant, name, arch string
 			if component == ComponentKernel {
 				noun = "kernel track"
 			}
-			return Variant{}, fmt.Errorf("no %s can be chosen in Janus %s", noun, c.Version)
+			return Variant{}, fmt.Errorf("no %s can be chosen in %s", noun, c.release())
 		}
 		return Variant{}, nil
 	}
@@ -220,7 +237,7 @@ func (c *Catalog) variant(component string, offered []Variant, name, arch string
 		for k, v := range offered {
 			names[k] = v.Name
 		}
-		return Variant{}, fmt.Errorf("%s %s isn't offered by Janus %s (only %s)", title, name, c.Version, strings.Join(names, ", "))
+		return Variant{}, fmt.Errorf("%s %s isn't offered by %s (only %s)", title, name, c.release(), strings.Join(names, ", "))
 	}
 	v := offered[i]
 	if !slices.Contains(v.Arches, arch) {

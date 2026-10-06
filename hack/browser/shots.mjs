@@ -32,7 +32,10 @@ const ONLY = (process.env.SHOTS_ONLY || '').split(',').filter(Boolean)
 const PASSWORD = 'screenshots-admin-password'
 const spec = YAML.parse(fs.readFileSync('shots.yaml', 'utf8'))
 const T0 = Date.parse(spec.clock)
-const KERNEL = fs.readFileSync('/versions.mk', 'utf8').match(/^KERNEL_VERSION\s*:=\s*(\S+)/m)[1]
+// The default kernel track's version: what a VM shows (variants.mk picks
+// the track, versions.mk pins it).
+const TRACK = fs.readFileSync('/variants.mk', 'utf8').match(/^KERNEL_DEFAULT_TRACK\s*:=\s*(\S+)/m)[1]
+const KERNEL = fs.readFileSync('/versions.mk', 'utf8').match(new RegExp(`^KERNEL_${TRACK.toUpperCase()}_VERSION\\s*:=\\s*(\\S+)`, 'm'))[1]
 const DPR = 2
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

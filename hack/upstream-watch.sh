@@ -44,13 +44,15 @@ while read -r name latest <&3; do
     continue
   fi
   cat "$WORK/$name.log"
-  if [ "$name" = linux ]; then
+  case "$name" in
+  linux-*)
     # The kernel's list of built files may change with its source.
-    make kernel-built-files >"$WORK/kernel.log" 2>&1 || {
-      echo "::warning::linux $latest: make kernel-built-files failed"; tail -20 "$WORK/kernel.log"
+    make kernel-built-files KERNEL_TRACK="${name#linux-}" >"$WORK/kernel.log" 2>&1 || {
+      echo "::warning::$name $latest: make kernel-built-files failed"; tail -20 "$WORK/kernel.log"
       git checkout --quiet --force "$base"; continue
     }
-  fi
+    ;;
+  esac
   from="$(jq -r .from "$WORK/$name.json")"
   to="$(jq -r .to "$WORK/$name.json")"
   title="$(jq -r .title "$WORK/$name.json")"
@@ -71,9 +73,11 @@ while read -r name latest <&3; do
   url="$(gh pr create --repo "$REPO" --base main --head "$branch" --label "$labels" \
     --title "upstream: $title $from → $to" --body-file "$WORK/$name.md")"
   echo "$name $to: $url (max severity fixed: $severity)"
-  # An older bump of the same component still open is superseded.
+  # An older bump of the same component still open is superseded - its
+  # branch is upstream/<this component>-<a version>, never another
+  # component's whose name merely starts with this one's.
   gh pr list --repo "$REPO" --state open --json number,headRefName \
-    --jq ".[] | select(.headRefName | startswith(\"upstream/$name-\")) | select(.headRefName != \"$branch\") | .number" |
+    --jq ".[] | select(.headRefName | startswith(\"upstream/$name-\")) | select(.headRefName | ltrimstr(\"upstream/$name-\") | test(\"^[0-9]\")) | select(.headRefName != \"$branch\") | .number" |
     while read -r old; do
       gh pr close "$old" --repo "$REPO" --delete-branch --comment "Superseded by $url."
     done

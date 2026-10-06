@@ -20,12 +20,12 @@ upstream's signature first. `hack/upstream` does that.
 
 ```sh
 make upstream-check                      # status of everything, Markdown
-make upstream-bump C=haproxy [V=3.4.7]   # a checked bump of versions.mk
+make upstream-bump C=haproxy-3.4 [V=3.4.7]   # a checked bump of versions.mk
 make upstream-security-notes FROM=v2026.10.03-4 RELEASE=v2026.10.10
 make upstream-sbom                       # build/sbom.cdx.json (CycloneDX)
 ```
 
-`go run ./hack/upstream check -only haproxy,linux` checks a few;
+`go run ./hack/upstream check -only haproxy-3.4,linux-longterm` checks a few;
 `-ref <tag>` checks a release's pins instead of the working tree's.
 `GITHUB_TOKEN` in the environment lifts GitHub's anonymous rate limit.
 
@@ -38,8 +38,8 @@ no component follows.
 
 | Component | Follows | Checked by | Vulnerabilities |
 |---|---|---|---|
-| `linux` | its longterm branch (6.18.x) | Greg Kroah-Hartman's or Linus Torvalds's signature on the tar, and kernel.org's signed sha256sums | kernel.org CNA, filtered by the files Janus's kernels build |
-| `haproxy` | its LTS branch (3.4.x) | haproxy.org's published sha256 (`.sha256`, `releases.json`) - HAProxy signs nothing | haproxy.org's per-version bug lists |
+| `linux-longterm` | kernel.org's newest "longterm" release, moving to a newer longterm branch from its x.y.2 | Greg Kroah-Hartman's or Linus Torvalds's signature on the tar, and kernel.org's signed sha256sums | kernel.org CNA, filtered by the files Janus's kernels build |
+| `haproxy-3.4` | its LTS branch (3.4.x) | haproxy.org's published sha256 (`.sha256`, `releases.json`) - HAProxy signs nothing | haproxy.org's per-version bug lists |
 | `zlib` | every release | Mark Adler's signature, and Alpine's sha512 | osv.dev |
 | `aws-lc` | every release | Alpine's or FreeBSD's checksum of GitHub's tag archive - AWS-LC signs nothing | AWS-LC's own GitHub advisories |
 | `musl-cross-make` | by hand (a commit) | - | - |
@@ -60,8 +60,31 @@ no component follows.
 branch, a new release of a pinned major. A newer branch or major is only
 shown - moving to it is a decision, and usually more than a version number.
 `check` also shows the release cycle's support (endoflife.date) and the
-other maintained branches, for the kernel's and HAProxy's choice of
-versions to come.
+other maintained branches.
+
+### Kernel tracks and HAProxy branches
+
+An image is built with one HAProxy LTS branch and one kernel track, which
+its schematic picks ([image-factory.md](image-factory.md));
+[`variants.mk`](../variants.mk) lists those a release offers and the
+defaults. Each one is a component of its own, pinned on its own:
+`linux-<track>` (`KERNEL_<TRACK>_VERSION`), `haproxy-<branch>`
+(`HAPROXY_<x>_<y>_VERSION`) - a test fails when a variant has no
+component, or a component follows a variant `variants.mk` doesn't offer.
+A kernel track follows its kernel.org moniker from branch to branch by
+itself: the bump that crosses to a newer branch is proposed from that
+branch's x.y.2 on, and is more than a version number - review its
+resolved config like any config change.
+
+Adding a HAProxy branch (a new LTS): its pins in `versions.mk` (`make
+upstream-bump` can't add a variable - write them by hand after checking
+the sha256 like a bump does), the branch first in `HAPROXY_BRANCHES` with
+its end of support (`HAPROXY_<x>_<y>_EOL`, haproxy.org's branch table),
+its component in `hack/upstream/components.go` and a row here. Retiring
+one (only the newest LTS branches that build with AWS-LC are offered):
+remove all that, and list it in `VARIANTS_RETIRED` with the last release
+that offered it - images built with it keep it, and are told their
+updates stopped there.
 
 ### A bump is checked before anything changes
 

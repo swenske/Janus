@@ -16,12 +16,18 @@ type feed interface {
 }
 
 // kernelFeed reads kernel.org's releases.json: the latest release of every
-// maintained branch, mainline and linux-next left out.
-type kernelFeed struct{}
+// maintained branch, mainline and linux-next left out - only those of one
+// moniker ("stable", "longterm") when set.
+type kernelFeed struct{ moniker string }
 
-func (kernelFeed) describe() string { return "kernel.org/releases.json" }
+func (k kernelFeed) describe() string {
+	if k.moniker != "" {
+		return "kernel.org/releases.json, " + k.moniker
+	}
+	return "kernel.org/releases.json"
+}
 
-func (kernelFeed) versions(ctx context.Context, f fetcher, _ string) ([]string, error) {
+func (k kernelFeed) versions(ctx context.Context, f fetcher, _ string) ([]string, error) {
 	var doc struct {
 		Releases []struct {
 			Moniker string `json:"moniker"`
@@ -33,7 +39,7 @@ func (kernelFeed) versions(ctx context.Context, f fetcher, _ string) ([]string, 
 	}
 	var out []string
 	for _, r := range doc.Releases {
-		if r.Moniker == "stable" || r.Moniker == "longterm" {
+		if (k.moniker == "" && (r.Moniker == "stable" || r.Moniker == "longterm")) || r.Moniker == k.moniker {
 			out = append(out, r.Version)
 		}
 	}

@@ -7,20 +7,22 @@
 # it was pinned (GPG signature, signed checksum list, cross-check with a
 # distribution) is noted next to it.
 
-# Linux, the latest longterm branch (kernel.org/releases.json). sha256 of
-# the .tar.xz, pinned after checking the tarball's signature (.tar.sign,
-# over the uncompressed tar) by Greg Kroah-Hartman's key
+# Linux, one pin per kernel track an image can be built with (variants.mk):
+# the newest release of kernel.org's "longterm" (and "stable") moniker.
+# sha256 of the .tar.xz, pinned after checking the tarball's signature
+# (.tar.sign, over the uncompressed tar) by Greg Kroah-Hartman's key
 # 647F28654894E3BD457199BE38DBBDC86092693E and kernel.org's signed
 # sha256sums.asc (Kernel.org checksum autosigner,
 # B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1), which agree.
-KERNEL_VERSION := 6.18.55
-KERNEL_SHA256  := f410638061a165c12f42ab871d2f3fcd525515359b5faeee80969cff84524df9
+KERNEL_LONGTERM_VERSION := 6.18.55
+KERNEL_LONGTERM_SHA256  := f410638061a165c12f42ab871d2f3fcd525515359b5faeee80969cff84524df9
 
-# HAProxy, the latest LTS branch (haproxy.org). HAProxy doesn't sign its
-# tarballs: sha256 as published by haproxy.org (the .sha256 file and the
-# branch's releases.json, over HTTPS).
-HAPROXY_VERSION := 3.4.6
-HAPROXY_SHA256  := 791e1815f8af6e8b850a227a9a0a190f3d3478c9e8d38a0f51c98b7f4bfe368b
+# HAProxy, one pin per LTS branch an image can be built with (variants.mk,
+# haproxy.org). HAProxy doesn't sign its tarballs: sha256 as published by
+# haproxy.org (the .sha256 file and the branch's releases.json, over
+# HTTPS).
+HAPROXY_3_4_VERSION := 3.4.6
+HAPROXY_3_4_SHA256  := 791e1815f8af6e8b850a227a9a0a190f3d3478c9e8d38a0f51c98b7f4bfe368b
 
 # Single Board Computer tranche follow-up: pkgs/musl-toolchain builds a
 # real aarch64-linux-musl cross-toolchain (musl-cross-make, pinned by

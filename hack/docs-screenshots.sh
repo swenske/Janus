@@ -154,7 +154,7 @@ ro=""
 docker run --rm --network "$P" --ip "$NET.100" --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$ROOT/hack/browser/shots.mjs:/browser/shots.mjs:ro" -v "$ROOT/hack/browser/images.mjs:/browser/images.mjs:ro" \
   -v "$ROOT/hack/browser/shots.yaml:/browser/shots.yaml:ro" \
-  -v "$ROOT/examples:/examples:ro" -v "$ROOT/versions.mk:/versions.mk:ro" -v "$WORK/creds:/creds:ro" \
+  -v "$ROOT/examples:/examples:ro" -v "$ROOT/versions.mk:/versions.mk:ro" -v "$ROOT/variants.mk:/variants.mk:ro" -v "$WORK/creds:/creds:ro" \
   -v "$OUT:/screenshots$ro" -v "$DRIFT:/drift" \
   -e SHOTS_MODE="$MODE" -e SHOTS_THRESHOLD="${SHOTS_THRESHOLD:-0.00015}" -e SHOTS_ONLY="${SHOTS_ONLY:-}" \
   -e CONTROLLER="https://$NET.5:8080" -e NODES="edge-par-1=$NET.21,edge-par-2=$NET.22,edge-par-3=$NET.23" \

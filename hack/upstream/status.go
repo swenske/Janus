@@ -73,6 +73,8 @@ func newestVersions(c *component, pinned string, all []string) (latest, newer st
 			in = v.branch(2) == p.branch(2)
 		case trackMajor:
 			in = v.branch(1) == p.branch(1)
+		case trackKernel:
+			in = v.branch(2) == p.branch(2) || (len(v.nums) > 2 && v.nums[2] >= 2)
 		}
 		if in && (best.raw == "" || v.compare(best) > 0) {
 			best = v

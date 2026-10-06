@@ -28,6 +28,11 @@ const (
 	trackBranch track = iota // the pinned major.minor: "6.18.x", "3.4.x"
 	trackMajor               // the pinned major: "2.x"
 	trackAny                 // every new release
+	// trackKernel: a kernel.org moniker's newest release (the feed only
+	// lists that moniker's), moving to a newer branch from its x.y.2 on -
+	// a branch's first releases settle before every image of a track gets
+	// it, and the previous one stays maintained a few weeks more.
+	trackKernel
 )
 
 func (t track) String() string {
@@ -36,6 +41,8 @@ func (t track) String() string {
 		return "branch"
 	case trackMajor:
 		return "major"
+	case trackKernel:
+		return "kernel moniker"
 	}
 	return "any"
 }
@@ -50,6 +57,15 @@ type component struct {
 	// one) - empty when nothing is downloaded (a Go module tag).
 	versionVar string
 	sumVars    map[string]string
+	// legacyVar is the variable the pin had in versions.mk before images
+	// could choose variants (KERNEL_VERSION, HAPROXY_VERSION), read from an
+	// older release's versions.mk when it holds a version of this
+	// component (legacyBranch, when set: of that branch).
+	legacyVar, legacyBranch string
+	// variant: the HAProxy branch or kernel track (variants.mk) this
+	// component is, as schematic.ComponentHAProxy/ComponentKernel and the
+	// name; empty for every other component.
+	variantComponent, variant string
 	feed       feed
 	track      track
 	// prerelease: follow pre-releases too (an upstream that only makes
@@ -108,12 +124,15 @@ func sameURL(suffix string) func(a *artifact) string {
 // composeArch names an architecture the way Compose's release files do.
 var composeArch = map[string]string{"amd64": "x86_64", "arm64": "aarch64"}
 
-// components is everything versions.mk pins, in its order.
-var components = []*component{
-	{
-		name: "linux", title: "Linux kernel", kind: kindNode,
-		versionVar: "KERNEL_VERSION", sumVars: map[string]string{"": "KERNEL_SHA256"},
-		feed: kernelFeed{}, track: trackBranch,
+// kernelTrack is the Linux kernel of a track (variants.mk): kernel.org's
+// newest release of the moniker, whatever its branch.
+func kernelTrack(track, note, legacyVar string) *component {
+	return &component{
+		name: "linux-" + track, title: "Linux kernel (" + track + ")", kind: kindNode,
+		versionVar: "KERNEL_" + strings.ToUpper(track) + "_VERSION",
+		sumVars:    map[string]string{"": "KERNEL_" + strings.ToUpper(track) + "_SHA256"},
+		legacyVar:  legacyVar, variantComponent: "kernel", variant: track,
+		feed: kernelFeed{moniker: track}, track: trackKernel,
 		url: func(v, _ string) string { return kernelDir(v) + "linux-" + v + ".tar.xz" },
 		checks: []check{
 			gpgSig{sigURL: func(a *artifact) string { return strings.TrimSuffix(a.url, ".xz") + ".sign" },
@@ -123,11 +142,17 @@ var components = []*component{
 		},
 		vulns: []vulnSource{kernelCNA{}},
 		eol:   "linux", eolCycle: 2,
-		note: "the latest longterm branch",
-	},
-	{
-		name: "haproxy", title: "HAProxy", kind: kindNode,
-		versionVar: "HAPROXY_VERSION", sumVars: map[string]string{"": "HAPROXY_SHA256"},
+		note: note,
+	}
+}
+
+// haproxyBranch is HAProxy's LTS branch (variants.mk): its new releases.
+func haproxyBranch(branch, legacyVar string) *component {
+	pin := "HAPROXY_" + strings.ReplaceAll(branch, ".", "_")
+	return &component{
+		name: "haproxy-" + branch, title: "HAProxy " + branch, kind: kindNode,
+		versionVar: pin + "_VERSION", sumVars: map[string]string{"": pin + "_SHA256"},
+		legacyVar: legacyVar, legacyBranch: branch, variantComponent: "haproxy", variant: branch,
 		feed: haproxyFeed{}, track: trackBranch,
 		url: func(v, _ string) string {
 			return "https://www.haproxy.org/download/" + mustVersion(v).branch(2) + "/src/haproxy-" + v + ".tar.gz"
@@ -135,8 +160,33 @@ var components = []*component{
 		checks: []check{publishedSum{sumURL: sameURL(".sha256")}, haproxySum{}},
 		vulns:  []vulnSource{haproxyBugs{}},
 		eol:    "haproxy", eolCycle: 2,
-		note: "the latest LTS branch",
-	},
+		note: "an LTS branch images can be built with",
+	}
+}
+
+// pinOf is the version c is pinned to in a versions.mk's variables - its
+// legacy variable's for a release from before variants, "" when it
+// pins none.
+func pinOf(c *component, vars map[string]string) string {
+	if v := vars[c.versionVar]; v != "" {
+		return v
+	}
+	v := vars[c.legacyVar]
+	if c.legacyVar == "" || v == "" {
+		return ""
+	}
+	if c.legacyBranch != "" {
+		if pv, ok := parseVersion(v); !ok || pv.branch(2) != c.legacyBranch {
+			return ""
+		}
+	}
+	return v
+}
+
+// components is everything versions.mk pins, in its order.
+var components = []*component{
+	kernelTrack("longterm", "the newest longterm release", "KERNEL_VERSION"),
+	haproxyBranch("3.4", "HAPROXY_VERSION"),
 	{
 		name: "musl-cross-make", title: "musl-cross-make (arm64 musl toolchain)", kind: kindBuild,
 		versionVar: "MUSL_CROSS_MAKE_REF",

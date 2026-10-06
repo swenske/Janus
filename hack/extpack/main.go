@@ -24,6 +24,11 @@
 //
 // check verifies a schematic against a release's catalog - and, with
 // -id, that it is the schematic with that ID.
+//
+//	extpack variant [-schematic FILE] [-arch ARCH] haproxy|kernel
+//
+// variant prints the HAProxy branch or kernel track a schematic gets
+// (variants.mk, in the current directory): the Makefile builds with it.
 package main
 
 import (
@@ -43,6 +48,7 @@ import (
 
 	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/schematic"
+	"github.com/swenske/Janus/internal/variants"
 )
 
 func main() {
@@ -61,6 +67,8 @@ func main() {
 		layers(os.Args[2:])
 	case "check":
 		check(os.Args[2:])
+	case "variant":
+		variant(os.Args[2:])
 	default:
 		log.Fatalf("unknown command %q", os.Args[1])
 	}
@@ -237,11 +245,17 @@ func catalog(args []string) {
 		log.Fatal(errors.New("no extension given"))
 	}
 	slices.SortFunc(c.Extensions, func(a, b schematic.CatalogEntry) int { return strings.Compare(a.Name, b.Name) })
+	set, err := variants.Load(".")
+	if err != nil {
+		log.Fatal(err)
+	}
+	vc := set.CatalogVariants()
+	c.HAProxy, c.Kernel, c.Retired = vc.HAProxy, vc.Kernel, vc.Retired
 	data, _ := json.MarshalIndent(c, "", "  ")
 	if err := os.WriteFile(*out, append(data, '\n'), 0o644); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("wrote %s (%d extensions)\n", *out, len(c.Extensions))
+	fmt.Printf("wrote %s (%d extensions, %d HAProxy branches, %d kernel tracks)\n", *out, len(c.Extensions), len(c.HAProxy), len(c.Kernel))
 }
 
 func loadSchematic(file string) *schematic.Schematic {
@@ -318,4 +332,27 @@ func check(args []string) {
 		log.Fatal(err)
 	}
 	fmt.Printf("schematic %s: ok for %s %s\n", sc.ID(), c.Version, *arch)
+}
+
+func variant(args []string) {
+	fl := flag.NewFlagSet("variant", flag.ExitOnError)
+	file := fl.String("schematic", "", "schematic JSON (default: the default schematic)")
+	arch := fl.String("arch", "amd64", "architecture")
+	_ = fl.Parse(args)
+	if fl.NArg() != 1 || (fl.Arg(0) != schematic.ComponentHAProxy && fl.Arg(0) != schematic.ComponentKernel) {
+		log.Fatal("usage: extpack variant [-schematic FILE] [-arch ARCH] haproxy|kernel")
+	}
+	set, err := variants.Load(".")
+	if err != nil {
+		log.Fatal(err)
+	}
+	haproxy, kernel, err := set.Resolve(loadSchematic(*file), *arch)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if fl.Arg(0) == schematic.ComponentHAProxy {
+		fmt.Println(haproxy.Name)
+	} else {
+		fmt.Println(kernel.Name)
+	}
 }
