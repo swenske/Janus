@@ -4,7 +4,7 @@
 # passes what the build is (DOCS_CHANNEL, DOCS_VERSION...: see
 # src/lib/build-info.mjs). The export stage holds the built site alone:
 #   docker build -f site/docs/Dockerfile --target export -o <dir> <snapshot>
-FROM node:24.21.0-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS deps
+FROM node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS deps
 ENV ASTRO_TELEMETRY_DISABLED=1 NPM_CONFIG_UPDATE_NOTIFIER=false
 WORKDIR /src/site/docs
 COPY site/docs/package.json site/docs/package-lock.json site/docs/.npmrc ./
