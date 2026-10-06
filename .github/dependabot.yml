@@ -68,6 +68,12 @@ updates:
       docker:
         group-by: dependency-name
         patterns: ["*"]
+    ignore:
+      # The docs site builds on Node's LTS line (24, site/docs/Dockerfile
+      # and .nvmrc): its patches come, a new major goes in by hand once
+      # it's LTS - an even release only becomes one in October.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
 
   # Pinned by commit SHA, the version in a comment - the workflows and
   # the composite action they share.
