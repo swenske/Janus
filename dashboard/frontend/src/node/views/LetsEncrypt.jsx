@@ -8,7 +8,8 @@ import { dateTime } from '../format.js'
 import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 
-const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/letsencrypt.md'
+// Its page on the docs site, by the file's permalink.
+const DOCS = 'https://janus.sw-servers.net/docs/letsencrypt.md'
 
 const CAS = [
   { id: 'letsencrypt', label: "Let's Encrypt" },

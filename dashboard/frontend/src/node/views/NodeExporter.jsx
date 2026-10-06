@@ -6,7 +6,8 @@ import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 
 const DEFAULT_PORT = 9100
-const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/metrics.md'
+// Its page on the docs site, by the file's permalink.
+const DOCS = 'https://janus.sw-servers.net/docs/metrics.md'
 
 // NodeExporter is the prometheus-node-exporter extension: node_exporter's
 // state, and its settings - whether it runs, where it listens, which

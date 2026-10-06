@@ -6,7 +6,8 @@ import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 
 const DEFAULT_PORT = 10056
-const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/metrics.md'
+// Its page on the docs site, by the file's permalink.
+const DOCS = 'https://janus.sw-servers.net/docs/metrics.md'
 
 // ExporterCard is the node's own Prometheus exporter: Janus's metrics
 // (certificates, boot slot, HAProxy as janusd runs it, extensions, time,

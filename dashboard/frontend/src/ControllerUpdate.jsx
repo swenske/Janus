@@ -14,7 +14,7 @@ import { securityText, securityTone } from './severity.js'
 // reloads into the sign-in screen once the new one answers, and shows how
 // the update ended after signing in.
 
-const DOCS = 'https://github.com/swenske/Janus/blob/main/dashboard/README.md#updating-the-controller'
+const DOCS = 'https://janus.sw-servers.net/docs/dashboard/README.md#updating-the-controller'
 const DISMISSED = 'janus.controllerUpdate.dismissed'
 const IDLE_EVERY = 60000
 const BUSY_EVERY = 2000

@@ -21,6 +21,12 @@ import (
 // in issues. Its file must stay, and so must the heading.
 var publishedLink = regexp.MustCompile(`github\.com/swenske/Janus/blob/main/([A-Za-z0-9_./-]+\.md)#([A-Za-z0-9_-]+)`)
 
+// A link to the docs site by a file's permalink - janus.sw-servers.net/
+// docs/<the file's path under docs/, or in the repository> - leads to
+// the file's page wherever the site puts it: the file must be one of the
+// site's pages (site/docs/structure.yaml), with the heading, if any.
+var siteLink = regexp.MustCompile(`janus\.sw-servers\.net/docs/(?:next/)?([A-Za-z0-9_./-]+\.md)(?:#([A-Za-z0-9_-]+))?`)
+
 // The files read: every tracked text file, but the frontends' built
 // copies of their sources.
 func trackedFiles(t *testing.T) []string {
@@ -60,6 +66,52 @@ func TestPublishedAnchorsExist(t *testing.T) {
 			}
 			if !anchors[target][anchor] {
 				t.Errorf("%s links %s#%s: no such heading any more - published links point at it: keep it (with a pointer where its content went)", f, target, anchor)
+			}
+		}
+	}
+}
+
+func TestSiteLinksLeadToPages(t *testing.T) {
+	structure, err := os.ReadFile("../../site/docs/structure.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pages := map[string]bool{}
+	for _, m := range regexp.MustCompile(`file:\s*([^\s,}]+)`).FindAllSubmatch(structure, -1) {
+		pages[string(m[1])] = true
+	}
+	anchors := map[string]map[string]bool{}
+	for _, f := range trackedFiles(t) {
+		data, err := os.ReadFile(filepath.Join("../..", f))
+		if err != nil || bytes.IndexByte(data, 0) >= 0 {
+			continue
+		}
+		for _, m := range siteLink.FindAllSubmatch(data, -1) {
+			path, anchor := string(m[1]), string(m[2])
+			// The site's permalinks drop docs/ (janus-files.mjs).
+			target := ""
+			for _, candidate := range []string{"docs/" + path, path} {
+				if pages[candidate] {
+					target = candidate
+					break
+				}
+			}
+			if target == "" {
+				t.Errorf("%s links the docs site's %s: no page of the site is that file (site/docs/structure.yaml)", f, path)
+				continue
+			}
+			if anchor == "" {
+				continue
+			}
+			if anchors[target] == nil {
+				src, err := os.ReadFile(filepath.Join("../..", target))
+				if err != nil {
+					t.Fatal(err)
+				}
+				anchors[target] = headingAnchors(src)
+			}
+			if !anchors[target][anchor] {
+				t.Errorf("%s links the docs site's %s#%s: no such heading in %s", f, path, anchor, target)
 			}
 		}
 	}

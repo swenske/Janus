@@ -5,7 +5,8 @@ import ModuleConfigEditor from '../components/ModuleConfigEditor.jsx'
 import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 
-const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/consul.md'
+// Its page on the docs site, by the file's permalink.
+const DOCS = 'https://janus.sw-servers.net/docs/consul.md'
 
 // A starting point: checked by the extension's own consul validate.
 const STARTER = `# The Consul agent's configuration, HCL or JSON - see docs/consul.md.

@@ -8,7 +8,8 @@ import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import Module from './Module.jsx'
 
-const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/firewall.md'
+// Its page on the docs site, by the file's permalink.
+const DOCS = 'https://janus.sw-servers.net/docs/firewall.md'
 
 // A starting point for a node with no ruleset yet: checked against the
 // extension's own nft.

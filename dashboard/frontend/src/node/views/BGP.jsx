@@ -4,7 +4,8 @@ import ModuleConfigEditor from '../components/ModuleConfigEditor.jsx'
 import { usePoll } from '../hooks.jsx'
 import Module from './Module.jsx'
 
-const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/bgp.md'
+// Its page on the docs site, by the file's permalink.
+const DOCS = 'https://janus.sw-servers.net/docs/bgp.md'
 
 // A starting point: checked by the extension's own BIRD.
 const STARTER = `# bird.conf - see docs/bgp.md.

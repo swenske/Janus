@@ -4,7 +4,8 @@ import ModuleConfigEditor from '../components/ModuleConfigEditor.jsx'
 import { usePoll } from '../hooks.jsx'
 import Module from './Module.jsx'
 
-const DOCS = 'https://github.com/swenske/Janus/blob/main/docs/vrrp.md'
+// Its page on the docs site, by the file's permalink.
+const DOCS = 'https://janus.sw-servers.net/docs/vrrp.md'
 
 // A starting point: checked by the extension's own keepalived.
 const STARTER = `# keepalived.conf - see docs/vrrp.md.
