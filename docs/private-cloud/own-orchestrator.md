@@ -104,5 +104,5 @@ integration can count on today:
 - **Each release's notes say what changed** - in the API too.
 - **The contracts on these pages are tested**: the console line, the
   registration protocol, the bundle format and the certificate profile
-  are what `make qemu-orchestrator-test` and the nodes' own tests check
-  - a change to one fails them before it ships.
+  are what `make qemu-orchestrator-test` and the nodes' own tests
+  check, so a change to one fails them before it ships.
