@@ -63,19 +63,21 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // SystemService is the reduced, non-Kubernetes equivalent of Talos's
-// MachineService: machine lifecycle, declarative configuration,
-// observability, managed-service control, and the handful of read-only
-// file/network RPCs that replace an interactive shell. See
-// docs/api-routes.md for the full design rationale.
-//
-// The contract was defined ahead of its implementation so the wire format
-// is stable from day one; docs/api-routes.md tracks which methods are
-// implemented - the rest return codes.Unimplemented.
+// MachineService: the machine's power, observability, managed-service
+// control, and the handful of read-only file/network RPCs that replace an
+// interactive shell. See docs/api-routes.md for the full design
+// rationale. Every method is implemented but ApplyConfiguration,
+// MetaWrite and MetaDelete, which return codes.Unimplemented.
 type SystemServiceClient interface {
+	// Version reports what the node runs: Janus's version, its kernel, the
+	// A/B slot it booted from and its image schematic.
 	Version(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*VersionResponse, error)
+	// Hostname reports the node's hostname.
 	Hostname(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HostnameResponse, error)
-	// Reboot power-cycles the whole machine.
+	// Reboot power-cycles the whole machine, after a soft stop of HAProxy:
+	// connections in flight get a chance to finish.
 	Reboot(ctx context.Context, in *RebootRequest, opts ...grpc.CallOption) (*RebootResponse, error)
+	// Shutdown powers the machine off, after the same soft stop of HAProxy.
 	Shutdown(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ShutdownResponse, error)
 	// Restart restarts the janusd control-plane process in place,
 	// without rebooting the machine or interrupting HAProxy itself.
@@ -83,9 +85,9 @@ type SystemServiceClient interface {
 	// Reset wipes the requested partitions (state/ephemeral) and reboots -
 	// the equivalent of returning the node to its just-installed state.
 	Reset(ctx context.Context, in *ResetRequest, opts ...grpc.CallOption) (*ResetResponse, error)
-	// ApplyConfiguration validates and applies a full declarative machine
-	// configuration (see internal/config), streaming progress and
-	// validation errors back to the caller.
+	// ApplyConfiguration is not implemented - it answers Unimplemented: a
+	// node has no declarative machine configuration, each area has its
+	// own calls (HAProxyService, NetworkService...).
 	ApplyConfiguration(ctx context.Context, in *ApplyConfigurationRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ApplyConfigurationResponse], error)
 	// Events streams the machine's internal event log (config applied,
 	// service state changes, upgrade progress, etc.).
@@ -94,54 +96,80 @@ type SystemServiceClient interface {
 	Dmesg(ctx context.Context, in *DmesgRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
 	// Logs streams a managed service's log output.
 	Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
+	// Stats sums the CPU time and memory of each managed service's
+	// processes - janusd, haproxy (a reload briefly leaves an old haproxy
+	// process finishing its connections next to the new one).
 	Stats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*StatsResponse, error)
+	// SystemStat reports the machine's counters since boot: boot time,
+	// context switches, processes created, CPU ticks (/proc/stat).
 	SystemStat(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SystemStatResponse, error)
+	// Memory reports the machine's total, available and cached memory.
 	Memory(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MemoryResponse, error)
+	// CPUInfo describes the machine's CPUs: model, frequency, sockets and
+	// cores.
 	CPUInfo(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*CPUInfoResponse, error)
+	// LoadAvg reports the load averages over 1, 5 and 15 minutes.
 	LoadAvg(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LoadAvgResponse, error)
+	// DiskStats reports each disk's I/O counters.
 	DiskStats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DiskStatsResponse, error)
+	// DiskUsage reports each requested path's total size (apparent size of
+	// every regular file under it, not crossing into /proc, /sys or /dev);
+	// with recursive, also one entry per directory beneath it.
 	DiskUsage(ctx context.Context, in *DiskUsageRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DiskUsageInfo], error)
+	// NetworkDeviceStats reports each network interface's traffic and
+	// error counters.
 	NetworkDeviceStats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkDeviceStatsResponse, error)
+	// Netstat lists the machine's TCP and UDP sockets: listening ones and
+	// connections.
 	Netstat(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetstatResponse, error)
+	// Mounts lists the mounted filesystems with their size and free space.
 	Mounts(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MountsResponse, error)
+	// Processes lists the machine's processes.
 	Processes(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ProcessesResponse, error)
+	// ServiceList reports the managed services: janusd itself, haproxy,
+	// and the services of the image's optional extensions.
 	ServiceList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServiceListResponse, error)
+	// ServiceStart starts a managed service. NotFound for a service the
+	// image doesn't have; FailedPrecondition for an extension's service its
+	// settings disable.
 	ServiceStart(ctx context.Context, in *ServiceRequest, opts ...grpc.CallOption) (*ServiceResponse, error)
+	// ServiceStop stops a managed service - haproxy after a soft stop;
+	// never janusd (FailedPrecondition: Restart restarts it).
 	ServiceStop(ctx context.Context, in *ServiceRequest, opts ...grpc.CallOption) (*ServiceResponse, error)
+	// ServiceRestart restarts a managed service.
 	ServiceRestart(ctx context.Context, in *ServiceRequest, opts ...grpc.CallOption) (*ServiceResponse, error)
-	// List, Read, Copy and PacketCapture are the deliberate, narrow
-	// replacements for an interactive shell: read-only, scoped, never
-	// arbitrary command execution.
+	// List walks a directory, never into /proc, /sys or /dev.
 	List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileInfo], error)
+	// Read streams a file's content - never a device's.
 	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
+	// Copy streams a file or a directory as a tar archive - never from
+	// /proc or /sys.
 	Copy(ctx context.Context, in *CopyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
 	// PacketCapture streams a live capture as a pcap file (classic
 	// libpcap format, microsecond timestamps), split across Data
 	// messages - concatenate them to get a file tcpdump/Wireshark read
 	// directly. Runs for duration_seconds, or until the client cancels.
 	PacketCapture(ctx context.Context, in *PacketCaptureRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
-	// MetaWrite/MetaDelete manage small key/value entries on the META
-	// partition (outside the immutable rootfs) - install-time metadata,
-	// not general storage.
+	// MetaWrite is not implemented - it answers Unimplemented: a node has
+	// no META partition for small key/value entries.
 	MetaWrite(ctx context.Context, in *MetaWriteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// MetaDelete is not implemented - it answers Unimplemented, like
+	// MetaWrite.
 	MetaDelete(ctx context.Context, in *MetaDeleteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// GenerateClientConfiguration issues a client certificate signed by
 	// this node's CA (see internal/pki), for the given roles, named after
 	// who it's for and valid one year or less.
 	GenerateClientConfiguration(ctx context.Context, in *GenerateClientConfigurationRequest, opts ...grpc.CallOption) (*GenerateClientConfigurationResponse, error)
-	// The node's Prometheus exporter (docs/metrics.md): Janus's own
-	// metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
-	// extension services, time sync, SELinux - over plain HTTP, on by
-	// default on port 10056. Set applies at once and persists; a port that
-	// can't be bound is refused and the exporter stays as it was.
+	// MetricsConfigGet reports the exporter's settings.
 	MetricsConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
+	// MetricsConfigSet changes the exporter's settings, at once and for
+	// good; a port that can't be bound is refused and the exporter stays
+	// as it was.
 	MetricsConfigSet(ctx context.Context, in *MetricsConfig, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
-	// The prometheus-node-exporter extension's settings (docs/metrics.md):
-	// whether node_exporter runs, the address and port it listens on, and
-	// its collectors, from a fixed list. Set restarts node_exporter with
-	// them and persists them. FailedPrecondition when the image doesn't
-	// have the extension.
+	// NodeExporterConfigGet reports node_exporter's settings.
 	NodeExporterConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NodeExporterConfigResponse, error)
+	// NodeExporterConfigSet changes node_exporter's settings: it restarts
+	// with them, and they're kept.
 	NodeExporterConfigSet(ctx context.Context, in *NodeExporterConfig, opts ...grpc.CallOption) (*NodeExporterConfigResponse, error)
 }
 
@@ -599,19 +627,21 @@ func (c *systemServiceClient) NodeExporterConfigSet(ctx context.Context, in *Nod
 // for forward compatibility.
 //
 // SystemService is the reduced, non-Kubernetes equivalent of Talos's
-// MachineService: machine lifecycle, declarative configuration,
-// observability, managed-service control, and the handful of read-only
-// file/network RPCs that replace an interactive shell. See
-// docs/api-routes.md for the full design rationale.
-//
-// The contract was defined ahead of its implementation so the wire format
-// is stable from day one; docs/api-routes.md tracks which methods are
-// implemented - the rest return codes.Unimplemented.
+// MachineService: the machine's power, observability, managed-service
+// control, and the handful of read-only file/network RPCs that replace an
+// interactive shell. See docs/api-routes.md for the full design
+// rationale. Every method is implemented but ApplyConfiguration,
+// MetaWrite and MetaDelete, which return codes.Unimplemented.
 type SystemServiceServer interface {
+	// Version reports what the node runs: Janus's version, its kernel, the
+	// A/B slot it booted from and its image schematic.
 	Version(context.Context, *emptypb.Empty) (*VersionResponse, error)
+	// Hostname reports the node's hostname.
 	Hostname(context.Context, *emptypb.Empty) (*HostnameResponse, error)
-	// Reboot power-cycles the whole machine.
+	// Reboot power-cycles the whole machine, after a soft stop of HAProxy:
+	// connections in flight get a chance to finish.
 	Reboot(context.Context, *RebootRequest) (*RebootResponse, error)
+	// Shutdown powers the machine off, after the same soft stop of HAProxy.
 	Shutdown(context.Context, *emptypb.Empty) (*ShutdownResponse, error)
 	// Restart restarts the janusd control-plane process in place,
 	// without rebooting the machine or interrupting HAProxy itself.
@@ -619,9 +649,9 @@ type SystemServiceServer interface {
 	// Reset wipes the requested partitions (state/ephemeral) and reboots -
 	// the equivalent of returning the node to its just-installed state.
 	Reset(context.Context, *ResetRequest) (*ResetResponse, error)
-	// ApplyConfiguration validates and applies a full declarative machine
-	// configuration (see internal/config), streaming progress and
-	// validation errors back to the caller.
+	// ApplyConfiguration is not implemented - it answers Unimplemented: a
+	// node has no declarative machine configuration, each area has its
+	// own calls (HAProxyService, NetworkService...).
 	ApplyConfiguration(*ApplyConfigurationRequest, grpc.ServerStreamingServer[ApplyConfigurationResponse]) error
 	// Events streams the machine's internal event log (config applied,
 	// service state changes, upgrade progress, etc.).
@@ -630,54 +660,80 @@ type SystemServiceServer interface {
 	Dmesg(*DmesgRequest, grpc.ServerStreamingServer[Data]) error
 	// Logs streams a managed service's log output.
 	Logs(*LogsRequest, grpc.ServerStreamingServer[Data]) error
+	// Stats sums the CPU time and memory of each managed service's
+	// processes - janusd, haproxy (a reload briefly leaves an old haproxy
+	// process finishing its connections next to the new one).
 	Stats(context.Context, *emptypb.Empty) (*StatsResponse, error)
+	// SystemStat reports the machine's counters since boot: boot time,
+	// context switches, processes created, CPU ticks (/proc/stat).
 	SystemStat(context.Context, *emptypb.Empty) (*SystemStatResponse, error)
+	// Memory reports the machine's total, available and cached memory.
 	Memory(context.Context, *emptypb.Empty) (*MemoryResponse, error)
+	// CPUInfo describes the machine's CPUs: model, frequency, sockets and
+	// cores.
 	CPUInfo(context.Context, *emptypb.Empty) (*CPUInfoResponse, error)
+	// LoadAvg reports the load averages over 1, 5 and 15 minutes.
 	LoadAvg(context.Context, *emptypb.Empty) (*LoadAvgResponse, error)
+	// DiskStats reports each disk's I/O counters.
 	DiskStats(context.Context, *emptypb.Empty) (*DiskStatsResponse, error)
+	// DiskUsage reports each requested path's total size (apparent size of
+	// every regular file under it, not crossing into /proc, /sys or /dev);
+	// with recursive, also one entry per directory beneath it.
 	DiskUsage(*DiskUsageRequest, grpc.ServerStreamingServer[DiskUsageInfo]) error
+	// NetworkDeviceStats reports each network interface's traffic and
+	// error counters.
 	NetworkDeviceStats(context.Context, *emptypb.Empty) (*NetworkDeviceStatsResponse, error)
+	// Netstat lists the machine's TCP and UDP sockets: listening ones and
+	// connections.
 	Netstat(context.Context, *emptypb.Empty) (*NetstatResponse, error)
+	// Mounts lists the mounted filesystems with their size and free space.
 	Mounts(context.Context, *emptypb.Empty) (*MountsResponse, error)
+	// Processes lists the machine's processes.
 	Processes(context.Context, *emptypb.Empty) (*ProcessesResponse, error)
+	// ServiceList reports the managed services: janusd itself, haproxy,
+	// and the services of the image's optional extensions.
 	ServiceList(context.Context, *emptypb.Empty) (*ServiceListResponse, error)
+	// ServiceStart starts a managed service. NotFound for a service the
+	// image doesn't have; FailedPrecondition for an extension's service its
+	// settings disable.
 	ServiceStart(context.Context, *ServiceRequest) (*ServiceResponse, error)
+	// ServiceStop stops a managed service - haproxy after a soft stop;
+	// never janusd (FailedPrecondition: Restart restarts it).
 	ServiceStop(context.Context, *ServiceRequest) (*ServiceResponse, error)
+	// ServiceRestart restarts a managed service.
 	ServiceRestart(context.Context, *ServiceRequest) (*ServiceResponse, error)
-	// List, Read, Copy and PacketCapture are the deliberate, narrow
-	// replacements for an interactive shell: read-only, scoped, never
-	// arbitrary command execution.
+	// List walks a directory, never into /proc, /sys or /dev.
 	List(*ListRequest, grpc.ServerStreamingServer[FileInfo]) error
+	// Read streams a file's content - never a device's.
 	Read(*ReadRequest, grpc.ServerStreamingServer[Data]) error
+	// Copy streams a file or a directory as a tar archive - never from
+	// /proc or /sys.
 	Copy(*CopyRequest, grpc.ServerStreamingServer[Data]) error
 	// PacketCapture streams a live capture as a pcap file (classic
 	// libpcap format, microsecond timestamps), split across Data
 	// messages - concatenate them to get a file tcpdump/Wireshark read
 	// directly. Runs for duration_seconds, or until the client cancels.
 	PacketCapture(*PacketCaptureRequest, grpc.ServerStreamingServer[Data]) error
-	// MetaWrite/MetaDelete manage small key/value entries on the META
-	// partition (outside the immutable rootfs) - install-time metadata,
-	// not general storage.
+	// MetaWrite is not implemented - it answers Unimplemented: a node has
+	// no META partition for small key/value entries.
 	MetaWrite(context.Context, *MetaWriteRequest) (*emptypb.Empty, error)
+	// MetaDelete is not implemented - it answers Unimplemented, like
+	// MetaWrite.
 	MetaDelete(context.Context, *MetaDeleteRequest) (*emptypb.Empty, error)
 	// GenerateClientConfiguration issues a client certificate signed by
 	// this node's CA (see internal/pki), for the given roles, named after
 	// who it's for and valid one year or less.
 	GenerateClientConfiguration(context.Context, *GenerateClientConfigurationRequest) (*GenerateClientConfigurationResponse, error)
-	// The node's Prometheus exporter (docs/metrics.md): Janus's own
-	// metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
-	// extension services, time sync, SELinux - over plain HTTP, on by
-	// default on port 10056. Set applies at once and persists; a port that
-	// can't be bound is refused and the exporter stays as it was.
+	// MetricsConfigGet reports the exporter's settings.
 	MetricsConfigGet(context.Context, *emptypb.Empty) (*MetricsConfigResponse, error)
+	// MetricsConfigSet changes the exporter's settings, at once and for
+	// good; a port that can't be bound is refused and the exporter stays
+	// as it was.
 	MetricsConfigSet(context.Context, *MetricsConfig) (*MetricsConfigResponse, error)
-	// The prometheus-node-exporter extension's settings (docs/metrics.md):
-	// whether node_exporter runs, the address and port it listens on, and
-	// its collectors, from a fixed list. Set restarts node_exporter with
-	// them and persists them. FailedPrecondition when the image doesn't
-	// have the extension.
+	// NodeExporterConfigGet reports node_exporter's settings.
 	NodeExporterConfigGet(context.Context, *emptypb.Empty) (*NodeExporterConfigResponse, error)
+	// NodeExporterConfigSet changes node_exporter's settings: it restarts
+	// with them, and they're kept.
 	NodeExporterConfigSet(context.Context, *NodeExporterConfig) (*NodeExporterConfigResponse, error)
 	mustEmbedUnimplementedSystemServiceServer()
 }

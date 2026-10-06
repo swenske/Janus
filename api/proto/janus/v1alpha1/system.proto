@@ -8,20 +8,22 @@ import "janus/v1alpha1/common.proto";
 option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
 
 // SystemService is the reduced, non-Kubernetes equivalent of Talos's
-// MachineService: machine lifecycle, declarative configuration,
-// observability, managed-service control, and the handful of read-only
-// file/network RPCs that replace an interactive shell. See
-// docs/api-routes.md for the full design rationale.
-//
-// The contract was defined ahead of its implementation so the wire format
-// is stable from day one; docs/api-routes.md tracks which methods are
-// implemented - the rest return codes.Unimplemented.
+// MachineService: the machine's power, observability, managed-service
+// control, and the handful of read-only file/network RPCs that replace an
+// interactive shell. See docs/api-routes.md for the full design
+// rationale. Every method is implemented but ApplyConfiguration,
+// MetaWrite and MetaDelete, which return codes.Unimplemented.
 service SystemService {
+  // Version reports what the node runs: Janus's version, its kernel, the
+  // A/B slot it booted from and its image schematic.
   rpc Version(google.protobuf.Empty) returns (VersionResponse);
+  // Hostname reports the node's hostname.
   rpc Hostname(google.protobuf.Empty) returns (HostnameResponse);
 
-  // Reboot power-cycles the whole machine.
+  // Reboot power-cycles the whole machine, after a soft stop of HAProxy:
+  // connections in flight get a chance to finish.
   rpc Reboot(RebootRequest) returns (RebootResponse);
+  // Shutdown powers the machine off, after the same soft stop of HAProxy.
   rpc Shutdown(google.protobuf.Empty) returns (ShutdownResponse);
   // Restart restarts the janusd control-plane process in place,
   // without rebooting the machine or interrupting HAProxy itself.
@@ -30,9 +32,9 @@ service SystemService {
   // the equivalent of returning the node to its just-installed state.
   rpc Reset(ResetRequest) returns (ResetResponse);
 
-  // ApplyConfiguration validates and applies a full declarative machine
-  // configuration (see internal/config), streaming progress and
-  // validation errors back to the caller.
+  // ApplyConfiguration is not implemented - it answers Unimplemented: a
+  // node has no declarative machine configuration, each area has its
+  // own calls (HAProxyService, NetworkService...).
   rpc ApplyConfiguration(ApplyConfigurationRequest) returns (stream ApplyConfigurationResponse);
 
   // Events streams the machine's internal event log (config applied,
@@ -43,28 +45,60 @@ service SystemService {
   // Logs streams a managed service's log output.
   rpc Logs(LogsRequest) returns (stream Data);
 
+  // Stats sums the CPU time and memory of each managed service's
+  // processes - janusd, haproxy (a reload briefly leaves an old haproxy
+  // process finishing its connections next to the new one).
   rpc Stats(google.protobuf.Empty) returns (StatsResponse);
+  // SystemStat reports the machine's counters since boot: boot time,
+  // context switches, processes created, CPU ticks (/proc/stat).
   rpc SystemStat(google.protobuf.Empty) returns (SystemStatResponse);
+  // Memory reports the machine's total, available and cached memory.
   rpc Memory(google.protobuf.Empty) returns (MemoryResponse);
+  // CPUInfo describes the machine's CPUs: model, frequency, sockets and
+  // cores.
   rpc CPUInfo(google.protobuf.Empty) returns (CPUInfoResponse);
+  // LoadAvg reports the load averages over 1, 5 and 15 minutes.
   rpc LoadAvg(google.protobuf.Empty) returns (LoadAvgResponse);
+  // DiskStats reports each disk's I/O counters.
   rpc DiskStats(google.protobuf.Empty) returns (DiskStatsResponse);
+  // DiskUsage reports each requested path's total size (apparent size of
+  // every regular file under it, not crossing into /proc, /sys or /dev);
+  // with recursive, also one entry per directory beneath it.
   rpc DiskUsage(DiskUsageRequest) returns (stream DiskUsageInfo);
+  // NetworkDeviceStats reports each network interface's traffic and
+  // error counters.
   rpc NetworkDeviceStats(google.protobuf.Empty) returns (NetworkDeviceStatsResponse);
+  // Netstat lists the machine's TCP and UDP sockets: listening ones and
+  // connections.
   rpc Netstat(google.protobuf.Empty) returns (NetstatResponse);
+  // Mounts lists the mounted filesystems with their size and free space.
   rpc Mounts(google.protobuf.Empty) returns (MountsResponse);
+  // Processes lists the machine's processes.
   rpc Processes(google.protobuf.Empty) returns (ProcessesResponse);
 
+  // ServiceList reports the managed services: janusd itself, haproxy,
+  // and the services of the image's optional extensions.
   rpc ServiceList(google.protobuf.Empty) returns (ServiceListResponse);
+  // ServiceStart starts a managed service. NotFound for a service the
+  // image doesn't have; FailedPrecondition for an extension's service its
+  // settings disable.
   rpc ServiceStart(ServiceRequest) returns (ServiceResponse);
+  // ServiceStop stops a managed service - haproxy after a soft stop;
+  // never janusd (FailedPrecondition: Restart restarts it).
   rpc ServiceStop(ServiceRequest) returns (ServiceResponse);
+  // ServiceRestart restarts a managed service.
   rpc ServiceRestart(ServiceRequest) returns (ServiceResponse);
 
   // List, Read, Copy and PacketCapture are the deliberate, narrow
   // replacements for an interactive shell: read-only, scoped, never
-  // arbitrary command execution.
+  // arbitrary command execution. None of them serves the node's secrets.
+
+  // List walks a directory, never into /proc, /sys or /dev.
   rpc List(ListRequest) returns (stream FileInfo);
+  // Read streams a file's content - never a device's.
   rpc Read(ReadRequest) returns (stream Data);
+  // Copy streams a file or a directory as a tar archive - never from
+  // /proc or /sys.
   rpc Copy(CopyRequest) returns (stream Data);
   // PacketCapture streams a live capture as a pcap file (classic
   // libpcap format, microsecond timestamps), split across Data
@@ -72,10 +106,11 @@ service SystemService {
   // directly. Runs for duration_seconds, or until the client cancels.
   rpc PacketCapture(PacketCaptureRequest) returns (stream Data);
 
-  // MetaWrite/MetaDelete manage small key/value entries on the META
-  // partition (outside the immutable rootfs) - install-time metadata,
-  // not general storage.
+  // MetaWrite is not implemented - it answers Unimplemented: a node has
+  // no META partition for small key/value entries.
   rpc MetaWrite(MetaWriteRequest) returns (google.protobuf.Empty);
+  // MetaDelete is not implemented - it answers Unimplemented, like
+  // MetaWrite.
   rpc MetaDelete(MetaDeleteRequest) returns (google.protobuf.Empty);
 
   // GenerateClientConfiguration issues a client certificate signed by
@@ -86,17 +121,24 @@ service SystemService {
   // The node's Prometheus exporter (docs/metrics.md): Janus's own
   // metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
   // extension services, time sync, SELinux - over plain HTTP, on by
-  // default on port 10056. Set applies at once and persists; a port that
-  // can't be bound is refused and the exporter stays as it was.
+  // default on port 10056.
+
+  // MetricsConfigGet reports the exporter's settings.
   rpc MetricsConfigGet(google.protobuf.Empty) returns (MetricsConfigResponse);
+  // MetricsConfigSet changes the exporter's settings, at once and for
+  // good; a port that can't be bound is refused and the exporter stays
+  // as it was.
   rpc MetricsConfigSet(MetricsConfig) returns (MetricsConfigResponse);
 
   // The prometheus-node-exporter extension's settings (docs/metrics.md):
   // whether node_exporter runs, the address and port it listens on, and
-  // its collectors, from a fixed list. Set restarts node_exporter with
-  // them and persists them. FailedPrecondition when the image doesn't
-  // have the extension.
+  // its collectors, from a fixed list. FailedPrecondition when the image
+  // doesn't have the extension.
+
+  // NodeExporterConfigGet reports node_exporter's settings.
   rpc NodeExporterConfigGet(google.protobuf.Empty) returns (NodeExporterConfigResponse);
+  // NodeExporterConfigSet changes node_exporter's settings: it restarts
+  // with them, and they're kept.
   rpc NodeExporterConfigSet(NodeExporterConfig) returns (NodeExporterConfigResponse);
 }
 

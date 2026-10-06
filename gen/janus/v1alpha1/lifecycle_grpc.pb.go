@@ -34,7 +34,7 @@ const (
 // new immutable image to the inactive A/B slot, switching the bootloader
 // to it, and rolling back automatically if the new slot doesn't become
 // healthy within its grace period. See docs/architecture.md for the A/B
-// partition layout this is built on (Phase 3).
+// partition layout this is built on.
 type LifecycleServiceClient interface {
 	// Install writes an image to a blank disk for the first time (bare
 	// metal / fresh VM) - partitioning it from scratch and writing
@@ -146,7 +146,7 @@ type LifecycleService_UploadReleaseFileClient = grpc.ClientStreamingClient[Uploa
 // new immutable image to the inactive A/B slot, switching the bootloader
 // to it, and rolling back automatically if the new slot doesn't become
 // healthy within its grace period. See docs/architecture.md for the A/B
-// partition layout this is built on (Phase 3).
+// partition layout this is built on.
 type LifecycleServiceServer interface {
 	// Install writes an image to a blank disk for the first time (bare
 	// metal / fresh VM) - partitioning it from scratch and writing

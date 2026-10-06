@@ -7,15 +7,18 @@ import "janus/v1alpha1/network.proto";
 
 option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
 
-// HAProxyService is Janus's differentiating API surface: it's what
-// janusctl (and any external controller) uses to configure and drive
-// HAProxy instead of editing haproxy.cfg over SSH. See internal/haproxy
-// for the implementation (config render/validate/reload, runtime API
-// client over the stats socket).
+// HAProxyService configures and drives the node's HAProxy - what
+// editing haproxy.cfg over SSH would be elsewhere: its configuration, its
+// runtime state (servers, maps, ACLs, certificates) over its stats
+// socket, its files, and the letsencrypt extension's certificates.
 service HAProxyService {
+  // GetConfig returns the applied haproxy.cfg and its SHA-256.
   rpc GetConfig(google.protobuf.Empty) returns (GetConfigResponse);
   // ApplyConfig validates the given config via `haproxy -c` before
   // reloading - a rejected config never reaches the running process.
+  // The stages stream: "validating", then "reloading" and "done"
+  // (accepted), or "rejected" with HAProxy's errors. The configuration
+  // is kept across reboots and updates.
   rpc ApplyConfig(ApplyConfigRequest) returns (stream ApplyConfigResponse);
   // ValidateConfig runs the same validation as ApplyConfig without
   // touching the running process (dry-run).
@@ -29,24 +32,38 @@ service HAProxyService {
   // ShowInfo proxies the stats socket's "show info".
   rpc ShowInfo(google.protobuf.Empty) returns (ShowInfoResponse);
 
+  // BackendList lists every backend with each server's address and state
+  // ("up", "down", "maint", "drain"...).
   rpc BackendList(google.protobuf.Empty) returns (BackendListResponse);
   // ServerSetState enables/disables/drains a single backend server at
   // runtime (stats socket "set server ... state ...").
   rpc ServerSetState(ServerSetStateRequest) returns (google.protobuf.Empty);
 
-  // Runtime maps (stats socket "show/add/del/set map").
+  // Runtime maps and ACL lists (stats socket "show/add/del map", "add/del
+  // acl"): only those haproxy.cfg loads from a file. A change is made in
+  // the running HAProxy's memory - the file, and so the next reload,
+  // keep the old content (FilePut changes the file).
+
+  // MapList lists the maps the running HAProxy loaded.
   rpc MapList(google.protobuf.Empty) returns (MapListResponse);
+  // MapGet returns a map's entries.
   rpc MapGet(MapGetRequest) returns (MapGetResponse);
+  // MapUpdate adds, replaces or deletes one entry of a map.
   rpc MapUpdate(MapUpdateRequest) returns (google.protobuf.Empty);
 
+  // ACLUpdate adds or deletes one value of an ACL list.
   rpc ACLUpdate(ACLUpdateRequest) returns (google.protobuf.Empty);
 
+  // CertificateList lists the certificates the running HAProxy holds,
+  // with their expiry.
   rpc CertificateList(google.protobuf.Empty) returns (CertificateListResponse);
   // CertificateUpload loads a certificate into the running HAProxy and
   // keeps it on the node (STATE): janusd puts it back - crt-list binding
   // included - into every new HAProxy process, after a reload, a restart
-  // or a reboot. CertificateDelete removes it from both.
+  // or a reboot.
   rpc CertificateUpload(CertificateUploadRequest) returns (google.protobuf.Empty);
+  // CertificateDelete removes an uploaded certificate from the running
+  // HAProxy and from the node, unbinding it from crt_list first.
   rpc CertificateDelete(CertificateDeleteRequest) returns (google.protobuf.Empty);
 
   // HAProxy's own files (docs/haproxy-files.md): what haproxy.cfg
@@ -55,20 +72,32 @@ service HAProxyService {
   // /etc/haproxy/files/<name>, kept on the node. A file is only written or
   // removed if haproxy.cfg still loads with the change; a file holding a
   // private key is never read back.
+
+  // FileList lists the files, with their size and SHA-256.
   rpc FileList(google.protobuf.Empty) returns (FileListResponse);
+  // FileGet returns a file's content - refused for one holding a private
+  // key.
   rpc FileGet(FileGetRequest) returns (FileGetResponse);
+  // FilePut writes a file, and reloads HAProxy with it if asked.
   rpc FilePut(FilePutRequest) returns (FilePutResponse);
+  // FileDelete removes a file - refused while haproxy.cfg needs it.
   rpc FileDelete(FileDeleteRequest) returns (FileDeleteResponse);
 
   // ACME: the letsencrypt extension (docs/letsencrypt.md). The node
   // obtains and renews its certificates itself, from Let's Encrypt or any
   // ACME CA, writes each to /etc/haproxy/acme/<name>.pem and swaps a
-  // renewed one into the running HAProxy without a reload. ACMEGetConfig
-  // never returns a secret (a DNS provider's settings, the EAB key): their
-  // values come back empty, and an empty value in ACMEApplyConfig keeps
-  // the saved one.
+  // renewed one into the running HAProxy without a reload. Without the
+  // extension in the image, ACMEStatus says so and the other calls answer
+  // FailedPrecondition.
+
+  // ACMEStatus reports each certificate's state: obtained, its expiry,
+  // its next renewal, the last error.
   rpc ACMEStatus(google.protobuf.Empty) returns (ACMEStatusResponse);
+  // ACMEGetConfig returns the configuration - never a secret (a DNS
+  // provider's settings, the EAB key): their values come back empty.
   rpc ACMEGetConfig(google.protobuf.Empty) returns (ACMEGetConfigResponse);
+  // ACMEApplyConfig replaces the configuration; an empty secret keeps the
+  // saved one.
   rpc ACMEApplyConfig(ACMEApplyConfigRequest) returns (ACMEApplyConfigResponse);
   // ACMERenew obtains the named certificates (every one if none is named)
   // now, whether or not they're due, in the background: ACMEStatus says

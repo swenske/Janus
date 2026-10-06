@@ -49,15 +49,18 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// HAProxyService is Janus's differentiating API surface: it's what
-// janusctl (and any external controller) uses to configure and drive
-// HAProxy instead of editing haproxy.cfg over SSH. See internal/haproxy
-// for the implementation (config render/validate/reload, runtime API
-// client over the stats socket).
+// HAProxyService configures and drives the node's HAProxy - what
+// editing haproxy.cfg over SSH would be elsewhere: its configuration, its
+// runtime state (servers, maps, ACLs, certificates) over its stats
+// socket, its files, and the letsencrypt extension's certificates.
 type HAProxyServiceClient interface {
+	// GetConfig returns the applied haproxy.cfg and its SHA-256.
 	GetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetConfigResponse, error)
 	// ApplyConfig validates the given config via `haproxy -c` before
 	// reloading - a rejected config never reaches the running process.
+	// The stages stream: "validating", then "reloading" and "done"
+	// (accepted), or "rejected" with HAProxy's errors. The configuration
+	// is kept across reboots and updates.
 	ApplyConfig(ctx context.Context, in *ApplyConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ApplyConfigResponse], error)
 	// ValidateConfig runs the same validation as ApplyConfig without
 	// touching the running process (dry-run).
@@ -69,41 +72,48 @@ type HAProxyServiceClient interface {
 	Stats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HAProxyStatsResponse, error)
 	// ShowInfo proxies the stats socket's "show info".
 	ShowInfo(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ShowInfoResponse, error)
+	// BackendList lists every backend with each server's address and state
+	// ("up", "down", "maint", "drain"...).
 	BackendList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*BackendListResponse, error)
 	// ServerSetState enables/disables/drains a single backend server at
 	// runtime (stats socket "set server ... state ...").
 	ServerSetState(ctx context.Context, in *ServerSetStateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	// Runtime maps (stats socket "show/add/del/set map").
+	// MapList lists the maps the running HAProxy loaded.
 	MapList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MapListResponse, error)
+	// MapGet returns a map's entries.
 	MapGet(ctx context.Context, in *MapGetRequest, opts ...grpc.CallOption) (*MapGetResponse, error)
+	// MapUpdate adds, replaces or deletes one entry of a map.
 	MapUpdate(ctx context.Context, in *MapUpdateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// ACLUpdate adds or deletes one value of an ACL list.
 	ACLUpdate(ctx context.Context, in *ACLUpdateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// CertificateList lists the certificates the running HAProxy holds,
+	// with their expiry.
 	CertificateList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*CertificateListResponse, error)
 	// CertificateUpload loads a certificate into the running HAProxy and
 	// keeps it on the node (STATE): janusd puts it back - crt-list binding
 	// included - into every new HAProxy process, after a reload, a restart
-	// or a reboot. CertificateDelete removes it from both.
+	// or a reboot.
 	CertificateUpload(ctx context.Context, in *CertificateUploadRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// CertificateDelete removes an uploaded certificate from the running
+	// HAProxy and from the node, unbinding it from crt_list first.
 	CertificateDelete(ctx context.Context, in *CertificateDeleteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	// HAProxy's own files (docs/haproxy-files.md): what haproxy.cfg
-	// references besides the letsencrypt extension's certificates - error
-	// pages, maps, ACL lists, Lua, other certificates - as
-	// /etc/haproxy/files/<name>, kept on the node. A file is only written or
-	// removed if haproxy.cfg still loads with the change; a file holding a
-	// private key is never read back.
+	// FileList lists the files, with their size and SHA-256.
 	FileList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FileListResponse, error)
+	// FileGet returns a file's content - refused for one holding a private
+	// key.
 	FileGet(ctx context.Context, in *FileGetRequest, opts ...grpc.CallOption) (*FileGetResponse, error)
+	// FilePut writes a file, and reloads HAProxy with it if asked.
 	FilePut(ctx context.Context, in *FilePutRequest, opts ...grpc.CallOption) (*FilePutResponse, error)
+	// FileDelete removes a file - refused while haproxy.cfg needs it.
 	FileDelete(ctx context.Context, in *FileDeleteRequest, opts ...grpc.CallOption) (*FileDeleteResponse, error)
-	// ACME: the letsencrypt extension (docs/letsencrypt.md). The node
-	// obtains and renews its certificates itself, from Let's Encrypt or any
-	// ACME CA, writes each to /etc/haproxy/acme/<name>.pem and swaps a
-	// renewed one into the running HAProxy without a reload. ACMEGetConfig
-	// never returns a secret (a DNS provider's settings, the EAB key): their
-	// values come back empty, and an empty value in ACMEApplyConfig keeps
-	// the saved one.
+	// ACMEStatus reports each certificate's state: obtained, its expiry,
+	// its next renewal, the last error.
 	ACMEStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ACMEStatusResponse, error)
+	// ACMEGetConfig returns the configuration - never a secret (a DNS
+	// provider's settings, the EAB key): their values come back empty.
 	ACMEGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ACMEGetConfigResponse, error)
+	// ACMEApplyConfig replaces the configuration; an empty secret keeps the
+	// saved one.
 	ACMEApplyConfig(ctx context.Context, in *ACMEApplyConfigRequest, opts ...grpc.CallOption) (*ACMEApplyConfigResponse, error)
 	// ACMERenew obtains the named certificates (every one if none is named)
 	// now, whether or not they're due, in the background: ACMEStatus says
@@ -362,15 +372,18 @@ func (c *hAProxyServiceClient) ACMERenew(ctx context.Context, in *ACMERenewReque
 // All implementations must embed UnimplementedHAProxyServiceServer
 // for forward compatibility.
 //
-// HAProxyService is Janus's differentiating API surface: it's what
-// janusctl (and any external controller) uses to configure and drive
-// HAProxy instead of editing haproxy.cfg over SSH. See internal/haproxy
-// for the implementation (config render/validate/reload, runtime API
-// client over the stats socket).
+// HAProxyService configures and drives the node's HAProxy - what
+// editing haproxy.cfg over SSH would be elsewhere: its configuration, its
+// runtime state (servers, maps, ACLs, certificates) over its stats
+// socket, its files, and the letsencrypt extension's certificates.
 type HAProxyServiceServer interface {
+	// GetConfig returns the applied haproxy.cfg and its SHA-256.
 	GetConfig(context.Context, *emptypb.Empty) (*GetConfigResponse, error)
 	// ApplyConfig validates the given config via `haproxy -c` before
 	// reloading - a rejected config never reaches the running process.
+	// The stages stream: "validating", then "reloading" and "done"
+	// (accepted), or "rejected" with HAProxy's errors. The configuration
+	// is kept across reboots and updates.
 	ApplyConfig(*ApplyConfigRequest, grpc.ServerStreamingServer[ApplyConfigResponse]) error
 	// ValidateConfig runs the same validation as ApplyConfig without
 	// touching the running process (dry-run).
@@ -382,41 +395,48 @@ type HAProxyServiceServer interface {
 	Stats(context.Context, *emptypb.Empty) (*HAProxyStatsResponse, error)
 	// ShowInfo proxies the stats socket's "show info".
 	ShowInfo(context.Context, *emptypb.Empty) (*ShowInfoResponse, error)
+	// BackendList lists every backend with each server's address and state
+	// ("up", "down", "maint", "drain"...).
 	BackendList(context.Context, *emptypb.Empty) (*BackendListResponse, error)
 	// ServerSetState enables/disables/drains a single backend server at
 	// runtime (stats socket "set server ... state ...").
 	ServerSetState(context.Context, *ServerSetStateRequest) (*emptypb.Empty, error)
-	// Runtime maps (stats socket "show/add/del/set map").
+	// MapList lists the maps the running HAProxy loaded.
 	MapList(context.Context, *emptypb.Empty) (*MapListResponse, error)
+	// MapGet returns a map's entries.
 	MapGet(context.Context, *MapGetRequest) (*MapGetResponse, error)
+	// MapUpdate adds, replaces or deletes one entry of a map.
 	MapUpdate(context.Context, *MapUpdateRequest) (*emptypb.Empty, error)
+	// ACLUpdate adds or deletes one value of an ACL list.
 	ACLUpdate(context.Context, *ACLUpdateRequest) (*emptypb.Empty, error)
+	// CertificateList lists the certificates the running HAProxy holds,
+	// with their expiry.
 	CertificateList(context.Context, *emptypb.Empty) (*CertificateListResponse, error)
 	// CertificateUpload loads a certificate into the running HAProxy and
 	// keeps it on the node (STATE): janusd puts it back - crt-list binding
 	// included - into every new HAProxy process, after a reload, a restart
-	// or a reboot. CertificateDelete removes it from both.
+	// or a reboot.
 	CertificateUpload(context.Context, *CertificateUploadRequest) (*emptypb.Empty, error)
+	// CertificateDelete removes an uploaded certificate from the running
+	// HAProxy and from the node, unbinding it from crt_list first.
 	CertificateDelete(context.Context, *CertificateDeleteRequest) (*emptypb.Empty, error)
-	// HAProxy's own files (docs/haproxy-files.md): what haproxy.cfg
-	// references besides the letsencrypt extension's certificates - error
-	// pages, maps, ACL lists, Lua, other certificates - as
-	// /etc/haproxy/files/<name>, kept on the node. A file is only written or
-	// removed if haproxy.cfg still loads with the change; a file holding a
-	// private key is never read back.
+	// FileList lists the files, with their size and SHA-256.
 	FileList(context.Context, *emptypb.Empty) (*FileListResponse, error)
+	// FileGet returns a file's content - refused for one holding a private
+	// key.
 	FileGet(context.Context, *FileGetRequest) (*FileGetResponse, error)
+	// FilePut writes a file, and reloads HAProxy with it if asked.
 	FilePut(context.Context, *FilePutRequest) (*FilePutResponse, error)
+	// FileDelete removes a file - refused while haproxy.cfg needs it.
 	FileDelete(context.Context, *FileDeleteRequest) (*FileDeleteResponse, error)
-	// ACME: the letsencrypt extension (docs/letsencrypt.md). The node
-	// obtains and renews its certificates itself, from Let's Encrypt or any
-	// ACME CA, writes each to /etc/haproxy/acme/<name>.pem and swaps a
-	// renewed one into the running HAProxy without a reload. ACMEGetConfig
-	// never returns a secret (a DNS provider's settings, the EAB key): their
-	// values come back empty, and an empty value in ACMEApplyConfig keeps
-	// the saved one.
+	// ACMEStatus reports each certificate's state: obtained, its expiry,
+	// its next renewal, the last error.
 	ACMEStatus(context.Context, *emptypb.Empty) (*ACMEStatusResponse, error)
+	// ACMEGetConfig returns the configuration - never a secret (a DNS
+	// provider's settings, the EAB key): their values come back empty.
 	ACMEGetConfig(context.Context, *emptypb.Empty) (*ACMEGetConfigResponse, error)
+	// ACMEApplyConfig replaces the configuration; an empty secret keeps the
+	// saved one.
 	ACMEApplyConfig(context.Context, *ACMEApplyConfigRequest) (*ACMEApplyConfigResponse, error)
 	// ACMERenew obtains the named certificates (every one if none is named)
 	// now, whether or not they're due, in the background: ACMEStatus says

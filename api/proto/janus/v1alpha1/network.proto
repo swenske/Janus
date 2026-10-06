@@ -6,75 +6,94 @@ import "google/protobuf/empty.proto";
 
 option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
 
-// NetworkService controls the optional network features (BGP via bird,
-// VRRP via keepalived, firewall via nftables). Each sub-service is a
-// well-defined no-op (see NOT_ENABLED below) when its module isn't turned
-// on in the node's declarative configuration, because the corresponding
-// binary is then simply absent from the immutable rootfs (see
-// docs/architecture.md and Phase 5 of the roadmap).
+// NetworkService configures the node's network - always available - and
+// its optional network extensions: BGP (bird), VRRP (keepalived), the
+// firewall (nftables), Consul. An extension is chosen when the image is
+// built (docs/image-factory.md): without it, its binary isn't in the
+// image at all, and its calls say so (MODULE_STATE_NOT_ENABLED,
+// FailedPrecondition).
 service NetworkService {
-  // BGP: the bird extension (docs/bgp.md). bird.conf is checked by BIRD
-  // itself, saved, and BIRD reconfigures; BGPStatus reads every protocol's
-  // state over BIRD's control socket. The protocols named haproxy_* are
-  // kept down while this node's HAProxy doesn't answer.
+  // BGP: the bird extension (docs/bgp.md). The protocols named haproxy_*
+  // are kept down while this node's HAProxy doesn't answer. Without the
+  // extension in the image, BGPStatus says so and the other calls answer
+  // FailedPrecondition - as for VRRP, the firewall and Consul below.
+
+  // BGPStatus reads every protocol's state over BIRD's control socket.
   rpc BGPStatus(google.protobuf.Empty) returns (BGPStatusResponse);
+  // BGPGetConfig returns the saved bird.conf.
   rpc BGPGetConfig(google.protobuf.Empty) returns (BGPGetConfigResponse);
+  // BGPApplyConfig has BIRD check a bird.conf, saves it, and BIRD
+  // reconfigures.
   rpc BGPApplyConfig(BGPApplyConfigRequest) returns (BGPApplyConfigResponse);
 
-  // VRRP: the keepalived extension (docs/vrrp.md). keepalived.conf is
-  // checked by keepalived itself, saved, and reloaded; VRRPStatus reads
-  // keepalived's own state of each instance.
+  // VRRP: the keepalived extension (docs/vrrp.md).
+
+  // VRRPStatus reads keepalived's own state of each instance.
   rpc VRRPStatus(google.protobuf.Empty) returns (VRRPStatusResponse);
+  // VRRPGetConfig returns the saved keepalived.conf.
   rpc VRRPGetConfig(google.protobuf.Empty) returns (VRRPGetConfigResponse);
+  // VRRPApplyConfig has keepalived check a keepalived.conf, saves it,
+  // and keepalived reloads.
   rpc VRRPApplyConfig(VRRPApplyConfigRequest) returns (VRRPApplyConfigResponse);
 
   // Firewall: the nftables extension (docs/firewall.md). The ruleset is
-  // the node's whole nftables ruleset, in nft's own syntax. FirewallList
-  // reports the module and the live ruleset; FirewallGetRuleset the saved
-  // one. FirewallApplyRuleset validates and applies one on trial: unless
-  // FirewallConfirm comes within the timeout - over a connection opened
-  // after the apply, since established connections are kept whatever the
-  // ruleset - the previous one is put back. Confirmed, it's saved and
-  // applied at every boot.
+  // the node's whole nftables ruleset, in nft's own syntax.
+
+  // FirewallList reports the module and the live ruleset.
   rpc FirewallList(google.protobuf.Empty) returns (FirewallListResponse);
+  // FirewallGetRuleset returns the saved ruleset.
   rpc FirewallGetRuleset(google.protobuf.Empty) returns (FirewallGetRulesetResponse);
+  // FirewallApplyRuleset validates and applies a ruleset on trial: unless
+  // FirewallConfirm comes within the timeout, the previous one is put
+  // back. Confirmed, it's saved and applied at every boot.
   rpc FirewallApplyRuleset(FirewallApplyRulesetRequest) returns (FirewallApplyRulesetResponse);
+  // FirewallConfirm keeps the ruleset on trial. It must come over a
+  // connection opened after the apply - established connections are
+  // kept whatever the ruleset.
   rpc FirewallConfirm(google.protobuf.Empty) returns (FirewallConfirmResponse);
-  // The live ruleset's named sets, and editing their elements without
+  // FirewallSets lists the live ruleset's named sets and their elements.
+  rpc FirewallSets(google.protobuf.Empty) returns (FirewallSetsResponse);
+  // FirewallSetUpdate adds and deletes elements of a named set without
   // reloading the ruleset - elements added without a timeout are kept
   // across applies and reboots.
-  rpc FirewallSets(google.protobuf.Empty) returns (FirewallSetsResponse);
   rpc FirewallSetUpdate(FirewallSetUpdateRequest) returns (FirewallSetUpdateResponse);
 
   // Consul: the consul extension (docs/consul.md). The agent runs with
-  // the operator's own configuration, checked by `consul validate`, and
-  // the files it names (TLS certificates, keys...) under
-  // /run/janus/consul/files; applying one restarts the agent.
-  // ConsulGetConfig gives the files' names, never their content.
+  // the operator's own configuration and the files it names (TLS
+  // certificates, keys...) under /run/janus/consul/files.
+
+  // ConsulStatus reports the agent's service and what the agent says of
+  // itself.
   rpc ConsulStatus(google.protobuf.Empty) returns (ConsulStatusResponse);
+  // ConsulGetConfig returns the configuration and the files' names, never
+  // their content.
   rpc ConsulGetConfig(google.protobuf.Empty) returns (ConsulGetConfigResponse);
+  // ConsulApplyConfig has `consul validate` check a configuration, saves
+  // it with its files, and restarts the agent.
   rpc ConsulApplyConfig(ConsulApplyConfigRequest) returns (ConsulApplyConfigResponse);
 
   // The node's own network configuration: hostname, interfaces (physical
   // and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
   // modules above, always available.
+
+  // NetworkConfigGet returns the saved network configuration.
   rpc NetworkConfigGet(google.protobuf.Empty) returns (NetworkConfigGetResponse);
-  // Applies a configuration on trial: the node switches to it at once,
-  // but keeps it only if NetworkConfigConfirm arrives within the confirm
-  // window - otherwise it reverts to the previous configuration by
-  // itself. A configuration that cuts the caller off therefore undoes
-  // itself. Only a confirmed configuration is written to persistent
-  // storage, so a reboot during the trial also comes back on the
-  // previous one. The stream ends once the configuration is applied and
-  // awaiting confirmation.
+  // NetworkConfigApply applies a configuration on trial: the node
+  // switches to it at once, but keeps it only if NetworkConfigConfirm
+  // arrives within the confirm window - otherwise it reverts to the
+  // previous configuration by itself. A configuration that cuts the
+  // caller off therefore undoes itself. Only a confirmed configuration
+  // is written to persistent storage, so a reboot during the trial also
+  // comes back on the previous one. The stream ends once the
+  // configuration is applied and awaiting confirmation.
   rpc NetworkConfigApply(NetworkConfigApplyRequest) returns (stream NetworkConfigApplyResponse);
-  // Confirms the configuration on trial. Accepted only over a connection
-  // that reaches the node on an address the new configuration keeps -
-  // proof that it's still reachable - and refused over one whose local
-  // address the trial removed.
+  // NetworkConfigConfirm confirms the configuration on trial. Accepted
+  // only over a connection that reaches the node on an address the new
+  // configuration keeps - proof that it's still reachable - and refused
+  // over one whose local address the trial removed.
   rpc NetworkConfigConfirm(google.protobuf.Empty) returns (NetworkConfigConfirmResponse);
-  // What's actually in effect: links, addresses, DHCP leases, routes,
-  // resolvers, hostname and clock synchronization.
+  // NetworkStatus reports what's actually in effect: links, addresses,
+  // DHCP leases, routes, resolvers, hostname and clock synchronization.
   rpc NetworkStatus(google.protobuf.Empty) returns (NetworkStatusResponse);
 }
 

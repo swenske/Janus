@@ -45,71 +45,72 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// NetworkService controls the optional network features (BGP via bird,
-// VRRP via keepalived, firewall via nftables). Each sub-service is a
-// well-defined no-op (see NOT_ENABLED below) when its module isn't turned
-// on in the node's declarative configuration, because the corresponding
-// binary is then simply absent from the immutable rootfs (see
-// docs/architecture.md and Phase 5 of the roadmap).
+// NetworkService configures the node's network - always available - and
+// its optional network extensions: BGP (bird), VRRP (keepalived), the
+// firewall (nftables), Consul. An extension is chosen when the image is
+// built (docs/image-factory.md): without it, its binary isn't in the
+// image at all, and its calls say so (MODULE_STATE_NOT_ENABLED,
+// FailedPrecondition).
 type NetworkServiceClient interface {
-	// BGP: the bird extension (docs/bgp.md). bird.conf is checked by BIRD
-	// itself, saved, and BIRD reconfigures; BGPStatus reads every protocol's
-	// state over BIRD's control socket. The protocols named haproxy_* are
-	// kept down while this node's HAProxy doesn't answer.
+	// BGPStatus reads every protocol's state over BIRD's control socket.
 	BGPStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*BGPStatusResponse, error)
+	// BGPGetConfig returns the saved bird.conf.
 	BGPGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*BGPGetConfigResponse, error)
+	// BGPApplyConfig has BIRD check a bird.conf, saves it, and BIRD
+	// reconfigures.
 	BGPApplyConfig(ctx context.Context, in *BGPApplyConfigRequest, opts ...grpc.CallOption) (*BGPApplyConfigResponse, error)
-	// VRRP: the keepalived extension (docs/vrrp.md). keepalived.conf is
-	// checked by keepalived itself, saved, and reloaded; VRRPStatus reads
-	// keepalived's own state of each instance.
+	// VRRPStatus reads keepalived's own state of each instance.
 	VRRPStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*VRRPStatusResponse, error)
+	// VRRPGetConfig returns the saved keepalived.conf.
 	VRRPGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*VRRPGetConfigResponse, error)
+	// VRRPApplyConfig has keepalived check a keepalived.conf, saves it,
+	// and keepalived reloads.
 	VRRPApplyConfig(ctx context.Context, in *VRRPApplyConfigRequest, opts ...grpc.CallOption) (*VRRPApplyConfigResponse, error)
-	// Firewall: the nftables extension (docs/firewall.md). The ruleset is
-	// the node's whole nftables ruleset, in nft's own syntax. FirewallList
-	// reports the module and the live ruleset; FirewallGetRuleset the saved
-	// one. FirewallApplyRuleset validates and applies one on trial: unless
-	// FirewallConfirm comes within the timeout - over a connection opened
-	// after the apply, since established connections are kept whatever the
-	// ruleset - the previous one is put back. Confirmed, it's saved and
-	// applied at every boot.
+	// FirewallList reports the module and the live ruleset.
 	FirewallList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallListResponse, error)
+	// FirewallGetRuleset returns the saved ruleset.
 	FirewallGetRuleset(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallGetRulesetResponse, error)
+	// FirewallApplyRuleset validates and applies a ruleset on trial: unless
+	// FirewallConfirm comes within the timeout, the previous one is put
+	// back. Confirmed, it's saved and applied at every boot.
 	FirewallApplyRuleset(ctx context.Context, in *FirewallApplyRulesetRequest, opts ...grpc.CallOption) (*FirewallApplyRulesetResponse, error)
+	// FirewallConfirm keeps the ruleset on trial. It must come over a
+	// connection opened after the apply - established connections are
+	// kept whatever the ruleset.
 	FirewallConfirm(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallConfirmResponse, error)
-	// The live ruleset's named sets, and editing their elements without
+	// FirewallSets lists the live ruleset's named sets and their elements.
+	FirewallSets(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallSetsResponse, error)
+	// FirewallSetUpdate adds and deletes elements of a named set without
 	// reloading the ruleset - elements added without a timeout are kept
 	// across applies and reboots.
-	FirewallSets(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*FirewallSetsResponse, error)
 	FirewallSetUpdate(ctx context.Context, in *FirewallSetUpdateRequest, opts ...grpc.CallOption) (*FirewallSetUpdateResponse, error)
-	// Consul: the consul extension (docs/consul.md). The agent runs with
-	// the operator's own configuration, checked by `consul validate`, and
-	// the files it names (TLS certificates, keys...) under
-	// /run/janus/consul/files; applying one restarts the agent.
-	// ConsulGetConfig gives the files' names, never their content.
+	// ConsulStatus reports the agent's service and what the agent says of
+	// itself.
 	ConsulStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConsulStatusResponse, error)
+	// ConsulGetConfig returns the configuration and the files' names, never
+	// their content.
 	ConsulGetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConsulGetConfigResponse, error)
+	// ConsulApplyConfig has `consul validate` check a configuration, saves
+	// it with its files, and restarts the agent.
 	ConsulApplyConfig(ctx context.Context, in *ConsulApplyConfigRequest, opts ...grpc.CallOption) (*ConsulApplyConfigResponse, error)
-	// The node's own network configuration: hostname, interfaces (physical
-	// and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
-	// modules above, always available.
+	// NetworkConfigGet returns the saved network configuration.
 	NetworkConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkConfigGetResponse, error)
-	// Applies a configuration on trial: the node switches to it at once,
-	// but keeps it only if NetworkConfigConfirm arrives within the confirm
-	// window - otherwise it reverts to the previous configuration by
-	// itself. A configuration that cuts the caller off therefore undoes
-	// itself. Only a confirmed configuration is written to persistent
-	// storage, so a reboot during the trial also comes back on the
-	// previous one. The stream ends once the configuration is applied and
-	// awaiting confirmation.
+	// NetworkConfigApply applies a configuration on trial: the node
+	// switches to it at once, but keeps it only if NetworkConfigConfirm
+	// arrives within the confirm window - otherwise it reverts to the
+	// previous configuration by itself. A configuration that cuts the
+	// caller off therefore undoes itself. Only a confirmed configuration
+	// is written to persistent storage, so a reboot during the trial also
+	// comes back on the previous one. The stream ends once the
+	// configuration is applied and awaiting confirmation.
 	NetworkConfigApply(ctx context.Context, in *NetworkConfigApplyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NetworkConfigApplyResponse], error)
-	// Confirms the configuration on trial. Accepted only over a connection
-	// that reaches the node on an address the new configuration keeps -
-	// proof that it's still reachable - and refused over one whose local
-	// address the trial removed.
+	// NetworkConfigConfirm confirms the configuration on trial. Accepted
+	// only over a connection that reaches the node on an address the new
+	// configuration keeps - proof that it's still reachable - and refused
+	// over one whose local address the trial removed.
 	NetworkConfigConfirm(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkConfigConfirmResponse, error)
-	// What's actually in effect: links, addresses, DHCP leases, routes,
-	// resolvers, hostname and clock synchronization.
+	// NetworkStatus reports what's actually in effect: links, addresses,
+	// DHCP leases, routes, resolvers, hostname and clock synchronization.
 	NetworkStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkStatusResponse, error)
 }
 
@@ -324,71 +325,72 @@ func (c *networkServiceClient) NetworkStatus(ctx context.Context, in *emptypb.Em
 // All implementations must embed UnimplementedNetworkServiceServer
 // for forward compatibility.
 //
-// NetworkService controls the optional network features (BGP via bird,
-// VRRP via keepalived, firewall via nftables). Each sub-service is a
-// well-defined no-op (see NOT_ENABLED below) when its module isn't turned
-// on in the node's declarative configuration, because the corresponding
-// binary is then simply absent from the immutable rootfs (see
-// docs/architecture.md and Phase 5 of the roadmap).
+// NetworkService configures the node's network - always available - and
+// its optional network extensions: BGP (bird), VRRP (keepalived), the
+// firewall (nftables), Consul. An extension is chosen when the image is
+// built (docs/image-factory.md): without it, its binary isn't in the
+// image at all, and its calls say so (MODULE_STATE_NOT_ENABLED,
+// FailedPrecondition).
 type NetworkServiceServer interface {
-	// BGP: the bird extension (docs/bgp.md). bird.conf is checked by BIRD
-	// itself, saved, and BIRD reconfigures; BGPStatus reads every protocol's
-	// state over BIRD's control socket. The protocols named haproxy_* are
-	// kept down while this node's HAProxy doesn't answer.
+	// BGPStatus reads every protocol's state over BIRD's control socket.
 	BGPStatus(context.Context, *emptypb.Empty) (*BGPStatusResponse, error)
+	// BGPGetConfig returns the saved bird.conf.
 	BGPGetConfig(context.Context, *emptypb.Empty) (*BGPGetConfigResponse, error)
+	// BGPApplyConfig has BIRD check a bird.conf, saves it, and BIRD
+	// reconfigures.
 	BGPApplyConfig(context.Context, *BGPApplyConfigRequest) (*BGPApplyConfigResponse, error)
-	// VRRP: the keepalived extension (docs/vrrp.md). keepalived.conf is
-	// checked by keepalived itself, saved, and reloaded; VRRPStatus reads
-	// keepalived's own state of each instance.
+	// VRRPStatus reads keepalived's own state of each instance.
 	VRRPStatus(context.Context, *emptypb.Empty) (*VRRPStatusResponse, error)
+	// VRRPGetConfig returns the saved keepalived.conf.
 	VRRPGetConfig(context.Context, *emptypb.Empty) (*VRRPGetConfigResponse, error)
+	// VRRPApplyConfig has keepalived check a keepalived.conf, saves it,
+	// and keepalived reloads.
 	VRRPApplyConfig(context.Context, *VRRPApplyConfigRequest) (*VRRPApplyConfigResponse, error)
-	// Firewall: the nftables extension (docs/firewall.md). The ruleset is
-	// the node's whole nftables ruleset, in nft's own syntax. FirewallList
-	// reports the module and the live ruleset; FirewallGetRuleset the saved
-	// one. FirewallApplyRuleset validates and applies one on trial: unless
-	// FirewallConfirm comes within the timeout - over a connection opened
-	// after the apply, since established connections are kept whatever the
-	// ruleset - the previous one is put back. Confirmed, it's saved and
-	// applied at every boot.
+	// FirewallList reports the module and the live ruleset.
 	FirewallList(context.Context, *emptypb.Empty) (*FirewallListResponse, error)
+	// FirewallGetRuleset returns the saved ruleset.
 	FirewallGetRuleset(context.Context, *emptypb.Empty) (*FirewallGetRulesetResponse, error)
+	// FirewallApplyRuleset validates and applies a ruleset on trial: unless
+	// FirewallConfirm comes within the timeout, the previous one is put
+	// back. Confirmed, it's saved and applied at every boot.
 	FirewallApplyRuleset(context.Context, *FirewallApplyRulesetRequest) (*FirewallApplyRulesetResponse, error)
+	// FirewallConfirm keeps the ruleset on trial. It must come over a
+	// connection opened after the apply - established connections are
+	// kept whatever the ruleset.
 	FirewallConfirm(context.Context, *emptypb.Empty) (*FirewallConfirmResponse, error)
-	// The live ruleset's named sets, and editing their elements without
+	// FirewallSets lists the live ruleset's named sets and their elements.
+	FirewallSets(context.Context, *emptypb.Empty) (*FirewallSetsResponse, error)
+	// FirewallSetUpdate adds and deletes elements of a named set without
 	// reloading the ruleset - elements added without a timeout are kept
 	// across applies and reboots.
-	FirewallSets(context.Context, *emptypb.Empty) (*FirewallSetsResponse, error)
 	FirewallSetUpdate(context.Context, *FirewallSetUpdateRequest) (*FirewallSetUpdateResponse, error)
-	// Consul: the consul extension (docs/consul.md). The agent runs with
-	// the operator's own configuration, checked by `consul validate`, and
-	// the files it names (TLS certificates, keys...) under
-	// /run/janus/consul/files; applying one restarts the agent.
-	// ConsulGetConfig gives the files' names, never their content.
+	// ConsulStatus reports the agent's service and what the agent says of
+	// itself.
 	ConsulStatus(context.Context, *emptypb.Empty) (*ConsulStatusResponse, error)
+	// ConsulGetConfig returns the configuration and the files' names, never
+	// their content.
 	ConsulGetConfig(context.Context, *emptypb.Empty) (*ConsulGetConfigResponse, error)
+	// ConsulApplyConfig has `consul validate` check a configuration, saves
+	// it with its files, and restarts the agent.
 	ConsulApplyConfig(context.Context, *ConsulApplyConfigRequest) (*ConsulApplyConfigResponse, error)
-	// The node's own network configuration: hostname, interfaces (physical
-	// and 802.1Q VLANs, DHCP or static), DNS and NTP. Unlike the optional
-	// modules above, always available.
+	// NetworkConfigGet returns the saved network configuration.
 	NetworkConfigGet(context.Context, *emptypb.Empty) (*NetworkConfigGetResponse, error)
-	// Applies a configuration on trial: the node switches to it at once,
-	// but keeps it only if NetworkConfigConfirm arrives within the confirm
-	// window - otherwise it reverts to the previous configuration by
-	// itself. A configuration that cuts the caller off therefore undoes
-	// itself. Only a confirmed configuration is written to persistent
-	// storage, so a reboot during the trial also comes back on the
-	// previous one. The stream ends once the configuration is applied and
-	// awaiting confirmation.
+	// NetworkConfigApply applies a configuration on trial: the node
+	// switches to it at once, but keeps it only if NetworkConfigConfirm
+	// arrives within the confirm window - otherwise it reverts to the
+	// previous configuration by itself. A configuration that cuts the
+	// caller off therefore undoes itself. Only a confirmed configuration
+	// is written to persistent storage, so a reboot during the trial also
+	// comes back on the previous one. The stream ends once the
+	// configuration is applied and awaiting confirmation.
 	NetworkConfigApply(*NetworkConfigApplyRequest, grpc.ServerStreamingServer[NetworkConfigApplyResponse]) error
-	// Confirms the configuration on trial. Accepted only over a connection
-	// that reaches the node on an address the new configuration keeps -
-	// proof that it's still reachable - and refused over one whose local
-	// address the trial removed.
+	// NetworkConfigConfirm confirms the configuration on trial. Accepted
+	// only over a connection that reaches the node on an address the new
+	// configuration keeps - proof that it's still reachable - and refused
+	// over one whose local address the trial removed.
 	NetworkConfigConfirm(context.Context, *emptypb.Empty) (*NetworkConfigConfirmResponse, error)
-	// What's actually in effect: links, addresses, DHCP leases, routes,
-	// resolvers, hostname and clock synchronization.
+	// NetworkStatus reports what's actually in effect: links, addresses,
+	// DHCP leases, routes, resolvers, hostname and clock synchronization.
 	NetworkStatus(context.Context, *emptypb.Empty) (*NetworkStatusResponse, error)
 	mustEmbedUnimplementedNetworkServiceServer()
 }
