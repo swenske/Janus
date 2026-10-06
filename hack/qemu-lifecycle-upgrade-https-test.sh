@@ -111,7 +111,10 @@ case "$(last_cmdline)" in
 esac
 echo "Slot A (local build) OK: HTTP 200, root hash $V1_HASH"
 
-# --- PKI from STATE (see hack/qemu-lifecycle-rollback-test.sh) ---
+# --- PKI from STATE (see hack/qemu-lifecycle-rollback-test.sh) - once
+# janusd listens: HAProxy answers before the PKI is on STATE ---
+for _ in $(seq 1 60); do grep -q "listening on" "$LOG" && break; sleep 1; done
+grep -q "listening on" "$LOG" || fail "janusd never listened on slot A"
 STATE_START_SECTOR="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
 STATE_SIZE_SECTORS="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
 dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
