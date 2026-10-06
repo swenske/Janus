@@ -9,13 +9,13 @@
     "lint": "oxlint"
   },
   "dependencies": {
-    "lucide-react": "^1.49.0",
+    "lucide-react": "^1.51.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
-    "vite": "^8.3.0"
+    "vite": "^8.3.2"
   }
 }
