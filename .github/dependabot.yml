@@ -42,6 +42,12 @@ updates:
         applies-to: version-updates
         update-types: ["minor", "patch"]
         patterns: ["*"]
+    ignore:
+      # The docs site draws its diagrams with astro-mermaid, whose newest
+      # release (2.1.0) takes mermaid 10 or 11 only: a major mermaid
+      # can't install until it follows.
+      - dependency-name: "mermaid"
+        update-types: ["version-update:semver-major"]
 
   # Base images, pinned as tag@digest: Debian (the CA bundle, the UKI
   # stub, cross toolchains), Alpine (the musl libc linked into HAProxy and
