@@ -1,4 +1,4 @@
-import { Archive, CircleCheck, ExternalLink, Loader2, Puzzle, RefreshCcw, Rocket, Upload as UploadIcon, X } from 'lucide-react'
+import { Archive, CircleCheck, ExternalLink, Layers, Loader2, Puzzle, RefreshCcw, Rocket, Upload as UploadIcon, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, postJSON } from '../api.js'
 import { apiURL } from '../../shared/base.js'
@@ -9,6 +9,8 @@ import { useMay } from '../may.js'
 import { WaitForNode } from '../waitForNode.jsx'
 import { SecurityBadge } from '../../SecurityBadge.jsx'
 import { securityText, securityTone } from '../../severity.js'
+import { SupportBadge } from '../../SupportBadge.jsx'
+import { variantNote } from '../../variants.js'
 
 const FILES = [
   { field: 'rootfs_squashfs', label: 'rootfs.squashfs' },
@@ -47,9 +49,10 @@ export default function Update({ route = '' }) {
   const [allowUnsigned, setAllowUnsigned] = useState(false)
   const [allowSchematic, setAllowSchematic] = useState(false)
   const [following, setFollowing] = useState(null)
-  // changing: the extensions panel is open; target: the update it prepared
-  // (POST /api/factory/update), installed when the URL below is still its.
-  // Apps › "Add or remove apps…" opens the extensions panel (?extensions).
+  // changing: the image panel (extensions, HAProxy branch, kernel track)
+  // is open; target: the update it prepared (POST /api/factory/update),
+  // installed when the URL below is still its. Apps › "Add or remove
+  // apps…" opens the panel (?extensions).
   const [changing, setChanging] = useState(() => new URLSearchParams(route.split('?')[1] || '').has('extensions'))
   const [target, setTarget] = useState(null)
   const installRef = useRef(null)
@@ -90,6 +93,10 @@ export default function Update({ route = '' }) {
   }, [])
   const byURL = mode === 'url' || mode === 'relay'
   const targetActive = !!target && byURL && reference === target.bundle_base_url
+  // Another HAProxy branch may refuse the configuration: the automatic
+  // revert stays on, whatever the checkbox says.
+  const branchChange = targetActive && (target.haproxy || '') !== (target.node_haproxy || '')
+  const revert = waitHealth || branchChange
 
   const launch = async () => {
     const slot = v?.active_slot === 'A' ? 'B' : 'A'
@@ -101,8 +108,11 @@ export default function Update({ route = '' }) {
             The new system is written to slot <strong>{slot}</strong> (the one not running), then the node reboots into it. The current slot stays intact, so <em>Rollback</em> can
             always go back.
           </p>
-          {waitHealth ? (
-            <p>If HAProxy isn't healthy on the new slot within {timeout || 60} s, the node reverts to the current slot on its own.</p>
+          {revert ? (
+            <p>
+              If HAProxy isn't healthy on the new slot within {timeout || 60} s, the node reverts to the current slot on its own.
+              {branchChange && !waitHealth && ' (Always, for another HAProxy branch.)'}
+            </p>
           ) : (
             <p className="muted">No automatic revert: the node stays on the new slot whatever happens.</p>
           )}
@@ -113,11 +123,12 @@ export default function Update({ route = '' }) {
             </p>
           )}
           {targetActive && target.schematic_change ? (
-            <ExtensionChanges from={target.node_extensions} to={target.extensions} renamed={target.renamed} />
+            <ImageChanges target={target} />
           ) : (
             allowSchematic && (
               <p>
-                <strong>The bundle may be built from another image schematic:</strong> the node then boots with that schematic's extensions, and loses the ones it doesn't have.
+                <strong>The bundle may be built from another image schematic:</strong> the node then boots with that schematic's extensions, HAProxy branch and kernel track, and
+                loses the extensions it doesn't have.
               </p>
             )
           )}
@@ -128,7 +139,7 @@ export default function Update({ route = '' }) {
     })
     if (!ok) return
     const health = {
-      wait_for_health: waitHealth,
+      wait_for_health: revert,
       health_timeout_seconds: Number(timeout) || 0,
       insecure_skip_signature_check: allowUnsigned,
       allow_schematic_change: allowSchematic,
@@ -139,7 +150,7 @@ export default function Update({ route = '' }) {
       const form = new FormData()
       for (const f of FILES) form.append(f.field, files[f.field])
       form.append('sha256', sha)
-      form.append('wait_for_health', String(waitHealth))
+      form.append('wait_for_health', String(revert))
       form.append('health_timeout_seconds', String(Number(timeout) || 0))
       form.append('insecure_skip_signature_check', String(allowUnsigned))
       form.append('allow_schematic_change', String(allowSchematic))
@@ -184,7 +195,7 @@ export default function Update({ route = '' }) {
             uc &&
             canUpgrade && (
               <button className="small" onClick={() => setChanging(true)} disabled={changing}>
-                <Puzzle size={13} /> Change extensions…
+                <Layers size={13} /> Change the image…
               </button>
             )
           }
@@ -205,6 +216,22 @@ export default function Update({ route = '' }) {
                 '…'
               )}
             </dd>
+            <dt>HAProxy</dt>
+            <dd>
+              <span className="mono">{v?.haproxy?.version || '…'}</span>
+              {v?.haproxy?.variant && <span className="muted small"> · {variantNote(v.haproxy, 'branch')}</span>} <SupportBadge support={uc?.support} />
+            </dd>
+            <dt>Kernel track</dt>
+            <dd>
+              {v?.kernel?.variant ? (
+                <>
+                  <span className="mono">{v.kernel.variant}</span>
+                  <span className="muted small"> · {variantNote(v.kernel, 'version')}</span>
+                </>
+              ) : (
+                <span className="muted">{v ? 'not said by this image' : '…'}</span>
+              )}
+            </dd>
             <dt>Extensions</dt>
             <dd>
               {uc?.extensions?.length ? (
@@ -222,8 +249,22 @@ export default function Update({ route = '' }) {
           </dl>
           {uc && !uc.default_schematic && (
             <p className="muted small" style={{ marginBottom: 0 }}>
-              Updates must be built from this schematic, so the node keeps its extensions: they come from the image factory, not the plain GitHub release.
+              Updates must be built from this schematic, so the node keeps its extensions, HAProxy branch and kernel track: they come from the image factory, not the plain GitHub
+              release.
             </p>
+          )}
+          {uc?.support?.retired ? (
+            <div className="notice danger small" style={{ marginTop: '0.6rem' }}>
+              HAProxy {uc.support.variant} is no longer offered: {uc.support.last_release} is the last release with it, and no newer update will come. Move the node to another branch
+              with <em>Change the image…</em> - check its configuration against that branch first.
+            </div>
+          ) : (
+            uc?.support?.soon && (
+              <div className="notice warn small" style={{ marginTop: '0.6rem' }}>
+                HAProxy {uc.support.variant}'s upstream support ends on {uc.support.eol}, and the releases stop offering it then. Plan a move to a newer branch with{' '}
+                <em>Change the image…</em>.
+              </div>
+            )
           )}
         </Card>
         <Card
@@ -293,9 +334,11 @@ export default function Update({ route = '' }) {
                   with <ExtensionBadges names={target.extensions} />
                 </>
               ) : (
-                'without extensions (the default image)'
+                'without extensions'
               )}
-              .
+              {target.haproxy && <>, HAProxy {target.haproxy}</>}
+              {target.kernel && <>, the {target.kernel} kernel track</>}
+              {target.default_schematic && ' (the default image)'}.
             </div>
           )}
           <Tabs
@@ -351,7 +394,7 @@ export default function Update({ route = '' }) {
             </label>
             <label className="check">
               <input type="checkbox" checked={allowSchematic} onChange={(e) => setAllowSchematic(e.target.checked)} /> Accept a bundle built from another image schematic (changes
-              the node's extensions)
+              the node's extensions, HAProxy branch or kernel track)
             </label>
             <p className="muted small" style={{ margin: 0 }}>
               The node checks the release signature before writing anything; the sha256 above is only an early consistency check.
@@ -381,15 +424,23 @@ function ExtensionBadges({ names }) {
   )
 }
 
-// ExtensionChanges says, in the confirmation, what the node gains and loses.
-function ExtensionChanges({ from, to, renamed = {} }) {
+// ImageChanges says, in the confirmation, what the node gains and loses:
+// extensions, its HAProxy branch, its kernel track.
+function ImageChanges({ target }) {
+  const from = target.node_extensions || []
+  const to = target.extensions || []
+  const renamed = target.renamed || {}
   const renames = Object.entries(renamed).filter(([old, now]) => from.includes(old) && to.includes(now))
   const added = to.filter((e) => !from.includes(e) && !renames.some(([, now]) => now === e))
   const removed = from.filter((e) => !to.includes(e) && !renames.some(([old]) => old === e))
+  const exts = renames.length + added.length + removed.length > 0
+  const choice = (v, what) => (v ? `${what} ${v}` : `the release's default ${what}`)
+  const haproxy = (target.haproxy || '') !== (target.node_haproxy || '')
+  const kernel = (target.kernel || '') !== (target.node_kernel || '')
   return (
     <>
       <p>
-        <strong>The node's extensions change.</strong> After the reboot it runs {to.length ? <ExtensionBadges names={to} /> : 'no extension'}.
+        <strong>The node's image changes.</strong> After the reboot it runs {to.length ? <ExtensionBadges names={to} /> : 'no extension'}.
       </p>
       <ul className="small" style={{ margin: 0 }}>
         {renames.map(([old, now]) => (
@@ -399,6 +450,19 @@ function ExtensionChanges({ from, to, renamed = {} }) {
         ))}
         {added.length > 0 && <li>Added: {added.join(', ')}</li>}
         {removed.length > 0 && <li>Removed: {removed.join(', ')} - not in the new image, and its services stop.</li>}
+        {haproxy && (
+          <li>
+            HAProxy: {choice(target.node_haproxy, 'branch')} → <strong>{choice(target.haproxy, 'branch')}</strong>. Another branch may refuse the running configuration: check it
+            against that branch first. The automatic revert stays on - and after a configuration using what only the new branch knows, a rollback boots a HAProxy that refuses
+            it.
+          </li>
+        )}
+        {kernel && (
+          <li>
+            Kernel: {choice(target.node_kernel, 'track')} → <strong>{choice(target.kernel, 'track')}</strong>.
+          </li>
+        )}
+        {!exts && !haproxy && !kernel && <li>Same extensions, HAProxy branch and kernel track: another schematic for the same image.</li>}
       </ul>
     </>
   )
@@ -413,6 +477,10 @@ function ChangeExtensions({ uc, onReady, onClose }) {
   const catalog = usePoll('/api/factory/catalog', { every: 0 })
   // null until changed: the node's extensions, under the catalog's names.
   const [selected, setSelected] = useState(null)
+  // The HAProxy branch and kernel track: the node's own ("" for the
+  // release's default) until changed.
+  const [haproxy, setHAProxy] = useState(uc.haproxy || '')
+  const [kernel, setKernel] = useState(uc.kernel || '')
   const [prep, setPrep] = useState(null)
   const [busy, run] = useAction()
   const asked = useRef([])
@@ -432,7 +500,9 @@ function ChangeExtensions({ uc, onReady, onClose }) {
   for (const name of uc.extensions) if (!offered.some((e) => e.name === name) && !renamed[name]) list.push({ name, missing: true })
   const added = [...sel].filter((n) => !current.has(n)).sort()
   const removed = [...current].filter((n) => !sel.has(n)).sort()
-  const changed = added.length + removed.length > 0
+  const branchChanged = haproxy !== (uc.haproxy || '')
+  const trackChanged = kernel !== (uc.kernel || '')
+  const changed = added.length + removed.length > 0 || branchChanged || trackChanged
 
   const toggle = (name, on) => {
     setPrep(null)
@@ -443,15 +513,15 @@ function ChangeExtensions({ uc, onReady, onClose }) {
       return n
     })
   }
-  const ready = (r) => onReady({ ...r, renamed: { ...renamed, ...(r.renamed || {}) } })
+  const ready = (r) => onReady({ ...r, renamed: { ...renamed, ...(r.renamed || {}) }, node_haproxy: uc.haproxy || '', node_kernel: uc.kernel || '' })
   // The build follower calls the latest ready (a new one every render).
   const readyRef = useRef(ready)
   useEffect(() => {
     readyRef.current = ready
   })
   const prepare = async () => {
-    asked.current = [...sel].sort()
-    const r = await run(() => postJSON('/api/factory/update', { extensions: asked.current }))
+    asked.current = { extensions: [...sel].sort(), haproxy, kernel }
+    const r = await run(() => postJSON('/api/factory/update', asked.current))
     if (!r) return
     setPrep(r)
     if (r.state === 'ready' && r.bundle_base_url) ready(r)
@@ -462,7 +532,7 @@ function ChangeExtensions({ uc, onReady, onClose }) {
     if (prep?.state !== 'building') return undefined
     const timer = setTimeout(async () => {
       try {
-        const r = await postJSON('/api/factory/update', { extensions: asked.current })
+        const r = await postJSON('/api/factory/update', asked.current)
         setPrep(r)
         if (r.state === 'ready' && r.bundle_base_url) readyRef.current(r)
       } catch (err) {
@@ -481,8 +551,8 @@ function ChangeExtensions({ uc, onReady, onClose }) {
   return (
     <div style={{ marginBottom: '1rem' }}>
       <Card
-        title="Change extensions"
-        icon={Puzzle}
+        title="Change the image"
+        icon={Layers}
         actions={
           <button className="small ghost" onClick={onClose} title="Close">
             <X size={14} />
@@ -492,13 +562,49 @@ function ChangeExtensions({ uc, onReady, onClose }) {
         {catalog.error ? (
           <ErrorBox error={catalog.error} />
         ) : !catalog.data ? (
-          <Loading label="Asking the image factory for its extensions…" />
+          <Loading label="Asking the image factory what it builds…" />
         ) : (
           <div className="stack">
             <p className="muted small" style={{ margin: 0 }}>
-              A node runs the extensions built into its image. The image factory ({host}) builds the newest release, {catalog.data.version}, with the extensions chosen here and
-              signs it with the Janus release key; installing it is the usual update below - A/B, with automatic rollback.
+              A node runs the extensions, HAProxy and kernel built into its image. The image factory ({host}) builds the newest release, {catalog.data.version}, with what is chosen
+              here and signs it with the Janus release key; installing it is the usual update below - A/B, with automatic rollback.
             </p>
+            {catalog.data.haproxy?.length > 0 && (
+              <div className="grid grid-2">
+                <VariantSelect
+                  label="HAProxy LTS branch"
+                  variants={catalog.data.haproxy}
+                  value={haproxy}
+                  current={uc.haproxy || ''}
+                  arch={uc.arch}
+                  name={(v) => `HAProxy ${v.name} - ${v.version}${v.eol ? `, supported until ${v.eol.slice(0, 7)}` : ''}`}
+                  follows="the newest LTS branch, following it"
+                  onChange={(x) => {
+                    setPrep(null)
+                    setHAProxy(x)
+                  }}
+                />
+                <VariantSelect
+                  label="Kernel track"
+                  variants={catalog.data.kernel}
+                  value={kernel}
+                  current={uc.kernel || ''}
+                  arch={uc.arch}
+                  name={(v) => `${v.name} - ${v.version}`}
+                  follows="the release's default track"
+                  onChange={(x) => {
+                    setPrep(null)
+                    setKernel(x)
+                  }}
+                />
+              </div>
+            )}
+            {branchChanged && (
+              <div className="notice warn small">
+                Another HAProxy branch accepts another configuration: check the node's against it before installing (a keyword it doesn't know fails the update, which then reverts
+                - its automatic revert stays on).
+              </div>
+            )}
             <div className="ext-list">
               {list.map((e) => {
                 const unsupported = !e.missing && Array.isArray(e.arches) && !e.arches.includes(uc.arch)
@@ -521,9 +627,11 @@ function ChangeExtensions({ uc, onReady, onClose }) {
                 <>
                   {added.length > 0 && <span>Adds {added.join(', ')}. </span>}
                   {removed.length > 0 && <span>Removes {removed.join(', ')}. </span>}
+                  {branchChanged && <span>HAProxy: {haproxy ? `branch ${haproxy}` : 'the default branch'}. </span>}
+                  {trackChanged && <span>Kernel: {kernel ? `the ${kernel} track` : 'the default track'}. </span>}
                 </>
               ) : (
-                <span className="muted">These are the node's extensions now - nothing to change.</span>
+                <span className="muted">This is the node's image now - nothing to change.</span>
               )}
             </div>
             <Preparation prep={prep} />
@@ -540,9 +648,36 @@ function ChangeExtensions({ uc, onReady, onClose }) {
   )
 }
 
+// VariantSelect picks a HAProxy branch or kernel track: the release's
+// default (unset - the node follows it), or one the release offers.
+function VariantSelect({ label, variants, value, current, arch, name, follows, onChange }) {
+  const def = variants.find((v) => v.default)
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">
+          The default - {follows}
+          {def ? ` (${def.name} now)` : ''}
+          {current === '' ? ' · the node' : ''}
+        </option>
+        {variants.map((v) => (
+          <option key={v.name} value={v.name} disabled={!v.arches.includes(arch)}>
+            {name(v)}
+            {current === v.name ? ' · the node' : ''}
+            {v.arches.includes(arch) ? '' : ` · not for ${arch}`}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 function Preparation({ prep }) {
   if (!prep) return null
-  const exts = prep.extensions.length ? prep.extensions.join(', ') : 'no extension'
+  let exts = prep.extensions.length ? prep.extensions.join(', ') : 'no extension'
+  if (prep.haproxy) exts += `, HAProxy ${prep.haproxy}`
+  if (prep.kernel) exts += `, the ${prep.kernel} kernel track`
   if (prep.state === 'ready' && prep.bundle_base_url)
     return (
       <div className="notice">
@@ -557,7 +692,7 @@ function Preparation({ prep }) {
         <span className="row" style={{ gap: '0.4rem' }}>
           <Loader2 size={15} className="spin" /> The image factory is building {prep.latest || 'the newest release'} with {exts} - usually 5 to 15 minutes.
         </span>
-        <div className="muted small">This page asks again every 20 s. The build goes on if you leave: preparing the same extensions later finds it.</div>
+        <div className="muted small">This page asks again every 20 s. The build goes on if you leave: preparing the same image later finds it.</div>
       </div>
     )
   return (
@@ -629,5 +764,6 @@ export function UpdateBadge({ uc }) {
   if (uc.state === 'failed') return <Badge tone="danger">Build failed</Badge>
   if (uc.state !== 'ready') return <Badge tone="warn">Unavailable</Badge>
   if (uc.security_update) return <SecurityBadge severity={uc.security_update}>Security update available</SecurityBadge>
+  if (uc.support?.retired && !uc.update_available) return <SupportBadge support={uc.support} />
   return uc.update_available ? <Badge tone="accent">Update available</Badge> : <Badge tone="ok">Up to date</Badge>
 }

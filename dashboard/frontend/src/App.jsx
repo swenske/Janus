@@ -41,6 +41,7 @@ import { RestoreForm } from './Restore.jsx'
 import TokensPage from './Tokens.jsx'
 import UsersPage from './Users.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
+import { SupportBadge } from './SupportBadge.jsx'
 import { worstSeverity } from './severity.js'
 import { Badge, Card, ErrorBox, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
 
@@ -168,7 +169,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
           <dd className="mono">{st.hostname}</dd>
           <dt>Version</dt>
           <dd>
-            <span className="mono">{st.version}</span>
+            <span className="mono">{st.version}</span> <SupportBadge support={st.support} />
             {st.security_update ? (
               <>
                 {' '}
@@ -190,12 +191,22 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
             <Badge tone={stateTone(st.haproxy_state)} dot>
               {st.haproxy_state || '–'}
             </Badge>{' '}
-            {st.haproxy_health && <Badge tone={stateTone(st.haproxy_health)}>{st.haproxy_health}</Badge>}
+            {st.haproxy_health && <Badge tone={stateTone(st.haproxy_health)}>{st.haproxy_health}</Badge>}{' '}
+            {st.haproxy_version && <span className="mono muted">{st.haproxy_version}</span>}
           </dd>
           <dt>Slot · uptime</dt>
           <dd>
             {st.active_slot ? `slot ${st.active_slot}` : 'no A/B'} · {uptime(st.boot_time_unix)}
           </dd>
+          {st.kernel_version && (
+            <>
+              <dt>Kernel</dt>
+              <dd>
+                <span className="mono">{st.kernel_version}</span>
+                {st.kernel_track && <span className="muted"> · {st.kernel_track}</span>}
+              </dd>
+            </>
+          )}
           {fleet?.state === 'ready' && (
             <>
               <dt>Trust</dt>

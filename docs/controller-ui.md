@@ -253,7 +253,7 @@ theme toggle:
   (agent, members, the configuration's files, the configuration in the
   shared ModuleConfigEditor). An app the node doesn't have
   isn't listed - "Add or remove apps…", last, opens the Update page's
-  extensions panel.
+  image panel.
   Firewall: ruleset editor (check, diff, apply on trial - the Controller
   confirms over a *fresh* connection, never the shared one, which
   conntrack keeps open whatever the ruleset), live sets, live ruleset.
@@ -299,17 +299,30 @@ the image factory has built from its schematic (`dashboardd
 -image-factory`, janus.sw-servers.net by default), shown as "building"
 until it's ready - never a plain release, which would drop its
 extensions. The Update page shows the node's schematic and extensions,
-and installing a bundle from another schematic takes an explicit
-checkbox (`allow_schematic_change`). **Change extensions…** opens a
-panel with the factory's catalog for the newest release (`GET
-/api/factory/catalog`); **Prepare the update** sends the chosen set to
-`POST /api/factory/update`, which registers that schematic with the
-factory and asks for its update - the same resolution as the node's
-own check, so going back to no extension means GitHub - and the panel
-follows a build every 20 s until it's ready. It only fills in the
+its HAProxy (version, branch, pinned or the default) and its kernel
+track, from what the node's image reports (`VersionResponse`'s
+`schematic`, `haproxy`, `kernel` - `nodeproxy.NodeSchematic`, the
+extensions alone for a node from before images said), and installing a
+bundle from another schematic takes an explicit checkbox
+(`allow_schematic_change`). **Change the image…** opens a panel with the
+factory's catalog for the newest release (`GET /api/factory/catalog`:
+extensions, HAProxy branches with their end of upstream support, kernel
+tracks); **Prepare the update** sends the choices to `POST
+/api/factory/update` (`extensions`, and `haproxy`/`kernel` - left out,
+the node's own), which registers that schematic with the factory and
+asks for its update - the same resolution as the node's own check, so
+going back to no extension and the defaults means GitHub - and the
+panel follows a build every 20 s until it's ready. It only fills in the
 installation form (URL, sha256, the schematic-change checkbox); the
-confirmation lists the extensions gained and lost, and installing stays
-the usual A/B update. A release that renamed one of the node's
+confirmation lists what the node gains and loses, and installing stays
+the usual A/B update - with the automatic revert forced on when the
+HAProxy branch changes (another branch may refuse the configuration).
+A node pinned to a HAProxy branch gets a `support` in its update check
+and status (`nodeproxy.EndOfSupport`, from the factory's newest
+catalog): `SupportBadge.jsx` warns from six months before the branch's
+end of upstream support, and turns red once the releases no longer
+offer it (no newer update will come), with a notice on the Update page.
+The node card shows the HAProxy version and the kernel and its track. A release that renamed one of the node's
 extensions (the catalog's `replaces`) is offered as a rename: the update
 check reports `renamed` and the migrated schematic, "Use this update"
 fills the form in as a schematic change, and the confirmation says

@@ -34,6 +34,9 @@ type NodeStatus struct {
 	// SecurityUpdate: the newer releases fix vulnerabilities this node
 	// has, the worst this severe (ReleaseInfo.SecurityUpdate).
 	SecurityUpdate string `json:"security_update,omitempty"`
+	// Support: the HAProxy branch the node's schematic pins leaves the
+	// releases' offer soon, or left it (EndOfSupport).
+	Support *Support `json:"support,omitempty"`
 }
 
 // Status queries node over its shared connection. ctx bounds the whole
@@ -123,6 +126,9 @@ func Status(ctx context.Context, node *store.Node) NodeStatus {
 		st.LatestRelease = rel.TagName
 		st.UpdateAvailable = rel.TagName != "" && rel.TagName != st.Version
 		st.SecurityUpdate, _ = rel.SecurityUpdate(st.Version, "node", img)
+	}
+	if sup := EndOfSupport(ctx, img.HAProxy); sup != nil && (sup.Soon || sup.Retired) {
+		st.Support = sup
 	}
 	return st
 }

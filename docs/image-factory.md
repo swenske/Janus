@@ -128,16 +128,17 @@ change a node's extensions on purpose, pass `-allow-schematic-change`
 (`janusctl lifecycle upgrade`) - or reinstall.
 
 From the Controller, a node's **System › Update** page does it in one
-place: **Change extensions…** lists what the image factory offers with
-the newest release (those the node's architecture can't run greyed out),
-and **Prepare the update** asks the factory for that release built with
-the chosen extensions - starting the build if nobody asked for it yet,
-and following it until it's ready. The installation form below is then
-filled in (bundle URL, sha256, schematic change accepted), and the
-confirmation says which extensions the node gains and loses. Installing
-is the usual update: A/B, automatic revert if HAProxy isn't healthy, and
-`Rollback` back to the previous image and its extensions. Unchecking
-every extension goes back to the default image, from the GitHub Release.
+place: **Change the image…** lists what the image factory offers with
+the newest release - extensions (those the node's architecture can't
+run greyed out), HAProxy branches and kernel tracks - and **Prepare the
+update** asks the factory for that release built with the choices -
+starting the build if nobody asked for it yet, and following it until
+it's ready. The installation form below is then filled in (bundle URL,
+sha256, schematic change accepted), and the confirmation says what the
+node gains and loses. Installing is the usual update: A/B, automatic
+revert if HAProxy isn't healthy (always on for another HAProxy branch),
+and `Rollback` back to the previous image. Going back to no extension
+and the defaults is the default image, from the GitHub Release.
 
 ## Getting an image: janus.sw-servers.net
 

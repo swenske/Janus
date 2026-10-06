@@ -38,10 +38,16 @@ Update the nodes of a pair one at a time: before rebooting, a node gives
 its virtual IP or its BGP route up, so the other one serves alone for
 the minute it takes.
 
-**Changing extensions** is an update too: **Change extensions…** on the
-same page asks the image factory for the newest release built with the
-extensions you pick, and the installation confirms which ones the node
-gains and loses ([images and extensions](../image-factory.md#updates-keep-the-schematic)).
+**Changing the image** - its extensions, its HAProxy branch, its kernel
+track - is an update too: **Change the image…** on the same page asks
+the image factory for the newest release built with what you pick, and
+the installation confirms what the node gains and loses ([images and
+extensions](../image-factory.md#updates-keep-the-schematic)). Another
+HAProxy branch may refuse the node's configuration: check it against
+that branch first ([what differs](../haproxy-config.md#haproxy-branches));
+the automatic revert stays on for such an update. A node pinned to a
+HAProxy branch shows when its upstream support ends, and when the
+releases stopped offering it (no newer update will come).
 
 ## With janusctl
 

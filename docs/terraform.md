@@ -171,6 +171,8 @@ resource "janus_node" "lb1" {
   memory_mib    = 2048
   version       = "v2026.10.02-4"           # unset: the newest
   extensions    = ["keepalived", "bird"]    # the image factory builds it
+  haproxy       = "3.2"                     # unset: the newest LTS branch, followed
+  kernel        = "longterm"                # unset: the release's default track
 
   interfaces = [
     { network = "lan", name = "mgmt", mode = "static", addresses = ["10.0.0.21/24"] },
@@ -200,7 +202,7 @@ stays the same:
 |---|---|
 | `interfaces` addresses, gateways, modes and names; `dns`; `ntp` | Put on trial on the node and confirmed from wherever it's reachable afterwards. Unconfirmed, the node goes back by itself. What only its page sets - VLANs, MTUs, search domains - stays. |
 | `vcpus`, `memory_mib`; an interface added, removed or moved to another `network` | The node shuts down cleanly (HAProxy stops), the virtual machine is reconfigured and started again. A removed interface leaves the node's configuration before it's unplugged; an added one is configured once plugged in. |
-| `version`, `extensions` | The node's own A/B update. The bundle is the release's, or the image factory's build of the new schematic. The node checks its signature, and confirms itself healthy. |
+| `version`, `extensions`, `haproxy`, `kernel` | The node's own A/B update. The bundle is the release's, or the image factory's build of the new schematic. The node checks its signature, and confirms itself healthy. Another HAProxy branch may refuse the node's configuration: check it against that branch first ([haproxy-config.md](haproxy-config.md#haproxy-branches)) - the update then reverts by itself. |
 
 What makes **a new node** (Terraform plans a replacement): `name`,
 `hypervisor_id`, `image`.

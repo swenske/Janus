@@ -49,15 +49,15 @@ func (s *SSE) Comment(text string) error { return s.s.write(": " + text + "\n\n"
 // own connection-error event).
 func (s *SSE) Send(event, payload string) error { return s.s.send(event, payload) }
 
-// FactoryExtensions is the extensions the image factory builds, from
-// its newest release that offers them (cached).
-func FactoryExtensions(ctx context.Context) ([]schematic.CatalogEntry, error) {
-	c, err := factoryCatalog(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return c.Extensions, nil
+// FactoryCatalog is what the image factory builds - extensions, HAProxy
+// branches, kernel tracks - from its newest release that offers them
+// (cached).
+func FactoryCatalog(ctx context.Context) (*FactoryCatalogView, error) {
+	return factoryCatalog(ctx)
 }
+
+// FactoryCatalogView is GET /api/factory/catalog's answer.
+type FactoryCatalogView = factoryCatalogView
 
 // ApplyNetwork puts cfg on trial on node and confirms it - from the
 // address the node is reachable at afterwards, recorded in st if it

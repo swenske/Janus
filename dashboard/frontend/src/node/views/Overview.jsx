@@ -5,6 +5,7 @@ import { Badge, Card, Meter, PageHeader, Stat, stateTone } from '../../shared/ui
 import { bytes, compact, cpuModels, cpuShape, dateTime, duration, num, percent, rate } from '../format.js'
 import { useMetrics, useNodeStatus, usePoll, useSSE } from '../hooks.jsx'
 import { UpdateBadge } from './Update.jsx'
+import { variantNote } from '../../variants.js'
 
 const WINDOW = 5 * 60 * 1000
 
@@ -122,7 +123,10 @@ export default function Overview() {
             <dt>Boot slot</dt>
             <dd>{v?.active_slot ? <Badge tone="info">slot {v.active_slot}</Badge> : <span className="muted">not an A/B boot</span>}</dd>
             <dt>Kernel</dt>
-            <dd className="mono">{v?.kernel_version || '…'}</dd>
+            <dd>
+              <span className="mono">{v?.kernel_version || '…'}</span>
+              {v?.kernel?.variant && <span className="muted small"> · {variantNote(v.kernel, 'track')}</span>}
+            </dd>
             <dt>CPU</dt>
             <dd>
               {cpu ? (
@@ -139,7 +143,10 @@ export default function Overview() {
             <dt>Go</dt>
             <dd className="mono">{v?.go_version || '…'}</dd>
             <dt>HAProxy</dt>
-            <dd className="mono">{hap?.version || '–'}</dd>
+            <dd>
+              <span className="mono">{v?.haproxy?.version || hap?.version || '–'}</span>
+              {v?.haproxy?.variant && <span className="muted small"> · {variantNote(v.haproxy, 'branch')}</span>}
+            </dd>
             <dt>Memory</dt>
             <dd>
               <Meter value={latest?.memUsed || 0} max={latest?.memTotal || 1} />

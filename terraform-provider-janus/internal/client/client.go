@@ -219,6 +219,8 @@ type MachineSpec struct {
 	MemoryMiB    int          `json:"memory_mib"`
 	Version      string       `json:"version,omitempty"`
 	Extensions   []string     `json:"extensions,omitempty"`
+	HAProxy      string       `json:"haproxy,omitempty"`
+	Kernel       string       `json:"kernel,omitempty"`
 	Image        *ImageSource `json:"image,omitempty"`
 	NICs         []NIC        `json:"nics"`
 	DNS          []string     `json:"dns,omitempty"`
@@ -253,6 +255,8 @@ type MachineUpdate struct {
 	MemoryMiB  *int      `json:"memory_mib,omitempty"`
 	Version    *string   `json:"version,omitempty"`
 	Extensions *[]string `json:"extensions,omitempty"`
+	HAProxy    *string   `json:"haproxy,omitempty"`
+	Kernel     *string   `json:"kernel,omitempty"`
 	NICs       *[]NIC    `json:"nics,omitempty"`
 	DNS        *[]string `json:"dns,omitempty"`
 	NTP        *[]string `json:"ntp,omitempty"`

@@ -25,8 +25,8 @@ import (
 
 // janus_node: a Janus node the Controller creates on one of its
 // hypervisors, admitted on its registration token - and changes in place
-// (network, size, version, extensions) or replaces (name, hypervisor,
-// image, interfaces' networks/names/MACs).
+// (network, size, version, extensions, HAProxy branch, kernel track) or
+// replaces (name, hypervisor, image, interfaces' networks/names/MACs).
 
 type nodeResource struct{ c *client.Client }
 
@@ -54,6 +54,8 @@ type nodeModel struct {
 	MemoryMiB    types.Int64      `tfsdk:"memory_mib"`
 	Version      types.String     `tfsdk:"version"`
 	Extensions   types.Set        `tfsdk:"extensions"`
+	HAProxy      types.String     `tfsdk:"haproxy"`
+	Kernel       types.String     `tfsdk:"kernel"`
 	Image        *imageModel      `tfsdk:"image"`
 	Interfaces   []interfaceModel `tfsdk:"interfaces"`
 	DNS          types.List       `tfsdk:"dns"`
@@ -73,7 +75,7 @@ func (r *nodeResource) Metadata(_ context.Context, req resource.MetadataRequest,
 
 func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A Janus node the Controller creates on one of its hypervisors. Its hardware (vCPUs, memory, interfaces), network, version and extensions change in place; a new name, hypervisor or image makes a new node.",
+		Description: "A Janus node the Controller creates on one of its hypervisors. Its hardware (vCPUs, memory, interfaces), network, version, extensions, HAProxy branch and kernel track change in place; a new name, hypervisor or image makes a new node.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed: true, Description: "The machine's ID on the Controller.",
@@ -104,9 +106,17 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 				Optional: true, ElementType: types.StringType,
 				Description: "The image factory's extensions (keepalived, bird, nftables...). A change updates the node in place to an image built with them.",
 			},
+			"haproxy": schema.StringAttribute{
+				Optional:    true,
+				Description: "The HAProxy LTS branch its image is built with (\"3.2\" - one the image factory offers). Unset: each release's default, the newest LTS branch, which the node follows from release to release. A change updates the node in place, with the automatic revert on: check the HAProxy configuration against the branch first.",
+			},
+			"kernel": schema.StringAttribute{
+				Optional:    true,
+				Description: "The kernel track its image is built with (\"stable\", \"longterm\"). Unset: each release's default track. A change updates the node in place.",
+			},
 			"image": schema.SingleNestedAttribute{
 				Optional:    true,
-				Description: "Another disk image instead of the release's: a mirror, a development build. Replaces version and extensions; a change makes a new node.",
+				Description: "Another disk image instead of the release's: a mirror, a development build. Replaces version, extensions, haproxy and kernel; a change makes a new node.",
 				Attributes: map[string]schema.Attribute{
 					"url":    schema.StringAttribute{Required: true, Description: "The qcow2 image's URL."},
 					"sha256": schema.StringAttribute{Required: true, Description: "Its SHA-256."},
@@ -271,6 +281,8 @@ func specFromPlan(ctx context.Context, m *nodeModel, diags *diag.Diagnostics) cl
 		MemoryMiB:    int(m.MemoryMiB.ValueInt64()),
 		Version:      strOrEmpty(m.Version),
 		Extensions:   stringsOf(ctx, m.Extensions, diags),
+		HAProxy:      strOrEmpty(m.HAProxy),
+		Kernel:       strOrEmpty(m.Kernel),
 		DNS:          stringsOf(ctx, m.DNS, diags),
 		NTP:          stringsOf(ctx, m.NTP, diags),
 		ManagedBy:    "terraform",
@@ -348,6 +360,8 @@ func fromMachine(m *client.Machine, s *nodeModel) {
 		s.Version = types.StringNull()
 	}
 	s.Extensions = setOf(m.Spec.Extensions, s.Extensions)
+	s.HAProxy = strOrNull(m.Spec.HAProxy, types.StringNull())
+	s.Kernel = strOrNull(m.Spec.Kernel, types.StringNull())
 	if m.Spec.Image != nil {
 		s.Image = &imageModel{URL: types.StringValue(m.Spec.Image.URL), SHA256: types.StringValue(m.Spec.Image.SHA256)}
 	} else {
@@ -402,6 +416,14 @@ func updateFor(ctx context.Context, state, plan *nodeModel, diags *diag.Diagnost
 	slices.Sort(se)
 	if !slices.Equal(pe, se) {
 		u.Extensions, changed = &pe, true
+	}
+	if strOrEmpty(plan.HAProxy) != strOrEmpty(state.HAProxy) {
+		v := strOrEmpty(plan.HAProxy)
+		u.HAProxy, changed = &v, true
+	}
+	if strOrEmpty(plan.Kernel) != strOrEmpty(state.Kernel) {
+		v := strOrEmpty(plan.Kernel)
+		u.Kernel, changed = &v, true
 	}
 	pn, sn := nicsFromPlan(ctx, plan.Interfaces, diags), nicsFromPlan(ctx, state.Interfaces, diags)
 	for i := range pn {

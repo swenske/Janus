@@ -308,23 +308,26 @@ func (a *app) handleMachineConsole(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCatalog is what the "create a node" form offers: the newest
-// release and the extensions the image factory builds.
+// release, and the extensions, HAProxy branches and kernel tracks the
+// image factory builds.
 func (a *app) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	out := struct {
 		Latest       string `json:"latest,omitempty"`
 		LatestError  string `json:"latest_error,omitempty"`
 		Extensions   any    `json:"extensions"`
+		HAProxy      any    `json:"haproxy"`
+		Kernel       any    `json:"kernel"`
 		CatalogError string `json:"catalog_error,omitempty"`
-	}{Extensions: []any{}}
+	}{Extensions: []any{}, HAProxy: []any{}, Kernel: []any{}}
 	if rel, err := nodeproxy.LatestRelease(r.Context()); err != nil {
 		out.LatestError = err.Error()
 	} else {
 		out.Latest = rel.TagName
 	}
-	if exts, err := nodeproxy.FactoryExtensions(r.Context()); err != nil {
+	if c, err := nodeproxy.FactoryCatalog(r.Context()); err != nil {
 		out.CatalogError = err.Error()
 	} else {
-		out.Extensions = exts
+		out.Extensions, out.HAProxy, out.Kernel = c.Extensions, c.HAProxy, c.Kernel
 	}
 	writeJSON(w, http.StatusOK, out)
 }

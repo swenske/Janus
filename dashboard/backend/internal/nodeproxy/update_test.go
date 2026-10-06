@@ -481,3 +481,42 @@ func TestCheckUpdateVariantSchematic(t *testing.T) {
 		t.Errorf("trusted a schematic that isn't the node's: %s", got.Canonical())
 	}
 }
+
+// EndOfSupport: a node pinned to a branch learns when the releases stop
+// offering it; a node taking the default never does.
+func TestEndOfSupport(t *testing.T) {
+	soon := time.Now().AddDate(0, 3, 0).Format(time.DateOnly)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/versions":
+			_, _ = io.WriteString(w, `[{"version":"v3","schematics":true}]`)
+		case "/api/v1/versions/v3/extensions":
+			_, _ = io.WriteString(w, `{"version":"v3","extensions":[],
+				"haproxy":[{"name":"3.4","version":"3.4.7","default":true,"eol":"2031-04-01","arches":["amd64"]},
+				           {"name":"3.2","version":"3.2.26","eol":"`+soon+`","arches":["amd64"]}],
+				"kernel":[{"name":"longterm","version":"6.18.56","default":true,"arches":["amd64"]}],
+				"retired":[{"component":"haproxy","name":"3.0","last_release":"v2"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	resetFactory(t, srv.URL)
+	catalogCache.mu.Lock()
+	catalogCache.base = ""
+	catalogCache.mu.Unlock()
+
+	ctx := context.Background()
+	if s := EndOfSupport(ctx, ""); s != nil {
+		t.Errorf("the default branch: %+v", s)
+	}
+	if s := EndOfSupport(ctx, "3.4"); s == nil || s.Soon || s.EOL != "2031-04-01" {
+		t.Errorf("3.4: %+v", s)
+	}
+	if s := EndOfSupport(ctx, "3.2"); s == nil || !s.Soon {
+		t.Errorf("3.2: %+v", s)
+	}
+	if s := EndOfSupport(ctx, "3.0"); s == nil || !s.Retired || s.LastRelease != "v2" {
+		t.Errorf("3.0: %+v", s)
+	}
+}

@@ -778,6 +778,8 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
   const [memory, setMemory] = useState(1024)
   const [version, setVersion] = useState('')
   const [exts, setExts] = useState([])
+  const [haproxy, setHAProxy] = useState('')
+  const [kernel, setKernel] = useState('')
   const [nics, setNics] = useState(() => [newNIC(hv, 0)])
   const [dns, setDns] = useState('')
   const [ntp, setNtp] = useState('')
@@ -820,6 +822,8 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
     else {
       if (version.trim()) spec.version = version.trim()
       if (exts.length) spec.extensions = exts
+      if (haproxy) spec.haproxy = haproxy
+      if (kernel) spec.kernel = kernel
     }
     const created = await run(async () => {
       try {
@@ -957,11 +961,42 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
             )}
           </div>
         </div>
+        {catalog?.haproxy?.length > 0 && (
+          <div className="grid grid-2">
+            <label className="field">
+              <span>HAProxy branch {haproxy && <span className="muted">· built by the image factory</span>}</span>
+              <select value={haproxy} onChange={(e) => setHAProxy(e.target.value)} disabled={!!imageURL.trim()}>
+                <option value="">The newest LTS branch, following it ({catalog.haproxy.find((v) => v.default)?.name} now)</option>
+                {catalog.haproxy
+                  .filter((v) => v.arches.includes('amd64'))
+                  .map((v) => (
+                    <option key={v.name} value={v.name}>
+                      HAProxy {v.name} - {v.version}
+                      {v.eol ? `, supported until ${v.eol.slice(0, 7)}` : ''}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Kernel track {kernel && <span className="muted">· built by the image factory</span>}</span>
+              <select value={kernel} onChange={(e) => setKernel(e.target.value)} disabled={!!imageURL.trim()}>
+                <option value="">The release's default ({catalog.kernel.find((v) => v.default)?.name} now)</option>
+                {catalog.kernel
+                  .filter((v) => v.arches.includes('amd64'))
+                  .map((v) => (
+                    <option key={v.name} value={v.name}>
+                      {v.name} - {v.version}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </div>
+        )}
         <details>
           <summary className="small">Another image (a mirror, a development build)</summary>
           <div className="grid grid-2" style={{ marginTop: '0.5rem' }}>
             <label className="field">
-              <span>qcow2 image URL (replaces version and extensions)</span>
+              <span>qcow2 image URL (replaces version, extensions, HAProxy branch and kernel track)</span>
               <input value={imageURL} onChange={(e) => setImageURL(e.target.value)} placeholder="https://mirror.example.net/janus-kvm.qcow2" />
             </label>
             <label className="field">
@@ -1344,6 +1379,8 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
         <dt>Image</dt>
         <dd className="mono">
           {m.version ? `${m.version}${m.schematic ? ` · ${m.schematic.slice(0, 8)}` : ''}` : m.spec.image ? 'custom image' : m.spec.version || 'newest release'}
+          {m.spec.haproxy && <span className="muted"> · HAProxy {m.spec.haproxy}</span>}
+          {m.spec.kernel && <span className="muted"> · {m.spec.kernel} kernel</span>}
         </dd>
         <dt>Network</dt>
         <dd className="mono">

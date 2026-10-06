@@ -69,6 +69,10 @@ type updateCheck struct {
 	// (ReleaseInfo.SecurityUpdate) - whatever the source of its updates.
 	SecurityUpdate  string `json:"security_update,omitempty"`
 	SecurityRelease string `json:"security_release,omitempty"`
+	// Support is the end of upstream support of the HAProxy branch the
+	// node's schematic pins (EndOfSupport), when the image factory's
+	// newest release says.
+	Support *Support `json:"support,omitempty"`
 
 	// Renamed is set when the newest release offers some of the
 	// extensions under a new name (old -> new): the update is built from
@@ -137,6 +141,7 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 func checkUpdate(ctx context.Context, v *janusv1alpha1.VersionResponse) *updateCheck {
 	uc := nodeUpdateCheck(v)
 	resolveUpdate(ctx, uc)
+	uc.Support = EndOfSupport(ctx, uc.HAProxy)
 	if rel, err := getLatestRelease(ctx); err == nil {
 		uc.SecurityUpdate, uc.SecurityRelease = rel.SecurityUpdate(uc.Version, "node", NodeImage{
 			Extensions: uc.Extensions, HAProxy: uc.HAProxy, Kernel: uc.Kernel})
@@ -293,6 +298,12 @@ type factoryCatalogView struct {
 	Factory    string                   `json:"factory"`
 	Version    string                   `json:"version"`
 	Extensions []schematic.CatalogEntry `json:"extensions"`
+	// HAProxy and Kernel are the branches and tracks the release offers
+	// (one default each), Retired those it no longer does; empty for a
+	// release from before images could choose them.
+	HAProxy []schematic.Variant `json:"haproxy"`
+	Kernel  []schematic.Variant `json:"kernel"`
+	Retired []schematic.Retired `json:"retired,omitempty"`
 }
 
 var catalogCache struct {
@@ -346,7 +357,15 @@ func fetchFactoryCatalog(ctx context.Context, base string) (*factoryCatalogView,
 		if c.Extensions == nil {
 			c.Extensions = []schematic.CatalogEntry{}
 		}
-		return &factoryCatalogView{Factory: base, Version: v.Version, Extensions: c.Extensions}, nil
+		view := &factoryCatalogView{Factory: base, Version: v.Version, Extensions: c.Extensions,
+			HAProxy: c.HAProxy, Kernel: c.Kernel, Retired: c.Retired}
+		if view.HAProxy == nil {
+			view.HAProxy = []schematic.Variant{}
+		}
+		if view.Kernel == nil {
+			view.Kernel = []schematic.Variant{}
+		}
+		return view, nil
 	}
 	return nil, fmt.Errorf("image factory: no release offers extensions")
 }
@@ -471,4 +490,50 @@ func short(id string) string {
 		return id[:12]
 	}
 	return id
+}
+
+// Support is how long the HAProxy branch an image pins stays offered.
+type Support struct {
+	Component string `json:"component"` // "haproxy"
+	Variant   string `json:"variant"`   // "3.0"
+	// EOL is the end of upstream support (YYYY-MM-DD); Soon: within six
+	// months.
+	EOL  string `json:"eol,omitempty"`
+	Soon bool   `json:"soon,omitempty"`
+	// Retired: the newest release no longer offers it - LastRelease is
+	// the last one that does, and the image gets no newer update.
+	Retired     bool   `json:"retired,omitempty"`
+	LastRelease string `json:"last_release,omitempty"`
+}
+
+// EndOfSupport says when the HAProxy branch a node's schematic pins
+// leaves the image factory's offer: nil for a node that takes the
+// default (it moves to the next branch with the releases), or when the
+// factory's newest release doesn't say.
+func EndOfSupport(ctx context.Context, branch string) *Support {
+	if branch == "" {
+		return nil
+	}
+	c, err := factoryCatalog(ctx)
+	if err != nil || len(c.HAProxy) == 0 {
+		return nil
+	}
+	s := &Support{Component: schematic.ComponentHAProxy, Variant: branch}
+	for _, r := range c.Retired {
+		if r.Component == schematic.ComponentHAProxy && r.Name == branch {
+			s.Retired, s.LastRelease = true, r.LastRelease
+			return s
+		}
+	}
+	for _, v := range c.HAProxy {
+		if v.Name != branch {
+			continue
+		}
+		s.EOL = v.EOL
+		if t, err := time.Parse(time.DateOnly, v.EOL); err == nil {
+			s.Soon = time.Until(t) < 183*24*time.Hour
+		}
+		return s
+	}
+	return nil
 }

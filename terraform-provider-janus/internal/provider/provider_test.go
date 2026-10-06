@@ -124,6 +124,20 @@ func TestUpdateFor(t *testing.T) {
 	if u := updateFor(ctx, state, &plan, &diags); u != nil {
 		t.Errorf("unknown version gave %+v", u)
 	}
+
+	// A HAProxy branch and kernel track: set, then back to the defaults.
+	plan = *state
+	plan.HAProxy, plan.Kernel = types.StringValue("3.2"), types.StringValue("longterm")
+	u = updateFor(ctx, state, &plan, &diags)
+	if u == nil || u.HAProxy == nil || *u.HAProxy != "3.2" || *u.Kernel != "longterm" || u.Extensions != nil {
+		t.Fatalf("update %+v", u)
+	}
+	pinned := plan
+	plan.HAProxy = types.StringNull()
+	u = updateFor(ctx, &pinned, &plan, &diags)
+	if u == nil || u.HAProxy == nil || *u.HAProxy != "" || u.Kernel != nil {
+		t.Fatalf("back to the default branch: %+v", u)
+	}
 }
 
 // What the Controller returns becomes the state without a spurious
@@ -142,6 +156,15 @@ func TestFromMachine(t *testing.T) {
 	if s.Version.ValueString() != "v2026.10.02-4" || !s.Extensions.IsNull() || !s.DNS.IsNull() || !s.Interfaces[0].Addresses.IsNull() || !s.Interfaces[0].Gateway.IsNull() {
 		t.Errorf("state %+v", s)
 	}
+	if !s.HAProxy.IsNull() || !s.Kernel.IsNull() {
+		t.Errorf("the defaults read back as %v %v", s.HAProxy, s.Kernel)
+	}
+	m.Spec.HAProxy = "3.2"
+	fromMachine(m, &s)
+	if s.HAProxy.ValueString() != "3.2" || !s.Kernel.IsNull() {
+		t.Errorf("a pinned branch read back as %v", s.HAProxy)
+	}
+	m.Spec.HAProxy = ""
 	if s.Interfaces[0].MAC.ValueString() != "52:54:00:00:00:01" || s.NodeAddress.ValueString() != "10.0.0.5:9505" {
 		t.Errorf("computed %+v", s)
 	}
