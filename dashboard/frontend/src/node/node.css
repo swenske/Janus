@@ -36,8 +36,8 @@
 }
 .nav-item:hover { background: var(--surface-2); text-decoration: none; }
 .nav-item svg { color: var(--muted); flex-shrink: 0; }
-.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.nav-item.active svg { color: var(--accent); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.nav-item.active svg { color: var(--accent-ink); }
 .nav-hint { font-size: 0.7rem; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 0.25rem; }
 .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .nav-dot.danger { background: var(--danger); }
@@ -93,7 +93,7 @@
   color: var(--muted);
 }
 .search input { border: none; padding: 0.35rem 0; background: transparent; outline: none; width: 14rem; }
-button.active { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
+button.active { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent-ink); }
 
 .logline { white-space: pre; }
 .logview.wrap .logline { white-space: pre-wrap; word-break: break-all; }

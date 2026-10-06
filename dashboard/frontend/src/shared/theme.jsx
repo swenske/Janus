@@ -44,6 +44,7 @@ export function ThemeToggle() {
   )
 }
 
+// Logo is the symbol, decorative: it's always beside the name.
 export function Logo({ size = 28 }) {
-  return <img src="/favicon.svg" width={size} height={size} alt="Janus" style={{ display: 'block' }} />
+  return <img src="/favicon.svg" width={size} height={size} alt="" style={{ display: 'block' }} />
 }
