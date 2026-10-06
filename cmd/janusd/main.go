@@ -326,6 +326,10 @@ func main() {
 		log.Printf("pki: trusts the fleet of root %q, bundle version %d", root.Subject.CommonName, version)
 	}
 	local := pki.NewLocal(pkiBootstrap.CA) // LocalCARotate replaces it
+	// Every boot, the CA a client verifies this node with: what an
+	// orchestrator reading the serial console pins (docs/private-cloud/
+	// first-contact.md) - a stable line, unlike the banner's.
+	log.Print(caConsoleLine(pkiBootstrap.CA.Cert.Raw))
 	if pkiBootstrap.AdminIssued {
 		log.SetOutput(os.Stderr) // console only - see serviceLogs above
 		log.Printf("pki: first boot - generated a new CA and admin client certificate in %s", *pkiDir)
