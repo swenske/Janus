@@ -62,6 +62,8 @@ export default defineConfig({
       expressiveCode: { shiki: { langAlias: { haproxy: 'txt', nft: 'txt' } } },
       lastUpdated: false,
       credits: false,
+      // Our own (src/pages/404.astro): where to go from a missing page.
+      disable404Route: true,
       tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
       head: [
         { tag: 'link', attrs: { rel: 'icon', href: `${base}/favicon.ico`, sizes: '32x32' } },
@@ -69,7 +71,7 @@ export default defineConfig({
         { tag: 'meta', attrs: { name: 'theme-color', content: '#1D1C1A' } },
         ...(channel === 'next' ? [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }] : []),
       ],
-      plugins: [starlightImageZoom(), starlightSidebarTopics(sidebarTopics(), { exclude: ['/'] })],
+      plugins: [starlightImageZoom(), starlightSidebarTopics(sidebarTopics(), { exclude: ['/', '/404'] })],
     }),
     janusProblems(),
     janusFiles(),

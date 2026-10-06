@@ -1,0 +1,35 @@
+---
+// The docs' "not found" page, served by janus-site with a 404 for any
+// path of the channel that isn't a page: where to go from here.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+import { topics } from '../lib/structure.mjs'
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+const doors = topics.map((t) => ({ label: t.label, href: `${base}/${t.sections[0].path}/`, text: t.description }))
+---
+
+<StarlightPage
+  frontmatter={{
+    title: 'Page not found',
+    description: 'This page is not in the Janus documentation - it may have moved.',
+    // No sidebar: the page belongs to no audience.
+    template: 'splash',
+    pagefind: false,
+    tableOfContents: false,
+    head: [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }],
+  }}
+>
+  <p>
+    This page isn't in the docs - it may have moved. Search them (<kbd>Ctrl</kbd> <kbd>K</kbd>), start from the <a href={`${base}/`}>docs' home</a>, or from
+    one of the guides:
+  </p>
+  <ul>
+    {
+      doors.map((d) => (
+        <li>
+          <a href={d.href}>{d.label}</a> - {d.text}
+        </li>
+      ))
+    }
+  </ul>
+</StarlightPage>
