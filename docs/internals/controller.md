@@ -71,8 +71,9 @@ data directory, so a copy of the data alone opens nothing.
   minute, so a change made elsewhere shows.
 - **Consoles**: one reader per machine on the hypervisor, private keys
   redacted, fanned out to every page watching it.
-- **Backups**: daily to S3 by default - an age-encrypted archive with a
-  signed manifest - each node's configuration read through its API.
+- **Backups**: once an admin sets them up, to S3 every 24 hours by
+  default - an age-encrypted archive with a signed manifest, the
+  Controller's data and each node's configuration read through its API.
 
 ## Updating itself
 

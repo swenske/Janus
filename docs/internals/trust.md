@@ -38,8 +38,8 @@ flowchart TB
 | Node CA | itself | 10 years | Signing what the node itself issues |
 | Server certificate | the node CA | renewed 30 days before expiry; reissued when the addresses or hostname change | The node's API (9505) |
 | First-boot admin | the node CA | a year | The way in when nothing else works |
-| Fleet root | itself | - | Signing issuing CAs and bundles; its key never online |
-| Issuing CA | the fleet root | - | Signing clients' certificates - the Controller's, or one per janusctl machine |
+| Fleet root | itself | 20 years | Signing issuing CAs and bundles; its key never online |
+| Issuing CA | the fleet root | 2 years | Signing clients' certificates - the Controller's, or one per janusctl machine |
 | `janus:controller` | the Controller's issuing CA | a day | The Controller's calls, each made for a named user |
 | janusctl's | an issuing CA | 12 hours (an hour with an API token) | `janusctl` reaching nodes directly |
 
