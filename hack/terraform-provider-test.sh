@@ -368,7 +368,8 @@ tofu_ex apply -auto-approve >"$WORKDIR/apply-example.log" || fail "the example's
 for n in ex1:192.168.123.61 ex2:192.168.123.62; do
   name="${n%%:*}" ip="${n#*:}"
   id="$(api "$API/api/nodes" | json "[x['id'] for x in d if x['name'] == '$name'][0]")"
-  api "$API/nodes/$id/api/haproxy/config" | json "d['config']" >"$WORKDIR/example-$name.cfg"
+  # The bytes as they are: json's print() would add a newline.
+  api "$API/nodes/$id/api/haproxy/config" | python3 -c 'import json, sys; sys.stdout.write(json.load(sys.stdin)["config"])' >"$WORKDIR/example-$name.cfg"
   cmp -s "$WORKDIR/example-$name.cfg" "$REPO/examples/haproxy/web.cfg" || fail "$name doesn't run examples/haproxy/web.cfg"
   got="$(in_host python3 -c 'import sys, urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=10).read().decode().strip())' "http://$ip/healthz" 2>&1 || true)"
   [ "$got" = ok ] || fail "$name doesn't answer ok on $ip/healthz: $got"
