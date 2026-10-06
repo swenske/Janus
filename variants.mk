@@ -14,8 +14,10 @@
 # in versions.mk (HAPROXY_<x>_<y>_VERSION, _SHA256) and its end of
 # upstream support here (haproxy.org's branch table, endoflife.date):
 # the Controller warns nodes on a branch about to lose it.
-HAPROXY_BRANCHES := 3.4
+HAPROXY_BRANCHES := 3.4 3.2 3.0
 HAPROXY_3_4_EOL  := 2031-04-01
+HAPROXY_3_2_EOL  := 2030-04-01
+HAPROXY_3_0_EOL  := 2029-04-01
 
 # Kernel tracks: kernel.org's newest "longterm" and newest "stable"
 # releases, each following its moniker from branch to branch by itself.

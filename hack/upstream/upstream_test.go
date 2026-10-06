@@ -559,3 +559,27 @@ func TestPinOfLegacy(t *testing.T) {
 		t.Errorf("the current pin first: %q", got)
 	}
 }
+
+// TestNewLTS: a maintained LTS branch newer than every offered one is
+// noted on the newest offered branch, once.
+func TestNewLTS(t *testing.T) {
+	sts := make([]status, len(components))
+	newest := -1
+	for i, c := range components {
+		if c.variantComponent == "haproxy" {
+			sts[i] = status{Name: c.name, Support: &support{Others: []string{"3.6 (LTS)", "3.5", "2.6 (LTS)"}}}
+			if newest < 0 {
+				newest = i // variants.mk's order: the newest first
+			}
+		}
+	}
+	newLTS(sts)
+	if len(sts[newest].Notices) != 1 || !strings.Contains(sts[newest].Notices[0], "HAProxy 3.6 is a new LTS branch") {
+		t.Fatalf("notices: %v", sts[newest].Notices)
+	}
+	for i := range sts {
+		if i != newest && len(sts[i].Notices) > 0 {
+			t.Errorf("%s noted too: %v", sts[i].Name, sts[i].Notices)
+		}
+	}
+}

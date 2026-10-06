@@ -98,12 +98,22 @@ jobs:
           IN=build/schematic/inputs
           mkdir -p "$IN"
           base="https://github.com/$REPO/releases/download/$VERSION"
-          for f in schematic-catalog.json "kernel-$ARCH" "rootfs-base-$ARCH.tar"; do
-            curl -fsSL -o "$IN/$f" "$base/$f" || { echo "::error::$VERSION has no $f - it predates custom schematics"; exit 1; }
-          done
-          for ext in $(python3 -c 'import json; print(" ".join(json.load(open("build/schematic/schematic.json"))["customization"].get("extensions", [])))'); do
-            curl -fsSL -o "$IN/extension-$ext-$ARCH.tar" "$base/extension-$ext-$ARCH.tar" \
-              || { echo "::error::$VERSION doesn't publish $ext for $ARCH"; exit 1; }
+          curl -fsSL -o "$IN/schematic-catalog.json" "$base/schematic-catalog.json" \
+            || { echo "::error::$VERSION has no schematic-catalog.json - it predates custom schematics"; exit 1; }
+          # What the image is built from: the release checked out above
+          # says (its extpack inputs - the HAProxy layer of the schematic's
+          # branch included); a release from before HAProxy branches has
+          # a fixed set, its base tree carrying HAProxy.
+          if grep -q '"inputs"' hack/extpack/main.go; then
+            files="$(go run ./hack/extpack inputs -schematic build/schematic/schematic.json -catalog "$IN/schematic-catalog.json" -arch "$ARCH")"
+          else
+            files="kernel-$ARCH rootfs-base-$ARCH.tar"
+            for ext in $(python3 -c 'import json; print(" ".join(json.load(open("build/schematic/schematic.json"))["customization"].get("extensions", [])))'); do
+              files="$files extension-$ext-$ARCH.tar"
+            done
+          fi
+          for f in $files; do
+            curl -fsSL -o "$IN/$f" "$base/$f" || { echo "::error::$VERSION doesn't publish $f"; exit 1; }
           done
           ls -l "$IN"
 

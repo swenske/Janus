@@ -34,7 +34,7 @@ GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
 	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
-	kernel-build init initramfs qemu-boot-test haproxy-build \
+	kernel-build init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
@@ -269,10 +269,14 @@ schematic-catalog:
 # without rebuilding anything (image/schematic/build.sh): per
 # architecture, the kernel, the base rootfs tree and the extension packs,
 # plus the catalog. Into build/inputs/.
-schematic-inputs: kernel-build rpi4-kernel-build extensions-amd64 extensions-arm64 schematic-catalog
+schematic-inputs: kernel-build rpi4-kernel-build extensions-amd64 extensions-arm64 schematic-catalog haproxy-builds
 	rm -rf $(BUILD_DIR)/inputs && mkdir -p $(BUILD_DIR)/inputs
 	JANUS_EXPORT_BASE=$(CURDIR)/$(BUILD_DIR)/inputs/rootfs-base-amd64.tar $(MAKE) rootfs-build
 	JANUS_EXPORT_BASE=$(CURDIR)/$(BUILD_DIR)/inputs/rootfs-base-arm64.tar $(MAKE) rpi4-rootfs-build
+	for b in $(HAPROXY_BRANCHES); do \
+		./rootfs/haproxy-layer.sh $(BUILD_DIR)/haproxy-$$b/haproxy $(BUILD_DIR)/inputs/haproxy-$$b-amd64.tar || exit 1; \
+	done
+	./rootfs/haproxy-layer.sh $(BUILD_DIR)/rpi4/haproxy $(BUILD_DIR)/inputs/haproxy-$(firstword $(HAPROXY_BRANCHES))-arm64.tar
 	cp $(BUILD_DIR)/bzImage $(BUILD_DIR)/inputs/kernel-amd64
 	cp $(BUILD_DIR)/rpi4/Image $(BUILD_DIR)/inputs/kernel-arm64
 	cp $(EXT_DIR)/extension-*.tar $(EXT_DIR)/schematic-catalog.json $(BUILD_DIR)/inputs/
@@ -486,14 +490,25 @@ pi5-sdcard-image-test: pi5-sdcard-image
 # haproxy/Dockerfile) haproxy binary with AWS-LC and pulls it out to
 # build/haproxy. No PCRE2 (Alpine ships no static pcre2-posix lib;
 # HAProxy's built-in regex engine covers Phase 2's needs).
-haproxy-build:
-	mkdir -p $(BUILD_DIR)
-	docker build --target export --build-arg HAPROXY_VERSION=$(HAPROXY_VERSION) \
-		--build-arg HAPROXY_SHA256=$(HAPROXY_SHA256) \
+#
+# One branch per HAProxy variant (variants.mk): haproxy-build-<branch>
+# writes build/haproxy-<branch>/haproxy (not in .PHONY - GNU make skips
+# pattern rules for phony targets), haproxy-build copies HAPROXY_BRANCH's
+# to build/haproxy, what the rootfs and the tests take, and haproxy-builds
+# builds them all. AWS-LC and zlib are built once for all of them.
+haproxy-build-%:
+	mkdir -p $(BUILD_DIR)/haproxy-$*
+	docker build --target export --build-arg HAPROXY_VERSION=$(HAPROXY_$(subst .,_,$*)_VERSION) \
+		--build-arg HAPROXY_SHA256=$(HAPROXY_$(subst .,_,$*)_SHA256) \
 		--build-arg ZLIB_VERSION=$(ZLIB_VERSION) --build-arg ZLIB_SHA256=$(ZLIB_SHA256) \
 		--build-arg AWSLC_VERSION=$(AWSLC_VERSION) \
 		--build-arg AWSLC_SHA256=$(AWSLC_SHA256) \
-		-o $(BUILD_DIR) pkgs/haproxy
+		-o $(BUILD_DIR)/haproxy-$* pkgs/haproxy
+
+haproxy-build: haproxy-build-$(HAPROXY_BRANCH)
+	cp $(BUILD_DIR)/haproxy-$(HAPROXY_BRANCH)/haproxy $(BUILD_DIR)/haproxy
+
+haproxy-builds: $(addprefix haproxy-build-,$(HAPROXY_BRANCHES))
 
 # Builds janusd as a static binary (CGO_ENABLED=0, same reasoning as
 # `init`) for packaging into the initramfs - separate from `build`'s

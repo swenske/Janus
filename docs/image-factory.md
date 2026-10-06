@@ -1,10 +1,11 @@
 # Image schematics and optional extensions
 
 A Janus image is the base system - kernel, `init`, `janusd`, HAProxy - plus
-the optional **extensions** you choose for it. The choice is written down
-as an **image schematic**, identified by an ID, the way Talos Image
-Factory does it: the same choices always give the same ID, and a node
-built from a schematic keeps it through its updates.
+the optional **extensions** you choose for it, built with the **HAProxy
+branch** and **kernel track** you choose. The choice is written down as an
+**image schematic**, identified by an ID, the way Talos Image Factory does
+it: the same choices always give the same ID, and a node built from a
+schematic keeps it through its updates.
 
 ## Extensions
 
@@ -46,10 +47,48 @@ authentication, like a stock node_exporter: restrict who can reach it.
 Its address, port and collectors are settings - see
 [metrics.md](metrics.md#the-node-exporter).
 
+## HAProxy branches and kernel tracks
+
+An image carries one HAProxy and one kernel. A release offers several:
+
+| Choice | Offered | Default |
+|---|---|---|
+| `haproxy` | the newest HAProxy **LTS branches** that build with AWS-LC, Janus's TLS library: today 3.4, 3.2 and 3.0 (2.8 can't use AWS-LC) | the newest LTS branch |
+| `kernel` | a **kernel track**: kernel.org's newest `longterm` release | `longterm` |
+
+A schematic that names none gets each release's default, and follows it:
+when a release makes a newer LTS branch the default, such an image moves
+to it with that update. A schematic that names a branch (`"haproxy":
+"3.2"`) keeps it from release to release - each release ships that
+branch's newest version - until the branch leaves the releases'
+offer: an image on it then gets no more updates and is told so (the
+Controller warns months before its end of upstream support), and moving
+to a newer branch is a schematic change, made on purpose. The kernel
+track follows its kernel.org moniker by itself, from branch to branch.
+
+A HAProxy branch changes what the configuration may say: a keyword a
+newer branch added is refused by an older one, and every branch has its
+own deprecations. Check the configuration against the branch before
+moving a node to it (`haproxy -c` with that branch, or a test node).
+`STATE`, which holds the applied configuration, is shared by both boot
+slots: after a move to another branch and a configuration that uses what
+only that branch knows, a rollback to the previous slot boots a HAProxy
+that refuses it - [haproxy-config.md](haproxy-config.md) has what differs
+from one branch to the next.
+
+Each image says what it is built with, in `/usr/lib/janus/image.json` on
+its read-only rootfs (protected by dm-verity like the rest): the node
+reports it - `janusctl version` shows its HAProxy (version, branch,
+pinned or the release's default) and kernel track, the Controller shows
+them, and the node's metrics export them (`janus_component_info`).
+
+Only amd64 images can be built with a HAProxy branch or kernel track other
+than the defaults; Raspberry Pi images come with the defaults.
+
 ## The schematic
 
 ```json
-{"customization": {"extensions": ["prometheus-node-exporter", "qemu-guest-agent"]}}
+{"customization": {"extensions": ["prometheus-node-exporter", "qemu-guest-agent"], "haproxy": "3.2"}}
 ```
 
 The same, as shown in YAML:
@@ -59,10 +98,16 @@ customization:
   extensions:
     - prometheus-node-exporter
     - qemu-guest-agent
+  haproxy: "3.2"
 ```
 
-- Only the extensions a release lists (its `schematic-catalog.json`) can
-  be named; order and duplicates don't matter.
+- Only the extensions, HAProxy branches and kernel tracks a release lists
+  (its `schematic-catalog.json`) can be named; order and duplicates of
+  extensions don't matter. A HAProxy branch is named `major.minor`
+  (`"3.2"`, never a version: the release decides which 3.2.x), a kernel
+  track by its name (`"longterm"`). Left out, each is the release's
+  default; named, it stays what it is even when it happens to be today's
+  default - the default moves, an ID never does.
 - The **ID** is the sha256 of the schematic's canonical JSON form. The
   default schematic - no extension, what the official releases are built
   from - is
@@ -131,14 +176,16 @@ runs the release's own binaries:
 | Asset | Content |
 |---|---|
 | `kernel-<arch>` | the release's kernel |
-| `rootfs-base-<arch>.tar` | the base system tree: `init`, `janusd`, HAProxy, the SELinux policy, the CA bundle, ... with the SELinux types of its executables |
+| `rootfs-base-<arch>.tar` | the base system tree: `init`, `janusd`, the SELinux policy, the CA bundle, ... with the SELinux types of its executables |
+| `haproxy-<branch>-<arch>.tar` | each HAProxy branch, laid onto the base tree (amd64: every branch the release offers; arm64: the default one) |
 | `extension-<name>-<arch>.tar` | each extension's files, manifest and SELinux types |
-| `schematic-catalog.json` | the extensions the release offers, and for which architectures |
+| `schematic-catalog.json` | the extensions, HAProxy branches (with their versions and end of upstream support) and kernel tracks the release offers, and for which architectures |
 
 The site starts `.github/workflows/schematic-build.yml` on the project's
-runner, which checks the schematic against that catalog, layers the
-extensions onto the base tree (`rootfs/assemble-from-base.sh`, refusing
-any extension that would replace a file), writes the squashfs and its
+runner, which checks the schematic against that catalog, lays the
+HAProxy of its branch and its extensions onto the base tree
+(`rootfs/assemble-from-base.sh`, refusing any layer that would replace a
+file), writes the image's `image.json`, the squashfs and its
 dm-verity tree, signs the update bundle's UKIs with the release key -
 the key never leaves the runner - builds the disk, ISO and SD card images
 (`image/schematic/build.sh`), boots the amd64 disk under UEFI with SELinux
@@ -164,3 +211,9 @@ go run ./hack/extpack id -schematic my-schematic.json   # its ID
 
 `hack/qemu-extensions-test.sh` (`make qemu-extensions-test`) proves the
 whole chain on a real UEFI boot under SELinux enforcing.
+
+A HAProxy branch or kernel track is the same: `SCHEMATIC=` with
+`"haproxy": "3.2"` builds that branch (`make haproxy-build-3.2`, and AWS-LC
+once for all of them) and lays it onto the rootfs. `make haproxy-build
+HAPROXY_BRANCH=3.2` builds only the binary, as `build/haproxy` - for
+`make examples-test` or `make local-dev-image`, say.

@@ -6,8 +6,10 @@
 #
 # Usage: image/schematic/build.sh <inputs-dir> <arch> <schematic.json> <out-dir> [signing-key signing-cert]
 #
-# <inputs-dir> holds, as a release names them: schematic-catalog.json,
-# kernel-<arch>, rootfs-base-<arch>.tar, extension-<name>-<arch>.tar.
+# <inputs-dir> holds, as a release names them: schematic-catalog.json and
+# what `hack/extpack inputs` lists for the schematic - rootfs-base-<arch>.tar,
+# the HAProxy layer of its branch (haproxy-<branch>-<arch>.tar), the
+# kernel (kernel-<arch>) and its extensions (extension-<name>-<arch>.tar).
 # <out-dir> gets, with the release's own file names:
 #   amd64: the update bundle (rootfs.squashfs, .sha256, rootfs.verity,
 #          uki-a.efi, uki-b.efi - signed when a key is given), janus.qcow2,
@@ -34,15 +36,16 @@ VERSION="${JANUS_VERSION:-$(python3 -c 'import json,sys; print(json.load(open(sy
 extpack check -schematic "$SCHEMATIC_FILE" -catalog "$IN/schematic-catalog.json" -arch "$ARCH"
 JANUS_SCHEMATIC="$(extpack id -schematic "$SCHEMATIC_FILE")"
 export JANUS_SCHEMATIC
-LAYERS="$(extpack layers -schematic "$SCHEMATIC_FILE" -arch "$ARCH" -dir "$IN")"
-KERNEL="$IN/kernel-$ARCH"
+# The HAProxy layer of the branch the schematic gets, then its extensions.
+LAYERS="$(extpack layers -schematic "$SCHEMATIC_FILE" -arch "$ARCH" -dir "$IN" -catalog "$IN/schematic-catalog.json")"
+KERNEL="$IN/$(extpack inputs -schematic "$SCHEMATIC_FILE" -catalog "$IN/schematic-catalog.json" -arch "$ARCH" -only kernel)"
 [ -s "$KERNEL" ] || { echo "no $KERNEL" >&2; exit 1; }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$OUT"
 
-echo "== rootfs: $VERSION base + extensions [${LAYERS:-none}], schematic $JANUS_SCHEMATIC"
+echo "== rootfs: $VERSION base + layers [$LAYERS], schematic $JANUS_SCHEMATIC"
 extpack image-info -schematic "$SCHEMATIC_FILE" -catalog "$IN/schematic-catalog.json" -arch "$ARCH" \
   -version "$VERSION" -out "$WORK/image.json"
 JANUS_EXTENSIONS="$LAYERS" JANUS_IMAGE_INFO="$WORK/image.json" \

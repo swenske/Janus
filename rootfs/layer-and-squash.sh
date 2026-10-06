@@ -5,7 +5,9 @@
 # squashfs image and its dm-verity hash tree.
 #
 # Usage: rootfs/layer-and-squash.sh <tree> <out-dir>
-#   JANUS_EXTENSIONS  space-separated extension tars (hack/extpack)
+#   JANUS_EXTENSIONS  space-separated layer tars: the image's HAProxy
+#                     (rootfs/haproxy-layer.sh), then its extensions
+#                     (hack/extpack)
 #   JANUS_IMAGE_INFO  the image's image.json (hack/extpack image-info):
 #                     its schematic and the HAProxy branch and kernel
 #                     track it is built with - what the node reports
@@ -41,8 +43,15 @@ for ext in ${JANUS_EXTENSIONS:-}; do
     cat "$TREE/.janus-labels" >> "$LABELS"
     rm -f "$TREE/.janus-labels"
   fi
-  echo "Layered extension $(basename "$ext")"
+  echo "Layered $(basename "$ext")"
 done
+
+# Exactly one HAProxy: the base tree has none, two layers can't both
+# bring one (nothing replaces a file).
+if [ ! -x "$TREE/usr/local/sbin/haproxy" ]; then
+  echo "no HAProxy in the image: lay one onto the base (rootfs/haproxy-layer.sh)" >&2
+  exit 1
+fi
 
 if [ -n "${JANUS_IMAGE_INFO:-}" ]; then
   mkdir -p "$TREE/usr/lib/janus"

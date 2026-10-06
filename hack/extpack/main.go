@@ -14,11 +14,17 @@
 // build a schematic with.
 //
 //	extpack id [-schematic FILE]
-//	extpack layers -schematic FILE -arch ARCH -dir DIR
+//	extpack layers -schematic FILE -arch ARCH -dir DIR [-catalog FILE]
 //
 // id prints a schematic's ID (the default schematic's without -schematic);
 // layers prints the extension tars (in DIR) a schematic needs for ARCH,
-// checking each exists and is built for ARCH.
+// checking each exists and is built for ARCH - with -catalog, the HAProxy
+// layer of the branch the schematic gets first (a release's inputs).
+//
+//	extpack inputs -schematic FILE -catalog FILE -arch ARCH [-only base|haproxy|kernel|extensions]
+//
+// inputs prints the release assets an image of the schematic is built
+// from, one per line: what the image factory downloads.
 //
 //	extpack check -schematic FILE -catalog FILE -arch ARCH [-id ID]
 //
@@ -77,6 +83,8 @@ func main() {
 		variant(os.Args[2:])
 	case "image-info":
 		imageInfo(os.Args[2:])
+	case "inputs":
+		inputs(os.Args[2:])
 	default:
 		log.Fatalf("unknown command %q", os.Args[1])
 	}
@@ -293,13 +301,26 @@ func layers(args []string) {
 	file := fl.String("schematic", "", "schematic JSON")
 	arch := fl.String("arch", "", "architecture")
 	dir := fl.String("dir", "", "directory holding extension-<name>-<arch>.tar")
+	catalogFile := fl.String("catalog", "", "the release's schematic-catalog.json: lay its HAProxy first")
 	_ = fl.Parse(args)
 	if *arch == "" || *dir == "" {
 		fl.Usage()
 		os.Exit(2)
 	}
+	sc := loadSchematic(*file)
 	var out []string
-	for _, name := range loadSchematic(*file).Extensions() {
+	if *catalogFile != "" {
+		name := releaseInputs(sc, loadCatalog(*catalogFile), *arch).haproxy
+		if name == "" {
+			log.Fatalf("%s offers no HAProxy branch: its base tree carries HAProxy", *catalogFile)
+		}
+		tarPath := filepath.Join(*dir, name)
+		if _, err := os.Stat(tarPath); err != nil {
+			log.Fatalf("HAProxy: %v", err)
+		}
+		out = append(out, tarPath)
+	}
+	for _, name := range sc.Extensions() {
 		m := readManifest(name)
 		if !slices.Contains(m.Arches, *arch) {
 			log.Fatalf("extension %s isn't available for %s (only %v)", name, *arch, m.Arches)
@@ -311,6 +332,76 @@ func layers(args []string) {
 		out = append(out, tarPath)
 	}
 	fmt.Println(strings.Join(out, " "))
+}
+
+func loadCatalog(file string) *schematic.Catalog {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	c, err := schematic.ParseCatalog(data)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return c
+}
+
+// inputSet names the release assets an image is built from.
+type inputSet struct {
+	base, haproxy, kernel string
+	extensions            []string
+}
+
+// releaseInputs is what an image of sc for arch is built from, by the
+// names a release publishes them under. A catalog from before variants
+// has no HAProxy layer: its base tree carries HAProxy.
+func releaseInputs(sc *schematic.Schematic, c *schematic.Catalog, arch string) inputSet {
+	r, err := c.Resolve(sc, arch)
+	if err != nil {
+		log.Fatal(err)
+	}
+	in := inputSet{base: "rootfs-base-" + arch + ".tar", kernel: "kernel-" + arch}
+	if r.HAProxy.Name != "" {
+		in.haproxy = "haproxy-" + r.HAProxy.Name + "-" + arch + ".tar"
+	}
+	for _, name := range sc.Extensions() {
+		in.extensions = append(in.extensions, "extension-"+name+"-"+arch+".tar")
+	}
+	return in
+}
+
+func inputs(args []string) {
+	fl := flag.NewFlagSet("inputs", flag.ExitOnError)
+	file := fl.String("schematic", "", "schematic JSON")
+	catalogFile := fl.String("catalog", "", "the release's schematic-catalog.json")
+	arch := fl.String("arch", "", "architecture")
+	only := fl.String("only", "", "only this input: base, haproxy, kernel or extensions")
+	_ = fl.Parse(args)
+	if *catalogFile == "" || *arch == "" {
+		fl.Usage()
+		os.Exit(2)
+	}
+	in := releaseInputs(loadSchematic(*file), loadCatalog(*catalogFile), *arch)
+	var out []string
+	switch *only {
+	case "":
+		out = append([]string{in.base, in.haproxy, in.kernel}, in.extensions...)
+	case "base":
+		out = []string{in.base}
+	case "haproxy":
+		out = []string{in.haproxy}
+	case "kernel":
+		out = []string{in.kernel}
+	case "extensions":
+		out = in.extensions
+	default:
+		log.Fatalf("-only %q: want base, haproxy, kernel or extensions", *only)
+	}
+	for _, name := range out {
+		if name != "" {
+			fmt.Println(name)
+		}
+	}
 }
 
 func check(args []string) {
@@ -328,14 +419,7 @@ func check(args []string) {
 	if *id != "" && sc.ID() != *id {
 		log.Fatalf("the schematic's ID is %s, not %s", sc.ID(), *id)
 	}
-	data, err := os.ReadFile(*catalogFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	c, err := schematic.ParseCatalog(data)
-	if err != nil {
-		log.Fatal(err)
-	}
+	c := loadCatalog(*catalogFile)
 	if err := c.Check(sc, *arch); err != nil {
 		log.Fatal(err)
 	}

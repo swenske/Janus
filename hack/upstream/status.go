@@ -32,6 +32,9 @@ type status struct {
 	Sources       []string `json:"sources,omitempty"`
 	Note          string   `json:"note,omitempty"`
 	Errors        []string `json:"errors,omitempty"`
+	// Notices: what to decide about it - a new HAProxy LTS branch to
+	// offer (newLTS).
+	Notices []string `json:"notices,omitempty"`
 	// FeedFailed: its releases couldn't be listed - Latest means nothing.
 	FeedFailed bool `json:"feed_failed,omitempty"`
 }
@@ -198,6 +201,7 @@ func checkAll(e *env, vars map[string]string, only []string, now time.Time) []st
 		}()
 	}
 	wg.Wait()
+	newLTS(out)
 	var res []status
 	for _, s := range out {
 		if s.Name != "" {
@@ -205,4 +209,33 @@ func checkAll(e *env, vars map[string]string, only []string, now time.Time) []st
 		}
 	}
 	return res
+}
+
+// newLTS notes, on the newest HAProxy branch images can be built with, a
+// maintained LTS branch newer than every one variants.mk offers: a
+// variant to add - and the oldest to retire (docs/upstreams.md).
+func newLTS(sts []status) {
+	offered := map[string]bool{}
+	newest := -1
+	for i, c := range components {
+		if c.variantComponent != "haproxy" || sts[i].Name == "" {
+			continue
+		}
+		offered[c.variant] = true
+		if newest < 0 || mustVersion(c.variant).compare(mustVersion(components[newest].variant)) > 0 {
+			newest = i
+		}
+	}
+	if newest < 0 || sts[newest].Support == nil {
+		return
+	}
+	for _, o := range sts[newest].Support.Others {
+		cycle, lts := strings.CutSuffix(o, " (LTS)")
+		v, ok := parseVersion(cycle)
+		if !lts || offered[cycle] || !ok || v.compare(mustVersion(components[newest].variant)) <= 0 {
+			continue
+		}
+		sts[newest].Notices = append(sts[newest].Notices, fmt.Sprintf(
+			"HAProxy %s is a new LTS branch: offer it to images, and retire the oldest branch (variants.mk, docs/upstreams.md)", cycle))
+	}
 }

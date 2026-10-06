@@ -36,10 +36,9 @@ CA_BUNDLE="${7:?$USAGE}"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-mkdir -p "$WORKDIR"/{proc,sys,dev,run,var,tmp,sbin,usr/local/sbin,etc/haproxy,etc/selinux,etc/ssl/certs}
+mkdir -p "$WORKDIR"/{proc,sys,dev,run,var,tmp,sbin,etc/haproxy,etc/selinux,etc/ssl/certs}
 install -m 0755 "$INIT_BIN" "$WORKDIR/sbin/init"
 install -m 0755 "$DAEMON_BIN" "$WORKDIR/sbin/janusd"
-install -m 0755 "$HAPROXY_BIN" "$WORKDIR/usr/local/sbin/haproxy"
 install -m 0644 "$HAPROXY_CFG" "$WORKDIR/etc/haproxy/haproxy.cfg"
 install -m 0644 "$SELINUX_POLICY" "$WORKDIR/etc/selinux/janus.policy"
 # internal/nocloud's seedfrom "mode B" - a plain HTTPS client verifying
@@ -56,10 +55,15 @@ install -m 0644 "$CA_BUNDLE" "$WORKDIR/etc/ssl/certs/ca-certificates.crt"
 #   JANUS_EXTENSIONS    space-separated extension tars (hack/extpack),
 #                       layered onto the rootfs
 #   JANUS_VERSION       for /usr/lib/os-release's VERSION_ID
-#   JANUS_EXPORT_BASE   also write the base tree (before extensions) to
-#                       this tar: a release publishes it, and an image
-#                       for another schematic is built from it without
+#   JANUS_EXPORT_BASE   also write the base tree (before HAProxy and the
+#                       extensions) to this tar: a release publishes it,
+#                       with a HAProxy layer per branch, and an image for
+#                       another schematic is built from them without
 #                       rebuilding anything (rootfs/assemble-from-base.sh)
+#
+# <haproxy-bin> isn't part of the base tree: it is laid onto it as a layer
+# of its own (rootfs/haproxy-layer.sh), like the factory lays the
+# branch a schematic picks.
 
 # The SELinux types of the base system's executables (see
 # layer-and-squash.sh for why they're set this way): kept in the tree as
@@ -67,7 +71,6 @@ install -m 0644 "$CA_BUNDLE" "$WORKDIR/etc/ssl/certs/ca-certificates.crt"
 {
   echo "sbin/init init_exec_t"
   echo "sbin/janusd janusd_exec_t"
-  echo "usr/local/sbin/haproxy haproxy_exec_t"
 } > "$WORKDIR/.janus-labels"
 if [ -n "${JANUS_SHUTDOWN_BIN:-}" ]; then
   install -m 0755 "$JANUS_SHUTDOWN_BIN" "$WORKDIR/sbin/shutdown"
@@ -90,4 +93,7 @@ if [ -n "${JANUS_EXPORT_BASE:-}" ]; then
   echo "Exported the base tree to $JANUS_EXPORT_BASE"
 fi
 
-"$(dirname "$0")/layer-and-squash.sh" "$WORKDIR" "$OUT_DIR"
+LAYER_DIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR" "$LAYER_DIR"' EXIT
+"$(dirname "$0")/haproxy-layer.sh" "$HAPROXY_BIN" "$LAYER_DIR/haproxy.tar"
+JANUS_EXTENSIONS="$LAYER_DIR/haproxy.tar ${JANUS_EXTENSIONS:-}" "$(dirname "$0")/layer-and-squash.sh" "$WORKDIR" "$OUT_DIR"

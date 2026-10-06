@@ -1,8 +1,9 @@
 # Bringing your haproxy.cfg to a Janus node
 
-A Janus node runs a stock HAProxy (3.4, AWS-LC as its TLS library, the
-Prometheus exporter built in) under `janusd`: an existing configuration
-mostly works as is.
+A Janus node runs a stock HAProxy (an LTS branch - 3.4 unless its image
+picks [another](#haproxy-branches) - with AWS-LC as its TLS library and
+the Prometheus exporter built in) under `janusd`: an existing
+configuration mostly works as is.
 What differs is the machine around it - no syslog, no users, no shell to
 copy files with. This is what to change, then apply it with `janusctl
 haproxy apply-config FILE` or the Controller's **HAProxy › Configuration**.
@@ -54,6 +55,36 @@ OpenSSL release. Updated from the Controller (automatic revert, on by
 default) or with `janusctl lifecycle upgrade -wait-for-health`, a node
 whose HAProxy refuses its configuration goes back to its previous
 version on its own.
+
+## HAProxy branches
+
+An image is built with one HAProxy LTS branch - 3.4, 3.2 or 3.0, which its
+schematic picks ([image-factory.md](image-factory.md#haproxy-branches-and-kernel-tracks));
+`janusctl version` says which a node runs. Every branch is built the same
+way, against the same AWS-LC (the table above holds for all of them), and
+janusd's runtime API - maps, ACLs, certificates and crt-lists, reloads -
+is tested against each. What a configuration may say still depends on
+the branch: HAProxy adds keywords in each one, and an older branch
+refuses what it doesn't know. Measured on the branches Janus builds:
+
+| | 3.4 | 3.2 | 3.0 |
+|---|---|---|---|
+| `crt-store` sections | yes | yes | yes |
+| `acme` section (HAProxy's own ACME client - Janus's is the [letsencrypt extension](letsencrypt.md)) | experimental | experimental | unknown keyword |
+| `ktls` on a `bind` (kernel TLS) | experimental | unknown keyword | unknown keyword |
+| Threads (`nbthread`) and thread groups, at most | 1024, 32 groups | 1024, 32 groups | 256, 16 groups |
+
+"Experimental" needs `expose-experimental-directives` in the global
+section. Before moving a node to another branch, check its configuration
+with that branch: `haproxy -c -f` with it (`make haproxy-build
+HAPROXY_BRANCH=3.2` builds it), or apply it to a test node built with
+it. The node itself refuses a configuration its HAProxy rejects, and an
+update applied with the automatic revert goes back to the previous image
+when HAProxy doesn't come up healthy - but the configuration lives on
+`STATE`, which both boot slots share: once a configuration uses what
+only the newer branch knows, a rollback to the older one boots a HAProxy
+that refuses it. Keep to what both branches accept until the move is
+settled.
 
 ## Files the configuration references
 

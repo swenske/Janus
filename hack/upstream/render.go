@@ -68,10 +68,13 @@ func writeStatus(w io.Writer, sts []status, ref string, now time.Time) {
 		fmt.Fprintf(w, "| %s | %s | %s | %s | %s | %s |\n", s.Title, s.Kind, short(s.Pinned), update, supportCell(s.Support), vulnCell(s))
 	}
 	for _, s := range sts {
-		if len(s.Vulns) == 0 && len(s.Errors) == 0 {
+		if len(s.Vulns) == 0 && len(s.Errors) == 0 && len(s.Notices) == 0 {
 			continue
 		}
 		fmt.Fprintf(w, "\n### %s %s\n\n", s.Title, short(s.Pinned))
+		for _, n := range s.Notices {
+			fmt.Fprintln(w, "- 🆕 "+n)
+		}
 		for _, v := range s.Vulns {
 			fmt.Fprintln(w, "- "+vulnLine(v))
 		}

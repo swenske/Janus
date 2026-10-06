@@ -187,6 +187,8 @@ func pinOf(c *component, vars map[string]string) string {
 var components = []*component{
 	kernelTrack("longterm", "the newest longterm release", "KERNEL_VERSION"),
 	haproxyBranch("3.4", "HAPROXY_VERSION"),
+	haproxyBranch("3.2", "HAPROXY_VERSION"),
+	haproxyBranch("3.0", "HAPROXY_VERSION"),
 	{
 		name: "musl-cross-make", title: "musl-cross-make (arm64 musl toolchain)", kind: kindBuild,
 		versionVar: "MUSL_CROSS_MAKE_REF",
