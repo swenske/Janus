@@ -64,6 +64,15 @@ site, `/docs/<file>.md` redirects to the file's page whatever its route.
   file exactly - the file is what a test runs. `make docs-examples`
   copies the files in again; every file of `examples/` must be shown
   somewhere ([examples](../../examples/README.md)).
+- **Screenshots** of the Controller are made, not taken by hand: `make
+  docs-screenshots` sets a real Controller up with three real nodes,
+  shoots every page `hack/browser/shots.yaml` lists in both themes, and
+  writes `docs/assets/screenshots/<id>-light.webp` and `-dark.webp` -
+  only those that changed. A page shows the light one
+  (`![What it shows](../assets/screenshots/node-overview-light.webp)`,
+  the alt text saying what's on it); the site adds the dark one and
+  zooms either on a click. A page the docs show changed? `make
+  docs-screenshots` in the same commit, and look at the images.
 - **Generated pages** aren't edited: the [janusctl
   reference](../guide/janusctl-reference.md) comes from the command tree
   (`go test ./cmd/janusctl -run TestReferenceDoc -update`).

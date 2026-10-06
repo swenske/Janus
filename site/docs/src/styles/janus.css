@@ -258,3 +258,16 @@
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* The Controller's screenshots (remark-screenshots): framed, so a page's
+   edges don't melt into the docs' own background. */
+.sl-markdown-content img.light\:sl-hidden,
+.sl-markdown-content img.dark\:sl-hidden {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+}
+/* With its zoom button: the other theme's screenshot, hidden whole. */
+:root[data-theme='light'] starlight-image-zoom-zoomable:has(> img.light\:sl-hidden),
+:root[data-theme='dark'] starlight-image-zoom-zoomable:has(> img.dark\:sl-hidden) {
+  display: none;
+}

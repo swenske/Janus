@@ -404,8 +404,11 @@ scroll.
    through the API, then every touched page in a real browser - both
    themes, zero page/console errors, zero failed requests, and each new
    action actually performed and its effect checked on the node.
-   Headless Chromium with Playwright works well for this - sign in
-   through the page, for each role the change concerns:
+   Headless Chromium with Playwright works well for this - `make
+   browser-image` builds a pinned one (`hack/browser`: `docker run
+   --network host -v $PWD/check.mjs:/browser/check.mjs janus-browser
+   node check.mjs`) - sign in through the page, for each role the change
+   concerns:
 
    ```js
    const ctx = await browser.newContext({
@@ -426,3 +429,8 @@ scroll.
    `build/rootfs/disk.img` under QEMU/OVMF.
 5. New relays get an assertion in `hack/qemu-dashboard-test.sh`, which
    runs against a real enforcing node in `image-build.yml`.
+6. A page the docs show (`hack/browser/shots.yaml`) changed: `make
+   docs-screenshots` takes the docs' screenshots again - a real
+   Controller, three `local-dev` nodes - and rewrites those that
+   changed; commit them with the change. `image-build.yml` reports a
+   screenshot that drifted.

@@ -7,6 +7,13 @@ What differs is the machine around it - no syslog, no users, no shell to
 copy files with. This is what to change, then apply it with `janusctl
 haproxy apply-config FILE` or the Controller's **HAProxy › Configuration**.
 
+![HAProxy's configuration on a node's page: the editor with the running haproxy.cfg - here examples/haproxy/web.cfg - marked as matching the running configuration, and HAProxy's state with Reload, Restart and Stop](assets/screenshots/node-haproxy-config-light.webp)
+
+Its **Backends** tab shows each server's state, and sets it - ready,
+drain, maintenance - at runtime:
+
+![The Backends tab: the app backend's two servers, app1 and app2, up, each with Ready, Drain and Maint](assets/screenshots/node-haproxy-backends-light.webp)
+
 ## The global section
 
 | On a distribution | On a Janus node | Why |

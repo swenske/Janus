@@ -8,6 +8,8 @@ it in one click with the updater (see [Updating the
 Controller](#updating-the-controller)). Each node then has its own page,
 with a sidebar:
 
+![The Controller's node list: three nodes online, each with its labels, version, HAProxy health, uptime and fleet trust, then the fleet's state](../docs/assets/screenshots/controller-nodes-light.webp)
+
 - **Monitoring** - an overview, live charts (CPU, memory, load, network,
   HAProxy requests/connections/rates; refresh selectable from 1 s to
   30 s or off, history kept while the page is open), processes, network
@@ -28,6 +30,8 @@ with a sidebar:
   janusctl (.pfx or PEM), and power: restart janusd (HAProxy keeps
   serving), reboot, shut down, reset - with the page following the node
   until it's back.
+
+![A node's overview: CPU, memory, HAProxy connections and uptime, live charts of CPU and memory, HAProxy traffic and the network, and the node's release, kernel and CPU](../docs/assets/screenshots/node-overview-light.webp)
 
 A node's page is on the Controller's own address, under
 `/nodes/<id>/`, behind your account - no certificate in the browser. The
@@ -309,6 +313,8 @@ others on the **Accounts** tab, each with a role:
 | **operator** | + powers machines and opens their consoles | `os:operator`: HAProxy, services, reboots |
 | **admin** | everything: accounts, the fleet, hypervisors, machines, approvals, updates, the audit | `os:admin` |
 
+![The Accounts tab: a new account's name and role, then each account's role, grants - web-dev is an operator on the nodes labelled team=web, for HAProxy only - last sign-in, tokens and SSH keys](../docs/assets/screenshots/controller-accounts-light.webp)
+
 The Controller makes a new account's password, shown once to hand over;
 its owner chooses their own at the first sign-in. **Reset password**
 does the same for an account and ends its sessions. The last enabled
@@ -509,6 +515,8 @@ its account's, with the account's role or a lower one: demoted with the
 account, stopped with it. Tokens manage neither accounts nor tokens. The
 Janus Terraform provider is one: it creates, changes and destroys the
 Controller's nodes as code ([docs/terraform.md](../docs/terraform.md)).
+
+![The API tokens tab: a new token's name, role, validity and scope, then two tokens - ci-haproxy, an operator narrowed to team=web and HAProxy, and terraform](../docs/assets/screenshots/controller-tokens-light.webp)
 
 ## Updating the Controller
 

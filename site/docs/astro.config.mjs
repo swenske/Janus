@@ -2,10 +2,11 @@
 // repository's own Markdown, read where it is (structure.yaml). Built in
 // Docker by hack/docs-build.sh (site/docs/Dockerfile), embedded and
 // served by janus-site - see docs/contributing/README.md.
-import { defineConfig } from 'astro/config'
+import { defineConfig, passthroughImageService } from 'astro/config'
 import { unified } from '@astrojs/markdown-remark'
 import starlight from '@astrojs/starlight'
 import mermaid from 'astro-mermaid'
+import starlightImageZoom from 'starlight-image-zoom'
 import starlightSidebarTopics from 'starlight-sidebar-topics'
 import { base, channel, ref, repo, site } from './src/lib/build-info.mjs'
 import janusFiles from './src/lib/janus-files.mjs'
@@ -14,6 +15,7 @@ import remarkDiagrams from './src/lib/remark-diagrams.mjs'
 import remarkExamples from './src/lib/remark-examples.mjs'
 import remarkGitHubAlerts from './src/lib/remark-github-alerts.mjs'
 import remarkRepoLinks from './src/lib/remark-repo-links.mjs'
+import remarkScreenshots from './src/lib/remark-screenshots.mjs'
 import remarkStripTitle from './src/lib/remark-strip-title.mjs'
 import rehypeTables from './src/lib/rehype-tables.mjs'
 import { sidebarTopics } from './src/lib/structure.mjs'
@@ -28,7 +30,7 @@ export default defineConfig({
     // Astro 7's own Markdown engine runs no remark plugins: unified() does.
     // These run before astro-mermaid's and Starlight's own.
     processor: unified({
-      remarkPlugins: [remarkStripTitle, remarkGitHubAlerts, remarkDiagrams, remarkExamples, [remarkRepoLinks, { base, ref, repo }]],
+      remarkPlugins: [remarkStripTitle, remarkGitHubAlerts, remarkDiagrams, remarkExamples, remarkScreenshots, [remarkRepoLinks, { base, ref, repo }]],
       rehypePlugins: [rehypeTables],
     }),
   },
@@ -67,10 +69,12 @@ export default defineConfig({
         { tag: 'meta', attrs: { name: 'theme-color', content: '#1D1C1A' } },
         ...(channel === 'next' ? [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }] : []),
       ],
-      plugins: [starlightSidebarTopics(sidebarTopics(), { exclude: ['/'] })],
+      plugins: [starlightImageZoom(), starlightSidebarTopics(sidebarTopics(), { exclude: ['/'] })],
     }),
     janusProblems(),
     janusFiles(),
   ],
+  // The screenshots are WebP already, made to measure: copied as they are.
+  image: { service: passthroughImageService() },
   vite: { server: { fs: { allow: ['../..'] } } },
 })

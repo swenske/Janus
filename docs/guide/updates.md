@@ -17,6 +17,8 @@ promptly ([security policy](../../SECURITY.md)).
 
 On the node's page, **System › Update**:
 
+![A node's Update page: the release it runs, its slot, schematic and extensions; the latest release; and the three ways to install one, with the automatic revert](../assets/screenshots/node-update-light.webp)
+
 1. It shows the node's release, slot and extensions, and the release to
    install - from its GitHub release, or built by the image factory for
    the node's extensions.

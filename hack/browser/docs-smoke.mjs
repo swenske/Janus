@@ -48,8 +48,15 @@ async function visit(page, url, scheme) {
       .catch(() => problems.push(`${url} (${scheme}): a Mermaid diagram wasn't drawn`))
     if (await page.locator('pre.mermaid :text("Syntax error")').count()) problems.push(`${url}: a Mermaid syntax error`)
   }
-  const broken = await page.evaluate(() => [...document.images].filter((i) => !i.complete || i.naturalWidth === 0).map((i) => i.src))
-  for (const src of broken) problems.push(`${url}: image not loaded: ${src}`)
+  // Every image the page shows in this theme, loaded - lazy ones too
+  // (made eager); the screenshots' twin for the other theme isn't shown.
+  const broken = await page.evaluate(async () => {
+    const shown = [...document.images].filter((i) => getComputedStyle(i).display !== 'none')
+    for (const i of shown) i.loading = 'eager'
+    await Promise.all(shown.map((i) => i.decode().catch(() => {})))
+    return shown.filter((i) => !i.complete || i.naturalWidth === 0).map((i) => i.src)
+  })
+  for (const src of broken) problems.push(`${url} (${scheme}): image not loaded: ${src}`)
   // This channel's pages only: /docs/'s version menu links /docs/next/.
   return page.evaluate(
     (root) =>

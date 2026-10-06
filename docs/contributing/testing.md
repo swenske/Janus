@@ -31,7 +31,7 @@ boots. The catalog:
 | The API and the features | `qemu-system-api-test`, `qemu-system-info-test`, `qemu-packet-capture-test`, `qemu-metrics-test`, `qemu-fleet-trust-test`, `qemu-fleetctl-test`, `qemu-extensions-test`, `qemu-firewall-test`, `qemu-vrrp-test`, `qemu-bgp-test`, `qemu-acme-test`, `qemu-consul-test` |
 | The Controller | `qemu-dashboard-test`, `controller-self-update-test`, `controller-libvirt-test`, `terraform-provider-test` |
 | arm64 | `qemu-raspi4-boot-test`, `qemu-raspi4-daemon-test`, `qemu-arm64-network-test`, `qemu-arm64-uefi-boot-test`, `pi4-sdcard-image-test`, `pi5-sdcard-image-test` |
-| The docs | `docs-build`, `docs-smoke`, `examples-check`, `examples-test` ([writing docs](writing-docs.md)) |
+| The docs | `docs-build`, `docs-smoke`, `docs-screenshots-check`, `examples-check`, `examples-test` ([writing docs](writing-docs.md)) |
 
 Several runners share a host: a test's ports are offset by
 `JANUS_TEST_PORT_OFFSET`, one per runner instance.

@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { defineCollection } from 'astro:content'
 import { glob } from 'astro/loaders'
-import { docsSchema } from '@astrojs/starlight/schema'
+import { docsSchema, i18nSchema } from '@astrojs/starlight/schema'
 import { repo } from './lib/build-info.mjs'
 import { pageMeta } from './lib/meta.mjs'
 import { pageOfFile, pageOfId, pages, repoRoot, topics } from './lib/structure.mjs'
@@ -41,6 +41,11 @@ function fields(id: string) {
   }
 }
 
+// Starlight reads overrides of its UI strings from an i18n collection:
+// none here, but it has to exist - a plugin's own strings (the image
+// zoom's) otherwise make Astro warn that it doesn't.
+const i18n = defineCollection({ loader: () => [{ id: 'en' }], schema: i18nSchema() })
+
 export const collections = {
   docs: defineCollection({
     schema: docsSchema(),
@@ -54,4 +59,5 @@ export const collections = {
         }),
     },
   }),
+  i18n,
 }
