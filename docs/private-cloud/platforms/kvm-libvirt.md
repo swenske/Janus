@@ -8,7 +8,10 @@ then a virtual IP between them.
 > [!NOTE]
 > Proven: `make terraform-provider-test` applies this example as written,
 > on every image build: its two nodes created and admitted, serving its
-> `haproxy.cfg`, on a real Controller and a real libvirt host.
+> `haproxy.cfg`, on a real Controller and a real libvirt host. The
+> virtual IP (step 7) needs the image factory's keepalived build, which
+> that test can't reach: VRRP between two nodes, the address moving
+> when HAProxy stops, is proven by `make qemu-vrrp-test`.
 
 ## What you need
 
