@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 )
@@ -220,9 +221,11 @@ func writeNotesDraft(w io.Writer, d *securityDoc) {
 }
 
 // whereText says who an update reaches: "nodes", "nodes with the bird
-// extension", "the Controller".
+// extension", "nodes pinned to HAProxy 3.2", "the Controller".
 func whereText(u updateRecord) string {
 	switch {
+	case u.Component != "":
+		return variantWhere(u)
 	case u.Extension != "":
 		return "nodes with the " + u.Extension + " extension"
 	case u.Target == "controller":
@@ -231,4 +234,23 @@ func whereText(u updateRecord) string {
 		return "janusctl and the Terraform provider"
 	}
 	return "nodes"
+}
+
+// variantWhere says which nodes a HAProxy branch's or kernel track's
+// update reaches - who takes the default, who pinned the variant.
+func variantWhere(u updateRecord) string {
+	what := "HAProxy " + u.Variant
+	def := "the default HAProxy branch"
+	if u.Component == "kernel" {
+		what = "the " + u.Variant + " kernel track"
+		def = "the default kernel track"
+	}
+	dflt, pinned := slices.Contains(u.Audience, "default"), slices.Contains(u.Audience, "pinned")
+	switch {
+	case dflt && pinned:
+		return "nodes on " + what + " - " + def + ", or pinned to it"
+	case dflt:
+		return "nodes on " + def + ", now " + what
+	}
+	return "nodes pinned to " + what
 }

@@ -189,7 +189,9 @@ included, nothing is pushed or posted.
 2. refuses to go on if the release fixes something and its notes have no
    `## 🔒` section (draft it with `make upstream-security-notes FROM=<previous
    tag> RELEASE=<version> EXTENSIONS=build/extensions`, after `make
-   extensions-amd64`, then make it say what it means for an operator);
+   extensions-amd64`, then make it say what it means for an operator), or
+   if a HAProxy branch or kernel track it fixes isn't named there by its
+   new version;
 3. names the release "Janus vX (Alpha) - 🔒 security update" when it fixes
    something, and attaches `security.json` and the SBOM (`sbom.cdx.json`);
 4. publishes repository security advisories, ecosystem "other" (Janus
@@ -223,6 +225,25 @@ an older release - or the Controller itself - gets a 🔒 security update
 badge, rated by the worst vulnerability it misses; a fix to an extension
 (its update names it) only counts for nodes that have that extension
 ([controller-ui.md](controller-ui.md)).
+
+### Per HAProxy branch and kernel track
+
+Each HAProxy branch and kernel track a release offers is compared on its
+own: `security.json` has a record per variant that changed, with its
+`component` (`haproxy`, `kernel`), `variant` and `audience` - `default`
+for the images that take the release's default (from the previous
+release's default to this one's, even when the default moved to another
+branch: the same fix on two HAProxy branches has two commits, so it's
+matched by its title there), `pinned` for those whose schematic names
+the variant; both when they got the same versions. A variant the
+release no longer offers has no record. The draft notes say which nodes
+each record reaches ("nodes pinned to HAProxy 3.2", "nodes on the
+default kernel track, now the stable kernel track"), and so does the
+Controller's badge: a node only counts what reaches its own image - a
+node from before images said what they're built with takes the
+defaults. A Controller older than this reads such a record as every
+node's: it warns too many nodes, never too few. The SBOM lists every
+variant (`janus:variant`, `janus:default`).
 
 GitHub's "Security alerts" watch option only reaches the repository's
 maintainers (Dependabot, code and secret scanning alerts), and GitHub

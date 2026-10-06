@@ -608,3 +608,71 @@ func TestBuiltFilesPerTrack(t *testing.T) {
 	}
 }
 
+// TestVariantUpdates: what a release fixes, per HAProxy branch and kernel
+// track, and for whom.
+func TestVariantUpdates(t *testing.T) {
+	prev := fixedBetweenFn
+	t.Cleanup(func() { fixedBetweenFn = prev })
+	fixedBetweenFn = func(_ *env, c *component, from, to string, res *bumpResult) error {
+		res.Fixed = []vuln{{ID: c.name + " " + from + "->" + to, Severity: "high"}}
+		return nil
+	}
+	describe := func(us []updateRecord) []string {
+		var out []string
+		for _, u := range us {
+			out = append(out, fmt.Sprintf("%s %s %s->%s %s", u.Component, u.Variant, u.From, u.To, strings.Join(u.Audience, "+")))
+		}
+		return out
+	}
+	check := func(name string, old, cur releaseVariants, want ...string) {
+		t.Helper()
+		got, err := variantUpdates(&env{}, old, cur)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(describe(got), "\n") != strings.Join(want, "\n") {
+			t.Errorf("%s:\n%s\nwant:\n%s", name, strings.Join(describe(got), "\n"), strings.Join(want, "\n"))
+		}
+	}
+	pin := func(name, version string, def bool) variantPin { return variantPin{name: name, version: version, isDefault: def} }
+
+	// A release from before variants (its one HAProxy and kernel are the
+	// defaults) to one offering three branches and two tracks: those it
+	// shipped get one record each, the new ones none.
+	legacy, err := variantsAt(func(_, path string) ([]byte, error) { return nil, os.ErrNotExist }, "v1",
+		parseVersionsMk([]byte("HAPROXY_VERSION := 3.4.6\nKERNEL_VERSION := 6.18.55\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2 := releaseVariants{
+		"haproxy": {pin("3.4", "3.4.7", true), pin("3.2", "3.2.25", false), pin("3.0", "3.0.29", false)},
+		"kernel":  {pin("longterm", "6.18.56", true), pin("stable", "7.2.9", false)},
+	}
+	check("before variants", legacy, r2,
+		"haproxy 3.4 3.4.6->3.4.7 default+pinned",
+		"kernel longterm 6.18.55->6.18.56 default+pinned")
+
+	// The default moves to a new LTS branch; 3.0 is retired.
+	r3 := releaseVariants{
+		"haproxy": {pin("3.6", "3.6.0", true), pin("3.4", "3.4.8", false), pin("3.2", "3.2.25", false)},
+		"kernel":  {pin("longterm", "6.18.56", false), pin("stable", "7.3.2", true)},
+	}
+	check("new LTS, stable to 7.3, stable the default", r2, r3,
+		"haproxy 3.6 3.4.7->3.6.0 default",
+		"haproxy 3.4 3.4.7->3.4.8 pinned",
+		"kernel stable 6.18.56->7.3.2 default",
+		"kernel stable 7.2.9->7.3.2 pinned")
+
+	// Who each record reaches, as the notes say it.
+	got, _ := variantUpdates(&env{}, r2, r3)
+	if w := whereText(got[0]); w != "nodes on the default HAProxy branch, now HAProxy 3.6" {
+		t.Errorf("where: %q", w)
+	}
+	if w := whereText(got[1]); w != "nodes pinned to HAProxy 3.4" {
+		t.Errorf("where: %q", w)
+	}
+	legacyGot, _ := variantUpdates(&env{}, legacy, r2)
+	if w := whereText(legacyGot[1]); w != "nodes on the longterm kernel track - the default kernel track, or pinned to it" {
+		t.Errorf("where: %q", w)
+	}
+}

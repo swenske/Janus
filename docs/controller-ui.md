@@ -218,9 +218,11 @@ browser. The updater itself, its contract with the Controller
 **Security updates.** A release's `security.json` asset lists what it
 fixes, per target ([upstreams.md](upstreams.md)). `nodeproxy`'s release
 fetch reads it for every release (once each: a release doesn't change),
-and `ReleaseInfo.SecurityUpdate(version, target, extensions)` is the
+and `ReleaseInfo.SecurityUpdate(version, target, NodeImage)` is the
 worst severity the releases after a version fix - an extension's fix
-only for a node that has it - `security_update` in `/api/nodes/status`,
+only for a node that has it, a HAProxy branch's or kernel track's only
+for the nodes its audience names: those taking the default, or pinned
+to it (`NodeSchematic`: what the node's image reports) - `security_update` in `/api/nodes/status`,
 a node's `/api/update-check` (with `security_release`) and
 `/api/controller/update`; empty for a development build. Where an update
 shows, a security update shows instead: `SecurityBadge.jsx` (a shield,

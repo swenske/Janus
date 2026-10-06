@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/swenske/Janus/internal/variants"
 )
 
 // securityDoc is a release's security.json: what it fixes since the
@@ -35,9 +37,19 @@ type updateRecord struct {
 	// nodes with that extension have it.
 	Target    string `json:"target"`
 	Extension string `json:"extension,omitempty"`
-	From      string `json:"from"`
-	To        string `json:"to"`
-	Fixes     []vuln `json:"fixes,omitempty"`
+	// Component and Variant: the HAProxy branch or kernel track the
+	// record is about ("haproxy" "3.2", "kernel" "stable") - only nodes
+	// whose image has it are concerned. Audience says which of those:
+	// "default", images whose schematic leaves the choice to the release
+	// (they follow its default, from From to To even when To is another
+	// variant), "pinned", images whose schematic names Variant. Empty for
+	// every other record.
+	Component string   `json:"component,omitempty"`
+	Variant   string   `json:"variant,omitempty"`
+	Audience  []string `json:"audience,omitempty"`
+	From      string   `json:"from"`
+	To        string   `json:"to"`
+	Fixes     []vuln   `json:"fixes,omitempty"`
 	// Skipped: security fixes that can't apply to Janus's build.
 	Skipped       []vuln `json:"skipped,omitempty"`
 	NotApplicable int    `json:"not_applicable,omitempty"`
@@ -80,6 +92,9 @@ func securityNotes(e *env, from, to, version, extDir string) (*securityDoc, erro
 	e.ref = to
 
 	for _, c := range components {
+		if c.variant != "" {
+			continue // variantUpdates, below
+		}
 		a, b := pinOf(c, oldVars), pinOf(c, newVars)
 		target := targetOf(c.kind)
 		if a == b || a == "" || b == "" || target == "" {
@@ -95,6 +110,20 @@ func securityNotes(e *env, from, to, version, extDir string) (*securityDoc, erro
 		}
 		doc.Updates = append(doc.Updates, u)
 	}
+
+	oldVariants, err := variantsAt(read, from, oldVars)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", from, err)
+	}
+	newVariants, err := variantsAt(read, to, newVars)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", or(to, "the working tree"), err)
+	}
+	vu, err := variantUpdates(e, oldVariants, newVariants)
+	if err != nil {
+		return nil, err
+	}
+	doc.Updates = append(doc.Updates, vu...)
 
 	goUpdates, err := goModuleUpdates(e, read, from, to)
 	if err != nil {
@@ -474,4 +503,135 @@ func shippedBinary(e *env, tarPath, member, pinned string) (*shipped, error) {
 		version = pinned
 	}
 	return &shipped{version: version, goVersion: info.GoVersion, vulns: vs}, nil
+}
+
+// variantPin is a HAProxy branch or kernel track a release offers.
+type variantPin struct {
+	name, version string
+	isDefault     bool
+}
+
+// releaseVariants is what a release offers of each component
+// ("haproxy", "kernel"), its default included.
+type releaseVariants map[string][]variantPin
+
+func (rv releaseVariants) defaultOf(comp string) variantPin {
+	for _, v := range rv[comp] {
+		if v.isDefault {
+			return v
+		}
+	}
+	return variantPin{}
+}
+
+func (rv releaseVariants) lookup(comp, name string) (variantPin, bool) {
+	for _, v := range rv[comp] {
+		if v.name == name {
+			return v, true
+		}
+	}
+	return variantPin{}, false
+}
+
+// variantsAt reads what a release offers: its variants.mk, or - a
+// release from before variants - its one HAProxy and kernel, the
+// defaults (the kernel then always the newest longterm).
+func variantsAt(read func(ref, path string) ([]byte, error), ref string, vars map[string]string) (releaseVariants, error) {
+	vm, err := read(ref, "variants.mk")
+	if err != nil {
+		rv := releaseVariants{}
+		if v := vars["HAPROXY_VERSION"]; v != "" {
+			if pv, ok := parseVersion(v); ok {
+				rv["haproxy"] = []variantPin{{name: pv.branch(2), version: v, isDefault: true}}
+			}
+		}
+		if v := vars["KERNEL_VERSION"]; v != "" {
+			rv["kernel"] = []variantPin{{name: "longterm", version: v, isDefault: true}}
+		}
+		return rv, nil
+	}
+	pins, err := read(ref, "versions.mk")
+	if err != nil {
+		return nil, err
+	}
+	set, err := variants.Parse(vm, pins)
+	if err != nil {
+		return nil, err
+	}
+	rv := releaseVariants{}
+	for _, v := range set.All() {
+		rv[v.Component] = append(rv[v.Component], variantPin{name: v.Name, version: v.Version, isDefault: v.Default})
+	}
+	return rv, nil
+}
+
+// variantComponent is the component following a variant - one made for
+// the occasion when this tree no longer has it (security-notes between
+// older refs).
+func variantComponent(comp, name string) *component {
+	for _, c := range components {
+		if c.variantComponent == comp && c.variant == name {
+			return c
+		}
+	}
+	if comp == "haproxy" {
+		return haproxyBranch(name, "")
+	}
+	return kernelTrack(name, "", "")
+}
+
+// variantUpdates lists what the HAProxy branches and kernel tracks fix
+// between two releases, by who gets it: the images that take the
+// default (from the old release's default to the new one's, whatever
+// variant that is) and those pinned to a variant both releases offer.
+// A pinned and a default audience with the same versions are one
+// record; a variant the new release no longer offers has none.
+func variantUpdates(e *env, old, cur releaseVariants) ([]updateRecord, error) {
+	var out []updateRecord
+	for _, comp := range []string{"haproxy", "kernel"} {
+		add := func(variant, from, to, audience string) error {
+			if from == "" || to == "" || from == to {
+				return nil
+			}
+			for i := range out {
+				u := &out[i]
+				if u.Component == comp && u.Variant == variant && u.From == from && u.To == to {
+					u.Audience = append(u.Audience, audience)
+					return nil
+				}
+			}
+			c := variantComponent(comp, variant)
+			u := updateRecord{Name: c.name, Title: c.title, Target: "node", Component: comp, Variant: variant,
+				Audience: []string{audience}, From: from, To: to}
+			res := &bumpResult{}
+			if err := fixedBetweenFn(e, c, from, to, res); err != nil {
+				return fmt.Errorf("%s %s -> %s: %w", c.name, from, to, err)
+			}
+			u.Fixes, u.Skipped, u.NotApplicable, u.FixedBugs = res.Fixed, res.Skipped, res.NotApplicable, res.FixedBugs
+			out = append(out, u)
+			return nil
+		}
+		d := cur.defaultOf(comp)
+		if err := add(d.name, old.defaultOf(comp).version, d.version, "default"); err != nil {
+			return nil, err
+		}
+		for _, v := range cur[comp] {
+			if ov, ok := old.lookup(comp, v.name); ok {
+				if err := add(v.name, ov.version, v.version, "pinned"); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// fixedBetweenFn is fixedBetween, replaced in tests.
+var fixedBetweenFn = fixedBetween
+
+func or(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }

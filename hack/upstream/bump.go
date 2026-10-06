@@ -126,13 +126,25 @@ func fixedBetween(e *env, c *component, from, to string, res *bumpResult) error 
 		if err != nil {
 			return fmt.Errorf("%s: %w", src.describe(), err)
 		}
+		// HAProxy names a fix by its commit, which differs on each branch:
+		// between two branches (an image following the default from one
+		// LTS branch to the next), the same fix is the same title.
+		byTitle := false
+		if pf, ok := parseVersion(from); ok && c.variantComponent == "haproxy" {
+			if pt, ok := parseVersion(to); ok && pf.branch(2) != pt.branch(2) {
+				byTitle = true
+			}
+		}
 		still := map[string]bool{}
 		for _, v := range cur {
 			still[v.ID] = true
+			if byTitle {
+				still["title "+v.Title] = true
+			}
 		}
 		for _, v := range old {
 			switch {
-			case still[v.ID]:
+			case still[v.ID] || (byTitle && still["title "+v.Title]):
 			case v.NotApplicable != "":
 				res.NotApplicable++
 				if _, kernel := src.(kernelCNA); !kernel && !v.Bug {

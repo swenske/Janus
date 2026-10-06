@@ -48,7 +48,7 @@ func Status(ctx context.Context, node *store.Node) NodeStatus {
 
 	var (
 		st             NodeStatus
-		extensions     []string
+		img            NodeImage
 		mu             sync.Mutex
 		wg             sync.WaitGroup
 		firstErr       error
@@ -76,9 +76,8 @@ func Status(ctx context.Context, node *store.Node) NodeStatus {
 		st.Version, st.ActiveSlot, st.KernelVersion = v.GetVersion(), v.GetActiveSlot(), v.GetKernelVersion()
 		st.KernelTrack = v.GetKernel().GetVariant()
 		st.HAProxyVersion, st.HAProxyBranch = v.GetHaproxy().GetVersion(), v.GetHaproxy().GetVariant()
-		for _, e := range v.GetExtensions() {
-			extensions = append(extensions, e.GetName())
-		}
+		sc := NodeSchematic(v)
+		img = NodeImage{Extensions: sc.Extensions(), HAProxy: sc.HAProxyBranch(), Kernel: sc.KernelTrack()}
 		mu.Unlock()
 	}()
 	go func() {
@@ -123,7 +122,7 @@ func Status(ctx context.Context, node *store.Node) NodeStatus {
 	if rel, err := getLatestRelease(ctx); err == nil {
 		st.LatestRelease = rel.TagName
 		st.UpdateAvailable = rel.TagName != "" && rel.TagName != st.Version
-		st.SecurityUpdate, _ = rel.SecurityUpdate(st.Version, "node", extensions)
+		st.SecurityUpdate, _ = rel.SecurityUpdate(st.Version, "node", img)
 	}
 	return st
 }

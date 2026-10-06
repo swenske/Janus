@@ -72,21 +72,55 @@ type ReleaseInfo struct {
 }
 
 // releaseFix is one fix of a release's security.json: whom it reaches
-// (target "node" or "controller"; extension, when only nodes with it),
-// how severe.
+// (target "node" or "controller"; extension, when only nodes with it;
+// component, variant and audience, when only nodes on a HAProxy branch or
+// kernel track), how severe.
 type releaseFix struct {
 	target, extension, severity string
+	component, variant          string
+	audience                    []string
+}
+
+// NodeImage is what a node's image is built with, as far as security
+// fixes tell nodes apart: its extensions, and the HAProxy branch and
+// kernel track its schematic pins ("" for each release's default -
+// every node whose image doesn't say).
+type NodeImage struct {
+	Extensions      []string
+	HAProxy, Kernel string
+}
+
+// reaches says whether the fix concerns a node built so: one to an
+// extension, a node that has it; one to a HAProxy branch or kernel track,
+// the nodes its audience names - those taking the default, or those
+// pinned to that variant.
+func (f releaseFix) reaches(img NodeImage) bool {
+	if f.extension != "" && !slices.Contains(img.Extensions, f.extension) {
+		return false
+	}
+	if f.component == "" || len(f.audience) == 0 {
+		return true
+	}
+	pinned := img.HAProxy
+	if f.component == "kernel" {
+		pinned = img.Kernel
+	}
+	if pinned == "" {
+		return slices.Contains(f.audience, "default")
+	}
+	return slices.Contains(f.audience, "pinned") && f.variant == pinned
 }
 
 // SecurityUpdate is the most severe of the vulnerabilities the releases
-// after version fix for target - "node" (with these extensions) or
+// after version fix for target - "node" (built as img says) or
 // "controller" - and the newest of those releases: from their
 // security.json assets (hack/upstream, docs/upstreams.md), "critical",
 // "high", "medium", "low" or "unknown" (unrated). A fix to an extension
-// counts only for a node that has it. Empty when they fix none, or when
-// version isn't a published release (a development build: nothing to
-// compare).
-func (r *ReleaseInfo) SecurityUpdate(version, target string, extensions []string) (severity, release string) {
+// counts only for a node that has it, one to a HAProxy branch or kernel
+// track only for the nodes on it (releaseFix.reaches). Empty when they
+// fix none, or when version isn't a published release (a development
+// build: nothing to compare).
+func (r *ReleaseInfo) SecurityUpdate(version, target string, img NodeImage) (severity, release string) {
 	if !slices.Contains(r.tags, version) {
 		return "", ""
 	}
@@ -95,7 +129,7 @@ func (r *ReleaseInfo) SecurityUpdate(version, target string, extensions []string
 			break
 		}
 		for _, f := range r.security[tag] {
-			if f.target != target || (f.extension != "" && !slices.Contains(extensions, f.extension)) {
+			if f.target != target || !f.reaches(img) {
 				continue
 			}
 			if release == "" {
@@ -116,8 +150,11 @@ func severityRank(s string) int {
 // securityDoc is the part of a release's security.json read here.
 type securityDoc struct {
 	Updates []struct {
-		Target    string `json:"target"`
-		Extension string `json:"extension"`
+		Target    string   `json:"target"`
+		Extension string   `json:"extension"`
+		Component string   `json:"component"`
+		Variant   string   `json:"variant"`
+		Audience  []string `json:"audience"`
 		Fixes     []struct {
 			Severity string `json:"severity"`
 		} `json:"fixes"`
@@ -150,7 +187,8 @@ func releaseSecurity(ctx context.Context, tag, url string) ([]releaseFix, error)
 	fixes = []releaseFix{}
 	for _, u := range doc.Updates {
 		for _, f := range u.Fixes {
-			fixes = append(fixes, releaseFix{target: u.Target, extension: u.Extension, severity: cmp.Or(f.Severity, "unknown")})
+			fixes = append(fixes, releaseFix{target: u.Target, extension: u.Extension, severity: cmp.Or(f.Severity, "unknown"),
+				component: u.Component, variant: u.Variant, audience: u.Audience})
 		}
 	}
 	securityByTag.Lock()

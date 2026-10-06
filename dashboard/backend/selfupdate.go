@@ -111,7 +111,7 @@ func (a *app) controllerUpdate(ctx context.Context) controllerUpdateView {
 		if !v.VersionKnown {
 			v.UpdateAvailable = updaterapi.IsRelease(rel.TagName) && rel.TagName != version
 		}
-		v.SecurityUpdate, _ = rel.SecurityUpdate(version, "controller", nil)
+		v.SecurityUpdate, _ = rel.SecurityUpdate(version, "controller", nodeproxy.NodeImage{})
 	}
 	if a.selfUpdate.configured() {
 		v.Updater.Configured = true

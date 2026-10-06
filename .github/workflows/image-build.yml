@@ -980,6 +980,21 @@ jobs:
             echo "::error::$RELEASE_VERSION fixes vulnerabilities since $prev (up to $severity) but its notes have no '## 🔒' section - draft it with: make upstream-security-notes FROM=$prev RELEASE=$RELEASE_VERSION"
             exit 1
           fi
+          # A fix to a HAProxy branch or kernel track concerns only the
+          # nodes on it: the notes must say which - the new version of
+          # each fixed variant ("HAProxy 3.2.26", "Linux 7.2.10") is in
+          # the 🔒 section.
+          python3 - build/security/security.json ".github/release-notes/$RELEASE_VERSION.md" <<'PY'
+          import json, sys
+          doc = json.load(open(sys.argv[1]))
+          notes = open(sys.argv[2]).read()
+          section = notes[notes.find("## 🔒"):] if "## 🔒" in notes else ""
+          missing = [f'{u["title"]} {u["to"]}' for u in doc.get("updates") or []
+                     if u.get("component") and u.get("fixes") and u["to"] not in section]
+          if missing:
+              print("::error::the notes' 🔒 section doesn't say which nodes these fixes concern - name their versions: " + ", ".join(missing))
+              sys.exit(1)
+          PY
           echo "SECURITY_SEVERITY=$severity" >> "$GITHUB_ENV"
           go run ./hack/upstream sbom -version "$RELEASE_VERSION" -out build/security/sbom.cdx.json
 

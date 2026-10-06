@@ -68,7 +68,7 @@ func TestSecurityUpdate(t *testing.T) {
 		{"sec-v3", "client", nil, "", ""},
 		{"v2026.10.03-4-3-gabcdef", "node", nil, "", ""}, // a development build
 	} {
-		sev, r := rel.SecurityUpdate(tc.version, tc.target, tc.extensions)
+		sev, r := rel.SecurityUpdate(tc.version, tc.target, NodeImage{Extensions: tc.extensions})
 		if sev != tc.severity || r != tc.release {
 			t.Errorf("SecurityUpdate(%s, %s, %v) = %q, %q; want %q, %q", tc.version, tc.target, tc.extensions, sev, r, tc.severity, tc.release)
 		}
@@ -78,5 +78,40 @@ func TestSecurityUpdate(t *testing.T) {
 	}
 	if n := reads.Load(); n != 3 {
 		t.Errorf("security.json read %d times, want each once (3)", n)
+	}
+}
+
+// TestSecurityUpdateVariants: a fix to a HAProxy branch or kernel track
+// reaches the nodes its audience names - those taking the default, or
+// those pinned to it.
+func TestSecurityUpdateVariants(t *testing.T) {
+	rel := &ReleaseInfo{tags: []string{"v3", "v2", "v1"}, security: map[string][]releaseFix{
+		"v3": {
+			{target: "node", severity: "high", component: "haproxy", variant: "3.4", audience: []string{"default", "pinned"}},
+			{target: "node", severity: "critical", component: "haproxy", variant: "3.2", audience: []string{"pinned"}},
+		},
+		"v2": {
+			{target: "node", severity: "medium", component: "kernel", variant: "stable", audience: []string{"pinned"}},
+			{target: "node", severity: "low", component: "kernel", variant: "longterm", audience: []string{"default"}},
+		},
+	}}
+	for _, tc := range []struct {
+		img               NodeImage
+		severity, release string
+	}{
+		// The defaults: 3.4's fix, the default kernel's.
+		{NodeImage{}, "high", "v3"},
+		// Pinned to 3.2: its own fix, not 3.4's; the default kernel's.
+		{NodeImage{HAProxy: "3.2"}, "critical", "v3"},
+		// Pinned to 3.0: none of HAProxy's; the stable track's.
+		{NodeImage{HAProxy: "3.0", Kernel: "stable"}, "medium", "v2"},
+		// Pinned to longterm: the longterm record is for the default's
+		// audience only.
+		{NodeImage{HAProxy: "3.0", Kernel: "longterm"}, "", ""},
+	} {
+		sev, r := rel.SecurityUpdate("v1", "node", tc.img)
+		if sev != tc.severity || r != tc.release {
+			t.Errorf("%+v: %q %q, want %q %q", tc.img, sev, r, tc.severity, tc.release)
+		}
 	}
 }

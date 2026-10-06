@@ -9,8 +9,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/swenske/Janus/internal/variants"
 )
 
 // cdxComponent is a CycloneDX 1.6 component.
@@ -49,6 +52,10 @@ func sbom(version string, when time.Time) ([]byte, error) {
 		return nil, err
 	}
 	vars := parseVersionsMk(mk)
+	set, err := variants.Load(".")
+	if err != nil {
+		return nil, err
+	}
 	var comps []cdxComponent
 	for _, c := range components {
 		v := vars[c.versionVar]
@@ -68,6 +75,13 @@ func sbom(version string, when time.Time) ([]byte, error) {
 		}
 		if c.variantComponent == "kernel" {
 			cc.Type = "operating-system"
+		}
+		// A HAProxy branch or kernel track: in the images whose schematic
+		// picks it, the default one in every image that picks none.
+		if c.variant != "" {
+			v, _ := set.Lookup(c.variantComponent, c.variant)
+			cc.Properties = append(cc.Properties, cdxProperty{"janus:variant", c.variantComponent + " " + c.variant},
+				cdxProperty{"janus:default", strconv.FormatBool(v.Default)})
 		}
 		for _, arch := range c.archs() {
 			if c.url != nil {

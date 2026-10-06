@@ -40,7 +40,12 @@ make upstream-security-notes FROM=<previous tag> RELEASE=<this version> EXTENSIO
 ```
 
 and edit it into the notes: say what it means for an operator (which
-nodes, what to update), not just the IDs. At publish time, the workflow
+nodes, what to update), not just the IDs. A fix to a HAProxy branch or
+kernel track concerns only the nodes on it - the draft says which (the
+nodes on the default branch or track, the nodes pinned to one) - so the
+section says it too, naming each fixed variant's new version ("HAProxy
+3.2.26", "Linux 7.2.10"): the workflow refuses to publish notes that
+don't. At publish time, the workflow
 attaches the same list as `security.json` (read by the Controller) with
 an SBOM, adds "🔒 security update" to the release's name, and publishes a
 GitHub security advisory when a fix is rated high or worse
