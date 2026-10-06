@@ -14,6 +14,8 @@
 # write (the default): docs/assets/screenshots/<id>-{light,dark}.webp,
 # rewritten only when more than SHOTS_THRESHOLD of their pixels changed -
 # a new run doesn't churn the repository with identical-looking images.
+# A colour changed a little - a shade - counts as no change:
+# SHOTS_THRESHOLD=-1 rewrites them all.
 # check: the same comparison, nothing written in the repository; the
 # shots that drifted go to build/screenshots-drift/, and the script
 # fails when there's one.
