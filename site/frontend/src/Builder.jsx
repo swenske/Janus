@@ -138,8 +138,21 @@ export default function Builder() {
     }
   }
 
-  if (error && !platforms) return <ErrorBox error={error} />
-  if (!platforms || !versions) return <Loading />
+  // The page keeps its heading while it loads, or when it can't.
+  if (error && !platforms)
+    return (
+      <div className="builder">
+        <h1>Image builder</h1>
+        <ErrorBox error={error} />
+      </div>
+    )
+  if (!platforms || !versions)
+    return (
+      <div className="builder">
+        <h1>Image builder</h1>
+        <Loading />
+      </div>
+    )
 
   const groups = [...new Set(platforms.map((p) => p.group))]
   const mainFile = image?.files?.find((f) => f.name === platform?.file)

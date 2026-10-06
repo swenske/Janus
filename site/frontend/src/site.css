@@ -18,9 +18,11 @@ main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 1.25r
 .brand:hover { text-decoration: none; }
 .nav { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); padding: 0.35rem 0.6rem; border-radius: var(--radius-sm); }
 .nav:hover { color: var(--text); background: var(--surface-2); text-decoration: none; }
-.nav.active { color: var(--accent); }
+.nav.active { color: var(--accent-ink); }
 
 a.button { text-decoration: none; }
+/* A link in a sentence is underlined: colour alone doesn't tell it apart. */
+main :is(p, li) a:not(.button) { text-decoration: underline; text-underline-offset: 0.15em; }
 a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 a.button.primary:hover { filter: brightness(1.07); }
 .button.big { padding: 0.62rem 1.1rem; font-size: 1rem; }
@@ -29,7 +31,7 @@ a.button.primary:hover { filter: brightness(1.07); }
 /* --- landing --- */
 .hero { text-align: center; padding: 4.5rem 0 3rem; }
 .hero h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.12; letter-spacing: -0.03em; margin: 1rem 0; }
-.hero .accent { color: var(--accent); }
+.hero .accent { color: var(--accent-ink); }
 .lead { max-width: 680px; margin: 0 auto 1.8rem; font-size: 1.12rem; color: var(--muted); }
 .hero-actions { justify-content: center; }
 .release-pill {
@@ -43,7 +45,7 @@ a.button.primary:hover { filter: brightness(1.07); }
   max-width: 820px; margin: 3rem auto 0;
 }
 .hero-facts div { display: flex; flex-direction: column; gap: 0.15rem; }
-.hero-facts strong { font-size: 1.6rem; color: var(--accent); }
+.hero-facts strong { font-size: 1.6rem; color: var(--accent-ink); }
 .hero-facts span { color: var(--muted); font-size: 0.88rem; }
 
 .section { padding: 2.2rem 0 0; }
@@ -53,10 +55,10 @@ a.button.primary:hover { filter: brightness(1.07); }
 .pillar li { margin: 0.35rem 0; }
 .pillar-icon {
   width: 42px; height: 42px; display: grid; place-items: center;
-  border-radius: 10px; background: var(--accent-soft); color: var(--accent);
+  border-radius: 10px; background: var(--accent-soft); color: var(--accent-ink);
 }
 .feature { display: flex; gap: 0.8rem; padding: 0.4rem 0.2rem; }
-.feature-icon { color: var(--accent); flex: none; margin-top: 0.15rem; }
+.feature-icon { color: var(--accent-ink); flex: none; margin-top: 0.15rem; }
 .feature p { margin: 0.3rem 0 0; }
 .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
 
@@ -83,7 +85,7 @@ a.button.primary:hover { filter: brightness(1.07); }
 }
 .links { margin: 0; padding-left: 1.1rem; }
 .links li { margin: 0.4rem 0; }
-.cta { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 0.8rem; padding: 3.5rem 0 1rem; color: var(--accent); }
+.cta { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 0.8rem; padding: 3.5rem 0 1rem; color: var(--accent-ink); }
 .cta h2 { color: var(--text); font-size: 1.5rem; }
 
 .footer {
@@ -124,7 +126,8 @@ details summary { cursor: pointer; margin-top: 0.8rem; color: var(--muted); }
 
 @media (max-width: 640px) {
   .screens { grid-template-columns: 1fr; }
-  .nav-label { display: none; }
+  /* Icons only on a phone - the labels still name the links. */
+  .nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .topbar nav { flex-wrap: nowrap; gap: 0.1rem; }
   .hero { padding-top: 2.5rem; }
 }
