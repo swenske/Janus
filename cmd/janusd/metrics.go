@@ -14,6 +14,7 @@ import (
 	"github.com/swenske/Janus/internal/api"
 	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/bootcommit"
+	"github.com/swenske/Janus/internal/boottime"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/firewall"
@@ -40,7 +41,8 @@ type metricsSources struct {
 	vrrp       *vrrp.Manager
 	bgp        *bgp.Manager
 	acme       *acme.Manager
-	statePath  string // STATE's mount point, for its filesystem's error count
+	statePath  string          // STATE's mount point, for its filesystem's error count
+	boot       *boottime.Times // this boot's timing, on a node
 
 	certsMu      sync.Mutex
 	certsAt      time.Time
@@ -93,6 +95,13 @@ func (m *metricsSources) node() []exporter.Family {
 			sample(1, "component", "kernel", "variant", info.Kernel.Variant, "version", info.Kernel.Version, "pinned", pinned(info.Kernel.Pinned)))
 	}
 	fams = append(fams, gauge("janus_component_info", "The HAProxy branch and kernel track the node's image is built with, and their versions - pinned=\"true\" when its schematic names the variant, else it follows each release's default.", comps...))
+	if m.boot != nil {
+		var stages []exporter.Sample
+		for _, st := range m.boot.Stages() {
+			stages = append(stages, sample(st.Seconds, "stage", st.Name))
+		}
+		fams = append(fams, gauge("janus_boot_stage_seconds", "Seconds after the kernel started at which each stage of this boot completed: kernel (init started), init (janusd started), haproxy (serving), api (listening). The firmware's own time comes before.", stages...))
+	}
 	marker, err := bootcommit.Read()
 	pending := err == nil && marker != nil
 	fams = append(fams, gauge("janus_upgrade_pending_confirmation", "1 while an upgrade waits for its health confirmation - the node reverts to the previous slot if it doesn't come.",

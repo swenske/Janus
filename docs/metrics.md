@@ -81,6 +81,7 @@ authentication: restrict who reaches the port.
 | `janus_component_info` | gauge | `component` (`haproxy`, `kernel`), `variant`, `version`, `pinned` | Always 1, per component: the HAProxy branch and kernel track the image is built with, and their versions - `pinned="true"` when its schematic names the variant, else it follows each release's default ([image-factory.md](image-factory.md)) |
 | `janus_boot_info` | gauge | `slot`, `kernel` | Always 1: the A/B slot booted, and the kernel |
 | `janus_daemon_start_time_seconds` | gauge | | When janusd started - it changes when janusd restarts |
+| `janus_boot_stage_seconds` | gauge | `stage` (`kernel`, `init`, `haproxy`, `api`) | Seconds after the kernel started at which each stage of this boot completed: the kernel handed over to init, init started janusd, HAProxy served, the API listened. The firmware's own time (POST) comes before and isn't counted |
 | `janus_upgrade_pending_confirmation` | gauge | | 1 while an upgrade waits for its health confirmation; the node reverts if it doesn't come |
 | `janus_certificate_expiry_timestamp_seconds` | gauge | `source`, `certificate`, `cn` | When a certificate expires: the node API's CA and server certificates (`source="api"`), and every certificate HAProxy has loaded (`source="haproxy"`, by file or store name) |
 | `janus_haproxy_up` | gauge | | 1 if HAProxy answers on its stats socket - HAProxy's own metrics can't report it down |

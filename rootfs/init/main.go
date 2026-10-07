@@ -32,6 +32,7 @@ import (
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/boottime"
 	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/nocloud"
@@ -591,6 +592,14 @@ func loadSELinuxPolicy() {
 func main() {
 	mount("proc", "/proc", "proc")
 	mount("sysfs", "/sys", "sysfs")
+	// The kernel's part of the boot (drivers, ip=dhcp): the first of the
+	// moments internal/boottime measures - written for janusd once
+	// /run exists (startDaemon), printed now for a boot that never gets
+	// that far.
+	kernelDone, err := boottime.Uptime()
+	if err == nil {
+		fmt.Printf("init: started %.2fs after the kernel started\n", kernelDone)
+	}
 	loadSELinuxPolicy()
 	mount("devtmpfs", "/dev", "devtmpfs")
 	mirrorConsole()
@@ -615,7 +624,7 @@ func main() {
 	fmt.Printf("kernel: %s", release) // osrelease already ends in \n
 
 	if _, err := os.Stat(daemonPath); err == nil {
-		startDaemon(pendingMarker)
+		startDaemon(pendingMarker, kernelDone)
 		return
 	}
 
@@ -635,12 +644,18 @@ func main() {
 // comment.
 const defaultGiveUpAfter = 60 * time.Second
 
-func startDaemon(pendingMarker *bootcommit.Marker) {
+func startDaemon(pendingMarker *bootcommit.Marker, kernelDone float64) {
 	if err := os.MkdirAll("/run/janus", 0o755); err != nil {
 		fmt.Printf("init: mkdir /run/janus: %v\n", err)
 	}
 
 	fmt.Println("JANUS_INIT_BOOT_OK")
+	if up, err := boottime.Uptime(); err == nil {
+		fmt.Printf("init: starting janusd %.2fs after the kernel started\n", up)
+		if err := (boottime.Times{Kernel: kernelDone, Init: up}).Save(boottime.File); err != nil {
+			fmt.Printf("init: boot times: %v\n", err)
+		}
+	}
 
 	sv := &Supervisor{
 		Path: daemonPath,

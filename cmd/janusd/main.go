@@ -41,6 +41,7 @@ import (
 	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
+	"github.com/swenske/Janus/internal/boottime"
 	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/consul"
 	"github.com/swenske/Janus/internal/events"
@@ -240,6 +241,7 @@ func main() {
 		haproxyRunning = false
 		log.Printf("haproxy: initial start failed (continuing without it): %v", err)
 	}
+	haproxyServingAt, _ := boottime.Uptime()
 
 	// The image's optional extensions (internal/extensions): their
 	// services start with HAProxy, before the NTP wait and the PKI, for
@@ -460,6 +462,9 @@ func main() {
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr, Consul: consulMgr, Services: extMgr})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
+	if *manageHost {
+		metrics.boot = measureBoot(haproxyServingAt)
+	}
 	kernelTrack, haproxyVersion := logImage(haproxyMgr)
 	printMOTD(motdInfo{
 		Version:        version,

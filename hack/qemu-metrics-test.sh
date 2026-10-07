@@ -125,6 +125,11 @@ grep -q "^janus_build_info{version=\"[^\"]\+\",go_version=\"go[0-9.]\+\",arch=\"
 echo "  ok: build info with the default schematic"
 grep -q '^janus_boot_info{slot="A",kernel="[0-9.]\+"} 1$' "$WORKDIR/metrics.txt" || fail "janus_boot_info isn't slot A"
 echo "  ok: boot slot A"
+# This boot's timing (internal/boottime): HAProxy serves before the
+# API, the API within a minute of the kernel.
+expect "the API listened within a minute of the kernel" 'janus_boot_stage_seconds{stage="api"}' 'v > 0 and v < 60'
+API_AT="$(value 'janus_boot_stage_seconds{stage="api"}')"
+expect "HAProxy served before the API listened" 'janus_boot_stage_seconds{stage="haproxy"}' "v > 0 and v < $API_AT"
 # The image's HAProxy branch and kernel track (its image.json): the
 # defaults, which a default image doesn't pin.
 grep -q '^janus_component_info{component="haproxy",variant="[0-9]\+\.[0-9]\+",version="[0-9.]\+",pinned="false"} 1$' "$WORKDIR/metrics.txt" \
