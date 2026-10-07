@@ -52,6 +52,20 @@ while [ "$SECONDS" -lt "$deadline" ]; do
   code="$(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${HOST_PORT}/" || true)"
   if [ "$code" = "200" ]; then
     echo "arm64 network boot test OK: HTTP 200 from HAProxy inside the VM (QEMU virt, not raspi4b - see this script's own header)"
+    # The CIS benchmark's kernel parameters hold on arm64 too - Yama
+    # included (kernel.yama.ptrace_scope, control 1.5.3), and eth0's own
+    # IPv6 values (internal/sysctl).
+    if ! grep -aqE "^init: sysctl: CIS .*: 33/33 controls compliant" <(tr -d '\r' < "$LOG"); then
+      echo "arm64 network boot test FAILED: no compliant CIS audit on the console:" >&2
+      grep -a "init: sysctl" "$LOG" >&2
+      exit 1
+    fi
+    if grep -aqE "^init: sysctl .*: [a-zA-Z]" "$LOG"; then
+      echo "arm64 network boot test FAILED: a sysctl write failed:" >&2
+      grep -aE "^init: sysctl .*: [a-zA-Z]" "$LOG" >&2
+      exit 1
+    fi
+    echo "arm64: the CIS benchmark's 33 kernel-parameter controls hold, every sysctl write took"
     exit 0
   fi
   sleep 1

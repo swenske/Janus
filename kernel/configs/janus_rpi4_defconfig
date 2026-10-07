@@ -279,6 +279,14 @@
 # to describe here).
 #   CONFIG_PSI=y CONFIG_NF_CONNTRACK_PROCFS=y
 #
+# CIS benchmark (2026-10-07): Yama, for kernel.yama.ptrace_scope - the
+# CIS Debian 13 benchmark's control 1.5.3, which init's baseline writes
+# (internal/sysctl) and which the x86 configs have had since Phase 4.
+# Yama is behind CONFIG_SECURITY, its gate. The full resolved diff is
+# those two plus, as on x86, an inert CONFIG_INTEGRITY=y and the default
+# CONFIG_LSM order string naming LSMs that aren't built - no other LSM.
+#   CONFIG_SECURITY=y CONFIG_SECURITY_YAMA=y
+#
 ##
 #
 # Automatically generated file; DO NOT EDIT (by hand - regenerate it with
@@ -1181,6 +1189,7 @@ CONFIG_IPV6_MULTIPLE_TABLES=y
 # CONFIG_IPV6_SEG6_HMAC is not set
 # CONFIG_IPV6_RPL_LWTUNNEL is not set
 # CONFIG_IPV6_IOAM6_LWTUNNEL is not set
+# CONFIG_NETLABEL is not set
 # CONFIG_MPTCP is not set
 # CONFIG_NETWORK_SECMARK is not set
 # CONFIG_NETWORK_PHY_TIMESTAMPING is not set
@@ -2873,11 +2882,26 @@ CONFIG_PROC_MEM_ALWAYS_FORCE=y
 # CONFIG_PROC_MEM_FORCE_PTRACE is not set
 # CONFIG_PROC_MEM_NO_FORCE is not set
 # CONFIG_MSEAL_SYSTEM_MAPPINGS is not set
-# CONFIG_SECURITY is not set
+CONFIG_SECURITY=y
 # CONFIG_SECURITYFS is not set
+# CONFIG_SECURITY_NETWORK is not set
+# CONFIG_SECURITY_PATH is not set
 # CONFIG_STATIC_USERMODEHELPER is not set
+# CONFIG_SECURITY_SMACK is not set
+# CONFIG_SECURITY_TOMOYO is not set
+# CONFIG_SECURITY_APPARMOR is not set
+# CONFIG_SECURITY_LOADPIN is not set
+CONFIG_SECURITY_YAMA=y
+# CONFIG_SECURITY_SAFESETID is not set
+# CONFIG_SECURITY_LOCKDOWN_LSM is not set
+# CONFIG_SECURITY_LANDLOCK is not set
+CONFIG_INTEGRITY=y
+# CONFIG_INTEGRITY_SIGNATURE is not set
+# CONFIG_IMA is not set
 # CONFIG_IMA_SECURE_AND_OR_TRUSTED_BOOT is not set
+# CONFIG_EVM is not set
 CONFIG_DEFAULT_SECURITY_DAC=y
+CONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,ipe,bpf"
 
 #
 # Kernel hardening options
