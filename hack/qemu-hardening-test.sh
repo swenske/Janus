@@ -79,15 +79,18 @@ declare -A EXPECTED=(
   ["/proc/sys/net/ipv4/tcp_keepalive_intvl"]="75"
   ["/proc/sys/net/ipv4/tcp_keepalive_probes"]="9"
   ["/proc/sys/net/ipv4/tcp_fastopen"]="1"
+  # IPv6 on, last - the node boots with it off (ipv6.disable_ipv6=1).
+  ["/proc/sys/net/ipv6/conf/all/disable_ipv6"]="0"
 )
 
 LOG="$(mktemp)"
 trap 'rm -f "$LOG"; [ -n "${QEMU_PID:-}" ] && kill "$QEMU_PID" 2>/dev/null || true' EXIT
 
+# ipv6.disable_ipv6=1, as in the UKI's cmdline (image/uki/assemble.sh).
 qemu-system-x86_64 -accel kvm -accel tcg \
   -kernel "$KERNEL" \
   -initrd "$INITRD" \
-  -append "console=ttyS0 panic=-1 ip=dhcp" \
+  -append "console=ttyS0 panic=-1 ip=dhcp ipv6.disable_ipv6=1" \
   -nographic -no-reboot -display none -m 256M \
   -netdev "user,id=net0,hostfwd=tcp::${HOST_PORT}-:8080" \
   -device virtio-net-pci,netdev=net0 \

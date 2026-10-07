@@ -41,7 +41,7 @@ flowchart TB
 | The SELinux policy | `make selinux-policy` (`selinux/`) | Monolithic, hand-written: a domain per daemon, every rule from a real denial |
 | Extensions | `make extensions-amd64` (`extensions/<name>/`) | A manifest and a Dockerfile each, packed into a tar layered onto the root tree - never replacing a file |
 | The root filesystem | `rootfs/assemble.sh` | squashfs and its dm-verity hash tree (`veritysetup format`). The SELinux labels of the executables and `/var/empty`'s mode go in as mksquashfs pseudo-files: no root needed |
-| The kernel image (UKI) | `image/uki/assemble.sh` | `ukify`, with systemd's stub from a pinned Debian - never the build host's. The command line: the dm-verity table with its root hash, `enforcing=1`, the consoles, `janus.schematic=`. Signed when the release key is given |
+| The kernel image (UKI) | `image/uki/assemble.sh` | `ukify`, with systemd's stub from a pinned Debian - never the build host's. The command line: the dm-verity table with its root hash, `enforcing=1`, the consoles, `ipv6.disable_ipv6=1` (init turns IPv6 on once hardened), `janus.schematic=`. Signed when the release key is given |
 | The disk | `image/disk/assemble.sh` | `sgdisk`, `mtools`, `dd seek=`, `debugfs` - no `mount`, no loop device. Both slots, the ESP with both UKIs, an empty STATE |
 | The formats | `image/{kvm-proxmox,kvm,vmware,iso,rpi-uefi}` | `qemu-img` for qcow2 and VMDK; `xorriso` for the hybrid installer ISO, with the release bundle inside |
 | The update bundle | `image/release/assemble.sh` | Exactly these names - `rootfs.squashfs`, `.sha256`, `rootfs.verity`, `uki-a.efi`, `uki-b.efi` - which an upgrade fetches under a base URL |

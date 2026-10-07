@@ -94,7 +94,10 @@ hold, and the values a change writes are checked against them before it
 stays. The kernel uses each interface's own value of a few keys, and
 IPv6 doesn't copy `all` or `default` onto the interfaces that already
 exist - the boot DHCP's comes up before Janus's init runs - so those are
-written, and checked, on every interface too.
+written, and checked, on every interface too. And a node boots with IPv6
+off (`ipv6.disable_ipv6=1`, in its signed kernel command line): init
+turns it on once every interface has these values, so none takes a
+router advertisement or a redirect in the first seconds of a boot.
 
 <!-- generated: cis - go test ./internal/sysctl -run TestKernelTuningDoc -update -->
 
@@ -197,7 +200,7 @@ The values you apply are saved on STATE, in
 only what differs from Janus's defaults. At boot, Janus's init writes:
 
 1. the baseline: the benchmark's values, Janus's own, then the defaults
-   above;
+   above - and IPv6 on, last;
 2. the saved file, line by line against the same whitelist and bounds as
    the API - a line that fails is skipped, logged on the console
    (`init: sysctl: sysctl.d/90-haproxy-tuning.conf line N: ...`) and

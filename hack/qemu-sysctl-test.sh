@@ -102,6 +102,20 @@ grep -qE "^net.ipv4.ip_local_port_range +10240 65023 " <<<"$out" || fail "the so
 grep -qE "^net.ipv4.tcp_max_syn_backlog " <<<"$out" || fail "the read-only parameters aren't listed: $out"
 echo "  ok: the CIS benchmark holds at boot (33/33, eth0 included), Janus's defaults are in"
 
+# IPv6: off at boot (the UKI's cmdline), on once the benchmark's values
+# are on every interface - eth0 has its link-local address, and nothing
+# a router advertisement gives.
+grep -qw "ipv6.disable_ipv6=1" <<<"$(ctl system cat /proc/cmdline)" || fail "the kernel's cmdline doesn't start with IPv6 off"
+for c in all default eth0; do
+  [ "$(ctl system cat "/proc/sys/net/ipv6/conf/$c/disable_ipv6")" = 0 ] || fail "IPv6 isn't on for $c"
+done
+addrs="$(ctl system cat /proc/net/if_inet6)"
+grep -qE '^fe80[0-9a-f]{28} [0-9a-f]+ 40 20 .* eth0$' <<<"$addrs" || fail "eth0 has no IPv6 link-local address: $addrs"
+if grep -E ' eth0$' <<<"$addrs" | grep -qvE '^fe80'; then fail "eth0 has an IPv6 address besides its link-local one: $addrs"; fi
+routes="$(ctl system cat /proc/net/ipv6_route)"
+if grep -qE '^0{32} 00 .* eth0$' <<<"$routes"; then fail "eth0 has an IPv6 default route: $routes"; fi
+echo "  ok: IPv6 came up after the benchmark's values - eth0's link-local address only, no default route"
+
 # --- every parameter's minimum, then its maximum ---
 MINS=(
   "net.core.somaxconn=4096" "net.ipv4.ip_local_port_range=1024 5119" "net.ipv4.ip_local_reserved_ports=1024-1055,65535"

@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-003",
+  "title": "A host on a node's network can steer its IPv6 traffic with ICMPv6 redirects and router advertisements",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:A/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L",
+  "cwe": [
+    "CWE-1188"
+  ],
+  "target": "node",
+  "description": "A node accepted IPv6 ICMP redirects and router advertisements from any host on its local network. Janus's hardening refused ICMP redirects - a classic way to intercept traffic - for IPv4 only: IPv6 kept the kernel's defaults, `accept_redirects` and `accept_ra` on.\n\nA host able to send packets on one of the node's networks - another machine on a shared VLAN, a compromised one - could route the node's IPv6 traffic through itself: with a redirect, traffic to a destination the node already reached over IPv6; with a router advertisement, all of it, even on a network without IPv6 until then - the node took the advertised prefix and default route (SLAAC). On the way, that traffic could be read or altered where TLS doesn't protect it - HAProxy's plain-HTTP connections to servers, for instance - or dropped.\n\n**Affected**: every node that such a host can reach on its local network. A router advertisement alone puts a node on IPv6: a server whose name resolves to IPv4 and IPv6 addresses is then reached over IPv6 - HAProxy prefers IPv6 by default (`resolve-prefer`). v2026.10.07 refused both on every interface once the node was up, but not in the first seconds of a boot: the interface the kernel brings up for DHCP, before Janus's init runs, could still take an advertisement then - and keep its address and default route.\n\n**Fix**: the node complies with the CIS Debian Linux 13 benchmark's IPv6 controls (3.3.2.3 to 3.3.2.8) from the first second of a boot: IPv6 starts off (`ipv6.disable_ipv6=1` in the signed kernel command line), and init turns it on only once every interface refuses redirects and router advertisements - IPv6 is static. An audit checks these values at boot and before any change of a kernel parameter.\n\n**Besides updating**: a node that took its IPv6 address or default route from router advertisements needs a static IPv6 configuration (`addresses`, `gateway6`) before the update. The reboot that ends the update drops any address or route an advertisement gave."
+}

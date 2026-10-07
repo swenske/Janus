@@ -51,12 +51,13 @@ flowchart TB
    partitions by label, and the root hash - then `root=/dev/dm-0`,
    read-only squashfs. Every block read is checked against the hash
    tree; a changed byte is an I/O error. `enforcing=1` (x86) starts
-   SELinux enforcing, and `janus.schematic=` names the image's
-   extensions. No initramfs.
+   SELinux enforcing, `ipv6.disable_ipv6=1` keeps IPv6 off until init
+   has hardened it, and `janus.schematic=` names the image's extensions.
+   No initramfs.
 3. **init** - a Go program, PID 1 - prepares the system: the SELinux
    policy (before `/etc` is covered), `devtmpfs`, the console mirrored to
    the serial port and the screen, the kernel parameters (the CIS
-   benchmark's and HAProxy's defaults - [kernel tuning](../guide/kernel-tuning.md)), a file limit
+   benchmark's and HAProxy's defaults, then IPv6 on - [kernel tuning](../guide/kernel-tuning.md)), a file limit
    for HAProxy, memory filesystems over `/run`, `/tmp` and `/etc` (with
    HAProxy's bootstrap configuration and the CA bundle carried over),
    STATE on `/etc/.state` with its directories bind-mounted where the

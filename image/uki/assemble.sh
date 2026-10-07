@@ -106,7 +106,13 @@ trap 'rm -f "$CMDLINE_FILE"' EXIT
   # Two consoles: the screen (tty0) and the serial port, which comes
   # last so it's /dev/console - rootfs/init copies its output to the
   # screen as well.
-  printf 'console=tty0 console=%s panic=-1 dm-mod.create="%s" dm-mod.waitfor=%s,%s root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp%s%s%s' \
+  #
+  # ipv6.disable_ipv6=1: IPv6 stays off until init has written the CIS
+  # benchmark's values on every interface, then init turns it on
+  # (internal/sysctl). The interface ip=dhcp brings up before init would
+  # otherwise take a router advertisement or a redirect in the first
+  # seconds of a boot - and keep the address and route it gave.
+  printf 'console=tty0 console=%s panic=-1 dm-mod.create="%s" dm-mod.waitfor=%s,%s root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp ipv6.disable_ipv6=1%s%s%s' \
     "${UKI_CONSOLE:-ttyS0}" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$DATA_DEV" "$HASH_DEV" "$enforcing_arg" "$schematic_arg" \
     "${UKI_EXTRA_CMDLINE:+ $UKI_EXTRA_CMDLINE}"
 } > "$CMDLINE_FILE"

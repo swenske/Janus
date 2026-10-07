@@ -65,6 +65,7 @@ var kernelDefaults = map[string]string{
 	"net.ipv6.conf.default.accept_ra":            "1",
 	"net.ipv4.conf.all.promote_secondaries":      "0",
 	"net.ipv4.conf.default.promote_secondaries":  "0",
+	"net.ipv6.conf.all.disable_ipv6":             "0", // ipv6.disable_ipv6=1 sets default only
 
 	"net.core.somaxconn":                        "4096",
 	"net.ipv4.ip_local_port_range":              "32768\t60999",
@@ -282,6 +283,21 @@ func TestBaselineWritesForwardingFirst(t *testing.T) {
 		if index["net.ipv6.conf.all.forwarding"] > index[redirect] {
 			t.Errorf("IPv6 forwarding is written after %s", redirect)
 		}
+	}
+}
+
+// TestBaselineTurnsIPv6OnLast: a node boots with IPv6 off, and init
+// turns it on only once every interface has the benchmark's values.
+func TestBaselineTurnsIPv6OnLast(t *testing.T) {
+	fakeNode(t)
+	var lines []string
+	ApplyBaseline(func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) })
+	last := "sysctl " + keyPath(Root, "net.ipv6.conf.all.disable_ipv6") + "=0"
+	if len(lines) == 0 || lines[len(lines)-1] != last {
+		t.Fatalf("the last write isn't %q: %q", last, lines[max(len(lines)-3, 0):])
+	}
+	if !slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "/net/ipv6/conf/eth0/accept_ra=0") }) {
+		t.Errorf("eth0's accept_ra isn't written: %q", lines)
 	}
 }
 

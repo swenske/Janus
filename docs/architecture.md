@@ -260,7 +260,8 @@ call `HAProxyService.ShowInfo` but gets `PermissionDenied` calling
   parameters of the CIS benchmark's controls (CIS Debian Linux 13
   Benchmark v1.0.0, Level 2 - Server, sections 1.5 and 3.3) written by
   init at every boot - also on every network interface, where the kernel
-  reads its own value - and audited. Only a whitelist of the parameters
+  reads its own value, before IPv6 goes on (a node boots with it off) -
+  and audited. Only a whitelist of the parameters
   HAProxy depends on can change at runtime (`internal/sysctl`, within
   bounds, on trial - see [kernel tuning](guide/kernel-tuning.md)): never
   one of the benchmark's, which SELinux keeps out of janusd's reach too

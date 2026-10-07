@@ -30,9 +30,17 @@ var janusSettings = []Setting{
 	{"net.ipv4.conf.default.promote_secondaries", "1"},
 }
 
+// ipv6On turns IPv6 on - all, default and every interface. A node boots
+// with it off (the UKI's cmdline has ipv6.disable_ipv6=1): the interface
+// the kernel's DHCP brings up before init would otherwise take a router
+// advertisement or a redirect in the first seconds of a boot, before the
+// benchmark's values are on it. Written last.
+var ipv6On = Setting{"net.ipv6.conf.all.disable_ipv6", "0"}
+
 // Baseline is what every boot writes, in this order: the CIS controls
-// (CISControls' order), Janus's own settings, then the Editable
-// parameters' defaults - not the Dynamic ones, which stay the kernel's.
+// (CISControls' order), Janus's own settings, the Editable parameters'
+// defaults - not the Dynamic ones, which stay the kernel's - and last,
+// IPv6 on (ipv6On).
 func Baseline() []Setting {
 	var out []Setting
 	for _, c := range CISControls {
@@ -44,7 +52,7 @@ func Baseline() []Setting {
 			out = append(out, Setting{p.Name, p.Default})
 		}
 	}
-	return out
+	return append(out, ipv6On)
 }
 
 // Logf reports what a boot step did - init's console.
@@ -55,15 +63,18 @@ func write(path, value string) error {
 	return os.WriteFile(path, []byte(value+"\n"), 0o644)
 }
 
-// ApplyBaseline writes Baseline, then the per-interface values of the
-// CIS controls that need them. Each write is logged - "sysctl
-// <path>=<value>", with the error when it failed - and none stops the
-// others: a kernel without some feature has no file for it.
+// ApplyBaseline writes Baseline, the per-interface values of the CIS
+// controls that need them before its last setting - IPv6 on. Each write
+// is logged - "sysctl <path>=<value>", with the error when it failed -
+// and none stops the others: a kernel without some feature has no file
+// for it.
 func ApplyBaseline(logf Logf) {
-	for _, s := range Baseline() {
+	settings := Baseline()
+	for _, s := range settings[:len(settings)-1] {
 		logWrite(logf, keyPath(Root, s.Key), s.Value, false)
 	}
 	writeInterfaces(logf, false)
+	logWrite(logf, keyPath(Root, ipv6On.Key), ipv6On.Value, false)
 }
 
 // writeInterfaces sets the per-interface CIS values on every interface.
