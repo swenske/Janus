@@ -31,16 +31,18 @@ linters:
         # or a flag; sizes and PIDs don't overflow, and the rule has no
         # way to see the bound checked a line above.
         - G115
-        # The taint analyses (command, path, SSRF, XSS, log injection):
-        # every input of this code is an admin's, over mTLS or a
-        # session, and the logs are its own - nothing reaches them
-        # from the network unauthenticated except what the handlers
-        # already bound.
+        # The taint analyses (command, path, SSRF, XSS, log injection,
+        # open redirect): every input of this code is an admin's, over
+        # mTLS or a session, the logs are its own, and the redirects
+        # are to fixed same-origin paths - nothing reaches them from
+        # the network unauthenticated except what the handlers already
+        # bound.
         - G702
         - G703
         - G704
         - G705
         - G706
+        - G710
   exclusions:
     generated: lax
     rules:
