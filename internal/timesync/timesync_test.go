@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,5 +101,48 @@ func TestRunStopsAndKicks(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run didn't stop")
+	}
+}
+
+// The kernel drops the synchronized status when its clocksource changes
+// (the TSC refined a second after boot): Run notices between polls and
+// synchronizes again at once instead of a minute later.
+func TestRunResyncsWhenTheKernelDropsTheStatus(t *testing.T) {
+	queries := make(chan string, 10)
+	var kernelOK atomic.Bool
+	s := New(Options{
+		Manage:  true,
+		Servers: func() ([]string, string) { return []string{"a.example"}, "configured" },
+		query: func(addr string) (*ntp.Response, error) {
+			queries <- addr
+			return (&fake{answers: map[string]time.Duration{addr: time.Millisecond}}).query(addr)
+		},
+		adjust:       func(time.Duration, time.Duration) error { kernelOK.Store(true); return nil },
+		kernelSynced: kernelOK.Load,
+		recheck:      20 * time.Millisecond,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Run(ctx)
+	<-queries
+	if !s.WaitSynced(time.Second) {
+		t.Fatal("never synchronized")
+	}
+	select {
+	case addr := <-queries:
+		t.Fatalf("a second query (%s) while the kernel held the status", addr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if !s.Status().GetSynchronized() {
+		t.Fatal("Status says unsynchronized while the kernel holds it")
+	}
+	kernelOK.Store(false) // the clocksource changed
+	select {
+	case <-queries:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the kernel dropped the status and Run didn't synchronize again")
+	}
+	if !s.WaitSynced(time.Second) || !kernelOK.Load() {
+		t.Fatal("not disciplined again")
 	}
 }

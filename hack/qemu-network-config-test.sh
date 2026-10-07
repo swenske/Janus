@@ -99,7 +99,7 @@ qemu-system-x86_64 -accel kvm -accel tcg \
   &
 QEMU_PID=$!
 
-markers() { grep -ac "$MARKER" "$LOG" 2>/dev/null || true; }
+markers() { grep -ac "$MARKER" "$LOG" 2>/dev/null || echo 0; }
 http_code() { curl -s -m 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${P_HTTP}/" || true; }
 ctl_at() { local port="$1"; shift; "$CTL_BIN" -endpoint "127.0.0.1:${port}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
 ctl() { ctl_at "$P_GRPC" "$@"; }

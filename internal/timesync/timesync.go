@@ -37,6 +37,13 @@ const (
 	unsyncedRetry = 10 * time.Second
 	syncedRetry   = time.Minute
 	queryTimeout  = 5 * time.Second
+	// recheckEvery: how often, between polls, Run asks the kernel whether
+	// it still holds the clock synchronized. The kernel drops that status
+	// whenever its clocksource changes - the TSC refined a second after
+	// boot, a watchdog verdict - and a node that synchronized before
+	// that would otherwise report itself unsynchronized, and the kernel
+	// wouldn't write the RTC, until the next poll a minute or more later.
+	recheckEvery = 5 * time.Second
 )
 
 // Options configures a Service.
@@ -51,6 +58,10 @@ type Options struct {
 	// For tests.
 	query  func(addr string) (*ntp.Response, error)
 	adjust func(offset, rtt time.Duration) error
+	// kernelSynced reads whether the kernel holds the clock synchronized
+	// (adjtimex); recheck is recheckEvery. Both for tests.
+	kernelSynced func() bool
+	recheck      time.Duration
 }
 
 // Service is the node's clock synchronization.
@@ -76,6 +87,12 @@ func New(opts Options) *Service {
 	}
 	if opts.adjust == nil {
 		opts.adjust = adjustClock
+	}
+	if opts.kernelSynced == nil {
+		opts.kernelSynced = kernelSynced
+	}
+	if opts.recheck == 0 {
+		opts.recheck = recheckEvery
 	}
 	return &Service{opts: opts, kick: make(chan struct{}, 1), synced: make(chan struct{})}
 }
@@ -121,14 +138,51 @@ func (s *Service) Run(ctx context.Context) {
 		} else {
 			poll = min(poll*2, maxPoll)
 		}
-		select {
-		case <-ctx.Done():
+		early, ok := s.wait(ctx, wait)
+		if !ok {
 			return
-		case <-s.kick:
+		}
+		if early {
 			poll = minPoll
-		case <-time.After(wait):
 		}
 	}
+}
+
+// wait sleeps d, cut short (early) by a kick or by the kernel having
+// dropped the synchronized status this Service set - a clocksource
+// change clears it (recheckEvery) - so the next poll restores it now
+// rather than minutes later. ok is false once ctx ended.
+func (s *Service) wait(ctx context.Context, d time.Duration) (early, ok bool) {
+	deadline := time.NewTimer(d)
+	defer deadline.Stop()
+	recheck := time.NewTicker(s.opts.recheck)
+	defer recheck.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false, false
+		case <-s.kick:
+			return true, true
+		case <-deadline.C:
+			return false, true
+		case <-recheck.C:
+			s.mu.Lock()
+			synced := s.syncedOnce && s.lastErr == ""
+			s.mu.Unlock()
+			if s.opts.Manage && synced && !s.opts.kernelSynced() {
+				log.Printf("timesync: the kernel dropped the synchronized status (its clocksource changed?) - synchronizing again")
+				return true, true
+			}
+		}
+	}
+}
+
+// kernelSynced is the kernel's own view of the clock (adjtimex): not in
+// error, and not marked unsynchronized.
+func kernelSynced() bool {
+	var tx unix.Timex
+	state, err := unix.Adjtimex(&tx)
+	return err == nil && state != unix.TIME_ERROR && tx.Status&unix.STA_UNSYNC == 0
 }
 
 // syncOnce queries the servers in order until one answers validly, and
@@ -185,10 +239,7 @@ func (s *Service) Status() *janusv1alpha1.TimeStatus {
 		st.LastSyncUnix = s.lastSync.Unix()
 	}
 	s.mu.Unlock()
-	var tx unix.Timex
-	if state, err := unix.Adjtimex(&tx); err == nil {
-		st.Synchronized = state != unix.TIME_ERROR && tx.Status&unix.STA_UNSYNC == 0
-	}
+	st.Synchronized = s.opts.kernelSynced()
 	return st
 }
 

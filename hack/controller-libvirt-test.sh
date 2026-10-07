@@ -250,6 +250,14 @@ for _ in $(seq 1 100); do
 done
 [ "$phase" = ready ] || fail "node2 never registered once it could: $(api "$API/api/machines/$MID2")"
 [ -z "$(api "$API/api/machines/$MID2" | json "d.get('warning','')")" ] || fail "node2's warning outlived its registration"
+# The machine is ready as soon as its node answered the Controller; the
+# node's own "admitted by" line reaches the page a moment later (the
+# console hub batches 100 ms) - give the stream that moment before
+# closing it.
+for _ in $(seq 1 30); do
+  grep -q "admitted by" "$WORKDIR/console3.sse" 2>/dev/null && break
+  sleep 0.5
+done
 kill "$CONSOLE_PID" 2>/dev/null || true
 wait "$CONSOLE_PID" 2>/dev/null || true
 python3 - "$WORKDIR/console3.sse" <<'EOF' || fail "the page's console while the Controller watched it"
