@@ -1421,17 +1421,30 @@ jobs:
       # "publish" (/usr/local/sbin/janus-publish-dispatch.sh and
       # janus-aptly-publish.sh there). A rerun uploads the same bytes,
       # which aptly accepts again (the packages are reproducible).
+      # The server's host key is the APT_HOST_KEY repository variable (a
+      # known_hosts line), pinned like site-deploy's SITE_HOST_KEY. Until
+      # the variable exists, the runner's own known_hosts (first contact
+      # accepted) - with a warning on the run.
       - name: Publish janusctl on apt.sw-servers.net
         if: ${{ inputs.release_version != '' }}
+        env:
+          APT_HOST_KEY: ${{ vars.APT_HOST_KEY }}
         run: |
           set -euo pipefail
           key="$HOME/.ssh/id_janus_aptly"
           host="janus-publish@apt.int.sw-servers.net"
+          if [ -n "$APT_HOST_KEY" ]; then
+            known="$(mktemp)"
+            printf '%s\n' "$APT_HOST_KEY" > "$known"
+            SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known -i $key"
+          else
+            echo "::warning::the APT_HOST_KEY repository variable isn't set: apt.int.sw-servers.net's host key is accepted on first contact"
+            SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i $key"
+          fi
           for deb in build/deb/janusctl_*.deb; do
-            ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key" "$host" \
-              "upload $(basename "$deb")" < "$deb"
+            $SSH "$host" "upload $(basename "$deb")" < "$deb"
           done
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$key" "$host" publish
+          $SSH "$host" publish
 
       # /docs/ on janus.sw-servers.net is the newest release's: site-deploy
       # rebuilds both docs channels and redeploys - on main, never this
