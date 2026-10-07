@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-005",
+  "title": "A reader could read a node's BGP and VRRP configurations, session passwords included",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+  "cwe": [
+    "CWE-200"
+  ],
+  "target": "node",
+  "description": "`BGPGetConfig` and `VRRPGetConfig` - the saved `bird.conf` and `keepalived.conf` - answered the `os:reader` role, meant to observe a node and nothing more. A BGP session's TCP MD5 `password` and a VRRP instance's `auth_pass` live in those files: a reader got them, where Consul's configuration (gossip key, ACL tokens) already took `os:admin` for that reason.\n\nA reader - an account with the reader role on the Controller, a janusctl certificate issued as `os:reader`, an API token limited to it - could take the secrets that let a host on the node's networks pass for a BGP peer or a VRRP peer of it.\n\n**Affected**: nodes with the bird or keepalived extension whose configuration carries a password, where someone holds a reader credential they shouldn't trust with it.\n\n**Fix**: both RPCs take `os:operator`. The Controller's BGP and VRRP pages show a reader the state and no longer the configuration; `janusctl network bgp get` and `janusctl network vrrp get` are refused to a reader.\n\n**Besides updating**: if a reader credential given to someone untrusted may have read a configuration, change the passwords in it and on the peers."
+}

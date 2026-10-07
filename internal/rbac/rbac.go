@@ -114,10 +114,10 @@ var Required = map[string][]string{
 	// NetworkService
 	"/janus.v1alpha1.NetworkService/BGPStatus":            readers,
 	"/janus.v1alpha1.NetworkService/BGPApplyConfig":       adminOnly,
-	"/janus.v1alpha1.NetworkService/BGPGetConfig":         readers,
+	"/janus.v1alpha1.NetworkService/BGPGetConfig":         operators, // the configuration may hold session passwords (TCP MD5)
 	"/janus.v1alpha1.NetworkService/VRRPStatus":           readers,
 	"/janus.v1alpha1.NetworkService/VRRPApplyConfig":      adminOnly,
-	"/janus.v1alpha1.NetworkService/VRRPGetConfig":        readers,
+	"/janus.v1alpha1.NetworkService/VRRPGetConfig":        operators, // the configuration may hold auth_pass
 	"/janus.v1alpha1.NetworkService/ConsulStatus":         readers,
 	"/janus.v1alpha1.NetworkService/ConsulApplyConfig":    adminOnly,
 	"/janus.v1alpha1.NetworkService/ConsulGetConfig":      adminOnly, // the configuration may hold the gossip key and ACL tokens

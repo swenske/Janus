@@ -70,7 +70,7 @@ BGP: the bird extension ([docs/bgp.md](../bgp.md)). The protocols named haproxy_
 | Call | Request → response | Role | Domain | What it does |
 |---|---|---|---|---|
 | `BGPStatus` | `Empty` → `BGPStatusResponse` | `os:reader` | observe | BGPStatus reads every protocol's state over BIRD's control socket. |
-| `BGPGetConfig` | `Empty` → `BGPGetConfigResponse` | `os:reader` | network | BGPGetConfig returns the saved bird.conf. |
+| `BGPGetConfig` | `Empty` → `BGPGetConfigResponse` | `os:operator` | network | BGPGetConfig returns the saved bird.conf. |
 | `BGPApplyConfig` | `BGPApplyConfigRequest` → `BGPApplyConfigResponse` | `os:admin` | network | BGPApplyConfig has BIRD check a bird.conf, saves it, and BIRD reconfigures. |
 
 VRRP: the keepalived extension ([docs/vrrp.md](../vrrp.md)).
@@ -78,7 +78,7 @@ VRRP: the keepalived extension ([docs/vrrp.md](../vrrp.md)).
 | Call | Request → response | Role | Domain | What it does |
 |---|---|---|---|---|
 | `VRRPStatus` | `Empty` → `VRRPStatusResponse` | `os:reader` | observe | VRRPStatus reads keepalived's own state of each instance. |
-| `VRRPGetConfig` | `Empty` → `VRRPGetConfigResponse` | `os:reader` | network | VRRPGetConfig returns the saved keepalived.conf. |
+| `VRRPGetConfig` | `Empty` → `VRRPGetConfigResponse` | `os:operator` | network | VRRPGetConfig returns the saved keepalived.conf. |
 | `VRRPApplyConfig` | `VRRPApplyConfigRequest` → `VRRPApplyConfigResponse` | `os:admin` | network | VRRPApplyConfig has keepalived check a keepalived.conf, saves it, and keepalived reloads. |
 
 Firewall: the nftables extension ([docs/firewall.md](../firewall.md)). The ruleset is the node's whole nftables ruleset, in nft's own syntax.
@@ -153,7 +153,7 @@ List, Read, Copy and PacketCapture are the deliberate, narrow replacements for a
 | `MetaDelete` | `MetaDeleteRequest` → `Empty` | `os:admin` | system | MetaDelete is not implemented - it answers Unimplemented, like MetaWrite. |
 | `GenerateClientConfiguration` | `GenerateClientConfigurationRequest` → `GenerateClientConfigurationResponse` | `os:admin` | system | GenerateClientConfiguration issues a client certificate signed by this node's CA (see internal/pki), for the given roles, named after who it's for and valid one year or less. |
 
-The node's Prometheus exporter ([docs/metrics.md](../metrics.md)): Janus's own metrics - certificate expiry, boot slot, HAProxy as janusd runs it, extension services, time sync, SELinux - over plain HTTP, on by default on port 10056.
+The node's Prometheus exporter ([docs/metrics.md](../metrics.md)): Janus's own metrics - certificate expiry, boot slot, HAProxy as janusd runs it, extension services, time sync, SELinux - over plain HTTP, on by default on port 10056, on every address unless one is set.
 
 | Call | Request → response | Role | Domain | What it does |
 |---|---|---|---|---|

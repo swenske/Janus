@@ -105,7 +105,9 @@ state dump.
 ## API
 
 `NetworkService`: `VRRPStatus`, `VRRPGetConfig`, `VRRPApplyConfig`
-(`validate_only`). See [api-routes.md](api-routes.md).
+(`validate_only`). See [api-routes.md](api-routes.md). Reading the
+configuration takes `os:operator`: it may hold `auth_pass`, which a
+reader doesn't get.
 
 ## Metrics
 

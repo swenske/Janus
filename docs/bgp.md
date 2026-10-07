@@ -98,7 +98,9 @@ distributions ship.
 ## API
 
 `NetworkService`: `BGPStatus`, `BGPGetConfig`, `BGPApplyConfig`
-(`validate_only`). See [api-routes.md](api-routes.md).
+(`validate_only`). See [api-routes.md](api-routes.md). Reading the
+configuration takes `os:operator`: it may hold session passwords
+(`password "..."`), which a reader doesn't get.
 
 ## Metrics
 
