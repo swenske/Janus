@@ -282,8 +282,10 @@ your fleet** card on the main page replaces them, in three steps:
    deletes the node's service credential. Nothing changes for the nodes
    before this step.
 
-A node too old to trust a fleet says **needs an update** on its card:
-the Controller keeps reaching it as before, until it's updated. The kit
+A node too old to trust a fleet (from before v2026.10.04) says **needs
+an update** on its card: the Controller keeps reaching it as before,
+until it's updated - so update the nodes first, then create the fleet,
+and every node takes it in the same minute. The kit
 and its passphrase are needed again only to renew the fleet's keys, or
 to recover a lost Controller: from a backup ([Backups](#backups)), or,
 with none, from janusctl alone - `janusctl fleet recover -kit KIT` then
