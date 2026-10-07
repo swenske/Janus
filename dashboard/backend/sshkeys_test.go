@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -135,8 +136,14 @@ func TestSSHLogin(t *testing.T) {
 		t.Errorf("the accounts' keys: %d %s", code, body)
 	}
 
-	// Removed, it signs in no more.
-	if code, _ := a.req(t, "DELETE", "/api/auth/ssh-keys/"+fp, root, nil); code != http.StatusNoContent {
+	// Removed, it signs in no more. The fingerprint goes in the path
+	// escaped, as the page sends it: a raw "//" in it (one base64
+	// fingerprint in a hundred has one) is cleaned by the mux into a
+	// redirect instead.
+	if code, _ := a.req(t, "DELETE", "/api/auth/ssh-keys/"+url.PathEscape("SHA256:ab//cd/"), root, nil); code != http.StatusNotFound {
+		t.Errorf("removing an unknown key with slashes in its fingerprint: %d, want 404", code)
+	}
+	if code, _ := a.req(t, "DELETE", "/api/auth/ssh-keys/"+url.PathEscape(fp), root, nil); code != http.StatusNoContent {
 		t.Fatalf("remove: %d", code)
 	}
 	a.loginLimiter = auth.NewLoginLimiter()
