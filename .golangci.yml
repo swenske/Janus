@@ -11,8 +11,43 @@ linters:
     - ineffassign # assignments that are never used
     - unused      # unused identifiers
     - misspell    # comment/string typos
+    - gosec       # security: weak crypto, TLS settings, Slowloris, secrets in logs...
+  settings:
+    gosec:
+      excludes:
+        # What this code is about, each call site bounded by its own
+        # checks: janusd runs haproxy, veritysetup and the extensions'
+        # daemons (G204), reads the files an admin names (G304), walks
+        # STATE and /proc (G122), writes public certificates and
+        # bundles world-readable (G306 - keys are 0600, see the audit).
+        - G204
+        - G304
+        - G122
+        - G306
+        # Name-based heuristics with no signal here: every "token" and
+        # "secret" identifier it flags is a hash or a test vector.
+        - G101
+        # Every int -> int32/uint32 conversion of a parsed /proc value
+        # or a flag; sizes and PIDs don't overflow, and the rule has no
+        # way to see the bound checked a line above.
+        - G115
+        # The taint analyses (command, path, SSRF, XSS, log injection):
+        # every input of this code is an admin's, over mTLS or a
+        # session, and the logs are its own - nothing reaches them
+        # from the network unauthenticated except what the handlers
+        # already bound.
+        - G702
+        - G703
+        - G704
+        - G705
+        - G706
   exclusions:
     generated: lax
+    rules:
+      # Tests make throwaway keys, bind test servers without timeouts
+      # and index fixed vectors: none of it ships.
+      - path: _test\.go$
+        linters: [gosec]
     presets:
       - comments
       - common-false-positives

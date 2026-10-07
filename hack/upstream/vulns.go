@@ -433,7 +433,7 @@ func extract(archive, member string) (string, error) {
 					return fail(err)
 				}
 				defer r.Close()
-				if _, err := io.Copy(out, r); err != nil {
+				if _, err := io.Copy(out, r); err != nil { //nolint:gosec // G110: upstream's own archive, checked against its published hash first
 					return fail(err)
 				}
 				return out.Name(), nil
@@ -463,7 +463,7 @@ func extract(archive, member string) (string, error) {
 			return fail(err)
 		}
 		if h.Name == member {
-			if _, err := io.Copy(out, tr); err != nil {
+			if _, err := io.Copy(out, tr); err != nil { //nolint:gosec // G110: upstream's own archive, checked against its published hash first
 				return fail(err)
 			}
 			return out.Name(), nil

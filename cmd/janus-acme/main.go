@@ -98,7 +98,7 @@ func main() {
 	if res.Error != "" {
 		logger.Printf("error: %s", res.Error)
 	}
-	if err := json.NewEncoder(os.Stdout).Encode(res); err != nil {
+	if err := json.NewEncoder(os.Stdout).Encode(res); err != nil { //nolint:gosec // G117: the key is the answer - stdout is the pipe to janusd, which stores it (internal/acme)
 		os.Exit(1)
 	}
 }

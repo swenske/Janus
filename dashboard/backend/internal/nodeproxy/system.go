@@ -246,7 +246,7 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 	mux.HandleFunc("GET /api/stream/logs", func(w http.ResponseWriter, r *http.Request) {
 		tail, _ := strconv.Atoi(r.URL.Query().Get("tail"))
 		streamLines(w, r, node, func(ctx context.Context, c janusv1alpha1.SystemServiceClient) (dataStream, error) {
-			return c.Logs(ctx, &janusv1alpha1.LogsRequest{Id: r.URL.Query().Get("id"), Follow: true, TailLines: int32(tail)})
+			return c.Logs(ctx, &janusv1alpha1.LogsRequest{Id: r.URL.Query().Get("id"), Follow: true, TailLines: int32(tail)}) //nolint:gosec // G109: a wrapped tail is a nonsense count the node bounds, nothing more
 		})
 	})
 	mux.HandleFunc("GET /api/stream/dmesg", func(w http.ResponseWriter, r *http.Request) {

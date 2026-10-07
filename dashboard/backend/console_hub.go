@@ -50,7 +50,7 @@ func (h *consoleHub) subscribe(id string, open func(ctx context.Context, w io.Wr
 	var ctx context.Context
 	if !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithCancel(context.Background())
+		ctx, cancel = context.WithCancel(context.Background()) //nolint:gosec // G118: kept in the stream, called when its last subscriber leaves
 		s = &consoleStream{id: id, cancel: cancel, subs: map[*consoleSub]struct{}{}}
 		h.streams[id] = s
 	}

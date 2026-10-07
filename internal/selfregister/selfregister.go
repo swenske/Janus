@@ -499,7 +499,7 @@ func ReadEnrollment(dir string) (*Enrollment, error) {
 
 // SaveEnrollment keeps e in dir, durably.
 func SaveEnrollment(dir string, e Enrollment) error {
-	data, err := json.Marshal(e)
+	data, err := json.Marshal(e) //nolint:gosec // G117: the poll secret is what this file keeps, 0600 on STATE and in SecretPaths
 	if err != nil {
 		return err
 	}

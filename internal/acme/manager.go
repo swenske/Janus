@@ -718,7 +718,7 @@ func (m *Manager) checkRenewalInfo(cfg *janusv1alpha1.ACMEConfig, c *janusv1alph
 		if cs.ARISerial != serial || cs.ARIRenewAt.Before(start) || cs.ARIRenewAt.After(end) {
 			at := start
 			if span := end.Sub(start); span > 0 {
-				at = start.Add(time.Duration(rand.Int64N(int64(span))))
+				at = start.Add(time.Duration(rand.Int64N(int64(span)))) //nolint:gosec // G404: spreading renewals over the ARI window, not a secret
 			}
 			cs.ARISerial, cs.ARIRenewAt = serial, at
 		}

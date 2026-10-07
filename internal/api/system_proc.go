@@ -344,7 +344,7 @@ func readProcesses(withCommand bool) ([]procInfo, error) {
 		if !ok {
 			continue
 		}
-		p.pid = int32(pid)
+		p.pid = int32(pid) //nolint:gosec // G109: a /proc entry's name, bounded by pid_max
 		if withCommand {
 			p.command = "[" + p.comm + "]" // kernel threads have no cmdline
 			if cmdline, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil && len(cmdline) > 0 {

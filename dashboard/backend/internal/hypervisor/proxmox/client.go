@@ -86,7 +86,7 @@ func tlsConfig(c *hypervisor.ProxmoxConfig) (*tls.Config, error) {
 			MinVersion: tls.VersionTLS12,
 			// The pinned certificate is the trust: no CA, no name.
 			InsecureSkipVerify: true, //nolint:gosec // checked below
-			VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
+			VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error { //nolint:gosec // G123: no ClientSessionCache, so no resumption - every connection presents its chain
 				if len(raw) == 0 {
 					return errors.New("the API presented no certificate")
 				}

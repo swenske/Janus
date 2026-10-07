@@ -150,7 +150,7 @@ func (a *app) maintain(ctx context.Context, keep int) {
 		if err := a.store.Prune(keep, compareVersions); err != nil {
 			log.Printf("prune: %v", err)
 		}
-		time.Sleep(15 * time.Minute)
+		time.Sleep(15 * time.Minute) //nolint:gosec // G118: runs for the process's life, there's nothing to cancel it
 	}
 }
 

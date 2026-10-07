@@ -650,7 +650,7 @@ func fleetAdopt(globalCtx string, args []string) {
 		conn, err := dialTLS(addr, &tls.Config{
 			Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13,
 			InsecureSkipVerify: true, //nolint:gosec // checked against the given fingerprint below, before anything is sent
-			VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
+			VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error { //nolint:gosec // G123: no ClientSessionCache, so no resumption - every connection presents its chain
 				mu.Lock()
 				defer mu.Unlock()
 				chain = raw
