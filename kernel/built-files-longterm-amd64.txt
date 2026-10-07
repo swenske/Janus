@@ -294,6 +294,7 @@ arch/x86/include/asm/kasan.h
 arch/x86/include/asm/kaslr.h
 arch/x86/include/asm/kbdleds.h
 arch/x86/include/asm/kdebug.h
+arch/x86/include/asm/kexec-bzimage64.h
 arch/x86/include/asm/kexec.h
 arch/x86/include/asm/kgdb.h
 arch/x86/include/asm/kprobes.h
@@ -368,6 +369,7 @@ arch/x86/include/asm/prom.h
 arch/x86/include/asm/proto.h
 arch/x86/include/asm/pti.h
 arch/x86/include/asm/ptrace.h
+arch/x86/include/asm/purgatory.h
 arch/x86/include/asm/pvclock-abi.h
 arch/x86/include/asm/pvclock.h
 arch/x86/include/asm/qrwlock.h
@@ -647,10 +649,12 @@ arch/x86/kernel/irqflags.S
 arch/x86/kernel/irqinit.c
 arch/x86/kernel/itmt.c
 arch/x86/kernel/kdebugfs.c
+arch/x86/kernel/kexec-bzimage64.c
 arch/x86/kernel/ksysfs.c
 arch/x86/kernel/kvm.c
 arch/x86/kernel/kvmclock.c
 arch/x86/kernel/ldt.c
+arch/x86/kernel/machine_kexec_64.c
 arch/x86/kernel/mmconf-fam10h_64.c
 arch/x86/kernel/mpparse.c
 arch/x86/kernel/nmi.c
@@ -667,6 +671,7 @@ arch/x86/kernel/ptrace.c
 arch/x86/kernel/pvclock.c
 arch/x86/kernel/quirks.c
 arch/x86/kernel/reboot.c
+arch/x86/kernel/relocate_kernel_64.S
 arch/x86/kernel/resource.c
 arch/x86/kernel/rtc.c
 arch/x86/kernel/setup.c
@@ -771,6 +776,14 @@ arch/x86/platform/efi/efi_64.c
 arch/x86/platform/efi/efi_stub_64.S
 arch/x86/platform/efi/memmap.c
 arch/x86/platform/efi/quirks.c
+arch/x86/platform/efi/runtime-map.c
+arch/x86/purgatory/../boot/compressed/error.h
+arch/x86/purgatory/../boot/string.h
+arch/x86/purgatory/entry64.S
+arch/x86/purgatory/kexec-purgatory.S
+arch/x86/purgatory/purgatory.c
+arch/x86/purgatory/setup-x86_64.S
+arch/x86/purgatory/stack.S
 arch/x86/realmode/init.c
 arch/x86/realmode/rm/header.S
 arch/x86/realmode/rm/realmode.h
@@ -2485,6 +2498,9 @@ include/kunit/test-bug.h
 include/kunit/test.h
 include/kunit/try-catch.h
 include/kunit/visibility.h
+include/linux/../../scripts/dtc/libfdt/fdt.h
+include/linux/../../scripts/dtc/libfdt/libfdt.h
+include/linux/../../scripts/dtc/libfdt/libfdt_env.h
 include/linux/8250_pci.h
 include/linux/acct.h
 include/linux/acpi.h
@@ -2652,6 +2668,7 @@ include/linux/cpumask.h
 include/linux/cpumask_api.h
 include/linux/cpumask_types.h
 include/linux/cpuset.h
+include/linux/crash_core.h
 include/linux/crash_dump.h
 include/linux/crash_reserve.h
 include/linux/crc-ccitt.h
@@ -2988,6 +3005,8 @@ include/linux/lcd.h
 include/linux/lcm.h
 include/linux/leds.h
 include/linux/libata.h
+include/linux/libfdt.h
+include/linux/libfdt_env.h
 include/linux/libnvdimm.h
 include/linux/limits.h
 include/linux/linear_range.h
@@ -3298,6 +3317,7 @@ include/linux/ptp_kvm.h
 include/linux/ptr_ring.h
 include/linux/ptrace.h
 include/linux/ptrace_api.h
+include/linux/purgatory.h
 include/linux/pvclock_gtod.h
 include/linux/pwm.h
 include/linux/pxa2xx_ssp.h
@@ -4571,6 +4591,9 @@ kernel/irq/spurious.c
 kernel/irq_work.c
 kernel/kallsyms.c
 kernel/kallsyms_internal.h
+kernel/kexec_core.c
+kernel/kexec_file.c
+kernel/kexec_internal.h
 kernel/ksyms_common.c
 kernel/ksysfs.c
 kernel/kthread.c
