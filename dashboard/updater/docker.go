@@ -79,6 +79,21 @@ func (d *docker) inspect(ctx context.Context, id string) (*containerInfo, error)
 	return &c, nil
 }
 
+// imageUser is the user an image's processes run as - its USER
+// instruction ("65532:65532"), empty when they run as root. The image
+// was pulled already.
+func (d *docker) imageUser(ctx context.Context, ref string) (string, error) {
+	var img struct {
+		Config struct {
+			User string `json:"User"`
+		} `json:"Config"`
+	}
+	if err := d.get(ctx, "/images/"+url.PathEscape(ref)+"/json", &img); err != nil {
+		return "", err
+	}
+	return img.Config.User, nil
+}
+
 // byLabels lists the containers (running or not) carrying every label.
 func (d *docker) byLabels(ctx context.Context, labels ...string) ([]string, error) {
 	filters, err := json.Marshal(map[string][]string{"label": labels})

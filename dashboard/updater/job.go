@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/swenske/Janus/dashboard/updater/updaterapi"
@@ -154,6 +157,13 @@ func (u *updater) run() {
 		return
 	}
 
+	u.step("own", "Giving the data to "+job.ToVersion+"'s user")
+	if err := u.ownData(ctx, job.ToImage); err != nil {
+		u.startPrevious(ctx, t)
+		u.finish(updaterapi.JobFailed, "Giving the data to the new version's user failed, the previous version is back: "+err.Error())
+		return
+	}
+
 	u.step("switch", "Starting "+job.ToVersion)
 	if err := writeFileAtomic(envPath, setEnvVar(envData, u.cfg.Variable, job.ToImage), 0o644); err != nil {
 		u.rollback(ctx, t, job, envData, envExisted, "Writing .env failed: "+err.Error())
@@ -219,6 +229,72 @@ func (u *updater) rollback(ctx context.Context, t *target, job updaterapi.Job, e
 		return
 	}
 	u.finish(updaterapi.JobRolledBack, reason+" - "+job.FromVersion+" is back, with its data")
+}
+
+// ownData gives the Controller's data to the user the new image runs as:
+// since v2026.10.08 the Controller runs as 65532, and the data of an
+// installation from before is root's. Nothing to do for an image that
+// runs as root, or when the owner already matches; a named user (no
+// /etc/passwd in the image, so none is expected) is left alone with a
+// line in the log. A rollback puts the backup's files back as root's -
+// what the previous version ran with.
+func (u *updater) ownData(ctx context.Context, image string) error {
+	user, err := u.p.imageUser(ctx, image)
+	if err != nil {
+		return fmt.Errorf("read the image's user: %w", err)
+	}
+	uid, gid, ok := parseUser(user)
+	if !ok {
+		if user != "" {
+			u.logf("the image runs as %q, not a numeric user: the data's owner is left as it is", user)
+		}
+		return nil
+	}
+	changed := 0
+	err = filepath.WalkDir(u.cfg.DataDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || (int(st.Uid) == uid && int(st.Gid) == gid) {
+			return nil
+		}
+		if err := os.Lchown(path, uid, gid); err != nil {
+			return err
+		}
+		changed++
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if changed > 0 {
+		u.logf("%d files of %s given to user %d:%d, the new version's", changed, u.cfg.DataDir, uid, gid)
+	}
+	return nil
+}
+
+// parseUser reads an image's numeric USER: "65532", "65532:65532".
+func parseUser(user string) (uid, gid int, ok bool) {
+	if user == "" {
+		return 0, 0, false
+	}
+	u, g, hasGroup := strings.Cut(user, ":")
+	uid, err := strconv.Atoi(u)
+	if err != nil || uid < 0 {
+		return 0, 0, false
+	}
+	gid = uid
+	if hasGroup {
+		if gid, err = strconv.Atoi(g); err != nil || gid < 0 {
+			return 0, 0, false
+		}
+	}
+	return uid, gid, true
 }
 
 // startPrevious restarts the Controller after a failure before anything

@@ -75,7 +75,11 @@ func main() {
 	}
 	u := newUpdater(cfg, &realPlatform{cfg: cfg, docker: newDocker(cfg.DockerSocket)})
 
-	if err := os.MkdirAll(filepath.Dir(cfg.Socket), 0o750); err != nil {
+	// The socket's directory is a volume only the two containers mount:
+	// that mount is who may talk to the updater. The Controller runs as
+	// 65532 (dashboard/Dockerfile), the updater as root, so the socket
+	// is open to any user of the directory.
+	if err := os.MkdirAll(filepath.Dir(cfg.Socket), 0o755); err != nil {
 		log.Fatalf("socket directory: %v", err)
 	}
 	if err := os.Remove(cfg.Socket); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -85,7 +89,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("listen on %s: %v", cfg.Socket, err)
 	}
-	if err := os.Chmod(cfg.Socket, 0o660); err != nil {
+	if err := os.Chmod(cfg.Socket, 0o666); err != nil {
 		log.Fatalf("chmod %s: %v", cfg.Socket, err)
 	}
 

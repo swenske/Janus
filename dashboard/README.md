@@ -134,6 +134,40 @@ registry and the dashboard's own TLS identity persist across restarts
 every registered node and re-issues a new dashboard identity, which
 also invalidates the certificate your browser already trusted.
 
+### Who the Controller runs as
+
+Since v2026.10.08 the image runs as user **65532**, not root: with
+`--network host`, root in the container would hold the host's network.
+What follows from it:
+
+- **The data must be that user's.** A new named volume takes the
+  image's `/data` owner by itself. The data of an installation from
+  before (root's) is given to 65532 by the updater at the update, as
+  its own step; updating by hand, or with a bind-mounted directory, do
+  it once with the Controller stopped - the image has no `chown`, any
+  image with one will do:
+
+  ```sh
+  docker compose stop janus-controller   # or docker stop janus-controller
+  docker run --rm -v janus-controller-data:/data busybox chown -R 65532:65532 /data
+  docker compose up -d                   # or docker start janus-controller
+  ```
+
+  Started on data it can't write, the Controller stops at once and
+  says so, with this command. (With Compose, its volume is named after
+  the project: `janus-controller_janus-controller-data`.)
+- **A port below 1024** (`-addr :443`, `JANUS_CONTROLLER_ADDR: ":443"`)
+  needs the host to allow it to unprivileged users, since the container
+  shares the host's network: `sysctl -w net.ipv4.ip_unprivileged_port_start=443`
+  (and in `/etc/sysctl.d/` to keep it). A capability wouldn't reach the
+  user; or stay on `:8080` behind your own HAProxy.
+- **The updater runs as root** (`user: "0:0"` in its Compose service):
+  the Docker socket is root's, and so is giving the data away. The
+  `compose.yaml` below has it.
+- **The master key file** (`JANUS_CONTROLLER_MASTER_KEY_FILE`) and any
+  mounted certificate (`-tls-cert`/`-tls-key`) must be readable by
+  65532.
+
 ### TLS identity
 
 The Controller has its own self-signed TLS identity
@@ -173,7 +207,7 @@ services:
     network_mode: host
     restart: unless-stopped
     environment:
-      JANUS_CONTROLLER_ADDR: ":443"
+      JANUS_CONTROLLER_ADDR: ":443"   # needs net.ipv4.ip_unprivileged_port_start=443 on the host
       JANUS_CONTROLLER_ADVERTISE_ADDRESS: "controller.example.com"
     volumes:
       - janus-controller-data:/data
@@ -497,6 +531,7 @@ with the Controller stopped:
 ```sh
 docker run --rm -it -v janus-controller-data:/data -v ./backup:/b swenske/janus-controller \
   restore -kit /b/janus-backup-kit.age /b/janus-controller-....janusbackup
+# it runs as user 65532: ./backup must be readable by it (or add --user 0:0)
 # with an admin's key instead of the kit (the signing key is on the Backups tab):
 #   restore -identity /b/id_ed25519 -signing-key BASE64 /b/....janusbackup
 ```
@@ -557,10 +592,13 @@ services:
     container_name: janus-controller
     network_mode: host
     restart: unless-stopped
-    # The Controller writes only under /data (and the updater's socket
-    # directory): the rest of its image stays read-only, it keeps no
-    # capability (its ports are above 1024 - a `-addr :443` needs
-    # `cap_add: [NET_BIND_SERVICE]`), and nothing it starts gains any.
+    # The Controller runs as user 65532 (the image's USER) and writes
+    # only under /data (and the updater's socket directory): the rest of
+    # its image stays read-only, it keeps no capability, and nothing it
+    # starts gains any. Its ports are above 1024: a `-addr :443` needs
+    # the host's `net.ipv4.ip_unprivileged_port_start=443` (the container
+    # shares the host's network, so the host's setting) - a capability
+    # wouldn't reach an unprivileged user.
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -583,9 +621,12 @@ services:
     # Talks to the Docker daemon over its socket only: no network.
     network_mode: none
     restart: unless-stopped
-    # The socket is root on the host already (by design, it recreates
-    # the Controller's container): it at least keeps no capability of
-    # its own and nothing it starts gains any.
+    # Root, unlike the Controller: the Docker socket is root on the host
+    # already (by design, it recreates the Controller's container), and
+    # it gives the data to the Controller's user at an update. It at
+    # least keeps no capability of its own and nothing it starts gains
+    # any.
+    user: "0:0"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     volumes:
@@ -664,15 +705,18 @@ then:
 2. **stops** the Controller (`docker compose stop janus-controller`);
 3. **backs up** the data volume and `.env` into its state volume
    (`backup/`, replacing the backup of the previous update);
-4. **writes** `JANUS_CONTROLLER_IMAGE=<image>` into `.env` and runs
+4. **gives the data** to the user the new image runs as (65532 since
+   v2026.10.08 - [Who the Controller runs as](#who-the-controller-runs-as)),
+   when it isn't already;
+5. **writes** `JANUS_CONTROLLER_IMAGE=<image>` into `.env` and runs
    `docker compose up -d janus-controller` - exactly what you'd do by
    hand;
-5. **waits** for the new Controller to say it has started, and to still
+6. **waits** for the new Controller to say it has started, and to still
    run 10 seconds later.
 
-If step 4 or 5 fails, it **rolls back**: stops the new Controller, puts
-the data and `.env` back, starts the previous version, and waits for it
-the same way.
+If step 5 or 6 fails, it **rolls back**: stops the new Controller, puts
+the data and `.env` back (root's again, what the previous version ran
+as), starts the previous version, and waits for it the same way.
 
 The page follows the update: the Controller restarts, so you're asked to
 sign in again (sessions don't survive a restart), then the page says how
@@ -722,6 +766,10 @@ in `.env`, then `docker compose up -d`:
 echo 'JANUS_CONTROLLER_IMAGE=swenske/janus-controller:vX' >> .env  # or edit the existing line
 docker compose up -d
 ```
+
+Crossing v2026.10.08 by hand (the image runs as 65532 from there), give
+the data to that user first - [Who the Controller runs
+as](#who-the-controller-runs-as); the updater does it by itself.
 
 ### Settings
 

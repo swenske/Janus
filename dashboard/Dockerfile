@@ -51,7 +51,8 @@ COPY dashboard/updater/ dashboard/updater/
 # The Controller's version (make dashboard-image passes git describe's).
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/dashboardd ./dashboard/backend && \
-    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/janus-controller-updater ./dashboard/updater
+    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/janus-controller-updater ./dashboard/updater && \
+    mkdir /out/data
 
 FROM scratch AS export
 COPY --from=build /out/dashboardd /dashboardd
@@ -62,7 +63,11 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifica
 # TLS identity - see dashboard/backend/main.go's own -data-dir default)
 # - declared here so a bare `docker run` without an explicit -v still
 # gets an anonymous volume rather than writing into the container's own
-# throwaway layer.
+# throwaway layer. Owned by the user below: a new named volume takes
+# the directory's owner; an existing one is given to it by the updater
+# (dashboard/updater, ownData) or by hand (dashboard/README.md, "Who
+# the Controller runs as").
+COPY --from=build --chown=65532:65532 /out/data /data
 VOLUME /data
 # :8080 - the main port, HTTPS-only (the page, the API, every node's
 # page under /nodes/<id>/ - behind the accounts, see internal/auth).
@@ -73,4 +78,10 @@ VOLUME /data
 # real, directly-reachable SAN with zero extra configuration, see
 # -advertise-address's own doc comment).
 EXPOSE 8080 8443
+# Not root: with --network host, root in this container would hold the
+# host's network. The updater, from the same image, needs root for the
+# Docker socket: its Compose service says `user: "0:0"`. A port below
+# 1024 (-addr :443) needs the host's net.ipv4.ip_unprivileged_port_start
+# lowered - a capability wouldn't reach an unprivileged user here.
+USER 65532:65532
 ENTRYPOINT ["/dashboardd"]

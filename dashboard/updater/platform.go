@@ -40,6 +40,9 @@ type platform interface {
 	// containerState is the state of t's service's container now (the
 	// container is replaced by an update, its ID changes).
 	containerState(ctx context.Context, t *target) (running bool, startedAt time.Time, err error)
+	// imageUser is the user image's processes run as (its USER
+	// instruction, "65532:65532"); empty for root.
+	imageUser(ctx context.Context, image string) (string, error)
 }
 
 const (
@@ -205,4 +208,8 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, " / ")
+}
+
+func (p *realPlatform) imageUser(ctx context.Context, image string) (string, error) {
+	return p.docker.imageUser(ctx, image)
 }

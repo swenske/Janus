@@ -107,6 +107,9 @@ func main() {
 	nodeproxy.ReleasesURL = *releasesURL
 	nodeproxy.ControllerVersion = version
 
+	if err := dataWritable(*dataDir); err != nil {
+		log.Fatal(err)
+	}
 	st, err := store.Open(*dataDir)
 	if err != nil {
 		log.Fatalf("open store: %v", err)
@@ -765,4 +768,21 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// dataWritable checks the data directory takes this process's writes,
+// and says what to do when it doesn't: since v2026.10.08 the image runs
+// as user 65532, and a volume from an installation before that is
+// root's. The updater gives it to the new user itself; an installation
+// updated by hand does it once, as root, with any image that has chown.
+func dataWritable(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err == nil {
+		f, err := os.CreateTemp(dir, ".writable-*")
+		if err == nil {
+			f.Close()
+			os.Remove(f.Name())
+			return nil
+		}
+	}
+	return fmt.Errorf("%s isn't writable by this process (uid %d): a Controller from before v2026.10.08 ran as root and its data is root's - give it to this user once, with the Controller stopped: docker run --rm -v <the data volume>:/data busybox chown -R %d:%d /data - then start it again (dashboard/README.md, \"Who the Controller runs as\")", dir, os.Getuid(), os.Getuid(), os.Getgid())
 }

@@ -8,10 +8,13 @@ services:
     container_name: janus-controller
     network_mode: host
     restart: unless-stopped
-    # The Controller writes only under /data (and the updater's socket
-    # directory): the rest of its image stays read-only, it keeps no
-    # capability (its ports are above 1024 - a `-addr :443` needs
-    # `cap_add: [NET_BIND_SERVICE]`), and nothing it starts gains any.
+    # The Controller runs as user 65532 (the image's USER) and writes
+    # only under /data (and the updater's socket directory): the rest of
+    # its image stays read-only, it keeps no capability, and nothing it
+    # starts gains any. Its ports are above 1024: a `-addr :443` needs
+    # the host's `net.ipv4.ip_unprivileged_port_start=443` (the container
+    # shares the host's network, so the host's setting) - a capability
+    # wouldn't reach an unprivileged user.
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -34,9 +37,12 @@ services:
     # Talks to the Docker daemon over its socket only: no network.
     network_mode: none
     restart: unless-stopped
-    # The socket is root on the host already (by design, it recreates
-    # the Controller's container): it at least keeps no capability of
-    # its own and nothing it starts gains any.
+    # Root, unlike the Controller: the Docker socket is root on the host
+    # already (by design, it recreates the Controller's container), and
+    # it gives the data to the Controller's user at an update. It at
+    # least keeps no capability of its own and nothing it starts gains
+    # any.
+    user: "0:0"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     volumes:

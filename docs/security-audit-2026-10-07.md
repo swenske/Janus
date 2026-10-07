@@ -41,7 +41,7 @@ les décisions du groupe C.
 | 6 | Moyenne | Corrigé | Durcissement nœud | `internal/haproxy/manager.go` | Section `global` d'une config HAProxy appliquée non contrainte |
 | 7 | Faible | Corrigé | CI | `.github/workflows/ci.yml` | Pas de bloc `permissions` |
 | 8 | Faible | Corrigé | CI | `.github/workflows/image-build.yml` | Entrée de dispatch interpolée dans un `run:` ; TOFU SSH à la publication apt |
-| 9 | Faible | Partiel | Conteneur | `dashboard/Dockerfile`, `examples/compose/compose.yaml` | Controller en root, réseau hôte, Compose sans durcissement |
+| 9 | Faible | Corrigé | Conteneur | `dashboard/Dockerfile`, `examples/compose/compose.yaml` | Controller en root, réseau hôte, Compose sans durcissement |
 | 10 | Faible | Corrigé | Exposition réseau | `internal/exporter/exporter.go` | Exporter actif par défaut, HTTP clair, toutes interfaces |
 | 11 | Faible | Ouvert | SELinux | `selinux/policy.conf` | `janusd_t` a toutes les capacités |
 | 12 | Faible | Corrigé | RBAC | `internal/rbac/rbac.go` | Configs BGP et VRRP (mots de passe) lisibles par `os:reader` |
@@ -373,9 +373,27 @@ les décisions du groupe C.
   `os.WriteFile`/`OpenFile`/`MkdirAll` du backend) ; l'updater a
   `cap_drop` et `no-new-privileges` (pas `read_only` : `docker compose`
   écrit son propre état). `docker compose config` passe, le bloc embarqué
-  dans `dashboard/README.md` est régénéré (`make docs-examples`). Reste
-  `USER 65532` dans l'image : il change le propriétaire de `/data` des
-  installations existantes, à faire avec une note de release.
+  dans `dashboard/README.md` est régénéré (`make docs-examples`).
+- **Corrigé (`USER 65532`)** : l'image tourne en 65532:65532, `/data`
+  lui appartient dans l'image (un volume nommé neuf prend ce
+  propriétaire). Pour les installations existantes, l'updater ajoute
+  une étape « own » : il lit l'utilisateur de la nouvelle image (API
+  Docker `/images/{ref}/json`, `Config.User`) et donne `/data` à cet
+  utilisateur avant de démarrer la nouvelle version (`ownData` ; un
+  rollback remet les fichiers de la sauvegarde, à root comme l'ancienne
+  version les lisait). Démarré sur des données qu'il ne peut pas
+  écrire, dashboardd s'arrête aussitôt avec la commande à passer
+  (`dataWritable`). Le socket de l'updater passe en 0666 dans son
+  volume (seuls les deux conteneurs le montent) : le Controller non-root
+  doit s'y connecter. Compose : `user: "0:0"` sur le service updater
+  (socket Docker, chown). Documenté dans `dashboard/README.md`, section
+  « Who the Controller runs as », à reprendre dans la note de release :
+  port sous 1024 → `net.ipv4.ip_unprivileged_port_start` sur l'hôte
+  (réseau `host`), mise à jour à la main → `chown` une fois, `user:
+  "0:0"` sur l'updater, clé maître et certificats lisibles par 65532.
+  Vérifié : `make controller-self-update-test` (trois images, registre
+  local, Compose réel : la mise à jour, les données et l'identité TLS
+  conservées, le rollback d'une version qui ne démarre pas).
 
 ## 10. (Faible) Exporter actif par défaut, HTTP clair, toutes interfaces
 

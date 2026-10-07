@@ -118,6 +118,7 @@ services:
     entrypoint: ["/janus-controller-updater"]
     network_mode: none
     restart: unless-stopped
+    user: "0:0"
     environment:
       JANUS_UPDATER_REPOSITORY: "$REPO"
       JANUS_UPDATER_START_TIMEOUT: "45s"
@@ -177,7 +178,21 @@ ready() { status | field 'd["updater"].get("ready")' | grep -qx True; }
 wait_for 60 "the updater to be ready" ready
 echo "ok: ready once the Compose directory is mounted"
 
-echo "== $A -> $B"
+# The data of an installation from before v2026.10.08 is root's (the
+# Controller ran as root): the updater gives it to the new image's user
+# as a step of the update - proven here by making it root's first, with
+# the Controller stopped (it would refuse to start on it).
+echo "== $A -> $B, from data that is root's"
+compose stop janus-controller >/dev/null 2>&1
+docker run --rm -v "$PROJECT"_janus-controller-data:/data busybox chown -R 0:0 /data
+compose up -d janus-controller >/dev/null 2>&1
+sleep 3
+compose logs --no-color janus-controller 2>/dev/null | grep -q "isn't writable by this process (uid 65532)" || fail "the Controller didn't refuse root's data with the chown command"
+docker run --rm -v "$PROJECT"_janus-controller-data:/data busybox chown -R 65532:65532 /data
+compose up -d janus-controller >/dev/null 2>&1
+wait_for 60 "the Controller back on its data" controller_up
+[ "$(login)" = 204 ] || fail "can't sign in again"
+docker run --rm -v "$PROJECT"_janus-controller-data:/data busybox chown -R 0:0 /data/nodes
 code=$(api -o "$WORK/post" -w '%{http_code}' -H 'Content-Type: application/json' -d "{\"version\":\"$B\"}" "https://127.0.0.1:$MAIN_PORT/api/controller/update")
 [ "$code" = 202 ] || fail "update refused ($code): $(cat "$WORK/post")"
 # The Controller restarts (sessions are in memory: sign in again), then
@@ -196,6 +211,8 @@ grep -qx 'TZ=Europe/Paris' "$WORK/.env" && grep -qx '# Janus Controller' "$WORK/
 [ "$(stat -c %U "$WORK/.env")" = "$(id -un)" ] || fail ".env changed owner"
 [ "$(compose ps --format '{{.Image}}' janus-controller)" = "$B_IMAGE" ] || fail "running $(compose ps --format '{{.Image}}' janus-controller)"
 [ "$(identity)" = "$IDENTITY" ] || fail "the TLS identity changed - /data wasn't kept"
+[ "$(docker run --rm -v "$PROJECT"_janus-controller-data:/data busybox stat -c %u /data/nodes)" = 65532 ] || fail "the updater didn't give root's files to the Controller's user"
+compose logs --no-color janus-controller-updater 2>/dev/null | grep -q "given to user 65532:65532" || fail "the updater's log doesn't say it gave the data away"
 [ "$(field 'd["update_available"]' <<<"$S")" = False ] || fail "still offered an update: $S"
 echo "ok: $B runs, pinned to its digest; .env, data, identity and password kept"
 

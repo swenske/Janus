@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ const repo = "swenske/janus-controller"
 // names - a version listed in broken never checks in, one in migrates
 // rewrites the data first, like a new version migrating its files.
 type fakePlatform struct {
+	user     string // what imageUser answers
 	t        *testing.T
 	u        *updater
 	wd       string
@@ -82,6 +84,8 @@ func (f *fakePlatform) compose(_ context.Context, _ *target, env []string, args 
 	}
 	return "ok", nil
 }
+
+func (f *fakePlatform) imageUser(context.Context, string) (string, error) { return f.user, nil }
 
 func (f *fakePlatform) containerState(context.Context, *target) (bool, time.Time, error) {
 	f.mu.Lock()
@@ -350,5 +354,26 @@ func TestCheckinsOnlyCountAfterSince(t *testing.T) {
 	defer cancel2()
 	if _, err := c.wait(ctx2, "v2026.10.02", since); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestOwnData: the data goes to the new image's numeric user - here the
+// one this test runs as, so the walk changes nothing and chown isn't
+// needed; an image that runs as root, or names its user, leaves the
+// data alone; a bad user string is read as none.
+func TestOwnData(t *testing.T) {
+	u, f := setup(t, "")
+	ctx := context.Background()
+	for _, user := range []string{"", "nobody", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), fmt.Sprintf("%d", os.Getuid())} {
+		f.user = user
+		if err := u.ownData(ctx, "img"); err != nil {
+			t.Fatalf("user %q: %v", user, err)
+		}
+	}
+	for in, want := range map[string][3]int{"65532:65532": {65532, 65532, 1}, "65532": {65532, 65532, 1}, "1000:2000": {1000, 2000, 1}, "": {0, 0, 0}, "nobody": {0, 0, 0}, "-1": {0, 0, 0}, "5:x": {0, 0, 0}} {
+		uid, gid, ok := parseUser(in)
+		if uid != want[0] || gid != want[1] || ok != (want[2] == 1) {
+			t.Errorf("parseUser(%q) = %d %d %v, want %v", in, uid, gid, ok, want)
+		}
 	}
 }
