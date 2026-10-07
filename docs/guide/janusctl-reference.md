@@ -300,7 +300,7 @@ Kernel parameters: HAProxy's on trial, the CIS benchmark's read-only (docs/guide
 
 ##### janusctl system sysctl list
 
-The parameters, their values and defaults, the CIS benchmark.
+The parameters, their values, defaults and suggested values, the CIS benchmark.
 
 ```text
 janusctl system sysctl list [-cis]
@@ -312,7 +312,7 @@ janusctl system sysctl list [-cis]
 
 ##### janusctl system sysctl get
 
-One parameter: value, default, bounds, effect on HAProxy, risk.
+One parameter: value, default, bounds, effect on HAProxy, risk, a suggested value and why.
 
 ```text
 janusctl system sysctl get NAME
@@ -374,6 +374,18 @@ janusctl system sysctl history [-n N]
 | Flag | |
 |---|---|
 | `-n N` | the newest N changes |
+
+##### janusctl system sysctl observed
+
+What the node observed for its suggestions: each signal, by hour.
+
+```text
+janusctl system sysctl observed [-v]
+```
+
+| Flag | |
+|---|---|
+| `-v` | what each signal measures, and when an hour counts |
 
 #### janusctl system reboot
 

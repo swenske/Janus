@@ -133,6 +133,16 @@ func runSysctl(conn *grpc.ClientConn, endpoint string, redial redialer, args []s
 			}
 		}
 
+	case "observed":
+		fs := flag.NewFlagSet("system sysctl observed", flag.ExitOnError)
+		verbose := fs.Bool("v", false, "what each signal measures, and when an hour counts")
+		_ = fs.Parse(args[1:])
+		c, cancel := ctx()
+		defer cancel()
+		resp, err := client.SysctlList(c, &emptypb.Empty{})
+		check("SysctlList", err)
+		printSysctlObserved(resp.GetObservation(), *verbose)
+
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl system sysctl: unknown subcommand %q\n", args[0])
 		usage()
@@ -211,16 +221,25 @@ func printSysctlList(resp *janusv1alpha1.SysctlListResponse, withCIS bool) {
 	if !resp.GetManaged() {
 		fmt.Println("(this janusd doesn't run a Janus node: nothing can be changed)")
 	}
-	tw := table("PARAMETER", "VALUE", "DEFAULT", "STATE")
+	tw := table("PARAMETER", "VALUE", "DEFAULT", "STATE", "SUGGESTED")
 	var readOnly []*janusv1alpha1.SysctlParameter
+	suggested := 0
 	for _, p := range resp.GetParameters() {
 		if p.GetClass() != janusv1alpha1.SysctlClass_SYSCTL_CLASS_EDITABLE {
 			readOnly = append(readOnly, p)
 			continue
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.GetName(), valueOrMissing(p), shown(p.GetDefaultValue()), sysctlState(p))
+		suggestion := ""
+		if r := p.GetRecommendation(); r != nil {
+			suggestion = r.GetValue()
+			suggested++
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.GetName(), valueOrMissing(p), shown(p.GetDefaultValue()), sysctlState(p), suggestion)
 	}
 	tw.Flush()
+	if suggested > 0 {
+		fmt.Println("Suggested values are never applied by themselves - `janusctl system sysctl get NAME` says why.")
+	}
 	if len(readOnly) > 0 {
 		fmt.Println()
 		tw = table("READ-ONLY", "VALUE", "WHY")
@@ -278,6 +297,44 @@ func printSysctlParameter(p *janusv1alpha1.SysctlParameter) {
 	}
 	for _, s := range p.GetSources() {
 		fmt.Printf("Source:   %s - %s\n", s.GetTitle(), s.GetUrl())
+	}
+	if r := p.GetRecommendation(); r != nil {
+		fmt.Printf("\nSuggested: %s - never applied by itself (rule %s)\n", r.GetValue(), r.GetRuleId())
+		fmt.Printf("  %s\n", r.GetRule())
+		for _, m := range r.GetMeasured() {
+			if m.GetWindow() != "" {
+				fmt.Printf("  %s: %s - %s\n", m.GetName(), m.GetValue(), m.GetWindow())
+			} else {
+				fmt.Printf("  %s: %s\n", m.GetName(), m.GetValue())
+			}
+		}
+		for _, s := range r.GetSources() {
+			fmt.Printf("  Source: %s - %s\n", s.GetTitle(), s.GetUrl())
+		}
+		fmt.Printf("To test it: janusctl system sysctl set '%s=%s'\n", p.GetName(), r.GetValue())
+	}
+}
+
+// printSysctlObserved prints what the node observed for its suggestions.
+func printSysctlObserved(o *janusv1alpha1.SysctlObservation, verbose bool) {
+	if o == nil {
+		fmt.Println("(this janusd doesn't run a Janus node: it observes nothing)")
+		return
+	}
+	fmt.Printf("Observed since %s - a signal counts once seen in %d different hours of the last %d days.\n", time.Unix(o.GetSinceUnix(), 0).Format(time.RFC3339), o.GetMinHours(), o.GetWindowHours()/24)
+	tw := table("SIGNAL", "SEEN IN", "AT ITS HIGHEST", "LAST SEEN")
+	for _, s := range o.GetSignals() {
+		last := "never"
+		if s.GetLastSeenUnix() > 0 {
+			last = time.Unix(s.GetLastSeenUnix(), 0).Format(time.RFC3339)
+		}
+		fmt.Fprintf(tw, "%s\t%d h\t%s\t%s\n", s.GetTitle(), s.GetHours(), shown(s.GetPeak()), last)
+	}
+	tw.Flush()
+	if verbose {
+		for _, s := range o.GetSignals() {
+			fmt.Printf("\n%s (%s)\n  %s\n  Counts when: %s\n", s.GetTitle(), s.GetId(), s.GetMeasure(), s.GetSeen())
+		}
 	}
 }
 

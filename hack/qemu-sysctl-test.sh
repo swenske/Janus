@@ -116,6 +116,42 @@ routes="$(ctl system cat /proc/net/ipv6_route)"
 if grep -qE '^0{32} 00 .* eth0$' <<<"$routes"; then fail "eth0 has an IPv6 default route: $routes"; fi
 echo "  ok: IPv6 came up after the benchmark's values - eth0's link-local address only, no default route"
 
+# --- suggestions: what the node observes, what it suggests - never applied ---
+# The observer samples every 15 seconds: HAProxy's listener, found by its
+# inode, and this VM's 1 GiB make the memory rule suggest a lower somaxconn.
+deadline=$((SECONDS + 90))
+until out="$(ctl system sysctl get net.core.somaxconn)" && grep -q "^Suggested: 16384 - never applied by itself (rule somaxconn.memory)" <<<"$out"; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "no memory suggestion for somaxconn: $out"
+  sleep 5
+done
+grep -q "HAProxy's listeners: 1: 0.0.0.0:8080 (backlog 60000)" <<<"$out" || fail "the suggestion doesn't rest on HAProxy's listener: $out"
+[ "$(value net.core.somaxconn)" = "60000" ] || fail "a suggestion was applied"
+ctl system sysctl list | grep -qE "^net.core.somaxconn +60000 +60000 +default +16384$" || fail "list's SUGGESTED column: $(ctl system sysctl list)"
+# An accept queue overflowing for real: HAProxy at its frontend's maxconn
+# (one idle connection held) stops accepting, its backlog of 1 fills, the
+# kernel drops the next SYNs - TcpExt ListenOverflows, in this hour.
+ctl haproxy get-config > "$WORKDIR/haproxy.cfg" || fail "get-config"
+sed 's/^    bind \*:8080$/    bind *:8080 backlog 1\n    maxconn 1/' "$WORKDIR/haproxy.cfg" > "$WORKDIR/tiny.cfg"
+grep -q "backlog 1" "$WORKDIR/tiny.cfg" || fail "couldn't shrink the health frontend: $(cat "$WORKDIR/haproxy.cfg")"
+ctl haproxy apply-config "$WORKDIR/tiny.cfg" >/dev/null || fail "apply the tiny frontend"
+exec 7<>"/dev/tcp/127.0.0.1/${P_HTTP}"
+sleep 1
+# The connections only - a bare wait would wait for QEMU too.
+pids=()
+for _ in $(seq 20); do
+  curl -s -m 2 -o /dev/null "http://127.0.0.1:${P_HTTP}/" &
+  pids+=($!)
+done
+wait "${pids[@]}" || true
+deadline=$((SECONDS + 60))
+until out="$(ctl system sysctl observed)" && grep -qE "^Accept queue overflows +1 h +[0-9,]+ in its busiest hour" <<<"$out"; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "the overflows weren't observed: $out"
+  sleep 5
+done
+exec 7>&-
+ctl haproxy apply-config "$WORKDIR/haproxy.cfg" >/dev/null || fail "put the health frontend back"
+echo "  ok: suggested from the node's memory and HAProxy's listener, never applied; real accept queue overflows observed in the hour"
+
 # --- every parameter's minimum, then its maximum ---
 MINS=(
   "net.core.somaxconn=4096" "net.ipv4.ip_local_port_range=1024 5119" "net.ipv4.ip_local_reserved_ports=1024-1055,65535"
@@ -207,6 +243,10 @@ grep -aqF "init: sysctl /proc/sys/net/core/somaxconn=30000" "$LOG" || fail "the 
 [ "$(value net.ipv4.tcp_fastopen)" = "3" ] || fail "fastopen after the reboot"
 ctl system sysctl list | grep -q "33/33 controls compliant" || fail "the benchmark after a reboot with saved values"
 echo "  ok: confirmed values saved, applied at the next boot, the benchmark holding"
+# Saved before the reboot (internal/shutdown): the hour's overflows are still there.
+out="$(ctl system sysctl observed)"
+grep -qE "^Accept queue overflows +1 h " <<<"$out" || fail "the observations didn't survive the reboot: $out"
+echo "  ok: what the node observed survives a reboot"
 
 # --- reset: back to the defaults, the saved file gone ---
 out="$(ctl system sysctl reset -all)" || fail "reset -all: $out"
@@ -264,4 +304,4 @@ if grep -aq "avc:.*denied" "$WORKDIR/earlier-boots.log"; then
   grep -a "avc:.*denied" "$WORKDIR/earlier-boots.log" >&2
   fail "AVC denials under enforcing"
 fi
-echo "Sysctl test OK: the CIS benchmark enforced at boot and never broken, every parameter's bounds on trial, reverts, cancels, confirmations kept across a reboot, refusals, a tampered file refused at boot, the history, zero AVC denials"
+echo "Sysctl test OK: the CIS benchmark enforced at boot and never broken, IPv6 on only once hardened, suggestions never applied, real overflows observed and kept across a reboot, every parameter's bounds on trial, reverts, cancels, confirmations kept across a reboot, refusals, a tampered file refused at boot, the history, zero AVC denials"
