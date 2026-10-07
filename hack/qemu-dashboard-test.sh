@@ -626,6 +626,15 @@ expect_json /api/system/metrics-config 'd["config"]["enabled"] and d["config"]["
 # fresh connection - the node's history records it -, then every
 # parameter back to its default.
 expect_json /api/system/sysctl 'd["managed"] and d["cis"]["compliant"] == d["cis"]["total"] == 33 and any(p["name"] == "net.core.somaxconn" and p["class"] == "editable" and p["value"] == p["default"] == "60000" for p in d["parameters"]) and d["trial"] is None' "sysctl list"
+# What the node observed, and a suggestion with its rule and sources -
+# once the node's observer has seen HAProxy listen (it samples every 15 s).
+suggested='d["observation"]["min_hours"] == 3 and d["observation"]["window_hours"] == 168 and len(d["observation"]["signals"]) == 9 and any(p["recommendation"] and p["recommendation"]["rule_id"] and p["recommendation"]["sources"] and p["recommendation"]["measured"] for p in d["parameters"])'
+for _ in $(seq 1 12); do
+  out="$(jget /api/system/sysctl)"
+  python3 -c "import json,sys; d=json.loads(sys.argv[1]); assert $suggested" "${out%$'\n'*}" >/dev/null 2>&1 && break
+  sleep 5
+done
+expect_json /api/system/sysctl "$suggested" "sysctl suggestions and observation"
 out="$(jpost /api/system/sysctl/check '{"changes":[{"name":"net.ipv4.tcp_syncookies","value":"0"}]}')"; code="${out##*$'\n'}"; body="${out%$'\n'*}"
 [ "$code" = "200" ] && python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert not d["accepted"] and "3.3.1.18" in d["errors"][0]["message"]' "$body" 2>/dev/null ||
   { echo "Dashboard test FAILED: a CIS key should be refused, got $code: $body" >&2; exit 1; }

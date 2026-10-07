@@ -162,7 +162,11 @@ func sysctlListJSON(resp *janusv1alpha1.SysctlListResponse) map[string]any {
 			for _, m := range r.GetMeasured() {
 				measured = append(measured, map[string]string{"name": m.GetName(), "value": m.GetValue(), "window": m.GetWindow()})
 			}
-			rec = map[string]any{"value": r.GetValue(), "rule_id": r.GetRuleId(), "rule": r.GetRule(), "measured": measured}
+			recSources := []map[string]string{}
+			for _, s := range r.GetSources() {
+				recSources = append(recSources, map[string]string{"title": s.GetTitle(), "url": s.GetUrl()})
+			}
+			rec = map[string]any{"value": r.GetValue(), "rule_id": r.GetRuleId(), "rule": r.GetRule(), "measured": measured, "sources": recSources}
 		}
 		params = append(params, map[string]any{
 			"name": p.GetName(), "class": enumWord(p.GetClass().String(), "SYSCTL_CLASS_"),
@@ -192,8 +196,25 @@ func sysctlListJSON(resp *janusv1alpha1.SysctlListResponse) map[string]any {
 			"benchmark": cis.GetBenchmark(), "profile": cis.GetProfile(),
 			"compliant": cis.GetCompliant(), "total": len(cis.GetControls()), "controls": controls,
 		},
-		"trial": sysctlTrialJSON(resp.GetTrial()),
+		"trial":       sysctlTrialJSON(resp.GetTrial()),
+		"observation": sysctlObservationJSON(resp.GetObservation()),
 	}
+}
+
+// sysctlObservationJSON is what the node observed - nil when nothing
+// observes.
+func sysctlObservationJSON(o *janusv1alpha1.SysctlObservation) any {
+	if o == nil {
+		return nil
+	}
+	signals := []map[string]any{}
+	for _, s := range o.GetSignals() {
+		signals = append(signals, map[string]any{
+			"id": s.GetId(), "title": s.GetTitle(), "measure": s.GetMeasure(), "seen": s.GetSeen(),
+			"hours": s.GetHours(), "total": s.GetTotal(), "peak": s.GetPeak(), "last_seen_unix": s.GetLastSeenUnix(),
+		})
+	}
+	return map[string]any{"since_unix": o.GetSinceUnix(), "window_hours": o.GetWindowHours(), "min_hours": o.GetMinHours(), "signals": signals}
 }
 
 // nonNil keeps an empty list a list in JSON.

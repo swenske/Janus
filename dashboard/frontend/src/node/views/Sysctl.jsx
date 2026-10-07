@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, ExternalLink, FlaskConical, History, Info, Lock, Pencil, RotateCcw, ShieldAlert, ShieldCheck, SlidersHorizontal, Undo2, X } from 'lucide-react'
+import { Activity, ChevronDown, ChevronRight, ExternalLink, FlaskConical, History, Info, Lightbulb, Lock, Pencil, RotateCcw, ShieldAlert, ShieldCheck, SlidersHorizontal, Undo2, X } from 'lucide-react'
 import { Fragment, useMemo, useState } from 'react'
 import { postJSON } from '../api.js'
 import { bytes, dateTime } from '../format.js'
@@ -125,6 +125,7 @@ export default function Sysctl() {
         )}
         {d.trial && <TrialBanner trial={d.trial} onDone={list.reload} />}
         <Tuning params={editable} managed={d.managed && canApply} trial={d.trial} onApplied={list.reload} />
+        {d.observation && <Observed obs={d.observation} />}
         <CIS cis={d.cis} />
         <ReadOnly params={others} />
         {may('SystemService/SysctlHistory') && <HistoryCard key={d.trial ? d.trial.started_unix : 'none'} />}
@@ -287,6 +288,7 @@ function Tuning({ params, managed, trial, onApplied }) {
   }
   const resetOne = (p) => submit({ changes: [{ name: p.name, reset: true }], reload_haproxy: reload }, [{ name: p.name, old: p.value, new: p.default, reset: true }], `Reset ${p.name}?`, 'Reset on trial')
   const differing = params.filter((p) => !p.missing && p.value !== p.default)
+  const suggested = params.filter((p) => p.recommendation)
   const resetAll = () =>
     submit(
       { reset_all: true, reload_haproxy: reload },
@@ -312,6 +314,12 @@ function Tuning({ params, managed, trial, onApplied }) {
         {trial && ' Testing more while a trial runs adds to it.'}
       </p>
       {serverErrors[''] && <ErrorBox error={serverErrors['']} />}
+      {suggested.length > 0 && (
+        <div className="notice" style={{ marginBottom: '0.6rem' }}>
+          <Lightbulb size={14} style={{ verticalAlign: '-2px' }} /> {suggested.length === 1 ? 'A value is' : `${suggested.length} values are`} suggested for this node, from its memory and what it observed -
+          never applied by themselves{managed ? ': use one, test it on trial, then apply it.' : '.'}
+        </div>
+      )}
       <div className="table-wrap">
         <table>
           <thead>
@@ -359,6 +367,21 @@ function Tuning({ params, managed, trial, onApplied }) {
                         <>
                           {shown(p.value)}
                           {err && <div className="small" style={{ color: 'var(--danger)', fontFamily: 'var(--font)' }}>{err}</div>}
+                          {p.recommendation && (
+                            <div className="row small" style={{ gap: '0.25rem', marginTop: '0.25rem', fontFamily: 'var(--font)' }}>
+                              <Badge tone="accent">
+                                <Lightbulb size={11} /> <span className="mono">{p.recommendation.value}</span> suggested
+                              </Badge>
+                              <button className="ghost small" onClick={() => setOpen((o) => ({ ...o, [p.name]: true }))} aria-label={`Why ${p.recommendation.value} for ${p.name}`}>
+                                Why
+                              </button>
+                              {managed && (
+                                <button className="ghost small" onClick={() => edit(p.name, p.recommendation.value)} aria-label={`Use ${p.recommendation.value} for ${p.name}`}>
+                                  Use
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </>
                       )}
                     </td>
@@ -436,6 +459,7 @@ function needsReloadIn(rows) {
 function Details({ p }) {
   return (
     <div className="stack small" style={{ gap: '0.4rem', padding: '0.2rem 0 0.4rem' }}>
+      {p.recommendation && <Suggestion rec={p.recommendation} />}
       {p.effect && (
         <div>
           <strong>HAProxy:</strong> {p.effect}
@@ -479,6 +503,106 @@ function Details({ p }) {
         ))}
       </div>
     </div>
+  )
+}
+
+// Suggestion is why a value is suggested: the rule, what it measured,
+// where it comes from.
+function Suggestion({ rec }) {
+  return (
+    <div className="notice">
+      <div>
+        <Lightbulb size={13} style={{ verticalAlign: '-2px' }} /> <strong>Suggested for this node:</strong> <span className="mono">{rec.value}</span>{' '}
+        <span className="muted">- never applied by itself</span>
+      </div>
+      <div style={{ marginTop: '0.3rem' }}>{rec.rule}</div>
+      <ul style={{ margin: '0.3rem 0 0', paddingLeft: '1.1rem' }}>
+        {rec.measured.map((m) => (
+          <li key={m.name}>
+            <strong>{m.name}:</strong> {m.value}
+            {m.window && <span className="muted"> - {m.window}</span>}
+          </li>
+        ))}
+      </ul>
+      <div className="row" style={{ marginTop: '0.3rem' }}>
+        {rec.sources.map((s) => (
+          <a key={s.url} href={s.url} target="_blank" rel="noreferrer">
+            {s.title} <ExternalLink size={11} />
+          </a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Observed is what the suggestions rest on: the signals the node
+// watches, by hour.
+function Observed({ obs }) {
+  const [open, setOpen] = useState(false)
+  const recurring = obs.signals.filter((s) => s.hours >= obs.min_hours).length
+  return (
+    <Card
+      title="What the node observed"
+      icon={Activity}
+      actions={
+        recurring > 0 ? (
+          <Badge tone="warn" dot>
+            {recurring} recurring
+          </Badge>
+        ) : (
+          <Badge tone="ok" dot>
+            nothing recurring
+          </Badge>
+        )
+      }
+    >
+      <p className="small" style={{ marginTop: 0 }}>
+        What the suggestions rest on, besides the node&apos;s memory: the kernel&apos;s counters and gauges, by hour, since {dateTime(obs.since_unix * 1000)}. A signal counts once
+        seen in {obs.min_hours} different hours of the last {obs.window_hours / 24} days - never one peak.
+      </p>
+      <button className="small" onClick={() => setOpen(!open)}>
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />} {open ? 'Hide' : 'Show'} the {obs.signals.length} signals
+      </button>
+      {open && (
+        <div className="table-wrap" style={{ marginTop: '0.6rem' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Signal</th>
+                <th>Seen in</th>
+                <th>At its highest</th>
+                <th>Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {obs.signals.map((s) => (
+                <tr key={s.id}>
+                  <td>
+                    <div>{s.title}</div>
+                    <div className="small muted">
+                      {s.measure} Counts when: {s.seen.charAt(0).toLowerCase() + s.seen.slice(1)}
+                    </div>
+                  </td>
+                  <td className="nowrap">
+                    {s.hours >= obs.min_hours ? (
+                      <Badge tone="warn">
+                        {s.hours} {s.hours === 1 ? 'hour' : 'hours'}
+                      </Badge>
+                    ) : (
+                      <span className={s.hours ? '' : 'muted'}>
+                        {s.hours} {s.hours === 1 ? 'hour' : 'hours'}
+                      </span>
+                    )}
+                  </td>
+                  <td className="small">{s.peak || <span className="muted">-</span>}</td>
+                  <td className="small nowrap">{s.last_seen_unix ? dateTime(s.last_seen_unix * 1000) : <span className="muted">never</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   )
 }
 
