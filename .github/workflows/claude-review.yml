@@ -16,11 +16,15 @@ permissions:
   issues: write
   id-token: write
 
+# Only a comment by the repository's owner, a member or a collaborator
+# starts a run: anyone else's "@claude" would spend the API key and
+# make the app post from a stranger's prompt.
 jobs:
   review:
     if: >
       contains(github.event.comment.body, '@claude') &&
       github.event.comment.user.login != 'claude[bot]' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
       github.event.issue.pull_request != null
     runs-on: ubuntu-latest
     steps:

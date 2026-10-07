@@ -17,6 +17,11 @@ on:
     # No branch filter - PRs from any branch, including forks, run these
     # checks. Nothing here needs a secret or the self-hosted runner.
 
+# The token only ever reads the repository: no job writes a check, a
+# comment or a release here.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
