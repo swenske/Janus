@@ -437,6 +437,20 @@ func resolveStateDevice() string {
 	return device
 }
 
+// mountEFIVars mounts the UEFI variables (efivarfs) read-only, on a
+// UEFI boot: janusd reads SecureBoot from them (internal/secureboot) -
+// a reboot through kexec keeps the firmware's rule. Nothing on a
+// machine that didn't boot through UEFI.
+func mountEFIVars() {
+	if _, err := os.Stat("/sys/firmware/efi"); err != nil {
+		return
+	}
+	const target = "/sys/firmware/efi/efivars"
+	if err := syscall.Mount("efivarfs", target, "efivarfs", syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NODEV|syscall.MS_NOEXEC, ""); err != nil {
+		fmt.Printf("init: mount efivarfs on %s: %v\n", target, err)
+	}
+}
+
 // mountReleaseBundle mounts image/iso/assemble.sh's embedded release
 // bundle - present only on the Bare-metal Machine installer/
 // maintenance-mode ISO, always partition 1 on that image's own fixed
@@ -592,6 +606,7 @@ func loadSELinuxPolicy() {
 func main() {
 	mount("proc", "/proc", "proc")
 	mount("sysfs", "/sys", "sysfs")
+	mountEFIVars()
 	// The kernel's part of the boot (drivers, ip=dhcp): the first of the
 	// moments internal/boottime measures - written for janusd once
 	// /run exists (startDaemon), printed now for a boot that never gets

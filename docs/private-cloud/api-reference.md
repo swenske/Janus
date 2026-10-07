@@ -117,7 +117,7 @@ SystemService is the reduced, non-Kubernetes equivalent of Talos's MachineServic
 |---|---|---|---|---|
 | `Version` | `Empty` → `VersionResponse` | `os:reader` | observe | Version reports what the node runs: Janus's version, its kernel, the A/B slot it booted from and its image schematic. |
 | `Hostname` | `Empty` → `HostnameResponse` | `os:reader` | observe | Hostname reports the node's hostname. |
-| `Reboot` | `RebootRequest` → `RebootResponse` | `os:operator` | services | Reboot power-cycles the whole machine, after a soft stop of HAProxy: connections in flight get a chance to finish. |
+| `Reboot` | `RebootRequest` → `RebootResponse` | `os:operator` | services | Reboot restarts the machine, after a soft stop of HAProxy: connections in flight get a chance to finish. Through the firmware unless mode is KEXEC (see RebootMode). |
 | `Shutdown` | `Empty` → `ShutdownResponse` | `os:operator` | services | Shutdown powers the machine off, after the same soft stop of HAProxy. |
 | `Restart` | `Empty` → `RestartResponse` | `os:operator` | services | Restart restarts the janusd control-plane process in place, without rebooting the machine or interrupting HAProxy itself. |
 | `Reset` | `ResetRequest` → `ResetResponse` | `os:admin` | system | Reset wipes the requested partitions (state/ephemeral) and reboots - the equivalent of returning the node to its just-installed state. |

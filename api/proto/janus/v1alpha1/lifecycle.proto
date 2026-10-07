@@ -4,6 +4,7 @@ package janus.v1alpha1;
 
 import "google/protobuf/empty.proto";
 import "janus/v1alpha1/network.proto";
+import "janus/v1alpha1/system.proto";
 
 option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
 
@@ -135,6 +136,14 @@ message UpgradeRequest {
   ImageSource source = 1;
   bool wait_for_health = 2;
   uint32 health_timeout_seconds = 3;
+  // reboot_mode: how the node reboots into the new slot. KEXEC jumps
+  // into the new UKI's kernel without the firmware (see RebootMode);
+  // when that can't be done - Secure Boot and an unsigned bundle, a
+  // kernel without kexec - the node reboots through the firmware
+  // instead, and says so in the "rebooting" stage: the slot is written
+  // and switched by then. A revert after a failed health check always
+  // goes through the firmware.
+  RebootMode reboot_mode = 4;
 }
 
 message UpgradeResponse {

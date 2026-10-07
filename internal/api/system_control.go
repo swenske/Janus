@@ -29,11 +29,20 @@ var stateMountpoint = "/etc/.state"
 const replyGrace = 2 * time.Second
 
 // Reboot restarts the machine: HAProxy is soft-stopped first so
-// in-flight connections get a chance to finish. Both modes are a full
-// firmware reboot - there is no kexec fast path.
+// in-flight connections get a chance to finish. DEFAULT and POWERCYCLE
+// are a full firmware reboot; KEXEC jumps into the active UKI's kernel
+// without the firmware (kexec.go) and is refused, nothing rebooted,
+// when that can't be done.
 func (s *System) Reboot(_ context.Context, req *janusv1alpha1.RebootRequest) (*janusv1alpha1.RebootResponse, error) {
+	cmd := syscall.LINUX_REBOOT_CMD_RESTART
+	if req.GetMode() == janusv1alpha1.RebootMode_REBOOT_MODE_KEXEC {
+		if err := loadKexecActive(); err != nil {
+			return nil, status.Errorf(codes.FailedPrecondition, "kexec: %v - reboot through the firmware instead", err)
+		}
+		cmd = syscall.LINUX_REBOOT_CMD_KEXEC
+	}
 	events.Publish("system.reboot", map[string]string{"mode": req.GetMode().String()})
-	s.schedulePower(syscall.LINUX_REBOOT_CMD_RESTART)
+	s.schedulePower(cmd)
 	return &janusv1alpha1.RebootResponse{}, nil
 }
 

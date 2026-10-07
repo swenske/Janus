@@ -393,12 +393,13 @@ janusctl system sysctl observed [-v]
 Soft-stop HAProxy, then reboot.
 
 ```text
-janusctl system reboot [-powercycle]
+janusctl system reboot [-powercycle] [-kexec]
 ```
 
 | Flag | |
 |---|---|
 | `-powercycle` | a power cycle |
+| `-kexec` | jump into the active kernel without the firmware (seconds, not a POST) |
 
 #### janusctl system shutdown
 
@@ -1144,7 +1145,7 @@ janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT] [-contr
 Write a release to the inactive slot and reboot into it.
 
 ```text
-janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] BUNDLE_DIR|URL
+janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] [-kexec] BUNDLE_DIR|URL
 ```
 
 | Flag | |
@@ -1154,6 +1155,7 @@ janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SEC
 | `-health-timeout SECONDS` | how long it has to be healthy |
 | `-insecure-skip-signature-check` | accept unsigned UKIs - development only |
 | `-allow-schematic-change` | accept another image schematic |
+| `-kexec` | reboot into the new slot without the firmware (seconds, not a POST) |
 
 #### janusctl lifecycle rollback
 

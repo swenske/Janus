@@ -20,8 +20,9 @@ service SystemService {
   // Hostname reports the node's hostname.
   rpc Hostname(google.protobuf.Empty) returns (HostnameResponse);
 
-  // Reboot power-cycles the whole machine, after a soft stop of HAProxy:
-  // connections in flight get a chance to finish.
+  // Reboot restarts the machine, after a soft stop of HAProxy:
+  // connections in flight get a chance to finish. Through the firmware
+  // unless mode is KEXEC (see RebootMode).
   rpc Reboot(RebootRequest) returns (RebootResponse);
   // Shutdown powers the machine off, after the same soft stop of HAProxy.
   rpc Shutdown(google.protobuf.Empty) returns (ShutdownResponse);
@@ -455,9 +456,19 @@ message HostnameResponse {
   string hostname = 1;
 }
 
+// RebootMode is how a node reboots. DEFAULT and POWERCYCLE go through
+// the firmware (POST, the UEFI boot manager): the same full reboot.
+// KEXEC loads the active slot's kernel from the ESP and jumps into it
+// without the firmware - seconds instead of the minute a server's POST
+// takes - under the firmware's own rule: with Secure Boot enabled, only
+// a UKI signed by a Janus release certificate; refused otherwise
+// (FailedPrecondition), nothing rebooted. Opt-in: a driver or a device
+// left in an odd state by the running kernel is kexec's known risk,
+// which a firmware reboot never has.
 enum RebootMode {
   REBOOT_MODE_DEFAULT = 0;
   REBOOT_MODE_POWERCYCLE = 1;
+  REBOOT_MODE_KEXEC = 2;
 }
 
 message RebootRequest {

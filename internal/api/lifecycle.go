@@ -276,7 +276,7 @@ func resolveBootContext() (*bootContext, error) {
 // an RPC that rebooted immediately would kill the connection before its
 // own response (or, for Upgrade, its last stream message) ever reached
 // the caller. HAProxy is drained and soft-stopped first.
-func (l *Lifecycle) scheduleReboot() {
+func (l *Lifecycle) scheduleReboot(cmd int) {
 	go func() {
 		time.Sleep(replyGrace)
 		if l.HAProxy != nil {
@@ -287,8 +287,8 @@ func (l *Lifecycle) scheduleReboot() {
 		shutdown.Run()
 		syscall.Sync()
 		consoledrain.Wait(os.Stderr, 2*time.Second)
-		if err := syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART); err != nil {
-			log.Printf("lifecycle: reboot: %v", err)
+		if err := syscall.Reboot(cmd); err != nil {
+			log.Printf("lifecycle: reboot(%#x): %v", cmd, err)
 		}
 	}()
 }
@@ -334,7 +334,7 @@ func (l *Lifecycle) Rollback(_ context.Context, _ *emptypb.Empty) (*janusv1alpha
 	}
 
 	events.Publish("lifecycle.rollback", map[string]string{"from": bc.currentSlot, "to": bc.targetSlot})
-	l.scheduleReboot()
+	l.scheduleReboot(syscall.LINUX_REBOOT_CMD_RESTART)
 
 	return &janusv1alpha1.RollbackResponse{ActiveSlot: bc.targetSlot}, nil
 }
@@ -514,12 +514,27 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	}
 	syscall.Sync()
 
-	if err := send("rebooting", 1.0, fmt.Sprintf("rebooting into slot %s", bc.targetSlot)); err != nil {
+	// KEXEC: jump into the new UKI's kernel without the firmware
+	// (kexec.go). The slot is written and switched by now, so a kernel
+	// that can't be loaded only costs the firmware's time: say so and
+	// reboot through it.
+	how := "rebooting into slot " + bc.targetSlot
+	kexecLoaded := false
+	if req.GetRebootMode() == janusv1alpha1.RebootMode_REBOOT_MODE_KEXEC {
+		if err := loadKexec(uki); err != nil {
+			log.Printf("lifecycle: kexec: %v - rebooting through the firmware", err)
+			how += fmt.Sprintf(" through the firmware - kexec: %v", err)
+		} else {
+			kexecLoaded = true
+			how += " through kexec, without the firmware"
+		}
+	}
+	if err := send("rebooting", 1.0, how); err != nil {
 		return err
 	}
 
-	events.Publish("lifecycle.upgrade", map[string]any{"from": bc.currentSlot, "to": bc.targetSlot, "source": req.GetSource().GetReference(), "wait_for_health": req.GetWaitForHealth(), "signature": signature})
-	l.scheduleReboot()
+	events.Publish("lifecycle.upgrade", map[string]any{"from": bc.currentSlot, "to": bc.targetSlot, "source": req.GetSource().GetReference(), "wait_for_health": req.GetWaitForHealth(), "signature": signature, "kexec": kexecLoaded})
+	l.scheduleReboot(rebootCmd(kexecLoaded))
 	return nil
 }
 

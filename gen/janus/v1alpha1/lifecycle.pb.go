@@ -320,8 +320,16 @@ type UpgradeRequest struct {
 	Source               *ImageSource           `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	WaitForHealth        bool                   `protobuf:"varint,2,opt,name=wait_for_health,json=waitForHealth,proto3" json:"wait_for_health,omitempty"`
 	HealthTimeoutSeconds uint32                 `protobuf:"varint,3,opt,name=health_timeout_seconds,json=healthTimeoutSeconds,proto3" json:"health_timeout_seconds,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// reboot_mode: how the node reboots into the new slot. KEXEC jumps
+	// into the new UKI's kernel without the firmware (see RebootMode);
+	// when that can't be done - Secure Boot and an unsigned bundle, a
+	// kernel without kexec - the node reboots through the firmware
+	// instead, and says so in the "rebooting" stage: the slot is written
+	// and switched by then. A revert after a failed health check always
+	// goes through the firmware.
+	RebootMode    RebootMode `protobuf:"varint,4,opt,name=reboot_mode,json=rebootMode,proto3,enum=janus.v1alpha1.RebootMode" json:"reboot_mode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpgradeRequest) Reset() {
@@ -373,6 +381,13 @@ func (x *UpgradeRequest) GetHealthTimeoutSeconds() uint32 {
 		return x.HealthTimeoutSeconds
 	}
 	return 0
+}
+
+func (x *UpgradeRequest) GetRebootMode() RebootMode {
+	if x != nil {
+		return x.RebootMode
+	}
+	return RebootMode_REBOOT_MODE_DEFAULT
 }
 
 type UpgradeResponse struct {
@@ -601,7 +616,7 @@ var File_janus_v1alpha1_lifecycle_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\n" +
-	"\x1ejanus/v1alpha1/lifecycle.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cjanus/v1alpha1/network.proto\"\xbc\x01\n" +
+	"\x1ejanus/v1alpha1/lifecycle.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cjanus/v1alpha1/network.proto\x1a\x1bjanus/v1alpha1/system.proto\"\xbc\x01\n" +
 	"\vImageSource\x12\x1c\n" +
 	"\treference\x18\x01 \x01(\tR\treference\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12A\n" +
@@ -620,11 +635,13 @@ const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\x0fInstallResponse\x12\x14\n" +
 	"\x05stage\x18\x01 \x01(\tR\x05stage\x12\x1a\n" +
 	"\bprogress\x18\x02 \x01(\x01R\bprogress\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xa3\x01\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\xe0\x01\n" +
 	"\x0eUpgradeRequest\x123\n" +
 	"\x06source\x18\x01 \x01(\v2\x1b.janus.v1alpha1.ImageSourceR\x06source\x12&\n" +
 	"\x0fwait_for_health\x18\x02 \x01(\bR\rwaitForHealth\x124\n" +
-	"\x16health_timeout_seconds\x18\x03 \x01(\rR\x14healthTimeoutSeconds\"]\n" +
+	"\x16health_timeout_seconds\x18\x03 \x01(\rR\x14healthTimeoutSeconds\x12;\n" +
+	"\vreboot_mode\x18\x04 \x01(\x0e2\x1a.janus.v1alpha1.RebootModeR\n" +
+	"rebootMode\"]\n" +
 	"\x0fUpgradeResponse\x12\x14\n" +
 	"\x05stage\x18\x01 \x01(\tR\x05stage\x12\x1a\n" +
 	"\bprogress\x18\x02 \x01(\x01R\bprogress\x12\x18\n" +
@@ -668,25 +685,27 @@ var file_janus_v1alpha1_lifecycle_proto_goTypes = []any{
 	(*UploadReleaseFileRequest)(nil),  // 6: janus.v1alpha1.UploadReleaseFileRequest
 	(*UploadReleaseFileResponse)(nil), // 7: janus.v1alpha1.UploadReleaseFileResponse
 	(*NetworkConfig)(nil),             // 8: janus.v1alpha1.NetworkConfig
-	(*emptypb.Empty)(nil),             // 9: google.protobuf.Empty
+	(RebootMode)(0),                   // 9: janus.v1alpha1.RebootMode
+	(*emptypb.Empty)(nil),             // 10: google.protobuf.Empty
 }
 var file_janus_v1alpha1_lifecycle_proto_depIdxs = []int32{
-	0, // 0: janus.v1alpha1.InstallRequest.source:type_name -> janus.v1alpha1.ImageSource
-	8, // 1: janus.v1alpha1.InstallRequest.network_config:type_name -> janus.v1alpha1.NetworkConfig
-	0, // 2: janus.v1alpha1.UpgradeRequest.source:type_name -> janus.v1alpha1.ImageSource
-	1, // 3: janus.v1alpha1.LifecycleService.Install:input_type -> janus.v1alpha1.InstallRequest
-	3, // 4: janus.v1alpha1.LifecycleService.Upgrade:input_type -> janus.v1alpha1.UpgradeRequest
-	9, // 5: janus.v1alpha1.LifecycleService.Rollback:input_type -> google.protobuf.Empty
-	6, // 6: janus.v1alpha1.LifecycleService.UploadReleaseFile:input_type -> janus.v1alpha1.UploadReleaseFileRequest
-	2, // 7: janus.v1alpha1.LifecycleService.Install:output_type -> janus.v1alpha1.InstallResponse
-	4, // 8: janus.v1alpha1.LifecycleService.Upgrade:output_type -> janus.v1alpha1.UpgradeResponse
-	5, // 9: janus.v1alpha1.LifecycleService.Rollback:output_type -> janus.v1alpha1.RollbackResponse
-	7, // 10: janus.v1alpha1.LifecycleService.UploadReleaseFile:output_type -> janus.v1alpha1.UploadReleaseFileResponse
-	7, // [7:11] is the sub-list for method output_type
-	3, // [3:7] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0,  // 0: janus.v1alpha1.InstallRequest.source:type_name -> janus.v1alpha1.ImageSource
+	8,  // 1: janus.v1alpha1.InstallRequest.network_config:type_name -> janus.v1alpha1.NetworkConfig
+	0,  // 2: janus.v1alpha1.UpgradeRequest.source:type_name -> janus.v1alpha1.ImageSource
+	9,  // 3: janus.v1alpha1.UpgradeRequest.reboot_mode:type_name -> janus.v1alpha1.RebootMode
+	1,  // 4: janus.v1alpha1.LifecycleService.Install:input_type -> janus.v1alpha1.InstallRequest
+	3,  // 5: janus.v1alpha1.LifecycleService.Upgrade:input_type -> janus.v1alpha1.UpgradeRequest
+	10, // 6: janus.v1alpha1.LifecycleService.Rollback:input_type -> google.protobuf.Empty
+	6,  // 7: janus.v1alpha1.LifecycleService.UploadReleaseFile:input_type -> janus.v1alpha1.UploadReleaseFileRequest
+	2,  // 8: janus.v1alpha1.LifecycleService.Install:output_type -> janus.v1alpha1.InstallResponse
+	4,  // 9: janus.v1alpha1.LifecycleService.Upgrade:output_type -> janus.v1alpha1.UpgradeResponse
+	5,  // 10: janus.v1alpha1.LifecycleService.Rollback:output_type -> janus.v1alpha1.RollbackResponse
+	7,  // 11: janus.v1alpha1.LifecycleService.UploadReleaseFile:output_type -> janus.v1alpha1.UploadReleaseFileResponse
+	8,  // [8:12] is the sub-list for method output_type
+	4,  // [4:8] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_janus_v1alpha1_lifecycle_proto_init() }
@@ -695,6 +714,7 @@ func file_janus_v1alpha1_lifecycle_proto_init() {
 		return
 	}
 	file_janus_v1alpha1_network_proto_init()
+	file_janus_v1alpha1_system_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -79,8 +79,9 @@ type SystemServiceClient interface {
 	Version(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*VersionResponse, error)
 	// Hostname reports the node's hostname.
 	Hostname(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HostnameResponse, error)
-	// Reboot power-cycles the whole machine, after a soft stop of HAProxy:
-	// connections in flight get a chance to finish.
+	// Reboot restarts the machine, after a soft stop of HAProxy:
+	// connections in flight get a chance to finish. Through the firmware
+	// unless mode is KEXEC (see RebootMode).
 	Reboot(ctx context.Context, in *RebootRequest, opts ...grpc.CallOption) (*RebootResponse, error)
 	// Shutdown powers the machine off, after the same soft stop of HAProxy.
 	Shutdown(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ShutdownResponse, error)
@@ -714,8 +715,9 @@ type SystemServiceServer interface {
 	Version(context.Context, *emptypb.Empty) (*VersionResponse, error)
 	// Hostname reports the node's hostname.
 	Hostname(context.Context, *emptypb.Empty) (*HostnameResponse, error)
-	// Reboot power-cycles the whole machine, after a soft stop of HAProxy:
-	// connections in flight get a chance to finish.
+	// Reboot restarts the machine, after a soft stop of HAProxy:
+	// connections in flight get a chance to finish. Through the firmware
+	// unless mode is KEXEC (see RebootMode).
 	Reboot(context.Context, *RebootRequest) (*RebootResponse, error)
 	// Shutdown powers the machine off, after the same soft stop of HAProxy.
 	Shutdown(context.Context, *emptypb.Empty) (*ShutdownResponse, error)

@@ -188,11 +188,21 @@ func (SysctlApplies) EnumDescriptor() ([]byte, []int) {
 	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{2}
 }
 
+// RebootMode is how a node reboots. DEFAULT and POWERCYCLE go through
+// the firmware (POST, the UEFI boot manager): the same full reboot.
+// KEXEC loads the active slot's kernel from the ESP and jumps into it
+// without the firmware - seconds instead of the minute a server's POST
+// takes - under the firmware's own rule: with Secure Boot enabled, only
+// a UKI signed by a Janus release certificate; refused otherwise
+// (FailedPrecondition), nothing rebooted. Opt-in: a driver or a device
+// left in an odd state by the running kernel is kexec's known risk,
+// which a firmware reboot never has.
 type RebootMode int32
 
 const (
 	RebootMode_REBOOT_MODE_DEFAULT    RebootMode = 0
 	RebootMode_REBOOT_MODE_POWERCYCLE RebootMode = 1
+	RebootMode_REBOOT_MODE_KEXEC      RebootMode = 2
 )
 
 // Enum value maps for RebootMode.
@@ -200,10 +210,12 @@ var (
 	RebootMode_name = map[int32]string{
 		0: "REBOOT_MODE_DEFAULT",
 		1: "REBOOT_MODE_POWERCYCLE",
+		2: "REBOOT_MODE_KEXEC",
 	}
 	RebootMode_value = map[string]int32{
 		"REBOOT_MODE_DEFAULT":    0,
 		"REBOOT_MODE_POWERCYCLE": 1,
+		"REBOOT_MODE_KEXEC":      2,
 	}
 )
 
@@ -5336,11 +5348,12 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\x1aSYSCTL_APPLIES_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aSYSCTL_APPLIES_IMMEDIATELY\x10\x01\x12\"\n" +
 	"\x1eSYSCTL_APPLIES_NEW_CONNECTIONS\x10\x02\x12!\n" +
-	"\x1dSYSCTL_APPLIES_HAPROXY_RELOAD\x10\x03*A\n" +
+	"\x1dSYSCTL_APPLIES_HAPROXY_RELOAD\x10\x03*X\n" +
 	"\n" +
 	"RebootMode\x12\x17\n" +
 	"\x13REBOOT_MODE_DEFAULT\x10\x00\x12\x1a\n" +
-	"\x16REBOOT_MODE_POWERCYCLE\x10\x012\xe4\x18\n" +
+	"\x16REBOOT_MODE_POWERCYCLE\x10\x01\x12\x15\n" +
+	"\x11REBOOT_MODE_KEXEC\x10\x022\xe4\x18\n" +
 	"\rSystemService\x12B\n" +
 	"\aVersion\x12\x16.google.protobuf.Empty\x1a\x1f.janus.v1alpha1.VersionResponse\x12D\n" +
 	"\bHostname\x12\x16.google.protobuf.Empty\x1a .janus.v1alpha1.HostnameResponse\x12G\n" +

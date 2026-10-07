@@ -652,9 +652,10 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		healthTimeout := fs.Uint("health-timeout", 0, "seconds the new slot's janusd has to keep running before it's considered healthy and the upgrade is confirmed; 0 uses the node's own default (60s) - only meaningful with -wait-for-health")
 		insecureSkip := fs.Bool("insecure-skip-signature-check", false, "accept UKIs not signed by a Janus release key - development bundles only: without the check, whoever can alter the bundle on its way to the node controls what it boots")
 		allowSchematic := fs.Bool("allow-schematic-change", false, "accept a bundle built from another image schematic than the node's own - without it, an update that would drop the node's extensions is refused")
+		kexecMode := fs.Bool("kexec", false, "reboot into the new slot by jumping into its kernel, without going through the firmware - seconds instead of a server's POST; when the node can't (Secure Boot and an unsigned bundle), it reboots through the firmware and says so")
 		_ = fs.Parse(args[1:])
 		if fs.NArg() != 1 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] BUNDLE_DIR")
+			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle upgrade [-sha256 HEX] [-wait-for-health] [-health-timeout SECONDS] [-insecure-skip-signature-check] [-allow-schematic-change] [-kexec] BUNDLE_DIR")
 			os.Exit(2)
 		}
 		bundleDir := fs.Arg(0)
@@ -677,6 +678,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			Source:               &janusv1alpha1.ImageSource{Reference: bundleDir, Sha256: sum, InsecureSkipSignatureCheck: *insecureSkip, AllowSchematicChange: *allowSchematic},
 			WaitForHealth:        *waitForHealth,
 			HealthTimeoutSeconds: uint32(*healthTimeout),
+			RebootMode:           rebootMode(*kexecMode),
 		})
 		if err != nil {
 			log.Fatalf("Upgrade: %v", err)
@@ -1066,4 +1068,12 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 		usage()
 		os.Exit(2)
 	}
+}
+
+// rebootMode is the Upgrade's RebootMode for -kexec.
+func rebootMode(kexec bool) janusv1alpha1.RebootMode {
+	if kexec {
+		return janusv1alpha1.RebootMode_REBOOT_MODE_KEXEC
+	}
+	return janusv1alpha1.RebootMode_REBOOT_MODE_DEFAULT
 }

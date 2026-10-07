@@ -24,6 +24,12 @@ stateDiagram-v2
     Confirmed --> [*]
 ```
 
+- **How it reboots**: through the firmware by default - a server's
+  POST included. `reboot_mode: KEXEC` jumps from the running kernel
+  into the new release's, in seconds; it keeps the firmware's rule
+  (with Secure Boot on, only a signed release) and falls back to the
+  firmware, saying so, when it can't. A revert always goes through the
+  firmware.
 - **What's kept**: STATE - the node's identity, its HAProxy, network,
   firewall, VRRP and BGP configurations, its certificates - is shared by
   both slots. An update changes the system, never the configuration.

@@ -39,10 +39,14 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 	case "reboot":
 		fs := flag.NewFlagSet("system reboot", flag.ExitOnError)
 		powercycle := fs.Bool("powercycle", false, "request a power cycle (same as a normal reboot today)")
+		kexecMode := fs.Bool("kexec", false, "jump into the active kernel without going through the firmware - seconds instead of a server's POST; refused, nothing rebooted, when Secure Boot is on and the image isn't signed by a Janus release certificate")
 		_ = fs.Parse(args)
 		mode := janusv1alpha1.RebootMode_REBOOT_MODE_DEFAULT
 		if *powercycle {
 			mode = janusv1alpha1.RebootMode_REBOOT_MODE_POWERCYCLE
+		}
+		if *kexecMode {
+			mode = janusv1alpha1.RebootMode_REBOOT_MODE_KEXEC
 		}
 		c, cancel := ctx()
 		defer cancel()

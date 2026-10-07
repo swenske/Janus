@@ -67,6 +67,23 @@ janusctl -n lb1 version           # the release now running, and its slot
 - A node that can't reach the URL: `janusctl lifecycle upload-release
   DIR` streams a bundle from where `janusctl` runs, then `upgrade` takes
   the directory it prints.
+- `-kexec` reboots into the new release without going through the
+  firmware: the running kernel jumps straight into the new one, in
+  seconds, where a server's POST takes a minute. The same flag on
+  `janusctl system reboot`. It is opt-in: a driver left in an odd state
+  by the running kernel is kexec's known risk, which a firmware reboot
+  never has - try it on a node you can reach otherwise, then make it
+  your habit where it works. With Secure Boot on, only a release signed
+  by Janus can be kexec'd, as the firmware would only boot that; an
+  update that can't be kexec'd reboots through the firmware and says so.
+  A revert always goes through the firmware. Known not to work: a
+  virtual machine whose UEFI variables are served from SMM (OVMF's
+  Secure Boot-capable firmware with the flash in secure mode - what
+  Proxmox VE gives a q35 machine with an EFI disk, and libvirt a
+  machine with `secure-boot` enabled): the kernel jumped into crashes
+  at once and the firmware boots the node instead - slower, not lost.
+  The Controller's own libvirt machines (Secure Boot off) and VMs on
+  the plain OVMF are fine.
 
 ## Going back
 

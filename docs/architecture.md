@@ -105,6 +105,27 @@ in a boot, every binary read from the root filesystem goes through that
 decompressor. Measured against the previous compression on two KVM hosts,
 the API listened a third sooner (2.0 s to 1.4 s, 2.3 s to 1.5 s).
 
+The firmware's time is the one part a node can skip: a reboot or an
+update with `RebootMode KEXEC` loads the UKI's kernel and command line
+(its own PE sections - the same signed command line, the same verity
+root hash) and jumps into it (`internal/kexec`). It keeps the
+firmware's rule on what may boot: with Secure Boot enforced, only a
+UKI signed by a release certificate (`internal/secureboot` reads the
+UEFI variables); the kernel itself verifies nothing (no
+`CONFIG_KEXEC_SIG`: it could only check a signature on the bare
+bzImage, not the command line that pins the root filesystem). It is
+opt-in, because a device left in an odd state by the running kernel is
+kexec's known risk; a revert after a failed health check always goes
+through the firmware. One such state is known (2026-10-07): under
+OVMF's Secure Boot-capable firmware with the flash in secure mode -
+its UEFI variable services run in SMM - the kexec'd kernel corrupts
+itself as soon as it uses the EFI runtime services (`efi=noruntime`
+makes it boot), so Proxmox VE's q35 machines and libvirt's
+`secure-boot` machines reboot through the firmware after a crash.
+Passing `efi=noruntime` to the kexec'd kernel, with the Secure Boot
+state carried on its command line instead of read from variables it
+no longer has, is the candidate fix.
+
 ## mTLS / PKI
 
 Every gRPC call is authenticated with a client certificate - there is no
