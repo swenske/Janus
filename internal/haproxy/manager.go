@@ -55,6 +55,12 @@ type Manager struct {
 	// validation.
 	Env func() []string
 
+	// Policy, if set, is what a configuration's global section must and
+	// may not say (globalcheck.go): checked by Validate before `haproxy
+	// -c`, so by Apply too - never at boot, where the configuration on
+	// STATE is what the node has.
+	Policy *GlobalPolicy
+
 	// txMu serializes runtime certificate transactions: HAProxy has one
 	// open at a time.
 	txMu sync.Mutex
@@ -166,6 +172,9 @@ func NewManager(binaryPath, configPath, pidPath, statsSocketPath string) *Manage
 // running process or ConfigPath. Returns (true, nil) if valid, or
 // (false, <haproxy's own error lines>) otherwise.
 func (m *Manager) Validate(cfg []byte) (bool, []string) {
+	if err := m.Policy.Check(cfg); err != nil {
+		return false, []string{err.Error()}
+	}
 	tmp, err := os.CreateTemp("", "janus-validate-*.cfg")
 	if err != nil {
 		return false, []string{err.Error()}

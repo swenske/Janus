@@ -204,6 +204,21 @@ files_served() {
     openssl x509 -noout -subject | grep -q files.example.test
 }
 files_served || fail "the error page or the certificate from the files isn't served"
+# The global section a node requires (internal/haproxy.GlobalPolicy):
+# without the privilege drop, with a second stats socket on the network
+# or with daemon, the configuration is refused before haproxy -c, and
+# the running one stays.
+grep -v '^    uid 1000$' "$WORKDIR/files.cfg" > "$WORKDIR/no-uid.cfg"
+if out="$(ctl haproxy apply-config "$WORKDIR/no-uid.cfg" 2>&1)"; then fail "a configuration without uid 1000 was applied"; fi
+grep -q '"uid 1000" is required' <<<"$out" || fail "the refusal doesn't name uid 1000: $out"
+awk '{print} /^global/{print "    stats socket ipv4@0.0.0.0:9999 level admin"}' "$WORKDIR/files.cfg" > "$WORKDIR/net-socket.cfg"
+if out="$(ctl haproxy apply-config "$WORKDIR/net-socket.cfg" 2>&1)"; then fail "a stats socket on the network was applied"; fi
+grep -q "only janusd's socket" <<<"$out" || fail "the refusal doesn't name the socket: $out"
+awk '{print} /^global/{print "    daemon"}' "$WORKDIR/files.cfg" > "$WORKDIR/daemon.cfg"
+if out="$(ctl haproxy apply-config "$WORKDIR/daemon.cfg" 2>&1)"; then fail "daemon was applied"; fi
+grep -q '"daemon" isn.t allowed' <<<"$out" || fail "the refusal doesn't name daemon: $out"
+files_served || fail "the files aren't served any more after the refused configurations"
+echo "  ok: the global section a node requires (uid, janusd's only stats socket, no daemon)"
 ctl system logs -n 500 haproxy | grep -q "files-test" || fail "HAProxy's access log (log stdout) isn't in its service log"
 if ctl haproxy file-delete errors/503.http >/dev/null 2>&1; then fail "an error page in use was removed"; fi
 echo garbage > "$WORKDIR/garbage.pem"

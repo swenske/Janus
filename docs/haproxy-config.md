@@ -27,6 +27,16 @@ drain, maintenance - at runtime:
 | `crt-base`, `ca-base` | (remove, use full paths) | Your files live in `/etc/haproxy/files/` |
 | `ssl-dh-param-file` | (remove it) | AWS-LC has no DHE ciphers - see [TLS](#tls-aws-lc) |
 
+The node checks these before `haproxy -c`, and refuses a configuration
+with the line that's wrong: `chroot /var/empty`, `uid 1000`, `gid 1000`
+and janusd's `stats socket` line are required, exactly; no other `stats
+socket` (an administration socket on the network, say), and no `daemon`,
+`master-worker`, `external-check`, `insecure-fork-wanted`,
+`set-dumpable`, `setenv`/`presetenv`/`resetenv`/`unsetenv` or `program`
+section - HAProxy on a node runs no program and keeps janusd's
+environment. The rest of the global section is yours: `log`, `maxconn`,
+`tune.*`, `ssl-default-*`, threads...
+
 ## TLS: AWS-LC
 
 HAProxy is built against [AWS-LC](https://github.com/aws/aws-lc) rather

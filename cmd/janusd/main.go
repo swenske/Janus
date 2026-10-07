@@ -168,6 +168,13 @@ func main() {
 		haproxyMgr.CertStoreDir = filepath.Join(filepath.Dir(*haproxyCfg), "runtime-certs")
 	}
 	haproxyMgr.FilesDir = filepath.Join(filepath.Dir(*haproxyCfg), "files")
+	if *manageHost {
+		// On a node, a configuration keeps the privilege drop into the
+		// chroot above and janusd's stats socket, and daemonizes or runs
+		// nothing (internal/haproxy.GlobalPolicy). On a host, in CI, the
+		// configuration is whatever the test needs.
+		haproxyMgr.Policy = haproxy.NodePolicy(*haproxyChrootDir, *haproxySock)
+	}
 	// HAProxy's health: it answers on its stats socket, and isn't being
 	// stopped - a soft stop closes the listeners long before the process
 	// exits. For keepalived's track_file, BIRD's haproxy_* protocols and
