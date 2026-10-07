@@ -24,8 +24,8 @@ décrit la correction et sa vérification.
 
 Deuxième passe le même jour (« groupe B » : les corrections qui changent
 un comportement, chacune prouvée par son test QEMU) : #5, #6, #10, #12,
-et #8 (l'étape apt épingle la clé d'hôte dès que la variable de dépôt
-`APT_HOST_KEY` existe - à créer, voir la section). Restent ouverts : #1,
+et #8 (clé d'hôte apt épinglée, variable `APT_HOST_KEY` créée).
+Restent ouverts : #1,
 #9 (`USER` dans l'image : migration du propriétaire du volume), #11 -
 les décisions du groupe C.
 
@@ -328,15 +328,11 @@ les décisions du groupe C.
 - **Corrigé (interpolation)** : l'étape Docker Hub et l'envoi du dispatch
   `site-deploy` lisent `RELEASE_VERSION` et `COMMIT_SHA` dans `env:`.
 - **Corrigé (clé d'hôte)** : l'étape lit la variable de dépôt
-  `APT_HOST_KEY` ; si elle existe, `StrictHostKeyChecking=yes` avec un
-  `known_hosts` temporaire qui ne contient qu'elle ; sinon, l'ancien
-  `accept-new` et un `::warning::` sur le run - la release ne casse
-  pas tant que la variable manque. La clé, lue depuis deux points du
-  réseau (ce poste et `janus-runner01`), identique :
-
-  ```sh
-  gh variable set APT_HOST_KEY --body "apt.int.sw-servers.net ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBQunxx8M6pXh3XMh8NR68e//+/S+mtwa9wzJgLZiNkQ"
-  ```
+  `APT_HOST_KEY` (créée le 2026-10-07 ; la clé, lue depuis deux points
+  du réseau - ce poste et `janus-runner01` - était identique) et
+  publie avec `StrictHostKeyChecking=yes` et un `known_hosts`
+  temporaire qui ne contient qu'elle ; sans la variable, l'étape
+  échoue au lieu d'accepter un premier contact.
 
 ## 9. (Faible) Controller en root, réseau hôte, Compose sans durcissement
 
@@ -577,7 +573,7 @@ les décisions du groupe C.
    passe image-build complète (boot, hardening, perfs à mesurer).
 2. #6 : contraindre la section `global` avant tout `haproxy -c`. Fait.
 3. #2, #7, #8 : les trois corrections de workflows, sans effet fonctionnel.
-   Fait (#8 : créer `APT_HOST_KEY`).
+   Fait.
 4. #3, #4, #5, #15 : les quatre corrections du Controller, vérifiées par
    `make qemu-dashboard-test`. Fait.
 5. #12 : BGP/VRRP en `operators`, régénérer `api-reference.md`. Fait.
