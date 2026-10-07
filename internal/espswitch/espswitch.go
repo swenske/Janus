@@ -98,7 +98,19 @@ func Activate(espDevice, slot string) error {
 	}
 
 	dst := filepath.Join(Mountpoint, "EFI", "BOOT", BootFilename)
-	if err := os.WriteFile(dst, staged, 0o644); err != nil {
+	// The file is there (the firmware booted it): opened without
+	// O_CREATE, whose permission check on the directory - made before
+	// the kernel looks whether the file exists - SELinux denies and logs
+	// for init on the ESP, although the open goes on.
+	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", dst, err)
+	}
+	if _, err := f.Write(staged); err != nil {
+		f.Close()
+		return fmt.Errorf("write %s: %w", dst, err)
+	}
+	if err := f.Close(); err != nil {
 		return fmt.Errorf("write %s: %w", dst, err)
 	}
 	syscall.Sync()
