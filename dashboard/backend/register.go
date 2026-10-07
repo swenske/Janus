@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -109,14 +110,38 @@ type keylessTrust struct {
 	Bundle   []byte `json:"bundle"`
 }
 
+// Nobody is authenticated on the registration port, so what it takes is
+// bounded: an address may announce registerBurst nodes at once, then
+// one every registerEvery (a node announces once, and retries with a
+// backoff of 5 s doubling to 2 min when refused); the queue holds
+// maxPendingRegistrations announcements waiting for a human, each a
+// directory on disk - beyond that, an announcement is refused until one
+// is approved or rejected. A node admitted on a token (a machine's, an
+// enrollment's) never waits in the queue, so the cap doesn't stop it.
+const (
+	registerBurst           = 10
+	registerEvery           = 6 * time.Second
+	maxPendingRegistrations = 200
+	// registerBodyLimit is more than a registration holds (a CA
+	// certificate, a service certificate and its key, two names).
+	registerBodyLimit = 256 << 10
+)
+
 func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if a.registerLimiter != nil {
+		if ok, wait := a.registerLimiter.Allow(clientAddr(r)); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+			http.Error(w, "too many registrations from this address: try again later", http.StatusTooManyRequests)
+			return
+		}
+	}
 
 	var req registerRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, registerBodyLimit)).Decode(&req); err != nil {
 		http.Error(w, "decode request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -174,14 +199,29 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := a.pending.Add(node); err != nil {
-		http.Error(w, "record registration: "+err.Error(), http.StatusInternalServerError)
+	if !a.queueRegistration(w, node) {
 		return
 	}
 	log.Printf("node self-registered: %s (%s), awaiting approval", node.Name, node.Address)
 	writeJSON(w, http.StatusCreated, struct {
 		ID string `json:"id"`
 	}{ID: node.ID})
+}
+
+// queueRegistration puts node in the queue for a human to approve, or
+// answers why it can't: the queue is full (503, the node retries), or
+// the disk refused it.
+func (a *app) queueRegistration(w http.ResponseWriter, node *pending.Node) bool {
+	if a.pending.Waiting() >= maxPendingRegistrations {
+		log.Printf("node self-registered: %s (%s), refused: %d registrations already wait for approval", node.Name, node.Address, maxPendingRegistrations)
+		http.Error(w, "too many registrations wait for approval on this Controller: approve or reject some first", http.StatusServiceUnavailable)
+		return false
+	}
+	if err := a.pending.Add(node); err != nil {
+		http.Error(w, "record registration: "+err.Error(), http.StatusInternalServerError)
+		return false
+	}
+	return true
 }
 
 // handlePendingList is a read-only GET /api/pending, auth-gated like
@@ -405,8 +445,7 @@ func (a *app) registerKeyless(w http.ResponseWriter, req registerRequest) {
 			log.Printf("node self-registered with a registration token no machine is waiting for: %s (%s)", req.Name, req.Address)
 		}
 	}
-	if err := a.pending.Add(node); err != nil {
-		http.Error(w, "record registration: "+err.Error(), http.StatusInternalServerError)
+	if !a.queueRegistration(w, node) {
 		return
 	}
 	log.Printf("node self-registered with no key: %s (%s), its CA SHA-256 %s - awaiting approval", node.Name, node.Address, fingerprint)

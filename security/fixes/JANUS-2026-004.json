@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-004",
+  "title": "Anyone reaching a Controller's registration port can fill its disk and its approval queue",
+  "severity": "high",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+  "cwe": [
+    "CWE-770"
+  ],
+  "target": "controller",
+  "description": "The Controller's registration port (`:8443`, `-register-addr`) takes a node's announcement from anyone: a node announcing itself has no credential the Controller knows yet, so nothing authenticates the request. Each announcement was written to the Controller's data directory as a pending registration, up to 1 MiB each, with no limit on how many an address could send or how many could wait for approval.\n\nAnyone able to reach the port could send announcements until the Controller's disk was full - at which point nothing on the Controller could be saved any more: nodes admitted, accounts, backups, the audit log - and the approval queue held so many entries that the real nodes' announcements were lost among them.\n\n**Affected**: every Controller whose registration port is reachable from a network where someone is hostile. The port is meant for the nodes' networks; the main port (`:8080`) and the nodes themselves aren't involved.\n\n**Fix**: the port is bounded. An address may announce 10 nodes at once, then one every 6 seconds (HTTP 429 with `Retry-After` beyond that - a node refused retries by itself, with its usual backoff); 200 announcements may wait for approval, and further ones are refused (HTTP 503) until some are approved or rejected; an announcement is 256 KiB at most. A node admitted on a token - a machine the Controller created, an enrollment token - never waits in the queue, so the cap doesn't stop it.\n\n**Besides updating**: nothing. A Controller whose queue already holds many unwanted registrations is cleaned by rejecting them (the **Waiting for approval** card, or `POST /api/pending/{id}/reject`)."
+}

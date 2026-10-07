@@ -141,6 +141,19 @@ func (s *Store) List() []*Node {
 	return out
 }
 
+// Waiting is how many announcements wait for approval.
+func (s *Store) Waiting() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, node := range s.nodes {
+		if !node.Approved {
+			n++
+		}
+	}
+	return n
+}
+
 func (s *Store) Get(id string) (*Node, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

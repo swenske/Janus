@@ -92,7 +92,11 @@ mappings instead, set `-advertise-address` - further down).
 - **`:8443`** (configurable via `-register-addr`) - where a node
   self-registers (see `internal/pending`); self-announced nodes land in
   a "pending" queue, approved or rejected by hand in the UI, not
-  admitted automatically.
+  admitted automatically. Nobody is authenticated there, so it's
+  bounded: 10 announcements at once per address, then one every 6 s
+  (a refused node retries), and 200 waiting for approval - beyond
+  that, announcements are refused until some are approved or rejected.
+  A node admitted on a token never waits, so the cap doesn't stop it.
 
 ```sh
 docker run -d \

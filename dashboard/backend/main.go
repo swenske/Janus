@@ -60,6 +60,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
+	"github.com/swenske/Janus/dashboard/backend/internal/ratelimit"
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/dashboard/backend/internal/uitls"
@@ -182,6 +183,7 @@ func main() {
 		auth:                  authStore,
 		tokens:                tokenStore,
 		loginLimiter:          auth.NewLoginLimiter(),
+		registerLimiter:       ratelimit.New(registerBurst, registerEvery),
 		audit:                 auditLog,
 		backups:               backupStore,
 		masterKeyPath:         masterKey.Path,
@@ -298,8 +300,11 @@ type app struct {
 	auth         *auth.Store
 	tokens       *auth.TokenStore
 	loginLimiter *auth.LoginLimiter
-	audit        *audit.Log
-	backups      *backup.Store
+	// registerLimiter bounds announcements per address on the
+	// registration port (register.go); nil in tests that don't care.
+	registerLimiter *ratelimit.Limiter
+	audit           *audit.Log
+	backups         *backup.Store
 	// masterKeyPath is the master key's file - a backup takes it.
 	masterKeyPath string
 	// serverCert is the Controller's own identity: what nodes register
