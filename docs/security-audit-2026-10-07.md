@@ -20,10 +20,14 @@ sans effet fonctionnel). Corrigés : #2, #3, #4, #7, #8 (partie
 interpolation), #9 (partie Compose et `EXPOSE`), #13, #14, #15, #16, en
 commits séparés par thème (`ci:`, `controller:`, `lint:`, `site:`,
 `docs:`). Chaque section concernée porte un paragraphe **Corrigé** qui
-décrit la correction et sa vérification. Restent ouverts : #1, #5, #6,
-#8 (clé d'hôte apt : demande une variable de dépôt `APT_HOST_KEY`), #9
-(`USER` dans l'image : migration du propriétaire du volume), #10, #11,
-#12 - chacun avec un test QEMU ou une décision à prendre avant.
+décrit la correction et sa vérification.
+
+Deuxième passe le même jour (« groupe B » : les corrections qui changent
+un comportement, chacune prouvée par son test QEMU) : #5, #6, #10, #12,
+et #8 (l'étape apt épingle la clé d'hôte dès que la variable de dépôt
+`APT_HOST_KEY` existe - à créer, voir la section). Restent ouverts : #1,
+#9 (`USER` dans l'image : migration du propriétaire du volume), #11 -
+les décisions du groupe C.
 
 ## Tableau de synthèse
 
@@ -33,14 +37,14 @@ décrit la correction et sa vérification. Restent ouverts : #1, #5, #6,
 | 2 | Moyenne | Corrigé | CI | `.github/workflows/claude-review.yml`, `claude-issue-triage.yml` | Workflows Claude déclenchables par n'importe quel commentaire |
 | 3 | Moyenne | Corrigé | Durcissement HTTP | `dashboard/backend/main.go` | Aucun en-tête de sécurité HTTP sur le Controller |
 | 4 | Moyenne | Corrigé | Exposition réseau | `dashboard/backend/main.go`, `register.go` | Serveurs HTTP sans délais ni version TLS minimale explicite |
-| 5 | Moyenne | Ouvert | Exposition réseau | `dashboard/backend/register.go`, `internal/pending` | Enregistrement non authentifié sans débit ni plafond |
-| 6 | Moyenne | Ouvert | Durcissement nœud | `internal/haproxy/manager.go` | Section `global` d'une config HAProxy appliquée non contrainte |
+| 5 | Moyenne | Corrigé | Exposition réseau | `dashboard/backend/register.go`, `internal/pending` | Enregistrement non authentifié sans débit ni plafond |
+| 6 | Moyenne | Corrigé | Durcissement nœud | `internal/haproxy/manager.go` | Section `global` d'une config HAProxy appliquée non contrainte |
 | 7 | Faible | Corrigé | CI | `.github/workflows/ci.yml` | Pas de bloc `permissions` |
-| 8 | Faible | Partiel | CI | `.github/workflows/image-build.yml` | Entrée de dispatch interpolée dans un `run:` ; TOFU SSH à la publication apt |
+| 8 | Faible | Corrigé | CI | `.github/workflows/image-build.yml` | Entrée de dispatch interpolée dans un `run:` ; TOFU SSH à la publication apt |
 | 9 | Faible | Partiel | Conteneur | `dashboard/Dockerfile`, `examples/compose/compose.yaml` | Controller en root, réseau hôte, Compose sans durcissement |
-| 10 | Faible | Ouvert | Exposition réseau | `internal/exporter/exporter.go` | Exporter actif par défaut, HTTP clair, toutes interfaces |
+| 10 | Faible | Corrigé | Exposition réseau | `internal/exporter/exporter.go` | Exporter actif par défaut, HTTP clair, toutes interfaces |
 | 11 | Faible | Ouvert | SELinux | `selinux/policy.conf` | `janusd_t` a toutes les capacités |
-| 12 | Faible | Ouvert | RBAC | `internal/rbac/rbac.go` | Configs BGP et VRRP (mots de passe) lisibles par `os:reader` |
+| 12 | Faible | Corrigé | RBAC | `internal/rbac/rbac.go` | Configs BGP et VRRP (mots de passe) lisibles par `os:reader` |
 | 13 | Faible | Corrigé | Outillage | `.golangci.yml` | Pas de linter sécurité (`gosec`) |
 | 14 | Faible | Corrigé | Dépendances | `site/docs/package.json` | Dépendances de build du site docs avec vulnérabilités connues |
 | 15 | Faible | Corrigé | Robustesse | `dashboard/backend/internal/nodeproxy/ops.go` | `decodeJSON` sans limite de taille |
@@ -200,6 +204,17 @@ décrit la correction et sa vérification. Restent ouverts : #1, #5, #6,
   }
   ```
 
+- **Corrigé** : `dashboard/backend/internal/ratelimit` (seau à jetons par
+  adresse, 10 000 adresses au plus), posé en tête de `handleRegister` :
+  10 annonces d'un coup par adresse puis une toutes les 6 s, refus 429
+  avec `Retry-After` (le nœud réessaie seul, 5 s doublant jusqu'à
+  2 min). File d'attente plafonnée à 200 annonces (`Waiting()` du store),
+  refus 503 au-delà ; un nœud admis sur un jeton (machine, enrôlement)
+  ne passe pas par la file et n'est donc jamais bloqué. Corps limité à
+  256 KiB au lieu de 1 MiB. `TestRegisterBounded` (429 puis 503, jeton
+  accepté file pleine), `make qemu-self-register-test` (un vrai nœud
+  s'enregistre toujours). Documenté dans `dashboard/README.md`.
+
 ## 6. (Moyenne) Section `global` d'une config HAProxy appliquée non contrainte
 
 - **Où** : `internal/haproxy/manager.go:165` (`Validate`) et `:205`
@@ -245,6 +260,25 @@ décrit la correction et sa vérification. Restent ouverts : #1, #5, #6,
   À appeler au début de `Validate` et d'`Apply` ; `haproxyError` le rend
   en `InvalidArgument`. Les scripts `hack/qemu-*` et les `examples/` qui
   appliquent des configs sans `global` complet devront l'avoir.
+
+- **Corrigé** : `internal/haproxy/globalcheck.go` (`GlobalPolicy`,
+  `NodePolicy`), vérifié par `Validate` avant `haproxy -c` - donc par
+  `Apply` et `ValidateConfig`, jamais au boot (la config sur STATE reste
+  celle du nœud). Requis exactement : `chroot <-haproxy-chroot-dir>`,
+  `uid 1000`, `gid 1000`, `stats socket <-haproxy-stats-socket> mode 660
+  level admin` (paramètres dans n'importe quel ordre, rien d'autre) ;
+  refusés : tout autre `stats socket`, `daemon`, `master-worker`,
+  `external-check`, `insecure-fork-wanted`, `set-dumpable`,
+  `setenv`/`presetenv`/`resetenv`/`unsetenv`, toute section `program`.
+  Les sections sont reconnues par mot-clé, pas par indentation
+  (HAProxy n'en tient pas compte) ; les commentaires sont ignorés.
+  janusd ne pose la politique qu'avec `-manage-host` (un vrai nœud) :
+  sur un hôte ou en CI, la config du test reste libre. Vérifié que la
+  config de production (lgslbpub01), le bootstrap et `examples/haproxy/
+  web.cfg` passent tels quels (`TestGlobalPolicyAcceptsTheNodeConfigs`),
+  `TestGlobalPolicy` (22 cas), `make qemu-system-api-test` (sans `uid`,
+  socket réseau, `daemon` : refusés, la config courante reste servie).
+  Documenté dans `docs/haproxy-config.md`.
 
 ## 7. (Faible) `ci.yml` sans bloc `permissions`
 
@@ -293,9 +327,16 @@ décrit la correction et sa vérification. Restent ouverts : #1, #5, #6,
   ```
 - **Corrigé (interpolation)** : l'étape Docker Hub et l'envoi du dispatch
   `site-deploy` lisent `RELEASE_VERSION` et `COMMIT_SHA` dans `env:`.
-  Reste la clé d'hôte apt, qui demande d'abord une variable de dépôt
-  `APT_HOST_KEY` (empreinte de `apt.int.sw-servers.net`) : à créer sur
-  GitHub avant de toucher l'étape, sinon la prochaine release échoue.
+- **Corrigé (clé d'hôte)** : l'étape lit la variable de dépôt
+  `APT_HOST_KEY` ; si elle existe, `StrictHostKeyChecking=yes` avec un
+  `known_hosts` temporaire qui ne contient qu'elle ; sinon, l'ancien
+  `accept-new` et un `::warning::` sur le run - la release ne casse
+  pas tant que la variable manque. La clé, lue depuis deux points du
+  réseau (ce poste et `janus-runner01`), identique :
+
+  ```sh
+  gh variable set APT_HOST_KEY --body "apt.int.sw-servers.net ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBQunxx8M6pXh3XMh8NR68e//+/S+mtwa9wzJgLZiNkQ"
+  ```
 
 ## 9. (Faible) Controller en root, réseau hôte, Compose sans durcissement
 
@@ -361,6 +402,17 @@ décrit la correction et sa vérification. Restent ouverts : #1, #5, #6,
   +	lis, err := net.Listen("tcp", net.JoinHostPort(cfg.Address, strconv.Itoa(int(cfg.Port))))
   ```
 
+- **Corrigé** : `MetricsConfig.address` (proto, champ 3 ; vide = toutes
+  les adresses, une IP du nœud sinon, refusée autrement), portée par
+  `internal/exporter.Config`, `janusctl system metrics -address IP|'*'`
+  (même convention que `node-exporter`), le relais et la page **Apps ›
+  Janus exporter** (champ Address, rappel qu'une adresse de management
+  garde les métriques hors des réseaux servis). La valeur par défaut
+  reste « toutes les adresses » : la changer aurait cassé les scrapes
+  existants. `make qemu-metrics-test` (sur 127.0.0.1 l'hôte ne joint
+  plus le port, `'*'` le remet, `not-an-ip` refusé). Documenté dans
+  `docs/metrics.md` ; `janusctl-reference.md` régénéré.
+
 ## 11. (Faible) `janusd_t` a toutes les capacités
 
 - **Où** : `selinux/policy.conf:287-288` :
@@ -394,6 +446,12 @@ décrit la correction et sa vérification. Restent ouverts : #1, #5, #6,
   Alternative : garder `readers` et masquer `password`/`auth_pass` dans la
   réponse quand l'appelant n'est pas opérateur. Mettre
   `docs/private-cloud/api-reference.md` à jour (`-update`).
+
+- **Corrigé** : les deux RPC en `operators` ; `api-reference.md`
+  régénéré ; `docs/bgp.md` et `docs/vrrp.md` le disent. Les pages BGP et
+  VRRP du Controller n'offrent l'éditeur qu'à qui `may()` l'autorise
+  (`ModuleConfigEditor`, `readMethod`) : un lecteur voit l'état, pas la
+  configuration.
 
 ## 13. (Faible) Pas de linter sécurité
 
@@ -517,12 +575,13 @@ décrit la correction et sa vérification. Restent ouverts : #1, #5, #6,
 
 1. #1 : réactiver `CPU_MITIGATIONS` sur les deux pistes x86, puis une
    passe image-build complète (boot, hardening, perfs à mesurer).
-2. #6 : contraindre la section `global` avant tout `haproxy -c`.
+2. #6 : contraindre la section `global` avant tout `haproxy -c`. Fait.
 3. #2, #7, #8 : les trois corrections de workflows, sans effet fonctionnel.
+   Fait (#8 : créer `APT_HOST_KEY`).
 4. #3, #4, #5, #15 : les quatre corrections du Controller, vérifiées par
-   `make qemu-dashboard-test`.
-5. #12 : BGP/VRRP en `operators`, régénérer `api-reference.md`.
-6. #9, #10, #11, #13, #14, #16 : au fil de l'eau.
+   `make qemu-dashboard-test`. Fait.
+5. #12 : BGP/VRRP en `operators`, régénérer `api-reference.md`. Fait.
+6. #9, #10, #11, #13, #14, #16 : au fil de l'eau. Restent #9 et #11.
 
 ## Comment rejouer les vérifications
 
