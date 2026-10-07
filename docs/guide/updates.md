@@ -78,12 +78,12 @@ janusctl -n lb1 version           # the release now running, and its slot
   update that can't be kexec'd reboots through the firmware and says so.
   A revert always goes through the firmware. Known not to work: a
   virtual machine whose UEFI variables are served from SMM (OVMF's
-  Secure Boot-capable firmware with the flash in secure mode - what
-  Proxmox VE gives a q35 machine with an EFI disk, and libvirt a
-  machine with `secure-boot` enabled): the kernel jumped into crashes
-  at once and the firmware boots the node instead - slower, not lost.
-  The Controller's own libvirt machines (Secure Boot off) and VMs on
-  the plain OVMF are fine.
+  Secure Boot-capable firmware - what Proxmox VE gives a q35 machine
+  with an EFI disk, and libvirt a machine with `secure-boot` enabled):
+  the kernel jumped into crashes at once and the firmware boots the
+  node instead - slower, not lost. The Controller's own libvirt
+  machines (Secure Boot off) and VMs on the plain OVMF are fine; bare
+  metal is untried.
 
 ## Going back
 

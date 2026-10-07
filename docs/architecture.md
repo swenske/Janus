@@ -116,15 +116,17 @@ UEFI variables); the kernel itself verifies nothing (no
 bzImage, not the command line that pins the root filesystem). It is
 opt-in, because a device left in an odd state by the running kernel is
 kexec's known risk; a revert after a failed health check always goes
-through the firmware. One such state is known (2026-10-07): under
-OVMF's Secure Boot-capable firmware with the flash in secure mode -
-its UEFI variable services run in SMM - the kexec'd kernel corrupts
-itself as soon as it uses the EFI runtime services (`efi=noruntime`
-makes it boot), so Proxmox VE's q35 machines and libvirt's
-`secure-boot` machines reboot through the firmware after a crash.
-Passing `efi=noruntime` to the kexec'd kernel, with the Secure Boot
-state carried on its command line instead of read from variables it
-no longer has, is the candidate fix.
+through the firmware. One such state is known (2026-10-07): under a
+firmware whose UEFI variable services run in SMM - OVMF's Secure
+Boot-capable build, what Proxmox VE gives a q35 machine and libvirt a
+`secure-boot` one - the kexec'd kernel corrupts itself before it
+reaches userspace (an oops in the scheduler during its APIC timer
+calibration, every time, on real KVM), and the firmware boots the
+node after the crash: slower, not lost. It isn't the EFI runtime calls
+(`efi=noruntime` on the kexec'd kernel alone changes nothing) but what
+the first kernel hands the second about the firmware: a UKI whose
+whole command line carries `efi=noruntime` kexecs fine under it, at
+the price of no UEFI variables at all. Undecided; bare metal untried.
 
 ## mTLS / PKI
 
