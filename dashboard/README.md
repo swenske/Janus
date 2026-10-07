@@ -144,17 +144,22 @@ What follows from it:
   image's `/data` owner by itself. The data of an installation from
   before (root's) is given to 65532 by the updater at the update, as
   its own step - by the updater of v2026.10.07-3 or later: **crossing
-  into v2026.10.07-3, the running updater is an older one, so do it by
-  hand first**, like an installation updated by hand or on a
-  bind-mounted directory. Once, the Controller running or not - the
+  into v2026.10.07-3 is done by hand** (the older updater neither
+  gives the data away nor opens its socket to the new user: the new
+  version can't start, and is put back), like an installation updated
+  by hand or on a bind-mounted directory. With the Controller
+  **stopped** - running, it keeps writing files as root - and the
   image has no `chown`, any image with one will do; the master key
   file (`JANUS_CONTROLLER_MASTER_KEY_FILE`, in its own volume the
   updater doesn't mount) is the operator's in every case:
 
   ```sh
+  docker compose stop janus-controller
   docker run --rm -v janus-controller_janus-controller-data:/data \
     -v janus-controller_janus-controller-secrets:/secrets \
     busybox chown -R 65532:65532 /data /secrets/master.key
+  # .env: JANUS_CONTROLLER_IMAGE=<the release's controller-image.txt>
+  docker compose up -d
   ```
 
   (Compose names the volumes after the project, by default the
