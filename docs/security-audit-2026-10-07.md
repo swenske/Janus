@@ -25,9 +25,12 @@ décrit la correction et sa vérification.
 Deuxième passe le même jour (« groupe B » : les corrections qui changent
 un comportement, chacune prouvée par son test QEMU) : #5, #6, #10, #12,
 et #8 (clé d'hôte apt épinglée, variable `APT_HOST_KEY` créée).
-Restent ouverts : #1,
-#9 (`USER` dans l'image : migration du propriétaire du volume), #11 -
-les décisions du groupe C.
+
+Troisième passe le même jour (« groupe C ») : #9 (image non-root,
+migration par l'updater, actions utilisateur dans la note de release)
+et #11 (capacités de `janusd_t` mesurées puis listées). **#1 reste
+ouvert par décision** (2026-10-07) : les noyaux x86 restent sans
+mitigations CPU ; le point est documenté ici pour qu'il soit revu.
 
 ## Tableau de synthèse
 
@@ -43,7 +46,7 @@ les décisions du groupe C.
 | 8 | Faible | Corrigé | CI | `.github/workflows/image-build.yml` | Entrée de dispatch interpolée dans un `run:` ; TOFU SSH à la publication apt |
 | 9 | Faible | Corrigé | Conteneur | `dashboard/Dockerfile`, `examples/compose/compose.yaml` | Controller en root, réseau hôte, Compose sans durcissement |
 | 10 | Faible | Corrigé | Exposition réseau | `internal/exporter/exporter.go` | Exporter actif par défaut, HTTP clair, toutes interfaces |
-| 11 | Faible | Ouvert | SELinux | `selinux/policy.conf` | `janusd_t` a toutes les capacités |
+| 11 | Faible | Corrigé | SELinux | `selinux/policy.conf` | `janusd_t` a toutes les capacités |
 | 12 | Faible | Corrigé | RBAC | `internal/rbac/rbac.go` | Configs BGP et VRRP (mots de passe) lisibles par `os:reader` |
 | 13 | Faible | Corrigé | Outillage | `.golangci.yml` | Pas de linter sécurité (`gosec`) |
 | 14 | Faible | Corrigé | Dépendances | `site/docs/package.json` | Dépendances de build du site docs avec vulnérabilités connues |
@@ -441,6 +444,32 @@ les décisions du groupe C.
   sys_resource setuid setgid chown dac_override dac_read_search fowner
   fsetid kill audit_write` ; la liste réelle fait foi.
 
+- **Corrigé** : mesure d'abord (`auditallow janusd_t self:capability *`
+  et `capability2 *`, le journal série de 26 tests QEMU enforcing
+  collecté : install, upgrade, rollback, revert, pcap, sysctl, réseau,
+  firewall, VRRP, BGP, Consul, ACME, extensions, flotte,
+  auto-enregistrement, orchestrateur, reset), puis la liste vue
+  « granted » et rien d'autre : `net_admin net_raw sys_admin sys_boot
+  sys_time sys_ptrace kill dac_read_search` et `capability2 syslog`.
+  La liste attendue dans le rapport était plus large : `chown`,
+  `dac_override`, `fowner`, `setuid`/`setgid`, `sys_resource`,
+  `net_bind_service`, `audit_write` ne sont jamais demandés (janusd
+  reste root et possède ses fichiers, les limites viennent d'init, ses
+  ports sont au-dessus de 1024) ; `sys_ptrace` (lecture de
+  `/proc/<pid haproxy>/fd` par l'observateur sysctl, haproxy en uid
+  1000) et `syslog` (`/dev/kmsg`) auraient été oubliés. Seconde passe
+  avec la liste explicite : les mêmes tests, **zéro refus** de capacité.
+  Le kernel supprime une partie des messages d'audit en rafale
+  (`kauditd_printk_skb: callbacks suppressed`) : une capacité
+  manquée apparaîtrait en prod comme `avc: denied … tclass=capability`
+  dans `janusctl system dmesg` (dit dans la note de release). Au
+  passage, un refus réel sans rapport : `init_t` sur le répertoire
+  `EFI/BOOT` de l'ESP (`vfat_t:dir write`) à chaque revert de boot -
+  `os.WriteFile` ouvre avec `O_CREATE`, dont le noyau vérifie le droit
+  d'écriture sur le répertoire avant de regarder si le fichier existe ;
+  l'ouverture aboutissait quand même. `espswitch.Activate` ouvre sans
+  `O_CREATE` (le fichier existe toujours : c'est celui qui a démarré).
+
 ## 12. (Faible) Configs BGP et VRRP lisibles par `os:reader`
 
 - **Où** : `internal/rbac/rbac.go:117` (`BGPGetConfig: readers`) et `:120`
@@ -595,7 +624,7 @@ les décisions du groupe C.
 4. #3, #4, #5, #15 : les quatre corrections du Controller, vérifiées par
    `make qemu-dashboard-test`. Fait.
 5. #12 : BGP/VRRP en `operators`, régénérer `api-reference.md`. Fait.
-6. #9, #10, #11, #13, #14, #16 : au fil de l'eau. Restent #9 et #11.
+6. #9, #10, #11, #13, #14, #16 : au fil de l'eau. Fait.
 
 ## Comment rejouer les vérifications
 
