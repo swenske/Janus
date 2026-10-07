@@ -180,11 +180,15 @@ check "DNS from the lease" '^dns: 10\.0\.2\.3' "$st"
 # The kernel drops the synchronized status when its clocksource changes
 # (the TSC refined a second after boot) and janusd restores it within
 # its next recheck (internal/timesync, 5 s): poll, don't read once.
-for _ in $(seq 1 30); do
-  st="$(ctl network status)"
-  grep -Eq '^time: synchronized, servers 10\.100\.0\.1 \(configured\)' <<<"$st" && break
-  sleep 1
-done
+wait_synced() { # wait_synced PATTERN: network status matches within 30 s, st holds it
+  for _ in $(seq 1 30); do
+    st="$(ctl network status)"
+    grep -Eq "$1" <<<"$st" && return 0
+    sleep 1
+  done
+  return 0
+}
+wait_synced '^time: synchronized, servers 10\.100\.0\.1 \(configured\)'
 check "clock synchronized from the configured server" '^time: synchronized, servers 10\.100\.0\.1 \(configured\)' "$st"
 check "network get returns the seeded configuration" '"hostname": "lb-test"' "$(ctl network get)"
 check "hostname RPC" '^lb-test$' "$(ctl system hostname)"
@@ -252,6 +256,7 @@ check "after reboot: the confirmed configuration" '192\.168\.77\.20/24' "$st"
 check_not "after reboot: not a reverted one" '192\.168\.77\.30/' "$st"
 check "after reboot: hostname" '^hostname: lb-test2$' "$st"
 check "after reboot: VLAN" '^  eth2\.100 +vlan 100 on eth2 ' "$st"
+wait_synced '^time: synchronized'
 check "after reboot: clock set again" '^time: synchronized' "$st"
 # Once synchronized, the kernel copies system time to the hardware clock
 # (CONFIG_GENERIC_CMOS_UPDATE): the second boot starts on time, not in

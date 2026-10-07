@@ -140,7 +140,13 @@ func TestOnceMoreAfterANodeReboot(t *testing.T) {
 	// client holds a connection that looks fine - and a plain call sees
 	// the reset.
 	proxy.reboot()
-	if _, err := call(); status.Code(err) != codes.Unavailable {
+	// Usually the reset: grpc may also have noticed the dead connection
+	// by itself and opened a new one, on which the call just works (a
+	// loaded CI runner) - anything else is wrong.
+	plainCalls := 0
+	if _, err := call(); err == nil {
+		plainCalls = 1
+	} else if status.Code(err) != codes.Unavailable {
 		t.Fatalf("the first call on the dead connection: %v, want Unavailable", err)
 	}
 	// Once more, after another reboot: onceMore hides it.
@@ -157,7 +163,7 @@ func TestOnceMoreAfterANodeReboot(t *testing.T) {
 	}
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
-	if fake.calls != 3 {
+	if fake.calls != 3+plainCalls {
 		t.Fatalf("the node served %d calls, want 3 (before, after the first reboot, after the second)", fake.calls)
 	}
 }
