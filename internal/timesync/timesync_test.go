@@ -142,7 +142,11 @@ func TestRunResyncsWhenTheKernelDropsTheStatus(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("the kernel dropped the status and Run didn't synchronize again")
 	}
-	if !s.WaitSynced(time.Second) || !kernelOK.Load() {
-		t.Fatal("not disciplined again")
+	// The query is seen before its answer disciplines the clock.
+	for i := 0; !kernelOK.Load(); i++ {
+		if i == 100 {
+			t.Fatal("not disciplined again")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
