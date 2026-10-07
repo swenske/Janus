@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -129,7 +130,7 @@ func runSysctl(conn *grpc.ClientConn, endpoint string, redial redialer, args []s
 				fmt.Printf("    %s: %s → %s\n", ch.GetName(), shown(ch.GetOldValue()), shown(ch.GetNewValue()))
 			}
 			if d := e.GetDetail(); d != "" {
-				fmt.Printf("    %s\n", d)
+				fmt.Printf("    %s\n", localTimes(d))
 			}
 		}
 
@@ -416,4 +417,21 @@ func actorString(a *janusv1alpha1.SysctlActor) string {
 		s += " via " + a.GetVia()
 	}
 	return s
+}
+
+// rfc3339 matches a timestamp a node wrote into a detail ("reverts at
+// 2026-10-07T14:01:02Z unless confirmed").
+var rfc3339 = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})`)
+
+// localTimes rewrites the timestamps in a node's detail in this machine's
+// time zone, as every other time this command prints: the node writes
+// them in UTC.
+func localTimes(detail string) string {
+	return rfc3339.ReplaceAllStringFunc(detail, func(ts string) string {
+		t, err := time.Parse(time.RFC3339, ts)
+		if err != nil {
+			return ts
+		}
+		return t.Local().Format(time.RFC3339)
+	})
 }
