@@ -583,6 +583,13 @@ const (
 func connectionOptions(pingAfter, pingTimeout time.Duration) []grpc.ServerOption {
 	return []grpc.ServerOption{
 		grpc.KeepaliveParams(keepalive.ServerParameters{Time: pingAfter, Timeout: pingTimeout}),
+		// A client may ping too: the Controller holds one long-lived
+		// connection per node, which a reboot leaves dead on its side
+		// until the next call. gRPC's default policy answers pings
+		// closer than 5 minutes, or without a stream, with a GOAWAY -
+		// so no client pings yet (nodes from before this would cut the
+		// connection); once every node has this, the Controller can.
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 20 * time.Second, PermitWithoutStream: true}),
 		grpc.MaxConcurrentStreams(maxConcurrentStreams),
 	}
 }
