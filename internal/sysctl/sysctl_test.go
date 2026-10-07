@@ -801,14 +801,13 @@ func TestHistoryKeepsTheNewest(t *testing.T) {
 	}
 }
 
-func TestListeningPorts(t *testing.T) {
-	const tcp = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-   0: 00000000:2521 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1 1 0000000000000000 100 0 0 10 0
-   1: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2 1 0000000000000000 100 0 0 10 0
-   2: 0F02000A:2521 0202000A:C350 01 00000000:00000000 02:0000A0BB 00000000     0        0 3 4 0000000000000000 20 4 30 10 -1
-`
-	if got := listeningPorts(tcp); !slices.Equal(got, []int64{9505, 8080}) {
-		t.Fatalf("%v", got)
+// TestListeningPortsFromTheKernel: a listener this test opens is among
+// the node's listening ports.
+func TestListeningPortsFromTheKernel(t *testing.T) {
+	addr := listenWith(t, 3)
+	ports, err := ProcProbes{Proc: "/proc"}.ListeningTCPPorts()
+	if err != nil || !slices.Contains(ports, int64(addr.Port())) || !slices.IsSorted(ports) {
+		t.Fatalf("listening ports %v, %v: want %d among them, sorted", ports, err, addr.Port())
 	}
 }
 

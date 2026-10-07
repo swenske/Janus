@@ -28,6 +28,7 @@ import (
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/releasetrust"
 	"github.com/swenske/Janus/internal/schematic"
+	"github.com/swenske/Janus/internal/shutdown"
 )
 
 // Lifecycle implements janusv1alpha1.LifecycleServiceServer.
@@ -283,6 +284,7 @@ func (l *Lifecycle) scheduleReboot() {
 				log.Printf("lifecycle: stop haproxy: %v", err)
 			}
 		}
+		shutdown.Run()
 		syscall.Sync()
 		consoledrain.Wait(os.Stderr, 2*time.Second)
 		if err := syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART); err != nil {

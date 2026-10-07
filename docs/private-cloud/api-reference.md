@@ -171,7 +171,7 @@ The node's kernel parameters ([docs/guide/kernel-tuning.md](../guide/kernel-tuni
 
 | Call | Request → response | Role | Domain | What it does |
 |---|---|---|---|---|
-| `SysctlList` | `Empty` → `SysctlListResponse` | `os:reader` | observe | SysctlList reports every parameter the node shows - its value, Janus's default, the saved one, its bounds, what it does to HAProxy and its risks -, the CIS benchmark's controls, and what's on trial. |
+| `SysctlList` | `Empty` → `SysctlListResponse` | `os:reader` | observe | SysctlList reports every parameter the node shows - its value, Janus's default, the saved one, its bounds, what it does to HAProxy, its risks and a value suggested for this node -, the CIS benchmark's controls, what's on trial, and what the node observed for its suggestions. |
 | `SysctlApply` | `SysctlApplyRequest` → `SysctlApplyResponse` | `os:admin` | system | SysctlApply checks changes against the whitelist, each parameter's bounds and the node's state, and applies them on trial: unless SysctlConfirm comes within the timeout, the values from before the trial come back by themselves. A trial already running grows by these changes. With validate_only, it only checks them. |
 | `SysctlConfirm` | `Empty` → `SysctlTrialResponse` | `os:admin` | system | SysctlConfirm saves the values on trial, which every boot then applies. It must come over a connection opened after the latest SysctlApply - proof that the node still takes new connections. |
 | `SysctlCancel` | `Empty` → `SysctlTrialResponse` | `os:admin` | system | SysctlCancel puts the values from before the trial back at once. |

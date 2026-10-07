@@ -362,6 +362,16 @@ func (m *Manager) env() []string {
 	return append(os.Environ(), m.Env()...)
 }
 
+// Pid is the current HAProxy process's - 0 if none runs.
+func (m *Manager) Pid() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cur == nil || m.cur.exited() {
+		return 0
+	}
+	return m.cur.cmd.Process.Pid
+}
+
 // StartedAt is when the current HAProxy process started - zero if none
 // runs. A file created since then isn't loaded in it.
 func (m *Manager) StartedAt() time.Time {

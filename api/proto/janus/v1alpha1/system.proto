@@ -148,8 +148,10 @@ service SystemService {
   // answer FailedPrecondition unless janusd runs a Janus node.
 
   // SysctlList reports every parameter the node shows - its value,
-  // Janus's default, the saved one, its bounds, what it does to HAProxy
-  // and its risks -, the CIS benchmark's controls, and what's on trial.
+  // Janus's default, the saved one, its bounds, what it does to HAProxy,
+  // its risks and a value suggested for this node -, the CIS benchmark's
+  // controls, what's on trial, and what the node observed for its
+  // suggestions.
   rpc SysctlList(google.protobuf.Empty) returns (SysctlListResponse);
   // SysctlApply checks changes against the whitelist, each parameter's
   // bounds and the node's state, and applies them on trial: unless
@@ -230,7 +232,8 @@ message SysctlParameter {
   string haproxy_value = 22; // HAProxy's recommendation, empty when none
   repeated SysctlSource sources = 23;
   repeated string warnings = 24; // about the live value
-  // A value suggested for this machine, and why - not offered yet.
+  // A value suggested for this node, from its memory and what it
+  // observed, and why - never applied by itself; unset: none.
   SysctlRecommendation recommendation = 25;
 }
 
@@ -292,6 +295,27 @@ message SysctlListResponse {
   repeated SysctlParameter parameters = 2;
   SysctlCIS cis = 3;
   SysctlTrial trial = 4; // unset: nothing on trial
+  SysctlObservation observation = 5; // unset: nothing observes - not a Janus node
+}
+
+// A signal the node observes: a kernel counter summed by hour, or a gauge
+// maxed by hour.
+message SysctlSignal {
+  string id = 1; // "accept_overflows"
+  string title = 2;
+  string measure = 3; // what's read, and where
+  string seen = 4; // when an hour counts
+  uint32 hours = 5; // the different hours it was seen in, over the window
+  uint64 total = 6; // a counter's increase over the window
+  string peak = 7; // its highest, in words; empty: nothing yet
+  int64 last_seen_unix = 8; // the last hour it was seen in; 0: never
+}
+
+message SysctlObservation {
+  int64 since_unix = 1; // the oldest hour kept
+  uint32 window_hours = 2; // a signal counts over the last window_hours
+  uint32 min_hours = 3; // in this many different hours at least
+  repeated SysctlSignal signals = 4;
 }
 
 message SysctlChangeRequest {

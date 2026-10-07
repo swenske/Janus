@@ -3,9 +3,13 @@ package sysctl
 import (
 	"bufio"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/swenske/Janus/internal/sockdiag"
 )
 
 // Probes look at the node's state for the checks that depend on it.
@@ -25,49 +29,20 @@ type ProcProbes struct {
 	Proc string // "/proc"
 }
 
+// ListeningTCPPorts asks sock_diag for the listening sockets: the
+// kernel filters them, however many connections the node holds - where
+// /proc/net/tcp formats a line for each one.
 func (p ProcProbes) ListeningTCPPorts() ([]int64, error) {
-	seen := map[int64]bool{}
-	for _, name := range []string{"tcp", "tcp6"} {
-		data, err := os.ReadFile(p.Proc + "/net/" + name)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
+	var out []int64
+	for _, family := range []uint8{unix.AF_INET, unix.AF_INET6} {
+		if err := sockdiag.TCP(family, sockdiag.States(sockdiag.Listen), func(s sockdiag.Socket) {
+			out = append(out, int64(s.Src.Port()))
+		}); err != nil {
 			return nil, err
 		}
-		for _, port := range listeningPorts(string(data)) {
-			seen[port] = true
-		}
 	}
-	out := make([]int64, 0, len(seen))
-	for port := range seen {
-		out = append(out, port)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-	return out, nil
-}
-
-// listeningPorts reads /proc/net/tcp's sockets in state 0A (LISTEN): a
-// header line, then "sl local_address rem_address st ...", the local
-// address ending in ":<port in hex>".
-func listeningPorts(content string) []int64 {
-	var out []int64
-	lines := strings.Split(content, "\n")
-	for _, line := range lines[1:] {
-		f := strings.Fields(line)
-		if len(f) < 4 || f[3] != "0A" {
-			continue
-		}
-		i := strings.LastIndexByte(f[1], ':')
-		if i < 0 {
-			continue
-		}
-		port, err := strconv.ParseInt(f[1][i+1:], 16, 64)
-		if err == nil {
-			out = append(out, port)
-		}
-	}
-	return out
+	slices.Sort(out)
+	return slices.Compact(out), nil
 }
 
 func (p ProcProbes) OpenFiles() (int64, error) {

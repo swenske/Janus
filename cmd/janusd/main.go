@@ -56,6 +56,7 @@ import (
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/schematic"
 	"github.com/swenske/Janus/internal/selfregister"
+	"github.com/swenske/Janus/internal/shutdown"
 	"github.com/swenske/Janus/internal/sysctl"
 	"github.com/swenske/Janus/internal/timesync"
 	"github.com/swenske/Janus/internal/vrrp"
@@ -211,6 +212,15 @@ func main() {
 		return haproxyMgr.Reload()
 	})
 	sysctlMgr.Boot()
+	// What the suggestions rest on: the node's own counters, by hour,
+	// kept on STATE - only on a Janus node.
+	if *manageHost {
+		obs := sysctl.NewObserver(haproxyMgr.Pid)
+		obs.Logf = log.Printf
+		sysctlMgr.Observe(obs)
+		shutdown.Before(obs.Close)
+		go obs.Run(context.Background())
+	}
 
 	// Start haproxy from whatever config is already on disk (the
 	// bootstrap default at first boot - see rootfs/base/etc/haproxy -
@@ -299,6 +309,7 @@ func main() {
 		if err := haproxyMgr.Stop(5 * time.Second); err != nil {
 			log.Printf("haproxy: stop: %v", err)
 		}
+		shutdown.Run()
 		syscall.Sync()
 		os.Exit(0)
 	}()
@@ -600,6 +611,7 @@ func confirmBootHealth(marker *bootcommit.Marker, mgr *haproxy.Manager) {
 			if err := bootrevert.To(marker); err != nil {
 				return err
 			}
+			shutdown.Run()
 			syscall.Sync()
 			log.Printf("bootcommit: rebooting to complete the revert to slot %s", marker.RevertTo)
 			events.Publish("bootcommit.reverted", map[string]string{"slot": marker.Slot, "revert_to": marker.RevertTo})

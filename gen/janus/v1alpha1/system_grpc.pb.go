@@ -177,8 +177,10 @@ type SystemServiceClient interface {
 	// with them, and they're kept.
 	NodeExporterConfigSet(ctx context.Context, in *NodeExporterConfig, opts ...grpc.CallOption) (*NodeExporterConfigResponse, error)
 	// SysctlList reports every parameter the node shows - its value,
-	// Janus's default, the saved one, its bounds, what it does to HAProxy
-	// and its risks -, the CIS benchmark's controls, and what's on trial.
+	// Janus's default, the saved one, its bounds, what it does to HAProxy,
+	// its risks and a value suggested for this node -, the CIS benchmark's
+	// controls, what's on trial, and what the node observed for its
+	// suggestions.
 	SysctlList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SysctlListResponse, error)
 	// SysctlApply checks changes against the whitelist, each parameter's
 	// bounds and the node's state, and applies them on trial: unless
@@ -810,8 +812,10 @@ type SystemServiceServer interface {
 	// with them, and they're kept.
 	NodeExporterConfigSet(context.Context, *NodeExporterConfig) (*NodeExporterConfigResponse, error)
 	// SysctlList reports every parameter the node shows - its value,
-	// Janus's default, the saved one, its bounds, what it does to HAProxy
-	// and its risks -, the CIS benchmark's controls, and what's on trial.
+	// Janus's default, the saved one, its bounds, what it does to HAProxy,
+	// its risks and a value suggested for this node -, the CIS benchmark's
+	// controls, what's on trial, and what the node observed for its
+	// suggestions.
 	SysctlList(context.Context, *emptypb.Empty) (*SysctlListResponse, error)
 	// SysctlApply checks changes against the whitelist, each parameter's
 	// bounds and the node's state, and applies them on trial: unless

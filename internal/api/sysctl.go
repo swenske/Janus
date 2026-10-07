@@ -35,7 +35,7 @@ func (s *System) SysctlList(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1
 		return nil, err
 	}
 	snap := m.Snapshot()
-	resp := &janusv1alpha1.SysctlListResponse{Managed: snap.Managed, Cis: sysctlCISProto(snap.CIS), Trial: sysctlTrialProto(snap.Trial)}
+	resp := &janusv1alpha1.SysctlListResponse{Managed: snap.Managed, Cis: sysctlCISProto(snap.CIS), Trial: sysctlTrialProto(snap.Trial), Observation: sysctlObservationProto(snap.Observation)}
 	for _, ps := range snap.Params {
 		resp.Parameters = append(resp.Parameters, sysctlParamProto(ps))
 	}
@@ -81,6 +81,25 @@ func sysctlParamProto(ps sysctl.ParamState) *janusv1alpha1.SysctlParameter {
 			rec.Measured = append(rec.Measured, &janusv1alpha1.SysctlMeasurement{Name: m.Name, Value: m.Value, Window: m.Window})
 		}
 		out.Recommendation = rec
+	}
+	return out
+}
+
+func sysctlObservationProto(o *sysctl.Observation) *janusv1alpha1.SysctlObservation {
+	if o == nil {
+		return nil
+	}
+	out := &janusv1alpha1.SysctlObservation{SinceUnix: o.Since.Unix(), WindowHours: uint32(sysctl.Window.Hours()), MinHours: sysctl.MinHours}
+	for _, def := range sysctl.Signals {
+		st := o.Signals[def.ID]
+		sig := &janusv1alpha1.SysctlSignal{Id: def.ID, Title: def.Title, Measure: def.Measure, Seen: def.Seen, Hours: uint32(st.Hours), Peak: sysctl.PeakText(def.ID, st)}
+		if def.Kind == sysctl.Counter {
+			sig.Total = uint64(st.Total)
+		}
+		if !st.LastSeen.IsZero() {
+			sig.LastSeenUnix = st.LastSeen.Unix()
+		}
+		out.Signals = append(out.Signals, sig)
 	}
 	return out
 }

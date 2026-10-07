@@ -117,7 +117,7 @@ func TestWhoWritesKernelParameters(t *testing.T) {
 var updateDoc = flag.Bool("update", false, "rewrite docs/guide/kernel-tuning.md's generated parts")
 
 // TestKernelTuningDoc keeps docs/guide/kernel-tuning.md's tables what
-// Catalog and CISControls say.
+// Catalog, CISControls, Signals and the rules say.
 func TestKernelTuningDoc(t *testing.T) {
 	const file = "../../docs/guide/kernel-tuning.md"
 	data, err := os.ReadFile(file)
@@ -129,6 +129,8 @@ func TestKernelTuningDoc(t *testing.T) {
 		{"editable", docEditable()},
 		{"readonly", docReadOnly()},
 		{"cis", docCIS()},
+		{"signals", docSignals()},
+		{"rules", docRules()},
 	} {
 		begin := "<!-- generated: " + part.name + " - go test ./internal/sysctl -run TestKernelTuningDoc -update -->\n"
 		end := "<!-- end: " + part.name + " -->"
@@ -254,6 +256,26 @@ func docCIS() string {
 			key += ", and on every interface"
 		}
 		fmt.Fprintf(&b, "| %s | %d | %s | `%s` | %s |\n", c.ID(), c.Level, key, c.Value, strings.Join(c.Want, " or "))
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+func docSignals() string {
+	var b strings.Builder
+	b.WriteString("| Signal | What's read | An hour counts when |\n|---|---|---|\n")
+	for _, sig := range Signals {
+		fmt.Fprintf(&b, "| %s (`%s`) | %s | %s |\n", sig.Title, sig.ID, cell(sig.Measure), cell(sig.Seen))
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+func docRules() string {
+	var b strings.Builder
+	b.WriteString("| Parameter | Rule | When, and what it suggests | Sources |\n|---|---|---|---|\n")
+	for _, p := range EditableParams() {
+		for _, r := range p.Rules {
+			fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s |\n", p.Name, r.ID, cell(r.Text), docSources(r.Sources))
+		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }

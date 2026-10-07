@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -97,6 +98,7 @@ type Manager struct {
 	mu    sync.Mutex
 	trial *trial
 	now   func() time.Time
+	obs   *Observer
 }
 
 // NewManager makes the manager. manage false keeps it read-only - janusd
@@ -110,6 +112,13 @@ func NewManager(manage bool, probes Probes, reload func() error) *Manager {
 
 // Managed reports whether the manager may change anything.
 func (m *Manager) Managed() bool { return m.manage }
+
+// Observe makes o's signals the ground of the parameters' suggestions.
+func (m *Manager) Observe(o *Observer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.obs = o
+}
 
 // Boot puts every Editable parameter back to its saved value or default,
 // so that a trial a janusd restart interrupted doesn't outlive it, and
@@ -153,7 +162,8 @@ type ParamState struct {
 	HasSaved bool
 	OnTrial  bool
 	Warnings []string
-	// Recommendation is a suggested value - phase 2, none yet.
+	// Recommendation is a value suggested for this node - never applied
+	// by itself.
 	Recommendation *Recommendation
 }
 
@@ -163,6 +173,9 @@ type Snapshot struct {
 	Params  []ParamState
 	CIS     Audit
 	Trial   *Trial
+	// Observation is what the node observed for its suggestions; nil
+	// when nothing observes.
+	Observation *Observation
 }
 
 // Snapshot reads every parameter of Catalog, the CIS benchmark and the
@@ -174,6 +187,13 @@ func (m *Manager) Snapshot() Snapshot {
 	live := liveEditable()
 	e := &env{target: live, probes: m.probes}
 	s := Snapshot{Managed: m.manage, CIS: AuditCIS(Root)}
+	var metrics Metrics
+	if m.obs != nil {
+		metrics = m.obs.Metrics()
+		metrics.Live = live
+		o := m.obs.Observation()
+		s.Observation = &o
+	}
 	for _, p := range Catalog {
 		ps := ParamState{Param: p}
 		v, err := readValue(p.Path(Root))
@@ -191,6 +211,9 @@ func (m *Manager) Snapshot() Snapshot {
 			if p.warn != nil && ps.Missing == "" {
 				ps.Warnings = p.warn(ps.Value, e)
 			}
+			if m.obs != nil && ps.Missing == "" {
+				ps.Recommendation = m.recommend(p, metrics, live)
+			}
 		}
 		s.Params = append(s.Params, ps)
 	}
@@ -199,6 +222,24 @@ func (m *Manager) Snapshot() Snapshot {
 		s.Trial = &t
 	}
 	return s
+}
+
+// recommend is p's suggestion, if the node would take it: the same
+// checks as a change's, with the other parameters as they are.
+func (m *Manager) recommend(p *Param, metrics Metrics, live map[string]string) *Recommendation {
+	rec, ok := p.Recommend(metrics)
+	if !ok {
+		return nil
+	}
+	if p.check != nil {
+		_, nums, err := p.Parse(rec.Value)
+		target := maps.Clone(live)
+		target[p.Name] = rec.Value
+		if err != nil || p.check(nums, &env{target: target, probes: m.probes}) != nil {
+			return nil
+		}
+	}
+	return &rec
 }
 
 // liveEditable is every Editable parameter's live value, normalized - ""

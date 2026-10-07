@@ -174,6 +174,7 @@ janusctl system sysctl set -no-confirm net.core.somaxconn=30000
 janusctl system sysctl confirm                   # keep it - or: cancel
 janusctl system sysctl reset -all                # back to the defaults
 janusctl system sysctl history                   # who changed what, when
+janusctl system sysctl observed                  # what the suggestions rest on
 ```
 
 Without `-no-confirm`, `set` and `reset` confirm at once over a new
@@ -192,6 +193,75 @@ the node off.
   checkbox, leaves it alone: they reach it at its next reload).
 - **A reboot or a restart of janusd** during a trial ends it: the node
   comes back with the values you applied before.
+
+## Suggestions
+
+The node suggests values for some parameters - from its memory, and from
+what it observed over the last week -, each with the rule that gave it,
+what it measured and where the rule comes from. A suggestion is only ever
+shown: on the page, **Use** puts it in the table, then you test it on
+trial and apply it like any change; `janusctl system sysctl get NAME`
+prints it, with the command that tests it. It stays within the
+parameter's bounds and passes the same checks as a change - one the node
+would refuse isn't shown -, and only the parameters you can change get
+one.
+
+### What the node observes
+
+Every 15 seconds, janusd reads the kernel's counters and gauges below -
+the source ports in use, by destination, every minute -, by hour: a
+counter's increase in the hour, a gauge's highest value. It keeps 14 days
+of hours on STATE (`/etc/janus/config/sysctl-observations.json`). A rule
+acts on a signal seen in **3 different hours of the last 7 days** at
+least: a saturation that comes back, never one peak. The page's **What
+the node observed** shows each signal, as does `janusctl system sysctl
+observed`.
+
+<!-- generated: signals - go test ./internal/sysctl -run TestKernelTuningDoc -update -->
+
+| Signal | What's read | An hour counts when |
+|---|---|---|
+| Accept queue overflows (`accept_overflows`) | TcpExt ListenOverflows (/proc/net/netstat): connections dropped because a listening socket's accept queue was full. | It increased. |
+| SYN cookies sent (`syn_cookies`) | TcpExt SyncookiesSent (/proc/net/netstat): a listening socket's SYN queue was full - a flood, or a burst bigger than the backlog. | It increased. |
+| Outgoing connections a second (`outgoing_rate`) | Tcp ActiveOpens (/proc/net/snmp) over each minute: the connections the node opens - HAProxy's to its servers, mostly. | 300 or more a second, over a minute. |
+| Source ports to one server (`source_ports`) | Every minute, the sockets to each destination address and port whose source port is in net.ipv4.ip_local_port_range - TIME_WAIT ones included - over the ports the range offers (reserved ones left out). | Half the ports or more, to one destination. |
+| Open files (`open_files`) | fs.file-nr's allocated files over fs.file-max. | 80% or more. |
+| Connection tracking table (`conntrack_usage`) | net.netfilter.nf_conntrack_count over net.netfilter.nf_conntrack_max. | 75% or more. |
+| Connection tracking drops (`conntrack_drops`) | drop, early_drop and insert_failed (/proc/net/stat/nf_conntrack): packets dropped, entries evicted or refused because the table was full. | They increased. |
+| Input backlog drops (`backlog_drops`) | softnet_stat's dropped column (/proc/net/softnet_stat), every CPU: packets dropped because a CPU's input queue was full. | It increased. |
+| TCP memory pressure (`tcp_memory`) | TcpExt TCPMemoryPressures and TCPAbortOnMemory (/proc/net/netstat): TCP's memory reached net.ipv4.tcp_mem's pressure mark, or connections were reset for lack of it. | They increased. |
+<!-- end: signals -->
+
+HAProxy's listening sockets are told from the others by their inodes,
+read from HAProxy's own file descriptors once per process: root creates
+them, before HAProxy runs as uid 1000.
+
+### The rules
+
+Each parameter tries its rules in order - what the node observed before
+what its memory says - and shows the first suggestion other than its
+value. The keepalives, TCP Fast Open, `ip_nonlocal_bind`,
+`tcp_fin_timeout` and the reserved ports have none: they depend on how
+the node is used, not on a measurement. None of the parameters follows
+the number of CPUs on its own - `net.core.netdev_max_backlog` is per CPU,
+but only drops show it's short.
+
+<!-- generated: rules - go test ./internal/sysctl -run TestKernelTuningDoc -update -->
+
+| Parameter | Rule | When, and what it suggests | Sources |
+|---|---|---|---|
+| `net.core.somaxconn` | `somaxconn.overflows` | Accept queues overflowed in 3 different hours of the last 7 days or more, and one of HAProxy's listeners has net.core.somaxconn as its backlog - the kernel's limit, not one HAProxy asked for: twice the value, at most 65535. | [HAProxy configuration: backlog](https://docs.haproxy.org/3.4/configuration.html#4.2-backlog), [Linux: IP sysctl](https://docs.kernel.org/networking/ip-sysctl.html) |
+| `net.core.somaxconn` | `somaxconn.memory` | An eighth of the node's memory for full accept queues during an overload, at about 4 KiB a waiting connection, shared by HAProxy's listeners: the power of two below, 4096 at least - only when lower than the value. | [HAProxy configuration: backlog](https://docs.haproxy.org/3.4/configuration.html#4.2-backlog) |
+| `net.ipv4.ip_local_port_range` | `port_range.usage` | Sockets to one destination took half the source ports or more, in 3 different hours of the last 7 days or more: the widest range the node allows - from the first multiple of 1024 above the ports it listens on (reserved ones aside) to 65023, HAProxy's upper end - when wider than the current one. | [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system), [HAProxy configuration: source](https://docs.haproxy.org/3.4/configuration.html#4.2-source) |
+| `net.ipv4.tcp_tw_reuse` | `tw_reuse.rate` | The node opened 300 connections a second or more, in 3 different hours of the last 7 days or more: TIME_WAIT sockets reused for new outgoing connections (1) - needed above a few hundred a second. | [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system) |
+| `net.ipv4.tcp_synack_retries` | `synack_retries.cookies` | SYN cookies went out in 3 different hours of the last 7 days or more - SYN queues full, from floods or bursts: 2, so a connection that never completes leaves the queue after about 7 seconds (15 with 3) - only lowered. | [HAProxy: doc/linux-syn-cookies.txt](https://github.com/haproxy/haproxy/blob/master/doc/linux-syn-cookies.txt), [Linux: IP sysctl](https://docs.kernel.org/networking/ip-sysctl.html) |
+| `net.core.netdev_max_backlog` | `netdev_max_backlog.drops` | CPUs' input queues dropped packets in 3 different hours of the last 7 days or more: twice the value, at most 65536. | [Linux: IP sysctl](https://docs.kernel.org/networking/ip-sysctl.html), [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system) |
+| `net.ipv4.tcp_rmem` | `tcp_rmem.memory` | TCP's memory came under pressure in 3 different hours of the last 7 days or more: HAProxy's smaller buffers for many connections, 4096 16060 262144 - only when the maximum is higher. | [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system) |
+| `net.ipv4.tcp_wmem` | `tcp_wmem.memory` | TCP's memory came under pressure in 3 different hours of the last 7 days or more: HAProxy's smaller buffers for many connections, 4096 16384 262144 - only when the maximum is higher. | [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system) |
+| `fs.file-max` | `file_max.usage` | Open files reached 80% of fs.file-max in 3 different hours of the last 7 days or more: twice the highest count, rounded up to a multiple of 1024. | [HAProxy management: file-descriptor limitations](https://docs.haproxy.org/3.4/management.html#5) |
+| `net.netfilter.nf_conntrack_max` | `conntrack_max.usage` | The table reached 75% - or dropped connections for want of room - in 3 different hours of the last 7 days or more: twice the highest count, rounded up to a multiple of 1024, no less than the memory rule below gives, at most an eighth of the memory at 320 bytes an entry. | [Linux: netfilter conntrack sysctl](https://docs.kernel.org/networking/nf_conntrack-sysctl.html) |
+| `net.netfilter.nf_conntrack_max` | `conntrack_max.memory` | Connections tracked (the nftables extension's stateful rules): two entries per HAProxy connection, closed ones kept 2 minutes - a thirty-second of the memory at 320 bytes an entry, rounded down to a multiple of 1024, at most 262144 (the kernel's own value above 4 GiB) - only when higher than the value. | [Linux: netfilter conntrack sysctl](https://docs.kernel.org/networking/nf_conntrack-sysctl.html) |
+<!-- end: rules -->
 
 ## How the node keeps them
 

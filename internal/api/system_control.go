@@ -17,6 +17,7 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/shutdown"
 )
 
 // stateMountpoint is where rootfs/init mounts the persistent STATE
@@ -77,6 +78,7 @@ func (s *System) Reset(_ context.Context, req *janusv1alpha1.ResetRequest) (*jan
 		if !mounted {
 			return nil, status.Errorf(codes.FailedPrecondition, "%s isn't a mounted STATE partition on this node - nothing persistent to wipe", stateMountpoint)
 		}
+		shutdown.Run() // what's saved goes before the wipe, never after
 		if err := wipeDirContents(stateMountpoint); err != nil {
 			return nil, status.Errorf(codes.Internal, "wipe %s: %v", stateMountpoint, err)
 		}
@@ -94,6 +96,7 @@ func (s *System) schedulePower(cmd int) {
 				log.Printf("system: stop haproxy: %v", err)
 			}
 		}
+		shutdown.Run()
 		syscall.Sync()
 		consoledrain.Wait(os.Stderr, 2*time.Second)
 		if err := syscall.Reboot(cmd); err != nil {
