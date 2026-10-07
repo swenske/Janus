@@ -72,6 +72,13 @@ vrrp_instance VI_1 {
 - keepalived is built for VRRP only: no LVS/IPVS, no iptables or nftables
   integration (the firewall ruleset is janusd's), no VRRP authentication
   (removed from VRRPv3), no scripts.
+- No VMAC or IPVLAN interfaces: the check refuses `use_vmac`,
+  `use_ipvlan` and `disable_local_igmp` (their companion). The kernel has
+  neither macvlan nor ipvlan, a VMAC needs `net.ipv4.conf.all.rp_filter`
+  at 0 - which the [CIS benchmark](guide/kernel-tuning.md#the-cis-benchmark)
+  forbids - and keepalived may change no kernel parameter on a Janus node
+  (SELinux). The virtual IPs go on the interface itself, with its own MAC
+  address - announced by gratuitous ARP when they move.
 
 ## Applying
 

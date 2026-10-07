@@ -264,7 +264,8 @@ call `HAProxyService.ShowInfo` but gets `PermissionDenied` calling
   HAProxy depends on can change at runtime (`internal/sysctl`, within
   bounds, on trial - see [kernel tuning](guide/kernel-tuning.md)): never
   one of the benchmark's, which SELinux keeps out of janusd's reach too
-  (only the whitelist's files are `sysctl_tunable_t`).
+  (only the whitelist's files are `sysctl_tunable_t`) - only init writes
+  them, and no other daemon writes a kernel parameter at all.
 - No setuid binaries beyond what's strictly required; `janusd` runs as
   the sole privileged process, dropping capabilities it doesn't need.
 

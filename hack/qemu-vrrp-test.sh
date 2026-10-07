@@ -7,8 +7,9 @@
 # the virtual IP, B is backup. When A's HAProxy stops answering, A gives
 # the IP up (the health file janusd keeps, tracked by keepalived) and B
 # takes it; when it answers again, A takes it back; when A is gone, B
-# takes it again. A broken keepalived.conf is refused, the exporter
-# reports the instance, and no AVC denial appears on either node.
+# takes it again. A broken keepalived.conf is refused, so is use_vmac,
+# the exporter reports the instance, and no AVC denial appears on either
+# node - keepalived writes no kernel parameter.
 #
 # Usage: hack/qemu-vrrp-test.sh <disk.img> <janusctl-bin>
 #   VRRP_DISCOVERY=1: don't fail on AVC denials - list them (for writing
@@ -110,6 +111,13 @@ printf 'vrrp_instance VI_1 {\n  state MASTER\n}\n' > "$WORKDIR/bad.conf"
 if out="$(ctl a network vrrp check "$WORKDIR/bad.conf" 2>&1)"; then fail "a broken keepalived.conf passed the check"; fi
 grep -q "virtual router id" <<<"$out" || fail "keepalived's complaint isn't shown: $out"
 echo "  ok: a broken keepalived.conf is refused with keepalived's own message"
+
+# What a Janus node can't do is refused with the reason (internal/vrrp):
+# a VMAC needs net.ipv4.conf.all.rp_filter at 0, a CIS control.
+printf 'vrrp_instance VI_1 {\n  interface eth1\n  use_vmac\n  virtual_router_id 51\n  priority 100\n  virtual_ipaddress {\n    10.9.0.100/24\n  }\n}\n' > "$WORKDIR/vmac.conf"
+if out="$(ctl a network vrrp check "$WORKDIR/vmac.conf" 2>&1)"; then fail "a keepalived.conf with use_vmac passed the check"; fi
+grep -q "Line 3) use_vmac isn't supported on Janus - .*3.3.1.12" <<<"$out" || fail "use_vmac's refusal doesn't say why: $out"
+echo "  ok: use_vmac is refused, with the reason"
 
 for n in a b; do
   prio=$([ "$n" = a ] && echo 150 || echo 100)

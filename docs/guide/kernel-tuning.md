@@ -210,7 +210,9 @@ with these values.
 
 SELinux enforces the same whitelist underneath: only these parameters'
 files are labelled `sysctl_tunable_t`, the only `/proc/sys` files janusd
-may write - the benchmark's stay out of its reach. A janusd that doesn't
+may write - the benchmark's stay out of its reach, and only init writes
+them. No other daemon - HAProxy, an extension's - writes a kernel
+parameter at all. A janusd that doesn't
 run a Janus node (`-manage-host` off, as in local-dev) shows the
 parameters and changes none.
 

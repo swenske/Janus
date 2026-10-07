@@ -63,6 +63,57 @@ func TestSELinuxLabelsTheWhitelist(t *testing.T) {
 	}
 }
 
+// TestWhoWritesKernelParameters keeps SELinux's side of the lock. In
+// /proc, the policy labels the whitelist's 17 files sysctl_tunable_t and
+// everything else proc_t - the benchmark's keys and kernel.core_pattern
+// among them: only init writes those; init and janusd write the
+// whitelist's.
+func TestWhoWritesKernelParameters(t *testing.T) {
+	data, err := os.ReadFile("../../selinux/policy.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := string(data)
+	for _, m := range regexp.MustCompile(`(?m)^genfscon proc .*$`).FindAllString(policy, -1) {
+		if m != "genfscon proc / system_u:object_r:proc_t" && !strings.HasSuffix(m, " system_u:object_r:sysctl_tunable_t") {
+			t.Errorf("a /proc label this test doesn't know: %q", m)
+		}
+	}
+	set := func(s string) []string { return strings.Fields(strings.Trim(s, "{}")) }
+	writes := func(perms []string) bool {
+		for _, p := range perms {
+			switch p {
+			case "*", "write", "append", "setattr", "create", "relabelto":
+				return true
+			}
+		}
+		return false
+	}
+	writers := map[string][]string{}
+	rule := regexp.MustCompile(`(?m)^allow\s+(\{[^}]*\}|\S+)\s+(\{[^}]*\}|\S+):(\{[^}]*\}|\S+)\s+(\{[^}]*\}|\S+)\s*;`)
+	for _, m := range rule.FindAllStringSubmatch(policy, -1) {
+		classes := set(m[3])
+		if !slices.Contains(classes, "file") && !slices.Contains(classes, "*") || !writes(set(m[4])) {
+			continue
+		}
+		for _, target := range set(m[2]) {
+			if target == "proc_t" || target == "sysctl_tunable_t" {
+				writers[target] = append(writers[target], set(m[1])...)
+			}
+		}
+	}
+	for target, want := range map[string][]string{
+		"proc_t":           {"init_t"},
+		"sysctl_tunable_t": {"init_t", "janusd_t"},
+	} {
+		got := writers[target]
+		slices.Sort(got)
+		if !slices.Equal(slices.Compact(got), want) {
+			t.Errorf("domains that may write %s files: %q, want %q", target, got, want)
+		}
+	}
+}
+
 var updateDoc = flag.Bool("update", false, "rewrite docs/guide/kernel-tuning.md's generated parts")
 
 // TestKernelTuningDoc keeps docs/guide/kernel-tuning.md's tables what

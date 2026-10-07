@@ -107,3 +107,41 @@ func TestKeepHealthWakesOnChange(t *testing.T) {
 	close(stop)
 	<-done
 }
+
+func TestUnsupported(t *testing.T) {
+	config := `global_defs {
+    disable_local_igmp      # VMACs' companion
+}
+vrrp_instance VI_1 {
+    interface eth1
+    @node-a use_vmac vrrp.51
+    use_ipvlan{
+    # use_vmac in a comment
+    ! use_vmac in the other kind
+    virtual_router_id 51
+}
+`
+	errs := Unsupported(config)
+	want := []string{
+		"(keepalived.conf: Line 2) disable_local_igmp isn't supported",
+		"(keepalived.conf: Line 6) use_vmac isn't supported",
+		"(keepalived.conf: Line 7) use_ipvlan isn't supported",
+	}
+	if len(errs) != len(want) {
+		t.Fatalf("Unsupported = %q, want %d lines", errs, len(want))
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(errs[i], w) {
+			t.Errorf("line %d: %q, want it to start with %q", i, errs[i], w)
+		}
+	}
+	if errs := Unsupported("vrrp_instance VI_1 {\n    notify_master \"#use_vmac\"\n    virtual_router_id 51\n}\n"); len(errs) != 0 {
+		t.Errorf("a standard configuration: %q", errs)
+	}
+
+	// Check refuses before keepalived runs: no binary needed.
+	m := New(nil)
+	if errs, err := m.Check(config); err == nil || len(errs) != 3 {
+		t.Errorf("Check = %q, %v", errs, err)
+	}
+}

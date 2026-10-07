@@ -74,8 +74,58 @@ func (m *Manager) Available() bool { return m.mod.Available() }
 // Saved is the saved keepalived.conf; isDefault means there's none.
 func (m *Manager) Saved() (string, bool, error) { return m.mod.Saved() }
 
-// Check has keepalived check config.
-func (m *Manager) Check(config string) ([]string, error) { return m.mod.Check(config) }
+// Check refuses what a Janus node can't do (Unsupported), then has
+// keepalived check config.
+func (m *Manager) Check(config string) ([]string, error) {
+	if errs := Unsupported(config); len(errs) > 0 {
+		return errs, errors.New("invalid configuration")
+	}
+	return m.mod.Check(config)
+}
+
+// unsupported are the keywords keepalived knows that a Janus node can't
+// honour, and why. The kernel has neither macvlan nor ipvlan, and
+// keepalived may change no kernel parameter (SELinux): a VMAC sets
+// net.ipv4.conf.all.rp_filter to 0, which the CIS benchmark forbids, and
+// disable_local_igmp - the VMACs' companion - writes one too. This check
+// is for a clear message; SELinux is what keeps keepalived off the
+// kernel's parameters, whatever its configuration says.
+var unsupported = map[string]string{
+	"use_vmac": "Janus has no VMAC interfaces: the kernel has no macvlan, and a VMAC needs " +
+		"net.ipv4.conf.all.rp_filter at 0, which the CIS benchmark forbids (control 3.3.1.12)",
+	"use_ipvlan":         "Janus has no IPVLAN interfaces: the kernel has no ipvlan",
+	"disable_local_igmp": "keepalived can't change kernel parameters on a Janus node (net.ipv4.igmp_link_local_mcast_reports here) - and it's for VMAC interfaces, which Janus doesn't have",
+}
+
+// Unsupported lists config's lines that use a keyword a Janus node
+// can't honour, in keepalived's own message format.
+func Unsupported(config string) []string {
+	var errs []string
+	for i, line := range strings.Split(config, "\n") {
+		for _, word := range strings.Fields(stripComment(line)) {
+			word = strings.Trim(word, "{}")
+			if why, ok := unsupported[word]; ok {
+				errs = append(errs, fmt.Sprintf("(keepalived.conf: Line %d) %s isn't supported on Janus - %s", i+1, word, why))
+			}
+		}
+	}
+	return errs
+}
+
+// stripComment cuts line at its first '#' or '!' outside double quotes -
+// keepalived's comments.
+func stripComment(line string) string {
+	quoted := false
+	for i, r := range line {
+		switch {
+		case r == '"':
+			quoted = !quoted
+		case !quoted && (r == '#' || r == '!'):
+			return line[:i]
+		}
+	}
+	return line
+}
 
 // Boot puts the saved configuration where keepalived reads it - the
 // service waits for that file - and writes the health file before
