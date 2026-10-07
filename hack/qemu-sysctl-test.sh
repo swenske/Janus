@@ -126,7 +126,11 @@ until out="$(ctl system sysctl get net.core.somaxconn)" && grep -q "^Suggested: 
 done
 grep -q "HAProxy's listeners: 1: 0.0.0.0:8080 (backlog 60000)" <<<"$out" || fail "the suggestion doesn't rest on HAProxy's listener: $out"
 [ "$(value net.core.somaxconn)" = "60000" ] || fail "a suggestion was applied"
-ctl system sysctl list | grep -qE "^net.core.somaxconn +60000 +60000 +default +16384$" || fail "list's SUGGESTED column: $(ctl system sysctl list)"
+# Never `ctl ... | grep -q`: grep quits at its match, janusctl's next
+# write of the table gets SIGPIPE, and under pipefail that's a failure -
+# a race a faster boot made real. Capture, then grep the string.
+listing="$(ctl system sysctl list)"
+grep -qE "^net.core.somaxconn +60000 +60000 +default +16384$" <<<"$listing" || fail "list's SUGGESTED column: $listing"
 # An accept queue overflowing for real: HAProxy at its frontend's maxconn
 # (one idle connection held) stops accepting, its backlog of 1 fills, the
 # kernel drops the next SYNs - TcpExt ListenOverflows, in this hour.
@@ -181,7 +185,8 @@ for set in MINS MAXS; do
     got="$(value "$name")"
     [ "$got" = "$want" ] || fail "$name is $got on trial, want $want"
   done
-  ctl system sysctl list | grep -q "33/33 controls compliant" || fail "$set broke the CIS benchmark: $(ctl system sysctl list -cis)"
+  listing="$(ctl system sysctl list)"
+  grep -q "33/33 controls compliant" <<<"$listing" || fail "$set broke the CIS benchmark: $(ctl system sysctl list -cis)"
   ctl system sysctl cancel >/dev/null || fail "cancel after $set"
   [ "$(value net.core.somaxconn)" = "60000" ] || fail "somaxconn not back after cancelling $set"
   [ "$(value fs.file-max)" = "$fileMax" ] || fail "file-max not back after cancelling $set"
@@ -205,7 +210,8 @@ refused "not a parameter Janus lets anyone change" "vm.swappiness=10"
 refused "between 4096 and 65535" "net.core.somaxconn=100"
 refused "listens on 8080" "net.ipv4.ip_local_port_range=8000 20000"
 refused "with this memory" "net.netfilter.nf_conntrack_max=4194304"
-if ctl system sysctl list | grep -q "On trial"; then fail "a refused change went on trial"; fi
+listing="$(ctl system sysctl list)"
+if grep -q "On trial" <<<"$listing"; then fail "a refused change went on trial"; fi
 [ "$(value net.core.somaxconn)" = "60000" ] || fail "a refusal changed somaxconn"
 echo "  ok: CIS, read-only, forbidden, unknown, out-of-bounds and context refusals - nothing changed"
 
@@ -241,7 +247,8 @@ grep -aqF "init: sysctl /proc/sys/net/core/somaxconn=30000" "$LOG" || fail "the 
 [ "$(value net.core.somaxconn)" = "30000" ] || fail "somaxconn after the reboot"
 [ "$(value net.ipv4.ip_local_reserved_ports)" = "12345" ] || fail "reserved ports after the reboot"
 [ "$(value net.ipv4.tcp_fastopen)" = "3" ] || fail "fastopen after the reboot"
-ctl system sysctl list | grep -q "33/33 controls compliant" || fail "the benchmark after a reboot with saved values"
+listing="$(ctl system sysctl list)"
+grep -q "33/33 controls compliant" <<<"$listing" || fail "the benchmark after a reboot with saved values"
 echo "  ok: confirmed values saved, applied at the next boot, the benchmark holding"
 # Saved before the reboot (internal/shutdown): the hour's overflows are still there.
 out="$(ctl system sysctl observed)"
@@ -253,7 +260,8 @@ out="$(ctl system sysctl reset -all)" || fail "reset -all: $out"
 grep -q "confirmed over a new connection" <<<"$out" || fail "reset not confirmed: $out"
 [ "$(value net.core.somaxconn)" = "60000" ] || fail "somaxconn after the reset"
 [ "$(value net.ipv4.ip_local_reserved_ports)" = "(none)" ] || fail "reserved ports after the reset"
-if ctl system sysctl list | grep -qE " saved$"; then fail "something still saved after a reset"; fi
+listing="$(ctl system sysctl list)"
+if grep -qE " saved$" <<<"$listing"; then fail "something still saved after a reset"; fi
 echo "  ok: reset to Janus's defaults"
 
 # --- a saved file tampered with on STATE ---
