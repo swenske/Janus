@@ -143,19 +143,23 @@ What follows from it:
 - **The data must be that user's.** A new named volume takes the
   image's `/data` owner by itself. The data of an installation from
   before (root's) is given to 65532 by the updater at the update, as
-  its own step; updating by hand, or with a bind-mounted directory, do
-  it once with the Controller stopped - the image has no `chown`, any
-  image with one will do:
+  its own step - by the updater of v2026.10.07-3 or later: **crossing
+  into v2026.10.07-3, the running updater is an older one, so do it by
+  hand first**, like an installation updated by hand or on a
+  bind-mounted directory. Once, the Controller running or not - the
+  image has no `chown`, any image with one will do; the master key
+  file (`JANUS_CONTROLLER_MASTER_KEY_FILE`, in its own volume the
+  updater doesn't mount) is the operator's in every case:
 
   ```sh
-  docker compose stop janus-controller   # or docker stop janus-controller
-  docker run --rm -v janus-controller-data:/data busybox chown -R 65532:65532 /data
-  docker compose up -d                   # or docker start janus-controller
+  docker run --rm -v janus-controller_janus-controller-data:/data \
+    -v janus-controller_janus-controller-secrets:/secrets \
+    busybox chown -R 65532:65532 /data /secrets/master.key
   ```
 
-  Started on data it can't write, the Controller stops at once and
-  says so, with this command. (With Compose, its volume is named after
-  the project: `janus-controller_janus-controller-data`.)
+  (Compose names the volumes after the project, by default the
+  directory's: `docker volume ls`.) Started on data or a key it can't
+  use, the Controller stops at once and says so, with the command.
 - **A port below 1024** (`-addr :443`, `JANUS_CONTROLLER_ADDR: ":443"`)
   needs the host to allow it to unprivileged users, since the container
   shares the host's network: `sysctl -w net.ipv4.ip_unprivileged_port_start=443`
@@ -164,9 +168,8 @@ What follows from it:
 - **The updater runs as root** (`user: "0:0"` in its Compose service):
   the Docker socket is root's, and so is giving the data away. The
   `compose.yaml` below has it.
-- **The master key file** (`JANUS_CONTROLLER_MASTER_KEY_FILE`) and any
-  mounted certificate (`-tls-cert`/`-tls-key`) must be readable by
-  65532.
+- **A mounted certificate** (`-tls-cert`/`-tls-key`) must be readable
+  by 65532 too.
 
 ### TLS identity
 

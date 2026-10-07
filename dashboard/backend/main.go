@@ -29,6 +29,7 @@ import (
 	"embed"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -108,6 +109,9 @@ func main() {
 	nodeproxy.ControllerVersion = version
 
 	if err := dataWritable(*dataDir); err != nil {
+		log.Fatal(err)
+	}
+	if err := keyReadable(*masterKeyFile); err != nil {
 		log.Fatal(err)
 	}
 	st, err := store.Open(*dataDir)
@@ -768,6 +772,25 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// keyReadable checks the master key file, when one is set and exists,
+// can be read by this process: a Controller from before v2026.10.08
+// made it root's, 0600, in its secrets volume - which the updater
+// doesn't mount, so nobody gives it away but the operator.
+func keyReadable(path string) error {
+	if path == "" {
+		return nil
+	}
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil // made at first start, by this process
+	}
+	if err != nil {
+		return fmt.Errorf("%s can't be read by this process (uid %d): a Controller from before v2026.10.08 ran as root and made it root's - give it to this user once: docker run --rm -v <the secrets volume>:/secrets busybox chown %d:%d /secrets/master.key (dashboard/README.md, \"Who the Controller runs as\"): %v", path, os.Getuid(), os.Getuid(), os.Getgid(), err)
+	}
+	f.Close()
+	return nil
 }
 
 // dataWritable checks the data directory takes this process's writes,
