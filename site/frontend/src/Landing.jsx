@@ -13,9 +13,12 @@ import {
   Network,
   RefreshCcw,
   Server,
+  ServerCog,
   ShieldCheck,
+  SlidersHorizontal,
   Terminal,
   Undo2,
+  Users,
   Workflow,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -36,8 +39,9 @@ const PILLARS = [
     points: [
       'Read-only root verified block by block with dm-verity; the root hash sits in a Secure Boot-signed kernel image.',
       'SELinux enforcing, with a hand-written policy confining janusd, HAProxy and every extension.',
+      'The CIS Debian 13 benchmark’s kernel parameters (Level 2 - Server), written at every boot and locked.',
       'No shell, no SSH, no package manager: nothing to log into.',
-      'Every API call over mutual TLS, with admin and read-only roles.',
+      'Every API call over mutual TLS, with admin, operator and reader roles.',
       'Updates are installed only when signed with a Janus release key.',
     ],
   },
@@ -45,8 +49,8 @@ const PILLARS = [
     icon: Feather,
     title: 'Light',
     points: [
-      'A 13 MB root filesystem: a Linux kernel, a Go init, janusd and HAProxy - nothing else unless you add it.',
-      'A 42 MB compressed VM disk; boots straight to a serving HAProxy.',
+      'A 14 MB root filesystem with 4 binaries - a Go init and its shutdown command, janusd and HAProxy - beside a signed kernel image: nothing else unless you add it.',
+      'A 53 MB compressed VM disk, both update slots included; boots straight to a serving HAProxy.',
       'Built from scratch (LFS-style), from a kernel configured symbol by symbol.',
       'Optional software is chosen per image, not installed: an image carries exactly what you picked.',
     ],
@@ -55,10 +59,10 @@ const PILLARS = [
     icon: Workflow,
     title: 'Managed through an API',
     points: [
-      'A gRPC API for everything: HAProxy configuration, maps, ACLs, certificates, backends, network, logs, packet capture, updates.',
+      'A gRPC API for everything: HAProxy configuration, maps, ACLs, certificates, backends, network, firewall, kernel tuning, logs, packet capture, updates.',
       'janusctl on the command line; the Janus Controller in the browser, for all your nodes.',
       'A/B updates with automatic rollback when HAProxy doesn’t come back healthy.',
-      'Network changes applied on trial: one that cuts the node off reverts by itself.',
+      'Network, firewall and kernel changes applied on trial: one that cuts the node off reverts by itself.',
     ],
   },
 ]
@@ -72,8 +76,19 @@ const FEATURES = [
   { icon: Undo2, title: 'A/B updates', text: 'The new version is written to the idle slot and booted on trial; if HAProxy isn’t healthy, the node switches back by itself.' },
   { icon: Network, title: 'Network', text: 'Static addressing, 802.1Q VLANs, several interfaces, DNS and NTP - configured through the API, confirmed or reverted.' },
   { icon: Terminal, title: 'No shell, still observable', text: 'Logs, kernel messages, processes, files and packet capture over the API - read-only and scoped, never a command line.' },
-  { icon: Boxes, title: 'Extensions', text: 'node_exporter, the QEMU guest agent - more to come. Pick them in the builder: they are part of the signed image.' },
+  {
+    icon: Boxes,
+    title: 'Extensions',
+    text: 'A firewall (nftables), VRRP (keepalived), BGP (BIRD), Let’s Encrypt certificates, Consul, Prometheus node_exporter and the QEMU guest agent. Pick them in the builder: they are part of the signed image.',
+  },
+  {
+    icon: SlidersHorizontal,
+    title: 'Kernel tuning',
+    text: 'The kernel parameters HAProxy depends on, tested on trial and kept once applied - with values suggested from what the node observes. The CIS benchmark’s stay locked.',
+  },
   { icon: KeyRound, title: 'Provisioning', text: 'Nodes register with your Controller on first boot. Controller and network settings at install, offline on an image, or from a NoCloud volume.' },
+  { icon: ServerCog, title: 'Your own VMs', text: 'The Controller creates, resizes and updates nodes on libvirt and Proxmox VE; a Terraform provider drives it as code.' },
+  { icon: Users, title: 'Accounts and access', text: 'Controller accounts with roles, MFA (TOTP or passkeys), API tokens and access by node label; janusctl signs in with your SSH key.' },
 ]
 
 function LatestRelease() {
@@ -155,8 +170,8 @@ export default function Landing() {
         </div>
         <div className="hero-facts">
           <div>
-            <strong>13 MB</strong>
-            <span>root filesystem</span>
+            <strong>14 MB</strong>
+            <span>root filesystem, 4 binaries</span>
           </div>
           <div>
             <strong>0</strong>
@@ -224,13 +239,16 @@ export default function Landing() {
           <div className="step">
             <span className="step-n">2</span>
             <h3>Boot</h3>
-            <p className="muted">Import the disk in Proxmox, KVM or VMware, flash the ISO or the Raspberry Pi image. The node prints its admin credentials once, on its console.</p>
+            <p className="muted">
+              Import the disk in Proxmox, KVM or VMware, flash the ISO or the Raspberry Pi image - or let the Controller create the VM on libvirt or Proxmox VE. A node prints its admin
+              credentials once, on its console.
+            </p>
           </div>
           <div className="step">
             <span className="step-n">3</span>
             <h3>Manage</h3>
             <p className="muted">
-              Add it to the <a href={`${DOCS}/dashboard/README.md`}>Janus Controller</a>, or drive it with <a href={`${DOCS}/janusctl.md#installing-janusctl`}>janusctl</a> (<code>apt install janusctl</code>): HAProxy configuration, certificates, network, monitoring.
+              Add it to the <a href={`${DOCS}/dashboard/README.md`}>Janus Controller</a>, or drive it with <a href={`${DOCS}/janusctl.md#installing-janusctl`}>janusctl</a> (<code>apt install janusctl</code>): HAProxy configuration, certificates, network, firewall, monitoring.
             </p>
           </div>
           <div className="step">
@@ -256,6 +274,9 @@ export default function Landing() {
               </li>
               <li>
                 <a href={`${DOCS}/network-configuration.md`}>Network configuration</a> <span className="muted">- interfaces, VLANs, DNS, NTP</span>
+              </li>
+              <li>
+                <a href={`${DOCS}/guide/kernel-tuning.md`}>Kernel tuning</a> <span className="muted">- HAProxy&apos;s kernel parameters, the CIS benchmark</span>
               </li>
               <li>
                 <a href={`${DOCS}/packet-capture.md`}>Packet capture</a>
