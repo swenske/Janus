@@ -31,6 +31,20 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 CapabilityBoundingSet=
 ReadWritePaths=/srv/janus-site/data
+# The rest of what systemd-analyze security asks for and a Go HTTP
+# service can live with: sockets of the three families it uses, no
+# namespaces, no realtime, no clock, no view of other processes, and
+# the system-service syscall set (what a daemon serving HTTP needs)
+# minus the privileged and resource-changing ones.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
 
 [Install]
 WantedBy=multi-user.target
