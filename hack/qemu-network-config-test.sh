@@ -177,6 +177,14 @@ check "VLAN address" '10\.100\.0\.5/24' "$st"
 check "VLAN parent up without address" '^  eth2 +physical .*\(up\) none' "$st"
 check "default route via the lease" 'default via 10\.0\.2\.2 dev wan metric 1024' "$st"
 check "DNS from the lease" '^dns: 10\.0\.2\.3' "$st"
+# The kernel drops the synchronized status when its clocksource changes
+# (the TSC refined a second after boot) and janusd restores it within
+# its next recheck (internal/timesync, 5 s): poll, don't read once.
+for _ in $(seq 1 30); do
+  st="$(ctl network status)"
+  grep -Eq '^time: synchronized, servers 10\.100\.0\.1 \(configured\)' <<<"$st" && break
+  sleep 1
+done
 check "clock synchronized from the configured server" '^time: synchronized, servers 10\.100\.0\.1 \(configured\)' "$st"
 check "network get returns the seeded configuration" '"hostname": "lb-test"' "$(ctl network get)"
 check "hostname RPC" '^lb-test$' "$(ctl system hostname)"
