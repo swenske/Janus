@@ -227,8 +227,15 @@ func main() {
 		// or subdomain of the same host) - refuse any non-safe request
 		// from another origin outright, the same protection every
 		// per-node listener has (see nodeproxy.newHandler).
-		Handler:   app.unlessRestored(http.NewCrossOriginProtection().Handler(app.audited(app.routes(spa)))),
-		TLSConfig: &tls.Config{GetCertificate: uiCert.GetCertificate},
+		Handler: securityHeaders(app.unlessRestored(http.NewCrossOriginProtection().Handler(app.audited(app.routes(spa))))),
+		// A connection has 10 s to say what it wants and 2 min of
+		// silence before it's closed; no WriteTimeout: the event
+		// streams (SSE), the consoles and the packet captures last as
+		// long as the page keeps them.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    64 << 10,
+		TLSConfig:         &tls.Config{GetCertificate: uiCert.GetCertificate, MinVersion: tls.VersionTLS12},
 	}
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {

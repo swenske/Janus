@@ -8,6 +8,13 @@ services:
     container_name: janus-controller
     network_mode: host
     restart: unless-stopped
+    # The Controller writes only under /data (and the updater's socket
+    # directory): the rest of its image stays read-only, it keeps no
+    # capability (its ports are above 1024 - a `-addr :443` needs
+    # `cap_add: [NET_BIND_SERVICE]`), and nothing it starts gains any.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
       # The master key sealing the fleet's issuing key: outside the data
       # volume, so a copy of the data (its backups) holds nothing usable.
@@ -27,6 +34,11 @@ services:
     # Talks to the Docker daemon over its socket only: no network.
     network_mode: none
     restart: unless-stopped
+    # The socket is root on the host already (by design, it recreates
+    # the Controller's container): it at least keeps no capability of
+    # its own and nothing it starts gains any.
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     volumes:
       # To pull the new image and recreate the Controller's container.
       - /var/run/docker.sock:/var/run/docker.sock

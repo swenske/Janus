@@ -261,8 +261,13 @@ func withHAProxyClient(w http.ResponseWriter, r *http.Request, node *store.Node,
 	writeJSONBody(w, http.StatusOK, resp)
 }
 
+// maxJSONBody bounds what a relayed request may carry: an HAProxy
+// configuration with its files (1 MiB each on the node) fits with room
+// to spare; nothing else comes close.
+const maxJSONBody = 4 << 20
+
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBody)).Decode(v); err != nil {
 		http.Error(w, fmt.Sprintf("decode request: %v", err), http.StatusBadRequest)
 		return false
 	}

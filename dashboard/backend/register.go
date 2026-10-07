@@ -59,7 +59,16 @@ func (a *app) startRegistrationListener(addr string) error {
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", addr, err)
 	}
-	srv := &http.Server{Handler: mux}
+	// Anyone who reaches this port may open a connection: bound how
+	// long one may take to say what it wants, and how long it may stay.
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       time.Minute,
+		MaxHeaderBytes:    64 << 10,
+	}
 	go func() {
 		// ErrServerClosed is the expected outcome of a graceful shutdown,
 		// not a real failure - dashboardd has no such shutdown path today
