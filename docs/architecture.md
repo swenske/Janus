@@ -79,6 +79,32 @@ boot chain: [boot, disk layout and A/B updates](internals/boot.md).
   certificate to `internal/releasetrust/certs/` and keeping the old one
   until every node trusts the new one.
 
+### Boot time
+
+What a node's boot costs is measured, not guessed. `rootfs/init` prints
+when the kernel handed over to it and when it started janusd; the boot's
+first janusd logs `boot: api listening Ns after the kernel started
+(kernel, init, haproxy)` and the exporter serves the same four moments as
+`janus_boot_stage_seconds{stage}` ([metrics](metrics.md)). All of them
+are on the kernel's uptime clock: the firmware's own time (POST, the UEFI
+boot manager) comes before it and is the one part Janus can't shorten.
+
+Under KVM (OVMF, 2 vCPUs) the kernel hands over at about 0.8 s, HAProxy
+serves at about 1 s and the API listens at about 1.4 s after the kernel
+started; the firmware adds about 2 s. The kernel's own second is shared
+between clearing memory at boot (`init_on_free`, a hardening choice that
+scales with RAM), ACPI and device probing, and `ip=dhcp`, which blocks
+until the first interface has a lease - the one wait that grows on a
+real network.
+
+The image is built for that: the kernel and the squashfs are compressed
+with zstd (`CONFIG_KERNEL_ZSTD`, `mksquashfs -comp zstd`, decompressed
+on every CPU rather than one), which decompresses three to four times
+faster than the gzip and xz used before for a few percent more bytes -
+in a boot, every binary read from the root filesystem goes through that
+decompressor. Measured against the previous compression on two KVM hosts,
+the API listened a third sooner (2.0 s to 1.4 s, 2.3 s to 1.5 s).
+
 ## mTLS / PKI
 
 Every gRPC call is authenticated with a client certificate - there is no

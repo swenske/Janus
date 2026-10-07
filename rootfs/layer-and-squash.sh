@@ -82,7 +82,7 @@ mkdir -p "$OUT_DIR"
 # /etc/passwd on the target to resolve another owner against.
 # -root-mode 0755: mktemp -d's 0700 would otherwise become the image's
 # root directory mode.
-mksquashfs "$TREE" "$OUT_DIR/rootfs.squashfs" -noappend -comp xz -all-root -root-mode 0755 \
+mksquashfs "$TREE" "$OUT_DIR/rootfs.squashfs" -noappend -comp zstd -Xcompression-level 19 -all-root -root-mode 0755 \
   "${PSEUDO[@]}"
 
 veritysetup format "$OUT_DIR/rootfs.squashfs" "$OUT_DIR/rootfs.verity" > "$OUT_DIR/rootfs.verity.info"

@@ -52,8 +52,11 @@ ARG DEFCONFIG=janus_longterm_defconfig
 # toolchain alongside the native one - installed unconditionally so this
 # one image serves both ARCH=x86_64 and ARCH=arm64 builds without a
 # separate config/build stage per architecture.
+# zstd: CONFIG_KERNEL_ZSTD compresses bzImage with the host's zstd tool
+# (the kernel decompresses itself three to four times faster than from
+# gzip at boot).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libncurses-dev flex bison bc libelf-dev \
+    build-essential libncurses-dev flex bison bc libelf-dev zstd \
     crossbuild-essential-arm64 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src/linux-${KERNEL_VERSION}

@@ -1243,7 +1243,7 @@ fs/squashfs/block.c
 fs/squashfs/cache.c
 fs/squashfs/decompressor.c
 fs/squashfs/decompressor.h
-fs/squashfs/decompressor_single.c
+fs/squashfs/decompressor_multi_percpu.c
 fs/squashfs/dir.c
 fs/squashfs/export.c
 fs/squashfs/file.c
@@ -1263,8 +1263,8 @@ fs/squashfs/symlink.c
 fs/squashfs/xattr.c
 fs/squashfs/xattr.h
 fs/squashfs/xattr_id.c
-fs/squashfs/xz_wrapper.c
 fs/squashfs/zlib_wrapper.c
+fs/squashfs/zstd_wrapper.c
 fs/stack.c
 fs/stat.c
 fs/statfs.c
