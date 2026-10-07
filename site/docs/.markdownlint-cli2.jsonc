@@ -23,6 +23,7 @@
   ],
   "ignores": [
     "../../docs/security-audit-2026-09-30.md",
+    "../../docs/security-audit-2026-10-07.md",
     "../../docs/companion-site-builder-scope.md"
   ]
 }
