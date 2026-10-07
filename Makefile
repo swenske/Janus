@@ -1132,6 +1132,19 @@ qemu-baremetal-test: build dashboard-bin disk-image
 qemu-system-api-test: build disk-image
 	./hack/qemu-system-api-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
+# A reboot through kexec (RebootMode KEXEC) on a real enforcing node
+# under OVMF, timed against a firmware reboot of the same node: no
+# firmware in between, same slot, same PKI, zero AVC denials. See
+# hack/qemu-kexec-test.sh.
+qemu-kexec-test: build disk-image
+	./hack/qemu-kexec-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# qemu-lifecycle-upgrade-test with the reboot into the new slot through
+# kexec (UpgradeRequest.reboot_mode KEXEC): the kernel logs "Starting
+# new kernel", OVMF never runs again, the upgraded slot comes up.
+qemu-lifecycle-upgrade-kexec-test: build disk-image
+	QEMU_UPGRADE_KEXEC=1 ./hack/qemu-lifecycle-upgrade-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl
+
 # The kernel parameters (internal/sysctl) on a real enforcing node: the
 # CIS benchmark at boot, every whitelisted parameter's bounds on trial,
 # reverts, cancels, confirmations kept across a reboot, refusals, a

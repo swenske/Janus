@@ -84,6 +84,12 @@ KERNEL="${2:?usage: $0 <disk.img> <bzImage> <build-dir> <janusctl-bin>}"
 BUILD_DIR="${3:?usage: $0 <disk.img> <bzImage> <build-dir> <janusctl-bin>}"
 CTL="${4:?usage: $0 <disk.img> <bzImage> <build-dir> <janusctl-bin>}"
 HTTP_TIMEOUT_SECS="${QEMU_UPGRADE_HTTP_TIMEOUT:-40}"
+# QEMU_UPGRADE_KEXEC=1: the reboot into slot B goes through kexec
+# (janusctl lifecycle upgrade -kexec, UpgradeRequest.reboot_mode) - the
+# kernel logs "Starting new kernel" and OVMF's boot manager never runs
+# again (make qemu-lifecycle-upgrade-kexec-test).
+KEXEC_FLAG=""
+[ "${QEMU_UPGRADE_KEXEC:-0}" = 1 ] && KEXEC_FLAG="-kexec"
 REBOOT_TIMEOUT_SECS="${QEMU_UPGRADE_REBOOT_TIMEOUT:-60}"
 HOST_PORT_8080="${QEMU_UPGRADE_TEST_PORT:-$((18092 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 HOST_PORT_8081="${QEMU_UPGRADE_TEST_PORT2:-$((18093 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
@@ -285,12 +291,17 @@ if [ "$(grep -c "$MARKER" "$A_LOG")" -ne 1 ]; then
 fi
 echo "Unsigned bundle refused without the opt-out, nothing written, no reboot"
 
-UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -insecure-skip-signature-check -sha256 "$V2_SHA256" "$GUEST_BUNDLE_PATH")"
+UPGRADE_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle upgrade -insecure-skip-signature-check -sha256 "$V2_SHA256" $KEXEC_FLAG "$GUEST_BUNDLE_PATH")"
 echo "$UPGRADE_OUT"
-if ! echo "$UPGRADE_OUT" | grep -qi "rebooting"; then
+if ! grep -qi "rebooting" <<<"$UPGRADE_OUT"; then
   echo "Upgrade test FAILED: janusctl lifecycle upgrade never reached the 'rebooting' stage" >&2
   exit 1
 fi
+if [ -n "$KEXEC_FLAG" ] && ! grep -q "through kexec, without the firmware" <<<"$UPGRADE_OUT"; then
+  echo "Upgrade test FAILED: -kexec was asked for, but the node didn't reboot through kexec: $UPGRADE_OUT" >&2
+  exit 1
+fi
+FIRMWARE_BOOTS_BEFORE="$(grep -ac "BdsDxe: starting Boot" "$A_LOG" || true)"
 
 # --- wait for the guest to reboot and come back up healthy - :8080,
 # not :8081: the served config comes from STATE, shared across both
@@ -310,6 +321,19 @@ if [ "$(grep -c "$FIRST_BOOT_MSG" "$A_LOG")" -ne 1 ]; then
   exit 1
 fi
 assert_last_boot "$A_LOG" PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH "$V2_HASH" "post-upgrade boot"
+if [ -n "$KEXEC_FLAG" ]; then
+  if ! grep -aq "Starting new kernel" "$A_LOG"; then
+    echo "Upgrade test FAILED: the kernel never logged 'Starting new kernel' - the reboot into slot B didn't go through kexec" >&2
+    echo "--- console output ---" >&2; cat "$A_LOG" >&2
+    exit 1
+  fi
+  if [ "$(grep -ac "BdsDxe: starting Boot" "$A_LOG" || true)" -ne "$FIRMWARE_BOOTS_BEFORE" ]; then
+    echo "Upgrade test FAILED: OVMF's boot manager ran again after the kexec upgrade" >&2
+    echo "--- console output ---" >&2; cat "$A_LOG" >&2
+    exit 1
+  fi
+  echo "The reboot into slot B went through kexec: 'Starting new kernel' logged, OVMF never ran again"
+fi
 echo "Slot B (v2) OK: real gRPC Upgrade wrote the new rootfs (root hash $V2_HASH, BOOT-B-DATA/HASH), switched, and rebooted into it - HTTP healthy, STATE intact"
 
 kill "$QEMU_PID" 2>/dev/null || true
