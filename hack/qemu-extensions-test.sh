@@ -40,10 +40,13 @@ WORKDIR="$(mktemp -d)"
 QEMU_PID=""
 cleanup() {
   [ -n "$QEMU_PID" ] && kill "$QEMU_PID" 2>/dev/null || true
-  rm -rf "$WORKDIR"
+  rm -rf "$WORKDIR" "$QGA_SOCK"
 }
 trap cleanup EXIT
 LOG="$WORKDIR/console.log"
+# A Unix socket path is 108 bytes at most: not under WORKDIR, which a
+# long TMPDIR puts past it (QEMU then never starts).
+QGA_SOCK="$(mktemp -u /tmp/janus-qga.XXXXXX)"
 fail() {
   echo "Extensions test FAILED: $*" >&2
   [ -f "$LOG" ] && { echo "--- console output ---" >&2; cat "$LOG" >&2; }
@@ -91,7 +94,7 @@ qemu-system-x86_64 -accel kvm -accel tcg \
   -netdev "user,id=net0,hostfwd=tcp::${P_HTTP}-:8080,hostfwd=tcp::${P_GRPC}-:9505,hostfwd=tcp::${P_METRICS}-:9100,hostfwd=tcp::${P_JANUS}-:10056,hostfwd=tcp::${P_ALT}-:9200" \
   -device virtio-net-pci,netdev=net0 \
   -device virtio-serial \
-  -chardev "socket,path=$WORKDIR/qga.sock,server=on,wait=off,id=qga0" \
+  -chardev "socket,path=$QGA_SOCK,server=on,wait=off,id=qga0" \
   -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
   -serial file:"$LOG" </dev/null &
 QEMU_PID=$!
@@ -114,7 +117,7 @@ extract_pki() {
   done
 }
 ctl() { "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
-qga() { python3 "$HERE/qga-client.py" "$WORKDIR/qga.sock" "$@"; }
+qga() { python3 "$HERE/qga-client.py" "$QGA_SOCK" "$@"; }
 metrics() { curl -s -m 5 "http://127.0.0.1:${P_METRICS}/metrics" || true; }
 metrics_alt() { curl -s -m 5 "http://127.0.0.1:${P_ALT}/metrics" || true; } # node_exporter moved to :9200
 wait_metrics_alt() {
