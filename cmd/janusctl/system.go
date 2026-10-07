@@ -219,18 +219,19 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 		enable := fs.Bool("enable", false, "turn the exporter on")
 		disable := fs.Bool("disable", false, "turn the exporter off")
 		port := fs.Uint("port", 0, "serve on this port (default 10056)")
+		address := fs.String("address", "", "serve on this address only (\"*\" for every address)")
 		_ = fs.Parse(args)
 		c, cancel := ctx()
 		defer cancel()
 		resp, err := client.MetricsConfigGet(c, &emptypb.Empty{})
 		check("MetricsConfigGet", err)
-		if *enable || *disable || *port != 0 {
+		if *enable || *disable || *port != 0 || *address != "" {
 			if *enable && *disable {
 				fmt.Fprintln(os.Stderr, "-enable and -disable together")
 				os.Exit(2)
 			}
 			cfg := resp.GetConfig()
-			req := &janusv1alpha1.MetricsConfig{Enabled: cfg.GetEnabled(), Port: cfg.GetPort()}
+			req := &janusv1alpha1.MetricsConfig{Enabled: cfg.GetEnabled(), Port: cfg.GetPort(), Address: cfg.GetAddress()}
 			if *enable {
 				req.Enabled = true
 			}
@@ -240,17 +241,30 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 			if *port != 0 {
 				req.Port = uint32(*port)
 			}
+			switch *address {
+			case "":
+			case "*":
+				req.Address = ""
+			default:
+				req.Address = *address
+			}
 			resp, err = client.MetricsConfigSet(c, req)
 			check("MetricsConfigSet", err)
 		}
 		cfg := resp.GetConfig()
+		host := cfg.GetAddress()
+		if host == "" {
+			host = "<node>"
+		} else if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
 		switch {
 		case !cfg.GetEnabled():
 			fmt.Println("Exporter: disabled")
 		case resp.GetListening():
-			fmt.Printf("Exporter: http://<node>:%d/metrics\n", cfg.GetPort())
+			fmt.Printf("Exporter: http://%s:%d/metrics\n", host, cfg.GetPort())
 		default:
-			fmt.Printf("Exporter: enabled on port %d, but not listening: %s\n", cfg.GetPort(), resp.GetError())
+			fmt.Printf("Exporter: enabled on %s:%d, but not listening: %s\n", host, cfg.GetPort(), resp.GetError())
 		}
 		if resp.GetIsDefault() {
 			fmt.Println("(default settings)")

@@ -1851,7 +1851,8 @@ func (x *SysctlHistoryResponse) GetEntries() []*SysctlHistoryEntry {
 type MetricsConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	Port          uint32                 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // 0 = the default, 10056
+	Port          uint32                 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`      // 0 = the default, 10056
+	Address       string                 `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"` // to listen on - empty for every address
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1898,6 +1899,13 @@ func (x *MetricsConfig) GetPort() uint32 {
 		return x.Port
 	}
 	return 0
+}
+
+func (x *MetricsConfig) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
 }
 
 type NodeExporterConfig struct {
@@ -5080,10 +5088,11 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\achanges\x18\x04 \x03(\v2\x1c.janus.v1alpha1.SysctlChangeR\achanges\x12\x16\n" +
 	"\x06detail\x18\x05 \x01(\tR\x06detail\"U\n" +
 	"\x15SysctlHistoryResponse\x12<\n" +
-	"\aentries\x18\x01 \x03(\v2\".janus.v1alpha1.SysctlHistoryEntryR\aentries\"=\n" +
+	"\aentries\x18\x01 \x03(\v2\".janus.v1alpha1.SysctlHistoryEntryR\aentries\"W\n" +
 	"\rMetricsConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\rR\x04port\"|\n" +
+	"\x04port\x18\x02 \x01(\rR\x04port\x12\x18\n" +
+	"\aaddress\x18\x03 \x01(\tR\aaddress\"|\n" +
 	"\x12NodeExporterConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x12\n" +

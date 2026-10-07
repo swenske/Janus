@@ -269,13 +269,14 @@ janusctl system pcap [-i IFACE] [-f FILTER] [-promisc] [-include-own-stream] [-s
 The node's Prometheus exporter: show or change.
 
 ```text
-janusctl system metrics [-enable] [-disable] [-port PORT]
+janusctl system metrics [-enable] [-disable] [-address IP] [-port PORT]
 ```
 
 | Flag | |
 |---|---|
 | `-enable` | turn it on |
 | `-disable` | turn it off |
+| `-address IP` | serve on this address only (* for all) |
 | `-port PORT` | serve on this port |
 
 #### janusctl system node-exporter

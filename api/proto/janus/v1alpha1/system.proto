@@ -121,7 +121,7 @@ service SystemService {
   // The node's Prometheus exporter (docs/metrics.md): Janus's own
   // metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
   // extension services, time sync, SELinux - over plain HTTP, on by
-  // default on port 10056.
+  // default on port 10056, on every address unless one is set.
 
   // MetricsConfigGet reports the exporter's settings.
   rpc MetricsConfigGet(google.protobuf.Empty) returns (MetricsConfigResponse);
@@ -369,6 +369,7 @@ message SysctlHistoryResponse {
 message MetricsConfig {
   bool enabled = 1;
   uint32 port = 2; // 0 = the default, 10056
+  string address = 3; // to listen on - empty for every address
 }
 
 message NodeExporterConfig {

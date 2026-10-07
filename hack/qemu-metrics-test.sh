@@ -91,6 +91,16 @@ wait_http
 
 scrape() { curl -fsS -m 5 "http://127.0.0.1:$1/metrics"; }
 METRICS="$(scrape "$P_METRICS")" || fail "no metrics on :10056"
+
+# The listen address: on the guest's loopback only, the host (QEMU
+# forwards to the guest's own address) doesn't reach it any more; back
+# on every address, it does. A bad address is refused.
+ctl system metrics -address 127.0.0.1 | grep -q 'http://127.0.0.1:10056/metrics' || fail "-address 127.0.0.1 wasn't taken"
+if scrape "$P_METRICS" >/dev/null 2>&1; then fail "the exporter still answers on every address after -address 127.0.0.1"; fi
+if ctl system metrics -address not-an-ip >/dev/null 2>&1; then fail "an address that isn't an IP was accepted"; fi
+ctl system metrics -address '*' | grep -q 'http://<node>:10056/metrics' || fail "-address '*' didn't put it back on every address"
+scrape "$P_METRICS" >/dev/null || fail "no metrics on :10056 after -address '*'"
+echo "  ok: the exporter's listen address (one address, every address, a bad one refused)"
 echo "$METRICS" > "$WORKDIR/metrics.txt"
 # value SAMPLE: the value of the sample written exactly SAMPLE (name and
 # labels), or of the first one starting with SAMPLE if it ends in "*".

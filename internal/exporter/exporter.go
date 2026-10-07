@@ -45,17 +45,24 @@ const configFile = "metrics.json"
 type Config struct {
 	Enabled bool   `json:"enabled"`
 	Port    uint32 `json:"port"`
+	// Address to listen on - empty for every address. A management
+	// address keeps the metrics off the networks HAProxy serves.
+	Address string `json:"address,omitempty"`
 }
 
 // DefaultConfig is what a node runs with until it's changed: on, on
 // DefaultPort.
 func DefaultConfig() Config { return Config{Enabled: true, Port: DefaultPort} }
 
-// Validate checks c. Port 0 means DefaultPort.
+// Validate checks c. Port 0 means DefaultPort; the address, if any, is
+// an IP address of the node's.
 func (c *Config) Validate() error {
 	c.Port = cmp.Or(c.Port, DefaultPort)
 	if c.Port > 65535 {
 		return fmt.Errorf("port %d is out of range", c.Port)
+	}
+	if c.Address != "" && net.ParseIP(c.Address) == nil {
+		return fmt.Errorf("%q isn't an IP address", c.Address)
 	}
 	return nil
 }
@@ -215,9 +222,11 @@ func New(collectors ...Collector) *Server {
 }
 
 // Apply switches to cfg: stops the current listener and, if enabled,
-// listens on the new port. The new port is bound before the old listener
-// closes, so if it can't be bound the previous one keeps running and the
-// error is returned.
+// listens on the new address and port. The new ones are bound before
+// the old listener closes, so if they can't be bound the previous one
+// keeps running and the error is returned - except when only the
+// address changes, on the same port: the old listener holds the port,
+// so it closes first, and comes back if the new address can't be bound.
 func (s *Server) Apply(cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -236,14 +245,36 @@ func (s *Server) Apply(cfg Config) error {
 		log.Printf("exporter: disabled")
 		return nil
 	}
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	previous := s.cfg
+	samePort := s.srv != nil && previous.Port == cfg.Port
+	if samePort {
+		_ = s.srv.Close()
+		s.srv = nil
+	}
+	listen := net.JoinHostPort(cfg.Address, strconv.Itoa(int(cfg.Port)))
+	lis, err := net.Listen("tcp", listen)
 	if err != nil {
 		s.lastErr = err.Error()
-		return fmt.Errorf("listen on port %d: %w", cfg.Port, err)
+		if samePort {
+			if old, e := net.Listen("tcp", net.JoinHostPort(previous.Address, strconv.Itoa(int(previous.Port)))); e == nil {
+				s.serve(old)
+			} else {
+				log.Printf("exporter: the previous listener couldn't come back either: %v", e)
+			}
+		}
+		return fmt.Errorf("listen on %s: %w", listen, err)
 	}
 	if s.srv != nil {
 		_ = s.srv.Close()
 	}
+	s.serve(lis)
+	s.cfg, s.lastErr = cfg, ""
+	log.Printf("exporter: metrics served on %s/metrics", listen)
+	return nil
+}
+
+// serve starts an HTTP server on lis as s.srv. Called with mu held.
+func (s *Server) serve(lis net.Listener) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /metrics", s.serveMetrics)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
@@ -251,14 +282,12 @@ func (s *Server) Apply(cfg Config) error {
 		fmt.Fprint(w, `<!doctype html><title>Janus exporter</title><h1>Janus exporter</h1><p><a href="/metrics">Metrics</a></p>`)
 	})
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second}
-	s.srv, s.cfg, s.lastErr = srv, cfg, ""
+	s.srv = srv
 	go func() {
 		if err := srv.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("exporter: %v", err)
 		}
 	}()
-	log.Printf("exporter: metrics served on :%d/metrics", cfg.Port)
-	return nil
 }
 
 // Status reports the running configuration and whether it's listening;

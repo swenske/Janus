@@ -22,7 +22,7 @@ func (s *System) MetricsConfigSet(_ context.Context, req *janusv1alpha1.MetricsC
 	if s.Exporter == nil {
 		return nil, status.Error(codes.Unavailable, "the exporter isn't running in this janusd")
 	}
-	cfg := exporter.Config{Enabled: req.GetEnabled(), Port: req.GetPort()}
+	cfg := exporter.Config{Enabled: req.GetEnabled(), Port: req.GetPort(), Address: req.GetAddress()}
 	if err := cfg.Validate(); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -42,7 +42,7 @@ func (s *System) metricsConfigResponse() *janusv1alpha1.MetricsConfigResponse {
 		lastErr = err.Error()
 	}
 	return &janusv1alpha1.MetricsConfigResponse{
-		Config:    &janusv1alpha1.MetricsConfig{Enabled: cfg.Enabled, Port: cfg.Port},
+		Config:    &janusv1alpha1.MetricsConfig{Enabled: cfg.Enabled, Port: cfg.Port, Address: cfg.Address},
 		IsDefault: isDefault,
 		Listening: listening,
 		Error:     lastErr,

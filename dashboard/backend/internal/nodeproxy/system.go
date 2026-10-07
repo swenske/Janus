@@ -110,12 +110,13 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 		var req struct {
 			Enabled bool   `json:"enabled"`
 			Port    uint32 `json:"port"`
+			Address string `json:"address"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
 		unary(w, r, node, unaryTimeout, func(ctx context.Context, conn *grpc.ClientConn) (any, error) {
-			return janusv1alpha1.NewSystemServiceClient(conn).MetricsConfigSet(ctx, &janusv1alpha1.MetricsConfig{Enabled: req.Enabled, Port: req.Port})
+			return janusv1alpha1.NewSystemServiceClient(conn).MetricsConfigSet(ctx, &janusv1alpha1.MetricsConfig{Enabled: req.Enabled, Port: req.Port, Address: req.Address})
 		})
 	})
 	mux.HandleFunc("GET /api/system/node-exporter", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {

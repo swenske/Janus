@@ -24,20 +24,24 @@ export default function ExporterCard() {
   const cfg = data?.config
   const enabled = draft ? draft.enabled : !!cfg?.enabled
   const port = draft ? draft.port : String(cfg?.port || DEFAULT_PORT)
-  const edit = (change) => setDraft({ enabled, port, ...change })
+  const address = draft ? draft.address : cfg?.address || ''
+  const edit = (change) => setDraft({ enabled, port, address, ...change })
 
-  const host = (node.data?.address || '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '') || '<node>'
+  // Scraped at the address it listens on, else at the node's.
+  const host = cfg?.address || (node.data?.address || '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '') || '<node>'
   const shownPort = cfg?.port || DEFAULT_PORT
   const target = `${host.includes(':') ? `[${host}]` : host}:${shownPort}`
-  const changed = cfg && (enabled !== !!cfg.enabled || Number(port || DEFAULT_PORT) !== (cfg.port || DEFAULT_PORT))
+  const changed = cfg && (enabled !== !!cfg.enabled || Number(port || DEFAULT_PORT) !== (cfg.port || DEFAULT_PORT) || address !== (cfg.address || ''))
   const portValid = /^\d+$/.test(port || String(DEFAULT_PORT)) && Number(port || DEFAULT_PORT) >= 1 && Number(port || DEFAULT_PORT) <= 65535
+  // An IP address or nothing - the node checks it for real.
+  const addressValid = address === '' || /^[0-9a-fA-F.:]+$/.test(address)
 
   const save = () =>
     run(async () => {
-      await postJSON('/api/system/metrics-config', { enabled, port: Number(port || DEFAULT_PORT) })
+      await postJSON('/api/system/metrics-config', { enabled, port: Number(port || DEFAULT_PORT), address })
       setDraft(null)
       reload()
-    }, enabled ? `Exporter serving on port ${port || DEFAULT_PORT}` : 'Exporter disabled')
+    }, enabled ? `Exporter serving on ${address || 'every address'}, port ${port || DEFAULT_PORT}` : 'Exporter disabled')
 
   let badge = <Badge>…</Badge>
   if (cfg && !cfg.enabled) badge = <Badge>Disabled</Badge>
@@ -70,12 +74,16 @@ export default function ExporterCard() {
             <label className="check">
               <input type="checkbox" checked={enabled} onChange={(e) => edit({ enabled: e.target.checked })} /> Enabled
             </label>
+            <label className="field" style={{ width: '12rem' }}>
+              <span>Address</span>
+              <input className="mono" value={address} placeholder="every address" onChange={(e) => edit({ address: e.target.value.trim() })} disabled={!enabled} />
+            </label>
             <label className="field" style={{ width: '9rem' }}>
               <span>Port</span>
               <input className="mono" inputMode="numeric" value={port} placeholder={String(DEFAULT_PORT)} onChange={(e) => edit({ port: e.target.value.trim() })} disabled={!enabled} />
             </label>
             {canSet && (
-              <button className="primary" disabled={busy || !changed || !portValid} onClick={save}>
+              <button className="primary" disabled={busy || !changed || !portValid || !addressValid} onClick={save}>
                 {busy ? 'Saving…' : 'Save'}
               </button>
             )}
@@ -84,6 +92,7 @@ export default function ExporterCard() {
             <>
               <div className="small">
                 Scrape <span className="mono">http://{target}/metrics</span> - the node's firewall, if any, must let Prometheus reach port {shownPort}.
+                {!cfg.address && ' On every address of the node: set a management address to keep it off the networks HAProxy serves.'}
               </div>
               <pre className="code">{`scrape_configs:
   - job_name: janus

@@ -128,6 +128,28 @@ func TestServerApply(t *testing.T) {
 		t.Fatalf("status after a failed move: %+v %v %q", cfg, listening, lastErr)
 	}
 
+	// Another address on the same port: the old listener held the port,
+	// it gave way. An address that can't be bound: refused, and the
+	// previous listener comes back.
+	if err := s.Apply(Config{Enabled: true, Port: b, Address: "127.0.0.1"}); err != nil {
+		t.Fatalf("127.0.0.1 on the same port: %v", err)
+	}
+	if _, err := scrape(b); err != nil {
+		t.Fatalf("scrape on 127.0.0.1: %v", err)
+	}
+	if err := s.Apply(Config{Enabled: true, Port: b, Address: "192.0.2.1"}); err == nil {
+		t.Fatal("an address this host doesn't have was accepted")
+	}
+	if _, err := scrape(b); err != nil {
+		t.Fatalf("the previous listener didn't come back after a failed address change: %v", err)
+	}
+	if cfg, listening, _ := s.Status(); cfg.Address != "127.0.0.1" || !listening {
+		t.Fatalf("status after a failed address change: %+v %v", cfg, listening)
+	}
+	if err := s.Apply(Config{Enabled: true, Port: b}); err != nil {
+		t.Fatalf("back on every address: %v", err)
+	}
+
 	// Disabled: nothing listens; enabled again on the same port.
 	if err := s.Apply(Config{Enabled: false, Port: b}); err != nil {
 		t.Fatal(err)

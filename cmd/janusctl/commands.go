@@ -152,7 +152,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("duration", "DURATION", "stop after this long", argNone),
 			valFlag("o", "FILE", "the pcap file, - for stdout", argFile),
 		}},
-		{name: "metrics", help: "the node's Prometheus exporter: show or change", flags: []flagDef{boolFlag("enable", "turn it on"), boolFlag("disable", "turn it off"), valFlag("port", "PORT", "serve on this port", argNone)}},
+		{name: "metrics", help: "the node's Prometheus exporter: show or change", flags: []flagDef{boolFlag("enable", "turn it on"), boolFlag("disable", "turn it off"), valFlag("address", "IP", "serve on this address only (* for all)", argNone), valFlag("port", "PORT", "serve on this port", argNone)}},
 		{name: "node-exporter", help: "prometheus-node-exporter: show or change", flags: []flagDef{
 			boolFlag("enable", "run it"), boolFlag("disable", "stop it, and keep it stopped"),
 			valFlag("address", "IP", "listen on this address only (* for all)", argNone),

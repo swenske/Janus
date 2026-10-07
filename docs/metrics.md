@@ -19,9 +19,11 @@ allocations](https://github.com/prometheus/prometheus/wiki/Default-port-allocati
 Its settings are kept on the node across reboots and upgrades:
 
 ```sh
-janusctl system metrics                  # show
-janusctl system metrics -port 10100      # move it
-janusctl system metrics -disable         # turn it off
+janusctl system metrics                       # show
+janusctl system metrics -port 10100           # move it
+janusctl system metrics -address 192.0.2.10   # listen on one address only
+janusctl system metrics -address '*'          # back to every address
+janusctl system metrics -disable              # turn it off
 janusctl system metrics -enable
 ```
 
@@ -31,8 +33,10 @@ was.
 
 Like node_exporter, it has no authentication: anyone who reaches the port
 can read the metrics (versions, certificate names and expiry dates, API
-call counts - no secrets). Restrict who reaches it in your network, or
-with the node's firewall.
+call counts - no secrets). It listens on every address of the node
+unless one is set: on a node with a management address, `-address` keeps
+the metrics off the networks HAProxy serves. Restrict who reaches it in
+your network, or with the node's firewall.
 
 ```yaml
 scrape_configs:
