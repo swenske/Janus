@@ -164,7 +164,7 @@ export function ConfirmProvider({ children }) {
     <ConfirmContext.Provider value={confirm}>
       {children}
       {dialog && (
-        <div className="modal-backdrop" onClick={() => close(false)}>
+        <div className="modal-backdrop confirm" onClick={() => close(false)}>
           <div className={`modal card ${dialog.wide ? 'wide' : ''}`} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="row" style={{ marginBottom: '0.6rem' }}>
               {dialog.danger && <AlertTriangle size={18} color="var(--danger)" />}

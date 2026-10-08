@@ -176,6 +176,8 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 
 /* --- modal --- */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.42); z-index: 90; display: grid; place-items: center; padding: 1rem; }
+/* A confirmation asked from inside a dialog (the account's SSH keys...) comes above it. */
+.modal-backdrop.confirm { z-index: 95; }
 .modal { width: min(520px, 100%); max-height: 90vh; overflow: auto; }
 .modal.wide { width: min(980px, 100%); }
 
