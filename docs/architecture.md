@@ -116,17 +116,23 @@ UEFI variables); the kernel itself verifies nothing (no
 bzImage, not the command line that pins the root filesystem). It is
 opt-in, because a device left in an odd state by the running kernel is
 kexec's known risk; a revert after a failed health check always goes
-through the firmware. One such state is known (2026-10-07): under a
-firmware whose UEFI variable services run in SMM - OVMF's Secure
-Boot-capable build, what Proxmox VE gives a q35 machine and libvirt a
-`secure-boot` one - the kexec'd kernel corrupts itself before it
-reaches userspace (an oops in the scheduler during its APIC timer
-calibration, every time, on real KVM), and the firmware boots the
-node after the crash: slower, not lost. It isn't the EFI runtime calls
-(`efi=noruntime` on the kexec'd kernel alone changes nothing) but what
-the first kernel hands the second about the firmware: a UKI whose
-whole command line carries `efi=noruntime` kexecs fine under it, at
-the price of no UEFI variables at all. Undecided; bare metal untried.
+through the firmware. One such state is known (2026-10-07, pinned
+down 2026-10-08): a virtual machine whose firmware flash QEMU locks to
+SMM (`-global driver=cfi.pflash01,property=secure,value=on` - what
+libvirt sets for a machine with Secure Boot enabled, `<loader
+secure='yes'>`) under OVMF 2025.02 (Debian 13's `ovmf` package): the
+kexec'd kernel corrupts itself before it reaches userspace (an oops in
+the scheduler during its APIC timer calibration, every time), and the
+firmware boots the node after the crash - slower, not lost. edk2
+2026.08 (Proxmox VE 9.2's build) kexecs fine with the same flag: it is
+the host's firmware package, not something Janus can work around.
+Proxmox VE never sets the flag, and the Controller's libvirt machines
+have Secure Boot off. Measured on Proxmox VE 9.2 (q35, its 4 MiB
+Secure Boot-capable OVMF with SMM, Secure Boot off): the API answers
+3.4 s after `reboot -kexec` against 7.3 s after a firmware reboot, and
+the node is away 0.6 s instead of 3.1 s - within a client's first TCP
+retransmit, so a connection opened at that moment just takes a second
+longer. Bare metal untried.
 
 ## mTLS / PKI
 

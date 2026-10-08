@@ -1139,6 +1139,14 @@ qemu-system-api-test: build disk-image
 qemu-kexec-test: build disk-image
 	./hack/qemu-kexec-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
+# The same under the Secure Boot-capable OVMF (its variable services in
+# SMM, no key enrolled - what Proxmox VE gives a q35 machine with a 4 MiB
+# EFI disk): janusd reads "Secure Boot off" from efivarfs before each
+# kexec. Without the SMM-locked flash of a Secure Boot-enabled libvirt
+# machine - see hack/qemu-kexec-test.sh.
+qemu-kexec-secboot-test: build disk-image
+	OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd ./hack/qemu-kexec-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
 # qemu-lifecycle-upgrade-test with the reboot into the new slot through
 # kexec (UpgradeRequest.reboot_mode KEXEC): the kernel logs "Starting
 # new kernel", OVMF never runs again, the upgraded slot comes up.

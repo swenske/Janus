@@ -632,6 +632,12 @@ jobs:
       - name: A reboot through kexec skips the firmware
         run: make qemu-kexec-test
 
+      # The same under the Secure Boot-capable OVMF (variables served from
+      # SMM, Secure Boot off - a Proxmox VE machine): janusd reads the
+      # state from efivarfs before each kexec.
+      - name: A reboot through kexec under the Secure Boot-capable OVMF
+        run: make qemu-kexec-secboot-test
+
       # The kernel parameters on a real enforcing node: the CIS benchmark
       # at boot, every whitelisted parameter's bounds on trial, reverts,
       # cancels, confirmations kept across a reboot, refusals, a tampered

@@ -17,16 +17,24 @@
 #      are still there after a jump;
 #   6. zero AVC denials across all four boots.
 #
-# The plain OVMF on q35 with SMM (the machine type Proxmox VE and libvirt
-# give a node): it defines no SecureBoot variable, so janusd says so
-# ("no UEFI variables, Secure Boot can't be on") and the test image's
-# unsigned UKI may be kexec'd, as the firmware boots it - the rule
-# internal/api/kexec.go keeps; its refusal with Secure Boot on is
-# internal/api's own TestKexecKeepsTheFirmwaresRule. Not the Secure
-# Boot-capable OVMF (OVMF_CODE_4M.secboot.fd, whose variable services run
-# in SMM): a kernel kexec'd under it crashes at once on real KVM
-# (internal/api/kexec.go says what is known) - a limitation, documented,
-# not what this test is about.
+# On q35 with SMM, under the firmware $OVMF_CODE names - the plain OVMF
+# (the default: what libvirt gives a machine without Secure Boot, the
+# Controller's; it defines no SecureBoot variable, so janusd logs "no
+# UEFI variables, Secure Boot can't be on") or the Secure Boot-capable
+# one (OVMF_CODE_4M.secboot.fd, its variable services in SMM: what
+# Proxmox VE gives a q35 machine with a 4 MiB EFI disk; no key enrolled,
+# so janusd reads "Secure Boot off" from efivarfs - `make
+# qemu-kexec-secboot-test`). The state janusd must log follows the
+# firmware. Either way the test image's unsigned UKI may be kexec'd, as
+# the firmware boots it - the rule internal/api/kexec.go keeps; its
+# refusal with Secure Boot on is internal/api's own
+# TestKexecKeepsTheFirmwaresRule. Never with `-global
+# driver=cfi.pflash01,property=secure,value=on` (the flash locked to
+# SMM: libvirt's Secure Boot-enabled machine, hack/qemu-secureboot-test.sh):
+# under OVMF 2025.02 (Debian 13's) a kernel kexec'd that way oopses at
+# once on real KVM, under edk2 2026.08 (Proxmox VE's) it doesn't - that
+# firmware's limitation, documented in docs/guide/updates.md, not what
+# this test is about.
 #
 # Usage: hack/qemu-kexec-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -44,6 +52,12 @@ KEXEC_LINE="Starting new kernel"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
 [ -f "$OVMF_CODE" ] || { echo "OVMF firmware not found at $OVMF_CODE (package: ovmf)" >&2; exit 1; }
+# What janusd logs before each kexec: the Secure Boot state it read.
+case "$OVMF_CODE" in
+  *secboot*) KEXEC_STATE="Secure Boot off" ;;
+  *) KEXEC_STATE="no UEFI variables, Secure Boot can't be on" ;;
+esac
+KEXEC_LOADED="kexec: the next reboot jumps into the loaded kernel without the firmware ($KEXEC_STATE)"
 
 WORKDIR="$(mktemp -d)"
 QEMU_PID=""
@@ -136,8 +150,8 @@ wait_listening 3
 KEXEC_MS=$(( $(now_ms) - t0 ))
 [ "$(kexecs)" -eq 1 ] || fail "the kexec reboot: '$KEXEC_LINE' seen $(kexecs) time(s), want 1"
 [ "$(firmware_boots)" -eq 2 ] || fail "the kexec reboot went through the firmware: OVMF's line seen $(firmware_boots) time(s), want still 2"
-grep -aq "kexec: the next reboot jumps into the loaded kernel without the firmware (no UEFI variables, Secure Boot can't be on)" "$LOG" \
-  || fail "janusd never said it loaded the kernel for kexec: $(grep -a 'kexec:' "$LOG")"
+grep -aqF "$KEXEC_LOADED" "$LOG" \
+  || fail "janusd never said it loaded the kernel for kexec ($KEXEC_STATE): $(grep -a 'kexec:' "$LOG")"
 wait_api "after the kexec reboot"
 grep -aq "Kernel command line:.*PARTLABEL=BOOT-A-DATA" "$LOG" || fail "the kexec'd kernel's command line doesn't name slot A"
 [ "$(grep -ac "Kernel command line:" "$LOG")" -eq 3 ] || fail "three kernels should have logged their command line, $(grep -ac 'Kernel command line:' "$LOG") did"
@@ -155,8 +169,8 @@ wait_listening 4
 [ "$(kexecs)" -eq 2 ] || fail "the second kexec: '$KEXEC_LINE' seen $(kexecs) time(s), want 2"
 [ "$(firmware_boots)" -eq 2 ] || fail "the second kexec went through the firmware"
 wait_api "after the second kexec"
-[ "$(count "kexec: the next reboot jumps into the loaded kernel without the firmware (no UEFI variables")" -eq 2 ] \
-  || fail "the Secure Boot state wasn't looked up before both kexecs: $(grep -a 'kexec: the next reboot' "$LOG")"
+[ "$(grep -acF "$KEXEC_LOADED" "$LOG")" -eq 2 ] \
+  || fail "the Secure Boot state ($KEXEC_STATE) wasn't looked up before both kexecs: $(grep -a 'kexec: the next reboot' "$LOG")"
 echo "  ok: a second kexec from the kexec'd kernel - the EFI runtime and the ESP survive a jump"
 
 # --- 6. SELinux ---
@@ -164,4 +178,4 @@ if grep -a "avc:.*denied" "$LOG"; then fail "AVC denials"; fi
 grep -aq "SELinux:  Initializing" "$LOG" || fail "no SELinux initialization in the console log"
 echo "  ok: zero AVC denials across the firmware and kexec boots"
 
-echo "kexec test OK: a reboot through kexec came back on the same slot in ${KEXEC_MS} ms against ${FIRMWARE_MS} ms through OVMF, no firmware in between, the node's PKI and API intact, zero AVC denials"
+echo "kexec test OK: a reboot through kexec came back on the same slot in ${KEXEC_MS} ms against ${FIRMWARE_MS} ms through OVMF ($KEXEC_STATE), no firmware in between, the node's PKI and API intact, zero AVC denials"

@@ -76,14 +76,15 @@ janusctl -n lb1 version           # the release now running, and its slot
   your habit where it works. With Secure Boot on, only a release signed
   by Janus can be kexec'd, as the firmware would only boot that; an
   update that can't be kexec'd reboots through the firmware and says so.
-  A revert always goes through the firmware. Known not to work: a
-  virtual machine whose UEFI variables are served from SMM (OVMF's
-  Secure Boot-capable firmware - what Proxmox VE gives a q35 machine
-  with an EFI disk, and libvirt a machine with `secure-boot` enabled):
-  the kernel jumped into crashes at once and the firmware boots the
-  node instead - slower, not lost. The Controller's own libvirt
-  machines (Secure Boot off) and VMs on the plain OVMF are fine; bare
-  metal is untried.
+  A revert always goes through the firmware. Proven on Proxmox VE 9.2
+  (the API answers 3.4 s after the call, 7.3 s through the firmware)
+  and on the Controller's own libvirt machines. Known not to work: a
+  libvirt machine with Secure Boot enabled (`<loader secure='yes'>`:
+  QEMU locks the firmware flash to SMM) on a host whose OVMF is
+  2025.02 (Debian 13's `ovmf` package): the kernel jumped into crashes
+  at once and the firmware boots the node instead - slower, not lost.
+  A newer edk2 (2026.08, what Proxmox VE 9.2 ships) is fine with the
+  same machine. Bare metal is untried.
 
 ## Going back
 
