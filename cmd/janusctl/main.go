@@ -150,6 +150,7 @@ func main() {
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	redial := func(ep string) (*grpc.ClientConn, error) { return dial(ep, *caFile, *certFile, *keyFile) }
+	tuiOpts := tuiOptions{role: roleFromAsRoles(*asRoles)}
 	if !explicit["endpoint"] && !explicit["ca"] && !explicit["cert"] && !explicit["key"] {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -164,6 +165,9 @@ func main() {
 				globalWords = slices.DeleteFunc(slices.Clone(globalWords), func(w string) bool { return w == "?" || w == "-n" || w == "-n=?" })
 				globalWords = append(globalWords, "-n", *nodesFlag)
 			}
+			if args[0] == "tui" && *nodesFlag == "" {
+				*allFlag = true // the dashboard shows the whole fleet unless told a node
+			}
 			nodes, err := selectNodes(ctx, *nodesFlag, *allFlag)
 			if err != nil && *nodesFlag == "" && !*allFlag && canPick() {
 				*nodesFlag, picked = pickNodes(ctx), true
@@ -176,6 +180,17 @@ func main() {
 			if err := fresh(cfg, name, ctx); err != nil {
 				log.Fatalf("janusctl: %v", err)
 			}
+			tuiOpts.context, tuiOpts.user, tuiOpts.expires = name, ctx.User, ctx.Expires
+			if args[0] == "tui" && len(nodes) > 1 {
+				echo()
+				targets, role, err := fleetTargets(name, ctx, nodes)
+				if err != nil {
+					log.Fatalf("janusctl: %v", err)
+				}
+				tuiOpts.role = firstOr(tuiOpts.role, role)
+				runTUI(args[1:], targets, tuiOpts)
+				return
+			}
 			if len(nodes) > 1 {
 				echo()
 				runOnEach(name, ctx, nodes, args)
@@ -187,6 +202,7 @@ func main() {
 				log.Fatalf("janusctl: %v", err)
 			}
 			*endpoint = node.Address
+			tuiOpts.role = firstOr(tuiOpts.role, roleFromTLS(tlsConfig))
 			redial = func(ep string) (*grpc.ClientConn, error) { return dialTLS(ep, tlsConfig) }
 		} else if *ctxFlag != "" || *nodesFlag != "" || *allFlag {
 			log.Fatal("janusctl: no context - janusctl login -controller HOST")
@@ -214,6 +230,12 @@ func main() {
 	switch cmd := args[0]; cmd {
 	case "version":
 		runVersion(conn)
+	case "tui":
+		if tuiOpts.context == "" {
+			tuiOpts.role = firstOr(tuiOpts.role, roleFromCertFile(*certFile))
+		}
+		host, _, _ := strings.Cut(*endpoint, ":")
+		runTUI(args[1:], []tuiTarget{{name: firstOr(host, *endpoint), address: *endpoint, dial: func() (*grpc.ClientConn, error) { return conn, nil }}}, tuiOpts)
 	case "system":
 		runSystem(conn, *endpoint, redial, args[1:])
 	case "haproxy":

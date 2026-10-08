@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-var updateReference = flag.Bool("update", false, "rewrite docs/guide/janusctl-reference.md from the command tree")
+var update = flag.Bool("update", false, "rewrite docs/guide/janusctl-reference.md from the command tree, and the tui golden frames")
 
 // The janusctl reference page is what the command tree says:
 // go test ./cmd/janusctl -run TestReferenceDoc -update after a change.
@@ -15,7 +15,7 @@ func TestReferenceDoc(t *testing.T) {
 	const file = "../../docs/guide/janusctl-reference.md"
 	var b bytes.Buffer
 	writeReference(&b)
-	if *updateReference {
+	if *update {
 		if err := os.WriteFile(file, b.Bytes(), 0o644); err != nil {
 			t.Fatal(err)
 		}

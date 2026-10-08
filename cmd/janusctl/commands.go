@@ -125,6 +125,10 @@ var commands = &command{name: "janusctl", subs: []*command{
 	{name: "context", offline: true, args: "[list | use NAME | delete NAME]", help: "the Controllers and fleets signed in to", pos: []argKind{argContextAction, argContext}},
 	{name: "nodes", offline: true, help: "the context's nodes (refreshed with JANUS_TOKEN)"},
 	{name: "version", group: "🖥  Node", help: "janusctl's version, and the node's"},
+	{name: "tui", help: "a live dashboard in the terminal: the node, or every node of the context", flags: []flagDef{
+		valFlag("interval", "DURATION", "how often the nodes are asked (default 2s, 1s to 30s)", argNone),
+		boolFlag("once", "print one frame as text and exit"),
+	}},
 	{name: "system", help: "the node: state, logs, files, power", subs: []*command{
 		{name: "info", help: "version, kernel, slot, memory, CPU, load, disks"},
 		{name: "hostname", help: "the node's hostname"},
