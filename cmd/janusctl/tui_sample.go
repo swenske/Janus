@@ -592,21 +592,40 @@ type tailLine struct {
 
 // tail is the lines a follower collected, newest last.
 type tail struct {
-	mu     sync.Mutex
-	lines  *ring.Ring[tailLine]
-	err    string // why it stopped, shown in the panel
-	newest time.Time
+	mu    sync.Mutex
+	lines *ring.Ring[tailLine]
+	err   string // why it stopped, shown in the panel
+	// seen is each event received, by ID with its time: a replay after a
+	// break brings the same events back (same ID, same time - skipped),
+	// a janusd restart brings new ones under old IDs (kept). Time alone
+	// can't tell: a first boot's clock steps when NTP answers.
+	seen map[uint64]int64
 }
 
-func newTail() *tail { return &tail{lines: ring.New[tailLine](tuiTailLines)} }
+func newTail() *tail { return &tail{lines: ring.New[tailLine](tuiTailLines), seen: map[uint64]int64{}} }
 
 func (t *tail) add(l tailLine) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.lines.Append(l)
-	if l.at.After(t.newest) {
-		t.newest = l.at
+}
+
+// accept reports whether e is new, and remembers it.
+func (t *tail) accept(e *janusv1alpha1.Event) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if at, ok := t.seen[e.GetId()]; ok && at == e.GetUnixTimeNs() {
+		return false
 	}
+	if len(t.seen) >= 2*tuiTailLines { // the ring holds tuiTailLines: forget the oldest IDs
+		for id := range t.seen {
+			if id+tuiTailLines < e.GetId() {
+				delete(t.seen, id)
+			}
+		}
+	}
+	t.seen[e.GetId()] = e.GetUnixTimeNs()
+	return true
 }
 
 func (t *tail) setErr(err string) {
@@ -698,8 +717,8 @@ func logTone(line string) termui.Color {
 
 // followEvents streams SystemService.Events into t until ctx ends:
 // from the start (the ring replays what it holds), again after a break
-// - event IDs restart when janusd does, so what came back is told
-// apart by time, not ID.
+// - event IDs restart when janusd does, so a replay is told apart from
+// a restart by ID and time together (tail.accept).
 func followEvents(ctx context.Context, conn *grpc.ClientConn, t *tail) {
 	sys := janusv1alpha1.NewSystemServiceClient(conn)
 	for ctx.Err() == nil {
@@ -729,14 +748,10 @@ func readEvents(stream grpc.ServerStreamingClient[janusv1alpha1.Event], t *tail)
 		if err != nil {
 			return err
 		}
-		l := eventLine(e)
-		t.mu.Lock()
-		stale := !t.newest.IsZero() && !l.at.After(t.newest)
-		t.mu.Unlock()
-		if stale {
+		if !t.accept(e) {
 			continue
 		}
-		t.add(l)
+		t.add(eventLine(e))
 		t.setErr("")
 	}
 }

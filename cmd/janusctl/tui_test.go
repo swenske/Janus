@@ -529,3 +529,35 @@ func TestActions(t *testing.T) {
 		t.Errorf("C without a trial: modal %v, status %q", a.modal != nil, a.status.text)
 	}
 }
+
+func TestTailAcceptsReplaysOnce(t *testing.T) {
+	tl := newTail()
+	e := func(id uint64, ns int64) *janusv1alpha1.Event {
+		return &janusv1alpha1.Event{Id: id, UnixTimeNs: ns, Type: "x"}
+	}
+	if !tl.accept(e(1, 100)) || !tl.accept(e(2, 200)) {
+		t.Fatal("new events are kept")
+	}
+	// The clock stepped back (NTP on a first boot): a later event with an
+	// earlier time is still new.
+	if !tl.accept(e(3, 50)) {
+		t.Error("an event with an earlier time is new when its ID is")
+	}
+	// A reconnection replays the ring: the same events again.
+	if tl.accept(e(1, 100)) || tl.accept(e(2, 200)) || tl.accept(e(3, 50)) {
+		t.Error("a replay is skipped")
+	}
+	// janusd restarted: IDs start over with other times.
+	if !tl.accept(e(1, 900)) || !tl.accept(e(2, 950)) {
+		t.Error("a restart's events are new")
+	}
+	if !tl.accept(e(4, 1000)) {
+		t.Error("a new ID is new")
+	}
+	for id := uint64(10); id < 3000; id++ { // the memory of IDs stays bounded
+		tl.accept(e(id, int64(id)))
+	}
+	if len(tl.seen) > 2*tuiTailLines+1 {
+		t.Errorf("seen holds %d IDs", len(tl.seen))
+	}
+}
