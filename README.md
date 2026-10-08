@@ -5,6 +5,20 @@
   </picture>
 </p>
 
+<p align="center">
+  <a href="https://github.com/swenske/Janus/actions/workflows/ci.yml?query=branch%3Amain"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/swenske/Janus/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white"></a>
+  <a href="https://github.com/swenske/Janus/actions/workflows/image-build.yml?query=branch%3Amain"><img alt="Image build and QEMU boot tests" src="https://img.shields.io/github/actions/workflow/status/swenske/Janus/image-build.yml?branch=main&label=image%20build%20%2B%20boot%20tests&logo=qemu&logoColor=white"></a>
+  <a href="https://github.com/swenske/Janus/actions/workflows/site-deploy.yml?query=branch%3Amain"><img alt="Docs site" src="https://img.shields.io/github/actions/workflow/status/swenske/Janus/site-deploy.yml?branch=main&label=docs%20site&logo=astro&logoColor=white"></a>
+  <br>
+  <a href="https://github.com/swenske/Janus/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/swenske/Janus?sort=date&display_name=tag&label=release"></a>
+  <a href="docs/architecture.md#roadmap"><img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-orange"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/swenske/Janus"></a>
+  <a href="go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/swenske/Janus?logo=go&logoColor=white"></a>
+  <a href="https://janus.sw-servers.net/docs/"><img alt="Documentation" src="https://img.shields.io/badge/docs-janus.sw--servers.net-2f6feb"></a>
+  <a href="#installing-janusctl"><img alt="janusctl apt repository" src="https://img.shields.io/badge/janusctl-apt.sw--servers.net-a81d33?logo=debian&logoColor=white"></a>
+  <a href="https://hub.docker.com/r/swenske/janus-controller"><img alt="Janus Controller on Docker Hub" src="https://img.shields.io/docker/pulls/swenske/janus-controller?logo=docker&logoColor=white&label=controller%20pulls"></a>
+</p>
+
 # Janus
 
 An ultra-light, immutable, API-driven Linux distribution built from scratch
