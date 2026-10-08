@@ -228,6 +228,22 @@ sleep 2
 files_served || fail "the files aren't served any more after a refused change and a reload"
 echo "  ok: HAProxy files (error page and certificate served, private key never read back, breaking changes refused; access log through log stdout)"
 
+# --- janusctl tui -once: one frame of the dashboard as text (the live one
+# needs a terminal) - the node, HAProxy's version, the backend applied
+# above, the events and the log; a reader gets everything but the log ---
+out="$(ctl tui -once 2>&1)" || fail "tui -once failed: $out"
+grep -q "$(ctl system hostname)" <<<"$out" || fail "tui -once lacks the hostname: $out"
+grep -Eq 'HAProxy [0-9]+\.[0-9]+\.[0-9]+' <<<"$out" || fail "tui -once lacks HAProxy's version: $out"
+grep -q 'files-none' <<<"$out" || fail "tui -once lacks the backend: $out"
+grep -Eq '[0-9]{2}:[0-9]{2}:[0-9]{2} haproxy\.(started|exited|reloaded|config\.applied)' <<<"$out" || fail "tui -once lacks the events: $out"
+grep -q 'Logs janusd' <<<"$out" || fail "tui -once lacks the log panel: $out"
+grep -Eq '[0-9]+ +[0-9.]+ +[0-9.]+[KMG]iB +/usr/local/sbin/haproxy' <<<"$out" || fail "tui -once lacks haproxy's process with its CPU: $out"
+echo "  ok: tui -once (one frame of the dashboard)"
+out="$(reader tui -once 2>&1)" || fail "tui -once as a reader failed: $out"
+grep -q 'logs are for operators' <<<"$out" || fail "tui -once as a reader doesn't keep the log for operators: $out"
+grep -q 'files-none' <<<"$out" || fail "tui -once as a reader lacks the backend: $out"
+echo "  ok: tui -once as a reader (everything but the log)"
+
 # --- open files: what a distribution gives HAProxy (rootfs/init raises the
 # hard limit to systemd's); a configuration haproxy -c accepts but HAProxy
 # won't start with is refused, nothing changed ---
