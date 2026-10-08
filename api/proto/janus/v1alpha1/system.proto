@@ -649,8 +649,13 @@ message ProcessesResponse {
 message ProcessInfo {
   int32 pid = 1;
   string command = 2;
+  // Average over the process's lifetime, like ps(1).
   double cpu_percent = 3;
   uint64 memory_bytes = 4;
+  // Cumulative CPU time, like ProcessStat.cpu_seconds - the current rate
+  // is the difference between two samples. 0 from a node older than this
+  // field.
+  double cpu_seconds = 5;
 }
 
 message ServiceInfo {

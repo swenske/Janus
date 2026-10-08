@@ -275,7 +275,7 @@ func (s *System) Processes(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.
 	resp := &janusv1alpha1.ProcessesResponse{}
 	for _, p := range procs {
 		resp.Processes = append(resp.Processes, &janusv1alpha1.ProcessInfo{
-			Pid: p.pid, Command: p.command, CpuPercent: p.cpuPercent, MemoryBytes: p.rssBytes,
+			Pid: p.pid, Command: p.command, CpuPercent: p.cpuPercent, MemoryBytes: p.rssBytes, CpuSeconds: p.cpuSeconds,
 		})
 	}
 	return resp, nil
