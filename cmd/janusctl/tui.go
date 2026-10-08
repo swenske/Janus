@@ -272,18 +272,20 @@ type app struct {
 	interval atomic.Int64
 	paused   atomic.Bool
 	wake     chan struct{}
+	actions  chan actionResult
 	palette  termui.Palette
 	now      func() time.Time
 
 	screen screen
 	fleet  *fleetScreen
+	modal  *modal
 	help   bool
 	status statusLine
 	cancel context.CancelFunc
 }
 
 func newApp(targets []tuiTarget, opts tuiOptions, interval time.Duration) *app {
-	a := &app{targets: targets, opts: opts, wake: make(chan struct{}, 1), palette: termui.DetectPalette(os.Getenv), now: time.Now}
+	a := &app{targets: targets, opts: opts, wake: make(chan struct{}, 1), actions: make(chan actionResult, 4), palette: termui.DetectPalette(os.Getenv), now: time.Now}
 	a.interval.Store(int64(interval))
 	for _, t := range targets {
 		a.samplers = append(a.samplers, newSampler(t, a.wake, &a.interval, &a.paused))
@@ -335,6 +337,8 @@ func (a *app) run(t *terminal) (err error) {
 		case <-t.quit:
 			return nil
 		case <-a.wake:
+		case res := <-a.actions:
+			a.finish(res)
 		case <-tick.C:
 		}
 	}
@@ -357,6 +361,10 @@ func (a *app) say(text string, tone termui.Color) {
 // key handles one key; true means leave.
 func (a *app) key(k string) bool {
 	k = termui.Normalize(k)
+	if a.modal != nil {
+		a.modal.key(a, k)
+		return false
+	}
 	if a.help {
 		a.help = false
 		return false
@@ -417,6 +425,9 @@ func (a *app) render(w, h int) *termui.Frame {
 	a.renderFooter(f)
 	if a.help {
 		a.renderHelp(f)
+	}
+	if a.modal != nil {
+		a.modal.render(f)
 	}
 	return f
 }

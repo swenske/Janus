@@ -54,7 +54,7 @@ func (s *fleetScreen) open(a *app) {
 func (s *fleetScreen) close(*app) {}
 
 func (s *fleetScreen) hints(*app) []string {
-	return []string{"↑↓ move", "Enter open", "s sort", "r reverse", "? help", "q quit"}
+	return []string{"? help", "q quit", "↑↓ move", "Enter open", "s sort", "r reverse"}
 }
 
 func (s *fleetScreen) key(a *app, k string) {

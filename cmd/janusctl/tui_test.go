@@ -438,3 +438,94 @@ func TestTUIFormatting(t *testing.T) {
 		t.Error("eventTone")
 	}
 }
+
+func TestActions(t *testing.T) {
+	a := testApp(t) // an admin
+	s := testSampler(t, a, "lgslbpub01")
+	a.samplers = []*sampler{s}
+	n := newNodeScreen(s, false)
+	a.screen = n
+	a.render(120, 40)
+	// Enter on the backend's own row: a hint, no dialog.
+	a.key(termui.KeyEnter)
+	if a.modal != nil || !strings.Contains(a.status.text, "select a server") {
+		t.Fatalf("Enter on a backend: modal %v, status %q", a.modal != nil, a.status.text)
+	}
+	a.key(termui.KeyDown) // web1
+	a.key(termui.KeyEnter)
+	if a.modal == nil || a.modal.act.title != "Server web/web1" || a.modal.cursor != 0 {
+		t.Fatalf("Enter on web1: %+v", a.modal)
+	}
+	golden(t, "tui-node-modal-120x40.txt", a.render(120, 40))
+	a.key(termui.KeyRight)
+	if a.modal.cursor != 1 {
+		t.Errorf("→: cursor %d", a.modal.cursor)
+	}
+	a.key(termui.KeyEsc)
+	if a.modal != nil {
+		t.Error("Esc closes the dialog")
+	}
+	// A dangerous action starts on Cancel: Enter there does nothing.
+	a.key("B")
+	if a.modal == nil || a.modal.cursor != 3 {
+		t.Fatalf("B: %+v", a.modal)
+	}
+	a.key(termui.KeyEnter)
+	if a.modal != nil {
+		t.Error("Enter on Cancel closes the dialog")
+	}
+	// Running one: the test node isn't dialled, the footer says what the dial said.
+	a.key("R")
+	a.key(termui.KeyEnter)
+	if a.modal == nil || !a.modal.busy {
+		t.Fatal("Enter on Reload runs it")
+	}
+	select {
+	case res := <-a.actions:
+		a.finish(res)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no result")
+	}
+	if a.modal != nil || !strings.Contains(a.status.text, "not dialled") || a.status.tone != termui.ColorDanger {
+		t.Errorf("after the action: modal %v, status %q", a.modal != nil, a.status.text)
+	}
+	// A trial is pending in the test data: C offers it to an admin.
+	a.key("C")
+	if a.modal == nil || a.modal.act.title != "Confirm a trial" || strings.Join(a.modal.act.choices, ",") != "network,Cancel" {
+		t.Fatalf("C: %+v", a.modal)
+	}
+	a.key("n")
+	// A reader is offered nothing, and told.
+	a.opts.role = pki.RoleReader
+	a.key("R")
+	if a.modal != nil || !strings.Contains(a.status.text, "can't") {
+		t.Errorf("reader R: modal %v, status %q", a.modal != nil, a.status.text)
+	}
+	hints := strings.Join(n.hints(a), " ")
+	if strings.Contains(hints, "reload") || strings.Contains(hints, "confirm") {
+		t.Errorf("reader hints: %s", hints)
+	}
+	a.opts.role = pki.RoleOperator
+	hints = strings.Join(n.hints(a), " ")
+	if !strings.Contains(hints, "R reload") || strings.Contains(hints, "C confirm") {
+		t.Errorf("operator hints: %s", hints)
+	}
+	a.key("C")
+	if a.modal != nil || !strings.Contains(a.status.text, "os:admin") {
+		t.Errorf("operator C: modal %v, status %q", a.modal != nil, a.status.text)
+	}
+	a.opts.role = ""
+	a.key("C")
+	if a.modal == nil {
+		t.Error("an unknown role is offered everything")
+	}
+	a.key(termui.KeyEsc)
+	// Without a trial, C says so.
+	s.mu.Lock()
+	s.slow.network.TrialPending = false
+	s.mu.Unlock()
+	a.key("C")
+	if a.modal != nil || !strings.Contains(a.status.text, "no trial") {
+		t.Errorf("C without a trial: modal %v, status %q", a.modal != nil, a.status.text)
+	}
+}

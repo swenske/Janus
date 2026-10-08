@@ -21,4 +21,4 @@
 │14:56:05 haproxy.config.applied by=sebastien reload=true                      │
 │14:57:05 network.trial.started reverts_in=2m                                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- Tab focus  ↑↓ move  1-8 panels  e events  l logs  ? help  q quit       every 2s
+ ? help  q quit  Tab focus  ↑↓ move  1-8 panels  Enter server           every 2s

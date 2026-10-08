@@ -14,13 +14,13 @@
 │                                              ││                                                                      │
 │                                              ││                                                                      │
 │                                             ⣿││                                                                      │
-╰──────────────────────────────────────────────╯│                                                                      │
-╭ 3 Network ───────────────────────────────────╮│                                                                      │
-│● eth0    ↓ 12.0KiB/s ↑  4.0KiB/s            ⢸││                                                                      │
-╰──────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
-╭ 6 Services ──────────────────────────────────╮╭ 5 Processes  3 ──────────────────────────────────────────────────────╮
-│SERVICE              STATE     HEALTH      CPU││   PID  CPU%      RSS COMMAND                                         │
-│janusd               running   healthy     20%││    42  20.0  40.0MiB /usr/local/sbin/janusd -manage-host             │
+╰───────────────────────────────────────╭ Server web/web1 ────────────────────╮                                        │
+╭ 3 Network ────────────────────────────│                                     │                                        │
+│● eth0    ↓ 12.0KiB/s ↑  4.0KiB/s      │ web/web1 is UP - set it:            │                                        │
+╰───────────────────────────────────────│                                     │────────────────────────────────────────╯
+╭ 6 Services ───────────────────────────│  Ready    Drain    Maint    Cancel  │────────────────────────────────────────╮
+│SERVICE              STATE     HEALTH  │                                     │                                        │
+│janusd               running   healthy ╰─────────────────────────────────────╯al/sbin/janusd -manage-host             │
 │haproxy              running   healthy      5%││    77   5.0  60.0MiB /usr/local/sbin/haproxy -f /etc/haproxy/haproxy…│
 │prometheus-node-exp… waiting   waiting        ││     1   0.0   8.0MiB /sbin/init                                      │
 ╰──────────────────────────────────────────────╯│                                                                      │
@@ -29,12 +29,12 @@
 │Firewall   running                            ││                                                                      │
 ╰──────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
 ╭ 7 Events ────────────────────────────────────────────────╮╭ 7 Logs janusd ───────────────────────────────────────────╮
-│14:54:05 janusd.started version=v2026.10.08               ││api: listening on :9505                                   │
-│14:55:05 haproxy.started pid=77                           ││haproxy: reload: WARNING: config: 'option forwardfor' ign…│
-│14:56:05 haproxy.config.applied by=sebastien reload=true  ││                                                          │
-│14:57:05 network.trial.started reverts_in=2m              ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
 │                                                          ││                                                          │
 │                                                          ││                                                          │
 │                                                          ││                                                          │
 ╰──────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
- ? help  q quit  Tab focus  ↑↓ move  1-8 panels  Enter server  R reload  B reboot  J restart  C confirm         every 2s
+ select a server (↑↓) to set it ready, drain or maint                                                           every 2s

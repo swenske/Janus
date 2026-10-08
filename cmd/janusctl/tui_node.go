@@ -120,21 +120,20 @@ func (n *nodeScreen) switchLog(id string) {
 	go n.follow(ctx)
 }
 
+// hints are the footer's keys, the ones that matter most first: the
+// footer drops what doesn't fit from the right.
 func (n *nodeScreen) hints(a *app) []string {
-	h := []string{"Tab focus", "↑↓ move", "1-8 panels"}
-	if n.focus == panelProcesses {
-		h = append(h, "s sort", "r reverse")
-	}
-	h = append(h, "e events", "l logs")
+	h := []string{"? help", "q quit"}
 	if n.fromFleet {
 		h = append(h, "Esc fleet")
 	}
+	h = append(h, "Tab focus", "↑↓ move", "1-8 panels")
 	h = append(h, n.actionHints(a)...)
-	return append(h, "? help", "q quit")
+	if n.focus == panelProcesses {
+		h = append(h, "s sort", "r reverse")
+	}
+	return append(h, "e events", "l logs")
 }
-
-// actionHints is filled in by the actions (none without them).
-func (n *nodeScreen) actionHints(a *app) []string { return nil }
 
 func (n *nodeScreen) key(a *app, k string) {
 	switch k {
@@ -175,7 +174,9 @@ func (n *nodeScreen) key(a *app, k string) {
 		n.showLogs = true
 		n.tailUp = 0
 	default:
-		n.moveKey(k)
+		if !n.actionKey(a, k) {
+			n.moveKey(k)
+		}
 	}
 }
 
