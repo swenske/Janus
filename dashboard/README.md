@@ -136,7 +136,7 @@ also invalidates the certificate your browser already trusted.
 
 ### Who the Controller runs as
 
-Since v2026.10.08 the image runs as user **65532**, not root: with
+Since v2026.10.07-3 the image runs as user **65532**, not root: with
 `--network host`, root in the container would hold the host's network.
 What follows from it:
 
@@ -714,7 +714,7 @@ then:
 3. **backs up** the data volume and `.env` into its state volume
    (`backup/`, replacing the backup of the previous update);
 4. **gives the data** to the user the new image runs as (65532 since
-   v2026.10.08 - [Who the Controller runs as](#who-the-controller-runs-as)),
+   v2026.10.07-3 - [Who the Controller runs as](#who-the-controller-runs-as)),
    when it isn't already;
 5. **writes** `JANUS_CONTROLLER_IMAGE=<image>` into `.env` and runs
    `docker compose up -d janus-controller` - exactly what you'd do by
@@ -775,8 +775,8 @@ echo 'JANUS_CONTROLLER_IMAGE=swenske/janus-controller:vX' >> .env  # or edit the
 docker compose up -d
 ```
 
-Crossing v2026.10.08 by hand (the image runs as 65532 from there), give
-the data to that user first - [Who the Controller runs
+Crossing into v2026.10.07-3 by hand (the image runs as 65532 from
+there), give the data to that user first - [Who the Controller runs
 as](#who-the-controller-runs-as); the updater does it by itself.
 
 ### Settings

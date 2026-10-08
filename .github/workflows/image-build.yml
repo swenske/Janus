@@ -1292,11 +1292,13 @@ jobs:
 
       # User-requested: the repository page itself (hub.docker.com/r/
       # swenske/janus-controller) - a short description (its ~100-char
-      # search-result blurb) and the full Overview (logo + how-to-run,
-      # dashboard/dockerhub-overview.md - a standalone file, not the
-      # full dashboard/README.md verbatim, since Docker Hub renders it
-      # outside this repo and relative links/badges wouldn't resolve
-      # there). Idempotent - re-uploading the same content every run is
+      # search-result blurb, at most 100) and the full Overview (logo,
+      # badges, how to run: dashboard/dockerhub-overview.md - a
+      # standalone file, not the full dashboard/README.md verbatim,
+      # since Docker Hub renders it outside this repo and relative
+      # links/images wouldn't resolve there; its Compose block is
+      # examples/compose/compose.yaml's, hack/docscheck checks it).
+      # Idempotent - re-uploading the same content every run is
       # a harmless no-op - so this runs alongside the image push itself
       # rather than as a separate one-off action, reusing the same
       # DOCKERHUB_TOKEN (no new secret) via peter-evans/
@@ -1317,7 +1319,7 @@ jobs:
           username: swenske
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: swenske/janus-controller
-          short-description: "Web UI to manage Janus nodes: self-registration, live stats, HAProxy config - HTTPS-only"
+          short-description: "Web UI for Janus nodes: HAProxy config, live stats, accounts + MFA, fleet PKI, libvirt/Proxmox VMs"
           readme-filepath: dashboard/dockerhub-overview.md
 
       # Remote-update Phase 4: a real, permanent, tagged GitHub Release -
