@@ -101,8 +101,9 @@ Description: command-line client for Janus nodes
  no shell, no SSH, everything goes through a mutual-TLS gRPC API.
  janusctl drives that API - system information, logs, packet captures,
  HAProxy configuration, maps, ACLs and certificates, network, firewall,
- VRRP and BGP, upgrades and rollbacks - and writes a Controller or
- network configuration onto a Janus disk image before its first boot.
+ VRRP and BGP, upgrades and rollbacks, a live dashboard of a node or of
+ the fleet in the terminal - and writes a Controller or network
+ configuration onto a Janus disk image before its first boot.
 EOF
 
 # Directories 0755 whatever the umask; every mtime at SOURCE_DATE_EPOCH.

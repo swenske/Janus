@@ -68,6 +68,62 @@ colours and symbols there too - never in a pipe, a script or with
 `NO_COLOR`; `JANUS_NO_PICKER=1` keeps the usage errors instead of the
 lists.
 
+### The dashboard: janusctl tui
+
+`janusctl tui` is the node live, in the terminal: CPU, memory and each
+interface with their graphs, HAProxy (its process, the frontends, the
+backends with their servers), the processes, the services, the
+optional modules, and the node's events and a log streamed at the
+bottom - refreshed every two seconds (`-interval`, `+` and `-` from
+1 s to 30 s, `p` pauses). With a context of several nodes, it opens on
+the fleet - one line per node: state, version, HAProxy, connections,
+CPU, memory, load, VRRP role, trials pending - and Enter opens a node,
+Esc comes back; `-n NODE` goes straight to one.
+
+```text
+ janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd…  15:04:05
+╭ 1 CPU 25%  load 0.42 0.38 0.35  4 … ─╮╭ 4 HAProxy 3.2.9  up 3d 4h  12 conn… ─╮
+│                                      ││                                     ⣿│
+│                                      ││                                     ⣿│
+│                                      ││                                     ⣿│
+│                                     ⢀││FRONTEND   STATUS  CONNS CONN/S  REQ/S│
+│                                     ⢸││fe         OPEN        4      3      4│
+╰──────────────────────────────────────╯│                                      │
+╭ 2 Memory 1.4GiB / 4.0GiB  34% ───────╮│BACKEND/SE… STATUS    WGT  CONNS  RATE│
+│██████████████████████░░░░░░░░░░░░░░░░││web  UP  4 conns  3/s                 │
+│used 1.4GiB  cached 1.0GiB  available…││  web1      UP          1      3     2│
+│                                      ││  web2      DOWN        1      1     1│
+│                                     ⣶││empty  DOWN  0 conns  0/s             │
+╰──────────────────────────────────────╯│                                      │
+╭ 3 Network ───────────────────────────╮│                                      │
+│● eth0    ↓ 12.0KiB/s ↑  4.0KiB/s    ⢸││                                      │
+╰──────────────────────────────────────╯╰──────────────────────────────────────╯
+╭ 7 Events ────────────────────────────────────────────────────────────────────╮
+│14:54:05 janusd.started version=v2026.10.08                                   │
+│14:55:05 haproxy.started pid=77                                               │
+│14:56:05 haproxy.config.applied by=sebastien reload=true                      │
+│14:57:05 network.trial.started reverts_in=2m                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ? help  q quit  Tab focus  ↑↓ move  1-8 panels  Enter server           every 2s
+```
+
+The digits show or hide a panel, Tab moves the focus, `↑↓` move in it,
+`s` sorts the processes (`r` reverses), `e` and `l` choose events or a
+log (`l` again switches janusd's and HAProxy's; on a terminal 120
+columns wide both are shown). `?` lists the keys, `q` leaves.
+
+What an operator does from the Controller's node page is here too,
+each asked first in a dialog: Enter on a server sets it ready, drain or
+maint, `R` reloads HAProxy, `B` reboots the node (firmware, power
+cycle or kexec), `J` restarts janusd, and for an admin `C` confirms a
+network, firewall or sysctl trial that would otherwise revert. The
+footer offers only what the certificate's role may do; a reader sees
+everything but the logs, which are for operators.
+
+`janusctl tui -once` prints one frame as plain text and exits - 120×40
+off a terminal - for a script, a ticket or a quick look over SSH. It
+asks the node twice a second apart, so the rates are real.
+
 ## Using janusctl
 
 Sign in to your Janus Controller once; janusctl then reaches its nodes
