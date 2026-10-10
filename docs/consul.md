@@ -136,6 +136,6 @@ udp dport 8301 ip saddr 192.0.2.0/24 accept
 
 ## Size
 
-The agent is about 30 MB of the image (compressed), next to about 14 MB
+The agent is about 30 MB of the image (compressed), next to about 15 MB
 for the base: it fits the 64 MiB boot slots with room for the other
 extensions.
