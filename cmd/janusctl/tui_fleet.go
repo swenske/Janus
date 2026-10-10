@@ -72,14 +72,14 @@ func (s *fleetScreen) open(a *app) {
 func (s *fleetScreen) close(*app) {}
 
 func (s *fleetScreen) hints(*app) []string {
-	return []string{"? help", "q quit", "↑↓ move", "Enter open", "s sort", "r reverse", "m metric", "w window", "y scale"}
+	return []string{"? help", "q quit", "↑↓ move", "Enter open", "s sort", "r reverse", "m metric", "w window", "y scale", "M menu"}
 }
 
 func (s *fleetScreen) key(a *app, k string) {
 	switch k {
 	case termui.KeyEnter:
 		if s.table.Cursor < len(s.order) {
-			a.show(newNodeScreen(a.samplers[s.order[s.table.Cursor]], true))
+			a.show(a.newNode(a.samplers[s.order[s.table.Cursor]], true))
 		}
 	case "s":
 		s.sort = s.nextSort()
@@ -292,7 +292,7 @@ func (s *fleetScreen) render(a *app, f *termui.Frame) {
 	s.shown = shown
 	if trendW > 0 {
 		metric := trendMetrics[s.metric]
-		trend := trendOf(a.samplers, views, metric, trendWindows[s.window], s.scale, trendW, a.trendEnd(), time.Duration(a.interval.Load()))
+		trend := trendOf(a.samplers, views, metric, trendWindows[s.window], s.scale, trendW, a.trendEnd(), time.Duration(a.interval.Load()), a.graphs)
 		cols[len(cols)-1].Title = trend.title
 		for i := range rows {
 			rows[i].cells[fleetTrend], rows[i].keys[fleetTrend], rows[i].tones[fleetTrend] = trend.sparks[i], trend.latest[i], metric.tone
@@ -338,7 +338,7 @@ func (s *fleetScreen) render(a *app, f *termui.Frame) {
 	// Header: the context, the account, the count.
 	clock := a.now().Format("15:04:05")
 	f.TextRight(0, f.W-1, 0, clock, styleMuted)
-	x := f.Text(1, 0, "janus ▸ ", styleAccent, 0) + 1
+	x := f.Text(1, 0, "janus ▸ ", styleBrand, 0) + 1
 	x += f.Text(x, 0, firstOr(a.opts.context, "nodes"), termui.Style{Bold: true}, 0)
 	who := a.opts.user
 	if a.opts.role != "" {

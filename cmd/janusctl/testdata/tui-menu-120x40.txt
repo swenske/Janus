@@ -1,0 +1,40 @@
+ janus ▸ lab  sebastien (os:admin)  4 nodes, 2 reachable                                                        15:04:05
+╭ Fleet ───────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│NODE       STATE       VERSION          HAPROXY  CONNS SESS/S  CPU  MEM  LOAD VRRP   TRIAL   SESS/S 5m max 384        │
+│lgslbpub01 ok          v2026.10.08 A    3.2.9     1154    384  82%  62%  1.92 MASTER net     ▆▆▆▆▅▃▂▂▂▃▅▆▇██▇▇▆▅▄▄▄▅▇█│
+│lgslbpub02 unreachable                                                                                                │
+│lgslbpub03 connecting                                                                                                 │
+│lgslbpub04 ok          v2026.10.08 A    3.2.9       10      3   6%  25%  0.02 BACKUP         ▁▁▁▁▁   ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁│
+│                                                                                                                      │
+│                     ╭ Options ────────────────────────────────────────────────────────────────╮                      │
+│                     │                                                                         │                      │
+│                     │  Theme              ← janus →                                           │                      │
+│                     │  Theme background   ← on →                                              │                      │
+│                     │  Colours            ← auto (truecolor) →                                │                      │
+│                     │  Graph symbols      ← braille →                                         │                      │
+│                     │  Rounded corners    ← on →                                              │                      │
+│                     │  Refresh            ← 2s →                                              │                      │
+│                     │  Fleet trend        ← sessions per second →                             │                      │
+│                     │  Trend window       ← 5m →                                              │                      │
+│                     │  Trend scale        ← linear →                                          │                      │
+│                     │  Processes by       ← cpu →                                             │                      │
+│                     │  Process order      ← largest first →                                   │                      │
+│                     │                                                                         │                      │
+│                     ├─────────────────────────────────────────────────────────────────────────┤                      │
+│                     │                                                                         │                      │
+│                     │  Janus's own: the Controller's colours, on your terminal's background.  │                      │
+│                     │                                                                         │                      │
+│                     │  bpytop's 16 themes and tty are the others:                             │                      │
+│                     │  ← and → show each at once.                                             │                      │
+│                     │                                                                         │                      │
+│                     │                                                                         │                      │
+│                     │  ↑↓ choose  ←→ change  Esc close                                        │                      │
+│                     ╰─────────────────────────────────────────────────────────────────────────╯                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ ? help  q quit  ↑↓ move  Enter open  s sort  r reverse  m metric  w window  y scale  M menu                    every 2s

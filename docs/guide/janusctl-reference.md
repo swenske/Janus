@@ -86,13 +86,14 @@ janusctl version
 A live dashboard in the terminal: the node, or every node of the context.
 
 ```text
-janusctl tui [-interval DURATION] [-once]
+janusctl tui [-interval DURATION] [-once] [-theme NAME]
 ```
 
 | Flag | |
 |---|---|
 | `-interval DURATION` | how often the nodes are asked (default 2s, 1s to 30s) |
 | `-once` | print one frame as text and exit |
+| `-theme NAME` | the colour theme for this run (list: every theme; M in the dashboard saves one) |
 
 ### janusctl system
 

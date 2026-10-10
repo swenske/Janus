@@ -16,6 +16,7 @@ import (
 
 // trendMetric is what the trend column can draw.
 type trendMetric struct {
+	key    string // in tui.json
 	name   string // said in the footer when chosen
 	title  string // the column's header
 	pct    bool   // a percentage: the 0-100 % scale is offered
@@ -27,26 +28,25 @@ type trendMetric struct {
 }
 
 var trendMetrics = []trendMetric{
-	{name: "sessions per second", title: "SESS/S", tone: styleAccent, format: fmtCount, pick: func(p *point, _ func(string) bool) float64 {
+	{key: "sess", name: "sessions per second", title: "SESS/S", tone: styleProcess, format: fmtCount, pick: func(p *point, _ func(string) bool) float64 {
 		if !p.hap.ok {
 			return math.NaN()
 		}
 		return float64(p.hap.sessRate)
 	}},
-	{name: "requests per second", title: "REQ/S", tone: styleAccent, format: fmtCount, pick: func(p *point, _ func(string) bool) float64 {
+	{key: "req", name: "requests per second", title: "REQ/S", tone: styleProcess, format: fmtCount, pick: func(p *point, _ func(string) bool) float64 {
 		if !p.hap.ok {
 			return math.NaN()
 		}
 		return p.hap.reqRate
 	}},
-	{name: "connections", title: "CONNS", tone: styleAccent, format: fmtCount, pick: func(p *point, _ func(string) bool) float64 {
+	{key: "conns", name: "connections", title: "CONNS", tone: styleProcess, format: fmtCount, pick: func(p *point, _ func(string) bool) float64 {
 		if !p.hap.ok {
 			return math.NaN()
 		}
 		return float64(p.hap.conns)
 	}},
-	// The network in the node page's colour for it.
-	{name: "network traffic, in + out", title: "NET", tone: styleInfo, format: fmtRate, pick: func(p *point, phys func(string) bool) float64 {
+	{key: "net", name: "network traffic, in + out", title: "NET", tone: termui.Style{FG: termui.ColorDownload}, format: fmtRate, pick: func(p *point, phys func(string) bool) float64 {
 		sum, seen := 0.0, false
 		for name, r := range p.net {
 			if !phys(name) {
@@ -62,14 +62,17 @@ var trendMetrics = []trendMetric{
 		}
 		return sum
 	}},
-	{name: "CPU", title: "CPU", pct: true, tone: styleAccent, format: fmtPct, pick: func(p *point, _ func(string) bool) float64 { return p.cpu }},
-	{name: "memory", title: "MEM", pct: true, tone: styleAccent, format: fmtPct, pick: func(p *point, _ func(string) bool) float64 {
+	{key: "cpu", name: "CPU", title: "CPU", pct: true, tone: termui.Style{FG: termui.GradCPU.At(0.5)}, format: fmtPct, pick: func(p *point, _ func(string) bool) float64 { return p.cpu }},
+	{key: "mem", name: "memory", title: "MEM", pct: true, tone: termui.Style{FG: termui.GradUsed.At(0.5)}, format: fmtPct, pick: func(p *point, _ func(string) bool) float64 {
 		if p.memTotal == 0 {
 			return math.NaN()
 		}
 		return float64(p.memUsed) / float64(p.memTotal) * 100
 	}},
 }
+
+// styleProcess is HAProxy's traffic: its graph's colours halfway.
+var styleProcess = termui.Style{FG: termui.GradProcess.At(0.5)}
 
 // trendWindows are the spans w steps through. The history holds
 // tuiHistory rounds: 30 minutes at the default interval.
@@ -84,6 +87,41 @@ const (
 	scaleLog                      // the same, logarithmic: a quiet node still shows beside a busy one
 	scaleFull                     // 0 to 100 %, percentages only
 )
+
+// trendMetricIndex is the metric whose key is k.
+func trendMetricIndex(k string) (int, bool) {
+	for i, m := range trendMetrics {
+		if m.key == k {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// trendWindowIndex is the window fmtWindow writes as s, -1 for none.
+func trendWindowIndex(s string) int {
+	for i, w := range trendWindows {
+		if fmtWindow(w) == s {
+			return i
+		}
+	}
+	return -1
+}
+
+// key is the scale in tui.json.
+func (sc trendScale) key() string {
+	return [...]string{scaleLinear: "linear", scaleLog: "log", scaleFull: "full"}[sc]
+}
+
+// scaleNamed is the scale whose key is k.
+func scaleNamed(k string) (trendScale, bool) {
+	for _, sc := range []trendScale{scaleLinear, scaleLog, scaleFull} {
+		if sc.key() == k {
+			return sc, true
+		}
+	}
+	return scaleLinear, false
+}
 
 func (sc trendScale) String() string {
 	switch sc {
@@ -167,7 +205,7 @@ type trendColumn struct {
 
 // trendOf draws metric over window for every node, in width cells
 // ending at end.
-func trendOf(samplers []*sampler, views []nodeView, metric trendMetric, window time.Duration, sc trendScale, width int, end time.Time, interval time.Duration) trendColumn {
+func trendOf(samplers []*sampler, views []nodeView, metric trendMetric, window time.Duration, sc trendScale, width int, end time.Time, interval time.Duration, sym termui.GraphSymbols) trendColumn {
 	t := trendColumn{sparks: make([]string, len(samplers)), latest: make([]float64, len(samplers))}
 	slots := make([][]float64, len(samplers))
 	top := math.NaN()
@@ -213,7 +251,7 @@ func trendOf(samplers []*sampler, views []nodeView, metric trendMetric, window t
 			}
 			scaleMax = math.Log1p(maxV)
 		}
-		t.sparks[i] = termui.Spark(values, scaleMax)
+		t.sparks[i] = termui.Spark(values, scaleMax, sym)
 	}
 	t.title = trendTitle(metric, window, sc, top, width)
 	return t

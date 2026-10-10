@@ -138,10 +138,11 @@ func (m *modal) render(f *termui.Frame) {
 	}
 	x := in.X + 1
 	for i, c := range m.act.choices {
-		st := termui.Style{FG: termui.ColorAccent}
+		st := termui.Style{FG: termui.ColorKey}
 		label := " " + c + " "
 		if i == m.cursor {
-			st = termui.Style{Reverse: true, Bold: true}
+			st = styleCursor
+			st.Bold = true
 			if m.act.danger && i != len(m.act.choices)-1 {
 				st.FG = termui.ColorDanger
 			}

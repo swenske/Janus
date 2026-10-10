@@ -37,4 +37,4 @@
 │                                                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
- ? help  q quit  ↑↓ move  Enter open  s sort  r reverse  m metric  w window  y scale                            every 2s
+ ? help  q quit  ↑↓ move  Enter open  s sort  r reverse  m metric  w window  y scale  M menu                    every 2s
