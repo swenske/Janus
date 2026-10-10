@@ -16,7 +16,36 @@ func Graph(f *Frame, r Rect, values []float64, maxV float64, st Style) {
 	if r.Empty() {
 		return
 	}
-	slots := r.W * 2
+	levels := dotLevels(values, r.W*2, r.H*4, maxV)
+	for cx := 0; cx < r.W; cx++ {
+		for row := 0; row < r.H; row++ { // row 0 = the bottom
+			f.Set(r.X+cx, r.Y+r.H-1-row, brailleCell(levels[2*cx]-row*4, levels[2*cx+1]-row*4), st)
+		}
+	}
+}
+
+// sparkBlocks are a sparkline's eight heights, from nothing.
+var sparkBlocks = []rune(" ▁▂▃▄▅▆▇█")
+
+// Spark is values (oldest first) as a sparkline for a table's cell: a
+// block a value, eight heights - one row of braille has four, too few
+// to tell a quiet node from an idle one on a scale shared with a busy
+// one. Scaled as Graph scales: a NaN or a value <= 0 is a blank,
+// anything above zero at least the lowest block.
+func Spark(values []float64, maxV float64) string {
+	levels := dotLevels(values, len(values), len(sparkBlocks)-1, maxV)
+	out := make([]rune, len(levels))
+	for i, l := range levels {
+		out[i] = sparkBlocks[l]
+	}
+	return string(out)
+}
+
+// dotLevels is how many dots each of slots lights, from the bottom, out
+// of top: the newest value in the last slot. A NaN or a value <= 0
+// lights none, anything above zero at least one; maxV <= 0 scales to
+// the largest value.
+func dotLevels(values []float64, slots, top int, maxV float64) []int {
 	if len(values) > slots {
 		values = values[len(values)-slots:]
 	}
@@ -30,8 +59,7 @@ func Graph(f *Frame, r Rect, values []float64, maxV float64, st Style) {
 			maxV = 1
 		}
 	}
-	levels := make([]int, slots) // dots lit in each slot, from the bottom
-	top := r.H * 4
+	levels := make([]int, slots)
 	for i, v := range values {
 		if math.IsNaN(v) || v <= 0 {
 			continue
@@ -39,24 +67,26 @@ func Graph(f *Frame, r Rect, values []float64, maxV float64, st Style) {
 		n := int(math.Round(v / maxV * float64(top)))
 		levels[slots-len(values)+i] = min(max(n, 1), top) // anything above zero shows
 	}
-	for cx := 0; cx < r.W; cx++ {
-		for row := 0; row < r.H; row++ { // row 0 = the bottom
-			bits := rune(0)
-			for d := 0; d < 4; d++ {
-				if levels[2*cx]-row*4 > d {
-					bits |= brailleLeft[d]
-				}
-				if levels[2*cx+1]-row*4 > d {
-					bits |= brailleRight[d]
-				}
-			}
-			ch := ' '
-			if bits != 0 {
-				ch = 0x2800 + bits
-			}
-			f.Set(r.X+cx, r.Y+r.H-1-row, ch, st)
+	return levels
+}
+
+// brailleCell is the cell whose left and right columns light left and
+// right dots from the bottom (at most four each; <= 0 none): a blank
+// when neither does.
+func brailleCell(left, right int) rune {
+	bits := rune(0)
+	for d := 0; d < 4; d++ {
+		if left > d {
+			bits |= brailleLeft[d]
+		}
+		if right > d {
+			bits |= brailleRight[d]
 		}
 	}
+	if bits == 0 {
+		return ' '
+	}
+	return 0x2800 + bits
 }
 
 // Meter draws one row as a bar: each part's share of total in its

@@ -5,17 +5,20 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/swenske/Janus/internal/termui"
 )
 
 // The fleet screen: one row per node of the context, what the
-// Controller's node list shows - Enter opens a node.
+// Controller's node list shows, and a trend (tui_trend.go) in the
+// rest of the width - Enter opens a node.
 
 var fleetColumns = []termui.Column{
 	{Title: "NODE"}, {Title: "ADDRESS", Width: 21}, {Title: "STATE", Width: 11}, {Title: "VERSION", Width: 16},
 	{Title: "HAPROXY", Width: 7}, {Title: "CONNS", Width: 6, Right: true}, {Title: "SESS/S", Width: 6, Right: true}, {Title: "CPU", Width: 4, Right: true},
 	{Title: "MEM", Width: 4, Right: true}, {Title: "LOAD", Width: 5, Right: true}, {Title: "VRRP", Width: 6}, {Title: "TRIAL", Width: 7},
+	{Title: "TREND"}, // titled and sized each frame
 }
 
 // The columns' indexes.
@@ -32,17 +35,32 @@ const (
 	fleetLoad
 	fleetVRRP
 	fleetTrial
+	fleetTrend
 )
+
+// fleetDropOrder is the columns given up, in this order, for the trend
+// to get trendMinWidth cells.
+var fleetDropOrder = []int{fleetAddress, fleetVersion, fleetLoad, fleetHAProxy}
+
+// fleetNodeMin and fleetNodeMax bound the NODE column beside a trend,
+// as wide as the longest name otherwise.
+const fleetNodeMin, fleetNodeMax = 8, 24
 
 type fleetScreen struct {
 	table termui.Table
 	sort  int
 	desc  bool
 	order []int // the sampler each row shows
+	shown []int // the columns drawn, as fleetColumns indexes
+
+	metric   int // in trendMetrics
+	trendOff bool
+	window   int // in trendWindows
+	scale    trendScale
 }
 
 func newFleetScreen() *fleetScreen {
-	return &fleetScreen{table: termui.Table{Columns: fleetColumns}}
+	return &fleetScreen{table: termui.Table{Columns: fleetColumns}, window: trendDefaultWindow}
 }
 
 func (s *fleetScreen) open(a *app) {
@@ -54,7 +72,7 @@ func (s *fleetScreen) open(a *app) {
 func (s *fleetScreen) close(*app) {}
 
 func (s *fleetScreen) hints(*app) []string {
-	return []string{"? help", "q quit", "↑↓ move", "Enter open", "s sort", "r reverse"}
+	return []string{"? help", "q quit", "↑↓ move", "Enter open", "s sort", "r reverse", "m metric", "w window", "y scale"}
 }
 
 func (s *fleetScreen) key(a *app, k string) {
@@ -64,13 +82,130 @@ func (s *fleetScreen) key(a *app, k string) {
 			a.show(newNodeScreen(a.samplers[s.order[s.table.Cursor]], true))
 		}
 	case "s":
-		s.sort = (s.sort + 1) % len(fleetColumns)
-		a.say("nodes by "+strings.ToLower(fleetColumns[s.sort].Title), termui.ColorDefault)
+		s.sort = s.nextSort()
+		if s.sort == fleetTrend {
+			a.say("nodes by "+trendMetrics[s.metric].name, termui.ColorDefault)
+		} else {
+			a.say("nodes by "+strings.ToLower(fleetColumns[s.sort].Title), termui.ColorDefault)
+		}
 	case "r":
 		s.desc = !s.desc
+	case "m":
+		switch {
+		case s.trendOff:
+			s.trendOff, s.metric = false, 0
+		case s.metric == len(trendMetrics)-1:
+			s.trendOff = true
+			a.say("trend hidden - m shows it again", termui.ColorDefault)
+			return
+		default:
+			s.metric++
+		}
+		if s.scale == scaleFull && !trendMetrics[s.metric].pct {
+			s.scale = scaleLinear
+		}
+		a.say("trend: "+trendMetrics[s.metric].name, termui.ColorDefault)
+	case "w":
+		s.trendOff = false
+		s.window = (s.window + 1) % len(trendWindows)
+		if m := int(trendWindows[s.window].Minutes()); m == 1 {
+			a.say("trend over the last minute", termui.ColorDefault)
+		} else {
+			a.say(fmt.Sprintf("trend over the last %d minutes", m), termui.ColorDefault)
+		}
+	case "y":
+		s.trendOff = false
+		s.scale++
+		if s.scale > scaleFull || s.scale == scaleFull && !trendMetrics[s.metric].pct {
+			s.scale = scaleLinear
+		}
+		a.say("trend scale: "+s.scale.String()+", the same for every node", termui.ColorDefault)
 	default:
 		s.table.Key(k, 10)
 	}
+}
+
+// nextSort is the column after the sorted one among those drawn.
+func (s *fleetScreen) nextSort() int {
+	for i, c := range s.shown {
+		if c == s.sort && i+1 < len(s.shown) {
+			return s.shown[i+1]
+		}
+	}
+	if len(s.shown) == 0 {
+		return (s.sort + 1) % len(fleetColumns)
+	}
+	return s.shown[0]
+}
+
+// layout is the columns drawn in w cells and the trend's width (0: no
+// trend): every column when the trend is off; else NODE as wide as the
+// names, the trend in the rest - columns given up (fleetDropOrder),
+// then NODE narrowed, until it has trendMinWidth cells, or no trend.
+func (s *fleetScreen) layout(w int, names []string) ([]termui.Column, []int, int) {
+	all := make([]int, fleetTrend)
+	for i := range all {
+		all[i] = i
+	}
+	if s.trendOff {
+		return fleetColumns[:fleetTrend], all, 0
+	}
+	nodeW := len(fleetColumns[fleetNode].Title)
+	for _, n := range names {
+		nodeW = max(nodeW, len([]rune(n)))
+	}
+	nodeW = min(max(nodeW, fleetNodeMin), fleetNodeMax)
+	shown := append([]int(nil), all...)
+	room := func() int {
+		used := len(shown) // the separators, the trend's included
+		for _, c := range shown {
+			if c == fleetNode {
+				used += nodeW
+			} else {
+				used += fleetColumns[c].Width
+			}
+		}
+		return w - used
+	}
+	for _, drop := range fleetDropOrder {
+		if room() >= trendMinWidth {
+			break
+		}
+		for i, c := range shown {
+			if c == drop {
+				shown = append(shown[:i], shown[i+1:]...)
+				break
+			}
+		}
+	}
+	if short := trendMinWidth - room(); short > 0 {
+		nodeW = max(nodeW-short, fleetNodeMin)
+	}
+	trendW := room()
+	if trendW < trendMinWidth {
+		return fleetColumns[:fleetTrend], all, 0
+	}
+	shown = append(shown, fleetTrend)
+	cols := make([]termui.Column, len(shown))
+	for i, c := range shown {
+		cols[i] = fleetColumns[c]
+		switch c {
+		case fleetNode:
+			cols[i].Width = nodeW
+		case fleetTrend:
+			cols[i].Width = trendW
+		}
+	}
+	return cols, shown, trendW
+}
+
+// trendEnd is where the trend's time axis ends: now, or when the
+// dashboard was paused - a paused fleet stands still.
+func (a *app) trendEnd() time.Time {
+	if a.paused.Load() && !a.pausedAt.IsZero() {
+		return a.pausedAt
+	}
+	return a.now()
 }
 
 // fleetRow is one node's line, as text and as the values it sorts by.
@@ -143,11 +278,24 @@ func (s *fleetScreen) render(a *app, f *termui.Frame) {
 	views := make([]nodeView, len(a.samplers))
 	rows := make([]fleetRow, len(a.samplers))
 	reachable := 0
+	names := make([]string, len(a.samplers))
 	for i, smp := range a.samplers {
-		views[i] = smp.view()
+		views[i] = smp.summary()
 		rows[i] = fleetRowOf(views[i])
+		names[i] = views[i].name
 		if views[i].reachable {
 			reachable++
+		}
+	}
+	body := termui.Rect{X: 0, Y: 1, W: f.W, H: f.H - 3}
+	cols, shown, trendW := s.layout(body.Inner().W, names)
+	s.shown = shown
+	if trendW > 0 {
+		metric := trendMetrics[s.metric]
+		trend := trendOf(a.samplers, views, metric, trendWindows[s.window], s.scale, trendW, a.trendEnd(), time.Duration(a.interval.Load()))
+		cols[len(cols)-1].Title = trend.title
+		for i := range rows {
+			rows[i].cells[fleetTrend], rows[i].keys[fleetTrend], rows[i].tones[fleetTrend] = trend.sparks[i], trend.latest[i], metric.tone
 		}
 	}
 	s.order = make([]int, len(rows))
@@ -171,13 +319,18 @@ func (s *fleetScreen) render(a *app, f *termui.Frame) {
 		}
 		return less
 	})
+	s.table.Columns = cols
 	s.table.Rows = s.table.Rows[:0]
 	for _, i := range s.order {
-		s.table.Rows = append(s.table.Rows, rows[i].cells)
+		cells := make([]string, len(shown))
+		for j, c := range shown {
+			cells[j] = rows[i].cells[c]
+		}
+		s.table.Rows = append(s.table.Rows, cells)
 	}
 	s.table.Tone = func(row, c int) termui.Style {
-		if c >= 0 && row < len(s.order) {
-			return rows[s.order[row]].tones[c]
+		if c >= 0 && c < len(shown) && row < len(s.order) {
+			return rows[s.order[row]].tones[shown[c]]
 		}
 		return styleDefault
 	}
@@ -196,7 +349,6 @@ func (s *fleetScreen) render(a *app, f *termui.Frame) {
 	}
 	f.Text(x, 0, fmt.Sprintf("  %d nodes, %d reachable", len(rows), reachable), styleMuted, 0)
 
-	body := termui.Rect{X: 0, Y: 1, W: f.W, H: f.H - 3}
 	in := f.Box(body, "Fleet", styleFocus, styleTitle)
 	s.table.Draw(f, in, true, styleHead, styleCursor)
 	if s.table.Cursor < len(s.order) {

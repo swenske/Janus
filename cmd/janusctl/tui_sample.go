@@ -78,7 +78,8 @@ type slowInfo struct {
 // sample, a counter that went back - HAProxy's reset on reload).
 type point struct {
 	at       time.Time
-	boot     time.Time // when the kernel started; zero unknown
+	span     time.Duration // since the sample the rates are against; 0 without one
+	boot     time.Time     // when the kernel started; zero unknown
 	cpu      float64
 	memUsed  uint64
 	memTotal uint64
@@ -248,7 +249,8 @@ func derive(prev, cur *sample) point {
 	p.hap.reqRate = math.NaN()
 	var dt float64
 	if prev != nil {
-		dt = cur.at.Sub(prev.at).Seconds()
+		p.span = cur.at.Sub(prev.at)
+		dt = p.span.Seconds()
 	}
 	if cur.sys != nil && cur.sys.GetBootTimeUnix() > 0 {
 		p.boot = time.Unix(int64(cur.sys.GetBootTimeUnix()), 0) //nolint:gosec // G115: a boot time fits
@@ -558,6 +560,13 @@ func (s *sampler) wakeUp() {
 
 // view is a copy for drawing.
 func (s *sampler) view() nodeView {
+	v := s.summary()
+	v.history, _ = s.history.Last(tuiHistory)
+	return v
+}
+
+// summary is view without the history - the fleet's row.
+func (s *sampler) summary() nodeView {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	v := nodeView{name: s.target.name, address: s.target.address, last: s.last, slow: s.slow, rounds: s.rounds, sampled: s.rounds > 0}
@@ -579,8 +588,27 @@ func (s *sampler) view() nodeView {
 			}
 		}
 	}
-	v.history, _ = s.history.Last(tuiHistory)
 	return v
+}
+
+// trendPoint is one point of a trend: pick's value, measured over the
+// span before at.
+type trendPoint struct {
+	at   time.Time
+	span time.Duration
+	v    float64
+}
+
+// trend is pick's value at each point after since, oldest first,
+// read from the history in place.
+func (s *sampler) trend(since time.Time, pick func(*point) float64) []trendPoint {
+	var out []trendPoint
+	s.history.Each(func(p *point) {
+		if p.at.After(since) {
+			out = append(out, trendPoint{at: p.at, span: p.span, v: pick(p)})
+		}
+	})
+	return out
 }
 
 // tailLine is one line of the events or logs panel.
