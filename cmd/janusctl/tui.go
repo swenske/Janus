@@ -50,26 +50,59 @@ var tuiIntervals = []time.Duration{time.Second, 2 * time.Second, 5 * time.Second
 
 const tuiMinWidth, tuiMinHeight = 80, 24
 
+// tuiFlags are janusctl tui's flags, and which ones were given.
+type tuiFlags struct {
+	interval time.Duration
+	once     bool
+	theme    string
+	given    map[string]bool
+}
+
+func parseTUIFlags(args []string, handling flag.ErrorHandling) (tuiFlags, error) {
+	var tf tuiFlags
+	fs := flag.NewFlagSet("tui", handling)
+	if handling == flag.ContinueOnError {
+		fs.SetOutput(io.Discard)
+	}
+	fs.DurationVar(&tf.interval, "interval", 2*time.Second, "how often the nodes are asked (1s to 30s)")
+	fs.BoolVar(&tf.once, "once", false, "print one frame as text and exit")
+	fs.StringVar(&tf.theme, "theme", "", "the colour theme for this run (-theme list names them; M chooses and saves one)")
+	if err := fs.Parse(args); err != nil {
+		return tf, err
+	}
+	tf.given = map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { tf.given[f.Name] = true })
+	return tf, nil
+}
+
+// tuiThemesOnly answers what -theme needs no node for, before janusctl
+// reaches one: -theme list prints the themes (true: done), an unknown
+// name is refused. Anything else is left to runTUI.
+func tuiThemesOnly(args []string, out io.Writer) bool {
+	tf, err := parseTUIFlags(args, flag.ContinueOnError)
+	switch {
+	case err != nil:
+		return false
+	case tf.theme == "list":
+		for _, t := range termui.Themes() {
+			_, _ = fmt.Fprintf(out, "%-18s %s\n", t.Name, t.About)
+		}
+		return true
+	case tf.theme != "" && termui.ThemeNamed(tf.theme) == nil:
+		log.Fatalf("janusctl tui: no theme %q - %s", tf.theme, themeHelp())
+	}
+	return false
+}
+
 func runTUI(args []string, targets []tuiTarget, opts tuiOptions) {
-	fs := flag.NewFlagSet("tui", flag.ExitOnError)
-	interval := fs.Duration("interval", 2*time.Second, "how often the nodes are asked (1s to 30s)")
-	once := fs.Bool("once", false, "print one frame as text and exit")
-	theme := fs.String("theme", "", "the colour theme for this run (-theme list names them; M chooses and saves one)")
-	_ = fs.Parse(args) // ExitOnError
+	tf, _ := parseTUIFlags(args, flag.ExitOnError)
+	interval, once, theme, given := &tf.interval, &tf.once, &tf.theme, tf.given
 	if *interval < time.Second || *interval > 30*time.Second {
 		log.Fatal("janusctl tui: -interval is between 1s and 30s")
 	}
-	if *theme == "list" {
-		for _, t := range termui.Themes() {
-			fmt.Printf("%-18s %s\n", t.Name, t.About)
-		}
+	if tuiThemesOnly(args, os.Stdout) {
 		return
 	}
-	if *theme != "" && termui.ThemeNamed(*theme) == nil {
-		log.Fatalf("janusctl tui: no theme %q - %s", *theme, themeHelp())
-	}
-	given := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	if *once {
 		w, h := tuiMinWidth+40, tuiMinHeight+16
 		if isTerminal(os.Stdout) {
@@ -511,7 +544,7 @@ var tuiHelp = []string{
 	"↑ ↓ PgUp PgDn  move in the focused panel",
 	"Enter          open the node / act on the server",
 	"Esc            back to the fleet, close a dialog",
-	"1-8            show or hide a panel",
+	"1-9            show or hide a panel (7 events, 8 logs)",
 	"s  r           sort the processes or the nodes / reverse",
 	"m  w  y        fleet trend: metric, time window, scale",
 	"e  l           events / logs in the tail (l again: janusd ↔ haproxy)",

@@ -24,11 +24,11 @@
 │haproxy              running   healthy      5%││    77   5.0  60.0MiB /usr/local/sbin/haproxy -f /etc/haproxy/haproxy…│
 │prometheus-node-exp… waiting   waiting        ││     1   0.0   8.0MiB /sbin/init                                      │
 ╰──────────────────────────────────────────────╯│                                                                      │
-╭ 8 Modules ───────────────────────────────────╮│                                                                      │
+╭ 9 Modules ───────────────────────────────────╮│                                                                      │
 │VRRP VI_1  MASTER on eth0 (150) 172.16.1.150/…││                                                                      │
 │Firewall   running                            ││                                                                      │
 ╰──────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
-╭ 7 Events ────────────────────────────────────────────────╮╭ 7 Logs janusd ───────────────────────────────────────────╮
+╭ 7 Events ────────────────────────────────────────────────╮╭ 8 Logs janusd ───────────────────────────────────────────╮
 │14:54:05 janusd.started version=v2026.10.08               ││api: listening on :9505                                   │
 │14:55:05 haproxy.started pid=77                           ││haproxy: reload: WARNING: config: 'option forwardfor' ign…│
 │14:56:05 haproxy.config.applied by=sebastien reload=true  ││                                                          │
@@ -37,4 +37,4 @@
 │                                                          ││                                                          │
 │                                                          ││                                                          │
 ╰──────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
- ? help  q quit  Tab focus  ↑↓ move  1-8 panels  Enter server  R reload  B reboot  J restart  C confirm         every 2s
+ ? help  q quit  Tab focus  ↑↓ move  1-9 panels  Enter server  R reload  B reboot  J restart  C confirm         every 2s
