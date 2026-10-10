@@ -85,6 +85,22 @@ func TestGraphBraille(t *testing.T) {
 	Graph(f, Rect{}, []float64{1}, 1, Style{}) // an empty rect is fine
 }
 
+func TestSpark(t *testing.T) {
+	// A block a value, eight heights, the newest on the right.
+	if got := Spark([]float64{0, 0.25, 0.5, 1, math.NaN()}, 1); got != " ▂▄█ " {
+		t.Errorf("spark = %q, want %q", got, " ▂▄█ ")
+	}
+	if got := Spark([]float64{2, 4}, 0); got != "▄█" {
+		t.Errorf("autoscaled = %q", got)
+	}
+	if got := Spark([]float64{0.01, 3}, 1); got != "▁█" {
+		t.Errorf("anything above zero shows, nothing goes past the top: %q", got)
+	}
+	if got := Spark(nil, 1); got != "" {
+		t.Errorf("no values = %q", got)
+	}
+}
+
 func TestMeter(t *testing.T) {
 	f := NewFrame(10, 1)
 	used, cached := Style{FG: ColorAccent}, Style{FG: ColorInfo}
