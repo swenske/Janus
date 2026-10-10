@@ -148,6 +148,18 @@ network, firewall or sysctl trial that would otherwise revert. The
 footer offers only what the certificate's role may do; a reader sees
 everything but the logs, which are for operators.
 
+`M` opens the options, as bpytop does: the theme - Janus's own,
+bpytop's 16 (dracula, nord, gruvbox, solarized, whiteout...) or tty,
+your terminal's own 16 colours - each shown as you move to it; the
+theme's background or your terminal's; how many colours the terminal
+takes (auto reads `COLORTERM` and `TERM`); the graphs' symbols -
+braille, blocks, or tty for the Linux console, whose font has no
+braille; rounded corners; and the defaults of the refresh, the fleet's
+trend and the processes' order. They're saved when the menu closes, in
+`tui.json` beside the contexts (`~/.config/janus/tui.json`).
+`-theme NAME` picks a theme for one run, `-theme list` names them all.
+bpytop's themes are their authors' work (Apache License 2.0).
+
 `janusctl tui -once` prints one frame as plain text and exits - 120×40
 off a terminal - for a script, a ticket or a quick look over SSH. It
 asks the node twice a second apart, so the rates are real.
