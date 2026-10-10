@@ -77,7 +77,7 @@ optional modules, and the node's events and a log streamed at the
 bottom - refreshed every two seconds (`-interval`, `+` and `-` from
 1 s to 30 s, `p` pauses). With a context of several nodes, it opens on
 the fleet - one line per node: state, version, HAProxy, connections,
-CPU, memory, load, VRRP role, trials pending - and Enter opens a node,
+CPU, memory, load, VRRP role, trials pending, a trend - and Enter opens a node,
 Esc comes back; `-n NODE` goes straight to one.
 
 ```text
@@ -111,6 +111,34 @@ The digits show or hide a panel, Tab moves the focus, `↑↓` move in it,
 `s` sorts the processes (`r` reverses), `e` and `l` choose events or a
 log (`l` again switches janusd's and HAProxy's; on a terminal 120
 columns wide both are shown). `?` lists the keys, `q` leaves.
+
+On the fleet, each line ends with the node's trend - sessions per
+second over the last five minutes, a block a moment - and every node is
+drawn against the same scale: a node that takes ten times the traffic
+of another draws ten times higher, and an outage is a gap.
+
+```text
+ janus ▸ lab  sebastien (os:admin)  4 nodes, 2 reachable                                    15:04:05
+╭ Fleet ───────────────────────────────────────────────────────────────────────────────────────────╮
+│NODE       STATE       HAPROXY  CONNS SESS/S  CPU  MEM  LOAD VRRP   TRIAL   SESS/S 5m max 384     │
+│lgslbpub01 ok          3.2.9     1154    384  82%  62%  1.92 MASTER net     ▆▆▆▅▄▃▂▂▄▅▇▇██▇▆▄▄▄▅▇█│
+│lgslbpub02 unreachable                                                                            │
+│lgslbpub03 connecting                                                                             │
+│lgslbpub04 ok          3.2.9       10      3   6%  25%  0.02 BACKUP         ▁▁▁▁▁  ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁│
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ ? help  q quit  ↑↓ move  Enter open  s sort  r reverse  m metric  w window  y scale        every 2s
+```
+
+`m` changes the metric (sessions, requests, connections, network
+traffic, CPU, memory, then none), `w` the window (1, 5, 15 or 30
+minutes) and `y` the scale: linear up to the fleet's largest value,
+which the header gives, logarithmic to see a quiet node beside a busy
+one, or 0 to 100 % for CPU and memory. `s` sorts the nodes by any
+column, the trend's by the metric now. `p` stops the trend's clock too.
+On a narrower terminal the address, then the version, the load and
+HAProxy's version make room for the trend.
 
 What an operator does from the Controller's node page is here too,
 each asked first in a dialog: Enter on a server sets it ready, drain or
