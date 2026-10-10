@@ -85,18 +85,47 @@ func TestGraphBraille(t *testing.T) {
 	Graph(f, Rect{}, []float64{1}, 1, Style{}) // an empty rect is fine
 }
 
+func TestGraphSymbols(t *testing.T) {
+	// Blocks: a value a cell, eight heights a row - 0.5 of two rows is
+	// a full bottom cell.
+	f := NewFrame(3, 2)
+	f.Graph = GraphBlock
+	Graph(f, Rect{0, 0, 3, 2}, []float64{0.25, 0.5, 1}, 1, Style{})
+	if lines := f.Lines(); lines[0] != "  █" || lines[1] != "▄██" {
+		t.Errorf("blocks = %q", lines)
+	}
+	// The Linux console: half blocks.
+	f = NewFrame(3, 1)
+	f.Graph = GraphTTY
+	Graph(f, Rect{0, 0, 3, 1}, []float64{0.1, 0.5, 1}, 1, Style{})
+	if got := f.Lines()[0]; got != "▄▄█" {
+		t.Errorf("tty = %q", got)
+	}
+	// A gradient: each cell coloured by its height, the start at the
+	// bottom, the end at the top.
+	f = NewFrame(1, 2)
+	Graph(f, Rect{0, 0, 1, 2}, []float64{1, 1}, 1, Style{Grad: GradCPU})
+	top, bottom := f.At(0, 0).S, f.At(0, 1).S
+	if top.Grad != GradNone || top.FG != GradCPU.At(1) || bottom.FG != GradCPU.At(3.0/7) {
+		t.Errorf("gradient: top %+v, bottom %+v", top, bottom)
+	}
+	if got := Spark([]float64{0.1, 0.5, 1}, 1, GraphTTY); got != "░▒█" {
+		t.Errorf("tty spark = %q", got)
+	}
+}
+
 func TestSpark(t *testing.T) {
 	// A block a value, eight heights, the newest on the right.
-	if got := Spark([]float64{0, 0.25, 0.5, 1, math.NaN()}, 1); got != " ▂▄█ " {
+	if got := Spark([]float64{0, 0.25, 0.5, 1, math.NaN()}, 1, GraphBlock); got != " ▂▄█ " {
 		t.Errorf("spark = %q, want %q", got, " ▂▄█ ")
 	}
-	if got := Spark([]float64{2, 4}, 0); got != "▄█" {
+	if got := Spark([]float64{2, 4}, 0, GraphBlock); got != "▄█" {
 		t.Errorf("autoscaled = %q", got)
 	}
-	if got := Spark([]float64{0.01, 3}, 1); got != "▁█" {
+	if got := Spark([]float64{0.01, 3}, 1, GraphBlock); got != "▁█" {
 		t.Errorf("anything above zero shows, nothing goes past the top: %q", got)
 	}
-	if got := Spark(nil, 1); got != "" {
+	if got := Spark(nil, 1, GraphBlock); got != "" {
 		t.Errorf("no values = %q", got)
 	}
 }
@@ -238,7 +267,7 @@ func TestTableDropsColumnsWhenNarrow(t *testing.T) {
 }
 
 func TestRenderDiff(t *testing.T) {
-	p := Palette{Depth16}
+	p := Palette{Depth: Depth16}
 	a := NewFrame(3, 2)
 	a.Text(0, 0, "ab", Style{FG: ColorOK}, 0)
 	a.Text(0, 1, "cd", Style{}, 0)
@@ -260,7 +289,7 @@ func TestRenderDiff(t *testing.T) {
 	if c := NewFrame(4, 2); !strings.Contains(c.Render(b, p), "\x1b[1;1H") {
 		t.Error("another size redraws everything")
 	}
-	if got := a.Render(nil, Palette{DepthNone}); strings.Contains(got, "\x1b[32m") || strings.Contains(got, "[1m") {
+	if got := a.Render(nil, Palette{Depth: DepthNone}); strings.Contains(got, "\x1b[32m") || strings.Contains(got, "[1m") {
 		t.Errorf("no colour on a plain terminal: %q", got)
 	}
 }
@@ -286,13 +315,13 @@ func TestDetectPalette(t *testing.T) {
 			t.Errorf("DetectPalette(%v) = %v, want %v", c.env, got.Depth, c.want)
 		}
 	}
-	if s := (Palette{DepthTrue}).SGR(Style{FG: ColorAccent, Bold: true}); s != "\x1b[1;38;2;216;100;60m" {
+	if s := (Palette{Depth: DepthTrue}).SGR(Style{FG: ColorAccent, Bold: true}); s != "\x1b[1;38;2;216;100;60m" {
 		t.Errorf("true colour accent = %q", s)
 	}
-	if s := (Palette{Depth256}).SGR(Style{FG: ColorAccent}); s != "\x1b[38;5;166m" {
+	if s := (Palette{Depth: Depth256}).SGR(Style{FG: ColorAccent}); s != "\x1b[38;5;166m" {
 		t.Errorf("256 accent = %q", s)
 	}
-	if s := (Palette{Depth16}).SGR(Style{}); s != "" {
+	if s := (Palette{Depth: Depth16}).SGR(Style{}); s != "" {
 		t.Errorf("plain style = %q", s)
 	}
 }
