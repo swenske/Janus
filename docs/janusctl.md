@@ -104,13 +104,14 @@ Esc comes back; `-n NODE` goes straight to one.
 │14:56:05 haproxy.config.applied by=sebastien reload=true                      │
 │14:57:05 network.trial.started reverts_in=2m                                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- ? help  q quit  Tab focus  ↑↓ move  1-8 panels  Enter server           every 2s
+ ? help  q quit  Tab focus  ↑↓ move  1-9 panels  Enter server           every 2s
 ```
 
 The digits show or hide a panel, Tab moves the focus, `↑↓` move in it,
-`s` sorts the processes (`r` reverses), `e` and `l` choose events or a
-log (`l` again switches janusd's and HAProxy's; on a terminal 120
-columns wide both are shown). `?` lists the keys, `q` leaves.
+`s` sorts the processes (`r` reverses). The node's events (7) and a
+log (8) share the bottom: side by side on a terminal 120 columns wide,
+else the one `e`, `l` or the focus chose; `l` again switches janusd's
+log and HAProxy's. `?` lists the keys, `q` leaves.
 
 On the fleet, each line ends with the node's trend - sessions per
 second over the last five minutes, a block a moment - and every node is
