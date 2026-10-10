@@ -81,6 +81,19 @@ Janusctl's version, and the node's.
 janusctl version
 ```
 
+### janusctl tui
+
+A live dashboard in the terminal: the node, or every node of the context.
+
+```text
+janusctl tui [-interval DURATION] [-once]
+```
+
+| Flag | |
+|---|---|
+| `-interval DURATION` | how often the nodes are asked (default 2s, 1s to 30s) |
+| `-once` | print one frame as text and exit |
+
 ### janusctl system
 
 The node: state, logs, files, power.

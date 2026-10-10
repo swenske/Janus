@@ -11,6 +11,8 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/term"
+
+	"github.com/swenske/Janus/internal/termui"
 )
 
 // The interactive picker: a list filtered as you type (fuzzy, like
@@ -312,7 +314,7 @@ func pick(title string, items []candidate, multi, echo bool) ([]string, error) {
 			clear()
 			return nil, err
 		}
-		for _, k := range splitKeys(string(buf[:n])) {
+		for _, k := range termui.SplitKeys(string(buf[:n])) {
 			done, cancelled := p.key(k)
 			if cancelled {
 				clear()
@@ -329,28 +331,4 @@ func pick(title string, items []candidate, multi, echo bool) ([]string, error) {
 		}
 		draw()
 	}
-}
-
-// splitKeys cuts what one read gave into keys: escape sequences whole,
-// a rune each otherwise (a paste gives many).
-func splitKeys(s string) []string {
-	var out []string
-	for s != "" {
-		if s[0] == 0x1b && len(s) >= 3 && (s[1] == '[' || s[1] == 'O') {
-			end := 2
-			for end < len(s) && (s[end] < 0x40 || s[end] > 0x7e) {
-				end++
-			}
-			if end < len(s) {
-				end++
-			}
-			out = append(out, s[:end])
-			s = s[end:]
-			continue
-		}
-		_, size := utf8.DecodeRuneInString(s)
-		out = append(out, s[:size])
-		s = s[size:]
-	}
-	return out
 }

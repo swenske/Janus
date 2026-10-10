@@ -1,10 +1,14 @@
 package api
 
 import (
+	"context"
 	"math"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 // Fixtures below are real /proc content captured from a Linux 6.18 host.
@@ -162,4 +166,27 @@ func TestIsMountpoint(t *testing.T) {
 	if ok, err := isMountpoint(filepath.Join(dir, "missing")); err != nil || ok {
 		t.Errorf("isMountpoint(missing) = %v, %v", ok, err)
 	}
+}
+
+// Processes carries each process's cumulative CPU time, so a client can
+// show a rate between two samples - the lifetime average can't.
+func TestProcessesCarryCPUSeconds(t *testing.T) {
+	start := time.Now()
+	for time.Since(start) < 30*time.Millisecond { // make sure this process has used a tick
+		_ = math.Sqrt(float64(time.Now().UnixNano()))
+	}
+	resp, err := (&System{}).Processes(context.Background(), &emptypb.Empty{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	me := int32(os.Getpid())
+	for _, p := range resp.Processes {
+		if p.Pid == me {
+			if p.CpuSeconds <= 0 {
+				t.Errorf("own process: cpu_seconds = %v, want > 0", p.CpuSeconds)
+			}
+			return
+		}
+	}
+	t.Fatalf("own pid %d not listed among %d processes", me, len(resp.Processes))
 }

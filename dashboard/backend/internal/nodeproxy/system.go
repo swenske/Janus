@@ -1,10 +1,8 @@
 package nodeproxy
 
 import (
-	"bytes"
 	"context"
 	"crypto/x509"
-	"encoding/csv"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -24,6 +22,7 @@ import (
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/haproxystat"
 	"github.com/swenske/Janus/internal/pki"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
@@ -570,23 +569,14 @@ func handleMetrics(w http.ResponseWriter, r *http.Request, node *store.Node) {
 
 // statTable is "show stat" as a header plus rows, for the UI to pick
 // columns from by name.
-type statTable struct {
-	Columns []string   `json:"columns"`
-	Rows    [][]string `json:"rows"`
-}
+type statTable = haproxystat.Table
 
 func parseStatCSV(raw []byte) (*statTable, error) {
-	raw = bytes.TrimPrefix(bytes.TrimSpace(raw), []byte("# "))
-	rd := csv.NewReader(bytes.NewReader(raw))
-	rd.FieldsPerRecord = -1
-	records, err := rd.ReadAll()
+	table, err := haproxystat.Parse(raw)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "parse show stat: %v", err)
+		return nil, status.Errorf(codes.Internal, "%v", err)
 	}
-	if len(records) == 0 {
-		return &statTable{Columns: []string{}, Rows: [][]string{}}, nil
-	}
-	return &statTable{Columns: records[0], Rows: append([][]string{}, records[1:]...)}, nil
+	return table, nil
 }
 
 // handleIssueClient issues a new client certificate for this node

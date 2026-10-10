@@ -1,0 +1,40 @@
+ janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok            15:04:05
+╭ 1 CPU 25%  load 0.42 0.38 0.35  4 cores ─────╮╭ 4 HAProxy 3.2.9  up 3d 4h  12 conns  4 sess/s  idle 99% ─────────────╮
+│                                              ││                                                                     ⣿│
+│                                              ││                                                                     ⣿│
+│                                              ││                                                                     ⣿│
+│                                              ││FRONTEND                      STATUS  CONNS CONN/S  REQ/S    5XX  EREQ│
+│                                              ││fe                            OPEN        4      3      4      1     0│
+│                                             ⢰││                                                                      │
+│                                             ⢸││BACKEND/SERVER STATUS    WGT  CONNS  RATE      IN/S     OUT/S CHECK   │
+╰──────────────────────────────────────────────╯│web  UP  4 conns  3/s                                                 │
+╭ 2 Memory 1.4GiB / 4.0GiB  34% ───────────────╮│  web1         UP          1      3     2   1000B/s  2.0KiB/s L4OK    │
+│███████████████████████████░░░░░░░░░░░░░░░░░░░││  web2         DOWN        1      1     1   1000B/s  2.0KiB/s L4CON   │
+│used 1.4GiB  cached 1.0GiB  available 2.6GiB  ││empty  DOWN  0 conns  0/s                                             │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                             ⣿││                                                                      │
+╰──────────────────────────────────────────────╯│                                                                      │
+╭ 3 Network ───────────────────────────────────╮│                                                                      │
+│● eth0    ↓ 12.0KiB/s ↑  4.0KiB/s            ⢸││                                                                      │
+╰──────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
+╭ 6 Services ──────────────────────────────────╮╭ 5 Processes  3 ──────────────────────────────────────────────────────╮
+│SERVICE              STATE     HEALTH      CPU││   PID  CPU%      RSS COMMAND                                         │
+│janusd               running   healthy     20%││    42  20.0  40.0MiB /usr/local/sbin/janusd -manage-host             │
+│haproxy              running   healthy      5%││    77   5.0  60.0MiB /usr/local/sbin/haproxy -f /etc/haproxy/haproxy…│
+│prometheus-node-exp… waiting   waiting        ││     1   0.0   8.0MiB /sbin/init                                      │
+╰──────────────────────────────────────────────╯│                                                                      │
+╭ 8 Modules ───────────────────────────────────╮│                                                                      │
+│VRRP VI_1  MASTER on eth0 (150) 172.16.1.150/…││                                                                      │
+│Firewall   running                            ││                                                                      │
+╰──────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
+╭ 7 Events ────────────────────────────────────────────────╮╭ 7 Logs janusd ───────────────────────────────────────────╮
+│14:54:05 janusd.started version=v2026.10.08               ││api: listening on :9505                                   │
+│14:55:05 haproxy.started pid=77                           ││haproxy: reload: WARNING: config: 'option forwardfor' ign…│
+│14:56:05 haproxy.config.applied by=sebastien reload=true  ││                                                          │
+│14:57:05 network.trial.started reverts_in=2m              ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+╰──────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
+ ? help  q quit  Tab focus  ↑↓ move  1-8 panels  Enter server  R reload  B reboot  J restart  C confirm         every 2s

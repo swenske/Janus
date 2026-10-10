@@ -101,14 +101,6 @@ func TestPickerRender(t *testing.T) {
 	}
 }
 
-func TestSplitKeys(t *testing.T) {
-	got := splitKeys("ab\x1b[A\x1b[Bé\r")
-	want := []string{"a", "b", "\x1b[A", "\x1b[B", "é", "\r"}
-	if strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Errorf("splitKeys = %q", got)
-	}
-}
-
 func TestFillMissingNeedsATerminalList(t *testing.T) {
 	// Without a node, nothing online is asked; a group isn't a command.
 	c, _, positional := leafArgs([]string{"system", "logs", "-n", "5"})

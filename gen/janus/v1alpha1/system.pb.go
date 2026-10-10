@@ -4144,11 +4144,16 @@ func (x *ProcessesResponse) GetProcesses() []*ProcessInfo {
 }
 
 type ProcessInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Pid           int32                  `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
-	Command       string                 `protobuf:"bytes,2,opt,name=command,proto3" json:"command,omitempty"`
-	CpuPercent    float64                `protobuf:"fixed64,3,opt,name=cpu_percent,json=cpuPercent,proto3" json:"cpu_percent,omitempty"`
-	MemoryBytes   uint64                 `protobuf:"varint,4,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Pid     int32                  `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
+	Command string                 `protobuf:"bytes,2,opt,name=command,proto3" json:"command,omitempty"`
+	// Average over the process's lifetime, like ps(1).
+	CpuPercent  float64 `protobuf:"fixed64,3,opt,name=cpu_percent,json=cpuPercent,proto3" json:"cpu_percent,omitempty"`
+	MemoryBytes uint64  `protobuf:"varint,4,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	// Cumulative CPU time, like ProcessStat.cpu_seconds - the current rate
+	// is the difference between two samples. 0 from a node older than this
+	// field.
+	CpuSeconds    float64 `protobuf:"fixed64,5,opt,name=cpu_seconds,json=cpuSeconds,proto3" json:"cpu_seconds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4207,6 +4212,13 @@ func (x *ProcessInfo) GetCpuPercent() float64 {
 func (x *ProcessInfo) GetMemoryBytes() uint64 {
 	if x != nil {
 		return x.MemoryBytes
+	}
+	return 0
+}
+
+func (x *ProcessInfo) GetCpuSeconds() float64 {
+	if x != nil {
+		return x.CpuSeconds
 	}
 	return 0
 }
@@ -5275,13 +5287,15 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\x0favailable_bytes\x18\x04 \x01(\x04R\x0eavailableBytes\x12\x1b\n" +
 	"\tread_only\x18\x05 \x01(\bR\breadOnly\"N\n" +
 	"\x11ProcessesResponse\x129\n" +
-	"\tprocesses\x18\x01 \x03(\v2\x1b.janus.v1alpha1.ProcessInfoR\tprocesses\"}\n" +
+	"\tprocesses\x18\x01 \x03(\v2\x1b.janus.v1alpha1.ProcessInfoR\tprocesses\"\x9e\x01\n" +
 	"\vProcessInfo\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
 	"\acommand\x18\x02 \x01(\tR\acommand\x12\x1f\n" +
 	"\vcpu_percent\x18\x03 \x01(\x01R\n" +
 	"cpuPercent\x12!\n" +
-	"\fmemory_bytes\x18\x04 \x01(\x04R\vmemoryBytes\"\x8b\x01\n" +
+	"\fmemory_bytes\x18\x04 \x01(\x04R\vmemoryBytes\x12\x1f\n" +
+	"\vcpu_seconds\x18\x05 \x01(\x01R\n" +
+	"cpuSeconds\"\x8b\x01\n" +
 	"\vServiceInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x16\n" +

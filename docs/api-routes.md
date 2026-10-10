@@ -83,7 +83,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 | `NetworkDeviceStats` | | ✅ | `/proc/net/dev`: bytes and errors per interface |
 | `Netstat` | | ✅ | `/proc/net/{tcp,tcp6,udp,udp6}` - IPv4-mapped addresses shown as IPv4 |
 | `Mounts` | | ✅ | `/proc/self/mounts` + `statfs` sizes |
-| `Processes` | | ✅ | Every process: pid, command line, CPU, RSS |
+| `Processes` | | ✅ | Every process: pid, command line, CPU (lifetime average, and cumulative seconds for a rate between two samples), RSS |
 | `ServiceList` | | ✅ | `janusd`, `haproxy` and the services of the image's extensions (`prometheus-node-exporter`, `qemu-guest-agent`...), with state and health (HAProxy healthy = answers on its stats socket; an extension service waiting for a device, like the QEMU guest agent's virtio port, is `waiting`) |
 | `ServiceStart` / `Stop` / `Restart` | | ✅ | `haproxy`: start; soft stop (finishes in-flight connections, 10s, then SIGTERM); restart = seamless reload. `janusd`: restart = `Restart`, stop refused (node would be unreachable). Extension services: stop (SIGTERM, then SIGKILL after 10s) keeps them stopped until started again |
 | `List` | server | ✅ | Directory listing (optionally recursive), symlinks not followed, per-entry errors inline |
