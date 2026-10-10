@@ -271,6 +271,7 @@ type app struct {
 	opts     tuiOptions
 	interval atomic.Int64
 	paused   atomic.Bool
+	pausedAt time.Time // when p paused the samplers
 	wake     chan struct{}
 	actions  chan actionResult
 	palette  termui.Palette
@@ -377,6 +378,7 @@ func (a *app) key(k string) bool {
 	case "p":
 		a.paused.Store(!a.paused.Load())
 		if a.paused.Load() {
+			a.pausedAt = a.now()
 			a.say("paused - p resumes", termui.ColorWarn)
 		} else {
 			a.say("resumed", termui.ColorOK)
@@ -473,7 +475,8 @@ var tuiHelp = []string{
 	"Enter          open the node / act on the server",
 	"Esc            back to the fleet, close a dialog",
 	"1-8            show or hide a panel",
-	"s  r           sort the processes / reverse",
+	"s  r           sort the processes or the nodes / reverse",
+	"m  w  y        fleet trend: metric, time window, scale",
 	"e  l           events / logs in the tail (l again: janusd ↔ haproxy)",
 	"p              pause",
 	"+  -           refresh faster / slower",

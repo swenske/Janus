@@ -1,10 +1,10 @@
- janus ▸ lab  sebastien (os:admin)  3 nodes, 1 reachable                                                        15:04:05
+ janus ▸ lab  sebastien (os:admin)  4 nodes, 2 reachable                                                        15:04:05
 ╭ Fleet ───────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│NODE           ADDRESS               STATE       VERSION          HAPROXY  CONNS SESS/S  CPU  MEM  LOAD VRRP   TRIAL  │
-│lgslbpub01     172.16.1.151:9505     ok          v2026.10.08 A    3.2.9       12      4  25%  34%  0.42 MASTER net    │
-│lgslbpub02     172.16.1.152:9505     unreachable                                                                      │
-│lgslbpub03     172.16.1.153:9505     connecting                                                                       │
-│                                                                                                                      │
+│NODE       STATE       VERSION          HAPROXY  CONNS SESS/S  CPU  MEM  LOAD VRRP   TRIAL   SESS/S 5m max 384        │
+│lgslbpub01 ok          v2026.10.08 A    3.2.9     1154    384  82%  62%  1.92 MASTER net     ▆▆▆▆▅▃▂▂▂▃▅▆▇██▇▇▆▅▄▄▄▅▇█│
+│lgslbpub02 unreachable                                                                                                │
+│lgslbpub03 connecting                                                                                                 │
+│lgslbpub04 ok          v2026.10.08 A    3.2.9       10      3   6%  25%  0.02 BACKUP         ▁▁▁▁▁   ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁│
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -37,4 +37,4 @@
 │                                                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
- ? help  q quit  ↑↓ move  Enter open  s sort  r reverse                                                         every 2s
+ ? help  q quit  ↑↓ move  Enter open  s sort  r reverse  m metric  w window  y scale                            every 2s

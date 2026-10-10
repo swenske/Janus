@@ -226,18 +226,8 @@ func TestNodeScreenGolden(t *testing.T) {
 
 func TestFleetScreenGolden(t *testing.T) {
 	a := testApp(t)
-	ok := testSampler(t, a, "lgslbpub01")
-	down := newSampler(tuiTarget{name: "lgslbpub02", address: "172.16.1.152:9505", dial: func() (*grpc.ClientConn, error) {
-		return nil, errors.New("dial tcp 172.16.1.152:9505: connect: connection refused")
-	}}, a.wake, &a.interval, &a.paused)
-	if _, err := down.connection(); err == nil {
-		t.Fatal("the dial must fail")
-	}
-	down.rounds = 1
-	fresh := newSampler(tuiTarget{name: "lgslbpub03", address: "172.16.1.153:9505"}, a.wake, &a.interval, &a.paused)
-	a.samplers = []*sampler{ok, down, fresh}
-	a.fleet = newFleetScreen()
-	a.screen = a.fleet
+	trendFleet(t, a)
+	ok := a.samplers[0]
 	golden(t, "tui-fleet-120x40.txt", a.render(120, 40))
 	// Enter opens the node under the cursor; Esc comes back.
 	a.fleet.table.Cursor = 0
