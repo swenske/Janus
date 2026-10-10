@@ -66,6 +66,17 @@ func (r *Ring[T]) Last(n int) ([]T, uint64) {
 	return r.Since(start)
 }
 
+// Each calls fn with every item held, oldest first, under the Ring's
+// lock - nothing is copied, so fn must neither keep the pointer nor
+// call back into the Ring.
+func (r *Ring[T]) Each(fn func(*T)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.items {
+		fn(&r.items[i])
+	}
+}
+
 // Changed returns a channel closed on the next Append. Take it before
 // calling Since, then wait on it only if Since returned nothing, so an
 // Append in between is never missed.

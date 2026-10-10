@@ -37,6 +37,22 @@ func TestRingSinceAndEviction(t *testing.T) {
 	}
 }
 
+func TestRingEach(t *testing.T) {
+	r := New[int](3)
+	var got []int
+	r.Each(func(v *int) { got = append(got, *v) })
+	if got != nil {
+		t.Errorf("an empty ring: %v", got)
+	}
+	for i := 0; i < 5; i++ {
+		r.Append(i)
+	}
+	r.Each(func(v *int) { got = append(got, *v) })
+	if fmt.Sprint(got) != "[2 3 4]" {
+		t.Errorf("Each = %v, want the items held, oldest first", got)
+	}
+}
+
 func TestRingChanged(t *testing.T) {
 	r := New[string](10)
 	ch := r.Changed()
