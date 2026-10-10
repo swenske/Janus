@@ -2,7 +2,7 @@ module github.com/swenske/Janus
 
 go 1.26.0
 
-toolchain go1.26.8
+toolchain go1.26.9
 
 require (
 	filippo.io/age v1.3.2
@@ -16,7 +16,7 @@ require (
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
 	google.golang.org/grpc v1.83.2

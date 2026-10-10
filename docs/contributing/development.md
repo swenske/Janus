@@ -8,7 +8,7 @@ builds and tests the control plane; QEMU builds and boots the images.
 
 | For | Tools |
 |---|---|
-| The control plane - `janusd`, `janusctl`, the Controller's backend, the site | Go - the version `go.mod` names (`toolchain go1.26.8`); `make` |
+| The control plane - `janusd`, `janusctl`, the Controller's backend, the site | Go - the version `go.mod` names (`toolchain go1.26.9`); `make` |
 | The gRPC contract | [`buf`](https://buf.build), `protoc-gen-go`, `protoc-gen-go-grpc` - only to change `api/proto` |
 | The images, the kernel, HAProxy, extensions, the docs site | Docker (BuildKit), and for the images: `qemu-utils`, `squashfs-tools`, `cryptsetup-bin`, `e2fsprogs`, `gdisk`, `mtools`, `dosfstools`, `xorriso`, `systemd-ukify`, `sbsigntool` |
 | Booting them | `qemu-system-x86` (and `-arm` for the Pi), `ovmf` (and `qemu-efi-aarch64`), `python3-virt-firmware` for Secure Boot - access to `/dev/kvm` |
