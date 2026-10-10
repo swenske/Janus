@@ -30,6 +30,7 @@ type Cell struct {
 // Frame is a page of W×H cells, blank until painted.
 type Frame struct {
 	W, H  int
+	Graph GraphSymbols // what Graph draws with
 	cells []Cell
 }
 
@@ -145,9 +146,20 @@ func (f *Frame) Lines() []string {
 // Render is the escape sequence that makes the terminal show f: every
 // row when prev is nil or another size, else only the rows that differ.
 // Rows are addressed absolutely, so nothing ever scrolls; each row ends
-// with the attributes reset.
+// with the attributes reset. A change of palette needs prev nil: the
+// cells are the same, what they look like isn't.
 func (f *Frame) Render(prev *Frame, p Palette) string {
 	var b strings.Builder
+	sgr := map[Style]string{}
+	codes := func(s Style) string {
+		c, ok := sgr[s]
+		if !ok {
+			c = p.SGR(s)
+			sgr[s] = c
+		}
+		return c
+	}
+	glyph := p.glyphs()
 	for y := 0; y < f.H; y++ {
 		if prev != nil && prev.W == f.W && prev.H == f.H && rowsEqual(f.cells[y*f.W:(y+1)*f.W], prev.cells[y*f.W:(y+1)*f.W]) {
 			continue
@@ -155,19 +167,54 @@ func (f *Frame) Render(prev *Frame, p Palette) string {
 		b.WriteString("\x1b[")
 		b.WriteString(itoa(y + 1))
 		b.WriteString(";1H")
-		cur := Style{}
+		cur := ""
 		for x := 0; x < f.W; x++ {
 			c := f.cells[y*f.W+x]
-			if c.S != cur {
+			if s := codes(c.S); s != cur {
 				b.WriteString("\x1b[0m")
-				b.WriteString(p.SGR(c.S))
-				cur = c.S
+				b.WriteString(s)
+				cur = s
 			}
-			b.WriteRune(c.R)
+			b.WriteRune(glyph(c.R))
 		}
 		b.WriteString("\x1b[0m")
 	}
 	return b.String()
+}
+
+// glyphs is how the palette's terminal draws a rune: square corners
+// instead of rounded ones, and on the Linux console what its font (CP437)
+// has instead of what it hasn't.
+func (p Palette) glyphs() func(rune) rune {
+	if !p.Square && !p.Console {
+		return func(r rune) rune { return r }
+	}
+	return func(r rune) rune {
+		switch r {
+		case '╭':
+			return '┌'
+		case '╮':
+			return '┐'
+		case '╰':
+			return '└'
+		case '╯':
+			return '┘'
+		}
+		if !p.Console {
+			return r
+		}
+		if c, ok := consoleGlyphs[r]; ok {
+			return c
+		}
+		return r
+	}
+}
+
+// consoleGlyphs are the glyphs the dashboard draws that the Linux
+// console's font lacks, and what it draws instead. Graphs and
+// sparklines choose their own (GraphTTY).
+var consoleGlyphs = map[rune]rune{
+	'…': '~', '▸': '►', '●': '•',
 }
 
 func rowsEqual(a, b []Cell) bool {

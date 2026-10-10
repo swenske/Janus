@@ -6,6 +6,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/swenske/Janus/internal/termui"
 )
 
 // The command tree: every command janusctl dispatches, its flags and
@@ -44,6 +46,7 @@ const (
 	argShell                 // bash, zsh, fish
 	argSysctl                // a kernel parameter the node lets change
 	argSysctlAssign          // NAME=VALUE for such a parameter
+	argTheme                 // a janusctl tui colour theme
 )
 
 // fixedValues are the kinds whose values are known here.
@@ -54,6 +57,16 @@ var fixedValues = map[argKind][]candidate{
 	argFamily:        {{"inet", "IPv4 and IPv6"}, {"ip", "IPv4"}, {"ip6", "IPv6"}, {"arp", ""}, {"bridge", ""}, {"netdev", ""}},
 	argContextAction: {{"list", "the contexts"}, {"use", "switch to a context"}, {"delete", "forget a context"}},
 	argShell:         {{"bash", ""}, {"zsh", ""}, {"fish", ""}},
+	argTheme:         themeCandidates(),
+}
+
+// themeCandidates are the dashboard's themes, then list.
+func themeCandidates() []candidate {
+	out := []candidate{}
+	for _, t := range termui.Themes() {
+		out = append(out, candidate{t.Name, t.About})
+	}
+	return append(out, candidate{"list", "print every theme"})
 }
 
 // flagDef is a flag: value is its placeholder ("" for a boolean).
@@ -128,6 +141,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 	{name: "tui", help: "a live dashboard in the terminal: the node, or every node of the context", flags: []flagDef{
 		valFlag("interval", "DURATION", "how often the nodes are asked (default 2s, 1s to 30s)", argNone),
 		boolFlag("once", "print one frame as text and exit"),
+		valFlag("theme", "NAME", "the colour theme for this run (list: every theme; M in the dashboard saves one)", argTheme),
 	}},
 	{name: "system", help: "the node: state, logs, files, power", subs: []*command{
 		{name: "info", help: "version, kernel, slot, memory, CPU, load, disks"},

@@ -211,11 +211,7 @@ func TestFleetTrendKeys(t *testing.T) {
 		if h := header(); !strings.Contains(h, w) {
 			t.Errorf("m: %q lacks %q", h, w)
 		}
-		tone := styleAccent
-		if strings.HasPrefix(w, "NET") {
-			tone = styleInfo
-		}
-		if got := a.fleet.table.Tone(0, len(a.fleet.shown)-1); got != tone {
+		if got, tone := a.fleet.table.Tone(0, len(a.fleet.shown)-1), trendMetrics[a.fleet.metric].tone; got != tone {
 			t.Errorf("%s: the trend drawn in %+v, want %+v", w, got, tone)
 		}
 	}

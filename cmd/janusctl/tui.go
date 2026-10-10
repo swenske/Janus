@@ -54,10 +54,22 @@ func runTUI(args []string, targets []tuiTarget, opts tuiOptions) {
 	fs := flag.NewFlagSet("tui", flag.ExitOnError)
 	interval := fs.Duration("interval", 2*time.Second, "how often the nodes are asked (1s to 30s)")
 	once := fs.Bool("once", false, "print one frame as text and exit")
+	theme := fs.String("theme", "", "the colour theme for this run (-theme list names them; M chooses and saves one)")
 	_ = fs.Parse(args) // ExitOnError
 	if *interval < time.Second || *interval > 30*time.Second {
 		log.Fatal("janusctl tui: -interval is between 1s and 30s")
 	}
+	if *theme == "list" {
+		for _, t := range termui.Themes() {
+			fmt.Printf("%-18s %s\n", t.Name, t.About)
+		}
+		return
+	}
+	if *theme != "" && termui.ThemeNamed(*theme) == nil {
+		log.Fatalf("janusctl tui: no theme %q - %s", *theme, themeHelp())
+	}
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	if *once {
 		w, h := tuiMinWidth+40, tuiMinHeight+16
 		if isTerminal(os.Stdout) {
@@ -78,6 +90,7 @@ func runTUI(args []string, targets []tuiTarget, opts tuiOptions) {
 		log.Fatal("janusctl tui: needs a terminal (janusctl tui -once prints one frame)")
 	}
 	a := newApp(targets, opts, *interval)
+	a.useSettings(settingsPath(), given["interval"], *theme)
 	t, err := openTerminal()
 	if err != nil {
 		log.Fatalf("janusctl tui: %v", err)
@@ -275,19 +288,28 @@ type app struct {
 	wake     chan struct{}
 	actions  chan actionResult
 	palette  termui.Palette
-	now      func() time.Time
+	detected termui.Depth        // what the terminal says it takes
+	graphs   termui.GraphSymbols // what graphs are drawn with
+	repaint  bool                // the palette changed: every row again
+	settings tuiSettings
+	saved    tuiSettings // what tui.json holds
+	// settingsPath is where the menu saves; "" never (tests, -once).
+	settingsPath string
+	now          func() time.Time
 
 	screen screen
 	fleet  *fleetScreen
 	modal  *modal
+	menu   *optionsMenu
 	help   bool
 	status statusLine
 	cancel context.CancelFunc
 }
 
 func newApp(targets []tuiTarget, opts tuiOptions, interval time.Duration) *app {
-	a := &app{targets: targets, opts: opts, wake: make(chan struct{}, 1), actions: make(chan actionResult, 4), palette: termui.DetectPalette(os.Getenv), now: time.Now}
+	a := &app{targets: targets, opts: opts, wake: make(chan struct{}, 1), actions: make(chan actionResult, 4), detected: termui.DetectDepth(os.Getenv), now: time.Now, settings: defaultSettings(), saved: defaultSettings()}
 	a.interval.Store(int64(interval))
+	a.applySettings()
 	for _, t := range targets {
 		a.samplers = append(a.samplers, newSampler(t, a.wake, &a.interval, &a.paused))
 	}
@@ -312,9 +334,10 @@ func (a *app) run(t *terminal) (err error) {
 	}
 	if len(a.samplers) > 1 {
 		a.fleet = newFleetScreen()
+		a.setupFleet(a.fleet)
 		a.show(a.fleet)
 	} else {
-		a.show(newNodeScreen(a.samplers[0], false))
+		a.show(a.newNode(a.samplers[0], false))
 	}
 	var prev *termui.Frame
 	tick := time.NewTicker(time.Second)
@@ -322,6 +345,9 @@ func (a *app) run(t *terminal) (err error) {
 	for {
 		w, h := t.size()
 		f := a.render(w, h)
+		if a.repaint {
+			prev, a.repaint = nil, false
+		}
 		t.draw(f.Render(prev, a.palette))
 		prev = f
 		select {
@@ -362,6 +388,10 @@ func (a *app) say(text string, tone termui.Color) {
 // key handles one key; true means leave.
 func (a *app) key(k string) bool {
 	k = termui.Normalize(k)
+	if a.menu != nil {
+		a.menu.key(a, k)
+		return false
+	}
 	if a.modal != nil {
 		a.modal.key(a, k)
 		return false
@@ -375,6 +405,8 @@ func (a *app) key(k string) bool {
 		return true
 	case "?":
 		a.help = true
+	case "M":
+		a.openMenu()
 	case "p":
 		a.paused.Store(!a.paused.Load())
 		if a.paused.Load() {
@@ -418,6 +450,7 @@ func (a *app) kickAll() {
 // or a modal over it.
 func (a *app) render(w, h int) *termui.Frame {
 	f := termui.NewFrame(w, h)
+	f.Graph = a.graphs
 	if w < tuiMinWidth || h < tuiMinHeight {
 		msg := fmt.Sprintf("janusctl tui needs %dx%d (this terminal is %dx%d)", tuiMinWidth, tuiMinHeight, w, h)
 		f.Text(max((w-len(msg))/2, 0), h/2, msg, termui.Style{FG: termui.ColorWarn}, 0)
@@ -431,6 +464,9 @@ func (a *app) render(w, h int) *termui.Frame {
 	if a.modal != nil {
 		a.modal.render(f)
 	}
+	if a.menu != nil {
+		a.menu.render(a, f)
+	}
 	return f
 }
 
@@ -438,7 +474,7 @@ func (a *app) render(w, h int) *termui.Frame {
 // certificate's end and the last message.
 func (a *app) renderFooter(f *termui.Frame) {
 	y := f.H - 1
-	muted, key := termui.Style{FG: termui.ColorMuted}, termui.Style{FG: termui.ColorAccent, Bold: true}
+	muted, key := styleMuted, styleKey
 	right := "every " + time.Duration(a.interval.Load()).String()
 	if a.paused.Load() {
 		right = "paused"
@@ -470,6 +506,7 @@ func (a *app) renderFooter(f *termui.Frame) {
 var tuiHelp = []string{
 	"q  Ctrl-C      leave",
 	"?              this help",
+	"M              options: theme, colours, graphs, defaults",
 	"Tab  Shift-Tab focus the next / previous panel",
 	"↑ ↓ PgUp PgDn  move in the focused panel",
 	"Enter          open the node / act on the server",
@@ -492,10 +529,10 @@ func (a *app) renderHelp(f *termui.Frame) {
 	h := len(tuiHelp) + 2
 	r := termui.Rect{X: (f.W - w) / 2, Y: (f.H - h) / 2, W: w, H: h}
 	f.Fill(r, ' ', termui.Style{})
-	in := f.Box(r, "Keys", termui.Style{FG: termui.ColorAccent}, termui.Style{FG: termui.ColorAccent, Bold: true})
+	in := f.Box(r, "Keys", styleFocus, styleTitle)
 	for i, l := range tuiHelp {
 		k, desc, _ := strings.Cut(l, "  ")
-		x := f.Text(in.X+1, in.Y+i, k, termui.Style{FG: termui.ColorAccent, Bold: true}, 0)
+		x := f.Text(in.X+1, in.Y+i, k, styleKey, 0)
 		f.Text(in.X+1+x+2, in.Y+i, strings.TrimSpace(desc), termui.Style{}, 0)
 	}
 }

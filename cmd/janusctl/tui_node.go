@@ -132,7 +132,7 @@ func (n *nodeScreen) hints(a *app) []string {
 	if n.focus == panelProcesses {
 		h = append(h, "s sort", "r reverse")
 	}
-	return append(h, "e events", "l logs")
+	return append(h, "e events", "l logs", "M menu")
 }
 
 func (n *nodeScreen) key(a *app, k string) {
@@ -318,15 +318,15 @@ func interfacesOf(v *nodeView) []string {
 	return names
 }
 
+// The styles, as slots the theme fills (termui/theme.go).
 var (
-	styleBorder  = termui.Style{FG: termui.ColorMuted}
-	styleFocus   = termui.Style{FG: termui.ColorAccent}
-	styleTitle   = termui.Style{FG: termui.ColorAccent, Bold: true}
+	styleFocus   = termui.Style{FG: termui.ColorFocus}
+	styleTitle   = termui.Style{FG: termui.ColorTitle, Bold: true}
+	styleBrand   = termui.Style{FG: termui.ColorTitle}
+	styleKey     = termui.Style{FG: termui.ColorKey, Bold: true}
 	styleMuted   = termui.Style{FG: termui.ColorMuted}
 	styleHead    = termui.Style{Bold: true}
-	styleCursor  = termui.Style{Reverse: true}
-	styleAccent  = termui.Style{FG: termui.ColorAccent}
-	styleInfo    = termui.Style{FG: termui.ColorInfo}
+	styleCursor  = termui.Style{FG: termui.ColorSelected, BG: termui.ColorSelectedBG}
 	styleWarn    = termui.Style{FG: termui.ColorWarn}
 	styleDanger  = termui.Style{FG: termui.ColorDanger}
 	styleOK      = termui.Style{FG: termui.ColorOK}
@@ -334,14 +334,25 @@ var (
 	styleDefault = termui.Style{}
 )
 
-// box draws a panel's border with its digit and title; the focused
-// panel's border is in the accent.
-func (n *nodeScreen) box(f *termui.Frame, p panel, r termui.Rect, title string) termui.Rect {
-	border := styleBorder
-	if n.focus == p {
-		border = styleFocus
+// panelBox is a panel's border colour, by what it shows - the theme's
+// box colours.
+var panelBox = map[panel]termui.Color{
+	panelCPU: termui.ColorBoxCPU, panelMemory: termui.ColorBoxMem, panelNetwork: termui.ColorBoxNet, panelModules: termui.ColorBoxNet,
+	panelHAProxy: termui.ColorBoxProc, panelProcesses: termui.ColorBoxProc, panelServices: termui.ColorBoxMem, panelTail: termui.ColorBoxCPU,
+}
+
+// border is a panel's border style: its box colour, the focus's when
+// focused.
+func (n *nodeScreen) border(p panel, focused bool) termui.Style {
+	if focused {
+		return styleFocus
 	}
-	in := f.Box(r, "", border, styleTitle)
+	return termui.Style{FG: panelBox[p]}
+}
+
+// box draws a panel's border with its digit and title.
+func (n *nodeScreen) box(f *termui.Frame, p panel, r termui.Rect, title string) termui.Rect {
+	in := f.Box(r, "", n.border(p, n.focus == p), styleTitle)
 	x := f.Text(r.X+1, r.Y, fmt.Sprintf(" %d ", p), styleMuted, r.W-2)
 	f.Text(r.X+1+x, r.Y, termui.Truncate(title, r.W-4-x)+" ", styleTitle, r.W-2-x)
 	return in
@@ -382,7 +393,7 @@ func (n *nodeScreen) render(a *app, f *termui.Frame) {
 func (n *nodeScreen) renderHeader(a *app, f *termui.Frame, v *nodeView) {
 	clock := a.now().Format("15:04:05")
 	f.TextRight(0, f.W-1, 0, clock, styleMuted)
-	x := f.Text(1, 0, "janus ▸ ", styleAccent, 0) + 1
+	x := f.Text(1, 0, "janus ▸ ", styleBrand, 0) + 1
 	host := firstOr(v.slow.hostname, v.name)
 	x += f.Text(x, 0, host, termui.Style{Bold: true}, f.W-x-10)
 	var parts []string
@@ -475,7 +486,7 @@ func (n *nodeScreen) renderCPU(f *termui.Frame, r termui.Rect, v *nodeView) {
 		title += "  " + t
 	}
 	in := n.box(f, panelCPU, r, title)
-	termui.Graph(f, in, series(v, func(p point) float64 { return p.cpu }), 100, styleAccent)
+	termui.Graph(f, in, series(v, func(p point) float64 { return p.cpu }), 100, termui.Style{Grad: termui.GradCPU})
 }
 
 // compactTopology is "4 cores", or "8 cores, 2 sockets" when there are
@@ -506,7 +517,7 @@ func (n *nodeScreen) renderMemory(f *termui.Frame, r termui.Rect, v *nodeView) {
 		// Used is what the kernel can't give back (total - available);
 		// the cache it could is shown apart from it, inside the rest.
 		cached := min(p.memCache, p.memTotal-min(p.memTotal, p.memUsed))
-		termui.Meter(f, termui.Rect{X: in.X, Y: in.Y, W: in.W, H: 1}, []float64{float64(p.memUsed), float64(cached)}, []termui.Style{styleAccent, styleInfo}, float64(p.memTotal), styleMuted)
+		termui.Meter(f, termui.Rect{X: in.X, Y: in.Y, W: in.W, H: 1}, []float64{float64(p.memUsed), float64(cached)}, []termui.Style{{Grad: termui.GradUsed}, {Grad: termui.GradCached}}, float64(p.memTotal), termui.Style{FG: termui.ColorMeterBG})
 		legend := fmt.Sprintf("used %s  cached %s  available %s", humanBytes(p.memUsed), humanBytes(cached), humanBytes(p.memTotal-min(p.memTotal, p.memUsed)))
 		if in.H >= 2 {
 			f.Text(in.X, in.Y+1, termui.Truncate(legend, in.W), styleMuted, in.W)
@@ -518,7 +529,7 @@ func (n *nodeScreen) renderMemory(f *termui.Frame, r termui.Rect, v *nodeView) {
 				return math.NaN()
 			}
 			return float64(p.memUsed) / float64(p.memTotal) * 100
-		}), 100, styleAccent)
+		}), 100, termui.Style{Grad: termui.GradUsed})
 	}
 }
 
@@ -552,9 +563,9 @@ func (n *nodeScreen) renderNetwork(f *termui.Frame, r termui.Rect, v *nodeView) 
 		x := in.X
 		x += f.Text(x, y, dot, dotSt, 0) + 1
 		x += f.Text(x, y, termui.Pad(name, 8), termui.Style{Bold: true}, 0)
-		x += f.Text(x, y, "↓", styleInfo, 0)
+		x += f.Text(x, y, "↓", termui.Style{FG: termui.ColorDownload}, 0)
 		x += f.Text(x, y, termui.PadLeft(fmtRate(rt.rx), 10), styleDefault, 0) + 1
-		x += f.Text(x, y, "↑", styleAccent, 0)
+		x += f.Text(x, y, "↑", termui.Style{FG: termui.ColorUpload}, 0)
 		x += f.Text(x, y, termui.PadLeft(fmtRate(rt.tx), 10), styleDefault, 0) + 1
 		if rt.rxErr+rt.txErr > 0 {
 			x += f.Text(x, y, fmt.Sprintf("%d err", rt.rxErr+rt.txErr), styleWarn, 0) + 1
@@ -566,7 +577,7 @@ func (n *nodeScreen) renderNetwork(f *termui.Frame, r termui.Rect, v *nodeView) 
 					return math.NaN()
 				}
 				return rt.rx + rt.tx
-			}), 0, styleInfo)
+			}), 0, termui.Style{Grad: termui.GradDownload})
 		}
 	}
 }
@@ -695,7 +706,7 @@ func (n *nodeScreen) renderHAProxy(f *termui.Frame, r termui.Rect, v *nodeView) 
 				return math.NaN()
 			}
 			return float64(p.hap.sessRate)
-		}), 0, styleAccent)
+		}), 0, termui.Style{Grad: termui.GradProcess})
 		y += 3
 		avail -= 3
 	}
@@ -815,11 +826,7 @@ func (n *nodeScreen) renderTail(f *termui.Frame, r termui.Rect) {
 // renderOneTail draws a tail's last lines, the newest at the bottom;
 // stamped lines get their time (a log line carries its own).
 func (n *nodeScreen) renderOneTail(f *termui.Frame, r termui.Rect, t *tail, title string, scrolled, stamped bool) {
-	border := styleBorder
-	if n.focus == panelTail && scrolled {
-		border = styleFocus
-	}
-	in := f.Box(r, "", border, styleTitle)
+	in := f.Box(r, "", n.border(panelTail, n.focus == panelTail && scrolled), styleTitle)
 	x := f.Text(r.X+1, r.Y, fmt.Sprintf(" %d ", panelTail), styleMuted, r.W-2)
 	lines, errText := t.snapshot(tuiTailLines)
 	up := 0

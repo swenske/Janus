@@ -8,35 +8,88 @@ var (
 	brailleRight = [4]rune{0x80, 0x20, 0x10, 0x08}
 )
 
-// Graph draws values (oldest first) as an area chart in braille, the
-// newest value in the rightmost column: two values per cell column,
-// four levels per cell row, filled from the bottom. A NaN leaves its
-// column empty; maxV <= 0 scales to the largest value shown.
+// GraphSymbols are the glyphs graphs and sparklines are drawn with.
+type GraphSymbols uint8
+
+const (
+	GraphBraille GraphSymbols = iota // two values a cell, four heights a row
+	GraphBlock                       // a value a cell, eight heights a row (▁ to █)
+	GraphTTY                         // a value a cell, two heights a row (▄ █): the Linux console's font
+)
+
+// graphGlyphs is, per symbol set, how many values a cell holds and
+// how many heights a row; braille draws its own.
+var graphGlyphs = map[GraphSymbols]struct {
+	perCell, heights int
+	glyphs           []rune
+}{
+	GraphBraille: {2, 4, nil},
+	GraphBlock:   {1, 8, []rune(" ▁▂▃▄▅▆▇█")},
+	GraphTTY:     {1, 2, []rune(" ▄█")},
+}
+
+// Graph draws values (oldest first) as an area chart in the frame's
+// graph symbols, the newest value in the rightmost column, filled from
+// the bottom. A NaN leaves its column empty; maxV <= 0 scales to the
+// largest value shown. A style with a gradient colours each cell by its
+// height: the start at the bottom, the end at the top.
 func Graph(f *Frame, r Rect, values []float64, maxV float64, st Style) {
 	if r.Empty() {
 		return
 	}
-	levels := dotLevels(values, r.W*2, r.H*4, maxV)
+	g, ok := graphGlyphs[f.Graph]
+	if !ok {
+		g = graphGlyphs[GraphBraille]
+	}
+	top := r.H * g.heights
+	levels := dotLevels(values, r.W*g.perCell, top, maxV)
 	for cx := 0; cx < r.W; cx++ {
+		high := levels[cx*g.perCell]
+		if g.perCell == 2 {
+			high = max(high, levels[cx*2+1])
+		}
 		for row := 0; row < r.H; row++ { // row 0 = the bottom
-			f.Set(r.X+cx, r.Y+r.H-1-row, brailleCell(levels[2*cx]-row*4, levels[2*cx+1]-row*4), st)
+			var ch rune
+			if g.glyphs == nil {
+				ch = brailleCell(levels[2*cx]-row*4, levels[2*cx+1]-row*4)
+			} else {
+				ch = g.glyphs[min(max(levels[cx]-row*g.heights, 0), g.heights)]
+			}
+			cell := st
+			if st.Grad != GradNone {
+				// The colour of the highest dot in this cell, or of its
+				// bottom when it's empty.
+				h := min(max(high, row*g.heights+1), (row+1)*g.heights)
+				cell.FG, cell.Grad = st.Grad.At(float64(h-1)/float64(max(top-1, 1))), GradNone
+			}
+			f.Set(r.X+cx, r.Y+r.H-1-row, ch, cell)
 		}
 	}
 }
 
-// sparkBlocks are a sparkline's eight heights, from nothing.
-var sparkBlocks = []rune(" ▁▂▃▄▅▆▇█")
+// sparkGlyphs are a sparkline's heights, from nothing: eight blocks, or
+// four shades on the Linux console.
+var sparkGlyphs = map[GraphSymbols][]rune{
+	GraphBraille: []rune(" ▁▂▃▄▅▆▇█"),
+	GraphBlock:   []rune(" ▁▂▃▄▅▆▇█"),
+	GraphTTY:     []rune(" ░▒▓█"),
+}
 
 // Spark is values (oldest first) as a sparkline for a table's cell: a
-// block a value, eight heights - one row of braille has four, too few
-// to tell a quiet node from an idle one on a scale shared with a busy
-// one. Scaled as Graph scales: a NaN or a value <= 0 is a blank,
-// anything above zero at least the lowest block.
-func Spark(values []float64, maxV float64) string {
-	levels := dotLevels(values, len(values), len(sparkBlocks)-1, maxV)
+// glyph a value, eight heights in blocks - one row of braille has four,
+// too few to tell a quiet node from an idle one on a scale shared with a
+// busy one - or four shades with GraphTTY. Scaled as Graph scales: a
+// NaN or a value <= 0 is a blank, anything above zero at least the
+// lowest height.
+func Spark(values []float64, maxV float64, sym GraphSymbols) string {
+	glyphs, ok := sparkGlyphs[sym]
+	if !ok {
+		glyphs = sparkGlyphs[GraphBlock]
+	}
+	levels := dotLevels(values, len(values), len(glyphs)-1, maxV)
 	out := make([]rune, len(levels))
 	for i, l := range levels {
-		out[i] = sparkBlocks[l]
+		out[i] = glyphs[l]
 	}
 	return string(out)
 }
@@ -90,8 +143,9 @@ func brailleCell(left, right int) rune {
 }
 
 // Meter draws one row as a bar: each part's share of total in its
-// style (full blocks), the rest in rest (light blocks). A part below
-// half a cell isn't drawn.
+// style (full blocks), the rest in rest (light shades). A part below
+// half a cell isn't drawn. A part's gradient colours its cells by their
+// place along the whole bar.
 func Meter(f *Frame, r Rect, parts []float64, styles []Style, total float64, rest Style) {
 	if r.Empty() || total <= 0 {
 		return
@@ -108,7 +162,11 @@ func Meter(f *Frame, r Rect, parts []float64, styles []Style, total float64, res
 			st = styles[i]
 		}
 		for ; x < end; x++ {
-			f.Set(r.X+x, r.Y, '█', st)
+			cell := st
+			if st.Grad != GradNone {
+				cell.FG, cell.Grad = st.Grad.At(float64(x)/float64(max(r.W-1, 1))), GradNone
+			}
+			f.Set(r.X+x, r.Y, '█', cell)
 		}
 	}
 	for ; x < r.W; x++ {
