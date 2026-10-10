@@ -128,6 +128,10 @@ func main() {
 		echo()
 		runFleet(*ctxFlag, args[1:])
 		return
+	case "tui":
+		if tuiThemesOnly(args[1:], os.Stdout) { // -theme list needs no node
+			return
+		}
 	}
 
 	// Known before reaching any node: a group without one of its

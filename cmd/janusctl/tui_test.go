@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -253,7 +254,7 @@ func TestNodeScreenKeys(t *testing.T) {
 	if n.focus != panelHAProxy {
 		t.Fatalf("focus starts on %v", n.focus)
 	}
-	want := []panel{panelProcesses, panelServices, panelNetwork, panelTail, panelHAProxy}
+	want := []panel{panelProcesses, panelServices, panelNetwork, panelEvents, panelLogs, panelHAProxy}
 	for _, p := range want {
 		a.key(termui.KeyTab)
 		if n.focus != p {
@@ -261,7 +262,7 @@ func TestNodeScreenKeys(t *testing.T) {
 		}
 	}
 	a.key(termui.KeyBackTab)
-	if n.focus != panelTail {
+	if n.focus != panelLogs {
 		t.Errorf("Shift-Tab: focus %v", n.focus)
 	}
 	// 5 hides the processes: HAProxy takes the whole right column.
@@ -329,6 +330,80 @@ func TestNodeScreenKeys(t *testing.T) {
 	}
 	if !a.key("q") || !a.key(termui.KeyCtrlC) {
 		t.Error("q and Ctrl-C leave")
+	}
+}
+
+func TestEventsAndLogsPanels(t *testing.T) {
+	a := testApp(t)
+	s := testSampler(t, a, "lgslbpub01")
+	a.samplers = []*sampler{s}
+	n := newNodeScreen(s, false)
+	a.screen = n
+	frame := func(w, h int) string { return strings.Join(a.render(w, h).Lines(), "\n") }
+	// Wide: side by side, each its own digit.
+	f := frame(120, 40)
+	if !strings.Contains(f, "7 Events") || !strings.Contains(f, "8 Logs janusd") || !strings.Contains(f, "9 Modules") {
+		t.Fatalf("7 Events, 8 Logs, 9 Modules:\n%s", f)
+	}
+	ev, lg := n.rects[panelEvents], n.rects[panelLogs]
+	if ev.W+lg.W != 120 || ev.Y != lg.Y {
+		t.Errorf("side by side: events %+v, logs %+v", ev, lg)
+	}
+	// 7 hides the events: the logs take the width; 8 the logs too: no tail.
+	a.key("7")
+	a.render(120, 40)
+	if _, ok := n.rects[panelEvents]; ok || n.rects[panelLogs].W != 120 {
+		t.Errorf("7: events %v, logs %+v", ok, n.rects[panelLogs])
+	}
+	a.key("8")
+	a.render(120, 40)
+	if _, ok := n.rects[panelLogs]; ok || n.rects[panelHAProxy].Y+n.rects[panelHAProxy].H < 39 && n.rects[panelProcesses].Y+n.rects[panelProcesses].H < 39 {
+		t.Errorf("7 and 8: no tail, the panels above take its rows: %+v", n.rects)
+	}
+	a.key("7")
+	a.key("8")
+	// Narrow: one at a time - Tab to the logs shows them, e the events.
+	a.render(80, 24)
+	if _, ok := n.rects[panelEvents]; !ok {
+		t.Fatal("narrow: the events first")
+	}
+	for n.focus != panelLogs {
+		a.key(termui.KeyTab)
+	}
+	if f := frame(80, 24); !strings.Contains(f, "8 Logs janusd") || strings.Contains(f, "7 Events") {
+		t.Errorf("Tab to the logs shows them:\n%s", f)
+	}
+	a.key("e")
+	if f := frame(80, 24); n.focus != panelEvents || !strings.Contains(f, "7 Events") {
+		t.Errorf("e: focus %v, the events shown", n.focus)
+	}
+	// Each tail scrolls on its own.
+	for i := 0; i < 30; i++ {
+		n.events.add(tailLine{at: tuiNow, text: fmt.Sprintf("event %d", i)})
+	}
+	a.key(termui.KeyUp)
+	a.key(termui.KeyUp)
+	a.render(120, 40)
+	if n.up[panelEvents] != 2 || n.up[panelLogs] != 0 {
+		t.Errorf("scrolled: events %d, logs %d", n.up[panelEvents], n.up[panelLogs])
+	}
+	if !strings.Contains(frame(120, 40), "Events  ↑2") {
+		t.Error("the scrolled tail says how far")
+	}
+	a.key(termui.KeyEnd)
+	if n.up[panelEvents] != 0 {
+		t.Errorf("End follows again: %d", n.up[panelEvents])
+	}
+}
+
+func TestThemeListNeedsNoNode(t *testing.T) {
+	var out strings.Builder
+	if !tuiThemesOnly([]string{"-theme", "list"}, &out) || !strings.Contains(out.String(), "dracula") || !strings.HasPrefix(out.String(), "janus ") {
+		t.Errorf("-theme list:\n%s", out.String())
+	}
+	out.Reset()
+	if tuiThemesOnly([]string{"-theme=nord", "-interval", "5s"}, &out) || tuiThemesOnly(nil, &out) || tuiThemesOnly([]string{"-bogus"}, &out) || out.Len() != 0 {
+		t.Errorf("anything but -theme list goes on to the node: %q", out.String())
 	}
 }
 

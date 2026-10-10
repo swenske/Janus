@@ -24,17 +24,22 @@ const (
 	panelHAProxy
 	panelProcesses
 	panelServices
-	panelTail
+	panelEvents
+	panelLogs
 	panelModules
 )
 
 var panelNames = map[panel]string{
 	panelCPU: "CPU", panelMemory: "Memory", panelNetwork: "Network", panelHAProxy: "HAProxy",
-	panelProcesses: "Processes", panelServices: "Services", panelTail: "Events and logs", panelModules: "Modules",
+	panelProcesses: "Processes", panelServices: "Services", panelEvents: "Events", panelLogs: "Logs", panelModules: "Modules",
 }
 
 // focusOrder is what Tab walks, of the panels shown.
-var focusOrder = []panel{panelHAProxy, panelProcesses, panelServices, panelNetwork, panelTail}
+var focusOrder = []panel{panelHAProxy, panelProcesses, panelServices, panelNetwork, panelEvents, panelLogs}
+
+// tailsSideBySide is the width from which events and logs are shown
+// side by side, else the one chosen.
+const tailsSideBySide = 120
 
 var procSorts = []string{"cpu", "memory", "pid", "command"}
 
@@ -44,7 +49,7 @@ type nodeScreen struct {
 	events    *tail
 	logs      *tail
 	logID     string
-	showLogs  bool // on a terminal too narrow for both tails: which one
+	showLogs  bool // on a terminal too narrow for both tails: the logs, not the events
 	hidden    map[panel]bool
 	focus     panel
 	fromFleet bool
@@ -56,14 +61,14 @@ type nodeScreen struct {
 	services termui.Table
 	procSort int
 	procDesc bool
-	tailUp   int // lines scrolled up from the newest (0 = following)
+	up       map[panel]int // events' and logs' lines scrolled up from the newest (0 = following)
 
 	serverRows []serverRow // what the servers table's rows are
 	rects      map[panel]termui.Rect
 }
 
 func newNodeScreen(s *sampler, fromFleet bool) *nodeScreen {
-	n := &nodeScreen{s: s, events: newTail(), logs: newTail(), logID: "janusd", hidden: map[panel]bool{}, focus: panelHAProxy, fromFleet: fromFleet, procDesc: true}
+	n := &nodeScreen{s: s, events: newTail(), logs: newTail(), logID: "janusd", hidden: map[panel]bool{}, up: map[panel]int{}, focus: panelHAProxy, fromFleet: fromFleet, procDesc: true}
 	n.view = s.view
 	n.procs.Columns = []termui.Column{{Title: "PID", Width: 6, Right: true}, {Title: "CPU%", Width: 5, Right: true}, {Title: "RSS", Width: 8, Right: true}, {Title: "COMMAND"}}
 	n.fronts.Columns = []termui.Column{{Title: "FRONTEND"}, {Title: "STATUS", Width: 6}, {Title: "CONNS", Width: 6, Right: true}, {Title: "CONN/S", Width: 6, Right: true},
@@ -127,7 +132,7 @@ func (n *nodeScreen) hints(a *app) []string {
 	if n.fromFleet {
 		h = append(h, "Esc fleet")
 	}
-	h = append(h, "Tab focus", "↑↓ move", "1-8 panels")
+	h = append(h, "Tab focus", "↑↓ move", "1-9 panels")
 	h = append(h, n.actionHints(a)...)
 	if n.focus == panelProcesses {
 		h = append(h, "s sort", "r reverse")
@@ -145,7 +150,7 @@ func (n *nodeScreen) key(a *app, k string) {
 		n.cycleFocus(1)
 	case termui.KeyBackTab:
 		n.cycleFocus(-1)
-	case "1", "2", "3", "4", "5", "6", "7", "8":
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		p := panel(k[0] - '0')
 		n.hidden[p] = !n.hidden[p]
 		if n.hidden[n.focus] {
@@ -161,18 +166,22 @@ func (n *nodeScreen) key(a *app, k string) {
 			n.procDesc = !n.procDesc
 		}
 	case "e":
-		n.showLogs = false
-		n.tailUp = 0
+		n.hidden[panelEvents], n.showLogs, n.up[panelEvents] = false, false, 0
+		if n.focus == panelLogs {
+			n.focus = panelEvents
+		}
 	case "l":
-		if n.showLogs || n.bothTails() {
+		if (n.showLogs || n.bothTails()) && !n.hidden[panelLogs] {
 			if n.logID == "janusd" {
 				n.switchLog("haproxy")
 			} else {
 				n.switchLog("janusd")
 			}
 		}
-		n.showLogs = true
-		n.tailUp = 0
+		n.hidden[panelLogs], n.showLogs, n.up[panelLogs] = false, true, 0
+		if n.focus == panelEvents {
+			n.focus = panelLogs
+		}
 	default:
 		if !n.actionKey(a, k) {
 			n.moveKey(k)
@@ -183,8 +192,9 @@ func (n *nodeScreen) key(a *app, k string) {
 // bothTails reports whether the last layout showed events and logs
 // side by side.
 func (n *nodeScreen) bothTails() bool {
-	r, ok := n.rects[panelTail]
-	return ok && r.W >= 120
+	_, events := n.rects[panelEvents]
+	_, logs := n.rects[panelLogs]
+	return events && logs
 }
 
 func (n *nodeScreen) cycleFocus(dir int) {
@@ -204,6 +214,13 @@ func (n *nodeScreen) cycleFocus(dir int) {
 		}
 	}
 	n.focus = shown[(i+dir+len(shown))%len(shown)]
+	// Too narrow for both tails: the focused one is the one shown.
+	switch n.focus {
+	case panelEvents:
+		n.showLogs = false
+	case panelLogs:
+		n.showLogs = true
+	}
 }
 
 // moveKey sends an arrow to the focused table, or scrolls the tail.
@@ -219,21 +236,23 @@ func (n *nodeScreen) moveKey(k string) {
 		n.servers.Key(k, page)
 	case panelServices:
 		n.services.Key(k, page)
-	case panelTail:
+	case panelEvents, panelLogs:
+		up := n.up[n.focus]
 		switch k {
 		case termui.KeyUp:
-			n.tailUp++
+			up++
 		case termui.KeyDown:
-			n.tailUp = max(n.tailUp-1, 0)
+			up = max(up-1, 0)
 		case termui.KeyPgUp:
-			n.tailUp += page
+			up += page
 		case termui.KeyPgDn:
-			n.tailUp = max(n.tailUp-page, 0)
+			up = max(up-page, 0)
 		case termui.KeyEnd:
-			n.tailUp = 0
+			up = 0
 		case termui.KeyHome:
-			n.tailUp = tuiTailLines
+			up = tuiTailLines
 		}
+		n.up[n.focus] = up
 	}
 }
 
@@ -256,9 +275,19 @@ func (n *nodeScreen) selectedServer() *serverRow {
 func (n *nodeScreen) layout(w, h int, v *nodeView) map[panel]termui.Rect {
 	out := map[panel]termui.Rect{}
 	body := termui.Rect{X: 0, Y: 1, W: w, H: h - 2}
-	if !n.hidden[panelTail] {
+	if events, logs := !n.hidden[panelEvents], !n.hidden[panelLogs]; events || logs {
 		th := min(max(body.H/4, 6), 12)
-		out[panelTail] = termui.Rect{X: 0, Y: body.Y + body.H - th, W: w, H: th}
+		r := termui.Rect{X: 0, Y: body.Y + body.H - th, W: w, H: th}
+		switch {
+		case events && logs && w >= tailsSideBySide:
+			half := w / 2
+			out[panelEvents] = termui.Rect{X: 0, Y: r.Y, W: half, H: th}
+			out[panelLogs] = termui.Rect{X: half, Y: r.Y, W: w - half, H: th}
+		case events && (!logs || !n.showLogs):
+			out[panelEvents] = r
+		default:
+			out[panelLogs] = r
+		}
 		body.H -= th
 	}
 	type spec struct {
@@ -338,7 +367,8 @@ var (
 // box colours.
 var panelBox = map[panel]termui.Color{
 	panelCPU: termui.ColorBoxCPU, panelMemory: termui.ColorBoxMem, panelNetwork: termui.ColorBoxNet, panelModules: termui.ColorBoxNet,
-	panelHAProxy: termui.ColorBoxProc, panelProcesses: termui.ColorBoxProc, panelServices: termui.ColorBoxMem, panelTail: termui.ColorBoxCPU,
+	panelHAProxy: termui.ColorBoxProc, panelProcesses: termui.ColorBoxProc, panelServices: termui.ColorBoxMem,
+	panelEvents: termui.ColorBoxCPU, panelLogs: termui.ColorBoxMem,
 }
 
 // border is a panel's border style: its box colour, the focus's when
@@ -383,8 +413,11 @@ func (n *nodeScreen) render(a *app, f *termui.Frame) {
 	if r, ok := n.rects[panelProcesses]; ok {
 		n.renderProcesses(f, r, &v)
 	}
-	if r, ok := n.rects[panelTail]; ok {
-		n.renderTail(f, r)
+	if r, ok := n.rects[panelEvents]; ok {
+		n.renderOneTail(f, r, n.events, panelEvents, "Events", true)
+	}
+	if r, ok := n.rects[panelLogs]; ok {
+		n.renderOneTail(f, r, n.logs, panelLogs, "Logs "+n.logID, false)
 	}
 }
 
@@ -807,35 +840,14 @@ func (n *nodeScreen) renderProcesses(f *termui.Frame, r termui.Rect, v *nodeView
 	n.procs.Draw(f, in, n.focus == panelProcesses, styleHead, styleCursor)
 }
 
-// renderTail is the events and the log: side by side on a wide
-// terminal, else the one e/l chose.
-func (n *nodeScreen) renderTail(f *termui.Frame, r termui.Rect) {
-	if r.W >= 120 {
-		half := r.W / 2
-		n.renderOneTail(f, termui.Rect{X: r.X, Y: r.Y, W: half, H: r.H}, n.events, "Events", !n.showLogs, true)
-		n.renderOneTail(f, termui.Rect{X: r.X + half, Y: r.Y, W: r.W - half, H: r.H}, n.logs, "Logs "+n.logID, n.showLogs, false)
-		return
-	}
-	if n.showLogs {
-		n.renderOneTail(f, r, n.logs, "Logs "+n.logID, true, false)
-	} else {
-		n.renderOneTail(f, r, n.events, "Events", true, true)
-	}
-}
-
 // renderOneTail draws a tail's last lines, the newest at the bottom;
 // stamped lines get their time (a log line carries its own).
-func (n *nodeScreen) renderOneTail(f *termui.Frame, r termui.Rect, t *tail, title string, scrolled, stamped bool) {
-	in := f.Box(r, "", n.border(panelTail, n.focus == panelTail && scrolled), styleTitle)
-	x := f.Text(r.X+1, r.Y, fmt.Sprintf(" %d ", panelTail), styleMuted, r.W-2)
+func (n *nodeScreen) renderOneTail(f *termui.Frame, r termui.Rect, t *tail, p panel, title string, stamped bool) {
+	in := f.Box(r, "", n.border(p, n.focus == p), styleTitle)
+	x := f.Text(r.X+1, r.Y, fmt.Sprintf(" %d ", p), styleMuted, r.W-2)
 	lines, errText := t.snapshot(tuiTailLines)
-	up := 0
-	if scrolled {
-		up = min(n.tailUp, max(len(lines)-in.H, 0))
-		if n.focus == panelTail {
-			n.tailUp = up
-		}
-	}
+	up := min(n.up[p], max(len(lines)-in.H, 0))
+	n.up[p] = up
 	if up > 0 {
 		title += fmt.Sprintf("  ↑%d", up)
 	}
