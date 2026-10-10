@@ -49,7 +49,7 @@ const PILLARS = [
     icon: Feather,
     title: 'Light',
     points: [
-      'A 14 MB root filesystem with 4 binaries - a Go init and its shutdown command, janusd and HAProxy - beside a signed kernel image: nothing else unless you add it.',
+      'A 15 MB root filesystem with 4 binaries - a Go init and its shutdown command, janusd and HAProxy - beside a signed kernel image: nothing else unless you add it.',
       'A 53 MB compressed VM disk, both update slots included; boots straight to a serving HAProxy.',
       'Built from scratch (LFS-style), from a kernel configured symbol by symbol.',
       'Optional software is chosen per image, not installed: an image carries exactly what you picked.',
@@ -60,7 +60,7 @@ const PILLARS = [
     title: 'Managed through an API',
     points: [
       'A gRPC API for everything: HAProxy configuration, maps, ACLs, certificates, backends, network, firewall, kernel tuning, logs, packet capture, updates.',
-      'janusctl on the command line; the Janus Controller in the browser, for all your nodes.',
+      'janusctl on the command line - with a live dashboard of a node or of the fleet in the terminal; the Janus Controller in the browser, for all your nodes.',
       'A/B updates with automatic rollback when HAProxy doesn’t come back healthy.',
       'Network, firewall and kernel changes applied on trial: one that cuts the node off reverts by itself.',
     ],
@@ -73,7 +73,7 @@ const FEATURES = [
     title: 'HAProxy LTS',
     text: 'The LTS branch you choose - 3.4, 3.2 or 3.0 - static, with AWS-LC for fast TLS and the Prometheus exporter. Seamless reloads, runtime maps, ACLs and certificates through the API.',
   },
-  { icon: Undo2, title: 'A/B updates', text: 'The new version is written to the idle slot and booted on trial; if HAProxy isn’t healthy, the node switches back by itself.' },
+  { icon: Undo2, title: 'A/B updates', text: 'The new version is written to the idle slot and booted on trial - through kexec, without the firmware, if you ask; if HAProxy isn’t healthy, the node switches back by itself.' },
   { icon: Network, title: 'Network', text: 'Static addressing, 802.1Q VLANs, several interfaces, DNS and NTP - configured through the API, confirmed or reverted.' },
   { icon: Terminal, title: 'No shell, still observable', text: 'Logs, kernel messages, processes, files and packet capture over the API - read-only and scoped, never a command line.' },
   {
@@ -170,7 +170,7 @@ export default function Landing() {
         </div>
         <div className="hero-facts">
           <div>
-            <strong>14 MB</strong>
+            <strong>15 MB</strong>
             <span>root filesystem, 4 binaries</span>
           </div>
           <div>
