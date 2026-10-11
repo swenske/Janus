@@ -2,6 +2,7 @@ package releasetrust
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -140,6 +141,51 @@ func TestVerify(t *testing.T) {
 		if err := Verify(junk, []*x509.Certificate{cert}); err == nil {
 			t.Errorf("junk of %d bytes verified", len(junk))
 		}
+	}
+}
+
+// TestGraftedSignatureRejected reproduces the flaw go-uefi's own
+// authenticode.Verify had until c7f1f57 (audit 2026-09-30, #17): take a
+// valid signature from a legitimately signed binary, replace the image
+// digest inside its signed content with another binary's, attach it to
+// that other binary. The signature over the signed attributes is still
+// valid, but their messageDigest no longer matches the content.
+func TestGraftedSignatureRejected(t *testing.T) {
+	key, cert := newSigner(t, "Janus test release key")
+	legit, err := authenticode.Parse(bytes.NewReader(sign(t, minimalPE(t, []byte("the real kernel")), key, cert)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigs, err := legit.Signatures()
+	if err != nil || len(sigs) != 1 {
+		t.Fatalf("signatures: %v, %v", sigs, err)
+	}
+
+	evil, err := authenticode.Parse(bytes.NewReader(minimalPE(t, []byte("an attacker's kernel"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := bytes.Replace(sigs[0].Certificate, legit.Hash(crypto.SHA256), evil.Hash(crypto.SHA256), 1)
+	if bytes.Equal(forged, sigs[0].Certificate) {
+		t.Fatal("image digest not found in the signature")
+	}
+	if err := evil.AppendSignature(forged); err != nil {
+		t.Fatal(err)
+	}
+	evilSigned := evil.Bytes()
+
+	if err := Verify(evilSigned, []*x509.Certificate{cert}); !errors.Is(err, ErrUntrusted) {
+		t.Fatalf("grafted signature: %v, want ErrUntrusted", err)
+	}
+
+	// The go-uefi go.mod pins refuses it too since c7f1f57 - Janus still
+	// decides by itself (above).
+	reparsed, err := authenticode.Parse(bytes.NewReader(evilSigned))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := reparsed.Verify(cert); ok {
+		t.Errorf("the go-uefi pinned accepts the grafted signature (err %v): older than c7f1f57?", err)
 	}
 }
 
