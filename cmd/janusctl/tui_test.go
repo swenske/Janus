@@ -500,6 +500,12 @@ func TestTUIFormatting(t *testing.T) {
 	if fmtRate(math.NaN()) != "-" || fmtRate(12288) != "12.0KiB/s" || fmtPct(math.NaN()) != "-" || fmtPct(25.4) != "25%" {
 		t.Error("fmtRate/fmtPct")
 	}
+	// A rate fits its 9-cell columns: from 100 up, no decimal.
+	for in, want := range map[float64]string{999: "999B/s", 99.94 * 1024: "99.9KiB/s", 676.8 * 1024: "677KiB/s", 1023.99 * 1024: "1024KiB/s", 8.3 * 1024 * 1024: "8.3MiB/s"} {
+		if got := fmtRate(in); got != want || len(got) > 9 {
+			t.Errorf("fmtRate(%v) = %q, want %q", in, got, want)
+		}
+	}
 	for state, want := range map[string]termui.Color{"UP": termui.ColorOK, "UP 1/3": termui.ColorOK, "DOWN": termui.ColorDanger, "MAINT": termui.ColorWarn, "DRAIN": termui.ColorWarn, "no check": termui.ColorMuted, "running": termui.ColorOK, "waiting": termui.ColorWarn, "MASTER": termui.ColorOK, "BACKUP": termui.ColorWarn, "FAULT": termui.ColorDanger, "OPEN": termui.ColorOK} {
 		if got := toneOf(state).FG; got != want {
 			t.Errorf("toneOf(%q) = %v, want %v", state, got, want)

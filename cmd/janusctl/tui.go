@@ -13,6 +13,7 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -654,11 +655,20 @@ func fmtPct(v float64) string {
 	return fmt.Sprintf("%.0f%%", v)
 }
 
+// fmtRate is a byte rate in at most 9 cells, its columns' width: three
+// digits are enough for a rate, so from 100 up it has no decimal
+// ("677KiB/s", not "676.8KiB/s").
 func fmtRate(bytesPerSecond float64) string {
 	if math.IsNaN(bytesPerSecond) {
 		return "-"
 	}
-	return humanBytes(uint64(bytesPerSecond)) + "/s"
+	s := humanBytes(uint64(bytesPerSecond))
+	if dot := strings.IndexByte(s, '.'); dot >= 3 {
+		if v, err := strconv.ParseFloat(s[:dot+2], 64); err == nil {
+			s = strconv.FormatFloat(math.Round(v), 'f', 0, 64) + s[dot+2:]
+		}
+	}
+	return s + "/s"
 }
 
 func fmtFloat(v float64, digits int) string {
