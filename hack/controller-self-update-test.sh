@@ -3,7 +3,7 @@
 # dashboard/README.md ("Updating the Controller") says:
 #
 #   - three Controller images in a local registry: A (running), B (the next
-#     release) and C (a release that never starts);
+#     release) and C (a pre-release that never starts);
 #   - a fake GitHub releases API saying which one is newest, with its
 #     controller-image.txt (tag@digest), as image-build.yml publishes it;
 #   - the documented compose.yaml (janus-controller + janus-controller-
@@ -12,8 +12,9 @@
 #
 # Then, through the Controller's own API, as its page does: A -> B must
 # succeed (.env pinned to B's digest, data and TLS identity kept, the same
-# password signs in), and B -> C must roll back by itself (C never says
-# it started): B again, its .env and data back.
+# password signs in); C, a pre-release, is offered apart - never as the
+# update - and installed only when confirmed as one; B -> C must roll back
+# by itself (C never says it started): B again, its .env and data back.
 #
 # Needs Docker and python3; pulls registry:2. KEEP=1
 # leaves everything running (to look at the page), its variables in
@@ -89,6 +90,17 @@ publish() { # publish VERSION IMAGE: VERSION is the newest release
 	cat > "$WORK/gh/releases" <<EOF
 [{"tag_name": "$1", "html_url": "https://github.com/swenske/Janus/releases/tag/$1", "published_at": "2026-10-02T08:00:00Z",
   "assets": [{"name": "controller-image.txt", "browser_download_url": "http://127.0.0.1:$GH_PORT/controller-image-$1.txt"}]}]
+EOF
+}
+# publish_pre VERSION IMAGE: VERSION is a pre-release, newer than B, the
+# release.
+publish_pre() {
+	echo "$2" > "$WORK/gh/controller-image-$1.txt"
+	cat > "$WORK/gh/releases" <<EOF
+[{"tag_name": "$1", "html_url": "https://github.com/swenske/Janus/releases/tag/$1", "published_at": "2026-10-03T08:00:00Z", "prerelease": true,
+  "assets": [{"name": "controller-image.txt", "browser_download_url": "http://127.0.0.1:$GH_PORT/controller-image-$1.txt"}]},
+ {"tag_name": "$B", "html_url": "https://github.com/swenske/Janus/releases/tag/$B", "published_at": "2026-10-02T08:00:00Z",
+  "assets": [{"name": "controller-image.txt", "browser_download_url": "http://127.0.0.1:$GH_PORT/controller-image-$B.txt"}]}]
 EOF
 }
 publish "$B" "$B_IMAGE"
@@ -216,16 +228,22 @@ compose logs --no-color janus-controller-updater 2>/dev/null | grep -q "given to
 [ "$(field 'd["update_available"]' <<<"$S")" = False ] || fail "still offered an update: $S"
 echo "ok: $B runs, pinned to its digest; .env, data, identity and password kept"
 
-echo "== $B -> $C (never starts)"
-publish "$C" "$C_IMAGE"
+echo "== $B -> $C (a pre-release, never starts)"
+publish_pre "$C" "$C_IMAGE"
 compose restart janus-controller >/dev/null # forget the cached release
 wait_for 60 "the Controller" controller_up
 signed_in() { [ "$(login)" = 204 ]; }
 wait_for 30 "signing in" signed_in
-offered() { status | field 'd["latest"]["version"]' | grep -qx "$C"; }
-wait_for 30 "$C to be offered" offered
+offered() { status | field 'd.get("prerelease", {}).get("version")' | grep -qx "$C"; }
+wait_for 30 "$C to be offered as a pre-release" offered
+S=$(status)
+[ "$(field 'd["latest"]["version"] == "'"$B"'" and not d["update_available"] and d["prerelease"]["image"] == "'"$C_IMAGE"'"' <<<"$S")" = True ] \
+	|| fail "the pre-release must be offered apart, never as the update: $S"
 code=$(api -o "$WORK/post" -w '%{http_code}' -H 'Content-Type: application/json' -d "{\"version\":\"$C\"}" "https://127.0.0.1:$MAIN_PORT/api/controller/update")
+[ "$code" = 409 ] || fail "the pre-release was installed without being confirmed as one ($code): $(cat "$WORK/post")"
+code=$(api -o "$WORK/post" -w '%{http_code}' -H 'Content-Type: application/json' -d "{\"version\":\"$C\",\"prerelease\":true}" "https://127.0.0.1:$MAIN_PORT/api/controller/update")
 [ "$code" = 202 ] || fail "update refused ($code): $(cat "$WORK/post")"
+echo "ok: $C offered apart, installed once confirmed as a pre-release"
 rolled_back() { job_ended rolled-back "$B"; }
 wait_for 300 "the rollback to $B" rolled_back
 S=$(status)
@@ -233,6 +251,7 @@ grep -q "$C didn't start within 45s" <<<"$S" || fail "rollback reason: $S"
 grep -qx "JANUS_CONTROLLER_IMAGE=$B_IMAGE" "$WORK/.env" || fail ".env not restored: $(cat "$WORK/.env")"
 [ "$(compose ps --format '{{.Image}}' janus-controller)" = "$B_IMAGE" ] || fail "running $(compose ps --format '{{.Image}}' janus-controller) after the rollback"
 [ "$(identity)" = "$IDENTITY" ] || fail "the TLS identity changed across the rollback"
+[ "$(field 'not d["update_available"] and d["prerelease"]["version"] == "'"$C"'"' <<<"$S")" = True ] || fail "after the rollback: $S"
 echo "ok: $C rolled back by itself - $B, its .env and data are back"
 
 echo "PASS: the Controller updates itself, and rolls back"
