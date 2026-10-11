@@ -18,6 +18,13 @@ actuels ne couvrent pas.
 
 ## Suivi des corrections
 
+**Mis à jour le 2026-10-11 : constat #17.** Une faille amont trouvée
+pendant la quatrième passe, dans `go-uefi`, a été signalée en privé à son
+mainteneur le 2026-09-30 et tenue hors du dépôt public jusqu'à sa
+correction en amont (`c7f1f57`, le 2026-10-04). Elle est publiée ici
+comme #17. Janus n'en a jamais dépendu : `internal/releasetrust` fait sa
+propre vérification.
+
 Mis à jour le 2026-09-30, quatrième passe. Corrigés : #1 à #14, en
 commits séparés par thème (`f3b4376` à `f581851`). #5 a été corrigé
 selon l'option A, choisie par l'utilisateur. Chaque section concernée porte un paragraphe **Corrigé**
@@ -113,6 +120,7 @@ sont corrigées ci-dessous (#10 et #11 sont précisés dans leurs sections) :
 | 14 | Moyenne | Corrigé | Chaîne de publication | `.github/workflows/image-build.yml` | Les GitHub Releases publient des UKI non signés alors qu'un bundle signé est construit |
 | 15 | Faible | Ouvert | Chaîne de build | `Makefile` (`rootfs-build`), `rootfs/assemble.sh` | Chaque artefact d'un run CI embarque un rootfs différent (root hash différent) |
 | 16 | Moyenne | Ouvert | Robustesse | `internal/api/lifecycle.go` | Un squashfs/verity qui ne correspond pas au UKI rend le nœud injoignable après reboot |
+| 17 | Élevée (amont) | Corrigé en amont | Dépendance | `github.com/foxboron/go-uefi` | `authenticode.Verify` acceptait une signature greffée sur n'importe quel binaire |
 
 ---
 
@@ -381,8 +389,10 @@ sont corrigées ci-dessous (#10 et #11 sont précisés dans leurs sections) :
 - **Tests** :
   - `internal/releasetrust` : binaire valide, non signé, clé non
     approuvée, signé par un tiers, modifié après signature, entrées
-    corrompues, interopérabilité avec le vrai `sbsign`, et égalité entre
-    le certificat embarqué et celui qui signe en CI.
+    corrompues, greffe de signature (#17), interopérabilité avec le vrai
+    `sbsign`, et égalité entre le certificat embarqué et celui qui signe
+    en CI. Contrôle par mutation : sans la vérification de
+    `messageDigest`, le test de greffe échoue.
   - `internal/api` : `TestCheckUKISignature` (refus, opt-out,
     acceptation).
   - Les vrais UKI de 4,8 Mo, signés par la nouvelle clé de production,
@@ -617,6 +627,36 @@ sont corrigées ci-dessous (#10 et #11 sont précisés dans leurs sections) :
   en bout avant tout reboot.
 
 ---
+
+## 17. (Élevée, amont) `go-uefi` acceptait une signature Authenticode greffée — corrigé en amont
+
+- **Où** : `github.com/foxboron/go-uefi`, `authenticode.Verify` et
+  `PECOFFBinary.Verify`, jusqu'à la pseudo-version
+  `v0.0.0-20251010190908-d29549a44f29` incluse. Même bibliothèque que
+  `sbctl`.
+- **Cause** : `signerinfo.verify` vérifiait la signature RSA sur les
+  attributs authentifiés, mais rien ne comparait l'attribut signé
+  `messageDigest` au hash du contenu signé (`SpcIndirectDataContent`).
+  Or c'est ce contenu qui porte le condensat de l'image, et `Verify` le
+  comparait à l'image **sans** savoir s'il avait été signé.
+- **Démonstration** (dans `TestGraftedSignatureRejected`) : prendre la
+  signature d'un binaire légitimement signé, remplacer les 32 octets du
+  condensat par celui d'un binaire arbitraire, l'y attacher. `go-uefi`
+  répondait `ok=true` ; `sbverify` refuse.
+- **Pour Janus** : jamais exposé. `internal/releasetrust` n'utilise
+  `go-uefi` que pour lire le PE et calculer son hash, et fait toute la
+  vérification lui-même, `messageDigest` compris.
+- **Divulgation** : rapport privé au mainteneur le 2026-09-30 ; correctif
+  publié sur `master` le 2026-10-04 (`c7f1f57`, « authenticode: Validate
+  the image signature with the authenticated digest », avec un test de
+  non-régression). `go-uefi` ne publie ni tag ni release : ses
+  utilisateurs suivent `master`. Aucun avis (GHSA, CVE, base Go) n'existe
+  au 2026-10-11.
+- **Corrigé** : Janus suit `v0.0.0-20261004203234-c7f1f57bdc6e`.
+  `TestGraftedSignatureRejected` vérifie que `internal/releasetrust`
+  refuse la signature greffée, et que le `go-uefi` épinglé la refuse
+  aussi. Contrôle par mutation : sans la vérification de `messageDigest`
+  de Janus, ou avec l'ancienne version de `go-uefi`, le test échoue.
 
 ## Points vérifiés et jugés corrects (pour éviter de les re-signaler)
 
