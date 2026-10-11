@@ -33,6 +33,9 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 	}
 	mux.HandleFunc("GET /repos/swenske/Janus/releases", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{
+			// A pre-release: for testing, never anyone's update.
+			{"tag_name": "v2026.10.03", "name": "Janus v2026.10.03 (Alpha) - pre-release", "html_url": "https://github.com/swenske/Janus/releases/tag/v2026.10.03", "prerelease": true,
+				"assets": []map[string]string{{"name": "schematic-catalog.json", "browser_download_url": f.srv.URL + "/dl/v2026.10.02/schematic-catalog.json"}, asset("v2026.10.03", "uki-b.efi")}},
 			{"tag_name": "v2026.10.02", "name": "Janus v2026.10.02 (Alpha)", "html_url": "https://github.com/swenske/Janus/releases/tag/v2026.10.02",
 				"assets": []map[string]string{asset("v2026.10.02", "schematic-catalog.json"), asset("v2026.10.02", "uki-b.efi"), asset("v2026.10.02", "rootfs.squashfs.sha256"), asset("v2026.10.02", "janus.qcow2")}},
 			{"tag_name": "v2026.09.30-3", "html_url": "https://github.com/swenske/Janus/releases/tag/v2026.09.30-3",
@@ -118,10 +121,14 @@ func call(t *testing.T, method, url, body string, out any) int {
 func TestVersionsAndCatalog(t *testing.T) {
 	_, _, srv := newTestApp(t)
 	var rels []release
-	if code := call(t, "GET", srv.URL+"/api/v1/versions", "", &rels); code != 200 || len(rels) != 2 {
+	if code := call(t, "GET", srv.URL+"/api/v1/versions", "", &rels); code != 200 || len(rels) != 3 {
 		t.Fatalf("versions: %d %+v", code, rels)
 	}
-	if !rels[0].Schematics || rels[1].Schematics {
+	// The pre-release is listed, said to be one (the builder offers it).
+	if !rels[0].Prerelease || rels[1].Prerelease || rels[2].Prerelease {
+		t.Errorf("pre-releases: %+v", rels)
+	}
+	if !rels[1].Schematics || rels[2].Schematics {
 		t.Errorf("schematic support: %+v", rels)
 	}
 	var cat schematic.Catalog
@@ -269,6 +276,26 @@ func TestUpdateTriggersBuild(t *testing.T) {
 	call(t, "GET", srv.URL+"/api/v1/updates/"+id, "", &up)
 	if up.State != "building" || up.BundleURL != "" || len(gh.dispatches) != 1 {
 		t.Errorf("update %+v, %d dispatches", up, len(gh.dispatches))
+	}
+}
+
+// TestUpdatesSkipPrereleases: the newest release - not the pre-release
+// above it - is the update, for the default schematic too, and the only
+// one built ahead of time.
+func TestUpdatesSkipPrereleases(t *testing.T) {
+	a, gh, srv := newTestApp(t)
+	var up update
+	if code := call(t, "GET", srv.URL+"/api/v1/updates/"+schematic.DefaultID(), "", &up); code != 200 || up.Version != "v2026.10.02" {
+		t.Errorf("default schematic's update: %d %+v", code, up)
+	}
+	sc, _ := schematic.Parse([]byte(`{"customization":{"extensions":["node-exporter"]}}`))
+	id, _ := a.store.PutSchematic(sc)
+	if err := os.MkdirAll(filepath.Join(a.store.dir, "images", id, "v2026.10.01"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a.prebuild(t.Context())
+	if len(gh.dispatches) != 1 || gh.dispatches[0]["version"] != "v2026.10.02" {
+		t.Errorf("prebuilt: %v", gh.dispatches)
 	}
 }
 

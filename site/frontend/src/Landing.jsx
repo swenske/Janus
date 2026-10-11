@@ -95,7 +95,7 @@ function LatestRelease() {
   const [rel, setRel] = useState(null)
   useEffect(() => {
     getJSON('/api/v1/versions')
-      .then((list) => setRel(list?.[0] || null))
+      .then((list) => setRel(list?.find((r) => !r.prerelease) || null))
       .catch(() => {})
   }, [])
   if (!rel) return null

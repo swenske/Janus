@@ -119,7 +119,10 @@ export default function Builder() {
     })
 
   const platform = platforms?.find((p) => p.id === choice.platform)
-  const version = versions?.find((v) => v.version === choice.version) || (choice.version ? null : versions?.[0])
+  // The newest release unless asked for another: never a pre-release (for
+  // testing) by default.
+  const latest = versions?.find((v) => !v.prerelease)
+  const version = versions?.find((v) => v.version === choice.version) || (choice.version ? null : latest)
   const arch = platform?.arch
 
   // The release's extension catalog.
@@ -239,10 +242,11 @@ export default function Builder() {
         <Step n={2} title="Which release?" done={!!version}>
           <div className="row">
             <select value={version?.version || ''} onChange={(e) => update({ version: e.target.value })}>
-              {versions.map((v, i) => (
+              {versions.map((v) => (
                 <option key={v.version} value={v.version}>
                   {v.version}
-                  {i === 0 ? ' (latest)' : ''}
+                  {v === latest ? ' (latest)' : ''}
+                  {v.prerelease ? ' (pre-release)' : ''}
                   {v.schematics ? '' : ' - default image only'}
                 </option>
               ))}
@@ -253,6 +257,12 @@ export default function Builder() {
               </a>
             )}
           </div>
+          {version?.prerelease && (
+            <div className="notice warn" style={{ marginTop: '0.75rem' }}>
+              <strong>{version.version} is a pre-release</strong>, published to be tested before it becomes a release: it may still change or be withdrawn, and it isn&apos;t
+              supported. Nodes are never offered it as an update.
+            </div>
+          )}
         </Step>
       )}
 
