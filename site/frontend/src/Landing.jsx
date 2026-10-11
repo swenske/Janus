@@ -31,6 +31,8 @@ import configDark from '@screens/node-haproxy-config-dark.webp'
 import configLight from '@screens/node-haproxy-config-light.webp'
 import overviewDark from '@screens/node-overview-dark.webp'
 import overviewLight from '@screens/node-overview-light.webp'
+import tuiDark from '@screens/janusctl-tui-dark.webp'
+import tuiLight from '@screens/janusctl-tui-light.webp'
 
 const PILLARS = [
   {
@@ -129,10 +131,20 @@ const SCREENS = [
   },
 ]
 
-function Screens() {
+// janusctl tui, made the same way (its traffic made up, as the charts').
+const TERMINAL = [
+  {
+    light: tuiLight,
+    dark: tuiDark,
+    alt: 'janusctl tui on a node: graphs of its CPU, memory, network and HAProxy sessions, its frontends and backends, services, processes, VRRP and firewall, and its events and logs',
+    caption: 'janusctl tui: a node live in your terminal - or the whole fleet, one line per node.',
+  },
+]
+
+function Screens({ screens }) {
   return (
     <div className="screens">
-      {SCREENS.map((s) => (
+      {screens.map((s) => (
         <figure key={s.caption} className="screen">
           <img className="screen-light" src={s.light} alt={s.alt} width="1280" height="800" loading="lazy" decoding="async" />
           <img className="screen-dark" src={s.dark} alt={s.alt} width="1280" height="800" loading="lazy" decoding="async" />
@@ -208,7 +220,12 @@ export default function Landing() {
 
       <section className="section">
         <h2 className="section-title">Run a fleet from one page</h2>
-        <Screens />
+        <Screens screens={SCREENS} />
+      </section>
+
+      <section className="section">
+        <h2 className="section-title">Or from your terminal</h2>
+        <Screens screens={TERMINAL} />
       </section>
 
       <section className="section">

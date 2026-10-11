@@ -73,6 +73,9 @@ site, `/docs/<file>.md` redirects to the file's page whatever its route.
   the alt text saying what's on it); the site adds the dark one and
   zooms either on a click. A page the docs show changed? `make
   docs-screenshots` in the same commit, and look at the images.
+  `janusctl tui`'s is made there too: its frame drawn by
+  `TestScreenshotFrame` (`cmd/janusctl`) from a busy node's made-up
+  samples, laid in a terminal window by `hack/browser/terminal.mjs`.
 - **Generated pages** aren't edited: the [janusctl
   reference](../guide/janusctl-reference.md) comes from the command tree
   (`go test ./cmd/janusctl -run TestReferenceDoc -update`).

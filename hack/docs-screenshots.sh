@@ -20,6 +20,11 @@
 # shots that drifted go to build/screenshots-drift/, and the script
 # fails when there's one.
 #
+# janusctl tui's screenshot is no page: cmd/janusctl's
+# TestScreenshotFrame draws its frame from made-up samples - a busy
+# node's - with the dashboard's own code, and the browser lays it in a
+# terminal window (hack/browser/terminal.mjs).
+#
 # KEEP=1 leaves the environment running afterwards, to look at it.
 set -euo pipefail
 
@@ -70,6 +75,9 @@ echo "docs-screenshots: the Controller and janusd, $VERSION"
 for bin in dashboardd:./dashboard/backend janusd:./cmd/janusd; do
   (cd "$ROOT" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$WORK/${bin%%:*}" "${bin#*:}")
 done
+
+mkdir -p "$WORK/terminal"
+(cd "$ROOT" && go test ./cmd/janusctl -run '^TestScreenshotFrame$' -count=1 -args -shot "$WORK/terminal" >/dev/null)
 
 docker network create --internal --subnet "$NET.0/24" --gateway "$NET.1" "$P" >/dev/null
 
@@ -153,7 +161,7 @@ ro=""
 # stay the user's.
 docker run --rm --network "$P" --ip "$NET.100" --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$ROOT/hack/browser/shots.mjs:/browser/shots.mjs:ro" -v "$ROOT/hack/browser/images.mjs:/browser/images.mjs:ro" \
-  -v "$ROOT/hack/browser/shots.yaml:/browser/shots.yaml:ro" \
+  -v "$ROOT/hack/browser/shots.yaml:/browser/shots.yaml:ro" -v "$ROOT/hack/browser/terminal.mjs:/browser/terminal.mjs:ro" -v "$WORK/terminal:/terminal:ro" \
   -v "$ROOT/examples:/examples:ro" -v "$ROOT/versions.mk:/versions.mk:ro" -v "$ROOT/variants.mk:/variants.mk:ro" -v "$WORK/creds:/creds:ro" \
   -v "$OUT:/screenshots$ro" -v "$DRIFT:/drift" \
   -e SHOTS_MODE="$MODE" -e SHOTS_THRESHOLD="${SHOTS_THRESHOLD:-0.00015}" -e SHOTS_ONLY="${SHOTS_ONLY:-}" \

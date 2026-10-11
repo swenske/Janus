@@ -15,6 +15,11 @@
 #   ignore   selectors left out of the comparison with the committed
 #            image - what still changes from one run to the next
 #   size     the window, when not `size` below
+#   terminal instead of a page: a frame of janusctl tui, drawn in a
+#            terminal window (terminal.mjs) - the file
+#            hack/docs-screenshots.sh had cmd/janusctl's
+#            TestScreenshotFrame write
+#   title    the terminal window's title
 #
 # A page the docs show that changes should be shot again in the same
 # commit: make docs-screenshots.
@@ -64,3 +69,7 @@ shots:
     node: edge-par-1
     page: '#/system/update'
     wait: v2026.10.06
+
+  - id: janusctl-tui
+    terminal: janusctl-tui.ansi
+    title: janusctl tui -n edge-par-1
