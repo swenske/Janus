@@ -43,14 +43,15 @@ emulated.
 
 ## Runner machines
 
-`janus-runner01` is an unprivileged LXC container on a Proxmox host;
-`janus-runner03` is a laptop running Debian 13 itself. Each machine runs
-several runner instances - one job each - named `<machine>`,
-`<machine>-2`, `<machine>-3`...
+`janus-runner01` and `janus-runner02` are unprivileged LXC containers,
+each on its own Proxmox host; `janus-runner03` is a laptop running
+Debian 13 itself. Each machine runs several runner instances - one job
+each - named `<machine>`, `<machine>-2`, `<machine>-3`...
 
 | Machine | Instances | Labels | Size |
 |---|---|---|---|
 | `janus-runner01` | 5 | `docker`, `janus`, `janus-publish` | 12 cores, 24 GB, 64 GB disk |
+| `janus-runner02` | 2 | `docker`, `janus`, `janus-publish` | 8 cores, 12 GB, 64 GB disk |
 | `janus-runner03` | 5 | `docker`, `janus`, `janus-publish` | 8 cores / 16 threads, 32 GB, 3.6 TB disk |
 
 **Instances on a machine never share a port.** Each instance's `.env`
@@ -59,13 +60,15 @@ several runner instances - one job each - named `<machine>`,
 18080-19530 with no offset, so instances must stay 2000 apart; the
 highest offset must keep ports below 32768 (Linux's ephemeral range).
 
-`janus-runner02`, a container on a host whose memory flipped bits, ran
-test jobs only until 2026-10-06: unregistered, its container stopped.
+The first `janus-runner02`, a container on a host whose memory flipped
+bits, ran test jobs only until 2026-10-06. The current one was set up
+from scratch on 2026-10-11, in a new container on another host - nothing
+copied from the old one - with its own publishing key.
 
 ### Switching a runner machine off
 
 GitHub only gives jobs to runners that are online, so the workflows need
-nothing when a machine is off - as long as the other one carries
+nothing when a machine is off - as long as another one carries
 `janus-publish`.
 
 - **Before switching it off**, stop its services once it is idle -
@@ -97,7 +100,12 @@ pct create <id> local:vztmpl/debian-13-standard_<version>_amd64.tar.zst \
   --unprivileged 1 --features nesting=1,keyctl=1 --onboot 1
 ```
 
-`/dev/kvm` belongs to the host's `kvm` group (gid 103 here), mode 0660.
+Where the LAN reaches the bridge as a tagged VLAN, add `,tag=<vlan>` to
+`--net0` (both containers have `tag=10`): without it the container gets
+no DHCP lease.
+
+`/dev/kvm` belongs to the host's `kvm` group, mode 0660 - gid 103 on
+`janus-runner01`'s host, 994 on `janus-runner02`'s.
 Rather than opening it to everyone on the host, map that one group into
 the container, onto the container's own `kvm` group (gid 993 on Debian
 13), and let root map it (`/etc/subgid`):
@@ -152,7 +160,16 @@ virtualization (SVM / VT-x) on in the firmware, so `/dev/kvm` and
 - its NVIDIA GPU unused: no test or build uses a GPU, and the docs'
   screenshots must render in software to stay identical between
   runners. With the default `nouveau` driver it stays powered off
-  (`runtime_status` `suspended`).
+  (`runtime_status` `suspended`);
+- its runner services started only once the clock is synchronized: a
+  drop-in in each `actions.runner.*.service.d/` with
+  `Wants=time-sync.target`, `After=time-sync.target` and
+  `Restart=on-failure`, and `systemd-time-wait-sync.service` enabled.
+  After a power-off it once booted with its clock hours behind (the RTC
+  had lost the time): GitHub refused the runners' sessions - "The runner
+  registration has been deleted from the server" although it wasn't -
+  and they stopped without retrying. A container takes its host's
+  clock and needs none of this.
 
 Then each instance, from the official runner tarball (check its sha256
 against the release) into `/opt/actions-runner`, `/opt/actions-runner-2`...:
@@ -187,7 +204,7 @@ and a `janus-publish` account whose keys can only upload a
 ```sh
 scp -r packaging/apt apt.int.sw-servers.net:
 ssh -t apt.int.sw-servers.net sudo ./apt/setup-server.sh \
-  "$(cat janus-runner01.pub)" "$(cat janus-runner03.pub)"
+  "$(cat janus-runner01.pub)" "$(cat janus-runner02.pub)" "$(cat janus-runner03.pub)"
 ```
 
 The keys it is given replace every key accepted before: a new
