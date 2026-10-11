@@ -58,6 +58,10 @@ jobs:
           # added a slow restore and save.
           cache: false
       - name: Build the docs - next from main, latest from the newest release
+        env:
+          # hack/releases asks GitHub which tag is the newest release: git
+          # can't tell a pre-release (never /docs/'s) from one.
+          GITHUB_TOKEN: ${{ github.token }}
         run: make docs-site
       - name: Test
         run: go test ./site/... ./internal/schematic/...

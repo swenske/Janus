@@ -1210,10 +1210,12 @@ qemu-lifecycle-upgrade-relay-test: build disk-image
 release-bundle: kernel-build rootfs-build
 	./image/release/assemble.sh $(BUILD_DIR)/release $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs "$(SIGNING_KEY)" "$(SIGNING_CERT)"
 
-# A node of the previous published release (PREV_RELEASE: the newest tag)
-# updated to this tree's default image and rolled back - what moves the
-# nodes taking the defaults when a release changes a default variant.
-PREV_RELEASE ?= $(shell git describe --tags --abbrev=0 --match 'v20*' 2>/dev/null)
+# A node of the previous published release (PREV_RELEASE: the newest
+# release, never a pre-release - hack/releases asks GitHub; the newest tag
+# offline) updated to this tree's default image and rolled back - what
+# moves the nodes taking the defaults when a release changes a default
+# variant.
+PREV_RELEASE ?= $(shell go run ./hack/releases newest -reachable-from HEAD 2>/dev/null || git describe --tags --abbrev=0 --match 'v20*' 2>/dev/null)
 qemu-lifecycle-upgrade-from-release-test: build release-bundle
 	./hack/qemu-lifecycle-upgrade-from-release-test.sh $(PREV_RELEASE) $(BUILD_DIR)/release $(BIN_DIR)/janusctl
 
