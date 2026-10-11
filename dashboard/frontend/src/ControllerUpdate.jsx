@@ -368,7 +368,7 @@ function PrereleaseOffer({ info, onInstall }) {
           </div>
         ) : (
           <div className="muted small">
-            By hand: <code>JANUS_CONTROLLER_IMAGE={pre.image}</code> in <code>.env</code>, then <code>docker compose up -d</code>.
+            By hand: <code style={{ wordBreak: 'break-all' }}>JANUS_CONTROLLER_IMAGE={pre.image}</code> in <code>.env</code>, then <code>docker compose up -d</code>.
           </div>
         )}
       </div>
