@@ -16,9 +16,15 @@
 // UKI its firmware would then refuse to boot (with no fallback left).
 //
 // github.com/foxboron/go-uefi parses the PE and computes its Authenticode
-// hash. The trust decision itself is made here, every check an
-// Authenticode verification needs spelled out explicitly below, so what
-// janusd accepts doesn't depend on another library's verification policy.
+// hash. Its own authenticode.Verify isn't used: until c7f1f57 (2026-10-04,
+// after Janus reported it privately on 2026-09-30) it never checked that
+// the signed messageDigest attribute matches the signed content, so a
+// signature taken from any legitimately signed binary, with the image
+// digest inside it swapped, verified for an arbitrary binary -
+// TestGraftedSignatureRejected reproduces it. The trust decision is made
+// here, every check an Authenticode verification needs spelled out
+// explicitly below, so what janusd accepts doesn't depend on another
+// library's verification policy.
 package releasetrust
 
 import (
@@ -158,7 +164,8 @@ func verifySignature(sig *signature.WINCertificate, imageDigest []byte, trusted 
 	//    without the outer SEQUENCE header - Authenticode's own rule,
 	//    confirmed against sbsign's output). It's what ties the image
 	//    digest above to the signature: without it, the signed content
-	//    could be swapped under a still-valid signature.
+	//    could be swapped under a still-valid signature - the check
+	//    go-uefi's own Verify left out until c7f1f57.
 	content := cryptobyte.String(ac.Pkcs.ContentInfo)
 	var inner cryptobyte.String
 	if !content.ReadASN1(&inner, cbasn1.SEQUENCE) || !content.Empty() {
