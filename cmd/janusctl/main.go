@@ -184,7 +184,7 @@ func main() {
 			if err := fresh(cfg, name, ctx); err != nil {
 				log.Fatalf("janusctl: %v", err)
 			}
-			tuiOpts.context, tuiOpts.user, tuiOpts.expires = name, ctx.User, ctx.Expires
+			tuiOpts.context, tuiOpts.user, tuiOpts.expires, tuiOpts.prereleases = name, ctx.User, ctx.Expires, ctx.Prereleases
 			if args[0] == "tui" && len(nodes) > 1 {
 				echo()
 				targets, role, err := fleetTargets(name, ctx, nodes)

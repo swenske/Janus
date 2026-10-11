@@ -112,7 +112,7 @@ func testApp(t *testing.T) *app {
 	local := time.Local
 	time.Local = time.UTC
 	t.Cleanup(func() { time.Local = local })
-	a := newApp(nil, tuiOptions{context: "lab", user: "sebastien", role: pki.RoleAdmin}, 2*time.Second)
+	a := newApp(nil, tuiOptions{context: "lab", user: "sebastien", role: pki.RoleAdmin, prereleases: []string{"v2026.10.09"}}, 2*time.Second)
 	a.now = func() time.Time { return tuiNow }
 	return a
 }
@@ -223,6 +223,12 @@ func TestNodeScreenGolden(t *testing.T) {
 	// A small terminal: fewer panels, never a broken one.
 	n.logs.setErr("")
 	golden(t, "tui-node-80x24.txt", a.render(80, 24))
+
+	// On a pre-release: said beside the version.
+	a.opts.prereleases = []string{"v2026.10.08"}
+	if head := a.render(120, 40).Lines()[0]; !strings.Contains(head, "v2026.10.08 (pre-release) slot A") {
+		t.Errorf("header on a pre-release: %q", head)
+	}
 }
 
 func TestFleetScreenGolden(t *testing.T) {

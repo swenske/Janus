@@ -40,6 +40,7 @@ type issued struct {
 	User           string    `json:"user"`
 	Role           string    `json:"role"`
 	Nodes          []ctxNode `json:"nodes"`
+	Prereleases    []string  `json:"prereleases"`
 }
 
 // newCLIKey is a key for a certificate from the page, its CSR, and its
@@ -75,7 +76,7 @@ func (c *cliContext) keep(name string, key *ecdsa.PrivateKey, out issued) error 
 	if err := writeFileAtomic(filepath.Join(dir, "cert.pem"), []byte(out.CertificatePEM), 0o600); err != nil {
 		return err
 	}
-	c.User, c.Role, c.Expires, c.Nodes, c.SSHKey = out.User, out.Role, out.ExpiresAt, out.Nodes, ""
+	c.User, c.Role, c.Expires, c.Nodes, c.Prereleases, c.SSHKey = out.User, out.Role, out.ExpiresAt, out.Nodes, out.Prereleases, ""
 	return nil
 }
 

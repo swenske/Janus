@@ -68,6 +68,9 @@ type cliContext struct {
 	Role                  string    `json:"role,omitempty"`
 	Expires               time.Time `json:"expires,omitzero"`
 	Nodes                 []ctxNode `json:"nodes,omitempty"`
+	// Prereleases are the Janus pre-releases the Controller knew of at the
+	// last sign-in or node list: janusctl tui marks the nodes running one.
+	Prereleases []string `json:"prereleases,omitempty"`
 	// SSHKey is the SSH key the context signs in with ("agent:<SHA256
 	// fingerprint>" or "file:<path>") - the certificate's key too; empty
 	// for an API token's context (a key made here, key.pem).
@@ -464,7 +467,8 @@ func (c *cliContext) signIn(name, token string) error {
 		return err
 	}
 	var inv struct {
-		Nodes []ctxNode `json:"nodes"`
+		Nodes       []ctxNode `json:"nodes"`
+		Prereleases []string  `json:"prereleases"`
 	}
 	if err := c.call("GET", "/api/cli/inventory", token, nil, &inv); err != nil {
 		return err
@@ -480,7 +484,7 @@ func (c *cliContext) signIn(name, token string) error {
 	if err := writeFileAtomic(filepath.Join(dir, "cert.pem"), []byte(cert.CertificatePEM), 0o600); err != nil {
 		return err
 	}
-	c.User, c.Role, c.Expires, c.Nodes = cert.User, cert.Role, cert.ExpiresAt, inv.Nodes
+	c.User, c.Role, c.Expires, c.Nodes, c.Prereleases = cert.User, cert.Role, cert.ExpiresAt, inv.Nodes, inv.Prereleases
 	return nil
 }
 
@@ -505,6 +509,7 @@ func (c *cliContext) sshSignIn(name string, key *sshKey) error {
 		User           string    `json:"user"`
 		Role           string    `json:"role"`
 		Nodes          []ctxNode `json:"nodes"`
+		Prereleases    []string  `json:"prereleases"`
 	}
 	err = c.call("POST", "/api/cli/ssh-login", "", map[string]string{"user": c.User, "fingerprint": fp, "challenge": ch.Challenge, "signature": string(sig)}, &out)
 	if err != nil {
@@ -517,7 +522,7 @@ func (c *cliContext) sshSignIn(name string, key *sshKey) error {
 	if err := os.Remove(filepath.Join(dir, "key.pem")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	c.User, c.Role, c.Expires, c.Nodes, c.SSHKey = out.User, out.Role, out.ExpiresAt, out.Nodes, key.spec
+	c.User, c.Role, c.Expires, c.Nodes, c.Prereleases, c.SSHKey = out.User, out.Role, out.ExpiresAt, out.Nodes, out.Prereleases, key.spec
 	return nil
 }
 
@@ -814,12 +819,13 @@ func runNodes(ctxFlag string) {
 	}
 	if token := os.Getenv(tokenEnv); token != "" && ctx.Fleet == nil {
 		var inv struct {
-			Nodes []ctxNode `json:"nodes"`
+			Nodes       []ctxNode `json:"nodes"`
+			Prereleases []string  `json:"prereleases"`
 		}
 		if err := ctx.call("GET", "/api/cli/inventory", token, nil, &inv); err != nil {
 			log.Fatal(err)
 		}
-		ctx.Nodes = inv.Nodes
+		ctx.Nodes, ctx.Prereleases = inv.Nodes, inv.Prereleases
 		if err := cfg.save(); err != nil {
 			log.Fatal(err)
 		}

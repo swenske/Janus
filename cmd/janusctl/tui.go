@@ -43,6 +43,9 @@ type tuiOptions struct {
 	user    string    // the account (the certificate's CN)
 	role    string    // os:admin, os:operator, os:reader - "" unknown: everything is offered, the node decides
 	expires time.Time // when the certificate ends; zero unknown
+	// prereleases are the Janus pre-releases the context's Controller
+	// knew of (cliContext.Prereleases): a node running one is marked.
+	prereleases []string
 }
 
 // tuiIntervals are the refresh periods + and - step through.
