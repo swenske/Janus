@@ -163,7 +163,10 @@ curl https://janus.sw-servers.net/api/v1/updates/<schematic-id>?arch=amd64
 
 gives the newest release built for that schematic - the base URL of its
 update bundle (what `janusctl lifecycle upgrade` and the Controller's
-Update page take) and its sha256 - or starts building it. The
+Update page take) and its sha256 - or starts building it. Never a
+[pre-release](guide/updates.md#pre-releases): the builder lists them,
+marked, and builds one when asked for it by version, but no node is
+offered one as its update, and none is built ahead of time. The
 Controller's **Update** page asks it for each node with extensions
 (`dashboardd -image-factory`, this site by default), and offers the
 update once it's built. When a new

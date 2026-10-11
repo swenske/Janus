@@ -9,7 +9,8 @@ publishes them.
 Releases are dated: `vYYYY.MM.DD`, then `-2`, `-3`... for more the same
 day - several a day is normal. A release is cumulative and only the
 latest is supported ([security policy](../../SECURITY.md)); releases are
-marked alpha in their name, not as pre-releases.
+marked alpha in their name. A [pre-release](#pre-releases) takes the same
+kind of version: it is the release it may become.
 
 ## Cutting one
 
@@ -25,7 +26,8 @@ marked alpha in their name, not as pre-releases.
    `## 🔒 Security` section, drafted with `make upstream-security-notes
    FROM=<previous tag> RELEASE=<version>` and rewritten for operators -
    which nodes, what to do.
-3. **Dispatch** `image-build.yml` on `main` with `release_version`.
+3. **Dispatch** `image-build.yml` on `main` with `release_version` - and
+   `prerelease` to test it first.
 
 ## What the run publishes
 
@@ -47,6 +49,42 @@ Once every test job passed, the publishing job - on the runner labelled
 
 A release fixing something gets "🔒 security update" in its name, and
 the Controller marks the update on the nodes it concerns.
+
+## Pre-releases
+
+A pre-release is a release built to be tested before it becomes one - on
+the lab's nodes, by beta testers - then promoted **unchanged**: what was
+tested is what ships, and nothing is rebuilt.
+
+1. **Cut it**: the same notes, then `image-build.yml` with
+   `release_version` and `prerelease` ticked. It must be newer than the
+   newest release. Its GitHub release is marked pre-release, never the
+   latest, with a warning on top of its notes; janusctl goes to apt's
+   `testing` suite only; `/docs/` doesn't move and no advisory is
+   published. The Controller shows it on the Update pages, folded, never
+   as an update ([updating nodes](../guide/updates.md#pre-releases)); the
+   image factory builds it for a schematic when asked, not ahead.
+2. **Test it**: install it on the lab from the Controller's Update page,
+   or pin it - a Terraform `janus_node`'s `version`, a machine's
+   `PATCH`. A problem found means a fix on `main` and another
+   pre-release; the failed one stays as it is, superseded.
+3. **Complete the notes** on `main` meanwhile, if testing taught
+   something worth saying - they are re-read at the promotion, and
+   frozen then.
+4. **Promote it**: `release-promote.yml` with its `version` - a dry run
+   by default, which checks it and shows, in the run's summary, the
+   release it would become; then again without `dry_run`. It checks the
+   pre-release is still newer than the newest release (a release cut
+   meanwhile supersedes it) and has everything a release publishes, and
+   its notes against its own `security.json`; then it clears the flag,
+   makes it the latest, publishes janusctl on apt's `stable` suite (the
+   same packages), deploys the docs and publishes the security
+   advisories - what the run above does for a release cut directly.
+
+"The previous release" - what `security.json` counts fixes from, what
+the docs' `/docs/` follows, what the upgrade-from-release test starts
+from - is never a pre-release: `hack/releases` asks GitHub, as git alone
+can't tell one from a release.
 
 ## Without a release
 

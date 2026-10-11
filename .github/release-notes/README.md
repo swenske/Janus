@@ -3,8 +3,14 @@
 Each release has hand-written notes here, named after its version
 (`v2026.09.30-3.md`), committed before the release is cut:
 `image-build.yml` refuses to start a release without them. The
-published body is an alpha warning, then this file, then GitHub's
-"Full Changelog" link.
+published body is an alpha warning, then this file, then GitHub's list
+of changes since the newest release (`hack/release-body.sh`).
+
+A [pre-release](../../docs/contributing/releasing.md#pre-releases) has
+its notes too, written as for the release it may become: they can
+still be completed on `main` while it's tested - `release-promote.yml`
+re-reads them, checks them again and publishes them - and are frozen
+once it is promoted.
 
 Structure: a short **Highlights** section first, then one section per
 theme (🌐 network, 🖥️ Controller, 🔒 security, 🐛 fixes, ⚠️ upgrade

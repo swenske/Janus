@@ -231,6 +231,25 @@ the sentence), on the node card, the header's count, the node page's top
 bar, its Update view (with a notice linking the release's notes), the
 Controller's update card, and the node page's Update dot.
 
+**Pre-releases** (GitHub's prerelease flag, [releasing](contributing/releasing.md#pre-releases))
+are never an update. `fetchLatestRelease` takes the newest release that
+isn't one; `ReleaseInfo.Prerelease` is the newest pre-release when newer
+than it, offered only to what runs an older version (`PrereleaseFor`) -
+`prerelease` in a node's `/api/update-check` and in
+`/api/controller/update`, `running_prerelease` beside them,
+`prerelease` in `/api/nodes/status` and the machine catalog,
+`prereleases` in janusctl's sign-ins and inventory. A pre-release's
+fixes never count in security updates, and it never moves
+`update_available`, a badge or the fleet's counts. Where it shows, it is
+folded away (`<details className="prerelease-offer">`) - under the
+node's latest release, on the Controller's update card for an admin -
+and using it takes its version typed (`useConfirm`'s `typeToConfirm`):
+on a node it only fills the installation form in (a node with
+extensions asks `POST /api/factory/prerelease` for the factory's build,
+only then - viewing the page never starts one), and the installation's
+confirmation repeats the warning; the Controller's `POST` needs
+`"prerelease": true`. `PrereleaseBadge.jsx` marks what runs one.
+
 ## The node page
 
 Hash routing (`#/haproxy/config`, `#/tools/files?path=/etc`), a sidebar

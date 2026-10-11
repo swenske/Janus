@@ -860,7 +860,7 @@ docs-build:
 	./hack/docs-build.sh $(DOCS_CHANNEL)
 
 # Both channels, as site-deploy deploys them: next from HEAD, latest from
-# the newest release tag that has the docs site.
+# the newest release (never a pre-release) that has the docs site.
 docs-site:
 	./hack/docs-build.sh site
 

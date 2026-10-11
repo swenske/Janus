@@ -177,7 +177,9 @@ included, nothing is pushed or posted.
 
 `image-build.yml`, when it cuts a release:
 
-1. runs `security-notes` from the previous release: `security.json`,
+1. runs `security-notes` from the previous release - never a
+   pre-release, whose fixes reach a release's readers only when it is
+   promoted, keeping its `security.json` ([pre-releases](contributing/releasing.md#pre-releases)): `security.json`,
    what the release fixes - Janus's own code (below), upstreams, Go
    modules linked into Janus's programs, the Go toolchain, the
    Controller's npm packages - with each fix's severity and whether it
