@@ -918,7 +918,8 @@ docs-og: browser-image
 # The Controller's screenshots in the docs and on the landing page
 # (docs/assets/screenshots), taken by Playwright against a real
 # Controller and three real nodes (janus-local-dev) on a private Docker
-# network - hack/docs-screenshots.sh, what to shoot in
+# network, and janusctl tui's (a frame drawn by its tests) -
+# hack/docs-screenshots.sh, what to shoot in
 # hack/browser/shots.yaml. Rewritten only when they changed;
 # docs-screenshots-check writes nothing and fails when one drifted
 # (build/screenshots-drift/: the new image and where it changed).

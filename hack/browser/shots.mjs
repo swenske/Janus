@@ -17,12 +17,16 @@
 // - fingerprints and token IDs, new at every setup, are fixed ones.
 // What might still change can be left out of the comparison (a shot's
 // `ignore`); images.mjs says what the comparison tolerates.
+//
+// A `terminal` shot is janusctl tui's: a frame cmd/janusctl drew from
+// made-up samples, laid in a terminal window by terminal.mjs.
 import { chromium, request } from 'playwright'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import https from 'node:https'
 import YAML from 'yaml'
 import { diff, toWebp } from './images.mjs'
+import { terminalPage } from './terminal.mjs'
 
 const CONTROLLER = process.env.CONTROLLER
 const NODES = Object.fromEntries(process.env.NODES.split(',').map((kv) => kv.split('=')))
@@ -274,9 +278,14 @@ for (const shot of spec.shots) {
     const problems = []
     page.on('pageerror', (e) => problems.push(e.message))
     page.on('console', (m) => m.type() === 'error' && problems.push(m.text()))
-    const base = shot.node ? `/nodes/${ids[shot.node]}/` : '/'
-    await page.goto(CONTROLLER + base + shot.page)
-    await page.getByText(shot.wait, { exact: false }).first().waitFor({ timeout: 30000 })
+    if (shot.terminal) {
+      await page.setContent(terminalPage(fs.readFileSync(`/terminal/${shot.terminal}`, 'utf8'), { title: shot.title }))
+      await page.evaluate(() => document.fonts.ready)
+    } else {
+      const base = shot.node ? `/nodes/${ids[shot.node]}/` : '/'
+      await page.goto(CONTROLLER + base + shot.page)
+      await page.getByText(shot.wait, { exact: false }).first().waitFor({ timeout: 30000 })
+    }
     for (let k = 1; k <= (shot.samples || 0); k++) {
       await page.clock.runFor(5000)
       for (let i = 0; ctx.metricsServed <= k && i < 100; i++) await sleep(50)
