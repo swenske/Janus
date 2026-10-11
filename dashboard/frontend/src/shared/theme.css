@@ -260,6 +260,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .notice.warn { background: var(--warn-soft); border-left-color: var(--warn); }
 .notice.danger { background: var(--danger-soft); border-left-color: var(--danger); }
+/* A pre-release on an Update page: folded away - it's for testing. */
+.prerelease-offer > summary { cursor: pointer; width: fit-content; }
 .bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
 .bar > div { height: 100%; background: var(--accent); border-radius: 3px; }
 .bar.ok > div { background: var(--ok); }

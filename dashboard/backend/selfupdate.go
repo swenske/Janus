@@ -99,6 +99,12 @@ type controllerUpdateView struct {
 	VersionKnown bool         `json:"version_known"`
 	Repository   string       `json:"repository"`
 	Updater      *updaterView `json:"updater"`
+	// Prerelease is the newest pre-release when newer than this
+	// Controller and the newest release: installed only on purpose (POST
+	// with "prerelease": true), never an update to badge.
+	// RunningPrerelease: this Controller runs a pre-release.
+	Prerelease        *controllerRelease `json:"prerelease,omitempty"`
+	RunningPrerelease bool               `json:"running_prerelease,omitempty"`
 }
 
 func (a *app) controllerUpdate(ctx context.Context) controllerUpdateView {
@@ -112,6 +118,10 @@ func (a *app) controllerUpdate(ctx context.Context) controllerUpdateView {
 			v.UpdateAvailable = updaterapi.IsRelease(rel.TagName) && rel.TagName != version
 		}
 		v.SecurityUpdate, _ = rel.SecurityUpdate(version, "controller", nodeproxy.NodeImage{})
+		v.RunningPrerelease = rel.IsPrerelease(version)
+		if pre := rel.PrereleaseFor(version); pre != nil {
+			v.Prerelease = &controllerRelease{Version: pre.TagName, URL: pre.HTMLURL, PublishedAt: pre.PublishedAt, Image: pre.ControllerImage}
+		}
 	}
 	if a.selfUpdate.configured() {
 		v.Updater.Configured = true
@@ -128,8 +138,10 @@ func (a *app) controllerUpdate(ctx context.Context) controllerUpdateView {
 			}
 		}
 	}
-	if v.Latest != nil && v.Latest.Image == "" {
-		v.Latest.Image = v.Repository + ":" + v.Latest.Version
+	for _, rel := range []*controllerRelease{v.Latest, v.Prerelease} {
+		if rel != nil && rel.Image == "" {
+			rel.Image = v.Repository + ":" + rel.Version
+		}
 	}
 	return v
 }
@@ -139,17 +151,30 @@ func (a *app) handleControllerUpdate(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, a.controllerUpdate(r.Context()))
 	case http.MethodPost:
+		// prerelease confirms that Version is the pre-release on offer, for
+		// testing: not a release, not supported.
 		var req struct {
-			Version string `json:"version"`
+			Version    string `json:"version"`
+			Prerelease bool   `json:"prerelease"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
 			http.Error(w, "decode request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		v := a.controllerUpdate(r.Context())
+		target := v.Latest
 		switch {
 		case v.Latest == nil:
 			http.Error(w, "the newest release is unknown: "+v.LatestError, http.StatusBadGateway)
+			return
+		case v.Prerelease != nil && req.Version == v.Prerelease.Version:
+			if !req.Prerelease {
+				http.Error(w, v.Prerelease.Version+" is a pre-release, for testing - confirm it is the one to install (\"prerelease\": true)", http.StatusConflict)
+				return
+			}
+			target = v.Prerelease
+		case req.Prerelease:
+			http.Error(w, req.Version+" isn't the pre-release on offer", http.StatusConflict)
 			return
 		case req.Version != v.Latest.Version:
 			http.Error(w, fmt.Sprintf("only the newest release, %s, can be installed from here", v.Latest.Version), http.StatusConflict)
@@ -157,6 +182,8 @@ func (a *app) handleControllerUpdate(w http.ResponseWriter, r *http.Request) {
 		case !v.UpdateAvailable:
 			http.Error(w, "this Controller already runs "+version, http.StatusConflict)
 			return
+		}
+		switch {
 		case !v.Updater.Configured:
 			http.Error(w, "no updater runs next to this Controller - see dashboard/README.md, Updating the Controller", http.StatusPreconditionFailed)
 			return
@@ -169,7 +196,7 @@ func (a *app) handleControllerUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		job, err := a.selfUpdate.client.Update(ctx, updaterapi.UpdateRequest{Version: v.Latest.Version, Image: v.Latest.Image, FromVersion: version})
+		job, err := a.selfUpdate.client.Update(ctx, updaterapi.UpdateRequest{Version: target.Version, Image: target.Image, FromVersion: version})
 		if err != nil {
 			code := http.StatusBadGateway
 			var ue *updaterapi.Error
@@ -179,7 +206,11 @@ func (a *app) handleControllerUpdate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), code)
 			return
 		}
-		log.Printf("update of the Controller from %s to %s (%s) started", version, job.ToVersion, job.ToImage)
+		kind := "update"
+		if target == v.Prerelease {
+			kind = "update to a pre-release"
+		}
+		log.Printf("%s of the Controller from %s to %s (%s) started", kind, version, job.ToVersion, job.ToImage)
 		writeJSON(w, http.StatusAccepted, job)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

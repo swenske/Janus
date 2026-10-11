@@ -87,7 +87,8 @@ func TestCLICertificate(t *testing.T) {
 	}
 
 	code, inv := a.req(t, "GET", "/api/cli/inventory", tok, nil)
-	if code != http.StatusOK || !strings.Contains(inv, `"name":"edge-1"`) || !strings.Contains(inv, `"fleet":true`) || !strings.Contains(inv, `"ca_pem":"node CA"`) {
+	if code != http.StatusOK || !strings.Contains(inv, `"name":"edge-1"`) || !strings.Contains(inv, `"fleet":true`) || !strings.Contains(inv, `"ca_pem":"node CA"`) ||
+		!strings.Contains(inv, `"prereleases":[`) {
 		t.Errorf("inventory: %d %s", code, inv)
 	}
 	if code, _ := a.req(t, "GET", "/api/cli/inventory", "", nil); code != http.StatusUnauthorized {

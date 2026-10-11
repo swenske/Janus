@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
@@ -81,6 +83,28 @@ type updateCheck struct {
 	Renamed           map[string]string `json:"renamed,omitempty"`
 	TargetSchematicID string            `json:"target_schematic_id,omitempty"`
 	TargetExtensions  []string          `json:"target_extensions,omitempty"`
+
+	// Prerelease is the newest pre-release, when newer than the node and
+	// the newest release (ReleaseInfo.PrereleaseFor): for testing, shown on
+	// the Update page only - never in UpdateAvailable or SecurityUpdate.
+	// RunningPrerelease: the node runs a pre-release.
+	Prerelease        *prereleaseOffer `json:"prerelease,omitempty"`
+	RunningPrerelease bool             `json:"running_prerelease,omitempty"`
+}
+
+// prereleaseOffer is a pre-release for a node. State is "ready" (BundleURL
+// and SHA256 set) for the default schematic; for another one "prepare" -
+// the image factory builds it only when asked (POST /api/factory/prerelease),
+// so viewing an Update page never starts a build - then "building", "ready",
+// "failed" or "unavailable" (Message says why).
+type prereleaseOffer struct {
+	Version     string `json:"version"`
+	ReleaseURL  string `json:"release_url,omitempty"`
+	PublishedAt string `json:"published_at,omitempty"`
+	BundleURL   string `json:"bundle_base_url,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	State       string `json:"state"`
+	Message     string `json:"message,omitempty"`
 }
 
 func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
@@ -136,6 +160,49 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 			return updateFor(ctx, v, sc), nil
 		})
 	})
+	mux.HandleFunc("POST /api/factory/prerelease", func(w http.ResponseWriter, r *http.Request) {
+		// The pre-release to prepare: the one the update check offers, no
+		// other (a stale page gets a conflict, not some older build).
+		var req struct {
+			Version string `json:"version"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		unary(w, r, node, unaryTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
+			v, err := janusv1alpha1.NewSystemServiceClient(c).Version(ctx, &emptypb.Empty{})
+			if err != nil {
+				return nil, err
+			}
+			return preparePrerelease(ctx, v, req.Version)
+		})
+	})
+}
+
+// preparePrerelease finds the bundle of the pre-release version built for
+// the node running v - from GitHub for the default schematic, else asking
+// the image factory to build it when it doesn't exist yet.
+func preparePrerelease(ctx context.Context, v *janusv1alpha1.VersionResponse, version string) (*prereleaseOffer, error) {
+	rel, err := getLatestRelease(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "newest release: %v", err)
+	}
+	pre := rel.PrereleaseFor(v.GetVersion())
+	if pre == nil || pre.TagName != version {
+		return nil, status.Errorf(codes.FailedPrecondition, "%s isn't the pre-release offered to this node - reload the page", version)
+	}
+	offer := &prereleaseOffer{Version: pre.TagName, ReleaseURL: pre.HTMLURL, PublishedAt: pre.PublishedAt}
+	b, state, err := ResolveBundle(ctx, pre.TagName, NodeSchematic(v))
+	switch {
+	case err == nil:
+		offer.State, offer.BundleURL, offer.SHA256 = "ready", b.BaseURL, b.SHA256
+	case state != "":
+		offer.State, offer.Message = state, err.Error()
+	default:
+		offer.State, offer.Message = "unavailable", err.Error()
+	}
+	return offer, nil
 }
 
 func checkUpdate(ctx context.Context, v *janusv1alpha1.VersionResponse) *updateCheck {
@@ -145,6 +212,13 @@ func checkUpdate(ctx context.Context, v *janusv1alpha1.VersionResponse) *updateC
 	if rel, err := getLatestRelease(ctx); err == nil {
 		uc.SecurityUpdate, uc.SecurityRelease = rel.SecurityUpdate(uc.Version, "node", NodeImage{
 			Extensions: uc.Extensions, HAProxy: uc.HAProxy, Kernel: uc.Kernel})
+		uc.RunningPrerelease = rel.IsPrerelease(uc.Version)
+		if pre := rel.PrereleaseFor(uc.Version); pre != nil {
+			uc.Prerelease = &prereleaseOffer{Version: pre.TagName, ReleaseURL: pre.HTMLURL, PublishedAt: pre.PublishedAt, State: "prepare"}
+			if uc.Default {
+				uc.Prerelease.State, uc.Prerelease.BundleURL, uc.Prerelease.SHA256 = "ready", pre.BundleBaseURL, pre.SHA256
+			}
+		}
 	}
 	return uc
 }

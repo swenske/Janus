@@ -940,7 +940,19 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
               onChange={(e) => setVersion(e.target.value)}
               placeholder={catalog?.latest ? `${catalog.latest} (the newest)` : 'the newest release'}
               disabled={!!imageURL.trim()}
+              list="janus-machine-versions"
             />
+            {/* The newest pre-release, for a lab: offered, never the default. */}
+            <datalist id="janus-machine-versions">{catalog?.prerelease && <option value={catalog.prerelease}>pre-release, for testing</option>}</datalist>
+            {catalog?.prerelease &&
+              (version.trim() === catalog.prerelease ? (
+                <span className="notice warn small">
+                  <strong>{catalog.prerelease} is a pre-release</strong>, for testing: not supported, and it may still change or be withdrawn. The node is offered the next release
+                  as usual.
+                </span>
+              ) : (
+                <span className="muted small">Pre-release {catalog.prerelease} available, for testing - type it to use it.</span>
+              ))}
           </label>
           <div className="field">
             <span className="field-label">Extensions {exts.length > 0 && <span className="muted">· built by the image factory</span>}</span>

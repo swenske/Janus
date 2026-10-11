@@ -24,17 +24,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swenske/Janus/dashboard/updater/updaterapi"
 )
 
 // ReleasesURL lists this project's releases, newest first -
-// GitHub's documented ordering for this endpoint. Not /latest: that one
-// skips pre-releases, which every release up to v2026.09.30-2 was.
-// dashboardd's -releases-url replaces it (a mirror, or a test's fake).
+// GitHub's documented ordering for this endpoint. Not /latest: the
+// pre-releases are needed too (ReleaseInfo.Prerelease), and every release
+// up to v2026.09.30-2 was one. dashboardd's -releases-url replaces it (a
+// mirror, or a test's fake).
 var ReleasesURL = "https://api.github.com/repos/swenske/Janus/releases"
 
 // releaseCacheTTL bounds how long a fetched result is reused before
@@ -53,7 +58,8 @@ const releaseCacheTTL = 10 * time.Minute
 // minutes.)
 var errorCacheTTL = 15 * time.Second
 
-// ReleaseInfo is the newest release.
+// ReleaseInfo is the newest release - never a pre-release: those are for
+// testing (docs/contributing/releasing.md), never offered as an update.
 type ReleaseInfo struct {
 	TagName       string `json:"tag_name"`
 	HTMLURL       string `json:"html_url"`
@@ -65,10 +71,30 @@ type ReleaseInfo struct {
 	// controller-image.txt asset - empty for releases before that asset.
 	ControllerImage string `json:"controller_image,omitempty"`
 
+	// Prerelease is the newest pre-release when it is newer than the
+	// release: shown on the Update pages only, installed on purpose (no
+	// badge, no "update available"). Nil otherwise.
+	Prerelease *ReleaseInfo `json:"prerelease,omitempty"`
+
 	// tags are every published release, newest first; security what the
-	// ones with a security.json asset fix (SecurityUpdate).
-	tags     []string
-	security map[string][]releaseFix
+	// ones with a security.json asset fix (SecurityUpdate) - pre-releases
+	// are in neither, only in prereleases.
+	tags        []string
+	security    map[string][]releaseFix
+	prereleases map[string]bool
+}
+
+// IsPrerelease reports whether version is a published pre-release - one
+// that wasn't promoted to a release (yet).
+func (r *ReleaseInfo) IsPrerelease(version string) bool { return r.prereleases[version] }
+
+// PrereleaseFor is the pre-release to show a node or Controller running
+// version: the newest one, when newer than both the release and version.
+func (r *ReleaseInfo) PrereleaseFor(version string) *ReleaseInfo {
+	if r.Prerelease == nil || !updateAvailable(r.Prerelease.TagName, version) {
+		return nil
+	}
+	return r.Prerelease
 }
 
 // releaseFix is one fix of a release's security.json: whom it reaches
@@ -118,14 +144,21 @@ func (f releaseFix) reaches(img NodeImage) bool {
 // "high", "medium", "low" or "unknown" (unrated). A fix to an extension
 // counts only for a node that has it, one to a HAProxy branch or kernel
 // track only for the nodes on it (releaseFix.reaches). Empty when they
-// fix none, or when version isn't a published release (a development
-// build: nothing to compare).
+// fix none, or when version isn't a published release or pre-release (a
+// development build: nothing to compare). Pre-releases never count: their
+// fixes reach the releases with the promotion. For a node on a pre-release,
+// the releases newer than it - each security.json says what it fixes since
+// the release before it, some of which the pre-release may already have.
 func (r *ReleaseInfo) SecurityUpdate(version, target string, img NodeImage) (severity, release string) {
-	if !slices.Contains(r.tags, version) {
+	released := slices.Contains(r.tags, version)
+	if !released && !r.prereleases[version] {
 		return "", ""
 	}
 	for _, tag := range r.tags {
 		if tag == version {
+			break
+		}
+		if newer, known := updaterapi.Newer(tag, version); !released && (!known || !newer) {
 			break
 		}
 		for _, f := range r.security[tag] {
@@ -202,8 +235,24 @@ func LatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	return getLatestRelease(ctx)
 }
 
+// KnownPrereleases are the pre-releases the last release list fetched
+// named, sorted - never waiting on GitHub (the node pages and the fleet's
+// status keep that list fresh): nil while nothing was fetched yet, or a
+// fetch is running.
+func KnownPrereleases() []string {
+	if !releaseCache.mu.TryLock() {
+		return nil
+	}
+	defer releaseCache.mu.Unlock()
+	if releaseCache.data == nil {
+		return nil
+	}
+	return slices.Sorted(maps.Keys(releaseCache.data.prereleases))
+}
+
 var releaseCache struct {
 	mu        sync.Mutex
+	url       string // ReleasesURL when fetched
 	data      *ReleaseInfo
 	err       error
 	fetchedAt time.Time
@@ -229,17 +278,18 @@ func getLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	releaseCache.mu.Lock()
 	defer releaseCache.mu.Unlock()
 
-	if releaseCache.data != nil && time.Since(releaseCache.fetchedAt) < releaseCacheTTL {
+	same := releaseCache.url == ReleasesURL
+	if same && releaseCache.data != nil && time.Since(releaseCache.fetchedAt) < releaseCacheTTL {
 		return releaseCache.data, nil
 	}
-	if releaseCache.err != nil && time.Since(releaseCache.fetchedAt) < errorCacheTTL {
+	if same && releaseCache.err != nil && time.Since(releaseCache.fetchedAt) < errorCacheTTL {
 		return nil, releaseCache.err
 	}
 
 	fctx, cancel := sharedFetchContext(ctx)
 	defer cancel()
 	info, err := fetchLatestRelease(fctx)
-	releaseCache.fetchedAt = time.Now()
+	releaseCache.url, releaseCache.fetchedAt = ReleasesURL, time.Now()
 	if err != nil {
 		releaseCache.err = err
 		releaseCache.data = nil
@@ -274,7 +324,18 @@ type ghRelease struct {
 // releases are public), the same anonymous access every node's own
 // fetchBundleFile already relies on to download a release's assets.
 func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ReleasesURL, nil)
+	// GitHub gives 30 releases a page by default: with pre-releases among
+	// them, and several releases a day, a node a few weeks old would fall
+	// off the list (no security badge for it).
+	u, err := url.Parse(ReleasesURL)
+	if err != nil {
+		return nil, err
+	}
+	if q := u.Query(); !q.Has("per_page") {
+		q.Set("per_page", "100")
+		u.RawQuery = q.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -294,8 +355,17 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	}
 
 	var info *ReleaseInfo
+	var pre *ghRelease // the newest pre-release
+	prereleases := map[string]bool{}
 	for _, rel := range releases {
 		if rel.Draft {
+			continue
+		}
+		if rel.Prerelease {
+			prereleases[rel.TagName] = true
+			if pre == nil {
+				pre = &rel
+			}
 			continue
 		}
 		if info != nil {
@@ -305,37 +375,51 @@ func fetchLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 			}
 			continue
 		}
-		// rel.HTMLURL is ".../releases/tag/<tag>" - trimming the
-		// "/tag/<tag>" suffix leaves ".../releases", so only
-		// "/download/<tag>" (not "/releases/download/<tag>", which
-		// would double up "releases") needs appending.
-		bundleBaseURL := strings.TrimSuffix(rel.HTMLURL, "/tag/"+rel.TagName) + "/download/" + rel.TagName
-
-		info = &ReleaseInfo{
-			TagName:       rel.TagName,
-			HTMLURL:       rel.HTMLURL,
-			PublishedAt:   rel.PublishedAt,
-			BundleBaseURL: bundleBaseURL,
-			tags:          []string{rel.TagName},
-			security:      map[string][]releaseFix{},
+		if info, err = releaseInfo(ctx, rel); err != nil {
+			return nil, err
 		}
-		for _, asset := range rel.Assets {
-			switch asset.Name {
-			case "rootfs.squashfs.sha256":
-				info.SHA256, err = fetchAssetText(ctx, asset.BrowserDownloadURL)
-			case "controller-image.txt":
-				info.ControllerImage, err = fetchAssetText(ctx, asset.BrowserDownloadURL)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("fetch %s: %w", asset.Name, err)
-			}
-		}
+		info.tags = []string{rel.TagName}
+		info.security = map[string][]releaseFix{}
 		if err := info.readSecurity(ctx, rel); err != nil {
 			return nil, err
 		}
 	}
 	if info == nil {
 		return nil, fmt.Errorf("no published releases found")
+	}
+	info.prereleases = prereleases
+	if pre != nil && updateAvailable(pre.TagName, info.TagName) {
+		if info.Prerelease, err = releaseInfo(ctx, *pre); err != nil {
+			return nil, err
+		}
+	}
+	return info, nil
+}
+
+// releaseInfo is what a release offers: its bundle, the bundle's
+// checksum, the Controller's image.
+func releaseInfo(ctx context.Context, rel ghRelease) (*ReleaseInfo, error) {
+	// rel.HTMLURL is ".../releases/tag/<tag>" - trimming the "/tag/<tag>"
+	// suffix leaves ".../releases", so only "/download/<tag>" (not
+	// "/releases/download/<tag>", which would double up "releases") needs
+	// appending.
+	info := &ReleaseInfo{
+		TagName:       rel.TagName,
+		HTMLURL:       rel.HTMLURL,
+		PublishedAt:   rel.PublishedAt,
+		BundleBaseURL: strings.TrimSuffix(rel.HTMLURL, "/tag/"+rel.TagName) + "/download/" + rel.TagName,
+	}
+	for _, asset := range rel.Assets {
+		var err error
+		switch asset.Name {
+		case "rootfs.squashfs.sha256":
+			info.SHA256, err = fetchAssetText(ctx, asset.BrowserDownloadURL)
+		case "controller-image.txt":
+			info.ControllerImage, err = fetchAssetText(ctx, asset.BrowserDownloadURL)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("fetch %s: %w", asset.Name, err)
+		}
 	}
 	return info, nil
 }

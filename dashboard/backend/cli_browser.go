@@ -17,6 +17,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
+	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 )
 
 // janusctl signed in through the browser: the account signs in on the
@@ -213,8 +214,9 @@ func (a *app) issueForCSR(w http.ResponseWriter, csr *x509.CertificateRequest, p
 	log.Printf("issued a janusctl certificate to %s (%s, %s) until %s", user, id.Summary, how, notAfter.Format(time.RFC3339))
 	writeJSON(w, http.StatusOK, struct {
 		cliCertificate
-		Nodes []cliNode `json:"nodes"`
-	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: id.Summary}, a.cliNodes(p)})
+		Nodes       []cliNode `json:"nodes"`
+		Prereleases []string  `json:"prereleases"`
+	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: id.Summary}, a.cliNodes(p), nonNil(nodeproxy.KnownPrereleases())})
 }
 
 func (a *app) throttledCLI(w http.ResponseWriter, r *http.Request) bool {
