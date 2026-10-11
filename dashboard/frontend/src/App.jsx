@@ -41,6 +41,7 @@ import { RestoreForm } from './Restore.jsx'
 import TokensPage from './Tokens.jsx'
 import UsersPage from './Users.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
+import { PrereleaseBadge } from './PrereleaseBadge.jsx'
 import { SupportBadge } from './SupportBadge.jsx'
 import { worstSeverity } from './severity.js'
 import { Badge, Card, ErrorBox, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
@@ -169,7 +170,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
           <dd className="mono">{st.hostname}</dd>
           <dt>Version</dt>
           <dd>
-            <span className="mono">{st.version}</span> <SupportBadge support={st.support} />
+            <span className="mono">{st.version}</span> {st.prerelease && <PrereleaseBadge />} <SupportBadge support={st.support} />
             {st.security_update ? (
               <>
                 {' '}

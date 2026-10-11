@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 // rest of the width - Enter opens a node.
 
 var fleetColumns = []termui.Column{
-	{Title: "NODE"}, {Title: "ADDRESS", Width: 21}, {Title: "STATE", Width: 11}, {Title: "VERSION", Width: 16},
+	{Title: "NODE"}, {Title: "ADDRESS", Width: 21}, {Title: "STATE", Width: 11}, {Title: "VERSION", Width: 19},
 	{Title: "HAPROXY", Width: 7}, {Title: "CONNS", Width: 6, Right: true}, {Title: "SESS/S", Width: 6, Right: true}, {Title: "CPU", Width: 4, Right: true},
 	{Title: "MEM", Width: 4, Right: true}, {Title: "LOAD", Width: 5, Right: true}, {Title: "VRRP", Width: 6}, {Title: "TRIAL", Width: 7},
 	{Title: "TREND"}, // titled and sized each frame
@@ -216,7 +217,8 @@ type fleetRow struct {
 	err   string
 }
 
-func fleetRowOf(v nodeView) fleetRow {
+// fleetRowOf is a node's row; a version among prereleases is marked "pre".
+func fleetRowOf(v nodeView, prereleases []string) fleetRow {
 	r := fleetRow{cells: make([]string, len(fleetColumns)), keys: make([]float64, len(fleetColumns)), tones: make([]termui.Style, len(fleetColumns))}
 	for i := range r.keys {
 		r.keys[i] = math.NaN()
@@ -232,6 +234,9 @@ func fleetRowOf(v nodeView) fleetRow {
 	}
 	if ver := v.slow.version; ver != nil {
 		r.cells[fleetVersion] = strings.TrimSpace(ver.GetVersion() + " " + ver.GetActiveSlot())
+		if slices.Contains(prereleases, ver.GetVersion()) {
+			r.cells[fleetVersion], r.tones[fleetVersion] = r.cells[fleetVersion]+" pre", styleWarn
+		}
 	}
 	p := v.last
 	if v.reachable && !p.at.IsZero() {
@@ -281,7 +286,7 @@ func (s *fleetScreen) render(a *app, f *termui.Frame) {
 	names := make([]string, len(a.samplers))
 	for i, smp := range a.samplers {
 		views[i] = smp.summary()
-		rows[i] = fleetRowOf(views[i])
+		rows[i] = fleetRowOf(views[i], a.opts.prereleases)
 		names[i] = views[i].name
 		if views[i].reachable {
 			reachable++

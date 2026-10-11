@@ -187,7 +187,10 @@ repos/swenske/Janus/actions/runners/registration-token -q .token`.
 ## Publishing janusctl on apt.sw-servers.net
 
 A release run ends by publishing janusctl's Debian packages on
-`https://apt.sw-servers.net/janus` (README.md). Each `janus-publish`
+`https://apt.sw-servers.net/janus` (README.md): a release on the
+`stable` and `testing` suites, a pre-release on `testing` only, and its
+promotion (`release-promote.yml`, also on a `janus-publish` runner) the
+same packages again on `stable`. Each `janus-publish`
 machine holds its own key for it, as the `actions-runner` user - never a
 GitHub secret, never copied to another machine:
 
@@ -197,9 +200,11 @@ su - actions-runner -c 'ssh-keygen -t ed25519 -N "" \
 ```
 
 On the aptly server (`apt.int.sw-servers.net`), with every
-`janus-publish` machine's public key - it creates the `janus` aptly repo
+`janus-publish` machine's public key - it creates the `janus` and
+`janus-testing` aptly repos (testing starts with everything stable has)
 and a `janus-publish` account whose keys can only upload a
-`janusctl_<version>_<arch>.deb` and publish the repo:
+`janusctl_<version>_<arch>.deb` and publish them - `make
+apt-publish-test` runs it all in a container:
 
 ```sh
 scp -r packaging/apt apt.int.sw-servers.net:

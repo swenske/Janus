@@ -494,7 +494,9 @@ The card then shows the host:
     the Controller chooses;
   - static, DHCP, or up without an address;
 - DNS and NTP servers;
-- the Janus version (the newest by default);
+- the Janus version (the newest release by default; the form also
+  suggests the newest [pre-release](guide/updates.md#pre-releases), for
+  a lab testing it);
 - the image factory's extensions.
 
 Prefer static addresses: the kernel's DHCP lease is taken once at boot

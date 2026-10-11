@@ -1,0 +1,112 @@
+# What only a release gets - not a pre-release (docs/contributing/
+# releasing.md): janusctl on apt's stable suite, /docs/ following it, and
+# its security advisories. image-build.yml runs it when it cuts a release,
+# release-promote.yml when it promotes a pre-release. Expects the
+# repository checked out (main), Go, build/deb/janusctl_*.deb and
+# build/security/security.json - the release's own.
+name: Janus release - stable only
+description: apt stable, the docs' latest channel and the security advisories of a release.
+inputs:
+  version:
+    description: The release (vYYYY.MM.DD[-N]).
+    required: true
+  apt-host-key:
+    description: apt.int.sw-servers.net's known_hosts line (the APT_HOST_KEY variable).
+    required: true
+  token:
+    description: The workflow's GITHUB_TOKEN, with actions write (to dispatch site-deploy).
+    required: true
+  advisory-token:
+    description: UPSTREAM_BOT_TOKEN (repository security advisories write) - without it, the advisories are printed to create by hand.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    # janusctl on https://apt.sw-servers.net/janus (suite "stable",
+    # component "main" - README.md; "publish" adds it to "testing" too),
+    # after the GitHub Release so apt never offers a version that has no
+    # release. Same design as swenske/gotochanger: a key per janus-publish
+    # machine that never leaves it (~actions-runner/.ssh/id_janus_aptly,
+    # never a GitHub secret) reaches a forced-command account on
+    # apt.int.sw-servers.net that only accepts "upload
+    # janusctl_<version>_<arch>.deb" (stdin), "publish" and "publish
+    # testing" (packaging/apt). A rerun - or a promotion - uploads the
+    # same bytes, which aptly accepts again (the packages are
+    # reproducible). The server's host key is pinned like site-deploy's
+    # SITE_HOST_KEY: never a first contact from a runner.
+    - name: Publish janusctl on apt.sw-servers.net (stable)
+      shell: bash
+      env:
+        APT_HOST_KEY: ${{ inputs.apt-host-key }}
+      run: |
+        set -euo pipefail
+        key="$HOME/.ssh/id_janus_aptly"
+        host="janus-publish@apt.int.sw-servers.net"
+        [ -n "$APT_HOST_KEY" ] || { echo "::error::the APT_HOST_KEY repository variable (apt.int.sw-servers.net's known_hosts line) isn't set"; exit 1; }
+        known="$(mktemp)"
+        printf '%s\n' "$APT_HOST_KEY" > "$known"
+        SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known -i $key"
+        for deb in build/deb/janusctl_*.deb; do
+          $SSH "$host" "upload $(basename "$deb")" < "$deb"
+        done
+        $SSH "$host" publish
+
+    # /docs/ on janus.sw-servers.net is the newest release's: site-deploy
+    # rebuilds both docs channels and redeploys - on main, never this
+    # run's commit (main may be ahead: deploying it would roll the site
+    # back). A workflow GITHUB_TOKEN creates starts no workflow - but a
+    # workflow_dispatch it sends does.
+    - name: Deploy this release's docs
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+        VERSION: ${{ inputs.version }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        curl -sS --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/$REPOSITORY/actions/workflows/site-deploy.yml/dispatches" \
+          --data '{"ref":"main"}'
+        echo "site-deploy dispatched: its /docs/ will follow $VERSION"
+
+    # Repository security advisories - public and citable on the Security
+    # tab, GitHub notifies nobody for one (docs/upstreams.md): one per
+    # vulnerability of Janus's own code the release fixes (security/
+    # fixes), whatever its severity, and one for the components it
+    # updates when what they fix is rated high or worse. Last, so a
+    # refused token can't keep janusctl off apt. It takes
+    # UPSTREAM_BOT_TOKEN with "Repository security advisories" write;
+    # without it, the requests are printed to create them by hand.
+    - name: Publish the security advisories
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        TOKEN: ${{ inputs.advisory-token }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        url="https://github.com/$REPOSITORY/releases/tag/$VERSION"
+        go run ./hack/upstream advisory -security build/security/security.json -url "$url" > build/security/advisories.json
+        count=$(python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))))' build/security/advisories.json)
+        if [ "$count" = 0 ]; then
+          echo "No advisory: no fix of Janus's own code, and nothing its components fix is rated high or worse."
+          exit 0
+        fi
+        if [ -z "$TOKEN" ]; then
+          echo "::warning::$VERSION calls for $count security advisories, but UPSTREAM_BOT_TOKEN isn't set - create them by hand (Security > Advisories) from:"
+          cat build/security/advisories.json
+          exit 0
+        fi
+        api="https://api.github.com/repos/$REPOSITORY/security-advisories"
+        auth=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json")
+        resp=build/security/advisory-response.json
+        for i in $(seq 0 $((count - 1))); do
+          req=build/security/advisory-$i.json
+          python3 -c 'import json, sys; json.dump(json.load(open(sys.argv[1]))[int(sys.argv[2])], open(sys.argv[3], "w"))' build/security/advisories.json "$i" "$req"
+          curl -sS --fail-with-body "${auth[@]}" -X POST "$api" --data @"$req" -o "$resp" \
+            || { echo "::error::creating advisory $i failed: $(cat "$resp")"; exit 1; }
+          ghsa=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["ghsa_id"])' "$resp")
+          curl -sS --fail-with-body "${auth[@]}" -X PATCH "$api/$ghsa" --data '{"state":"published"}' -o "$resp" \
+            || { echo "::error::publishing advisory $ghsa failed: $(cat "$resp")"; exit 1; }
+          python3 -c 'import json, sys; print("Published", json.load(open(sys.argv[1]))["html_url"])' "$resp"
+        done

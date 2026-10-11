@@ -31,6 +31,8 @@ type NodeStatus struct {
 	HAProxyHealth   string `json:"haproxy_health,omitempty"`
 	LatestRelease   string `json:"latest_release,omitempty"`
 	UpdateAvailable bool   `json:"update_available"`
+	// Prerelease: the node runs a pre-release (ReleaseInfo.IsPrerelease).
+	Prerelease bool `json:"prerelease,omitempty"`
 	// SecurityUpdate: the newer releases fix vulnerabilities this node
 	// has, the worst this severe (ReleaseInfo.SecurityUpdate).
 	SecurityUpdate string `json:"security_update,omitempty"`
@@ -124,7 +126,10 @@ func Status(ctx context.Context, node *store.Node) NodeStatus {
 	st.Reachable = true
 	if rel, err := getLatestRelease(ctx); err == nil {
 		st.LatestRelease = rel.TagName
-		st.UpdateAvailable = rel.TagName != "" && rel.TagName != st.Version
+		// Newer, not just another version: a node on a pre-release newer
+		// than the release isn't offered the older one.
+		st.UpdateAvailable = updateAvailable(rel.TagName, st.Version)
+		st.Prerelease = rel.IsPrerelease(st.Version)
 		st.SecurityUpdate, _ = rel.SecurityUpdate(st.Version, "node", img)
 	}
 	if sup := EndOfSupport(ctx, img.HAProxy); sup != nil && (sup.Soon || sup.Retired) {

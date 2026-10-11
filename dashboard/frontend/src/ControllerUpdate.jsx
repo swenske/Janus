@@ -1,4 +1,4 @@
-import { ArrowUpRight, CheckCircle2, Copy, Loader2, Rocket, TriangleAlert, X } from 'lucide-react'
+import { ArrowUpRight, CheckCircle2, Copy, FlaskConical, Loader2, Rocket, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, useConfirm, useToast } from './shared/ui.jsx'
 import { backgroundHeaders } from './call.js'
@@ -9,7 +9,9 @@ import { securityText, securityTone } from './severity.js'
 // The Controller's own updates (dashboard/README.md, "Updating the
 // Controller"): GET /api/controller/update says whether a newer release
 // exists and whether janus-controller-updater runs next to this
-// Controller; POST asks it to install the newest release. The Controller
+// Controller; POST asks it to install the newest release - or the newest
+// pre-release, offered apart for testing, folded away and confirmed by
+// typing its version (docs/contributing/releasing.md). The Controller
 // restarts during an update - sessions don't survive that, so the page
 // reloads into the sign-in screen once the new one answers, and shows how
 // the update ended after signing in.
@@ -53,6 +55,8 @@ export default function ControllerUpdate() {
   const [phase, setPhase] = useState(null)
   const [dismissed, setDismissed] = useState(storedDismissed)
   const [manualOpen, setManualOpen] = useState(false)
+  // The version being installed, from the click until the updater says.
+  const [installing, setInstalling] = useState(null)
   const envRef = useRef(null)
   const busyRef = useRef(false)
   const confirm = useConfirm()
@@ -102,34 +106,47 @@ export default function ControllerUpdate() {
   const latest = info.latest
   const updater = info.updater || {}
 
-  const start = async () => {
+  // start installs rel - the newest release, or the pre-release when
+  // prerelease (its confirmation says what that means, and takes its
+  // version typed).
+  const start = async (rel, prerelease = false) => {
     const ok = await confirm({
-      title: `Update the Controller to ${latest.version}?`,
+      title: prerelease ? `Install the pre-release ${rel.version} on the Controller?` : `Update the Controller to ${rel.version}?`,
       body: (
         <>
+          {prerelease && (
+            <div className="notice warn">
+              <strong>{rel.version} is a pre-release</strong>, published to be tested before it becomes a release: it may still change or be withdrawn, and it isn&apos;t
+              supported. Install it on a Controller you test with, not the one your production depends on.
+            </div>
+          )}
           <p style={{ margin: 0 }}>
             The updater pulls{' '}
             <span className="mono small" style={{ wordBreak: 'break-all' }}>
-              {latest.image}
+              {rel.image}
             </span>
             , backs up the Controller&apos;s data and <code>.env</code>, then restarts the Controller on the new version.
           </p>
           <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
             <li>This page reconnects by itself and asks you to sign in again. Open node pages reconnect too.</li>
             <li>Nodes keep running; only the Controller restarts.</li>
-            <li>If {latest.version} doesn&apos;t start, the previous version comes back with its data, automatically.</li>
+            <li>If {rel.version} doesn&apos;t start, the previous version comes back with its data, automatically.</li>
+            {prerelease && <li>Once it&apos;s promoted to a release, this Controller simply runs that release; until then, the next release is offered as usual.</li>}
           </ul>
         </>
       ),
-      action: `Update to ${latest.version}`,
+      action: prerelease ? `Install ${rel.version}` : `Update to ${rel.version}`,
+      danger: prerelease,
+      typeToConfirm: prerelease ? rel.version : undefined,
     })
     if (!ok) return
+    setInstalling(rel.version)
     setPhase('starting')
     try {
       const resp = await fetch('/api/controller/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version: latest.version }),
+        body: JSON.stringify({ version: rel.version, prerelease }),
       })
       if (!resp.ok) throw new Error((await resp.text()).trim() || resp.statusText)
       load()
@@ -141,7 +158,7 @@ export default function ControllerUpdate() {
 
   // --- an update running ---
   if (running) {
-    const to = job?.state === 'running' ? job.to_version : latest?.version
+    const to = job?.state === 'running' ? job.to_version : installing || latest?.version
     return (
       <Card title={`Updating the Controller to ${to}`} icon={Rocket} className="controller-update accent">
         <div className="row">
@@ -249,7 +266,7 @@ export default function ControllerUpdate() {
           <div className="muted small">An admin can update it from here.</div>
         ) : updater.reachable && updater.ready ? (
           <div className="row">
-            <button className="primary" onClick={start}>
+            <button className="primary" onClick={() => start(latest)}>
               <Rocket size={15} /> Update to {latest.version}
             </button>
             <span className="muted small">
@@ -308,10 +325,53 @@ export default function ControllerUpdate() {
             )}
           </>
         )}
+        {can('admin') && <PrereleaseOffer info={info} onInstall={updater.reachable && updater.ready ? (rel) => start(rel, true) : null} />}
       </Card>,
+    )
+  } else if (info.prerelease && can('admin')) {
+    // No release to update to: the pre-release alone, folded away - it's
+    // for testing, not something this Controller needs.
+    blocks.push(
+      <div key="prerelease" className="controller-update">
+        <PrereleaseOffer info={info} onInstall={updater.reachable && updater.ready ? (rel) => start(rel, true) : null} />
+      </div>,
     )
   }
 
   if (!blocks.length) return null
   return <>{blocks}</>
+}
+
+// PrereleaseOffer is the newest pre-release, folded: what it is, its notes,
+// and - when the updater can install it - the button.
+function PrereleaseOffer({ info, onInstall }) {
+  const pre = info.prerelease
+  if (!pre) return null
+  return (
+    <details className="prerelease-offer">
+      <summary className="small muted">
+        Pre-release <span className="mono">{pre.version}</span> available, for testing
+      </summary>
+      <div className="stack" style={{ gap: '0.5rem', marginTop: '0.5rem' }}>
+        <div className="small">
+          Published{pre.published_at ? ` ${new Date(pre.published_at).toLocaleDateString()}` : ''} to be tested before it becomes a release - not supported, never offered as an
+          update.{' '}
+          <a href={pre.url} target="_blank" rel="noreferrer">
+            Its notes <ArrowUpRight size={12} />
+          </a>
+        </div>
+        {onInstall ? (
+          <div>
+            <button className="small" onClick={() => onInstall(pre)}>
+              <FlaskConical size={13} /> Install the pre-release…
+            </button>
+          </div>
+        ) : (
+          <div className="muted small">
+            By hand: <code style={{ wordBreak: 'break-all' }}>JANUS_CONTROLLER_IMAGE={pre.image}</code> in <code>.env</code>, then <code>docker compose up -d</code>.
+          </div>
+        )}
+      </div>
+    </details>
+  )
 }

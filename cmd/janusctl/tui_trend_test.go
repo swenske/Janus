@@ -57,6 +57,7 @@ func trendFleet(t *testing.T, a *app) {
 	quiet := testSampler(t, a, "lgslbpub04")
 	quiet.target.address = "172.16.1.154:9505"
 	quiet.slow.network.TrialPending = false
+	quiet.slow.version.Version = "v2026.10.09" // a pre-release (testApp): marked
 	quiet.slow.vrrp = &janusv1alpha1.VRRPStatusResponse{State: janusv1alpha1.ModuleState_MODULE_STATE_RUNNING, Instances: []*janusv1alpha1.VRRPInstance{
 		{Name: "VI_1", Role: "BACKUP", Interface: "eth0", VirtualRouterId: 51, Priority: 100, EffectivePriority: 100}}}
 	withHistory(quiet, 160, func(i int) float64 { return 6 + 4*math.Sin(float64(i)/7) }, 40, 60)

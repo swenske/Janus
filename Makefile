@@ -32,7 +32,7 @@ BUILD_DIR := build
 
 GEN_DIR := gen
 
-.PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test \
+.PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test apt-publish-test \
 	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-sysctl-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build kernel-builds kernel-config-refresh rpi4-kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
@@ -70,6 +70,11 @@ janusctl-deb:
 # Installs the amd64 package in Debian and Ubuntu containers and runs it.
 janusctl-deb-test: janusctl-deb
 	./hack/janusctl-deb-test.sh $(VERSION) $(BUILD_DIR)/deb
+
+# The apt server's publishing scripts (packaging/apt) with aptly in a
+# container: stable, testing (pre-releases) and a promotion.
+apt-publish-test:
+	./hack/apt-publish-test.sh
 
 test:
 	go test ./...
@@ -855,7 +860,7 @@ docs-build:
 	./hack/docs-build.sh $(DOCS_CHANNEL)
 
 # Both channels, as site-deploy deploys them: next from HEAD, latest from
-# the newest release tag that has the docs site.
+# the newest release (never a pre-release) that has the docs site.
 docs-site:
 	./hack/docs-build.sh site
 
@@ -1210,10 +1215,12 @@ qemu-lifecycle-upgrade-relay-test: build disk-image
 release-bundle: kernel-build rootfs-build
 	./image/release/assemble.sh $(BUILD_DIR)/release $(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs "$(SIGNING_KEY)" "$(SIGNING_CERT)"
 
-# A node of the previous published release (PREV_RELEASE: the newest tag)
-# updated to this tree's default image and rolled back - what moves the
-# nodes taking the defaults when a release changes a default variant.
-PREV_RELEASE ?= $(shell git describe --tags --abbrev=0 --match 'v20*' 2>/dev/null)
+# A node of the previous published release (PREV_RELEASE: the newest
+# release, never a pre-release - hack/releases asks GitHub; the newest tag
+# offline) updated to this tree's default image and rolled back - what
+# moves the nodes taking the defaults when a release changes a default
+# variant.
+PREV_RELEASE ?= $(shell go run ./hack/releases newest -reachable-from HEAD 2>/dev/null || git describe --tags --abbrev=0 --match 'v20*' 2>/dev/null)
 qemu-lifecycle-upgrade-from-release-test: build release-bundle
 	./hack/qemu-lifecycle-upgrade-from-release-test.sh $(PREV_RELEASE) $(BUILD_DIR)/release $(BIN_DIR)/janusctl
 

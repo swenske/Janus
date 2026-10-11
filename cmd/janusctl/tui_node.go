@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -432,6 +433,9 @@ func (n *nodeScreen) renderHeader(a *app, f *termui.Frame, v *nodeView) {
 	var parts []string
 	if ver := v.slow.version; ver != nil {
 		s := ver.GetVersion()
+		if slices.Contains(a.opts.prereleases, s) {
+			s += " (pre-release)"
+		}
 		if ver.GetActiveSlot() != "" {
 			s += " slot " + ver.GetActiveSlot()
 		}

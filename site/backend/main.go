@@ -143,7 +143,9 @@ func securityHeaders(next http.Handler) http.Handler {
 
 // maintain runs the site's periodic work: when a release appears, build
 // its update bundle for every schematic already in use, so nodes find
-// their update ready; and drop old builds.
+// their update ready (not for a pre-release: its testers' builds are
+// made when asked for, and a promoted one is a release then); and drop
+// old builds.
 func (a *app) maintain(ctx context.Context, keep int) {
 	for {
 		a.prebuild(ctx)
@@ -161,7 +163,7 @@ func (a *app) prebuild(ctx context.Context) {
 	}
 	var latest *release
 	for i := range rels {
-		if rels[i].Schematics {
+		if rels[i].Schematics && !rels[i].Prerelease {
 			latest = &rels[i]
 			break
 		}

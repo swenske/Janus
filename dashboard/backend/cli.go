@@ -26,6 +26,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
+	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 )
 
 // janusctl's side of the Controller (/api/cli/*): a short certificate of
@@ -141,9 +142,12 @@ type cliNode struct {
 
 // handleCLIInventory lists the nodes janusctl reaches, and how.
 func (a *app) handleCLIInventory(w http.ResponseWriter, r *http.Request) {
+	// Prereleases: the published pre-releases, so janusctl tui can mark
+	// the nodes running one - as far as this Controller knows right now.
 	writeJSON(w, http.StatusOK, struct {
-		Nodes []cliNode `json:"nodes"`
-	}{a.cliNodes(requestPrincipal(r))})
+		Nodes       []cliNode `json:"nodes"`
+		Prereleases []string  `json:"prereleases"`
+	}{a.cliNodes(requestPrincipal(r)), nonNil(nodeproxy.KnownPrereleases())})
 }
 
 // cliNodes are the nodes p reaches.
@@ -367,6 +371,7 @@ func (a *app) handleCLISSHLogin(w http.ResponseWriter, r *http.Request) {
 	log.Printf("issued a janusctl certificate to %s (%s, ssh key %s) until %s", user, id.Summary, req.Fingerprint, notAfter.Format(time.RFC3339))
 	writeJSON(w, http.StatusOK, struct {
 		cliCertificate
-		Nodes []cliNode `json:"nodes"`
-	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: id.Summary}, a.cliNodes(p)})
+		Nodes       []cliNode `json:"nodes"`
+		Prereleases []string  `json:"prereleases"`
+	}{cliCertificate{CertificatePEM: string(chain), ExpiresAt: notAfter, User: user, Role: id.Summary}, a.cliNodes(p), nonNil(nodeproxy.KnownPrereleases())})
 }

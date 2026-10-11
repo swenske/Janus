@@ -86,6 +86,37 @@ janusctl -n lb1 version           # the release now running, and its slot
   A newer edk2 (2026.08, what Proxmox VE 9.2 ships) is fine with the
   same machine. Bare metal is untried.
 
+## Pre-releases
+
+A pre-release is a release published to be tested first - on a lab's
+nodes, by beta testers - before it becomes the release. Once it has
+been, the same build is promoted, unchanged: a node running it then
+simply runs that release, with nothing to reinstall. One that fails its
+tests is never promoted, and the next release replaces it.
+
+- **It is never an update.** No badge, no "update available", nothing
+  counted in the fleet: the Controller shows it on a node's **System ›
+  Update** page only, folded under the latest release (**Pre-release vX
+  available, for testing**), and an admin sees it on the Controller's
+  update card. **Use this pre-release…** asks for its version, typed,
+  then fills the usual A/B installation in; for a node with extensions
+  the image factory builds it first, and the page follows the build.
+- **It isn't supported** ([security policy](../../SECURITY.md)): install
+  it where you test, not where your production depends on it. To leave
+  it, **Rollback** goes back to the release the node ran before; the
+  next release is offered as an update as usual.
+- Nodes running one are marked **pre-release** - on the fleet, on the
+  node's page, in `janusctl tui`.
+- **By version**, like any release: `janusctl lifecycle upgrade` with
+  its download URL (above), a Terraform `janus_node`'s `version`, the
+  Controller's create-a-node form (which suggests it), the image
+  factory's builder (which lists it, marked).
+- `janusctl`'s pre-release packages are in apt's `testing` suite
+  ([installing janusctl](../janusctl.md#installing-janusctl)).
+
+Pre-releases are on the [releases page](https://github.com/swenske/Janus/releases),
+marked; GitHub's **Watch → Custom → Releases** notifies them too.
+
 ## Going back
 
 `janusctl -n lb1 lifecycle rollback`: the node reboots into its other

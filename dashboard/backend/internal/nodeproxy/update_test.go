@@ -130,12 +130,12 @@ func TestCheckUpdateNoFactory(t *testing.T) {
 func seedRelease(t *testing.T, rel *ReleaseInfo) {
 	t.Helper()
 	releaseCache.mu.Lock()
-	prevData, prevErr, prevAt := releaseCache.data, releaseCache.err, releaseCache.fetchedAt
-	releaseCache.data, releaseCache.err, releaseCache.fetchedAt = rel, nil, time.Now()
+	prevURL, prevData, prevErr, prevAt := releaseCache.url, releaseCache.data, releaseCache.err, releaseCache.fetchedAt
+	releaseCache.url, releaseCache.data, releaseCache.err, releaseCache.fetchedAt = ReleasesURL, rel, nil, time.Now()
 	releaseCache.mu.Unlock()
 	t.Cleanup(func() {
 		releaseCache.mu.Lock()
-		releaseCache.data, releaseCache.err, releaseCache.fetchedAt = prevData, prevErr, prevAt
+		releaseCache.url, releaseCache.data, releaseCache.err, releaseCache.fetchedAt = prevURL, prevData, prevErr, prevAt
 		releaseCache.mu.Unlock()
 	})
 }

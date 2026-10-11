@@ -1,4 +1,4 @@
-import { Archive, CircleCheck, ExternalLink, Layers, Loader2, Puzzle, RefreshCcw, Rocket, Upload as UploadIcon, X } from 'lucide-react'
+import { Archive, CircleCheck, ExternalLink, FlaskConical, Layers, Loader2, Puzzle, RefreshCcw, Rocket, Upload as UploadIcon, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, postJSON } from '../api.js'
 import { apiURL } from '../../shared/base.js'
@@ -7,6 +7,7 @@ import { bytes, dateTime } from '../format.js'
 import { useNodeStatus, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import { WaitForNode } from '../waitForNode.jsx'
+import { PrereleaseBadge } from '../../PrereleaseBadge.jsx'
 import { SecurityBadge } from '../../SecurityBadge.jsx'
 import { securityText, securityTone } from '../../severity.js'
 import { SupportBadge } from '../../SupportBadge.jsx'
@@ -55,6 +56,9 @@ export default function Update({ route = '' }) {
   // apps…" opens the panel (?extensions).
   const [changing, setChanging] = useState(() => new URLSearchParams(route.split('?')[1] || '').has('extensions'))
   const [target, setTarget] = useState(null)
+  // pre: the pre-release filled in below (its prereleaseOffer), installed
+  // while the URL is still its.
+  const [pre, setPre] = useState(null)
   const installRef = useRef(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
@@ -79,11 +83,22 @@ export default function Update({ route = '' }) {
       return
     }
     setTarget(null)
+    setPre(null)
     setModeState((m) => (m === 'upload' ? 'url' : m))
     setReference(uc.bundle_base_url)
     setSha(uc.sha256 || '')
   }
+  const applyPrerelease = useCallback((p) => {
+    setTarget(null)
+    setPre(p)
+    setModeState((m) => (m === 'upload' ? 'url' : m))
+    setReference(p.bundle_base_url)
+    setSha(p.sha256 || '')
+    setAllowSchematic(false)
+    installRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
   const applyTarget = useCallback((t) => {
+    setPre(null)
     setTarget(t)
     setModeState((m) => (m === 'upload' ? 'url' : m))
     setReference(t.bundle_base_url)
@@ -93,6 +108,7 @@ export default function Update({ route = '' }) {
   }, [])
   const byURL = mode === 'url' || mode === 'relay'
   const targetActive = !!target && byURL && reference === target.bundle_base_url
+  const preActive = !!pre && byURL && reference === pre.bundle_base_url
   // Another HAProxy branch may refuse the configuration: the automatic
   // revert stays on, whatever the checkbox says.
   const branchChange = targetActive && (target.haproxy || '') !== (target.node_haproxy || '')
@@ -104,6 +120,11 @@ export default function Update({ route = '' }) {
       title: 'Install this release?',
       body: (
         <>
+          {preActive && (
+            <div className="notice warn">
+              <strong>{pre.version} is a pre-release</strong>, for testing: not supported, and it may still change or be withdrawn.
+            </div>
+          )}
           <p>
             The new system is written to slot <strong>{slot}</strong> (the one not running), then the node reboots into it. The current slot stays intact, so <em>Rollback</em> can
             always go back.
@@ -134,7 +155,7 @@ export default function Update({ route = '' }) {
           )}
         </>
       ),
-      action: 'Install and reboot',
+      action: preActive ? `Install ${pre.version} and reboot` : 'Install and reboot',
       danger: true,
     })
     if (!ok) return
@@ -202,7 +223,9 @@ export default function Update({ route = '' }) {
         >
           <dl className="kv">
             <dt>Running</dt>
-            <dd className="mono">{v?.version || '…'}</dd>
+            <dd>
+              <span className="mono">{v?.version || '…'}</span> {uc?.running_prerelease && <PrereleaseBadge />}
+            </dd>
             <dt>Active slot</dt>
             <dd>{v?.active_slot ? <Badge tone="info">slot {v.active_slot}</Badge> : <span className="muted">not an A/B boot - updates need an installed node</span>}</dd>
             <dt>Image schematic</dt>
@@ -319,6 +342,7 @@ export default function Update({ route = '' }) {
                   </button>
                 </div>
               )}
+              {uc.prerelease && <PrereleaseOffer offer={uc.prerelease} canUpgrade={canUpgrade} onReady={applyPrerelease} />}
             </div>
           )}
         </Card>
@@ -326,6 +350,11 @@ export default function Update({ route = '' }) {
       {changing && uc && canUpgrade && <ChangeExtensions uc={uc} onReady={applyTarget} onClose={() => setChanging(false)} />}
       <div ref={installRef} hidden={!canUpgrade}>
         <Card title="Install a release" icon={UploadIcon}>
+          {preActive && (
+            <div className="notice warn" style={{ marginBottom: '0.75rem' }}>
+              Installs the pre-release <strong className="mono">{pre.version}</strong> - for testing, not supported. <em>Rollback</em> goes back to the current system.
+            </div>
+          )}
           {targetActive && (
             <div className="notice" style={{ marginBottom: '0.75rem' }}>
               Installs <strong className="mono">{target.latest}</strong> {target.source === 'github' ? 'from its GitHub release, ' : 'built by the image factory '}
@@ -409,6 +438,103 @@ export default function Update({ route = '' }) {
         </Card>
       </div>
     </>
+  )
+}
+
+// PrereleaseOffer is the newest pre-release, folded away under the latest
+// release: for testing, never an update. Using it takes its version typed;
+// the default schematic's is ready at once, another schematic's is built by
+// the image factory first (POST /api/factory/prerelease, followed every
+// 20 s) - only when asked, never by viewing this page.
+function PrereleaseOffer({ offer, canUpgrade, onReady }) {
+  const [prep, setPrep] = useState(null)
+  const [busy, run] = useAction()
+  const confirm = useConfirm()
+  const readyRef = useRef(onReady)
+  useEffect(() => {
+    readyRef.current = onReady
+  })
+  const ask = () => postJSON('/api/factory/prerelease', { version: offer.version })
+  const use = async () => {
+    const ok = await confirm({
+      title: `Use the pre-release ${offer.version}?`,
+      body: (
+        <>
+          <div className="notice warn">
+            <strong>{offer.version} is a pre-release</strong>, published to be tested before it becomes a release - on a lab node, or by a beta tester. It may still change or be
+            withdrawn, and it isn&apos;t supported: don&apos;t install it on a node your production depends on.
+          </div>
+          <p style={{ margin: 0 }}>
+            It only fills in the installation below; installing stays the usual A/B update, and <em>Rollback</em> goes back to the current system. Once it&apos;s promoted to a
+            release, the node simply runs that release.
+          </p>
+        </>
+      ),
+      action: 'Use the pre-release',
+      danger: true,
+      typeToConfirm: offer.version,
+    })
+    if (!ok) return
+    if (offer.state === 'ready') return onReady(offer)
+    const r = await run(ask)
+    if (!r) return
+    setPrep(r)
+    if (r.state === 'ready') onReady(r)
+  }
+  useEffect(() => {
+    if (prep?.state !== 'building') return undefined
+    const timer = setTimeout(async () => {
+      try {
+        const r = await ask()
+        setPrep(r)
+        if (r.state === 'ready') readyRef.current(r)
+      } catch (err) {
+        setPrep({ state: 'unavailable', message: err.message })
+      }
+    }, 20000)
+    return () => clearTimeout(timer)
+    // ask only names offer.version, part of prep's request
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prep])
+
+  return (
+    <details className="prerelease-offer" open={!!prep}>
+      <summary className="small muted">
+        Pre-release <span className="mono">{offer.version}</span> available, for testing
+      </summary>
+      <div className="stack" style={{ gap: '0.5rem', marginTop: '0.5rem' }}>
+        <div className="small">
+          Published{offer.published_at ? ` ${dateTime(Date.parse(offer.published_at))}` : ''} to be tested before it becomes a release - not supported, never offered as an
+          update.{' '}
+          {offer.release_url && (
+            <a href={offer.release_url} target="_blank" rel="noreferrer">
+              Its notes <ExternalLink size={12} />
+            </a>
+          )}
+        </div>
+        {prep?.state === 'building' && (
+          <div className="notice small">
+            <span className="row" style={{ gap: '0.4rem' }}>
+              <Loader2 size={14} className="spin" /> The image factory is building {offer.version} for this node&apos;s schematic - usually 5 to 15 minutes; this page asks again
+              every 20 s.
+            </span>
+          </div>
+        )}
+        {prep && prep.state !== 'building' && prep.state !== 'ready' && (
+          <div className="notice warn small">
+            {prep.state === 'failed' ? 'The build failed' : 'Not available'}
+            {prep.message ? `: ${prep.message}` : '.'}
+          </div>
+        )}
+        {canUpgrade && (
+          <div>
+            <button className="small" onClick={use} disabled={busy || prep?.state === 'building'}>
+              <FlaskConical size={13} /> {busy ? 'Asking the image factory…' : prep?.state === 'ready' ? 'Use it again…' : 'Use this pre-release…'}
+            </button>
+          </div>
+        )}
+      </div>
+    </details>
   )
 }
 

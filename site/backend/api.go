@@ -490,6 +490,11 @@ func (a *app) handleUpdates(w http.ResponseWriter, r *http.Request) {
 	targetSC, renamed := sc, map[string]string(nil)
 	for i := range rels { // newest first
 		rel := &rels[i]
+		if rel.Prerelease {
+			// For testing, installed on purpose (by version) - never an
+			// update (docs/contributing/releasing.md).
+			continue
+		}
 		if id == schematic.DefaultID() {
 			if _, ok := rel.Assets["uki-b.efi"]; ok {
 				target = rel

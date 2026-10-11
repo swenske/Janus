@@ -33,6 +33,10 @@ The key's fingerprint is `0731 333D 9DDF FF94 08CD 6AEC A333 9293 BD0C BBDC`
 (`gpg --show-keys /etc/apt/keyrings/apt-sw-servers.net.asc`). Later
 releases come with `apt-get upgrade`.
 
+To test [pre-releases](guide/updates.md#pre-releases) too, take the
+`testing` suite instead of `stable` in step 2: it has every release and
+every pre-release.
+
 Without the repository, each release also carries
 `janusctl_<version>_<amd64|arm64>.deb` (`sudo apt install
 ./janusctl_<version>_amd64.deb`); `make build` builds it from source.

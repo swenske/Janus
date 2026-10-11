@@ -702,8 +702,11 @@ same at startup, and logs every update step.
 
 ### What an update does
 
-From the page, only the newest release can be installed: the Controller
-gives the updater that version and the image its GitHub release names
+From the page, only the newest release can be installed - or, for an
+admin who unfolds it and types its version, the newest
+[pre-release](../docs/guide/updates.md#pre-releases), for a Controller
+used for testing: the Controller gives the updater that version and the
+image its GitHub release names
 (`controller-image.txt`: `swenske/janus-controller:vX@sha256:...`, the
 exact image built and tested for the release - older releases: the
 `vX` tag). The updater checks it's that repository and that version,

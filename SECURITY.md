@@ -7,6 +7,12 @@ A node moves to it with its own A/B update (from the Controller, or
 `janusctl lifecycle upgrade`), signature checked and rolled back if it
 doesn't come up healthy.
 
+**Pre-releases** - marked so on GitHub, published to be tested before
+they become a release - aren't supported: they are never offered as an
+update, may be withdrawn, and a vulnerability is fixed in the next
+release, not in them. Once tested, a pre-release is promoted unchanged:
+then it is the latest release.
+
 ## Reporting a vulnerability
 
 Please report it privately, through GitHub: **Security** tab → **Report a

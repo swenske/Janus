@@ -4,7 +4,9 @@
 # Same design as swenske/gotochanger's: after it,
 #
 #   - the "janus" aptly repo exists (suite "stable", component "main"),
-#     published at https://apt.sw-servers.net/janus by the first release;
+#     published at https://apt.sw-servers.net/janus by the first release,
+#     and "janus-testing" (suite "testing": releases and pre-releases),
+#     with every package "janus" has;
 #   - janus-publish can only, over SSH and with one of the given keys,
 #     upload janusctl_<version>_<arch>.deb into its incoming/ directory
 #     and run janus-aptly-publish.sh as root (janus-publish-dispatch.sh, a
@@ -17,6 +19,7 @@
 set -eu
 [ "$#" -gt 0 ] || { echo "usage: $0 <runner-public-key>..." >&2; exit 1; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
+GPGKEY="0731333D9DDFFF9408CD6AECA3339293BD0CBBDC" # janus-aptly-publish.sh's
 
 for key in "$@"; do
   case "$key" in
@@ -35,7 +38,7 @@ install -o root -g root -m 0755 "$HERE/janus-publish-dispatch.sh" /usr/local/sbi
 install -o root -g root -m 0700 "$HERE/janus-aptly-publish.sh" /usr/local/sbin/janus-aptly-publish.sh
 
 sudoers="$(mktemp)"
-echo 'janus-publish ALL=(root) NOPASSWD: /usr/local/sbin/janus-aptly-publish.sh' > "$sudoers"
+echo 'janus-publish ALL=(root) NOPASSWD: /usr/local/sbin/janus-aptly-publish.sh stable, /usr/local/sbin/janus-aptly-publish.sh testing' > "$sudoers"
 visudo -cf "$sudoers" >/dev/null
 install -o root -g root -m 0440 "$sudoers" /etc/sudoers.d/janus-publish
 rm -f "$sudoers"
@@ -49,5 +52,15 @@ chmod 600 /home/janus-publish/.ssh/authorized_keys
 aptly repo show janus >/dev/null 2>&1 \
   || aptly repo create -comment="Janus CLI (janusctl) - https://github.com/swenske/Janus" \
        -distribution=stable -component=main janus
+if ! aptly repo show janus-testing >/dev/null 2>&1; then
+  aptly repo create -comment="Janus CLI (janusctl), releases and pre-releases - https://github.com/swenske/Janus" \
+    -distribution=testing -component=main janus-testing
+  # testing has every release too: what stable has so far.
+  aptly repo copy janus janus-testing 'Name (janusctl)' || true
+  if aptly publish list -raw | grep -qx "janus stable" && ! aptly publish list -raw | grep -qx "janus testing"; then
+    aptly publish repo -gpg-key="$GPGKEY" -architectures=amd64,arm64 \
+      -distribution=testing -component=main janus-testing janus
+  fi
+fi
 
-echo "janus-publish ready; the first release publishes https://apt.sw-servers.net/janus"
+echo "janus-publish ready; the first release publishes https://apt.sw-servers.net/janus (stable; testing with pre-releases)"

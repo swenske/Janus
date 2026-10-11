@@ -239,7 +239,10 @@ succeeded stay applied. The next plan shows what's still to do, and the
 error is on the machine.
 
 **`version`**: unset, it reads back as whatever the node runs. A node
-created with the newest release then keeps it until you set one.
+created with the newest release then keeps it until you set one. A
+[pre-release](guide/updates.md#pre-releases) - a lab testing it before
+it becomes the release - is set the same way, by its version; once
+promoted, the same version is a release.
 
 **Old images.** An image released before registration tokens - before
 the release that introduced them - registers like any node. It waits in

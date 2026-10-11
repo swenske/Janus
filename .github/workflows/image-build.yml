@@ -23,6 +23,11 @@ on:
         description: 'Publish a real, permanent GitHub Release tagged with this version (e.g. v2026.09.29) once everything builds - leave empty to just build/test without publishing anything (the default, matches every dispatch before this input existed)'
         required: false
         type: string
+      prerelease:
+        description: 'With release_version: publish it as a pre-release - for testing (a lab, beta testers), never offered as an update; release-promote.yml makes it the release later, unchanged (docs/contributing/releasing.md)'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: image-build
@@ -50,6 +55,15 @@ jobs:
             || { echo "::error::no release notes at .github/release-notes/$RELEASE_VERSION.md - write them (see .github/release-notes/README.md) and commit them first"; exit 1; }
 
       - uses: ./.github/actions/runner-setup
+
+      # A pre-release older than the newest release could never be
+      # promoted (hack/releases) - said in seconds, not after the tests.
+      - name: Check the pre-release is newer than the newest release
+        if: ${{ inputs.release_version != '' && inputs.prerelease }}
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: go run ./hack/releases check-prerelease "$RELEASE_VERSION"
 
       # Phase 1: builds bzImage (kernel/Dockerfile's fetch -> config ->
       # build -> export stages) + the init-only initramfs (rootfs/init,
@@ -952,7 +966,8 @@ jobs:
     runs-on: [self-hosted, docker, janus, janus-publish]
     # contents: write is only for the optional "Publish a real GitHub
     # Release" step at the very end (gated on release_version being
-    # set); actions: write for dispatching site-deploy after it.
+    # set); actions: write for dispatching site-deploy after it (a
+    # release, not a pre-release: .github/actions/stable-release).
     permissions:
       contents: write
       actions: write
@@ -990,16 +1005,27 @@ jobs:
 
       - uses: ./.github/actions/runner-setup
 
+      - name: Check the pre-release is newer than the newest release
+        if: ${{ inputs.release_version != '' && inputs.prerelease }}
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: go run ./hack/releases check-prerelease "$RELEASE_VERSION"
+
       - name: Build inputs for custom schematics
         run: make schematic-inputs
 
       # What this release fixes since the previous one (hack/upstream,
       # docs/upstreams.md): security.json, attached to the release - the
       # Controller reads it to tell nodes missing security fixes - with
-      # the SBOM. The extensions just built are compared with the previous
+      # the SBOM. The previous one is the newest release, never a
+      # pre-release (hack/releases): a pre-release's fixes reach the
+      # release's readers only with its promotion, which keeps this file.
+      # The extensions just built are compared with the previous
       # release's: a Go binary rebuilt with a newer Go fixes things with
       # no version change. Notes without a 🔒 section are refused when it
-      # isn't empty: checked here, before the images are built.
+      # isn't empty (hack/release-notes-check.sh): checked here, before
+      # the images are built.
       - name: Security fixes since the previous release, and the SBOM
         if: ${{ inputs.release_version != '' }}
         env:
@@ -1007,31 +1033,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          prev=$(git describe --tags --abbrev=0 --match 'v20*')
+          prev=$(go run ./hack/releases newest -reachable-from HEAD)
+          echo "PREV_RELEASE=$prev" >> "$GITHUB_ENV"
           mkdir -p build/security
           go run ./hack/upstream security-notes -from "$prev" -version "$RELEASE_VERSION" \
             -extensions build/inputs -json build/security/security.json > build/security/notes.md
           cat build/security/notes.md >> "$GITHUB_STEP_SUMMARY"
-          severity=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["max_severity"])' build/security/security.json)
-          if [ "$severity" != none ] && ! grep -q '^## 🔒' ".github/release-notes/$RELEASE_VERSION.md"; then
-            echo "::error::$RELEASE_VERSION fixes vulnerabilities since $prev (up to $severity) but its notes have no '## 🔒' section - draft it with: make upstream-security-notes FROM=$prev RELEASE=$RELEASE_VERSION"
-            exit 1
-          fi
-          # A fix to a HAProxy branch or kernel track concerns only the
-          # nodes on it: the notes must say which - the new version of
-          # each fixed variant ("HAProxy 3.2.26", "Linux 7.2.10") is in
-          # the 🔒 section.
-          python3 - build/security/security.json ".github/release-notes/$RELEASE_VERSION.md" <<'PY'
-          import json, sys
-          doc = json.load(open(sys.argv[1]))
-          notes = open(sys.argv[2]).read()
-          section = notes[notes.find("## 🔒"):] if "## 🔒" in notes else ""
-          missing = [f'{u["title"]} {u["to"]}' for u in doc.get("updates") or []
-                     if u.get("component") and u.get("fixes") and u["to"] not in section]
-          if missing:
-              print("::error::the notes' 🔒 section doesn't say which nodes these fixes concern - name their versions: " + ", ".join(missing))
-              sys.exit(1)
-          PY
+          severity=$(./hack/release-notes-check.sh build/security/security.json ".github/release-notes/$RELEASE_VERSION.md" "$prev" "$RELEASE_VERSION")
           echo "SECURITY_SEVERITY=$severity" >> "$GITHUB_ENV"
           go run ./hack/upstream sbom -version "$RELEASE_VERSION" -out build/security/sbom.cdx.json
 
@@ -1375,19 +1383,17 @@ jobs:
               || { echo "::error::$uki isn't signed with the production key - refusing to publish (is SECUREBOOT_SIGNING_KEY set, and does it match image/secureboot/production-cert.pem?)"; exit 1; }
           done
 
-      # The alpha warning, then this version's hand-written notes; the
-      # action appends GitHub's generated "Full Changelog" link.
+      # The alpha warning (and what a pre-release is), this version's
+      # hand-written notes, then GitHub's generated changes since the
+      # newest release - never since a pre-release (hack/release-body.sh).
       - name: Assemble the release notes
         if: ${{ inputs.release_version != '' }}
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
-        run: |
-          {
-            echo '> [!WARNING]'
-            echo '> **Alpha software.** Janus is under active early development: expect breaking changes, incomplete features and rough edges. Not yet recommended for production use.'
-            echo
-            cat ".github/release-notes/$RELEASE_VERSION.md"
-          } > build/release-notes.md
+          KIND: ${{ inputs.prerelease && 'prerelease' || 'release' }}
+          GITHUB_TOKEN: ${{ github.token }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: ./hack/release-body.sh "$RELEASE_VERSION" "$PREV_RELEASE" "$KIND" "$COMMIT_SHA" build/release-notes.md
 
       - name: Publish a real GitHub Release
         if: ${{ inputs.release_version != '' }}
@@ -1397,15 +1403,20 @@ jobs:
           target_commitish: ${{ github.sha }}
           # "🔒 security update" when it fixes vulnerabilities: what the
           # Releases watch and the releases feed show (docs/upstreams.md).
-          name: "Janus ${{ inputs.release_version }} (Alpha)${{ env.SECURITY_SEVERITY != '' && env.SECURITY_SEVERITY != 'none' && ' - 🔒 security update' || '' }}"
-          # A full release marked as the latest, not a pre-release: a
-          # pre-release is never "Latest", so the repository's home page
-          # showed no release at all - only "3 tags". The alpha status is
-          # stated in the name above and at the top of the notes.
+          name: "Janus ${{ inputs.release_version }} (Alpha)${{ inputs.prerelease && ' - pre-release' || '' }}${{ env.SECURITY_SEVERITY != '' && env.SECURITY_SEVERITY != 'none' && ' - 🔒 security update' || '' }}"
+          # A release is marked as the latest - the alpha status is stated
+          # in the name above and at the top of the notes (a pre-release is
+          # never "Latest": the repository's home page once showed no
+          # release at all, only "3 tags"). A pre-release, for testing,
+          # never is: release-promote.yml clears the flag and makes it the
+          # latest once it has been tested (docs/contributing/releasing.md).
           body_path: build/release-notes.md
-          prerelease: false
-          make_latest: "true"
-          generate_release_notes: true
+          prerelease: ${{ inputs.prerelease }}
+          make_latest: ${{ inputs.prerelease && 'false' || 'true' }}
+          # hack/release-body.sh adds GitHub's generated changes itself:
+          # since the newest release, which GitHub can't tell for a
+          # pre-release.
+          generate_release_notes: false
           files: |
             build/release/rootfs.squashfs
             build/release/rootfs.squashfs.sha256
@@ -1431,21 +1442,11 @@ jobs:
             build/deb/janusctl_*.deb
             build/terraform-provider/terraform-provider-janus_*
 
-      # janusctl on https://apt.sw-servers.net/janus (suite "stable",
-      # component "main" - README.md), after the GitHub Release so apt
-      # never offers a version that has no release. Same design as
-      # swenske/gotochanger: a key per janus-publish machine that never
-      # leaves it (~actions-runner/.ssh/id_janus_aptly, never a GitHub
-      # secret) reaches a forced-command account on apt.int.sw-servers.net
-      # that only accepts "upload janusctl_<version>_<arch>.deb" (stdin) and
-      # "publish" (/usr/local/sbin/janus-publish-dispatch.sh and
-      # janus-aptly-publish.sh there). A rerun uploads the same bytes,
-      # which aptly accepts again (the packages are reproducible).
-      # The server's host key is the APT_HOST_KEY repository variable (a
-      # known_hosts line), pinned like site-deploy's SITE_HOST_KEY: never
-      # a first contact from a runner.
-      - name: Publish janusctl on apt.sw-servers.net
-        if: ${{ inputs.release_version != '' }}
+      # A pre-release's janusctl goes to apt's "testing" suite only
+      # (packaging/apt, README.md) - what a release gets beside it:
+      # .github/actions/stable-release.
+      - name: Publish janusctl on apt.sw-servers.net (testing)
+        if: ${{ inputs.release_version != '' && inputs.prerelease }}
         env:
           APT_HOST_KEY: ${{ vars.APT_HOST_KEY }}
         run: |
@@ -1459,64 +1460,18 @@ jobs:
           for deb in build/deb/janusctl_*.deb; do
             $SSH "$host" "upload $(basename "$deb")" < "$deb"
           done
-          $SSH "$host" publish
+          $SSH "$host" publish testing
 
-      # /docs/ on janus.sw-servers.net is the newest release's: site-deploy
-      # rebuilds both docs channels and redeploys - on main, never this
-      # run's commit (main may be ahead: deploying it would roll the site
-      # back). A workflow GITHUB_TOKEN creates starts no workflow - but a
-      # workflow_dispatch it sends does.
-      - name: Deploy this release's docs
-        if: ${{ inputs.release_version != '' }}
-        env:
-          TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ inputs.release_version }}
-        run: |
-          curl -sS --fail-with-body -X POST -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/site-deploy.yml/dispatches" \
-            --data '{"ref":"main"}'
-          echo "site-deploy dispatched: its /docs/ will follow $RELEASE_VERSION"
-
-      # Repository security advisories - public and citable on the Security
-      # tab, GitHub notifies nobody for one (docs/upstreams.md): one per
-      # vulnerability of Janus's own code the release fixes (security/
-      # fixes), whatever its severity, and one for the components it
-      # updates when what they fix is rated high or worse. Last, so a
-      # refused token can't keep janusctl off apt. It takes
-      # UPSTREAM_BOT_TOKEN with "Repository security advisories" write;
-      # without it, the requests are printed to create them by hand.
-      - name: Publish the security advisories
-        if: ${{ inputs.release_version != '' }}
-        env:
-          RELEASE_VERSION: ${{ inputs.release_version }}
-          TOKEN: ${{ secrets.UPSTREAM_BOT_TOKEN }}
-        run: |
-          set -euo pipefail
-          url="https://github.com/${{ github.repository }}/releases/tag/$RELEASE_VERSION"
-          go run ./hack/upstream advisory -security build/security/security.json -url "$url" > build/security/advisories.json
-          count=$(python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))))' build/security/advisories.json)
-          if [ "$count" = 0 ]; then
-            echo "No advisory: no fix of Janus's own code, and nothing its components fix is rated high or worse."
-            exit 0
-          fi
-          if [ -z "$TOKEN" ]; then
-            echo "::warning::$RELEASE_VERSION calls for $count security advisories, but UPSTREAM_BOT_TOKEN isn't set - create them by hand (Security > Advisories) from:"
-            cat build/security/advisories.json
-            exit 0
-          fi
-          api="https://api.github.com/repos/${{ github.repository }}/security-advisories"
-          auth=(-H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json")
-          resp=build/security/advisory-response.json
-          for i in $(seq 0 $((count - 1))); do
-            req=build/security/advisory-$i.json
-            python3 -c 'import json, sys; json.dump(json.load(open(sys.argv[1]))[int(sys.argv[2])], open(sys.argv[3], "w"))' build/security/advisories.json "$i" "$req"
-            curl -sS --fail-with-body "${auth[@]}" -X POST "$api" --data @"$req" -o "$resp" \
-              || { echo "::error::creating advisory $i failed: $(cat "$resp")"; exit 1; }
-            ghsa=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["ghsa_id"])' "$resp")
-            curl -sS --fail-with-body "${auth[@]}" -X PATCH "$api/$ghsa" --data '{"state":"published"}' -o "$resp" \
-              || { echo "::error::publishing advisory $ghsa failed: $(cat "$resp")"; exit 1; }
-            python3 -c 'import json, sys; print("Published", json.load(open(sys.argv[1]))["html_url"])' "$resp"
-          done
+      # A release (not a pre-release): janusctl on apt's stable suite,
+      # /docs/ following it, its security advisories.
+      - name: What a release gets
+        if: ${{ inputs.release_version != '' && !inputs.prerelease }}
+        uses: ./.github/actions/stable-release
+        with:
+          version: ${{ inputs.release_version }}
+          apt-host-key: ${{ vars.APT_HOST_KEY }}
+          token: ${{ github.token }}
+          advisory-token: ${{ secrets.UPSTREAM_BOT_TOKEN }}
 
       # TODO(Phase 3 cont'd): a real OVA (OVF descriptor + tar) on top
       # of image/vmware's bare VMDK - once built, add build/janus.ova

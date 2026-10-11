@@ -5,13 +5,16 @@
 # the only thing that ever runs, so it rejects anything it doesn't
 # recognize.
 #
-# Two accepted shapes only:
+# Three accepted shapes only:
 #   upload janusctl_<version>_<amd64|arm64>.deb
 #                 -- the file's bytes on stdin, written to incoming/ (as
 #                    <name>.part, renamed once complete, so a cut upload
 #                    is never published). At most 64 MiB.
 #   publish       -- the one sudo-permitted script: adds incoming/*.deb
-#                    to the "janus" aptly repo and (re)publishes it.
+#                    to the "janus" aptly repo (a release - and to
+#                    "janus-testing") and (re)publishes them.
+#   publish testing
+#                 -- the same, to "janus-testing" only (a pre-release).
 set -eu
 
 INCOMING="/home/janus-publish/incoming"
@@ -38,7 +41,10 @@ case "$CMD" in
     mv "$INCOMING/$name.part" "$INCOMING/$name"
     ;;
   publish)
-    exec sudo -n /usr/local/sbin/janus-aptly-publish.sh
+    exec sudo -n /usr/local/sbin/janus-aptly-publish.sh stable
+    ;;
+  "publish testing")
+    exec sudo -n /usr/local/sbin/janus-aptly-publish.sh testing
     ;;
   *)
     reject "unrecognized command"

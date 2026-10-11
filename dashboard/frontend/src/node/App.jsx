@@ -35,6 +35,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
 import { Logo, ThemeToggle } from '../shared/theme.jsx'
 import { Badge, Loading } from '../shared/ui.jsx'
+import { PrereleaseBadge } from '../PrereleaseBadge.jsx'
 import { SecurityBadge } from '../SecurityBadge.jsx'
 import { securityText, securityTone } from '../severity.js'
 import { INTERVALS, navigate, useHashRoute, useMetrics, useNodeStatus, usePoll, useRefresh } from './hooks.jsx'
@@ -268,6 +269,7 @@ export default function App() {
                 title={securityUpdate ? securityText(securityUpdate) : updateAvailable ? `Update available: ${latestTag}` : 'Up to date'}
               >
                 <Badge tone={updateAvailable ? 'accent' : ''}>{version}</Badge>
+                {check.data?.running_prerelease && <PrereleaseBadge />}
                 {securityUpdate ? (
                   <SecurityBadge severity={securityUpdate}>security update → {latestTag}</SecurityBadge>
                 ) : (

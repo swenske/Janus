@@ -1,0 +1,171 @@
+# Makes a pre-release the release, unchanged: the build the lab and the
+# beta testers ran is what everyone gets (docs/contributing/releasing.md).
+# Nothing is rebuilt: the GitHub release loses its pre-release flag and
+# becomes the latest - nodes and Controllers are offered it, the image
+# factory builds it for the schematics in use - then what only a release
+# gets follows (.github/actions/stable-release): janusctl on apt's stable
+# suite (the same packages again), /docs/, its security advisories.
+#
+# workflow_dispatch only, by a maintainer - like cutting a release.
+# dry_run (the default) checks everything and says what it would do.
+name: Release promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The pre-release to promote (vYYYY.MM.DD[-N])'
+        required: true
+        type: string
+      dry_run:
+        description: 'Only check it and show the release it would become'
+        required: false
+        type: boolean
+        default: true
+
+# Never beside a release being cut: both decide which release is the
+# newest.
+concurrency:
+  group: image-build
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: Promote ${{ inputs.version }}
+    # janus-publish runners only: the apt publishing key lives there
+    # (docs/ci-runners.md).
+    runs-on: [self-hosted, docker, janus, janus-publish]
+    # contents: write to edit the release, actions: write to dispatch
+    # site-deploy.
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      # main: the notes as they are now (they may have been completed
+      # while the pre-release was tested), and the scripts.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # A pre-release still newer than the newest release (a release cut
+      # meanwhile supersedes it), with everything a release publishes.
+      - name: Check the pre-release
+        env:
+          VERSION: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$ ]] \
+            || { echo "::error::version must look like vYYYY.MM.DD or vYYYY.MM.DD-N, got: $VERSION"; exit 1; }
+          mkdir -p build/promote build/deb build/security
+          go run ./hack/releases info "$VERSION" > build/promote/info.json
+          python3 - build/promote/info.json <<'PY'
+          import json, sys
+          doc = json.load(open(sys.argv[1]))
+          v = doc["version"]
+          if doc["draft"] or not doc["prerelease"]:
+              sys.exit(f"::error::{v} isn't a published pre-release (draft: {doc['draft']}, pre-release: {doc['prerelease']})")
+          if not doc["newer"]:
+              sys.exit(f"::error::{v} isn't newer than the newest release, {doc['newest_release']}: a release cut since supersedes it - cut another pre-release")
+          need = ["rootfs.squashfs", "rootfs.squashfs.sha256", "rootfs.verity", "uki-a.efi", "uki-b.efi",
+                  "controller-image.txt", "security.json", "sbom.cdx.json", "schematic-catalog.json"]
+          missing = [n for n in need if n not in doc["assets"]]
+          debs = [n for n in doc["assets"] if n.startswith("janusctl_") and n.endswith(".deb")]
+          if len(debs) < 2:
+              missing.append("janusctl_*.deb (amd64 and arm64)")
+          if missing:
+              sys.exit(f"::error::{v} lacks what a release publishes: {', '.join(missing)}")
+          unsummed = [n for n in debs + ["security.json"] if len(doc["assets"][n].get("sha256") or "") != 64]
+          if unsummed:
+              sys.exit(f"::error::GitHub gives no SHA-256 for {', '.join(unsummed)}")
+          print(f"{v}: a pre-release newer than {doc['newest_release']}, with every asset")
+          PY
+          [ -s ".github/release-notes/$VERSION.md" ] \
+            || { echo "::error::no release notes at .github/release-notes/$VERSION.md on main"; exit 1; }
+          echo "PREV_RELEASE=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["newest_release"])' build/promote/info.json)" >> "$GITHUB_ENV"
+
+      # The pre-release's own security.json and janusctl packages - what
+      # stable-release publishes again - checked against GitHub's SHA-256.
+      - name: Download its security.json and janusctl packages
+        run: |
+          set -euo pipefail
+          python3 - build/promote/info.json > build/promote/downloads.txt <<'PY'
+          import json, sys
+          doc = json.load(open(sys.argv[1]))
+          for name, a in sorted(doc["assets"].items()):
+              if name == "security.json":
+                  print(a["url"], a["sha256"], "build/security/security.json")
+              elif name.startswith("janusctl_") and name.endswith(".deb"):
+                  print(a["url"], a["sha256"], "build/deb/" + name)
+          PY
+          while read -r url sum out; do
+            curl -sSL --fail-with-body -o "$out" "$url"
+            echo "$sum  $out" | sha256sum -c -
+          done < build/promote/downloads.txt
+
+      # Its notes on main against what it fixes - since the newest
+      # release, as when it was cut (the check refuses an older one).
+      - name: Check the notes
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          severity=$(./hack/release-notes-check.sh build/security/security.json ".github/release-notes/$VERSION.md" "$PREV_RELEASE" "$VERSION")
+          echo "SECURITY_SEVERITY=$severity" >> "$GITHUB_ENV"
+
+      - name: Assemble the release
+        env:
+          VERSION: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse "refs/tags/$VERSION^{commit}")
+          ./hack/release-body.sh "$VERSION" "$PREV_RELEASE" release "$commit" build/release-notes.md
+          name="Janus $VERSION (Alpha)"
+          if [ "$SECURITY_SEVERITY" != none ]; then name="$name - 🔒 security update"; fi
+          python3 - "$name" build/release-notes.md > build/promote/patch.json <<'PY'
+          import json, sys
+          json.dump({"name": sys.argv[1], "body": open(sys.argv[2]).read(), "prerelease": False, "make_latest": "true"}, sys.stdout)
+          PY
+          {
+            echo "## $name"
+            echo
+            echo "Promotes the pre-release $VERSION (newer than $PREV_RELEASE) to the latest release."
+            echo
+            cat build/release-notes.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Promote it
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ inputs.version }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          id=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["id"])' build/promote/info.json)
+          curl -sS --fail-with-body -X PATCH -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/$id" --data @build/promote/patch.json -o build/promote/released.json
+          python3 -c 'import json, sys; r = json.load(open(sys.argv[1])); print(r["name"], "-", r["html_url"]); sys.exit(1 if r["prerelease"] else 0)' build/promote/released.json
+
+      - name: What a release gets
+        if: ${{ !inputs.dry_run }}
+        uses: ./.github/actions/stable-release
+        with:
+          version: ${{ inputs.version }}
+          apt-host-key: ${{ vars.APT_HOST_KEY }}
+          token: ${{ github.token }}
+          advisory-token: ${{ secrets.UPSTREAM_BOT_TOKEN }}
+
+      - name: Dry run
+        if: ${{ inputs.dry_run }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: echo "::notice::dry run - $VERSION checked and left a pre-release; the release it would become is in this run's summary"
