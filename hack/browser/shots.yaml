@@ -55,6 +55,12 @@ shots:
     wait: Recent events
     samples: 36
 
+  - id: node-traffic-flow
+    node: edge-par-1
+    page: '#/flow'
+    wait: app2
+    samples: 2
+
   - id: node-haproxy-config
     node: edge-par-1
     page: '#/haproxy/config'
