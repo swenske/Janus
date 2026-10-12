@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -289,9 +290,12 @@ var components = []*component{
 		url: func(v, _ string) string {
 			return "https://www.keepalived.org/software/keepalived-" + plain(v) + ".tar.gz"
 		},
-		// keepalived signs nothing.
-		crossChecks: []check{alpineAPKBUILD{path: "community/keepalived"}},
-		vulns:       []vulnSource{osvGit{repo: "https://github.com/acassen/keepalived", tag: "v%s"}},
+		// keepalived signs nothing, its tags neither.
+		crossChecks: []check{
+			alpineAPKBUILD{path: "community/keepalived"},
+			gitTagFiles{repo: "acassen/keepalived", tag: "v%s", generated: filepath.Join("extensions", "keepalived", "generated.txt")},
+		},
+		vulns: []vulnSource{osvGit{repo: "https://github.com/acassen/keepalived", tag: "v%s"}},
 	},
 	{
 		name: "qemu-guest-agent", title: "QEMU (qemu-ga, guest agent extension)", kind: kindExtension,

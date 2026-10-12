@@ -2,12 +2,13 @@
 #
 # Optional extension: keepalived - VRRP, a virtual IP shared by several
 # nodes with failover. Built from keepalived.org's release tarball,
-# checked against the sha256 pinned in versions.mk (keepalived doesn't
-# sign its releases: the pin matches both Debian's orig tarball and
-# Alpine's checksum), as a static musl binary: VRRP and its JSON status
-# dump only - no LVS/IPVS, no iptables/nftables integration (janusd owns
-# the ruleset), no SNMP/D-Bus/systemd, no VRRP authentication (dropped by
-# VRRPv3), hence no OpenSSL.
+# checked against the sha256 pinned in versions.mk (keepalived signs
+# neither its releases nor its tags: hack/upstream pinned it after
+# comparing it with the git tag on GitHub - docs/upstreams.md), its
+# autotools outputs regenerated (generated.txt), as a static musl binary:
+# VRRP and its JSON status dump only - no LVS/IPVS, no iptables/nftables
+# integration (janusd owns the ruleset), no SNMP/D-Bus/systemd, no VRRP
+# authentication (dropped by VRRPv3), hence no OpenSSL.
 #
 # Targets: export (amd64, natively on Alpine) and export-arm64 (cross-
 # compiled with pkgs/musl-toolchain, given as the "musltoolchain" build
@@ -18,12 +19,28 @@ ARG KEEPALIVED_VERSION
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS fetch
 ARG KEEPALIVED_VERSION
 ARG KEEPALIVED_SHA256
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates autoconf automake pkgconf \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 RUN curl -fsSLO "https://www.keepalived.org/software/keepalived-${KEEPALIVED_VERSION}.tar.gz" \
     && echo "${KEEPALIVED_SHA256}  keepalived-${KEEPALIVED_VERSION}.tar.gz" | sha256sum -c - \
     && tar xzf "keepalived-${KEEPALIVED_VERSION}.tar.gz" && mv "keepalived-${KEEPALIVED_VERSION}" keepalived
+# What only the tarball has, not the git tag - autotools' outputs, the
+# only such files hack/upstream let through (generated.txt) - is deleted
+# and generated again here: what gets compiled is the tag's own source.
+COPY generated.txt /src/generated.txt
+RUN <<'SH'
+set -eu
+cd /src/keepalived
+grep -v '^#' /src/generated.txt | grep . > /tmp/patterns
+find . \( -type f -o -type l \) | sed 's|^\./||' | while read -r f; do
+  while read -r p; do
+    # shellcheck disable=SC2254 # $p is a pattern
+    case "$f" in $p) rm -f "$f"; break ;; esac
+  done < /tmp/patterns
+done
+autoreconf -fi
+SH
 COPY --chmod=0755 <<'SCRIPT' /src/build.sh
 #!/bin/sh
 set -eu
