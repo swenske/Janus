@@ -35,7 +35,7 @@ flowchart TB
 
 | Piece | Built by | Notes |
 |---|---|---|
-| The kernel | `make kernel-build` (`kernel/`) | One per kernel track (`variants.mk`): `kernel/configs/janus_<track>_defconfig`, made with `make kernel-menuconfig KERNEL_TRACK=<track>`, never hand-edited, every track's saying what the others' say (`go test ./hack/kconfig`): KSPP hardening, SELinux, dm-verity, nf_tables, the drivers bare metal needs - no firmware files. `kernel/built-files-<track>-*.txt` list what each build reads, for the vulnerability checks |
+| The kernel | `make kernel-build` (`kernel/`) | One per kernel track (`variants.mk`): `kernel/configs/janus_<track>_defconfig`, made with `make kernel-menuconfig KERNEL_TRACK=<track>`, never hand-edited, every track's saying what the others' say (`go test ./hack/kconfig`): KSPP hardening, SELinux, dm-verity, nf_tables, the drivers bare metal needs - no firmware files. Janus's own patches (`kernel/patches/`, each one sent upstream) applied to every track. `kernel/built-files-<track>-*.txt` list what each build reads, for the vulnerability checks |
 | HAProxy | `make haproxy-build` (`pkgs/haproxy`) | One per LTS branch (`variants.mk`, `make haproxy-build-<branch>`), laid onto the base tree as a layer of its own. Static, against musl and [AWS-LC](../haproxy-config.md#tls-aws-lc) built from source, with its Prometheus exporter; no PCRE2, no Lua |
 | janusd, init, janus-acme | `make build`, statically | No C library anywhere in the base system: Go is static |
 | The SELinux policy | `make selinux-policy` (`selinux/`) | Monolithic, hand-written: a domain per daemon, every rule from a real denial |

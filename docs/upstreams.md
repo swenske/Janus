@@ -73,13 +73,21 @@ defaults. Each one is a component of its own, pinned on its own:
 component, or a component follows a variant `variants.mk` doesn't offer.
 A kernel track follows its kernel.org moniker from branch to branch by
 itself: the bump that crosses to a newer branch is proposed from that
-branch's x.y.2 on, and is more than a version number. Its pull request
-(labeled `kernel-branch`) also carries the track's config resolved for
-the new source (`make kernel-config-refresh`: new symbols get their
-defaults - review them) and the SELinux classes of the newest kernel
-(`make selinux-classes`); `go test ./hack/kconfig` fails until every
-track's config says what the default's says, or
+branch's x.y.2 on, and is more than a version number. Every kernel
+bump's pull request carries the track's config resolved for the new
+source (`make kernel-config-refresh`: new symbols get their defaults -
+review them; a stable release can backport one too) and the list of
+files it builds; the one crossing to a newer branch (labeled
+`kernel-branch`) also the SELinux classes of the newest kernel (`make
+selinux-classes`). `go test ./hack/kconfig` fails until every track's
+config says what the default's says, or
 `kernel/configs/parity-exceptions.txt` says why not.
+
+Every track is built with Janus's own patches applied
+([`kernel/patches/`](../kernel/patches/README.md)), each one sent
+upstream. A patch must apply exactly: a release that no longer takes one
+(or already carries it) fails to build, and its bump is listed under the
+status issue's **Not proposed** - drop or rebase the patch.
 
 Adding a HAProxy branch (a new LTS): its pins in `versions.mk` (`make
 upstream-bump` can't add a variable - write them by hand after checking
