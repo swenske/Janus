@@ -199,7 +199,10 @@ compose stop janus-controller >/dev/null 2>&1
 docker run --rm -v "$PROJECT"_janus-controller-data:/data busybox chown -R 0:0 /data
 compose up -d janus-controller >/dev/null 2>&1
 sleep 3
-compose logs --no-color janus-controller 2>/dev/null | grep -q "isn't writable by this process (uid 65532)" || fail "the Controller didn't refuse root's data with the chown command"
+# The logs through a here-string: grep -q leaving early would SIGPIPE
+# compose under pipefail, and a log that says it would still fail.
+logs=$(compose logs --no-color janus-controller 2>/dev/null)
+grep -q "isn't writable by this process (uid 65532)" <<<"$logs" || fail "the Controller didn't refuse root's data with the chown command"
 docker run --rm -v "$PROJECT"_janus-controller-data:/data busybox chown -R 65532:65532 /data
 compose up -d janus-controller >/dev/null 2>&1
 wait_for 60 "the Controller back on its data" controller_up
@@ -224,7 +227,8 @@ grep -qx 'TZ=Europe/Paris' "$WORK/.env" && grep -qx '# Janus Controller' "$WORK/
 [ "$(compose ps --format '{{.Image}}' janus-controller)" = "$B_IMAGE" ] || fail "running $(compose ps --format '{{.Image}}' janus-controller)"
 [ "$(identity)" = "$IDENTITY" ] || fail "the TLS identity changed - /data wasn't kept"
 [ "$(docker run --rm -v "$PROJECT"_janus-controller-data:/data busybox stat -c %u /data/nodes)" = 65532 ] || fail "the updater didn't give root's files to the Controller's user"
-compose logs --no-color janus-controller-updater 2>/dev/null | grep -q "given to user 65532:65532" || fail "the updater's log doesn't say it gave the data away"
+logs=$(compose logs --no-color janus-controller-updater 2>/dev/null)
+grep -q "given to user 65532:65532" <<<"$logs" || fail "the updater's log doesn't say it gave the data away"
 [ "$(field 'd["update_available"]' <<<"$S")" = False ] || fail "still offered an update: $S"
 echo "ok: $B runs, pinned to its digest; .env, data, identity and password kept"
 
