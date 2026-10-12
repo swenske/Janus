@@ -285,6 +285,9 @@ for (const shot of spec.shots) {
       const base = shot.node ? `/nodes/${ids[shot.node]}/` : '/'
       await page.goto(CONTROLLER + base + shot.page)
       await page.getByText(shot.wait, { exact: false }).first().waitFor({ timeout: 30000 })
+      // The splash (dashboard/frontend/src/shared/Splash.jsx) leaves on
+      // the browser's own time - the page's clock stays where it is.
+      await page.locator('.splash').waitFor({ state: 'detached', timeout: 15000 })
     }
     for (let k = 1; k <= (shot.samples || 0); k++) {
       await page.clock.runFor(5000)

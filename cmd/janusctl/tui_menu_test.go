@@ -101,6 +101,12 @@ func TestOptionsMenu(t *testing.T) {
 	if a.settings.Rounded || !a.palette.Square {
 		t.Errorf("Enter on Rounded corners squares them: %+v", a.palette)
 	}
+	// The splash, for the next start.
+	a.key(termui.KeyDown)
+	a.key(termui.KeyRight)
+	if a.settings.Splash {
+		t.Error("→ on Splash screen turns it off")
+	}
 	// The trend's defaults reach the fleet at once.
 	for range 2 {
 		a.key(termui.KeyDown)
@@ -115,7 +121,7 @@ func TestOptionsMenu(t *testing.T) {
 		t.Fatalf("Esc: menu %v, said %q", a.menu != nil, a.status.text)
 	}
 	saved, err := loadSettings(a.settingsPath)
-	if err != nil || saved != a.settings || saved.Theme != "whiteout" || saved.Colors != "256" || saved.Rounded {
+	if err != nil || saved != a.settings || saved.Theme != "whiteout" || saved.Colors != "256" || saved.Rounded || saved.Splash {
 		t.Errorf("saved %+v, %v - the app has %+v", saved, err, a.settings)
 	}
 	// Keys changed meanwhile are saved with the rest next time.

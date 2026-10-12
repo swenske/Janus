@@ -214,7 +214,7 @@ func (p Palette) glyphs() func(rune) rune {
 // console's font lacks, and what it draws instead. Graphs and
 // sparklines choose their own (GraphTTY).
 var consoleGlyphs = map[rune]rune{
-	'…': '~', '▸': '►', '●': '•',
+	'…': '~', '▸': '►', '●': '•', '━': '═',
 }
 
 func rowsEqual(a, b []Cell) bool {

@@ -31,11 +31,12 @@ type tuiSettings struct {
 	TrendScale  string `json:"trend_scale"`
 	ProcSort    string `json:"process_sort"`
 	ProcReverse bool   `json:"process_reverse"` // smallest first
+	Splash      bool   `json:"splash"`          // the logo while the first answers come in
 }
 
 func defaultSettings() tuiSettings {
 	return tuiSettings{Theme: termui.ThemeJanus.Name, Background: true, Colors: "auto", Graphs: "braille", Rounded: true,
-		Interval: "2s", TrendMetric: trendMetrics[0].key, TrendWindow: fmtWindow(trendWindows[trendDefaultWindow]), TrendScale: scaleLinear.key(), ProcSort: procSorts[0]}
+		Interval: "2s", TrendMetric: trendMetrics[0].key, TrendWindow: fmtWindow(trendWindows[trendDefaultWindow]), TrendScale: scaleLinear.key(), ProcSort: procSorts[0], Splash: true}
 }
 
 // settingsPath is tui.json beside the contexts' file.
@@ -263,6 +264,13 @@ var menuItems = []menuItem{
 		set:    func(a *app, v string) { a.settings.Rounded = v == "on"; a.applySettings() },
 		help: func(*app) []string {
 			return []string{"Round the boxes' corners (╭╮), or square them (┌┐)", "for a font without the rounded ones."}
+		}},
+	{name: "Splash screen",
+		values: func(*app) []string { return []string{"on", "off"} },
+		get:    func(a *app) string { return onOff(a.settings.Splash) },
+		set:    func(a *app, v string) { a.settings.Splash = v == "on" },
+		help: func(*app) []string {
+			return []string{"Show Janus's logo while the nodes first answer,", "for a second at least - any key skips it.", "", "Seen at the next start."}
 		}},
 	{name: "Refresh",
 		values: func(*app) []string {

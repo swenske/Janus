@@ -142,11 +142,12 @@ type serverRow struct {
 }
 
 // fetchGroup runs the calls of a round in parallel and keeps each
-// one's error by name.
+// one's error by name; done, when set, hears of each call that ended.
 type fetchGroup struct {
 	wg   sync.WaitGroup
 	mu   sync.Mutex
 	errs map[string]string
+	done func(name string)
 }
 
 func (g *fetchGroup) run(name string, fn func() error) {
@@ -158,19 +159,34 @@ func (g *fetchGroup) run(name string, fn func() error) {
 			g.errs[name] = status.Convert(err).Message()
 			g.mu.Unlock()
 		}
+		if g.done != nil {
+			g.done(name)
+		}
 	}()
+}
+
+// The calls in a round: fast ones, those a node's screen adds, slow ones.
+const fastCalls, fullCalls, slowCalls = 6, 3, 9
+
+// firstCalls is how many calls a sampler's first round makes: the slow
+// ones are always due then.
+func firstCalls(full bool) int {
+	if full {
+		return fastCalls + fullCalls + slowCalls
+	}
+	return fastCalls + slowCalls
 }
 
 // fetchSample is one fast round: the six calls the Controller's chart
 // polls, plus processes, services and the stats table when full.
-func fetchSample(ctx context.Context, conn *grpc.ClientConn, full bool) *sample {
+func fetchSample(ctx context.Context, conn *grpc.ClientConn, full bool, done func(string)) *sample {
 	ctx, cancel := context.WithTimeout(ctx, tuiFetchTimeout)
 	defer cancel()
 	sys := janusv1alpha1.NewSystemServiceClient(conn)
 	hap := janusv1alpha1.NewHAProxyServiceClient(conn)
 	empty := &emptypb.Empty{}
 	s := &sample{at: time.Now(), errs: map[string]string{}}
-	g := &fetchGroup{errs: s.errs}
+	g := &fetchGroup{errs: s.errs, done: done}
 	g.run("system", func() (err error) { s.sys, err = sys.SystemStat(ctx, empty); return })
 	g.run("memory", func() (err error) { s.mem, err = sys.Memory(ctx, empty); return })
 	g.run("load", func() (err error) { s.load, err = sys.LoadAvg(ctx, empty); return })
@@ -196,14 +212,14 @@ func fetchSample(ctx context.Context, conn *grpc.ClientConn, full bool) *sample 
 // fetchSlow asks what changes rarely. A module the image doesn't have
 // answers MODULE_STATE_NOT_ENABLED (or FailedPrecondition): not an
 // error.
-func fetchSlow(ctx context.Context, conn *grpc.ClientConn) slowInfo {
+func fetchSlow(ctx context.Context, conn *grpc.ClientConn, done func(string)) slowInfo {
 	ctx, cancel := context.WithTimeout(ctx, tuiFetchTimeout)
 	defer cancel()
 	sys := janusv1alpha1.NewSystemServiceClient(conn)
 	net := janusv1alpha1.NewNetworkServiceClient(conn)
 	empty := &emptypb.Empty{}
 	out := slowInfo{at: time.Now(), errs: map[string]string{}}
-	g := &fetchGroup{errs: out.errs}
+	g := &fetchGroup{errs: out.errs, done: done}
 	module := func(err error) error {
 		if status.Code(err) == codes.FailedPrecondition {
 			return nil
@@ -451,6 +467,12 @@ type sampler struct {
 	last    point
 	rounds  int
 	history *ring.Ring[point]
+
+	// The first round's progress, for the splash: calls ended, calls
+	// made, the last one to end.
+	firstDone  atomic.Int64
+	firstTotal atomic.Int64
+	firstLast  atomic.Value // string
 }
 
 func newSampler(t tuiTarget, wake chan<- struct{}, interval *atomic.Int64, paused *atomic.Bool) *sampler {
@@ -522,14 +544,24 @@ func (s *sampler) round(ctx context.Context) {
 	full := s.full.Load()
 	s.mu.Lock()
 	slowDue := s.rounds%tuiSlowEvery == 0 || s.slow.at.IsZero()
+	first := s.rounds == 0
 	s.mu.Unlock()
+	var done func(string)
+	if first {
+		s.firstTotal.Store(int64(firstCalls(full)))
+		done = func(name string) {
+			s.firstDone.Add(1)
+			s.firstLast.Store(name)
+			s.wakeUp()
+		}
+	}
 	var slow slowInfo
 	var wg sync.WaitGroup
 	if slowDue {
 		wg.Add(1)
-		go func() { defer wg.Done(); slow = fetchSlow(ctx, conn) }()
+		go func() { defer wg.Done(); slow = fetchSlow(ctx, conn, done) }()
 	}
-	cur := fetchSample(ctx, conn, full)
+	cur := fetchSample(ctx, conn, full, done)
 	wg.Wait()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -556,6 +588,25 @@ func (s *sampler) wakeUp() {
 	case s.wake <- struct{}{}:
 	default:
 	}
+}
+
+// firstProgress is how far the first round is: calls ended out of
+// calls made, the last call to end, and whether the round is over -
+// answered or not (a failed dial ends it at once).
+func (s *sampler) firstProgress() (done, total int, last string, finished bool) {
+	s.mu.Lock()
+	finished = s.rounds > 0
+	s.mu.Unlock()
+	total = int(s.firstTotal.Load())
+	if total == 0 { // not started yet
+		total = firstCalls(s.full.Load())
+	}
+	done = min(int(s.firstDone.Load()), total)
+	if finished {
+		done = total
+	}
+	last, _ = s.firstLast.Load().(string)
+	return done, total, last, finished
 }
 
 // view is a copy for drawing.
