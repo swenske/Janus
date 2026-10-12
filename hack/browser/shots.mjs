@@ -13,7 +13,8 @@
 //   days after;
 // - what a container shares with its host - CPUs, memory, kernel, boot
 //   time - is shown as shots.yaml's small VM, and the charts' counters
-//   are a fixed series, sampled every 5 s of the page's clock;
+//   are a fixed series, sampled every 5 s of the page's clock - HAProxy's
+//   own (show stat) too, shared out between web.cfg's proxies;
 // - fingerprints and token IDs, new at every setup, are fixed ones.
 // What might still change can be left out of the comparison (a shot's
 // `ignore`); images.mjs says what the comparison tolerates.
@@ -193,6 +194,30 @@ function metrics(m, k) {
   return m
 }
 
+// HAProxy's counters per proxy and server: the same series, all of it
+// through web.cfg's frontend web and backend app, app1 and app2 taking
+// about half each - the Traffic flow's pulses.
+const SHARES = { 'web/FRONTEND': 1, 'app/BACKEND': 1, 'app/app1': 0.53, 'app/app2': 0.47 }
+function stats(t, k) {
+  const s = SERIES[Math.min(k, SERIES.length - 1)]
+  const col = Object.fromEntries((t.columns || []).map((c, i) => [c, i]))
+  for (const r of t.rows || []) {
+    const share = SHARES[`${r[col.pxname]}/${r[col.svname]}`]
+    if (!share) continue
+    const set = (c, v) => col[c] != null && (r[col[c]] = String(Math.round(v)))
+    set('bin', s.rx * share)
+    set('bout', s.tx * share)
+    set('scur', s.conns * share)
+    set('smax', 96 * share)
+    set('stot', (s.reqs / 3) * share)
+    set('rate', 55 * share)
+    set('rate_max', 140 * share)
+    if (r[col.svname] === 'FRONTEND') set('req_rate', 160)
+    set('hrsp_2xx', s.reqs * share)
+  }
+  return t
+}
+
 // A Server-Sent Events stream: what the real one sends in its first
 // second, normalized, then the stream ends - with a day's retry, so the
 // page doesn't ask again.
@@ -235,6 +260,7 @@ async function newContext(browser, theme, size) {
   await ctx.clock.install({ time: T0 - 1000 })
   await ctx.clock.pauseAt(T0)
   ctx.metricsServed = 0
+  ctx.statsServed = 0
   await ctx.route(/\/api\//, async (route) => {
     const req = route.request()
     const path = new URL(req.url()).pathname
@@ -250,6 +276,7 @@ async function newContext(browser, theme, size) {
     if (!(resp.headers()['content-type'] || '').includes('application/json')) return route.fulfill({ response: resp })
     let body = normalize(await resp.json())
     if (path.endsWith('/api/metrics')) body = metrics(body, ctx.metricsServed++)
+    if (path.endsWith('/api/haproxy/stats')) body = stats(body, ctx.statsServed++)
     if (/\/api\/(enroll-)?tokens$/.test(path)) for (const t of body || []) t.id = fakeHex(`token/${t.name}`).slice(0, t.id.length)
     return route.fulfill({ response: resp, json: body })
   })

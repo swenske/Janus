@@ -15,6 +15,16 @@ drain, maintenance - at runtime:
 
 ![The Backends tab: the app backend's two servers, app1 and app2, up, each with Ready, Drain and Maint](assets/screenshots/node-haproxy-backends-light.webp)
 
+**Monitoring › Traffic flow** draws what the configuration does, live:
+the node's interfaces, HAProxy, each frontend linked to the backends its
+`default_backend` and `use_backend` rules send to - a map's values too,
+when `use_backend` reads one - and each backend's servers, with their
+traffic, sessions and state. Select a frontend to see the rules - a
+map's keys included - behind each of its links, or a server to set its
+state:
+
+![The Traffic flow: eth0 and HAProxy, web.cfg's frontends web and prometheus, web linked to the app backend and its servers app1 and app2, the links carrying traffic highlighted](assets/screenshots/node-traffic-flow-light.webp)
+
 ## The global section
 
 | On a distribution | On a Janus node | Why |
