@@ -4,6 +4,9 @@
 # - the Terraform configurations: OpenTofu formats and validates them
 #   against the provider built from this tree;
 # - the Prometheus configuration and its alert rules: promtool;
+# - the Grafana dashboard's queries (grafana/janus-nodes.json): promtool
+#   parses each one as a recording rule, the dashboard's variables
+#   replaced;
 # - the Controller's compose.yaml: docker compose.
 # The NoCloud and network JSON are go test's (internal/nocloud,
 # internal/netconfig); haproxy.cfg the node's own HAProxy's (make
@@ -32,6 +35,15 @@ done
 
 docker build -q -t janus-promtool hack/promtool >/dev/null
 docker run --rm -v "$PWD/examples/prometheus:/prometheus:ro" janus-promtool check config /prometheus/prometheus.yml
+# promtool runs as nobody: a directory it can read.
+install -d -m 755 "$work/dashboard"
+jq '{groups: [{name: "dashboard", rules: [
+      [.panels[], .panels[].panels[]?, .annotations.list[]] | .[] | (.targets[]?.expr, .expr?) | select(.)
+      | gsub("\\$__rate_interval|\\$__interval"; "1m") | gsub("\\$__range"; "1h")
+      | gsub("\\$job"; "janus") | gsub("\\$instance"; ".*")
+    ] | to_entries | map({record: "dashboard:query:\(.key)", expr: .value})}]}' \
+  grafana/janus-nodes.json >"$work/dashboard/rules.json"
+docker run --rm -v "$work/dashboard:/dashboard:ro" janus-promtool check rules /dashboard/rules.json
 
 docker compose -f examples/compose/compose.yaml config -q
-echo "examples-check: the Terraform, Prometheus and Compose examples are valid"
+echo "examples-check: the Terraform, Prometheus and Compose examples and the Grafana dashboard's queries are valid"
