@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 #
 # Fetches and verifies the pinned kernel source of a track (see
-# ../versions.mk, ../variants.mk), provides a "config" stage used
+# ../versions.mk, ../variants.mk), applies Janus's own patches
+# (patches/README.md), provides a "config" stage used
 # interactively by `make kernel-menuconfig` (see ../Makefile) to run
 # `make menuconfig`, a "build" stage that compiles bzImage from the
 # track's configs/janus_<track>_defconfig, and an "export" stage
@@ -36,7 +37,7 @@ FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee
 ARG KERNEL_VERSION
 ARG KERNEL_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates xz-utils \
+    curl ca-certificates xz-utils patch \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 RUN test -n "${KERNEL_SHA256}" \
@@ -44,6 +45,16 @@ RUN test -n "${KERNEL_SHA256}" \
     && curl -fsSLO "https://cdn.kernel.org/pub/linux/kernel/v${major}.x/linux-${KERNEL_VERSION}.tar.xz" \
     && echo "${KERNEL_SHA256}  linux-${KERNEL_VERSION}.tar.xz" | sha256sum -c - \
     && tar xf linux-${KERNEL_VERSION}.tar.xz
+# Janus's own patches (patches/README.md), in order, for every track and
+# architecture: each must apply exactly (no fuzz, not already applied) -
+# a release that already carries one fails the build, the cue to drop it.
+COPY patches/ /patches/
+RUN cd linux-${KERNEL_VERSION} \
+    && for p in /patches/*.patch; do \
+         [ -e "$p" ] || continue; \
+         echo "applying ${p##*/}"; \
+         patch -p1 --forward --fuzz=0 --no-backup-if-mismatch < "$p" || exit 1; \
+       done
 
 FROM fetch AS config
 ARG KERNEL_VERSION
