@@ -1,0 +1,3834 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "enable": true,
+        "expr": "changes(janus_daemon_start_time_seconds{job=\"$job\", instance=~\"$instance\"}[2m]) > 0",
+        "iconColor": "blue",
+        "name": "janusd started",
+        "step": "1m",
+        "textFormat": "{{instance}}",
+        "titleFormat": "janusd started"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "enable": true,
+        "expr": "changes(janus_haproxy_config_last_apply_timestamp_seconds{job=\"$job\", instance=~\"$instance\"}[2m]) > 0",
+        "iconColor": "green",
+        "name": "HAProxy configuration applied",
+        "step": "1m",
+        "textFormat": "{{instance}}",
+        "titleFormat": "HAProxy configuration applied"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "enable": true,
+        "expr": "increase(janus_haproxy_unexpected_exits_total{job=\"$job\", instance=~\"$instance\"}[2m]) > 0",
+        "iconColor": "red",
+        "name": "HAProxy crashed",
+        "step": "1m",
+        "textFormat": "{{instance}}",
+        "titleFormat": "HAProxy crashed"
+      }
+    ]
+  },
+  "description": "Janus nodes through the Janus exporter every node serves (:10056) - https://janus.sw-servers.net/docs/metrics.md",
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [
+    {
+      "icon": "doc",
+      "targetBlank": true,
+      "title": "Janus exporter metrics",
+      "tooltip": "What each metric means",
+      "type": "link",
+      "url": "https://janus.sw-servers.net/docs/metrics.md"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Janus exporters answering Prometheus, and those that don't.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count(up{job=\"$job\", instance=~\"$instance\"} == 1) or vector(0)",
+          "instant": true,
+          "legendFormat": "answering",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count(up{job=\"$job\", instance=~\"$instance\"} == 0) or vector(0)",
+          "instant": true,
+          "legendFormat": "silent",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Nodes",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Nodes whose HAProxy answers on its stats socket (janus_haproxy_up), and those whose doesn't.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count(janus_haproxy_up{job=\"$job\", instance=~\"$instance\"} == 1) or vector(0)",
+          "instant": true,
+          "legendFormat": "serving",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count(janus_haproxy_up{job=\"$job\", instance=~\"$instance\"} == 0) or vector(0)",
+          "instant": true,
+          "legendFormat": "down",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "HAProxy",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The soonest expiry among every certificate the selected nodes report: their API's CA and server certificates, and every certificate HAProxy has loaded. Orange under 14 days (the JanusCertificateExpiresSoon alert), red under 7.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 604800
+              },
+              {
+                "color": "green",
+                "value": 1209600
+              }
+            ]
+          },
+          "unit": "dtdurations"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "min(janus_certificate_expiry_timestamp_seconds{job=\"$job\", instance=~\"$instance\"}) - time()",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Next certificate expiry",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Nodes with an upgrade waiting for its health confirmation, a network configuration or a firewall ruleset on trial: each reverts unless confirmed.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(janus_upgrade_pending_confirmation{job=\"$job\", instance=~\"$instance\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "upgrade",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(janus_network_trial_pending{job=\"$job\", instance=~\"$instance\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "network",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(janus_firewall_trial_pending{job=\"$job\", instance=~\"$instance\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "firewall",
+          "range": false,
+          "refId": "C"
+        }
+      ],
+      "title": "Awaiting confirmation",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Nodes not enforcing SELinux, and the denials their kernels logged over the dashboard's time range - there should be none.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count(janus_selinux_enforcing{job=\"$job\", instance=~\"$instance\"} == 0) or vector(0)",
+          "instant": true,
+          "legendFormat": "permissive",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "round(sum(increase(janus_selinux_denials_total{job=\"$job\", instance=~\"$instance\"}[$__range]))) or vector(0)",
+          "instant": true,
+          "legendFormat": "denials",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "SELinux",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Processes the kernel killed for lack of memory over the time range, and errors the kernel recorded on STATE (PKI, configuration).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "round(sum(increase(janus_kernel_oom_kills_total{job=\"$job\", instance=~\"$instance\"}[$__range]))) or vector(0)",
+          "instant": true,
+          "legendFormat": "OOM kills",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(janus_state_filesystem_errors{job=\"$job\", instance=~\"$instance\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "STATE errors",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Kernel and STATE",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "One line per node: what it runs and how it is. Janus = the release, Schematic = the [image schematic](https://janus.sw-servers.net/docs/image-factory.md), Slot = the A/B slot it booted, Boot = seconds from the kernel's start to the API listening (firmware not counted), Clock offset = measured at the last NTP synchronization.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "pattern": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*$",
+                      "result": {
+                        "index": 0,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  },
+                  {
+                    "options": {
+                      "pattern": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+$",
+                      "result": {
+                        "index": 1,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Exporter"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "down"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "up"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "HAProxy"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Slot"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "HAProxy state"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "down"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "serving"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "janusd started"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Boot"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Config applied"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "noValue",
+                "value": "never"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NTP"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "not synced"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "synced"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Clock offset"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SELinux"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "permissive"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "enforcing"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Node"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (up{job=\"$job\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, version) (janus_build_info{job=\"$job\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, schematic) (label_replace(janus_build_info{job=\"$job\", instance=~\"$instance\"}, \"schematic\", \"$1\", \"schematic\", \"(.{8}).*\"))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, haproxy) (label_replace(janus_component_info{job=\"$job\", instance=~\"$instance\", component=\"haproxy\"}, \"haproxy\", \"$1\", \"version\", \"(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, kernel) (label_replace(label_join(janus_component_info{job=\"$job\", instance=~\"$instance\", component=\"kernel\"}, \"kernel\", \" (\", \"version\", \"variant\"), \"kernel\", \"$1)\", \"kernel\", \"(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, slot) (janus_boot_info{job=\"$job\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_haproxy_up{job=\"$job\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_daemon_start_time_seconds{job=\"$job\", instance=~\"$instance\"}) * 1000",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_boot_stage_seconds{job=\"$job\", instance=~\"$instance\", stage=\"api\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "I"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_haproxy_config_last_apply_timestamp_seconds{job=\"$job\", instance=~\"$instance\"}) * 1000",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "J"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_time_synchronized{job=\"$job\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "K"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_time_offset_seconds{job=\"$job\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "L"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_selinux_enforcing{job=\"$job\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "M"
+        }
+      ],
+      "title": "Fleet",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #B": true,
+              "Value #C": true,
+              "Value #D": true,
+              "Value #E": true,
+              "Value #F": true
+            },
+            "indexByName": {
+              "Value #A": 1,
+              "Value #G": 7,
+              "Value #H": 8,
+              "Value #I": 9,
+              "Value #J": 10,
+              "Value #K": 11,
+              "Value #L": 12,
+              "Value #M": 13,
+              "haproxy": 4,
+              "instance": 0,
+              "kernel": 5,
+              "schematic": 3,
+              "slot": 6,
+              "version": 2
+            },
+            "renameByName": {
+              "Value #A": "Exporter",
+              "Value #G": "HAProxy state",
+              "Value #H": "janusd started",
+              "Value #I": "Boot",
+              "Value #J": "Config applied",
+              "Value #K": "NTP",
+              "Value #L": "Clock offset",
+              "Value #M": "SELinux",
+              "haproxy": "HAProxy",
+              "instance": "Node",
+              "kernel": "Kernel",
+              "schematic": "Schematic",
+              "slot": "Slot",
+              "version": "Janus"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 8,
+      "panels": [],
+      "title": "HAProxy",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Whether each node's HAProxy answers on its stats socket (janus_haproxy_up). \"no answer\": the node's exporter itself didn't answer.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 75,
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "purple",
+                  "index": 2,
+                  "text": "no answer"
+                },
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "down"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "serving"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
+      "id": 9,
+      "maxDataPoints": 500,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_haproxy_up{job=\"$job\", instance=~\"$instance\"}) or (max by (instance) (up{job=\"$job\", instance=~\"$instance\"}) - 1)",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "HAProxy",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        }
+      ],
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Seamless reloads, HAProxy processes that exited without being stopped or replaced (crashes), and configurations applied through the API, accepted or rejected - per interval. Nothing drawn: nothing happened.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "axisSoftMax": 1,
+            "barAlignment": -1,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "Z"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*crashes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*configuration rejected"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 11
+      },
+      "id": 10,
+      "interval": "1m",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "(sum by (instance) (janus_haproxy_reloads_total{job=\"$job\", instance=~\"$instance\"}) - sum by (instance) (janus_haproxy_reloads_total{job=\"$job\", instance=~\"$instance\"} offset $__interval)) > 0",
+          "instant": false,
+          "legendFormat": "{{instance}} · reloads",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "(sum by (instance) (janus_haproxy_unexpected_exits_total{job=\"$job\", instance=~\"$instance\"}) - sum by (instance) (janus_haproxy_unexpected_exits_total{job=\"$job\", instance=~\"$instance\"} offset $__interval)) > 0",
+          "instant": false,
+          "legendFormat": "{{instance}} · crashes",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "(sum by (instance, result) (janus_haproxy_config_applies_total{job=\"$job\", instance=~\"$instance\"}) - sum by (instance, result) (janus_haproxy_config_applies_total{job=\"$job\", instance=~\"$instance\"} offset $__interval)) > 0",
+          "instant": false,
+          "legendFormat": "{{instance}} · configuration {{result}}",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "0 * count(up{job=\"$job\", instance=~\"$instance\"})",
+          "instant": false,
+          "legendFormat": "baseline",
+          "range": true,
+          "refId": "Z"
+        }
+      ],
+      "title": "Reloads, crashes and configurations",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "id": 11,
+      "panels": [],
+      "title": "Certificates",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Every certificate the nodes report: their API's CA and server certificates (source api), and every certificate HAProxy has loaded, by file or store name (source haproxy). Orange under 14 days, red under 7.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "pattern": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*$",
+                      "result": {
+                        "index": 0,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  },
+                  {
+                    "options": {
+                      "pattern": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+$",
+                      "result": {
+                        "index": 1,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Source"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Expires"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Expires in"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 220
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 604800
+                    },
+                    {
+                      "color": "green",
+                      "value": 1209600
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 12,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Expires in"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, source, certificate, cn) (janus_certificate_expiry_timestamp_seconds{job=\"$job\", instance=~\"$instance\"}) - time()",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, source, certificate, cn) (janus_certificate_expiry_timestamp_seconds{job=\"$job\", instance=~\"$instance\"}) * 1000",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Certificates",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "Value #A": 5,
+              "Value #B": 4,
+              "certificate": 2,
+              "cn": 3,
+              "instance": 0,
+              "source": 1
+            },
+            "renameByName": {
+              "Value #A": "Expires in",
+              "Value #B": "Expires",
+              "certificate": "Certificate",
+              "cn": "Common name",
+              "instance": "Node",
+              "source": "Source"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Certificates the [letsencrypt extension](https://janus.sw-servers.net/docs/letsencrypt.md) obtains: their state, when each was last obtained and becomes due for renewal, and failed attempts in a row (orange from 1, red from 3).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "pattern": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*$",
+                      "result": {
+                        "index": 0,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  },
+                  {
+                    "options": {
+                      "pattern": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+$",
+                      "result": {
+                        "index": 1,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "State"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "due": {
+                        "color": "orange",
+                        "index": 1,
+                        "text": "due for renewal"
+                      },
+                      "expired": {
+                        "color": "red",
+                        "index": 3,
+                        "text": "expired"
+                      },
+                      "pending": {
+                        "color": "orange",
+                        "index": 2,
+                        "text": "not obtained yet"
+                      },
+                      "valid": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "valid"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Obtained"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "noValue",
+                "value": "never"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Renewal"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failures"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 3
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 18,
+        "x": 0,
+        "y": 27
+      },
+      "id": 13,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Node"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, name, state) (janus_acme_certificate_state{job=\"$job\", instance=~\"$instance\"} == 1)",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, name) (janus_acme_certificate_last_success_timestamp_seconds{job=\"$job\", instance=~\"$instance\"} > 0) * 1000",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, name) (janus_acme_certificate_renew_timestamp_seconds{job=\"$job\", instance=~\"$instance\"} > 0) * 1000",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, name) (janus_acme_certificate_failures{job=\"$job\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D"
+        }
+      ],
+      "title": "Let's Encrypt",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #A": true
+            },
+            "indexByName": {
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "instance": 0,
+              "name": 1,
+              "state": 2
+            },
+            "renameByName": {
+              "Value #B": "Obtained",
+              "Value #C": "Renewal",
+              "Value #D": "Failures",
+              "instance": "Node",
+              "name": "Certificate",
+              "state": "State"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Whether the ACME CA knows the account of each node that has Let's Encrypt certificates configured.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "not registered"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "registered"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 27
+      },
+      "id": 14,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_acme_account_registered{job=\"$job\", instance=~\"$instance\"}) and on (instance) count by (instance) (janus_acme_certificate_state{job=\"$job\", instance=~\"$instance\"})",
+          "instant": true,
+          "legendFormat": "{{instance}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "ACME account",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 15,
+      "panels": [],
+      "title": "Extension services",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each extension service janusd supervises ([image factory](https://janus.sw-servers.net/docs/image-factory.md)): running, waiting for the files it needs (its configuration - normal until it is configured), restarting after it exited (backoff), or stopped on purpose.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 75,
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "running"
+                },
+                "2": {
+                  "color": "blue",
+                  "index": 1,
+                  "text": "waiting for its configuration"
+                },
+                "3": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "restarting"
+                },
+                "4": {
+                  "color": "text",
+                  "index": 3,
+                  "text": "stopped"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "id": 16,
+      "maxDataPoints": 500,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (instance, service) (janus_service_state{job=\"$job\", instance=~\"$instance\", state=\"running\"}) + 2 * sum by (instance, service) (janus_service_state{job=\"$job\", instance=~\"$instance\", state=\"waiting\"}) + 3 * sum by (instance, service) (janus_service_state{job=\"$job\", instance=~\"$instance\", state=\"restarting\"}) + 4 * sum by (instance, service) (janus_service_state{job=\"$job\", instance=~\"$instance\", state=\"stopped\"})",
+          "instant": false,
+          "legendFormat": "{{instance}} · {{service}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Services",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        }
+      ],
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The extensions built into each node's image ([image factory](https://janus.sw-servers.net/docs/image-factory.md)), and their versions.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "pattern": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*$",
+                      "result": {
+                        "index": 0,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  },
+                  {
+                    "options": {
+                      "pattern": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+$",
+                      "result": {
+                        "index": 1,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 17,
+        "x": 0,
+        "y": 43
+      },
+      "id": 17,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Node"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, extension, version) (janus_extension_info{job=\"$job\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Extensions",
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "extension",
+            "emptyValue": "empty",
+            "rowField": "instance",
+            "valueField": "version"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "bird": 1,
+              "consul": 2,
+              "instance\\extension": 0,
+              "keepalived": 3,
+              "letsencrypt": 4,
+              "nftables": 5,
+              "prometheus-node-exporter": 6,
+              "qemu-guest-agent": 7
+            },
+            "renameByName": {
+              "instance\\extension": "Node"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Times each extension service exited and was restarted, per interval. Nothing drawn: no restart.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "axisSoftMax": 1,
+            "barAlignment": -1,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "Z"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 7,
+        "x": 17,
+        "y": 43
+      },
+      "id": 18,
+      "interval": "1m",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "(sum by (instance, service) (janus_service_restarts_total{job=\"$job\", instance=~\"$instance\"}) - sum by (instance, service) (janus_service_restarts_total{job=\"$job\", instance=~\"$instance\"} offset $__interval)) > 0",
+          "instant": false,
+          "legendFormat": "{{instance}} · {{service}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "0 * count(up{job=\"$job\", instance=~\"$instance\"})",
+          "instant": false,
+          "legendFormat": "baseline",
+          "range": true,
+          "refId": "Z"
+        }
+      ],
+      "title": "Service restarts",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "id": 19,
+      "panels": [],
+      "title": "Node",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "An upgrade waiting for its health confirmation, a network configuration or a firewall ruleset on trial: each reverts unless confirmed.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 75,
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "transparent",
+                  "index": 0,
+                  "text": "nothing pending"
+                },
+                "1": {
+                  "color": "orange",
+                  "index": 1,
+                  "text": "awaiting confirmation"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 50
+      },
+      "id": 20,
+      "maxDataPoints": 500,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_upgrade_pending_confirmation{job=\"$job\", instance=~\"$instance\"})",
+          "instant": false,
+          "legendFormat": "{{instance}} · upgrade",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_network_trial_pending{job=\"$job\", instance=~\"$instance\"})",
+          "instant": false,
+          "legendFormat": "{{instance}} · network",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_firewall_trial_pending{job=\"$job\", instance=~\"$instance\"})",
+          "instant": false,
+          "legendFormat": "{{instance}} · firewall",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Awaiting confirmation",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        }
+      ],
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Seconds after the kernel started at which each stage of the last boot completed: the kernel handed over to init, init started janusd, HAProxy served, the API listened. The firmware's own time comes before and isn't counted.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "pattern": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*$",
+                      "result": {
+                        "index": 0,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  },
+                  {
+                    "options": {
+                      "pattern": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+$",
+                      "result": {
+                        "index": 1,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 50
+      },
+      "id": 21,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Node"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, stage) (janus_boot_stage_seconds{job=\"$job\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Last boot",
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "stage",
+            "rowField": "instance",
+            "valueField": "Value"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "api": 4,
+              "haproxy": 3,
+              "init": 2,
+              "instance\\stage": 0,
+              "kernel": 1
+            },
+            "renameByName": {
+              "api": "API listening",
+              "haproxy": "HAProxy served",
+              "init": "janusd started",
+              "instance\\stage": "Node",
+              "kernel": "kernel → init"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The offset janusd's NTP client measured at its last synchronization.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 57
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (janus_time_offset_seconds{job=\"$job\", instance=~\"$instance\"})",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Clock offset",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Over an hour (the dashed line) the JanusClockNotSynchronized alert fires.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 3600
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 57
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "time() - max by (instance) (janus_time_last_sync_timestamp_seconds{job=\"$job\", instance=~\"$instance\"})",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Time since the last NTP synchronization",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Calls to each node's gRPC API per second, refused ones included.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 64
+      },
+      "id": 24,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (instance) (rate(janus_api_requests_total{job=\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "API calls",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Calls that didn't end OK, by gRPC code. PermissionDenied and Unauthenticated: callers refused (the JanusAPIRefusals alert); NotFound, FailedPrecondition... are ordinary answers. Nothing drawn: no error.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "axisSoftMax": 0.01,
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "Z"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 64
+      },
+      "id": 25,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (instance, code) (rate(janus_api_requests_total{job=\"$job\", instance=~\"$instance\", code!=\"OK\"}[$__rate_interval])) > 0",
+          "instant": false,
+          "legendFormat": "{{instance}} · {{code}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "0 * count(up{job=\"$job\", instance=~\"$instance\"})",
+          "instant": false,
+          "legendFormat": "baseline",
+          "range": true,
+          "refId": "Z"
+        }
+      ],
+      "title": "API errors",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+            "renamePattern": "$1$2"
+          }
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 71
+      },
+      "id": 26,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Each VRRP instance's state ([VRRP](https://janus.sw-servers.net/docs/vrrp.md), the keepalived extension). The instance's name is the exported_instance label: Prometheus renames the exporter's instance label.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "fixedColor": "text",
+                "mode": "fixed"
+              },
+              "custom": {
+                "fillOpacity": 75,
+                "insertNulls": false,
+                "lineWidth": 0,
+                "spanNulls": false
+              },
+              "mappings": [
+                {
+                  "options": {
+                    "1": {
+                      "color": "green",
+                      "index": 0,
+                      "text": "MASTER"
+                    },
+                    "2": {
+                      "color": "blue",
+                      "index": 1,
+                      "text": "BACKUP"
+                    },
+                    "3": {
+                      "color": "red",
+                      "index": 2,
+                      "text": "FAULT"
+                    },
+                    "4": {
+                      "color": "orange",
+                      "index": 3,
+                      "text": "INIT"
+                    },
+                    "5": {
+                      "color": "text",
+                      "index": 4,
+                      "text": "STOP"
+                    }
+                  },
+                  "type": "value"
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 0,
+            "y": 72
+          },
+          "id": 27,
+          "maxDataPoints": 500,
+          "options": {
+            "alignValue": "left",
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "mergeValues": true,
+            "rowHeight": 0.8,
+            "showValue": "auto",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (instance, exported_instance) (janus_vrrp_instance_state{job=\"$job\", instance=~\"$instance\", state=\"MASTER\"}) + 2 * sum by (instance, exported_instance) (janus_vrrp_instance_state{job=\"$job\", instance=~\"$instance\", state=\"BACKUP\"}) + 3 * sum by (instance, exported_instance) (janus_vrrp_instance_state{job=\"$job\", instance=~\"$instance\", state=\"FAULT\"}) + 4 * sum by (instance, exported_instance) (janus_vrrp_instance_state{job=\"$job\", instance=~\"$instance\", state=\"INIT\"}) + 5 * sum by (instance, exported_instance) (janus_vrrp_instance_state{job=\"$job\", instance=~\"$instance\", state=\"STOP\"})",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{exported_instance}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "VRRP instances",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "state-timeline"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Each VRRP instance's priority after tracking (a failed track_file - HAProxy not serving - lowers it).",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisPlacement": "auto",
+                "barAlignment": -1,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 12,
+            "y": 72
+          },
+          "id": 28,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "max by (instance, exported_instance) (janus_vrrp_instance_effective_priority{job=\"$job\", instance=~\"$instance\"})",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{exported_instance}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "VRRP priority",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Each BGP session ([BGP](https://janus.sw-servers.net/docs/bgp.md), the bird extension), and each haproxy_* protocol janusd holds down while HAProxy doesn't answer.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "fixedColor": "text",
+                "mode": "fixed"
+              },
+              "custom": {
+                "fillOpacity": 75,
+                "insertNulls": false,
+                "lineWidth": 0,
+                "spanNulls": false
+              },
+              "mappings": [
+                {
+                  "options": {
+                    "0": {
+                      "color": "red",
+                      "index": 1,
+                      "text": "not established"
+                    },
+                    "1": {
+                      "color": "green",
+                      "index": 0,
+                      "text": "established"
+                    }
+                  },
+                  "type": "value"
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "B"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "0": {
+                            "color": "green",
+                            "index": 0,
+                            "text": "announced"
+                          },
+                          "1": {
+                            "color": "orange",
+                            "index": 1,
+                            "text": "held down"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 0,
+            "y": 78
+          },
+          "id": 29,
+          "maxDataPoints": 500,
+          "options": {
+            "alignValue": "left",
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "mergeValues": true,
+            "rowHeight": 0.8,
+            "showValue": "auto",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "max by (instance, protocol, neighbor) (janus_bgp_session_established{job=\"$job\", instance=~\"$instance\"})",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{protocol}} ({{neighbor}})",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "max by (instance, protocol) (janus_bgp_protocol_held_down{job=\"$job\", instance=~\"$instance\"})",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{protocol}}",
+              "range": true,
+              "refId": "B"
+            }
+          ],
+          "title": "BGP sessions",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "state-timeline"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Routes each BIRD protocol imported and exported.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisPlacement": "auto",
+                "barAlignment": -1,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "decimals": 0,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 12,
+            "y": 78
+          },
+          "id": 30,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (instance, protocol, direction) (janus_bgp_routes{job=\"$job\", instance=~\"$instance\"})",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{protocol}} {{direction}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "BGP routes",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Elements in each named set of the live nftables ruleset ([firewall](https://janus.sw-servers.net/docs/firewall.md), the nftables extension).",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisPlacement": "auto",
+                "barAlignment": -1,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "decimals": 0,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 84
+          },
+          "id": 31,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "max by (instance, family, table, set) (janus_firewall_set_elements{job=\"$job\", instance=~\"$instance\"})",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{family}} {{table}} {{set}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Firewall sets",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "timeseries"
+        }
+      ],
+      "title": "VRRP, BGP and firewall",
+      "type": "row"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 41,
+  "tags": [
+    "janus",
+    "haproxy"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Data source",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "text": "janus",
+          "value": "janus"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(janus_build_info, job)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Job",
+        "multi": false,
+        "name": "job",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(janus_build_info, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(up{job=\"$job\"}, instance)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Node",
+        "multi": true,
+        "name": "instance",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(up{job=\"$job\"}, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Janus nodes",
+  "uid": "janus-nodes",
+  "version": 1
+}

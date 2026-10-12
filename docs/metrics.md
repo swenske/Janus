@@ -122,6 +122,10 @@ authentication: restrict who reaches the port.
 A metric that doesn't apply is absent rather than 0: no NTP
 synchronization yet, no configuration applied yet, no extension.
 
+The VRRP metrics' `instance` label names the VRRP instance. Prometheus
+keeps its own `instance` label, the target's, and stores the node's as
+`exported_instance`.
+
 ## Alerts
 
 ```yaml title="examples/prometheus/janus-rules.yml"
@@ -132,54 +136,121 @@ groups:
         expr: janus_certificate_expiry_timestamp_seconds - time() < 14 * 86400
         labels: {severity: warning}
         annotations:
-          summary: '{{ $labels.certificate }} ({{ $labels.cn }}) on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}'
+          summary: 'Janus certificate expires soon (instance {{ $labels.instance }})'
+          description: '{{ $labels.certificate }} ({{ $labels.cn }}, source {{ $labels.source }}) on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}.'
       - alert: JanusHAProxyDown
         expr: janus_haproxy_up == 0
         for: 1m
         labels: {severity: critical}
+        annotations:
+          summary: 'Janus HAProxy down (instance {{ $labels.instance }})'
+          description: 'HAProxy on {{ $labels.instance }} has not answered on its stats socket for a minute.'
       - alert: JanusHAProxyCrashed
         expr: increase(janus_haproxy_unexpected_exits_total[15m]) > 0
         labels: {severity: warning}
+        annotations:
+          summary: 'Janus HAProxy crashed (instance {{ $labels.instance }})'
+          description: 'An HAProxy process on {{ $labels.instance }} exited without being stopped or replaced in the last 15 minutes; janusd restarted it.'
       - alert: JanusExtensionServiceDown
         expr: janus_service_state{state="restarting"} == 1
         for: 5m
         labels: {severity: warning}
+        annotations:
+          summary: 'Janus extension service restarting (instance {{ $labels.instance }})'
+          description: '{{ $labels.service }} ({{ $labels.extension }} extension) on {{ $labels.instance }} keeps exiting and being restarted.'
       - alert: JanusSELinuxDenials
         expr: increase(janus_selinux_denials_total[1h]) > 0
         labels: {severity: warning}
+        annotations:
+          summary: 'Janus SELinux denials (instance {{ $labels.instance }})'
+          description: '{{ $labels.instance }} logged {{ $value | humanize }} SELinux denials in the last hour - there should be none (janusctl system dmesg).'
       - alert: JanusOOMKill
         expr: increase(janus_kernel_oom_kills_total[1h]) > 0
         labels: {severity: warning}
+        annotations:
+          summary: 'Janus OOM kill (instance {{ $labels.instance }})'
+          description: 'The kernel of {{ $labels.instance }} killed a process for lack of memory in the last hour.'
       - alert: JanusStateErrors
         expr: janus_state_filesystem_errors > 0
         labels: {severity: critical}
+        annotations:
+          summary: 'Janus STATE filesystem errors (instance {{ $labels.instance }})'
+          description: 'The kernel recorded {{ $value }} errors on the STATE partition of {{ $labels.instance }} (PKI, configuration).'
       - alert: JanusClockNotSynchronized
         expr: janus_time_synchronized == 0 or time() - janus_time_last_sync_timestamp_seconds > 3600
         for: 15m
         labels: {severity: warning}
+        annotations:
+          summary: 'Janus clock not synchronized (instance {{ $labels.instance }})'
+          description: 'janusd on {{ $labels.instance }} has not synchronized its clock over NTP for more than an hour.'
       - alert: JanusUpgradeUnconfirmed
         expr: janus_upgrade_pending_confirmation == 1
         for: 10m
         labels: {severity: warning}
+        annotations:
+          summary: 'Janus upgrade unconfirmed (instance {{ $labels.instance }})'
+          description: 'An upgrade of {{ $labels.instance }} has waited for its health confirmation for 10 minutes; the node reverts if it does not come.'
       - alert: JanusAPIRefusals
         expr: sum by (instance) (increase(janus_api_requests_total{code=~"PermissionDenied|Unauthenticated"}[15m])) > 10
         labels: {severity: warning}
+        annotations:
+          summary: 'Janus API refusals (instance {{ $labels.instance }})'
+          description: 'The API of {{ $labels.instance }} refused {{ $value | humanize }} calls in the last 15 minutes (PermissionDenied/Unauthenticated).'
       - alert: JanusVRRPFault
         expr: janus_vrrp_instance_state{state="FAULT"} == 1
         for: 1m
         labels: {severity: critical}
+        annotations:
+          summary: 'Janus VRRP instance in FAULT (instance {{ $labels.instance }})'
+          description: 'VRRP instance {{ $labels.exported_instance }} on {{ $labels.instance }} ({{ $labels.interface }}) has been in FAULT for a minute.'
       - alert: JanusBGPSessionDown
         expr: janus_bgp_session_established == 0
         for: 2m
         labels: {severity: critical}
+        annotations:
+          summary: 'Janus BGP session down (instance {{ $labels.instance }})'
+          description: 'BGP session {{ $labels.protocol }} with {{ $labels.neighbor }} on {{ $labels.instance }} has not been established for 2 minutes.'
       - alert: JanusACMERenewalFailing
         expr: janus_acme_certificate_failures >= 3
         labels: {severity: warning}
+        annotations:
+          summary: "Janus Let's Encrypt renewal failing (instance {{ $labels.instance }})"
+          description: '{{ $labels.name }} on {{ $labels.instance }}: {{ $value }} failed attempts in a row.'
       - alert: JanusACMECertificateNotObtained
         expr: janus_acme_certificate_state{state=~"pending|expired"} == 1
         for: 1h
         labels: {severity: critical}
+        annotations:
+          summary: "Janus Let's Encrypt certificate not obtained (instance {{ $labels.instance }})"
+          description: '{{ $labels.name }} on {{ $labels.instance }} is {{ $labels.state }}: HAProxy serves a stand-in.'
 ```
+
+## Grafana dashboard
+
+[`grafana/janus-nodes.json`](../grafana/janus-nodes.json) shows these
+metrics in Grafana (11.6 or later):
+
+- **At the top**: nodes answering, HAProxy serving, the next
+  certificate to expire, upgrades and trials awaiting confirmation,
+  SELinux, OOM kills, errors on STATE - then a line per node: release,
+  schematic, HAProxy and kernel, the slot it booted, when janusd
+  started, how long it took to boot, the last configuration applied,
+  NTP, SELinux.
+- **HAProxy** serving over time, its reloads, crashes and
+  configurations; **certificates** by expiry, and Let's Encrypt's;
+  **extension services** and their versions; trials, the clock, API
+  calls and errors; **VRRP, BGP and the firewall's sets** in a row that
+  starts collapsed.
+- janusd starting, configurations applied and HAProxy crashing mark
+  every graph.
+
+Its variables choose a Prometheus data source, the job that scrapes
+the Janus exporter (`janus` above) and some or all of its nodes. Import
+it (**Dashboards › New › Import**, upload the file), or let Grafana load
+it with your other dashboards from a [file
+provider](https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards).
+A node's name shows without its port and domain: `lb1.example.net:10056`
+is `lb1`.
 
 ## HAProxy's own metrics
 
