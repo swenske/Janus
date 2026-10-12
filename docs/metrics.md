@@ -122,6 +122,10 @@ authentication: restrict who reaches the port.
 A metric that doesn't apply is absent rather than 0: no NTP
 synchronization yet, no configuration applied yet, no extension.
 
+The VRRP metrics' `instance` label names the VRRP instance. Prometheus
+keeps its own `instance` label, the target's, and stores the node's as
+`exported_instance`.
+
 ## Alerts
 
 ```yaml title="examples/prometheus/janus-rules.yml"
@@ -220,6 +224,33 @@ groups:
           summary: "Janus Let's Encrypt certificate not obtained (instance {{ $labels.instance }})"
           description: '{{ $labels.name }} on {{ $labels.instance }} is {{ $labels.state }}: HAProxy serves a stand-in.'
 ```
+
+## Grafana dashboard
+
+[`grafana/janus-nodes.json`](../grafana/janus-nodes.json) shows these
+metrics in Grafana (11.6 or later):
+
+- **At the top**: nodes answering, HAProxy serving, the next
+  certificate to expire, upgrades and trials awaiting confirmation,
+  SELinux, OOM kills, errors on STATE - then a line per node: release,
+  schematic, HAProxy and kernel, the slot it booted, when janusd
+  started, how long it took to boot, the last configuration applied,
+  NTP, SELinux.
+- **HAProxy** serving over time, its reloads, crashes and
+  configurations; **certificates** by expiry, and Let's Encrypt's;
+  **extension services** and their versions; trials, the clock, API
+  calls and errors; **VRRP, BGP and the firewall's sets** in a row that
+  starts collapsed.
+- janusd starting, configurations applied and HAProxy crashing mark
+  every graph.
+
+Its variables choose a Prometheus data source, the job that scrapes
+the Janus exporter (`janus` above) and some or all of its nodes. Import
+it (**Dashboards › New › Import**, upload the file), or let Grafana load
+it with your other dashboards from a [file
+provider](https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards).
+A node's name shows without its port and domain: `lb1.example.net:10056`
+is `lb1`.
 
 ## HAProxy's own metrics
 

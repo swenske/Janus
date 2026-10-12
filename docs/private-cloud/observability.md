@@ -48,6 +48,9 @@ scrape_configs:
   health confirmation, refused API calls, VRRP faults, BGP sessions
   down, Let's Encrypt renewals failing. Every metric:
   [metrics](../metrics.md).
+- **A Grafana dashboard** of the Janus exporter:
+  [`grafana/janus-nodes.json`](../../grafana/janus-nodes.json)
+  ([metrics](../metrics.md#grafana-dashboard)).
 - **HAProxy's exporter** is a frontend of your configuration, like
   `:8405` in [`examples/haproxy/web.cfg`](../../examples/haproxy/web.cfg).
 - None of these ports has authentication, like any Prometheus exporter:
