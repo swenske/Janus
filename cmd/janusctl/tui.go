@@ -336,6 +336,7 @@ type app struct {
 
 	screen screen
 	fleet  *fleetScreen
+	splash *splash // the logo before the first answers; nil once gone
 	modal  *modal
 	menu   *optionsMenu
 	help   bool
@@ -379,7 +380,20 @@ func (a *app) run(t *terminal) (err error) {
 	var prev *termui.Frame
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
+	var frames <-chan time.Time // the splash's animation, while it shows
+	if a.settings.Splash {
+		a.splash = &splash{start: a.now()}
+		anim := time.NewTicker(splashFrame)
+		defer anim.Stop()
+		frames = anim.C
+	}
 	for {
+		if a.splash != nil && a.splashOver() {
+			a.splash = nil
+		}
+		if a.splash == nil {
+			frames = nil
+		}
 		w, h := t.size()
 		f := a.render(w, h)
 		if a.repaint {
@@ -404,6 +418,7 @@ func (a *app) run(t *terminal) (err error) {
 		case res := <-a.actions:
 			a.finish(res)
 		case <-tick.C:
+		case <-frames:
 		}
 	}
 }
@@ -425,6 +440,10 @@ func (a *app) say(text string, tone termui.Color) {
 // key handles one key; true means leave.
 func (a *app) key(k string) bool {
 	k = termui.Normalize(k)
+	if a.splash != nil {
+		a.splash = nil // any key skips it - and q still leaves
+		return k == "q" || k == termui.KeyCtrlC
+	}
 	if a.menu != nil {
 		a.menu.key(a, k)
 		return false
@@ -491,6 +510,10 @@ func (a *app) render(w, h int) *termui.Frame {
 	if w < tuiMinWidth || h < tuiMinHeight {
 		msg := fmt.Sprintf("janusctl tui needs %dx%d (this terminal is %dx%d)", tuiMinWidth, tuiMinHeight, w, h)
 		f.Text(max((w-len(msg))/2, 0), h/2, msg, termui.Style{FG: termui.ColorWarn}, 0)
+		return f
+	}
+	if a.splash != nil {
+		renderSplash(f, a.splashProgress(), a.splash.leftLit(a.now()))
 		return f
 	}
 	a.screen.render(a, f)

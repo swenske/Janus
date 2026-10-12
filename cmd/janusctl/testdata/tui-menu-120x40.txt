@@ -5,7 +5,6 @@
 │lgslbpub02 unreachable                                                                                                │
 │lgslbpub03 connecting                                                                                                 │
 │lgslbpub04 ok          v2026.10.09 A pre   3.2.9       10      3   6%  25%  0.02 BACKUP         ▁▁▁▁▁  ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁│
-│                                                                                                                      │
 │                     ╭ Options ────────────────────────────────────────────────────────────────╮                      │
 │                     │                                                                         │                      │
 │                     │  Theme              ← janus →                                           │                      │
@@ -13,6 +12,7 @@
 │                     │  Colours            ← auto (truecolor) →                                │                      │
 │                     │  Graph symbols      ← braille →                                         │                      │
 │                     │  Rounded corners    ← on →                                              │                      │
+│                     │  Splash screen      ← on →                                              │                      │
 │                     │  Refresh            ← 2s →                                              │                      │
 │                     │  Fleet trend        ← sessions per second →                             │                      │
 │                     │  Trend window       ← 5m →                                              │                      │

@@ -128,14 +128,20 @@ network, firewall or sysctl trial that would otherwise revert. The
 footer offers only what the certificate's role may do; a reader sees
 everything but the logs, which are for operators.
 
+It opens on Janus's logo while the nodes first answer, as bpytop does:
+the logo's orange bar fills up with the calls answered (`12/18`), its
+two faces take turns, and the node and the call waited for are written
+under it. It stays a second at least and leaves once every node has
+answered or failed to; any key skips it.
+
 `M` opens the options, as bpytop does: the theme - Janus's own,
 bpytop's 16 (dracula, nord, gruvbox, solarized, whiteout...) or tty,
 your terminal's own 16 colours - each shown as you move to it; the
 theme's background or your terminal's; how many colours the terminal
 takes (auto reads `COLORTERM` and `TERM`); the graphs' symbols -
 braille, blocks, or tty for the Linux console, whose font has no
-braille; rounded corners; and the defaults of the refresh, the fleet's
-trend and the processes' order. They're saved when the menu closes, in
+braille; rounded corners; the splash; and the defaults of the refresh,
+the fleet's trend and the processes' order. They're saved when the menu closes, in
 `tui.json` beside the contexts (`~/.config/janus/tui.json`).
 `-theme NAME` picks a theme for one run, `-theme list` names them all.
 bpytop's themes are their authors' work (Apache License 2.0).
