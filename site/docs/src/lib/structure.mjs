@@ -56,10 +56,16 @@ for (const page of pages) {
   byId.set(page.id, page)
 }
 
+// An entry ending in "/" excludes every file under that directory.
 export const excluded = new Set(raw.exclude ?? [])
+const excludedDirs = [...excluded].filter((file) => file.endsWith('/'))
+const isExcluded = (file) => excluded.has(file) || excludedDirs.some((dir) => file.startsWith(dir))
 for (const file of excluded) {
   if (byFile.has(file)) problems.push(`${file}: both a page and excluded`)
   if (strict && !existsSync(path.join(repoRoot, file))) problems.push(`${file}: excluded, but there's no such file`)
+}
+for (const page of pages) {
+  if (excludedDirs.some((dir) => page.file.startsWith(dir))) problems.push(`${page.file}: a page, in an excluded directory`)
 }
 
 // Every Markdown file under docs/ is a page or excluded. Only a strict
@@ -75,7 +81,7 @@ function markdownFiles(dir) {
   return out
 }
 for (const file of markdownFiles('docs')) {
-  if (byFile.has(file) || excluded.has(file) || file.startsWith('docs/assets/')) continue
+  if (byFile.has(file) || isExcluded(file) || file.startsWith('docs/assets/')) continue
   const msg = `${file}: not in site/docs/structure.yaml - list it as a page, or under exclude`
   if (strict) problems.push(msg)
   else console.warn(`[janus-docs] ${msg}`)

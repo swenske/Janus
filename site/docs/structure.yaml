@@ -14,8 +14,9 @@
 # - a page's title is its H1 (`title` overrides it on the site only), its
 #   description its first paragraph; `label` is its name in the sidebar.
 #
-# Every docs/**/*.md file is a page or listed in `exclude`: the build
-# fails otherwise (see docs/contributing/README.md).
+# Every docs/**/*.md file is a page or listed in `exclude` (an entry
+# ending in "/" excludes its whole directory): the build fails otherwise
+# (see docs/contributing/README.md).
 
 topics:
   - id: guide
@@ -154,3 +155,4 @@ exclude:
   - docs/README.md                      # the index for GitHub readers (make docs-index)
   - docs/security-audit-2026-09-30.md   # a dated report, in French
   - docs/security-audit-2026-10-07.md   # a dated report, in French
+  - docs/pre-release-tests/             # each pre-release's test report (README.md)
