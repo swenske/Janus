@@ -1,0 +1,86 @@
+From e58071761fd1e6de3ab2eff86d7e6d3fef6b01db Mon Sep 17 00:00:00 2001
+From: Sebastien WENSKE <sebastien@wenske.fr>
+Date: Mon, 12 Oct 2026 10:04:57 +0000
+Subject: [PATCH] efi/libstub: Allocate the INITRD table in ACPI reclaim memory
+
+Commit 6e62d1c6f2c7 ("efi: Wipe INITRD config table from memory after
+consumption") makes the kernel clear the base and size of the
+LINUX_EFI_INITRD_MEDIA_GUID configuration table once it has read them,
+so that a kexec'd kernel no longer picks up a stale initrd.
+
+However, the stub allocates that table from EFI_LOADER_DATA, which the
+kernel that consumes it treats as ordinary RAM, while the configuration
+table entry pointing at it survives kexec. A kexec'd kernel therefore
+finds the same address in the configuration table, and clears 16 bytes
+there again, in memory that may by then hold anything - including the
+kexec'd kernel's own image, which kexec_file_load() is free to place
+there.
+
+Seen on x86_64 v7.2.10 under QEMU with Debian's OVMF 2025.02 Secure
+Boot capable build (OVMF_CODE_4M.secboot.fd, no keys enrolled), the
+initrd handed to the stub through the LINUX_EFI_INITRD_MEDIA_GUID
+device path (systemd-stub UKI). A kexec reboot (kexec_file_load(),
+bzImage64, with an initrd) loads the new kernel at 0x1ca00000; the
+stale table is at 0x1d4bcf98, in the middle of tcp_parse_options() in
+that image. The kexec'd kernel boots, then oopses on the first incoming
+SYN, 16 bytes of its text zeroed:
+
+  BUG: kernel NULL pointer dereference, address: 0000000000000002
+  RIP: 0010:tcp_parse_options+0xe7/0x2f0
+  Code: a5 4c 29 e1 89 c8 0f b6 4d 12 83 e0 3f 83 e1 c0 09 c1 88 4d 12 eb de 41 83 fe 04 75 d8 41 f6 44 24 0d 02 74 d0 45 85 d2 75 cb <0f> 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 66 39 d0 89 d1
+  Call Trace:
+   <IRQ>
+   tcp_conn_request+0x270/0x9d0
+   tcp_rcv_state_process+0x147/0x1560
+   tcp_v4_do_rcv+0xc1/0x260
+   tcp_v4_rcv+0x110e/0x1190
+
+A debug print added before the wipe shows what the kexec'd kernel reads
+at the table's address - its own text:
+
+  efi: INITRD table at 0x1d4bcf98:
+       base 0xc274c085660241b7 size 0x8c0c1661455b70f
+
+Whether a given kernel crashes depends on what happens to land at that
+address: v7.2.9 clears 16 bytes elsewhere in its image without any
+visible failure, and bisecting v7.2.9..v7.2.10 ends on an unrelated
+commit that only shifts the image's layout.
+
+Allocate the table from EFI_ACPI_RECLAIM_MEMORY instead, as the stub
+already does for the RNG seed table so that it survives a kexec reboot.
+The table then stays where it is across kexec, and the wipe always
+lands on the table itself.
+
+Fixes: 6e62d1c6f2c7 ("efi: Wipe INITRD config table from memory after consumption")
+Cc: stable@vger.kernel.org
+Assisted-by: LLM
+---
+ drivers/firmware/efi/libstub/efi-stub-helper.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/firmware/efi/libstub/efi-stub-helper.c b/drivers/firmware/efi/libstub/efi-stub-helper.c
+index f27f2e1f0..9293b8b31 100644
+--- a/drivers/firmware/efi/libstub/efi-stub-helper.c
++++ b/drivers/firmware/efi/libstub/efi-stub-helper.c
+@@ -641,8 +641,14 @@ efi_status_t efi_load_initrd(efi_loaded_image_t *image,
+ 				     EFISTUB_EVT_INITRD) == EFI_SUCCESS)
+ 		efi_info("Measured initrd data into PCR 9\n");
+ 
+-	status = efi_bs_call(allocate_pool, EFI_LOADER_DATA, sizeof(initrd),
+-			     (void **)&tbl);
++	/*
++	 * Use EFI_ACPI_RECLAIM_MEMORY so the table survives a kexec reboot:
++	 * configuration tables do, and the kernel wipes this one once it has
++	 * consumed it - a kexec'd kernel wipes it again, at the same address,
++	 * which in EFI_LOADER_DATA memory may hold anything by then.
++	 */
++	status = efi_bs_call(allocate_pool, EFI_ACPI_RECLAIM_MEMORY,
++			     sizeof(initrd), (void **)&tbl);
+ 	if (status != EFI_SUCCESS)
+ 		goto free_initrd;
+ 
+
+base-commit: 24a19b953e2a3d0ea5a8c4951a0ab8f32720c907
+-- 
+2.47.3
+
