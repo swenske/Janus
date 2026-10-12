@@ -42,6 +42,9 @@ else from `src/shared/`:
 - `route.js` - hash routing (`useHashRoute`, `navigate`); `sse.js` -
   `useSSE`. Both pages use them (the node page re-exports them from
   `src/node/hooks.jsx`).
+- `Splash.jsx` - the splash a page shows while it first loads
+  (`SplashProvider`, `useSplashStep`, `useSplash`): see
+  [The splash](#the-splash).
 
 Rules:
 
@@ -398,6 +401,31 @@ scroll.
 - **Streams** (logs, events, dmesg) are Server-Sent Events via `useSSE` /
   `LogViewer`. A node-side error arrives as a `failure` event - never
   `error`, which `EventSource` uses for its own connection problems.
+
+### The splash
+
+Each page opens on Janus's logo while its first data comes in: the
+logo's orange bar fills up with the steps done, its two faces light in
+turn, and the step waited for is written under it.
+
+- **Its steps** are the page's own (`SplashProvider steps=` in each
+  `main.jsx`, `useSplashStep(key, label, done)` where the data is):
+  the main page waits for the session, the fleet (`/api/nodes`...) and
+  the nodes' status (`/api/nodes/status`, up to 4 s per node); a node's
+  page for the node, `/api/me`, its overview and its first metrics.
+- **A second at least, 8 s at most**, then a fade, then it leaves the
+  DOM - it never stands in front of a click. A step that hangs leaves
+  the page to say why. These times are CSS animations
+  (`.splash-clock`), not timers: a test that holds the page's clock
+  (`hack/browser/shots.mjs`) doesn't hold the splash - it waits for
+  `.splash` to be detached.
+- **`finish()`** ends it as soon as its second is up: the main page for
+  a form (sign-in, setup, a second factor), a node's page when the node
+  doesn't answer (its banner says so). **`reset()`** shows it again:
+  after a sign-in, for the fleet's first load.
+- Only a page's first load: never on a route change or a poll. With
+  `prefers-reduced-motion`, the faces stay still and the bar jumps.
+- A page whose first load gets a new slow call: give it a step.
 
 ### Interaction rules
 

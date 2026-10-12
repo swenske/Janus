@@ -45,6 +45,7 @@ import { PrereleaseBadge } from './PrereleaseBadge.jsx'
 import { SupportBadge } from './SupportBadge.jsx'
 import { worstSeverity } from './severity.js'
 import { Badge, Card, ErrorBox, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
+import { useSplash, useSplashStep } from './shared/Splash.jsx'
 
 // A node's page is on this origin too, under /nodes/<id>/ (dashboard/
 // backend/internal/nodeproxy): it acts for the signed-in account.
@@ -768,6 +769,23 @@ function AuthGate({ children }) {
     window.addEventListener(SIGNED_OUT, onEnded)
     return () => window.removeEventListener(SIGNED_OUT, onEnded)
   }, [refreshStatus])
+  // The splash leaves at once for a form (sign-in, setup, a second
+  // factor...), and comes back for the page's first load after it.
+  const needs = status?.user?.needs || []
+  const inside = !!status && !status.setup_required && status.authenticated && !['mfa', 'password', 'mfa_enroll'].some((n) => needs.includes(n))
+  const { finish, reset } = useSplash()
+  const sawForm = useRef(false)
+  useSplashStep('session', 'Signing in…', !!status || !!error)
+  useEffect(() => {
+    if (!status && !error) return
+    if (!inside) {
+      sawForm.current = true
+      finish()
+    } else if (sawForm.current) {
+      sawForm.current = false
+      reset()
+    }
+  }, [status, error, inside, finish, reset])
   if (error)
     return (
       <div className="auth-screen">
@@ -784,7 +802,6 @@ function AuthGate({ children }) {
       <SetupForm onDone={refreshStatus} onRestore={() => setRestoring(true)} />
     )
   if (!status.authenticated) return <LoginForm onDone={() => (setEnded(false), refreshStatus())} ended={ended} />
-  const needs = status.user?.needs || []
   if (needs.includes('mfa'))
     return (
       <AuthScreen title={`Second factor for ${status.user.name}`}>
@@ -872,6 +889,7 @@ function MainApp() {
   const [version, setVersion] = useState('')
   const [fleet, setFleet] = useState(null)
   const [backups, setBackups] = useState(null)
+  const [statusLoaded, setStatusLoaded] = useState(false)
   const isReader = can('reader')
   const confirm = useConfirm()
   const toast = useToast()
@@ -899,6 +917,7 @@ function MainApp() {
     call('/api/nodes/status', { background: true })
       .then((s) => setStatuses(s || {}))
       .catch(() => {})
+      .finally(() => setStatusLoaded(true))
     for (const hv of hvs || []) {
       if (!hv.trusted) continue
       call(`/api/hypervisors/${hv.id}/status`, { background: true })
@@ -923,6 +942,9 @@ function MainApp() {
     const t = setInterval(reload, working ? 3000 : STATUS_EVERY)
     return () => clearInterval(t)
   }, [reload, working])
+  const count = nodes?.length ?? 0
+  useSplashStep('inventory', 'Loading the fleet…', nodes !== null || error !== null)
+  useSplashStep('status', `Asking ${count} node${count === 1 ? '' : 's'} for their status…`, statusLoaded)
   const machineActions = useMachineActions({ onChanged: reload, onConsole: setConsoleOf })
   const machineOf = (node) => machines.find((m) => m.id === node.machine_id)
   const vmOf = (m) => m && hvStatus[m.spec.hypervisor_id]?.machines?.[m.id]

@@ -35,6 +35,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
 import { Logo, ThemeToggle } from '../shared/theme.jsx'
 import { Badge, Loading } from '../shared/ui.jsx'
+import { useSplash, useSplashStep } from '../shared/Splash.jsx'
 import { PrereleaseBadge } from '../PrereleaseBadge.jsx'
 import { SecurityBadge } from '../SecurityBadge.jsx'
 import { securityText, securityTone } from '../severity.js'
@@ -186,6 +187,16 @@ export default function App() {
   useEffect(() => {
     document.title = `${name} · Janus`
   }, [name])
+  // The splash until the node first answers; a node that doesn't leaves
+  // the page to say so (the banner below).
+  const { finish } = useSplash()
+  useSplashStep('node', 'Connecting to the node…', node.data || node.error)
+  useSplashStep('me', `Checking your access to ${name}…`, me.data || me.error)
+  useSplashStep('overview', `Reading ${name}'s system…`, overview.data || overview.error)
+  useSplashStep('metrics', `First metrics from ${name}…`, latest || error)
+  useEffect(() => {
+    if (error || node.error) finish()
+  }, [error, node.error, finish])
 
   const version = overview.data?.version?.version
   const extensions = (overview.data?.version?.extensions || []).map((e) => e.name)
