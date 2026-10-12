@@ -267,7 +267,7 @@
 #
 # Automatically generated file; DO NOT EDIT (by hand - regenerate it with
 # make kernel-menuconfig or make kernel-config-refresh, KERNEL_TRACK=<track>).
-# Linux/x86_64 7.2.10 Kernel Configuration
+# Linux/x86_64 7.2.9 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc (Debian 14.2.0-19) 14.2.0"
 CONFIG_CC_IS_GCC=y
@@ -288,7 +288,6 @@ CONFIG_TOOLS_SUPPORT_RELR=y
 CONFIG_CC_HAS_ASM_INLINE=y
 CONFIG_CC_HAS_ASSUME=y
 CONFIG_CC_HAS_NO_PROFILE_FN_ATTR=y
-CONFIG_CC_OPT_INLINE_MEMSET="-finline-stringops=memset"
 CONFIG_LD_CAN_USE_KEEP_IN_OVERLAY=y
 CONFIG_PAHOLE_VERSION=0
 CONFIG_IRQ_WORK=y

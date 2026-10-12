@@ -29,3 +29,7 @@ CONFIG_NF_CT_PROTO_UDPLITE               UDP-Lite was removed in 7.x
 CONFIG_SERIAL_8250_DEPRECATED_OPTIONS    removed in 7.x
 CONFIG_SLUB_CPU_PARTIAL                  7.x's slab sheaves replace it
 CONFIG_TCP_SIGPOOL                       removed with 7.x's TCP-AO/MD5 rework (TCP_MD5SIG stays)
+#
+# longterm 6.18.56 -> stable 7.2.9 (held back, versions.mk): 6.18.56 and
+# 7.2.10 backport a vDSO build option 7.2.9 doesn't have yet.
+CONFIG_CC_OPT_INLINE_MEMSET              backported in 6.18.56, stable held at 7.2.9 (from 7.2.10)
