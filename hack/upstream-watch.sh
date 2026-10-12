@@ -62,25 +62,29 @@ while read -r name latest <&3; do
   case "$name" in
   linux-*)
     track="${name#linux-}"
-    # A track moving to a new branch: its config resolved for the new
-    # source (new symbols get their defaults - the pull request is where
-    # they're reviewed) and the SELinux classes of the newest kernel.
+    # The list of files it builds, and its config resolved for the new
+    # source - a stable release can backport a new symbol too (6.18.56 and
+    # 7.2.10's CC_OPT_INLINE_MEMSET): new symbols get their defaults, the
+    # pull request is where they're reviewed. The default track's arm64
+    # config too (Raspberry Pi images have it). One build each: the
+    # refresh saves what the build resolved, the same kernel. A track
+    # moving to a new branch also takes the SELinux classes of the newest
+    # kernel.
+    targets="kernel-built-files-$track kernel-config-refresh"
+    [ "$track" = "$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)" ] && targets="$targets rpi4-kernel-config-refresh"
     if [ "$(echo "$from" | cut -d. -f1,2)" != "$(echo "$to" | cut -d. -f1,2)" ]; then
       extra_labels=",kernel-branch"
-      targets="kernel-config-refresh selinux-classes"
-      # The default track's arm64 config too: Raspberry Pi images have it.
-      [ "$track" = "$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)" ] && targets="$targets rpi4-kernel-config-refresh"
-      # shellcheck disable=SC2086
-      make $targets KERNEL_TRACK="$track" >"$WORK/kernel.log" 2>&1 || {
-        tail -20 "$WORK/kernel.log"
-        not_proposed "$name" "$latest" "make $targets failed"; continue
-      }
+      targets="$targets selinux-classes"
     fi
-    # The kernel's list of built files may change with its source.
-    make "kernel-built-files-$track" >>"$WORK/kernel.log" 2>&1 || {
+    # shellcheck disable=SC2086
+    make $targets KERNEL_TRACK="$track" >"$WORK/kernel.log" 2>&1 || {
       tail -20 "$WORK/kernel.log"
-      not_proposed "$name" "$latest" "make kernel-built-files-$track failed"; continue
+      not_proposed "$name" "$latest" "make $targets failed"; continue
     }
+    if ! git diff --quiet -- kernel/configs/; then
+      # shellcheck disable=SC2016 # Markdown's backticks
+      printf '\n### ⚙️ Kernel configuration\n\nkbuild resolves the committed configuration differently for this source: review `kernel/configs/` in the diff (new symbols take their defaults).\n' >>"$WORK/$name.md"
+    fi
     ;;
   esac
   git add versions.mk kernel/built-files-*.txt kernel/configs/ selinux/classes.conf
