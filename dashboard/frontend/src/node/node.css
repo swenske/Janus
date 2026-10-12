@@ -231,3 +231,66 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .nav-item.nav-link:hover { color: var(--text); }
 .user-chip { display: flex; align-items: center; gap: 0.35rem; margin: 0 0.6rem 0.6rem; padding: 0.3rem 0.5rem; border-radius: var(--radius-sm); color: inherit; text-decoration: none; font-size: 0.9em; white-space: nowrap; }
 .user-chip:hover { background: var(--surface-2); }
+
+/* Monitoring › Traffic flow: a node's colour is its kind's, unless its
+   state says otherwise; links pulse where traffic goes. */
+.flow-layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1400px) {
+  .flow-layout { grid-template-columns: minmax(0, 1fr) 22rem; }
+  .flow-side { position: sticky; top: 4.6rem; }
+}
+.flow-card { padding: 0.6rem; }
+.flow-scroll { overflow-x: auto; }
+.flow-map { display: block; width: 100%; height: auto; margin: 0 auto; font-family: var(--mono); }
+.flow-node { cursor: pointer; outline: none; --kind: var(--muted); transition: opacity 0.15s; }
+.kind-iface, .kind-hub { --kind: var(--accent); }
+.kind-fe { --kind: var(--chart-2); }
+.kind-be { --kind: var(--chart-4); }
+.kind-srv, .kind-more { --kind: var(--chart-3); }
+.flow-node.tone-warn { --kind: var(--warn); }
+.flow-node.tone-danger { --kind: var(--danger); }
+.flow-node.tone-off { --kind: var(--muted); }
+.flow-node.tone-off .flow-disc, .flow-node.tone-off .flow-icon, .flow-node.unlinked .flow-icon { opacity: 0.55; }
+.flow-node.unlinked .flow-disc { stroke-dasharray: 4 3; }
+.flow-disc { fill: var(--surface); stroke: var(--kind); stroke-width: 2.5; }
+.kind-hub .flow-disc { stroke-width: 3; }
+.flow-icon { color: var(--kind); }
+.flow-node:hover .flow-disc, .flow-node.selected .flow-disc { fill: var(--surface-2); stroke-width: 3.5; }
+.flow-node:focus-visible .flow-disc { stroke-width: 4; stroke-dasharray: 3 2; }
+.flow-name, .flow-sub {
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  font-variant-numeric: tabular-nums;
+}
+.flow-name { font-size: 12px; fill: var(--text); }
+.kind-hub .flow-name { font-family: var(--font); font-weight: 700; letter-spacing: 0.04em; }
+.flow-sub { font-size: 11px; fill: var(--muted); }
+.flow-sub.warn { fill: var(--warn); }
+.flow-sub.danger { fill: var(--danger); }
+.flow-link { transition: opacity 0.15s; }
+.flow-track { fill: none; stroke: var(--muted); stroke-opacity: 0.35; stroke-width: 1.5; }
+.flow-link.down .flow-track { stroke: var(--danger); stroke-opacity: 0.8; stroke-dasharray: 4 4; }
+.flow-link.off .flow-track { stroke-dasharray: 2 5; }
+.flow-pulse { fill: none; stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 8 12; animation: flow-dash 1.5s linear infinite; }
+.flow-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.flow-map.focused .far { opacity: 0.18; }
+.flow-map.focused .flow-link.near .flow-track { stroke-opacity: 0.7; }
+@keyframes flow-dash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) {
+  .flow-pulse { animation: none; stroke-dasharray: none; stroke-opacity: 0.75; }
+}
+.flow-h { font-size: 0.9rem; margin: 1rem 0 0.4rem; }
+.flow-target { margin-bottom: 0.5rem; }
+.flow-goto { background: none; border: none; padding: 0; color: var(--accent-ink); font: inherit; font-family: var(--mono); cursor: pointer; }
+.flow-goto:hover { text-decoration: underline; }
+.flow-rules { margin: 0.25rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.3rem; }
+.flow-rules code { overflow-wrap: anywhere; }
+.flow-legend { margin-top: 0.8rem; display: grid; gap: 0.5rem; font-size: 0.85rem; }
+.flow-legend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.9rem; }
+.flow-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.flow-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--kind); display: inline-block; }
+.flow-legend-pulse { stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
+.flow-legend-track { stroke: var(--muted); stroke-opacity: 0.35; stroke-width: 1.5; }
+.flow-legend-down { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 4 4; }

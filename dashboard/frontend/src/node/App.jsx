@@ -20,6 +20,7 @@ import {
   Power,
   Radar,
   RefreshCw,
+  Route,
   ScrollText,
   Server,
   Shield,
@@ -45,6 +46,7 @@ import Access from './views/Access.jsx'
 import Capture from './views/Capture.jsx'
 import Events from './views/Events.jsx'
 import Files from './views/Files.jsx'
+import Flow from './views/Flow.jsx'
 import HAProxy from './views/HAProxy.jsx'
 import Kernel from './views/Kernel.jsx'
 import Logs from './views/Logs.jsx'
@@ -73,6 +75,7 @@ const NAV = [
     items: [
       { path: '/', label: 'Overview', icon: LayoutDashboard, view: Overview },
       { path: '/metrics', label: 'Metrics', icon: BarChart3, view: Metrics },
+      { path: '/flow', label: 'Traffic flow', icon: Route, view: Flow, needs: 'HAProxyService/Stats' },
       { path: '/processes', label: 'Processes', icon: Cpu, view: Processes },
       { path: '/network', label: 'Network', icon: Network, view: NetworkView },
       { path: '/storage', label: 'Storage', icon: HardDrive, view: Storage },

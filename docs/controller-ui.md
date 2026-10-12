@@ -260,7 +260,8 @@ grouped by intent, and a sticky top bar with the node's identity, health
 badges, version (and available update), the refresh interval and the
 theme toggle:
 
-- **Monitoring** - overview, metrics, processes, network, storage
+- **Monitoring** - overview, metrics, traffic flow, processes, network,
+  storage
 - **Logs** - service logs, events, kernel (dmesg)
 - **Apps** - HAProxy (with its own tabs) and the Janus exporter (built
   into janusd: its settings and a scrape example), then only what the
@@ -375,6 +376,33 @@ A new feature goes into the group matching what the operator is trying
 to do, not into whichever page has room. A page that grows several
 distinct concerns gets tabs (as HAProxy does) rather than a longer
 scroll.
+
+### Traffic flow
+
+Monitoring › Traffic flow (`views/Flow.jsx`, the logic in `flow.js` -
+pure, `npm test`) draws the node as columns: interfaces, HAProxy,
+frontends, backends, servers (the **Servers** chip hides them,
+remembered per browser; past eight, "+N more"). `show stat`
+(`/api/haproxy/stats`, at the refresh interval) gives the proxies and
+their counters - traffic is the difference of `bin`/`bout` between two
+answers, none when a counter went back - but never which frontend sends
+to which backend: that's read from the configuration
+(`/api/haproxy/config`, every 30 s and again when HAProxy's uptime goes
+back - a reload): `default_backend` (a `defaults` section's too),
+`use_backend` with its condition, a listen section's own servers, and a
+`use_backend %[...]` through the maps it reads - directly or through a
+`set-var` - whose values name the backends and whose keys say for what
+(`/api/haproxy/maps/<path>`, every 30 s). A `use_backend` nothing
+resolves is said in the frontend's details. Links pulse where traffic
+goes (the more bytes, the thicker and faster - drawn still under
+`prefers-reduced-motion`); a backend fed by several frontends has its
+traffic on each link at most the smaller side's, as HAProxy doesn't
+count the split. Hovering a node or link brings its paths forward;
+selecting one shows its counters and rules in the side panel - a
+server's Ready/Drain/Maint (`ServerStateButtons`, shared with HAProxy ›
+Backends). Without `HAProxyService/GetConfig` (a grant narrowed to other
+domains) the configuration and maps aren't asked: the page says so, and
+links only servers to their backends.
 
 ### Live data
 
