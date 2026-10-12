@@ -13,16 +13,12 @@
 # (.tar.sign, over the uncompressed tar) by Greg Kroah-Hartman's key
 # 647F28654894E3BD457199BE38DBBDC86092693E and kernel.org's signed
 # sha256sums.asc (Kernel.org checksum autosigner,
-# B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1), which agree.
+# B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1), which agree. Every track is
+# built with kernel/patches/ applied - its README says which and why.
 KERNEL_LONGTERM_VERSION := 6.18.56
 KERNEL_LONGTERM_SHA256  := 4633bbda2ab95eaf2a7af4041236451d6759c72e6946265531af4b3aacefbf89
-# stable is held at 7.2.9: a kernel kexec'd from 7.2.10 oopses (its own
-# text zeroed, tcp_parse_options) under Debian's Secure Boot-capable OVMF
-# - qemu-kexec-secboot-test, 6/6; 7.2.9 and 6.18.56 pass. Bisected to a
-# 3-line perf change that only moves the image's layout: a latent bug in
-# where the kexec'd kernel lands, under investigation.
-KERNEL_STABLE_VERSION   := 7.2.9
-KERNEL_STABLE_SHA256    := b4c5dfbe51a364a6c7f03869200f88c8e1f77403539005f14b7fc6bc91b8d8ba
+KERNEL_STABLE_VERSION   := 7.2.10
+KERNEL_STABLE_SHA256    := 2feaa70453e91f541be6a5c9078d8168e081af45a3d9718054850538cff2ebf3
 
 # HAProxy, one pin per LTS branch an image can be built with (variants.mk,
 # haproxy.org). HAProxy doesn't sign its tarballs: sha256 as published by
