@@ -88,8 +88,8 @@ JANSSON_SHA256   := 0c7114dc0b2d22a670724a1f95922029d7077c19dbf79a584cb8084d2f26
 # Alpine's sha512 matches it, or when every file it shares with the git
 # tag on GitHub is identical and it adds only autotools' outputs
 # (extensions/keepalived/generated.txt), which the build regenerates.
-KEEPALIVED_VERSION := 2.3.4
-KEEPALIVED_SHA256  := 6afd95ddb7d3e0d3b8b8e5b3a489144131b61a01b06d29e883d0c44acc8a36bf
+KEEPALIVED_VERSION := 2.4.3
+KEEPALIVED_SHA256  := a0faef8e401c143487b131b526df7541c1e33d9b8814642fa9dfe8bb250a9632
 
 # QEMU source for qemu-ga: sha256 of the tarball, pinned after checking its
 # GPG signature (release key CEACC9E15534EBABB82D3FA03353C9CEF108B584,
