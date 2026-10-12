@@ -272,44 +272,6 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 1s linear infinite; }
 
-/* The splash (Splash.jsx): the logo while a page first loads - below
-   the modals and toasts, above everything else. Its bar fills from the
-   bottom; its faces light in turn. Its times are animations, ended on
-   the browser's own time: .splash-clock's say when it has shown a
-   second (splash-min) and when it has shown enough (splash-cap, 8 s);
-   splash-out is its fade. */
-.splash {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.9rem;
-  padding: 1rem;
-  background: var(--bg);
-  color: var(--text);
-}
-.splash.leaving { animation: splash-out 250ms ease forwards; pointer-events: none; }
-.splash-clock { position: absolute; width: 0; height: 0; animation: splash-min 1s linear, splash-cap 8s linear; }
-.splash-bar { fill: var(--accent); opacity: 0.18; }
-.splash-fill { fill: var(--accent); transform-box: fill-box; transform-origin: 50% 100%; transition: transform 300ms ease; }
-.splash-face { fill: var(--text); animation: splash-look 1.2s ease-in-out infinite; }
-.splash-face.right { animation-delay: -0.6s; }
-.splash-title { font-weight: 600; font-size: 1.05rem; letter-spacing: 0.6em; margin-right: -0.6em; }
-.splash-progress { width: min(240px, 60vw); height: 3px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
-.splash-progress > span { display: block; height: 100%; background: var(--accent); transition: width 300ms ease; }
-.splash-step { min-height: 1.3em; text-align: center; }
-@keyframes splash-look { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
-@keyframes splash-out { to { opacity: 0; } }
-@keyframes splash-min { from { opacity: 0; } to { opacity: 0; } }
-@keyframes splash-cap { from { opacity: 0; } to { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .splash-fill, .splash-progress > span { transition: none; }
-  .splash-face { animation: none; }
-}
-
 /* --- tabs --- */
 .tabs { display: flex; gap: 0.2rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; overflow-x: auto; }
 .tab {

@@ -3,10 +3,11 @@
 // looking each way), the step under it. It shows for a second at least,
 // never longer than 8 s (a step that hangs leaves the page to say why),
 // fades, and leaves the DOM: it never stands in front of a click.
-// Its times are CSS animations (theme.css), not timers: they run on the
+// Its times are CSS animations (Splash.css), not timers: they run on the
 // browser's own time, whatever a test does with the page's clock.
 // Rules in docs/controller-ui.md.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import './Splash.css'
 
 const SplashContext = createContext({ step: () => {}, finish: () => {}, reset: () => {}, generation: 0 })
 
