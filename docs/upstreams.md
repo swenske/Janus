@@ -46,7 +46,7 @@ no component follows.
 | `node-exporter` | its major - built from source with this tree's Go, not upstream's binary | Go's checksum database (`go mod download`) on the module's zip | govulncheck on its source, with this tree's Go |
 | `libmnl`, `libnftnl`, `nftables` | every release | the Netfilter Core Team's signature | - (none published) |
 | `jansson` | every release | Petri Lehtinen's signature | osv.dev |
-| `keepalived` | its major | Alpine's sha512 - keepalived signs nothing | osv.dev |
+| `keepalived` | its major | Alpine's sha512, or its files compared with the git tag's (autotools' outputs regenerated) - keepalived signs nothing | osv.dev |
 | `qemu-guest-agent` | every release | Michael Roth's signature | osv.dev, qemu-ga issues only |
 | `bird` | its major (2.x: BIRD 3 aborts on janusd's protocol disabling) | FreeBSD ports' sha256 - BIRD signs nothing | osv.dev |
 | `rpi4-uefi`, `rpi5-uefi` | every release (rpi5: pre-releases too) | GitHub's asset digest | - |
@@ -104,6 +104,17 @@ component's checks; `versions.mk` is only rewritten when they all pass.
   separately. At least one must agree. When none knows the new version
   yet, the bump is refused ("no independent checksum yet") and a later run
   tries again.
+- **The git tag** stands in for them when distributions take months to
+  package a release (keepalived): GitHub's archive of the version's tag,
+  another host than the tarball's, must have every file the tarball has,
+  byte for byte (a link compared by its target's content) - except
+  autotools' outputs (`configure`, `Makefile.in`, `build-aux/`...), which
+  git doesn't hold and the tarball does. Those are listed in the
+  extension's `generated.txt`; its Dockerfile deletes them and runs
+  `autoreconf`, so what is compiled is the tag's source alone - the
+  generated files are where xz's backdoor hid, out of git's sight. A
+  tarball with any other file the tag lacks, or a file that differs, is
+  refused.
 - A key that changes (a new release manager) fails the check: adding a key
   is a reviewed commit - import it **by its full fingerprint**, from the
   upstream's own announcement, and export it with
@@ -163,7 +174,9 @@ only):
   checks that passed and what it fixes in the body, labeled `upstream`
   (and `security` when it fixes something). A newer one supersedes and
   closes an older one. Merge after `image-build.yml`'s boot tests on the
-  branch, as for any change.
+  branch, as for any change. A newer release it can't propose yet (no
+  independent checksum, a check failing) is listed in the status issue
+  under **Not proposed**, with the reason.
 
 Pull requests need `UPSTREAM_BOT_TOKEN`: a fine-grained token on this
 repository with **Contents**, **Pull requests** and **Repository security

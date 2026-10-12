@@ -12,7 +12,8 @@
 # version, upstream/<component>-<version>: a bump already proposed isn't
 # proposed again, and an older one still open is closed in its favor.
 # A bump that can't be checked yet (no independent checksum) is left for
-# a later run.
+# a later run - with NOT_PROPOSED set, listed in that file with the
+# reason (the status issue shows it).
 set -euo pipefail
 
 STATUS="${1:?usage: $0 STATUS.json [--dry-run]}"
@@ -25,6 +26,15 @@ go build -o "$WORK/upstream" ./hack/upstream
 git config user.name "janus-upstream[bot]"
 git config user.email "janus-upstream@users.noreply.github.com"
 base="$(git rev-parse HEAD)"
+
+# not_proposed NAME VERSION REASON: a newer release left for a later run.
+not_proposed() {
+  echo "::warning::$1 $2 not proposed: $3"
+  if [ -n "${NOT_PROPOSED:-}" ]; then
+    echo "- **$1** $2: $3" >>"$NOT_PROPOSED"
+  fi
+  git checkout --quiet --force "$base"
+}
 
 if [ -z "$DRY_RUN" ]; then
   gh label create upstream --repo "$REPO" --color 0E8A16 --description "An upstream component's new release" --force >/dev/null
@@ -40,8 +50,7 @@ while read -r name latest <&3; do
   fi
   git checkout --quiet -B "$branch" "$base"
   if ! "$WORK/upstream" bump -md "$WORK/$name.md" -json "$WORK/$name.json" "$name" "$latest" 2>"$WORK/$name.log"; then
-    echo "::warning::$name $latest not proposed: $(tail -1 "$WORK/$name.log")"
-    git checkout --quiet --force "$base"
+    not_proposed "$name" "$latest" "$(tail -1 "$WORK/$name.log")"
     continue
   fi
   cat "$WORK/$name.log"
@@ -63,14 +72,14 @@ while read -r name latest <&3; do
       [ "$track" = "$(sed -n 's/^KERNEL_DEFAULT_TRACK *:= *//p' variants.mk)" ] && targets="$targets rpi4-kernel-config-refresh"
       # shellcheck disable=SC2086
       make $targets KERNEL_TRACK="$track" >"$WORK/kernel.log" 2>&1 || {
-        echo "::warning::$name $latest: make $targets failed"; tail -20 "$WORK/kernel.log"
-        git checkout --quiet --force "$base"; continue
+        tail -20 "$WORK/kernel.log"
+        not_proposed "$name" "$latest" "make $targets failed"; continue
       }
     fi
     # The kernel's list of built files may change with its source.
     make "kernel-built-files-$track" >>"$WORK/kernel.log" 2>&1 || {
-      echo "::warning::$name $latest: make kernel-built-files-$track failed"; tail -20 "$WORK/kernel.log"
-      git checkout --quiet --force "$base"; continue
+      tail -20 "$WORK/kernel.log"
+      not_proposed "$name" "$latest" "make kernel-built-files-$track failed"; continue
     }
     ;;
   esac

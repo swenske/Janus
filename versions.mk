@@ -83,9 +83,11 @@ NFTABLES_SHA256  := a6fbf060d8d4fff001517a2b94f356bb4366bfbf0ba366366f9d27cc38ca
 JANSSON_VERSION  := 2.15.1
 JANSSON_SHA256   := 0c7114dc0b2d22a670724a1f95922029d7077c19dbf79a584cb8084d2f267f2f
 
-# keepalived for the VRRP extension. keepalived doesn't sign its
-# releases: this tarball (keepalived.org) is byte-identical to Debian's
-# orig tarball (same sha256) and matches Alpine's pinned sha512.
+# keepalived for the VRRP extension. keepalived signs neither its
+# releases nor its tags: this tarball (keepalived.org) is pinned when
+# Alpine's sha512 matches it, or when every file it shares with the git
+# tag on GitHub is identical and it adds only autotools' outputs
+# (extensions/keepalived/generated.txt), which the build regenerates.
 KEEPALIVED_VERSION := 2.3.4
 KEEPALIVED_SHA256  := 6afd95ddb7d3e0d3b8b8e5b3a489144131b61a01b06d29e883d0c44acc8a36bf
 

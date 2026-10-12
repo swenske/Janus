@@ -1,0 +1,22 @@
+# What keepalived.org's release tarball carries besides its git tag's
+# files: autotools' outputs (and a few configure outputs left in it), one
+# pattern per line, relative to the tarball's top directory - a shell
+# case pattern, '*' matches '/' too.
+#
+# hack/upstream (components.go, gitTagFiles) refuses a tarball with any
+# other file the tag doesn't have, or a file both have that differs; the
+# Dockerfile deletes these and regenerates them with autoreconf, so what
+# is compiled is the tag's own source.
+configure
+aclocal.m4
+Makefile.in
+*/Makefile.in
+build-aux/*
+m4/pkg.m4
+lib/config.h.in
+lib/git-commit.h
+doc/man/man1/genhash.1
+doc/man/man5/keepalived.conf.5
+doc/man/man8/keepalived.8
+keepalived/etc/sysconfig/keepalived
+keepalived/etc/sysconfig/Makefile
