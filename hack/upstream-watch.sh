@@ -100,10 +100,11 @@ while read -r name latest <&3; do
     --title "upstream: $title $from → $to" --body-file "$WORK/$name.md")"
   echo "$name $to: $url (max severity fixed: $severity)"
   # An older bump of the same component still open is superseded - its
-  # branch is upstream/<this component>-<a version>, never another
-  # component's whose name merely starts with this one's.
+  # branch is upstream/<this component>-<a version> (as its feed writes
+  # it: keepalived's tags start with a v), never another component's
+  # whose name merely starts with this one's.
   gh pr list --repo "$REPO" --state open --json number,headRefName \
-    --jq ".[] | select(.headRefName | startswith(\"upstream/$name-\")) | select(.headRefName | ltrimstr(\"upstream/$name-\") | test(\"^[0-9]\")) | select(.headRefName != \"$branch\") | .number" |
+    --jq ".[] | select(.headRefName | startswith(\"upstream/$name-\")) | select(.headRefName | ltrimstr(\"upstream/$name-\") | test(\"^v?[0-9]\")) | select(.headRefName != \"$branch\") | .number" |
     while read -r old; do
       gh pr close "$old" --repo "$REPO" --delete-branch --comment "Superseded by $url."
     done
