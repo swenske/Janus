@@ -57,22 +57,51 @@ jobs:
           go run ./hack/upstream check -md build/status.md -json build/status.json
           cat build/status.md >> "$GITHUB_STEP_SUMMARY"
 
+      # Before the status issue: what it can't propose yet, and why, is
+      # listed there.
+      - name: Propose bumps
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.UPSTREAM_BOT_TOKEN }}
+          NOT_PROPOSED: build/not-proposed.md
+        run: |
+          if [ -z "$GH_TOKEN" ] && [ -z "$DRY_RUN" ]; then
+            echo "::notice::no UPSTREAM_BOT_TOKEN: no pull request proposed"
+            exit 0
+          fi
+          ./hack/upstream-watch.sh build/status.json ${DRY_RUN:+--dry-run}
+          if [ -s build/not-proposed.md ]; then
+            { echo "### Not proposed"; echo; cat build/not-proposed.md; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Update the status issue
-        if: env.DRY_RUN == ''
+        if: ${{ !cancelled() && env.DRY_RUN == '' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh label create upstream-status --color 0E8A16 --description "Upstream components' status (upstream-watch.yml)" --force >/dev/null
+          cp build/status.md build/status-issue.md
+          if [ -s build/not-proposed.md ]; then
+            {
+              echo
+              echo "### Not proposed"
+              echo
+              echo "Newer releases no pull request was opened for - [how a bump is checked](../blob/main/docs/upstreams.md#a-bump-is-checked-before-anything-changes):"
+              echo
+              cat build/not-proposed.md
+            } >> build/status-issue.md
+          fi
           n=$(gh issue list --label upstream-status --state open --json number --jq '.[0].number // empty')
           if [ -z "$n" ]; then
-            gh issue create --title "📦 Upstream status" --label upstream-status --body-file build/status.md
+            gh issue create --title "📦 Upstream status" --label upstream-status --body-file build/status-issue.md
           else
-            gh issue edit "$n" --body-file build/status.md
+            gh issue edit "$n" --body-file build/status-issue.md
           fi
 
       # What main fixes since the latest release: once any of it is a
       # vulnerability, a security release is due (SECURITY.md's targets).
       - name: Security fixes waiting for a release
+        if: ${{ !cancelled() }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
@@ -99,14 +128,3 @@ jobs:
           else
             gh issue edit "$n" --body-file build/pending-issue.md
           fi
-
-      - name: Propose bumps
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GH_TOKEN: ${{ secrets.UPSTREAM_BOT_TOKEN }}
-        run: |
-          if [ -z "$GH_TOKEN" ] && [ -z "$DRY_RUN" ]; then
-            echo "::notice::no UPSTREAM_BOT_TOKEN: no pull request proposed"
-            exit 0
-          fi
-          ./hack/upstream-watch.sh build/status.json ${DRY_RUN:+--dry-run}
