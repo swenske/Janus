@@ -5,38 +5,11 @@ import (
 	"net"
 	"os"
 	"strings"
+
+	"github.com/swenske/Janus/internal/brand"
 )
 
-// motdLogo is brand/favicon/favicon.svg drawn with half-block
-// characters (one character = two square "pixels" vertically, 3 SVG
-// units per pixel) - only glyphs the kernel's 8x16 console font has
-// (█ ▀ ▄ ▌ ▐). The two outward-facing triangles are Janus's two faces,
-// their edges a regular 45° staircase so they read as straight; the
-// taller bar between them is the brand-orange stroke, five cells wide
-// visually (▐ and ▌ are half cells) with its corners left out for the
-// SVG's rounded ones. Columns [motdBarStart, motdBarEnd) are the bar;
-// the drawing is symmetric around its middle.
-var motdLogo = []string{
-	"           ▄▄▄▄           ",
-	"          ▐████▌          ",
-	"          ▐████▌          ",
-	"        ▄ ▐████▌ ▄        ",
-	"      ▄██ ▐████▌ ██▄      ",
-	"    ▄████ ▐████▌ ████▄    ",
-	"  ▄██████ ▐████▌ ██████▄  ",
-	"  ▀██████ ▐████▌ ██████▀  ",
-	"    ▀████ ▐████▌ ████▀    ",
-	"      ▀██ ▐████▌ ██▀      ",
-	"        ▀ ▐████▌ ▀        ",
-	"          ▐████▌          ",
-	"          ▐████▌          ",
-	"           ▀▀▀▀           ",
-}
-
 const (
-	motdBarStart = 10
-	motdBarEnd   = 16
-
 	ansiReset  = "\x1b[0m"
 	ansiBold   = "\x1b[1m"
 	ansiDim    = "\x1b[2m"
@@ -116,14 +89,14 @@ func renderMOTD(info motdInfo, color bool) string {
 
 	var b strings.Builder
 	b.WriteString("\n")
-	for i := 0; i < len(motdLogo) || i < len(text); i++ {
-		logo := strings.Repeat(" ", len([]rune(motdLogo[0])))
-		if i < len(motdLogo) {
-			logo = motdLogo[i]
+	for i := 0; i < len(brand.Logo) || i < len(text); i++ {
+		logo := strings.Repeat(" ", brand.Width)
+		if i < len(brand.Logo) {
+			logo = brand.Logo[i]
 		}
 		if color {
-			r := []rune(logo)
-			logo = string(r[:motdBarStart]) + ansiOrange + string(r[motdBarStart:motdBarEnd]) + ansiReset + string(r[motdBarEnd:])
+			left, bar, right := brand.Split(logo)
+			logo = left + ansiOrange + bar + ansiReset + right
 		}
 		line := "  " + logo
 		if i < len(text) && text[i] != "" {
