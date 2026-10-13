@@ -32,11 +32,17 @@ type tuiSettings struct {
 	ProcSort    string `json:"process_sort"`
 	ProcReverse bool   `json:"process_reverse"` // smallest first
 	Splash      bool   `json:"splash"`          // the logo while the first answers come in
+	// The traffic flow (f): top to bottom or left to right, its servers
+	// shown, its links moving with traffic.
+	FlowDirection string `json:"flow_direction"` // vertical, horizontal
+	FlowServers   bool   `json:"flow_servers"`
+	FlowAnimation bool   `json:"flow_animation"`
 }
 
 func defaultSettings() tuiSettings {
 	return tuiSettings{Theme: termui.ThemeJanus.Name, Background: true, Colors: "auto", Graphs: "braille", Rounded: true,
-		Interval: "2s", TrendMetric: trendMetrics[0].key, TrendWindow: fmtWindow(trendWindows[trendDefaultWindow]), TrendScale: scaleLinear.key(), ProcSort: procSorts[0], Splash: true}
+		Interval: "2s", TrendMetric: trendMetrics[0].key, TrendWindow: fmtWindow(trendWindows[trendDefaultWindow]), TrendScale: scaleLinear.key(), ProcSort: procSorts[0], Splash: true,
+		FlowDirection: "vertical", FlowServers: true, FlowAnimation: true}
 }
 
 // settingsPath is tui.json beside the contexts' file.
@@ -86,6 +92,9 @@ func (s tuiSettings) valid() tuiSettings {
 	if !oneOf(s.ProcSort, procSorts) {
 		s.ProcSort = d.ProcSort
 	}
+	if !oneOf(s.FlowDirection, flowDirections) {
+		s.FlowDirection = d.FlowDirection
+	}
 	return s
 }
 
@@ -106,8 +115,9 @@ func (s tuiSettings) save(path string) error {
 }
 
 var (
-	colorChoices = []string{"auto", "truecolor", "256", "16"}
-	graphChoices = []string{"braille", "block", "tty"}
+	colorChoices   = []string{"auto", "truecolor", "256", "16"}
+	graphChoices   = []string{"braille", "block", "tty"}
+	flowDirections = []string{"vertical", "horizontal"}
 )
 
 func oneOf(v string, choices []string) bool {
@@ -384,6 +394,36 @@ var menuItems = []menuItem{
 			}
 		},
 		help: func(*app) []string { return []string{"Reverses the processes' order - r too."} }},
+	{name: "Traffic flow",
+		values: func(*app) []string { return flowDirections },
+		get:    func(a *app) string { return a.settings.FlowDirection },
+		show: func(_ *app, v string) string {
+			if v == "horizontal" {
+				return "left to right"
+			}
+			return "top to bottom"
+		},
+		set: func(a *app, v string) { a.settings.FlowDirection = v },
+		help: func(*app) []string {
+			return []string{"How a node's traffic flow (f) is drawn - o too:", "from the interfaces down to the servers, or", "from left to right."}
+		}},
+	{name: "Flow servers",
+		values: func(*app) []string { return []string{"shown", "hidden"} },
+		get: func(a *app) string {
+			if a.settings.FlowServers {
+				return "shown"
+			}
+			return "hidden"
+		},
+		set:  func(a *app, v string) { a.settings.FlowServers = v == "shown" },
+		help: func(*app) []string { return []string{"The backends' servers on the traffic flow - s too."} }},
+	{name: "Flow animation",
+		values: func(*app) []string { return []string{"on", "off"} },
+		get:    func(a *app) string { return onOff(a.settings.FlowAnimation) },
+		set:    func(a *app, v string) { a.settings.FlowAnimation = v == "on" },
+		help: func(*app) []string {
+			return []string{"Links with traffic run on the traffic flow, a few", "times a second: off draws them still."}
+		}},
 }
 
 func depthName(d termui.Depth) string {

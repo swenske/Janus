@@ -381,6 +381,12 @@ func (a *app) run(t *terminal) (err error) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	var frames <-chan time.Time // the splash's animation, while it shows
+	var moving *time.Ticker     // the screen's own, while it has one (the traffic flow)
+	defer func() {
+		if moving != nil {
+			moving.Stop()
+		}
+	}()
 	if a.settings.Splash {
 		a.splash = &splash{start: a.now()}
 		anim := time.NewTicker(splashFrame)
@@ -401,6 +407,16 @@ func (a *app) run(t *terminal) (err error) {
 		}
 		t.draw(f.Render(prev, a.palette))
 		prev = f
+		var moves <-chan time.Time
+		if an, ok := a.screen.(animator); ok && a.splash == nil && a.menu == nil && !a.paused.Load() && an.animating(a) {
+			if moving == nil {
+				moving = time.NewTicker(flowFrame)
+			}
+			moves = moving.C
+		} else if moving != nil {
+			moving.Stop()
+			moving = nil
+		}
 		select {
 		case k, ok := <-t.keys:
 			if !ok {
@@ -419,8 +435,14 @@ func (a *app) run(t *terminal) (err error) {
 			a.finish(res)
 		case <-tick.C:
 		case <-frames:
+		case <-moves:
 		}
 	}
+}
+
+// animator is a screen that moves between two rounds.
+type animator interface {
+	animating(a *app) bool
 }
 
 // show makes s the current screen.
@@ -572,6 +594,7 @@ var tuiHelp = []string{
 	"Enter          open the node / act on the server",
 	"Esc            back to the fleet, close a dialog",
 	"1-9            show or hide a panel (7 events, 8 logs)",
+	"f              traffic flow: ←↑↓→ select, o direction, s servers",
 	"s  r           sort the processes or the nodes / reverse",
 	"m  w  y        fleet trend: metric, time window, scale",
 	"e  l           events / logs in the tail (l again: janusd ↔ haproxy)",
