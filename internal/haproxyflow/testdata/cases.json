@@ -1,0 +1,568 @@
+[
+  {
+    "name": "web.cfg",
+    "about": "examples/haproxy/web.cfg: a default backend, frontends that answer themselves",
+    "config": "# A web load balancer on a Janus node: HTTP for the application on every\n# address, two application servers checked every 2 seconds, HAProxy's\n# own Prometheus exporter on :8405. Applied by the Terraform examples\n# (../terraform/*/main.tf); checked by the node's own HAProxy (make\n# examples-test). docs/haproxy-config.md says what differs from a\n# distribution's haproxy.cfg.\nglobal\n    log stdout format raw local0\n    stats socket /run/janus/haproxy-admin.sock mode 660 level admin\n    chroot /var/empty\n    uid 1000\n    gid 1000\n    # About 32000 connections and 20 MB of tables: enough for a small node.\n    fd-hard-limit 65536\n\ndefaults\n    mode http\n    log global\n    option httplog\n    timeout connect 5s\n    timeout client 30s\n    timeout server 30s\n\nfrontend web\n    bind :80\n    # HTTPS once the certificate is on the node (docs/haproxy-files.md):\n    #   bind :443 ssl crt /etc/haproxy/files/certs/app.pem alpn h2,http/1.1\n    http-request return status 200 content-type text/plain string \"ok\\n\" if { path /healthz }\n    default_backend app\n\nbackend app\n    balance roundrobin\n    option httpchk GET /healthz\n    default-server check inter 2s fall 3 rise 2\n    server app1 10.0.10.11:8080\n    server app2 10.0.10.12:8080\n\nfrontend prometheus\n    bind :8405\n    http-request use-service prometheus-exporter if { path /metrics }\n    no log\n",
+    "backends": [
+      "app"
+    ],
+    "maps": {},
+    "want": {
+      "frontends": [
+        {
+          "name": "web",
+          "kind": "frontend",
+          "mode": "http",
+          "binds": [
+            ":80"
+          ],
+          "answers": [
+            "return"
+          ]
+        },
+        {
+          "name": "prometheus",
+          "kind": "frontend",
+          "mode": "http",
+          "binds": [
+            ":8405"
+          ],
+          "answers": [
+            "use-service prometheus-exporter"
+          ]
+        }
+      ],
+      "backends": [
+        "app"
+      ],
+      "maps": [],
+      "links": [
+        {
+          "frontend": "web",
+          "backend": "app",
+          "rules": [
+            {
+              "text": "default_backend app"
+            }
+          ]
+        }
+      ],
+      "unresolved": []
+    }
+  },
+  {
+    "name": "defaults and listen",
+    "about": "use_backend rules, default_backend inherited from named defaults, listen sections, .if blocks read as held",
+    "config": "\ndefaults base\n    mode http\n    default_backend fallback\ndefaults tcp from base\n    mode tcp\ndefaults\n    mode http\nfrontend fe1 from base\n    bind 10.0.0.1:443,10.0.0.1:8443 ssl crt /etc/haproxy/files/x.pem\n    use_backend api if { req.hdr(host) -i api.example.com }\n    use_backend \"static\" unless is_dynamic  # a comment\n    use_backend missing if never\nfrontend fe2 from tcp\n    bind :5432\nfrontend fe3\n    bind :81\n.if defined(DEBUG)\n    use_backend debug\n.endif\nlisten stats :8404\n    stats enable\n    stats uri /\nlisten pg\n    bind :5433\n    default_backend pg_replicas\nbackend api\nbackend static\nbackend fallback\nbackend debug\nbackend pg_replicas\n",
+    "backends": [
+      "stats",
+      "pg",
+      "api",
+      "static",
+      "fallback",
+      "debug",
+      "pg_replicas"
+    ],
+    "maps": {},
+    "want": {
+      "frontends": [
+        {
+          "name": "fe1",
+          "kind": "frontend",
+          "mode": "http",
+          "binds": [
+            "10.0.0.1:443,10.0.0.1:8443"
+          ],
+          "answers": []
+        },
+        {
+          "name": "fe2",
+          "kind": "frontend",
+          "mode": "tcp",
+          "binds": [
+            ":5432"
+          ],
+          "answers": []
+        },
+        {
+          "name": "fe3",
+          "kind": "frontend",
+          "mode": "http",
+          "binds": [
+            ":81"
+          ],
+          "answers": []
+        },
+        {
+          "name": "stats",
+          "kind": "listen",
+          "mode": "http",
+          "binds": [
+            ":8404"
+          ],
+          "answers": [
+            "stats page"
+          ]
+        },
+        {
+          "name": "pg",
+          "kind": "listen",
+          "mode": "http",
+          "binds": [
+            ":5433"
+          ],
+          "answers": []
+        }
+      ],
+      "backends": [
+        "stats",
+        "pg",
+        "api",
+        "static",
+        "fallback",
+        "debug",
+        "pg_replicas"
+      ],
+      "maps": [],
+      "links": [
+        {
+          "frontend": "fe1",
+          "backend": "api",
+          "rules": [
+            {
+              "text": "use_backend api if { req.hdr(host) -i api.example.com }"
+            }
+          ]
+        },
+        {
+          "frontend": "fe1",
+          "backend": "static",
+          "rules": [
+            {
+              "text": "use_backend static unless is_dynamic"
+            }
+          ]
+        },
+        {
+          "frontend": "fe1",
+          "backend": "fallback",
+          "rules": [
+            {
+              "text": "default_backend fallback (from defaults)"
+            }
+          ]
+        },
+        {
+          "frontend": "fe2",
+          "backend": "fallback",
+          "rules": [
+            {
+              "text": "default_backend fallback (from defaults)"
+            }
+          ]
+        },
+        {
+          "frontend": "fe3",
+          "backend": "debug",
+          "rules": [
+            {
+              "text": "use_backend debug"
+            }
+          ]
+        },
+        {
+          "frontend": "stats",
+          "backend": "stats",
+          "rules": [
+            {
+              "text": "its own servers (listen)"
+            }
+          ]
+        },
+        {
+          "frontend": "pg",
+          "backend": "pg_replicas",
+          "rules": [
+            {
+              "text": "default_backend pg_replicas"
+            }
+          ]
+        }
+      ],
+      "unresolved": []
+    }
+  },
+  {
+    "name": "maps and variables",
+    "about": "use_backend through a map (prefix, suffix, default), through set-var with a str() literal, and per request",
+    "config": "\nfrontend https\n    bind :443\n    use_backend be_%[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,default)]_pool\nfrontend vars\n    bind :80\n    http-request set-var(txn.be) req.hdr(host),lower,map_str(/etc/haproxy/files/vars.map) if { req.hdr(host) -m found }\n    http-request set-var(txn.be) str(be_api) if { path_beg /api }\n    use_backend %[var(txn.be)]\nfrontend opaque\n    bind :82\n    use_backend %[req.hdr(x-backend)]\nbackend be_www_pool\nbackend be_blog_pool\nbackend be_default_pool\nbackend be_api\nbackend be_a\n",
+    "backends": [
+      "be_www_pool",
+      "be_blog_pool",
+      "be_default_pool",
+      "be_api",
+      "be_a"
+    ],
+    "maps": {
+      "/etc/haproxy/files/hosts.map": {
+        "a.example.com": "a",
+        "blog.example.com": "blog",
+        "example.com": "www",
+        "old.example.com": "gone",
+        "www.example.com": "www"
+      }
+    },
+    "want": {
+      "frontends": [
+        {
+          "name": "https",
+          "kind": "frontend",
+          "mode": "",
+          "binds": [
+            ":443"
+          ],
+          "answers": []
+        },
+        {
+          "name": "vars",
+          "kind": "frontend",
+          "mode": "",
+          "binds": [
+            ":80"
+          ],
+          "answers": []
+        },
+        {
+          "name": "opaque",
+          "kind": "frontend",
+          "mode": "",
+          "binds": [
+            ":82"
+          ],
+          "answers": []
+        }
+      ],
+      "backends": [
+        "be_www_pool",
+        "be_blog_pool",
+        "be_default_pool",
+        "be_api",
+        "be_a"
+      ],
+      "maps": [
+        "/etc/haproxy/files/hosts.map",
+        "/etc/haproxy/files/vars.map"
+      ],
+      "links": [
+        {
+          "frontend": "https",
+          "backend": "be_blog_pool",
+          "rules": [
+            {
+              "text": "use_backend be_%[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,default)]_pool",
+              "map": "/etc/haproxy/files/hosts.map",
+              "keys": [
+                "blog.example.com"
+              ]
+            }
+          ]
+        },
+        {
+          "frontend": "https",
+          "backend": "be_www_pool",
+          "rules": [
+            {
+              "text": "use_backend be_%[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,default)]_pool",
+              "map": "/etc/haproxy/files/hosts.map",
+              "keys": [
+                "example.com",
+                "www.example.com"
+              ]
+            }
+          ]
+        },
+        {
+          "frontend": "https",
+          "backend": "be_default_pool",
+          "rules": [
+            {
+              "text": "use_backend be_%[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,default)]_pool",
+              "map": "/etc/haproxy/files/hosts.map",
+              "isDefault": true
+            }
+          ]
+        },
+        {
+          "frontend": "vars",
+          "backend": "be_api",
+          "rules": [
+            {
+              "text": "use_backend %[var(txn.be)]",
+              "via": "set-var"
+            }
+          ]
+        }
+      ],
+      "unresolved": [
+        {
+          "frontend": "opaque",
+          "format": "%[req.hdr(x-backend)]",
+          "maps": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "maps not read",
+    "about": "the same without the maps: only the str() literal resolves",
+    "config": "\nfrontend https\n    bind :443\n    use_backend be_%[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,default)]_pool\nfrontend vars\n    bind :80\n    http-request set-var(txn.be) req.hdr(host),lower,map_str(/etc/haproxy/files/vars.map) if { req.hdr(host) -m found }\n    http-request set-var(txn.be) str(be_api) if { path_beg /api }\n    use_backend %[var(txn.be)]\nfrontend opaque\n    bind :82\n    use_backend %[req.hdr(x-backend)]\nbackend be_www_pool\nbackend be_blog_pool\nbackend be_default_pool\nbackend be_api\nbackend be_a\n",
+    "backends": [
+      "be_www_pool",
+      "be_blog_pool",
+      "be_default_pool",
+      "be_api",
+      "be_a"
+    ],
+    "maps": {},
+    "want": {
+      "frontends": [
+        {
+          "name": "https",
+          "kind": "frontend",
+          "mode": "",
+          "binds": [
+            ":443"
+          ],
+          "answers": []
+        },
+        {
+          "name": "vars",
+          "kind": "frontend",
+          "mode": "",
+          "binds": [
+            ":80"
+          ],
+          "answers": []
+        },
+        {
+          "name": "opaque",
+          "kind": "frontend",
+          "mode": "",
+          "binds": [
+            ":82"
+          ],
+          "answers": []
+        }
+      ],
+      "backends": [
+        "be_www_pool",
+        "be_blog_pool",
+        "be_default_pool",
+        "be_api",
+        "be_a"
+      ],
+      "maps": [
+        "/etc/haproxy/files/hosts.map",
+        "/etc/haproxy/files/vars.map"
+      ],
+      "links": [
+        {
+          "frontend": "vars",
+          "backend": "be_api",
+          "rules": [
+            {
+              "text": "use_backend %[var(txn.be)]",
+              "via": "set-var"
+            }
+          ]
+        }
+      ],
+      "unresolved": [
+        {
+          "frontend": "https",
+          "format": "be_%[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,default)]_pool",
+          "maps": [
+            "/etc/haproxy/files/hosts.map"
+          ]
+        },
+        {
+          "frontend": "opaque",
+          "format": "%[req.hdr(x-backend)]",
+          "maps": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "the shown backends only",
+    "about": "links only to the backends show stat lists",
+    "config": "\nfrontend https\n    bind :443\n    use_backend be_%[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,default)]_pool\nfrontend vars\n    bind :80\n    http-request set-var(txn.be) req.hdr(host),lower,map_str(/etc/haproxy/files/vars.map) if { req.hdr(host) -m found }\n    http-request set-var(txn.be) str(be_api) if { path_beg /api }\n    use_backend %[var(txn.be)]\nfrontend opaque\n    bind :82\n    use_backend %[req.hdr(x-backend)]\nbackend be_www_pool\nbackend be_blog_pool\nbackend be_default_pool\nbackend be_api\nbackend be_a\n",
+    "backends": [
+      "be_www_pool",
+      "be_api"
+    ],
+    "maps": {
+      "/etc/haproxy/files/hosts.map": {
+        "a.example.com": "a",
+        "blog.example.com": "blog",
+        "example.com": "www",
+        "old.example.com": "gone",
+        "www.example.com": "www"
+      }
+    },
+    "want": {
+      "frontends": [
+        {
+          "name": "https",
+          "kind": "frontend",
+          "mode": "",
+          "binds": [
+            ":443"
+          ],
+          "answers": []
+        },
+        {
+          "name": "vars",
+          "kind": "frontend",
+          "mode": "",
+          "binds": [
+            ":80"
+          ],
+          "answers": []
+        },
+        {
+          "name": "opaque",
+          "kind": "frontend",
+          "mode": "",
+          "binds": [
+            ":82"
+          ],
+          "answers": []
+        }
+      ],
+      "backends": [
+        "be_www_pool",
+        "be_blog_pool",
+        "be_default_pool",
+        "be_api",
+        "be_a"
+      ],
+      "maps": [
+        "/etc/haproxy/files/hosts.map",
+        "/etc/haproxy/files/vars.map"
+      ],
+      "links": [
+        {
+          "frontend": "https",
+          "backend": "be_www_pool",
+          "rules": [
+            {
+              "text": "use_backend be_%[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,default)]_pool",
+              "map": "/etc/haproxy/files/hosts.map",
+              "keys": [
+                "example.com",
+                "www.example.com"
+              ]
+            }
+          ]
+        },
+        {
+          "frontend": "vars",
+          "backend": "be_api",
+          "rules": [
+            {
+              "text": "use_backend %[var(txn.be)]",
+              "via": "set-var"
+            }
+          ]
+        }
+      ],
+      "unresolved": [
+        {
+          "frontend": "opaque",
+          "format": "%[req.hdr(x-backend)]",
+          "maps": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "quotes and escapes",
+    "about": "quoted words, escaped blanks, a quoted map path",
+    "config": "\nfrontend \"front door\"\n    bind \":80\"\n    use_backend %[base,map_beg(\"/etc/haproxy/files/paths.map\")]\n    use_backend back\\ end if { path_beg /x }\n    http-request redirect scheme https unless { ssl_fc }\n    tcp-request content use-service lua.hello\nbackend \"back end\"\nbackend api\nbackend static\n",
+    "backends": [
+      "back end",
+      "api",
+      "static"
+    ],
+    "maps": {
+      "/etc/haproxy/files/paths.map": {
+        "/api": "api",
+        "/nothing": "none",
+        "/static": "static"
+      }
+    },
+    "want": {
+      "frontends": [
+        {
+          "name": "front door",
+          "kind": "frontend",
+          "mode": "",
+          "binds": [
+            ":80"
+          ],
+          "answers": [
+            "redirect",
+            "use-service lua.hello"
+          ]
+        }
+      ],
+      "backends": [
+        "back end",
+        "api",
+        "static"
+      ],
+      "maps": [
+        "/etc/haproxy/files/paths.map"
+      ],
+      "links": [
+        {
+          "frontend": "front door",
+          "backend": "api",
+          "rules": [
+            {
+              "text": "use_backend %[base,map_beg(/etc/haproxy/files/paths.map)]",
+              "map": "/etc/haproxy/files/paths.map",
+              "keys": [
+                "/api"
+              ]
+            }
+          ]
+        },
+        {
+          "frontend": "front door",
+          "backend": "static",
+          "rules": [
+            {
+              "text": "use_backend %[base,map_beg(/etc/haproxy/files/paths.map)]",
+              "map": "/etc/haproxy/files/paths.map",
+              "keys": [
+                "/static"
+              ]
+            }
+          ]
+        },
+        {
+          "frontend": "front door",
+          "backend": "back end",
+          "rules": [
+            {
+              "text": "use_backend back end if { path_beg /x }"
+            }
+          ]
+        }
+      ],
+      "unresolved": []
+    }
+  }
+]
