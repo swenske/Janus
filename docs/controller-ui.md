@@ -439,6 +439,14 @@ both tests.
   them). It's reloaded as soon as the node changes: the metrics poll
   seeing a new boot time or the node answering again, `WaitForNode`
   seeing it back, or "Refresh now".
+- **Releases** come from GitHub's list, which the Controller keeps ten
+  minutes (`nodeproxy` `releaseCache`, shared by every page). A Refresh
+  button - the node page's "Refresh now" (`recheck`), the Controller's
+  header (`ControllerUpdate`'s `checkNow`) - asks with `?refresh`
+  (`/api/update-check`, `/api/controller/update`, `RefreshAsked`): the
+  list is read again unless it's younger than 30 s, and kept when GitHub
+  fails. Only a click asks for it - never a poll: GitHub allows 60 calls
+  an hour without a token.
 - **Metrics history** lives in `MetricsProvider`, app-wide, so charts
   keep their data across page changes; it holds the last 900 samples in
   the browser only. Counters are turned into rates client-side, and a

@@ -149,7 +149,8 @@ func (a *app) controllerUpdate(ctx context.Context) controllerUpdateView {
 func (a *app) handleControllerUpdate(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, a.controllerUpdate(r.Context()))
+		// ?refresh: the header's Refresh button - a release just published.
+		writeJSON(w, http.StatusOK, a.controllerUpdate(nodeproxy.RefreshAsked(r)))
 	case http.MethodPost:
 		// prerelease confirms that Version is the pre-release on offer, for
 		// testing: not a release, not supported.

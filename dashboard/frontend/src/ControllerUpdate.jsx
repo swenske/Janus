@@ -47,7 +47,9 @@ function JobLog({ job }) {
   )
 }
 
-export default function ControllerUpdate() {
+// checkNow changing is the header's Refresh: ask GitHub again, past the
+// Controller's cache of its releases.
+export default function ControllerUpdate({ checkNow = 0 }) {
   const can = useCan()
   const [info, setInfo] = useState(null)
   // 'starting' from the click until the updater reports the job;
@@ -65,7 +67,7 @@ export default function ControllerUpdate() {
   const job = info?.updater?.job
   const running = phase !== null || job?.state === 'running'
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     // During an update, ask whether this session still exists first: the
     // new Controller doesn't know it, and the page has to sign in again.
     if (busyRef.current) {
@@ -79,7 +81,7 @@ export default function ControllerUpdate() {
     }
     let resp
     try {
-      resp = await fetch('/api/controller/update', { headers: backgroundHeaders() })
+      resp = await fetch(`/api/controller/update${fresh ? '?refresh=1' : ''}`, { headers: backgroundHeaders() })
     } catch {
       setPhase((p) => (p ? 'restarting' : p))
       return
@@ -101,6 +103,13 @@ export default function ControllerUpdate() {
     const t = setInterval(load, running ? BUSY_EVERY : IDLE_EVERY)
     return () => clearInterval(t)
   }, [load, running])
+
+  const checked = useRef(checkNow)
+  useEffect(() => {
+    if (checkNow === checked.current) return
+    checked.current = checkNow
+    load(true)
+  }, [checkNow, load])
 
   if (!info) return null
   const latest = info.latest

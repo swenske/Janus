@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -215,5 +216,81 @@ func TestPreparePrerelease(t *testing.T) {
 	node.Version = "v2026.10.05"
 	if _, err := preparePrerelease(context.Background(), node, "v2026.10.05"); status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("on the pre-release already: %v", err)
+	}
+}
+
+// TestReleaseRefresh: the release list is kept releaseCacheTTL; a refresh
+// asked by hand (?refresh) fetches it again once it's releaseRefreshMin
+// old - a release just published shows - and keeps it when GitHub fails.
+func TestReleaseRefresh(t *testing.T) {
+	var lists, failing atomic.Int32
+	var gh *httptest.Server
+	gh = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/releases":
+			lists.Add(1)
+			if failing.Load() == 1 {
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = io.WriteString(w, `[{"tag_name":"v2026.10.13","html_url":"https://github.com/o/r/releases/tag/v2026.10.13","assets":[`+
+				`{"name":"rootfs.squashfs.sha256","browser_download_url":"`+gh.URL+`/sha256"}]}]`)
+		case "/sha256":
+			_, _ = io.WriteString(w, strings.Repeat("ab", 32)+"\n")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(gh.Close)
+	prev := ReleasesURL
+	ReleasesURL = gh.URL + "/releases"
+	t.Cleanup(func() { ReleasesURL = prev })
+
+	ctx := context.Background()
+	req := httptest.NewRequest(http.MethodGet, "/api/update-check?refresh=1", nil)
+	fresh := RefreshAsked(req)
+	if fresh.Value(freshReleasesKey{}) != true || RefreshAsked(httptest.NewRequest(http.MethodGet, "/api/update-check", nil)).Value(freshReleasesKey{}) != nil {
+		t.Fatal("?refresh asks for a fresh list, nothing else does")
+	}
+	get := func(ctx context.Context) *ReleaseInfo {
+		t.Helper()
+		rel, err := getLatestRelease(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rel
+	}
+	older := func(d time.Duration) {
+		releaseCache.mu.Lock()
+		releaseCache.fetchedAt = releaseCache.fetchedAt.Add(-d)
+		releaseCache.triedAt = releaseCache.triedAt.Add(-d)
+		releaseCache.mu.Unlock()
+	}
+	fetched := func(want int32, when string) {
+		t.Helper()
+		if n := lists.Load(); n != want {
+			t.Fatalf("%s: the list fetched %d times, want %d", when, n, want)
+		}
+	}
+
+	get(ctx)
+	get(fresh)
+	fetched(1, "a refresh right after a fetch")
+	older(time.Minute)
+	get(ctx)
+	fetched(1, "a minute later, no refresh")
+	get(fresh)
+	fetched(2, "a minute later, a refresh")
+
+	failing.Store(1)
+	older(time.Minute)
+	if rel := get(fresh); rel.TagName != "v2026.10.13" {
+		t.Errorf("a refresh GitHub failed: %q", rel.TagName)
+	}
+	get(fresh)
+	fetched(3, "a refresh right after one that failed")
+	older(releaseCacheTTL)
+	if _, err := getLatestRelease(ctx); err == nil {
+		t.Error("past releaseCacheTTL, GitHub failing is an error")
 	}
 }
