@@ -40,6 +40,12 @@ const (
 	flowValuesMax  = 22 // its numbers
 )
 
+// flowValuesRoom is the cells a node's numbers have whatever they say,
+// so the map doesn't move as traffic comes and goes: "14.5KiB/s",
+// "14.5KiB/s · 12 sess", "12 conns · 1.7k req/s"; a server's - at the
+// end of its line - what it says idle, "0B/s · 0 sess".
+var flowValuesRoom = map[string]int{kindIface: 9, kindHub: 21, kindFE: 19, kindBE: 19, kindSrv: 13, kindMore: 13}
+
 // How a link looks, worst first: a cell several links cross shows the
 // best of them.
 const (
@@ -66,6 +72,7 @@ type flowNode struct {
 	status         *janusv1alpha1.NetworkInterfaceStatus
 	up             int      // an interface: 1 up, 0 down, -1 unknown
 	binds, answers []string // a frontend's, from the configuration
+	room           int      // the cells its numbers have: more than they take, so the map holds still
 
 	x, y int // its dot's cell once placed
 }
@@ -94,7 +101,7 @@ func (n *flowNode) shownValues() string {
 
 // width is the cells the node's label takes from its dot.
 func (n *flowNode) width() int {
-	name, values := len([]rune(n.shownName())), len([]rune(n.shownValues()))
+	name, values := len([]rune(n.shownName())), max(len([]rune(n.shownValues())), n.room)
 	if n.oneLine() {
 		if values == 0 {
 			return 2 + name

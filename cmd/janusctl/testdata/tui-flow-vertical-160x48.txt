@@ -1,30 +1,30 @@
  janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok  [network trial reverts in 42s]                    15:04:05
 ╭─ Traffic flow  top to bottom ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│                                                                       ● eth0                                                                                 │
-│                                                                       │ 16.0KiB/s                                                                            │
-│                                                                       ┃                                                                                      │
-│                                                                       │                                                                                      │
-│                                                                       │                                                                                      │
-│                                                                       ● HAProxy                                                                              │
-│                                                                       │ 12 conns · 4 req/s                                                                   │
-│                                                                       ┃                                                                                      │
-│              ╭─━───━───━───━───━───━───━───━───━───━───━───━───━───━──┴──━───━───━───━───━─┬─━───━───━───━─┬───────────────────╮                             │
-│              │                                                                             │               │                   │                             │
-│              ● https                                                                       ● stats         ● tcp_in            ● admin                       │
-│              │ 43.9KiB/s · 8 sess                                                          │ 0B/s · 0 sess │ 2.0KiB/s · 1 sess   0B/s · 0 sess               │
-│              ┃                                                                             │               ┃                                                 │
-│ ──━───━───━──┴┬─━───━───━───━───━───━───━┬──━───━───━───━───━───╮                          │               │                                                 │
-│               │                          │                      │                          │               │                                                 │
-│               ● be_www                   ● be_many              ● be_default               ● stats         ● tcp_pool                 ○ unused               │
-◂ up            │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess    │ 4.9KiB/s · 1 sess          0B/s · 0 sess │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess    │
-│ iB/s · 1 sess ├─● app1 9.8KiB/s · 2 sess ├─● s1 500B/s · 0 sess ╰─● app1 5.9KiB/s · 1 sess                 ╰─● app1 2.0KiB/s · 1 sess ╰─● app1 0B/s · 0 sess │
-│ · L4TOUT      ╰─● app2 8.8KiB/s · 2 sess ├─● s2 500B/s · 0 sess                                                                                              │
-│                                          ├─● s3 500B/s · 0 sess                                                                                              │
-│                                          ├━● s4 500B/s · 0 sess                                                                                              │
-│                                          ├─● s5 500B/s · 0 sess                                                                                              │
-│                                          ├─● s6 500B/s · 0 sess                                                                                              │
-│                                          ├─● s7 500B/s · 0 sess                                                                                              │
-│                                          ╰━● +3 more 3 servers                                                                                               │
+│                                                                    ● eth0                                                                                    │
+│                                                                    │ 16.0KiB/s                                                                               │
+│                                                                    ┃                                                                                         │
+│                                                                    │                                                                                         │
+│                                                                    │                                                                                         │
+│                                                                    ● HAProxy                                                                                 │
+│                                                                    │ 12 conns · 4 req/s                                                                      │
+│                                                                    ┃                                                                                         │
+│      ╭──━───━───━───━───━───━───━───━───━───━───━───━───━───━───━──┴──━───━───━───━───┬───━───━───━───━───━─┬─────────────────────╮                          │
+│      ┃                                                                                │                     │                     │                          │
+│      ● https                                                                          ● stats               ● tcp_in              ● admin                    │
+│      │ 43.9KiB/s · 8 sess                                                             │ 0B/s · 0 sess       │ 2.0KiB/s · 1 sess     0B/s · 0 sess            │
+│      ┃                                                                                │                     ┃                                                │
+│ ──━──┴┬─━───━───━───━───━───━───━┬──━───━───━───━───━───━──╮                          │                     │                                                │
+│       │                          │                         ┃                          │                     │                                                │
+│       ● be_www                   ● be_many                 ● be_default               ● stats               ● tcp_pool                 ○ unused              │
+◂       │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess       │ 4.9KiB/s · 1 sess          0B/s · 0 sess       │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess   ▸
+│  sess ├─● app1 9.8KiB/s · 2 sess ├─● s1 500B/s · 0 sess    ╰─● app1 5.9KiB/s · 1 sess                       ╰─● app1 2.0KiB/s · 1 sess ╰─● app1 0B/s · 0 ses │
+│       ╰─● app2 8.8KiB/s · 2 sess ├─● s2 500B/s · 0 sess                                                                                                      │
+│                                  ├─● s3 500B/s · 0 sess                                                                                                      │
+│                                  ├━● s4 500B/s · 0 sess                                                                                                      │
+│                                  ├─● s5 500B/s · 0 sess                                                                                                      │
+│                                  ├─● s6 500B/s · 0 sess                                                                                                      │
+│                                  ├─● s7 500B/s · 0 sess                                                                                                      │
+│                                  ╰━● +3 more 3 servers                                                                                                       │
 │                                                                                                                                                              │
 │                                                                                                                                                              │
 │                                                                                                                                                              │

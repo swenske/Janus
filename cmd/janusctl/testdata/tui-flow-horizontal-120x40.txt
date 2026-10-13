@@ -1,28 +1,28 @@
  janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok            15:04:05
 ╭─ Traffic flow  left to right ────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                                                      │
-│                                                               ╭─● api ─━───━───━───━┬─● app1 2.4KiB/s · 1 sess       │
-│                                                               ┃   4.9KiB/s · 1 sess ╰┄● app2 MAINT                   │
-│                                                               ├━● be_blog ─━───━───━┬─● app2 12.2KiB/s · 1 sess      │
-│                                                               │   1/2 servers up    ╰╌● dead DOWN · L4TOUT           │
-│                                                               ├─● be_www ─━───━───━─┬─● app1 9.8KiB/s · 2 sess       │
-│                                        ╭─● https ─━───━───━───┤   4.9KiB/s · 1 sess ╰━● app2 8.8KiB/s · 2 sess       │
-│                                        ┃   43.9KiB/s · 8 sess ├─● be_many ─━───━───━┬─● s1 500B/s · 0 sess           │
-│                                        │                      │   4.9KiB/s · 1 sess ├─● s2 500B/s · 0 sess           │
-│                                        │                      │                     ├━● s3 500B/s · 0 sess           │
-│                                        │                      ┃                     ├─● s4 500B/s · 0 sess           │
-│                                        ┃                      │                     ├─● s5 500B/s · 0 sess           │
-│                                        │                      │                     ├─● s6 500B/s · 0 sess           │
-│     ● eth0 ─━───━─● HAProxy ─━───━───━─┤                      │                     ├━● s7 500B/s · 0 sess           │
-│       16.0KiB/s     12 conns · 4 req/s │                      ┃                     ╰─● +3 more 3 servers            │
-│                                        ┃                      ╰─● be_default ─━───━───● app1 5.9KiB/s · 1 sess       │
-│                                        │                          4.9KiB/s · 1 sess                                  │
-│                                        ├─● stats ───────────────● stats                                              │
-│                                        │   0B/s · 0 sess          0B/s · 0 sess                                      │
-│                                        ├─● tcp_in ─━───━───━───━● tcp_pool ─━───━───━─● app1 2.0KiB/s · 1 sess       │
-│                                        │   2.0KiB/s · 1 sess      4.9KiB/s · 1 sess                                  │
-│                                        ╰─● admin                ○ unused ─────────────● app1 0B/s · 0 sess           │
-│                                            0B/s · 0 sess          4.9KiB/s · 1 sess                                  │
+│                                                                ╭─● api ─━───━───━───━──┬━● app1 2.4KiB/s · 1 sess    │
+│                                                                │   4.9KiB/s · 1 sess   ╰┄● app2 MAINT                │
+│                                                                ├─● be_blog ─━───━───━──┬━● app2 12.2KiB/s · 1 sess   │
+│                                                                │   1/2 servers up      ╰╌● dead DOWN · L4TOUT        │
+│                                                                ├─● be_www ─━───━───━───┬─● app1 9.8KiB/s · 2 sess    │
+│                                        ╭─● https ─━───━───━───━┤   4.9KiB/s · 1 sess   ╰─● app2 8.8KiB/s · 2 sess    │
+│                                        │   43.9KiB/s · 8 sess  ├─● be_many ─━───━───━──┬━● s1 500B/s · 0 sess        │
+│                                        │                       │   4.9KiB/s · 1 sess   ├─● s2 500B/s · 0 sess        │
+│                                        │                       ┃                       ├─● s3 500B/s · 0 sess        │
+│                                        ┃                       │                       ├─● s4 500B/s · 0 sess        │
+│                                        │                       │                       ├━● s5 500B/s · 0 sess        │
+│                                        │                       │                       ├─● s6 500B/s · 0 sess        │
+│  ● eth0 ─━───━─● HAProxy ─━───━───━───━┤                       ┃                       ├─● s7 500B/s · 0 sess        │
+│    16.0KiB/s     12 conns · 4 req/s    │                       │                       ╰─● +3 more 3 servers         │
+│                                        │                       ╰─● be_default ─━───━───━─● app1 5.9KiB/s · 1 sess    │
+│                                        ┃                           4.9KiB/s · 1 sess                                 │
+│                                        ├─● stats ────────────────● stats                                             │
+│                                        │   0B/s · 0 sess           0B/s · 0 sess                                     │
+│                                        ├━● tcp_in ─━───━───━───━─● tcp_pool ─━───━───━───● app1 2.0KiB/s · 1 sess    │
+│                                        │   2.0KiB/s · 1 sess       4.9KiB/s · 1 sess                                 │
+│                                        ╰─● admin                 ○ unused ───────────────● app1 0B/s · 0 sess        │
+│                                            0B/s · 0 sess           4.9KiB/s · 1 sess                                 │
 │                                                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭ Details ─────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
