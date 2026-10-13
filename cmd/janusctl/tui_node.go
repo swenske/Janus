@@ -896,10 +896,20 @@ func (n *nodeScreen) renderOneTail(f *termui.Frame, r termui.Rect, t *tail, p pa
 	}
 	end := len(lines) - up
 	start := max(end-room, 0)
+	// A node keeps its events across reboots: one from another day than
+	// the newest has its date.
+	var newest time.Time
+	if len(lines) > 0 {
+		newest = lines[len(lines)-1].at
+	}
 	for _, l := range lines[start:end] {
 		x := 0
 		if stamped {
-			x = f.Text(in.X, y, l.at.Format("15:04:05")+" ", styleMuted, in.W)
+			stamp := l.at.Format("15:04:05")
+			if l.at.YearDay() != newest.YearDay() || l.at.Year() != newest.Year() {
+				stamp = l.at.Format("02 Jan 15:04")
+			}
+			x = f.Text(in.X, y, stamp+" ", styleMuted, in.W)
 		}
 		f.Text(in.X+x, y, termui.Truncate(l.text, in.W-x), termui.Style{FG: l.tone}, in.W-x)
 		y++

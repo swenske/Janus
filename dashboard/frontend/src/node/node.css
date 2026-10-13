@@ -191,6 +191,9 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 
 .event-type { font-family: var(--mono); font-size: 0.85em; }
+/* Where janusd started (Events): what's below came before a restart, a
+   reboot or an update. */
+.event.boot { display: flex; align-items: center; gap: 0.6rem; padding: 0.35rem 0.5rem; border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 6px; }
 .chips { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 .chip { padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.82rem; }
 

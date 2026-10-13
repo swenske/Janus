@@ -96,7 +96,9 @@ type SystemServiceClient interface {
 	// own calls (HAProxyService, NetworkService...).
 	ApplyConfiguration(ctx context.Context, in *ApplyConfigurationRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ApplyConfigurationResponse], error)
 	// Events streams the machine's internal event log (config applied,
-	// service state changes, upgrade progress, etc.).
+	// service state changes, upgrades, reboots, etc.): its last thousand
+	// events, kept on STATE across reboots and updates, then new ones as
+	// they come.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
 	// Dmesg streams the kernel ring buffer.
 	Dmesg(ctx context.Context, in *DmesgRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
@@ -732,7 +734,9 @@ type SystemServiceServer interface {
 	// own calls (HAProxyService, NetworkService...).
 	ApplyConfiguration(*ApplyConfigurationRequest, grpc.ServerStreamingServer[ApplyConfigurationResponse]) error
 	// Events streams the machine's internal event log (config applied,
-	// service state changes, upgrade progress, etc.).
+	// service state changes, upgrades, reboots, etc.): its last thousand
+	// events, kept on STATE across reboots and updates, then new ones as
+	// they come.
 	Events(*EventsRequest, grpc.ServerStreamingServer[Event]) error
 	// Dmesg streams the kernel ring buffer.
 	Dmesg(*DmesgRequest, grpc.ServerStreamingServer[Data]) error

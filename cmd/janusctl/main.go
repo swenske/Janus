@@ -393,6 +393,34 @@ func runVersion(conn *grpc.ClientConn) {
 	if k := resp.GetKernel(); k.GetVariant() != "" {
 		fmt.Printf("Kernel track: %s%s\n", k.GetVariant(), variantNote("version", k))
 	}
+	if resp.GetActiveSlot() != "" {
+		fmt.Println("Active slot:", resp.GetActiveSlot())
+	}
+	if o := resp.GetInactiveSlot(); o != nil {
+		fmt.Printf("Other slot: %s - %s\n", o.GetSlot(), slotImageNote(o))
+	}
+}
+
+// slotImageNote says what the slot a node didn't boot holds: what an
+// update writes over, what a rollback boots.
+func slotImageNote(o *janusv1alpha1.SlotImage) string {
+	if o.GetVersion() == "" {
+		if o.GetError() != "" {
+			return o.GetError()
+		}
+		return "its image doesn't say what it is"
+	}
+	s := o.GetVersion()
+	if id := o.GetSchematicId(); len(id) >= 8 {
+		s += ", schematic " + id[:8]
+	}
+	if h := o.GetHaproxy().GetVersion(); h != "" {
+		s += ", HAProxy " + h
+	}
+	if k := o.GetKernel(); k.GetVariant() != "" {
+		s += ", kernel " + k.GetVariant() + " " + k.GetVersion()
+	}
+	return s
 }
 
 // variantNote says what an image component is: its branch (or version),
@@ -460,6 +488,9 @@ func runSystem(conn *grpc.ClientConn, endpoint string, redial redialer, args []s
 	fmt.Printf("go version: %s\n", ver.GetGoVersion())
 	fmt.Printf("kernel version: %s\n", ver.GetKernelVersion())
 	fmt.Printf("active slot: %s\n", ver.GetActiveSlot())
+	if o := ver.GetInactiveSlot(); o != nil {
+		fmt.Printf("other slot: %s - %s\n", o.GetSlot(), slotImageNote(o))
+	}
 
 	c, cancel = ctx()
 	defer cancel()

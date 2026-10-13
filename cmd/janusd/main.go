@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -84,6 +85,7 @@ func main() {
 	haproxyChrootDir := flag.String("haproxy-chroot-dir", "/var/empty", "directory haproxy chroots into after binding listeners and dropping privileges (must match the 'chroot' line in haproxy-config); created here since this rootfs has no package manager to have provisioned it")
 	manageHost := flag.Bool("manage-host", false, "this janusd runs a Janus node: it configures the node's network, hostname and clock (internal/netmgr, internal/timesync). Off, they're only reported - never set this on a machine whose network janusd mustn't touch")
 	configDir := flag.String("config-dir", exporter.Dir, "directory for janusd's persistent settings (the exporter's, the optional modules'); a node's is on STATE")
+	eventsDir := flag.String("events-dir", "", "directory keeping the event log across restarts, reboots and updates (internal/events); empty: in memory only - with -manage-host, "+nodeEventsDir+" on STATE")
 	flag.Parse()
 	started := time.Now()
 	exporter.Dir = *configDir
@@ -103,6 +105,22 @@ func main() {
 	}
 	captured := io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"]})
 	log.SetOutput(captured)
+
+	// The event log, kept where it survives a reboot or an update before
+	// anything is published: what happened before still shows after.
+	if *eventsDir == "" && *manageHost {
+		*eventsDir = nodeEventsDir
+	}
+	if *eventsDir != "" {
+		if err := events.Persist(*eventsDir); err != nil {
+			log.Printf("events: %v - the event log is kept in memory only", err)
+		} else {
+			shutdown.Before(events.Flush)
+		}
+	}
+	// First in each run's events: what follows is this run's - after a
+	// restart, a reboot or an update.
+	events.Publish("janusd.started", map[string]string{"version": version, "slot": api.CurrentActiveSlot(), "boot": bootID()})
 
 	// The firewall (the nftables extension) before anything listens: the
 	// window where the node is up without its saved ruleset is the boot
@@ -388,7 +406,6 @@ func main() {
 		syscall.Sync()
 		log.SetOutput(captured)
 	}
-	events.Publish("janusd.started", map[string]string{"version": version})
 
 	lis, err := net.Listen("tcp", *addr)
 	if err != nil {
@@ -456,7 +473,7 @@ func main() {
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr})
-	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr})
+	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr, Consul: consulMgr, Services: extMgr})
@@ -820,4 +837,19 @@ func announce(cfg *selfregister.Config, ca *pki.CA, hostname, grpcAddr string) e
 	log.Printf("selfregister: successfully announced to Controller at %s, awaiting approval", cfg.Address)
 	events.Publish("selfregister.announced", map[string]string{"controller": cfg.Address})
 	return nil
+}
+
+// nodeEventsDir is where a node keeps its event log: on STATE, wiped
+// only by a Reset.
+const nodeEventsDir = "/etc/.state/events"
+
+// bootID tells this boot from the others (the kernel's random boot_id):
+// janusd.started carries it, so a reader sees where a reboot came, not
+// only a janusd restart.
+func bootID() string {
+	data, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }

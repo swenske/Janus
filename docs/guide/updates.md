@@ -19,9 +19,10 @@ On the node's page, **System › Update**:
 
 ![A node's Update page: the release it runs, its slot, schematic and extensions; the latest release; and the three ways to install one, with the automatic revert and the reboot through kexec](../assets/screenshots/node-update-light.webp)
 
-1. It shows the node's release, slot and extensions, and the release to
-   install - from its GitHub release, or built by the image factory for
-   the node's extensions.
+1. It shows the node's release, slot and extensions - and what its
+   other slot holds: the release an update writes over, the one a
+   rollback boots -, and the release to install - from its GitHub
+   release, or built by the image factory for the node's extensions.
 2. **Install a release**, in one of three ways:
    - **the node downloads it** - from GitHub or the image factory;
    - **the Controller pushes it** - for a node that can't reach the
@@ -134,12 +135,14 @@ marked; GitHub's **Watch → Custom → Releases** notifies them too.
 ## Going back
 
 `janusctl -n lb1 lifecycle rollback`: the node reboots into its other
-slot - the release it ran before, with the same configuration.
+slot - the release it ran before, with the same configuration;
+`janusctl -n lb1 version` says which (`Other slot`).
 
 ## When an update reverted
 
 The node is back on its previous release, serving as before. Its event
-log and janusd's output say why:
+log, which the reboots don't clear - the update, then each boot's
+`janusd.started` with its slot -, and janusd's output say why:
 
 ```sh
 janusctl -n lb1 system events

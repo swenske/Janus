@@ -122,7 +122,7 @@ SystemService is the reduced, non-Kubernetes equivalent of Talos's MachineServic
 | `Restart` | `Empty` → `RestartResponse` | `os:operator` | services | Restart restarts the janusd control-plane process in place, without rebooting the machine or interrupting HAProxy itself. |
 | `Reset` | `ResetRequest` → `ResetResponse` | `os:admin` | system | Reset wipes the requested partitions (state/ephemeral) and reboots - the equivalent of returning the node to its just-installed state. |
 | `ApplyConfiguration` | `ApplyConfigurationRequest` → `stream ApplyConfigurationResponse` | `os:admin` | system | ApplyConfiguration is not implemented - it answers Unimplemented: a node has no declarative machine configuration, each area has its own calls (HAProxyService, NetworkService...). |
-| `Events` | `EventsRequest` → `stream Event` | `os:reader` | observe | Events streams the machine's internal event log (config applied, service state changes, upgrade progress, etc.). |
+| `Events` | `EventsRequest` → `stream Event` | `os:reader` | observe | Events streams the machine's internal event log (config applied, service state changes, upgrades, reboots, etc.): its last thousand events, kept on STATE across reboots and updates, then new ones as they come. |
 | `Dmesg` | `DmesgRequest` → `stream Data` | `os:admin` | system | Dmesg streams the kernel ring buffer. |
 | `Logs` | `LogsRequest` → `stream Data` | `os:operator` | services | Logs streams a managed service's log output. |
 | `Stats` | `Empty` → `StatsResponse` | `os:reader` | observe | Stats sums the CPU time and memory of each managed service's processes - janusd, haproxy (a reload briefly leaves an old haproxy process finishing its connections next to the new one). |

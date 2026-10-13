@@ -143,15 +143,21 @@ export default function Update({ route = '' }) {
             </div>
           )}
           {order === 0 && <p>The node already runs {installing}: it is installed again, on the other slot.</p>}
-          {!installing && <p className="muted">This page doesn&apos;t know the version of this bundle: it installs whatever is at this URL, or in these files.</p>}
+          {!installing && <p className="muted">This page doesn&apos;t know the version of this bundle: the node says it as it installs it.</p>}
           {preActive && (
             <div className="notice warn">
               <strong>{pre.version} is a pre-release</strong>, for testing: not supported, and it may still change or be withdrawn.
             </div>
           )}
           <p>
-            The new system is written to slot <strong>{slot}</strong> (the one not running), then the node reboots into it. The current slot stays intact, so <em>Rollback</em> can
-            always go back.
+            The new system is written to slot <strong>{slot}</strong> (the one not running)
+            {v?.inactive_slot?.version ? (
+              <>
+                {' '}
+                in place of the <span className="mono">{v.inactive_slot.version}</span> it holds
+              </>
+            ) : null}
+            , then the node reboots into it. The current slot stays intact, so <em>Rollback</em> can always go back.
           </p>
           {kexec && (
             <p>
@@ -265,6 +271,14 @@ export default function Update({ route = '' }) {
             </dd>
             <dt>Active slot</dt>
             <dd>{v?.active_slot ? <Badge tone="info">slot {v.active_slot}</Badge> : <span className="muted">not an A/B boot - updates need an installed node</span>}</dd>
+            {v?.active_slot && (
+              <>
+                <dt>Other slot</dt>
+                <dd>
+                  <OtherSlot slot={v.inactive_slot} running={v} />
+                </dd>
+              </>
+            )}
             <dt>Image schematic</dt>
             <dd>
               {uc ? (
@@ -590,6 +604,25 @@ function PrereleaseOffer({ offer, canUpgrade, onReady }) {
         )}
       </div>
     </details>
+  )
+}
+
+// OtherSlot is what the slot the node didn't boot holds - what an update
+// writes over, what Rollback boots - as its own image says.
+function OtherSlot({ slot, running }) {
+  if (!slot) return <span className="muted">not said by this node&apos;s janusd (an older one)</span>
+  if (!slot.version) return <span className="muted">slot {slot.slot}: {slot.error || 'its image doesn\'t say'}</span>
+  const other = slot.schematic_id && running.schematic_id && slot.schematic_id !== running.schematic_id
+  return (
+    <>
+      <span className="mono">{slot.version}</span>
+      <span className="muted small">
+        {' '}
+        · slot {slot.slot}
+        {other && <> · schematic {slot.schematic_id.slice(0, 12)}</>}
+        {slot.haproxy?.version && slot.haproxy.version !== running.haproxy?.version && <> · HAProxy {slot.haproxy.version}</>}
+      </span>
+    </>
   )
 }
 
