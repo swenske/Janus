@@ -35,6 +35,7 @@ type fakeNodes struct {
 	shutdowns  int
 	applied    []*janusv1alpha1.NetworkConfig
 	upgrades   []*janusv1alpha1.ImageSource
+	modes      []janusv1alpha1.RebootMode
 	upgradeErr error
 }
 
@@ -79,13 +80,14 @@ func (f *fakeNodes) ApplyNetwork(_ context.Context, _ *store.Node, _ *store.Stor
 	return nil
 }
 
-func (f *fakeNodes) Upgrade(_ context.Context, _ *store.Node, src *janusv1alpha1.ImageSource) error {
+func (f *fakeNodes) Upgrade(_ context.Context, _ *store.Node, src *janusv1alpha1.ImageSource, mode janusv1alpha1.RebootMode) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.upgradeErr != nil {
-		return f.upgradeErr
+		return "", f.upgradeErr
 	}
 	f.upgrades = append(f.upgrades, src)
+	f.modes = append(f.modes, mode)
 	// The bundle's version and schematic (ResolveBundle's URL), as the
 	// node reports them once rebooted.
 	ref := strings.TrimPrefix(src.Reference, "https://bundles/")
@@ -93,13 +95,16 @@ func (f *fakeNodes) Upgrade(_ context.Context, _ *store.Node, src *janusv1alpha1
 	f.version = version
 	sc, err := schematic.Parse([]byte(doc))
 	if err != nil {
-		return err
+		return "", err
 	}
 	if sc.ID() != f.schematic && !src.AllowSchematicChange {
-		return errors.New("another schematic, and allow_schematic_change isn't set")
+		return "", errors.New("another schematic, and allow_schematic_change isn't set")
 	}
 	f.schematic, f.extensions, f.haproxy, f.kernel = sc.ID(), sc.Extensions(), sc.HAProxyBranch(), sc.KernelTrack()
-	return nil
+	if mode == janusv1alpha1.RebootMode_REBOOT_MODE_KEXEC {
+		return "rebooting into slot B through kexec, without the firmware", nil
+	}
+	return "rebooting into slot B", nil
 }
 
 func (f *fakeNodes) Info(context.Context, *store.Node) (*nodeproxy.NodeInfo, error) {
@@ -288,6 +293,65 @@ func TestMachineUpdateVersionAndExtensions(t *testing.T) {
 	}
 	if code, _ := patch(t, a, m.ID, map[string]any{"haproxy": "3.2.25"}); code != http.StatusBadRequest {
 		t.Errorf("a HAProxy version instead of a branch: %d", code)
+	}
+}
+
+// How a machine's updates reboot: kept in its record - changed alone, the
+// node isn't touched - and the next update reboots that way: through
+// kexec, or the firmware.
+func TestMachineUpdateRebootMode(t *testing.T) {
+	a, fake := newTestApp(t)
+	m, f := readyMachine(t, a, addTrustedHypervisor(t, a), fake)
+
+	if code, body := patch(t, a, m.ID, map[string]any{"update_reboot_mode": "kexec"}); code != http.StatusOK {
+		t.Fatalf("PATCH update_reboot_mode: %d %s", code, body)
+	}
+	got, _ := a.machines.Get(m.ID)
+	if got.Spec.UpdateRebootMode != "kexec" || got.Phase != machines.PhaseReady || len(f.upgrades)+f.shutdowns+len(f.applied) != 0 {
+		t.Fatalf("after kexec alone: mode %q, phase %s, the node asked %d times", got.Spec.UpdateRebootMode, got.Phase, len(f.upgrades)+f.shutdowns+len(f.applied))
+	}
+	if !strings.Contains(eventsOf(got), "its updates reboot through kexec") {
+		t.Errorf("history:\n%s", eventsOf(got))
+	}
+
+	// The next update: through kexec, as the node says in the history.
+	if code, body := patch(t, a, m.ID, map[string]any{"version": "v2026.10.05"}); code != http.StatusAccepted {
+		t.Fatalf("PATCH version: %d %s", code, body)
+	}
+	got = waitReady(t, a, m.ID)
+	if got.Error != "" || got.Version != "v2026.10.05" || len(f.modes) != 1 || f.modes[0] != janusv1alpha1.RebootMode_REBOOT_MODE_KEXEC {
+		t.Fatalf("the update: error %q, version %s, modes %v", got.Error, got.Version, f.modes)
+	}
+	if !strings.Contains(eventsOf(got), "the node is rebooting into Janus v2026.10.05 - rebooting into slot B through kexec, without the firmware") {
+		t.Errorf("history:\n%s", eventsOf(got))
+	}
+
+	// Back to the firmware with an update in the same request: that
+	// update already goes through the firmware.
+	if code, body := patch(t, a, m.ID, map[string]any{"version": "v2026.10.06", "update_reboot_mode": "firmware"}); code != http.StatusAccepted {
+		t.Fatalf("PATCH version and firmware: %d %s", code, body)
+	}
+	got = waitReady(t, a, m.ID)
+	if got.Error != "" || got.Spec.UpdateRebootMode != "" || len(f.modes) != 2 || f.modes[1] != janusv1alpha1.RebootMode_REBOOT_MODE_DEFAULT {
+		t.Fatalf("back to the firmware: error %q, mode %q, modes %v", got.Error, got.Spec.UpdateRebootMode, f.modes)
+	}
+	if !strings.Contains(eventsOf(got), "its updates reboot through the firmware") {
+		t.Errorf("history:\n%s", eventsOf(got))
+	}
+
+	// The same again: nothing to change. Anything else: refused.
+	if code, _ := patch(t, a, m.ID, map[string]any{"update_reboot_mode": ""}); code != http.StatusOK {
+		t.Errorf("no change: %d", code)
+	}
+	if code, body := patch(t, a, m.ID, map[string]any{"update_reboot_mode": "powercycle"}); code != http.StatusBadRequest || !strings.Contains(body, "firmware or kexec") {
+		t.Errorf("update_reboot_mode powercycle: %d %s", code, body)
+	}
+	// A locked machine's page can't change it: Terraform's.
+	if code, _ := patch(t, a, m.ID, map[string]any{"managed_by": "terraform", "locked": true}); code != http.StatusOK {
+		t.Fatal("lock")
+	}
+	if code, _ := patchAs(t, a, m.ID, map[string]any{"update_reboot_mode": "kexec"}, authSession); code != http.StatusLocked {
+		t.Errorf("a page changing a locked machine's reboot mode: %d, want 423", code)
 	}
 }
 

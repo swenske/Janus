@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -18,6 +19,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/swenske/Janus/terraform-provider-janus/internal/client"
@@ -47,26 +49,27 @@ type interfaceModel struct {
 }
 
 type nodeModel struct {
-	ID           types.String     `tfsdk:"id"`
-	Name         types.String     `tfsdk:"name"`
-	HypervisorID types.String     `tfsdk:"hypervisor_id"`
-	VCPUs        types.Int64      `tfsdk:"vcpus"`
-	MemoryMiB    types.Int64      `tfsdk:"memory_mib"`
-	Version      types.String     `tfsdk:"version"`
-	Extensions   types.Set        `tfsdk:"extensions"`
-	HAProxy      types.String     `tfsdk:"haproxy"`
-	Kernel       types.String     `tfsdk:"kernel"`
-	Image        *imageModel      `tfsdk:"image"`
-	Interfaces   []interfaceModel `tfsdk:"interfaces"`
-	DNS          types.List       `tfsdk:"dns"`
-	NTP          types.List       `tfsdk:"ntp"`
-	LockUI       types.Bool       `tfsdk:"lock_ui"`
-	Labels       types.Map        `tfsdk:"labels"`
-	NodeID       types.String     `tfsdk:"node_id"`
-	NodeAddress  types.String     `tfsdk:"node_address"`
-	VMName       types.String     `tfsdk:"vm_name"`
-	Schematic    types.String     `tfsdk:"schematic"`
-	Timeouts     timeouts.Value   `tfsdk:"timeouts"`
+	ID               types.String     `tfsdk:"id"`
+	Name             types.String     `tfsdk:"name"`
+	HypervisorID     types.String     `tfsdk:"hypervisor_id"`
+	VCPUs            types.Int64      `tfsdk:"vcpus"`
+	MemoryMiB        types.Int64      `tfsdk:"memory_mib"`
+	Version          types.String     `tfsdk:"version"`
+	Extensions       types.Set        `tfsdk:"extensions"`
+	HAProxy          types.String     `tfsdk:"haproxy"`
+	Kernel           types.String     `tfsdk:"kernel"`
+	Image            *imageModel      `tfsdk:"image"`
+	Interfaces       []interfaceModel `tfsdk:"interfaces"`
+	DNS              types.List       `tfsdk:"dns"`
+	NTP              types.List       `tfsdk:"ntp"`
+	LockUI           types.Bool       `tfsdk:"lock_ui"`
+	UpdateRebootMode types.String     `tfsdk:"update_reboot_mode"`
+	Labels           types.Map        `tfsdk:"labels"`
+	NodeID           types.String     `tfsdk:"node_id"`
+	NodeAddress      types.String     `tfsdk:"node_address"`
+	VMName           types.String     `tfsdk:"vm_name"`
+	Schematic        types.String     `tfsdk:"schematic"`
+	Timeouts         timeouts.Value   `tfsdk:"timeouts"`
 }
 
 func (r *nodeResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -113,6 +116,11 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 			"kernel": schema.StringAttribute{
 				Optional:    true,
 				Description: "The kernel track its image is built with (\"stable\", \"longterm\"). Unset: each release's default track. A change updates the node in place.",
+			},
+			"update_reboot_mode": schema.StringAttribute{
+				Optional: true, Computed: true, Default: stringdefault.StaticString("firmware"),
+				Validators:  []validator.String{oneOf{"firmware", "kexec"}},
+				Description: "How the node reboots into an update of its version, extensions, HAProxy branch or kernel track: \"firmware\" (the default), or \"kexec\" - straight into the new kernel, in seconds where a server's POST takes a minute. A node that can't kexec (Secure Boot on and an image not signed by Janus) reboots through the firmware. Changed alone, nothing happens on the node; changed with the version, that update already reboots this way.",
 			},
 			"image": schema.SingleNestedAttribute{
 				Optional:    true,
@@ -165,6 +173,22 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 			"timeouts":  timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
 	}
+}
+
+// oneOf refuses a value that isn't one of these, at plan time.
+type oneOf []string
+
+func (o oneOf) Description(context.Context) string {
+	return "one of " + strings.Join(o, ", ")
+}
+
+func (o oneOf) MarkdownDescription(ctx context.Context) string { return o.Description(ctx) }
+
+func (o oneOf) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() || slices.Contains(o, req.ConfigValue.ValueString()) {
+		return
+	}
+	resp.Diagnostics.AddAttributeError(req.Path, "Invalid value", fmt.Sprintf("%q: %s", req.ConfigValue.ValueString(), o.Description(ctx)))
 }
 
 // interfaceMACs keeps each interface's MAC address from one plan to the
@@ -275,18 +299,19 @@ func strOrEmpty(v types.String) string {
 
 func specFromPlan(ctx context.Context, m *nodeModel, diags *diag.Diagnostics) client.MachineSpec {
 	spec := client.MachineSpec{
-		Name:         m.Name.ValueString(),
-		HypervisorID: m.HypervisorID.ValueString(),
-		VCPUs:        int(m.VCPUs.ValueInt64()),
-		MemoryMiB:    int(m.MemoryMiB.ValueInt64()),
-		Version:      strOrEmpty(m.Version),
-		Extensions:   stringsOf(ctx, m.Extensions, diags),
-		HAProxy:      strOrEmpty(m.HAProxy),
-		Kernel:       strOrEmpty(m.Kernel),
-		DNS:          stringsOf(ctx, m.DNS, diags),
-		NTP:          stringsOf(ctx, m.NTP, diags),
-		ManagedBy:    "terraform",
-		Locked:       m.LockUI.ValueBool(),
+		Name:             m.Name.ValueString(),
+		HypervisorID:     m.HypervisorID.ValueString(),
+		VCPUs:            int(m.VCPUs.ValueInt64()),
+		MemoryMiB:        int(m.MemoryMiB.ValueInt64()),
+		Version:          strOrEmpty(m.Version),
+		Extensions:       stringsOf(ctx, m.Extensions, diags),
+		HAProxy:          strOrEmpty(m.HAProxy),
+		Kernel:           strOrEmpty(m.Kernel),
+		DNS:              stringsOf(ctx, m.DNS, diags),
+		NTP:              stringsOf(ctx, m.NTP, diags),
+		ManagedBy:        "terraform",
+		Locked:           m.LockUI.ValueBool(),
+		UpdateRebootMode: strOrEmpty(m.UpdateRebootMode),
 	}
 	if m.Image != nil {
 		spec.Image = &client.ImageSource{URL: m.Image.URL.ValueString(), SHA256: m.Image.SHA256.ValueString()}
@@ -388,6 +413,11 @@ func fromMachine(m *client.Machine, s *nodeModel) {
 	s.DNS = listOf(m.Spec.DNS, s.DNS)
 	s.NTP = listOf(m.Spec.NTP, s.NTP)
 	s.LockUI = types.BoolValue(m.Spec.Locked)
+	if m.Spec.UpdateRebootMode == "" {
+		s.UpdateRebootMode = types.StringValue("firmware")
+	} else {
+		s.UpdateRebootMode = types.StringValue(m.Spec.UpdateRebootMode)
+	}
 	s.NodeID = strOrNull(m.NodeID, types.StringNull())
 	s.NodeAddress = strOrNull(m.NodeAddress, types.StringNull())
 	s.VMName = strOrNull(m.VMName, types.StringNull())
@@ -451,6 +481,10 @@ func updateFor(ctx context.Context, state, plan *nodeModel, diags *diag.Diagnost
 	if !plan.LockUI.Equal(state.LockUI) {
 		v := plan.LockUI.ValueBool()
 		u.Locked, changed = &v, true
+	}
+	if !plan.UpdateRebootMode.IsUnknown() && !plan.UpdateRebootMode.IsNull() && !plan.UpdateRebootMode.Equal(state.UpdateRebootMode) {
+		v := plan.UpdateRebootMode.ValueString()
+		u.UpdateRebootMode, changed = &v, true
 	}
 	if changed {
 		by := "terraform"

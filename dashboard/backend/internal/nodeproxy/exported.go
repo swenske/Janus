@@ -80,17 +80,19 @@ func ApplyNetwork(ctx context.Context, node *store.Node, st *store.Store, cfg *j
 
 // Upgrade installs the update bundle at source on node (the node fetches
 // it and checks its signature) and follows it until the node reboots
-// into it - confirmed by the node itself once healthy (wait_for_health).
-func Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageSource) error {
+// into it, the way mode says - confirmed by the node itself once healthy
+// (wait_for_health). It returns the node's last message, which says how
+// it reboots.
+func Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageSource, mode janusv1alpha1.RebootMode) (string, error) {
 	conn, err := dialNode(node)
 	if err != nil {
-		return err
+		return "", err
 	}
-	stream, err := janusv1alpha1.NewLifecycleServiceClient(conn).Upgrade(ctx, &janusv1alpha1.UpgradeRequest{Source: source, WaitForHealth: true})
+	stream, err := janusv1alpha1.NewLifecycleServiceClient(conn).Upgrade(ctx, &janusv1alpha1.UpgradeRequest{Source: source, WaitForHealth: true, RebootMode: mode})
 	if err != nil {
-		return errors.New(status.Convert(err).Message())
+		return "", errors.New(status.Convert(err).Message())
 	}
-	var last string
+	var last, said string
 	for {
 		msg, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -100,16 +102,16 @@ func Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageS
 			// The node reboots once it switched slots: the stream may
 			// break then, as expected.
 			if last == "rebooting" || last == "switching-slot" {
-				return nil
+				return said, nil
 			}
-			return errors.New(status.Convert(err).Message())
+			return "", errors.New(status.Convert(err).Message())
 		}
-		last = msg.GetStage()
+		last, said = msg.GetStage(), msg.GetMessage()
 	}
 	if last == "" {
-		return errors.New("the upgrade reported nothing")
+		return "", errors.New("the upgrade reported nothing")
 	}
-	return nil
+	return said, nil
 }
 
 // NodeInfo is what node runs: its Janus version, image schematic and

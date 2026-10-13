@@ -720,6 +720,10 @@ func (a *app) checkSpec(spec *machines.Spec) error {
 	if spec.Version != "" && !versionRe.MatchString(spec.Version) {
 		return fmt.Errorf("version %q isn't a Janus release (vYYYY.MM.DD[-N])", spec.Version)
 	}
+	var err error
+	if spec.UpdateRebootMode, err = updateRebootMode(spec.UpdateRebootMode); err != nil {
+		return err
+	}
 	if err := spec.Schematic().Normalize(); err != nil {
 		return err
 	}
@@ -767,6 +771,6 @@ func (a *app) checkSpec(spec *machines.Spec) error {
 		}
 		seen[n.MAC] = true
 	}
-	_, err := networkConfig(*spec)
+	_, err = networkConfig(*spec)
 	return err
 }

@@ -89,6 +89,11 @@ type Spec struct {
 	// program's API token still can.
 	ManagedBy string `json:"managed_by,omitempty"`
 	Locked    bool   `json:"locked,omitempty"`
+	// UpdateRebootMode is how the node reboots into an update of its
+	// version or image: "kexec" straight into the new kernel, without the
+	// firmware (a node that can't reboots through the firmware); empty,
+	// through the firmware.
+	UpdateRebootMode string `json:"update_reboot_mode,omitempty"`
 }
 
 // Schematic is the image schematic the spec asks for: its extensions,

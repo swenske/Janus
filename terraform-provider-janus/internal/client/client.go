@@ -227,6 +227,8 @@ type MachineSpec struct {
 	NTP          []string     `json:"ntp,omitempty"`
 	ManagedBy    string       `json:"managed_by,omitempty"`
 	Locked       bool         `json:"locked,omitempty"`
+	// "kexec", or empty (or "firmware"): through the firmware.
+	UpdateRebootMode string `json:"update_reboot_mode,omitempty"`
 }
 
 type Event struct {
@@ -262,6 +264,8 @@ type MachineUpdate struct {
 	NTP        *[]string `json:"ntp,omitempty"`
 	ManagedBy  *string   `json:"managed_by,omitempty"`
 	Locked     *bool     `json:"locked,omitempty"`
+	// "kexec" or "firmware".
+	UpdateRebootMode *string `json:"update_reboot_mode,omitempty"`
 }
 
 func (c *Client) Machine(ctx context.Context, id string) (*Machine, error) {

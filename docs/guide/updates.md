@@ -77,10 +77,11 @@ janusctl -n lb1 version           # the release now running, and its slot
   seconds, where a server's POST takes a minute. The same flag on
   `janusctl system reboot`; on the Controller, **Reboot through kexec**
   on the node's Update page and **Through kexec** on its **System ›
-  Power** page. It is opt-in: a driver left in an odd state
-  by the running kernel is kexec's known risk, which a firmware reboot
-  never has - try it on a node you can reach otherwise, then make it
-  your habit where it works. With Secure Boot on, only a release signed
+  Power** page; for a node Terraform manages, `update_reboot_mode`
+  ([Terraform](../terraform.md#janus_node)). It is opt-in: a driver left
+  in an odd state by the running kernel is kexec's known risk, which a
+  firmware reboot never has - try it on a node you can reach otherwise,
+  then make it your habit where it works. With Secure Boot on, only a release signed
   by Janus can be kexec'd, as the firmware would only boot that; an
   update that can't be kexec'd reboots through the firmware and says so.
   A revert always goes through the firmware. Proven on Proxmox VE 9.2

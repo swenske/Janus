@@ -681,9 +681,9 @@ the one a Terraform provider needs, for the planned one:
 | `POST /api/hypervisors/{id}/probe` | what the host presents: `{host_key, fingerprint}` (libvirt), `{fingerprint, subject, issuer}` (the API's certificate, Proxmox) |
 | `POST /api/hypervisors/{id}/trust` | `{fingerprint}`: pins the host key or certificate, if the host presents that one |
 | `GET /api/hypervisors/{id}/status` | the host, CPU use, and each of its machines' state |
-| `GET`, `POST /api/machines` | list; create (`{name, hypervisor_id, vcpus, memory_mib, version, extensions, image: {url, sha256}, nics: [{network, name, mac, mode, addresses, gateway}], dns, ntp}`) |
+| `GET`, `POST /api/machines` | list; create (`{name, hypervisor_id, vcpus, memory_mib, version, extensions, haproxy, kernel, image: {url, sha256}, nics: [{network, name, mac, mode, addresses, gateway}], dns, ntp, update_reboot_mode}`) - `update_reboot_mode`: how the node reboots into an update of its version or image, `kexec` (straight into the new kernel, without the firmware) or `firmware`, the default (left out of the answers) |
 | `GET`, `DELETE /api/machines/{id}` | one (`?refresh=true`: read from its node and hypervisor first): `phase` is `pending`, `preparing-image`, `creating`, `waiting-registration`, `ready`, `updating`, `failed` or `destroying`; destroy (`?forget=true`: records only) |
-| `PATCH /api/machines/{id}` | change it in place (`{vcpus, memory_mib, version, extensions, nics, dns, ntp, managed_by, locked}`, those given; `nics` is the whole new set, by MAC). A locked machine refuses its pages (`423`) except `{"locked": false}` |
+| `PATCH /api/machines/{id}` | change it in place (`{vcpus, memory_mib, version, extensions, haproxy, kernel, nics, dns, ntp, managed_by, locked, update_reboot_mode}`, those given; `nics` is the whole new set, by MAC; `update_reboot_mode` alone only changes the record, given with a version that update already reboots its way). A locked machine refuses its pages (`423`) except `{"locked": false}` |
 | `POST /api/machines/{id}/power` | `{action: "start" \| "force-off" \| "reset"}` |
 | `POST /api/machines/{id}/retry` | a failed creation, again |
 | `GET /api/machines/{id}/console` | Server-Sent Events, one JSON string per chunk; `failure` when it closes |
