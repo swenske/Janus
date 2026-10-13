@@ -104,8 +104,8 @@ QEMU_SHA256  := 731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016
 # disabled from its CLI, which janusd's HAProxy gate does. BIRD doesn't
 # sign its releases: this tarball (bird.nic.cz) matches FreeBSD ports'
 # pinned sha256 and size for the same version.
-BIRD_VERSION := 2.19.3
-BIRD_SHA256  := 853ea9e9adc36ea5277c3883c5ceddf06460fc496743dbdbff191975e1f55ebd
+BIRD_VERSION := 2.20.0
+BIRD_SHA256  := 71c7ed4a04b7b8335b2e659246a32078d6c3f12249c88254e165c4033b353190
 
 # Real Raspberry Pi 4/5 hardware follow-up (2026-09-29): the SBBR-
 # compliant (UEFI+ACPI) firmware image/rpi-uefi/assemble.sh bundles
