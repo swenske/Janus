@@ -380,13 +380,19 @@ scroll.
 ### Traffic flow
 
 Monitoring › Traffic flow (`views/Flow.jsx`, the logic in `flow.js` -
-pure, `npm test`) draws the node as rows, top to bottom - interfaces,
-HAProxy, frontends, backends with their servers hanging below them on
-a trunk, every label beside its node so a column is as wide as its
-label - or, with the **Horizontal** chip, as columns left to right
-(**Vertical** and **Horizontal** are remembered per browser, like the
-**Servers** chip that hides the servers; past eight, "+N more"). A map
-wider than its card scrolls in it, opened on HAProxy. `show stat`
+pure, `npm test`) draws the node as columns, left to right - interfaces,
+HAProxy, frontends, backends, servers - or as rows, top to bottom, the
+backends' servers hanging below them on a trunk and every label beside
+its node so a column is as wide as its label. **Auto**, the default,
+measures the page (a `ResizeObserver` on the layout) and takes left to
+right when it fits the card at 85 % or more of its size, else top to
+bottom when that does, else the one that overflows less (`arrange`);
+**Vertical** and **Horizontal** force one. The side panel goes beside
+the map while the map still fits there, below it otherwise - then a
+selected node's details are pinned to the window's bottom, over the
+map, with a close button. The choice is remembered per browser, like
+the **Servers** chip that hides the servers (past eight, "+N more"). A
+map wider than its card scrolls in it, opened on HAProxy. `show stat`
 (`/api/haproxy/stats`, at the refresh interval) gives the proxies and
 their counters - traffic is the difference of `bin`/`bout` between two
 answers, none when a counter went back - but never which frontend sends

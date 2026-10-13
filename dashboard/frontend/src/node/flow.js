@@ -606,6 +606,31 @@ function layoutDown(graph, ifaces, servers) {
   return { nodes, links, byId, width, height: bottom + TOP, hubY: hub.y }
 }
 
+// MIN_SCALE is how far a map is drawn smaller to fit its card: its
+// labels stay readable.
+export const MIN_SCALE = 0.85
+
+// arrange is how the map shows in the room it has, its two layouts
+// given (across, down - one is enough when the choice isn't auto): the
+// orientation chosen or, auto, left to right when it fits, else top to
+// bottom when that does, else the one that overflows less; the side
+// panel beside it when it still fits, below it otherwise. room.beside
+// and room.below are the map's width with the panel beside it and
+// below it; null before they're measured.
+export function arrange(choice, maps, room) {
+  const order = choice === 'vertical' ? ['down'] : choice === 'horizontal' ? ['across'] : ['across', 'down']
+  if (!room) return { vertical: order[0] === 'down', beside: false }
+  let best = null
+  for (const k of order) {
+    const need = maps[k].width * MIN_SCALE
+    if (room.beside >= need) return { vertical: k === 'down', beside: true }
+    if (room.below >= need) return { vertical: k === 'down', beside: false }
+    const over = need / Math.max(room.below, 1)
+    if (!best || over < best.over) best = { vertical: k === 'down', beside: false, over }
+  }
+  return { vertical: best.vertical, beside: false }
+}
+
 // related is what a node or link is part of, to bring forward: from a
 // frontend, backend or server, the paths through it - up to HAProxy,
 // down to the servers - and HAProxy and the interfaces, which every path

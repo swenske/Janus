@@ -235,9 +235,24 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 /* Monitoring › Traffic flow: a node's colour is its kind's, unless its
    state says otherwise; links pulse where traffic goes. */
 .flow-layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
-@media (min-width: 1400px) {
-  .flow-layout { grid-template-columns: minmax(0, 1fr) 22rem; }
-  .flow-side { position: sticky; top: 4.6rem; }
+/* The side panel beside the map while the map still fits there
+   (flow.js arrange; Flow.jsx SIDE_REM is its width), below it otherwise. */
+.flow-layout.beside { grid-template-columns: minmax(0, 1fr) 22rem; }
+.flow-layout.beside .flow-side { position: sticky; top: 4.6rem; }
+/* Below a map taller than the window, a node's details stay in view at
+   its bottom, over the map, until closed. */
+.flow-layout:not(.beside) .flow-side.picked { position: sticky; bottom: 0.75rem; z-index: 5; }
+.flow-layout:not(.beside) .flow-side.picked > .card { max-height: 45vh; overflow: auto; box-shadow: 0 6px 28px rgba(0, 0, 0, 0.18); }
+.flow-close { display: none; }
+.flow-layout:not(.beside) .flow-close {
+  display: inline-flex;
+  position: absolute;
+  top: -0.65rem;
+  right: -0.45rem;
+  z-index: 1;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 .flow-card { padding: 0.6rem; }
 .flow-scroll { overflow-x: auto; }

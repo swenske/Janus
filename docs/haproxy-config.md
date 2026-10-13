@@ -19,11 +19,12 @@ drain, maintenance - at runtime:
 the node's interfaces, HAProxy, each frontend linked to the backends its
 `default_backend` and `use_backend` rules send to - a map's values too,
 when `use_backend` reads one - and each backend's servers, with their
-traffic, sessions and state, top to bottom or left to right. Select a
-frontend to see the rules - a map's keys included - behind each of its
-links, or a server to set its state:
+traffic, sessions and state - left to right, or top to bottom when
+that's what fits the screen. Select a frontend to see the rules - a
+map's keys included - behind each of its links, or a server to set its
+state:
 
-![The Traffic flow, top to bottom: eth0, HAProxy below it, web.cfg's frontends web and prometheus, web linked to the app backend and its servers app1 and app2 hanging below it, the links carrying traffic highlighted](assets/screenshots/node-traffic-flow-light.webp)
+![The Traffic flow, left to right: eth0, HAProxy, web.cfg's frontends web and prometheus, web linked to the app backend and its servers app1 and app2, the links carrying traffic highlighted](assets/screenshots/node-traffic-flow-light.webp)
 
 `janusctl tui` draws it in the terminal too: `f` on a node
 ([janusctl](janusctl.md#the-dashboard-janusctl-tui)).
