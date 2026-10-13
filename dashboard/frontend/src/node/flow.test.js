@@ -1,7 +1,8 @@
 // node --test (npm test)
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { test } from 'node:test'
-import { buildFlow, interfaces, layout, mapCalls, parseTopology, pulse, related, resolveLinks, serverTone, statRows, tokenize, withRates } from './flow.js'
+import { buildFlow, interfaces, layout, mapCalls, parseTopology, pulse, reach, related, resolveLinks, serverTone, statRows, tokenize, withRates } from './flow.js'
 
 // examples/haproxy/web.cfg's proxies.
 const WEB = `
@@ -140,8 +141,8 @@ backend be_a
   assert.deepEqual(
     links.map((l) => [l.frontend, l.backend, l.rules.map((r) => r.keys || (r.isDefault ? 'default' : r.text))]),
     [
-      ['https', 'be_www_pool', [['example.com', 'www.example.com']]],
       ['https', 'be_blog_pool', [['blog.example.com']]],
+      ['https', 'be_www_pool', [['example.com', 'www.example.com']]],
       ['https', 'be_default_pool', ['default']],
       ['vars', 'be_api', ['use_backend %[var(txn.be)]']],
     ],
@@ -151,6 +152,26 @@ backend be_a
   assert.equal(opaque.rules.length, 1)
   // Without the map: https can't be resolved.
   assert.deepEqual(resolveLinks(t, backends, {}).unresolved.map((u) => u.frontend), ['https', 'opaque'])
+})
+
+// janusctl reads configurations in Go (internal/haproxyflow): both are
+// held to the same cases.
+test('the cases janusctl shares', () => {
+  const cases = JSON.parse(fs.readFileSync(new URL('../../../../internal/haproxyflow/testdata/cases.json', import.meta.url), 'utf8'))
+  assert.ok(cases.length >= 6)
+  for (const c of cases) {
+    const t = parseTopology(c.config)
+    assert.deepEqual(
+      t.frontends.map(({ name, kind, mode, binds, answers }) => ({ name, kind, mode, binds, answers })),
+      c.want.frontends,
+      c.name,
+    )
+    assert.deepEqual(t.backends, c.want.backends, c.name)
+    assert.deepEqual(t.maps, c.want.maps, c.name)
+    const { links, unresolved } = resolveLinks(t, c.backends, c.maps)
+    assert.deepEqual(links, c.want.links, c.name)
+    assert.deepEqual(unresolved, c.want.unresolved, c.name)
+  }
 })
 
 const COLUMNS = ['pxname', 'svname', 'qcur', 'scur', 'smax', 'slim', 'stot', 'bin', 'bout', 'status', 'act', 'bck', 'type', 'rate', 'check_status', 'req_rate', 'addr', 'mode']
@@ -277,6 +298,54 @@ test('layout: columns, bands, no overlap', () => {
   const slim = layout(g, ifs, { servers: false })
   assert.equal(slim.nodes.filter((n) => n.kind === 'srv').length, 0)
   assert.ok(slim.width < m.width)
+
+  // Top to bottom: rows, the servers hanging below their backend.
+  const v = layout(g, ifs, { vertical: true })
+  const level = (kind) => v.nodes.filter((n) => n.kind === kind)
+  const ys = ['iface', 'hub', 'fe', 'be'].map((k) => [...new Set(level(k).map((n) => n.y))])
+  assert.ok(ys.every((r) => r.length === 1), 'one row per kind')
+  assert.ok(ys[0][0] < ys[1][0] && ys[1][0] < ys[2][0] && ys[2][0] < ys[3][0])
+  // A label never reaches the next node of its row; a backend's
+  // servers' labels never reach the next backend.
+  for (const k of ['iface', 'fe', 'be']) {
+    const ns = level(k).sort((p, q) => p.x - q.x)
+    assert.ok(
+      ns.every((n, i) => i === 0 || n.x - n.r >= ns[i - 1].x + reach(ns[i - 1])),
+      `${k}: labels apart`,
+    )
+  }
+  const bx = level('be').sort((p, q) => p.x - q.x)
+  for (const [i, b] of bx.entries()) {
+    const next = bx[i + 1]
+    if (next) assert.ok(v.nodes.filter((n) => n.backend === b.name).every((n) => n.x + reach(n) <= next.x - next.r))
+  }
+  assert.deepEqual(
+    level('be')
+      .sort((p, q) => p.x - q.x)
+      .map((b) => b.name),
+    ['b2', 'b1', 'b3', 'b4'],
+  )
+  const vb1 = v.byId['be:b1']
+  const under = v.nodes.filter((n) => n.backend === 'b1')
+  assert.equal(under.length, 8)
+  assert.ok(under.every((n, i) => n.x > vb1.x && n.y > vb1.y && (i === 0 || n.y > under[i - 1].y)))
+  // a above the middle of b2 and b1; HAProxy above its frontends.
+  assert.equal(v.byId['fe:a'].x, (v.byId['be:b2'].x + vb1.x) / 2)
+  const fx = level('fe').map((n) => n.x)
+  assert.equal(v.byId.hub.x, (Math.min(...fx) + Math.max(...fx)) / 2)
+  // The same links, and a trunk per backend with servers.
+  assert.equal(v.links.length, m.links.length + 4)
+  assert.equal(v.links.filter((l) => l.kind === 'trunk').length, 4)
+  assert.ok(
+    v.links.every((l) => /^M[\d.]+ [\d.]+[CVQ]/.test(l.d)),
+    v.links.map((l) => l.d).join(' '),
+  )
+  assert.ok(v.nodes.every((n) => n.x - n.r >= 0 && n.x <= v.width && n.y + n.r <= v.height))
+  // The configuration not readable: no frontend sends anywhere known.
+  const bare = layout(buildFlow(rows, null, {}), ifs, { vertical: true })
+  assert.ok(bare.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)))
+  assert.ok(bare.links.every((l) => !/NaN|Infinity/.test(l.d)))
+  assert.ok(Number.isFinite(bare.width))
 })
 
 test('related: the paths through a node', () => {
@@ -292,6 +361,11 @@ test('related: the paths through a node', () => {
   )
   // prometheus sends nowhere: only its own path.
   assert.ok(!related(m, 'fe:prometheus').has('be:app'))
+  // Top to bottom, a backend's trunk goes with it.
+  const v = layout(buildFlow(rows, parseTopology(WEB), {}), interfaces({ eth0: { rx: 1, tx: 1 } }, null), { vertical: true })
+  assert.ok(related(v, 'srv:app/app2').has('be:app>trunk'))
+  assert.ok(related(v, 'fe:web').has('be:app>trunk'))
+  assert.ok(!related(v, 'fe:prometheus').has('be:app>trunk'))
 })
 
 test('pulse', () => {

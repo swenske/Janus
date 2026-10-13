@@ -160,16 +160,17 @@ export function parseTopology(cfg) {
     else if (kw === 'default_backend' && w[1]) cur.defaultBackend = w[1]
     if (cur.kind === 'defaults') continue
 
+    const answer = (a) => cur.answers.includes(a) || cur.answers.push(a)
     if (kw === 'bind' && w[1]) cur.binds.push(w[1])
     else if (kw === 'use_backend' && w[1]) {
       const rest = w.slice(2)
       cur.uses.push({ target: w[1], cond: rest[0] === 'if' || rest[0] === 'unless' ? rest.join(' ') : '' })
     } else if (kw === 'http-request' && ['return', 'redirect', 'use-service'].includes(w[1])) {
-      cur.answers.push(w[1] === 'use-service' ? `use-service ${w[2] || ''}`.trim() : w[1])
+      answer(w[1] === 'use-service' ? `use-service ${w[2] || ''}`.trim() : w[1])
     } else if (kw === 'tcp-request' && w[2] === 'use-service') {
-      cur.answers.push(`use-service ${w[3] || ''}`.trim())
+      answer(`use-service ${w[3] || ''}`.trim())
     } else if (kw === 'stats' && (w[1] === 'enable' || w[1] === 'uri')) {
-      cur.answers.push('stats page')
+      answer('stats page')
     }
     // Variables a dynamic use_backend may read: set-var(txn.be) <expr>.
     if (kw === 'http-request' || kw === 'tcp-request' || kw === 'http-response') {
@@ -237,7 +238,8 @@ export function resolveLinks(topology, backendNames, mapEntries = {}) {
           if (!entries) continue
           resolved = true
           const byValue = new Map()
-          for (const [k, v] of Object.entries(entries)) {
+          // By key: the order the Controller's JSON gives them, and janusctl's.
+          for (const [k, v] of Object.entries(entries).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
             const be = r.prefix + v + r.suffix
             if (!byValue.has(be)) byValue.set(be, [])
             byValue.get(be).push(k)
@@ -396,12 +398,51 @@ function curve(a, b) {
   return `M${x1} ${a.y}C${xm} ${a.y} ${xm} ${b.y} ${x2} ${b.y}`
 }
 
-// layout places the map's nodes in columns - interfaces, HAProxy,
-// frontends, backends, servers (when shown) - and draws its links.
-// Backends follow the first frontend that names them, each as tall as
-// its servers; frontends sit level with their backends, never closer
-// than a row.
-export function layout(graph, ifaces, { servers = true } = {}) {
+// curveDown is curve from a's bottom to b's top.
+function curveDown(a, b) {
+  const y1 = a.y + a.r
+  const y2 = b.y - b.r
+  const ym = (y1 + y2) / 2
+  return `M${a.x} ${y1}C${a.x} ${ym} ${b.x} ${ym} ${b.x} ${y2}`
+}
+
+// rankBackends is the backends in the order of the frontends that reach
+// them, then the rest, and each linked one's rank.
+function rankBackends(graph) {
+  const rank = new Map()
+  graph.frontends.forEach((f, fi) => {
+    graph.links.filter((l) => l.from === f.id).forEach((l, li) => {
+      if (!rank.has(l.to)) rank.set(l.to, fi * 1e4 + li)
+    })
+  })
+  const bes = graph.backends.map((b, i) => ({ b, i })).sort((p, q) => (rank.get(p.b.id) ?? 1e9 + p.i) - (rank.get(q.b.id) ?? 1e9 + q.i))
+  return { rank, ordered: bes.map(({ b }) => b) }
+}
+
+// serverSlots is what a backend shows of its servers: up to
+// MAX_SERVERS, the last slot "+N more" when they don't all fit.
+function serverSlots(b, servers) {
+  if (!servers) return []
+  const shown = b.servers.slice(0, b.servers.length > MAX_SERVERS ? MAX_SERVERS - 1 : MAX_SERVERS)
+  const slots = shown.map((s) => ({ ...s }))
+  if (shown.length < b.servers.length) {
+    const hidden = b.servers.slice(shown.length)
+    slots.push({ id: `more:${b.name}`, kind: 'more', name: `+${hidden.length} more`, backend: b.name, tone: hidden.some((s) => s.tone === 'danger') ? 'danger' : '', hidden })
+  }
+  return slots
+}
+
+// layout places the map's nodes and draws its links, top to bottom
+// (vertical) or left to right.
+export function layout(graph, ifaces, { servers = true, vertical = false } = {}) {
+  return vertical ? layoutDown(graph, ifaces, servers) : layoutAcross(graph, ifaces, servers)
+}
+
+// layoutAcross places the nodes in columns - interfaces, HAProxy,
+// frontends, backends, servers (when shown). Backends follow the first
+// frontend that names them, each as tall as its servers; frontends sit
+// level with their backends, never closer than a row.
+function layoutAcross(graph, ifaces, servers) {
   const nodes = []
   const byId = {}
   const put = (n) => {
@@ -410,33 +451,18 @@ export function layout(graph, ifaces, { servers = true } = {}) {
     return n
   }
   const links = []
-
-  // Backends: in the order of the frontends that reach them, then the rest.
-  const rank = new Map()
-  graph.frontends.forEach((f, fi) => {
-    graph.links.filter((l) => l.from === f.id).forEach((l, li) => {
-      if (!rank.has(l.to)) rank.set(l.to, fi * 1e4 + li)
-    })
-  })
-  const bes = graph.backends.map((b, i) => ({ b, i })).sort((p, q) => (rank.get(p.b.id) ?? 1e9 + p.i) - (rank.get(q.b.id) ?? 1e9 + q.i))
+  const { rank, ordered } = rankBackends(graph)
 
   let y = TOP
-  for (const { b } of bes) {
-    const shown = servers ? b.servers.slice(0, b.servers.length > MAX_SERVERS ? MAX_SERVERS - 1 : MAX_SERVERS) : []
-    const more = servers ? b.servers.length - shown.length : 0
-    const count = shown.length + (more ? 1 : 0)
-    const band = Math.max(ROW, count * SRV_ROW)
+  for (const b of ordered) {
+    const slots = serverSlots(b, servers)
+    const band = Math.max(ROW, slots.length * SRV_ROW)
     const be = put({ ...b, x: X.be, y: y + band / 2, r: R.be, linked: rank.has(b.id) })
-    let sy = y + (band - count * SRV_ROW) / 2 + SRV_ROW / 2
-    for (const s of shown) {
-      const n = put({ ...s, x: X.srv, y: sy, r: R.srv })
+    let sy = y + (band - slots.length * SRV_ROW) / 2 + SRV_ROW / 2
+    for (const s of slots) {
+      const n = put({ ...s, x: X.srv, y: sy, r: R[s.kind] })
       links.push({ id: `${be.id}>${n.id}`, from: be.id, to: n.id, kind: 'srv' })
       sy += SRV_ROW
-    }
-    if (more) {
-      const hidden = b.servers.slice(shown.length)
-      const n = put({ id: `more:${b.name}`, kind: 'more', name: `+${more} more`, backend: b.name, x: X.srv, y: sy, r: R.more, tone: hidden.some((s) => s.tone === 'danger') ? 'danger' : '', hidden })
-      links.push({ id: `${be.id}>${n.id}`, from: be.id, to: n.id, kind: 'srv' })
     }
     y += band
   }
@@ -473,6 +499,110 @@ export function layout(graph, ifaces, { servers = true } = {}) {
 
   const bottom = Math.max(beBottom, prev + ROW / 2, first + span + ROW / 2, hub.y + ROW / 2)
   const width = servers && graph.backends.some((b) => b.servers.length) ? X.srv + 200 : X.be + 120
+  return { nodes, links, byId, width, height: bottom + TOP, hubY: hub.y }
+}
+
+// Top to bottom: each node's label is beside it - its name, then its
+// numbers a line each - so a column is as wide as its label; a
+// backend's servers hang below it, along a trunk.
+export const NAME_CHARS = 20 // a name's longest, cut with an ellipsis
+export const VALUE_CHARS = 15 // a number's line: "999.9 KiB/s", "12/20 servers up"
+const NAME_PX = 7.3 // a character's width: 12px and 11px monospace
+const VALUE_PX = 6.7
+const GAP = 22 // between a label and the next node
+const LEVEL = 100 // between two rows
+const FAN = 130 // frontends to backends: room for the links to cross
+const SRV_DOWN = 46 // between two servers: three lines
+const SRV_IN = 30 // a server's centre right of its backend's
+const ELBOW = 12 // a server link's turn off the trunk
+
+// labelWidth is how far a node's label reaches right of its circle.
+function labelWidth(n) {
+  return 8 + Math.max(Math.min(String(n.name).length, NAME_CHARS) * NAME_PX, VALUE_CHARS * VALUE_PX)
+}
+
+// reach is how far right of its centre a node and its label go.
+export function reach(n) {
+  return n.r + labelWidth(n)
+}
+
+// layoutDown places the nodes in rows - interfaces, HAProxy, frontends,
+// backends with their servers below them. Backends follow the first
+// frontend that names them; frontends sit above the middle of their
+// backends, never closer than their labels allow.
+function layoutDown(graph, ifaces, servers) {
+  const nodes = []
+  const byId = {}
+  const put = (n) => {
+    nodes.push(n)
+    byId[n.id] = n
+    return n
+  }
+  const links = []
+  const { rank, ordered } = rankBackends(graph)
+
+  const ifY = TOP + R.iface
+  const hubY = ifY + LEVEL
+  const feY = hubY + LEVEL
+  const beY = feY + FAN
+  let bottom = beY + R.be + 30
+
+  let x = 0
+  for (const b of ordered) {
+    const be = put({ ...b, x, y: beY, r: R.be, linked: rank.has(b.id) })
+    let right = reach(be)
+    let sy = beY + R.be + 32
+    for (const s of serverSlots(b, servers)) {
+      const n = put({ ...s, x: be.x + SRV_IN, y: sy, r: R[s.kind] })
+      links.push({ id: `${be.id}>${n.id}`, from: be.id, to: n.id, kind: 'srv' })
+      right = Math.max(right, SRV_IN + reach(n))
+      bottom = Math.max(bottom, sy + 30)
+      sy += SRV_DOWN
+    }
+    if (sy > beY + R.be + 32) {
+      // One trunk the servers' links branch off, drawn once.
+      links.push({ id: `${be.id}>trunk`, from: be.id, to: be.id, kind: 'trunk', end: sy - SRV_DOWN - ELBOW })
+    }
+    x += right + GAP + R.be
+  }
+
+  // Frontends: above the middle of their backends, their labels apart.
+  const want = graph.frontends.map((f, i) => {
+    const xs = graph.links.filter((l) => l.from === f.id).map((l) => byId[l.to]?.x).filter((v) => v != null)
+    return { f, i, x: xs.length ? xs.reduce((a, v) => a + v, 0) / xs.length : Infinity }
+  })
+  want.sort((a, b) => a.x - b.x || a.i - b.i)
+  let prev = null
+  for (const w of want) {
+    // One that sends nowhere known goes right of the others - from the
+    // left edge when none does (the configuration isn't readable).
+    const after = prev ? prev.x + reach(prev) + GAP + R.fe : 0
+    prev = put({ ...w.f, x: Number.isFinite(w.x) ? Math.max(w.x, after) : after, y: feY, r: R.fe })
+  }
+
+  // HAProxy above the middle of its frontends, the interfaces above it.
+  const xs = (graph.frontends.length ? graph.frontends : ordered).map((n) => byId[n.id].x)
+  const mid = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0
+  const hub = put({ id: 'hub', kind: 'hub', name: 'HAProxy', x: mid, y: hubY, r: R.hub })
+  const step = ifaces.length ? Math.max(...ifaces.map((it) => reach({ ...it, r: R.iface }))) + GAP + R.iface : 0
+  ifaces.forEach((it, i) => {
+    const n = put({ ...it, x: mid + (i - (ifaces.length - 1) / 2) * step, y: ifY, r: R.iface })
+    links.push({ id: `${n.id}>hub`, from: n.id, to: 'hub', kind: 'iface' })
+  })
+  for (const f of graph.frontends) links.push({ id: `hub>${f.id}`, from: 'hub', to: f.id, kind: 'fe' })
+  for (const l of graph.links) links.push({ ...l, kind: 'be' })
+
+  // Everything moved right of the margin, then the links drawn.
+  const shift = TOP - Math.min(...nodes.map((n) => n.x - n.r))
+  for (const n of nodes) n.x += shift
+  for (const l of links) {
+    const a = byId[l.from]
+    const b = byId[l.to]
+    if (l.kind === 'trunk') l.d = `M${a.x} ${a.y + a.r}V${l.end}`
+    else if (l.kind === 'srv') l.d = `M${a.x} ${b.y - ELBOW}Q${a.x} ${b.y} ${a.x + ELBOW} ${b.y}H${b.x - b.r}`
+    else l.d = curveDown(a, b)
+  }
+  const width = Math.max(...nodes.map((n) => n.x + reach(n))) + TOP
   return { nodes, links, byId, width, height: bottom + TOP, hubY: hub.y }
 }
 

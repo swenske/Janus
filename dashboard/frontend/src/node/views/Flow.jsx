@@ -1,10 +1,10 @@
-import { Ellipsis, EthernetPort, Globe, Layers, Route, Server, Shuffle } from 'lucide-react'
+import { ArrowDown, ArrowRight, Ellipsis, EthernetPort, Globe, Layers, Route, Server, Shuffle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getJSON } from '../api.js'
 import ServerStateButtons from '../components/ServerStateButtons.jsx'
 import { Badge, Card, Empty, ErrorBox, Loading, PageHeader } from '../../shared/ui.jsx'
 import { bytes, compact, duration, num, rate } from '../format.js'
-import { buildFlow, interfaces, layout, parseTopology, pulse, related, statRows, withRates } from '../flow.js'
+import { NAME_CHARS, VALUE_CHARS, buildFlow, interfaces, layout, parseTopology, pulse, reach, related, statRows, withRates } from '../flow.js'
 import { useMetrics, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 
@@ -13,11 +13,20 @@ const ICON_SIZE = { iface: 18, hub: 26, fe: 18, be: 18, srv: 13, more: 13 }
 const KIND = { iface: 'Interface', hub: 'HAProxy', fe: 'Frontend', be: 'Backend', srv: 'Server', more: 'Servers' }
 const SLOW = 30000 // the configuration, maps and interfaces' state change seldom
 
-function storedServers() {
+// stored is what this browser remembers of a choice; def without it.
+function stored(key, def) {
   try {
-    return localStorage.getItem('janus-flow-servers') !== 'off'
+    return localStorage.getItem(key) ?? def
   } catch {
-    return true
+    return def
+  }
+}
+
+function store(key, value) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // not remembered, still applied
   }
 }
 
@@ -77,44 +86,87 @@ function activity(row) {
   return row.scur || row.rate ? 1 : 0 // the first sample: no rate yet
 }
 
-// sub is the line under a node's name: its traffic and sessions, or
-// what's wrong with it.
-function sub(n, hap) {
+// values are what a node's label says under its name - its traffic
+// and sessions, or what's wrong with it -, read on one line across or
+// a line each top to bottom.
+function values(n, hap) {
   const r = n.row
   switch (n.kind) {
     case 'iface':
-      return n.up === false ? { text: n.status?.up ? 'No carrier' : 'Down' } : { text: rate(n.traffic) }
+      return n.up === false ? { parts: [n.status?.up ? 'No carrier' : 'Down'] } : { parts: [rate(n.traffic)] }
     case 'hub':
-      if (!hap) return { text: '…' }
-      if (!hap.up) return { text: 'not answering', tone: 'danger' }
-      return { text: `${compact(hap.conns)} conns${hap.reqRate != null ? ` · ${num(hap.reqRate, hap.reqRate < 10 ? 1 : 0)} req/s` : ''}` }
+      if (!hap) return { parts: ['…'] }
+      if (!hap.up) return { parts: ['not answering'], tone: 'danger' }
+      return { parts: [`${compact(hap.conns)} conns`, ...(hap.reqRate != null ? [`${num(hap.reqRate, hap.reqRate < 10 ? 1 : 0)} req/s`] : [])] }
     case 'fe':
-      if (n.tone === 'off') return { text: r.status }
-      return { text: `${rate(r.traffic)} · ${compact(r.scur)} sess` }
+      if (n.tone === 'off') return { parts: [r.status] }
+      return { parts: [rate(r.traffic), `${compact(r.scur)} sess`] }
     case 'be':
-      if (n.tone === 'danger') return { text: 'DOWN', tone: 'danger' }
-      if (n.down) return { text: `${n.servers.length - n.down}/${n.servers.length} servers up`, tone: 'warn' }
-      return { text: `${rate(r.traffic)} · ${compact(r.scur)} sess` }
+      if (n.tone === 'danger') return { parts: ['DOWN'], tone: 'danger' }
+      if (n.down) return { parts: [`${n.servers.length - n.down}/${n.servers.length} servers up`], tone: 'warn' }
+      return { parts: [rate(r.traffic), `${compact(r.scur)} sess`] }
     case 'srv':
-      if (n.tone === 'danger' || n.tone === 'warn' || n.tone === 'off') return { text: [r.status, r.check].filter(Boolean).join(' · '), tone: n.tone === 'off' ? '' : n.tone }
-      return { text: `${rate(r.traffic)} · ${compact(r.scur)} sess` }
+      if (n.tone === 'danger' || n.tone === 'warn' || n.tone === 'off') return { parts: [r.status, r.check].filter(Boolean), tone: n.tone === 'off' ? '' : n.tone }
+      return { parts: [rate(r.traffic), `${compact(r.scur)} sess`] }
     case 'more': {
       const down = n.hidden.filter((s) => s.tone === 'danger').length
-      return down ? { text: `${down} down`, tone: 'danger' } : { text: `${n.hidden.length} servers` }
+      return down ? { parts: [`${down} down`], tone: 'danger' } : { parts: [`${n.hidden.length} servers`] }
     }
     default:
-      return { text: '' }
+      return { parts: [] }
   }
 }
 
-function FlowNode({ n, hap, configKnown, state, onSelect, onHover }) {
+function FlowNode({ n, hap, configKnown, vertical, state, onSelect, onHover }) {
   const Icon = ICONS[n.kind]
   const s = ICON_SIZE[n.kind]
-  const line = sub(n, hap)
-  const beside = n.kind === 'srv' || n.kind === 'more'
+  const v = values(n, hap)
+  const text = v.parts.join(' · ')
   // A backend no frontend rule names - with the configuration read.
   const unlinked = n.kind === 'be' && configKnown && !n.linked
-  const label = `${KIND[n.kind]} ${n.name}${line.text ? `: ${line.text}` : ''}${unlinked ? ' - no frontend rule names it' : ''}`
+  const label = `${KIND[n.kind]} ${n.name}${text ? `: ${text}` : ''}${unlinked ? ' - no frontend rule names it' : ''}`
+  // A label beside its node is part of it: hovering or clicking it too.
+  const beside = vertical || n.kind === 'srv' || n.kind === 'more'
+  let labels
+  if (vertical) {
+    // Beside the node, a line each: the links come in above it and
+    // leave below.
+    const top = v.parts.length > 1 ? -9 : -3
+    labels = (
+      <>
+        <text className="flow-name" x={n.r + 8} y={top} textAnchor="start">
+          {short(n.name, NAME_CHARS)}
+        </text>
+        {v.parts.map((p, i) => (
+          <text key={i} className={`flow-sub ${v.tone || ''}`} x={n.r + 8} y={top + 14 + i * 13} textAnchor="start">
+            {short(p, VALUE_CHARS)}
+          </text>
+        ))}
+      </>
+    )
+  } else if (n.kind === 'srv' || n.kind === 'more') {
+    labels = (
+      <>
+        <text className="flow-name" x={n.r + 8} y={-3} textAnchor="start">
+          {short(n.name, 20)}
+        </text>
+        <text className={`flow-sub ${v.tone || ''}`} x={n.r + 8} y={11} textAnchor="start">
+          {short(text, 30)}
+        </text>
+      </>
+    )
+  } else {
+    labels = (
+      <>
+        <text className="flow-name" y={n.r + 15} textAnchor="middle">
+          {short(n.name)}
+        </text>
+        <text className={`flow-sub ${v.tone || ''}`} y={n.r + 29} textAnchor="middle">
+          {text}
+        </text>
+      </>
+    )
+  }
   return (
     <g
       className={`flow-node kind-${n.kind} ${n.tone ? `tone-${n.tone}` : ''} ${unlinked ? 'unlinked' : ''} ${state}`}
@@ -138,27 +190,10 @@ function FlowNode({ n, hap, configKnown, state, onSelect, onHover }) {
       onFocus={() => onHover(n.id)}
       onBlur={() => onHover(null)}
     >
+      {beside && <rect className="flow-box" x={-n.r} y={-Math.max(n.r, 20)} width={n.r + reach(n)} height={2 * Math.max(n.r, 20)} />}
       <circle className="flow-disc" r={n.r} />
       <Icon className="flow-icon" size={s} x={-s / 2} y={-s / 2} aria-hidden="true" />
-      {beside ? (
-        <>
-          <text className="flow-name" x={n.r + 8} y={-3} textAnchor="start">
-            {short(n.name, 20)}
-          </text>
-          <text className={`flow-sub ${line.tone || ''}`} x={n.r + 8} y={11} textAnchor="start">
-            {short(line.text, 30)}
-          </text>
-        </>
-      ) : (
-        <>
-          <text className="flow-name" y={n.r + 15} textAnchor="middle">
-            {short(n.name)}
-          </text>
-          <text className={`flow-sub ${line.tone || ''}`} y={n.r + 29} textAnchor="middle">
-            {line.text}
-          </text>
-        </>
-      )}
+      {labels}
       <title>{label}</title>
     </g>
   )
@@ -184,6 +219,8 @@ function linkLook(l, map, incoming) {
     const fe = activity(a.row)
     const be = activity(b.row)
     traffic = fe > 0 && be > 0 ? (incoming[b.id] > 1 ? Math.min(fe, be) : be) : 0
+  } else if (l.kind === 'trunk') {
+    traffic = activity(a.row) // the backend's: what its servers' links share
   } else if (b.kind === 'more') {
     traffic = b.hidden.reduce((t, s) => t + activity(s.row), 0)
   } else {
@@ -349,7 +386,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
           <Row k="Responses">{responses(r)}</Row>
           <Row k="Errors">{r.ereq ? num(r.ereq) : null}</Row>
           <Row k="Denied">{r.dreq ? num(r.dreq) : null}</Row>
-          <Row k="Answers itself">{n.answers.length ? n.answers.join(', ') : null}</Row>
+          <Row k="Answers itself">{n.answers.length ? n.answers.map((a) => (a === 'return' || a === 'redirect' ? `http-request ${a}` : a)).join(', ') : null}</Row>
         </dl>
         {out.length > 0 && (
           <>
@@ -489,7 +526,8 @@ export default function Flow() {
   const stats = usePoll('/api/haproxy/stats')
   const config = usePoll('/api/haproxy/config', { every: SLOW, enabled: mayConfig })
   const net = usePoll('/api/network/status', { every: SLOW, enabled: may('NetworkService/NetworkStatus') })
-  const [servers, setServers] = useState(storedServers)
+  const [servers, setServers] = useState(() => stored('janus-flow-servers', 'on') !== 'off')
+  const [vertical, setVertical] = useState(() => stored('janus-flow-direction', 'vertical') !== 'horizontal')
   const [selected, setSelected] = useState(null)
   const [hover, setHover] = useState(null)
 
@@ -516,26 +554,41 @@ export default function Flow() {
   const rows = useMemo(() => (samples.cur ? withRates(samples.cur.rows, samples.prev?.rows, samples.seconds) : []), [samples])
   const graph = useMemo(() => buildFlow(rows, topology, maps.maps), [rows, topology, maps.maps])
   const ifaces = useMemo(() => interfaces(latest?.net, net.data), [latest?.net, net.data])
-  const map = useMemo(() => layout(graph, ifaces, { servers }), [graph, ifaces, servers])
+  const map = useMemo(() => layout(graph, ifaces, { servers, vertical }), [graph, ifaces, servers, vertical])
   const incoming = useMemo(() => {
     const c = {}
     for (const l of graph.links) c[l.to] = (c[l.to] || 0) + 1
     return c
   }, [graph])
 
+  // A map wider than its card keeps HAProxy in the middle - as the
+  // configuration arrives and moves it - until the user scrolls it.
+  const scroller = useRef(null)
+  const centred = useRef({ key: '', left: null })
+  const drawn = graph.frontends.length + graph.backends.length > 0
+  useEffect(() => {
+    const el = scroller.current
+    if (!el || !drawn) return
+    const key = vertical ? 'vertical' : 'horizontal'
+    const last = centred.current
+    if (last.key === key && last.left != null && Math.abs(el.scrollLeft - last.left) > 1) return // scrolled by hand
+    const svg = el.querySelector('svg')
+    const scale = svg ? svg.getBoundingClientRect().width / map.width : 1
+    el.scrollLeft = vertical ? Math.max(0, map.byId.hub.x * scale - el.clientWidth / 2) : 0
+    centred.current = { key, left: el.scrollLeft }
+  }, [vertical, drawn, map])
+
   const focus = hover || selected
   const near = useMemo(() => (focus ? related(map, focus) : null), [map, focus])
   const stateOf = (id) => (near ? (near.has(id) ? 'near' : 'far') : '')
   const select = useCallback((id) => setSelected((cur) => (cur === id ? null : id)), [])
   const toggleServers = () => {
-    setServers((v) => {
-      try {
-        localStorage.setItem('janus-flow-servers', v ? 'off' : 'on')
-      } catch {
-        // not remembered, still applied
-      }
-      return !v
-    })
+    store('janus-flow-servers', servers ? 'off' : 'on')
+    setServers(!servers)
+  }
+  const direction = (down) => {
+    store('janus-flow-direction', down ? 'vertical' : 'horizontal')
+    setVertical(down)
   }
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && setSelected(null)
@@ -548,9 +601,19 @@ export default function Flow() {
       title="Traffic flow"
       subtitle="From the node's interfaces through HAProxy's frontends to their backends and servers - live"
       actions={
-        <button className={`small chip ${servers ? 'active' : ''}`} aria-pressed={servers} onClick={toggleServers}>
-          Servers
-        </button>
+        <>
+          <div className="chips" role="group" aria-label="Direction">
+            <button className={`small chip ${vertical ? 'active' : ''}`} aria-pressed={vertical} onClick={() => direction(true)} title="Top to bottom">
+              <ArrowDown size={14} aria-hidden="true" /> Vertical
+            </button>
+            <button className={`small chip ${!vertical ? 'active' : ''}`} aria-pressed={!vertical} onClick={() => direction(false)} title="Left to right">
+              <ArrowRight size={14} aria-hidden="true" /> Horizontal
+            </button>
+          </div>
+          <button className={`small chip ${servers ? 'active' : ''}`} aria-pressed={servers} onClick={toggleServers}>
+            Servers
+          </button>
+        </>
       }
     />
   )
@@ -584,11 +647,11 @@ export default function Flow() {
         ) : (
           <div className="flow-layout">
             <Card className="flow-card">
-              <div className="flow-scroll" onClick={() => setSelected(null)}>
+              <div className="flow-scroll" ref={scroller} onClick={() => setSelected(null)}>
                 <svg
-                  className={`flow-map ${near ? 'focused' : ''}`}
+                  className={`flow-map ${vertical ? 'vertical' : ''} ${near ? 'focused' : ''}`}
                   viewBox={`0 0 ${map.width} ${map.height}`}
-                  style={{ maxWidth: map.width, minWidth: Math.round(map.width * 0.72) }}
+                  style={{ maxWidth: map.width, minWidth: Math.round(map.width * 0.85) }}
                   role="group"
                   aria-label={summary}
                 >
@@ -599,7 +662,7 @@ export default function Flow() {
                   </g>
                   <g>
                     {map.nodes.map((n) => (
-                      <FlowNode key={n.id} n={n} hap={hap} configKnown={graph.configKnown} state={`${stateOf(n.id)} ${selected === n.id ? 'selected' : ''}`} onSelect={select} onHover={setHover} />
+                      <FlowNode key={n.id} n={n} hap={hap} configKnown={graph.configKnown} vertical={vertical} state={`${stateOf(n.id)} ${selected === n.id ? 'selected' : ''}`} onSelect={select} onHover={setHover} />
                     ))}
                   </g>
                 </svg>
