@@ -180,6 +180,8 @@ resource "janus_node" "lb1" {
   ]
   dns = ["10.0.0.53"]
   ntp = ["10.0.0.1"]
+
+  update_reboot_mode = "kexec" # unset: updates reboot through the firmware
 }
 ```
 
@@ -202,7 +204,8 @@ stays the same:
 |---|---|
 | `interfaces` addresses, gateways, modes and names; `dns`; `ntp` | Put on trial on the node and confirmed from wherever it's reachable afterwards. Unconfirmed, the node goes back by itself. What only its page sets - VLANs, MTUs, search domains - stays. |
 | `vcpus`, `memory_mib`; an interface added, removed or moved to another `network` | The node shuts down cleanly (HAProxy stops), the virtual machine is reconfigured and started again. A removed interface leaves the node's configuration before it's unplugged; an added one is configured once plugged in. |
-| `version`, `extensions`, `haproxy`, `kernel` | The node's own A/B update. The bundle is the release's, or the image factory's build of the new schematic. The node checks its signature, and confirms itself healthy. Another HAProxy branch may refuse the node's configuration: check it against that branch first ([haproxy-config.md](haproxy-config.md#haproxy-branches)) - the update then reverts by itself. |
+| `version`, `extensions`, `haproxy`, `kernel` | The node's own A/B update. The bundle is the release's, or the image factory's build of the new schematic. The node checks its signature, and confirms itself healthy. Another HAProxy branch may refuse the node's configuration: check it against that branch first ([haproxy-config.md](haproxy-config.md#haproxy-branches)) - the update then reverts by itself. It reboots the way `update_reboot_mode` says. |
+| `update_reboot_mode` | Nothing on the node: how its next updates reboot. Changed together with `version`, that update already reboots the new way. |
 
 What makes **a new node** (Terraform plans a replacement): `name`,
 `hypervisor_id`, `image`.
@@ -222,6 +225,14 @@ Controller's pages: its hardware, network, version and extensions, and
 destroying it. Those pages still show it, restart it and open its
 console. Released on the Controller for a change by hand, that change
 shows in the next plan; `apply` undoes it and locks the node again.
+
+**`update_reboot_mode`** is how the node reboots into an update:
+`"firmware"` (the default), or `"kexec"` - straight into the new
+kernel, without the firmware, in seconds where a server's POST takes a
+minute. A node that can't kexec (Secure Boot on and an image not signed
+by Janus) reboots through the firmware, and the machine's history on the
+Controller says which way each update went. What to know before
+choosing kexec: [updating nodes](guide/updates.md#with-janusctl).
 
 **`labels`** (`labels = { team = "web" }`) are the node's labels on the
 Controller: the grants and scoped tokens of its accounts pick nodes by

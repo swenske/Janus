@@ -6,12 +6,29 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 
 	"github.com/swenske/Janus/terraform-provider-janus/internal/client"
 )
+
+// update_reboot_mode is checked at plan time: firmware or kexec.
+func TestOneOf(t *testing.T) {
+	v := oneOf{"firmware", "kexec"}
+	for value, ok := range map[types.String]bool{
+		types.StringValue("kexec"): true, types.StringValue("firmware"): true, types.StringNull(): true, types.StringUnknown(): true,
+		types.StringValue("powercycle"): false, types.StringValue("KEXEC"): false,
+	} {
+		resp := &validator.StringResponse{}
+		v.ValidateString(context.Background(), validator.StringRequest{Path: path.Root("update_reboot_mode"), ConfigValue: value}, resp)
+		if resp.Diagnostics.HasError() == ok {
+			t.Errorf("%v: errors %v", value, resp.Diagnostics)
+		}
+	}
+}
 
 // The schemas, as Terraform gets them: the framework checks them then.
 func TestSchemas(t *testing.T) {
@@ -118,6 +135,21 @@ func TestUpdateFor(t *testing.T) {
 		t.Errorf("NTP %v", *u.NTP)
 	}
 
+	// Kexec for the update planned with it: in the same PATCH, so that
+	// update already reboots through kexec.
+	state.UpdateRebootMode = types.StringValue("firmware")
+	plan = *state
+	plan.Version = types.StringValue("v2026.10.05")
+	plan.UpdateRebootMode = types.StringValue("kexec")
+	u = updateFor(ctx, state, &plan, &diags)
+	if u == nil || u.Version == nil || u.UpdateRebootMode == nil || *u.UpdateRebootMode != "kexec" {
+		t.Fatalf("version and kexec: %+v", u)
+	}
+	plan = *state
+	if u := updateFor(ctx, state, &plan, &diags); u != nil {
+		t.Errorf("the same reboot mode gave %+v", u)
+	}
+
 	// An unset version after creation means "keep whatever it runs".
 	plan = *state
 	plan.Version = types.StringUnknown()
@@ -159,6 +191,17 @@ func TestFromMachine(t *testing.T) {
 	if !s.HAProxy.IsNull() || !s.Kernel.IsNull() {
 		t.Errorf("the defaults read back as %v %v", s.HAProxy, s.Kernel)
 	}
+	// The Controller leaves the default reboot mode out: the attribute's
+	// default, no difference with a configuration that doesn't set it.
+	if s.UpdateRebootMode.ValueString() != "firmware" {
+		t.Errorf("no update_reboot_mode read back as %v", s.UpdateRebootMode)
+	}
+	m.Spec.UpdateRebootMode = "kexec"
+	fromMachine(m, &s)
+	if s.UpdateRebootMode.ValueString() != "kexec" {
+		t.Errorf("kexec read back as %v", s.UpdateRebootMode)
+	}
+	m.Spec.UpdateRebootMode = ""
 	m.Spec.HAProxy = "3.2"
 	fromMachine(m, &s)
 	if s.HAProxy.ValueString() != "3.2" || !s.Kernel.IsNull() {

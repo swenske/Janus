@@ -1393,6 +1393,7 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
           {m.version ? `${m.version}${m.schematic ? ` · ${m.schematic.slice(0, 8)}` : ''}` : m.spec.image ? 'custom image' : m.spec.version || 'newest release'}
           {m.spec.haproxy && <span className="muted"> · HAProxy {m.spec.haproxy}</span>}
           {m.spec.kernel && <span className="muted"> · {m.spec.kernel} kernel</span>}
+          {m.spec.update_reboot_mode === 'kexec' && <span className="muted"> · updates through kexec</span>}
         </dd>
         <dt>Network</dt>
         <dd className="mono">

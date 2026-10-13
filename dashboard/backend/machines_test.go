@@ -306,7 +306,8 @@ func TestMachineLifecycle(t *testing.T) {
 		Name: "lb1", HypervisorID: h.ID,
 		Image: &machines.ImageSource{URL: srv.URL + "/janus-kvm.qcow2", SHA256: hex.EncodeToString(sum[:])},
 		NICs:  []machines.NIC{{Network: "lab-mgmt", Name: "mgmt", Mode: "static", Addresses: []string{"10.200.10.23/24"}}},
-		NTP:   []string{"10.200.10.1"},
+		NTP:              []string{"10.200.10.1"},
+		UpdateRebootMode: "firmware",
 	})
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body)
@@ -315,6 +316,9 @@ func TestMachineLifecycle(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &v)
 	if v.Spec.NICs[0].MAC == "" || v.Spec.VCPUs != 2 || v.Spec.MemoryMiB != 1024 {
 		t.Errorf("defaults not filled in: %+v", v.Spec)
+	}
+	if v.Spec.UpdateRebootMode != "" {
+		t.Errorf("update_reboot_mode firmware kept as %q, want the default's empty", v.Spec.UpdateRebootMode)
 	}
 	m := waitPhase(t, a, v.ID, machines.PhaseRegistering)
 	if m.Ref == nil || m.Ref.UUID == "" || m.Ref.Name != "janus-lb1" {
@@ -420,6 +424,7 @@ func TestMachineCreateRefusals(t *testing.T) {
 		"too little memory": {Name: "lb1", HypervisorID: h.ID, NICs: nic, MemoryMiB: 128},
 		"three NTP servers": {Name: "lb1", HypervisorID: h.ID, NICs: nic, NTP: []string{"a", "b", "c"}},
 		"image and version": {Name: "lb1", HypervisorID: h.ID, NICs: nic, Version: "v2026.10.02", Image: &machines.ImageSource{URL: "https://x/y", SHA256: strings.Repeat("a", 64)}},
+		"reboot mode":       {Name: "lb1", HypervisorID: h.ID, NICs: nic, UpdateRebootMode: "powercycle"},
 	} {
 		rec := call(t, a.handleMachineCreate, "POST", "/api/machines", "POST /api/machines", spec)
 		if rec.Code != http.StatusBadRequest {

@@ -45,7 +45,7 @@ import (
 type nodeAPI interface {
 	Shutdown(ctx context.Context, node *store.Node) error
 	ApplyNetwork(ctx context.Context, node *store.Node, st *store.Store, cfg *janusv1alpha1.NetworkConfig) error
-	Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageSource) error
+	Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageSource, mode janusv1alpha1.RebootMode) (string, error)
 	Info(ctx context.Context, node *store.Node) (*nodeproxy.NodeInfo, error)
 	Network(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkConfig, error)
 	NetworkStatus(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkStatusResponse, error)
@@ -62,8 +62,8 @@ func (realNodeAPI) ApplyNetwork(ctx context.Context, node *store.Node, st *store
 	return nodeproxy.ApplyNetwork(ctx, node, st, cfg)
 }
 
-func (realNodeAPI) Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageSource) error {
-	return nodeproxy.Upgrade(ctx, node, source)
+func (realNodeAPI) Upgrade(ctx context.Context, node *store.Node, source *janusv1alpha1.ImageSource, mode janusv1alpha1.RebootMode) (string, error) {
+	return nodeproxy.Upgrade(ctx, node, source, mode)
 }
 
 func (realNodeAPI) Info(ctx context.Context, node *store.Node) (*nodeproxy.NodeInfo, error) {
@@ -97,6 +97,20 @@ type machineUpdate struct {
 	NTP        *[]string       `json:"ntp,omitempty"`
 	ManagedBy  *string         `json:"managed_by,omitempty"`
 	Locked     *bool           `json:"locked,omitempty"`
+	// "kexec" or "firmware" - see machines.Spec.
+	UpdateRebootMode *string `json:"update_reboot_mode,omitempty"`
+}
+
+// updateRebootMode is an update_reboot_mode as a spec keeps it: "kexec",
+// or "" for the firmware ("" or "firmware" given).
+func updateRebootMode(s string) (string, error) {
+	switch s {
+	case "", "firmware":
+		return "", nil
+	case "kexec":
+		return "kexec", nil
+	}
+	return "", fmt.Errorf("update_reboot_mode %q: firmware or kexec", s)
 }
 
 // onlyRelease reports an update that changes nothing but unlocks the
@@ -104,7 +118,7 @@ type machineUpdate struct {
 // still do.
 func (u machineUpdate) onlyRelease() bool {
 	return u.VCPUs == nil && u.MemoryMiB == nil && u.Version == nil && u.Extensions == nil && u.HAProxy == nil && u.Kernel == nil && u.NICs == nil &&
-		u.DNS == nil && u.NTP == nil && (u.Locked == nil || !*u.Locked)
+		u.DNS == nil && u.NTP == nil && u.UpdateRebootMode == nil && (u.Locked == nil || !*u.Locked)
 }
 
 // updatePlan is what an update changes.
@@ -210,6 +224,15 @@ func planUpdate(m *machines.Machine, u machineUpdate, allowed func(string) bool)
 	}
 	if u.Locked != nil && *u.Locked != cur.Locked {
 		next.Locked, p.meta = *u.Locked, true
+	}
+	if u.UpdateRebootMode != nil {
+		mode, err := updateRebootMode(*u.UpdateRebootMode)
+		if err != nil {
+			return nil, err
+		}
+		if mode != cur.UpdateRebootMode {
+			next.UpdateRebootMode, p.meta = mode, true
+		}
 	}
 	p.next = next
 	return p, nil
@@ -468,7 +491,7 @@ func (a *app) handleMachineUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, a.machineView(m))
 		return
 	}
-	// Who manages it, and the lock: just the record.
+	// Who manages it, the lock, how its updates reboot: just the record.
 	if !p.hardware && !p.network && !p.upgrade {
 		m, err = a.machines.Update(m.ID, func(m *machines.Machine) error {
 			m.Spec.ManagedBy, m.Spec.Locked = p.next.ManagedBy, p.next.Locked
@@ -477,6 +500,10 @@ func (a *app) handleMachineUpdate(w http.ResponseWriter, r *http.Request) {
 				m.Log("released: its pages may change it again")
 			case m.Spec.Locked && u.Locked != nil:
 				m.Log("locked: managed by %s", m.Spec.ManagedBy)
+			}
+			if p.next.UpdateRebootMode != m.Spec.UpdateRebootMode {
+				m.Spec.UpdateRebootMode = p.next.UpdateRebootMode
+				m.Log("its updates reboot %s", rebootWay(m.Spec.UpdateRebootMode))
 			}
 			return nil
 		})
@@ -532,6 +559,10 @@ func (r *machineRunner) update(ctx context.Context, id string, p *updatePlan) er
 	_, uerr := r.a.machines.Update(id, func(m *machines.Machine) error {
 		m.Phase = machines.PhaseReady
 		m.Spec.ManagedBy, m.Spec.Locked = p.next.ManagedBy, p.next.Locked
+		if p.next.UpdateRebootMode != m.Spec.UpdateRebootMode {
+			m.Spec.UpdateRebootMode = p.next.UpdateRebootMode
+			m.Log("its updates reboot %s", rebootWay(m.Spec.UpdateRebootMode))
+		}
 		if err != nil {
 			m.Error = "update failed: " + err.Error()
 			m.Log("%s", m.Error)
@@ -640,10 +671,20 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 		uctx, cancel := context.WithTimeout(ctx, upgradeTimeout)
 		defer cancel()
 		src := &janusv1alpha1.ImageSource{Reference: b.BaseURL, Sha256: b.SHA256, AllowSchematicChange: b.Schematic != m.Schematic}
-		if err := nodes.Upgrade(uctx, node, src); err != nil {
+		mode := janusv1alpha1.RebootMode_REBOOT_MODE_DEFAULT
+		if p.next.UpdateRebootMode == "kexec" {
+			mode = janusv1alpha1.RebootMode_REBOOT_MODE_KEXEC
+		}
+		how, err := nodes.Upgrade(uctx, node, src, mode)
+		if err != nil {
 			return fmt.Errorf("update: %w", err)
 		}
-		r.logEvent(id, "the node is rebooting into Janus %s", b.Version)
+		// The node says how: through kexec, or through the firmware (and
+		// why, when kexec was asked).
+		if how == "" {
+			how = "rebooting"
+		}
+		r.logEvent(id, "the node is rebooting into Janus %s - %s", b.Version, how)
 		if _, err := waitNode(uctx, node, upgradeTimeout, func(i *nodeproxy.NodeInfo) bool { return i.Version == b.Version && i.Schematic == b.Schematic }); err != nil {
 			return fmt.Errorf("after the update: %w", err)
 		}
@@ -656,6 +697,14 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 		}
 	}
 	return nil
+}
+
+// rebootWay says how updates reboot, for a machine's history.
+func rebootWay(mode string) string {
+	if mode == "kexec" {
+		return "through kexec"
+	}
+	return "through the firmware"
 }
 
 // resolveBundle finds the update bundle, waiting while the image
