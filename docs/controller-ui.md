@@ -380,9 +380,13 @@ scroll.
 ### Traffic flow
 
 Monitoring › Traffic flow (`views/Flow.jsx`, the logic in `flow.js` -
-pure, `npm test`) draws the node as columns: interfaces, HAProxy,
-frontends, backends, servers (the **Servers** chip hides them,
-remembered per browser; past eight, "+N more"). `show stat`
+pure, `npm test`) draws the node as rows, top to bottom - interfaces,
+HAProxy, frontends, backends with their servers hanging below them on
+a trunk, every label beside its node so a column is as wide as its
+label - or, with the **Horizontal** chip, as columns left to right
+(**Vertical** and **Horizontal** are remembered per browser, like the
+**Servers** chip that hides the servers; past eight, "+N more"). A map
+wider than its card scrolls in it, opened on HAProxy. `show stat`
 (`/api/haproxy/stats`, at the refresh interval) gives the proxies and
 their counters - traffic is the difference of `bin`/`bout` between two
 answers, none when a counter went back - but never which frontend sends
@@ -402,7 +406,10 @@ selecting one shows its counters and rules in the side panel - a
 server's Ready/Drain/Maint (`ServerStateButtons`, shared with HAProxy ›
 Backends). Without `HAProxyService/GetConfig` (a grant narrowed to other
 domains) the configuration and maps aren't asked: the page says so, and
-links only servers to their backends.
+links only servers to their backends. `janusctl tui` reads
+configurations the same way in Go (`internal/haproxyflow`): both are
+held to `internal/haproxyflow/testdata/cases.json` - change one, run
+both tests.
 
 ### Live data
 

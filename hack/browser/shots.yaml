@@ -79,3 +79,7 @@ shots:
   - id: janusctl-tui
     terminal: janusctl-tui.ansi
     title: janusctl tui -n edge-par-1
+
+  - id: janusctl-tui-flow
+    terminal: janusctl-tui-flow.ansi
+    title: janusctl tui -n edge-par-1

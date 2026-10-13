@@ -128,6 +128,24 @@ network, firewall or sysctl trial that would otherwise revert. The
 footer offers only what the certificate's role may do; a reader sees
 everything but the logs, which are for operators.
 
+`f` draws the node's HAProxy as a map, as the Controller's Traffic
+flow does: the interfaces, HAProxy, each frontend, the backends it
+sends to and their servers, each with its traffic and sessions - top
+to bottom, or left to right with `o`; `s` hides the servers. Which
+frontend sends where is read from the configuration and the maps a
+`use_backend` reads. A link carrying traffic runs, a link to a server
+down is dashed red, a backend no rule names is a hollow ○. The arrows
+move a cursor along the map - down (or right, left to right) follows
+the traffic, across goes along a level -: the paths through the node
+under it come forward, its counters show beside the map (below it,
+narrower than 150 columns), with a frontend's or a backend's rules -
+a map's keys included. Enter on a server sets its state, `f` or Esc
+goes back. Without the right to read the configuration
+(`HAProxyService/GetConfig`), the map has the proxies but not which
+frontend sends to which backend, and says so.
+
+![janusctl tui's traffic flow, top to bottom: eth0, HAProxy, the frontends web and prometheus, web's link down to the app backend and its servers app1 and app2; web under the cursor, its counters and its link to app - default_backend app - below the map](assets/screenshots/janusctl-tui-flow-light.webp)
+
 It opens on Janus's logo while the nodes first answer, as bpytop does:
 the logo's orange bar fills up with the calls answered (`12/18`), its
 two faces take turns, and the node and the call waited for are written
@@ -141,7 +159,8 @@ theme's background or your terminal's; how many colours the terminal
 takes (auto reads `COLORTERM` and `TERM`); the graphs' symbols -
 braille, blocks, or tty for the Linux console, whose font has no
 braille; rounded corners; the splash; and the defaults of the refresh,
-the fleet's trend and the processes' order. They're saved when the menu closes, in
+the fleet's trend, the processes' order and the traffic flow (its
+direction, its servers, its links running or still). They're saved when the menu closes, in
 `tui.json` beside the contexts (`~/.config/janus/tui.json`).
 `-theme NAME` picks a theme for one run, `-theme list` names them all.
 bpytop's themes are their authors' work (Apache License 2.0).
