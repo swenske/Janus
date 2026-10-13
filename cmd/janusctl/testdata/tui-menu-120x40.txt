@@ -4,8 +4,7 @@
 │lgslbpub01 ok          v2026.10.08 A       3.2.9     1154    384  82%  62%  1.92 MASTER net     ▆▆▆▅▄▃▂▂▄▅▇▇██▇▆▄▄▄▅▇█│
 │lgslbpub02 unreachable                                                                                                │
 │lgslbpub03 connecting                                                                                                 │
-│lgslbpub04 ok          v2026.10.09 A pre   3.2.9       10      3   6%  25%  0.02 BACKUP         ▁▁▁▁▁  ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁│
-│                     ╭ Options ────────────────────────────────────────────────────────────────╮                      │
+│lgslbpub04 ok        ╭ Options ────────────────────────────────────────────────────────────────╮▁▁▁▁▁  ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁│
 │                     │                                                                         │                      │
 │                     │  Theme              ← janus →                                           │                      │
 │                     │  Theme background   ← on →                                              │                      │
@@ -19,6 +18,9 @@
 │                     │  Trend scale        ← linear →                                          │                      │
 │                     │  Processes by       ← cpu →                                             │                      │
 │                     │  Process order      ← largest first →                                   │                      │
+│                     │  Traffic flow       ← top to bottom →                                   │                      │
+│                     │  Flow servers       ← shown →                                           │                      │
+│                     │  Flow animation     ← on →                                              │                      │
 │                     │                                                                         │                      │
 │                     ├─────────────────────────────────────────────────────────────────────────┤                      │
 │                     │                                                                         │                      │
@@ -30,8 +32,6 @@
 │                     │                                                                         │                      │
 │                     │  ↑↓ choose  ←→ change  Esc close                                        │                      │
 │                     ╰─────────────────────────────────────────────────────────────────────────╯                      │
-│                                                                                                                      │
-│                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

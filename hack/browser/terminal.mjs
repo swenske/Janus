@@ -58,10 +58,12 @@ function sgr(params, attr) {
 }
 
 // The box drawing characters the dashboard uses: the sides of the cell
-// a line leaves by, rounded or not.
+// a line leaves by, then how it's drawn - rounded (~), heavy (!),
+// dashed (-), dotted (.) - the traffic flow's links.
 const BOX = {
   '─': 'lr', '│': 'ud', '┌': 'rd', '┐': 'ld', '└': 'ru', '┘': 'lu', '├': 'udr', '┤': 'udl', '┬': 'lrd', '┴': 'lru', '┼': 'lrud',
   '╭': 'rd~', '╮': 'ld~', '╰': 'ru~', '╯': 'lu~',
+  '━': 'lr!', '┃': 'ud!', '╌': 'lr-', '╎': 'ud-', '┄': 'lr.', '┆': 'ud.',
 }
 const BLOCKS = { '█': [0, 0, 1, 1], '▀': [0, 0, 1, 0.5], '▄': [0, 0.5, 1, 0.5], '▌': [0, 0, 0.5, 1], '▐': [0.5, 0, 0.5, 1] }
 const SHADES = { '░': 0.3, '▒': 0.5, '▓': 0.75 }
@@ -76,6 +78,11 @@ function glyph(ch) {
   const cp = ch.codePointAt(0)
   if (BOX[ch]) {
     const sides = BOX[ch]
+    const look = { '!': 'stroke-width="2.5"', '-': 'stroke-width="1" stroke-dasharray="3 2"', '.': 'stroke-width="1" stroke-dasharray="1 2"' }[sides.at(-1)]
+    if (look) {
+      const d = sides.startsWith('l') ? `M0 ${cy}H${W}` : `M${cx} 0V${H}`
+      return svg(`<path d="${d}" stroke="currentColor" ${look}/>`)
+    }
     if (sides.endsWith('~')) {
       const r = 4
       const [h, v] = sides

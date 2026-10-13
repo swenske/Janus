@@ -1,0 +1,40 @@
+ janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok            15:04:05
+╭─ Traffic flow  top to bottom ─────────────────────────────▴──────────────────────────────────────────────────────────╮
+│                                                                                                                    │ │
+│                                                                                                                    ┃ │
+│                                                                                                                    │ │
+│                                                                                                                    │ │
+│                                                                                                                    ● │
+│                                                                                                                    │ │
+│                                                                                                                    ┃ │
+│                                                         ╭───━───━───━───━───━───━───━───━───━───━───━───━───━───━──┴ │
+│                                                         │                                                            │
+│                                                         ● https                                                      │
+│                                                         │ 43.9KiB/s · 8 sess                                         │
+│                                                         ┃                                                            │
+│ ╭───────────────────────────┬━───━───━───━───━───━───━──┴┬───────────────────────────┬───────────────────────╮       ▸
+│ │                           │                            │                           │                       │       │
+│ ● api                       ● be_blog                    ● be_www                    ● be_many               ● be_de │
+│ │ 4.9KiB/s · 1 sess         │ 1/2 servers up             │ 4.9KiB/s · 1 sess         │ 4.9KiB/s · 1 sess     │ 4.9Ki │
+│ ├─● app1 2.4KiB/s · 1 sess  ├─● app2 12.2KiB/s · 1 sess  ├─● app1 9.8KiB/s · 2 sess  ├─● s1 500B/s · 0 sess  ╰─● app │
+│ ╰─● app2 MAINT              ╰╌● dead DOWN · L4TOUT       ╰─● app2 8.8KiB/s · 2 sess  ├─● s2 500B/s · 0 sess          │
+│                                                                                      ├─● s3 500B/s · 0 sess          │
+│                                                                                      ├─● s4 500B/s · 0 sess          │
+│                                                                                      ├─● s5 500B/s · 0 sess          │
+│                                                                                      ├─● s6 500B/s · 0 sess          │
+│                                                                                      ├─● s7 500B/s · 0 sess          │
+│                                                                                      ╰─● +3 more 3 servers           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭ dead  server ────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Backend    be_blog                                                                                                   │
+│ Status     DOWN                                                                                                      │
+│ Check      L4TOUT                                                                                                    │
+│ Address    10.0.10.99:8080                                                                                           │
+│ Weight     1                                                                                                         │
+│ Sessions   0 now · 2 max                                                                                             │
+│ Sessions/s 1 · max 4                                                                                                 │
+│ Traffic    0B/s in · 0B/s out                                                                                        │
+│ Responses  90 2xx · 0 3xx · 3 4xx · 1 5xx                                                                            │
+│ State for  30s                                                                                                       │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ? help  q quit  f back  ←↑↓→ move  Enter state  o horizontal  s servers  R reload  M menu                      every 2s

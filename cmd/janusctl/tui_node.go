@@ -66,6 +66,7 @@ type nodeScreen struct {
 
 	serverRows []serverRow // what the servers table's rows are
 	rects      map[panel]termui.Rect
+	flow       *flowView // the traffic flow, shown instead of the panels (f)
 }
 
 func newNodeScreen(s *sampler, fromFleet bool) *nodeScreen {
@@ -110,7 +111,16 @@ func (n *nodeScreen) close(*app) {
 	if n.cancel != nil {
 		n.cancel()
 	}
+	if n.flow != nil {
+		n.flow.stop()
+	}
 	n.s.full.Store(false)
+}
+
+// animating reports whether the screen moves between two rounds: the
+// traffic flow's links, when traffic goes through them.
+func (n *nodeScreen) animating(a *app) bool {
+	return n.flow != nil && a.settings.FlowAnimation && n.flow.active()
 }
 
 // switchLog follows another service's log.
@@ -129,6 +139,9 @@ func (n *nodeScreen) switchLog(id string) {
 // hints are the footer's keys, the ones that matter most first: the
 // footer drops what doesn't fit from the right.
 func (n *nodeScreen) hints(a *app) []string {
+	if n.flow != nil {
+		return n.flow.hints(a)
+	}
 	h := []string{"? help", "q quit"}
 	if n.fromFleet {
 		h = append(h, "Esc fleet")
@@ -138,11 +151,20 @@ func (n *nodeScreen) hints(a *app) []string {
 	if n.focus == panelProcesses {
 		h = append(h, "s sort", "r reverse")
 	}
-	return append(h, "e events", "l logs", "M menu")
+	return append(h, "f flow", "e events", "l logs", "M menu")
 }
 
 func (n *nodeScreen) key(a *app, k string) {
+	if n.flow != nil {
+		if !n.flow.key(a, k) {
+			n.actionKey(a, k)
+		}
+		return
+	}
 	switch k {
+	case "f":
+		n.flow = newFlowView(n)
+		n.flow.start(a.wake)
 	case termui.KeyEsc, termui.KeyBackspace:
 		if n.fromFleet && a.fleet != nil {
 			a.show(a.fleet)
@@ -391,8 +413,12 @@ func (n *nodeScreen) box(f *termui.Frame, p panel, r termui.Rect, title string) 
 
 func (n *nodeScreen) render(a *app, f *termui.Frame) {
 	v := n.view()
-	n.rects = n.layout(f.W, f.H, &v)
 	n.renderHeader(a, f, &v)
+	if n.flow != nil {
+		n.flow.render(a, f, &v)
+		return
+	}
+	n.rects = n.layout(f.W, f.H, &v)
 	if r, ok := n.rects[panelCPU]; ok {
 		n.renderCPU(f, r, &v)
 	}

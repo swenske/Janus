@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/haproxyflow"
 	"github.com/swenske/Janus/internal/haproxystat"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/schematic"
@@ -247,12 +248,37 @@ func TestScreenshotFrame(t *testing.T) {
 			t.Errorf("the screenshot's frame misses %q:\n%s", want, text)
 		}
 	}
+	flow := shotFlow(t, a, n)
 	if *shotDir == "" {
 		return
 	}
 	p := termui.Palette{Depth: termui.DepthTrue, Theme: termui.ThemeJanus, Background: true}
-	if err := os.WriteFile(filepath.Join(*shotDir, "janusctl-tui.ansi"), []byte(f.Render(nil, p)), 0o644); err != nil { //nolint:gosec // G306: a screenshot's input
+	for name, fr := range map[string]*termui.Frame{"janusctl-tui.ansi": f, "janusctl-tui-flow.ansi": flow} {
+		if err := os.WriteFile(filepath.Join(*shotDir, name), []byte(fr.Render(nil, p)), 0o644); err != nil { //nolint:gosec // G306: a screenshot's input
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s:\n%s", filepath.Join(*shotDir, name), strings.Join(fr.Lines(), "\n"))
+	}
+}
+
+// shotFlow is the same node's traffic flow (f), examples/haproxy/web.cfg
+// read as its configuration, the web frontend under the cursor.
+func shotFlow(t *testing.T, a *app, n *nodeScreen) *termui.Frame {
+	t.Helper()
+	cfg, err := os.ReadFile(filepath.Join("..", "..", "examples", "haproxy", "web.cfg"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("wrote %s:\n%s", filepath.Join(*shotDir, "janusctl-tui.ansi"), text)
+	top := haproxyflow.Parse(string(cfg))
+	n.flow = newFlowView(n)
+	n.flow.cfg = flowConfig{top: &top, gen: 1}
+	n.flow.sel = "fe:web"
+	f := a.render(shotCols, shotRows)
+	text := strings.Join(f.Lines(), "\n")
+	for _, want := range []string{"Traffic flow", "● HAProxy", "● web", "● prometheus", "● app", "● app1", "● app2", "→ app", "default_backend app"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the traffic flow's frame misses %q:\n%s", want, text)
+		}
+	}
+	return f
 }

@@ -93,7 +93,8 @@ type point struct {
 	hap      hapPoint
 	fronts   []frontendRow
 	servers  []serverRow
-	services []serviceRow // full rounds only
+	services []serviceRow       // full rounds only
+	stat     *haproxystat.Table // the round's show stat, for what the rows above don't keep
 }
 
 type serviceRow struct{ id, state, health, extension string }
@@ -125,11 +126,12 @@ type hapPoint struct {
 }
 
 type frontendRow struct {
-	name, status           string
+	name, status, mode     string
 	scur, slim, rate, reqs uint64
 	hasSlim                bool
 	h2xx, h3xx, h4xx, h5xx uint64
 	ereq                   uint64
+	in, out                float64 // bytes/s, NaN unknown
 }
 
 // serverRow is a backend's own row (server == "") or one of its servers.
@@ -138,7 +140,7 @@ type serverRow struct {
 	weight, scur, qcur      uint64
 	rate                    uint64
 	in, out                 float64 // bytes/s, NaN unknown
-	check, lastchg          string
+	check, lastchg, addr    string
 }
 
 // fetchGroup runs the calls of a round in parallel and keeps each
@@ -335,6 +337,7 @@ func derive(prev, cur *sample) point {
 	}
 	if cur.stat != nil {
 		p.fronts, p.servers = deriveStat(prev, cur, dt)
+		p.stat = cur.stat
 	}
 	return p
 }
@@ -401,8 +404,9 @@ func deriveStat(prev, cur *sample, dt float64) ([]frontendRow, []serverRow) {
 		case "":
 			continue
 		case haproxystat.Frontend:
-			f := frontendRow{name: px, status: t.Get(r, "status"), scur: u(r, "scur"), rate: u(r, "rate"), reqs: u(r, "req_rate"),
-				h2xx: u(r, "hrsp_2xx"), h3xx: u(r, "hrsp_3xx"), h4xx: u(r, "hrsp_4xx"), h5xx: u(r, "hrsp_5xx"), ereq: u(r, "ereq")}
+			f := frontendRow{name: px, status: t.Get(r, "status"), mode: t.Get(r, "mode"), scur: u(r, "scur"), rate: u(r, "rate"), reqs: u(r, "req_rate"),
+				h2xx: u(r, "hrsp_2xx"), h3xx: u(r, "hrsp_3xx"), h4xx: u(r, "hrsp_4xx"), h5xx: u(r, "hrsp_5xx"), ereq: u(r, "ereq"),
+				in: byteRate(r, "bin"), out: byteRate(r, "bout")}
 			f.slim, f.hasSlim = t.Uint(r, "slim")
 			fronts = append(fronts, f)
 		case haproxystat.Backend:
@@ -410,7 +414,7 @@ func deriveStat(prev, cur *sample, dt float64) ([]frontendRow, []serverRow) {
 				rate: u(r, "rate"), in: byteRate(r, "bin"), out: byteRate(r, "bout"), lastchg: t.Get(r, "lastchg")})
 		default:
 			servers = append(servers, serverRow{backend: px, server: sv, status: t.Get(r, "status"), weight: u(r, "weight"), scur: u(r, "scur"), qcur: u(r, "qcur"),
-				rate: u(r, "rate"), in: byteRate(r, "bin"), out: byteRate(r, "bout"), check: t.Get(r, "check_status"), lastchg: t.Get(r, "lastchg")})
+				rate: u(r, "rate"), in: byteRate(r, "bin"), out: byteRate(r, "bout"), check: t.Get(r, "check_status"), lastchg: t.Get(r, "lastchg"), addr: t.Get(r, "addr")})
 		}
 	}
 	// HAProxy lists a backend's servers before the backend's own row:

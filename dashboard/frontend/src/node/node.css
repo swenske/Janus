@@ -252,6 +252,7 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .flow-node.tone-off { --kind: var(--muted); }
 .flow-node.tone-off .flow-disc, .flow-node.tone-off .flow-icon, .flow-node.unlinked .flow-icon { opacity: 0.55; }
 .flow-node.unlinked .flow-disc { stroke-dasharray: 4 3; }
+.flow-box { fill: transparent; }
 .flow-disc { fill: var(--surface); stroke: var(--kind); stroke-width: 2.5; }
 .kind-hub .flow-disc { stroke-width: 3; }
 .flow-icon { color: var(--kind); }
