@@ -655,3 +655,29 @@ func TestEventsFromAnotherDay(t *testing.T) {
 		t.Errorf("the events pane:\n%s", f)
 	}
 }
+
+// Issue #64: under option socket-stats, a frontend's binds have rows of
+// their own (type 3) - listeners, never a backend's servers: neither in
+// the backends' table nor on the traffic flow's map.
+func TestDeriveStatListeners(t *testing.T) {
+	raw, err := os.ReadFile("../../internal/api/testdata/show-stat-socket-stats.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur := &sample{}
+	if cur.stat, err = haproxystat.Parse(raw); err != nil {
+		t.Fatal(err)
+	}
+	fronts, servers := deriveStat(nil, cur, 1)
+	var got []string
+	for _, f := range fronts {
+		got = append(got, "fe "+f.name)
+	}
+	for _, s := range servers {
+		got = append(got, s.backend+"/"+s.server)
+	}
+	want := "fe fe_https|fe fe_relay|be_web/|be_web/web1|be_web/web2|be_relay/|be_relay/relay1"
+	if strings.Join(got, "|") != want {
+		t.Errorf("rows %q, want %q", strings.Join(got, "|"), want)
+	}
+}

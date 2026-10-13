@@ -14,6 +14,7 @@ import (
 	"github.com/swenske/Janus/internal/acme"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/haproxy"
+	"github.com/swenske/Janus/internal/haproxystat"
 )
 
 // HAProxy implements janusv1alpha1.HAProxyServiceServer, backed by a
@@ -242,11 +243,12 @@ func parseBackends(csv string) ([]*janusv1alpha1.Backend, error) {
 	for _, line := range lines[1:] {
 		f := strings.Split(line, ",")
 		px, sv := field(f, "pxname"), field(f, "svname")
-		switch sv {
-		case "FRONTEND", "":
-		case "BACKEND":
+		// By the type column: under `option socket-stats` a frontend's
+		// listeners have rows of their own, named after their bind.
+		switch haproxystat.KindOf(field(f, "type"), sv) {
+		case haproxystat.KindBackend:
 			backend(px)
-		default:
+		case haproxystat.KindServer:
 			b := backend(px)
 			b.Servers = append(b.Servers, &janusv1alpha1.BackendServer{
 				Name:    sv,
