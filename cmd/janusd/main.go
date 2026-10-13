@@ -647,10 +647,13 @@ func confirmBootHealth(marker *bootcommit.Marker, mgr *haproxy.Manager) {
 			if err := bootrevert.To(marker); err != nil {
 				return err
 			}
+			// Before the shutdown hooks: the event log is kept on STATE,
+			// and its last flush is one of them - the next boot shows why
+			// the node is back on its previous slot.
+			events.Publish("bootcommit.reverted", map[string]string{"slot": marker.Slot, "revert_to": marker.RevertTo})
 			shutdown.Run()
 			syscall.Sync()
 			log.Printf("bootcommit: rebooting to complete the revert to slot %s", marker.RevertTo)
-			events.Publish("bootcommit.reverted", map[string]string{"slot": marker.Slot, "revert_to": marker.RevertTo})
 			consoledrain.Wait(os.Stderr, 2*time.Second)
 			return syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART)
 		},

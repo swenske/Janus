@@ -389,6 +389,14 @@ if ! grep -q "bootcommit: rebooting to complete the revert to slot B" "$LOG"; th
   exit 1
 fi
 assert_boot_n "$LOG" 6 PARTLABEL=BOOT-B-DATA PARTLABEL=BOOT-B-HASH "$GOOD_HASH" "post-second-auto-revert boot"
+# The reverted boot's event came through the reboot it caused (the event
+# log is kept on STATE, published before the shutdown hooks flush it).
+EVENTS="$(timeout 5 "$CTL" "${CTL_ARGS[@]}" system events 2>&1 || true)"
+if ! grep -qP '\tbootcommit\.reverted\t.*"revert_to":"B"' <<<"$EVENTS"; then
+  echo "Upgrade health test FAILED: after the revert, the event log has no bootcommit.reverted from the boot that gave up: $EVENTS" >&2
+  exit 1
+fi
+echo "The revert's own event came through its reboot: $(grep -P '\tbootcommit\.reverted\t' <<<"$EVENTS" | tail -1 | cut -f3-)"
 echo "Part 3 OK: HAProxy-level health check (not just janusd process survival) caught a broken HAProxy and reverted+rebooted, entirely on its own"
 
 echo "Upgrade health test OK: wait_for_health confirms a healthy upgrade and stays; reverts+reboots automatically both when janusd itself can't stay up (rootfs/init) and when janusd runs fine but HAProxy never comes up (cmd/janusd's own real health check)"
