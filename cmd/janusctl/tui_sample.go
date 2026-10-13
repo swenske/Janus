@@ -400,19 +400,19 @@ func deriveStat(prev, cur *sample, dt float64) ([]frontendRow, []serverRow) {
 	var servers []serverRow
 	for _, r := range t.Rows {
 		px, sv := t.Get(r, "pxname"), t.Get(r, "svname")
-		switch sv {
-		case "":
-			continue
-		case haproxystat.Frontend:
+		// By kind: a frontend's listeners (option socket-stats) aren't
+		// servers.
+		switch t.Kind(r) {
+		case haproxystat.KindFrontend:
 			f := frontendRow{name: px, status: t.Get(r, "status"), mode: t.Get(r, "mode"), scur: u(r, "scur"), rate: u(r, "rate"), reqs: u(r, "req_rate"),
 				h2xx: u(r, "hrsp_2xx"), h3xx: u(r, "hrsp_3xx"), h4xx: u(r, "hrsp_4xx"), h5xx: u(r, "hrsp_5xx"), ereq: u(r, "ereq"),
 				in: byteRate(r, "bin"), out: byteRate(r, "bout")}
 			f.slim, f.hasSlim = t.Uint(r, "slim")
 			fronts = append(fronts, f)
-		case haproxystat.Backend:
+		case haproxystat.KindBackend:
 			servers = append(servers, serverRow{backend: px, status: t.Get(r, "status"), weight: u(r, "weight"), scur: u(r, "scur"), qcur: u(r, "qcur"),
 				rate: u(r, "rate"), in: byteRate(r, "bin"), out: byteRate(r, "bout"), lastchg: t.Get(r, "lastchg")})
-		default:
+		case haproxystat.KindServer:
 			servers = append(servers, serverRow{backend: px, server: sv, status: t.Get(r, "status"), weight: u(r, "weight"), scur: u(r, "scur"), qcur: u(r, "qcur"),
 				rate: u(r, "rate"), in: byteRate(r, "bin"), out: byteRate(r, "bout"), check: t.Get(r, "check_status"), lastchg: t.Get(r, "lastchg"), addr: t.Get(r, "addr")})
 		}

@@ -2,6 +2,7 @@ package haproxystat
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +53,40 @@ func TestParseEmptyAndBroken(t *testing.T) {
 	}
 	if _, err := Parse([]byte("# a,b\n\"unterminated\n")); err == nil {
 		t.Error("a broken CSV must fail")
+	}
+}
+
+// Rows by kind - the type column -, as issue #64's configuration has
+// them (../api/testdata/show-stat-socket-stats.csv, HAProxy 3.4.6):
+// option socket-stats gives the HTTP frontend's two binds rows of their
+// own, listeners, never servers.
+func TestKind(t *testing.T) {
+	raw, err := os.ReadFile("../api/testdata/show-stat-socket-stats.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tab, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range tab.Rows {
+		got = append(got, tab.Get(r, "pxname")+"/"+tab.Get(r, "svname")+"="+tab.Kind(r))
+	}
+	want := []string{
+		"fe_https/FRONTEND=frontend", "fe_https/https=listener", "fe_https/https-alt=listener",
+		"be_web/web1=server", "be_web/web2=server", "be_web/BACKEND=backend",
+		"fe_relay/FRONTEND=frontend", "be_relay/relay1=server", "be_relay/BACKEND=backend",
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("kinds:\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// Without the type column, by svname; a type it doesn't know: none.
+	for _, c := range []struct{ typ, sv, want string }{
+		{"", "FRONTEND", KindFrontend}, {"", "BACKEND", KindBackend}, {"", "web1", KindServer}, {"", "", ""}, {"4", "x", ""},
+	} {
+		if got := KindOf(c.typ, c.sv); got != c.want {
+			t.Errorf("KindOf(%q, %q) = %q, want %q", c.typ, c.sv, got, c.want)
+		}
 	}
 }

@@ -11,11 +11,49 @@ import (
 	"strconv"
 )
 
-// The svname of a proxy's own rows; every other svname is a server.
+// The svname of a proxy's own rows.
 const (
 	Frontend = "FRONTEND"
 	Backend  = "BACKEND"
 )
+
+// The kinds of rows "show stat" has - its type column: 0, 1, 2, 3. A
+// listener is a frontend's bind, with its own row under `option
+// socket-stats`: its svname is the bind's name, its addr the bind's -
+// never a server.
+const (
+	KindFrontend = "frontend"
+	KindBackend  = "backend"
+	KindServer   = "server"
+	KindListener = "listener"
+)
+
+// KindOf is a row's kind from its type column, typ; from its svname when
+// typ is empty (a show stat without that column), where a listener can't
+// be told from a server. "" for a type it doesn't know.
+func KindOf(typ, svname string) string {
+	switch typ {
+	case "0":
+		return KindFrontend
+	case "1":
+		return KindBackend
+	case "2":
+		return KindServer
+	case "3":
+		return KindListener
+	case "":
+		switch svname {
+		case Frontend:
+			return KindFrontend
+		case Backend:
+			return KindBackend
+		case "":
+			return ""
+		}
+		return KindServer
+	}
+	return ""
+}
 
 // Table is "show stat" as its header plus rows: the JSON the Controller
 // serves (columns, rows), and column lookups by name.
@@ -70,6 +108,11 @@ func (t *Table) Uint(row []string, column string) (uint64, bool) {
 		return 0, false
 	}
 	return v, true
+}
+
+// Kind is row's kind (KindOf).
+func (t *Table) Kind(row []string) string {
+	return KindOf(t.Get(row, "type"), t.Get(row, "svname"))
 }
 
 // Has reports whether the header names the column.
