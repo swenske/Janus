@@ -256,7 +256,10 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 }
 .flow-card { padding: 0.6rem; }
 .flow-scroll { overflow-x: auto; }
-.flow-map { display: block; width: 100%; height: auto; margin: 0 auto; font-family: var(--mono); }
+/* Its width is arrange's scale's (Flow.jsx): whole in the window, as big
+   as it can be - the page as wide as the screen for it. */
+.flow-map { display: block; height: auto; margin: 0 auto; font-family: var(--mono); }
+.content:has(.flow-layout) { max-width: none; }
 .flow-node { cursor: pointer; outline: none; --kind: var(--muted); transition: opacity 0.15s; }
 .kind-iface, .kind-hub { --kind: var(--accent); }
 .kind-fe { --kind: var(--chart-2); }

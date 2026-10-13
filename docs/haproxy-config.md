@@ -19,8 +19,10 @@ drain, maintenance - at runtime:
 the node's interfaces, HAProxy, each frontend linked to the backends its
 `default_backend` and `use_backend` rules send to - a map's values too,
 when `use_backend` reads one - and each backend's servers, with their
-traffic, sessions and state - left to right, or top to bottom when
-that's what fits the screen. Select a frontend to see the rules - a
+traffic, sessions and state, as big as the window allows - left to
+right, the labels beside the nodes for a configuration with many
+backends, or top to bottom when that's what fits. Select a frontend to
+see the rules - a
 map's keys included - behind each of its links, or a server to set its
 state:
 

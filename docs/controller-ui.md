@@ -380,19 +380,27 @@ scroll.
 ### Traffic flow
 
 Monitoring › Traffic flow (`views/Flow.jsx`, the logic in `flow.js` -
-pure, `npm test`) draws the node as columns, left to right - interfaces,
-HAProxy, frontends, backends, servers - or as rows, top to bottom, the
-backends' servers hanging below them on a trunk and every label beside
-its node so a column is as wide as its label. **Auto**, the default,
-measures the page (a `ResizeObserver` on the layout) and takes left to
-right when it fits the card at 85 % or more of its size, else top to
-bottom when that does, else the one that overflows less (`arrange`);
-**Vertical** and **Horizontal** force one. The side panel goes beside
-the map while the map still fits there, below it otherwise - then a
-selected node's details are pinned to the window's bottom, over the
-map, with a close button. The choice is remembered per browser, like
-the **Servers** chip that hides the servers (past eight, "+N more"). A
-map wider than its card scrolls in it, opened on HAProxy. `show stat`
+pure, `npm test`) draws the node in one of three shapes: columns left
+to right - interfaces, HAProxy, frontends, backends, servers - with the
+labels under the nodes (`across`) or beside them (`dense`: a name above
+the line its links leave by, the numbers below it, rows half as tall,
+for many backends), or rows top to bottom (`down`), the backends'
+servers hanging below them on a trunk. A label's size never follows its
+numbers - room is kept for them - so a refresh never moves the map.
+**Auto**, the default, measures the room (`useRoom`: the layout's width,
+the window's height below the card) and `arrange` picks the shape and
+the side panel's place - beside the map or below it - that show the map
+whole in the window the biggest, between 75 % and 150 % of its size
+(any at full size or more counting as one, the earlier shape winning
+when nearly as big); when none can be whole, the first as wide as its
+card down to 85 %, the page scrolling down it; else the one overflowing
+less, scrolling in its card, opened on HAProxy. **Horizontal** keeps to
+the two left-to-right shapes, **Vertical** to top to bottom. The page
+drops its 1500 px limit for it: a full screen is room. With the panel
+below, a selected node's details are pinned to the window's bottom,
+over the map, with a close button. The choice is remembered per
+browser, like the **Servers** chip that hides the servers (past eight,
+"+N more"). `show stat`
 (`/api/haproxy/stats`, at the refresh interval) gives the proxies and
 their counters - traffic is the difference of `bin`/`bout` between two
 answers, none when a counter went back - but never which frontend sends
