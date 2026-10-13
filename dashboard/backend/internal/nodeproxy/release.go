@@ -50,6 +50,12 @@ var ReleasesURL = "https://api.github.com/repos/swenske/Janus/releases"
 // source IP) is the real constraint this is sized against, not UX.
 const releaseCacheTTL = 10 * time.Minute
 
+// releaseRefreshMin is how soon a refresh asked by hand (WithFreshReleases:
+// a page's Refresh button) fetches the list again: GitHub allows 60 calls
+// an hour without a token, shared by every page and the Controller's own
+// checks.
+const releaseRefreshMin = 30 * time.Second
+
 // errorCacheTTL is how long a failed fetch is answered from the cache:
 // long enough that every open page's refresh doesn't turn an outage into
 // a request storm, short enough that a retry soon after a passing
@@ -235,6 +241,24 @@ func LatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	return getLatestRelease(ctx)
 }
 
+type freshReleasesKey struct{}
+
+// WithFreshReleases is ctx for a request asking to see a release just
+// published - a page's Refresh button: the list is fetched again unless
+// it's younger than releaseRefreshMin, not releaseCacheTTL.
+func WithFreshReleases(ctx context.Context) context.Context {
+	return context.WithValue(ctx, freshReleasesKey{}, true)
+}
+
+// RefreshAsked is r's context, WithFreshReleases when r asks for it
+// (?refresh).
+func RefreshAsked(r *http.Request) context.Context {
+	if r.URL.Query().Has("refresh") {
+		return WithFreshReleases(r.Context())
+	}
+	return r.Context()
+}
+
 // KnownPrereleases are the pre-releases the last release list fetched
 // named, sorted - never waiting on GitHub (the node pages and the fleet's
 // status keep that list fresh): nil while nothing was fetched yet, or a
@@ -255,7 +279,8 @@ var releaseCache struct {
 	url       string // ReleasesURL when fetched
 	data      *ReleaseInfo
 	err       error
-	fetchedAt time.Time
+	fetchedAt time.Time // data's or err's
+	triedAt   time.Time // the last fetch, its answer kept or not
 }
 
 func registerReleaseRoutes(mux *http.ServeMux) {
@@ -273,13 +298,19 @@ func registerReleaseRoutes(mux *http.ServeMux) {
 // otherwise fetches and caches a new one - a genuine upstream error
 // (network failure, GitHub API error, no releases published yet) is
 // cached too, briefly, so a real outage doesn't turn into a request
-// storm from every open per-node page's own refresh loop.
+// storm from every open per-node page's own refresh loop. A refresh asked
+// by hand (WithFreshReleases) fetches sooner, and when that fetch fails,
+// the list still within releaseCacheTTL is kept.
 func getLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	releaseCache.mu.Lock()
 	defer releaseCache.mu.Unlock()
 
+	maxAge := releaseCacheTTL
+	if fresh, _ := ctx.Value(freshReleasesKey{}).(bool); fresh {
+		maxAge = releaseRefreshMin
+	}
 	same := releaseCache.url == ReleasesURL
-	if same && releaseCache.data != nil && time.Since(releaseCache.fetchedAt) < releaseCacheTTL {
+	if same && releaseCache.data != nil && (time.Since(releaseCache.fetchedAt) < maxAge || time.Since(releaseCache.triedAt) < releaseRefreshMin) {
 		return releaseCache.data, nil
 	}
 	if same && releaseCache.err != nil && time.Since(releaseCache.fetchedAt) < errorCacheTTL {
@@ -289,12 +320,18 @@ func getLatestRelease(ctx context.Context) (*ReleaseInfo, error) {
 	fctx, cancel := sharedFetchContext(ctx)
 	defer cancel()
 	info, err := fetchLatestRelease(fctx)
-	releaseCache.url, releaseCache.fetchedAt = ReleasesURL, time.Now()
+	now := time.Now()
+	releaseCache.triedAt = now
 	if err != nil {
+		if same && releaseCache.data != nil && now.Sub(releaseCache.fetchedAt) < releaseCacheTTL {
+			return releaseCache.data, nil
+		}
+		releaseCache.url, releaseCache.fetchedAt = ReleasesURL, now
 		releaseCache.err = err
 		releaseCache.data = nil
 		return nil, err
 	}
+	releaseCache.url, releaseCache.fetchedAt = ReleasesURL, now
 	releaseCache.data = info
 	releaseCache.err = nil
 	return info, nil

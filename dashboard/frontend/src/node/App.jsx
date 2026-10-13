@@ -140,7 +140,7 @@ function findRoute(full) {
 function RefreshSelect() {
   const { interval, setInterval } = useRefresh()
   const { refresh } = useMetrics()
-  const { reload } = useNodeStatus()
+  const { recheck } = useNodeStatus()
   return (
     <div className="refresh">
       <button
@@ -148,7 +148,7 @@ function RefreshSelect() {
         title="Refresh now"
         onClick={() => {
           refresh()
-          reload()
+          recheck()
         }}
       >
         <RefreshCw size={16} />

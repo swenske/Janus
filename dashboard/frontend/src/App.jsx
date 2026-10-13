@@ -926,6 +926,9 @@ function MainApp() {
     }
   }, [])
   const isAdmin = can('admin')
+  // The header's Refresh: the releases asked from GitHub again too, past
+  // the Controller's cache - a release just published shows.
+  const [checkNow, setCheckNow] = useState(0)
   const reload = useCallback(async () => {
     if (isAdmin)
       call('/api/backups', { background: true })
@@ -1041,7 +1044,14 @@ function MainApp() {
           )}
         </div>
         <span className="grow" />
-        <button className="ghost icon" title="Refresh" onClick={reload}>
+        <button
+          className="ghost icon"
+          title="Refresh"
+          onClick={() => {
+            reload()
+            setCheckNow((n) => n + 1)
+          }}
+        >
           <RefreshCw size={16} />
         </button>
         <ThemeToggle />
@@ -1085,7 +1095,7 @@ function MainApp() {
         ) : (
           <div className="stack">
             {error && <ErrorBox error={error} />}
-            {can('reader') && <ControllerUpdate />}
+            {can('reader') && <ControllerUpdate checkNow={checkNow} />}
             {can('admin') && <FleetSetup fleet={fleet} onChanged={reload} />}
             <PendingList pending={pending} onApprove={approve} onReject={reject} busy={busy} machines={machines} />
             <div className="spread">

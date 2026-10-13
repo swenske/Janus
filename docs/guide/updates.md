@@ -107,6 +107,10 @@ tests is never promoted, and the next release replaces it.
   next release is offered as an update as usual.
 - Nodes running one are marked **pre-release** - on the fleet, on the
   node's page, in `janusctl tui`.
+- The Controller reads GitHub's list of releases every ten minutes at
+  most: one just published shows within ten minutes - at once with the
+  **Refresh** button, in the Controller's header or a node page's top
+  bar.
 - **By version**, like any release: `janusctl lifecycle upgrade` with
   its download URL (above), a Terraform `janus_node`'s `version`, the
   Controller's create-a-node form (which suggests it), the image

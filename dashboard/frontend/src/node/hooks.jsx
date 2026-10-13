@@ -225,7 +225,8 @@ const NodeStatusContext = createContext(null)
 // reboot, so they're reloaded as soon as one shows: the metrics poll
 // seeing a new boot time or the node answering again after failing
 // (a reboot started from anywhere, janusctl included), WaitForNode
-// seeing the node back, or "Refresh now".
+// seeing the node back, or "Refresh now" - recheck, which asks GitHub
+// again too, past the Controller's cache of its releases.
 export function NodeStatusProvider({ children }) {
   const overview = usePoll('/api/system/overview', { every: 60000 })
   const check = usePoll('/api/update-check', { every: 120000 })
@@ -235,6 +236,12 @@ export function NodeStatusProvider({ children }) {
   const reload = useCallback(() => {
     reloadOverview()
     reloadCheck()
+  }, [reloadOverview, reloadCheck])
+  const recheck = useCallback(() => {
+    reloadOverview()
+    getJSON('/api/update-check?refresh=1')
+      .catch(() => {})
+      .finally(reloadCheck)
   }, [reloadOverview, reloadCheck])
 
   const boot = latest?.bootTime
@@ -253,7 +260,7 @@ export function NodeStatusProvider({ children }) {
     }
   }, [boot, error, latest, reload])
 
-  return <NodeStatusContext.Provider value={{ overview, check, reload }}>{children}</NodeStatusContext.Provider>
+  return <NodeStatusContext.Provider value={{ overview, check, reload, recheck }}>{children}</NodeStatusContext.Provider>
 }
 
 export function useNodeStatus() {

@@ -109,6 +109,7 @@ type prereleaseOffer struct {
 
 func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 	mux.HandleFunc("GET /api/update-check", func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(RefreshAsked(r)) // ?refresh: "Refresh now", a release just published
 		unary(w, r, node, unaryTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
 			v, err := janusv1alpha1.NewSystemServiceClient(c).Version(ctx, &emptypb.Empty{})
 			if err != nil {
