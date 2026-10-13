@@ -1,23 +1,23 @@
  janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok            15:04:05
 ╭─ Traffic flow  top to bottom ────────────────────────────────────────────────────────────────────────────────────────╮
-│                                                                                                                ● eth │
-│                                                                                                                │ 16. │
-│                                                                                                                ┃     │
-│                                                                                                                │     │
-│                                                                                                                │     │
-│                                                                                                                ● HAP │
-│                                                                                                                │ 12  │
-│                                                                                                                ┃     │
-│                                                       ╭─━───━───━───━───━───━───━───━───━───━───━───━───━───━──┴──── │
-│                                                       │                                                              │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                       ╭──━───━───━───━───━───━───━───━───━───━───━───━───━───━───━── │
+│                                                       ┃                                                              │
 │                                                       ● https                                                        │
 │                                                       │ 43.9KiB/s · 8 sess                                           │
 │                                                       ┃                                                              ▸
-│ ╭──────────────────────────┬───━───━───━───━───━───━──┴┬──────────────────────────┬──────────────────────╮           │
-│ │                          │                           │                          │                      │           │
-│ ● api                      ● be_blog                   ● be_www                   ● be_many              ● be_defaul │
-│ │ 4.9KiB/s · 1 sess        │ 1/2 servers up            │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess    │ 4.9KiB/s  │
-│ ├─● app1 2.4KiB/s · 1 sess ├─● app2 12.2KiB/s · 1 sess ├─● app1 9.8KiB/s · 2 sess ├─● s1 500B/s · 0 sess ╰─● app1 5. │
+│ ╭──────────────────────────┬───━───━───━───━───━───━──┴┬──────────────────────────┬─────────────────────────╮        │
+│ │                          │                           │                          │                         │        │
+│ ● api                      ● be_blog                   ● be_www                   ● be_many                 ● be_def │
+│ │ 4.9KiB/s · 1 sess        │ 1/2 servers up            │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess       │ 4.9KiB │
+│ ├─● app1 2.4KiB/s · 1 sess ├─● app2 12.2KiB/s · 1 sess ├─● app1 9.8KiB/s · 2 sess ├─● s1 500B/s · 0 sess    ╰─● app1 │
 │ ╰─● app2 MAINT             ╰╌● dead DOWN · L4TOUT      ╰─● app2 8.8KiB/s · 2 sess ├─● s2 500B/s · 0 sess             │
 │                                                                                   ├─● s3 500B/s · 0 sess             │
 │                                                                                   ├─● s4 500B/s · 0 sess             │

@@ -4,7 +4,7 @@ import { getJSON } from '../api.js'
 import ServerStateButtons from '../components/ServerStateButtons.jsx'
 import { Badge, Card, Empty, ErrorBox, Loading, PageHeader } from '../../shared/ui.jsx'
 import { bytes, compact, duration, num, rate } from '../format.js'
-import { MIN_SCALE, NAME_CHARS, VALUE_CHARS, arrange, buildFlow, interfaces, layout, parseTopology, pulse, reach, related, statRows, withRates } from '../flow.js'
+import { NAME_CHARS, VALUE_CHARS, arrange, buildFlow, interfaces, layout, lineChars, parseTopology, pulse, reach, related, statRows, withRates } from '../flow.js'
 import { useMetrics, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 
@@ -15,6 +15,7 @@ const SLOW = 30000 // the configuration, maps and interfaces' state change seldo
 const ORIENTATIONS = ['auto', 'vertical', 'horizontal']
 const SIDE_REM = 22 + 1 // the side panel beside the map, and the gap before it
 const CARD_REM = 1.2 // the card's padding around the map
+const BOTTOM_REM = 1 // under the card, at the window's bottom
 
 // stored is what this browser remembers of a choice; def without it.
 function stored(key, def) {
@@ -33,9 +34,10 @@ function store(key, value) {
   }
 }
 
-// useRoom is the width the map has in its card with the side panel
-// beside it and below it, measured on the element given to the ref it
-// returns and followed as the window changes; null before.
+// useRoom is the room the map has, measured on the element given to the
+// ref it returns and followed as the window changes - arrange's room:
+// its width in its card with the side panel below it, the panel's, and
+// the window's height below the card's top; null before.
 function useRoom() {
   const [el, setEl] = useState(null)
   const [room, setRoom] = useState(null)
@@ -43,13 +45,20 @@ function useRoom() {
     if (!el) return
     const measure = () => {
       const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
-      const below = el.clientWidth - CARD_REM * rem - 2
-      setRoom((r) => (r?.below === below ? r : { below, beside: below - SIDE_REM * rem }))
+      const card = CARD_REM * rem + 2
+      const top = el.getBoundingClientRect().top + window.scrollY
+      const next = { width: el.clientWidth - card, side: SIDE_REM * rem, height: window.innerHeight - top - card - BOTTOM_REM * rem }
+      setRoom((r) => (r && r.width === next.width && r.height === next.height ? r : next))
     }
     measure()
     const watch = new ResizeObserver(measure)
     watch.observe(el)
-    return () => watch.disconnect()
+    watch.observe(document.documentElement) // what's above the map changing its place
+    window.addEventListener('resize', measure)
+    return () => {
+      watch.disconnect()
+      window.removeEventListener('resize', measure)
+    }
   }, [el])
   return [room, setEl]
 }
@@ -141,7 +150,7 @@ function values(n, hap) {
   }
 }
 
-function FlowNode({ n, hap, configKnown, vertical, state, onSelect, onHover }) {
+function FlowNode({ n, hap, configKnown, shape, state, onSelect, onHover }) {
   const Icon = ICONS[n.kind]
   const s = ICON_SIZE[n.kind]
   const v = values(n, hap)
@@ -150,9 +159,30 @@ function FlowNode({ n, hap, configKnown, vertical, state, onSelect, onHover }) {
   const unlinked = n.kind === 'be' && configKnown && !n.linked
   const label = `${KIND[n.kind]} ${n.name}${text ? `: ${text}` : ''}${unlinked ? ' - no frontend rule names it' : ''}`
   // A label beside its node is part of it: hovering or clicking it too.
-  const beside = vertical || n.kind === 'srv' || n.kind === 'more'
+  const leaf = n.kind === 'srv' || n.kind === 'more'
+  const beside = shape !== 'across' || leaf
   let labels
-  if (vertical) {
+  if (shape === 'dense') {
+    // Its name above the line its links leave by, its numbers below it;
+    // a server's on one line.
+    labels = leaf ? (
+      <text x={n.r + 8} y={4} textAnchor="start">
+        <tspan className="flow-name">{short(n.name, NAME_CHARS)}</tspan>
+        <tspan className={`flow-sub ${v.tone || ''}`} dx={10}>
+          {short(text, lineChars(n))}
+        </tspan>
+      </text>
+    ) : (
+      <>
+        <text className="flow-name" x={n.r + 8} y={-6} textAnchor="start">
+          {short(n.name, NAME_CHARS)}
+        </text>
+        <text className={`flow-sub ${v.tone || ''}`} x={n.r + 8} y={15} textAnchor="start">
+          {short(text, lineChars(n))}
+        </text>
+      </>
+    )
+  } else if (shape === 'down') {
     // Beside the node, a line each: the links come in above it and
     // leave below.
     const top = v.parts.length > 1 ? -9 : -3
@@ -191,6 +221,8 @@ function FlowNode({ n, hap, configKnown, vertical, state, onSelect, onHover }) {
       </>
     )
   }
+  // The box a label beside its node takes: not over its neighbours'.
+  const half = shape === 'dense' ? (leaf ? 13 : 20) : Math.max(n.r, 20)
   return (
     <g
       className={`flow-node kind-${n.kind} ${n.tone ? `tone-${n.tone}` : ''} ${unlinked ? 'unlinked' : ''} ${state}`}
@@ -214,7 +246,7 @@ function FlowNode({ n, hap, configKnown, vertical, state, onSelect, onHover }) {
       onFocus={() => onHover(n.id)}
       onBlur={() => onHover(null)}
     >
-      {beside && <rect className="flow-box" x={-n.r} y={-Math.max(n.r, 20)} width={n.r + reach(n)} height={2 * Math.max(n.r, 20)} />}
+      {beside && <rect className="flow-box" x={-n.r} y={-half} width={n.r + reach(n)} height={2 * half} />}
       <circle className="flow-disc" r={n.r} />
       <Icon className="flow-icon" size={s} x={-s / 2} y={-s / 2} aria-hidden="true" />
       {labels}
@@ -583,11 +615,12 @@ export default function Flow() {
   const graph = useMemo(() => buildFlow(rows, topology, maps.maps), [rows, topology, maps.maps])
   const ifaces = useMemo(() => interfaces(latest?.net, net.data), [latest?.net, net.data])
   // The layouts the orientation may take, then the one that shows.
-  const across = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, vertical: false }) : null), [graph, ifaces, servers, orientation])
-  const down = useMemo(() => (orientation !== 'horizontal' ? layout(graph, ifaces, { servers, vertical: true }) : null), [graph, ifaces, servers, orientation])
-  const shown = arrange(orientation, { across, down }, room)
-  const vertical = shown.vertical
-  const map = vertical ? down : across
+  const across = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'across' }) : null), [graph, ifaces, servers, orientation])
+  const dense = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'dense' }) : null), [graph, ifaces, servers, orientation])
+  const down = useMemo(() => (orientation !== 'horizontal' ? layout(graph, ifaces, { servers, shape: 'down' }) : null), [graph, ifaces, servers, orientation])
+  const shown = arrange(orientation, { across, dense, down }, room)
+  const vertical = shown.shape === 'down'
+  const map = { across, dense, down }[shown.shape]
   const incoming = useMemo(() => {
     const c = {}
     for (const l of graph.links) c[l.to] = (c[l.to] || 0) + 1
@@ -602,14 +635,14 @@ export default function Flow() {
   useEffect(() => {
     const el = scroller.current
     if (!el || !drawn) return
-    const key = vertical ? 'vertical' : 'horizontal'
+    const key = shown.shape
     const last = centred.current
     if (last.key === key && last.left != null && Math.abs(el.scrollLeft - last.left) > 1) return // scrolled by hand
     const svg = el.querySelector('svg')
     const scale = svg ? svg.getBoundingClientRect().width / map.width : 1
     el.scrollLeft = vertical ? Math.max(0, map.byId.hub.x * scale - el.clientWidth / 2) : 0
     centred.current = { key, left: el.scrollLeft }
-  }, [vertical, drawn, map])
+  }, [vertical, shown.shape, drawn, map])
 
   const focus = hover || selected
   const near = useMemo(() => (focus ? related(map, focus) : null), [map, focus])
@@ -640,7 +673,7 @@ export default function Flow() {
               className={`small chip ${orientation === 'auto' ? 'active' : ''}`}
               aria-pressed={orientation === 'auto'}
               onClick={() => orient('auto')}
-              title={`Left to right when it fits the page, else top to bottom when that does${orientation === 'auto' ? ` - ${vertical ? 'top to bottom' : 'left to right'} now` : ''}`}
+              title={`The way that shows the map whole in the window, the biggest: left to right, its labels under or beside the nodes, or top to bottom${orientation === 'auto' ? ` - ${vertical ? 'top to bottom' : 'left to right'} now` : ''}`}
             >
               <Scaling size={14} aria-hidden="true" /> Auto
             </button>
@@ -691,9 +724,9 @@ export default function Flow() {
             <Card className="flow-card">
               <div className="flow-scroll" ref={scroller} onClick={() => setSelected(null)}>
                 <svg
-                  className={`flow-map ${vertical ? 'vertical' : ''} ${near ? 'focused' : ''}`}
+                  className={`flow-map ${vertical ? 'vertical' : ''} ${shown.shape} ${near ? 'focused' : ''}`}
                   viewBox={`0 0 ${map.width} ${map.height}`}
-                  style={{ maxWidth: map.width, minWidth: Math.round(map.width * MIN_SCALE) }}
+                  style={{ width: Math.round(map.width * shown.scale) }}
                   role="group"
                   aria-label={summary}
                 >
@@ -704,7 +737,7 @@ export default function Flow() {
                   </g>
                   <g>
                     {map.nodes.map((n) => (
-                      <FlowNode key={n.id} n={n} hap={hap} configKnown={graph.configKnown} vertical={vertical} state={`${stateOf(n.id)} ${selected === n.id ? 'selected' : ''}`} onSelect={select} onHover={setHover} />
+                      <FlowNode key={n.id} n={n} hap={hap} configKnown={graph.configKnown} shape={shown.shape} state={`${stateOf(n.id)} ${selected === n.id ? 'selected' : ''}`} onSelect={select} onHover={setHover} />
                     ))}
                   </g>
                 </svg>

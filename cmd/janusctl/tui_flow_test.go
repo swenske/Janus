@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -233,6 +234,46 @@ func TestFlowArrange(t *testing.T) {
 	// Notes above the map take its lines.
 	if m, _, _ := arrangeFlow("auto", termui.Rect{X: 0, Y: 1, W: 200, H: 24}, 3, lay); m.vertical != true || m.tight {
 		t.Errorf("three notes over 24 lines: vertical %v tight %v", m.vertical, m.tight)
+	}
+}
+
+// The map holds still as traffic comes and goes: a node's numbers have
+// room kept for them, and what they took once stays theirs.
+func TestFlowHoldsStill(t *testing.T) {
+	a, n := flowApp(t)
+	a.settings.FlowDirection = "horizontal"
+	s := a.samplers[0]
+	sample := func(k1, k2 uint64) {
+		var err error
+		if s.prev.stat, err = haproxystat.Parse([]byte(flowStat(k1))); err != nil {
+			t.Fatal(err)
+		}
+		if s.cur.stat, err = haproxystat.Parse([]byte(flowStat(k2))); err != nil {
+			t.Fatal(err)
+		}
+		s.last = derive(s.prev, s.cur)
+		s.rounds++
+	}
+	at := func() map[string][2]int {
+		a.render(160, 48)
+		out := map[string][2]int{}
+		for _, nd := range n.flow.m.g.nodes {
+			out[nd.id] = [2]int{nd.x, nd.y}
+		}
+		return out
+	}
+	sample(1, 1) // idle: "0B/s · 0 sess" everywhere
+	idle := at()
+	sample(1, 30) // busy: ten times v2026.10.13's busy sample
+	if busy := at(); fmt.Sprint(busy) != fmt.Sprint(idle) {
+		t.Errorf("traffic moved the map:\nidle %v\nbusy %v", idle, busy)
+	}
+	// Past the room kept: the labels grow once, then never shrink back.
+	sample(1, 300000)
+	huge := at()
+	sample(1, 1)
+	if back := at(); fmt.Sprint(back) != fmt.Sprint(huge) {
+		t.Errorf("the map moved back when traffic fell:\nbusy %v\nidle %v", huge, back)
 	}
 }
 

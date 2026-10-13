@@ -61,6 +61,10 @@ type flowView struct {
 	// autoShown is the direction auto last chose (vertical), nil none
 	// yet: o goes back to auto from the other one.
 	autoShown *bool
+	// room is the cells each node's numbers took at most since the map
+	// opened: a label grows with them and never shrinks back, so the map
+	// moves once at most as traffic rises, never back and forth.
+	room map[string]int
 }
 
 func newFlowView(n *nodeScreen) *flowView {
@@ -152,7 +156,15 @@ func (fv *flowView) laid(a *app, v *nodeView, vertical, tight bool) *flowMap {
 	}
 	m := fv.maps[[2]bool{vertical, tight}]
 	if m == nil {
-		m = layoutFlow(buildFlow(v, c.top, c.maps, a.settings.FlowServers), vertical, tight)
+		g := buildFlow(v, c.top, c.maps, a.settings.FlowServers)
+		if fv.room == nil {
+			fv.room = map[string]int{}
+		}
+		for _, n := range g.nodes {
+			n.room = max(flowValuesRoom[n.kind], len([]rune(n.shownValues())), fv.room[n.id])
+			fv.room[n.id] = n.room
+		}
+		m = layoutFlow(g, vertical, tight)
 		fv.maps[[2]bool{vertical, tight}] = m
 	}
 	return m

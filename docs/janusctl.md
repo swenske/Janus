@@ -133,7 +133,9 @@ flow does: the interfaces, HAProxy, each frontend, the backends it
 sends to and their servers, each with its traffic and sessions - left
 to right when that fits the terminal, else top to bottom when that
 does, else the way that hides less of it, with its nodes closer
-together when that's what makes it fit; `o` shows the other way and,
+together when that's what makes it fit - and each label keeps room for
+its numbers, so the map doesn't move as traffic comes and goes; `o`
+shows the other way and,
 pressed again, goes back to that choice (the options menu's **Traffic
 flow** keeps one way or the other); `s` hides the servers. Which
 frontend sends where is read from the configuration and the maps a

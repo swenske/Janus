@@ -432,10 +432,13 @@ function serverSlots(b, servers) {
   return slots
 }
 
-// layout places the map's nodes and draws its links, top to bottom
-// (vertical) or left to right.
-export function layout(graph, ifaces, { servers = true, vertical = false } = {}) {
-  return vertical ? layoutDown(graph, ifaces, servers) : layoutAcross(graph, ifaces, servers)
+// layout places the map's nodes and draws its links in a shape: across
+// (left to right, labels under the nodes), dense (left to right, labels
+// beside them) or down (top to bottom) - vertical is down.
+export function layout(graph, ifaces, { servers = true, vertical = false, shape = vertical ? 'down' : 'across' } = {}) {
+  if (shape === 'down') return layoutDown(graph, ifaces, servers)
+  if (shape === 'dense') return layoutDense(graph, ifaces, servers)
+  return layoutAcross(graph, ifaces, servers)
 }
 
 // layoutAcross places the nodes in columns - interfaces, HAProxy,
@@ -516,9 +519,13 @@ const SRV_DOWN = 46 // between two servers: three lines
 const SRV_IN = 30 // a server's centre right of its backend's
 const ELBOW = 12 // a server link's turn off the trunk
 
-// labelWidth is how far a node's label reaches right of its circle.
+// labelWidth is how far a node's label reaches right of its circle -
+// never by its numbers, which change at each refresh: by room kept for
+// them.
 function labelWidth(n) {
-  return 8 + Math.max(Math.min(String(n.name).length, NAME_CHARS) * NAME_PX, VALUE_CHARS * VALUE_PX)
+  const name = Math.min(String(n.name).length, NAME_CHARS) * NAME_PX
+  if (n.dense && (n.kind === 'srv' || n.kind === 'more')) return 8 + name + DENSE.space + lineChars(n) * VALUE_PX
+  return 8 + Math.max(name, (n.dense ? lineChars(n) : VALUE_CHARS) * VALUE_PX)
 }
 
 // reach is how far right of its centre a node and its label go.
@@ -606,29 +613,150 @@ function layoutDown(graph, ifaces, servers) {
   return { nodes, links, byId, width, height: bottom + TOP, hubY: hub.y }
 }
 
-// MIN_SCALE is how far a map is drawn smaller to fit its card: its
-// labels stay readable.
-export const MIN_SCALE = 0.85
+// Left to right, dense: every label beside its node - its name above the
+// links that leave it, its numbers on a line below them; a server's name
+// and numbers on one line - so a row is as tall as a node: half the
+// across layout's, for a configuration with many backends.
+const LINE_CHARS = { iface: 11, hub: 20 } // a dense label's numbers on one line: "999.9 KiB/s", "999 conns · 99 req/s"
 
-// arrange is how the map shows in the room it has, its two layouts
-// given (across, down - one is enough when the choice isn't auto): the
-// orientation chosen or, auto, left to right when it fits, else top to
-// bottom when that does, else the one that overflows less; the side
-// panel beside it when it still fits, below it otherwise. room.beside
-// and room.below are the map's width with the panel beside it and
-// below it; null before they're measured.
-export function arrange(choice, maps, room) {
-  const order = choice === 'vertical' ? ['down'] : choice === 'horizontal' ? ['across'] : ['across', 'down']
-  if (!room) return { vertical: order[0] === 'down', beside: false }
-  let best = null
-  for (const k of order) {
-    const need = maps[k].width * MIN_SCALE
-    if (room.beside >= need) return { vertical: k === 'down', beside: true }
-    if (room.below >= need) return { vertical: k === 'down', beside: false }
-    const over = need / Math.max(room.below, 1)
-    if (!best || over < best.over) best = { vertical: k === 'down', beside: false, over }
+// lineChars is the room a dense label keeps for its numbers: "999.9
+// KiB/s · 999 sess" but for an interface's and HAProxy's.
+export function lineChars(n) {
+  return LINE_CHARS[n.kind] ?? 22
+}
+
+const DENSE = {
+  r: { iface: 18, hub: 24, fe: 18, be: 18, srv: 11, more: 11 },
+  row: 44, // a row of interfaces, frontends or backends
+  srv: 28, // a server's
+  gap: 44, // between a label and the next column
+  fan: 110, // frontends to backends: room for the links to cross
+  space: 10, // a server's name to its numbers
+}
+
+// stem is where a dense node's links leave it: past its label, the line
+// running under its name.
+function stem(n) {
+  return n.x + reach(n) + 6
+}
+
+function layoutDense(graph, ifaces, servers) {
+  const nodes = []
+  const byId = {}
+  const put = (n) => {
+    nodes.push(n)
+    byId[n.id] = n
+    return n
   }
-  return { vertical: best.vertical, beside: false }
+  const links = []
+  const { rank, ordered } = rankBackends(graph)
+  const R = DENSE.r
+
+  let y = TOP
+  for (const b of ordered) {
+    const slots = serverSlots(b, servers)
+    const band = Math.max(DENSE.row, slots.length * DENSE.srv)
+    const be = put({ ...b, y: y + band / 2, r: R.be, dense: true, linked: rank.has(b.id) })
+    let sy = y + (band - slots.length * DENSE.srv) / 2 + DENSE.srv / 2
+    for (const s of slots) {
+      const n = put({ ...s, y: sy, r: R[s.kind], dense: true })
+      links.push({ id: `${be.id}>${n.id}`, from: be.id, to: n.id, kind: 'srv' })
+      sy += DENSE.srv
+    }
+    y += band
+  }
+  const beBottom = y
+
+  // Frontends: level with the middle of their backends, a row apart.
+  const want = graph.frontends.map((f, i) => {
+    const ys = graph.links.filter((l) => l.from === f.id).map((l) => byId[l.to]?.y).filter((v) => v != null)
+    return { f, i, y: ys.length ? ys.reduce((a, v) => a + v, 0) / ys.length : Infinity }
+  })
+  want.sort((a, b) => a.y - b.y || a.i - b.i)
+  let prev = TOP + DENSE.row / 2 - DENSE.row
+  for (const w of want) {
+    const fy = Math.max(Number.isFinite(w.y) ? w.y : -Infinity, prev + DENSE.row)
+    put({ ...w.f, y: fy, r: R.fe, dense: true })
+    prev = fy
+  }
+  const feYs = graph.frontends.map((f) => byId[f.id].y)
+
+  // HAProxy in the middle of its frontends, the interfaces around it.
+  const mid = feYs.length ? (Math.min(...feYs) + Math.max(...feYs)) / 2 : Math.max(TOP + DENSE.row / 2, (TOP + beBottom) / 2)
+  const span = (ifaces.length - 1) * DENSE.row
+  const first = Math.max(TOP + DENSE.row / 2, mid - span / 2)
+  const hub = put({ id: 'hub', kind: 'hub', name: 'HAProxy', y: Math.max(mid, TOP + R.hub), r: R.hub, dense: true })
+  ifaces.forEach((it, i) => {
+    const n = put({ ...it, y: first + i * DENSE.row, r: R.iface, dense: true })
+    links.push({ id: `${n.id}>hub`, from: n.id, to: 'hub', kind: 'iface' })
+  })
+  for (const f of graph.frontends) links.push({ id: `hub>${f.id}`, from: 'hub', to: f.id, kind: 'fe' })
+  for (const l of graph.links) links.push({ ...l, kind: 'be' })
+
+  // Columns as wide as their labels.
+  const widest = (kind) => Math.max(0, ...nodes.filter((n) => n.kind === kind).map((n) => reach(n)))
+  const x = { iface: TOP + R.iface }
+  x.hub = (ifaces.length ? x.iface + widest('iface') + DENSE.gap : TOP) + R.hub
+  x.fe = x.hub + reach(hub) + DENSE.gap + R.fe
+  x.be = x.fe + widest('fe') + DENSE.fan + R.be
+  x.srv = x.be + widest('be') + DENSE.gap + R.srv
+  for (const n of nodes) n.x = x[n.kind === 'more' ? 'srv' : n.kind]
+
+  for (const l of links) {
+    const a = byId[l.from]
+    const b = byId[l.to]
+    const from = stem(a)
+    const to = b.x - b.r
+    const xm = (from + to) / 2
+    l.d = `M${a.x + a.r} ${a.y}H${from}C${xm} ${a.y} ${xm} ${b.y} ${to} ${b.y}`
+  }
+  const bottom = Math.max(beBottom, prev + DENSE.row / 2, first + span + DENSE.row / 2, hub.y + DENSE.row / 2)
+  const width = Math.max(...nodes.map((n) => n.x + reach(n))) + TOP
+  return { nodes, links, byId, width, height: bottom + TOP, hubY: hub.y }
+}
+
+// How big a map is drawn: whole in the window down to FIT_MIN of its
+// size - its labels still readable - and up to MAX_SCALE on a big screen;
+// when it can't be whole, as wide as its card down to MIN_SCALE, the page
+// scrolling down it; wider still, it scrolls in its card.
+export const FIT_MIN = 0.75
+export const MIN_SCALE = 0.85
+export const MAX_SCALE = 1.5
+
+// arrange is how the map shows in the room it has, its layouts given
+// (across, dense, down: those the choice may take). The shapes the
+// choice allows - auto: left to right with its labels under the nodes,
+// then beside them, then top to bottom - each with the side panel beside
+// the map or below it: the one that shows the map whole in the window
+// the biggest - any at full size or more counting as one -, or nearly as
+// big and earlier in that order; else the first as wide as its card;
+// else the one overflowing it less.
+// room.width is the map's with the panel below it, room.side the
+// panel's with its gap, room.height the window's below the map's top;
+// null before they're measured.
+export function arrange(choice, maps, room) {
+  const order = choice === 'vertical' ? ['down'] : choice === 'horizontal' ? ['across', 'dense'] : ['across', 'dense', 'down']
+  if (!room) return { shape: order[0], beside: false, scale: 1 }
+  const options = []
+  for (const shape of order) {
+    const m = maps[shape]
+    for (const beside of [true, false]) {
+      const w = beside ? room.width - room.side : room.width
+      if (w <= 0) continue
+      options.push({ shape, beside, wide: w / m.width, whole: Math.min(w / m.width, room.height / m.height, MAX_SCALE) })
+    }
+  }
+  const pick = (o, scale) => ({ shape: o.shape, beside: o.beside, scale })
+  const whole = options.filter((o) => o.whole >= FIT_MIN)
+  if (whole.length) {
+    const size = (o) => Math.min(o.whole, 1)
+    const best = Math.max(...whole.map(size))
+    const o = whole.find((o) => size(o) >= best * 0.9)
+    return pick(o, o.whole)
+  }
+  const wide = options.find((o) => o.wide >= MIN_SCALE)
+  if (wide) return pick(wide, Math.min(wide.wide, 1))
+  return pick(options.reduce((a, o) => (o.wide > a.wide ? o : a)), MIN_SCALE)
 }
 
 // related is what a node or link is part of, to bring forward: from a

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { test } from 'node:test'
-import { MIN_SCALE, arrange, buildFlow, interfaces, layout, mapCalls, parseTopology, pulse, reach, related, resolveLinks, serverTone, statRows, tokenize, withRates } from './flow.js'
+import { FIT_MIN, MAX_SCALE, MIN_SCALE, arrange, buildFlow, interfaces, layout, mapCalls, parseTopology, pulse, reach, related, resolveLinks, serverTone, statRows, tokenize, withRates } from './flow.js'
 
 // examples/haproxy/web.cfg's proxies.
 const WEB = `
@@ -342,30 +342,81 @@ test('layout: columns, bands, no overlap', () => {
   )
   assert.ok(v.nodes.every((n) => n.x - n.r >= 0 && n.x <= v.width && n.y + n.r <= v.height))
   // The configuration not readable: no frontend sends anywhere known.
-  const bare = layout(buildFlow(rows, null, {}), ifs, { vertical: true })
-  assert.ok(bare.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)))
-  assert.ok(bare.links.every((l) => !/NaN|Infinity/.test(l.d)))
-  assert.ok(Number.isFinite(bare.width))
+  for (const shape of ['across', 'dense', 'down']) {
+    const bare = layout(buildFlow(rows, null, {}), ifs, { shape })
+    assert.ok(bare.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)), shape)
+    assert.ok(bare.links.every((l) => !/NaN|Infinity/.test(l.d)), shape)
+    assert.ok(Number.isFinite(bare.width) && Number.isFinite(bare.height), shape)
+  }
+
+  // Dense: columns as across's, the labels beside the nodes, rows half
+  // as tall.
+  const d = layout(g, ifs, { shape: 'dense' })
+  const col = (kind) => d.nodes.filter((n) => n.kind === kind)
+  const xs = ['iface', 'hub', 'fe', 'be', 'srv'].map((k) => [...new Set(col(k).map((n) => n.x))])
+  assert.ok(xs.every((c) => c.length === 1), 'one column per kind')
+  assert.ok(xs.every((c, i) => i === 0 || c[0] > xs[i - 1][0]))
+  // A column starts past the widest label of the one before.
+  for (const [a, b] of [['iface', 'hub'], ['hub', 'fe'], ['fe', 'be'], ['be', 'srv']]) {
+    assert.ok(col(b)[0].x - col(b)[0].r > Math.max(...col(a).map((n) => n.x + reach(n))), `${a} -> ${b}`)
+  }
+  assert.deepEqual(
+    col('be')
+      .sort((p, q) => p.y - q.y)
+      .map((b) => b.name),
+    ['b2', 'b1', 'b3', 'b4'],
+  )
+  assert.equal(overlaps(d.nodes.filter((n) => n.kind !== 'srv' && n.kind !== 'more'), 44), false)
+  assert.equal(overlaps(d.nodes.filter((n) => n.kind === 'srv' || n.kind === 'more'), 28), false)
+  assert.ok(d.height < m.height * 0.75, `${d.height} vs ${m.height}`)
+  assert.ok(d.nodes.every((n) => n.y - n.r >= 0 && n.y + n.r <= d.height && n.x + reach(n) <= d.width))
+  // Links leave past their node's label, under its name.
+  assert.equal(d.links.length, m.links.length)
+  for (const l of d.links) {
+    const a = d.byId[l.from]
+    const [, x1, y1, x2] = /^M([\d.]+) ([\d.]+)H([\d.]+)C/.exec(l.d).map(Number)
+    assert.ok(x1 === a.x + a.r && y1 === a.y && x2 > a.x + reach(a), l.d)
+  }
+  // Its size doesn't follow the numbers: a refresh never moves it.
+  const busy = buildFlow(
+    rows.map((r) => ({ ...r, traffic: 9e9, inRate: 5e9, outRate: 4e9, scur: 99999 })),
+    parseTopology(cfg.join('\n')),
+    {},
+  )
+  const d2 = layout(busy, ifs, { shape: 'dense' })
+  assert.deepEqual([d2.width, d2.height], [d.width, d.height])
 })
 
-test('arrange: the orientation and the side panel for the room there is', () => {
-  const maps = { across: { width: 1000 }, down: { width: 600 } }
-  const at = (beside, below) => ({ beside, below })
-  // Auto: left to right first, the panel beside it when it still fits.
-  assert.deepEqual(arrange('auto', maps, at(1100, 1500)), { vertical: false, beside: true })
-  assert.deepEqual(arrange('auto', maps, at(800, 1200)), { vertical: false, beside: false })
-  assert.deepEqual(arrange('auto', maps, at(1000 * MIN_SCALE, 1200)), { vertical: false, beside: true })
-  // Top to bottom when only that fits.
-  assert.deepEqual(arrange('auto', maps, at(300, 700)), { vertical: true, beside: false })
-  assert.deepEqual(arrange('auto', maps, at(520, 800)), { vertical: true, beside: true })
-  // Nothing fits: the one that overflows less.
-  assert.deepEqual(arrange('auto', maps, at(-20, 340)), { vertical: true, beside: false })
-  assert.deepEqual(arrange('auto', { across: { width: 1000 }, down: { width: 3600 } }, at(-20, 340)), { vertical: false, beside: false })
-  // A choice is kept, whatever the room.
-  assert.deepEqual(arrange('vertical', { down: { width: 3600 } }, at(1100, 1500)), { vertical: true, beside: false })
-  assert.deepEqual(arrange('horizontal', { across: { width: 1000 } }, at(300, 700)), { vertical: false, beside: false })
-  // Not measured yet: the first choice, the panel below.
-  assert.deepEqual(arrange('auto', maps, null), { vertical: false, beside: false })
+test('arrange: the shape, the side panel and the size for the room there is', () => {
+  const maps = { across: { width: 1000, height: 400 }, dense: { width: 1100, height: 300 }, down: { width: 600, height: 800 } }
+  const room = (width, height, side = 368) => ({ width, side, height })
+  // Whole in the window, as big as it gets: left to right first, its
+  // labels under the nodes, the panel beside the map.
+  assert.deepEqual(arrange('auto', maps, room(1500, 900)), { shape: 'across', beside: true, scale: 1132 / 1000 })
+  // A big screen: bigger, up to MAX_SCALE.
+  assert.deepEqual(arrange('auto', maps, room(2400, 1400)), { shape: 'across', beside: true, scale: MAX_SCALE })
+  // Below it when that's what makes it whole.
+  assert.deepEqual(arrange('auto', maps, room(1000, 900)), { shape: 'across', beside: false, scale: 1 })
+  // Too tall left to right with its labels under the nodes: beside them.
+  const tall = { ...maps, across: { width: 1000, height: 1600 }, dense: { width: 1100, height: 800 } }
+  assert.deepEqual(arrange('auto', tall, room(1900, 880)), { shape: 'dense', beside: true, scale: 1.1 })
+  // Nearly as big comes first: across at 1.0 before dense at 1.05.
+  const close = { ...maps, dense: { width: 950, height: 380 } }
+  assert.equal(arrange('auto', close, room(1000, 2000)).shape, 'across')
+  // Top to bottom when only that is whole.
+  assert.deepEqual(arrange('auto', maps, room(600, 900)), { shape: 'down', beside: false, scale: 1 })
+  // Never smaller than FIT_MIN to be whole: as wide as the card instead,
+  // the page scrolling down it, the first that is.
+  assert.deepEqual(arrange('auto', tall, room(1050, 300)), { shape: 'across', beside: false, scale: 1 })
+  assert.ok(arrange('auto', tall, room(1050, 1600 * FIT_MIN)).scale >= FIT_MIN)
+  // Wider than the card at MIN_SCALE: the one overflowing less.
+  assert.deepEqual(arrange('auto', maps, room(340, 700)), { shape: 'down', beside: false, scale: MIN_SCALE })
+  // A choice is kept, whatever the room: horizontal takes either way of
+  // labelling, vertical only top to bottom.
+  assert.equal(arrange('horizontal', tall, room(1900, 880)).shape, 'dense')
+  assert.deepEqual(arrange('vertical', { down: { width: 3600, height: 400 } }, room(1500, 900)), { shape: 'down', beside: false, scale: MIN_SCALE })
+  // Not measured yet: the first shape, the panel below, its own size.
+  assert.deepEqual(arrange('auto', maps, null), { shape: 'across', beside: false, scale: 1 })
 })
 
 test('related: the paths through a node', () => {
