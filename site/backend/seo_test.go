@@ -27,6 +27,8 @@ func TestSPARoutes(t *testing.T) {
 		{"GET", "/", 200, "no-cache"},
 		{"GET", "/builder", 200, "no-cache"},
 		{"GET", "/builder/kvm?x=1", 200, "no-cache"},
+		{"GET", "/tour", 200, "no-cache"},
+		{"GET", "/tour/x", 404, "no-cache"},
 		{"GET", "/no-such-page", 404, "no-cache"},
 		{"GET", "/robots.txt", 404, "no-cache"}, // seo.go answers it before
 		{"GET", "/assets/index-Ab12.js", 200, "public, max-age=31536000, immutable"},
@@ -72,7 +74,7 @@ func TestRobotsAndSitemap(t *testing.T) {
 	a.seoRoutes(mux, &docsSite{})
 	rec := docsGet(t, mux, "GET", "/sitemap.xml", nil)
 	body := rec.Body.String()
-	for _, want := range []string{`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`, "<loc>https://janus.example/</loc>", "<loc>https://janus.example/builder</loc>"} {
+	for _, want := range []string{`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`, "<loc>https://janus.example/</loc>", "<loc>https://janus.example/builder</loc>", "<loc>https://janus.example/tour</loc>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("sitemap.xml lacks %q:\n%s", want, body)
 		}
@@ -98,6 +100,7 @@ func TestSPAPagesMeta(t *testing.T) {
 	}{
 		{"/", "Janus - an immutable Linux for HAProxy load balancers", "https://janus.example/", "https://janus.example/og/janus.png", `"@type":"SoftwareApplication"`},
 		{"/builder?arch=amd64", "Image builder - Janus", "https://janus.example/builder", "https://janus.example/og/builder.png", `"@type":"WebApplication"`},
+		{"/tour", "Feature tour - Janus", "https://janus.example/tour", "https://janus.example/og/janus.png", `"@type":"WebPage"`},
 	} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest("GET", c.target, nil))
