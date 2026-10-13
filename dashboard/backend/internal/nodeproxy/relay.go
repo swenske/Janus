@@ -51,6 +51,9 @@ type relayRequest struct {
 	HealthTimeoutSeconds       uint32 `json:"health_timeout_seconds"`
 	InsecureSkipSignatureCheck bool   `json:"insecure_skip_signature_check"`
 	AllowSchematicChange       bool   `json:"allow_schematic_change"`
+	RebootMode                 string `json:"reboot_mode"`
+	// mode is RebootMode read (rebootMode).
+	mode janusv1alpha1.RebootMode
 }
 
 func handleUpgradeRelay(w http.ResponseWriter, r *http.Request, node *store.Node) {
@@ -61,6 +64,10 @@ func handleUpgradeRelay(w http.ResponseWriter, r *http.Request, node *store.Node
 	base, err := url.Parse(strings.TrimRight(req.Reference, "/"))
 	if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
 		http.Error(w, "reference must be the bundle's http(s):// base URL", http.StatusBadRequest)
+		return
+	}
+	if req.mode, err = rebootMode(req.RebootMode); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	conn, err := dialNode(node)
@@ -105,6 +112,7 @@ func relayUpgrade(ctx context.Context, client janusv1alpha1.LifecycleServiceClie
 		Source:               &janusv1alpha1.ImageSource{Reference: stagingDir, Sha256: squashfsSHA, InsecureSkipSignatureCheck: req.InsecureSkipSignatureCheck, AllowSchematicChange: req.AllowSchematicChange},
 		WaitForHealth:        req.WaitForHealth,
 		HealthTimeoutSeconds: req.HealthTimeoutSeconds,
+		RebootMode:           req.mode,
 	})
 	if err != nil {
 		fail("Upgrade: %v", err)

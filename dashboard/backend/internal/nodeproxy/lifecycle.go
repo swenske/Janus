@@ -58,12 +58,19 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 			// Install a bundle built from another image schematic - see
 			// ImageSource's own field.
 			AllowSchematicChange bool `json:"allow_schematic_change"`
+			// "kexec" or "firmware" (the default) - see rebootMode.
+			RebootMode string `json:"reboot_mode"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
 		if req.Reference == "" {
 			http.Error(w, "reference is required", http.StatusBadRequest)
+			return
+		}
+		mode, err := rebootMode(req.RebootMode)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -73,7 +80,12 @@ func registerLifecycleRoutes(mux *http.ServeMux, node *store.Node) {
 			return
 		}
 
-		runUpgrade(w, r, janusv1alpha1.NewLifecycleServiceClient(conn), &janusv1alpha1.ImageSource{Reference: req.Reference, Sha256: req.SHA256, InsecureSkipSignatureCheck: req.InsecureSkipSignatureCheck, AllowSchematicChange: req.AllowSchematicChange}, req.WaitForHealth, req.HealthTimeoutSeconds)
+		runUpgrade(w, r, janusv1alpha1.NewLifecycleServiceClient(conn), &janusv1alpha1.UpgradeRequest{
+			Source:               &janusv1alpha1.ImageSource{Reference: req.Reference, Sha256: req.SHA256, InsecureSkipSignatureCheck: req.InsecureSkipSignatureCheck, AllowSchematicChange: req.AllowSchematicChange},
+			WaitForHealth:        req.WaitForHealth,
+			HealthTimeoutSeconds: req.HealthTimeoutSeconds,
+			RebootMode:           mode,
+		})
 	})
 
 	mux.HandleFunc("POST /api/lifecycle/upgrade-relay", func(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +121,21 @@ var releaseFormFields = map[string]string{
 	"uki_b":           "uki-b.efi",
 }
 
+// rebootMode is how the node reboots, as a page says it (an update's
+// reboot_mode, a reboot's mode): "kexec" jumps into the kernel without
+// the firmware (RebootMode KEXEC: an update the node can't kexec reboots
+// through the firmware and says so, a reboot is refused), "" or
+// "firmware" goes through the firmware.
+func rebootMode(s string) (janusv1alpha1.RebootMode, error) {
+	switch s {
+	case "", "firmware":
+		return janusv1alpha1.RebootMode_REBOOT_MODE_DEFAULT, nil
+	case "kexec":
+		return janusv1alpha1.RebootMode_REBOOT_MODE_KEXEC, nil
+	}
+	return 0, fmt.Errorf("reboot_mode %q: firmware or kexec", s)
+}
+
 // handleUpgradeUpload streams a browser-submitted multipart form
 // straight through to the node - never buffers a whole file in memory
 // at once, the same reasoning cmd/janusctl's own "lifecycle
@@ -135,6 +162,7 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 	var waitForHealth bool
 	var healthTimeoutSeconds uint32
 	var insecureSkipSignatureCheck, allowSchematicChange bool
+	var mode janusv1alpha1.RebootMode
 	var stagingDir string
 	seen := map[string]bool{}
 
@@ -157,6 +185,12 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 			insecureSkipSignatureCheck = readFormValue(part) == "true"
 		case "allow_schematic_change":
 			allowSchematicChange = readFormValue(part) == "true"
+		case "reboot_mode":
+			mode, err = rebootMode(readFormValue(part))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		case "health_timeout_seconds":
 			if n, err := strconv.Atoi(readFormValue(part)); err == nil && n > 0 {
 				healthTimeoutSeconds = uint32(n)
@@ -182,7 +216,12 @@ func handleUpgradeUpload(w http.ResponseWriter, r *http.Request, node *store.Nod
 		}
 	}
 
-	runUpgrade(w, r, client, &janusv1alpha1.ImageSource{Reference: stagingDir, Sha256: sha256Value, InsecureSkipSignatureCheck: insecureSkipSignatureCheck, AllowSchematicChange: allowSchematicChange}, waitForHealth, healthTimeoutSeconds)
+	runUpgrade(w, r, client, &janusv1alpha1.UpgradeRequest{
+		Source:               &janusv1alpha1.ImageSource{Reference: stagingDir, Sha256: sha256Value, InsecureSkipSignatureCheck: insecureSkipSignatureCheck, AllowSchematicChange: allowSchematicChange},
+		WaitForHealth:        waitForHealth,
+		HealthTimeoutSeconds: healthTimeoutSeconds,
+		RebootMode:           mode,
+	})
 }
 
 func readFormValue(part *multipart.Part) string {
@@ -241,15 +280,13 @@ func relayReleaseFile(ctx context.Context, client janusv1alpha1.LifecycleService
 // the intermediate stages, and Upgrade's own connection dies with the
 // node's reboot regardless, well before any health confirmation or
 // possible revert (see internal/api/lifecycle.go's own doc comment).
-func runUpgrade(w http.ResponseWriter, r *http.Request, client janusv1alpha1.LifecycleServiceClient, source *janusv1alpha1.ImageSource, waitForHealth bool, healthTimeoutSeconds uint32) {
+// The last message says how the node reboots: through kexec, or through
+// the firmware and why when kexec was asked for.
+func runUpgrade(w http.ResponseWriter, r *http.Request, client janusv1alpha1.LifecycleServiceClient, req *janusv1alpha1.UpgradeRequest) {
 	ctx, cancel := context.WithTimeout(r.Context(), upgradeUploadTimeout)
 	defer cancel()
 
-	stream, err := client.Upgrade(ctx, &janusv1alpha1.UpgradeRequest{
-		Source:               source,
-		WaitForHealth:        waitForHealth,
-		HealthTimeoutSeconds: healthTimeoutSeconds,
-	})
+	stream, err := client.Upgrade(ctx, req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Upgrade: %v", err), http.StatusBadGateway)
 		return

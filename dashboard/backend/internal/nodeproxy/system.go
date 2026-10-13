@@ -139,8 +139,16 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 		var req struct {
 			Action    string `json:"action"` // reboot, shutdown, restart, reset
 			WipeState bool   `json:"wipe_state"`
+			// A reboot's: "kexec" or "firmware" (the default). A node
+			// that can't kexec refuses, nothing rebooted.
+			Mode string `json:"mode"`
 		}
 		if !decodeJSON(w, r, &req) {
+			return
+		}
+		mode, err := rebootMode(req.Mode)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		unary(w, r, node, unaryTimeout, func(ctx context.Context, conn *grpc.ClientConn) (any, error) {
@@ -148,7 +156,7 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 			var err error
 			switch req.Action {
 			case "reboot":
-				_, err = c.Reboot(ctx, &janusv1alpha1.RebootRequest{})
+				_, err = c.Reboot(ctx, &janusv1alpha1.RebootRequest{Mode: mode})
 			case "shutdown":
 				_, err = c.Shutdown(ctx, empty)
 			case "restart":

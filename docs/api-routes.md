@@ -65,7 +65,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 |---|---|---|---|
 | `Version` | | ✅ | Daemon version, Go version, kernel version, active A/B slot, architecture, image schematic (ID and canonical JSON) and extensions, and the HAProxy branch and kernel track the image is built with, pinned or default ([image-factory.md](image-factory.md)) - connectivity check |
 | `Hostname` | | ✅ | `janusctl system hostname` |
-| `Reboot` | | ✅ | Soft-stops HAProxy (in-flight connections get 5s), syncs, reboots - both modes are a full firmware reboot (no kexec) |
+| `Reboot` | | ✅ | Soft-stops HAProxy (in-flight connections get 5s), syncs, reboots - through the firmware (DEFAULT and POWERCYCLE, the same full reboot), or into the active kernel without it (KEXEC: refused, nothing rebooted, when Secure Boot is on and the image isn't signed by Janus) |
 | `Shutdown` | | ✅ | Same graceful stop, then powers off |
 | `Restart` | | ✅ | Restarts `janusd` only: rootfs/init starts it again and it takes the running HAProxy over with a seamless reload - HAProxy keeps serving throughout. Refused when `janusd` is PID 1 (e.g. `local-dev`), where nothing would start it again |
 | `Reset` | | ✅ | `wipe_state` empties the persistent STATE partition (PKI, applied config, Controller registration, pending boot confirmation) and reboots: a new CA/admin certificate is printed on the console, current certificates stop working. A/B slots and ESP untouched. `wipe_ephemeral` alone just reboots (everything ephemeral is tmpfs) |
