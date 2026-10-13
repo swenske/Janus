@@ -1,10 +1,10 @@
-import { ArrowDown, ArrowRight, Ellipsis, EthernetPort, Globe, Layers, Route, Server, Shuffle } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, ArrowRight, Ellipsis, EthernetPort, Globe, Layers, Route, Scaling, Server, Shuffle, X } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getJSON } from '../api.js'
 import ServerStateButtons from '../components/ServerStateButtons.jsx'
 import { Badge, Card, Empty, ErrorBox, Loading, PageHeader } from '../../shared/ui.jsx'
 import { bytes, compact, duration, num, rate } from '../format.js'
-import { NAME_CHARS, VALUE_CHARS, buildFlow, interfaces, layout, parseTopology, pulse, reach, related, statRows, withRates } from '../flow.js'
+import { MIN_SCALE, NAME_CHARS, VALUE_CHARS, arrange, buildFlow, interfaces, layout, parseTopology, pulse, reach, related, statRows, withRates } from '../flow.js'
 import { useMetrics, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 
@@ -12,6 +12,9 @@ const ICONS = { iface: EthernetPort, hub: Shuffle, fe: Globe, be: Layers, srv: S
 const ICON_SIZE = { iface: 18, hub: 26, fe: 18, be: 18, srv: 13, more: 13 }
 const KIND = { iface: 'Interface', hub: 'HAProxy', fe: 'Frontend', be: 'Backend', srv: 'Server', more: 'Servers' }
 const SLOW = 30000 // the configuration, maps and interfaces' state change seldom
+const ORIENTATIONS = ['auto', 'vertical', 'horizontal']
+const SIDE_REM = 22 + 1 // the side panel beside the map, and the gap before it
+const CARD_REM = 1.2 // the card's padding around the map
 
 // stored is what this browser remembers of a choice; def without it.
 function stored(key, def) {
@@ -28,6 +31,27 @@ function store(key, value) {
   } catch {
     // not remembered, still applied
   }
+}
+
+// useRoom is the width the map has in its card with the side panel
+// beside it and below it, measured on the element given to the ref it
+// returns and followed as the window changes; null before.
+function useRoom() {
+  const [el, setEl] = useState(null)
+  const [room, setRoom] = useState(null)
+  useLayoutEffect(() => {
+    if (!el) return
+    const measure = () => {
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+      const below = el.clientWidth - CARD_REM * rem - 2
+      setRoom((r) => (r?.below === below ? r : { below, beside: below - SIDE_REM * rem }))
+    }
+    measure()
+    const watch = new ResizeObserver(measure)
+    watch.observe(el)
+    return () => watch.disconnect()
+  }, [el])
+  return [room, setEl]
 }
 
 function short(s, n = 22) {
@@ -527,7 +551,11 @@ export default function Flow() {
   const config = usePoll('/api/haproxy/config', { every: SLOW, enabled: mayConfig })
   const net = usePoll('/api/network/status', { every: SLOW, enabled: may('NetworkService/NetworkStatus') })
   const [servers, setServers] = useState(() => stored('janus-flow-servers', 'on') !== 'off')
-  const [vertical, setVertical] = useState(() => stored('janus-flow-direction', 'vertical') !== 'horizontal')
+  const [orientation, setOrientation] = useState(() => {
+    const o = stored('janus-flow-orientation', 'auto')
+    return ORIENTATIONS.includes(o) ? o : 'auto'
+  })
+  const [room, measured] = useRoom()
   const [selected, setSelected] = useState(null)
   const [hover, setHover] = useState(null)
 
@@ -554,7 +582,12 @@ export default function Flow() {
   const rows = useMemo(() => (samples.cur ? withRates(samples.cur.rows, samples.prev?.rows, samples.seconds) : []), [samples])
   const graph = useMemo(() => buildFlow(rows, topology, maps.maps), [rows, topology, maps.maps])
   const ifaces = useMemo(() => interfaces(latest?.net, net.data), [latest?.net, net.data])
-  const map = useMemo(() => layout(graph, ifaces, { servers, vertical }), [graph, ifaces, servers, vertical])
+  // The layouts the orientation may take, then the one that shows.
+  const across = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, vertical: false }) : null), [graph, ifaces, servers, orientation])
+  const down = useMemo(() => (orientation !== 'horizontal' ? layout(graph, ifaces, { servers, vertical: true }) : null), [graph, ifaces, servers, orientation])
+  const shown = arrange(orientation, { across, down }, room)
+  const vertical = shown.vertical
+  const map = vertical ? down : across
   const incoming = useMemo(() => {
     const c = {}
     for (const l of graph.links) c[l.to] = (c[l.to] || 0) + 1
@@ -586,9 +619,9 @@ export default function Flow() {
     store('janus-flow-servers', servers ? 'off' : 'on')
     setServers(!servers)
   }
-  const direction = (down) => {
-    store('janus-flow-direction', down ? 'vertical' : 'horizontal')
-    setVertical(down)
+  const orient = (o) => {
+    store('janus-flow-orientation', o)
+    setOrientation(o)
   }
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && setSelected(null)
@@ -602,11 +635,19 @@ export default function Flow() {
       subtitle="From the node's interfaces through HAProxy's frontends to their backends and servers - live"
       actions={
         <>
-          <div className="chips" role="group" aria-label="Direction">
-            <button className={`small chip ${vertical ? 'active' : ''}`} aria-pressed={vertical} onClick={() => direction(true)} title="Top to bottom">
+          <div className="chips" role="group" aria-label="Orientation">
+            <button
+              className={`small chip ${orientation === 'auto' ? 'active' : ''}`}
+              aria-pressed={orientation === 'auto'}
+              onClick={() => orient('auto')}
+              title={`Left to right when it fits the page, else top to bottom when that does${orientation === 'auto' ? ` - ${vertical ? 'top to bottom' : 'left to right'} now` : ''}`}
+            >
+              <Scaling size={14} aria-hidden="true" /> Auto
+            </button>
+            <button className={`small chip ${orientation === 'vertical' ? 'active' : ''}`} aria-pressed={orientation === 'vertical'} onClick={() => orient('vertical')} title="Top to bottom">
               <ArrowDown size={14} aria-hidden="true" /> Vertical
             </button>
-            <button className={`small chip ${!vertical ? 'active' : ''}`} aria-pressed={!vertical} onClick={() => direction(false)} title="Left to right">
+            <button className={`small chip ${orientation === 'horizontal' ? 'active' : ''}`} aria-pressed={orientation === 'horizontal'} onClick={() => orient('horizontal')} title="Left to right">
               <ArrowRight size={14} aria-hidden="true" /> Horizontal
             </button>
           </div>
@@ -626,6 +667,7 @@ export default function Flow() {
     )
   }
   const empty = samples.cur && !graph.frontends.length && !graph.backends.length
+  const picked = selected && (map.byId[selected] || map.links.some((l) => l.id === selected))
   const summary = `Traffic flow: ${graph.frontends.length} frontends, ${graph.backends.length} backends, ${graph.backends.reduce((t, b) => t + b.servers.length, 0)} servers`
 
   return (
@@ -645,13 +687,13 @@ export default function Flow() {
         {empty ? (
           <Empty>HAProxy has no frontend or backend.</Empty>
         ) : (
-          <div className="flow-layout">
+          <div className={`flow-layout ${shown.beside ? 'beside' : ''}`} ref={measured}>
             <Card className="flow-card">
               <div className="flow-scroll" ref={scroller} onClick={() => setSelected(null)}>
                 <svg
                   className={`flow-map ${vertical ? 'vertical' : ''} ${near ? 'focused' : ''}`}
                   viewBox={`0 0 ${map.width} ${map.height}`}
-                  style={{ maxWidth: map.width, minWidth: Math.round(map.width * 0.85) }}
+                  style={{ maxWidth: map.width, minWidth: Math.round(map.width * MIN_SCALE) }}
                   role="group"
                   aria-label={summary}
                 >
@@ -668,9 +710,14 @@ export default function Flow() {
                 </svg>
               </div>
             </Card>
-            <div className="flow-side">
-              {selected && (map.byId[selected] || map.links.some((l) => l.id === selected)) ? (
-                <Details id={selected} map={map} graph={graph} hap={hap} onSelect={setSelected} onChanged={stats.reload} />
+            <div className={`flow-side ${picked ? 'picked' : ''}`}>
+              {picked ? (
+                <>
+                  <button className="flow-close icon" onClick={() => setSelected(null)} aria-label="Close the details" title="Close (Esc)">
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                  <Details id={selected} map={map} graph={graph} hap={hap} onSelect={setSelected} onChanged={stats.reload} />
+                </>
               ) : (
                 <Card>
                   <p className="muted">Select a node, or a link between a frontend and a backend, to see its counters and rules.</p>

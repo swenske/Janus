@@ -530,6 +530,7 @@ type flowMap struct {
 	g        *flowGraph
 	w, h     int
 	vertical bool
+	tight    bool // no blank line or column between neighbours: a map that fits
 	marks    map[[2]int][]flowMark
 	// order is the nodes as the cursor walks them: the interfaces,
 	// HAProxy, the frontends, each backend then its servers.
@@ -711,9 +712,9 @@ func targets(g *flowGraph, f *flowNode, at func(*flowNode) int) (float64, bool) 
 }
 
 // layoutFlow places the graph top to bottom (vertical) or left to
-// right, and routes its links.
-func layoutFlow(g *flowGraph, vertical bool) *flowMap {
-	m := &flowMap{g: g, vertical: vertical, marks: map[[2]int][]flowMark{}}
+// right, tight or with room between its nodes, and routes its links.
+func layoutFlow(g *flowGraph, vertical, tight bool) *flowMap {
+	m := &flowMap{g: g, vertical: vertical, tight: tight, marks: map[[2]int][]flowMark{}}
 	bes := rankedBackends(g)
 	m.order = append(append(append(m.order, g.ifaces...), g.hub), g.frontends...)
 	for _, b := range bes {
@@ -736,13 +737,14 @@ func layoutFlow(g *flowGraph, vertical bool) *flowMap {
 // with their backends, HAProxy with its frontends.
 func (m *flowMap) placeAcross(bes []*flowNode) {
 	g := m.g
+	space := m.space()
 	y := 0
 	for _, b := range bes {
 		b.y = y
 		for i, s := range b.servers {
 			s.y = y + i
 		}
-		y += max(2, len(b.servers)) + 1
+		y += max(2, len(b.servers)) + space
 	}
 	type want struct {
 		f  *flowNode
@@ -761,9 +763,10 @@ func (m *flowMap) placeAcross(bes []*flowNode) {
 		}
 		return ws[i].at < ws[j].at
 	})
-	prev := -3
+	step := 2 + space // a frontend's or an interface's two lines, then the space
+	prev := -step
 	for _, w := range ws {
-		fy := prev + 3
+		fy := prev + step
 		if w.ok {
 			fy = max(int(math.Round(w.at)), fy)
 		}
@@ -771,7 +774,7 @@ func (m *flowMap) placeAcross(bes []*flowNode) {
 	}
 	g.hub.y = middle(g.frontends, bes, func(n *flowNode) int { return n.y })
 	for i, it := range g.ifaces {
-		it.y = g.hub.y - (len(g.ifaces)-1)*3/2 + 3*i
+		it.y = g.hub.y - (len(g.ifaces)-1)*step/2 + step*i
 	}
 	top := 0
 	for _, n := range g.nodes {
@@ -829,6 +832,15 @@ func (m *flowMap) placeAcross(bes []*flowNode) {
 	}
 }
 
+// space is the blank lines between two neighbours across the flow - one,
+// none when tight.
+func (m *flowMap) space() int {
+	if m.tight {
+		return 0
+	}
+	return 1
+}
+
 // middle is the middle of the frontends, or of the backends without
 // any: where HAProxy goes.
 func middle(fes, bes []*flowNode, at func(*flowNode) int) int {
@@ -851,6 +863,7 @@ func middle(fes, bes []*flowNode, at func(*flowNode) int) int {
 // backends, HAProxy above its frontends.
 func (m *flowMap) placeDown(bes []*flowNode) {
 	g := m.g
+	space := 1 + m.space() // columns between two labels
 	x := 0
 	for _, b := range bes {
 		b.x = x
@@ -859,7 +872,7 @@ func (m *flowMap) placeDown(bes []*flowNode) {
 			s.x = b.x + 2
 			w = max(w, 2+s.width())
 		}
-		x += w + 2
+		x += w + space
 	}
 	type want struct {
 		f  *flowNode
@@ -881,7 +894,7 @@ func (m *flowMap) placeDown(bes []*flowNode) {
 	for _, w := range ws {
 		fx := 0
 		if prev != nil {
-			fx = prev.x + prev.width() + 2
+			fx = prev.x + prev.width() + space
 		}
 		if w.ok {
 			fx = max(int(math.Round(w.at)), fx)
@@ -891,7 +904,7 @@ func (m *flowMap) placeDown(bes []*flowNode) {
 	g.hub.x = middle(g.frontends, bes, func(n *flowNode) int { return n.x })
 	step := 0
 	for _, it := range g.ifaces {
-		step = max(step, it.width()+2)
+		step = max(step, it.width()+space)
 	}
 	for i, it := range g.ifaces {
 		it.x = g.hub.x - (len(g.ifaces)-1)*step/2 + step*i

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { test } from 'node:test'
-import { buildFlow, interfaces, layout, mapCalls, parseTopology, pulse, reach, related, resolveLinks, serverTone, statRows, tokenize, withRates } from './flow.js'
+import { MIN_SCALE, arrange, buildFlow, interfaces, layout, mapCalls, parseTopology, pulse, reach, related, resolveLinks, serverTone, statRows, tokenize, withRates } from './flow.js'
 
 // examples/haproxy/web.cfg's proxies.
 const WEB = `
@@ -346,6 +346,26 @@ test('layout: columns, bands, no overlap', () => {
   assert.ok(bare.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)))
   assert.ok(bare.links.every((l) => !/NaN|Infinity/.test(l.d)))
   assert.ok(Number.isFinite(bare.width))
+})
+
+test('arrange: the orientation and the side panel for the room there is', () => {
+  const maps = { across: { width: 1000 }, down: { width: 600 } }
+  const at = (beside, below) => ({ beside, below })
+  // Auto: left to right first, the panel beside it when it still fits.
+  assert.deepEqual(arrange('auto', maps, at(1100, 1500)), { vertical: false, beside: true })
+  assert.deepEqual(arrange('auto', maps, at(800, 1200)), { vertical: false, beside: false })
+  assert.deepEqual(arrange('auto', maps, at(1000 * MIN_SCALE, 1200)), { vertical: false, beside: true })
+  // Top to bottom when only that fits.
+  assert.deepEqual(arrange('auto', maps, at(300, 700)), { vertical: true, beside: false })
+  assert.deepEqual(arrange('auto', maps, at(520, 800)), { vertical: true, beside: true })
+  // Nothing fits: the one that overflows less.
+  assert.deepEqual(arrange('auto', maps, at(-20, 340)), { vertical: true, beside: false })
+  assert.deepEqual(arrange('auto', { across: { width: 1000 }, down: { width: 3600 } }, at(-20, 340)), { vertical: false, beside: false })
+  // A choice is kept, whatever the room.
+  assert.deepEqual(arrange('vertical', { down: { width: 3600 } }, at(1100, 1500)), { vertical: true, beside: false })
+  assert.deepEqual(arrange('horizontal', { across: { width: 1000 } }, at(300, 700)), { vertical: false, beside: false })
+  // Not measured yet: the first choice, the panel below.
+  assert.deepEqual(arrange('auto', maps, null), { vertical: false, beside: false })
 })
 
 test('related: the paths through a node', () => {

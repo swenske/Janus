@@ -34,7 +34,7 @@ type tuiSettings struct {
 	Splash      bool   `json:"splash"`          // the logo while the first answers come in
 	// The traffic flow (f): top to bottom or left to right, its servers
 	// shown, its links moving with traffic.
-	FlowDirection string `json:"flow_direction"` // vertical, horizontal
+	FlowDirection string `json:"flow_direction"` // auto (what fits the screen), horizontal, vertical
 	FlowServers   bool   `json:"flow_servers"`
 	FlowAnimation bool   `json:"flow_animation"`
 }
@@ -42,7 +42,7 @@ type tuiSettings struct {
 func defaultSettings() tuiSettings {
 	return tuiSettings{Theme: termui.ThemeJanus.Name, Background: true, Colors: "auto", Graphs: "braille", Rounded: true,
 		Interval: "2s", TrendMetric: trendMetrics[0].key, TrendWindow: fmtWindow(trendWindows[trendDefaultWindow]), TrendScale: scaleLinear.key(), ProcSort: procSorts[0], Splash: true,
-		FlowDirection: "vertical", FlowServers: true, FlowAnimation: true}
+		FlowDirection: "auto", FlowServers: true, FlowAnimation: true}
 }
 
 // settingsPath is tui.json beside the contexts' file.
@@ -117,7 +117,7 @@ func (s tuiSettings) save(path string) error {
 var (
 	colorChoices   = []string{"auto", "truecolor", "256", "16"}
 	graphChoices   = []string{"braille", "block", "tty"}
-	flowDirections = []string{"vertical", "horizontal"}
+	flowDirections = []string{"auto", "horizontal", "vertical"}
 )
 
 func oneOf(v string, choices []string) bool {
@@ -398,14 +398,17 @@ var menuItems = []menuItem{
 		values: func(*app) []string { return flowDirections },
 		get:    func(a *app) string { return a.settings.FlowDirection },
 		show: func(_ *app, v string) string {
-			if v == "horizontal" {
+			switch v {
+			case "horizontal":
 				return "left to right"
+			case "vertical":
+				return "top to bottom"
 			}
-			return "top to bottom"
+			return "auto (fits the screen)"
 		},
 		set: func(a *app, v string) { a.settings.FlowDirection = v },
 		help: func(*app) []string {
-			return []string{"How a node's traffic flow (f) is drawn - o too:", "from the interfaces down to the servers, or", "from left to right."}
+			return []string{"How a node's traffic flow (f) is drawn - o too. Auto:", "left to right when it fits the screen, else top to", "bottom when that does, else the one hiding less."}
 		}},
 	{name: "Flow servers",
 		values: func(*app) []string { return []string{"shown", "hidden"} },
