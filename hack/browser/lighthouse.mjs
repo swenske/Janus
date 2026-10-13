@@ -1,7 +1,8 @@
 // The docs and the site against their budget: Lighthouse, on a desktop
 // and on a phone, on pages of each kind - the docs' home, a plain page,
-// one with diagrams, one with screenshots; the landing page and the image
-// builder when they're served with their data (a deployed site).
+// one with diagrams, one with screenshots; the landing page, the image
+// builder and the feature tour when they're served with their data (a
+// deployed site).
 //
 //   node lighthouse.mjs <site URL> [pages...]
 //

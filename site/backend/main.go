@@ -84,7 +84,7 @@ func main() {
 
 // spaRoutes are the frontend's own pages (App.jsx): index.html answers
 // them, and the sitemap lists them.
-var spaRoutes = []string{"/", "/builder"}
+var spaRoutes = []string{"/", "/builder", "/tour"}
 
 // spa serves the built frontend: its files, index.html for its routes
 // (/builder... too: the builder keeps its state in the path's query) -
@@ -124,6 +124,8 @@ func spa(files staticSet, publicURL string) http.Handler {
 			pages["/"].serve(w, r, http.StatusOK)
 		case name == "builder" || strings.HasPrefix(name, "builder/"):
 			pages["/builder"].serve(w, r, http.StatusOK)
+		case name == "tour":
+			pages["/tour"].serve(w, r, http.StatusOK)
 		default:
 			index.serve(w, r, http.StatusNotFound)
 		}

@@ -1,13 +1,17 @@
-import { BookOpen, GitBranch, Hammer } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { BookOpen, CirclePlay, GitBranch, Hammer } from 'lucide-react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { Logo, ThemeToggle } from '@shared/theme.jsx'
 import { REPO, DOCS } from './api.js'
 import Builder from './Builder.jsx'
 import Landing from './Landing.jsx'
 
-// A two-page site: client-side routing with the History API (the Go
-// server answers index.html for / and /builder, and with a 404 for any
-// other path).
+// The tour (its animations, its music, its screenshots) loads only on
+// /tour: the landing page and the builder don't carry it.
+const Tour = lazy(() => import('./Tour.jsx'))
+
+// A three-page site: client-side routing with the History API (the Go
+// server answers index.html for /, /builder and /tour, and with a 404
+// for any other path).
 export function navigate(to) {
   window.history.pushState(null, '', to)
   window.dispatchEvent(new PopStateEvent('popstate'))
@@ -59,6 +63,9 @@ function NotFound({ path }) {
         <Link to="/builder" className="button">
           <Hammer size={15} /> Image builder
         </Link>
+        <Link to="/tour" className="button">
+          <CirclePlay size={15} /> Feature tour
+        </Link>
       </div>
     </section>
   )
@@ -67,10 +74,17 @@ function NotFound({ path }) {
 export default function App() {
   const path = usePath()
   const builder = path.startsWith('/builder')
+  const tour = path === '/tour'
   const home = path === '/'
   useEffect(() => {
-    document.title = builder ? 'Image builder - Janus' : home ? 'Janus - an immutable Linux for HAProxy load balancers' : 'Page not found - Janus'
-  }, [builder, home])
+    document.title = builder
+      ? 'Image builder - Janus'
+      : tour
+        ? 'Feature tour - Janus'
+        : home
+          ? 'Janus - an immutable Linux for HAProxy load balancers'
+          : 'Page not found - Janus'
+  }, [builder, tour, home])
   return (
     <div className="site">
       <header className="topbar">
@@ -82,6 +96,9 @@ export default function App() {
           <Link to="/builder" className={builder ? 'nav active' : 'nav'} title="Image builder">
             <Hammer size={15} /> <span className="nav-label">Image builder</span>
           </Link>
+          <Link to="/tour" className={tour ? 'nav active' : 'nav'} title="Feature tour">
+            <CirclePlay size={15} /> <span className="nav-label">Tour</span>
+          </Link>
           <a className="nav" href={`${DOCS}/`}>
             <BookOpen size={15} /> <span className="nav-label">Docs</span>
           </a>
@@ -91,7 +108,19 @@ export default function App() {
           <ThemeToggle />
         </nav>
       </header>
-      <main>{builder ? <Builder /> : home ? <Landing /> : <NotFound path={path} />}</main>
+      <main>
+        {builder ? (
+          <Builder />
+        ) : tour ? (
+          <Suspense fallback={null}>
+            <Tour />
+          </Suspense>
+        ) : home ? (
+          <Landing />
+        ) : (
+          <NotFound path={path} />
+        )}
+      </main>
       <footer className="footer">
         <div className="row">
           <Logo size={18} />

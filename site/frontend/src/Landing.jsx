@@ -2,6 +2,7 @@ import {
   ArrowRight,
   BookOpen,
   Boxes,
+  CirclePlay,
   Download,
   Feather,
   Gauge,
@@ -172,6 +173,9 @@ export default function Landing() {
         <div className="row hero-actions">
           <Link to="/builder" className="button primary big">
             <Hammer size={17} /> Build your image
+          </Link>
+          <Link to="/tour" className="button big">
+            <CirclePlay size={17} /> Take the tour
           </Link>
           <a className="button big" href={`${REPO}/releases/latest`}>
             <Download size={17} /> Latest release

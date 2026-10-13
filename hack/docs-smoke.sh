@@ -7,8 +7,8 @@
 # (hack/browser/lighthouse.mjs).
 #   hack/docs-smoke.sh <browser image> [<site URL>]
 # With a site URL, no local janus-site: that site is checked (site-deploy
-# runs it against janus.sw-servers.net once deployed) - the landing page
-# and the image builder measured too, with their data.
+# runs it against janus.sw-servers.net once deployed) - the landing page,
+# the image builder and the feature tour measured too, with their data.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 image=$1
@@ -51,7 +51,7 @@ for ch in "${channels[@]}"; do
 done
 pages=(/docs/ /docs/guide/quickstart/ /docs/internals/boot/ /docs/guide/controller/)
 if [ -n "${2:-}" ]; then
-  pages+=(/ /builder)
+  pages+=(/ /builder /tour)
 elif [ ! -d site/backend/docsdist/latest ]; then
   exit 0
 fi

@@ -12,9 +12,9 @@ import (
 
 // What search engines read: robots.txt - everything but the API and the
 // downloads, and where the sitemaps are - and the site's own sitemap (the
-// landing page and the image builder). The docs have theirs, built with
-// them (/docs/sitemap-index.xml): robots.txt names both - one sitemap
-// index can't list another.
+// landing page, the image builder and the feature tour). The docs have
+// theirs, built with them (/docs/sitemap-index.xml): robots.txt names
+// both - one sitemap index can't list another.
 func (a *app) seoRoutes(mux *http.ServeMux, docs *docsSite) {
 	mux.HandleFunc("GET /robots.txt", func(w http.ResponseWriter, _ *http.Request) {
 		var b strings.Builder
@@ -92,6 +92,22 @@ func spaPages(publicURL string) map[string]spaPage {
 				"applicationCategory": "DeveloperApplication",
 				"operatingSystem":     "Any - in a web browser",
 				"offers":              free,
+			},
+		},
+		// The landing page's card: the tour shows the same.
+		"/tour": {
+			title:       "Feature tour - Janus",
+			description: "An animated tour of Janus: no shell, a 15 MB root filesystem, trusted boot, HAProxy LTS, A/B updates with rollback, changes on trial, extensions, the Controller and janusctl.",
+			card:        "janus.png",
+			cardAlt:     "Janus - an immutable Linux for your HAProxy load balancers",
+			jsonLD: map[string]any{
+				"@context":    "https://schema.org",
+				"@type":       "WebPage",
+				"name":        "Janus feature tour",
+				"url":         publicURL + "/tour",
+				"image":       publicURL + "/og/janus.png",
+				"description": "An animated tour of Janus, an immutable Linux for HAProxy load balancers.",
+				"about":       map[string]any{"@type": "SoftwareApplication", "name": "Janus", "url": publicURL + "/"},
 			},
 		},
 	}
