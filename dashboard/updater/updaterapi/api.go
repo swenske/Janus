@@ -17,9 +17,10 @@ import (
 	"net"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/swenske/Janus/internal/calver"
 )
 
 // DefaultSocket is where the updater listens and the Controller looks for
@@ -96,49 +97,15 @@ type StartedRequest struct {
 
 // --- versions ---
 
-// Releases are CalVer: vYYYY.MM.DD, or vYYYY.MM.DD-N for the Nth release
-// of a day. A build between releases is git describe's
-// vYYYY.MM.DD[-N]-K-g<sha>[-dirty]: K commits after that release.
-var (
-	releaseRE  = regexp.MustCompile(`^v(\d{4})\.(\d{2})\.(\d{2})(?:-(\d+))?$`)
-	describeRE = regexp.MustCompile(`^v(\d{4})\.(\d{2})\.(\d{2})(?:-(\d+))?(?:-\d+-g[0-9a-f]+)?(?:-dirty)?$`)
-)
-
-// IsRelease reports whether v is a release version.
-func IsRelease(v string) bool { return releaseRE.MatchString(v) }
+// IsRelease reports whether v is a release version (calver).
+func IsRelease(v string) bool { return calver.IsRelease(v) }
 
 // Newer reports whether release is newer than running. known is false
 // when running isn't a release or a build after one ("dev", a bare SHA):
 // nothing to compare against.
 func Newer(release, running string) (newer, known bool) {
-	r, ok := parse(releaseRE, release)
-	if !ok {
-		return false, false
-	}
-	c, ok := parse(describeRE, running)
-	if !ok {
-		return false, false
-	}
-	for i := range r {
-		if r[i] != c[i] {
-			return r[i] > c[i], true
-		}
-	}
-	return false, true
-}
-
-func parse(re *regexp.Regexp, v string) ([4]int, bool) {
-	m := re.FindStringSubmatch(v)
-	if m == nil {
-		return [4]int{}, false
-	}
-	var out [4]int
-	for i := range 4 {
-		if m[i+1] != "" {
-			out[i], _ = strconv.Atoi(m[i+1])
-		}
-	}
-	return out, true
+	cmp, known := calver.Compare(release, running)
+	return cmp > 0, known
 }
 
 var digestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)

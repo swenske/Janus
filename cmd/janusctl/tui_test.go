@@ -638,3 +638,20 @@ func TestTailAcceptsReplaysOnce(t *testing.T) {
 		t.Errorf("seen holds %d IDs", len(tl.seen))
 	}
 }
+
+// A node keeps its events across reboots: one from another day than the
+// newest has its date, the others their time.
+func TestEventsFromAnotherDay(t *testing.T) {
+	a := testApp(t)
+	s := testSampler(t, a, "lgslbpub01")
+	a.samplers = []*sampler{s}
+	n := newNodeScreen(s, false)
+	old, now := tuiNow.Add(-26*time.Hour), tuiNow.Add(-time.Minute)
+	n.events.add(eventLine(&janusv1alpha1.Event{Id: 1, UnixTimeNs: old.UnixNano(), Type: "lifecycle.upgrade"}))
+	n.events.add(eventLine(&janusv1alpha1.Event{Id: 2, UnixTimeNs: now.UnixNano(), Type: "janusd.started"}))
+	a.screen = n
+	f := strings.Join(a.render(120, 40).Lines(), "\n")
+	if !strings.Contains(f, old.Format("02 Jan 15:04")+" lifecycle.upgrade") || !strings.Contains(f, now.Format("15:04:05")+" janusd.started") {
+		t.Errorf("the events pane:\n%s", f)
+	}
+}

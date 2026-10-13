@@ -20,7 +20,8 @@ const followPollInterval = 250 * time.Millisecond
 
 // Events streams the event log (internal/events): everything still held
 // after since_id, then new events as they happen, until the client
-// cancels. IDs restart from 1 when janusd restarts.
+// cancels. On a node the log is kept on STATE: IDs go on across janusd
+// restarts, reboots and updates.
 func (s *System) Events(req *janusv1alpha1.EventsRequest, stream janusv1alpha1.SystemService_EventsServer) error {
 	ctx := stream.Context()
 	next := req.GetSinceId()

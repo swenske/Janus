@@ -16,6 +16,29 @@ function tone(e) {
   return 'info'
 }
 
+// when is an event's time: the clock alone today, the date too before.
+function when(ns) {
+  const d = new Date(ns / 1e6)
+  return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString() : d.toLocaleString()
+}
+
+// BootRow marks where janusd started - with a new boot, a reboot or an
+// update before it: the events below came before.
+function BootRow({ e }) {
+  const p = e.payload || {}
+  return (
+    <div className="event boot">
+      <span className="muted small mono nowrap">{when(e.time_ns)}</span>
+      <span className="small">
+        janusd started{p.version ? <> - <span className="mono">{p.version}</span></> : null}
+        {p.slot ? `, slot ${p.slot}` : ''}
+      </span>
+      <span className="grow" />
+      <span className="muted small">#{e.id}</span>
+    </div>
+  )
+}
+
 function EventRow({ e }) {
   const [open, setOpen] = useState(false)
   const hasPayload = e.payload && Object.keys(e.payload).length > 0
@@ -30,7 +53,7 @@ function EventRow({ e }) {
     <div className="event">
       <div className="row" style={{ flexWrap: 'nowrap', cursor: hasPayload ? 'pointer' : 'default' }} onClick={() => hasPayload && setOpen(!open)}>
         {hasPayload ? open ? <ChevronDown size={14} /> : <ChevronRight size={14} /> : <span style={{ width: 14 }} />}
-        <span className="muted small mono nowrap">{new Date(e.time_ns / 1e6).toLocaleTimeString()}</span>
+        <span className="muted small mono nowrap">{when(e.time_ns)}</span>
         <Badge tone={tone(e)}>{e.type}</Badge>
         <span className="muted small mono grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {summary}
@@ -70,7 +93,7 @@ export default function Events() {
 
   return (
     <>
-      <PageHeader title="Events" subtitle="What the node did, as it happens - kept in the node's memory, reset when janusd restarts" />
+      <PageHeader title="Events" subtitle="What the node did, as it happens - its last thousand events, kept across reboots and updates" />
       <Card
         title="Event log"
         icon={Activity}
@@ -105,7 +128,11 @@ export default function Events() {
           </label>
         </div>
         <div className="stack events" style={{ gap: '0.35rem', maxHeight: '68vh', overflow: 'auto' }}>
-          {shown.length ? shown.map((e) => <EventRow key={`${e.id}-${e.time_ns}`} e={e} />) : <div className="empty">No events yet.</div>}
+          {shown.length ? (
+            shown.map((e) => (e.type === 'janusd.started' ? <BootRow key={`${e.id}-${e.time_ns}`} e={e} /> : <EventRow key={`${e.id}-${e.time_ns}`} e={e} />))
+          ) : (
+            <div className="empty">No events yet.</div>
+          )}
         </div>
       </Card>
     </>

@@ -41,7 +41,7 @@ Modeled on Talos's own disk layout:
 | ESP        | The active slot's Unified Kernel Image at the firmware's default path, and both slots' images |
 | `BOOT-A-DATA`, `BOOT-A-HASH` | Slot A: the squashfs rootfs and its dm-verity hash tree |
 | `BOOT-B-DATA`, `BOOT-B-HASH` | Slot B, the same |
-| `STATE`    | Node identity, mTLS certs, the applied configuration - shared by both slots |
+| `STATE`    | Node identity, mTLS certs, the applied configuration, the event log - shared by both slots |
 
 There is no writable overlay and no META partition: what persists is on
 STATE, everything else is the read-only image or memory.

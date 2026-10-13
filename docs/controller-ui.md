@@ -352,7 +352,7 @@ and status (`nodeproxy.EndOfSupport`, from the factory's newest
 catalog): `SupportBadge.jsx` warns from six months before the branch's
 end of upstream support, and turns red once the releases no longer
 offer it (no newer update will come), with a notice on the Update page.
-The node card shows the HAProxy version and the kernel and its track. A release that renamed one of the node's
+The node card shows the HAProxy version and the kernel and its track, and what the other slot holds (`version.inactive_slot`) - the release an install writes over, which its confirmation names. A release that renamed one of the node's
 extensions (the catalog's `replaces`) is offered as a rename: the update
 check reports `renamed` and the migrated schematic, "Use this update"
 fills the form in as a schematic change, and the confirmation says
@@ -468,6 +468,10 @@ both tests.
 - **Charts** leave gaps where data is missing (e.g. during a reboot)
   instead of drawing a line through them, follow the data until the time
   window is full, and use binary steps for bytes.
+- **Events** (Logs › Events): the node's event log, kept on its STATE -
+  the last thousand, across reboots and updates; each `janusd.started` is
+  drawn as a line of its own (version, slot), the events of another day
+  have their date.
 - **Streams** (logs, events, dmesg) are Server-Sent Events via `useSSE` /
   `LogViewer`. A node-side error arrives as a `failure` event - never
   `error`, which `EventSource` uses for its own connection problems.

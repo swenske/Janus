@@ -29,6 +29,7 @@ import (
 	"github.com/swenske/Janus/internal/releasetrust"
 	"github.com/swenske/Janus/internal/schematic"
 	"github.com/swenske/Janus/internal/shutdown"
+	"github.com/swenske/Janus/internal/slotimage"
 )
 
 // Lifecycle implements janusv1alpha1.LifecycleServiceServer.
@@ -55,6 +56,8 @@ type Lifecycle struct {
 	// ends Rollback and Upgrade, as SystemService.Reboot does: the virtual
 	// IPs and anycast routes leave this node first.
 	HAProxy *haproxy.Manager
+	// Version is janusd's: Upgrade says how a bundle compares to it.
+	Version string
 }
 
 // Fixed partition sizes, matching image/disk/assemble.sh's own
@@ -446,6 +449,13 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 			return status.Errorf(codes.FailedPrecondition, "rootfs.squashfs sha256 %s doesn't match requested %s", got, want)
 		}
 	}
+	// What the bundle is - its release, said before anything is written:
+	// an older one than this node runs is installed all the same (going
+	// back is allowed), but never without saying so.
+	image, imageErr := slotimage.Read(bytes.NewReader(squashfs), int64(len(squashfs)))
+	if err := send("verifying", 0.25, describeImage(image, imageErr, l.Version)); err != nil {
+		return err
+	}
 
 	verity, err := fetchBundleFile(ctx, bundleRef, "rootfs.verity")
 	if err != nil {
@@ -461,9 +471,12 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	if err := send("writing-data", 0.3, fmt.Sprintf("writing rootfs.squashfs to slot %s (%s)", bc.targetSlot, targetDataDev)); err != nil {
 		return err
 	}
+	slotWriting(bc.targetSlot)
 	if err := writePartitionFile(targetDataDev, squashfs); err != nil {
+		slotWritten(bc.targetSlot, nil, nil, true)
 		return status.Errorf(codes.Internal, "write %s: %v", targetDataDev, err)
 	}
+	slotWritten(bc.targetSlot, image, imageErr, false)
 
 	if err := send("writing-hash", 0.5, fmt.Sprintf("writing rootfs.verity to slot %s (%s)", bc.targetSlot, targetHashDev)); err != nil {
 		return err
@@ -519,6 +532,9 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 	// that can't be loaded only costs the firmware's time: say so and
 	// reboot through it.
 	how := "rebooting into slot " + bc.targetSlot
+	if image != nil && image.Version != "" {
+		how += " (Janus " + image.Version + ")"
+	}
 	kexecLoaded := false
 	if req.GetRebootMode() == janusv1alpha1.RebootMode_REBOOT_MODE_KEXEC {
 		if err := loadKexec(uki); err != nil {
@@ -533,9 +549,28 @@ func (l *Lifecycle) Upgrade(req *janusv1alpha1.UpgradeRequest, stream janusv1alp
 		return err
 	}
 
-	events.Publish("lifecycle.upgrade", map[string]any{"from": bc.currentSlot, "to": bc.targetSlot, "source": req.GetSource().GetReference(), "wait_for_health": req.GetWaitForHealth(), "signature": signature, "kexec": kexecLoaded})
+	// A struct, not a map: its fields in this order - what a one-line
+	// summary of the event shows first.
+	events.Publish("lifecycle.upgrade", struct {
+		To            string `json:"to"`
+		Version       string `json:"version,omitempty"`
+		From          string `json:"from"`
+		FromVersion   string `json:"from_version,omitempty"`
+		Kexec         bool   `json:"kexec"`
+		WaitForHealth bool   `json:"wait_for_health"`
+		Source        string `json:"source"`
+		Signature     string `json:"signature"`
+	}{bc.targetSlot, imageVersion(image), bc.currentSlot, l.Version, kexecLoaded, req.GetWaitForHealth(), req.GetSource().GetReference(), signature})
 	l.scheduleReboot(rebootCmd(kexecLoaded))
 	return nil
+}
+
+// imageVersion is the release image holds, "" when it doesn't say.
+func imageVersion(image *schematic.ImageInfo) string {
+	if image == nil {
+		return ""
+	}
+	return image.Version
 }
 
 // UploadReleaseFile is the controller-relay half of the two update

@@ -39,7 +39,9 @@ service SystemService {
   rpc ApplyConfiguration(ApplyConfigurationRequest) returns (stream ApplyConfigurationResponse);
 
   // Events streams the machine's internal event log (config applied,
-  // service state changes, upgrade progress, etc.).
+  // service state changes, upgrades, reboots, etc.): its last thousand
+  // events, kept on STATE across reboots and updates, then new ones as
+  // they come.
   rpc Events(EventsRequest) returns (stream Event);
   // Dmesg streams the kernel ring buffer.
   rpc Dmesg(DmesgRequest) returns (stream Data);
@@ -429,6 +431,26 @@ message VersionResponse {
   // The kernel track the image is built with, and that track's version in
   // the image (kernel_version is the running kernel's).
   ImageComponent kernel = 12;
+  // The other A/B slot: what an update writes, what Rollback boots - the
+  // image its data partition holds, as its own image.json says (not
+  // checked against dm-verity until it boots). Unset when this boot
+  // isn't from an A/B slot.
+  SlotImage inactive_slot = 13;
+}
+
+// The image an A/B slot holds.
+message SlotImage {
+  // "A" or "B".
+  string slot = 1;
+  // The Janus release ("v2026.10.13-2"), a local build's git description,
+  // or empty when the image doesn't say.
+  string version = 2;
+  string schematic_id = 3;
+  ImageComponent haproxy = 4;
+  ImageComponent kernel = 5;
+  // Why the image can't be told: built before image.json
+  // (v2026.10.06-3), being written by an update, unreadable.
+  string error = 6;
 }
 
 // A HAProxy branch or kernel track an image is built with.
@@ -508,7 +530,8 @@ message ApplyConfigurationResponse {
 }
 
 message EventsRequest {
-  // Resume streaming from this point instead of the current tail.
+  // Only the events after this ID. IDs go on across reboots; one ahead
+  // of the log (a reset node's) gets the events from now on.
   uint64 since_id = 1;
 }
 

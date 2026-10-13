@@ -82,6 +82,7 @@ func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Ve
 			resp.Extensions = append(resp.Extensions, &janusv1alpha1.ExtensionInfo{Name: m.Name, Version: m.Version, Description: m.Description})
 		}
 	}
+	resp.InactiveSlot = InactiveSlotImage()
 	if info := ImageInfo(); info != nil {
 		resp.Schematic = string(info.Schematic)
 		resp.Haproxy = imageComponent(info.HAProxy)

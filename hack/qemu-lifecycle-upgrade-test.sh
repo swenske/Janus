@@ -132,7 +132,15 @@ EOF
 
 V2_ROOTFS="$WORKDIR/rootfs-v2"
 mkdir -p "$V2_ROOTFS"
-"$SELF_DIR/../rootfs/assemble.sh" "$V2_ROOTFS" "$BUILD_DIR/init" "$BUILD_DIR/janusd" \
+# v2 says what it is (image.json, as a release's image does; a `make
+# disk-image` slot doesn't): Upgrade must say it before writing it, and
+# the other slot must read it off its partition once v2 is there.
+V2_VERSION="v2099.01.01"
+cat > "$WORKDIR/image-v2.json" <<EOF
+{"schematic": {"customization": {}}, "schematic_id": "a055fbb697e2d0abb0c5911e7702b07040f49eb71befeaf9b90495a905327f47",
+ "version": "$V2_VERSION", "arch": "amd64", "haproxy": {"variant": "3.4", "version": "3.4.99", "default": true}}
+EOF
+JANUS_IMAGE_INFO="$WORKDIR/image-v2.json" "$SELF_DIR/../rootfs/assemble.sh" "$V2_ROOTFS" "$BUILD_DIR/init" "$BUILD_DIR/janusd" \
   "$BUILD_DIR/haproxy" "$WORKDIR/haproxy-v2.cfg" "$BUILD_DIR/selinux/janus.policy" \
   "$BUILD_DIR/ca-certificates/ca-certificates.crt"
 
@@ -260,6 +268,17 @@ for f in ca.crt admin.crt admin.key; do
   [ -s "$WORKDIR/$f" ] || { echo "Upgrade test FAILED: couldn't extract pki/$f from disk.img's STATE partition after slot A booted" >&2; exit 1; }
 done
 
+# --- the other slot, read off its partition: the disk image's slot B
+# holds the same image as A, which doesn't say what it is (make
+# disk-image writes no image.json) ---
+ctl() { "$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
+VERSION_A="$(ctl version)"
+if ! grep -q "^Other slot: B - the image doesn't say what it is" <<<"$VERSION_A"; then
+  echo "Upgrade test FAILED: janusctl version doesn't report slot B: $VERSION_A" >&2
+  exit 1
+fi
+echo "The other slot, read off BOOT-B-DATA: $(grep '^Other slot' <<<"$VERSION_A")"
+
 # --- call Upgrade for real, over mTLS, referencing the bundle's
 # *guest-side* path - janusctl's own -sha256 auto-detection reads
 # from the argument it's given, which would be the guest path here (not
@@ -334,6 +353,34 @@ if [ -n "$KEXEC_FLAG" ]; then
   fi
   echo "The reboot into slot B went through kexec: 'Starting new kernel' logged, OVMF never ran again"
 fi
+# Upgrade said what it wrote before writing it, and rebooting; the other
+# slot is now A, with the image it had.
+if ! grep -q "rootfs.squashfs: Janus $V2_VERSION (schematic a055fbb6)" <<<"$UPGRADE_OUT" || ! grep -q "rebooting into slot B (Janus $V2_VERSION)" <<<"$UPGRADE_OUT"; then
+  echo "Upgrade test FAILED: Upgrade didn't say it installs $V2_VERSION: $UPGRADE_OUT" >&2
+  exit 1
+fi
+VERSION_B="$(ctl version)"
+if ! grep -q "^Other slot: A - the image doesn't say what it is" <<<"$VERSION_B"; then
+  echo "Upgrade test FAILED: after the upgrade, janusctl version doesn't report slot A: $VERSION_B" >&2
+  exit 1
+fi
+# The event log came through the reboot (internal/events, on STATE): the
+# upgrade, published just before it, then each boot's janusd.started -
+# slot A's, then slot B's, two boots apart.
+EVENTS="$(timeout 5 "$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" system events 2>&1 || true)"
+STARTS="$(grep -P '\tjanusd\.started\t' <<<"$EVENTS" || true)"
+FIRST_START="$(head -1 <<<"$STARTS")"
+LAST_START="$(tail -1 <<<"$STARTS")"
+BOOTS="$(grep -o '"boot":"[^"]*"' <<<"$STARTS" | sort -u | wc -l)"
+if ! grep -qP '\tlifecycle\.upgrade\t\{"to":"B","version":"'"$V2_VERSION"'"' <<<"$EVENTS" || [ "$(wc -l <<<"$STARTS")" -lt 2 ] ||
+  ! grep -q '"slot":"A"' <<<"$FIRST_START" || ! grep -q '"slot":"B"' <<<"$LAST_START" || [ "$BOOTS" -lt 2 ]; then
+  echo "Upgrade test FAILED: the event log didn't come through the reboot: $EVENTS" >&2
+  exit 1
+fi
+UPGRADE_ID="$(grep -P '\tlifecycle\.upgrade\t' <<<"$EVENTS" | cut -f1)"
+LAST_START_ID="$(cut -f1 <<<"$LAST_START")"
+[ "$LAST_START_ID" -gt "$UPGRADE_ID" ] || { echo "Upgrade test FAILED: event IDs started over after the reboot ($UPGRADE_ID, then $LAST_START_ID)" >&2; exit 1; }
+echo "The event log came through the reboot: lifecycle.upgrade #$UPGRADE_ID before it, janusd.started on slot A then B, IDs going on"
 echo "Slot B (v2) OK: real gRPC Upgrade wrote the new rootfs (root hash $V2_HASH, BOOT-B-DATA/HASH), switched, and rebooted into it - HTTP healthy, STATE intact"
 
 kill "$QEMU_PID" 2>/dev/null || true
@@ -364,5 +411,13 @@ if ! wait_http_and_marker "$HOST_PORT_8080" "$B_LOG" 2 "$REBOOT_TIMEOUT_SECS"; t
   exit 1
 fi
 assert_last_boot "$B_LOG" PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH "$V1_HASH" "post-rollback boot"
+# Back on A, the other slot is B again - read off its partition after a
+# boot, nothing remembered: v2, which says what it is.
+VERSION_R="$(ctl version)"
+if ! grep -q "^Other slot: B - $V2_VERSION, schematic a055fbb6, HAProxy 3.4.99" <<<"$VERSION_R"; then
+  echo "Upgrade test FAILED: after the rollback, janusctl version doesn't say slot B holds $V2_VERSION: $VERSION_R" >&2
+  exit 1
+fi
+echo "After the rollback, the other slot read off BOOT-B-DATA: $(grep '^Other slot' <<<"$VERSION_R")"
 echo "Rollback-after-Upgrade OK: slot A's original content (root hash $V1_HASH, BOOT-A-DATA/HASH) is still intact and reachable"
 echo "Upgrade test OK: a real gRPC LifecycleService.Upgrade call installed a genuinely new rootfs, and the untouched slot remained rollback-able afterward"

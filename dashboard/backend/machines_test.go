@@ -304,8 +304,8 @@ func TestMachineLifecycle(t *testing.T) {
 	// Create.
 	rec := call(t, a.handleMachineCreate, "POST", "/api/machines", "POST /api/machines", machines.Spec{
 		Name: "lb1", HypervisorID: h.ID,
-		Image: &machines.ImageSource{URL: srv.URL + "/janus-kvm.qcow2", SHA256: hex.EncodeToString(sum[:])},
-		NICs:  []machines.NIC{{Network: "lab-mgmt", Name: "mgmt", Mode: "static", Addresses: []string{"10.200.10.23/24"}}},
+		Image:            &machines.ImageSource{URL: srv.URL + "/janus-kvm.qcow2", SHA256: hex.EncodeToString(sum[:])},
+		NICs:             []machines.NIC{{Network: "lab-mgmt", Name: "mgmt", Mode: "static", Addresses: []string{"10.200.10.23/24"}}},
 		NTP:              []string{"10.200.10.1"},
 		UpdateRebootMode: "firmware",
 	})
