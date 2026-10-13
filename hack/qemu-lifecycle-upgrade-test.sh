@@ -269,12 +269,22 @@ for f in ca.crt admin.crt admin.key; do
 done
 
 # --- the other slot, read off its partition: the disk image's slot B
-# holds the same image as A, which doesn't say what it is (make
-# disk-image writes no image.json) ---
+# holds the same image as A - its version when the image says it
+# (image.json, as `make disk-image` writes it), else that it doesn't ---
 ctl() { "$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
 VERSION_A="$(ctl version)"
-if ! grep -q "^Other slot: B - the image doesn't say what it is" <<<"$VERSION_A"; then
-  echo "Upgrade test FAILED: janusctl version doesn't report slot B: $VERSION_A" >&2
+V1_VERSION="$(sed -n 's/^Node: //p' <<<"$VERSION_A")"
+# what_v1 is how janusctl version describes a slot holding the disk
+# image's own image.
+what_v1() {
+  if grep -q "^Other slot: [AB] - the image doesn't say what it is" <<<"$1"; then
+    echo "the image doesn't say what it is"
+  else
+    echo "$V1_VERSION, schematic "
+  fi
+}
+if ! grep -qF "Other slot: B - $(what_v1 "$VERSION_A")" <<<"$VERSION_A"; then
+  echo "Upgrade test FAILED: janusctl version doesn't report slot B holding the disk image's $V1_VERSION: $VERSION_A" >&2
   exit 1
 fi
 echo "The other slot, read off BOOT-B-DATA: $(grep '^Other slot' <<<"$VERSION_A")"
@@ -360,8 +370,8 @@ if ! grep -q "rootfs.squashfs: Janus $V2_VERSION (schematic a055fbb6)" <<<"$UPGR
   exit 1
 fi
 VERSION_B="$(ctl version)"
-if ! grep -q "^Other slot: A - the image doesn't say what it is" <<<"$VERSION_B"; then
-  echo "Upgrade test FAILED: after the upgrade, janusctl version doesn't report slot A: $VERSION_B" >&2
+if ! grep -qF "Other slot: A - $(what_v1 "$VERSION_A")" <<<"$VERSION_B"; then
+  echo "Upgrade test FAILED: after the upgrade, janusctl version doesn't report slot A holding $V1_VERSION: $VERSION_B" >&2
   exit 1
 fi
 # The event log came through the reboot (internal/events, on STATE): the
