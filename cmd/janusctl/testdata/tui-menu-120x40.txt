@@ -18,7 +18,7 @@
 │                     │  Trend scale        ← linear →                                          │                      │
 │                     │  Processes by       ← cpu →                                             │                      │
 │                     │  Process order      ← largest first →                                   │                      │
-│                     │  Traffic flow       ← top to bottom →                                   │                      │
+│                     │  Traffic flow       ← auto (fits the screen) →                          │                      │
 │                     │  Flow servers       ← shown →                                           │                      │
 │                     │  Flow animation     ← on →                                              │                      │
 │                     │                                                                         │                      │

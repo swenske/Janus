@@ -29,6 +29,7 @@ const (
 	flowFrame       = 150 * time.Millisecond
 	flowSideWidth   = 46  // the details beside the map, from
 	flowSideFrom    = 150 // columns
+	flowSideMin     = 36  // narrower when the map needs it
 )
 
 // flowConfig is what the node said of its configuration.
@@ -52,9 +53,14 @@ type flowView struct {
 	ox, oy int    // the map's cell at the top left of its box
 	uptime uint64 // HAProxy's, last seen: less is a reload, read the configuration again
 
-	// The map laid out, kept while nothing it shows changed.
+	// The map laid out each way it can be - top to bottom or not, tight
+	// or not - kept while nothing it shows changed; m is the one shown.
 	laidOut string
+	maps    map[[2]bool]*flowMap
 	m       *flowMap
+	// autoShown is the direction auto last chose (vertical), nil none
+	// yet: o goes back to auto from the other one.
+	autoShown *bool
 }
 
 func newFlowView(n *nodeScreen) *flowView {
@@ -136,19 +142,94 @@ func (fv *flowView) config() flowConfig {
 	return fv.cfg
 }
 
-// layout is the map of the view's node, laid out again only when what
-// it shows changed.
-func (fv *flowView) layout(a *app, v *nodeView) *flowMap {
+// laid is the map of the view's node laid out one way, again only when
+// what it shows changed.
+func (fv *flowView) laid(a *app, v *nodeView, vertical, tight bool) *flowMap {
 	c := fv.config()
-	key := fmt.Sprintf("%d/%d/%v/%v", v.rounds, c.gen, a.settings.FlowDirection, a.settings.FlowServers)
-	if fv.m == nil || key != fv.laidOut {
-		fv.m = layoutFlow(buildFlow(v, c.top, c.maps, a.settings.FlowServers), a.settings.FlowDirection != "horizontal")
-		fv.laidOut = key
-		if fv.sel != "" && fv.m.g.byID[fv.sel] == nil {
-			fv.sel = ""
+	key := fmt.Sprintf("%d/%d/%v", v.rounds, c.gen, a.settings.FlowServers)
+	if key != fv.laidOut {
+		fv.maps, fv.laidOut = map[[2]bool]*flowMap{}, key
+	}
+	m := fv.maps[[2]bool{vertical, tight}]
+	if m == nil {
+		m = layoutFlow(buildFlow(v, c.top, c.maps, a.settings.FlowServers), vertical, tight)
+		fv.maps[[2]bool{vertical, tight}] = m
+	}
+	return m
+}
+
+// arrange picks how the map shows in body, under its notes lines.
+func (fv *flowView) arrange(a *app, v *nodeView, body termui.Rect, notes int) (*flowMap, termui.Rect, termui.Rect) {
+	return arrangeFlow(a.settings.FlowDirection, body, notes, func(vertical, tight bool) *flowMap {
+		return fv.laid(a, v, vertical, tight)
+	})
+}
+
+// arrangeFlow is the direction asked or, auto, left to right when it
+// fits, else top to bottom when that does, else the one hiding less of
+// itself - with room between its nodes, tight when that's what makes it
+// fit - and the details beside it on a wide screen, narrower when the
+// map needs the columns, or below it when that hides less. lay lays the
+// map out one way.
+func arrangeFlow(direction string, body termui.Rect, notes int, lay func(vertical, tight bool) *flowMap) (m *flowMap, mapR, side termui.Rect) {
+	directions := []bool{false, true}
+	switch direction {
+	case "horizontal":
+		directions = []bool{false}
+	case "vertical":
+		directions = []bool{true}
+	}
+	best := math.Inf(1)
+	for _, vertical := range directions {
+		for _, tight := range []bool{false, true} {
+			lm := lay(vertical, tight)
+			var places [][2]termui.Rect
+			if body.W >= flowSideFrom {
+				sw := min(max(body.W-lm.w-4, flowSideMin), flowSideWidth)
+				r := body
+				r.W -= sw
+				places = append(places, [2]termui.Rect{r, {X: r.W, Y: body.Y, W: sw, H: body.H}})
+			}
+			dh := min(max(body.H/3, 8), 12)
+			r := body
+			r.H -= dh
+			places = append(places, [2]termui.Rect{r, {X: 0, Y: r.Y + r.H, W: body.W, H: dh}})
+			for _, p := range places {
+				in := mapInside(p[0], notes)
+				hidden := 0.0
+				if lm.w > in.W || lm.h > in.H {
+					hidden = 1 - float64(min(lm.w, in.W)*min(lm.h, in.H))/float64(lm.w*lm.h)
+				}
+				if hidden < best {
+					best, m, mapR, side = hidden, lm, p[0], p[1]
+				}
+				if hidden == 0 {
+					return m, mapR, side
+				}
+			}
 		}
 	}
-	return fv.m
+	return m, mapR, side
+}
+
+// mapInside is where the map draws in its box r, under notes lines.
+func mapInside(r termui.Rect, notes int) termui.Rect {
+	in := termui.Rect{X: r.X + 1, Y: r.Y + 1, W: max(r.W-2, 0), H: max(r.H-2, 0)}
+	n := min(notes, max(in.H-2, 0))
+	return termui.Rect{X: in.X + 1, Y: in.Y + n, W: max(in.W-2, 0), H: in.H - n}
+}
+
+// nextDirection is where o goes: the direction not shown - auto again
+// when that's the one auto chose.
+func (fv *flowView) nextDirection(a *app) string {
+	shown := fv.m != nil && fv.m.vertical
+	if a.settings.FlowDirection != "auto" && fv.autoShown != nil && *fv.autoShown != shown {
+		return "auto"
+	}
+	if shown {
+		return "horizontal"
+	}
+	return "vertical"
 }
 
 // active reports whether traffic shows on the map: then it's animated.
@@ -171,11 +252,7 @@ func (fv *flowView) hints(a *app) []string {
 			h = append(h, "Enter state")
 		}
 	}
-	other := "horizontal"
-	if a.settings.FlowDirection == "horizontal" {
-		other = "vertical"
-	}
-	h = append(h, "o "+other, "s servers")
+	h = append(h, "o "+fv.nextDirection(a), "s servers")
 	if roleAllows(a.opts.role, rolesOperators) {
 		h = append(h, "R reload")
 	}
@@ -196,11 +273,7 @@ func (fv *flowView) key(a *app, k string) bool {
 			fv.close()
 		}
 	case "o":
-		if a.settings.FlowDirection == "horizontal" {
-			a.settings.FlowDirection = "vertical"
-		} else {
-			a.settings.FlowDirection = "horizontal"
-		}
+		a.settings.FlowDirection = fv.nextDirection(a)
 		a.say("traffic flow: "+a.settings.FlowDirection, termui.ColorDefault)
 	case "s":
 		a.settings.FlowServers = !a.settings.FlowServers
@@ -222,7 +295,7 @@ func (fv *flowView) key(a *app, k string) bool {
 		a.open(serverAction(*n.row), fv.n.s)
 	case termui.KeyUp, termui.KeyDown, termui.KeyLeft, termui.KeyRight, termui.KeyHome, termui.KeyEnd, termui.KeyTab, termui.KeyBackTab:
 		if m != nil {
-			fv.move(m, k, a.settings.FlowDirection != "horizontal")
+			fv.move(m, k)
 		}
 	case "R", "B", "J", "C":
 		return false // the node's actions
@@ -238,7 +311,8 @@ func (fv *flowView) close() {
 // move walks the cursor: along the flow (down, or right) to where the
 // node sends, back to what sends to it, across to the next node of its
 // level.
-func (fv *flowView) move(m *flowMap, k string, vertical bool) {
+func (fv *flowView) move(m *flowMap, k string) {
+	vertical := m.vertical
 	g := m.g
 	if len(m.order) == 0 {
 		return
@@ -363,26 +437,6 @@ func (fv *flowView) render(a *app, f *termui.Frame, v *nodeView) {
 		}
 	}
 	fv.uptime = v.last.hap.uptime
-	body := termui.Rect{X: 0, Y: 1, W: f.W, H: f.H - 2}
-	mapR := body
-	var side termui.Rect
-	if f.W >= flowSideFrom {
-		mapR.W = f.W - flowSideWidth
-		side = termui.Rect{X: mapR.W, Y: body.Y, W: flowSideWidth, H: body.H}
-	} else {
-		dh := min(max(body.H/3, 8), 12)
-		mapR.H = body.H - dh
-		side = termui.Rect{X: 0, Y: mapR.Y + mapR.H, W: f.W, H: dh}
-	}
-	m := fv.layout(a, v)
-	vertical := a.settings.FlowDirection != "horizontal"
-	title := "Traffic flow  left to right"
-	if vertical {
-		title = "Traffic flow  top to bottom"
-	}
-	in := f.Box(mapR, "", styleFocus, styleTitle)
-	f.Text(mapR.X+2, mapR.Y, " "+termui.Truncate(title, mapR.W-6)+" ", styleTitle, mapR.W-4)
-
 	// What the map can't say, above it.
 	c := fv.config()
 	var notes []struct {
@@ -407,6 +461,24 @@ func (fv *flowView) render(a *app, f *termui.Frame, v *nodeView) {
 	if v.last.stat == nil && v.reachable {
 		note("Waiting for HAProxy's counters…", styleMuted)
 	}
+
+	m, mapR, side := fv.arrange(a, v, termui.Rect{X: 0, Y: 1, W: f.W, H: f.H - 2}, len(notes))
+	if fv.sel != "" && m.g.byID[fv.sel] == nil {
+		fv.sel = ""
+	}
+	fv.m = m
+	if a.settings.FlowDirection == "auto" {
+		fv.autoShown = &m.vertical
+	}
+	title := "Traffic flow  left to right"
+	if m.vertical {
+		title = "Traffic flow  top to bottom"
+	}
+	if a.settings.FlowDirection == "auto" {
+		title += " (auto)"
+	}
+	in := f.Box(mapR, "", styleFocus, styleTitle)
+	f.Text(mapR.X+2, mapR.Y, " "+termui.Truncate(title, mapR.W-6)+" ", styleTitle, mapR.W-4)
 	for _, nt := range notes {
 		if in.H <= 2 {
 			break
@@ -425,11 +497,14 @@ func (fv *flowView) render(a *app, f *termui.Frame, v *nodeView) {
 	if fv.sel != "" {
 		near = m.g.related(fv.sel)
 	}
-	ox := fv.ox
+	ox, oy := fv.ox, fv.oy
 	if m.w < inner.W { // a map narrower than its box: in the middle
 		ox = -(inner.W - m.w) / 2
 	}
-	m.draw(f, inner, ox, fv.oy, flowDraw{sel: fv.sel, near: near, phase: int(a.now().UnixMilli() / flowFrame.Milliseconds()), animate: a.settings.FlowAnimation})
+	if m.h < inner.H && !m.vertical { // left to right, lower than its box: level with its middle
+		oy = -(inner.H - m.h) / 2
+	}
+	m.draw(f, inner, ox, oy, flowDraw{sel: fv.sel, near: near, phase: int(a.now().UnixMilli() / flowFrame.Milliseconds()), animate: a.settings.FlowAnimation})
 	// More of the map past an edge: an arrow on the border says so.
 	if fv.ox > 0 {
 		f.Set(mapR.X, mapR.Y+mapR.H/2, '◂', styleFocus)
@@ -458,7 +533,7 @@ func (fv *flowView) renderDetails(a *app, f *termui.Frame, r termui.Rect, m *flo
 	title := "Details"
 	var lines []detail
 	if n == nil {
-		lines = flowLegend(a)
+		lines = flowLegend(fv.nextDirection(a))
 	} else {
 		title = n.name + "  " + map[string]string{kindIface: "interface", kindHub: "HAProxy", kindFE: "frontend", kindBE: "backend", kindSrv: "server", kindMore: "servers"}[n.kind]
 		lines = flowDetails(m.g, n, v)
@@ -538,14 +613,12 @@ func wrap(s string, w int) []string {
 	return append(out, s)
 }
 
-func flowLegend(a *app) []detail {
-	other := "horizontal"
-	if a.settings.FlowDirection == "horizontal" {
-		other = "vertical"
-	}
+// flowLegend is the details without a node selected; next is where o
+// goes.
+func flowLegend(next string) []detail {
 	return []detail{
 		{value: "← ↑ ↓ → select a node: its paths come forward. Enter on a server: ready, drain, maint.", st: styleDefault},
-		{value: "o " + other + " · s servers · f or Esc back", st: styleDefault},
+		{value: "o " + next + " · s servers · f or Esc back", st: styleDefault},
 		{value: ""},
 		{value: "━ traffic  ─ none  ╌ server down  ┄ off  ○ named by no rule", st: styleMuted},
 		{value: ""},

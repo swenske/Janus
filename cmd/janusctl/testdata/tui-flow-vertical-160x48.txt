@@ -1,48 +1,48 @@
  janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok  [network trial reverts in 42s]                    15:04:05
-╭─ Traffic flow  top to bottom ──────────────────────────────────────────────────────────────────────────────────╮╭ Details ───────────────────────────────────╮
-│                                              ● eth0                                                            ││ ← ↑ ↓ → select a node: its paths come      │
-│                                              │ 16.0KiB/s                                                       ││ forward. Enter on a server: ready,         │
-│                                              ┃                                                                 ││ drain, maint.                              │
-│                                              │                                                                 ││ o horizontal · s servers · f or Esc back   │
-│                                              │                                                                 ││                                            │
-│                                              ● HAProxy                                                         ││ ━ traffic  ─ none  ╌ server down  ┄ off    │
-│                                              │ 12 conns · 4 req/s                                              ││ ○ named by no rule                         │
-│                                              ┃                                                                 ││                                            │
-│ ──━───━───━───━───━───━───━───━───━───━───━──┴──━───━───━───━───━──┬━───━───━───━───┬────────────────────╮     ││ Links come from the configuration:         │
-│                                                                    │                │                    │     ││ default_backend, use_backend, a map's      │
-│                                                                    ● stats          ● tcp_in             ● adm ││ values when use_backend reads one.         │
-│ 8 sess                                                             │ 0B/s · 0 sess  │ 2.0KiB/s · 1 sess    0B/ ││ HAProxy doesn't count how a backend's      │
-│                                                                    │                ┃                          ││ traffic splits between the frontends       │
-│ ─━───━───━───━─┬─━───━───━───━───━───━─╮                           │                │                          ││ that send to it.                           │
-│                │                       │                           │                │                          ││                                            │
-│                ● be_many               ● be_default                ● stats          ● tcp_pool                 ││                                            │
-│ 1 sess         │ 4.9KiB/s · 1 sess     │ 4.9KiB/s · 1 sess           0B/s · 0 sess  │ 4.9KiB/s · 1 sess        ││                                            │
-│ iB/s · 2 sess  ├─● s1 500B/s · 0 sess  ╰─● app1 5.9KiB/s · 1 sess                   ╰─● app1 2.0KiB/s · 1 sess ││                                            │
-│ iB/s · 2 sess  ├─● s2 500B/s · 0 sess                                                                          ││                                            │
-│                ├─● s3 500B/s · 0 sess                                                                          ││                                            │
-│                ├━● s4 500B/s · 0 sess                                                                          ││                                            │
-│                ├─● s5 500B/s · 0 sess                                                                          ││                                            │
-◂                ├─● s6 500B/s · 0 sess                                                                          ▸│                                            │
-│                ├─● s7 500B/s · 0 sess                                                                          ││                                            │
-│                ╰━● +3 more 3 servers                                                                           ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-│                                                                                                                ││                                            │
-╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────────────────╯
+╭─ Traffic flow  top to bottom ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                       ● eth0                                                                                 │
+│                                                                       │ 16.0KiB/s                                                                            │
+│                                                                       ┃                                                                                      │
+│                                                                       │                                                                                      │
+│                                                                       │                                                                                      │
+│                                                                       ● HAProxy                                                                              │
+│                                                                       │ 12 conns · 4 req/s                                                                   │
+│                                                                       ┃                                                                                      │
+│              ╭─━───━───━───━───━───━───━───━───━───━───━───━───━───━──┴──━───━───━───━───━─┬─━───━───━───━─┬───────────────────╮                             │
+│              │                                                                             │               │                   │                             │
+│              ● https                                                                       ● stats         ● tcp_in            ● admin                       │
+│              │ 43.9KiB/s · 8 sess                                                          │ 0B/s · 0 sess │ 2.0KiB/s · 1 sess   0B/s · 0 sess               │
+│              ┃                                                                             │               ┃                                                 │
+│ ──━───━───━──┴┬─━───━───━───━───━───━───━┬──━───━───━───━───━───╮                          │               │                                                 │
+│               │                          │                      │                          │               │                                                 │
+│               ● be_www                   ● be_many              ● be_default               ● stats         ● tcp_pool                 ○ unused               │
+◂ up            │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess    │ 4.9KiB/s · 1 sess          0B/s · 0 sess │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess    │
+│ iB/s · 1 sess ├─● app1 9.8KiB/s · 2 sess ├─● s1 500B/s · 0 sess ╰─● app1 5.9KiB/s · 1 sess                 ╰─● app1 2.0KiB/s · 1 sess ╰─● app1 0B/s · 0 sess │
+│ · L4TOUT      ╰─● app2 8.8KiB/s · 2 sess ├─● s2 500B/s · 0 sess                                                                                              │
+│                                          ├─● s3 500B/s · 0 sess                                                                                              │
+│                                          ├━● s4 500B/s · 0 sess                                                                                              │
+│                                          ├─● s5 500B/s · 0 sess                                                                                              │
+│                                          ├─● s6 500B/s · 0 sess                                                                                              │
+│                                          ├─● s7 500B/s · 0 sess                                                                                              │
+│                                          ╰━● +3 more 3 servers                                                                                               │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭ Details ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ← ↑ ↓ → select a node: its paths come forward. Enter on a server: ready, drain, maint.                                                                       │
+│ o horizontal · s servers · f or Esc back                                                                                                                     │
+│                                                                                                                                                              │
+│ ━ traffic  ─ none  ╌ server down  ┄ off  ○ named by no rule                                                                                                  │
+│                                                                                                                                                              │
+│ Links come from the configuration: default_backend, use_backend, a map's values when use_backend reads one. HAProxy doesn't count how a backend's traffic    │
+│ splits between the frontends that send to it.                                                                                                                │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  ? help  q quit  f back  ←↑↓→ move  o horizontal  s servers  R reload  M menu                                                                           every 2s
