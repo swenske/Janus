@@ -35,8 +35,10 @@ On the node's page, **System › Update**:
    the new kernel, without the firmware - seconds where a server's POST
    takes a minute (what to know first: `-kexec` under [With
    janusctl](#with-janusctl)).
-5. **Install and reboot**: the page follows the node through its reboot
-   until it's back, on its new slot - and says whether it went through
+5. **Install and reboot**: the confirmation names the release it
+   installs - and says so when it is older than the node's, which then
+   takes its version typed. The page follows the node through its reboot
+   until it's back, on its new slot, and says whether it went through
    kexec or, when it couldn't, the firmware.
 
 Update the nodes of a pair one at a time: before rebooting, a node gives
