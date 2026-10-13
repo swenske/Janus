@@ -365,7 +365,14 @@ streams each into `UploadReleaseFile` as it arrives - sha256 checked on
 the way - then calls `Upgrade` on the staged copy; progress comes back
 as NDJSON and the page shows it), or **upload files** from the browser
 (`upgrade-upload`). The node verifies the bundle's signature in every
-case. **Reboot through kexec** (off each time the page opens) sends
+case. What the page filled the form in with - the latest release (**Use
+this update**, offered only when it's newer than the node's), the
+pre-release, the prepared image - it names, while the URL is still that
+one: in the form, and in the confirmation's title and button. Older
+than what the node runs (`releases.js`' `compareRelease`, the Go
+`updaterapi.Newer`'s rule), the form and the confirmation say so in red,
+and installing takes the version typed. A URL or files typed by hand
+have no version here. **Reboot through kexec** (off each time the page opens) sends
 `reboot_mode: "kexec"` with any of the three, `"firmware"` otherwise:
 the node's last stage message - the toast, then the label the page
 follows the reboot under - says whether it jumps into the new kernel or

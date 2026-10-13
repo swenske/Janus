@@ -9,6 +9,7 @@ import { useMay } from '../may.js'
 import { WaitForNode } from '../waitForNode.jsx'
 import { PrereleaseBadge } from '../../PrereleaseBadge.jsx'
 import { SecurityBadge } from '../../SecurityBadge.jsx'
+import { compareRelease } from '../../releases.js'
 import { securityText, securityTone } from '../../severity.js'
 import { SupportBadge } from '../../SupportBadge.jsx'
 import { variantNote } from '../../variants.js'
@@ -61,6 +62,10 @@ export default function Update({ route = '' }) {
   // pre: the pre-release filled in below (its prereleaseOffer), installed
   // while the URL is still its.
   const [pre, setPre] = useState(null)
+  // chosen: the release this page filled the form in with - the latest,
+  // the pre-release, the prepared image -, its version known while the
+  // URL is still its.
+  const [chosen, setChosen] = useState(null)
   const installRef = useRef(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
@@ -86,6 +91,7 @@ export default function Update({ route = '' }) {
     }
     setTarget(null)
     setPre(null)
+    setChosen({ url: uc.bundle_base_url, version: uc.latest })
     setModeState((m) => (m === 'upload' ? 'url' : m))
     setReference(uc.bundle_base_url)
     setSha(uc.sha256 || '')
@@ -93,6 +99,7 @@ export default function Update({ route = '' }) {
   const applyPrerelease = useCallback((p) => {
     setTarget(null)
     setPre(p)
+    setChosen({ url: p.bundle_base_url, version: p.version })
     setModeState((m) => (m === 'upload' ? 'url' : m))
     setReference(p.bundle_base_url)
     setSha(p.sha256 || '')
@@ -102,6 +109,7 @@ export default function Update({ route = '' }) {
   const applyTarget = useCallback((t) => {
     setPre(null)
     setTarget(t)
+    setChosen({ url: t.bundle_base_url, version: t.latest })
     setModeState((m) => (m === 'upload' ? 'url' : m))
     setReference(t.bundle_base_url)
     setSha(t.sha256 || '')
@@ -111,6 +119,10 @@ export default function Update({ route = '' }) {
   const byURL = mode === 'url' || mode === 'relay'
   const targetActive = !!target && byURL && reference === target.bundle_base_url
   const preActive = !!pre && byURL && reference === pre.bundle_base_url
+  // The version the form installs, when the page knows it, and how it
+  // stands against the node's: 1 newer, 0 the same, -1 older.
+  const installing = chosen && byURL && reference === chosen.url ? chosen.version : ''
+  const order = installing ? compareRelease(installing, v?.version) : null
   // Another HAProxy branch may refuse the configuration: the automatic
   // revert stays on, whatever the checkbox says.
   const branchChange = targetActive && (target.haproxy || '') !== (target.node_haproxy || '')
@@ -119,9 +131,19 @@ export default function Update({ route = '' }) {
   const launch = async () => {
     const slot = v?.active_slot === 'A' ? 'B' : 'A'
     const ok = await confirm({
-      title: 'Install this release?',
+      title: installing ? `Install ${installing}?` : 'Install this release?',
       body: (
         <>
+          {order === -1 && (
+            <div className="notice danger">
+              <strong>
+                {installing} is older than {v.version}
+              </strong>
+              , which the node runs: installing it takes the node back to an older release.
+            </div>
+          )}
+          {order === 0 && <p>The node already runs {installing}: it is installed again, on the other slot.</p>}
+          {!installing && <p className="muted">This page doesn&apos;t know the version of this bundle: it installs whatever is at this URL, or in these files.</p>}
           {preActive && (
             <div className="notice warn">
               <strong>{pre.version} is a pre-release</strong>, for testing: not supported, and it may still change or be withdrawn.
@@ -163,8 +185,10 @@ export default function Update({ route = '' }) {
           )}
         </>
       ),
-      action: preActive ? `Install ${pre.version} and reboot` : 'Install and reboot',
+      action: installing ? `Install ${installing} and reboot` : 'Install and reboot',
       danger: true,
+      // Going back to an older release takes its version typed.
+      typeToConfirm: order === -1 ? installing : undefined,
     })
     if (!ok) return
     const health = {
@@ -348,7 +372,7 @@ export default function Update({ route = '' }) {
                 </div>
               )}
               <div className="muted small">Source: {uc.source === 'github' ? 'GitHub Releases' : 'image factory'}</div>
-              {canUpgrade && (
+              {canUpgrade && (uc.update_available || uc.renamed) && (
                 <div>
                   <button className="primary small" onClick={useLatest} disabled={uc.state !== 'ready' || !uc.bundle_base_url}>
                     Use this update
@@ -367,6 +391,20 @@ export default function Update({ route = '' }) {
             <div className="notice warn" style={{ marginBottom: '0.75rem' }}>
               Installs the pre-release <strong className="mono">{pre.version}</strong> - for testing, not supported. <em>Rollback</em> goes back to the current system.
             </div>
+          )}
+          {order === -1 ? (
+            <div className="notice danger" style={{ marginBottom: '0.75rem' }}>
+              Installs <strong className="mono">{installing}</strong>, older than the {v.version} the node runs.
+            </div>
+          ) : (
+            installing &&
+            !preActive &&
+            !targetActive && (
+              <div className="notice" style={{ marginBottom: '0.75rem' }}>
+                Installs <strong className="mono">{installing}</strong>
+                {order === 0 ? ', which the node already runs' : ''}.
+              </div>
+            )
           )}
           {targetActive && (
             <div className="notice" style={{ marginBottom: '0.75rem' }}>
