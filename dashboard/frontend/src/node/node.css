@@ -225,6 +225,9 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .collector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr)); gap: 0.35rem 1rem; }
 .check.collector { align-items: flex-start; }
 .check.collector input { margin-top: 0.2rem; }
+/* A choice whose words may wrap: the box stays whole, by the first line. */
+.check.wraps { align-items: flex-start; }
+.check.wraps input { margin-top: 0.2rem; flex-shrink: 0; }
 
 /* The sidebar's "Add or remove apps…" */
 .nav-item.nav-link { color: var(--muted); }

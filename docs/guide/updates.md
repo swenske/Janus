@@ -17,7 +17,7 @@ promptly ([security policy](../../SECURITY.md)).
 
 On the node's page, **System › Update**:
 
-![A node's Update page: the release it runs, its slot, schematic and extensions; the latest release; and the three ways to install one, with the automatic revert](../assets/screenshots/node-update-light.webp)
+![A node's Update page: the release it runs, its slot, schematic and extensions; the latest release; and the three ways to install one, with the automatic revert and the reboot through kexec](../assets/screenshots/node-update-light.webp)
 
 1. It shows the node's release, slot and extensions, and the release to
    install - from its GitHub release, or built by the image factory for
@@ -31,8 +31,13 @@ On the node's page, **System › Update**:
      Controller.
 3. Keep **automatic revert** on: the node confirms itself only once
    HAProxy answers healthily after the reboot, and goes back otherwise.
-4. **Install and reboot**: the page follows the node through its reboot
-   until it's back, on its new slot.
+4. **Reboot through kexec**, if you like: the node jumps straight into
+   the new kernel, without the firmware - seconds where a server's POST
+   takes a minute (what to know first: `-kexec` under [With
+   janusctl](#with-janusctl)).
+5. **Install and reboot**: the page follows the node through its reboot
+   until it's back, on its new slot - and says whether it went through
+   kexec or, when it couldn't, the firmware.
 
 Update the nodes of a pair one at a time: before rebooting, a node gives
 its virtual IP or its BGP route up, so the other one serves alone for
@@ -70,7 +75,9 @@ janusctl -n lb1 version           # the release now running, and its slot
 - `-kexec` reboots into the new release without going through the
   firmware: the running kernel jumps straight into the new one, in
   seconds, where a server's POST takes a minute. The same flag on
-  `janusctl system reboot`. It is opt-in: a driver left in an odd state
+  `janusctl system reboot`; on the Controller, **Reboot through kexec**
+  on the node's Update page and **Through kexec** on its **System ›
+  Power** page. It is opt-in: a driver left in an odd state
   by the running kernel is kexec's known risk, which a firmware reboot
   never has - try it on a node you can reach otherwise, then make it
   your habit where it works. With Secure Boot on, only a release signed

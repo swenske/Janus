@@ -54,20 +54,36 @@ const ACTIONS = [
   },
 ]
 
+// KEXEC is the reboot through kexec, in place of the firmware's.
+const KEXEC = {
+  title: 'Reboot through kexec',
+  mode: 'kexec',
+  risk: "A driver left in an odd state by the running kernel is kexec's known risk, which a firmware reboot never has: try it where you can reach the node otherwise.",
+  confirm: {
+    title: 'Reboot this node through kexec?',
+    body: "It jumps into its active kernel without the firmware: it stops serving traffic for seconds. With Secure Boot on, an image not signed by Janus can't be kexec'd: the node then refuses, and nothing reboots.",
+    action: 'Reboot through kexec',
+    danger: true,
+  },
+}
+
 export default function Power() {
   const { overview } = useNodeStatus()
   const [waiting, setWaiting] = useState(null)
   const [resetDone, setResetDone] = useState(false)
+  // Reboot into the active kernel without the firmware (RebootMode KEXEC).
+  const [kexec, setKexec] = useState(false)
   const [busy, run] = useAction()
   const confirm = useConfirm()
   const toast = useToast()
   const may = useMay()
   const hostname = overview.data?.hostname
 
-  const act = async (a) => {
+  const act = async (action) => {
+    const a = action.id === 'reboot' && kexec ? { ...action, ...KEXEC } : action
     const ok = await confirm({ ...a.confirm, body: <p>{a.confirm.body}</p>, typeToConfirm: a.id === 'reset' ? hostname || 'reset' : a.confirm.typeToConfirm })
     if (!ok) return
-    const res = await run(() => postJSON('/api/system/power', { action: a.id, wipe_state: a.id === 'reset' }), `${a.title}: requested`)
+    const res = await run(() => postJSON('/api/system/power', { action: a.id, wipe_state: a.id === 'reset', mode: a.mode }), `${a.title}: requested`)
     if (res === undefined) return
     if (a.id === 'shutdown') return
     if (a.id === 'reset') {
@@ -105,6 +121,11 @@ export default function Power() {
             <p className="muted" style={{ marginTop: 0 }}>
               {a.text}
             </p>
+            {a.id === 'reboot' && (
+              <label className="check wraps" style={{ marginBottom: '0.75rem' }} title={KEXEC.risk}>
+                <input type="checkbox" checked={kexec} onChange={(e) => setKexec(e.target.checked)} /> Through kexec: without the firmware, in seconds
+              </label>
+            )}
             <button className={a.id === 'restart' ? '' : 'danger'} disabled={busy || !!waiting || resetDone} onClick={() => act(a)}>
               <a.icon size={15} /> {a.button}
             </button>

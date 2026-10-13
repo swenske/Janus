@@ -365,7 +365,13 @@ streams each into `UploadReleaseFile` as it arrives - sha256 checked on
 the way - then calls `Upgrade` on the staged copy; progress comes back
 as NDJSON and the page shows it), or **upload files** from the browser
 (`upgrade-upload`). The node verifies the bundle's signature in every
-case.
+case. **Reboot through kexec** (off each time the page opens) sends
+`reboot_mode: "kexec"` with any of the three, `"firmware"` otherwise:
+the node's last stage message - the toast, then the label the page
+follows the reboot under - says whether it jumps into the new kernel or
+why it goes through the firmware instead. Power's Reboot has the same
+box (`mode: "kexec"` on `/api/system/power`); the node refuses that
+one, nothing rebooted, when it can't kexec.
 
 Shared caches (latest release, factory updates, catalog) fetch with a
 context detached from the request that triggers them

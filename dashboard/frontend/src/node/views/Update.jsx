@@ -49,6 +49,8 @@ export default function Update({ route = '' }) {
   const [timeout, setTimeoutS] = useState('')
   const [allowUnsigned, setAllowUnsigned] = useState(false)
   const [allowSchematic, setAllowSchematic] = useState(false)
+  // Into the new kernel without the firmware (RebootMode KEXEC).
+  const [kexec, setKexec] = useState(false)
   const [following, setFollowing] = useState(null)
   // changing: the image panel (extensions, HAProxy branch, kernel track)
   // is open; target: the update it prepared (POST /api/factory/update),
@@ -129,10 +131,16 @@ export default function Update({ route = '' }) {
             The new system is written to slot <strong>{slot}</strong> (the one not running), then the node reboots into it. The current slot stays intact, so <em>Rollback</em> can
             always go back.
           </p>
+          {kexec && (
+            <p>
+              It reboots <strong>through kexec</strong>: straight into the new kernel, without the firmware. If it can&apos;t - Secure Boot on and a bundle not signed by Janus -
+              it reboots through the firmware, and says so.
+            </p>
+          )}
           {revert ? (
             <p>
-              If HAProxy isn't healthy on the new slot within {timeout || 60} s, the node reverts to the current slot on its own.
-              {branchChange && !waitHealth && ' (Always, for another HAProxy branch.)'}
+              If HAProxy isn't healthy on the new slot within {timeout || 60} s, the node reverts to the current slot on its own
+              {kexec ? ', through the firmware' : ''}.{branchChange && !waitHealth && ' (Always, for another HAProxy branch.)'}
             </p>
           ) : (
             <p className="muted">No automatic revert: the node stays on the new slot whatever happens.</p>
@@ -164,6 +172,7 @@ export default function Update({ route = '' }) {
       health_timeout_seconds: Number(timeout) || 0,
       insecure_skip_signature_check: allowUnsigned,
       allow_schematic_change: allowSchematic,
+      reboot_mode: kexec ? 'kexec' : 'firmware',
     }
     const result = await run(async () => {
       if (mode === 'url') return postJSON('/api/lifecycle/upgrade-url', { reference, sha256: sha, ...health })
@@ -175,14 +184,18 @@ export default function Update({ route = '' }) {
       form.append('health_timeout_seconds', String(Number(timeout) || 0))
       form.append('insecure_skip_signature_check', String(allowUnsigned))
       form.append('allow_schematic_change', String(allowSchematic))
+      form.append('reboot_mode', health.reboot_mode)
       const resp = await fetch(apiURL('/api/lifecycle/upgrade-upload'), { method: 'POST', body: form })
       if (!resp.ok) throw new ApiError((await resp.text()).trim(), resp.status)
       return resp.json()
     })
     setRelay(null)
     if (result) {
-      toast(result.message || 'Update written - the node is rebooting')
-      setFollowing({ boot: overview.data?.system?.boot_time_unix, from: v?.version })
+      // The node's last word says how it reboots: through kexec, or
+      // through the firmware and why it couldn't kexec.
+      const how = result.message || ''
+      toast(how || 'Update written - the node is rebooting', kexec && !how.includes('through kexec') ? 'warn' : 'ok')
+      setFollowing({ boot: overview.data?.system?.boot_time_unix, from: v?.version, how })
     }
   }
 
@@ -194,7 +207,7 @@ export default function Update({ route = '' }) {
         <div style={{ marginBottom: '1rem' }}>
           <WaitForNode
             previousBoot={following.boot}
-            label="Installing and rebooting"
+            label={following.how ? following.how[0].toUpperCase() + following.how.slice(1) : 'Installing and rebooting'}
             onBack={(o) => {
               const now = o.version?.version
               toast(
@@ -412,16 +425,20 @@ export default function Update({ route = '' }) {
               <input className="mono" value={sha} onChange={(e) => setSha(e.target.value)} placeholder="64 hex characters" />
             </label>
             <div className="row">
-              <label className="check">
+              <label className="check wraps">
                 <input type="checkbox" checked={waitHealth} onChange={(e) => setWaitHealth(e.target.checked)} /> Revert automatically if HAProxy isn't healthy after the reboot
               </label>
               {waitHealth && <input type="number" min={0} style={{ width: '9rem' }} placeholder="timeout (60 s)" value={timeout} onChange={(e) => setTimeoutS(e.target.value)} />}
             </div>
-            <label className="check">
+            <label className="check wraps" title="A driver left in an odd state by the running kernel is kexec's known risk, which a firmware reboot never has: try it where you can reach the node otherwise.">
+              <input type="checkbox" checked={kexec} onChange={(e) => setKexec(e.target.checked)} /> Reboot through kexec: straight into the new kernel, without the firmware -
+              seconds instead of a server&apos;s POST
+            </label>
+            <label className="check wraps">
               <input type="checkbox" checked={allowUnsigned} onChange={(e) => setAllowUnsigned(e.target.checked)} /> Accept a bundle not signed with a Janus release key (insecure -
               development builds only)
             </label>
-            <label className="check">
+            <label className="check wraps">
               <input type="checkbox" checked={allowSchematic} onChange={(e) => setAllowSchematic(e.target.checked)} /> Accept a bundle built from another image schematic (changes
               the node's extensions, HAProxy branch or kernel track)
             </label>
