@@ -17,6 +17,9 @@ from the Controller's web UI, from `janusctl`, or from Terraform.
   a blank machine into a node that registers itself with a Controller.
   Deploying many, on a hypervisor or bare metal: [Janus in a private
   cloud](../private-cloud/README.md).
+- [Comparing the tools](tool-comparison.md) - what `janusctl`, its
+  dashboard, the Controller and Terraform each do with a node's API,
+  call by call, and what they add to it.
 
 ## The Controller
 

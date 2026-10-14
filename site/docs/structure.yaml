@@ -32,6 +32,7 @@ topics:
               - { file: docs/guide/quickstart.md, label: Quick start }
               - { file: docs/image-factory.md, label: Images and extensions }
               - { file: docs/provisioning-a-node.md, label: Provisioning a node }
+              - { file: docs/guide/tool-comparison.md, label: Which tool does what }
           - label: The Controller
             pages:
               - { file: dashboard/README.md, slug: controller, title: The Controller, label: The Controller }
