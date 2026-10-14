@@ -7,10 +7,9 @@ lost. Auto-scaling reads the node's load, decides against your
 thresholds, and writes every step in the machine's journal.
 
 > [!NOTE]
-> This version **observes**: it writes what it would do, and the size it
+> Start with **Observe**: it writes what it would do, and the size it
 > would have given, without resizing anything. Run it on your real
-> traffic before letting it resize for real. That comes in a later
-> version.
+> traffic, adjust the thresholds, then turn it **On**.
 
 It's for the machines the Controller makes ([Hypervisors](../hypervisors.md)),
 on libvirt/KVM and Proxmox VE. It needs a node image from 2026-10-14 or
@@ -92,6 +91,48 @@ What no step can fix is said, not acted on:
   memory doesn't raise;
 - threads fixed by its configuration: more vCPUs wouldn't be used.
 
+## Resizing
+
+Its mode **On**, each step resizes the running machine:
+
+1. **Memory added only if the host has room.** The host must keep a
+   twentieth of its own memory free, 512 MiB at least. Otherwise the
+   step is refused, written once in the journal, and tried again with
+   the next decision.
+2. **The hypervisor plugs in or takes out what the step says** - vCPUs,
+   virtio-mem's requested size, Proxmox VE's memory modules.
+3. **Auto-scaling waits until the node shows it**: its CPUs online, its
+   memory moved by what was added or taken, within 90 seconds.
+4. **The journal says what the machine really has after it.** Memory in
+   use may not all come back at once: the step records what did.
+
+A machine paused, or set to observe, goes back to its size at once.
+A reboot keeps the size it was given. A restart through **Edit** starts
+it at its size again.
+
+## The kernel parameters
+
+**Kernel parameters follow** (`"sysctl": true`) makes the node's kernel
+parameters follow the machine. The node already suggests values on its
+**System › Sysctl** page, from its memory and what it observed (see
+[Kernel tuning](kernel-tuning.md#suggestions)), and memory plugged in
+adds the `follow_memory` suggestions for `tcp_mem`, `file-max` and
+`nf_conntrack_max`. Auto-scaling applies them the way you would:
+
+- on trial, and confirmed over a connection of its own once the node and
+  HAProxy still answer - otherwise the node takes them back by itself
+  within 2 minutes;
+- right after a memory step, and every 10 minutes;
+- **never a parameter someone else confirmed**: the node's sysctl history
+  says who changed what - auto-scaling is `auto-scaling` there;
+- a parameter at most once every 6 hours - the `follow_memory` rules
+  aside, which follow every memory step - so two rules can't take turns
+  on it;
+- back at its size, what followed the memory goes back to what it was,
+  unless someone changed it since.
+
+Observing, each change it would make is written in the journal, once.
+
 ## Observing
 
 Observing changes nothing on the machine. Each step auto-scaling would
@@ -114,16 +155,18 @@ have come back. On the machine's card:
 
 - **Mode**:
   - **Observe**;
+  - **On**;
   - **Paused** (back to its size, room kept: no restart to turn it on
     again);
   - **None** (its size is fixed - removing the policy restarts it).
 - **Up to**: the maxima.
 - **Thresholds**: what's above, each one changeable.
+- **Kernel parameters follow**.
 
 From the API, `PATCH /api/machines/{id}`:
 
 ```json
-{"autoscale": {"mode": "observe", "max_vcpus": 4, "max_memory_mib": 4096}}
+{"autoscale": {"mode": "on", "max_vcpus": 4, "max_memory_mib": 4096, "sysctl": true}}
 ```
 
 The thresholds are optional, their defaults left out. Each one:
@@ -137,7 +180,7 @@ The thresholds are optional, their defaults left out. Each one:
 | `memory_up_available_percent` | 20 |
 | `memory_up_after_seconds` | 120 |
 | `memory_down_available_percent` | 40 |
-| `return_after_seconds` | 1800 |
+| `return_after_seconds` | 1800 (60 at least) |
 | `cooldown_seconds` | 300 |
 | `max_steps_per_hour` | 6 |
 
@@ -156,3 +199,11 @@ start.
 A machine's record keeps its size as created. What it has now is `size`,
 read from the hypervisor, with the most it can have without a restart. A
 size auto-scaling didn't give it is noted in its history, once.
+
+The modes, from the API:
+
+| `mode` | What happens |
+|---|---|
+| `observe` | Steps journaled and simulated, nothing resized. |
+| `on` | Steps taken. |
+| `off` | Paused: back to its size, the room to grow kept. |

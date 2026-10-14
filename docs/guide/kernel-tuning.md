@@ -208,6 +208,11 @@ parameter's bounds and passes the same checks as a change - one the node
 would refuse isn't shown -, and only the parameters you can change get
 one.
 
+The node never applies one by itself. The Controller's
+[auto-scaling](auto-scaling.md#the-kernel-parameters) does, for a machine
+whose policy has the kernel parameters follow it - on trial and confirmed
+like any change, never a parameter someone else confirmed.
+
 ### What the node observes
 
 Every 15 seconds, janusd reads the kernel's counters and gauges below -
