@@ -16,6 +16,11 @@
 #   3b. a node that can't register says why on its console: the machine
 #      shows it as a warning (while a page reads the same console), and
 #      the node registers on its own once it can - no reboot;
+#   3c. auto-scaling, observing: a policy restarts the machine once with
+#      room to grow (vCPUs to hot-plug, a virtio-mem device), the node's
+#      real load is read and the step it would take is journaled and
+#      simulated - nothing resized; paused, then removed (restarted
+#      fixed);
 #   4. a record forged to point at a domain the Controller didn't create
 #      (one untagged, one tagged by another Controller) is refused, and
 #      the domain is left as it was;
@@ -277,6 +282,91 @@ echo "Part 4b OK: node2, unable to register, said why on the machine ($(echo "$w
 
 }
 
+autoscale_cycle() {
+# =========================================================================
+# 3c. Auto-scaling, observing.
+# =========================================================================
+# Thresholds a quiet node crosses: more memory as long as less than 97 %
+# is available - what it would do, journaled after 30 s of samples.
+cat >"$WORKDIR/autoscale.json" <<'EOF'
+{"autoscale": {"mode": "observe", "max_vcpus": 2, "max_memory_mib": 2048,
+  "memory_up_available_percent": 97, "memory_down_available_percent": 99, "memory_up_after_seconds": 30}}
+EOF
+code="$(api -o "$WORKDIR/p.json" -w '%{http_code}' -X PATCH "$API/api/machines/$MID" -H 'Content-Type: application/json' -d @"$WORKDIR/autoscale.json")"
+[ "$code" = 202 ] || fail "setting an auto-scaling policy returned $code: $(cat "$WORKDIR/p.json")"
+for _ in $(seq 1 150); do
+  [ "$(api "$API/api/machines/$MID" | json "d['phase']")" = ready ] && break
+  sleep 2
+done
+api "$API/api/machines/$MID" >"$WORKDIR/m.json"
+python3 - "$WORKDIR/m.json" <<'EOF' || fail "the machine with its policy: $(cat "$WORKDIR/m.json")"
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["phase"] == "ready" and not d.get("error"), (d["phase"], d.get("error"))
+assert d["spec"]["autoscale"]["mode"] == "observe" and d["spec"]["vcpus"] == 1 and d["spec"]["memory_mib"] == 1024, d["spec"]
+events = "\n".join(e["message"] for e in d["events"])
+assert "room for 2 vCPU, 2048 MiB" in events and "auto-scaling observing" in events, events
+EOF
+xml="$(in_host virsh dumpxml janus-node1)"
+grep -q "current='1'>2</vcpu>" <<<"$xml" || fail "the domain has no room for a second vCPU: $(grep vcpu <<<"$xml")"
+grep -q "model='virtio-mem'" <<<"$xml" || fail "the domain has no virtio-mem device"
+for _ in $(seq 1 60); do
+  reachable="$(api "$API/api/nodes/status" | json "d.get('$NODE',{}).get('reachable')")"
+  [ "$reachable" = True ] && break
+  sleep 2
+done
+[ "$reachable" = True ] || fail "the node didn't come back from its restart"
+# Its size as the hypervisor says - nominal, with room to grow.
+for _ in $(seq 1 30); do
+  api "$API/api/machines/$MID?refresh=true" >"$WORKDIR/m.json"
+  [ "$(json "(d.get('size') or {}).get('max_vcpus')" <"$WORKDIR/m.json")" = 2 ] && break
+  sleep 2
+done
+python3 - "$WORKDIR/m.json" <<'EOF' || fail "the machine's size: $(cat "$WORKDIR/m.json")"
+import json, sys
+s = json.load(open(sys.argv[1]))["size"]
+assert s == {"vcpus": 1, "memory_mib": 1024, "max_vcpus": 2, "max_memory_mib": 2048, "memory_step_mib": 128}, s
+EOF
+# The node's real load read; the step it would take, journaled.
+for _ in $(seq 1 60); do
+  api "$API/api/machines/$MID/autoscale" >"$WORKDIR/as.json"
+  [ "$(json "len(d['journal'])" <"$WORKDIR/as.json")" -ge 1 ] && break
+  sleep 3
+done
+python3 - "$WORKDIR/as.json" <<'EOF' || fail "auto-scaling's journal: $(cat "$WORKDIR/as.json")"
+import json, sys
+d = json.load(open(sys.argv[1]))
+e = d["journal"][0]
+assert e["mode"] == "observe" and e["action"] == "up" and e["resource"] == "memory", e
+assert e["from"] == {"vcpus": 1, "memory_mib": 1024} and e["to"] == {"vcpus": 1, "memory_mib": 1280}, e
+assert "available on average" in e["reason"], e
+st = d["state"]
+assert st["mode"] == "observe" and st["size"] == {"vcpus": 1, "memory_mib": 1280}, st
+assert d["defaults"]["cpu_up_idle_percent"] == 30, d["defaults"]
+print("  journaled: would grow to %s MiB - %s" % (e["to"]["memory_mib"], e["reason"]))
+EOF
+xml="$(in_host virsh dumpxml janus-node1)"
+grep -q "current='1'>2</vcpu>" <<<"$xml" && grep -q "<requested unit='KiB'>0</requested>" <<<"$xml" || fail "observing resized the machine: $(grep -E 'vcpu|requested' <<<"$xml")"
+# Paused: the record only, no restart.
+code="$(api -o "$WORKDIR/p.json" -w '%{http_code}' -X PATCH "$API/api/machines/$MID" -H 'Content-Type: application/json' \
+  -d '{"autoscale": {"mode": "off", "max_vcpus": 2, "max_memory_mib": 2048, "memory_up_available_percent": 97, "memory_down_available_percent": 99, "memory_up_after_seconds": 30}}')"
+[ "$code" = 200 ] || fail "pausing auto-scaling returned $code: $(cat "$WORKDIR/p.json")"
+# Removed: started again without room to grow.
+code="$(api -o "$WORKDIR/p.json" -w '%{http_code}' -X PATCH "$API/api/machines/$MID" -H 'Content-Type: application/json' -d '{"autoscale": null}')"
+[ "$code" = 202 ] || fail "removing auto-scaling returned $code: $(cat "$WORKDIR/p.json")"
+for _ in $(seq 1 150); do
+  [ "$(api "$API/api/machines/$MID" | json "d['phase']")" = ready ] && break
+  sleep 2
+done
+xml="$(in_host virsh dumpxml janus-node1)"
+if grep -q "virtio-mem\|current=" <<<"$xml"; then fail "removed, the domain still has room to grow"; fi
+for _ in $(seq 1 60); do
+  [ "$(api "$API/api/nodes/status" | json "d.get('$NODE',{}).get('reachable')")" = True ] && break
+  sleep 2
+done
+echo "Part 4c OK: an observing policy restarted node1 with room to grow (hot-pluggable vCPU, virtio-mem), its real load read, the step it would take journaled and simulated, nothing resized; paused without a restart, removed with one"
+}
+
 destroy_cycle() {
 # =========================================================================
 # 5. Destroy: nothing left but the base image.
@@ -299,6 +389,7 @@ echo "Part 6 OK: destroyed - node, virtual machine, NVRAM and volumes gone, the 
 
 if [ -c /dev/net/tun ]; then
   boot_cycle
+  autoscale_cycle
 else
   failed_creation
 fi
