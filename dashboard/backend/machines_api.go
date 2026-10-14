@@ -37,28 +37,28 @@ func (a *app) registerMachineRoutes(mux *http.ServeMux) {
 }
 
 type machineView struct {
-	ID             string           `json:"id"`
-	Spec           machines.Spec    `json:"spec"`
-	HypervisorName string           `json:"hypervisor_name"`
-	Phase          machines.Phase   `json:"phase"`
-	Error          string           `json:"error,omitempty"`
-	Version        string           `json:"version,omitempty"`
-	Schematic      string           `json:"schematic,omitempty"`
-	VMName         string           `json:"vm_name,omitempty"`
-	VMUUID         string           `json:"vm_uuid,omitempty"`
-	NodeID         string           `json:"node_id,omitempty"`
-	NodeAddress    string           `json:"node_address,omitempty"`
-	NodeHostname   string           `json:"node_hostname,omitempty"`
-	SyncedAt       time.Time        `json:"synced_at,omitzero"`
-	SyncError      string           `json:"sync_error,omitempty"`
-	Warning        string           `json:"warning,omitempty"`
+	ID             string         `json:"id"`
+	Spec           machines.Spec  `json:"spec"`
+	HypervisorName string         `json:"hypervisor_name"`
+	Phase          machines.Phase `json:"phase"`
+	Error          string         `json:"error,omitempty"`
+	Version        string         `json:"version,omitempty"`
+	Schematic      string         `json:"schematic,omitempty"`
+	VMName         string         `json:"vm_name,omitempty"`
+	VMUUID         string         `json:"vm_uuid,omitempty"`
+	NodeID         string         `json:"node_id,omitempty"`
+	NodeAddress    string         `json:"node_address,omitempty"`
+	NodeHostname   string         `json:"node_hostname,omitempty"`
+	SyncedAt       time.Time      `json:"synced_at,omitzero"`
+	SyncError      string         `json:"sync_error,omitempty"`
+	Warning        string         `json:"warning,omitempty"`
 	// Size is what the virtual machine has now; AutoscaleState what its
 	// auto-scaling remembers and says.
 	Size           *machines.Size           `json:"size,omitempty"`
 	AutoscaleState *machines.AutoscaleState `json:"autoscale_state,omitempty"`
 	Events         []machines.Event         `json:"events"`
-	CreatedAt      time.Time        `json:"created_at"`
-	UpdatedAt      time.Time        `json:"updated_at"`
+	CreatedAt      time.Time                `json:"created_at"`
+	UpdatedAt      time.Time                `json:"updated_at"`
 }
 
 func (a *app) machineView(m *machines.Machine) machineView {

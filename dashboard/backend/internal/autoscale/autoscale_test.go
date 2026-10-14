@@ -31,7 +31,9 @@ func samplesFor(start time.Time, d time.Duration, cpus, mem int, l load) []Sampl
 }
 
 func steady(idle, busy float64, availMiB int) load {
-	return func(time.Time) Sample { return Sample{IdlePercent: idle, BusyPercent: busy, MemAvailableMiB: availMiB, MaxConn: 1000} }
+	return func(time.Time) Sample {
+		return Sample{IdlePercent: idle, BusyPercent: busy, MemAvailableMiB: availMiB, MaxConn: 1000}
+	}
 }
 
 func TestDefaultsValidate(t *testing.T) {
