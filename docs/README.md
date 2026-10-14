@@ -17,6 +17,7 @@ Install, configure and operate Janus nodes and the Controller.
 - [Quick start](guide/quickstart.md)
 - [Images and extensions](image-factory.md)
 - [Provisioning a node](provisioning-a-node.md)
+- [Which tool does what](guide/tool-comparison.md)
 
 ### The Controller
 
