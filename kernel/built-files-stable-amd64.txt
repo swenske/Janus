@@ -1168,6 +1168,7 @@ drivers/base/firmware_loader/main.c
 drivers/base/firmware_loader/sysfs.h
 drivers/base/init.c
 drivers/base/map.c
+drivers/base/memory.c
 drivers/base/node.c
 drivers/base/physical_location.c
 drivers/base/physical_location.h
@@ -2141,6 +2142,7 @@ drivers/video/screen_info_generic.c
 drivers/video/screen_info_pci.c
 drivers/virtio/virtio.c
 drivers/virtio/virtio_anchor.c
+drivers/virtio/virtio_mem.c
 drivers/virtio/virtio_pci_admin_legacy_io.c
 drivers/virtio/virtio_pci_common.c
 drivers/virtio/virtio_pci_common.h
@@ -4106,6 +4108,7 @@ include/trace/events/alarmtimer.h
 include/trace/events/avc.h
 include/trace/events/block.h
 include/trace/events/capability.h
+include/trace/events/compaction.h
 include/trace/events/coredump.h
 include/trace/events/cpuhp.h
 include/trace/events/csd.h
@@ -4147,6 +4150,7 @@ include/trace/events/netlink.h
 include/trace/events/nmi.h
 include/trace/events/notifier.h
 include/trace/events/oom.h
+include/trace/events/page_isolation.h
 include/trace/events/page_pool.h
 include/trace/events/pagemap.h
 include/trace/events/pci.h
@@ -4512,6 +4516,7 @@ include/uapi/linux/virtio_blk.h
 include/uapi/linux/virtio_config.h
 include/uapi/linux/virtio_console.h
 include/uapi/linux/virtio_ids.h
+include/uapi/linux/virtio_mem.h
 include/uapi/linux/virtio_net.h
 include/uapi/linux/virtio_pci.h
 include/uapi/linux/virtio_ring.h
@@ -5108,6 +5113,7 @@ lib/zstd/zstd_common_module.c
 lib/zstd/zstd_decompress_module.c
 mm/../kernel/rcu/rcu.h
 mm/backing-dev.c
+mm/bootmem_info.c
 mm/compaction.c
 mm/debug.c
 mm/dmapool.c
@@ -5128,6 +5134,7 @@ mm/memblock.c
 mm/memfd.c
 mm/memory-tiers.c
 mm/memory.c
+mm/memory_hotplug.c
 mm/mempolicy.c
 mm/mempool.c
 mm/migrate.c
@@ -5149,6 +5156,7 @@ mm/oom_kill.c
 mm/page-writeback.c
 mm/page_alloc.c
 mm/page_frag_cache.c
+mm/page_isolation.c
 mm/page_reporting.h
 mm/page_vma_mapped.c
 mm/pagewalk.c

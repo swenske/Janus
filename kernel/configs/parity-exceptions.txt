@@ -18,6 +18,7 @@ CONFIG_INLINE_WRITE_UNLOCK      only inlined without preemption
 CONFIG_INLINE_WRITE_UNLOCK_IRQ  only inlined without preemption
 #
 # longterm 6.18 -> stable 7.2: removed or replaced upstream.
+CONFIG_ARCH_ENABLE_MEMORY_HOTREMOVE      removed in 7.x: MEMORY_HOTREMOVE no longer depends on it
 CONFIG_CLOCKSOURCE_WATCHDOG_MAX_SKEW_US  removed with 7.x's clocksource watchdog rework
 CONFIG_GENERIC_TIME_VSYSCALL             removed with 7.x's vDSO rework
 CONFIG_IOMMU_IO_PGTABLE                  7.x's AMD and Intel IOMMUs use the generic page table (IOMMU_PT)
