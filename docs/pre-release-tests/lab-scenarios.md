@@ -87,8 +87,11 @@ Upgrade to back in service, `wrk`'s rate, 99th percentile and errors.
 
 - from one client: keep-alive with 8, 64 and 256 connections, then a new
   connection for every request (32 connections) - 30 s each, two runs;
-- since v2026.10.14-2, from the three runners at once: 256 keep-alive
-  connections each, 30 s, two runs.
+  since v2026.10.14-3 that client is the fourth machine (a runner
+  before, the lab's own client up to v2026.10.14);
+- since v2026.10.14-2, from the clients at once: 256 keep-alive
+  connections each, 30 s, two runs (the three runners, and the fourth
+  machine since v2026.10.14-3).
 
 Measured: requests per second and the 99th percentile, with the nodes'
 boot stages. When the release's runs couldn't be taken before the
@@ -143,6 +146,24 @@ example:
 - v2026.10.14: the other slot and the kept event log - event IDs going on
   without a gap through a power cut, reboots and a rollback;
 - v2026.10.14 and -2: auto-scaling, below.
+
+### HAProxy killed by the kernel
+
+Since v2026.10.14-3, on the auto-scaled node (1 GiB, auto-scaling
+paused), with probes on it:
+
+- **The configuration**: three 400 MB caches, which HAProxy writes
+  through when it starts - more than the node's memory together.
+- **Applied several times**: the kernel's OOM killer kills the new
+  process, and sometimes the serving one after it.
+- **Measured for each try**:
+  - what the kernel killed (`kernel.oom_kill`);
+  - whether the configuration was refused and the previous one put back;
+  - whether janusd started HAProxy again (`haproxy.restarted`) when the
+    serving process died;
+  - the time until the node serves again, and the requests lost.
+- **Once with auto-scaling on**: the memory step that follows an OOM
+  kill at once, then paused - back to its size.
 
 ### Auto-scaling
 
