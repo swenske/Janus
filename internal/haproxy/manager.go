@@ -75,6 +75,17 @@ type Manager struct {
 	// serving: a process runs that janusd isn't stopping. During a soft
 	// stop the stats socket still answers, but the listeners are closed.
 	serving atomic.Bool
+	// RestartFirst, RestartMax and RestartSettled: the waits before
+	// HAProxy starts again after exiting on its own (restart.go) - zero,
+	// the defaults.
+	RestartFirst, RestartMax, RestartSettled time.Duration
+
+	// gen counts the starts and stops asked of the Manager (Boot, Reload,
+	// Apply, Stop): a restart planned after an exit goes ahead only if
+	// nobody asked for anything since. restartDelay is the wait before the
+	// next one (restart.go). Both under mu.
+	gen          uint64
+	restartDelay time.Duration
 
 	changeMu sync.Mutex
 	changed  chan struct{}
@@ -88,6 +99,7 @@ type Counters struct {
 	Starts          atomic.Uint64 // processes started, reloads included
 	Reloads         atomic.Uint64 // seamless reloads (-sf)
 	UnexpectedExits atomic.Uint64 // a process that exited without being stopped or replaced
+	Restarts        atomic.Uint64 // started again by janusd after one exited on its own
 	ApplyAccepted   atomic.Uint64
 	ApplyRejected   atomic.Uint64
 	LastApplyUnix   atomic.Int64 // last accepted Apply
@@ -105,6 +117,7 @@ type process struct {
 	err      error
 	stopping bool // set by Stop, under Manager.mu
 	failed   bool // exited before taking over (StartError), under Manager.mu
+	lost     bool // died while a reload failed: its restart planned there, under Manager.mu
 	output   *tailWriter
 }
 
@@ -277,7 +290,13 @@ func (m *Manager) Boot() error {
 func (m *Manager) startOrReload(wait bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.gen++ // asked for: a restart planned meanwhile is moot
+	return m.startLocked(wait)
+}
 
+// startLocked is startOrReload with mu held - also how a restart after an
+// exit starts HAProxy again (restart.go), without counting as asked for.
+func (m *Manager) startLocked(wait bool) error {
 	args := []string{"-f", m.ConfigPath}
 	prev := m.cur
 	old := m.previousPID()
@@ -310,15 +329,22 @@ func (m *Manager) startOrReload(wait bool) error {
 		close(p.done) // before taking mu: Stop holds it while waiting on done
 		m.mu.Lock()
 		reason := "exited on its own"
+		var restartIn time.Duration
 		switch {
 		case p.stopping:
 			reason = "stopped"
 		case p.failed:
 			reason = "refused to start"
+		case p.lost:
+			m.counters.UnexpectedExits.Add(1) // still exited on its own
 		case m.cur != p:
 			reason = "replaced by a reload"
 		default:
+			// Killed (the kernel's OOM killer, a signal) or crashed: it
+			// starts again (restart.go). Serving stays true - not stopped
+			// by janusd -, the health checks see the stats socket fail.
 			m.counters.UnexpectedExits.Add(1)
+			restartIn = m.planRestart(p)
 		}
 		m.mu.Unlock()
 		if reason == "exited on its own" {
@@ -328,7 +354,12 @@ func (m *Manager) startOrReload(wait bool) error {
 		if p.err != nil {
 			exit = p.err.Error()
 		}
-		events.Publish("haproxy.exited", map[string]any{"pid": cmd.Process.Pid, "reason": reason, "exit": exit})
+		ev := map[string]any{"pid": cmd.Process.Pid, "reason": reason, "exit": exit}
+		if restartIn > 0 {
+			ev["restart_in_seconds"] = restartIn.Seconds()
+			log.Printf("haproxy: pid %d exited on its own (%s) - starting it again in %s", cmd.Process.Pid, exit, restartIn)
+		}
+		events.Publish("haproxy.exited", ev)
 	}()
 	m.cur = p
 	if !m.serving.Swap(true) {
@@ -348,14 +379,20 @@ func (m *Manager) startOrReload(wait bool) error {
 		p.failed = true
 		m.cur = prev
 		if prev != nil && prev.exited() {
+			// Unless it died meanwhile - the OOM killer may take it after
+			// the new one: its exit is counted, its restart planned here.
+			prev.lost = true
 			m.cur = nil
 		}
-		if reload {
+		if m.cur != nil {
 			_ = os.WriteFile(m.PidPath, []byte(strconv.Itoa(old)+"\n"), 0o644)
 		} else {
+			// Nothing serves: HAProxy starts again (restart.go) - with the
+			// configuration Apply puts back meanwhile.
 			_ = os.Remove(m.PidPath)
 			m.serving.Store(false)
 			m.notifyChanged()
+			m.planRestart(p)
 		}
 		return &StartError{Output: output.lines()}
 	}
@@ -482,7 +519,12 @@ func (m *Manager) Running() bool {
 func (m *Manager) Stop(timeout time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.gen++ // stopped: no restart after an exit either
 	if m.cur == nil || m.cur.exited() {
+		// Already gone (it exited on its own): stopped now, not serving.
+		if m.serving.Swap(false) {
+			m.notifyChanged()
+		}
 		return nil
 	}
 	p := m.cur

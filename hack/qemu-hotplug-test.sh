@@ -227,11 +227,14 @@ grep -q 'not reloaded: its configuration' <<<"$ev" && grep -q 'nbthread' <<<"$ev
 threadsAre 2 || fail "HAProxy's fixed 2 threads changed: $(haproxyThreads)"
 echo "  ok: nbthread fixed - the plugged vCPU is online, HAProxy left alone"
 
-# --- an OOM kill: an event, counted ---
+# --- an OOM kill: an event, counted, HAProxy serving again ---
 # Three caches HAProxy writes all through when it starts (their block
 # headers), each smaller than the memory - each allocation passes the
 # kernel's overcommit check -, together larger: the kernel kills it. The
-# configuration is refused, the previous HAProxy keeps serving.
+# configuration is refused; the previous HAProxy keeps serving - or, when
+# the OOM killer takes it too (v2026.10.14-2's CI: janusd allocating
+# before the killed process's shared memory was freed), janusd starts it
+# again with the previous configuration.
 cat > "$WORKDIR/oom.cfg" <<'EOF'
 global
     stats socket /run/janus/haproxy-admin.sock mode 660 level admin
@@ -264,8 +267,11 @@ waitFor "no kernel.oom_kill event" eventCount kernel.oom_kill 1
 ev="$(events kernel.oom_kill | tail -1)"
 grep -q '"process":"haproxy"' <<<"$ev" || fail "the OOM kill event: $ev"
 grep -q "^oom kills since boot: [1-9]" <<<"$(ctl system info)" || fail "the OOM kill isn't counted: $(ctl system info | grep oom)"
-curl -fsS "http://127.0.0.1:${P_HTTP}/" >/dev/null || fail "the previous HAProxy stopped serving"
-echo "  ok: an OOM kill - event $ev, counted, the previous HAProxy still serving"
+serves() { curl -fsS -m 2 "http://127.0.0.1:${P_HTTP}/" >/dev/null 2>&1; }
+waitFor "HAProxy doesn't serve again after the OOM kill" serves
+how="the previous HAProxy still serving"
+if [ -n "$(events haproxy.restarted)" ]; then how="the previous HAProxy killed too, started again by janusd ($(events haproxy.restarted | tail -1))"; fi
+echo "  ok: an OOM kill - event $ev, counted, $how"
 
 if grep -aq "avc:  denied" "$LOG"; then
   grep -a "avc:  denied" "$LOG" >&2

@@ -71,6 +71,7 @@ var extensionColumns = []string{"bird", "consul", "keepalived", "letsencrypt", "
 // The metrics janusd exports that no panel shows, and why.
 var notShown = map[string]string{
 	"janus_haproxy_starts_total":                   "reloads and crashes are shown apart; the rest are boots",
+	"janus_haproxy_restarts_total":                 "crashes are shown: janusd starts HAProxy again after each",
 	"janus_network_trial_revert_timestamp_seconds": "the trial itself is shown (Awaiting confirmation)",
 	"janus_firewall_configured":                    "the firewall's sets are shown",
 	"janus_time_stratum":                           "the offset and the last synchronization say more",
