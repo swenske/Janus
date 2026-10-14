@@ -11,6 +11,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/autoscale"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
@@ -183,6 +184,12 @@ func (s *autoscaler) sysctl(ctx context.Context, m *machines.Machine, node *stor
 		return ""
 	}
 
+	return s.applySysctl(ctx, m, node, st, changes, entry, now)
+}
+
+// applySysctl puts changes on trial on node, confirms them once the node
+// and HAProxy still answer, records them in st and journals entry.
+func (s *autoscaler) applySysctl(ctx context.Context, m *machines.Machine, node *store.Node, st *machines.AutoscaleState, changes []sysctlChange, entry machines.JournalEntry, now time.Time) string {
 	fail := func(format string, args ...any) string {
 		entry.Error = fmt.Sprintf(format, args...)
 		if err := s.a.machines.AppendJournal(m.ID, entry); err != nil {
@@ -234,4 +241,69 @@ func (s *autoscaler) sysctl(ctx context.Context, m *machines.Machine, node *stor
 		log.Printf("machine %s: auto-scaling journal: %v", m.ID, err)
 	}
 	return "kernel parameters applied: " + entry.Reason
+}
+
+// memoryFollowed reports whether st records kernel parameters that
+// followed the memory and haven't gone back yet.
+func memoryFollowed(st *machines.AutoscaleState) bool {
+	if st == nil {
+		return false
+	}
+	for _, c := range st.Sysctl {
+		if followsMemory(c.Rule) && c.Before != c.After {
+			return true
+		}
+	}
+	return false
+}
+
+// putBack puts the kernel parameters that followed the memory back to
+// what they were before auto-scaling changed them, unless someone changed
+// them since - once the machine is at its size and stays there: paused,
+// observing, or about to restart at its size (a policy removed, new
+// hardware). Whatever the mode: it undoes what was done. v2026.10.14-3's
+// lab: paused at 1280 MiB, the machine went back to 1024 MiB with
+// tcp_mem and file-max still sized for 1280.
+func (s *autoscaler) putBack(ctx context.Context, m *machines.Machine, node *store.Node, sm *scaledMachine, st *machines.AutoscaleState, now time.Time) string {
+	if !memoryFollowed(st) || (sm != nil && now.Sub(sm.putBackAt) < sysctlEvery) {
+		return ""
+	}
+	if sm != nil {
+		sm.putBackAt = now
+	}
+	ctx, cancel := context.WithTimeout(nodeproxy.WithUser(ctx, nodeproxy.AutoScaling), sysctlTimeout)
+	defer cancel()
+	list, err := nodes.SysctlList(ctx, node)
+	if err != nil {
+		log.Printf("machine %s: auto-scaling: the node's kernel parameters: %v", m.ID, err)
+		return ""
+	}
+	if !list.GetManaged() || list.GetTrial() != nil {
+		return "" // a trial under way - someone's: next time
+	}
+	history, err := nodes.SysctlHistory(ctx, node, 200)
+	if err != nil {
+		log.Printf("machine %s: auto-scaling: the node's sysctl history: %v", m.ID, err)
+		return ""
+	}
+	var back []sysctlChange
+	for _, c := range planSysctl(list, humanSet(history, st.Sysctl), st.Sysctl, true, now) {
+		if c.back {
+			back = append(back, c)
+		}
+	}
+	if len(back) == 0 {
+		return ""
+	}
+	var words []string
+	for _, c := range back {
+		words = append(words, c.String())
+	}
+	mode := ""
+	if m.Spec.Autoscale != nil {
+		mode = m.Spec.Autoscale.Mode
+	}
+	size := autoscale.Size{VCPUs: m.Spec.VCPUs, MemoryMiB: m.Spec.MemoryMiB}
+	entry := machines.JournalEntry{Time: now.UTC(), Mode: mode, Action: "sysctl", From: size, To: size, Reason: strings.Join(words, "; ")}
+	return s.applySysctl(ctx, m, node, st, back, entry, now)
 }

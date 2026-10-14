@@ -59,6 +59,9 @@ type scaledMachine struct {
 	// sysctlSeen what observing journaled of them.
 	sysctlAt   time.Time
 	sysctlSeen map[string]bool
+	// putBackAt: when what followed the memory was last put back (or
+	// tried) - not paused or observing, at its size (autoscale_sysctl.go).
+	putBackAt time.Time
 }
 
 func newAutoscaler(a *app) *autoscaler {
@@ -142,7 +145,9 @@ func (s *autoscaler) step(ctx context.Context, m *machines.Machine, sm *scaledMa
 	nominal := autoscale.Size{VCPUs: m.Spec.VCPUs, MemoryMiB: m.Spec.MemoryMiB}
 	r := report{state: m.AutoscaleState}
 	if r.state == nil || r.state.Mode != pol.Mode {
-		r.state = &machines.AutoscaleState{Mode: pol.Mode, State: autoscale.State{Size: nominal}}
+		// A new mode starts over - but what auto-scaling changed on the
+		// node is still its to put back.
+		r.state = &machines.AutoscaleState{Mode: pol.Mode, State: autoscale.State{Size: nominal}, Sysctl: sysctlOf(m.AutoscaleState)}
 	}
 
 	// Not resizing - observing, or paused: a machine auto-scaling
@@ -159,8 +164,16 @@ func (s *autoscaler) step(ctx context.Context, m *machines.Machine, sm *scaledMa
 			return s.write(m, now, r)
 		}
 	}
+	// At its size, not resizing: what followed the memory goes back.
+	var putBack string
+	if pol.Mode != machines.AutoscaleOn {
+		putBack = s.putBack(ctx, m, node, sm, r.state, now)
+	}
 	if pol.Mode == machines.AutoscaleOff {
 		r.status = "paused"
+		if putBack != "" {
+			r.status = "paused - " + putBack
+		}
 		return s.write(m, now, r)
 	}
 
@@ -414,4 +427,13 @@ func (realNodeAPI) SysctlApply(ctx context.Context, node *store.Node, req *janus
 
 func (realNodeAPI) SysctlConfirm(ctx context.Context, node *store.Node) error {
 	return nodeproxy.SysctlConfirm(ctx, node)
+}
+
+// sysctlOf is st's record of the kernel parameters auto-scaling changed,
+// kept when its state starts over: nil when there's none.
+func sysctlOf(st *machines.AutoscaleState) map[string]machines.SysctlChange {
+	if st == nil || len(st.Sysctl) == 0 {
+		return nil
+	}
+	return maps.Clone(st.Sysctl)
 }
