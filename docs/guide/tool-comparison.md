@@ -24,135 +24,169 @@ yourself, from your own code or `grpcurl`: [driving
 nodes](../private-cloud/driving-nodes.md); every call and its role: the
 [node API reference](../private-cloud/api-reference.md).
 
-In the tables below: ✅ a command, a page or an attribute does it ·
-⚙️ the tool makes the call by itself, for a feature of its own · - not
-offered. janusctl's commands are shown without `janusctl`; the
-Controller's pages are those of a node's page (its sidebar).
+In the tables below, the tool does it where a cell names janusctl's
+command (shown without `janusctl`) or the Controller's page (in a
+node's sidebar), or shows ✅ - in the TUI, a panel shows it or its
+action menu makes the call. ⚙️ means the tool makes the call by itself,
+for a feature of its own; - that it doesn't. Terraform's `janus_node` drives a node's
+network and its release, `janus_haproxy_config` its haproxy.cfg; its ⚙️
+are calls the Controller makes for a `janus_node`.
 
 ## The node's API, call by call
 
 ### SystemService: the node itself
 
-| Call | What it does | janusctl | janusctl tui | Controller | Terraform |
-|---|---|---|---|---|---|
-| `Version` | Janus release, kernel, slots, image | ✅ `version`, `system info` | ✅ header | ✅ Overview, Update | ⚙️ `janus_node` reads it back |
-| `Hostname` | The node's hostname | ✅ `system hostname` | ✅ header | ✅ Overview | - |
-| `Reboot` | Soft-stop HAProxy, then reboot (firmware, power cycle or kexec) | ✅ `system reboot` | ✅ action | ✅ Power | - |
-| `Shutdown` | Soft-stop HAProxy, then power off | ✅ `system shutdown` | - | ✅ Power; ⚙️ before resizing or deleting a VM it created | ⚙️ `janus_node`: before a resize or a destroy |
-| `Restart` | Restart janusd, HAProxy keeps serving | ✅ `system restart` | ✅ action | ✅ Power | - |
-| `Reset` | Wipe STATE and reboot: a new CA | ✅ `system reset` | - | ✅ Power | - |
-| `Events` | The node's event log, live | ✅ `system events` | ✅ events panel | ✅ Events, Overview | - |
-| `Dmesg` | The kernel's messages | ✅ `system dmesg` | - | ✅ Kernel (dmesg) | - |
-| `Logs` | A service's output (janusd, HAProxy, extensions) | ✅ `system logs` | ✅ log panel | ✅ Service logs | - |
-| `Stats` | CPU and memory of each service | ✅ `system stats` | ✅ services panel | ✅ Metrics | - |
-| `SystemStat`, `Memory`, `CPUInfo`, `LoadAvg` | CPU, memory, load | ✅ `system info`, `system systemstat` | ✅ graphs | ✅ Overview, Metrics | - |
-| `DiskStats` | Each disk's counters | ✅ `system info` | - | ✅ Storage | - |
-| `DiskUsage` | Disk usage of a path | ✅ `system du` | - | ✅ Storage | - |
-| `NetworkDeviceStats` | Each interface's counters | ✅ `system netdev` | ✅ graphs | ✅ Network, Packet capture | - |
-| `Netstat` | TCP and UDP sockets | ✅ `system netstat` | - | ✅ Network | - |
-| `Mounts` | Mounted filesystems | ✅ `system mounts` | - | ✅ Storage | - |
-| `Processes` | Every process | ✅ `system ps` | ✅ processes panel | ✅ Processes | - |
-| `ServiceList` | Managed services and their health | ✅ `system services` | ✅ services panel | ✅ Services | - |
-| `ServiceStart`, `ServiceStop`, `ServiceRestart` | Control a managed service | ✅ `system service` | - | ✅ Services | - |
-| `List`, `Read`, `Copy` | List, print or archive the node's files (never its secrets) | ✅ `system ls`, `system cat`, `system cp` | - | ✅ Files | - |
-| `PacketCapture` | A live capture, as a pcap stream | ✅ `system pcap` | - | ✅ Packet capture | - |
-| `GenerateClientConfiguration` | A client certificate of the node's own CA | ✅ `pki generate-client-config` | - | ✅ Access; ⚙️ once, when adding a node | - |
-| `MetricsConfigGet`, `MetricsConfigSet` | The Janus exporter's settings | ✅ `system metrics` | - | ✅ Janus exporter | - |
-| `NodeExporterConfigGet`, `NodeExporterConfigSet` | prometheus-node-exporter's settings | ✅ `system node-exporter` | - | ✅ Node exporter | - |
-| `SysctlList` | Kernel parameters, their suggestions, the CIS benchmark | ✅ `system sysctl list`, `get`, `observed` | ✅ trial pending | ✅ Sysctl; ⚙️ auto-scaling | - |
-| `SysctlApply` | Change parameters on trial | ✅ `system sysctl set`, `reset` | - | ✅ Sysctl; ⚙️ auto-scaling | ⚙️ `janus_node`'s `autoscaling.sysctl` |
-| `SysctlConfirm` | Keep the values on trial | ✅ `system sysctl confirm` | ✅ action | ✅ Sysctl; ⚙️ auto-scaling | ⚙️ `janus_node`'s `autoscaling.sysctl` |
-| `SysctlCancel` | Put the previous values back now | ✅ `system sysctl cancel` | - | ✅ Sysctl | - |
-| `SysctlHistory` | Who changed what, when | ✅ `system sysctl history` | - | ✅ Sysctl; ⚙️ auto-scaling | - |
-| `ApplyConfiguration` | Not implemented: Janus has no declarative machine configuration | - | - | - | - |
-| `MetaWrite`, `MetaDelete` | Not implemented: Janus has no META partition | - | - | - | - |
+| Call | janusctl | TUI | Controller | Terraform |
+|---|---|---|---|---|
+| `Version` - release, kernel, slots, image | `version`, `system info` | ✅ | Overview, Update | ⚙️ |
+| `Hostname` - the node's hostname | `system hostname` | ✅ | Overview | - |
+| `Reboot` - soft-stop HAProxy, reboot: firmware, power cycle or kexec | `system reboot` | ✅ | Power | - |
+| `Shutdown` - soft-stop HAProxy, power off | `system shutdown` | - | Power; ⚙️ resizing or deleting a VM | ⚙️ |
+| `Restart` - restart janusd, HAProxy keeps serving | `system restart` | ✅ | Power | - |
+| `Reset` - wipe STATE, reboot with a new CA | `system reset` | - | Power | - |
+| `Events` - the node's event log, live | `system events` | ✅ | Events | - |
+| `Dmesg` - the kernel's messages | `system dmesg` | - | Kernel | - |
+| `Logs` - a service's output | `system logs` | ✅ | Service logs | - |
+| `Stats` - each service's CPU and memory | `system stats` | ✅ | Metrics | - |
+| `SystemStat`, `Memory`, `CPUInfo`, `LoadAvg` - CPU, memory, load | `system info`, `systemstat` | ✅ | Overview, Metrics | - |
+| `DiskStats` - each disk's counters | `system info` | - | Storage | - |
+| `DiskUsage` - a path's disk usage | `system du` | - | Storage | - |
+| `NetworkDeviceStats` - each interface's counters | `system netdev` | ✅ | Network | - |
+| `Netstat` - TCP and UDP sockets | `system netstat` | - | Network | - |
+| `Mounts` - mounted filesystems | `system mounts` | - | Storage | - |
+| `Processes` - every process | `system ps` | ✅ | Processes | - |
+| `ServiceList` - the services and their health | `system services` | ✅ | Services | - |
+| `ServiceStart`, `ServiceStop`, `ServiceRestart` | `system service` | - | Services | - |
+| `List`, `Read`, `Copy` - the node's files, never its secrets | `system ls`, `cat`, `cp` | - | Files | - |
+| `PacketCapture` - a live capture, as pcap | `system pcap` | - | Packet capture | - |
+| `GenerateClientConfiguration` - a certificate of the node's own CA | `pki generate-client-config` | - | Access; ⚙️ adding a node | - |
+| `MetricsConfigGet`, `MetricsConfigSet` - the Janus exporter | `system metrics` | - | Janus exporter | - |
+| `NodeExporterConfigGet`, `NodeExporterConfigSet` - prometheus-node-exporter | `system node-exporter` | - | Node exporter | - |
+| `SysctlList` - kernel parameters, suggestions, the CIS benchmark | `system sysctl list`, `get`, `observed` | ✅ | Sysctl; ⚙️ auto-scaling | - |
+| `SysctlApply` - parameters on trial | `system sysctl set`, `reset` | - | Sysctl; ⚙️ auto-scaling | ⚙️ |
+| `SysctlConfirm` - keep the values on trial | `system sysctl confirm` | ✅ | Sysctl; ⚙️ auto-scaling | ⚙️ |
+| `SysctlCancel` - the previous values back, now | `system sysctl cancel` | - | Sysctl | - |
+| `SysctlHistory` - who changed what, when | `system sysctl history` | - | Sysctl; ⚙️ auto-scaling | - |
+| `ApplyConfiguration`, `MetaWrite`, `MetaDelete` - not implemented | - | - | - | - |
+
+Terraform's ⚙️: a `janus_node`'s version read back, a clean shutdown
+before a resize or a destroy, its kernel parameters following its size
+with `autoscaling.sysctl`. `ApplyConfiguration` and the `Meta*` calls
+answer "unimplemented": Janus has no declarative machine configuration
+and no META partition.
 
 ### HAProxyService
 
-| Call | What it does | janusctl | janusctl tui | Controller | Terraform |
-|---|---|---|---|---|---|
-| `GetConfig` | The running haproxy.cfg | ✅ `haproxy get-config` | ⚙️ traffic flow (`f`) | ✅ HAProxy › Configuration, Traffic flow | ✅ `janus_haproxy_config` |
-| `ApplyConfig` | Validate, write, reload without dropping connections | ✅ `haproxy apply-config` | - | ✅ HAProxy › Configuration | ✅ `janus_haproxy_config` |
-| `ValidateConfig` | Have HAProxy check a configuration, apply nothing | - (`apply-config` checks first) | - | ✅ HAProxy › Configuration | - (an apply checks first) |
-| `Reload` | Reload HAProxy seamlessly | - | ✅ action | ✅ HAProxy | - |
-| `Stats` | `show stat` | ✅ `haproxy stats` | ✅ HAProxy panels | ✅ HAProxy › Status, Traffic flow | - |
-| `ShowInfo` | Version, uptime, connections | ✅ `haproxy show-info` | ✅ HAProxy panel | ✅ HAProxy › Status | - |
-| `BackendList` | Backends, their servers and states | ✅ `haproxy backends` | - (from `Stats`) | ✅ HAProxy › Backends | - |
-| `ServerSetState` | A server ready, drained or in maintenance | - | ✅ action | ✅ HAProxy › Backends | - |
-| `MapList`, `MapGet` | The file-backed maps and their entries | ✅ `haproxy map-list`, `map-get` | ⚙️ traffic flow (`f`) | ✅ HAProxy › Maps & ACLs, Traffic flow | - |
-| `MapUpdate` | Set or delete a map entry, live | ✅ `haproxy map-set`, `map-delete` | - | ✅ HAProxy › Maps & ACLs | - |
-| `ACLUpdate` | Add or delete an ACL pattern, live | ✅ `haproxy acl-add`, `acl-delete` | - | ✅ HAProxy › Maps & ACLs | - |
-| `CertificateList`, `CertificateUpload`, `CertificateDelete` | Certificates in HAProxy's store | ✅ `haproxy cert-list`, `cert-upload`, `cert-delete` | - | ✅ HAProxy › Certificates | - |
-| `FileList`, `FileGet`, `FilePut`, `FileDelete` | HAProxy's own files: error pages, CAs, map files... | ✅ `haproxy files`, `file-get`, `file-put`, `file-delete` | - | ✅ HAProxy › Files | - |
-| `ACMEStatus`, `ACMEGetConfig`, `ACMEApplyConfig`, `ACMERenew` | Let's Encrypt (letsencrypt extension) | ✅ `haproxy acme` | - | ✅ Let's Encrypt | - |
+| Call | janusctl | TUI | Controller | Terraform |
+|---|---|---|---|---|
+| `GetConfig` - the running haproxy.cfg | `haproxy get-config` | ⚙️ | HAProxy › Configuration | ✅ |
+| `ApplyConfig` - check, write, reload without dropping connections | `haproxy apply-config` | - | HAProxy › Configuration | ✅ |
+| `ValidateConfig` - check only | - | - | HAProxy › Configuration | - |
+| `Reload` - a seamless reload | - | ✅ | HAProxy | - |
+| `Stats` - `show stat` | `haproxy stats` | ✅ | HAProxy › Status | - |
+| `ShowInfo` - version, uptime, connections | `haproxy show-info` | ✅ | HAProxy › Status | - |
+| `BackendList` - backends, servers, states | `haproxy backends` | - | HAProxy › Backends | - |
+| `ServerSetState` - ready, drain, maintenance | - | ✅ | HAProxy › Backends | - |
+| `MapList`, `MapGet` - the maps and their entries | `haproxy map-list`, `map-get` | ⚙️ | HAProxy › Maps & ACLs | - |
+| `MapUpdate` - set or delete an entry, live | `haproxy map-set`, `map-delete` | - | HAProxy › Maps & ACLs | - |
+| `ACLUpdate` - add or delete a pattern, live | `haproxy acl-add`, `acl-delete` | - | HAProxy › Maps & ACLs | - |
+| `CertificateList`, `CertificateUpload`, `CertificateDelete` | `haproxy cert-list`, `cert-upload`, `cert-delete` | - | HAProxy › Certificates | - |
+| `FileList`, `FileGet`, `FilePut`, `FileDelete` - error pages, CAs... | `haproxy files`, `file-get`, `file-put`, `file-delete` | - | HAProxy › Files | - |
+| `ACMEStatus`, `ACMEGetConfig`, `ACMEApplyConfig`, `ACMERenew` - Let's Encrypt | `haproxy acme` | - | Let's Encrypt | - |
+
+The TUI's ⚙️: its traffic flow (`f`) reads the configuration and its
+maps - the Controller's Traffic flow page too. `apply-config` and
+`janus_haproxy_config` have the node check the configuration before
+applying it; checking alone is the Controller's.
 
 ### NetworkService
 
-| Call | What it does | janusctl | janusctl tui | Controller | Terraform |
-|---|---|---|---|---|---|
-| `NetworkStatus` | Interfaces, addresses, routes, DNS, clock | ✅ `network status` | ✅ interfaces, trial pending | ✅ Network | ⚙️ `janus_node` |
-| `NetworkConfigGet` | The saved network configuration | ✅ `network get` | - | ✅ System › Network | ✅ `janus_node` (`interfaces`, `dns`, `ntp`) |
-| `NetworkConfigApply` | A configuration on trial, reverted unless confirmed | ✅ `network apply` | - | ✅ System › Network | ✅ `janus_node` (`interfaces`, `dns`, `ntp`) |
-| `NetworkConfigConfirm` | Keep the configuration on trial | ✅ `network confirm` (`apply` confirms by itself) | ✅ action | ✅ System › Network | ✅ `janus_node` (confirms by itself) |
-| `FirewallList` | Saved, on trial, live (nftables extension) | ✅ `network firewall status` | ✅ firewall panel | ✅ Firewall | - |
-| `FirewallGetRuleset`, `FirewallApplyRuleset` | The ruleset, checked or applied on trial | ✅ `network firewall get`, `check`, `apply` | - | ✅ Firewall | - |
-| `FirewallConfirm` | Keep the ruleset on trial | ✅ `network firewall confirm` | ✅ action | ✅ Firewall | - |
-| `FirewallSets`, `FirewallSetUpdate` | The live named sets: list, add, delete | ✅ `network firewall sets`, `set-add`, `set-del` | - | ✅ Firewall | - |
-| `VRRPStatus` | keepalived's instances and virtual IPs | ✅ `network vrrp status` | ✅ VRRP panel | ✅ VRRP | - |
-| `VRRPGetConfig`, `VRRPApplyConfig` | keepalived.conf: read, check, apply | ✅ `network vrrp get`, `check`, `apply` | - | ✅ VRRP | - |
-| `BGPStatus` | BIRD's protocols, sessions, routes | ✅ `network bgp status` | ✅ BGP panel | ✅ BGP | - |
-| `BGPGetConfig`, `BGPApplyConfig` | bird.conf: read, check, apply | ✅ `network bgp get`, `check`, `apply` | - | ✅ BGP | - |
-| `ConsulStatus` | The Consul agent, its node, its cluster | ✅ `network consul status` | ✅ Consul panel | ✅ Consul | - |
-| `ConsulGetConfig`, `ConsulApplyConfig` | Consul's configuration: read, check, apply | ✅ `network consul get`, `check`, `apply` | - | ✅ Consul | - |
+| Call | janusctl | TUI | Controller | Terraform |
+|---|---|---|---|---|
+| `NetworkStatus` - interfaces, addresses, routes, DNS, clock | `network status` | ✅ | Network | ⚙️ |
+| `NetworkConfigGet` - the saved configuration | `network get` | - | System › Network | ✅ |
+| `NetworkConfigApply` - a configuration on trial | `network apply` | - | System › Network | ✅ |
+| `NetworkConfigConfirm` - keep it | `network confirm` | ✅ | System › Network | ✅ |
+| `FirewallList` - saved, on trial, live | `network firewall status` | ✅ | Firewall | - |
+| `FirewallGetRuleset`, `FirewallApplyRuleset` | `network firewall get`, `check`, `apply` | - | Firewall | - |
+| `FirewallConfirm` - keep the ruleset on trial | `network firewall confirm` | ✅ | Firewall | - |
+| `FirewallSets`, `FirewallSetUpdate` - the live named sets | `network firewall sets`, `set-add`, `set-del` | - | Firewall | - |
+| `VRRPStatus` - instances, virtual IPs | `network vrrp status` | ✅ | VRRP | - |
+| `VRRPGetConfig`, `VRRPApplyConfig` - keepalived.conf | `network vrrp get`, `check`, `apply` | - | VRRP | - |
+| `BGPStatus` - protocols, sessions, routes | `network bgp status` | ✅ | BGP | - |
+| `BGPGetConfig`, `BGPApplyConfig` - bird.conf | `network bgp get`, `check`, `apply` | - | BGP | - |
+| `ConsulStatus` - the agent, its cluster | `network consul status` | ✅ | Consul | - |
+| `ConsulGetConfig`, `ConsulApplyConfig` - its configuration | `network consul get`, `check`, `apply` | - | Consul | - |
 
-`janusctl network modules`, the Controller's sidebar and the TUI's
-module panels tell which optional modules the image has, from these
-`*Status` calls.
+`janusctl network apply` and `janus_node` confirm the trial by
+themselves (`interfaces`, `dns`, `ntp`). `janusctl network modules`,
+the Controller's sidebar and the TUI's panels tell which optional
+modules the image has, from the `*Status` calls.
 
 ### LifecycleService
 
-| Call | What it does | janusctl | janusctl tui | Controller | Terraform |
-|---|---|---|---|---|---|
-| `Install` | Partition a blank disk and write a release | ✅ `lifecycle install` | - | - (it creates VMs from images instead) | - |
-| `Upgrade` | Write a release to the other slot, reboot into it, revert unless healthy | ✅ `lifecycle upgrade` (a node-side directory or a URL) | - | ✅ Update (by version, a URL, or a bundle it relays); ⚙️ a VM's version or apps | ✅ `janus_node` (`version`, `extensions`, `haproxy`, `kernel`, `update_reboot_mode`) |
-| `UploadReleaseFile` | Stream a release bundle to the node | ✅ `lifecycle upload-release` | - | ✅ Update (relay, upload) | - |
-| `Rollback` | Boot the other slot | ✅ `lifecycle rollback` | - | - | - |
+| Call | janusctl | TUI | Controller | Terraform |
+|---|---|---|---|---|
+| `Install` - partition a blank disk, write a release | `lifecycle install` | - | - | - |
+| `Upgrade` - the other slot, reverted unless healthy | `lifecycle upgrade` | - | Update; ⚙️ a VM's release | ✅ |
+| `UploadReleaseFile` - a bundle streamed to the node | `lifecycle upload-release` | - | Update | - |
+| `Rollback` - boot the other slot | `lifecycle rollback` | - | - | - |
+
+`lifecycle upgrade` takes a directory on the node or a URL; the
+Controller's Update page a version, a URL or a bundle it relays;
+`janus_node` its `version`, `extensions`, `haproxy` and `kernel`
+(`update_reboot_mode`: firmware or kexec). The Controller installs
+nothing: it creates VMs from images.
 
 ### AccessService: the fleet a node trusts
 
-| Call | What it does | janusctl | janusctl tui | Controller | Terraform |
-|---|---|---|---|---|---|
-| `TrustGet` | The fleet's root and bundle, the node's own CA | ✅ `access trust`; ⚙️ `fleet adopt`, `fleet sync` | - | ✅ Access; ⚙️ its fleet | - |
-| `TrustSet` | Pin the fleet's root, apply a newer bundle | ✅ `access trust-set`; ⚙️ `fleet adopt`, `fleet sync` | - | ⚙️ its fleet, every 10 minutes | - |
-| `TrustReset` | Forget the fleet (the node's own CA only) | ✅ `access trust-reset` | - | - | - |
-| `LocalCARotate` | Replace the node's own CA | ✅ `access rotate-ca` | - | ✅ Access | - |
+| Call | janusctl | TUI | Controller | Terraform |
+|---|---|---|---|---|
+| `TrustGet` - the fleet's root and bundle, the node's CA | `access trust`; ⚙️ `fleet` | - | Access; ⚙️ its fleet | - |
+| `TrustSet` - pin the root, apply a newer bundle | `access trust-set`; ⚙️ `fleet` | - | ⚙️ its fleet | - |
+| `TrustReset` - forget the fleet | `access trust-reset` | - | - | - |
+| `LocalCARotate` - a new CA for the node | `access rotate-ca` | - | Access | - |
+
+`janusctl fleet adopt` and `fleet sync` set the trust by themselves; the
+Controller sets its fleet's on each node every 10 minutes. `TrustReset`
+takes a certificate of the node's own CA.
 
 ## Beyond the node's API
 
 What a tool adds on top of the calls above - the fleet, accounts,
 virtual machines:
 
-| | janusctl | janusctl tui | Controller | Terraform |
+| | janusctl | TUI | Controller | Terraform |
 |---|---|---|---|---|
-| Several nodes at once | ✅ `-n a,b`, `-all` | ✅ the fleet screen | ✅ the nodes list | ✅ one resource per node |
-| Signing in | ✅ `login`: an SSH key, the browser, a device code, an API token | ✅ janusctl's contexts | ✅ accounts, passkeys or TOTP, trusted browsers | ✅ an API token |
-| Accounts, roles, label scopes, API tokens | - (it uses them) | - | ✅ | - (it uses them) |
-| The fleet's trust: root, bundle, issuing CAs | ✅ `fleet`: [without a Controller](../fleet-without-controller.md) | - | ✅ fleet setup, recovery kit | - |
-| Nodes registering themselves, approval, enrollment tokens | - | - | ✅ | - |
-| Provisioning a disk image offline | ✅ `image seed-controller`, `seed-fleet`, `seed-network` | - | ⚙️ a NoCloud disk for each VM it creates | - |
-| Creating, resizing, deleting VMs on libvirt/KVM or Proxmox VE | - | - | ✅ [hypervisors](../hypervisors.md) | ✅ `janus_hypervisor`, `janus_proxmox_hypervisor`, `janus_node` |
-| [Auto-scaling](auto-scaling.md): vCPUs and memory hot-plugged | - | - | ✅ | ✅ `janus_node`'s `autoscaling` |
+| Several nodes at once | `-n a,b`, `-all` | ✅ | ✅ | ✅ |
+| Signing in | SSH key, browser, token | janusctl's | password, passkey, TOTP | API token |
+| Accounts, roles, label scopes, API tokens | - | - | ✅ | - |
+| The fleet's trust: root, bundle, issuing CAs | `fleet` | - | ✅ | - |
+| Nodes registering themselves, enrollment tokens | - | - | ✅ | - |
+| A disk image provisioned offline | `image` | - | ⚙️ its VMs | - |
+| VMs on [libvirt/KVM or Proxmox VE](../hypervisors.md): create, resize, delete | - | - | ✅ | ✅ |
+| [Auto-scaling](auto-scaling.md): vCPUs and memory hot-plugged | - | - | ✅ | ✅ |
 | A VM's serial console | - | - | ✅ | - |
-| Node labels | - | - | ✅ | ✅ `janus_node`'s `labels` |
-| Images with other extensions, HAProxy branch or kernel | - (give `lifecycle upgrade` the image's URL) | - | ✅ Update › add or remove apps | ✅ `janus_node`'s `extensions`, `haproxy`, `kernel` |
-| Update and security notices | - | ✅ pre-releases marked | ✅ update available, 🔒 security badge | - |
-| Live graphs, refreshed every few seconds | - | ✅ | ✅ | - |
-| Traffic flow: frontends to servers | - | ✅ `f` | ✅ Traffic flow | - |
-| Backups of the fleet (encrypted, S3) | - | - | ✅ with each node's configuration | - |
-| Audit log | - (each node logs who changed what) | - | ✅ every change made through it | - |
-| Drift: changes made elsewhere | - | - | ✅ a VM's record follows the machine | ✅ `terraform plan` shows them |
-| Locking a node's page against changes | - | - | - | ✅ `janus_node`'s `lock_ui` |
-| Shell completion, pickers, plain output to script | ✅ | - | - | - |
+| Node labels | - | - | ✅ | ✅ |
+| Images with other extensions, HAProxy branch or kernel | - | - | ✅ | ✅ |
+| Update and security notices | - | - | ✅ | - |
+| Live graphs | - | ✅ | ✅ | - |
+| Traffic flow: frontends to servers | - | ✅ | ✅ | - |
+| Encrypted backups, to S3 too | - | - | ✅ | - |
+| Audit log | - | - | ✅ | - |
+| Drift: changes made elsewhere | - | - | ✅ | ✅ |
+| Locking a node's page | - | - | - | ✅ |
+| Shell completion, pickers, plain output | ✅ | - | - | - |
+
+Without a Controller, janusctl keeps [a fleet](../fleet-without-controller.md)
+itself and upgrades a node to any image given its URL. The Controller
+says when an update is available, 🔒 when it fixes a vulnerability. Each node logs who changed what; the
+Controller's audit log has every change made through it, its backups
+each node's configuration. Terraform declares hypervisors
+(`janus_hypervisor`, `janus_proxmox_hypervisor`) and VMs (`janus_node`:
+size, `autoscaling`, `labels`, `lock_ui`, release, network); `terraform
+plan` shows what changed elsewhere, and the Controller's record of a VM
+follows the machine.
 
 ## Which one to use
 
