@@ -268,15 +268,22 @@ func TestAutoscaleResizes(t *testing.T) {
 	if !strings.Contains(m.AutoscaleState.Status, "couldn't grow") {
 		t.Errorf("status %q", m.AutoscaleState.Status)
 	}
-	// With the room: 1024 to 1280.
+	// With the room: 1024 to 1280 - the hypervisor's reading a moment
+	// late, the journal says what the machine got.
 	fake.mu.Lock()
-	fake.hostFree = 0
+	fake.hostFree, fake.statusLag = 0, 2
 	fake.mu.Unlock()
 	a.hvStatus.forget(m.Spec.HypervisorID)
 	at = run(t, a, s, sm, m.ID, at, time.Minute)
 	if len(fake.live) != 2 || fake.live[1] != [2]int{3, 1280} {
 		t.Fatalf("with room: resized %v, journal %+v", fake.live, journalOf(t, a, m.ID))
 	}
+	if j = journalOf(t, a, m.ID); j[len(j)-1].To != (autoscale.Size{VCPUs: 3, MemoryMiB: 1280}) {
+		t.Errorf("journaled %+v, the machine got 3 vCPU, 1280 MiB", j[len(j)-1])
+	}
+	fake.mu.Lock()
+	fake.statusLag = 0
+	fake.mu.Unlock()
 
 	// Paused: back to its size at once.
 	off := map[string]any{"mode": "off", "max_vcpus": 4, "max_memory_mib": 4096}

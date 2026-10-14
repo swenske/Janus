@@ -52,9 +52,14 @@ type fakeDriver struct {
 	hardware  []hypervisor.Hardware
 	live      [][2]int // Resize
 	nics      []hypervisor.NIC
-	// hw is what MachineStatus answers for every machine, when set.
-	hw  *hypervisor.MachineStatus
-	ops []string
+	// hw is what MachineStatus answers for every machine, when set;
+	// statusLag: how many MachineStatus calls after a Resize still
+	// answer the size from before (libvirt's virtio-mem current, late).
+	hw        *hypervisor.MachineStatus
+	statusLag int
+	lagLeft   int
+	beforeHW  hypervisor.MachineStatus
+	ops       []string
 	// console, when set, is what every machine's console prints before
 	// it stays open; consoles counts the consoles opened.
 	console  string
@@ -118,6 +123,10 @@ func (f *fakeDriver) MachineStatus(_ context.Context, ref hypervisor.MachineRef)
 	defer f.mu.Unlock()
 	if f.hw != nil {
 		c := *f.hw
+		if f.lagLeft > 0 {
+			f.lagLeft--
+			c = f.beforeHW
+		}
 		return &c, nil
 	}
 	if _, ok := f.vms[ref.UUID]; !ok {
@@ -161,6 +170,7 @@ func (f *fakeDriver) Resize(_ context.Context, ref hypervisor.MachineRef, vcpus,
 	defer f.mu.Unlock()
 	f.live = append(f.live, [2]int{vcpus, memoryMiB})
 	if f.hw != nil {
+		f.beforeHW, f.lagLeft = *f.hw, f.statusLag
 		f.hw.VCPUs, f.hw.MemoryMiB = vcpus, memoryMiB
 	}
 	f.ops = append(f.ops, "resize")
