@@ -499,6 +499,7 @@ func runSystem(conn *grpc.ClientConn, endpoint string, redial redialer, args []s
 		log.Fatalf("Memory: %v", err)
 	}
 	fmt.Printf("memory: total=%d available=%d cached=%d bytes\n", mem.GetTotalBytes(), mem.GetAvailableBytes(), mem.GetCachedBytes())
+	fmt.Printf("oom kills since boot: %d\n", mem.GetOomKills())
 
 	c, cancel = ctx()
 	defer cancel()
