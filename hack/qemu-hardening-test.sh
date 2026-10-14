@@ -158,10 +158,13 @@ echo "CIS benchmark: 33/33 controls compliant, eth0's own IPv6 values included"
 # CONFIG_SYN_COOKIES gap this test's own first draft found) would still
 # leave every check above passing for every *other* sysctl, so also
 # fail loudly on any "init: sysctl ...: <error>" line at all, expected
-# or not.
-if grep -qE "^init: sysctl .*: [a-zA-Z]" "$LOG"; then
+# or not. The error is os.WriteFile's or os.ReadDir's ("open|write
+# /proc/sys/..."): a kernel line printed in the middle of init's on the
+# serial console ("...send_redirects=0ext4: Unknown parameter 'context'",
+# v2026.10.14-4's arm64 run) isn't one.
+if grep -qE "^init: sysctl .*: (open|write) /proc/sys/" "$LOG"; then
   echo "Hardening test FAILED: at least one sysctl write logged an error:" >&2
-  grep -E "^init: sysctl .*: [a-zA-Z]" "$LOG" >&2
+  grep -E "^init: sysctl .*: (open|write) /proc/sys/" "$LOG" >&2
   exit 1
 fi
 grep -qx "init: open files limit 524288" <(tr -d '\r' < "$LOG") || {
