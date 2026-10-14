@@ -387,3 +387,26 @@ func TestAutoscaleSysctl(t *testing.T) {
 		t.Errorf("refused: %q, %+v", msg, j[len(j)-1])
 	}
 }
+
+// TestSampleSteal: the time the vCPUs waited for the host (steal) isn't
+// busy time - it is told apart, so a host short of CPU doesn't ask for a
+// vCPU more.
+func TestSampleSteal(t *testing.T) {
+	now := time.Now()
+	prev := &nodeproxy.Load{CPUs: 2, CPUTotalTicks: 1000, CPUIdleTicks: 300, CPUStealTicks: 100}
+	// The lab's: 20 % idle, 50 % steal, 30 % at work.
+	l := &nodeproxy.Load{CPUs: 2, CPUTotalTicks: 2000, CPUIdleTicks: 500, CPUStealTicks: 600}
+	s := sampleOf(l, prev, now)
+	if s.BusyPercent != 30 || s.StealPercent != 50 {
+		t.Errorf("busy %v, steal %v; want 30, 50", s.BusyPercent, s.StealPercent)
+	}
+	// A node before v2026.10.14-2 says no steal: busy as before.
+	prev.CPUStealTicks, l.CPUStealTicks = 0, 0
+	if s := sampleOf(l, prev, now); s.BusyPercent != 80 || s.StealPercent != 0 {
+		t.Errorf("without steal: busy %v, steal %v; want 80, 0", s.BusyPercent, s.StealPercent)
+	}
+	// The first reading: unknown.
+	if s := sampleOf(l, nil, now); s.BusyPercent != -1 || s.StealPercent != -1 {
+		t.Errorf("first reading: busy %v, steal %v; want -1, -1", s.BusyPercent, s.StealPercent)
+	}
+}

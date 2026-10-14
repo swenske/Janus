@@ -18,9 +18,10 @@ func TestParseProcStat(t *testing.T) {
 	if got.BootTimeUnix != 1790747957 || got.ContextSwitches != 22602863 || got.ProcessesCreated != 98229 {
 		t.Errorf("parseProcStat = %+v", got)
 	}
-	// Total = first 8 fields (guest is already inside user); idle = idle+iowait.
-	if got.CpuTotalTicks != 981 || got.CpuIdleTicks != 820 {
-		t.Errorf("cpu ticks = %d total, %d idle; want 981, 820", got.CpuTotalTicks, got.CpuIdleTicks)
+	// Total = first 8 fields (guest is already inside user); idle = idle+iowait;
+	// steal = the 8th, inside the total.
+	if got.CpuTotalTicks != 981 || got.CpuIdleTicks != 820 || got.CpuStealTicks != 1 {
+		t.Errorf("cpu ticks = %d total, %d idle, %d steal; want 981, 820, 1", got.CpuTotalTicks, got.CpuIdleTicks, got.CpuStealTicks)
 	}
 }
 

@@ -52,8 +52,11 @@ func parseProcStat(content string) *janusv1alpha1.SystemStatResponse {
 			for i, v := range f[1:9] {
 				n, _ := strconv.ParseUint(v, 10, 64)
 				resp.CpuTotalTicks += n
-				if i == 3 || i == 4 {
+				switch i {
+				case 3, 4:
 					resp.CpuIdleTicks += n
+				case 7:
+					resp.CpuStealTicks = n
 				}
 			}
 			continue

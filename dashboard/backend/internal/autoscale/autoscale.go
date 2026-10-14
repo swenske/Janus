@@ -171,9 +171,11 @@ type Sample struct {
 	// CPUs online when it was taken.
 	CPUs int
 	// IdlePercent is HAProxy's (show info's Idle_pct); BusyPercent the
-	// CPUs' since the previous sample. Negative: unknown.
-	IdlePercent float64
-	BusyPercent float64
+	// CPUs' since the previous sample, StealPercent the time they waited
+	// for the host meanwhile (not busy). Negative: unknown.
+	IdlePercent  float64
+	BusyPercent  float64
+	StealPercent float64
 	// Memory, in MiB: the machine's, and what's available.
 	MemTotalMiB, MemAvailableMiB int
 	// OOMKills since the node booted.
@@ -194,6 +196,11 @@ type State struct {
 	OOMKills   uint64 `json:"oom_kills,omitempty"`
 	OOMCounted bool   `json:"oom_counted,omitempty"`
 }
+
+// MaxStealPercent is the steal time above which a vCPU more isn't asked
+// for: the vCPUs already wait that long for the host's CPUs, and one more
+// would wait as well - a host short of CPU, not a machine.
+const MaxStealPercent = 10
 
 // Action is what a decision does.
 type Action string
@@ -393,6 +400,7 @@ func Decide(p Policy, st State, samples []Sample, now time.Time) Decision {
 	if w, ok := window(samples, now, t.CPUUpAfter); ok {
 		idle, idleOK := average(w, func(s Sample) float64 { return idleAt(s, cur.VCPUs) })
 		busy, busyOK := average(w, func(s Sample) float64 { return busyAt(s, cur.VCPUs) })
+		steal, stealOK := average(w, func(s Sample) float64 { return s.StealPercent })
 		var reason string
 		switch {
 		case idleOK && idle < float64(t.CPUUpIdlePercent):
@@ -406,6 +414,8 @@ func Decide(p Policy, st State, samples []Sample, now time.Time) Decision {
 				waits = append(waits, fmt.Sprintf("%s, but HAProxy's configuration fixes its threads (%s): more vCPUs wouldn't be used", reason, p.ThreadsPinned))
 			case cur.VCPUs >= p.Max.VCPUs:
 				waits = append(waits, fmt.Sprintf("%s, but the vCPUs are at their maximum (%d)", reason, p.Max.VCPUs))
+			case stealOK && steal > MaxStealPercent:
+				waits = append(waits, fmt.Sprintf("%s, but the host is short of CPU: the vCPUs waited for it %.0f %% of the time (steal, above %d %%) - another vCPU would wait as well", reason, steal, MaxStealPercent))
 			case availableAt(last, cur.MemoryMiB) < float64(t.MemoryUpAvailablePercent+5) && len(asks) == 0:
 				waits = append(waits, fmt.Sprintf("%s, but too little memory is available for HAProxy's reload", reason))
 			default:

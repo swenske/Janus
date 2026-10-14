@@ -51,7 +51,7 @@ On the node:
 Every 15 seconds, auto-scaling reads the node:
 
 - HAProxy's idle time (`show info`'s `Idle_pct`);
-- how busy the CPUs are;
+- how busy the CPUs are, and how long they waited for the host (steal);
 - the memory available;
 - the OOM kills since boot;
 - HAProxy's connections against its `maxconn`.
@@ -89,7 +89,12 @@ What no step can fix is said, not acted on:
 
 - HAProxy near its `maxconn`: a limit of its configuration, which more
   memory doesn't raise;
-- threads fixed by its configuration: more vCPUs wouldn't be used.
+- threads fixed by its configuration: more vCPUs wouldn't be used;
+- a host short of CPU: when the vCPUs wait for the host more than 10 %
+  of the time (the kernel's steal time), another vCPU would wait as
+  well. Steal time isn't counted as busy, and no vCPU is added while it
+  lasts. A node before v2026.10.14-2 doesn't report it: for those, the
+  CPUs' busy time includes it.
 
 ## Resizing
 

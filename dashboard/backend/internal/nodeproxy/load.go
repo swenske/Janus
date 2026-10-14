@@ -17,11 +17,13 @@ import (
 // (dashboard/backend: autoscale.go).
 type Load struct {
 	// CPUs online, and their cumulative ticks: the busy share between two
-	// readings is 1 - d(idle)/d(total).
-	CPUs                        int
-	CPUTotalTicks, CPUIdleTicks uint64
-	MemTotal, MemAvailable      uint64 // bytes
-	OOMKills                    uint64
+	// readings is (d(total) - d(idle) - d(steal)) / d(total). Steal: the
+	// time the hypervisor ran something else while a vCPU had work - zero
+	// from a node before v2026.10.14-2.
+	CPUs                                       int
+	CPUTotalTicks, CPUIdleTicks, CPUStealTicks uint64
+	MemTotal, MemAvailable                     uint64 // bytes
+	OOMKills                                   uint64
 	// HAProxy: its idle time (show info's Idle_pct), its connections and
 	// limit - IdlePercent -1 when it doesn't answer.
 	IdlePercent        float64
@@ -56,7 +58,7 @@ func ReadLoad(ctx context.Context, node *store.Node) (*Load, error) {
 			fail(err)
 			return
 		}
-		l.CPUTotalTicks, l.CPUIdleTicks = st.GetCpuTotalTicks(), st.GetCpuIdleTicks()
+		l.CPUTotalTicks, l.CPUIdleTicks, l.CPUStealTicks = st.GetCpuTotalTicks(), st.GetCpuIdleTicks(), st.GetCpuStealTicks()
 	}()
 	go func() {
 		defer wg.Done()
