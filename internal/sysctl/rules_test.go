@@ -15,6 +15,7 @@ func janusLive() map[string]string {
 	}
 	live["net.ipv4.tcp_rmem"] = "4096 131072 4194304"
 	live["net.ipv4.tcp_wmem"] = "4096 16384 4194304"
+	live["net.ipv4.tcp_mem"] = "10350 13800 20700"
 	live["fs.file-max"] = "98304"
 	live["net.netfilter.nf_conntrack_max"] = "8192"
 	return live
@@ -179,6 +180,44 @@ func TestRules(t *testing.T) {
 			m: Metrics{MemTotal: gib},
 		},
 		{
+			name: "memory plugged in, 1 GiB to 4 GiB: tcp_mem follows it", param: "net.ipv4.tcp_mem",
+			m:    Metrics{MemTotal: 4 * gib, BootMemTotal: gib, Boot: map[string]string{"net.ipv4.tcp_mem": "10350 13800 20700"}},
+			want: "41400 55200 82800", ruleID: "tcp_mem.follow_memory", measure: "Memory at boot",
+		},
+		{
+			name: "memory taken out, 4 GiB at boot to 2 GiB: tcp_mem follows it down", param: "net.ipv4.tcp_mem",
+			m: Metrics{MemTotal: 2 * gib, BootMemTotal: 4 * gib, Boot: map[string]string{"net.ipv4.tcp_mem": "41400 55200 82800"},
+				Live: func() map[string]string { l := janusLive(); l["net.ipv4.tcp_mem"] = "41400 55200 82800"; return l }()},
+			want: "20700 27600 41400", ruleID: "tcp_mem.follow_memory",
+		},
+		{
+			name: "memory within a tenth of the boot's: nothing", param: "net.ipv4.tcp_mem",
+			m: Metrics{MemTotal: gib + gib/20, BootMemTotal: gib, Boot: map[string]string{"net.ipv4.tcp_mem": "10350 13800 20700"}},
+		},
+		{
+			name: "plugged in, tcp_mem already there: nothing", param: "net.ipv4.tcp_mem",
+			m: Metrics{MemTotal: 4 * gib, BootMemTotal: gib, Boot: map[string]string{"net.ipv4.tcp_mem": "10350 13800 20700"},
+				Live: func() map[string]string { l := janusLive(); l["net.ipv4.tcp_mem"] = "41000 55000 83000"; return l }()},
+		},
+		{
+			name: "boot memory unknown (janusd not on a Janus node): nothing", param: "net.ipv4.tcp_mem",
+			m: Metrics{MemTotal: 4 * gib, Boot: map[string]string{"net.ipv4.tcp_mem": "10350 13800 20700"}},
+		},
+		{
+			name: "memory plugged in, 1 GiB to 3 GiB: file-max follows it", param: "fs.file-max",
+			m:    Metrics{MemTotal: 3 * gib, BootMemTotal: gib, Boot: map[string]string{"fs.file-max": "98304"}},
+			want: "294912", ruleID: "file_max.follow_memory",
+		},
+		{
+			name: "memory plugged in, conntrack in use: the memory rule's value (higher) first", param: "net.netfilter.nf_conntrack_max",
+			m:    Metrics{MemTotal: 2 * gib, BootMemTotal: gib, Boot: map[string]string{"net.netfilter.nf_conntrack_max": "8192"}, Conntrack: true},
+			want: "208896", ruleID: "conntrack_max.memory",
+		},
+		{
+			name: "memory plugged in, conntrack unused: nothing to follow", param: "net.netfilter.nf_conntrack_max",
+			m: Metrics{MemTotal: 2 * gib, BootMemTotal: gib, Boot: map[string]string{"net.netfilter.nf_conntrack_max": "8192"}},
+		},
+		{
 			name: "the keepalives: no rule", param: "net.ipv4.tcp_keepalive_time",
 			m: Metrics{MemTotal: gib, Signals: map[string]SignalState{"outgoing_rate": {Hours: 99}}},
 		},
@@ -230,8 +269,8 @@ func TestEveryRuleIsDocumented(t *testing.T) {
 			}
 		}
 	}
-	if len(ids) != 11 {
-		t.Errorf("%d rules, want 11", len(ids))
+	if len(ids) != 14 {
+		t.Errorf("%d rules, want 14", len(ids))
 	}
 	for _, s := range Signals {
 		if s.Title == "" || s.Measure == "" || s.Seen == "" || s.Kind == Gauge && s.Threshold == 0 {

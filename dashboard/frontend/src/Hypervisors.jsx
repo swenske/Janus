@@ -26,6 +26,8 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { call, gib, postJSON } from './call.js'
 import { nodeCan, useCan, useMe } from './me.jsx'
+import { AutoscaleFields, AutoscaleSummary } from './Autoscale.jsx'
+import { autoscalePolicy, initialAutoscale, samePolicy, sizeText, useAutoscale } from './autoscale.js'
 import { Badge, Card, ErrorBox, Meter, stateTone, useAction, useConfirm, useToast } from './shared/ui.jsx'
 
 // The hypervisors this Controller creates its own nodes on, and those
@@ -1152,6 +1154,12 @@ const blankNIC = (hv, i) => ({ network: firstNetwork(hv), name: `eth${i}`, mode:
 function EditMachine({ m, hv, onClose, onSaved }) {
   const [vcpus, setVcpus] = useState(m.spec.vcpus)
   const [memory, setMemory] = useState(m.spec.memory_mib)
+  const [scaling] = useAutoscale(m.id)
+  const defaults = scaling?.defaults
+  const [auto, setAuto] = useState(null)
+  useEffect(() => {
+    if (defaults && !auto) setAuto(initialAutoscale(m, defaults))
+  }, [defaults]) // eslint-disable-line react-hooks/exhaustive-deps
   const [nics, setNics] = useState(() =>
     m.spec.nics.map((n) => ({ ...n, origNetwork: n.network, address: (n.addresses || []).join(', '), gateway: n.gateway || '', isNew: false })),
   )
@@ -1185,12 +1193,21 @@ function EditMachine({ m, hv, onClose, onSaved }) {
         return out
       }),
     }
+    const policy = auto ? autoscalePolicy(auto, defaults) : m.spec.autoscale || null
+    if (!samePolicy(policy, m.spec.autoscale)) body.autoscale = policy
+    const maxima = (p) => (p ? `${p.max_vcpus}/${p.max_memory_mib}` : '')
     const removed = m.spec.nics.filter((o) => !nics.some((n) => n.mac === o.mac)).length
-    const hardware = body.vcpus !== m.spec.vcpus || body.memory_mib !== m.spec.memory_mib || removed > 0 || nics.some((n) => n.isNew || n.network !== n.origNetwork)
+    const hardware =
+      body.vcpus !== m.spec.vcpus ||
+      body.memory_mib !== m.spec.memory_mib ||
+      removed > 0 ||
+      nics.some((n) => n.isNew || n.network !== n.origNetwork) ||
+      maxima(policy) !== maxima(m.spec.autoscale)
     if (hardware) {
+      const room = policy ? ` with room to grow to ${policy.max_vcpus} vCPU and ${policy.max_memory_mib} MiB while it runs` : ''
       const ok = await confirm({
         title: `Restart ${m.spec.name}?`,
-        body: <p>Its hardware changes: the node shuts down cleanly (HAProxy stops), its virtual machine is reconfigured and started again.</p>,
+        body: <p>Its hardware changes: the node shuts down cleanly (HAProxy stops), its virtual machine is reconfigured and started again{room}.</p>,
         action: 'Change and restart',
         danger: true,
       })
@@ -1212,7 +1229,7 @@ function EditMachine({ m, hv, onClose, onSaved }) {
       <div className="modal card wide edit-machine" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className="card-header">
           <div className="card-title">
-            <Pencil size={16} /> {m.spec.name}: hardware
+            <Pencil size={16} /> {m.spec.name}: hardware and auto-scaling
           </div>
           <button className="ghost icon" onClick={onClose} aria-label="Close">
             <X size={16} />
@@ -1283,12 +1300,13 @@ function EditMachine({ m, hv, onClose, onSaved }) {
               <li>The interface the Controller reaches the node through can&apos;t be removed or moved to another network.</li>
             </ul>
           </div>
+          {auto && <AutoscaleFields form={auto} setForm={setAuto} vcpus={Number(vcpus)} memory={Number(memory)} current={!!m.spec.autoscale} />}
           <ErrorBox error={error} />
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose}>
               Cancel
             </button>
-            <button className="primary" type="submit" disabled={busy}>
+            <button className="primary" type="submit" disabled={busy || !auto}>
               {busy ? 'Changing…' : 'Change'}
             </button>
           </div>
@@ -1385,9 +1403,7 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
       )}
       <dl className="kv small">
         <dt>Size</dt>
-        <dd>
-          {m.spec.vcpus} vCPU · {m.spec.memory_mib} MiB
-        </dd>
+        <dd>{sizeText(m)}</dd>
         <dt>Image</dt>
         <dd className="mono">
           {m.version ? `${m.version}${m.schematic ? ` · ${m.schematic.slice(0, 8)}` : ''}` : m.spec.image ? 'custom image' : m.spec.version || 'newest release'}
@@ -1406,6 +1422,7 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
         <dt>Node</dt>
         <dd className="mono">{m.node_address || <span className="muted">not registered yet</span>}</dd>
       </dl>
+      <AutoscaleSummary m={m} />
       {last && !history && (
         <div className="muted small">
           {new Date(last.time).toLocaleTimeString()} · {last.message}
@@ -1423,7 +1440,7 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
           <History size={14} />
         </button>
         {can('admin') && m.phase === 'ready' && m.node_id && !m.spec.locked && (
-          <button className="small" onClick={() => onEdit(m)} disabled={actions.busy} title="vCPUs, memory, network interfaces">
+          <button className="small" onClick={() => onEdit(m)} disabled={actions.busy} title="vCPUs, memory, network interfaces, auto-scaling">
             <Pencil size={14} /> Edit
           </button>
         )}

@@ -111,7 +111,8 @@ type SystemServiceClient interface {
 	// SystemStat reports the machine's counters since boot: boot time,
 	// context switches, processes created, CPU ticks (/proc/stat).
 	SystemStat(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*SystemStatResponse, error)
-	// Memory reports the machine's total, available and cached memory.
+	// Memory reports the machine's total, available and cached memory, and
+	// the processes the kernel killed for lack of it since boot.
 	Memory(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MemoryResponse, error)
 	// CPUInfo describes the machine's CPUs: model, frequency, sockets and
 	// cores.
@@ -749,7 +750,8 @@ type SystemServiceServer interface {
 	// SystemStat reports the machine's counters since boot: boot time,
 	// context switches, processes created, CPU ticks (/proc/stat).
 	SystemStat(context.Context, *emptypb.Empty) (*SystemStatResponse, error)
-	// Memory reports the machine's total, available and cached memory.
+	// Memory reports the machine's total, available and cached memory, and
+	// the processes the kernel killed for lack of it since boot.
 	Memory(context.Context, *emptypb.Empty) (*MemoryResponse, error)
 	// CPUInfo describes the machine's CPUs: model, frequency, sockets and
 	// cores.

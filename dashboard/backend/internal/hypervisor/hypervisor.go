@@ -56,11 +56,17 @@ type Driver interface {
 	CreateMachine(ctx context.Context, spec MachineSpec) (*MachineRef, error)
 	MachineStatus(ctx context.Context, ref MachineRef) (*MachineStatus, error)
 	Power(ctx context.Context, ref MachineRef, action PowerAction) error
-	// Reconfigure changes a stopped machine's vCPUs, memory and network
-	// interfaces - nics is the whole new set: an interface whose MAC
-	// isn't in it is removed, one that's new is added, one whose network
-	// changed is moved - from its next start.
-	Reconfigure(ctx context.Context, ref MachineRef, vcpus, memoryMiB int, nics []NIC) error
+	// Reconfigure changes a stopped machine's hardware - its size, what
+	// it may grow to while it runs (hw.MaxVCPUs, hw.MaxMemoryMiB), and
+	// its network interfaces: nics is the whole new set - an interface
+	// whose MAC isn't in it is removed, one that's new is added, one
+	// whose network changed is moved - from its next start.
+	Reconfigure(ctx context.Context, ref MachineRef, hw Hardware, nics []NIC) error
+	// Resize changes a running scalable machine's vCPUs and memory, within
+	// the maxima it was started with, without stopping it (hot-plug: the
+	// Controller's auto-scaling). It returns once the hypervisor took the
+	// request; the node onlines what it gets.
+	Resize(ctx context.Context, ref MachineRef, vcpus, memoryMiB int) error
 	// Console copies the machine's serial console output to w until ctx
 	// ends or the console closes. Read-only.
 	Console(ctx context.Context, ref MachineRef, w io.Writer) error
@@ -123,6 +129,26 @@ type Image struct {
 	VirtualSize uint64
 }
 
+// Hardware is a machine's size - vCPUs and memory - and what it may grow
+// to while it runs.
+type Hardware struct {
+	VCPUs     int
+	MemoryMiB int
+	// MaxVCPUs and MaxMemoryMiB, above VCPUs and MemoryMiB, make the
+	// machine scalable: started with room for them, Resize grows it to
+	// them and back without a restart. Zero or equal: fixed.
+	MaxVCPUs     int
+	MaxMemoryMiB int
+}
+
+// ScalableCPUs and ScalableMemory report whether the machine may grow
+// its vCPUs, its memory, while it runs.
+func (h Hardware) ScalableCPUs() bool   { return h.MaxVCPUs > h.VCPUs }
+func (h Hardware) ScalableMemory() bool { return h.MaxMemoryMiB > h.MemoryMiB }
+
+// Scalable reports whether either may grow.
+func (h Hardware) Scalable() bool { return h.ScalableCPUs() || h.ScalableMemory() }
+
 // MachineSpec is everything CreateMachine needs.
 type MachineSpec struct {
 	// MachineID is the Controller's own ID for the machine, recorded in
@@ -130,10 +156,10 @@ type MachineSpec struct {
 	MachineID string
 	// Name is the virtual machine's name on the hypervisor - already
 	// carrying the configured prefix.
-	Name      string
-	VCPUs     int
-	MemoryMiB int
-	Image     Image
+	Name string
+	// Hardware: the size it starts with, and its maxima.
+	Hardware
+	Image Image
 	// CIData is the NoCloud volume's content (internal/cidata).
 	CIData []byte
 	NICs   []NIC
@@ -171,9 +197,20 @@ const (
 )
 
 type MachineStatus struct {
-	Power     PowerState `json:"power"`
-	VCPUs     int        `json:"vcpus"`
-	MemoryMiB int        `json:"memory_mib"`
+	Power PowerState `json:"power"`
+	// VCPUs and MemoryMiB are what the machine has now - what it was
+	// resized to, for a scalable one.
+	VCPUs     int `json:"vcpus"`
+	MemoryMiB int `json:"memory_mib"`
+	// MaxVCPUs and MaxMemoryMiB are the most it can have without a
+	// restart - VCPUs and MemoryMiB for a fixed machine. MaxMemoryMiB is
+	// 0 when the hypervisor sets no ceiling of its own (Proxmox: its
+	// memory modules go as far as the CPU addresses).
+	MaxVCPUs     int `json:"max_vcpus"`
+	MaxMemoryMiB int `json:"max_memory_mib"`
+	// MemoryStepMiB is what Resize changes the memory by - 0 when it
+	// can't change while the machine runs.
+	MemoryStepMiB int `json:"memory_step_mib,omitempty"`
 	// CPUTimeNs is the machine's cumulative CPU time.
 	CPUTimeNs uint64 `json:"cpu_time_ns"`
 }

@@ -259,3 +259,58 @@ func TestProxmoxHypervisor(t *testing.T) {
 		t.Errorf("an unpinned certificate kept the fingerprint %q", m.CertificateFingerprint.ValueString())
 	}
 }
+
+// Auto-scaling: the policy goes to the Controller - a threshold left out
+// is its default -, comes back without a difference, and its removal is
+// a null; what auto-scaling gave the node is current_*, not drift.
+func TestAutoscaling(t *testing.T) {
+	ctx := context.Background()
+	var diags diag.Diagnostics
+	m := &client.Machine{
+		ID: "m1", Phase: "ready",
+		Spec: client.MachineSpec{Name: "lb1", HypervisorID: "h1", VCPUs: 2, MemoryMiB: 1024,
+			Autoscale: &client.Autoscale{Mode: "on", MaxVCPUs: 4, MaxMemoryMiB: 4096, ReturnAfterSeconds: 600, Sysctl: true},
+			NICs:      []client.NIC{{Network: "lan", Name: "mgmt", MAC: "52:54:00:00:00:01", Mode: "dhcp"}}},
+		Size: &client.Size{VCPUs: 3, MemoryMiB: 1536},
+	}
+	s := nodeModel{Extensions: types.SetNull(types.StringType), DNS: strList(), NTP: strList(),
+		Interfaces: []interfaceModel{{Addresses: strList(), Gateway: types.StringNull()}}}
+	fromMachine(m, &s)
+	a := s.Autoscaling
+	if a == nil || a.Mode.ValueString() != "on" || a.MaxVCPUs.ValueInt64() != 4 || !a.Sysctl.ValueBool() || a.ReturnAfterSeconds.ValueInt64() != 600 || !a.CPUUpIdlePercent.IsNull() {
+		t.Fatalf("read back %+v", a)
+	}
+	if s.VCPUs.ValueInt64() != 2 || s.CurrentVCPUs.ValueInt64() != 3 || s.CurrentMemoryMiB.ValueInt64() != 1536 {
+		t.Errorf("vcpus %v, current %v %v", s.VCPUs, s.CurrentVCPUs, s.CurrentMemoryMiB)
+	}
+	if p := a.policy(); *p != *m.Spec.Autoscale {
+		t.Errorf("policy %+v, want %+v", p, m.Spec.Autoscale)
+	}
+
+	// The same plan: nothing to change, whatever its current size.
+	plan := s
+	if u := updateFor(ctx, &s, &plan, &diags); u != nil {
+		t.Errorf("no change gave %+v", u)
+	}
+	// A threshold: the whole policy, in place.
+	next := *a
+	next.CooldownSeconds = types.Int64Value(120)
+	plan.Autoscaling = &next
+	u := updateFor(ctx, &s, &plan, &diags)
+	if u == nil || !strings.Contains(string(u.Autoscale), `"cooldown_seconds":120`) || !strings.Contains(string(u.Autoscale), `"return_after_seconds":600`) || u.VCPUs != nil {
+		t.Fatalf("a threshold: %+v %s", u, u.Autoscale)
+	}
+	// Removed: null.
+	plan.Autoscaling = nil
+	if u := updateFor(ctx, &s, &plan, &diags); u == nil || string(u.Autoscale) != "null" {
+		t.Errorf("removed: %+v", u)
+	}
+	// None before, none after: nothing sent.
+	s.Autoscaling = nil
+	if u := updateFor(ctx, &s, &plan, &diags); u != nil {
+		t.Errorf("no policy either way gave %+v", u)
+	}
+	if diags.HasError() {
+		t.Fatal(diags)
+	}
+}

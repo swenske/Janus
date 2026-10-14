@@ -5,8 +5,10 @@
 # libvirt's setvcpus --live does) are onlined by init, janusd tells it
 # once - one event - and reloads HAProxy, which then runs a thread per
 # CPU; memory plugged through virtio-mem is onlined by the kernel into
-# ZONE_MOVABLE and taken back out; a vCPU unplugged, HAProxy follows;
-# a configuration that fixes nbthread isn't reloaded for nothing; no AVC
+# ZONE_MOVABLE and taken back out, the kernel parameters it sized at
+# boot (tcp_mem, file-max) suggested in proportion meanwhile; a vCPU
+# unplugged, HAProxy follows; a configuration that fixes nbthread isn't
+# reloaded for nothing; an OOM kill is an event and counted; no AVC
 # denial.
 #
 # Needs KVM: the kernel only counts QEMU's hot-pluggable vCPUs under a
@@ -151,6 +153,16 @@ ev="$(events system.memory_changed | tail -1)"
 grep -q "\"before_mib\":${base}" <<<"$ev" || fail "the memory_changed event: $ev"
 echo "  ok: 2 GiB plugged in - $(memTotalMiB) MiB, $((movable / 256)) MiB of it movable, one event"
 
+# The kernel sized tcp_mem and file-max from the boot's memory: both
+# suggested in proportion to the memory now, never applied by themselves.
+out="$(ctl system sysctl get net.ipv4.tcp_mem)"
+grep -q "^Suggested: .* - never applied by itself (rule tcp_mem.follow_memory)" <<<"$out" || fail "no memory-following suggestion for tcp_mem: $out"
+bootPressure="$(ctl system cat /proc/sys/net/ipv4/tcp_mem | awk '{print $2}')"
+suggested="$(sed -n 's/^Suggested: [0-9]* \([0-9]*\) .*/\1/p' <<<"$out")"
+[ "$suggested" -gt $((bootPressure * 3)) ] || fail "tcp_mem's suggestion ($suggested) isn't about $((bootPressure * (base + 2048) / base)) for $(memTotalMiB) MiB"
+grep -q "^Suggested: .*(rule file_max.follow_memory)" <<<"$(ctl system sysctl get fs.file-max)" || fail "no memory-following suggestion for file-max"
+echo "  ok: tcp_mem and file-max suggested for the memory now ($suggested pages under pressure, $bootPressure at boot)"
+
 # --- and taken back out ---
 qmp qom-set '{"path":"/machine/peripheral/vmem","property":"requested-size","value":0}' >/dev/null \
   || fail "QEMU refused to shrink the virtio-mem device"
@@ -158,7 +170,8 @@ shrunk() { [ "$(memTotalMiB)" -le "$base" ]; }
 waitFor "the memory wasn't taken back: MemTotal $(memTotalMiB) MiB" shrunk
 [ "$(qmp qom-get '{"path":"/machine/peripheral/vmem","property":"size"}')" = 0 ] || fail "the virtio-mem device still has memory plugged"
 waitFor "no second system.memory_changed event" eventCount system.memory_changed 2
-echo "  ok: the 2 GiB taken back out - $(memTotalMiB) MiB"
+if grep -q "follow_memory" <<<"$(ctl system sysctl get net.ipv4.tcp_mem)"; then fail "tcp_mem is still suggested at the boot's memory"; fi
+echo "  ok: the 2 GiB taken back out - $(memTotalMiB) MiB, nothing to follow any more"
 
 # --- a vCPU unplugged: the kernel offlines it, HAProxy follows ---
 qmp device_del '{"id":"cpu2"}' >/dev/null || fail "QEMU refused to unplug vCPU 2"
@@ -194,6 +207,46 @@ ev="$(events system.cpus_changed | tail -1)"
 grep -q 'not reloaded: its configuration' <<<"$ev" && grep -q 'nbthread' <<<"$ev" || fail "a configuration with nbthread was reloaded anyway: $ev"
 threadsAre 2 || fail "HAProxy's fixed 2 threads changed: $(haproxyThreads)"
 echo "  ok: nbthread fixed - the plugged vCPU is online, HAProxy left alone"
+
+# --- an OOM kill: an event, counted ---
+# Three caches HAProxy writes all through when it starts (their block
+# headers), each smaller than the memory - each allocation passes the
+# kernel's overcommit check -, together larger: the kernel kills it. The
+# configuration is refused, the previous HAProxy keeps serving.
+cat > "$WORKDIR/oom.cfg" <<'EOF'
+global
+    stats socket /run/janus/haproxy-admin.sock mode 660 level admin
+    chroot /var/empty
+    uid 1000
+    gid 1000
+
+cache c1
+    total-max-size 400
+cache c2
+    total-max-size 400
+cache c3
+    total-max-size 400
+
+defaults
+    mode http
+    timeout connect 5s
+    timeout client 30s
+    timeout server 30s
+
+frontend janus-health
+    bind *:8080
+    http-request cache-use c1
+    http-request cache-use c2
+    http-request cache-use c3
+    http-request return status 200 content-type text/plain string "Janus: haproxy is up\n"
+EOF
+if out="$(ctl haproxy apply-config "$WORKDIR/oom.cfg" 2>&1)"; then fail "a configuration larger than the memory was applied: $out"; fi
+waitFor "no kernel.oom_kill event" eventCount kernel.oom_kill 1
+ev="$(events kernel.oom_kill | tail -1)"
+grep -q '"process":"haproxy"' <<<"$ev" || fail "the OOM kill event: $ev"
+grep -q "^oom kills since boot: [1-9]" <<<"$(ctl system info)" || fail "the OOM kill isn't counted: $(ctl system info | grep oom)"
+curl -fsS "http://127.0.0.1:${P_HTTP}/" >/dev/null || fail "the previous HAProxy stopped serving"
+echo "  ok: an OOM kill - event $ev, counted, the previous HAProxy still serving"
 
 if grep -aq "avc:  denied" "$LOG"; then
   grep -a "avc:  denied" "$LOG" >&2

@@ -87,6 +87,7 @@ variable "name" { default = "tf-node1" }
 variable "memory" { default = 1024 }
 variable "address" { default = "" }
 variable "extra_nic" { default = false }
+variable "autoscale" { default = false }
 variable "labels" {
   type    = map(string)
   default = null
@@ -108,6 +109,11 @@ resource "janus_node" "n" {
   hypervisor_id = janus_hypervisor.host.id
   vcpus         = 1
   memory_mib    = var.memory
+  autoscaling = var.autoscale ? {
+    mode           = "observe"
+    max_vcpus      = 2
+    max_memory_mib = 2048
+  } : null
   image = {
     url    = "http://127.0.0.1:8000/janus-kvm.qcow2"
     sha256 = var.image_sha256
@@ -131,6 +137,7 @@ output "authorized_key" { value = janus_hypervisor.host.authorized_key }
 output "node_address" { value = try(janus_node.n[0].node_address, "") }
 output "node_id" { value = try(janus_node.n[0].id, "") }
 output "janus_node_id" { value = try(janus_node.n[0].node_id, "") }
+output "current_vcpus" { value = try(janus_node.n[0].current_vcpus, 0) }
 EOF
 tofu() { (cd "$WORKDIR/tf" && "$TOFU" "$@" -no-color -var "fingerprint=$FINGERPRINT" -var "image_sha256=$SUM" 2>&1); }
 tofu_bare() { (cd "$WORKDIR/tf" && "$TOFU" "$@" 2>&1); }
@@ -192,6 +199,28 @@ node_id="$(api "$API/api/machines/$NODE_MID" | json "d['node_id']")"
 [ "$(api "$API/api/nodes/status" | json "d['$node_id']['reachable']")" = True ] || fail "the node isn't reachable at its new address"
 no_changes "the address change" -var nodes=1 -var memory=1536 -var address=192.168.123.50/24
 echo "Part 5 OK: a static address applied in place (on trial, confirmed at 192.168.123.50), nothing left to plan"
+
+# =========================================================================
+# 4b. Auto-scaling: set in place (a restart with room to grow), no drift
+#     whatever it does, removed in place.
+# =========================================================================
+A="-var nodes=1 -var memory=1536 -var address=192.168.123.50/24"
+# shellcheck disable=SC2086
+apply $A -var autoscale=true
+grep -q "1 changed" "$WORKDIR/apply.log" || fail "auto-scaling wasn't set in place: $(grep -E 'Plan:|Apply complete' "$WORKDIR/apply.log")"
+xml="$(in_host virsh dumpxml janus-tf-node1)"
+grep -q "model='virtio-mem'" <<<"$xml" && grep -q "current='1'>2</vcpu>" <<<"$xml" || fail "the domain has no room to grow: $(grep -E 'vcpu|virtio' <<<"$xml")"
+[ "$(api "$API/api/machines/$NODE_MID" | json "d['spec']['autoscale']['mode']")" = observe ] || fail "the Controller has no policy"
+[ "$(tofu_out current_vcpus)" = 1 ] || fail "current_vcpus is $(tofu_out current_vcpus)"
+# shellcheck disable=SC2086
+no_changes "setting auto-scaling" $A -var autoscale=true
+# shellcheck disable=SC2086
+apply $A
+grep -q "1 changed" "$WORKDIR/apply.log" || fail "auto-scaling wasn't removed in place: $(grep -E 'Plan:|Apply complete' "$WORKDIR/apply.log")"
+if grep -q "virtio-mem" <<<"$(in_host virsh dumpxml janus-tf-node1)"; then fail "removed, the domain still has room to grow"; fi
+# shellcheck disable=SC2086
+no_changes "removing auto-scaling" $A
+echo "Part 5b OK: autoscaling set in place (the domain started with room to grow, the Controller observing), nothing left to plan, removed in place"
 
 # =========================================================================
 # 5. Locked: its pages can't change it. Released, a change made there is a

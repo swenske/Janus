@@ -212,6 +212,8 @@ func main() {
 	}
 	app.runner.resume()
 	go app.runner.syncLoop(context.Background())
+	app.autoscaler = newAutoscaler(app)
+	go app.autoscaler.run(context.Background())
 	go app.trustLoop(context.Background())
 	go app.backupLoop(context.Background())
 	// The node pages: a machine's lock, and its record read again after a
@@ -335,11 +337,13 @@ type app struct {
 	hypervisors  *hypervisor.Store
 	machines     *machines.Store
 	// enroll: enrollment tokens - a batch of nodes admitted on one.
-	enroll   *enroll.Store
-	fleet    *fleet.Store
-	trust    *trustTracker
-	runner   *machineRunner
-	consoles consoleHub
+	enroll *enroll.Store
+	fleet  *fleet.Store
+	trust  *trustTracker
+	runner *machineRunner
+	// autoscaler resizes machines with an auto-scaling policy
+	autoscaler *autoscaler
+	consoles   consoleHub
 
 	challenges challenges
 	// restored: a backup was restored - the process starts again.

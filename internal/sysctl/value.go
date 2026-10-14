@@ -259,6 +259,24 @@ func checkBuffers(v []int64, _ *env) error {
 	return nil
 }
 
+// pageSize is the unit of net.ipv4.tcp_mem.
+const pageSize = 4 * kib
+
+func checkTCPMem(v []int64, e *env) error {
+	if v[0] > v[1] || v[1] > v[2] {
+		return errors.New("the three values must be in increasing order")
+	}
+	if e.probes == nil {
+		return nil
+	}
+	if mem, err := e.probes.MemTotal(); err == nil && mem > 0 {
+		if pages := mem / pageSize; v[2] > pages {
+			return fmt.Errorf("at most %d pages with this memory: TCP can't be allowed more than the machine has", pages)
+		}
+	}
+	return nil
+}
+
 func checkFileMax(v []int64, e *env) error {
 	if e.probes == nil {
 		return nil

@@ -17,7 +17,9 @@ import (
 // docs/hypervisors.md says - skipped unless JANUS_PVE_URL is set. It
 // creates one machine in the token's pool and removes it, and reads -
 // only reads - one virtual machine outside the pool
-// (JANUS_PVE_FOREIGN_VMID) to check the token can't see it.
+// (JANUS_PVE_FOREIGN_VMID) to check the token can't see it. The machine
+// is made scalable and resized while it runs: JANUS_PVE_IMAGE must be
+// an image whose kernel takes hot-plugged memory (2026-10-14 or later).
 //
 //	JANUS_PVE_URL=https://pve:8006 JANUS_PVE_NODE=pve JANUS_PVE_TOKEN_ID=janus-ctl@pve!controller
 //	JANUS_PVE_TOKEN_SECRET=... JANUS_PVE_FINGERPRINT=AA:BB:... JANUS_PVE_POOL=janus
@@ -68,7 +70,7 @@ func TestLive(t *testing.T) {
 	defer func() { _ = d.deleteVolume(context.Background(), d.volume("import", img.Name)) }()
 
 	spec := hypervisor.MachineSpec{
-		MachineID: "live" + time.Now().Format("150405"), Name: "janus-live-test", VCPUs: 1, MemoryMiB: 512, Image: img,
+		MachineID: "live" + time.Now().Format("150405"), Name: "janus-live-test", Hardware: hypervisor.Hardware{VCPUs: 1, MemoryMiB: 512}, Image: img,
 		CIData: bytes.Repeat([]byte{0}, 64<<10),
 		NICs:   []hypervisor.NIC{{Network: env("NETWORK"), MAC: "52:54:00:4a:4e:01"}},
 	}
@@ -108,18 +110,57 @@ func TestLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	nics := append(spec.NICs, hypervisor.NIC{Network: env("NETWORK"), MAC: "52:54:00:4a:4e:02"})
-	if err := d.Reconfigure(ctx, *ref, 2, 768, nics); err != nil {
+	if err := d.Reconfigure(ctx, *ref, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 768}, nics); err != nil {
 		t.Fatal(err)
 	}
 	vmid, c, err := d.owned(ctx, *ref)
 	if err != nil || c.Cores != 2 || c.memoryMiB() != 768 || c.raw["net1"] == nil {
 		t.Fatalf("after Reconfigure: %d %+v %v", vmid, c, err)
 	}
-	if err := d.Reconfigure(ctx, *ref, 2, 768, spec.NICs); err != nil {
+	if err := d.Reconfigure(ctx, *ref, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 768}, spec.NICs); err != nil {
 		t.Fatal(err)
 	}
 	if _, c, _ = d.owned(ctx, *ref); c.raw["net1"] != nil {
 		t.Errorf("net1 still there: %v", c.raw["net1"])
+	}
+
+	// Scalable: started at its nominal size, resized while it runs - up,
+	// then back - and fixed again.
+	scalable := hypervisor.Hardware{VCPUs: 1, MemoryMiB: 1024, MaxVCPUs: 4, MaxMemoryMiB: 2048}
+	if err := d.Reconfigure(ctx, *ref, scalable, spec.NICs); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Power(ctx, *ref, hypervisor.PowerStart); err != nil {
+		t.Fatal(err)
+	}
+	st, err = d.MachineStatus(ctx, *ref)
+	if err != nil || st.VCPUs != 1 || st.MaxVCPUs != 4 || st.MemoryMiB != 1024 || st.MaxMemoryMiB != 0 || st.MemoryStepMiB != 512 {
+		t.Fatalf("scalable status: %+v %v", st, err)
+	}
+	time.Sleep(40 * time.Second) // the node boots: it takes back its memory modules itself
+	if err := d.Resize(ctx, *ref, 3, 2048); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = d.MachineStatus(ctx, *ref); err != nil || st.VCPUs != 3 || st.MemoryMiB != 2048 {
+		t.Fatalf("resized up: %+v %v", st, err)
+	}
+	if err := d.Resize(ctx, *ref, 1, 1024); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = d.MachineStatus(ctx, *ref); err != nil || st.VCPUs != 1 || st.MemoryMiB != 1024 {
+		t.Fatalf("resized back: %+v %v", st, err)
+	}
+	if err := d.Resize(ctx, *ref, 1, 1300); err == nil {
+		t.Error("a memory between two modules accepted")
+	}
+	if err := d.Power(ctx, *ref, hypervisor.PowerForceOff); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Reconfigure(ctx, *ref, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 768}, spec.NICs); err != nil {
+		t.Fatal(err)
+	}
+	if _, c, _ = d.owned(ctx, *ref); c.raw["vcpus"] != nil || c.raw["hotplug"] != nil || c.Cores != 2 {
+		t.Errorf("fixed again: %+v", c.raw)
 	}
 
 	// Another Controller's record of the same machine: not ours.

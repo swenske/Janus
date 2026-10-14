@@ -127,7 +127,7 @@ SystemService is the reduced, non-Kubernetes equivalent of Talos's MachineServic
 | `Logs` | `LogsRequest` → `stream Data` | `os:operator` | services | Logs streams a managed service's log output. |
 | `Stats` | `Empty` → `StatsResponse` | `os:reader` | observe | Stats sums the CPU time and memory of each managed service's processes - janusd, haproxy (a reload briefly leaves an old haproxy process finishing its connections next to the new one). |
 | `SystemStat` | `Empty` → `SystemStatResponse` | `os:reader` | observe | SystemStat reports the machine's counters since boot: boot time, context switches, processes created, CPU ticks (/proc/stat). |
-| `Memory` | `Empty` → `MemoryResponse` | `os:reader` | observe | Memory reports the machine's total, available and cached memory. |
+| `Memory` | `Empty` → `MemoryResponse` | `os:reader` | observe | Memory reports the machine's total, available and cached memory, and the processes the kernel killed for lack of it since boot. |
 | `CPUInfo` | `Empty` → `CPUInfoResponse` | `os:reader` | observe | CPUInfo describes the machine's CPUs: model, frequency, sockets and cores. |
 | `LoadAvg` | `Empty` → `LoadAvgResponse` | `os:reader` | observe | LoadAvg reports the load averages over 1, 5 and 15 minutes. |
 | `DiskStats` | `Empty` → `DiskStatsResponse` | `os:reader` | observe | DiskStats reports each disk's I/O counters. |

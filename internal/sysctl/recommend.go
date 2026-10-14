@@ -16,6 +16,11 @@ import (
 type Metrics struct {
 	CPUs     int
 	MemTotal int64 // bytes
+	// BootMemTotal is the memory the machine booted with, Boot the
+	// Dynamic parameters' values the kernel computed from it: memory
+	// plugged in or taken out since leaves those as they were.
+	BootMemTotal int64
+	Boot         map[string]string
 	// Live is every Editable parameter's live value, normalized.
 	Live map[string]string
 	// Signals are the signals observed over Window, by ID - none when

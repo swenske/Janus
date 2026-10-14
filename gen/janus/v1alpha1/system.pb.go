@@ -3393,8 +3393,11 @@ type MemoryResponse struct {
 	TotalBytes     uint64                 `protobuf:"varint,1,opt,name=total_bytes,json=totalBytes,proto3" json:"total_bytes,omitempty"`
 	AvailableBytes uint64                 `protobuf:"varint,2,opt,name=available_bytes,json=availableBytes,proto3" json:"available_bytes,omitempty"`
 	CachedBytes    uint64                 `protobuf:"varint,3,opt,name=cached_bytes,json=cachedBytes,proto3" json:"cached_bytes,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Processes the kernel killed for lack of memory since boot
+	// (/proc/vmstat's oom_kill).
+	OomKills      uint64 `protobuf:"varint,4,opt,name=oom_kills,json=oomKills,proto3" json:"oom_kills,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MemoryResponse) Reset() {
@@ -3444,6 +3447,13 @@ func (x *MemoryResponse) GetAvailableBytes() uint64 {
 func (x *MemoryResponse) GetCachedBytes() uint64 {
 	if x != nil {
 		return x.CachedBytes
+	}
+	return 0
+}
+
+func (x *MemoryResponse) GetOomKills() uint64 {
+	if x != nil {
+		return x.OomKills
 	}
 	return 0
 }
@@ -5335,12 +5345,13 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\x10context_switches\x18\x02 \x01(\x04R\x0fcontextSwitches\x12+\n" +
 	"\x11processes_created\x18\x03 \x01(\x04R\x10processesCreated\x12&\n" +
 	"\x0fcpu_total_ticks\x18\x04 \x01(\x04R\rcpuTotalTicks\x12$\n" +
-	"\x0ecpu_idle_ticks\x18\x05 \x01(\x04R\fcpuIdleTicks\"}\n" +
+	"\x0ecpu_idle_ticks\x18\x05 \x01(\x04R\fcpuIdleTicks\"\x9a\x01\n" +
 	"\x0eMemoryResponse\x12\x1f\n" +
 	"\vtotal_bytes\x18\x01 \x01(\x04R\n" +
 	"totalBytes\x12'\n" +
 	"\x0favailable_bytes\x18\x02 \x01(\x04R\x0eavailableBytes\x12!\n" +
-	"\fcached_bytes\x18\x03 \x01(\x04R\vcachedBytes\"n\n" +
+	"\fcached_bytes\x18\x03 \x01(\x04R\vcachedBytes\x12\x1b\n" +
+	"\toom_kills\x18\x04 \x01(\x04R\boomKills\"n\n" +
 	"\x0fCPUInfoResponse\x12+\n" +
 	"\x04cpus\x18\x01 \x03(\v2\x17.janus.v1alpha1.CPUInfoR\x04cpus\x12\x18\n" +
 	"\asockets\x18\x02 \x01(\rR\asockets\x12\x14\n" +

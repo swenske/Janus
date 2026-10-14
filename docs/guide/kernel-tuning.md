@@ -35,6 +35,7 @@ for the parameters that depend on the machine's memory, read at boot.
 | `net.core.netdev_max_backlog` | `10000` | 1000-65536 packets | at once | 10000 |
 | `net.ipv4.tcp_rmem` | the kernel's: 4096 131072, maximum from the memory (32 MiB at most) | min 4 KiB-64 KiB, default 4 KiB-4 MiB, max 64 KiB-64 MiB | new connections | 4096 16060 262144 (optional) |
 | `net.ipv4.tcp_wmem` | the kernel's: 4096 16384, maximum from the memory (4 MiB at most) | min 4 KiB-64 KiB, default 4 KiB-4 MiB, max 64 KiB-64 MiB | new connections | 4096 16384 262144 (optional) |
+| `net.ipv4.tcp_mem` | the kernel's: from the memory at boot: about a sixteenth of it for the second value, three quarters and one and a half times that for the others | min 4096-67108864, default 4096-67108864, max 4096-67108864 pages | at once | - |
 | `fs.file-max` | the kernel's: about 10% of the memory, at 1 KiB a file | 8192-67108864 files | at once | - |
 | `net.ipv4.tcp_keepalive_time` | `7200` | 60-7200 seconds | at once | - |
 | `net.ipv4.tcp_keepalive_intvl` | `75` | 10-75 seconds | at once | - |
@@ -55,6 +56,7 @@ What each one does:
 - **`net.core.netdev_max_backlog`** - Received packets waiting for the network stack, per CPU. HAProxy: Absorbs bursts of traffic - an effect HAProxy calls minimal. Risk: Memory and latency while the queue is full. The kernel's default: 1000. Sources: [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system).
 - **`net.ipv4.tcp_rmem`** - Receive buffer of each TCP socket: minimum, default and maximum, auto-tuned in between. HAProxy: Kernel memory per connection: smaller buffers let a node hold more connections at once. Risk: A low maximum caps a connection's throughput at about the maximum divided by the round-trip time - 256 KiB at 50 ms is about 40 Mbit/s. The kernel's default: 4096 131072, maximum from the memory (32 MiB at most). Sources: [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system), [HAProxy configuration: tune.rcvbuf.client](https://docs.haproxy.org/3.4/configuration.html#3.2-tune.rcvbuf.client).
 - **`net.ipv4.tcp_wmem`** - Send buffer of each TCP socket: minimum, default and maximum, auto-tuned in between. HAProxy: Kernel memory per connection: smaller buffers let a node hold more connections at once. Risk: A low maximum caps a connection's throughput at about the maximum divided by the round-trip time. The kernel's default: 4096 16384, maximum from the memory (4 MiB at most). Sources: [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system), [HAProxy configuration: tune.sndbuf.client](https://docs.haproxy.org/3.4/configuration.html#3.2-tune.sndbuf.client).
+- **`net.ipv4.tcp_mem`** - Memory all TCP sockets may take together, in 4 KiB pages: below the first value nothing holds them back, from the second TCP shrinks their buffers, at the third it gives them no more. HAProxy: HAProxy's connections' kernel buffers come out of it: at the third value, data waits or is dropped and connections stall - the TCP memory pressure signal. Risk: Too high, sockets can take memory HAProxy needs itself; too low, connections slow down under load. The kernel computes it once, at boot: memory plugged in later doesn't change it. The kernel's default: from the memory at boot: about a sixteenth of it for the second value, three quarters and one and a half times that for the others. Sources: [Linux: IP sysctl](https://docs.kernel.org/networking/ip-sysctl.html).
 - **`fs.file-max`** - Open files on the whole system. HAProxy: HAProxy runs as uid 1000 without CAP_SYS_ADMIN, so it's held to it: at the limit, accept() and socket() fail with ENFILE ("Too many sockets on the system"). Risk: More descriptors, more memory they can take. The kernel's default: about 10% of the memory, at 1 KiB a file. Sources: [HAProxy management: file-descriptor limitations](https://docs.haproxy.org/3.4/management.html#5).
 - **`net.ipv4.tcp_keepalive_time`** - Idle time before TCP probes a connection that has keepalive on. HAProxy: HAProxy uses it for option tcpka, clitcpka and srvtcpka when clitcpka-idle, -intvl and -cnt (srvtcpka-*) aren't set. Risk: Aggressive values add traffic and drop connections over unstable links. The kernel's default: 7200. Sources: [HAProxy configuration: clitcpka-idle](https://docs.haproxy.org/3.4/configuration.html#4.2-clitcpka-idle).
 - **`net.ipv4.tcp_keepalive_intvl`** - Time between two keepalive probes. HAProxy: HAProxy uses it for option tcpka, clitcpka and srvtcpka when clitcpka-idle, -intvl and -cnt (srvtcpka-*) aren't set. Risk: Aggressive values add traffic and drop connections over unstable links. The kernel's default: 75. Sources: [HAProxy configuration: clitcpka-intvl](https://docs.haproxy.org/3.4/configuration.html#4.2-clitcpka-intvl).
@@ -206,6 +208,11 @@ parameter's bounds and passes the same checks as a change - one the node
 would refuse isn't shown -, and only the parameters you can change get
 one.
 
+The node never applies one by itself. The Controller's
+[auto-scaling](auto-scaling.md#the-kernel-parameters) does, for a machine
+whose policy has the kernel parameters follow it - on trial and confirmed
+like any change, never a parameter someone else confirmed.
+
 ### What the node observes
 
 Every 15 seconds, janusd reads the kernel's counters and gauges below -
@@ -246,6 +253,12 @@ the node is used, not on a measurement. None of the parameters follows
 the number of CPUs on its own - `net.core.netdev_max_backlog` is per CPU,
 but only drops show it's short.
 
+The kernel computes `tcp_mem`, `file-max` and `nf_conntrack_max` from
+the memory once, at boot. Memory plugged into a running machine, or taken
+out (the Controller's auto-scaling), leaves them as they were: once the
+memory is more than a tenth away from the boot's, their `follow_memory`
+rule suggests the boot's value in proportion to the memory now.
+
 <!-- generated: rules - go test ./internal/sysctl -run TestKernelTuningDoc -update -->
 
 | Parameter | Rule | When, and what it suggests | Sources |
@@ -258,9 +271,12 @@ but only drops show it's short.
 | `net.core.netdev_max_backlog` | `netdev_max_backlog.drops` | CPUs' input queues dropped packets in 3 different hours of the last 7 days or more: twice the value, at most 65536. | [Linux: IP sysctl](https://docs.kernel.org/networking/ip-sysctl.html), [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system) |
 | `net.ipv4.tcp_rmem` | `tcp_rmem.memory` | TCP's memory came under pressure in 3 different hours of the last 7 days or more: HAProxy's smaller buffers for many connections, 4096 16060 262144 - only when the maximum is higher. | [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system) |
 | `net.ipv4.tcp_wmem` | `tcp_wmem.memory` | TCP's memory came under pressure in 3 different hours of the last 7 days or more: HAProxy's smaller buffers for many connections, 4096 16384 262144 - only when the maximum is higher. | [HAProxy Enterprise: tune the operating system](https://www.haproxy.com/documentation/haproxy-enterprise/administration/performance-tuning/#tune-the-operating-system) |
+| `net.ipv4.tcp_mem` | `tcp_mem.follow_memory` | The machine's memory changed by more than a tenth since it booted - plugged in or taken out while it runs, by the Controller's auto-scaling: the value the kernel computed at boot, in proportion to the memory now - when it differs from the value by more than a tenth. | [Linux: IP sysctl](https://docs.kernel.org/networking/ip-sysctl.html) |
 | `fs.file-max` | `file_max.usage` | Open files reached 80% of fs.file-max in 3 different hours of the last 7 days or more: twice the highest count, rounded up to a multiple of 1024. | [HAProxy management: file-descriptor limitations](https://docs.haproxy.org/3.4/management.html#5) |
+| `fs.file-max` | `file_max.follow_memory` | The machine's memory changed by more than a tenth since it booted - plugged in or taken out while it runs, by the Controller's auto-scaling: the value the kernel computed at boot, in proportion to the memory now - when it differs from the value by more than a tenth. | [Linux: IP sysctl](https://docs.kernel.org/networking/ip-sysctl.html) |
 | `net.netfilter.nf_conntrack_max` | `conntrack_max.usage` | The table reached 75% - or dropped connections for want of room - in 3 different hours of the last 7 days or more: twice the highest count, rounded up to a multiple of 1024, no less than the memory rule below gives, at most an eighth of the memory at 320 bytes an entry. | [Linux: netfilter conntrack sysctl](https://docs.kernel.org/networking/nf_conntrack-sysctl.html) |
 | `net.netfilter.nf_conntrack_max` | `conntrack_max.memory` | Connections tracked (the nftables extension's stateful rules): two entries per HAProxy connection, closed ones kept 2 minutes - a thirty-second of the memory at 320 bytes an entry, rounded down to a multiple of 1024, at most 262144 (the kernel's own value above 4 GiB) - only when higher than the value. | [Linux: netfilter conntrack sysctl](https://docs.kernel.org/networking/nf_conntrack-sysctl.html) |
+| `net.netfilter.nf_conntrack_max` | `conntrack_max.follow_memory` | The machine's memory changed by more than a tenth since it booted - plugged in or taken out while it runs, by the Controller's auto-scaling: the value the kernel computed at boot, in proportion to the memory now - when it differs from the value by more than a tenth. | [Linux: IP sysctl](https://docs.kernel.org/networking/ip-sysctl.html) |
 <!-- end: rules -->
 
 ## How the node keeps them

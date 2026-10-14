@@ -23,8 +23,9 @@ func init() {
 	attach("net.core.netdev_max_backlog", ruleBacklogDrops)
 	attach("net.ipv4.tcp_rmem", ruleTCPMemory("net.ipv4.tcp_rmem", "tcp_rmem.memory", "4096 16060 262144"))
 	attach("net.ipv4.tcp_wmem", ruleTCPMemory("net.ipv4.tcp_wmem", "tcp_wmem.memory", "4096 16384 262144"))
-	attach("fs.file-max", ruleOpenFiles)
-	attach("net.netfilter.nf_conntrack_max", ruleConntrackFull, ruleConntrackMemory)
+	attach("net.ipv4.tcp_mem", ruleFollowMemory("net.ipv4.tcp_mem", "tcp_mem.follow_memory"))
+	attach("fs.file-max", ruleOpenFiles, ruleFollowMemory("fs.file-max", "file_max.follow_memory"))
+	attach("net.netfilter.nf_conntrack_max", ruleConntrackFull, ruleConntrackMemory, ruleFollowMemory("net.netfilter.nf_conntrack_max", "conntrack_max.follow_memory"))
 }
 
 const lastWeek = "the last 7 days"
@@ -161,6 +162,52 @@ func ruleTCPMemory(name, id, value string) Rule {
 				return Recommendation{}, false
 			}
 			return Recommendation{Value: value, Measured: []Measurement{counted("tcp_memory", s)}}, true
+		},
+	}
+}
+
+// memoryMoved is how far the memory must be from the boot's, as a
+// share of it, before the rules that follow it apply - and how far a
+// value from the one they'd give.
+const memoryMoved = 0.1
+
+// ruleFollowMemory gives a Dynamic parameter the value the kernel would
+// have computed with the memory the machine has now: the boot's, in
+// proportion - the kernel's formulas for these are proportional to the
+// memory. Memory plugged in or taken out while the machine runs (the
+// Controller's auto-scaling) leaves them as they were at boot.
+func ruleFollowMemory(name, id string) Rule {
+	return Rule{
+		ID:      id,
+		Text:    "The machine's memory changed by more than a tenth since it booted - plugged in or taken out while it runs, by the Controller's auto-scaling: the value the kernel computed at boot, in proportion to the memory now - when it differs from the value by more than a tenth.",
+		Sources: []Source{srcKernelIP},
+		Eval: func(m Metrics) (Recommendation, bool) {
+			if m.BootMemTotal <= 0 || m.MemTotal <= 0 || Lookup(name).Requires == "nftables" && !m.Conntrack {
+				return Recommendation{}, false
+			}
+			ratio := float64(m.MemTotal) / float64(m.BootMemTotal)
+			if ratio > 1-memoryMoved && ratio < 1+memoryMoved {
+				return Recommendation{}, false
+			}
+			boot, live := ints(m.Boot[name]), m.live(name)
+			if len(boot) == 0 || len(boot) != len(live) {
+				return Recommendation{}, false
+			}
+			want := make([]int64, len(boot))
+			moved := false
+			for i, b := range boot {
+				want[i] = int64(float64(b) * ratio)
+				if d := float64(want[i]-live[i]) / float64(max(want[i], 1)); d > memoryMoved || d < -memoryMoved {
+					moved = true
+				}
+			}
+			if !moved {
+				return Recommendation{}, false
+			}
+			return Recommendation{Value: joinInts(want, " "), Measured: []Measurement{
+				{Name: "Memory", Value: bytesText(m.MemTotal)},
+				{Name: "Memory at boot", Value: bytesText(m.BootMemTotal)},
+			}}, true
 		},
 	}
 }

@@ -161,7 +161,7 @@ MINS=(
   "net.core.somaxconn=4096" "net.ipv4.ip_local_port_range=1024 5119" "net.ipv4.ip_local_reserved_ports=1024-1055,65535"
   "net.ipv4.tcp_tw_reuse=0" "net.ipv4.tcp_fin_timeout=30" "net.ipv4.tcp_synack_retries=1"
   "net.ipv4.ip_nonlocal_bind=0" "net.ipv6.ip_nonlocal_bind=0" "net.core.netdev_max_backlog=1000"
-  "net.ipv4.tcp_rmem=4096 4096 65536" "net.ipv4.tcp_wmem=4096 4096 65536" "fs.file-max=8192"
+  "net.ipv4.tcp_rmem=4096 4096 65536" "net.ipv4.tcp_wmem=4096 4096 65536" "net.ipv4.tcp_mem=4096 4096 4096" "fs.file-max=8192"
   "net.ipv4.tcp_keepalive_time=60" "net.ipv4.tcp_keepalive_intvl=10" "net.ipv4.tcp_keepalive_probes=3"
   "net.ipv4.tcp_fastopen=0" "net.netfilter.nf_conntrack_max=16384"
 )
@@ -169,7 +169,7 @@ MAXS=(
   "net.core.somaxconn=65535" "net.ipv4.ip_local_port_range=32768 65535" "net.ipv4.ip_local_reserved_ports="
   "net.ipv4.tcp_tw_reuse=2" "net.ipv4.tcp_fin_timeout=120" "net.ipv4.tcp_synack_retries=5"
   "net.ipv4.ip_nonlocal_bind=1" "net.ipv6.ip_nonlocal_bind=1" "net.core.netdev_max_backlog=65536"
-  "net.ipv4.tcp_rmem=65536 4194304 67108864" "net.ipv4.tcp_wmem=65536 4194304 67108864" "fs.file-max=67108864"
+  "net.ipv4.tcp_rmem=65536 4194304 67108864" "net.ipv4.tcp_wmem=65536 4194304 67108864" "net.ipv4.tcp_mem=65536 131072 196608" "fs.file-max=67108864"
   "net.ipv4.tcp_keepalive_time=7200" "net.ipv4.tcp_keepalive_intvl=75" "net.ipv4.tcp_keepalive_probes=20"
   "net.ipv4.tcp_fastopen=3" "net.netfilter.nf_conntrack_max=262144"
 )

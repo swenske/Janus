@@ -94,6 +94,10 @@ type Spec struct {
 	// firmware (a node that can't reboots through the firmware); empty,
 	// through the firmware.
 	UpdateRebootMode string `json:"update_reboot_mode,omitempty"`
+	// Autoscale, when set, lets the Controller resize the running machine
+	// between its nominal size - VCPUs, MemoryMiB - and the policy's
+	// maxima (autoscale.go).
+	Autoscale *Autoscale `json:"autoscale,omitempty"`
 }
 
 // Schematic is the image schematic the spec asks for: its extensions,
@@ -155,6 +159,12 @@ type Machine struct {
 	// console while the machine waits for it (dashboard/backend:
 	// machines_watch.go).
 	Warning string `json:"warning,omitempty"`
+
+	// Size is what the virtual machine has now, read from its hypervisor
+	// - its nominal size, or what auto-scaling resized it to.
+	Size *Size `json:"size,omitempty"`
+	// AutoscaleState is auto-scaling's memory of the machine.
+	AutoscaleState *AutoscaleState `json:"autoscale_state,omitempty"`
 
 	TokenHash    string    `json:"token_hash,omitempty"`
 	TokenExpires time.Time `json:"token_expires,omitempty"`
