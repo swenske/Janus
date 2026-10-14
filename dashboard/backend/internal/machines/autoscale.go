@@ -131,6 +131,19 @@ type AutoscaleState struct {
 	Status   string    `json:"status,omitempty"`
 	Warnings []string  `json:"warnings,omitempty"`
 	At       time.Time `json:"at,omitempty"`
+	// Sysctl: the kernel parameters auto-scaling changed on the node,
+	// by name - put back when the machine is at its size again, unless
+	// someone changed them since.
+	Sysctl map[string]SysctlChange `json:"sysctl,omitempty"`
+}
+
+// SysctlChange is a kernel parameter auto-scaling changed: what it was,
+// what it became, the node's rule that suggested it, when.
+type SysctlChange struct {
+	Before string    `json:"before"`
+	After  string    `json:"after"`
+	Rule   string    `json:"rule"`
+	At     time.Time `json:"at"`
 }
 
 // JournalEntry is one line of a machine's auto-scaling journal: a step

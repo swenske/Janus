@@ -139,7 +139,7 @@ func (t Thresholds) Validate() error {
 	}{
 		{"cpu_up_after", t.CPUUpAfter, time.Minute, time.Hour},
 		{"memory_up_after", t.MemoryUpAfter, 30 * time.Second, time.Hour},
-		{"return_after", t.ReturnAfter, 5 * time.Minute, 24 * time.Hour},
+		{"return_after", t.ReturnAfter, time.Minute, 24 * time.Hour},
 		{"cooldown", t.Cooldown, time.Minute, 6 * time.Hour},
 	} {
 		if d.v < d.min || d.v > d.max {

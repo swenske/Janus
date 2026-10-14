@@ -48,6 +48,7 @@ type fakeDriver struct {
 	ciData    []byte
 	powered   []hypervisor.PowerAction
 	resized   [][2]int
+	hostFree  uint64 // HostInfo's free memory; 0: 32 GiB
 	hardware  []hypervisor.Hardware
 	live      [][2]int // Resize
 	nics      []hypervisor.NIC
@@ -65,7 +66,13 @@ func newFakeDriver() *fakeDriver {
 }
 
 func (f *fakeDriver) HostInfo(context.Context) (*hypervisor.HostInfo, error) {
-	return &hypervisor.HostInfo{Hostname: "fake", CPUs: 4}, nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	free := uint64(32 << 30)
+	if f.hostFree != 0 {
+		free = f.hostFree
+	}
+	return &hypervisor.HostInfo{Hostname: "fake", CPUs: 4, MemoryTotal: 64 << 30, MemoryFree: free}, nil
 }
 
 func (f *fakeDriver) HasImage(_ context.Context, img hypervisor.Image) (bool, error) {

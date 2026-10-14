@@ -53,9 +53,15 @@ type nodeAPI interface {
 	Network(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkConfig, error)
 	NetworkStatus(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkStatusResponse, error)
 	ResolveBundle(ctx context.Context, version string, sc *schematic.Schematic) (*nodeproxy.Bundle, string, error)
-	// Load and HAProxyConfig are what auto-scaling reads (autoscale.go).
+	// Load and HAProxyConfig are what auto-scaling reads (autoscale.go);
+	// the Sysctl calls how it makes the kernel parameters follow
+	// (autoscale_sysctl.go).
 	Load(ctx context.Context, node *store.Node) (*nodeproxy.Load, error)
 	HAProxyConfig(ctx context.Context, node *store.Node) ([]byte, error)
+	SysctlList(ctx context.Context, node *store.Node) (*janusv1alpha1.SysctlListResponse, error)
+	SysctlHistory(ctx context.Context, node *store.Node, limit uint32) ([]*janusv1alpha1.SysctlHistoryEntry, error)
+	SysctlApply(ctx context.Context, node *store.Node, req *janusv1alpha1.SysctlApplyRequest) (*janusv1alpha1.SysctlApplyResponse, error)
+	SysctlConfirm(ctx context.Context, node *store.Node) error
 }
 
 type realNodeAPI struct{}
@@ -282,17 +288,9 @@ func planUpdate(m *machines.Machine, u machineUpdate, allowed func(string) bool)
 	return p, nil
 }
 
-// checkAutoscale checks spec's auto-scaling policy. Its mode "on" - the
-// machine really resized - comes once observation has been tried: for
-// now a policy observes.
+// checkAutoscale checks spec's auto-scaling policy.
 func checkAutoscale(spec machines.Spec) error {
-	if err := spec.Autoscale.Check(spec); err != nil {
-		return err
-	}
-	if spec.Autoscale.Mode == machines.AutoscaleOn {
-		return errors.New("autoscale.mode: this Controller observes (\"observe\") or is off - resizing a running machine (\"on\") comes in a later version")
-	}
-	return nil
+	return spec.Autoscale.Check(spec)
 }
 
 // autoscaleEqual reports whether two policies are the same.

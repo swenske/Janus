@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+
 	"github.com/swenske/Janus/dashboard/backend/internal/autoscale"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
@@ -24,7 +26,6 @@ func TestAutoscalePolicy(t *testing.T) {
 	for _, bad := range []map[string]any{
 		{"mode": "observe", "max_vcpus": 1, "max_memory_mib": 4096},                              // below its vCPUs
 		{"mode": "observe", "max_vcpus": 2, "max_memory_mib": 1024},                              // nothing to grow to
-		{"mode": "on", "max_vcpus": 4, "max_memory_mib": 4096},                                   // not yet
 		{"mode": "observe", "max_vcpus": 4, "max_memory_mib": 4096, "cpu_down_idle_percent": 20}, // shrinks into its up threshold
 		{"mode": "observe", "max_vcpus": 4, "max_memory_mib": 4097},                              // virtio-mem blocks
 		{"mode": "sometimes", "max_vcpus": 4, "max_memory_mib": 4096},
@@ -91,6 +92,7 @@ func TestAutoscaleObserves(t *testing.T) {
 	a, fake, m, f := scalableMachine(t)
 	f.load = &nodeproxy.Load{CPUs: 2, MemTotal: 1024 << 20, MemAvailable: 600 << 20, IdlePercent: 10, MaxConn: 1000}
 	s := newAutoscaler(a)
+	a.autoscaler = s
 	sm := &scaledMachine{}
 	t0 := time.Now()
 	var at time.Time
@@ -182,5 +184,193 @@ func TestSyncKeepsTheNominalSize(t *testing.T) {
 	m, _ = a.machines.Get(m.ID)
 	if n := strings.Count(eventsOf(m), "not by its auto-scaling"); n != 1 {
 		t.Errorf("noted %d times", n)
+	}
+}
+
+// run steps sm through d of samples from t0, every SampleEvery, and
+// returns when it stopped.
+func run(t *testing.T, a *app, s *autoscaler, sm *scaledMachine, id string, t0 time.Time, d time.Duration) time.Time {
+	t.Helper()
+	at := t0
+	for ; !at.After(t0.Add(d)); at = at.Add(autoscale.SampleEvery) {
+		m, _ := a.machines.Get(id)
+		if err := s.step(context.Background(), m, sm, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return at
+}
+
+func journalOf(t *testing.T, a *app, id string) []machines.JournalEntry {
+	t.Helper()
+	j, err := a.machines.Journal(id, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return j
+}
+
+// Its mode "on": the machine resized for real - memory refused when the
+// host hasn't the room -, its record following; paused, back to its
+// size.
+func TestAutoscaleResizes(t *testing.T) {
+	a, fake, m, f := scalableMachine(t)
+	prev := settlePoll
+	settlePoll = time.Millisecond
+	t.Cleanup(func() { settlePoll = prev })
+	on := map[string]any{"mode": "on", "max_vcpus": 4, "max_memory_mib": 4096}
+	if code, body := patch(t, a, m.ID, map[string]any{"autoscale": on}); code != http.StatusOK {
+		t.Fatalf("mode on: %d %s", code, body)
+	}
+	f.mu.Lock()
+	f.followSize = true
+	f.load = &nodeproxy.Load{CPUs: 2, MemTotal: 924 << 20, MemAvailable: 600 << 20, IdlePercent: 10, MaxConn: 1000}
+	f.mu.Unlock()
+	s := newAutoscaler(a)
+	a.autoscaler = s
+	sm := &scaledMachine{}
+	at := run(t, a, s, sm, m.ID, time.Now(), 6*time.Minute)
+
+	m, _ = a.machines.Get(m.ID)
+	j := journalOf(t, a, m.ID)
+	if len(fake.live) != 1 || fake.live[0] != [2]int{3, 1024} || len(j) != 1 || j[0].Mode != "on" || j[0].To != (autoscale.Size{VCPUs: 3, MemoryMiB: 1024}) || j[0].Error != "" {
+		t.Fatalf("resized %v, journal %+v", fake.live, j)
+	}
+	if m.Spec.VCPUs != 2 || m.Size.VCPUs != 3 || m.AutoscaleState.Size.VCPUs != 3 || strings.Contains(eventsOf(m), "not by its auto-scaling") {
+		t.Errorf("spec %d, size %+v, state %+v, events:\n%s", m.Spec.VCPUs, m.Size, m.AutoscaleState, eventsOf(m))
+	}
+
+	// Memory short: memory first - but the host hasn't the room: refused,
+	// journaled once, nothing resized.
+	fake.mu.Lock()
+	fake.hostFree = 600 << 20
+	fake.mu.Unlock()
+	a.hvStatus.forget(m.Spec.HypervisorID)
+	f.mu.Lock()
+	f.load.MemAvailable, f.load.IdlePercent = 50<<20, 80
+	f.mu.Unlock()
+	at = run(t, a, s, sm, m.ID, at.Add(10*time.Minute), 3*time.Minute)
+	j = journalOf(t, a, m.ID)
+	if len(fake.live) != 1 || len(j) != 2 || !strings.Contains(j[1].Error, "the host has 600 MiB free") || j[1].To != j[1].From {
+		t.Fatalf("no room: resized %v, journal %+v", fake.live, j)
+	}
+	m, _ = a.machines.Get(m.ID)
+	if !strings.Contains(m.AutoscaleState.Status, "couldn't grow") {
+		t.Errorf("status %q", m.AutoscaleState.Status)
+	}
+	// With the room: 1024 to 1280.
+	fake.mu.Lock()
+	fake.hostFree = 0
+	fake.mu.Unlock()
+	a.hvStatus.forget(m.Spec.HypervisorID)
+	at = run(t, a, s, sm, m.ID, at, time.Minute)
+	if len(fake.live) != 2 || fake.live[1] != [2]int{3, 1280} {
+		t.Fatalf("with room: resized %v, journal %+v", fake.live, journalOf(t, a, m.ID))
+	}
+
+	// Paused: back to its size at once.
+	off := map[string]any{"mode": "off", "max_vcpus": 4, "max_memory_mib": 4096}
+	if code, body := patch(t, a, m.ID, map[string]any{"autoscale": off}); code != http.StatusOK {
+		t.Fatalf("pause: %d %s", code, body)
+	}
+	run(t, a, s, sm, m.ID, at, 0)
+	m, _ = a.machines.Get(m.ID)
+	j = journalOf(t, a, m.ID)
+	if len(fake.live) != 3 || fake.live[2] != [2]int{2, 1024} || !strings.Contains(j[len(j)-1].Reason, "paused: back to its size") || m.Size.VCPUs != 2 {
+		t.Errorf("paused: resized %v, journal %+v, size %+v", fake.live, j, m.Size)
+	}
+	if m.AutoscaleState.Status != "paused" {
+		t.Errorf("status %q", m.AutoscaleState.Status)
+	}
+}
+
+func param(name, value, recValue, rule string) *janusv1alpha1.SysctlParameter {
+	p := &janusv1alpha1.SysctlParameter{Name: name, Class: janusv1alpha1.SysctlClass_SYSCTL_CLASS_EDITABLE, Value: value}
+	if recValue != "" {
+		p.Recommendation = &janusv1alpha1.SysctlRecommendation{Value: recValue, RuleId: rule}
+	}
+	return p
+}
+
+// The node's suggestions applied on trial and confirmed - never a
+// parameter someone else confirmed, a key at most every 6 h but for the
+// memory, back at its size; observing, journaled once.
+func TestAutoscaleSysctl(t *testing.T) {
+	a, _, m, f := scalableMachine(t)
+	f.mu.Lock()
+	f.load = &nodeproxy.Load{CPUs: 2, MemTotal: 924 << 20, MemAvailable: 600 << 20, IdlePercent: 80}
+	f.sysctl = &janusv1alpha1.SysctlListResponse{Managed: true, Parameters: []*janusv1alpha1.SysctlParameter{
+		param("net.ipv4.tcp_mem", "10872 14497 21744", "35238 46988 70477", "tcp_mem.follow_memory"),
+		param("net.core.somaxconn", "60000", "16384", "somaxconn.memory"),
+		param("net.ipv4.ip_local_port_range", "20000 30000", "10240 65023", "port_range.usage"),
+	}}
+	f.history = []*janusv1alpha1.SysctlHistoryEntry{{Action: "confirm", Actor: &janusv1alpha1.SysctlActor{Name: "admin"},
+		Changes: []*janusv1alpha1.SysctlChange{{Name: "net.ipv4.ip_local_port_range"}}}}
+	f.mu.Unlock()
+	s := newAutoscaler(a)
+	a.autoscaler = s
+	sm := &scaledMachine{}
+	now := time.Now()
+
+	// Observing: journaled once, nothing applied.
+	m, _ = a.machines.Get(m.ID)
+	st := &machines.AutoscaleState{}
+	m.Size.MemoryMiB = 2048 // grown
+	s.sysctl(context.Background(), m, nil, sm, st, true, now)
+	s.sysctl(context.Background(), m, nil, sm, st, true, now)
+	j := journalOf(t, a, m.ID)
+	if len(j) != 1 || j[0].Action != "sysctl" || !strings.Contains(j[0].Reason, "net.ipv4.tcp_mem 10872 14497 21744 → 35238 46988 70477 (tcp_mem.follow_memory)") ||
+		strings.Contains(j[0].Reason, "port_range") || len(f.trials) != 0 {
+		t.Fatalf("observing: journal %+v, trials %d", j, len(f.trials))
+	}
+
+	// On: applied - the operator's port range left alone -, confirmed.
+	m.Spec.Autoscale.Mode = machines.AutoscaleOn
+	msg := s.sysctl(context.Background(), m, nil, sm, st, true, now)
+	if len(f.trials) != 1 || len(f.trials[0].Changes) != 2 || f.confirms != 1 || !strings.HasPrefix(msg, "kernel parameters applied") {
+		t.Fatalf("on: %d trials (%v), %d confirmations, %q", len(f.trials), f.trials, f.confirms, msg)
+	}
+	if !f.trials[0].ReloadHaproxy || st.Sysctl["net.ipv4.tcp_mem"].Before != "10872 14497 21744" || st.Sysctl["net.core.somaxconn"].After != "16384" {
+		t.Errorf("recorded %+v", st.Sysctl)
+	}
+
+	// Ten minutes later, somaxconn suggested back (another rule): not
+	// within 6 h. tcp_mem following the memory again: applied.
+	f.mu.Lock()
+	f.sysctl.Parameters[0].Recommendation = &janusv1alpha1.SysctlRecommendation{Value: "70476 93976 140954", RuleId: "tcp_mem.follow_memory"}
+	f.sysctl.Parameters[1].Recommendation = &janusv1alpha1.SysctlRecommendation{Value: "32768", RuleId: "somaxconn.overflows"}
+	f.mu.Unlock()
+	s.sysctl(context.Background(), m, nil, sm, st, false, now.Add(11*time.Minute))
+	if len(f.trials) != 2 || len(f.trials[1].Changes) != 1 || f.trials[1].Changes[0].GetName() != "net.ipv4.tcp_mem" {
+		t.Fatalf("second round: %v", f.trials)
+	}
+	if st.Sysctl["net.ipv4.tcp_mem"].Before != "10872 14497 21744" {
+		t.Errorf("the value before auto-scaling lost: %+v", st.Sysctl["net.ipv4.tcp_mem"])
+	}
+
+	// Back at its size: what followed the memory goes back; somaxconn
+	// (another rule) stays.
+	m.Size.MemoryMiB = m.Spec.MemoryMiB
+	f.mu.Lock()
+	f.sysctl.Parameters[1].Recommendation = nil
+	f.mu.Unlock()
+	s.sysctl(context.Background(), m, nil, sm, st, true, now.Add(12*time.Minute))
+	last := f.trials[len(f.trials)-1]
+	if len(f.trials) != 3 || len(last.Changes) != 1 || last.Changes[0].GetName() != "net.ipv4.tcp_mem" || last.Changes[0].GetValue() != "10872 14497 21744" {
+		t.Fatalf("back at its size: %v", f.trials)
+	}
+	if _, ok := st.Sysctl["net.ipv4.tcp_mem"]; ok || st.Sysctl["net.core.somaxconn"].After != "16384" {
+		t.Errorf("after going back: %+v", st.Sysctl)
+	}
+
+	// Refused by the node: journaled, nothing recorded.
+	f.mu.Lock()
+	f.refuse = "out of bounds"
+	f.sysctl.Parameters[0].Recommendation = &janusv1alpha1.SysctlRecommendation{Value: "1 2 3", RuleId: "tcp_mem.follow_memory"}
+	f.mu.Unlock()
+	msg = s.sysctl(context.Background(), m, nil, sm, st, true, now.Add(13*time.Minute))
+	j = journalOf(t, a, m.ID)
+	if !strings.Contains(msg, "refused them: out of bounds") || !strings.Contains(j[len(j)-1].Error, "out of bounds") {
+		t.Errorf("refused: %q, %+v", msg, j[len(j)-1])
 	}
 }

@@ -162,7 +162,7 @@ func (r *machineRunner) syncAs(ctx context.Context, id, label string) error {
 			}
 		}
 		if hw != nil && hw.Power == hypervisor.PowerRunning {
-			syncHardware(m, hw, note)
+			syncHardware(m, hw, note, a.autoscaler.resizing(id))
 		}
 		if len(seen) > 0 {
 			m.Log("%s: %s", label, strings.Join(seen, "; "))
@@ -184,8 +184,8 @@ func (r *machineRunner) syncAs(ctx context.Context, id, label string) error {
 // is its spec: a change made on the hypervisor is adopted. A scalable
 // machine's spec is its nominal size, auto-scaling's own business to
 // leave: what it has is m.Size, and a size auto-scaling didn't give it
-// is noted - once.
-func syncHardware(m *machines.Machine, hw *hypervisor.MachineStatus, note func(string, ...any)) {
+// is noted - once, and not while auto-scaling resizes it.
+func syncHardware(m *machines.Machine, hw *hypervisor.MachineStatus, note func(string, ...any), resizing bool) {
 	prev := m.Size
 	m.Size = &machines.Size{VCPUs: hw.VCPUs, MemoryMiB: hw.MemoryMiB, MaxVCPUs: hw.MaxVCPUs, MaxMemoryMiB: hw.MaxMemoryMiB, MemoryStepMiB: hw.MemoryStepMiB}
 	if m.Spec.Autoscale == nil {
@@ -205,8 +205,8 @@ func syncHardware(m *machines.Machine, hw *hypervisor.MachineStatus, note func(s
 	if st := m.AutoscaleState; st != nil && st.Mode == machines.AutoscaleOn {
 		want.VCPUs, want.MemoryMiB = st.Size.VCPUs, st.Size.MemoryMiB
 	}
-	if hw.VCPUs == want.VCPUs && hw.MemoryMiB == want.MemoryMiB {
-		return
+	if resizing || hw.VCPUs == want.VCPUs && hw.MemoryMiB == want.MemoryMiB {
+		return // auto-scaling's step under way, or what it gave
 	}
 	if prev == nil || prev.VCPUs != hw.VCPUs || prev.MemoryMiB != hw.MemoryMiB {
 		note("resized to %d vCPU %d MiB - not by its auto-scaling (%d vCPU %d MiB)", hw.VCPUs, hw.MemoryMiB, want.VCPUs, want.MemoryMiB)

@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"slices"
 	"sync"
 	"time"
 
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/haproxy"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/autoscale"
@@ -49,6 +51,14 @@ type scaledMachine struct {
 	threads  string          // what fixes HAProxy's threads, "" when nothing
 	threadAt time.Time
 	busy     bool // a step under way
+	resizing bool // its size moving (autoscale_act.go)
+	// lastRefusal: the last step refused (the host's room...), journaled
+	// once.
+	lastRefusal string
+	// sysctlAt: when the node's suggestions were last looked at;
+	// sysctlSeen what observing journaled of them.
+	sysctlAt   time.Time
+	sysctlSeen map[string]bool
 }
 
 func newAutoscaler(a *app) *autoscaler {
@@ -69,16 +79,15 @@ func (s *autoscaler) run(ctx context.Context) {
 	}
 }
 
-// eligible reports whether m is auto-scaled now.
+// eligible reports whether m is auto-scaled now - paused ones too: one
+// resized goes back to its size.
 func eligible(m *machines.Machine) bool {
-	return m.Spec.Autoscale != nil && m.Spec.Autoscale.Mode != machines.AutoscaleOff &&
-		m.Phase == machines.PhaseReady && m.NodeID != ""
+	return m.Spec.Autoscale != nil && m.Phase == machines.PhaseReady && m.NodeID != ""
 }
 
 // tick takes one sample of every auto-scaled machine, in parallel, and
 // decides for each.
 func (s *autoscaler) tick(ctx context.Context) {
-	var wg sync.WaitGroup
 	seen := map[string]bool{}
 	for _, m := range s.a.machines.List() {
 		if !eligible(m) || s.a.runner.busy(m.ID) {
@@ -97,20 +106,21 @@ func (s *autoscaler) tick(ctx context.Context) {
 		}
 		sm.busy = true
 		s.mu.Unlock()
-		wg.Go(func() {
+		// Not waited for: a step resizing a machine takes minutes, the
+		// others sample meanwhile - busy keeps a machine's steps apart.
+		go func() {
 			defer func() {
 				s.mu.Lock()
 				sm.busy = false
 				s.mu.Unlock()
 			}()
-			sctx, cancel := context.WithTimeout(ctx, 2*autoscale.SampleEvery)
+			sctx, cancel := context.WithTimeout(ctx, resizeTimeout+2*autoscale.SampleEvery+sysctlTimeout)
 			defer cancel()
 			if err := s.step(sctx, m, sm, time.Now()); err != nil {
 				log.Printf("machine %s: auto-scaling: %v", m.ID, err)
 			}
-		})
+		}()
 	}
-	wg.Wait()
 	// Machines no longer auto-scaled - or under a change of the runner's:
 	// their samples are another size's, they start over.
 	s.mu.Lock()
@@ -122,18 +132,44 @@ func (s *autoscaler) tick(ctx context.Context) {
 	s.mu.Unlock()
 }
 
-// step samples m's node and decides.
+// step samples m's node and decides - and, its mode "on", acts.
 func (s *autoscaler) step(ctx context.Context, m *machines.Machine, sm *scaledMachine, now time.Time) error {
 	node, ok := s.a.store.Get(m.NodeID)
 	if !ok {
 		return nil
 	}
 	pol := m.Spec.Autoscale
+	nominal := autoscale.Size{VCPUs: m.Spec.VCPUs, MemoryMiB: m.Spec.MemoryMiB}
+	r := report{state: m.AutoscaleState}
+	if r.state == nil || r.state.Mode != pol.Mode {
+		r.state = &machines.AutoscaleState{Mode: pol.Mode, State: autoscale.State{Size: nominal}}
+	}
+
+	// Not resizing - observing, or paused: a machine auto-scaling
+	// resized goes back to its size first.
+	if pol.Mode != machines.AutoscaleOn && m.Size != nil && (m.Size.VCPUs != nominal.VCPUs || m.Size.MemoryMiB != nominal.MemoryMiB) {
+		reason := "auto-scaling paused: back to its size"
+		if pol.Mode == machines.AutoscaleObserve {
+			reason = "auto-scaling observes: back to its size"
+		}
+		from := autoscale.Size{VCPUs: m.Size.VCPUs, MemoryMiB: m.Size.MemoryMiB}
+		d := autoscale.Decision{Action: autoscale.Down, Resource: "size", From: from, To: nominal, Reason: reason}
+		if _, err := s.resize(ctx, m, node, sm, d, now); err != nil {
+			r.status = fmt.Sprintf("couldn't go back to its size: %v", err)
+			return s.write(m, now, r)
+		}
+	}
+	if pol.Mode == machines.AutoscaleOff {
+		r.status = "paused"
+		return s.write(m, now, r)
+	}
+
 	lctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	load, err := nodes.Load(lctx, node)
 	cancel()
 	if err != nil {
-		return s.report(m, now, fmt.Sprintf("the node doesn't answer (%v): nothing decided until it does", err), nil, nil)
+		r.status = fmt.Sprintf("the node doesn't answer (%v): nothing decided until it does", err)
+		return s.write(m, now, r)
 	}
 	sm.samples = append(sm.samples, sampleOf(load, sm.prev, now))
 	sm.prev = load
@@ -152,7 +188,6 @@ func (s *autoscaler) step(ctx context.Context, m *machines.Machine, sm *scaledMa
 		cancel()
 	}
 
-	nominal := autoscale.Size{VCPUs: m.Spec.VCPUs, MemoryMiB: m.Spec.MemoryMiB}
 	p := autoscale.Policy{
 		Nominal:       nominal,
 		Max:           autoscale.Size{VCPUs: pol.MaxVCPUs, MemoryMiB: pol.MaxMemoryMiB},
@@ -169,43 +204,72 @@ func (s *autoscaler) step(ctx context.Context, m *machines.Machine, sm *scaledMa
 		p.MemoryStepMiB = sz.MemoryStepMiB
 	}
 
-	st := autoscale.State{Size: nominal}
-	if m.AutoscaleState != nil && m.AutoscaleState.Mode == pol.Mode {
-		st = m.AutoscaleState.State
+	st := r.state.State
+	if pol.Mode == machines.AutoscaleOn {
+		// Resizing: the size judged is the one the machine has.
+		if m.Size == nil {
+			r.status = "its size isn't known yet: nothing decided until its record is read"
+			return s.write(m, now, r)
+		}
+		st.Size = autoscale.Size{VCPUs: m.Size.VCPUs, MemoryMiB: m.Size.MemoryMiB}
 	}
 	d := autoscale.Decide(p, st, sm.samples, now)
-	if d.Action != autoscale.None {
+	r.warnings = d.Warnings
+	switch {
+	case d.Action == autoscale.None:
+	case pol.Mode == machines.AutoscaleOn:
+		got, err := s.resize(ctx, m, node, sm, d, now)
+		if err != nil && got == d.From {
+			// Nothing changed: no step taken - its state stays, the
+			// status says why.
+			st.OOMKills, st.OOMCounted = d.OOMKills, true
+			r.state.State = st
+			r.status = fmt.Sprintf("couldn't %s to %s: %v", map[autoscale.Action]string{autoscale.Up: "grow", autoscale.Down: "shrink"}[d.Action], d.To, err)
+			return s.write(m, now, r)
+		}
+		d.To = got
+	default:
 		e := machines.JournalEntry{Time: now.UTC(), Mode: pol.Mode, Action: string(d.Action), Resource: d.Resource, From: d.From, To: d.To, Reason: d.Reason}
 		if err := s.a.machines.AppendJournal(m.ID, e); err != nil {
 			return err
 		}
 	}
 	next := st.Apply(d, now)
-	return s.report(m, now, statusText(d, sm.samples, next.Size, pol.Mode), &next, d.Warnings)
+	r.state.State = next
+	r.status = statusText(d, sm.samples, next.Size, pol.Mode)
+	if pol.Sysctl {
+		memoryStep := d.Action != autoscale.None && d.From.MemoryMiB != d.To.MemoryMiB
+		if msg := s.sysctl(ctx, m, node, sm, r.state, memoryStep, now); msg != "" {
+			r.status = msg
+		}
+	}
+	return s.write(m, now, r)
 }
 
-// report writes auto-scaling's word on m - when it changed, or once in a
-// while for its time. state nil: keep the one recorded.
-func (s *autoscaler) report(m *machines.Machine, now time.Time, status string, state *autoscale.State, warnings []string) error {
+// report is what step writes on the machine: auto-scaling's state, its
+// word, its warnings.
+type report struct {
+	state    *machines.AutoscaleState
+	status   string
+	warnings []string
+}
+
+// write records r on m - when it changed, or once in a while for its
+// time.
+func (s *autoscaler) write(m *machines.Machine, now time.Time, r report) error {
+	next := *r.state
+	next.Mode, next.Status, next.Warnings = m.Spec.Autoscale.Mode, r.status, r.warnings
 	cur := m.AutoscaleState
-	if cur != nil && cur.Mode == m.Spec.Autoscale.Mode && cur.Status == status && slices.Equal(cur.Warnings, warnings) &&
-		(state == nil || stateEqual(cur.State, *state)) && now.Sub(cur.At) < statusEvery {
+	if cur != nil && cur.Mode == next.Mode && cur.Status == next.Status && slices.Equal(cur.Warnings, next.Warnings) &&
+		stateEqual(cur.State, next.State) && maps.Equal(cur.Sysctl, next.Sysctl) && now.Sub(cur.At) < statusEvery {
 		return nil
 	}
+	next.At = now.UTC()
 	_, err := s.a.machines.Update(m.ID, func(m *machines.Machine) error {
-		if m.Spec.Autoscale == nil {
-			return errSkip
+		if m.Spec.Autoscale == nil || m.Spec.Autoscale.Mode != next.Mode {
+			return errSkip // changed meanwhile: the next tick starts over
 		}
-		next := &machines.AutoscaleState{Mode: m.Spec.Autoscale.Mode, Status: status, Warnings: warnings, At: now.UTC()}
-		switch {
-		case state != nil:
-			next.State = *state
-		case m.AutoscaleState != nil && m.AutoscaleState.Mode == next.Mode:
-			next.State = m.AutoscaleState.State
-		default:
-			next.State = autoscale.State{Size: autoscale.Size{VCPUs: m.Spec.VCPUs, MemoryMiB: m.Spec.MemoryMiB}}
-		}
-		m.AutoscaleState = next
+		m.AutoscaleState = &next
 		return nil
 	})
 	if errors.Is(err, errSkip) {
@@ -325,11 +389,27 @@ func (a *app) handleMachineAutoscale(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, autoscaleView{Policy: m.Spec.Autoscale, State: m.AutoscaleState, Size: m.Size, Journal: journal, Defaults: defaultsView()})
 }
 
-// Load and HAProxyConfig, for the real nodes: what auto-scaling reads.
+// What auto-scaling reads and changes, on the real nodes.
 func (realNodeAPI) Load(ctx context.Context, node *store.Node) (*nodeproxy.Load, error) {
 	return nodeproxy.ReadLoad(ctx, node)
 }
 
 func (realNodeAPI) HAProxyConfig(ctx context.Context, node *store.Node) ([]byte, error) {
 	return nodeproxy.HAProxyConfig(ctx, node)
+}
+
+func (realNodeAPI) SysctlList(ctx context.Context, node *store.Node) (*janusv1alpha1.SysctlListResponse, error) {
+	return nodeproxy.SysctlList(ctx, node)
+}
+
+func (realNodeAPI) SysctlHistory(ctx context.Context, node *store.Node, limit uint32) ([]*janusv1alpha1.SysctlHistoryEntry, error) {
+	return nodeproxy.SysctlHistory(ctx, node, limit)
+}
+
+func (realNodeAPI) SysctlApply(ctx context.Context, node *store.Node, req *janusv1alpha1.SysctlApplyRequest) (*janusv1alpha1.SysctlApplyResponse, error) {
+	return nodeproxy.SysctlApply(ctx, node, req)
+}
+
+func (realNodeAPI) SysctlConfirm(ctx context.Context, node *store.Node) error {
+	return nodeproxy.SysctlConfirm(ctx, node)
 }

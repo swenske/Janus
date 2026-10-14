@@ -37,10 +37,18 @@ type fakeNodes struct {
 	upgrades   []*janusv1alpha1.ImageSource
 	modes      []janusv1alpha1.RebootMode
 	upgradeErr error
-	// What auto-scaling reads.
+	// What auto-scaling reads: the load - its CPUs and memory those of
+	// the fake virtual machine with followSize, as a node onlines what
+	// it's given -, HAProxy's configuration, the kernel parameters.
 	load       *nodeproxy.Load
 	loadErr    error
+	followSize bool
 	haproxyCfg []byte
+	sysctl     *janusv1alpha1.SysctlListResponse
+	history    []*janusv1alpha1.SysctlHistoryEntry
+	trials     []*janusv1alpha1.SysctlApplyRequest
+	refuse     string // SysctlApply refuses with it
+	confirms   int
 }
 
 func (f *fakeNodes) Load(context.Context, *store.Node) (*nodeproxy.Load, error) {
@@ -53,7 +61,60 @@ func (f *fakeNodes) Load(context.Context, *store.Node) (*nodeproxy.Load, error) 
 		return nil, errors.New("no load")
 	}
 	l := *f.load
+	if f.followSize && f.drv != nil {
+		f.drv.mu.Lock()
+		if hw := f.drv.hw; hw != nil {
+			l.CPUs, l.MemTotal = hw.VCPUs, uint64(hw.MemoryMiB-100)<<20
+		}
+		f.drv.mu.Unlock()
+	}
 	return &l, nil
+}
+
+func (f *fakeNodes) SysctlList(context.Context, *store.Node) (*janusv1alpha1.SysctlListResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.sysctl == nil {
+		return nil, errors.New("no sysctl")
+	}
+	return proto.Clone(f.sysctl).(*janusv1alpha1.SysctlListResponse), nil
+}
+
+func (f *fakeNodes) SysctlHistory(context.Context, *store.Node, uint32) ([]*janusv1alpha1.SysctlHistoryEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.history, nil
+}
+
+// SysctlApply sets the values - their suggestions gone, as the node's
+// rules would say once they're there - and starts a trial.
+func (f *fakeNodes) SysctlApply(_ context.Context, _ *store.Node, req *janusv1alpha1.SysctlApplyRequest) (*janusv1alpha1.SysctlApplyResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.trials = append(f.trials, req)
+	if f.refuse != "" {
+		return &janusv1alpha1.SysctlApplyResponse{Errors: []*janusv1alpha1.SysctlFieldError{{Message: f.refuse}}}, nil
+	}
+	var changes []*janusv1alpha1.SysctlChange
+	for _, c := range req.GetChanges() {
+		for _, p := range f.sysctl.GetParameters() {
+			if p.GetName() == c.GetName() {
+				changes = append(changes, &janusv1alpha1.SysctlChange{Name: p.GetName(), OldValue: p.GetValue(), NewValue: c.GetValue()})
+				p.Value, p.Recommendation = c.GetValue(), nil
+			}
+		}
+	}
+	f.sysctl.Trial = &janusv1alpha1.SysctlTrial{Changes: changes}
+	return &janusv1alpha1.SysctlApplyResponse{Accepted: true, Changes: changes, Trial: f.sysctl.Trial}, nil
+}
+
+func (f *fakeNodes) SysctlConfirm(context.Context, *store.Node) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.confirms++
+	f.history = append([]*janusv1alpha1.SysctlHistoryEntry{{Action: "confirm", Actor: &janusv1alpha1.SysctlActor{Name: nodeproxy.AutoScaling.Name}, Changes: f.sysctl.GetTrial().GetChanges()}}, f.history...)
+	f.sysctl.Trial = nil
+	return nil
 }
 
 func (f *fakeNodes) HAProxyConfig(context.Context, *store.Node) ([]byte, error) {

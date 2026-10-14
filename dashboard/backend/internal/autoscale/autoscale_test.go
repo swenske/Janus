@@ -44,7 +44,7 @@ func TestDefaultsValidate(t *testing.T) {
 		{CPUUpIdlePercent: 60}, // above the down threshold (50)
 		{MemoryUpAvailablePercent: 45},
 		{CPUDownIdlePercent: 20, CPUUpIdlePercent: 10, CPUUpBusyPercent: 75}, // after a step down 80 % busy > 75
-		{ReturnAfter: time.Minute},
+		{ReturnAfter: 30 * time.Second},
 		{MaxStepsPerHour: 100},
 		{CPUUpBusyPercent: 100},
 	} {
