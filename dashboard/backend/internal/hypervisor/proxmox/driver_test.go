@@ -35,7 +35,7 @@ func TestReconfigureParams(t *testing.T) {
 		"cores":  1,
 		"memory": "1024",
 	}
-	p, err := reconfigureParams(cfg, 2, 2048, []hypervisor.NIC{
+	p, err := reconfigureParams(cfg, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 2048}, []hypervisor.NIC{
 		{Network: "vmbr0.10", MAC: "52:54:00:aa:bb:01"}, // kept
 		{Network: "vmbr0.30", MAC: "52:54:00:aa:bb:02"}, // moved
 		{Network: "vmbr0.10", MAC: "52:54:00:aa:bb:05"}, // new: slot 2
