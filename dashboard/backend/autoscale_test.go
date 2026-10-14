@@ -314,8 +314,7 @@ func TestAutoscaleSysctl(t *testing.T) {
 
 	// Observing: journaled once, nothing applied.
 	m, _ = a.machines.Get(m.ID)
-	st := &machines.AutoscaleState{}
-	m.Size.MemoryMiB = 2048 // grown
+	st := &machines.AutoscaleState{State: autoscale.State{Size: autoscale.Size{VCPUs: 2, MemoryMiB: 2048}}} // grown
 	s.sysctl(context.Background(), m, nil, sm, st, true, now)
 	s.sysctl(context.Background(), m, nil, sm, st, true, now)
 	j := journalOf(t, a, m.ID)
@@ -350,7 +349,7 @@ func TestAutoscaleSysctl(t *testing.T) {
 
 	// Back at its size: what followed the memory goes back; somaxconn
 	// (another rule) stays.
-	m.Size.MemoryMiB = m.Spec.MemoryMiB
+	st.Size.MemoryMiB = m.Spec.MemoryMiB
 	f.mu.Lock()
 	f.sysctl.Parameters[1].Recommendation = nil
 	f.mu.Unlock()
@@ -359,8 +358,22 @@ func TestAutoscaleSysctl(t *testing.T) {
 	if len(f.trials) != 3 || len(last.Changes) != 1 || last.Changes[0].GetName() != "net.ipv4.tcp_mem" || last.Changes[0].GetValue() != "10872 14497 21744" {
 		t.Fatalf("back at its size: %v", f.trials)
 	}
-	if _, ok := st.Sysctl["net.ipv4.tcp_mem"]; ok || st.Sysctl["net.core.somaxconn"].After != "16384" {
+	if back := st.Sysctl["net.ipv4.tcp_mem"]; back.Before != back.After || back.After != "10872 14497 21744" || st.Sysctl["net.core.somaxconn"].After != "16384" {
 		t.Errorf("after going back: %+v", st.Sysctl)
+	}
+
+	// Someone sets file-max by hand: it's theirs from then on - not put
+	// back, not changed again.
+	f.mu.Lock()
+	f.history = append([]*janusv1alpha1.SysctlHistoryEntry{{Action: "confirm", Actor: &janusv1alpha1.SysctlActor{Name: "admin"},
+		Changes: []*janusv1alpha1.SysctlChange{{Name: "net.core.somaxconn", NewValue: "50000"}}}}, f.history...)
+	f.sysctl.Parameters[1].Value = "50000"
+	f.sysctl.Parameters[1].Recommendation = &janusv1alpha1.SysctlRecommendation{Value: "16384", RuleId: "somaxconn.memory"}
+	f.mu.Unlock()
+	trials := len(f.trials)
+	s.sysctl(context.Background(), m, nil, sm, st, true, now.Add(7*time.Hour))
+	if len(f.trials) != trials {
+		t.Errorf("a parameter someone set was changed: %v", f.trials[len(f.trials)-1])
 	}
 
 	// Refused by the node: journaled, nothing recorded.

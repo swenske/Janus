@@ -112,7 +112,9 @@ func (f *fakeNodes) SysctlConfirm(context.Context, *store.Node) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.confirms++
-	f.history = append([]*janusv1alpha1.SysctlHistoryEntry{{Action: "confirm", Actor: &janusv1alpha1.SysctlActor{Name: nodeproxy.AutoScaling.Name}, Changes: f.sysctl.GetTrial().GetChanges()}}, f.history...)
+	// Named after the Controller's service credential, as a node outside
+	// the fleet does: auto-scaling knows its own by the values.
+	f.history = append([]*janusv1alpha1.SysctlHistoryEntry{{Action: "confirm", Actor: &janusv1alpha1.SysctlActor{Name: "controller-service"}, Changes: f.sysctl.GetTrial().GetChanges()}}, f.history...)
 	f.sysctl.Trial = nil
 	return nil
 }

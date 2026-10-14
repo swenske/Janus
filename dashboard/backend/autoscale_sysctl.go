@@ -66,16 +66,29 @@ func orNone(v string) string {
 	return v
 }
 
-// humanSet is the parameters someone other than auto-scaling confirmed,
-// from the node's history.
-func humanSet(history []*janusv1alpha1.SysctlHistoryEntry) map[string]bool {
+// humanSet is the parameters someone other than auto-scaling confirmed
+// last, from the node's history (newest first). Auto-scaling's own
+// confirmation is the one that set the value it recorded (mine) - or
+// one the node names "auto-scaling": through the Controller's service
+// credential (a node not in the fleet yet) it names the credential.
+func humanSet(history []*janusv1alpha1.SysctlHistoryEntry, mine map[string]machines.SysctlChange) map[string]bool {
 	out := map[string]bool{}
+	seen := map[string]bool{}
 	for _, e := range history {
-		if e.GetAction() != "confirm" || e.GetActor().GetName() == nodeproxy.AutoScaling.Name {
+		if e.GetAction() != "confirm" {
 			continue
 		}
 		for _, c := range e.GetChanges() {
-			out[c.GetName()] = true
+			name := c.GetName()
+			if seen[name] {
+				continue // an older confirmation: the newest decides
+			}
+			seen[name] = true
+			m, ok := mine[name]
+			ours := e.GetActor().GetName() == nodeproxy.AutoScaling.Name || ok && c.GetNewValue() == m.After
+			if !ours {
+				out[name] = true
+			}
 		}
 	}
 	return out
@@ -116,6 +129,8 @@ func planSysctl(list *janusv1alpha1.SysctlListResponse, human map[string]bool, m
 // sysctl makes the node's kernel parameters follow (see above), right
 // after a memory step and every sysctlEvery. It returns what to say on
 // the machine, "" when nothing.
+// st.Size is the machine's size after this tick's step: what it has, or
+// - observing - what it would have.
 func (s *autoscaler) sysctl(ctx context.Context, m *machines.Machine, node *store.Node, sm *scaledMachine, st *machines.AutoscaleState, memoryStep bool, now time.Time) string {
 	if !memoryStep && now.Sub(sm.sysctlAt) < sysctlEvery {
 		return ""
@@ -136,8 +151,8 @@ func (s *autoscaler) sysctl(ctx context.Context, m *machines.Machine, node *stor
 		log.Printf("machine %s: auto-scaling: the node's sysctl history: %v", m.ID, err)
 		return ""
 	}
-	atSize := m.Size != nil && m.Size.MemoryMiB == m.Spec.MemoryMiB
-	changes := planSysctl(list, humanSet(history), st.Sysctl, atSize, now)
+	atSize := st.Size.MemoryMiB == m.Spec.MemoryMiB
+	changes := planSysctl(list, humanSet(history, st.Sysctl), st.Sysctl, atSize, now)
 	if len(changes) == 0 {
 		return ""
 	}
@@ -204,7 +219,9 @@ func (s *autoscaler) sysctl(ctx context.Context, m *machines.Machine, node *stor
 	}
 	for _, c := range changes {
 		if c.back {
-			delete(st.Sysctl, c.name)
+			// Kept, its value the one it had before: the node's history
+			// shows this confirmation as auto-scaling's.
+			st.Sysctl[c.name] = machines.SysctlChange{Before: c.to, After: c.to, Rule: c.rule, At: now.UTC()}
 			continue
 		}
 		before := c.from
