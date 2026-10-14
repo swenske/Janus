@@ -87,7 +87,8 @@ authentication: restrict who reaches the port.
 | `janus_haproxy_up` | gauge | | 1 if HAProxy answers on its stats socket - HAProxy's own metrics can't report it down |
 | `janus_haproxy_starts_total` | counter | | HAProxy processes janusd started, reloads included |
 | `janus_haproxy_reloads_total` | counter | | Seamless reloads |
-| `janus_haproxy_unexpected_exits_total` | counter | | HAProxy processes that exited without being stopped or replaced - crashes |
+| `janus_haproxy_unexpected_exits_total` | counter | | HAProxy processes that exited without being stopped or replaced - crashes, the kernel's OOM killer |
+| `janus_haproxy_restarts_total` | counter | | Times janusd started HAProxy again after it exited on its own |
 | `janus_haproxy_config_applies_total` | counter | `result` (`accepted`, `rejected`) | Configurations applied through the API |
 | `janus_haproxy_config_last_apply_timestamp_seconds` | gauge | | When the last configuration was applied through the API |
 | `janus_service_state` | gauge | `service`, `extension`, `state` | 1 for the current state (`running`, `waiting`, `restarting`, `stopped`) of each extension service |

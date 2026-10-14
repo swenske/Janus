@@ -119,7 +119,12 @@ release refuses ([updating nodes](updates.md#when-an-update-reverted)).
   denied` in `dmesg`): the policy should allow everything Janus does
   and nothing else - a denial is a bug.
 - **A crash** - `janus_haproxy_unexpected_exits_total` growing, a
-  service restarting in a loop.
+  service restarting in a loop. janusd starts HAProxy again after it
+  exits on its own (killed by the kernel's OOM killer, crashed), with the
+  configuration it was running: after 1 s, then twice as long each time
+  it dies again soon after its start, 30 s at most
+  (`janus_haproxy_restarts_total`, the `haproxy.restarted` event). A
+  stop through the API stays a stop.
 
 [GitHub issues](https://github.com/swenske/Janus/issues) - or, for a
 security problem, privately: [security policy](../../SECURITY.md).

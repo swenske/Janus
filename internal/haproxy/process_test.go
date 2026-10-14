@@ -240,10 +240,13 @@ func TestManagerCrashSignalsChanged(t *testing.T) {
 	dir := t.TempDir()
 	m := NewManager(fakeHAProxy(t), filepath.Join(dir, "haproxy.cfg"), filepath.Join(dir, "haproxy.pid"), filepath.Join(dir, "sock"))
 	m.Output = &syncBuffer{}
+	m.RestartFirst = 50 * time.Millisecond
 	if err := m.Boot(); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = m.Stop(time.Second) })
 	changed := m.Changed()
+	crashed := m.Pid()
 	_ = m.cur.cmd.Process.Signal(syscall.SIGKILL)
 	select {
 	case <-changed:
@@ -253,4 +256,6 @@ func TestManagerCrashSignalsChanged(t *testing.T) {
 	if !m.Serving() {
 		t.Error("a crash isn't a stop: Serving stays true, the health checks see the stats socket fail")
 	}
+	// And it starts again (restart.go).
+	waitFor(t, "started again", func() bool { pid := m.Pid(); return pid != 0 && pid != crashed })
 }
