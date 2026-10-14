@@ -56,7 +56,7 @@ export function AutoscaleFields({ form, setForm, vcpus, memory, current }) {
               Janus&apos;s starting points - HAProxy&apos;s documentation gives no number. Memory goes first on the way up (HAProxy reloads for a vCPU), vCPUs first on the way back; one step at a time.
             </p>
           </details>
-          <label className="row small" style={{ gap: '0.45rem' }}>
+          <label className="autoscale-check small">
             <input type="checkbox" checked={form.sysctl} onChange={(e) => set({ sysctl: e.target.checked })} />
             <span>
               Kernel parameters follow: the node&apos;s suggestions (System › Sysctl) applied on trial and confirmed - never one someone else set, put back when it&apos;s at its size again.
