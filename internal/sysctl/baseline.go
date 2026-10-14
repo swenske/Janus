@@ -124,20 +124,31 @@ func EnforceCIS(logf Logf) Audit {
 
 const bootFile = "sysctl-boot.json"
 
+// bootRecord is CaptureBootDefaults' file: the Dynamic parameters'
+// values, and the memory the kernel computed them from.
+type bootRecord struct {
+	Values   map[string]string `json:"values"`
+	MemTotal int64             `json:"mem_total"` // bytes
+}
+
 // CaptureBootDefaults records the Dynamic parameters' values before
 // anything changes them: the kernel computed them from this machine's
-// memory, and they are Janus's defaults for this boot.
+// memory, and they are Janus's defaults for this boot. The memory is
+// recorded with them - memory plugged in or taken out later (the
+// Controller's auto-scaling) doesn't change them, the rules that follow
+// it compare with it.
 func CaptureBootDefaults() error {
-	values := map[string]string{}
+	rec := bootRecord{Values: map[string]string{}}
 	for _, p := range EditableParams() {
 		if !p.Dynamic {
 			continue
 		}
 		if v, err := readValue(p.Path(Root)); err == nil {
-			values[p.Name] = Normalize(p.Kind, v)
+			rec.Values[p.Name] = Normalize(p.Kind, v)
 		}
 	}
-	data, err := json.MarshalIndent(values, "", "  ")
+	rec.MemTotal, _ = ProcProbes{Proc: filepath.Dir(Root)}.MemTotal()
+	data, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -147,13 +158,21 @@ func CaptureBootDefaults() error {
 	return os.WriteFile(filepath.Join(RunDir, bootFile), append(data, '\n'), 0o644)
 }
 
+func readBootRecord() bootRecord {
+	var rec bootRecord
+	if data, err := os.ReadFile(filepath.Join(RunDir, bootFile)); err == nil {
+		_ = json.Unmarshal(data, &rec)
+	}
+	if rec.Values == nil {
+		rec.Values = map[string]string{}
+	}
+	return rec
+}
+
 // bootDefaults reads CaptureBootDefaults' record. Without one - janusd
 // on a machine init didn't boot - the live values stand in.
 func bootDefaults() map[string]string {
-	values := map[string]string{}
-	if data, err := os.ReadFile(filepath.Join(RunDir, bootFile)); err == nil {
-		_ = json.Unmarshal(data, &values)
-	}
+	values := readBootRecord().Values
 	for _, p := range EditableParams() {
 		if !p.Dynamic || values[p.Name] != "" {
 			continue
@@ -164,6 +183,10 @@ func bootDefaults() map[string]string {
 	}
 	return values
 }
+
+// BootMemTotal is the memory the machine booted with, in bytes - 0 when
+// CaptureBootDefaults didn't record it.
+func BootMemTotal() int64 { return readBootRecord().MemTotal }
 
 // Defaults is every Editable parameter's default on this node.
 func Defaults() map[string]string {

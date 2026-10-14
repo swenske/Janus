@@ -55,7 +55,8 @@ service SystemService {
   // SystemStat reports the machine's counters since boot: boot time,
   // context switches, processes created, CPU ticks (/proc/stat).
   rpc SystemStat(google.protobuf.Empty) returns (SystemStatResponse);
-  // Memory reports the machine's total, available and cached memory.
+  // Memory reports the machine's total, available and cached memory, and
+  // the processes the kernel killed for lack of it since boot.
   rpc Memory(google.protobuf.Empty) returns (MemoryResponse);
   // CPUInfo describes the machine's CPUs: model, frequency, sockets and
   // cores.
@@ -583,6 +584,9 @@ message MemoryResponse {
   uint64 total_bytes = 1;
   uint64 available_bytes = 2;
   uint64 cached_bytes = 3;
+  // Processes the kernel killed for lack of memory since boot
+  // (/proc/vmstat's oom_kill).
+  uint64 oom_kills = 4;
 }
 
 message CPUInfoResponse {

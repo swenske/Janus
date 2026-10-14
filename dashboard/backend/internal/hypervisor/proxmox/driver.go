@@ -289,11 +289,12 @@ func (d *Driver) CreateMachine(ctx context.Context, spec hypervisor.MachineSpec)
 	if err := d.upload(ctx, "iso", ci, int64(len(spec.CIData)), bytes.NewReader(spec.CIData)); err != nil {
 		return nil, err
 	}
+	if err := checkHardware(spec.Hardware); err != nil {
+		return nil, err
+	}
 	params := url.Values{
 		"name":        {spec.Name},
 		"pool":        {d.cfg.Pool},
-		"cores":       {strconv.Itoa(spec.VCPUs)},
-		"memory":      {strconv.Itoa(spec.MemoryMiB)},
 		"machine":     {"q35"},
 		"bios":        {"ovmf"},
 		"efidisk0":    {d.cfg.Storage + ":1,efitype=4m,pre-enrolled-keys=0"},
@@ -306,6 +307,10 @@ func (d *Driver) CreateMachine(ctx context.Context, spec hypervisor.MachineSpec)
 		"onboot":      {"1"},
 		"ostype":      {"l26"},
 		"description": {d.description(spec)},
+	}
+	hw, _ := hardwareParams(nil, spec.Hardware)
+	for k, v := range hw {
+		params[k] = v
 	}
 	for i, n := range spec.NICs {
 		p, err := nicParam(n)
@@ -398,13 +403,18 @@ type vmConfig struct {
 	Description string `json:"description"`
 	Cores       int    `json:"cores"`
 	Sockets     int    `json:"sockets"`
+	Vcpus       int    `json:"vcpus"`
+	Numa        int    `json:"numa"`
+	Hotplug     string `json:"hotplug"`
 	Memory      any    `json:"memory"` // a number, or a string since Proxmox VE 9
 	raw         map[string]any
 }
 
 func (d *Driver) config(ctx context.Context, vmid int) (*vmConfig, error) {
 	var raw map[string]any
-	if err := d.api.do(ctx, http.MethodGet, d.nodePath("/qemu/%d/config", vmid), nil, &raw); err != nil {
+	// current=1: what the machine has, not changes pending for its next
+	// start.
+	if err := d.api.do(ctx, http.MethodGet, d.nodePath("/qemu/%d/config", vmid), url.Values{"current": {"1"}}, &raw); err != nil {
 		if isPermission(err) || isMissing(err) {
 			return nil, hypervisor.ErrNotFound
 		}
@@ -492,7 +502,8 @@ func (d *Driver) MachineStatus(ctx context.Context, ref hypervisor.MachineRef) (
 		}
 		return nil, err
 	}
-	out := &hypervisor.MachineStatus{Power: powerState(st.Status, st.QMPStatus), VCPUs: c.Cores * max(c.Sockets, 1), MemoryMiB: c.memoryMiB()}
+	out := &hypervisor.MachineStatus{Power: powerState(st.Status, st.QMPStatus)}
+	out.VCPUs, out.MaxVCPUs, out.MemoryMiB, out.MaxMemoryMiB, out.MemoryStepMiB = statusOf(c)
 	return out, nil
 }
 
@@ -520,8 +531,15 @@ func (d *Driver) Power(ctx context.Context, ref hypervisor.MachineRef, action hy
 	return d.api.task(ctx, http.MethodPost, d.nodePath("/qemu/%d/status/%s", vmid, op), nil)
 }
 
-// Reconfigure changes a stopped machine's vCPUs, memory and interfaces.
-func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int, nics []hypervisor.NIC) error {
+// CheckHardware says why a Proxmox VE machine can't be made of hw - its
+// memory modules above all -, or nil.
+func CheckHardware(hw hypervisor.Hardware) error { return checkHardware(hw) }
+
+// Reconfigure changes a stopped machine's size, maxima and interfaces.
+func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, hw hypervisor.Hardware, nics []hypervisor.NIC) error {
+	if err := checkHardware(hw); err != nil {
+		return err
+	}
 	vmid, c, err := d.owned(ctx, ref)
 	if err != nil {
 		return err
@@ -540,11 +558,77 @@ func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, vcp
 			return fmt.Errorf("network %s isn't one this hypervisor allows", n.Network)
 		}
 	}
-	params, err := reconfigureParams(c.raw, vcpus, memoryMiB, nics)
+	params, err := reconfigureParams(c.raw, hw, nics)
 	if err != nil {
 		return err
 	}
 	return d.api.do(ctx, http.MethodPut, d.nodePath("/qemu/%d/config", vmid), params, nil)
+}
+
+// Resize plugs or unplugs a running scalable machine's vCPUs and memory
+// modules: a configuration change Proxmox applies at once with hot-plug
+// on. One it couldn't is left pending for the next start - it's taken
+// back, and an error.
+func (d *Driver) Resize(ctx context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int) error {
+	vmid, c, err := d.owned(ctx, ref)
+	if err != nil {
+		return err
+	}
+	var st struct {
+		Status string `json:"status"`
+	}
+	if err := d.api.do(ctx, http.MethodGet, d.nodePath("/qemu/%d/status/current", vmid), nil, &st); err != nil {
+		return err
+	}
+	if st.Status != "running" {
+		return fmt.Errorf("the virtual machine is %s: it's resized through its hardware instead", st.Status)
+	}
+	curV, maxV, curM, _, step := statusOf(c)
+	p := url.Values{}
+	if vcpus != curV {
+		if !c.hotplugs("cpu") || vcpus < 1 || vcpus > maxV {
+			return fmt.Errorf("%d vCPUs: this machine takes 1 to %d without a restart", vcpus, maxV)
+		}
+		p.Set("vcpus", strconv.Itoa(vcpus))
+	}
+	if memoryMiB != curM {
+		if step == 0 || !hotplugMemoryAligned(memoryMiB) {
+			return fmt.Errorf("%d MiB: this machine's memory changes by %d MiB modules above %d MiB while it runs", memoryMiB, dimmMiB, staticMemoryMiB)
+		}
+		p.Set("memory", strconv.Itoa(memoryMiB))
+	}
+	if len(p) == 0 {
+		return nil
+	}
+	path := d.nodePath("/qemu/%d/config", vmid)
+	// Memory first: a vCPU plugged in makes the node reload HAProxy,
+	// which needs room for a second process for a while.
+	for _, key := range []string{"memory", "vcpus"} {
+		if p.Get(key) == "" {
+			continue
+		}
+		if err := d.api.do(ctx, http.MethodPut, path, url.Values{key: {p.Get(key)}}, nil); err != nil {
+			return fmt.Errorf("resize %s: %w", key, err)
+		}
+	}
+	var pending []struct {
+		Key     string `json:"key"`
+		Pending any    `json:"pending"`
+	}
+	if err := d.api.do(ctx, http.MethodGet, d.nodePath("/qemu/%d/pending", vmid), nil, &pending); err != nil {
+		return fmt.Errorf("read what's pending: %w", err)
+	}
+	var stuck []string
+	for _, e := range pending {
+		if e.Pending != nil && (e.Key == "vcpus" || e.Key == "memory") {
+			stuck = append(stuck, e.Key)
+		}
+	}
+	if len(stuck) > 0 {
+		_ = d.api.do(ctx, http.MethodPut, path, url.Values{"revert": {strings.Join(stuck, ",")}}, nil)
+		return fmt.Errorf("the hypervisor couldn't change %s while the machine runs (left for its next start, taken back)", strings.Join(stuck, " and "))
+	}
+	return nil
 }
 
 var netKeyRe = regexp.MustCompile(`^net([0-9]+)$`)
@@ -554,8 +638,8 @@ var macRe = regexp.MustCompile(`(?i)(?:virtio|e1000e?|vmxnet3|rtl8139)=([0-9a-f:
 // whole new set of interfaces, matched by MAC: one gone is deleted, one
 // whose network changed is rewritten (same slot, same MAC), one new
 // takes the first free slot.
-func reconfigureParams(cfg map[string]any, vcpus, memoryMiB int, nics []hypervisor.NIC) (url.Values, error) {
-	p := url.Values{"cores": {strconv.Itoa(vcpus)}, "sockets": {"1"}, "memory": {strconv.Itoa(memoryMiB)}}
+func reconfigureParams(cfg map[string]any, hw hypervisor.Hardware, nics []hypervisor.NIC) (url.Values, error) {
+	p, hwDeletes := hardwareParams(cfg, hw)
 	slots := map[string]int{} // MAC -> slot
 	used := map[int]bool{}
 	for k, v := range cfg {
@@ -570,7 +654,7 @@ func reconfigureParams(cfg map[string]any, vcpus, memoryMiB int, nics []hypervis
 		}
 	}
 	want := map[string]bool{}
-	var deletes []string
+	deletes := hwDeletes
 	for _, n := range nics {
 		want[strings.ToLower(n.MAC)] = true
 	}

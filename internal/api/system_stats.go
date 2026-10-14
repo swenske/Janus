@@ -41,7 +41,25 @@ func (s *System) Memory(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Mem
 			resp.CachedBytes = bytes
 		}
 	}
+	resp.OomKills = vmstatCounter("/proc/vmstat", "oom_kill")
 	return resp, nil
+}
+
+// vmstatCounter reads one counter of /proc/vmstat ("name value" lines);
+// 0 when it isn't there.
+func vmstatCounter(path, name string) uint64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, ok := strings.Cut(line, " ")
+		if ok && key == name {
+			n, _ := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
+			return n
+		}
+	}
+	return 0
 }
 
 // parseMeminfoLine parses one "Key:     123 kB" line from /proc/meminfo.

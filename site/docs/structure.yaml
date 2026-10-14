@@ -36,6 +36,7 @@ topics:
             pages:
               - { file: dashboard/README.md, slug: controller, title: The Controller, label: The Controller }
               - { file: docs/hypervisors.md, label: Hypervisors }
+              - { file: docs/guide/auto-scaling.md, label: Auto-scaling }
           - label: janusctl
             pages:
               - { file: docs/janusctl.md, title: Using janusctl, label: Using janusctl }

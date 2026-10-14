@@ -48,6 +48,9 @@ type fakeDriver struct {
 	ciData    []byte
 	powered   []hypervisor.PowerAction
 	resized   [][2]int
+	hostFree  uint64 // HostInfo's free memory; 0: 32 GiB
+	hardware  []hypervisor.Hardware
+	live      [][2]int // Resize
 	nics      []hypervisor.NIC
 	// hw is what MachineStatus answers for every machine, when set.
 	hw  *hypervisor.MachineStatus
@@ -63,7 +66,13 @@ func newFakeDriver() *fakeDriver {
 }
 
 func (f *fakeDriver) HostInfo(context.Context) (*hypervisor.HostInfo, error) {
-	return &hypervisor.HostInfo{Hostname: "fake", CPUs: 4}, nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	free := uint64(32 << 30)
+	if f.hostFree != 0 {
+		free = f.hostFree
+	}
+	return &hypervisor.HostInfo{Hostname: "fake", CPUs: 4, MemoryTotal: 64 << 30, MemoryFree: free}, nil
 }
 
 func (f *fakeDriver) HasImage(_ context.Context, img hypervisor.Image) (bool, error) {
@@ -132,13 +141,29 @@ func (f *fakeDriver) Power(_ context.Context, _ hypervisor.MachineRef, action hy
 	return nil
 }
 
-func (f *fakeDriver) Reconfigure(_ context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int, nics []hypervisor.NIC) error {
+func (f *fakeDriver) Reconfigure(_ context.Context, ref hypervisor.MachineRef, hw hypervisor.Hardware, nics []hypervisor.NIC) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.resized = append(f.resized, [2]int{vcpus, memoryMiB})
+	f.resized = append(f.resized, [2]int{hw.VCPUs, hw.MemoryMiB})
+	f.hardware = append(f.hardware, hw)
 	f.nics = append([]hypervisor.NIC(nil), nics...)
-	f.hw = &hypervisor.MachineStatus{Power: hypervisor.PowerRunning, VCPUs: vcpus, MemoryMiB: memoryMiB}
+	f.hw = &hypervisor.MachineStatus{Power: hypervisor.PowerRunning, VCPUs: hw.VCPUs, MemoryMiB: hw.MemoryMiB,
+		MaxVCPUs: max(hw.MaxVCPUs, hw.VCPUs), MaxMemoryMiB: max(hw.MaxMemoryMiB, hw.MemoryMiB)}
+	if hw.ScalableMemory() {
+		f.hw.MemoryStepMiB = 128
+	}
 	f.ops = append(f.ops, "reconfigure")
+	return nil
+}
+
+func (f *fakeDriver) Resize(_ context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.live = append(f.live, [2]int{vcpus, memoryMiB})
+	if f.hw != nil {
+		f.hw.VCPUs, f.hw.MemoryMiB = vcpus, memoryMiB
+	}
+	f.ops = append(f.ops, "resize")
 	return nil
 }
 

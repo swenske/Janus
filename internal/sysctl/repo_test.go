@@ -64,7 +64,7 @@ func TestSELinuxLabelsTheWhitelist(t *testing.T) {
 }
 
 // TestWhoWritesKernelParameters keeps SELinux's side of the lock. In
-// /proc, the policy labels the whitelist's 17 files sysctl_tunable_t and
+// /proc, the policy labels the whitelist's 18 files sysctl_tunable_t and
 // everything else proc_t - the benchmark's keys and kernel.core_pattern
 // among them: only init writes those; init and janusd write the
 // whitelist's.

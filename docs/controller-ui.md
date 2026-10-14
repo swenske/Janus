@@ -105,10 +105,17 @@ A machine's card shows:
 - the node's hostname when its page changed it.
 
 **Edit** (`EditMachine`) is the hardware only: vCPUs, memory, interfaces
-added, removed or moved. An existing interface's addresses are shown
-read-only - they're the node's, changed on its page - and editable only
-once the interface is added or moved. A hardware change asks first
-(restart).
+added, removed or moved - and the machine's auto-scaling
+(`Autoscale.jsx`: mode, maxima, thresholds prefilled with the defaults
+from `GET /api/machines/{id}/autoscale`, a threshold left at its default
+not sent, whether the kernel parameters follow). An existing interface's addresses are shown read-only -
+they're the node's, changed on its page - and editable only once the
+interface is added or moved. A hardware change - its maxima included -
+asks first (restart).
+
+A machine with auto-scaling shows its mode, maxima and status line on
+its card (`AutoscaleSummary`) and its journal on demand; **Size** says
+what it has now, or what observing would have given.
 
 A locked machine shows neither Edit nor Destroy. Its node's page shows a
 banner (`/api/node`'s `locked_by`), and refuses network changes and

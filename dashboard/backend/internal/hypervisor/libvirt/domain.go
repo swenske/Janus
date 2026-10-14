@@ -81,7 +81,8 @@ func volumeXML(name string, capacity uint64, format string) string {
 // SATA CD-ROM (the node scans sr*), virtio NICs, and a serial console
 // on a pty only - deliberately never logged to a file on the host: a
 // node's first boot prints its root admin credential there. The
-// qemu-guest-agent channel is harmless without that extension.
+// qemu-guest-agent channel is harmless without that extension. A
+// scalable machine's size is in size.go.
 func domainXML(spec hypervisor.MachineSpec, diskPath, ciPath, controllerID string) string {
 	var nics strings.Builder
 	for _, n := range spec.NICs {
@@ -97,9 +98,7 @@ func domainXML(spec hypervisor.MachineSpec, diskPath, ciPath, controllerID strin
   <metadata>
     <janus:machine xmlns:janus='%s' controller='%s' id='%s'/>
   </metadata>
-  <memory unit='MiB'>%d</memory>
-  <vcpu>%d</vcpu>
-  <os firmware='efi'>
+%s  <os firmware='efi'>
     <type arch='x86_64' machine='q35'>hvm</type>
     <firmware>
       <feature enabled='no' name='secure-boot'/>
@@ -111,8 +110,7 @@ func domainXML(spec hypervisor.MachineSpec, diskPath, ciPath, controllerID strin
     <acpi/>
     <apic/>
   </features>
-  <cpu mode='host-passthrough' check='none'/>
-  <clock offset='utc'/>
+%s  <clock offset='utc'/>
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
   <on_crash>restart</on_crash>
@@ -141,12 +139,12 @@ func domainXML(spec hypervisor.MachineSpec, diskPath, ciPath, controllerID strin
       <model type='vga'/>
     </video>
     <memballoon model='none'/>
-  </devices>
+%s  </devices>
 </domain>
 `, esc(spec.Name), metadataNS, esc(controllerID), esc(spec.MachineID),
-		spec.MemoryMiB, spec.VCPUs,
+		sizeXML(spec.Hardware), cpuXML(spec.Hardware),
 		esc(diskPath), esc(ciPath),
-		nics.String())
+		nics.String(), virtioMemXML(spec.Hardware))
 }
 
 // domainDiskFiles lists the files a domain's disks use - read back from
@@ -173,23 +171,17 @@ func domainDiskFiles(domXML string) ([]string, error) {
 }
 
 var (
-	memoryRe        = regexp.MustCompile(`<memory\b[^>]*>\s*\d+\s*</memory>`)
-	currentMemoryRe = regexp.MustCompile(`<currentMemory\b[^>]*>\s*\d+\s*</currentMemory>`)
-	vcpuRe          = regexp.MustCompile(`<vcpu\b([^>]*)>\s*\d+\s*</vcpu>`)
-)
-
-var (
 	interfaceRe = regexp.MustCompile(`(?s)[ \t]*<interface type='network'>.*?</interface>\n?`)
 	ifaceMACRe  = regexp.MustCompile(`<mac address='([^']+)'`)
 	ifaceSrcRe  = regexp.MustCompile(`<source network='[^']*'`)
 )
 
-// reconfigureXML sets a domain definition's memory, vCPUs and network
+// reconfigureXML sets a domain definition's size, maxima and network
 // interfaces, leaving the rest - the ownership tag, the devices' PCI
 // addresses - as libvirt wrote it. An added interface gets its address
 // when libvirt defines the domain.
-func reconfigureXML(domXML string, vcpus, memoryMiB int, nics []hypervisor.NIC) (string, error) {
-	out, err := resizeXML(domXML, vcpus, memoryMiB)
+func reconfigureXML(domXML string, hw hypervisor.Hardware, nics []hypervisor.NIC) (string, error) {
+	out, err := hardwareXML(domXML, hw)
 	if err != nil {
 		return "", err
 	}
@@ -225,18 +217,5 @@ func reconfigureXML(domXML string, vcpus, memoryMiB int, nics []hypervisor.NIC) 
 		}
 		out = out[:i] + added.String() + "  " + out[i:]
 	}
-	return out, nil
-}
-
-// resizeXML sets a domain definition's memory and vCPUs, leaving the rest
-// - the ownership tag included - as libvirt wrote it.
-func resizeXML(domXML string, vcpus, memoryMiB int) (string, error) {
-	if !memoryRe.MatchString(domXML) || !vcpuRe.MatchString(domXML) {
-		return "", fmt.Errorf("no <memory> or <vcpu> in the domain's definition")
-	}
-	kib := memoryMiB * 1024
-	out := memoryRe.ReplaceAllString(domXML, fmt.Sprintf("<memory unit='KiB'>%d</memory>", kib))
-	out = currentMemoryRe.ReplaceAllString(out, fmt.Sprintf("<currentMemory unit='KiB'>%d</currentMemory>", kib))
-	out = vcpuRe.ReplaceAllString(out, fmt.Sprintf("<vcpu${1}>%d</vcpu>", vcpus))
 	return out, nil
 }

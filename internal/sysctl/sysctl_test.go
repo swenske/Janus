@@ -25,7 +25,7 @@ func (f fakeProbes) OpenFiles() (int64, error)           { return f.open, nil }
 func (f fakeProbes) ConntrackEntries() (int64, error)    { return f.conntrack, nil }
 func (f fakeProbes) MemTotal() (int64, error)            { return f.mem, nil }
 
-var quietProbes = fakeProbes{open: 1000, mem: 16 << 30}
+var quietProbes = fakeProbes{open: 1000, mem: 256 << 30}
 
 // kernelDefaults are the values a fresh kernel has, before Janus's
 // baseline: the CIS keys Janus fixes are non-compliant here.
@@ -78,6 +78,7 @@ var kernelDefaults = map[string]string{
 	"net.core.netdev_max_backlog":               "1000",
 	"net.ipv4.tcp_rmem":                         "4096\t131072\t6291456",
 	"net.ipv4.tcp_wmem":                         "4096\t16384\t4194304",
+	"net.ipv4.tcp_mem":                          "10350\t13800\t20700",
 	"fs.file-max":                               "95000",
 	"net.ipv4.tcp_keepalive_time":               "7200",
 	"net.ipv4.tcp_keepalive_intvl":              "75",
@@ -221,8 +222,11 @@ func TestCatalogInvariants(t *testing.T) {
 			t.Errorf("%s: no class", p.Name)
 		}
 	}
-	if n := len(EditableParams()); n != 17 {
-		t.Errorf("%d editable parameters, the validated selection has 17", n)
+	// The validated selection (2026-10-06) and net.ipv4.tcp_mem
+	// (2026-10-14: memory plugged in while the machine runs leaves it at
+	// the boot's value).
+	if n := len(EditableParams()); n != 18 {
+		t.Errorf("%d editable parameters, the validated selection has 18", n)
 	}
 }
 
@@ -517,6 +521,16 @@ func TestContextChecks(t *testing.T) {
 	}
 	if err := try(Change{Name: "net.ipv4.tcp_wmem", Value: "65536 4096 262144"}); err == nil || !strings.Contains(err.Error(), "order") {
 		t.Errorf("buffers out of order: %v", err)
+	}
+	// 1 GiB is 262144 pages.
+	if err := try(Change{Name: "net.ipv4.tcp_mem", Value: "100000 200000 300000"}); err == nil || !strings.Contains(err.Error(), "at most 262144 pages") {
+		t.Errorf("tcp_mem beyond the memory: %v", err)
+	}
+	if err := try(Change{Name: "net.ipv4.tcp_mem", Value: "30000 20000 40000"}); err == nil || !strings.Contains(err.Error(), "increasing order") {
+		t.Errorf("tcp_mem out of order: %v", err)
+	}
+	if err := try(Change{Name: "net.ipv4.tcp_mem", Value: "41400 55200 82800"}); err != nil {
+		t.Errorf("tcp_mem within the memory refused: %v", err)
 	}
 	// The live range has the listening port inside: a warning.
 	s := m.Snapshot()
@@ -846,5 +860,23 @@ func TestAuditFailsWhenInterfacesCantBeListed(t *testing.T) {
 	a := AuditCIS(Root)
 	if a.OK() || !strings.Contains(strings.Join(a.Failures(), " "), "the interfaces can't be listed") {
 		t.Fatalf("an unlistable interface directory passed: %v", a.Failures())
+	}
+}
+
+// TestBootRecordsTheMemory: the boot's record keeps the memory the
+// Dynamic parameters were computed from, and what the parameters were -
+// memory plugged in later doesn't move them.
+func TestBootRecordsTheMemory(t *testing.T) {
+	fakeNode(t)
+	mustWrite(t, filepath.Join(filepath.Dir(Root), "meminfo"), "MemTotal:        1013052 kB\nMemFree:          822396 kB\n")
+	if err := CaptureBootDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	if got := BootMemTotal(); got != 1013052*1024 {
+		t.Errorf("BootMemTotal = %d, want %d", got, 1013052*1024)
+	}
+	mustWrite(t, keyPath(Root, "net.ipv4.tcp_mem"), "41400\t55200\t82800\n")
+	if got := Defaults()["net.ipv4.tcp_mem"]; got != "10350 13800 20700" {
+		t.Errorf("tcp_mem's default = %q, want the boot's", got)
 	}
 }

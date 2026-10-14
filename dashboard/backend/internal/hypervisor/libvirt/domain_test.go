@@ -12,8 +12,7 @@ func testSpec() hypervisor.MachineSpec {
 	return hypervisor.MachineSpec{
 		MachineID: "0123456789abcdef",
 		Name:      "janus-lb<1>",
-		VCPUs:     2,
-		MemoryMiB: 1024,
+		Hardware:  hypervisor.Hardware{VCPUs: 2, MemoryMiB: 1024},
 		Image:     hypervisor.Image{Name: "janus-base-a055fbb6-v2026.10.02-4.qcow2", VirtualSize: 330 << 20},
 		NICs: []hypervisor.NIC{
 			{Network: "lab-mgmt", MAC: "52:54:00:aa:bb:01"},
@@ -155,7 +154,7 @@ const dumpedDomain = `<domain type='kvm'>
 </domain>`
 
 func TestReconfigureXML(t *testing.T) {
-	out, err := reconfigureXML(dumpedDomain, 2, 1024, []hypervisor.NIC{
+	out, err := reconfigureXML(dumpedDomain, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 1024}, []hypervisor.NIC{
 		{Network: "lab-backend", MAC: "52:54:00:AA:BB:02"}, // moved, its MAC in another case
 		{Network: "lab-mgmt", MAC: "52:54:00:aa:bb:03"},    // added
 	})
@@ -192,14 +191,14 @@ func TestReconfigureXML(t *testing.T) {
 	}
 }
 
-func TestResizeXML(t *testing.T) {
-	out, err := resizeXML(dumpedDomain, 4, 2048)
+func TestHardwareXMLFixed(t *testing.T) {
+	out, err := hardwareXML(dumpedDomain, hypervisor.Hardware{VCPUs: 4, MemoryMiB: 2048})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var d struct {
-		Memory        int `xml:"memory"`
-		CurrentMemory int `xml:"currentMemory"`
+		Memory        *int `xml:"memory"`
+		CurrentMemory *int `xml:"currentMemory"`
 		VCPU          struct {
 			N         int    `xml:",chardata"`
 			Placement string `xml:"placement,attr"`
@@ -211,13 +210,14 @@ func TestResizeXML(t *testing.T) {
 	if err := xml.Unmarshal([]byte(out), &d); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if d.Memory != 2048*1024 || d.CurrentMemory != 2048*1024 || d.VCPU.N != 4 || d.VCPU.Placement != "static" {
-		t.Errorf("resized to %+v", d)
+	// <currentMemory> goes: libvirt sets it to the memory again.
+	if d.Memory == nil || *d.Memory != 2048 || d.CurrentMemory != nil || d.VCPU.N != 4 || d.VCPU.Placement != "static" {
+		t.Errorf("resized to %+v:\n%s", d, out)
 	}
 	if !tagMatches(d.Metadata.Inner, "ctl-1", "0123456789abcdef") {
 		t.Error("the ownership tag was lost")
 	}
-	if _, err := resizeXML("<domain/>", 1, 512); err == nil {
+	if _, err := hardwareXML("<domain/>", hypervisor.Hardware{VCPUs: 1, MemoryMiB: 512}); err == nil {
 		t.Error("a definition without memory/vcpu accepted")
 	}
 }

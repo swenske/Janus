@@ -191,6 +191,7 @@ func (m *Manager) Snapshot() Snapshot {
 	if m.obs != nil {
 		metrics = m.obs.Metrics()
 		metrics.Live = live
+		metrics.Boot, metrics.BootMemTotal = bootDefaults(), BootMemTotal()
 		o := m.obs.Observation()
 		s.Observation = &o
 	}

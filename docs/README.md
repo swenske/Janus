@@ -22,6 +22,7 @@ Install, configure and operate Janus nodes and the Controller.
 
 - [The Controller](../dashboard/README.md)
 - [Hypervisors](hypervisors.md)
+- [Auto-scaling](guide/auto-scaling.md)
 
 ### janusctl
 

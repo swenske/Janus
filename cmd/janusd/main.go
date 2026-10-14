@@ -454,7 +454,10 @@ func main() {
 	metrics := &metricsSources{version: version, started: started, ca: local.CA, serverCert: serverCert,
 		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr, vrrp: vrrpMgr, bgp: bgpMgr, acme: acmeMgr}
 	if *manageHost {
-		metrics.kmsg = &kmsgwatch.Counts{}
+		metrics.kmsg = &kmsgwatch.Counts{ToldFile: "/run/janus/kmsg-oom-told", OnOOMKill: func(pid int, process string) {
+			log.Printf("kernel: out of memory - killed %s (%d)", process, pid)
+			events.Publish("kernel.oom_kill", map[string]any{"pid": pid, "process": process})
+		}}
 		metrics.statePath = "/etc/.state"
 		go kmsgwatch.Watch("/dev/kmsg", metrics.kmsg)
 	}

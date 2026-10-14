@@ -32,28 +32,33 @@ func (a *app) registerMachineRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/machines/{id}/retry", a.gate(auth.Reader, auth.Admin, a.handleMachineRetry))
 	mux.HandleFunc("POST /api/machines/{id}/power", a.gate(anyone, anyone, a.handleMachinePower))
 	mux.HandleFunc("GET /api/machines/{id}/console", a.gate(anyone, anyone, a.handleMachineConsole))
+	mux.HandleFunc("GET /api/machines/{id}/autoscale", a.gate(anyone, auth.Admin, a.handleMachineAutoscale))
 	mux.HandleFunc("GET /api/catalog", a.gate(auth.Reader, auth.Admin, a.handleCatalog))
 }
 
 type machineView struct {
-	ID             string           `json:"id"`
-	Spec           machines.Spec    `json:"spec"`
-	HypervisorName string           `json:"hypervisor_name"`
-	Phase          machines.Phase   `json:"phase"`
-	Error          string           `json:"error,omitempty"`
-	Version        string           `json:"version,omitempty"`
-	Schematic      string           `json:"schematic,omitempty"`
-	VMName         string           `json:"vm_name,omitempty"`
-	VMUUID         string           `json:"vm_uuid,omitempty"`
-	NodeID         string           `json:"node_id,omitempty"`
-	NodeAddress    string           `json:"node_address,omitempty"`
-	NodeHostname   string           `json:"node_hostname,omitempty"`
-	SyncedAt       time.Time        `json:"synced_at,omitzero"`
-	SyncError      string           `json:"sync_error,omitempty"`
-	Warning        string           `json:"warning,omitempty"`
-	Events         []machines.Event `json:"events"`
-	CreatedAt      time.Time        `json:"created_at"`
-	UpdatedAt      time.Time        `json:"updated_at"`
+	ID             string         `json:"id"`
+	Spec           machines.Spec  `json:"spec"`
+	HypervisorName string         `json:"hypervisor_name"`
+	Phase          machines.Phase `json:"phase"`
+	Error          string         `json:"error,omitempty"`
+	Version        string         `json:"version,omitempty"`
+	Schematic      string         `json:"schematic,omitempty"`
+	VMName         string         `json:"vm_name,omitempty"`
+	VMUUID         string         `json:"vm_uuid,omitempty"`
+	NodeID         string         `json:"node_id,omitempty"`
+	NodeAddress    string         `json:"node_address,omitempty"`
+	NodeHostname   string         `json:"node_hostname,omitempty"`
+	SyncedAt       time.Time      `json:"synced_at,omitzero"`
+	SyncError      string         `json:"sync_error,omitempty"`
+	Warning        string         `json:"warning,omitempty"`
+	// Size is what the virtual machine has now; AutoscaleState what its
+	// auto-scaling remembers and says.
+	Size           *machines.Size           `json:"size,omitempty"`
+	AutoscaleState *machines.AutoscaleState `json:"autoscale_state,omitempty"`
+	Events         []machines.Event         `json:"events"`
+	CreatedAt      time.Time                `json:"created_at"`
+	UpdatedAt      time.Time                `json:"updated_at"`
 }
 
 func (a *app) machineView(m *machines.Machine) machineView {
@@ -61,6 +66,7 @@ func (a *app) machineView(m *machines.Machine) machineView {
 		ID: m.ID, Spec: m.Spec, Phase: m.Phase, Error: m.Error, Version: m.Version, Schematic: m.Schematic,
 		NodeID: m.NodeID, Events: m.Events, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
 		NodeHostname: m.NodeHostname, SyncedAt: m.SyncedAt, SyncError: m.SyncError, Warning: m.Warning,
+		Size: m.Size, AutoscaleState: m.AutoscaleState,
 	}
 	if h, ok := a.hypervisors.Get(m.Spec.HypervisorID); ok {
 		v.HypervisorName = h.Name

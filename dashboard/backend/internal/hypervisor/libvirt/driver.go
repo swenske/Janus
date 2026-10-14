@@ -406,11 +406,25 @@ func (d *Driver) MachineStatus(ctx context.Context, ref hypervisor.MachineRef) (
 		if err != nil {
 			return err
 		}
-		state, _, maxMemKiB, _, nrCPU, cpuTime, err := domainInfo(l, dom)
+		state, _, _, _, _, cpuTime, err := domainInfo(l, dom)
 		if err != nil {
 			return err
 		}
-		st.Power, st.MemoryMiB, st.VCPUs, st.CPUTimeNs = powerState(state), int(maxMemKiB/1024), int(nrCPU), cpuTime
+		st.Power, st.CPUTimeNs = powerState(state), cpuTime
+		// The size from the definition, not DomainGetInfo: a scalable
+		// domain's memory there is its maximum (size.go).
+		domXML, err := l.DomainGetXMLDesc(dom, 0)
+		if err != nil {
+			return err
+		}
+		sz, err := parseSizes(domXML)
+		if err != nil {
+			return fmt.Errorf("the virtual machine's size: %w", err)
+		}
+		st.VCPUs, st.MaxVCPUs, st.MemoryMiB, st.MaxMemoryMiB = sz.vcpus, sz.maxVCPUs, sz.memMiB, sz.maxMemMiB
+		if sz.hasVirtioMem {
+			st.MemoryStepMiB = memoryStepMiB
+		}
 		return nil
 	})
 	if err != nil {
@@ -465,7 +479,13 @@ func (d *Driver) Power(ctx context.Context, ref hypervisor.MachineRef, action hy
 	})
 }
 
-func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int, nics []hypervisor.NIC) error {
+// CheckHardware says why a libvirt machine can't be made of hw, or nil.
+func CheckHardware(hw hypervisor.Hardware) error { return checkHardware(hw) }
+
+func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, hw hypervisor.Hardware, nics []hypervisor.NIC) error {
+	if err := checkHardware(hw); err != nil {
+		return err
+	}
 	return d.run(ctx, func(l *golibvirt.Libvirt) error {
 		dom, err := d.owned(l, ref)
 		if err != nil {
@@ -487,7 +507,7 @@ func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, vcp
 		if err != nil {
 			return err
 		}
-		next, err := reconfigureXML(domXML, vcpus, memoryMiB, nics)
+		next, err := reconfigureXML(domXML, hw, nics)
 		if err != nil {
 			return err
 		}
@@ -501,6 +521,74 @@ func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, vcp
 // Console streams the serial console. Without VIR_DOMAIN_CONSOLE_FORCE:
 // a console someone already has open on the host (virsh console) wins,
 // and this returns libvirt's error saying so.
+
+// Resize plugs or unplugs a running scalable machine's vCPUs (setvcpus
+// --live) and the memory of its virtio-mem device (its requested size),
+// in its live definition and in its persistent one: a reboot keeps the
+// size, a stop and start through Reconfigure goes back to nominal.
+func (d *Driver) Resize(ctx context.Context, ref hypervisor.MachineRef, vcpus, memoryMiB int) error {
+	return d.run(ctx, func(l *golibvirt.Libvirt) error {
+		dom, err := d.owned(l, ref)
+		if err != nil {
+			return err
+		}
+		state, _, err := l.DomainGetState(dom, 0)
+		if err != nil {
+			return err
+		}
+		if golibvirt.DomainState(state) != golibvirt.DomainRunning {
+			return errors.New("the virtual machine isn't running: it's resized through its hardware instead")
+		}
+		live, err := l.DomainGetXMLDesc(dom, 0)
+		if err != nil {
+			return err
+		}
+		sz, err := parseSizes(live)
+		if err != nil {
+			return fmt.Errorf("the virtual machine's size: %w", err)
+		}
+		if vcpus < 1 || vcpus > sz.maxVCPUs {
+			return fmt.Errorf("%d vCPUs: this machine takes 1 to %d without a restart", vcpus, sz.maxVCPUs)
+		}
+		if memoryMiB != sz.memMiB {
+			if !sz.hasVirtioMem {
+				return errors.New("this machine's memory can't change while it runs")
+			}
+			req := memoryMiB - sz.baseMiB
+			if req < 0 || req > sz.devSizeMiB || req*1024%virtioMemBlockKiB != 0 {
+				return fmt.Errorf("%d MiB: this machine takes %d to %d MiB without a restart, by %d KiB", memoryMiB, sz.baseMiB, sz.maxMemMiB, virtioMemBlockKiB)
+			}
+		}
+		// Memory first: a vCPU plugged in makes the node reload HAProxy,
+		// which needs room for a second process for a while.
+		if memoryMiB != sz.memMiB {
+			dev, err := virtioMemRequestXML(live, memoryMiB-sz.baseMiB)
+			if err != nil {
+				return err
+			}
+			if err := l.DomainUpdateDeviceFlags(dom, dev, golibvirt.DomainDeviceModifyLive); err != nil {
+				return fmt.Errorf("resize the memory: %w", err)
+			}
+			inactive, err := l.DomainGetXMLDesc(dom, golibvirt.DomainXMLInactive)
+			if err == nil {
+				dev, err = virtioMemRequestXML(inactive, memoryMiB-sz.baseMiB)
+			}
+			if err == nil {
+				err = l.DomainUpdateDeviceFlags(dom, dev, golibvirt.DomainDeviceModifyConfig)
+			}
+			if err != nil {
+				return fmt.Errorf("the memory changed, but not in the persistent definition: %w", err)
+			}
+		}
+		if vcpus != sz.vcpus {
+			if err := l.DomainSetVcpusFlags(dom, uint32(vcpus), uint32(golibvirt.DomainVCPULive|golibvirt.DomainVCPUConfig)); err != nil {
+				return fmt.Errorf("resize the vCPUs: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
 func (d *Driver) Console(ctx context.Context, ref hypervisor.MachineRef, w io.Writer) error {
 	return d.run(ctx, func(l *golibvirt.Libvirt) error {
 		dom, err := d.owned(l, ref)
