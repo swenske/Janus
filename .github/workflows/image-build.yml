@@ -955,7 +955,7 @@ jobs:
         run: make docs-screenshots-check
       - name: Keep what drifted
         if: failure() && steps.check.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: docs-screenshots-drift-${{ github.sha }}
           path: build/screenshots-drift/
@@ -1057,7 +1057,7 @@ jobs:
       # (schematic-build's source_run input builds from it, for testing).
 
       - name: Upload the schematic build inputs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: schematic-inputs
           path: build/inputs/
@@ -1073,7 +1073,7 @@ jobs:
           make janusctl-deb-test
 
       - name: Upload janusctl's Debian packages
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janusctl-deb-${{ github.sha }}
           path: build/deb/janusctl_*.deb
@@ -1090,7 +1090,7 @@ jobs:
           make terraform-provider-dist-test
 
       - name: Upload the Terraform provider's archives
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: terraform-provider-janus-${{ github.sha }}
           path: build/terraform-provider/terraform-provider-janus_*
@@ -1114,7 +1114,7 @@ jobs:
           ls -lh build/janus.qcow2
 
       - name: Upload the alpha Proxmox VM image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-amd64-proxmox-${{ github.sha }}
           path: build/janus.qcow2
@@ -1132,7 +1132,7 @@ jobs:
           ls -lh build/janus-kvm.qcow2
 
       - name: Upload the alpha KVM/libvirt image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-amd64-kvm-${{ github.sha }}
           path: build/janus-kvm.qcow2
@@ -1144,7 +1144,7 @@ jobs:
           ls -lh build/janus.vmdk
 
       - name: Upload the alpha VMware/ESXi image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-amd64-vmware-${{ github.sha }}
           path: build/janus.vmdk
@@ -1200,7 +1200,7 @@ jobs:
           ls -lh build/janus.iso
 
       - name: Upload the alpha installer ISO
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-amd64-iso-${{ github.sha }}
           path: build/janus.iso
@@ -1226,7 +1226,7 @@ jobs:
           ls -lh build/rpi-uefi/pi4-disk.img
 
       - name: Upload the Raspberry Pi 4 SD card image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-arm64-rpi4-${{ github.sha }}
           path: build/rpi-uefi/pi4-disk.img
@@ -1238,7 +1238,7 @@ jobs:
           ls -lh build/rpi-uefi/pi5-disk.img
 
       - name: Upload the Raspberry Pi 5 SD card image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-arm64-rpi5-${{ github.sha }}
           path: build/rpi-uefi/pi5-disk.img
