@@ -22,6 +22,7 @@ export function AutoscaleFields({ form, setForm, vcpus, memory, current }) {
           <select value={form.mode} onChange={(e) => set({ mode: e.target.value })}>
             <option value="none">None - its size is fixed</option>
             <option value="observe">Observe - write what it would do</option>
+            <option value="on">On - resize it while it runs</option>
             {current && <option value="off">Paused - back to its size, room kept</option>}
           </select>
         </label>
@@ -55,9 +56,16 @@ export function AutoscaleFields({ form, setForm, vcpus, memory, current }) {
               Janus&apos;s starting points - HAProxy&apos;s documentation gives no number. Memory goes first on the way up (HAProxy reloads for a vCPU), vCPUs first on the way back; one step at a time.
             </p>
           </details>
+          <label className="row small" style={{ gap: '0.45rem' }}>
+            <input type="checkbox" checked={form.sysctl} onChange={(e) => set({ sysctl: e.target.checked })} />
+            <span>
+              Kernel parameters follow: the node&apos;s suggestions (System › Sysctl) applied on trial and confirmed - never one someone else set, put back when it&apos;s at its size again.
+            </span>
+          </label>
           <ul className="muted small edit-notes">
             <li>Its size above is where it starts and comes back to; the maxima are how far it grows while it runs - the node takes vCPUs and memory without a restart.</li>
             <li>Observing changes nothing: its journal says what auto-scaling would do, and the size it would have given - try it on real traffic before resizing for real.</li>
+            <li>Resizing, memory is only added while the host keeps a twentieth of its own free (512 MiB at least).</li>
           </ul>
         </>
       )}
@@ -110,8 +118,13 @@ function Journal({ id, at }) {
         .slice()
         .reverse()
         .map((e) => {
-          const what = e.mode === 'observe' ? `would ${e.action === 'up' ? 'grow' : 'shrink'}` : e.action === 'up' ? 'grew' : 'shrank'
-          return `${new Date(e.time).toLocaleString()}  ${what} to ${e.to.vcpus} vCPU · ${e.to.memory_mib} MiB - ${e.reason}${e.error ? ` - failed: ${e.error}` : ''}`
+          const when = new Date(e.time).toLocaleString()
+          const failed = e.error ? ` - failed: ${e.error}` : ''
+          if (e.action === 'sysctl') {
+            return `${when}  ${e.mode === 'on' ? 'kernel parameters' : 'would set kernel parameters'}: ${e.reason}${failed}`
+          }
+          const what = e.mode === 'on' ? (e.action === 'up' ? 'grew' : 'shrank') : `would ${e.action === 'up' ? 'grow' : 'shrink'}`
+          return `${when}  ${what} to ${e.to.vcpus} vCPU · ${e.to.memory_mib} MiB - ${e.reason}${failed}`
         })
         .join('\n')}
     </pre>

@@ -52,6 +52,7 @@ export function initialAutoscale(m, defaults) {
     mode: p ? p.mode : 'none',
     max_vcpus: p ? p.max_vcpus : Math.min(64, m.spec.vcpus * 2),
     max_memory_mib: p ? p.max_memory_mib : m.spec.memory_mib * 4,
+    sysctl: !!p?.sysctl,
     values,
   }
 }
@@ -61,6 +62,7 @@ export function initialAutoscale(m, defaults) {
 export function autoscalePolicy(form, defaults) {
   if (form.mode === 'none') return null
   const out = { mode: form.mode, max_vcpus: Number(form.max_vcpus), max_memory_mib: Number(form.max_memory_mib) }
+  if (form.sysctl) out.sysctl = true
   for (const t of THRESHOLDS) {
     const v = stored(t, form.values[t.key])
     if (v && v !== defaults?.[t.key]) out[t.key] = v
@@ -70,7 +72,8 @@ export function autoscalePolicy(form, defaults) {
 
 // samePolicy compares two policies as the API keeps them.
 export function samePolicy(a, b) {
-  return JSON.stringify(a || null) === JSON.stringify(b || null)
+  const canon = (p) => (p ? JSON.stringify(Object.keys(p).sort().map((k) => [k, p[k]])) : 'null')
+  return canon(a) === canon(b)
 }
 
 // sizeText is a machine's size on its card: its spec, and what it has
