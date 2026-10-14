@@ -240,6 +240,16 @@ var Catalog = []*Param{
 		check:   checkBuffers,
 	},
 	{
+		Name: "net.ipv4.tcp_mem", Class: Editable, Kind: KindTriple, Unit: "pages",
+		Dynamic: true, Bounds: []Bound{{4096, 64 * mib}, {4096, 64 * mib}, {4096, 64 * mib}}, Applies: Immediately,
+		Summary:       "Memory all TCP sockets may take together, in 4 KiB pages: below the first value nothing holds them back, from the second TCP shrinks their buffers, at the third it gives them no more.",
+		Effect:        "HAProxy's connections' kernel buffers come out of it: at the third value, data waits or is dropped and connections stall - the TCP memory pressure signal.",
+		Risk:          "Too high, sockets can take memory HAProxy needs itself; too low, connections slow down under load. The kernel computes it once, at boot: memory plugged in later doesn't change it.",
+		KernelDefault: "from the memory at boot: about a sixteenth of it for the second value, three quarters and one and a half times that for the others",
+		Sources:       []Source{srcKernelIP},
+		check:         checkTCPMem,
+	},
+	{
 		Name: "fs.file-max", Class: Editable, Kind: KindInt, Unit: "files",
 		Dynamic: true, Bounds: []Bound{{8192, 64 * mib}}, Applies: Immediately,
 		Summary:       "Open files on the whole system.",
