@@ -50,7 +50,13 @@ COPY dashboard/backend/ dashboard/backend/
 COPY dashboard/updater/ dashboard/updater/
 # The Controller's version (make dashboard-image passes git describe's).
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/dashboardd ./dashboard/backend && \
+# The modules and the build cache are kept by the Docker host between
+# builds: every source change downloaded all the modules again, and a
+# download that stalled held the Controller's self-update test 40 minutes
+# on a CI runner (v2026.10.14 and -3's runs: one TCP connection to the
+# module proxy that never moved). go.sum still checks every module.
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/dashboardd ./dashboard/backend && \
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/janus-controller-updater ./dashboard/updater && \
     mkdir /out/data
 
