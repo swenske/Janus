@@ -148,6 +148,7 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 		fmt.Printf("booted: %s (up %s)\n", boot.Format(time.RFC3339), time.Since(boot).Round(time.Second))
 		fmt.Printf("context switches: %d\n", resp.GetContextSwitches())
 		fmt.Printf("processes created: %d\n", resp.GetProcessesCreated())
+		fmt.Printf("cpu ticks: %d total, %d idle, %d steal\n", resp.GetCpuTotalTicks(), resp.GetCpuIdleTicks(), resp.GetCpuStealTicks())
 
 	case "ps":
 		c, cancel := ctx()

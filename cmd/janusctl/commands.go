@@ -152,7 +152,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "events", help: "the node's event log, live", flags: []flagDef{valFlag("since", "ID", "only events after this ID", argNone)}},
 		{name: "dmesg", help: "the kernel's messages", flags: []flagDef{boolFlag("f", "follow")}},
 		{name: "stats", help: "CPU and memory of janusd and haproxy"},
-		{name: "systemstat", help: "boot time, context switches, processes created"},
+		{name: "systemstat", help: "boot time, context switches, processes created, the CPUs' ticks (idle, steal)"},
 		{name: "ps", help: "every process"},
 		{name: "netdev", help: "network interface counters"},
 		{name: "netstat", help: "TCP and UDP sockets"},

@@ -6,7 +6,8 @@
 # once - one event - and reloads HAProxy, which then runs a thread per
 # CPU; memory plugged through virtio-mem is onlined by the kernel into
 # ZONE_MOVABLE and taken back out, the kernel parameters it sized at
-# boot (tcp_mem, file-max) suggested in proportion meanwhile; a vCPU
+# boot (tcp_mem, file-max) suggested in proportion meanwhile; the vCPUs
+# waiting for a host short of CPU counted as steal time; a vCPU
 # unplugged, HAProxy follows; a configuration that fixes nbthread isn't
 # reloaded for nothing; an OOM kill is an event and counted; no AVC
 # denial.
@@ -140,6 +141,24 @@ grep -q '"after":3' <<<"$ev" && grep -q '"before":1' <<<"$ev" && grep -q '"hapro
 waitFor "HAProxy doesn't run a thread per CPU after the reload: $(haproxyThreads)" threadsAre 3
 curl -fsS "http://127.0.0.1:${P_HTTP}/" >/dev/null || fail "HAProxy doesn't answer after the reload"
 echo "  ok: two vCPUs plugged in - online, one event, HAProxy reloaded with 3 threads"
+
+# --- a host short of CPU: the vCPUs wait for it, the node says so ---
+# QEMU's threads and a busy loop on one host CPU while HAProxy answers:
+# the 3 vCPUs wait for it (steal), and SystemStat counts it apart from
+# the busy time - what keeps auto-scaling from adding a vCPU then.
+steal() { ctl system systemstat | awk '/^cpu ticks:/ {print $7}'; }
+cpu="$(taskset -cp "$$" | awk '{print $NF}' | cut -d, -f1 | cut -d- -f1)"
+s0="$(steal)"
+taskset -a -p -c "$cpu" "$QEMU_PID" >/dev/null
+taskset -c "$cpu" timeout 10 sh -c 'while :; do :; done' &
+spin=$!
+end=$((SECONDS + 10))
+while [ "$SECONDS" -lt "$end" ]; do curl -s -o /dev/null "http://127.0.0.1:${P_HTTP}/" || true; done
+wait "$spin" || true
+taskset -a -p -c "$(taskset -cp "$$" | awk '{print $NF}')" "$QEMU_PID" >/dev/null
+s1="$(steal)"
+[ -n "$s0" ] && [ -n "$s1" ] && [ "$s1" -gt "$s0" ] || fail "no steal time counted with the vCPUs waiting for one host CPU: $s0 then $s1"
+echo "  ok: the vCPUs waited for the host - $((s1 - s0)) steal ticks in 10 s, counted apart"
 
 # --- memory plugged in through virtio-mem: onlined, movable, one event ---
 qmp qom-set '{"path":"/machine/peripheral/vmem","property":"requested-size","value":2147483648}' >/dev/null \

@@ -178,7 +178,7 @@ janusctl system stats
 
 #### janusctl system systemstat
 
-Boot time, context switches, processes created.
+Boot time, context switches, processes created, the CPUs' ticks (idle, steal).
 
 ```text
 janusctl system systemstat
