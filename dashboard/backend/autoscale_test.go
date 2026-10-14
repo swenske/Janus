@@ -254,6 +254,16 @@ func TestAutoscaleResizes(t *testing.T) {
 	if len(fake.live) != 1 || len(j) != 2 || !strings.Contains(j[1].Error, "the host has 600 MiB free") || j[1].To != j[1].From {
 		t.Fatalf("no room: resized %v, journal %+v", fake.live, j)
 	}
+	// The host's free memory moving a little: the same refusal, not
+	// journaled again (the lab's journal had one every 15 s).
+	fake.mu.Lock()
+	fake.hostFree = 590 << 20
+	fake.mu.Unlock()
+	a.hvStatus.forget(m.Spec.HypervisorID)
+	at = run(t, a, s, sm, m.ID, at, time.Minute)
+	if j = journalOf(t, a, m.ID); len(j) != 2 {
+		t.Fatalf("the same refusal journaled again: %+v", j)
+	}
 	m, _ = a.machines.Get(m.ID)
 	if !strings.Contains(m.AutoscaleState.Status, "couldn't grow") {
 		t.Errorf("status %q", m.AutoscaleState.Status)

@@ -101,9 +101,11 @@ What no step can fix is said, not acted on:
 Its mode **On**, each step resizes the running machine:
 
 1. **Memory added only if the host has room.** The host must keep a
-   twentieth of its own memory free, 512 MiB at least. Otherwise the
-   step is refused, written once in the journal, and tried again with
-   the next decision.
+   twentieth of its own memory available, 512 MiB at least - available:
+   free, or held by its page cache, which the kernel gives back when
+   asked (Proxmox VE's `available`; libvirt's free memory, buffers and
+   cache). Otherwise the step is refused, written once in the journal
+   while the refusal lasts, and tried again with the next decision.
 2. **The hypervisor plugs in or takes out what the step says** - vCPUs,
    virtio-mem's requested size, Proxmox VE's memory modules.
 3. **Auto-scaling waits until the node shows it**: its CPUs online, its
