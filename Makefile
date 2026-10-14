@@ -33,7 +33,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test apt-publish-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-sysctl-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build kernel-builds kernel-config-refresh rpi4-kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -1165,6 +1165,13 @@ qemu-lifecycle-upgrade-kexec-test: build disk-image
 # tampered saved file refused at boot - see the script's header.
 qemu-sysctl-test: build disk-image
 	./hack/qemu-sysctl-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# vCPUs and memory plugged into a running node and taken out again (the
+# Controller's auto-scaling), on a real enforcing node under KVM: init
+# onlines the CPUs, janusd tells it and reloads HAProxy, virtio-mem's
+# memory goes to ZONE_MOVABLE and back - see the script's header.
+qemu-hotplug-test: build disk-image
+	./hack/qemu-hotplug-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
 # A node's fleet trust on a real enforcing node: its own CA always, a
 # test fleet's certificates by bundle, roles and the Controller's users.
