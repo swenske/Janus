@@ -37,6 +37,29 @@ type fakeNodes struct {
 	upgrades   []*janusv1alpha1.ImageSource
 	modes      []janusv1alpha1.RebootMode
 	upgradeErr error
+	// What auto-scaling reads.
+	load       *nodeproxy.Load
+	loadErr    error
+	haproxyCfg []byte
+}
+
+func (f *fakeNodes) Load(context.Context, *store.Node) (*nodeproxy.Load, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.loadErr != nil {
+		return nil, f.loadErr
+	}
+	if f.load == nil {
+		return nil, errors.New("no load")
+	}
+	l := *f.load
+	return &l, nil
+}
+
+func (f *fakeNodes) HAProxyConfig(context.Context, *store.Node) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.haproxyCfg, nil
 }
 
 func (f *fakeNodes) Shutdown(context.Context, *store.Node) error {

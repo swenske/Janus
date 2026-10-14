@@ -50,6 +50,18 @@ var newDriver = func(h *hypervisor.Hypervisor, controllerID string) (hypervisor.
 	return nil, fmt.Errorf("unknown hypervisor kind %q", h.Kind)
 }
 
+// checkHardware says why a machine of hypervisor h can't be made of hw,
+// or nil - its kind's constraints (memory steps, maxima).
+func checkHardware(h *hypervisor.Hypervisor, hw hypervisor.Hardware) error {
+	switch h.Kind {
+	case hypervisor.KindLibvirt:
+		return libvirt.CheckHardware(hw)
+	case hypervisor.KindProxmox:
+		return proxmox.CheckHardware(hw)
+	}
+	return fmt.Errorf("unknown hypervisor kind %q", h.Kind)
+}
+
 type hypervisorView struct {
 	ID                string                    `json:"id"`
 	Name              string                    `json:"name"`

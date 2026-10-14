@@ -160,6 +160,14 @@ func (r *machineRunner) start(id string, fn func(ctx context.Context) error) boo
 	return true
 }
 
+// busy reports whether id has a job running.
+func (r *machineRunner) busy(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.jobs[id]
+	return ok
+}
+
 // stop cancels id's job, if any, and waits for it to end.
 func (r *machineRunner) stop(id string) {
 	r.mu.Lock()
@@ -349,8 +357,7 @@ func (r *machineRunner) create(ctx context.Context, id string) error {
 	spec := hypervisor.MachineSpec{
 		MachineID: id,
 		Name:      h.Prefix() + m.Spec.Name,
-		VCPUs:     m.Spec.VCPUs,
-		MemoryMiB: m.Spec.MemoryMiB,
+		Hardware:  m.Spec.Hardware(),
 		Image:     img,
 		CIData:    ci,
 	}
@@ -716,6 +723,14 @@ func (a *app) checkSpec(spec *machines.Spec) error {
 	}
 	if spec.MemoryMiB < 512 || spec.MemoryMiB > 262144 {
 		return errors.New("memory_mib: 512 to 262144")
+	}
+	if spec.Autoscale != nil {
+		if err := checkAutoscale(*spec); err != nil {
+			return err
+		}
+	}
+	if err := checkHardware(h, spec.Hardware()); err != nil {
+		return err
 	}
 	if spec.Version != "" && !versionRe.MatchString(spec.Version) {
 		return fmt.Errorf("version %q isn't a Janus release (vYYYY.MM.DD[-N])", spec.Version)

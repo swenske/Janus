@@ -162,10 +162,7 @@ func (r *machineRunner) syncAs(ctx context.Context, id, label string) error {
 			}
 		}
 		if hw != nil && hw.Power == hypervisor.PowerRunning {
-			if hw.VCPUs != m.Spec.VCPUs || hw.MemoryMiB != m.Spec.MemoryMiB {
-				note("hardware %d vCPU %d MiB → %d vCPU %d MiB", m.Spec.VCPUs, m.Spec.MemoryMiB, hw.VCPUs, hw.MemoryMiB)
-				m.Spec.VCPUs, m.Spec.MemoryMiB = hw.VCPUs, hw.MemoryMiB
-			}
+			syncHardware(m, hw, note)
 		}
 		if len(seen) > 0 {
 			m.Log("%s: %s", label, strings.Join(seen, "; "))
@@ -181,6 +178,39 @@ func (r *machineRunner) syncAs(ctx context.Context, id, label string) error {
 		log.Printf("machine %s: sync: %v", id, err)
 	}
 	return err
+}
+
+// syncHardware reads the virtual machine's size into m. A fixed machine's
+// is its spec: a change made on the hypervisor is adopted. A scalable
+// machine's spec is its nominal size, auto-scaling's own business to
+// leave: what it has is m.Size, and a size auto-scaling didn't give it
+// is noted - once.
+func syncHardware(m *machines.Machine, hw *hypervisor.MachineStatus, note func(string, ...any)) {
+	prev := m.Size
+	m.Size = &machines.Size{VCPUs: hw.VCPUs, MemoryMiB: hw.MemoryMiB, MaxVCPUs: hw.MaxVCPUs, MaxMemoryMiB: hw.MaxMemoryMiB, MemoryStepMiB: hw.MemoryStepMiB}
+	if m.Spec.Autoscale == nil {
+		if hw.VCPUs != m.Spec.VCPUs || hw.MemoryMiB != m.Spec.MemoryMiB {
+			note("hardware %d vCPU %d MiB → %d vCPU %d MiB", m.Spec.VCPUs, m.Spec.MemoryMiB, hw.VCPUs, hw.MemoryMiB)
+			m.Spec.VCPUs, m.Spec.MemoryMiB = hw.VCPUs, hw.MemoryMiB
+		}
+		return
+	}
+	pol := m.Spec.Autoscale
+	if hw.MaxVCPUs != pol.MaxVCPUs || hw.MaxMemoryMiB != 0 && hw.MaxMemoryMiB != pol.MaxMemoryMiB {
+		if prev == nil || prev.MaxVCPUs != hw.MaxVCPUs || prev.MaxMemoryMiB != hw.MaxMemoryMiB {
+			note("room to grow %d vCPU %d MiB, not the %d vCPU %d MiB of its auto-scaling - its next hardware change starts it with them", hw.MaxVCPUs, hw.MaxMemoryMiB, pol.MaxVCPUs, pol.MaxMemoryMiB)
+		}
+	}
+	want := machines.Size{VCPUs: m.Spec.VCPUs, MemoryMiB: m.Spec.MemoryMiB}
+	if st := m.AutoscaleState; st != nil && st.Mode == machines.AutoscaleOn {
+		want.VCPUs, want.MemoryMiB = st.Size.VCPUs, st.Size.MemoryMiB
+	}
+	if hw.VCPUs == want.VCPUs && hw.MemoryMiB == want.MemoryMiB {
+		return
+	}
+	if prev == nil || prev.VCPUs != hw.VCPUs || prev.MemoryMiB != hw.MemoryMiB {
+		note("resized to %d vCPU %d MiB - not by its auto-scaling (%d vCPU %d MiB)", hw.VCPUs, hw.MemoryMiB, want.VCPUs, want.MemoryMiB)
+	}
 }
 
 var errSkip = errors.New("skipped")

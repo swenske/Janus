@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -25,9 +26,11 @@ import (
 // Changing a machine in place (PATCH /api/machines/{id}) - from the
 // Hypervisors tab or a Terraform plan:
 //
-//   - its hardware - vCPUs, memory, network interfaces (added, removed,
-//     moved to another network): the node shuts down cleanly, the virtual
-//     machine is reconfigured and started again;
+//   - its hardware - vCPUs, memory, the maxima auto-scaling may reach,
+//     network interfaces (added, removed, moved to another network): the
+//     node shuts down cleanly, the virtual machine is reconfigured and
+//     started again;
+//   - its auto-scaling's mode and thresholds: just the record;
 //   - its network (interfaces' names, modes, addresses, gateways; DNS,
 //     NTP): put on trial on the node and confirmed, or the node goes back
 //     by itself - merged into the node's own configuration, so what only
@@ -50,6 +53,9 @@ type nodeAPI interface {
 	Network(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkConfig, error)
 	NetworkStatus(ctx context.Context, node *store.Node) (*janusv1alpha1.NetworkStatusResponse, error)
 	ResolveBundle(ctx context.Context, version string, sc *schematic.Schematic) (*nodeproxy.Bundle, string, error)
+	// Load and HAProxyConfig are what auto-scaling reads (autoscale.go).
+	Load(ctx context.Context, node *store.Node) (*nodeproxy.Load, error)
+	HAProxyConfig(ctx context.Context, node *store.Node) ([]byte, error)
 }
 
 type realNodeAPI struct{}
@@ -99,6 +105,26 @@ type machineUpdate struct {
 	Locked     *bool           `json:"locked,omitempty"`
 	// "kexec" or "firmware" - see machines.Spec.
 	UpdateRebootMode *string `json:"update_reboot_mode,omitempty"`
+	// Autoscale: a policy sets or changes it, null removes it - absent,
+	// it stays as it is.
+	Autoscale optionalAutoscale `json:"autoscale"`
+}
+
+// optionalAutoscale is an update's autoscale: given or not, null or a
+// policy.
+type optionalAutoscale struct {
+	set    bool
+	policy *machines.Autoscale
+}
+
+func (o *optionalAutoscale) UnmarshalJSON(b []byte) error {
+	o.set = true
+	if string(b) == "null" {
+		o.policy = nil
+		return nil
+	}
+	o.policy = &machines.Autoscale{}
+	return json.Unmarshal(b, o.policy)
 }
 
 // updateRebootMode is an update_reboot_mode as a spec keeps it: "kexec",
@@ -118,15 +144,18 @@ func updateRebootMode(s string) (string, error) {
 // still do.
 func (u machineUpdate) onlyRelease() bool {
 	return u.VCPUs == nil && u.MemoryMiB == nil && u.Version == nil && u.Extensions == nil && u.HAProxy == nil && u.Kernel == nil && u.NICs == nil &&
-		u.DNS == nil && u.NTP == nil && u.UpdateRebootMode == nil && (u.Locked == nil || !*u.Locked)
+		u.DNS == nil && u.NTP == nil && u.UpdateRebootMode == nil && !u.Autoscale.set && (u.Locked == nil || !*u.Locked)
 }
 
 // updatePlan is what an update changes.
 type updatePlan struct {
 	next machines.Spec
-	// hardware: vCPUs, memory or the set of interfaces - a stop and a
-	// start.
+	// hardware: vCPUs, memory, the maxima auto-scaling may reach, or the
+	// set of interfaces - a stop and a start.
 	hardware bool
+	// autoscale: the auto-scaling policy changes - its mode or
+	// thresholds alone are just the record.
+	autoscale bool
 	// network: the node's network configuration to apply.
 	network bool
 	// added and removed interfaces, by MAC.
@@ -142,7 +171,7 @@ type updatePlan struct {
 }
 
 func (p *updatePlan) changes() bool {
-	return p.hardware || p.network || p.upgrade || p.meta
+	return p.hardware || p.network || p.upgrade || p.meta || p.autoscale
 }
 
 const (
@@ -170,7 +199,22 @@ func planUpdate(m *machines.Machine, u machineUpdate, allowed func(string) bool)
 	if next.MemoryMiB < 512 || next.MemoryMiB > 262144 {
 		return nil, errors.New("memory_mib: 512 to 262144")
 	}
-	p.hardware = next.VCPUs != cur.VCPUs || next.MemoryMiB != cur.MemoryMiB
+	if u.Autoscale.set {
+		next.Autoscale = u.Autoscale.policy
+		if next.Autoscale != nil {
+			if err := checkAutoscale(next); err != nil {
+				return nil, err
+			}
+		}
+		p.autoscale = !autoscaleEqual(cur.Autoscale, next.Autoscale)
+	} else if next.Autoscale != nil && (next.VCPUs != cur.VCPUs || next.MemoryMiB != cur.MemoryMiB) {
+		if err := next.Autoscale.Check(next); err != nil {
+			return nil, fmt.Errorf("with its auto-scaling: %w", err)
+		}
+	}
+	// The maxima count: the virtual machine is started with room for
+	// them.
+	p.hardware = next.Hardware() != cur.Hardware()
 
 	if u.Version != nil || u.Extensions != nil || u.HAProxy != nil || u.Kernel != nil {
 		if cur.Image != nil {
@@ -236,6 +280,27 @@ func planUpdate(m *machines.Machine, u machineUpdate, allowed func(string) bool)
 	}
 	p.next = next
 	return p, nil
+}
+
+// checkAutoscale checks spec's auto-scaling policy. Its mode "on" - the
+// machine really resized - comes once observation has been tried: for
+// now a policy observes.
+func checkAutoscale(spec machines.Spec) error {
+	if err := spec.Autoscale.Check(spec); err != nil {
+		return err
+	}
+	if spec.Autoscale.Mode == machines.AutoscaleOn {
+		return errors.New("autoscale.mode: this Controller observes (\"observe\") or is off - resizing a running machine (\"on\") comes in a later version")
+	}
+	return nil
+}
+
+// autoscaleEqual reports whether two policies are the same.
+func autoscaleEqual(a, b *machines.Autoscale) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // planNICs works out the new set of interfaces: by MAC, those kept (their
@@ -483,6 +548,9 @@ func (a *app) handleMachineUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := planUpdate(m, u, h.AllowsNetwork)
+	if err == nil && p.hardware {
+		err = checkHardware(h, p.next.Hardware())
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -491,10 +559,14 @@ func (a *app) handleMachineUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, a.machineView(m))
 		return
 	}
-	// Who manages it, the lock, how its updates reboot: just the record.
+	// Who manages it, the lock, how its updates reboot, auto-scaling's
+	// mode and thresholds: just the record.
 	if !p.hardware && !p.network && !p.upgrade {
 		m, err = a.machines.Update(m.ID, func(m *machines.Machine) error {
 			m.Spec.ManagedBy, m.Spec.Locked = p.next.ManagedBy, p.next.Locked
+			if p.autoscale {
+				logAutoscaleChange(m, p.next.Autoscale)
+			}
 			switch {
 			case !m.Spec.Locked && u.Locked != nil:
 				m.Log("released: its pages may change it again")
@@ -570,6 +642,14 @@ func (r *machineRunner) update(ctx context.Context, id string, p *updatePlan) er
 			m.Error = ""
 			m.Spec.VCPUs, m.Spec.MemoryMiB, m.Spec.NICs, m.Spec.DNS, m.Spec.NTP = p.next.VCPUs, p.next.MemoryMiB, p.next.NICs, p.next.DNS, p.next.NTP
 			m.Spec.Extensions, m.Spec.HAProxy, m.Spec.Kernel = p.next.Extensions, p.next.HAProxy, p.next.Kernel
+			if p.autoscale {
+				logAutoscaleChange(m, p.next.Autoscale)
+			}
+			if p.hardware {
+				// Started again at its nominal size: auto-scaling starts
+				// over.
+				m.AutoscaleState = nil
+			}
 			m.Log("updated")
 		}
 		return nil
@@ -635,7 +715,12 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 	}
 
 	if p.hardware {
-		r.logEvent(id, "shutting the node down to change its hardware: %d vCPU, %d MiB, %d interfaces", p.next.VCPUs, p.next.MemoryMiB, len(p.next.NICs))
+		hw := p.next.Hardware()
+		room := ""
+		if hw.Scalable() {
+			room = fmt.Sprintf(" (room for %d vCPU, %d MiB)", max(hw.MaxVCPUs, hw.VCPUs), max(hw.MaxMemoryMiB, hw.MemoryMiB))
+		}
+		r.logEvent(id, "shutting the node down to change its hardware: %d vCPU, %d MiB%s, %d interfaces", p.next.VCPUs, p.next.MemoryMiB, room, len(p.next.NICs))
 		if err := stopMachine(ctx, drv, node, *m.Ref); err != nil {
 			return err
 		}
@@ -643,7 +728,7 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 		for _, n := range p.next.NICs {
 			nics = append(nics, hypervisor.NIC{Network: n.Network, MAC: n.MAC})
 		}
-		if err := drv.Reconfigure(ctx, *m.Ref, p.next.VCPUs, p.next.MemoryMiB, nics); err != nil {
+		if err := drv.Reconfigure(ctx, *m.Ref, hw, nics); err != nil {
 			_ = drv.Power(ctx, *m.Ref, hypervisor.PowerStart)
 			return fmt.Errorf("reconfigure: %w", err)
 		}
@@ -780,4 +865,31 @@ func waitNode(ctx context.Context, node *store.Node, timeout time.Duration, ok f
 		}
 	}
 	return nil, fmt.Errorf("the node isn't back after %s: %v", timeout, lastErr)
+}
+
+// logAutoscaleChange sets a machine's auto-scaling policy and says so in
+// its history - a new mode starts it over.
+func logAutoscaleChange(m *machines.Machine, next *machines.Autoscale) {
+	prev := m.Spec.Autoscale
+	m.Spec.Autoscale = next
+	switch {
+	case next == nil:
+		m.AutoscaleState = nil
+		m.Log("auto-scaling removed")
+	case prev == nil || prev.Mode != next.Mode:
+		m.AutoscaleState = nil
+		m.Log("auto-scaling %s: up to %d vCPU, %d MiB", autoscaleModeText(next.Mode), next.MaxVCPUs, next.MaxMemoryMiB)
+	default:
+		m.Log("auto-scaling's policy changed: up to %d vCPU, %d MiB", next.MaxVCPUs, next.MaxMemoryMiB)
+	}
+}
+
+func autoscaleModeText(mode string) string {
+	switch mode {
+	case machines.AutoscaleOn:
+		return "on"
+	case machines.AutoscaleObserve:
+		return "observing (it logs what it would do, nothing more)"
+	}
+	return "off"
 }
