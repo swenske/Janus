@@ -17,8 +17,8 @@ added.
 | High availability | a VIP by VRRP (VRRPv3, 0.2 s adverts, HAProxy's health weighs -100) and an anycast /32 by BGP |
 | The auto-scaled node | since v2026.10.14: a machine the Controller creates on the same host, 2 vCPU and 1 GiB from the release's default image, room for 4 vCPU and 2 GiB |
 | Backends | two nginx VMs, 1 vCPU each |
-| Load client | a 2-vCPU VM on the same host, with `wrk` - up to v2026.10.14 |
-| The CI runners | since v2026.10.14-2, the clients: three machines outside the lab's host (16, 12 and 8 threads), reaching the front network through the routers like internet users. Used only while none runs a CI job, and with a temporary `wrk` removed afterwards. The host's CPUs then go to the nodes |
+| Load client | a 2-vCPU VM on the same host, with `wrk` - up to v2026.10.14, removed since: it took the host's CPUs from the nodes |
+| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
 | Controller | Docker Compose with its updater, an admin with TOTP |
 
 The two nodes and the backends saturate the host's 4 cores under a
@@ -35,9 +35,10 @@ other, they aren't a capacity measure.
 - **Path noise**: the network path from a runner sometimes loses one
   request, about one every 1 to 2 minutes, when nothing changes in the
   lab: a request that gets no answer within its second. Before a
-  campaign, each prober is run for 2 minutes against an untouched VIP. A
-  single isolated timeout outside the moment a scenario changes
-  something is reported apart from the scenario's losses.
+  campaign, each prober is run for 2 minutes against an untouched VIP
+  (the fourth machine: none lost in 4,385). A single isolated timeout
+  outside the moment a scenario changes something is reported apart
+  from the scenario's losses.
 - **Load**: `wrk` (4.1.0). Keep-alive connections unless a scenario says
   otherwise.
 - **The nodes**: the pre-release's own `janusctl` (from its `.deb`),

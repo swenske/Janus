@@ -10,7 +10,8 @@ Each report has two parts:
   (kexec against firmware reboots, the images' sizes).
 - **The lab**: the pre-release on a real KVM host - two nodes with VRRP
   and BGP anycast behind a router, an auto-scaled node, nginx backends,
-  a Controller, and the CI runners as clients. The newest release is measured the same way first, so each
+  a Controller, and clients outside the lab's host (the CI runners and
+  a fourth machine). The newest release is measured the same way first, so each
   figure has something to compare with: the Controller's update, the
   image factory's build, a rolling update under load, failovers,
   firmware and kexec reboots, rollbacks, HAProxy's throughput and
