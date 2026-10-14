@@ -136,7 +136,9 @@ adds the `follow_memory` suggestions for `tcp_mem`, `file-max` and
   aside, which follow every memory step - so two rules can't take turns
   on it;
 - back at its size, what followed the memory goes back to what it was,
-  unless someone changed it since.
+  unless someone changed it since - also when auto-scaling stops
+  resizing the machine: paused or observing, and before the restart
+  that removes its policy or changes its hardware.
 
 Observing, each change it would make is written in the journal, once.
 

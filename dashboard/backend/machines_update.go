@@ -645,8 +645,9 @@ func (r *machineRunner) update(ctx context.Context, id string, p *updatePlan) er
 			}
 			if p.hardware {
 				// Started again at its nominal size: auto-scaling starts
-				// over.
-				m.AutoscaleState = nil
+				// over - what followed the memory went back before the
+				// restart (updateSteps), or goes back now.
+				m.AutoscaleState = keptSysctl(m.AutoscaleState)
 			}
 			m.Log("updated")
 		}
@@ -717,6 +718,14 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 		room := ""
 		if hw.Scalable() {
 			room = fmt.Sprintf(" (room for %d vCPU, %d MiB)", max(hw.MaxVCPUs, hw.VCPUs), max(hw.MaxMemoryMiB, hw.MemoryMiB))
+		}
+		// It restarts at its size: what auto-scaling made follow the
+		// memory goes back first, while the node answers - a policy
+		// removed has nobody left to do it.
+		if s := r.a.autoscaler; s != nil && memoryFollowed(m.AutoscaleState) {
+			if msg := s.putBack(ctx, m, node, nil, m.AutoscaleState, time.Now()); msg != "" {
+				r.logEvent(id, "auto-scaling: %s", msg)
+			}
 		}
 		r.logEvent(id, "shutting the node down to change its hardware: %d vCPU, %d MiB%s, %d interfaces", p.next.VCPUs, p.next.MemoryMiB, room, len(p.next.NICs))
 		if err := stopMachine(ctx, drv, node, *m.Ref); err != nil {
@@ -875,7 +884,9 @@ func logAutoscaleChange(m *machines.Machine, next *machines.Autoscale) {
 		m.AutoscaleState = nil
 		m.Log("auto-scaling removed")
 	case prev == nil || prev.Mode != next.Mode:
-		m.AutoscaleState = nil
+		// A new mode starts over; what it changed on the node it still
+		// puts back.
+		m.AutoscaleState = keptSysctl(m.AutoscaleState)
 		m.Log("auto-scaling %s: up to %d vCPU, %d MiB", autoscaleModeText(next.Mode), next.MaxVCPUs, next.MaxMemoryMiB)
 	default:
 		m.Log("auto-scaling's policy changed: up to %d vCPU, %d MiB", next.MaxVCPUs, next.MaxMemoryMiB)
@@ -890,4 +901,13 @@ func autoscaleModeText(mode string) string {
 		return "observing (it logs what it would do, nothing more)"
 	}
 	return "off"
+}
+
+// keptSysctl is a fresh auto-scaling state that still holds st's record of
+// the kernel parameters it changed - nil when there's none.
+func keptSysctl(st *machines.AutoscaleState) *machines.AutoscaleState {
+	if rec := sysctlOf(st); rec != nil {
+		return &machines.AutoscaleState{Sysctl: rec}
+	}
+	return nil
 }

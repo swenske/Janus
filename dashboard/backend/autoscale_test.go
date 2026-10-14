@@ -427,3 +427,69 @@ func TestSampleSteal(t *testing.T) {
 		t.Errorf("first reading: busy %v, steal %v; want -1, -1", s.BusyPercent, s.StealPercent)
 	}
 }
+
+// What followed the memory goes back when auto-scaling stops resizing:
+// paused - the machine back at its size, tcp_mem put back too
+// (v2026.10.14-3's lab left it sized for 1280 MiB on 1024) -, and before
+// the restart that removes the policy.
+func TestAutoscalePutsBack(t *testing.T) {
+	a, _, m, f := scalableMachine(t)
+	raised := func() {
+		f.mu.Lock()
+		f.load = &nodeproxy.Load{CPUs: 2, MemTotal: 924 << 20, MemAvailable: 600 << 20, IdlePercent: 80}
+		f.sysctl = &janusv1alpha1.SysctlListResponse{Managed: true, Parameters: []*janusv1alpha1.SysctlParameter{
+			param("net.ipv4.tcp_mem", "13914 18554 27829", "", ""),
+			param("net.core.somaxconn", "4096", "", ""),
+		}}
+		// Auto-scaling's own confirmation of the raise, the newest.
+		f.history = append([]*janusv1alpha1.SysctlHistoryEntry{{Action: "confirm", Actor: &janusv1alpha1.SysctlActor{Name: "controller-service"},
+			Changes: []*janusv1alpha1.SysctlChange{{Name: "net.ipv4.tcp_mem", NewValue: "13914 18554 27829"}}}}, f.history...)
+		f.mu.Unlock()
+		if _, err := a.machines.Update(m.ID, func(m *machines.Machine) error {
+			m.AutoscaleState = &machines.AutoscaleState{Mode: m.Spec.Autoscale.Mode, Sysctl: map[string]machines.SysctlChange{
+				"net.ipv4.tcp_mem":   {Before: "10869 14493 21738", After: "13914 18554 27829", Rule: "tcp_mem.follow_memory"},
+				"net.core.somaxconn": {Before: "60000", After: "4096", Rule: "somaxconn.memory"},
+			}}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raised()
+	s := newAutoscaler(a)
+	a.autoscaler = s
+
+	// Paused: a new mode, the record kept - tcp_mem goes back, somaxconn
+	// (another rule) stays.
+	off := map[string]any{"mode": "off", "max_vcpus": 4, "max_memory_mib": 4096, "sysctl": true}
+	if code, body := patch(t, a, m.ID, map[string]any{"autoscale": off}); code != http.StatusOK {
+		t.Fatalf("pause: %d %s", code, body)
+	}
+	m, _ = a.machines.Get(m.ID)
+	if err := s.step(context.Background(), m, &scaledMachine{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.trials) != 1 || len(f.trials[0].Changes) != 1 || f.trials[0].Changes[0].GetName() != "net.ipv4.tcp_mem" ||
+		f.trials[0].Changes[0].GetValue() != "10869 14493 21738" || f.confirms != 1 {
+		t.Fatalf("paused: trials %v, %d confirmations", f.trials, f.confirms)
+	}
+	m, _ = a.machines.Get(m.ID)
+	if st := m.AutoscaleState; st == nil || !strings.Contains(st.Status, "paused - kernel parameters applied") ||
+		st.Sysctl["net.ipv4.tcp_mem"].After != "10869 14493 21738" || st.Sysctl["net.core.somaxconn"].After != "4096" {
+		t.Errorf("paused: %+v", m.AutoscaleState)
+	}
+	// Once put back, nothing more.
+	if err := s.step(context.Background(), m, &scaledMachine{}, time.Now()); err != nil || len(f.trials) != 1 {
+		t.Errorf("again: %v, %d trials", err, len(f.trials))
+	}
+
+	// Removed: put back before the restart - nobody would afterwards.
+	raised()
+	if code, body := patch(t, a, m.ID, map[string]any{"autoscale": nil}); code != http.StatusAccepted {
+		t.Fatalf("removing it: %d %s", code, body)
+	}
+	got := waitReady(t, a, m.ID)
+	if len(f.trials) != 2 || f.trials[1].Changes[0].GetValue() != "10869 14493 21738" || !strings.Contains(eventsOf(got), "auto-scaling: kernel parameters applied") {
+		t.Errorf("removed: trials %v, events:\n%s", f.trials, eventsOf(got))
+	}
+}
