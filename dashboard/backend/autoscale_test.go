@@ -254,19 +254,36 @@ func TestAutoscaleResizes(t *testing.T) {
 	if len(fake.live) != 1 || len(j) != 2 || !strings.Contains(j[1].Error, "the host has 600 MiB free") || j[1].To != j[1].From {
 		t.Fatalf("no room: resized %v, journal %+v", fake.live, j)
 	}
+	// The host's free memory moving a little: the same refusal, not
+	// journaled again (the lab's journal had one every 15 s).
+	fake.mu.Lock()
+	fake.hostFree = 590 << 20
+	fake.mu.Unlock()
+	a.hvStatus.forget(m.Spec.HypervisorID)
+	at = run(t, a, s, sm, m.ID, at, time.Minute)
+	if j = journalOf(t, a, m.ID); len(j) != 2 {
+		t.Fatalf("the same refusal journaled again: %+v", j)
+	}
 	m, _ = a.machines.Get(m.ID)
 	if !strings.Contains(m.AutoscaleState.Status, "couldn't grow") {
 		t.Errorf("status %q", m.AutoscaleState.Status)
 	}
-	// With the room: 1024 to 1280.
+	// With the room: 1024 to 1280 - the hypervisor's reading a moment
+	// late, the journal says what the machine got.
 	fake.mu.Lock()
-	fake.hostFree = 0
+	fake.hostFree, fake.statusLag = 0, 2
 	fake.mu.Unlock()
 	a.hvStatus.forget(m.Spec.HypervisorID)
 	at = run(t, a, s, sm, m.ID, at, time.Minute)
 	if len(fake.live) != 2 || fake.live[1] != [2]int{3, 1280} {
 		t.Fatalf("with room: resized %v, journal %+v", fake.live, journalOf(t, a, m.ID))
 	}
+	if j = journalOf(t, a, m.ID); j[len(j)-1].To != (autoscale.Size{VCPUs: 3, MemoryMiB: 1280}) {
+		t.Errorf("journaled %+v, the machine got 3 vCPU, 1280 MiB", j[len(j)-1])
+	}
+	fake.mu.Lock()
+	fake.statusLag = 0
+	fake.mu.Unlock()
 
 	// Paused: back to its size at once.
 	off := map[string]any{"mode": "off", "max_vcpus": 4, "max_memory_mib": 4096}
@@ -385,5 +402,28 @@ func TestAutoscaleSysctl(t *testing.T) {
 	j = journalOf(t, a, m.ID)
 	if !strings.Contains(msg, "refused them: out of bounds") || !strings.Contains(j[len(j)-1].Error, "out of bounds") {
 		t.Errorf("refused: %q, %+v", msg, j[len(j)-1])
+	}
+}
+
+// TestSampleSteal: the time the vCPUs waited for the host (steal) isn't
+// busy time - it is told apart, so a host short of CPU doesn't ask for a
+// vCPU more.
+func TestSampleSteal(t *testing.T) {
+	now := time.Now()
+	prev := &nodeproxy.Load{CPUs: 2, CPUTotalTicks: 1000, CPUIdleTicks: 300, CPUStealTicks: 100}
+	// The lab's: 20 % idle, 50 % steal, 30 % at work.
+	l := &nodeproxy.Load{CPUs: 2, CPUTotalTicks: 2000, CPUIdleTicks: 500, CPUStealTicks: 600}
+	s := sampleOf(l, prev, now)
+	if s.BusyPercent != 30 || s.StealPercent != 50 {
+		t.Errorf("busy %v, steal %v; want 30, 50", s.BusyPercent, s.StealPercent)
+	}
+	// A node before v2026.10.14-2 says no steal: busy as before.
+	prev.CPUStealTicks, l.CPUStealTicks = 0, 0
+	if s := sampleOf(l, prev, now); s.BusyPercent != 80 || s.StealPercent != 0 {
+		t.Errorf("without steal: busy %v, steal %v; want 80, 0", s.BusyPercent, s.StealPercent)
+	}
+	// The first reading: unknown.
+	if s := sampleOf(l, nil, now); s.BusyPercent != -1 || s.StealPercent != -1 {
+		t.Errorf("first reading: busy %v, steal %v; want -1, -1", s.BusyPercent, s.StealPercent)
 	}
 }

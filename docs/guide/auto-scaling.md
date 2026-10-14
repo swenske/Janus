@@ -51,7 +51,7 @@ On the node:
 Every 15 seconds, auto-scaling reads the node:
 
 - HAProxy's idle time (`show info`'s `Idle_pct`);
-- how busy the CPUs are;
+- how busy the CPUs are, and how long they waited for the host (steal);
 - the memory available;
 - the OOM kills since boot;
 - HAProxy's connections against its `maxconn`.
@@ -89,16 +89,23 @@ What no step can fix is said, not acted on:
 
 - HAProxy near its `maxconn`: a limit of its configuration, which more
   memory doesn't raise;
-- threads fixed by its configuration: more vCPUs wouldn't be used.
+- threads fixed by its configuration: more vCPUs wouldn't be used;
+- a host short of CPU: when the vCPUs wait for the host more than 10 %
+  of the time (the kernel's steal time), another vCPU would wait as
+  well. Steal time isn't counted as busy, and no vCPU is added while it
+  lasts. A node before v2026.10.14-2 doesn't report it: for those, the
+  CPUs' busy time includes it.
 
 ## Resizing
 
 Its mode **On**, each step resizes the running machine:
 
 1. **Memory added only if the host has room.** The host must keep a
-   twentieth of its own memory free, 512 MiB at least. Otherwise the
-   step is refused, written once in the journal, and tried again with
-   the next decision.
+   twentieth of its own memory available, 512 MiB at least - available:
+   free, or held by its page cache, which the kernel gives back when
+   asked (Proxmox VE's `available`; libvirt's free memory, buffers and
+   cache). Otherwise the step is refused, written once in the journal
+   while the refusal lasts, and tried again with the next decision.
 2. **The hypervisor plugs in or takes out what the step says** - vCPUs,
    virtio-mem's requested size, Proxmox VE's memory modules.
 3. **Auto-scaling waits until the node shows it**: its CPUs online, its

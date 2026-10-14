@@ -310,18 +310,20 @@ func statusText(d autoscale.Decision, samples []autoscale.Sample, size autoscale
 	return what
 }
 
-// sampleOf turns a reading into a sample - the CPUs' busy share since
-// the reading before, when there's one of the same CPUs.
+// sampleOf turns a reading into a sample - the CPUs' busy and steal
+// shares since the reading before, when there's one of the same CPUs.
+// Steal isn't busy: it is the time the vCPUs waited for the host.
 func sampleOf(l, prev *nodeproxy.Load, now time.Time) autoscale.Sample {
 	s := autoscale.Sample{
-		At: now, CPUs: l.CPUs, IdlePercent: l.IdlePercent, BusyPercent: -1,
+		At: now, CPUs: l.CPUs, IdlePercent: l.IdlePercent, BusyPercent: -1, StealPercent: -1,
 		MemTotalMiB: int(l.MemTotal >> 20), MemAvailableMiB: int(l.MemAvailable >> 20),
 		OOMKills: l.OOMKills, CurrConns: l.CurrConns, MaxConn: l.MaxConn,
 	}
-	if prev != nil && l.CPUTotalTicks > prev.CPUTotalTicks && l.CPUIdleTicks >= prev.CPUIdleTicks {
-		total, idle := l.CPUTotalTicks-prev.CPUTotalTicks, l.CPUIdleTicks-prev.CPUIdleTicks
-		if idle <= total {
-			s.BusyPercent = 100 * float64(total-idle) / float64(total)
+	if prev != nil && l.CPUTotalTicks > prev.CPUTotalTicks && l.CPUIdleTicks >= prev.CPUIdleTicks && l.CPUStealTicks >= prev.CPUStealTicks {
+		total, idle, steal := l.CPUTotalTicks-prev.CPUTotalTicks, l.CPUIdleTicks-prev.CPUIdleTicks, l.CPUStealTicks-prev.CPUStealTicks
+		if idle+steal <= total {
+			s.BusyPercent = 100 * float64(total-idle-steal) / float64(total)
+			s.StealPercent = 100 * float64(steal) / float64(total)
 		}
 	}
 	return s

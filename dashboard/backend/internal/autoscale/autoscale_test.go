@@ -79,6 +79,20 @@ func TestCPUUp(t *testing.T) {
 	if d := Decide(p, st, s, t0.Add(5*time.Minute)); d.Action != None || !strings.Contains(d.Waiting, "nbthread") {
 		t.Errorf("pinned threads: %+v", d)
 	}
+	// The host short of CPU: the vCPUs wait for it, another would too.
+	s = samplesFor(t0, 5*time.Minute, 2, 1024, func(time.Time) Sample {
+		return Sample{IdlePercent: 25, BusyPercent: 30, StealPercent: 50, MemAvailableMiB: 600, MaxConn: 1000}
+	})
+	if d := Decide(policy, st, s, t0.Add(5*time.Minute)); d.Action != None || !strings.Contains(d.Waiting, "the host is short of CPU") || !strings.Contains(d.Waiting, "50 %") {
+		t.Errorf("steal: %+v", d)
+	}
+	// Some steal, below the limit: up.
+	s = samplesFor(t0, 5*time.Minute, 2, 1024, func(time.Time) Sample {
+		return Sample{IdlePercent: 20, BusyPercent: 70, StealPercent: 5, MemAvailableMiB: 600, MaxConn: 1000}
+	})
+	if d := Decide(policy, st, s, t0.Add(5*time.Minute)); d.Action != Up || d.Resource != "cpu" {
+		t.Errorf("a little steal: %+v", d)
+	}
 	// At the maximum.
 	st4 := State{Size: Size{4, 1024}}
 	s = samplesFor(t0, 5*time.Minute, 4, 1024, steady(5, 95, 600))

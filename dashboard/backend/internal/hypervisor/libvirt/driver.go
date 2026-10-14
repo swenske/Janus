@@ -164,7 +164,9 @@ func (d *Driver) HostInfo(ctx context.Context) (*hypervisor.HostInfo, error) {
 			mb = append(mb, byte(c))
 		}
 		info.CPUModel, info.CPUs, info.CPUMHz, info.MemoryTotal = string(mb), int(cpus), int(mhz), memKiB*1024
-		if free, err := l.NodeGetFreeMemory(); err == nil {
+		if avail, ok := memAvailable(l); ok {
+			info.MemoryFree = avail
+		} else if free, err := l.NodeGetFreeMemory(); err == nil {
 			info.MemoryFree = free
 		}
 		info.CPUBusyNs, info.CPUTotalNs = cpuTimes(l)
@@ -203,6 +205,39 @@ func (d *Driver) HostInfo(ctx context.Context) (*hypervisor.HostInfo, error) {
 
 // cpuTimes sums the host's CPU time counters (nanoseconds, all CPUs):
 // busy is everything but idle and iowait.
+// memAvailable is the memory the host can give, in bytes: free plus
+// its buffers and page cache, which the kernel takes back when asked -
+// what /proc/meminfo's MemAvailable approximates. Free memory alone
+// stays near zero on a host that has run a while: its page cache fills
+// it (v2026.10.14's lab: 173 MiB free, 6.1 GiB available).
+func memAvailable(l *golibvirt.Libvirt) (uint64, bool) {
+	_, n, err := l.NodeGetMemoryStats(0, int32(golibvirt.NodeMemoryStatsAllCells), 0)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	params, _, err := l.NodeGetMemoryStats(n, int32(golibvirt.NodeMemoryStatsAllCells), 0)
+	if err != nil {
+		return 0, false
+	}
+	return availableOf(params)
+}
+
+// availableOf sums free, buffers and cached (KiB) into bytes.
+func availableOf(params []golibvirt.NodeGetMemoryStats) (uint64, bool) {
+	var kib uint64
+	seen := false
+	for _, p := range params {
+		switch p.Field {
+		case golibvirt.NodeMemoryStatsFree:
+			seen = true
+			kib += p.Value
+		case golibvirt.NodeMemoryStatsBuffers, golibvirt.NodeMemoryStatsCached:
+			kib += p.Value
+		}
+	}
+	return kib * 1024, seen
+}
+
 func cpuTimes(l *golibvirt.Libvirt) (busy, total uint64) {
 	const allCPUs = -1
 	_, n, err := l.NodeGetCPUStats(allCPUs, 0, 0)

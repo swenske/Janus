@@ -72,12 +72,18 @@ code="$(api -o /dev/null -w '%{http_code}' -X POST "$API/api/hypervisors/$HV/tru
 [ "$code" = 409 ] || fail "trusting a fingerprint the host doesn't present returned $code, want 409"
 api -X POST "$API/api/hypervisors/$HV/trust" -H 'Content-Type: application/json' -d "{\"fingerprint\":\"$probed\"}" | json "d['trusted']" | grep -q True || fail "trust didn't pin the host key"
 api "$API/api/hypervisors/$HV/status" >"$WORKDIR/status.json"
-python3 - "$WORKDIR/status.json" <<'EOF' || fail "host status: $(cat "$WORKDIR/status.json")"
+in_host cat /proc/meminfo >"$WORKDIR/meminfo"
+python3 - "$WORKDIR/status.json" "$WORKDIR/meminfo" <<'EOF' || fail "host status: $(cat "$WORKDIR/status.json")"
 import json, sys
 d = json.load(open(sys.argv[1]))
 h = d["host"]
 assert not d.get("error"), d.get("error")
 assert h["cpus"] > 0 and h["memory_total"] > 0, h
+# The memory the host can give: free plus buffers and page cache - free
+# alone stays near zero on a host that has run a while.
+mi = {l.split(":")[0]: int(l.split()[1]) * 1024 for l in open(sys.argv[2])}
+avail = mi["MemFree"] + mi["Buffers"] + mi["Cached"]
+assert abs(h["memory_free"] - avail) < h["memory_total"] / 20, (h["memory_free"], avail, mi["MemFree"])
 assert h["storage"]["name"] == "janus" and h["storage"]["active"], h["storage"]
 assert h["networks"] == [{"name": "janus-test", "active": True}], h["networks"]
 EOF

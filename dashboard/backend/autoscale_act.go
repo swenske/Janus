@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"time"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/autoscale"
@@ -27,6 +28,13 @@ const resizeTimeout = 3 * time.Minute
 // settleTimeout is how long the node may take to show its new size.
 const settleTimeout = 90 * time.Second
 
+// refusalKey is what tells two refusals apart: their words, not their
+// figures - "the host has 198 MiB free" and then 193 MiB is the same
+// refusal (v2026.10.14's lab: 16 journal entries in 6 minutes).
+func refusalKey(msg string) string { return digits.ReplaceAllString(msg, "#") }
+
+var digits = regexp.MustCompile(`[0-9]+`)
+
 // hostReserveMiB is the memory a host keeps free whatever auto-scaling
 // does: a twentieth of it, 512 MiB at least.
 func hostReserveMiB(totalMiB int) int { return max(512, totalMiB/20) }
@@ -40,10 +48,10 @@ func (s *autoscaler) resize(ctx context.Context, m *machines.Machine, node *stor
 		e := machines.JournalEntry{Time: now.UTC(), Mode: m.Spec.Autoscale.Mode, Action: string(d.Action), Resource: d.Resource, From: d.From, To: got, Reason: d.Reason}
 		if err != nil {
 			e.Error = err.Error()
-			if got == d.From && e.Error == sm.lastRefusal {
+			if got == d.From && refusalKey(e.Error) == sm.lastRefusal {
 				return // the same refusal as last time: once is enough
 			}
-			sm.lastRefusal = e.Error
+			sm.lastRefusal = refusalKey(e.Error)
 		} else {
 			sm.lastRefusal = ""
 		}
@@ -93,7 +101,7 @@ func (s *autoscaler) resize(ctx context.Context, m *machines.Machine, node *stor
 		err = settled(rctx, node, before, d)
 	}
 	got := d.From
-	if st, serr := drv.MachineStatus(rctx, *m.Ref); serr == nil {
+	if st, serr := statusCaughtUp(rctx, drv, *m.Ref, d.To, err == nil); serr == nil {
 		got = autoscale.Size{VCPUs: st.VCPUs, MemoryMiB: st.MemoryMiB}
 	} else if err == nil {
 		got = d.To
@@ -105,6 +113,30 @@ func (s *autoscaler) resize(ctx context.Context, m *machines.Machine, node *stor
 	defer scancel()
 	_ = s.a.runner.syncAs(sctx, m.ID, "changed outside the Controller")
 	return got, err
+}
+
+// statusCatchUp is how long the hypervisor's own reading may lag behind
+// a step the node already shows: libvirt updates a virtio-mem device's
+// current size when QEMU tells it (v2026.10.14's lab journaled 1152 MiB
+// for a step to 1280 the node already had).
+var statusCatchUp = 15 * time.Second
+
+// statusCaughtUp reads the machine's status from the hypervisor - again
+// until it says want, for statusCatchUp, when the node showed the step
+// (settled): what the machine has, not a reading from before.
+func statusCaughtUp(ctx context.Context, drv hypervisor.Driver, ref hypervisor.MachineRef, want autoscale.Size, settled bool) (*hypervisor.MachineStatus, error) {
+	deadline := time.Now().Add(statusCatchUp)
+	for {
+		st, err := drv.MachineStatus(ctx, ref)
+		if err != nil || !settled || (autoscale.Size{VCPUs: st.VCPUs, MemoryMiB: st.MemoryMiB}) == want || time.Now().After(deadline) {
+			return st, err
+		}
+		select {
+		case <-ctx.Done():
+			return st, nil
+		case <-time.After(settlePoll):
+		}
+	}
 }
 
 // settled waits until node shows d's size: its CPUs online, its memory

@@ -578,6 +578,10 @@ message SystemStatResponse {
   uint64 cpu_total_ticks = 4;
   // Idle plus iowait ticks.
   uint64 cpu_idle_ticks = 5;
+  // Steal ticks, included in cpu_total_ticks: the time the hypervisor ran
+  // something else while a vCPU had work - a host short of CPU. Zero on a
+  // node before v2026.10.14-2, and on bare metal.
+  uint64 cpu_steal_ticks = 6;
 }
 
 message MemoryResponse {
