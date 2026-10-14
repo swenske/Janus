@@ -619,6 +619,8 @@ func main() {
 	mount("devtmpfs", "/dev", "devtmpfs")
 	mirrorConsole()
 	linkVirtioPorts()
+	movableHotplugMemory()
+	go onlineHotAddedCPUs()
 	hardenSysctls()
 	raiseFileLimit()
 	mountEphemeral()
