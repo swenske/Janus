@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -65,11 +66,88 @@ type nodeModel struct {
 	LockUI           types.Bool       `tfsdk:"lock_ui"`
 	UpdateRebootMode types.String     `tfsdk:"update_reboot_mode"`
 	Labels           types.Map        `tfsdk:"labels"`
+	Autoscaling      *autoscaleModel  `tfsdk:"autoscaling"`
+	CurrentVCPUs     types.Int64      `tfsdk:"current_vcpus"`
+	CurrentMemoryMiB types.Int64      `tfsdk:"current_memory_mib"`
 	NodeID           types.String     `tfsdk:"node_id"`
 	NodeAddress      types.String     `tfsdk:"node_address"`
 	VMName           types.String     `tfsdk:"vm_name"`
 	Schematic        types.String     `tfsdk:"schematic"`
 	Timeouts         timeouts.Value   `tfsdk:"timeouts"`
+}
+
+// autoscaleModel is a node's auto-scaling policy (docs/guide/auto-scaling.md).
+type autoscaleModel struct {
+	Mode                       types.String `tfsdk:"mode"`
+	MaxVCPUs                   types.Int64  `tfsdk:"max_vcpus"`
+	MaxMemoryMiB               types.Int64  `tfsdk:"max_memory_mib"`
+	Sysctl                     types.Bool   `tfsdk:"sysctl"`
+	CPUUpIdlePercent           types.Int64  `tfsdk:"cpu_up_idle_percent"`
+	CPUUpBusyPercent           types.Int64  `tfsdk:"cpu_up_busy_percent"`
+	CPUUpAfterSeconds          types.Int64  `tfsdk:"cpu_up_after_seconds"`
+	CPUDownIdlePercent         types.Int64  `tfsdk:"cpu_down_idle_percent"`
+	MemoryUpAvailablePercent   types.Int64  `tfsdk:"memory_up_available_percent"`
+	MemoryUpAfterSeconds       types.Int64  `tfsdk:"memory_up_after_seconds"`
+	MemoryDownAvailablePercent types.Int64  `tfsdk:"memory_down_available_percent"`
+	ReturnAfterSeconds         types.Int64  `tfsdk:"return_after_seconds"`
+	CooldownSeconds            types.Int64  `tfsdk:"cooldown_seconds"`
+	MaxStepsPerHour            types.Int64  `tfsdk:"max_steps_per_hour"`
+}
+
+// thresholds are autoscaleModel's optional numbers, with the policy's
+// field each one is and what it means.
+func (a *autoscaleModel) thresholds(p *client.Autoscale) []struct {
+	v    *types.Int64
+	f    *int
+	name string
+} {
+	return []struct {
+		v    *types.Int64
+		f    *int
+		name string
+	}{
+		{&a.CPUUpIdlePercent, &p.CPUUpIdlePercent, "cpu_up_idle_percent"},
+		{&a.CPUUpBusyPercent, &p.CPUUpBusyPercent, "cpu_up_busy_percent"},
+		{&a.CPUUpAfterSeconds, &p.CPUUpAfterSeconds, "cpu_up_after_seconds"},
+		{&a.CPUDownIdlePercent, &p.CPUDownIdlePercent, "cpu_down_idle_percent"},
+		{&a.MemoryUpAvailablePercent, &p.MemoryUpAvailablePercent, "memory_up_available_percent"},
+		{&a.MemoryUpAfterSeconds, &p.MemoryUpAfterSeconds, "memory_up_after_seconds"},
+		{&a.MemoryDownAvailablePercent, &p.MemoryDownAvailablePercent, "memory_down_available_percent"},
+		{&a.ReturnAfterSeconds, &p.ReturnAfterSeconds, "return_after_seconds"},
+		{&a.CooldownSeconds, &p.CooldownSeconds, "cooldown_seconds"},
+		{&a.MaxStepsPerHour, &p.MaxStepsPerHour, "max_steps_per_hour"},
+	}
+}
+
+// policy is the model as the Controller takes it - unset thresholds 0,
+// its defaults.
+func (a *autoscaleModel) policy() *client.Autoscale {
+	if a == nil {
+		return nil
+	}
+	p := &client.Autoscale{Mode: a.Mode.ValueString(), MaxVCPUs: int(a.MaxVCPUs.ValueInt64()), MaxMemoryMiB: int(a.MaxMemoryMiB.ValueInt64()), Sysctl: a.Sysctl.ValueBool()}
+	for _, t := range a.thresholds(p) {
+		if !t.v.IsNull() && !t.v.IsUnknown() {
+			*t.f = int(t.v.ValueInt64())
+		}
+	}
+	return p
+}
+
+// autoscaleFrom is the Controller's policy as a model - a threshold it
+// keeps at 0 (its default) unset.
+func autoscaleFrom(p *client.Autoscale) *autoscaleModel {
+	if p == nil {
+		return nil
+	}
+	a := &autoscaleModel{Mode: types.StringValue(p.Mode), MaxVCPUs: types.Int64Value(int64(p.MaxVCPUs)), MaxMemoryMiB: types.Int64Value(int64(p.MaxMemoryMiB)), Sysctl: types.BoolValue(p.Sysctl)}
+	for _, t := range a.thresholds(p) {
+		*t.v = types.Int64Null()
+		if *t.f != 0 {
+			*t.v = types.Int64Value(int64(*t.f))
+		}
+	}
+	return a
 }
 
 func (r *nodeResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -94,12 +172,40 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 			},
 			"vcpus": schema.Int64Attribute{
 				Optional: true, Computed: true, Default: int64default.StaticInt64(2),
-				Description: "vCPUs. A change shuts the node down cleanly and starts it again.",
+				Description: "vCPUs - with autoscaling, the size it starts with and comes back to. A change shuts the node down cleanly and starts it again.",
 			},
 			"memory_mib": schema.Int64Attribute{
 				Optional: true, Computed: true, Default: int64default.StaticInt64(1024),
-				Description: "Memory, MiB. A change shuts the node down cleanly and starts it again.",
+				Description: "Memory, MiB - with autoscaling, the size it starts with and comes back to. A change shuts the node down cleanly and starts it again.",
 			},
+			"autoscaling": schema.SingleNestedAttribute{
+				Optional:    true,
+				Description: "Grow the node while it runs - vCPUs and memory plugged in without a restart - and back to vcpus and memory_mib once the load is gone (docs/guide/auto-scaling.md). Setting it, changing its maxima or removing it restarts the node once; its mode and thresholds change in place. What auto-scaling gives it isn't drift: current_vcpus and current_memory_mib say it.",
+				Attributes: map[string]schema.Attribute{
+					"mode": schema.StringAttribute{
+						Required: true, Validators: []validator.String{oneOf{"observe", "on", "off"}},
+						Description: "\"observe\": journal what it would do, resize nothing - start with it; \"on\": resize; \"off\": paused, back to its size, the room to grow kept.",
+					},
+					"max_vcpus":      schema.Int64Attribute{Required: true, Description: "The most vCPUs it grows to."},
+					"max_memory_mib": schema.Int64Attribute{Required: true, Description: "The most memory it grows to, MiB (Proxmox VE: 1024, 1536, 2048..., its memory modules)."},
+					"sysctl": schema.BoolAttribute{
+						Optional: true, Computed: true, Default: booldefault.StaticBool(false),
+						Description: "The node's kernel parameters follow: its suggestions applied on trial and confirmed - never one someone else set -, put back when it's at its size again.",
+					},
+					"cpu_up_idle_percent":           schema.Int64Attribute{Optional: true, Description: "A vCPU more when HAProxy is idle less than this on average (default 30)."},
+					"cpu_up_busy_percent":           schema.Int64Attribute{Optional: true, Description: "... or the CPUs busier than this (default 75)."},
+					"cpu_up_after_seconds":          schema.Int64Attribute{Optional: true, Description: "... over this long (default 300)."},
+					"cpu_down_idle_percent":         schema.Int64Attribute{Optional: true, Description: "A vCPU less when HAProxy would stay idle more than this with one fewer (default 50)."},
+					"memory_up_available_percent":   schema.Int64Attribute{Optional: true, Description: "More memory when less than this is available (default 20)..."},
+					"memory_up_after_seconds":       schema.Int64Attribute{Optional: true, Description: "... for this long (default 120); at once after an OOM kill."},
+					"memory_down_available_percent": schema.Int64Attribute{Optional: true, Description: "Less memory when more than this would stay available (default 40)."},
+					"return_after_seconds":          schema.Int64Attribute{Optional: true, Description: "A step back towards its size after the load stayed low this long (default 1800, 60 at least)."},
+					"cooldown_seconds":              schema.Int64Attribute{Optional: true, Description: "At least this long between two steps up (default 300)."},
+					"max_steps_per_hour":            schema.Int64Attribute{Optional: true, Description: "Steps an hour, at most (default 6)."},
+				},
+			},
+			"current_vcpus":      schema.Int64Attribute{Computed: true, Description: "The vCPUs it has now - what auto-scaling gave it."},
+			"current_memory_mib": schema.Int64Attribute{Computed: true, Description: "The memory it has now, MiB - what auto-scaling gave it."},
 			"version": schema.StringAttribute{
 				Optional: true, Computed: true,
 				Description:   "The Janus release it runs (vYYYY.MM.DD[-N]). Unset: the newest when created, then whatever it runs. A change updates the node in place (A/B, checked healthy).",
@@ -316,6 +422,7 @@ func specFromPlan(ctx context.Context, m *nodeModel, diags *diag.Diagnostics) cl
 	if m.Image != nil {
 		spec.Image = &client.ImageSource{URL: m.Image.URL.ValueString(), SHA256: m.Image.SHA256.ValueString()}
 	}
+	spec.Autoscale = m.Autoscaling.policy()
 	spec.NICs = nicsFromPlan(ctx, m.Interfaces, diags)
 	return spec
 }
@@ -418,6 +525,11 @@ func fromMachine(m *client.Machine, s *nodeModel) {
 	} else {
 		s.UpdateRebootMode = types.StringValue(m.Spec.UpdateRebootMode)
 	}
+	s.Autoscaling = autoscaleFrom(m.Spec.Autoscale)
+	s.CurrentVCPUs, s.CurrentMemoryMiB = types.Int64Value(int64(m.Spec.VCPUs)), types.Int64Value(int64(m.Spec.MemoryMiB))
+	if m.Size != nil {
+		s.CurrentVCPUs, s.CurrentMemoryMiB = types.Int64Value(int64(m.Size.VCPUs)), types.Int64Value(int64(m.Size.MemoryMiB))
+	}
 	s.NodeID = strOrNull(m.NodeID, types.StringNull())
 	s.NodeAddress = strOrNull(m.NodeAddress, types.StringNull())
 	s.VMName = strOrNull(m.VMName, types.StringNull())
@@ -485,6 +597,13 @@ func updateFor(ctx context.Context, state, plan *nodeModel, diags *diag.Diagnost
 	if !plan.UpdateRebootMode.IsUnknown() && !plan.UpdateRebootMode.IsNull() && !plan.UpdateRebootMode.Equal(state.UpdateRebootMode) {
 		v := plan.UpdateRebootMode.ValueString()
 		u.UpdateRebootMode, changed = &v, true
+	}
+	if pp, sp := plan.Autoscaling.policy(), state.Autoscaling.policy(); !samePolicy(pp, sp) {
+		raw, err := json.Marshal(pp) // nil: null - removed
+		if err != nil {
+			diags.AddError("autoscaling", err.Error())
+		}
+		u.Autoscale, changed = raw, true
 	}
 	if changed {
 		by := "terraform"
@@ -649,4 +768,11 @@ func (r *nodeResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 	if m != nil {
 		resp.Diagnostics.AddError("Destroying the node", m.Error)
 	}
+}
+
+func samePolicy(a, b *client.Autoscale) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }

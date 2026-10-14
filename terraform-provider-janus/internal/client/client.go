@@ -229,6 +229,33 @@ type MachineSpec struct {
 	Locked       bool         `json:"locked,omitempty"`
 	// "kexec", or empty (or "firmware"): through the firmware.
 	UpdateRebootMode string `json:"update_reboot_mode,omitempty"`
+	// Autoscale: its auto-scaling policy; nil, none.
+	Autoscale *Autoscale `json:"autoscale,omitempty"`
+}
+
+// Autoscale is a machine's auto-scaling policy (docs/guide/auto-scaling.md):
+// a threshold 0 is the Controller's default.
+type Autoscale struct {
+	Mode                       string `json:"mode"`
+	MaxVCPUs                   int    `json:"max_vcpus"`
+	MaxMemoryMiB               int    `json:"max_memory_mib"`
+	CPUUpIdlePercent           int    `json:"cpu_up_idle_percent,omitempty"`
+	CPUUpBusyPercent           int    `json:"cpu_up_busy_percent,omitempty"`
+	CPUUpAfterSeconds          int    `json:"cpu_up_after_seconds,omitempty"`
+	CPUDownIdlePercent         int    `json:"cpu_down_idle_percent,omitempty"`
+	MemoryUpAvailablePercent   int    `json:"memory_up_available_percent,omitempty"`
+	MemoryUpAfterSeconds       int    `json:"memory_up_after_seconds,omitempty"`
+	MemoryDownAvailablePercent int    `json:"memory_down_available_percent,omitempty"`
+	ReturnAfterSeconds         int    `json:"return_after_seconds,omitempty"`
+	CooldownSeconds            int    `json:"cooldown_seconds,omitempty"`
+	MaxStepsPerHour            int    `json:"max_steps_per_hour,omitempty"`
+	Sysctl                     bool   `json:"sysctl,omitempty"`
+}
+
+// Size is what a machine has now, as its hypervisor says.
+type Size struct {
+	VCPUs     int `json:"vcpus"`
+	MemoryMiB int `json:"memory_mib"`
 }
 
 type Event struct {
@@ -248,7 +275,9 @@ type Machine struct {
 	VMUUID         string      `json:"vm_uuid"`
 	NodeID         string      `json:"node_id"`
 	NodeAddress    string      `json:"node_address"`
-	Events         []Event     `json:"events"`
+	// Size is what it has now - its spec's, or what auto-scaling gave it.
+	Size   *Size   `json:"size,omitempty"`
+	Events []Event `json:"events"`
 }
 
 // MachineUpdate is a PATCH: the fields given are the new values.
@@ -266,6 +295,8 @@ type MachineUpdate struct {
 	Locked     *bool     `json:"locked,omitempty"`
 	// "kexec" or "firmware".
 	UpdateRebootMode *string `json:"update_reboot_mode,omitempty"`
+	// Autoscale: a policy's JSON, or null to remove it; unset, unchanged.
+	Autoscale json.RawMessage `json:"autoscale,omitempty"`
 }
 
 func (c *Client) Machine(ctx context.Context, id string) (*Machine, error) {

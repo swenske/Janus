@@ -182,6 +182,14 @@ resource "janus_node" "lb1" {
   ntp = ["10.0.0.1"]
 
   update_reboot_mode = "kexec" # unset: updates reboot through the firmware
+
+  # Grows while it runs, back to 2 vCPU / 2048 MiB once the load is gone.
+  autoscaling = {
+    mode           = "observe" # then "on"
+    max_vcpus      = 4
+    max_memory_mib = 8192
+    sysctl         = true # the kernel parameters follow
+  }
 }
 ```
 
@@ -206,6 +214,8 @@ stays the same:
 | `vcpus`, `memory_mib`; an interface added, removed or moved to another `network` | The node shuts down cleanly (HAProxy stops), the virtual machine is reconfigured and started again. A removed interface leaves the node's configuration before it's unplugged; an added one is configured once plugged in. |
 | `version`, `extensions`, `haproxy`, `kernel` | The node's own A/B update. The bundle is the release's, or the image factory's build of the new schematic. The node checks its signature, and confirms itself healthy. Another HAProxy branch may refuse the node's configuration: check it against that branch first ([haproxy-config.md](haproxy-config.md#haproxy-branches)) - the update then reverts by itself. It reboots the way `update_reboot_mode` says. |
 | `update_reboot_mode` | Nothing on the node: how its next updates reboot. Changed together with `version`, that update already reboots the new way. |
+| `autoscaling`'s `mode`, `sysctl` and thresholds | Nothing on the node: auto-scaling's policy on the Controller. |
+| `autoscaling` set, removed, or its `max_vcpus` / `max_memory_mib` changed | A clean restart, like a size change: the virtual machine starts with room to grow to them, or without it. |
 
 What makes **a new node** (Terraform plans a replacement): `name`,
 `hypervisor_id`, `image`.
@@ -240,6 +250,14 @@ them ([dashboard/README.md](../dashboard/README.md#accounts-and-roles)).
 Unset, Terraform leaves them alone; set, it owns them - a change made on
 the Controller shows in the next plan, and `{}` clears them.
 
+**`autoscaling`** grows the node while it runs - vCPUs and memory plugged
+in without a restart - and brings it back to `vcpus` and `memory_mib`
+once the load is gone ([auto-scaling](guide/auto-scaling.md)): `mode`
+(`"observe"`, `"on"`, `"off"`), the maxima, `sysctl`, and the thresholds,
+each optional, its default when unset. `vcpus` and `memory_mib` stay the
+size it starts with and comes back to: what auto-scaling gives it is no
+drift, it reads back as `current_vcpus` and `current_memory_mib`.
+
 **Drift.** The provider reads the node as it is: the Controller reads it
 from the node and the hypervisor before answering. A change made
 anywhere else - the node's page, `janusctl`, the hypervisor - shows in
@@ -266,6 +284,7 @@ development build. Its version and extensions can't change in place.
 **Computed:**
 - `id`, the machine's ID on the Controller;
 - `node_id`, `node_address`, `vm_name`, `schematic`;
+- `current_vcpus`, `current_memory_mib`: what it has now;
 - each interface's `mac`, unless you set it.
 
 **Import:** `terraform import janus_node.lb1 <machine-id>`, the machine's
