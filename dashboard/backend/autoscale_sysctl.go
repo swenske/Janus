@@ -213,10 +213,22 @@ func (s *autoscaler) applySysctl(ctx context.Context, m *machines.Machine, node 
 		return fail("the node refused them: %s", strings.Join(why, "; "))
 	}
 	// Still reachable, HAProxy still answering: confirmed. Otherwise the
-	// node puts them back by itself when the trial ends.
+	// node puts them back by itself when the trial ends. Values going
+	// back to what they were before auto-scaling raised them need the
+	// node only: HAProxy down at the machine's own size - a configuration
+	// that needs the memory auto-scaling gave it - is no sign against
+	// them, and kept them raised for good once the policy was removed
+	// (v2026.10.14-5's lab).
+	back := true
+	for _, c := range changes {
+		back = back && c.back
+	}
 	load, err := nodes.Load(ctx, node)
-	if err != nil || load.IdlePercent < 0 {
-		return fail("on trial, but the node or HAProxy stopped answering - it takes them back within %d s", sysctlTrial)
+	switch {
+	case err != nil:
+		return fail("on trial, but the node stopped answering - it takes them back within %d s", sysctlTrial)
+	case load.IdlePercent < 0 && !back:
+		return fail("on trial, but HAProxy stopped answering - the node takes them back within %d s", sysctlTrial)
 	}
 	if err := nodes.SysctlConfirm(ctx, node); err != nil {
 		return fail("on trial, not confirmed (%v) - the node takes them back within %d s", err, sysctlTrial)
