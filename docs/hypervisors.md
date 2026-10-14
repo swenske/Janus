@@ -604,6 +604,7 @@ it:
 | What | Where it's changed |
 |---|---|
 | Hardware: vCPUs, memory, network interfaces (added, removed, moved to another network) | **Edit** on the machine's card, the API, or Terraform. The node shuts down cleanly, its virtual machine is reconfigured and started again. |
+| Its size while it runs, with the load | Its [auto-scaling](guide/auto-scaling.md) policy, set in **Edit** or the API: vCPUs and memory plugged in and taken back without a restart. |
 | The node's own settings: interfaces' addresses, DNS, NTP, VLANs, its version and extensions, HAProxy... | Its own page (**Open**): System › Network, System › Update... - or the API, or Terraform. |
 | Its name, hypervisor, image | Nowhere: that's a new machine. |
 
