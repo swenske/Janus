@@ -493,3 +493,41 @@ func TestAutoscalePutsBack(t *testing.T) {
 		t.Errorf("removed: trials %v, events:\n%s", f.trials, eventsOf(got))
 	}
 }
+
+// An OOM kill auto-scaling already answered isn't a new one after a new
+// mode: on, paused, on again asked for memory again (v2026.10.14-4's lab).
+func TestAutoscaleOOMSeenOnce(t *testing.T) {
+	a, fake, m, f := scalableMachine(t)
+	prev := settlePoll
+	settlePoll = time.Millisecond
+	t.Cleanup(func() { settlePoll = prev })
+	f.mu.Lock()
+	f.followSize = true
+	f.load = &nodeproxy.Load{CPUs: 2, MemTotal: 924 << 20, MemAvailable: 600 << 20, IdlePercent: 80, MaxConn: 1000}
+	f.mu.Unlock()
+	s := newAutoscaler(a)
+	a.autoscaler = s
+	sm := &scaledMachine{}
+	mode := func(md string) {
+		t.Helper()
+		if code, body := patch(t, a, m.ID, map[string]any{"autoscale": map[string]any{"mode": md, "max_vcpus": 4, "max_memory_mib": 4096}}); code != http.StatusOK {
+			t.Fatalf("%s: %d %s", md, code, body)
+		}
+	}
+	mode("on")
+	at := run(t, a, s, sm, m.ID, time.Now(), time.Minute)
+	f.mu.Lock()
+	f.load.OOMKills = 1
+	f.mu.Unlock()
+	at = run(t, a, s, sm, m.ID, at, 30*time.Second)
+	if len(fake.live) != 1 || fake.live[0][1] != 1280 {
+		t.Fatalf("the OOM kill: resized %v", fake.live)
+	}
+	mode("off")
+	at = run(t, a, s, sm, m.ID, at, 30*time.Second)
+	mode("on")
+	run(t, a, s, sm, m.ID, at, time.Minute)
+	if len(fake.live) != 2 || fake.live[1][1] != 1024 {
+		t.Errorf("on again, the same OOM kill asked for memory again: resized %v, journal %+v", fake.live, journalOf(t, a, m.ID))
+	}
+}

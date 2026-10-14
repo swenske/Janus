@@ -17,6 +17,7 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/schematic"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/autoscale"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
@@ -647,7 +648,7 @@ func (r *machineRunner) update(ctx context.Context, id string, p *updatePlan) er
 				// Started again at its nominal size: auto-scaling starts
 				// over - what followed the memory went back before the
 				// restart (updateSteps), or goes back now.
-				m.AutoscaleState = keptSysctl(m.AutoscaleState)
+				m.AutoscaleState = carried(m.AutoscaleState)
 			}
 			m.Log("updated")
 		}
@@ -885,8 +886,8 @@ func logAutoscaleChange(m *machines.Machine, next *machines.Autoscale) {
 		m.Log("auto-scaling removed")
 	case prev == nil || prev.Mode != next.Mode:
 		// A new mode starts over; what it changed on the node it still
-		// puts back.
-		m.AutoscaleState = keptSysctl(m.AutoscaleState)
+		// puts back, and an OOM kill it saw isn't a new one.
+		m.AutoscaleState = carried(m.AutoscaleState)
 		m.Log("auto-scaling %s: up to %d vCPU, %d MiB", autoscaleModeText(next.Mode), next.MaxVCPUs, next.MaxMemoryMiB)
 	default:
 		m.Log("auto-scaling's policy changed: up to %d vCPU, %d MiB", next.MaxVCPUs, next.MaxMemoryMiB)
@@ -903,11 +904,15 @@ func autoscaleModeText(mode string) string {
 	return "off"
 }
 
-// keptSysctl is a fresh auto-scaling state that still holds st's record of
-// the kernel parameters it changed - nil when there's none.
-func keptSysctl(st *machines.AutoscaleState) *machines.AutoscaleState {
-	if rec := sysctlOf(st); rec != nil {
-		return &machines.AutoscaleState{Sysctl: rec}
+// carried is a fresh auto-scaling state that still holds what st must not
+// forget: its record of the kernel parameters it changed, and the OOM
+// kills it already saw - nil when there's neither.
+func carried(st *machines.AutoscaleState) *machines.AutoscaleState {
+	if st == nil || (len(st.Sysctl) == 0 && !st.OOMCounted) {
+		return nil
 	}
-	return nil
+	return &machines.AutoscaleState{
+		State:  autoscale.State{OOMKills: st.OOMKills, OOMCounted: st.OOMCounted},
+		Sysctl: sysctlOf(st),
+	}
 }

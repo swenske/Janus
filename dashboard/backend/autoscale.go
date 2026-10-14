@@ -146,8 +146,17 @@ func (s *autoscaler) step(ctx context.Context, m *machines.Machine, sm *scaledMa
 	r := report{state: m.AutoscaleState}
 	if r.state == nil || r.state.Mode != pol.Mode {
 		// A new mode starts over - but what auto-scaling changed on the
-		// node is still its to put back.
-		r.state = &machines.AutoscaleState{Mode: pol.Mode, State: autoscale.State{Size: nominal}, Sysctl: sysctlOf(m.AutoscaleState)}
+		// node is still its to put back, and the OOM kills it saw are
+		// old: without them, the oldest sample (from before the last
+		// mode) set the baseline, and a kill already answered asked for
+		// memory again (v2026.10.14-4's lab: on, paused, on again - 1024
+		// to 1280 MiB at once, for the kill of the first time).
+		prev := carried(m.AutoscaleState)
+		if prev == nil {
+			prev = &machines.AutoscaleState{}
+		}
+		r.state = &machines.AutoscaleState{Mode: pol.Mode, Sysctl: prev.Sysctl,
+			State: autoscale.State{Size: nominal, OOMKills: prev.OOMKills, OOMCounted: prev.OOMCounted}}
 	}
 
 	// Not resizing - observing, or paused: a machine auto-scaling
