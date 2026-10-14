@@ -659,6 +659,13 @@ jobs:
       - name: Kernel parameters - CIS baseline, trials, refusals
         run: make qemu-sysctl-test
 
+      # vCPUs and memory plugged into a running node and taken out (the
+      # Controller's auto-scaling), under KVM: onlined, one event each,
+      # HAProxy reloaded with a thread per CPU unless nbthread fixes it.
+      # See hack/qemu-hotplug-test.sh.
+      - name: vCPU and memory hot-plug
+        run: make qemu-hotplug-test
+
       # A node's fleet trust: its own CA always, a fleet's certificates by
       # the bundle its root signed, roles and the Controller's users. See
       # hack/qemu-fleet-trust-test.sh.

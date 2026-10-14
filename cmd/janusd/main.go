@@ -260,6 +260,10 @@ func main() {
 		log.Printf("haproxy: initial start failed (continuing without it): %v", err)
 	}
 	haproxyServingAt, _ := boottime.Uptime()
+	// vCPUs and memory plugged into or taken out of the running machine.
+	if *manageHost {
+		go followHotplug(context.Background(), haproxyMgr)
+	}
 
 	// The image's optional extensions (internal/extensions): their
 	// services start with HAProxy, before the NTP wait and the PKI, for
