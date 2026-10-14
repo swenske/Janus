@@ -15,14 +15,14 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/vishvananda/netlink v1.3.1
-	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.60.0
+	golang.org/x/crypto v0.58.0
+	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
-	golang.org/x/term v0.46.0
+	golang.org/x/term v0.47.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	rsc.io/qr v0.2.0
-	software.sslmate.com/src/go-pkcs12 v0.7.3
+	software.sslmate.com/src/go-pkcs12 v0.7.4
 )
 
 require (
@@ -88,10 +88,10 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260908163034-4bcc4b2ee518 // indirect
-	golang.org/x/text v0.42.0 // indirect
-	golang.org/x/tools v0.50.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260924152758-ed294f943157 // indirect
+	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 	golang.org/x/vuln v1.8.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	gopkg.in/ini.v1 v1.67.1 // indirect
