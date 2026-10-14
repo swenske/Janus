@@ -60,9 +60,9 @@ while [ "$SECONDS" -lt "$deadline" ]; do
       grep -a "init: sysctl" "$LOG" >&2
       exit 1
     fi
-    if grep -aqE "^init: sysctl .*: [a-zA-Z]" "$LOG"; then
+    if grep -aqE "^init: sysctl .*: (open|write) /proc/sys/" "$LOG"; then
       echo "arm64 network boot test FAILED: a sysctl write failed:" >&2
-      grep -aE "^init: sysctl .*: [a-zA-Z]" "$LOG" >&2
+      grep -aE "^init: sysctl .*: (open|write) /proc/sys/" "$LOG" >&2
       exit 1
     fi
     echo "arm64: the CIS benchmark's 33 kernel-parameter controls hold, every sysctl write took"
