@@ -371,7 +371,7 @@ function Hero() {
       <div className="facts">
         <div className="win" style={{ '--d': '2.1s' }}>
           <strong>
-            <CountUp to={15} /> MB
+            <CountUp to={16} /> MB
           </strong>
           <span>root filesystem, 4 binaries</span>
         </div>
@@ -515,7 +515,7 @@ function Light() {
           <div className="rootfs-h win" style={{ '--d': '.3s' }}>
             <span>read-only root filesystem</span>
             <b>
-              <CountUp to={15} /> MB
+              <CountUp to={16} /> MB
             </b>
           </div>
           <div className="bin win" style={{ '--d': '.8s' }}>

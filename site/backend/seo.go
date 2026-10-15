@@ -97,7 +97,7 @@ func spaPages(publicURL string) map[string]spaPage {
 		// The landing page's card: the tour shows the same.
 		"/tour": {
 			title:       "Feature tour - Janus",
-			description: "An animated tour of Janus: no shell, a 15 MB root filesystem, trusted boot, HAProxy LTS, A/B updates with rollback, changes on trial, extensions, the Controller and janusctl.",
+			description: "An animated tour of Janus: no shell, a 16 MB root filesystem, trusted boot, HAProxy LTS, A/B updates with rollback, changes on trial, extensions, the Controller and janusctl.",
 			card:        "janus.png",
 			cardAlt:     "Janus - an immutable Linux for your HAProxy load balancers",
 			jsonLD: map[string]any{
