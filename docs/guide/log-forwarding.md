@@ -237,12 +237,54 @@ frontend web
 | CPU | HAProxy writes to a pipe, janusd reads, formats and sends | HAProxy alone |
 | Also in `janusctl system logs haproxy` | yes | only with `log stdout` too |
 
-Under heavy load, both cost something: HAProxy formats a line per
-request either way. Fewer lines cost less - `option dontlog-normal` logs
-only the errors, `log ... sample 1:100` one request in a hundred. A
-line HAProxy can't write at once (janusd behind) is dropped by HAProxy,
-never waited for: its `DroppedLogs` counter (`janusctl haproxy
-show-info`) says how many.
+### What it costs
+
+Measured on the worst case: a 2-vCPU node of an older Xeon (E3-1220
+v3) where HAProxy answers every request itself, saturated by four
+clients for a minute - so a log line costs as much as the request it
+logs. Behind it, a single-CPU Logstash and a 2-CPU Elasticsearch.
+
+| HAProxy's access logs | Requests/s | janusd's CPU | Lines HAProxy dropped | What the server kept |
+|---|---|---|---|---|
+| None | 124 900 | - | - | - |
+| `log stdout`, sent nowhere | 64 600 | 0.27 | 8.6 % | - |
+| `log stdout`, janusd to syslog over UDP | 57 900 | 0.62 | 4.7 % | 3.6 % (Logstash full) |
+| `log stdout`, janusd to Elasticsearch | 60 200 | 0.50 | 11 % | ~6 000 a second, the rest dropped by janusd, counted |
+| The same, `access_logs_on_disk: always` | 64 000 | 0.48 | 8.8 % | all of them, 7 minutes after the minute (3.5 million) |
+| HAProxy's own `log` over UDP | 72 200 | - | 0 | 5.4 % (Logstash full) |
+| HAProxy's own `log` through a `ring`, over TLS | 98 600 | - | 0 | 5.2 % (the ring wrote over the rest) |
+
+What it says:
+
+- **Logging every request is HAProxy's own biggest cost**, whichever
+  way: it formats and writes a line per request - half the requests/s
+  of a node that logs nothing, here. With backends behind it, the
+  share is far smaller. Fewer lines cost less: `option
+  dontlog-normal` logs only the errors, `log ... sample 1:100` one
+  request in a hundred.
+- **janusd** reads them for about 5 µs of CPU a line on that Xeon,
+  sends them to syslog for about 6 µs more, to Elasticsearch in
+  compressed batches.
+- **The server caps what arrives**: a server that can't keep up loses
+  UDP datagrams on its side; janusd drops what an Elasticsearch
+  cluster can't take - counted (`dropped`). HAProxy never slows down
+  for them.
+- **`access_logs_on_disk: always`** writes every line to the LOGS
+  partition - 10 MB/s here, 860 GB a day - and sends them from there at
+  the server's pace: Elasticsearch had every one of the minute's 3.5
+  million lines 7 minutes after it. But the partition (512 MiB) holds
+  about a minute of such traffic - a longer burst loses the oldest,
+  counted - and it wears the disk. Keep it for a moderate traffic you
+  can't afford to lose.
+- **HAProxy drops lines itself** rather than wait: when its stdout is
+  full (janusd behind), and when two of its threads write to its
+  stdout at once - it gives up after a few tries: about 1 % of the
+  lines at 50 000 requests/s on a recent CPU, 8 % on that Xeon. Its
+  own `log` to a UDP server shares no pipe: none dropped. `janusctl
+  haproxy show-info` says how many it dropped (`Dropped logs`), and the
+  metrics too (`janus_haproxy_dropped_logs_total`). A `ring` costs
+  HAProxy the least - a copy in memory - but writes over its oldest
+  lines, uncounted, when its server can't keep up.
 
 ## What's guaranteed
 
