@@ -72,6 +72,21 @@ janusctl -n lb1 system events               # the node's event log, live
 janusctl -n lb1 system dmesg -f             # the kernel: AVC denials, OOM kills...
 ```
 
+**Previous boots**: a node also keeps them on its LOGS partition -
+janusd's log, each extension's, HAProxy's own messages (`[WARNING]`,
+`[ALERT]`... not its access logs) and the kernel's - until newer ones
+take the room, a power cut losing at most the last two seconds:
+
+```sh
+janusctl -n lb1 system boots                # the boots it holds: 0 this one, -1 the one before...
+janusctl -n lb1 system logs -boot -1 janusd # what janusd said before the last reboot
+janusctl -n lb1 system dmesg -boot -1       # the kernel's messages of that boot
+```
+
+A node installed before the LOGS partition existed has none (`system
+boots` says so): it keeps only this boot's logs, in memory, until it's
+installed again.
+
 The Controller's **Logs** page shows the same, with filters, pause and
 download. To keep logs longer than the node does, a collector on the
 management network can follow them through the API - `janusctl ...

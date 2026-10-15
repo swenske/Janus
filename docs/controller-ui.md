@@ -482,6 +482,12 @@ both tests.
 - **Streams** (logs, events, dmesg) are Server-Sent Events via `useSSE` /
   `LogViewer`. A node-side error arrives as a `failure` event - never
   `error`, which `EventSource` uses for its own connection problems.
+- **Previous boots** (Logs › Service logs, Logs › Kernel): a node with a
+  LOGS partition lists its earlier boots (`/api/log-boots`) in a
+  `BootSelect` next to the page's other controls - only once there is
+  one. A previous boot is fetched whole (`/api/logs?boot=`,
+  `/api/dmesg?boot=`, plain text) by `BootLog` and shown in `LogViewer`
+  with `text` - no pause, follow or clear, a "previous boot" badge.
 
 ### The splash
 

@@ -447,6 +447,10 @@ $CTL lifecycle install \
   `rootfs.squashfs` listed with the image's files.
 - `-network-config`: a [network configuration](network-configuration.md)
   applied from the first boot (DHCP otherwise).
+- The disk gets a LOGS partition, where the node keeps its logs across
+  reboots: 5 % of the disk, between 512 MiB and 8 GiB (none on a disk
+  under 4 GiB). `-logs-size-mb 2048` makes it 2 GiB, `-logs-size-mb -1`
+  leaves it out.
 - The output ends with `[done 100%]`.
 
 ### 4. Boot the installed disk

@@ -119,6 +119,10 @@ authentication: restrict who reaches the port.
 | `janus_selinux_denials_total` | counter | | SELinux denials in the kernel log since boot - there should be none |
 | `janus_kernel_oom_kills_total` | counter | | Processes the kernel killed for lack of memory since boot |
 | `janus_state_filesystem_errors` | gauge | | Errors the kernel recorded on STATE (PKI, configuration) - it should be 0 |
+| `janus_logs_volume_size_bytes` | gauge | | The LOGS partition's size - the node's logs across reboots; absent on a node without one |
+| `janus_logs_volume_written_bytes_total` | counter | | Bytes written to the LOGS partition since janusd started |
+| `janus_logs_volume_dropped_records_total` | counter | | Log records the LOGS partition couldn't take (more printed than the disk wrote) - it should stay 0 |
+| `janus_logs_volume_errors_total` | counter | | Failed writes to the LOGS partition - it should stay 0 |
 | `janus_api_requests_total` | counter | `method`, `code` | Calls to the node's API since janusd started, refused ones included |
 
 A metric that doesn't apply is absent rather than 0: no NTP

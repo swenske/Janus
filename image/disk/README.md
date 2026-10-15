@@ -3,7 +3,9 @@
 `assemble.sh` builds a single, real GPT-partitioned disk image: two
 independently bootable A/B slots (`BOOT-A-DATA`/`BOOT-A-HASH`,
 `BOOT-B-DATA`/`BOOT-B-HASH` - each a squashfs data + dm-verity hash tree
-pair) plus the persistent `STATE` partition. Both slots get the same
+pair) plus the persistent `STATE` partition, and `LOGS` after it (512
+MiB, raw - the node formats it at its first boot, `internal/logvol`;
+`LOGS_MB=0` leaves it out). Both slots get the same
 content for now - proven independently bootable by `../../hack/qemu-ab-boot-test.sh`
 (`make qemu-ab-boot-test`), not yet a real upgrade workflow (no
 `LifecycleService.Upgrade` to install something different into the
