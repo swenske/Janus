@@ -200,7 +200,10 @@ CONTROLLER_ADDRESS="10.20.30.40:8443"
 # a test fleet's root and a bundle it signed.
 go run ./hack/fleetca "$WORKDIR/fleet" >/dev/null
 
+# A LOGS partition (internal/logvol) - on a disk this small, only when
+# asked for.
 INSTALL_OUT="$(sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" \
+  -logs-size-mb 64 \
   -controller-address "$CONTROLLER_ADDRESS" -controller-ca "$WORKDIR/controller-ca.crt" \
   -fleet-root "$WORKDIR/fleet/root.crt" -fleet-bundle "$WORKDIR/fleet/bundle-1.json" \
   "$BLANK_DISK" "$BUNDLE")"
@@ -266,7 +269,15 @@ sgdisk -p "$BLANK_DISK" | grep -q "ESP" || { echo "Install test FAILED: no ESP p
 for name in BOOT-A-DATA BOOT-A-HASH BOOT-B-DATA BOOT-B-HASH STATE; do
   sgdisk -p "$BLANK_DISK" | grep -q "$name" || { echo "Install test FAILED: no $name partition found by sgdisk" >&2; sgdisk -p "$BLANK_DISK" >&2; exit 1; }
 done
-echo "Part 2 OK: partition table verified independently via sgdisk"
+# Partition 7, LOGS, after STATE, about the size asked for, and formatted
+# (internal/logvol's superblock magic at its start).
+LOGS_INFO="$(sgdisk -i 7 "$BLANK_DISK")"
+grep -q "^Partition name: 'LOGS'" <<<"$LOGS_INFO" || { echo "Install test FAILED: partition 7 isn't LOGS:" >&2; sgdisk -p "$BLANK_DISK" >&2; exit 1; }
+LOGS_START="$(awk -F': ' '/^First sector/ {print $2}' <<<"$LOGS_INFO" | awk '{print $1}')"
+LOGS_SECTORS="$(awk -F': ' '/^Partition size/ {print $2}' <<<"$LOGS_INFO" | awk '{print $1}')"
+[ $((LOGS_SECTORS * 512)) -ge $((64 << 20)) ] && [ $((LOGS_SECTORS * 512)) -le $((66 << 20)) ] || { echo "Install test FAILED: LOGS is $((LOGS_SECTORS * 512)) bytes, asked for 64 MiB" >&2; exit 1; }
+[ "$(dd if="$BLANK_DISK" bs=512 skip="$LOGS_START" count=1 status=none | head -c 8)" = "JANUSLV1" ] || { echo "Install test FAILED: the LOGS partition wasn't formatted" >&2; exit 1; }
+echo "Part 2 OK: partition table verified independently via sgdisk, LOGS included"
 
 # --- Install onto an already-installed disk must be refused ---
 if sudo "$CTL" "${NATIVE_CTL_ARGS[@]}" lifecycle install -insecure-skip-signature-check -sha256 "$SHA256" "$BLANK_DISK" "$BUNDLE" 2>"$WORKDIR/reinstall-denied.log"; then
@@ -317,7 +328,8 @@ if ! grep -q "$MARKER" "$LOG" || ! grep -q "$FIRST_BOOT_MSG" "$LOG"; then
   echo "--- console output ---" >&2; cat "$LOG" >&2
   exit 1
 fi
-echo "Part 4 OK: the installed disk is genuinely, independently bootable under real UEFI - HTTP 200, fresh PKI bootstrap"
+grep -aq "logs: kept on /dev/vda7 (64 MiB, 0 earlier boots) - this is boot 1" "$LOG" || { echo "Install test FAILED: the installed node didn't keep its logs on its LOGS partition: $(grep -a 'logs:' "$LOG")" >&2; exit 1; }
+echo "Part 4 OK: the installed disk is genuinely, independently bootable under real UEFI - HTTP 200, fresh PKI bootstrap, logs on LOGS"
 
 # --- extract fresh PKI creds from the booted instance's own STATE
 # partition (partition 6, image/disk/assemble.sh's fixed convention -
