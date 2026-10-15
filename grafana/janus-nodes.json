@@ -51,6 +51,19 @@
         "step": "1m",
         "textFormat": "{{instance}}",
         "titleFormat": "HAProxy crashed"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "enable": true,
+        "expr": "janus_haproxy_untracked_processes{job=\"$job\", instance=~\"$instance\"} > 0",
+        "iconColor": "orange",
+        "name": "An HAProxy janusd doesn't run listens",
+        "step": "1m",
+        "textFormat": "{{instance}}",
+        "titleFormat": "An HAProxy janusd doesn't run listens"
       }
     ]
   },

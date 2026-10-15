@@ -168,6 +168,7 @@ func (m *metricsSources) haproxyMetrics() []exporter.Family {
 		counter("janus_haproxy_reloads_total", "Seamless HAProxy reloads.", sample(float64(c.Reloads.Load()))),
 		counter("janus_haproxy_unexpected_exits_total", "HAProxy processes that exited without being stopped or replaced by a reload.", sample(float64(c.UnexpectedExits.Load()))),
 		counter("janus_haproxy_restarts_total", "Times janusd started HAProxy again after it exited on its own.", sample(float64(c.Restarts.Load()))),
+		gauge("janus_haproxy_untracked_processes", "HAProxy processes that listen but aren't the one janusd runs - each one also an haproxy.untracked event. It may serve another configuration.", sample(float64(c.UntrackedListening.Load()))),
 		counter("janus_haproxy_config_applies_total", "HAProxy configurations applied through the API, by result.",
 			sample(float64(c.ApplyAccepted.Load()), "result", "accepted"), sample(float64(c.ApplyRejected.Load()), "result", "rejected")),
 	}

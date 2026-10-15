@@ -264,6 +264,11 @@ func main() {
 		log.Printf("haproxy: initial start failed (continuing without it): %v", err)
 	}
 	haproxyServingAt, _ := boottime.Uptime()
+	if *manageHost {
+		// An HAProxy listening that janusd doesn't run (internal/haproxy
+		// untracked.go): reported, never killed.
+		go haproxyMgr.WatchUntracked(context.Background(), 30*time.Second)
+	}
 	// vCPUs and memory plugged into or taken out of the running machine.
 	if *manageHost {
 		go followHotplug(context.Background(), haproxyMgr)
