@@ -24,12 +24,12 @@ KERNEL_STABLE_SHA256    := 2feaa70453e91f541be6a5c9078d8168e081af45a3d9718054850
 # haproxy.org). HAProxy doesn't sign its tarballs: sha256 as published by
 # haproxy.org (the .sha256 file and the branch's releases.json, over
 # HTTPS).
-HAPROXY_3_4_VERSION := 3.4.6
-HAPROXY_3_4_SHA256  := 791e1815f8af6e8b850a227a9a0a190f3d3478c9e8d38a0f51c98b7f4bfe368b
-HAPROXY_3_2_VERSION := 3.2.25
-HAPROXY_3_2_SHA256  := d59a68d0daef7b5c596b019b742089788ff1748513ef96e71fe7b3943577866e
-HAPROXY_3_0_VERSION := 3.0.29
-HAPROXY_3_0_SHA256  := 225dbddbab9eb0abc0ff3db39ded1e07f20028105a36f4c36fc2f85bf86835d1
+HAPROXY_3_4_VERSION := 3.4.7
+HAPROXY_3_4_SHA256  := ccfd342f3724c2cd659574044d788f44e20b212467c6bd5edbbfc517a2775dca
+HAPROXY_3_2_VERSION := 3.2.26
+HAPROXY_3_2_SHA256  := 760ef35fafc1e05844e73ad07e138e9e96fddbf5de02f606249c027f754827da
+HAPROXY_3_0_VERSION := 3.0.30
+HAPROXY_3_0_SHA256  := a7c594a1985936890737219ae2d7c3769346a92a2f536522b8b3abc540d7a608
 
 # Single Board Computer tranche follow-up: pkgs/musl-toolchain builds a
 # real aarch64-linux-musl cross-toolchain (musl-cross-make, pinned by
