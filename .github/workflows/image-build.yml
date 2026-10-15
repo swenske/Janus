@@ -646,6 +646,12 @@ jobs:
       - name: The logs reach a syslog server, an outage and a reboot included
         run: make qemu-logforward-test
 
+      # The same to a real Elasticsearch (a container): an API key, the
+      # CA's fingerprint, ECS documents, an outage's lines stored once.
+      # See hack/qemu-logforward-es-test.sh.
+      - name: The logs reach Elasticsearch, stored once each
+        run: make qemu-logforward-es-test
+
       # Every other SystemService/HAProxyService/NetworkService method on
       # a real enforcing node, ending with janusd restart, reboot, reset
       # and shutdown. See hack/qemu-system-api-test.sh.
