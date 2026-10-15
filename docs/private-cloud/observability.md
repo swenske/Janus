@@ -97,8 +97,9 @@ download. To keep them longer than the node does, send them to your log
 servers - syslog, Elasticsearch - from the node itself:
 [log forwarding](../guide/log-forwarding.md).
 
-**Who did what**: each node logs every call that changes something with
-the account behind it (`api: <Method>: <caller>`), the Controller
+**Who did what**: each node logs every call that changes something, or
+reads what a reader may not (files, services' logs, packet captures),
+with the account behind it (`api: <Method>: <caller>`), the Controller
 included - it acts on a node for the account using its page - and keeps
 an audit: every such call once done, with where it came from, how it
 ended and how long it took, and every call refused. Its last 2000

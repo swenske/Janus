@@ -26,7 +26,7 @@ Each target - a log server - takes the sources it names:
 | `extensions` | The extensions' services: keepalived, BIRD, Consul, node_exporter, the guest agent, Let's Encrypt | LOGS partition |
 | `kernel` | The kernel's messages: AVC denials, OOM kills, devices | LOGS partition |
 | `events` | The [event log](../private-cloud/observability.md#logs): configuration applied, reboots, updates, failovers... | STATE |
-| `audit` | Every call that changed something - who, from where, how it ended - and every call refused ([who did what](../private-cloud/observability.md#logs)) | STATE |
+| `audit` | Every call that changed something or read what a reader may not - who, from where, how it ended - and every call refused ([who did what](../private-cloud/observability.md#logs)) | STATE |
 
 A target that names no source takes them all but `access`: HAProxy logs
 a line per request, thousands a second under load - ask for them.
