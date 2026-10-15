@@ -35,7 +35,7 @@ state:
 
 | On a distribution | On a Janus node | Why |
 |---|---|---|
-| `log /dev/log local0` | `log stdout format raw local0` | No syslog daemon. janusd keeps HAProxy's output: `janusctl system logs haproxy`, the Controller's logs page |
+| `log /dev/log local0` | `log stdout format raw local0` | No syslog daemon. janusd keeps HAProxy's output: `janusctl system logs haproxy`, the Controller's logs page - and sends it to your log servers ([log forwarding](guide/log-forwarding.md)). Or HAProxy sends it itself: `log <server>:514`, a `ring` |
 | `user haproxy` / `group haproxy` | `uid 1000` / `gid 1000` | No `/etc/passwd` to resolve names against |
 | `chroot /var/lib/haproxy` | `chroot /var/empty` | The empty directory janusd prepares |
 | `daemon` | (remove it) | janusd supervises HAProxy in the foreground |

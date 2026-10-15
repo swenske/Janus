@@ -50,6 +50,7 @@ Install, configure and operate Janus nodes and the Controller.
 
 - [Updating nodes](guide/updates.md)
 - [Metrics](metrics.md)
+- [Log forwarding](guide/log-forwarding.md)
 - [Packet capture](packet-capture.md)
 - [Troubleshooting](guide/troubleshooting.md)
 - [Security policy](../SECURITY.md)

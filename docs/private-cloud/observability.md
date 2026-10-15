@@ -88,9 +88,9 @@ boots` says so): it keeps only this boot's logs, in memory, until it's
 installed again.
 
 The Controller's **Logs** page shows the same, with filters, pause and
-download. To keep logs longer than the node does, a collector on the
-management network can follow them through the API - `janusctl ...
-system logs -f haproxy` into the collector's input.
+download. To keep them longer than the node does, send them to your log
+servers - syslog, Elasticsearch - from the node itself:
+[log forwarding](../guide/log-forwarding.md).
 
 **Who did what**: each node logs every call that changes something with
 the account behind it (`api: <Method>: <caller>`), the Controller
