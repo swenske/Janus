@@ -20,4 +20,7 @@ func TestParseShowInfo(t *testing.T) {
 	if *got != want {
 		t.Errorf("parseShowInfo =\n%+v, want\n%+v", *got, want)
 	}
+	if got := parseShowInfo("DroppedLogs: 50867\nIdle_pct: 3\n"); got.DroppedLogs != 50867 || got.IdlePercent != 3 {
+		t.Errorf("DroppedLogs = %d, Idle_pct = %d", got.DroppedLogs, got.IdlePercent)
+	}
 }

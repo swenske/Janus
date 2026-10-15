@@ -933,6 +933,7 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 		fmt.Printf("Version:      %s\n", info.GetVersion())
 		fmt.Printf("Uptime:       %ds\n", info.GetUptimeSeconds())
 		fmt.Printf("Connections:  %d / %d\n", info.GetCurrentConnections(), info.GetMaxConnections())
+		fmt.Printf("Dropped logs: %d\n", info.GetDroppedLogs())
 
 	case "stats":
 		c, cancel := ctx()

@@ -92,6 +92,7 @@ authentication: restrict who reaches the port.
 | `janus_haproxy_untracked_processes` | gauge | | HAProxy processes that listen but aren't the one janusd runs - each one also an `haproxy.untracked` event. Should stay 0: such a process may serve another configuration |
 | `janus_haproxy_config_applies_total` | counter | `result` (`accepted`, `rejected`) | Configurations applied through the API |
 | `janus_haproxy_config_last_apply_timestamp_seconds` | gauge | | When the last configuration was applied through the API |
+| `janus_haproxy_dropped_logs_total` | counter | | Log lines the running HAProxy process dropped rather than wait - its stdout or a log server couldn't take them at once, or two of its threads wrote to its stdout together ([log forwarding](guide/log-forwarding.md)); 0 again with each process |
 | `janus_service_state` | gauge | `service`, `extension`, `state` | 1 for the current state (`running`, `waiting`, `restarting`, `stopped`) of each extension service |
 | `janus_service_restarts_total` | counter | `service`, `extension` | Times an extension service exited and was restarted |
 | `janus_time_synchronized` | gauge | | 1 once janusd's NTP client has set the clock |

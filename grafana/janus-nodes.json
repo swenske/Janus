@@ -538,7 +538,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Processes the kernel killed for lack of memory over the time range, errors the kernel recorded on STATE (PKI, configuration), log records the LOGS partition failed to write or had to drop, log targets failing now and the records they lost over the time range (docs/guide/log-forwarding.md).",
+      "description": "Processes the kernel killed for lack of memory over the time range, errors the kernel recorded on STATE (PKI, configuration), log records the LOGS partition failed to write or had to drop, log targets failing now and the records they lost over the time range, and the log lines HAProxy dropped rather than wait (docs/guide/log-forwarding.md).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -645,6 +645,18 @@
           "legendFormat": "logs not sent",
           "range": false,
           "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "round(sum(increase(janus_haproxy_dropped_logs_total{job=\"$job\", instance=~\"$instance\"}[$__range]))) or vector(0)",
+          "instant": true,
+          "legendFormat": "HAProxy logs dropped",
+          "range": false,
+          "refId": "F"
         }
       ],
       "title": "Kernel and STATE",

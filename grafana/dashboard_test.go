@@ -369,13 +369,15 @@ func dashboard() obj {
 	b.add(stat("Kernel and STATE",
 		"Processes the kernel killed for lack of memory over the time range, errors the kernel recorded "+
 			"on STATE (PKI, configuration), log records the LOGS partition failed to write or had to drop, "+
-			"log targets failing now and the records they lost over the time range (docs/guide/log-forwarding.md).",
+			"log targets failing now and the records they lost over the time range, and the log lines HAProxy "+
+			"dropped rather than wait (docs/guide/log-forwarding.md).",
 		b.pos(4, 4, 20), []q{
 			{ref: "A", expr: "round(sum(increase(janus_kernel_oom_kills_total{" + sel + "}[$__range]))) or vector(0)", legend: "OOM kills", instant: true},
 			{ref: "B", expr: "sum(janus_state_filesystem_errors{" + sel + "}) or vector(0)", legend: "STATE errors", instant: true},
 			{ref: "C", expr: "round(sum(increase(janus_logs_volume_errors_total{" + sel + "}[$__range])) + sum(increase(janus_logs_volume_dropped_records_total{" + sel + "}[$__range]))) or vector(0)", legend: "LOGS lost", instant: true},
 			{ref: "D", expr: "count(janus_logship_target_up{" + sel + "} == 0) or vector(0)", legend: "log targets failing", instant: true},
 			{ref: "E", expr: "round(sum(increase(janus_logship_records_dropped_total{" + sel + "}[$__range]))) or vector(0)", legend: "logs not sent", instant: true},
+			{ref: "F", expr: "round(sum(increase(janus_haproxy_dropped_logs_total{" + sel + "}[$__range]))) or vector(0)", legend: "HAProxy logs dropped", instant: true},
 		}, green1Red))
 	b.y += 4
 

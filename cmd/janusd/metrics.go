@@ -164,7 +164,7 @@ func commonName(subject string) string {
 }
 
 func (m *metricsSources) haproxyMetrics() []exporter.Family {
-	_, err := m.haproxy.ShowInfo()
+	info, err := m.haproxy.ShowInfo()
 	c := m.haproxy.Counters()
 	fams := []exporter.Family{
 		gauge("janus_haproxy_up", "1 if HAProxy answers on its stats socket. HAProxy's own metrics can't say it's down.", sample(exporter.Bool(err == nil))),
@@ -175,6 +175,9 @@ func (m *metricsSources) haproxyMetrics() []exporter.Family {
 		gauge("janus_haproxy_untracked_processes", "HAProxy processes that listen but aren't the one janusd runs - each one also an haproxy.untracked event. It may serve another configuration.", sample(float64(c.UntrackedListening.Load()))),
 		counter("janus_haproxy_config_applies_total", "HAProxy configurations applied through the API, by result.",
 			sample(float64(c.ApplyAccepted.Load()), "result", "accepted"), sample(float64(c.ApplyRejected.Load()), "result", "rejected")),
+	}
+	if err == nil {
+		fams = append(fams, counter("janus_haproxy_dropped_logs_total", "Log lines the running HAProxy process dropped rather than wait: its stdout (janusd) or a log server couldn't take them at once, or two of its threads wrote to its stdout at the same time. Starts again at 0 with each process.", sample(float64(info.DroppedLogs))))
 	}
 	if t := c.LastApplyUnix.Load(); t > 0 {
 		fams = append(fams, gauge("janus_haproxy_config_last_apply_timestamp_seconds", "When the last HAProxy configuration was applied through the API.", sample(float64(t))))
