@@ -640,6 +640,12 @@ jobs:
       - name: The LOGS partition keeps the logs across reboots
         run: make qemu-logvol-test
 
+      # Log forwarding against a real rsyslog (a container): UDP, TCP and
+      # TLS targets, an outage, a reboot, HAProxy's own log lines. See
+      # hack/qemu-logforward-test.sh.
+      - name: The logs reach a syslog server, an outage and a reboot included
+        run: make qemu-logforward-test
+
       # Every other SystemService/HAProxyService/NetworkService method on
       # a real enforcing node, ending with janusd restart, reboot, reset
       # and shutdown. See hack/qemu-system-api-test.sh.
