@@ -1,9 +1,10 @@
 # Log forwarding
 
 A node sends its logs to your log servers - syslog (RFC 5424 or 3164,
-over UDP, TCP or TLS) - itself: janusd's log, HAProxy's messages and
-access logs, the extensions', the kernel's, the event log. What it keeps
-on disk is sent at least once, even across a server outage or a reboot.
+over UDP, TCP or TLS) and Elasticsearch - itself: janusd's log, HAProxy's
+messages and access logs, the extensions', the kernel's, the event log.
+What it keeps on disk is sent at least once, even across a server outage
+or a reboot.
 
 There's no syslog daemon to configure on a node, and no agent to install:
 janusd sends the logs (`internal/logship`), set through the API -
@@ -81,6 +82,72 @@ IETF format (`rfc5424`) or BSD (`rfc3164`), over UDP, or TCP with SSL -
 `transport` `tls`, the port the rule says, and the certificate Log Center
 exports as `tls.ca_pem` (or its fingerprint).
 
+### Elasticsearch
+
+```json title="examples/logforward/elasticsearch.json"
+{
+  "targets": [
+    {
+      "name": "elastic",
+      "sources": ["janusd", "haproxy", "access", "extensions", "kernel", "events", "audit"],
+      "elasticsearch": {
+        "url": "https://elastic.example.com:9200",
+        "namespace": "prod",
+        "apiKey": "VnVhQ2ZHY0JDZGJrUW0tZTVhT3g6dWkybHAyYXhUTm1zeWFrdzl0dk5udw==",
+        "gzip": true
+      },
+      "tls": {
+        "fingerprint": "93:BA:4A:A9:69:30:C1:B5:0D:DF:89:AD:FC:CA:5A:88:5D:D4:14:62:B9:2A:0F:1F:DF:FB:D9:60:FF:22:56:D9"
+      }
+    }
+  ]
+}
+```
+
+Each record is a document of the data stream
+`logs-janus.<source>-<namespace>` - `logs-janus.janusd-prod`,
+`logs-janus.access-prod`... - which Elasticsearch 8 and 9 make on their
+own (their built-in `logs-*-*` template). On the cluster, all it takes
+is an API key that may create documents there - in Kibana's Dev Tools:
+
+```text
+POST /_security/api_key
+{
+  "name": "janus-nodes",
+  "role_descriptors": {
+    "janus": {"index": [{"names": ["logs-janus*"], "privileges": ["create_doc", "auto_configure"]}]}
+  }
+}
+```
+
+Its `encoded` value is the target's `api_key` (`id:key` works too); a
+user and password instead: `username` and `password`. A cluster whose
+HTTPS certificate Elasticsearch made at its first start is trusted by the
+fingerprint it printed then ("HTTP CA certificate SHA-256 fingerprint"),
+or `openssl x509 -noout -fingerprint -sha256 -in config/certs/http_ca.crt`.
+`gzip` sends a fifth of the bytes for some CPU.
+
+The documents have ECS fields: `@timestamp`, `message`, `log.level`,
+`host.name` and `host.id` (the node's CA SHA-256: the console's `pki:
+this node's CA` line), `service.name`, `event.dataset`, an event's
+`event.action` (its type) and `janus.payload`, `labels.*`, `janus.slot`
+and `janus.schematic`. In Kibana, a data view on `logs-janus*` shows them
+all.
+
+A batch sent again - a timeout, the cluster busy (429) - is stored once:
+each document's ID is the node's and the record's, the copies answered
+409. A document the cluster refuses for good (its mapping) is dropped,
+said once a minute in janusd's log.
+
+HAProxy's access logs formatted as JSON become fields - `haproxy.status`,
+`haproxy.path`... - with no ingest pipeline:
+
+```haproxy
+frontend web
+    bind :80
+    log-format "%{+json}o %(client_ip)ci %(method)HM %(path)HP %(status)ST %(bytes)B %(duration)Ta"
+```
+
 ### Trusting the server
 
 A `tls` target checks the server's certificate:
@@ -89,13 +156,15 @@ A `tls` target checks the server's certificate:
 - `tls.ca_pem`: against your CA (PEM), the one that signed the server's
   certificate;
 - `tls.fingerprint`: the SHA-256 fingerprint of the server's certificate,
-  or of a CA in the chain it presents - colons or not;
+  or of a CA in the chain it presents - colons or not; a wrong one is
+  refused with the server's own;
 - `tls.server_name`: the name the certificate carries, when it isn't the
   address's;
 - `tls.client_cert_pem` and `tls.client_key_pem`: a client certificate,
   for a server that asks for one.
 
-The secrets - a client key - are kept on STATE, readable by janusd only:
+The secrets - an API key, a password, a client key - are kept on STATE,
+readable by janusd only:
 they never come back through the API (`log-forwarding get` shows a
 target without them, and `status` names those it has), nor in a
 Controller's backups. A configuration sent without a target's secret
@@ -183,7 +252,9 @@ show-info`) says how many.
 - **UDP** has no acknowledgement: a server down loses what's sent. Over
   **TCP and TLS**, syslog has none either - a server that goes away in
   the middle of a batch loses it; one that went away between two is
-  noticed, and the batch sent again once it's back.
+  noticed, and the batch sent again once it's back. **Elasticsearch**
+  confirms each document: a batch is sent again until it's stored, and
+  stored once.
 - Nothing waits for a target: a line is queued, written to disk or
   dropped - HAProxy, janusd and the API never slow down for a log
   server.

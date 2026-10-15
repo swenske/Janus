@@ -75,7 +75,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 | `Logs` | server | ✅ | `janusd` (its log, captured after the one-time PKI print so no private key is kept) or `haproxy` (stdout/stderr) - last 5000 lines in memory, `tail_lines`, `follow`. `boot` -1, -2...: a previous boot's, from the LOGS partition (HAProxy's own messages, not its access logs) |
 | `LogBoots` | | ✅ | The LOGS partition: device, size, records written/dropped, and the boots it holds, newest first, with their offset for `Logs`/`Dmesg` |
 | `LogForwardingGet` | | ✅ | Where the logs go - the targets, without their secrets - and how each is doing ([log forwarding](guide/log-forwarding.md)) |
-| `LogForwardingSet` | | ✅ | Replace the log targets: syslog over UDP/TCP/TLS; applied at once, kept on STATE, secrets kept by target name |
+| `LogForwardingSet` | | ✅ | Replace the log targets: syslog over UDP/TCP/TLS, Elasticsearch (`_bulk`, data streams, ECS); applied at once, kept on STATE, secrets kept by target name |
 | `LogForwardingTest` | | ✅ | Send one record to a target now, and say what happened |
 | `Stats` | | ✅ | CPU (lifetime average, like `ps`) and RSS of `janusd` and `haproxy`, summed over processes |
 | `SystemStat` | | ✅ | `/proc/stat`: boot time, context switches, processes created |

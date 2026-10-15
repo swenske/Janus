@@ -12,7 +12,7 @@ nowhere.
 | [`terraform/proxmox/`](terraform/proxmox/) | [Proxmox VE, end to end](../docs/private-cloud/platforms/proxmox.md) | `make examples-check` |
 | [`haproxy/web.cfg`](haproxy/web.cfg) | The Terraform examples | `make examples-test` (the node's own HAProxy, `haproxy -c`); applied to real nodes by `make terraform-provider-test` |
 | [`haproxy/log-direct.cfg`](haproxy/log-direct.cfg) | [Log forwarding](../docs/guide/log-forwarding.md) | `make examples-test` (`haproxy -c`), `go test ./internal/haproxy` (the node's policy); `make qemu-logforward-test` applies the same lines on a real node |
-| [`logforward/`](logforward/) | [Log forwarding](../docs/guide/log-forwarding.md) | `go test ./internal/api` - the node's own parser and checks |
+| [`logforward/`](logforward/) | [Log forwarding](../docs/guide/log-forwarding.md) | `go test ./internal/api` - the node's own parser and checks; `make qemu-logforward-test` and `qemu-logforward-es-test` send to a real rsyslog and Elasticsearch |
 | [`network/`](network/) | [Networking](../docs/private-cloud/networking.md), [bare metal](../docs/private-cloud/platforms/bare-metal.md) | `go test ./internal/netconfig` - the node's own parser |
 | [`nocloud/user-data.json`](nocloud/user-data.json) | [First boot](../docs/private-cloud/first-boot.md) | `go test ./internal/nocloud` - the node's own parser |
 | [`orchestrator/`](orchestrator/) | [Your own orchestrator](../docs/private-cloud/own-orchestrator.md) and its pages | `make qemu-orchestrator-test` drives three real nodes with them; `go test ./internal/pki` checks the certificates they make |
