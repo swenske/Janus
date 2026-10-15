@@ -252,8 +252,9 @@ show-info`) says how many.
   goes. A
   server down, then back: what was logged meanwhile goes then, in order.
   A reboot, janusd restarted: each target goes on from its cursor. As
-  long as the partition still holds it: the oldest boots go when it's
-  full.
+  long as the partition still holds it: the oldest records go when it's
+  full - a target that falls that far behind counts the ones it never
+  read as dropped, whatever their source.
 - **From memory**: HAProxy's access logs (unless `access_logs_on_disk` is
   `always`), and everything on a node installed before the LOGS
   partition existed - a queue per target, the oldest dropped when it's

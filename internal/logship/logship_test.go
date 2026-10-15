@@ -407,6 +407,69 @@ func TestVolumeCursorAcrossOutagesAndRestarts(t *testing.T) {
 	}
 }
 
+// A target down longer than the volume holds: the lines the volume
+// wrote over before the target read them are counted lost, the rest
+// waiting (queued) until sent - sent and lost add up to what was written.
+func TestVolumeOverwrittenCountsLost(t *testing.T) {
+	volPath := filepath.Join(t.TempDir(), "logs.img")
+	if err := os.WriteFile(volPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(volPath, 4<<20); err != nil {
+		t.Fatal(err)
+	}
+	vol, err := logvol.Open(volPath, logvol.Options{BootID: [16]byte{2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vol.Close()
+	srv := newServer(t, "tcp", "octet-counting", nil)
+	addr := srv.addr()
+	srv.close()
+	cfg := Config{Targets: []Target{{Name: "t", Sources: []string{SourceJanusd}, Syslog: &SyslogTarget{Address: addr, Transport: "tcp"}}}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	sh := New(Options{Volume: vol})
+	defer sh.Close()
+	sh.Apply(cfg)
+
+	// 8 MiB of lines through a 4 MiB volume, the server away.
+	line, pad := vol.Line("janusd"), strings.Repeat("x", 1000)
+	const total = 8000
+	for i := range total {
+		line(fmt.Sprintf("2026/10/15 17:00:00 line %d %s", i, pad))
+		if i%500 == 499 {
+			if err := vol.Flush(); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if st := sh.Status()[0]; st.QueuedRecords < total/4 {
+		t.Fatalf("waiting %d, want the lines the volume still holds", st.QueuedRecords)
+	}
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Skipf("the port went elsewhere meanwhile: %v", err)
+	}
+	srv2 := &testServer{t: t, ln: ln, framing: "octet-counting"}
+	go srv2.accept()
+	t.Cleanup(srv2.close)
+	var st TargetStatus
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if st = sh.Status()[0]; st.Sent+st.Dropped >= total && st.QueuedRecords == 0 {
+			break
+		}
+	}
+	if st.Sent+st.Dropped != total || st.Dropped == 0 || st.Sent < total/4 {
+		t.Fatalf("sent %d + lost %d, want %d with some lost; waiting %d", st.Sent, st.Dropped, total, st.QueuedRecords)
+	}
+	if got := len(srv2.waitFor(t, "line ", int(st.Sent))); uint64(got) != st.Sent {
+		t.Fatalf("the server got %d lines, %d sent", got, st.Sent)
+	}
+}
+
 func TestFeedsAndTheirCursorFile(t *testing.T) {
 	srv := newServer(t, "tcp", "octet-counting", nil)
 	var mu sync.Mutex

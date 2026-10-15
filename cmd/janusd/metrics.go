@@ -421,8 +421,8 @@ func (m *metricsSources) logshipMetrics() []exporter.Family {
 	return []exporter.Family{
 		gauge("janus_logship_target_up", "1 when the log target's last send worked, 0 while it fails (docs/guide/log-forwarding.md).", up...),
 		counter("janus_logship_records_sent_total", "Log records sent to the target since janusd started.", sent...),
-		counter("janus_logship_records_dropped_total", "Log records the target lost since janusd started: its queue in memory was full - it should stay 0.", dropped...),
+		counter("janus_logship_records_dropped_total", "Log records the target lost since janusd started: its queue in memory was full, or the LOGS partition wrote over them before they were sent - it should stay 0.", dropped...),
 		counter("janus_logship_send_errors_total", "Failed sends to the target since janusd started (each is retried).", errs...),
-		gauge("janus_logship_queued_records", "Log records waiting in memory for the target.", queued...),
+		gauge("janus_logship_queued_records", "Log records waiting for the target: in memory, and on the LOGS partition behind its place.", queued...),
 	}
 }

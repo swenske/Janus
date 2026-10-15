@@ -126,9 +126,9 @@ authentication: restrict who reaches the port.
 | `janus_logs_volume_errors_total` | counter | | Failed writes to the LOGS partition - it should stay 0 |
 | `janus_logship_target_up` | gauge | `target`, `kind` | 1 when the log target's last send worked, 0 while it fails ([log forwarding](guide/log-forwarding.md)) |
 | `janus_logship_records_sent_total` | counter | `target` | Log records sent to the target |
-| `janus_logship_records_dropped_total` | counter | `target` | Log records the target lost - its queue in memory was full - it should stay 0 |
+| `janus_logship_records_dropped_total` | counter | `target` | Log records the target lost - its queue in memory was full, or the LOGS partition wrote over them before they were sent - it should stay 0 |
 | `janus_logship_send_errors_total` | counter | `target` | Failed sends to the target (each is retried) |
-| `janus_logship_queued_records` | gauge | `target` | Log records waiting in memory for the target |
+| `janus_logship_queued_records` | gauge | `target` | Log records waiting for the target: in memory, and on the LOGS partition behind its place |
 | `janus_api_requests_total` | counter | `method`, `code` | Calls to the node's API since janusd started, refused ones included |
 
 A metric that doesn't apply is absent rather than 0: no NTP

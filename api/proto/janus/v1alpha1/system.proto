@@ -942,11 +942,14 @@ message LogTargetStatus {
   string last_error = 4;
   int64 last_sent_unix_ns = 5;
   int64 failing_since_unix_ns = 6;
-  // Records sent; dropped (a queue in memory full); failed sends.
+  // Records sent; dropped (a queue in memory full, or the LOGS
+  // partition wrote over them before they were sent - whatever their
+  // source); failed sends.
   uint64 sent = 7;
   uint64 dropped = 8;
   uint64 errors = 9;
-  // Records waiting in memory.
+  // Records waiting: in memory, and on the LOGS partition behind the
+  // target's place (whatever their source).
   uint64 queued = 10;
   // The secrets it has: "api_key", "password", "client_key".
   repeated string secrets = 11;

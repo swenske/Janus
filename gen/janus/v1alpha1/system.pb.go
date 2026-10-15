@@ -5781,11 +5781,14 @@ type LogTargetStatus struct {
 	LastError          string `protobuf:"bytes,4,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	LastSentUnixNs     int64  `protobuf:"varint,5,opt,name=last_sent_unix_ns,json=lastSentUnixNs,proto3" json:"last_sent_unix_ns,omitempty"`
 	FailingSinceUnixNs int64  `protobuf:"varint,6,opt,name=failing_since_unix_ns,json=failingSinceUnixNs,proto3" json:"failing_since_unix_ns,omitempty"`
-	// Records sent; dropped (a queue in memory full); failed sends.
+	// Records sent; dropped (a queue in memory full, or the LOGS
+	// partition wrote over them before they were sent - whatever their
+	// source); failed sends.
 	Sent    uint64 `protobuf:"varint,7,opt,name=sent,proto3" json:"sent,omitempty"`
 	Dropped uint64 `protobuf:"varint,8,opt,name=dropped,proto3" json:"dropped,omitempty"`
 	Errors  uint64 `protobuf:"varint,9,opt,name=errors,proto3" json:"errors,omitempty"`
-	// Records waiting in memory.
+	// Records waiting: in memory, and on the LOGS partition behind the
+	// target's place (whatever their source).
 	Queued uint64 `protobuf:"varint,10,opt,name=queued,proto3" json:"queued,omitempty"`
 	// The secrets it has: "api_key", "password", "client_key".
 	Secrets       []string `protobuf:"bytes,11,rep,name=secrets,proto3" json:"secrets,omitempty"`

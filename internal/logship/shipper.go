@@ -543,6 +543,7 @@ type target struct {
 	cmu        sync.Mutex
 	volCursor  uint64
 	volMoved   bool
+	volLost    uint64 // records LOGS took the place of before they were read
 	feedCursor map[string]uint64
 
 	smu          sync.Mutex
@@ -568,10 +569,16 @@ func (t *target) halt() {
 func (t *target) status() TargetStatus {
 	t.smu.Lock()
 	defer t.smu.Unlock()
+	t.cmu.Lock()
+	lost, behind := t.volLost, uint64(0)
+	if v := t.s.opt.Volume; v != nil && t.takesDisk() {
+		behind = v.LastSeq() - min(t.volCursor, v.LastSeq())
+	}
+	t.cmu.Unlock()
 	return TargetStatus{
 		Name: t.cfg.Name, Kind: t.cfg.Kind(), State: t.state, LastError: t.lastErr, LastSent: t.lastSent,
-		FailingSince: t.failingSince, Sent: t.sent, Dropped: t.mem.droppedCount(), Errors: t.errs,
-		QueuedRecords: t.mem.len(),
+		FailingSince: t.failingSince, Sent: t.sent, Dropped: t.mem.droppedCount() + lost, Errors: t.errs,
+		QueuedRecords: t.mem.len() + int(behind),
 	}
 }
 
@@ -733,11 +740,17 @@ func (t *target) collect() batch {
 	t.cmu.Unlock()
 
 	volTo := volFrom
+	var volLost uint64
 	if v := t.s.opt.Volume; v != nil && t.takesDisk() {
+		next := volFrom + 1
 		last, err := v.ReadFrom(volFrom, func(r logvol.Record) bool {
 			if full() {
 				return false
 			}
+			// A gap: records the volume wrote over before this target
+			// read them - lost, whatever their source.
+			volLost += r.Seq - min(next, r.Seq)
+			next = r.Seq + 1
 			if rec, ok := t.s.fromDisk(r); ok && t.cfg.Takes(rec.Source) {
 				add(rec)
 			}
@@ -775,6 +788,7 @@ func (t *target) collect() batch {
 		t.cmu.Lock()
 		if volTo != t.volCursor {
 			t.volCursor, t.volMoved = volTo, true
+			t.volLost += volLost
 		}
 		for k, v := range feedTo {
 			t.feedCursor[k] = v
