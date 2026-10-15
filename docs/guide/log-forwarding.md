@@ -57,7 +57,7 @@ A configuration lists the targets:
 
 ```sh
 janusctl -n lb1 system log-forwarding set syslog.json   # applied at once, kept on STATE
-janusctl -n lb1 system log-forwarding                   # each target: sent, dropped, waiting, the last error
+janusctl -n lb1 system log-forwarding status            # each target: sent, dropped, waiting, the last error
 janusctl -n lb1 system log-forwarding test nas          # one record now - or why it can't
 janusctl -n lb1 system log-forwarding get               # the configuration, without its secrets
 ```
@@ -295,7 +295,7 @@ error too: `docker logs` and Docker's own logging drivers still see it.
 
 ## Watching it
 
-`janusctl system log-forwarding` - each target's state (`ok`,
+`janusctl system log-forwarding status` - each target's state (`ok`,
 `failing`), records sent, dropped, waiting, the last error. A target
 failing for 30 seconds is said so in the event log
 (`logship.failing`, then `logship.recovered`) and janusd's log, and in
