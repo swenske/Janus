@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -403,6 +404,19 @@ func TestAutoscaleSysctl(t *testing.T) {
 	if !strings.Contains(msg, "refused them: out of bounds") || !strings.Contains(j[len(j)-1].Error, "out of bounds") {
 		t.Errorf("refused: %q, %+v", msg, j[len(j)-1])
 	}
+
+	// HAProxy no longer answering after a raise: left to the trial's end
+	// (only values going back are confirmed without it).
+	f.mu.Lock()
+	f.refuse = ""
+	f.load.IdlePercent = -1
+	f.sysctl.Parameters[0].Recommendation = &janusv1alpha1.SysctlRecommendation{Value: "35238 46988 70477", RuleId: "tcp_mem.follow_memory"}
+	f.mu.Unlock()
+	confirms := f.confirms
+	msg = s.sysctl(context.Background(), m, nil, sm, st, true, now.Add(8*time.Hour))
+	if f.confirms != confirms || !strings.Contains(msg, "HAProxy stopped answering") {
+		t.Errorf("HAProxy down: %d confirmations (had %d), %q", f.confirms, confirms, msg)
+	}
 }
 
 // TestSampleSteal: the time the vCPUs waited for the host (steal) isn't
@@ -433,10 +447,19 @@ func TestSampleSteal(t *testing.T) {
 // (v2026.10.14-3's lab left it sized for 1280 MiB on 1024) -, and before
 // the restart that removes the policy.
 func TestAutoscalePutsBack(t *testing.T) {
+	// HAProxy down too (idle -1): v2026.10.14-5's lab - a configuration
+	// that needs the memory auto-scaling gave it, the trial never
+	// confirmed, the parameters raised for good once the policy went.
+	for _, idle := range []float64{80, -1} {
+		t.Run(fmt.Sprint("idle ", idle), func(t *testing.T) { testPutsBack(t, idle) })
+	}
+}
+
+func testPutsBack(t *testing.T, idle float64) {
 	a, _, m, f := scalableMachine(t)
 	raised := func() {
 		f.mu.Lock()
-		f.load = &nodeproxy.Load{CPUs: 2, MemTotal: 924 << 20, MemAvailable: 600 << 20, IdlePercent: 80}
+		f.load = &nodeproxy.Load{CPUs: 2, MemTotal: 924 << 20, MemAvailable: 600 << 20, IdlePercent: idle}
 		f.sysctl = &janusv1alpha1.SysctlListResponse{Managed: true, Parameters: []*janusv1alpha1.SysctlParameter{
 			param("net.ipv4.tcp_mem", "13914 18554 27829", "", ""),
 			param("net.core.somaxconn", "4096", "", ""),
@@ -491,6 +514,24 @@ func TestAutoscalePutsBack(t *testing.T) {
 	got := waitReady(t, a, m.ID)
 	if len(f.trials) != 2 || f.trials[1].Changes[0].GetValue() != "10869 14493 21738" || !strings.Contains(eventsOf(got), "auto-scaling: kernel parameters applied") {
 		t.Errorf("removed: trials %v, events:\n%s", f.trials, eventsOf(got))
+	}
+
+	// Removed while the node refuses them: the record stays, for a later
+	// policy to put them back to what they were.
+	if code, body := patch(t, a, m.ID, map[string]any{"autoscale": off}); code != http.StatusAccepted {
+		t.Fatalf("a policy again: %d %s", code, body)
+	}
+	waitReady(t, a, m.ID)
+	raised()
+	f.mu.Lock()
+	f.refuse = "busy"
+	f.mu.Unlock()
+	if code, body := patch(t, a, m.ID, map[string]any{"autoscale": nil}); code != http.StatusAccepted {
+		t.Fatalf("removing it again: %d %s", code, body)
+	}
+	got = waitReady(t, a, m.ID)
+	if st := got.AutoscaleState; st == nil || st.Sysctl["net.ipv4.tcp_mem"].Before != "10869 14493 21738" || !memoryFollowed(st) {
+		t.Errorf("removed, not put back: the record %+v", got.AutoscaleState)
 	}
 }
 

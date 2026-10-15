@@ -882,7 +882,12 @@ func logAutoscaleChange(m *machines.Machine, next *machines.Autoscale) {
 	m.Spec.Autoscale = next
 	switch {
 	case next == nil:
-		m.AutoscaleState = nil
+		// What it changed and couldn't put back stays recorded: a later
+		// policy puts it back to what it was, rather than taking the
+		// raised values for the machine's own (v2026.10.14-5's lab: the
+		// node down at the removal, the next policy "put back" tcp_mem
+		// sized for 2 GiB on 1 GiB).
+		m.AutoscaleState = carried(m.AutoscaleState)
 		m.Log("auto-scaling removed")
 	case prev == nil || prev.Mode != next.Mode:
 		// A new mode starts over; what it changed on the node it still
