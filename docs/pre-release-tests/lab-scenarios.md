@@ -151,7 +151,10 @@ example:
   once - below;
 - v2026.10.15: the image with every extension - built by the factory, a
   machine created from it through the Controller, its services and
-  denials; the nodes of the previous release naming the new image.
+  denials; the nodes of the previous release naming the new image;
+- v2026.10.15-2: the OOM order - every process's `oom_score_adj` on the
+  nodes, and the three-cache configuration (below) without janusd ever
+  killed.
 
 ### HAProxy killed by the kernel
 
