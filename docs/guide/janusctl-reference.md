@@ -157,6 +157,18 @@ janusctl system events [-since ID]
 |---|---|
 | `-since ID` | only events after this ID |
 
+#### janusctl system audit
+
+Who changed what, from where, how it ended - and every call refused.
+
+```text
+janusctl system audit [-since ID]
+```
+
+| Flag | |
+|---|---|
+| `-since ID` | only entries after this ID |
+
 #### janusctl system dmesg
 
 The kernel's messages.

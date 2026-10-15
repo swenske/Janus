@@ -248,3 +248,24 @@ func TestShipperToElastic(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+func TestElasticAuditDocument(t *testing.T) {
+	srv := &bulkServer{t: t}
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	sk := newESSink(t, esTarget(ts.URL, ElasticsearchTarget{}), nil)
+	r := AuditRecord(3, time.Now(), "SystemService/Reboot", []byte(`{"caller":"rita","roles":["os:reader"],"peer":"10.0.2.2:41234","code":"PermissionDenied","error":"requires os:admin","denied":true,"duration_ms":0}`))
+	if r.Severity != SevWarning || !strings.Contains(r.Message, "SystemService/Reboot by rita (os:reader) from 10.0.2.2:41234: refused: requires os:admin") {
+		t.Fatalf("record = %+v", r)
+	}
+	if err := sk.Send(context.Background(), []Record{r}); err != nil {
+		t.Fatal(err)
+	}
+	d := srv.docs[0]
+	user, _ := d["user"].(map[string]any)
+	src, _ := d["source"].(map[string]any)
+	ev, _ := d["event"].(map[string]any)
+	if user["name"] != "rita" || src["ip"] != "10.0.2.2" || ev["outcome"] != "failure" || ev["action"] != "SystemService/Reboot" || srv.index[0] != "logs-janus.audit-default" {
+		t.Fatalf("audit document: %v in %s", d, srv.index[0])
+	}
+}

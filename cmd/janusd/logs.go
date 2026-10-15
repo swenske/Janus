@@ -123,3 +123,26 @@ func eventsFeed() logship.Feed {
 		Changed: events.Changed,
 	}
 }
+
+// auditFeed is the node's audit (api.AuditLog) as a source the log
+// shipper's targets read behind their cursors.
+func auditFeed(l *events.Log) logship.Feed {
+	return logship.Feed{
+		Name: logship.SourceAudit,
+		Since: func(id uint64) ([]logship.FeedItem, uint64) {
+			evs, last := l.Since(id)
+			items := make([]logship.FeedItem, 0, len(evs))
+			for _, e := range evs {
+				r := logship.AuditRecord(e.ID, e.Time, e.Type, e.Payload)
+				r.ID = fmt.Sprintf("au-%d", e.ID)
+				items = append(items, logship.FeedItem{ID: e.ID, Record: r})
+			}
+			return items, last
+		},
+		Latest: func() uint64 {
+			_, last := l.Since(math.MaxUint64)
+			return last
+		},
+		Changed: l.Changed,
+	}
+}

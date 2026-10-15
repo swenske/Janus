@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -33,9 +35,13 @@ func runLogForwarding(conn *grpc.ClientConn, args []string) {
 	case "get":
 		resp, err := client.LogForwardingGet(c, &emptypb.Empty{})
 		check("LogForwardingGet", err)
-		out, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(resp.GetConfig())
+		out, err := protojson.Marshal(resp.GetConfig())
 		check("marshal", err)
-		fmt.Println(string(out))
+		// protojson's own spacing changes from run to run: indented here
+		// so the same configuration prints the same.
+		var b bytes.Buffer
+		check("indent", json.Indent(&b, out, "", "  "))
+		fmt.Println(b.String())
 
 	case "set":
 		if len(args) != 1 {

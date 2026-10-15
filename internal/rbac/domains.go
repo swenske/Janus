@@ -32,6 +32,7 @@ var Domain = map[string]string{
 	"SystemService/Dmesg":                       DomainSystem,
 	"SystemService/Logs":                        DomainServices,
 	"SystemService/LogBoots":                    DomainObserve,
+	"SystemService/Audit":                       DomainSystem,
 	"SystemService/LogForwardingGet":            DomainObserve,
 	"SystemService/LogForwardingSet":            DomainSystem,
 	"SystemService/LogForwardingTest":           DomainSystem,

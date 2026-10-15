@@ -52,6 +52,12 @@ service SystemService {
   // LogBoots lists the boots whose logs the node keeps on its LOGS
   // partition, newest first: what Logs and Dmesg take as boot.
   rpc LogBoots(google.protobuf.Empty) returns (LogBootsResponse);
+  // Audit streams the node's audit - every call that changed something,
+  // once done, and every call refused: the method as the type, who (the
+  // user a Controller acted for), from where, how it ended and how long
+  // it took as the JSON payload. Its last 2000 entries are kept on STATE
+  // across reboots and updates; since_id resumes, then new ones follow.
+  rpc Audit(EventsRequest) returns (stream Event);
 
   // Stats sums the CPU time and memory of each managed service's
   // processes - janusd, haproxy (a reload briefly leaves an old haproxy

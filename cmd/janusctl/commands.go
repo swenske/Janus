@@ -150,6 +150,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "service", args: "start|stop|restart ID", help: "control a managed service (janusd: restart only)", pos: []argKind{argServiceAction, argService}, required: 2},
 		{name: "logs", args: "SERVICE", help: "janusd or haproxy output", flags: []flagDef{boolFlag("f", "follow"), valFlag("n", "LINES", "only the last LINES lines", argNone), valFlag("boot", "N", "a previous boot's: -1 the one before this one (system boots)", argNone)}, pos: []argKind{argLogService}, required: 1},
 		{name: "events", help: "the node's event log, live", flags: []flagDef{valFlag("since", "ID", "only events after this ID", argNone)}},
+		{name: "audit", help: "who changed what, from where, how it ended - and every call refused", flags: []flagDef{valFlag("since", "ID", "only entries after this ID", argNone)}},
 		{name: "dmesg", help: "the kernel's messages", flags: []flagDef{boolFlag("f", "follow"), valFlag("boot", "N", "a previous boot's: -1 the one before this one (system boots)", argNone)}},
 		{name: "boots", help: "the boots whose logs the LOGS partition keeps"},
 		{name: "log-forwarding", help: "where the node's logs go: syslog, Elasticsearch (docs/guide/log-forwarding.md)", subs: []*command{

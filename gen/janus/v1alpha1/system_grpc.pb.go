@@ -31,6 +31,7 @@ const (
 	SystemService_Dmesg_FullMethodName                       = "/janus.v1alpha1.SystemService/Dmesg"
 	SystemService_Logs_FullMethodName                        = "/janus.v1alpha1.SystemService/Logs"
 	SystemService_LogBoots_FullMethodName                    = "/janus.v1alpha1.SystemService/LogBoots"
+	SystemService_Audit_FullMethodName                       = "/janus.v1alpha1.SystemService/Audit"
 	SystemService_Stats_FullMethodName                       = "/janus.v1alpha1.SystemService/Stats"
 	SystemService_SystemStat_FullMethodName                  = "/janus.v1alpha1.SystemService/SystemStat"
 	SystemService_Memory_FullMethodName                      = "/janus.v1alpha1.SystemService/Memory"
@@ -113,6 +114,12 @@ type SystemServiceClient interface {
 	// LogBoots lists the boots whose logs the node keeps on its LOGS
 	// partition, newest first: what Logs and Dmesg take as boot.
 	LogBoots(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LogBootsResponse, error)
+	// Audit streams the node's audit - every call that changed something,
+	// once done, and every call refused: the method as the type, who (the
+	// user a Controller acted for), from where, how it ended and how long
+	// it took as the JSON payload. Its last 2000 entries are kept on STATE
+	// across reboots and updates; since_id resumes, then new ones follow.
+	Audit(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
 	// Stats sums the CPU time and memory of each managed service's
 	// processes - janusd, haproxy (a reload briefly leaves an old haproxy
 	// process finishing its connections next to the new one).
@@ -378,6 +385,25 @@ func (c *systemServiceClient) LogBoots(ctx context.Context, in *emptypb.Empty, o
 	return out, nil
 }
 
+func (c *systemServiceClient) Audit(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[4], SystemService_Audit_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[EventsRequest, Event]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SystemService_AuditClient = grpc.ServerStreamingClient[Event]
+
 func (c *systemServiceClient) Stats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*StatsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StatsResponse)
@@ -440,7 +466,7 @@ func (c *systemServiceClient) DiskStats(ctx context.Context, in *emptypb.Empty, 
 
 func (c *systemServiceClient) DiskUsage(ctx context.Context, in *DiskUsageRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DiskUsageInfo], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[4], SystemService_DiskUsage_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[5], SystemService_DiskUsage_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -539,7 +565,7 @@ func (c *systemServiceClient) ServiceRestart(ctx context.Context, in *ServiceReq
 
 func (c *systemServiceClient) List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileInfo], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[5], SystemService_List_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[6], SystemService_List_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +584,7 @@ type SystemService_ListClient = grpc.ServerStreamingClient[FileInfo]
 
 func (c *systemServiceClient) Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[6], SystemService_Read_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[7], SystemService_Read_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -577,7 +603,7 @@ type SystemService_ReadClient = grpc.ServerStreamingClient[Data]
 
 func (c *systemServiceClient) Copy(ctx context.Context, in *CopyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[7], SystemService_Copy_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[8], SystemService_Copy_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -596,7 +622,7 @@ type SystemService_CopyClient = grpc.ServerStreamingClient[Data]
 
 func (c *systemServiceClient) PacketCapture(ctx context.Context, in *PacketCaptureRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[8], SystemService_PacketCapture_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[9], SystemService_PacketCapture_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -809,6 +835,12 @@ type SystemServiceServer interface {
 	// LogBoots lists the boots whose logs the node keeps on its LOGS
 	// partition, newest first: what Logs and Dmesg take as boot.
 	LogBoots(context.Context, *emptypb.Empty) (*LogBootsResponse, error)
+	// Audit streams the node's audit - every call that changed something,
+	// once done, and every call refused: the method as the type, who (the
+	// user a Controller acted for), from where, how it ended and how long
+	// it took as the JSON payload. Its last 2000 entries are kept on STATE
+	// across reboots and updates; since_id resumes, then new ones follow.
+	Audit(*EventsRequest, grpc.ServerStreamingServer[Event]) error
 	// Stats sums the CPU time and memory of each managed service's
 	// processes - janusd, haproxy (a reload briefly leaves an old haproxy
 	// process finishing its connections next to the new one).
@@ -960,6 +992,9 @@ func (UnimplementedSystemServiceServer) Logs(*LogsRequest, grpc.ServerStreamingS
 }
 func (UnimplementedSystemServiceServer) LogBoots(context.Context, *emptypb.Empty) (*LogBootsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LogBoots not implemented")
+}
+func (UnimplementedSystemServiceServer) Audit(*EventsRequest, grpc.ServerStreamingServer[Event]) error {
+	return status.Error(codes.Unimplemented, "method Audit not implemented")
 }
 func (UnimplementedSystemServiceServer) Stats(context.Context, *emptypb.Empty) (*StatsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Stats not implemented")
@@ -1253,6 +1288,17 @@ func _SystemService_LogBoots_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	return interceptor(ctx, in, info, handler)
 }
+
+func _SystemService_Audit_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(EventsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SystemServiceServer).Audit(m, &grpc.GenericServerStream[EventsRequest, Event]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SystemService_AuditServer = grpc.ServerStreamingServer[Event]
 
 func _SystemService_Stats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
@@ -2002,6 +2048,11 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "Logs",
 			Handler:       _SystemService_Logs_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "Audit",
+			Handler:       _SystemService_Audit_Handler,
 			ServerStreams: true,
 		},
 		{

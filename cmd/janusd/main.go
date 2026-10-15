@@ -116,10 +116,13 @@ func main() {
 	// And to the log servers configured (internal/logship) - applied once
 	// the event log is loaded, below.
 	logshipDir := filepath.Join(*configDir, "logforward")
+	// The audit (api.AuditLog): every call that changed something, every
+	// call refused - kept on STATE with the event log, below.
+	api.AuditLog = events.NewLog("audit", api.AuditCapacity)
 	shipOpt := logship.Options{
 		Meta:   logship.Meta{Agent: "janusd", AgentVersion: version, Slot: api.CurrentActiveSlot(), Schematic: api.CurrentSchematic()},
 		Volume: logVol,
-		Feeds:  []logship.Feed{eventsFeed()},
+		Feeds:  []logship.Feed{eventsFeed(), auditFeed(api.AuditLog)},
 		OnState: func(target, state, lastError string) {
 			typ := "logship.failing"
 			if state == "ok" {
@@ -160,6 +163,12 @@ func main() {
 			log.Printf("events: %v - the event log is kept in memory only", err)
 		} else {
 			shutdown.Before(events.Flush)
+		}
+		// The audit beside it (STATE's events/ on a node).
+		if err := api.AuditLog.Persist(*eventsDir); err != nil {
+			log.Printf("audit: %v - the audit is kept in memory only", err)
+		} else {
+			shutdown.Before(api.AuditLog.Flush)
 		}
 	}
 	// First in each run's events: what follows is this run's - after a

@@ -263,6 +263,33 @@ func (s *elasticSink) document(r Record, host, nodeID string, labels map[string]
 					ev["sequence"] = id
 				}
 			}
+		case "audit":
+			// Who, from where, how it ended: ECS's user, source and
+			// event.outcome - and the whole entry under janus.audit.
+			if m, ok := v.(map[string]any); ok {
+				user := map[string]any{"name": m["caller"]}
+				if roles, ok := m["roles"]; ok {
+					user["roles"] = roles
+				}
+				doc["user"] = user
+				if p, ok := m["peer"].(string); ok && p != "" {
+					src := map[string]any{"address": p}
+					if host, _, err := net.SplitHostPort(p); err == nil {
+						src["ip"] = host
+					}
+					doc["source"] = src
+				}
+				ev := doc["event"].(map[string]any)
+				ev["outcome"] = "success"
+				if m["code"] != "OK" {
+					ev["outcome"] = "failure"
+				}
+				if ms, ok := m["duration_ms"].(float64); ok {
+					ev["duration"] = int64(ms * 1e6)
+				}
+				ev["category"] = []string{"configuration"}
+				janus["audit"] = m
+			}
 		case "payload":
 			// As text: payloads differ by event type, a field's type
 			// across them would clash in the data stream's mapping.

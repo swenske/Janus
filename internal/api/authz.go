@@ -18,7 +18,8 @@
 // call's metadata - and the call gets that user's roles. A scoped
 // certificate (pki.Scope) gives the roles and domains it names for this
 // node, by its CA's key. Every call that isn't read-only is logged with
-// who made it.
+// who made it, and kept in the audit with how it ended (audit.go), as is
+// every call refused.
 package api
 
 import (
@@ -28,6 +29,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -93,24 +95,34 @@ func CallerFrom(ctx context.Context) (Caller, bool) {
 	return c, ok
 }
 
-// UnaryAuthInterceptor enforces requiredRoles for unary RPCs.
+// UnaryAuthInterceptor enforces requiredRoles for unary RPCs - and keeps
+// the call in the audit (AuditLog).
 func UnaryAuthInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	caller, err := authorize(ctx, info.FullMethod)
 	if err != nil {
+		recordCall(ctx, info.FullMethod, caller, true, err, 0)
 		return nil, err
 	}
 	audit(caller, info.FullMethod)
-	return handler(context.WithValue(ctx, callerKey{}, caller), req)
+	start := time.Now()
+	resp, err := handler(context.WithValue(ctx, callerKey{}, caller), req)
+	recordCall(ctx, info.FullMethod, caller, false, err, time.Since(start))
+	return resp, err
 }
 
-// StreamAuthInterceptor enforces requiredRoles for streaming RPCs.
+// StreamAuthInterceptor enforces requiredRoles for streaming RPCs - and
+// keeps the call in the audit once it's done.
 func StreamAuthInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	caller, err := authorize(ss.Context(), info.FullMethod)
 	if err != nil {
+		recordCall(ss.Context(), info.FullMethod, caller, true, err, 0)
 		return err
 	}
 	audit(caller, info.FullMethod)
-	return handler(srv, callerStream{ss, context.WithValue(ss.Context(), callerKey{}, caller)})
+	start := time.Now()
+	err = handler(srv, callerStream{ss, context.WithValue(ss.Context(), callerKey{}, caller)})
+	recordCall(ss.Context(), info.FullMethod, caller, false, err, time.Since(start))
+	return err
 }
 
 type callerStream struct {
