@@ -538,7 +538,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Processes the kernel killed for lack of memory over the time range, and errors the kernel recorded on STATE (PKI, configuration).",
+      "description": "Processes the kernel killed for lack of memory over the time range, errors the kernel recorded on STATE (PKI, configuration), and log records the LOGS partition failed to write or had to drop.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -609,6 +609,18 @@
           "legendFormat": "STATE errors",
           "range": false,
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "round(sum(increase(janus_logs_volume_errors_total{job=\"$job\", instance=~\"$instance\"}[$__range])) + sum(increase(janus_logs_volume_dropped_records_total{job=\"$job\", instance=~\"$instance\"}[$__range]))) or vector(0)",
+          "instant": true,
+          "legendFormat": "LOGS lost",
+          "range": false,
+          "refId": "C"
         }
       ],
       "title": "Kernel and STATE",

@@ -24,6 +24,7 @@ import (
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/haproxy"
+	"github.com/swenske/Janus/internal/logvol"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/schematic"
@@ -52,6 +53,11 @@ type System struct {
 	// Logs holds each managed service's captured output, by service id
 	// ("janusd", "haproxy") - see Logs.
 	ServiceLogs map[string]*ring.Ring[string]
+
+	// LogVolume keeps the logs across reboots (internal/logvol) - nil on
+	// a node without a LOGS partition. LogDevice is its device.
+	LogVolume *logvol.Volume
+	LogDevice string
 
 	// HAProxy is the supervised haproxy, for the service-control and
 	// Stats RPCs.

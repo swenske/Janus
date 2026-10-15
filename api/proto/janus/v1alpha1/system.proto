@@ -43,10 +43,15 @@ service SystemService {
   // events, kept on STATE across reboots and updates, then new ones as
   // they come.
   rpc Events(EventsRequest) returns (stream Event);
-  // Dmesg streams the kernel ring buffer.
+  // Dmesg streams the kernel ring buffer - or, with boot, a previous
+  // boot's kernel messages from the LOGS partition.
   rpc Dmesg(DmesgRequest) returns (stream Data);
-  // Logs streams a managed service's log output.
+  // Logs streams a managed service's log output - or, with boot, what it
+  // printed during a previous boot, from the LOGS partition.
   rpc Logs(LogsRequest) returns (stream Data);
+  // LogBoots lists the boots whose logs the node keeps on its LOGS
+  // partition, newest first: what Logs and Dmesg take as boot.
+  rpc LogBoots(google.protobuf.Empty) returns (LogBootsResponse);
 
   // Stats sums the CPU time and memory of each managed service's
   // processes - janusd, haproxy (a reload briefly leaves an old haproxy
@@ -545,6 +550,10 @@ message Event {
 
 message DmesgRequest {
   bool follow = 1;
+  // 0: this boot, from the kernel. -1: the boot before it, -2 the one
+  // before that... (LogBoot.offset), from the LOGS partition - follow
+  // is for this boot only.
+  int32 boot = 2;
 }
 
 message LogsRequest {
@@ -553,6 +562,42 @@ message LogsRequest {
   string id = 1;
   bool follow = 2;
   int32 tail_lines = 3;
+  // 0: this boot, from memory. -1: the boot before it, -2 the one
+  // before that... (LogBoot.offset), from the LOGS partition - follow
+  // is for this boot only. A previous boot keeps HAProxy's own messages
+  // ([NOTICE], [WARNING], [ALERT]), not its access logs.
+  int32 boot = 4;
+}
+
+message LogBootsResponse {
+  // Whether the node has a LOGS partition. Without one - a node
+  // installed before it existed - only this boot's logs are kept, in
+  // memory.
+  bool available = 1;
+  // The partition, e.g. "/dev/vda7", and its size.
+  string device = 2;
+  uint64 size_bytes = 3;
+  // Newest first; this boot's is there once its first records are
+  // written (a few seconds after janusd starts).
+  repeated LogBoot boots = 4;
+  // Records written to and dropped from the partition since janusd
+  // started (dropped: the disk too slow for what's printed).
+  uint64 records_written = 5;
+  uint64 records_dropped = 6;
+}
+
+message LogBoot {
+  // What LogsRequest.boot and DmesgRequest.boot take: 0 for this boot,
+  // -1 for the one before...
+  int32 offset = 1;
+  // The partition's own count of boots.
+  uint32 number = 2;
+  // The kernel's boot_id of that boot.
+  string boot_id = 3;
+  // When its first records were written.
+  int64 started_unix_ns = 4;
+  // How much of the partition it takes, in MiB.
+  uint32 mebibytes = 5;
 }
 
 message StatsResponse {

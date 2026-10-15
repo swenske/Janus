@@ -20,6 +20,7 @@ import (
 	"github.com/swenske/Janus/internal/firewall"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/kmsgwatch"
+	"github.com/swenske/Janus/internal/logvol"
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/timesync"
@@ -42,6 +43,7 @@ type metricsSources struct {
 	bgp        *bgp.Manager
 	acme       *acme.Manager
 	statePath  string          // STATE's mount point, for its filesystem's error count
+	logVol     *logvol.Volume  // the LOGS partition, nil without one
 	boot       *boottime.Times // this boot's timing, on a node
 
 	certsMu      sync.Mutex
@@ -337,6 +339,14 @@ func (m *metricsSources) security() []exporter.Family {
 	}
 	if n, ok := ext4Errors(m.statePath); ok {
 		fams = append(fams, gauge("janus_state_filesystem_errors", "Errors the kernel recorded on the STATE filesystem (PKI, configuration) - it should be 0.", sample(float64(n))))
+	}
+	if m.logVol != nil {
+		st := m.logVol.Stats()
+		fams = append(fams,
+			gauge("janus_logs_volume_size_bytes", "The size of the LOGS partition, where the node keeps its logs across reboots.", sample(float64(st.SizeBytes))),
+			counter("janus_logs_volume_written_bytes_total", "Bytes written to the LOGS partition since janusd started.", sample(float64(st.WrittenBytes))),
+			counter("janus_logs_volume_dropped_records_total", "Log records the LOGS partition couldn't take since janusd started (more printed than the disk wrote) - it should be 0.", sample(float64(st.Dropped))),
+			counter("janus_logs_volume_errors_total", "Failed writes to the LOGS partition since janusd started - it should be 0.", sample(float64(st.Errors))))
 	}
 	return fams
 }

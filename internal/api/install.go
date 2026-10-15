@@ -18,6 +18,7 @@ import (
 	"github.com/swenske/Janus/internal/diskimage"
 	"github.com/swenske/Janus/internal/espswitch"
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/logvol"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/pki"
 )
@@ -147,7 +148,14 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 		return err
 	}
 
-	layout, err := diskimage.Compute(disk.Size)
+	logsMB := int64(req.GetLogsSizeMb())
+	switch {
+	case logsMB == 0:
+		logsMB = diskimage.DefaultLogsMB(disk.Size)
+	case logsMB < 0:
+		logsMB = 0
+	}
+	layout, err := diskimage.ComputeWithLogs(disk.Size, logsMB)
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "%s: %v", diskPath, err)
 	}
@@ -166,6 +174,9 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 			{Index: 6, Start: layout.StateStart, End: layout.StateEnd, Type: gpt.LinuxFilesystem, Name: "STATE"},
 		},
 	}
+	if layout.HasLogs() {
+		table.Partitions = append(table.Partitions, &gpt.Partition{Index: 7, Start: layout.LogsStart, End: layout.LogsEnd, Type: gpt.LinuxFilesystem, Name: bootslot.LogsPartName})
+	}
 	if err := disk.Partition(table); err != nil {
 		return status.Errorf(codes.Internal, "write partition table: %v", err)
 	}
@@ -181,6 +192,17 @@ func (l *Lifecycle) Install(req *janusv1alpha1.InstallRequest, stream janusv1alp
 	for _, start := range []uint64{layout.AHashStart, layout.BHashStart} {
 		if err := writeDiskAt(disk, start, verity); err != nil {
 			return status.Errorf(codes.Internal, "write rootfs.verity at sector %d: %v", start, err)
+		}
+	}
+
+	if layout.HasLogs() {
+		// A fresh volume: a reused disk's old logs never show.
+		w, err := disk.Backend.Writable()
+		if err == nil {
+			err = logvol.Format(w, int64(layout.LogsStart)*diskimage.SectorSize, int64(layout.LogsEnd-layout.LogsStart+1)*diskimage.SectorSize)
+		}
+		if err != nil {
+			return status.Errorf(codes.Internal, "format the LOGS partition: %v", err)
 		}
 	}
 
@@ -278,7 +300,7 @@ func refuseIfAlreadyInstalled(d *diskpkg.Disk, diskPath string) error {
 	}
 	for _, p := range d.Table.GetPartitions() {
 		switch p.Label() {
-		case "ESP", "BOOT-A-DATA", "BOOT-A-HASH", "BOOT-B-DATA", "BOOT-B-HASH", "STATE":
+		case "ESP", "BOOT-A-DATA", "BOOT-A-HASH", "BOOT-B-DATA", "BOOT-B-HASH", "STATE", bootslot.LogsPartName:
 			return status.Errorf(codes.FailedPrecondition, "%s already has a %q partition - looks like an existing Janus install; use Upgrade/Rollback instead, or wipe the disk first if this is intentional", diskPath, p.Label())
 		}
 	}

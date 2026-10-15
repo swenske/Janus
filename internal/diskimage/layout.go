@@ -1,8 +1,9 @@
-// Package diskimage computes the fixed six-partition byte layout
+// Package diskimage computes the partition byte layout
 // LifecycleService.Install lays a fresh disk out with - the same
 // convention image/disk/assemble.sh's own sgdisk invocation produces at
 // build time (see internal/bootslot's own doc comment: 1:ESP,
-// 2/3:BOOT-A-DATA/HASH, 4/5:BOOT-B-DATA/HASH, 6:STATE), computed here in
+// 2/3:BOOT-A-DATA/HASH, 4/5:BOOT-B-DATA/HASH, 6:STATE, 7:LOGS after
+// STATE when the disk has room - internal/logvol), computed here in
 // pure Go instead of shelling out, since sgdisk doesn't exist on the
 // target OS any more than it does at runtime for Rollback/Upgrade.
 //
@@ -33,6 +34,16 @@ const (
 	// but barely-usable node.
 	MinStateMB = 16
 
+	// MinLogsMB and MaxLogsMB bound the LOGS partition Install makes by
+	// default: DefaultLogsPercent of the disk, on a disk of at least
+	// MinLogsDiskMB - below that, none unless asked for.
+	MinLogsMB          = 512
+	MaxLogsMB          = 8 << 10
+	DefaultLogsPercent = 5
+	MinLogsDiskMB      = 4 << 10
+	// SmallestLogsMB is the least a LOGS partition may be asked for
+	// (internal/logvol needs its own MiB and two segments).
+	SmallestLogsMB = 16
 	// SectorSize matches every other disk-building script in this
 	// project (image/disk/assemble.sh, rootfs/state-image.sh, ...) -
 	// 512-byte logical sectors, the same default image/disk/
@@ -69,6 +80,21 @@ type Layout struct {
 	BDataStart, BDataEnd uint64
 	BHashStart, BHashEnd uint64
 	StateStart, StateEnd uint64
+	// LogsStart and LogsEnd are 0 when the disk gets no LOGS partition.
+	LogsStart, LogsEnd uint64
+}
+
+// HasLogs says whether the layout has a LOGS partition.
+func (l *Layout) HasLogs() bool { return l.LogsEnd > l.LogsStart }
+
+// DefaultLogsMB is the LOGS partition Install makes on a disk of
+// diskBytes when not told otherwise: DefaultLogsPercent of it, between
+// MinLogsMB and MaxLogsMB - none on a disk under MinLogsDiskMB.
+func DefaultLogsMB(diskBytes int64) int64 {
+	if diskBytes < mb(MinLogsDiskMB) {
+		return 0
+	}
+	return min(max(diskBytes/mb(1)*DefaultLogsPercent/100, MinLogsMB), MaxLogsMB)
 }
 
 func mb(n int64) int64 { return n * 1024 * 1024 }
@@ -89,6 +115,16 @@ func alignUp(sector uint64) uint64 {
 // disk too small for a real install, not something to silently degrade
 // into a broken one.
 func Compute(diskBytes int64) (*Layout, error) {
+	return ComputeWithLogs(diskBytes, 0)
+}
+
+// ComputeWithLogs is Compute with a LOGS partition of logsMB (0: none)
+// at the end of the disk, STATE taking what's left between the boot
+// partitions and it.
+func ComputeWithLogs(diskBytes, logsMB int64) (*Layout, error) {
+	if logsMB != 0 && logsMB < SmallestLogsMB {
+		return nil, fmt.Errorf("a LOGS partition of %d MiB: %d MiB at least", logsMB, SmallestLogsMB)
+	}
 	cur := uint64(AlignSectors)
 	next := func(sizeMB int64) (start, end uint64) {
 		sectors := uint64(mb(sizeMB) / SectorSize)
@@ -114,6 +150,14 @@ func Compute(diskBytes int64) (*Layout, error) {
 	}
 	l.StateStart = cur
 	l.StateEnd = l.StateStart + uint64(remaining/SectorSize) - 1
+	if logsMB > 0 {
+		l.LogsEnd = l.StateEnd
+		l.LogsStart = (l.LogsEnd + 1 - uint64(mb(logsMB)/SectorSize)) / AlignSectors * AlignSectors
+		if l.LogsStart <= l.StateStart || (l.LogsStart-l.StateStart)*SectorSize < uint64(mb(MinStateMB)) {
+			return nil, fmt.Errorf("disk is too small for a %d MiB LOGS partition: STATE would get less than %d MiB", logsMB, MinStateMB)
+		}
+		l.StateEnd = l.LogsStart - 1
+	}
 
 	return l, nil
 }

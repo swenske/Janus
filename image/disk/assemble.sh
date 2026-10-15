@@ -83,18 +83,30 @@ ESP_MB=64
 DATA_MB=64
 HASH_MB=4
 STATE_MB=128
+# The LOGS partition (internal/logvol: the node's logs across reboots),
+# after STATE: raw, nothing to write here - the node formats it at its
+# first boot. All zeros, so it costs nothing in a qcow2 or a VMDK.
+# LOGS_MB=0 leaves it out.
+LOGS_MB="${LOGS_MB:-512}"
 
 size_of() { stat -c%s "$1"; }
 [ "$(size_of "$SQUASHFS")" -le $((DATA_MB * 1024 * 1024)) ] || { echo "rootfs.squashfs exceeds the ${DATA_MB}MiB BOOT-*-DATA partition size" >&2; exit 1; }
 [ "$(size_of "$VERITY")" -le $((HASH_MB * 1024 * 1024)) ] || { echo "rootfs.verity exceeds the ${HASH_MB}MiB BOOT-*-HASH partition size" >&2; exit 1; }
 [ "$(size_of "$STATE_IMAGE")" -le $((STATE_MB * 1024 * 1024)) ] || { echo "state.img exceeds the ${STATE_MB}MiB STATE partition size" >&2; exit 1; }
 
-# +2MiB slack on top of the six partitions' own sizes, for GPT's
+# +2MiB slack on top of the partitions' own sizes, for GPT's
 # primary/backup headers and sgdisk's own partition alignment - sgdisk
 # will refuse to lay out a disk that's merely "exactly big enough".
-TOTAL_MB=$(( ESP_MB + DATA_MB + HASH_MB + DATA_MB + HASH_MB + STATE_MB + 2 ))
+TOTAL_MB=$(( ESP_MB + DATA_MB + HASH_MB + DATA_MB + HASH_MB + STATE_MB + LOGS_MB + 2 ))
 truncate -s "${TOTAL_MB}M" "$OUT"
 
+# STATE takes what's left - when there's no LOGS partition after it.
+STATE_END=0
+LOGS_PART=()
+if [ "$LOGS_MB" -gt 0 ]; then
+  STATE_END="+${STATE_MB}M"
+  LOGS_PART=(-n 7:0:0 -t 7:8300 -c 7:LOGS)
+fi
 sgdisk --zap-all "$OUT" >/dev/null
 sgdisk \
   -n 1:0:+"${ESP_MB}"M  -t 1:ef00 -c 1:ESP \
@@ -102,7 +114,8 @@ sgdisk \
   -n 3:0:+"${HASH_MB}"M -t 3:8300 -c 3:BOOT-A-HASH \
   -n 4:0:+"${DATA_MB}"M -t 4:8300 -c 4:BOOT-B-DATA \
   -n 5:0:+"${HASH_MB}"M -t 5:8300 -c 5:BOOT-B-HASH \
-  -n 6:0:0              -t 6:8300 -c 6:STATE \
+  -n 6:0:"$STATE_END"   -t 6:8300 -c 6:STATE \
+  "${LOGS_PART[@]}" \
   "$OUT" >/dev/null
 
 # Writes $2 at partition $1's own starting byte offset - sgdisk -i
@@ -123,5 +136,5 @@ write_part 4 "$SQUASHFS"
 write_part 5 "$VERITY"
 write_part 6 "$STATE_IMAGE"
 
-echo "Wrote $OUT (${TOTAL_MB}MiB GPT disk: ESP, BOOT-A-DATA/HASH, BOOT-B-DATA/HASH, STATE; active slot $ACTIVE_SLOT)"
+echo "Wrote $OUT (${TOTAL_MB}MiB GPT disk: ESP, BOOT-A-DATA/HASH, BOOT-B-DATA/HASH, STATE$([ "$LOGS_MB" -gt 0 ] && echo ", LOGS"); active slot $ACTIVE_SLOT)"
 sgdisk -p "$OUT"

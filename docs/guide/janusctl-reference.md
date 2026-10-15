@@ -136,13 +136,14 @@ janusctl system service start|stop|restart ID
 Janusd or haproxy output.
 
 ```text
-janusctl system logs [-f] [-n LINES] SERVICE
+janusctl system logs [-f] [-n LINES] [-boot N] SERVICE
 ```
 
 | Flag | |
 |---|---|
 | `-f` | follow |
 | `-n LINES` | only the last LINES lines |
+| `-boot N` | a previous boot's: -1 the one before this one (system boots) |
 
 #### janusctl system events
 
@@ -161,12 +162,21 @@ janusctl system events [-since ID]
 The kernel's messages.
 
 ```text
-janusctl system dmesg [-f]
+janusctl system dmesg [-f] [-boot N]
 ```
 
 | Flag | |
 |---|---|
 | `-f` | follow |
+| `-boot N` | a previous boot's: -1 the one before this one (system boots) |
+
+#### janusctl system boots
+
+The boots whose logs the LOGS partition keeps.
+
+```text
+janusctl system boots
+```
 
 #### janusctl system stats
 
@@ -1139,7 +1149,7 @@ Install, upgrade, roll back.
 Partition a blank disk and write a release (paths on the node).
 
 ```text
-janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT] [-controller-ca FILE] [-controller-fleet-root FILE] [-network-config FILE] [-fleet-root FILE] [-fleet-bundle FILE] [-registration-token TOKEN] [-insecure-skip-signature-check] DISK BUNDLE_DIR
+janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT] [-controller-ca FILE] [-controller-fleet-root FILE] [-network-config FILE] [-fleet-root FILE] [-fleet-bundle FILE] [-registration-token TOKEN] [-logs-size-mb MIB] [-insecure-skip-signature-check] DISK BUNDLE_DIR
 ```
 
 | Flag | |
@@ -1152,6 +1162,7 @@ janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT] [-contr
 | `-fleet-root FILE` | a fleet to trust from the first boot |
 | `-fleet-bundle FILE` | its bundle |
 | `-registration-token TOKEN` | a Controller enrollment token |
+| `-logs-size-mb MIB` | the LOGS partition's size (-1: none; default 5 % of the disk) |
 | `-insecure-skip-signature-check` | accept unsigned UKIs - development only |
 
 #### janusctl lifecycle upgrade
