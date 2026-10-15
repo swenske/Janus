@@ -32,7 +32,7 @@ BUILD_DIR := build
 
 GEN_DIR := gen
 
-.PHONY: all build test vet lint proto clean kernel-menuconfig janusctl-deb janusctl-deb-test apt-publish-test \
+.PHONY: all build test vet lint proto clean rootfs-fit-test kernel-menuconfig janusctl-deb janusctl-deb-test apt-publish-test \
 	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build kernel-builds kernel-config-refresh rpi4-kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
@@ -1086,6 +1086,20 @@ qemu-extensions-test: build extensions-amd64
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
 	JANUS_SCHEMATIC=$$(go run ./hack/extpack id -schematic $(SCHEMATIC)) \
 	./hack/qemu-extensions-test.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage $(BUILD_DIR) $(BIN_DIR)/janusctl $(SCHEMATIC)
+
+# Every extension at once must fit a BOOT-*-DATA slot (64 MiB,
+# image/disk/assemble.sh refuses more): an installed disk keeps its
+# partitions for good, and the factory couldn't build v2026.10.14-6 with
+# every extension (64.26 MiB). The schematic is made from extensions/ -
+# a new extension is in it at once. Warns with less than 2 MiB left.
+rootfs-fit-test: build extensions-amd64
+	python3 -c 'import json, os; print(json.dumps({"customization": {"extensions": sorted(os.listdir("extensions"))}}))' \
+		> $(BUILD_DIR)/schematic-every-extension.json
+	$(MAKE) disk-image SCHEMATIC=$(BUILD_DIR)/schematic-every-extension.json
+	@size=$$(stat -c %s $(BUILD_DIR)/rootfs/rootfs.squashfs); \
+	mib=$$(python3 -c "print(f'{$$size / 1048576:.2f}')"); \
+	echo "every extension: rootfs.squashfs $$mib MiB of the 64 MiB slot"; \
+	if [ $$size -gt $$((62 * 1048576)) ]; then echo "::warning::every extension: rootfs.squashfs $$mib MiB, less than 2 MiB left in the 64 MiB slot"; fi
 
 # The firewall (nftables extension) on a real enforcing node - see the
 # script's header.

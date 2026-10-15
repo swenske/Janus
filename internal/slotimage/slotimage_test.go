@@ -8,10 +8,11 @@ import (
 )
 
 // testdata: an image's root filesystem with its image.json, as zstd
-// (releases since 2026-10-07) and xz (before) build it, and one from
-// before image.json - made with mksquashfs.
+// with 1 MiB blocks (releases since 2026-10-15), zstd with 128 KiB blocks
+// (since 2026-10-07) and xz (before) build it, and one from before
+// image.json - made with mksquashfs.
 func TestRead(t *testing.T) {
-	for _, name := range []string{"testdata/zstd.squashfs", "testdata/xz.squashfs"} {
+	for _, name := range []string{"testdata/zstd-1m.squashfs", "testdata/zstd.squashfs", "testdata/xz.squashfs"} {
 		info, err := ReadPath(name)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
