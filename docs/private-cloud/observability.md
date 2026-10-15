@@ -72,6 +72,11 @@ janusctl -n lb1 system events               # the node's event log, live
 janusctl -n lb1 system dmesg -f             # the kernel: AVC denials, OOM kills...
 ```
 
+The node's console only shows a share of the services' output - about
+2 KB/s, and it says what it left out: HAProxy's access logs under load
+are for the API, not for the serial console
+([HAProxy configuration](../haproxy-config.md#the-global-section)).
+
 The Controller's **Logs** page shows the same, with filters, pause and
 download. To keep logs longer than the node does, a collector on the
 management network can follow them through the API - `janusctl ...
