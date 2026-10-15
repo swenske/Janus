@@ -87,6 +87,11 @@ A node installed before the LOGS partition existed has none (`system
 boots` says so): it keeps only this boot's logs, in memory, until it's
 installed again.
 
+The node's console only shows a share of the services' output - about
+2 KB/s, and it says what it left out: HAProxy's access logs under load
+are for the API, not for the serial console
+([HAProxy configuration](../haproxy-config.md#the-global-section)).
+
 The Controller's **Logs** page shows the same, with filters, pause and
 download. To keep them longer than the node does, send them to your log
 servers - syslog, Elasticsearch - from the node itself:

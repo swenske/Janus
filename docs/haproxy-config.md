@@ -53,6 +53,15 @@ section - HAProxy on a node runs no program and keeps janusd's
 environment. The rest of the global section is yours: `log`, `maxconn`,
 `tune.*`, `ssl-default-*`, threads...
 
+With `log stdout`, janusd keeps every line HAProxy prints, access logs
+included, for `janusctl system logs haproxy` and the Controller's logs
+page. The node's console only shows a few of them: the services on a
+node share about 2 KB/s of it, plus a burst as they start. Past that, a
+line is left out of the console - never waited for - and the console
+says every 10 seconds how many it left out. A serial console, emulated
+by the hypervisor, costs CPU: printing every access log there under load
+took most of a vCPU from HAProxy.
+
 ## TLS: AWS-LC
 
 HAProxy is built against [AWS-LC](https://github.com/aws/aws-lc) rather

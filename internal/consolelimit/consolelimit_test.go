@@ -1,0 +1,151 @@
+package consolelimit
+
+import (
+	"bytes"
+	"io"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+type clock struct{ t time.Time }
+
+func (c *clock) now() time.Time { return c.t }
+
+// drain returns what's queued for the console.
+func drain(b *Budget) string {
+	var s strings.Builder
+	for {
+		select {
+		case l := <-b.lines:
+			s.Write(l)
+		default:
+			return s.String()
+		}
+	}
+}
+
+func TestLinesWithinTheBudget(t *testing.T) {
+	c := &clock{time.Unix(0, 0)}
+	b := newBudget(io.Discard, 10, 100, c.now)
+	w := b.For("haproxy")
+	// A line in two writes, two lines in one.
+	_, _ = io.WriteString(w, "[NOTICE] st")
+	_, _ = io.WriteString(w, "arting\nsecond\nthird\n")
+	if got, want := drain(b), "[NOTICE] starting\nsecond\nthird\n"; got != want {
+		t.Fatalf("console got %q, want %q", got, want)
+	}
+	if n := b.notes(); n != nil {
+		t.Fatalf("notes = %q, want none", n)
+	}
+}
+
+func TestOverTheBudgetIsLeftOutAndSaidSo(t *testing.T) {
+	c := &clock{time.Unix(0, 0)}
+	b := newBudget(io.Discard, 10, 20, c.now)
+	w := b.For("haproxy")
+	_, _ = io.WriteString(w, strings.Repeat("a", 14)+"\n") // 15 of 20
+	_, _ = io.WriteString(w, "bbbbbbbbb\n")                // 10 > 5 left: out
+	_, _ = io.WriteString(w, "cccc\n")                     // 5 of 5
+	_, _ = io.WriteString(b.For("keepalived"), "d\n")      // nothing left: out
+	if got, want := drain(b), strings.Repeat("a", 14)+"\ncccc\n"; got != want {
+		t.Fatalf("console got %q, want %q", got, want)
+	}
+	notes := b.notes()
+	want := []string{
+		"janusd: 1 line of haproxy's output not shown on the console - janusctl system logs haproxy\n",
+		"janusd: 1 line of keepalived's output not shown on the console - janusctl system logs keepalived\n",
+	}
+	if strings.Join(notes, "") != strings.Join(want, "") {
+		t.Fatalf("notes = %q, want %q", notes, want)
+	}
+	if n := b.notes(); n != nil {
+		t.Fatalf("notes said twice: %q", n)
+	}
+
+	// The budget fills back up with time, up to its burst.
+	c.t = c.t.Add(time.Hour)
+	_, _ = io.WriteString(w, strings.Repeat("e", 19)+"\n")
+	if got := drain(b); got != strings.Repeat("e", 19)+"\n" {
+		t.Fatalf("after an hour the console got %q", got)
+	}
+}
+
+func TestALongLineIsCut(t *testing.T) {
+	c := &clock{time.Unix(0, 0)}
+	b := newBudget(io.Discard, 1<<20, 1<<20, c.now)
+	w := b.For("consul")
+	_, _ = io.WriteString(w, strings.Repeat("x", 3*maxLine))
+	_, _ = io.WriteString(w, strings.Repeat("y", maxLine)+"\nnext\n")
+	if got, want := drain(b), strings.Repeat("x", maxLine)+"\nnext\n"; got != want {
+		t.Fatalf("console got %d bytes %q..., want %d", len(got), got[:20], len(want))
+	}
+}
+
+func TestAFullQueueNeverWaits(t *testing.T) {
+	c := &clock{time.Unix(0, 0)}
+	b := newBudget(io.Discard, 1<<20, 1<<20, c.now)
+	w := b.For("haproxy")
+	done := make(chan struct{})
+	go func() {
+		for range queued + 10 {
+			_, _ = io.WriteString(w, "line\n")
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a write waited for the console")
+	}
+	if got := strings.Count(drain(b), "\n"); got != queued {
+		t.Fatalf("%d lines queued, want %d", got, queued)
+	}
+	if n := b.notes(); len(n) != 1 || !strings.HasPrefix(n[0], "janusd: 10 lines of haproxy's") {
+		t.Fatalf("notes = %q", n)
+	}
+}
+
+// syncBuffer is a bytes.Buffer safe to read while run writes to it.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+func TestRunWritesLinesThenNotes(t *testing.T) {
+	out := &syncBuffer{}
+	c := &clock{time.Unix(0, 0)}
+	b := newBudget(out, 0, 6, c.now)
+	tick := make(chan time.Time)
+	go b.run(tick)
+	w := b.For("bird")
+	_, _ = io.WriteString(w, "hello\nworld\n")
+	deadline := time.Now().Add(5 * time.Second)
+	for out.String() != "hello\n" {
+		if time.Now().After(deadline) {
+			t.Fatalf("console = %q", out.String())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	tick <- time.Time{}
+	want := "hello\njanusd: 1 line of bird's output not shown on the console - janusctl system logs bird\n"
+	for out.String() != want {
+		if time.Now().After(deadline) {
+			t.Fatalf("console = %q, want %q", out.String(), want)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
