@@ -104,6 +104,9 @@ type Counters struct {
 	ApplyAccepted   atomic.Uint64
 	ApplyRejected   atomic.Uint64
 	LastApplyUnix   atomic.Int64 // last accepted Apply
+	// UntrackedListening: HAProxy processes that listen but aren't the
+	// one janusd runs, seen at two looks in a row (WatchUntracked).
+	UntrackedListening atomic.Int64
 }
 
 // Counters returns the Manager's counters.

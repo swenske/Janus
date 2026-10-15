@@ -125,6 +125,15 @@ release refuses ([updating nodes](updates.md#when-an-update-reverted)).
   it dies again soon after its start, 30 s at most
   (`janus_haproxy_restarts_total`, the `haproxy.restarted` event). A
   stop through the API stays a stop.
+- **An HAProxy janusd doesn't run, listening** - the `haproxy.untracked`
+  event (its pid, arguments, addresses and start time) and
+  `janus_haproxy_untracked_processes` above 0. janusd looks every 30
+  seconds and reports a process listening at two looks in a row: one a
+  reload replaced closes its listeners at once. Such a process may serve
+  another configuration than the node's; janusd leaves it alone - a
+  reboot ends it. Seen once, never reproduced since (v2026.10.14-5's
+  lab tests): the event, `janusctl system ps` and `system dmesg` taken
+  then help find why.
 
   When the node runs out of memory, the kernel picks the processes in
   this order - their `oom_score_adj`, readable in

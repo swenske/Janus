@@ -682,6 +682,7 @@ func dashboard() obj {
 			annotation("janusd started", "blue", "changes(janus_daemon_start_time_seconds{"+sel+"}[2m]) > 0"),
 			annotation("HAProxy configuration applied", "green", "changes(janus_haproxy_config_last_apply_timestamp_seconds{"+sel+"}[2m]) > 0"),
 			annotation("HAProxy crashed", "red", "increase(janus_haproxy_unexpected_exits_total{"+sel+"}[2m]) > 0"),
+			annotation("An HAProxy janusd doesn't run listens", "orange", "janus_haproxy_untracked_processes{"+sel+"} > 0"),
 		}},
 		"templating": obj{"list": []any{
 			obj{"name": "datasource", "label": "Data source", "type": "datasource", "query": "prometheus",

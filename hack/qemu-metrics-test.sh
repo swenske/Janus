@@ -145,6 +145,7 @@ expect "the accepted apply is counted" 'janus_haproxy_config_applies_total{resul
 expect "the rejected apply is counted" 'janus_haproxy_config_applies_total{result="rejected"}' 'v == 1'
 expect "the apply reloaded HAProxy" 'janus_haproxy_reloads_total' 'v == 1'
 expect "no unexpected HAProxy exit" 'janus_haproxy_unexpected_exits_total' 'v == 0'
+expect "no HAProxy listening that janusd doesn't run" 'janus_haproxy_untracked_processes' 'v == 0'
 expect "the apply's time" 'janus_haproxy_config_last_apply_timestamp_seconds' 'now - 300 < v <= now + 5'
 expect "SELinux enforcing" 'janus_selinux_enforcing' 'v == 1'
 expect "no SELinux denial" 'janus_selinux_denials_total' 'v == 0'
