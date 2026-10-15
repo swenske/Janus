@@ -634,6 +634,12 @@ jobs:
       - name: The Janus exporter serves the node's own metrics
         run: make qemu-metrics-test
 
+      # HAProxy logging every request to its stdout under load: janusd's
+      # API and HAProxy keep their pace, the console only gets the
+      # services' share of it. See hack/qemu-console-flood-test.sh.
+      - name: The console never holds a service's output back
+        run: make qemu-console-flood-test
+
       # The LOGS partition: previous boots' logs and kernel messages read
       # back after a reboot and a power cut, Reset forgets them. See
       # hack/qemu-logvol-test.sh.

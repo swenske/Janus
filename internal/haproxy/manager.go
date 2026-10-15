@@ -35,9 +35,14 @@ type Manager struct {
 	PidPath         string
 	StatsSocketPath string
 
-	// Output, if set, also receives HAProxy's stdout/stderr (alongside
-	// janusd's own), for SystemService.Logs.
+	// Output, if set, also receives HAProxy's stdout/stderr, for
+	// SystemService.Logs.
 	Output io.Writer
+	// Console is where HAProxy's output is shown as it comes - janusd's
+	// own stdout when nil. On a node, a share of the console that never
+	// waits (internal/consolelimit): access logs under load would hold
+	// janusd back.
+	Console io.Writer
 
 	// CertStoreDir, if set, keeps the certificates CertificateUpload
 	// loads at runtime across reloads and restarts (certstore.go).
@@ -317,7 +322,11 @@ func (m *Manager) startLocked(wait bool) error {
 	cmd := exec.Command(m.BinaryPath, args...)
 	cmd.Env = m.env()
 	output := &tailWriter{limit: 16 << 10}
-	out := []io.Writer{os.Stdout, output}
+	console := m.Console
+	if console == nil {
+		console = os.Stdout
+	}
+	out := []io.Writer{console, output}
 	if m.Output != nil {
 		out = append(out, m.Output)
 	}

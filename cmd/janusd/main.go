@@ -44,6 +44,7 @@ import (
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/boottime"
 	"github.com/swenske/Janus/internal/consoledrain"
+	"github.com/swenske/Janus/internal/consolelimit"
 	"github.com/swenske/Janus/internal/consul"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/exporter"
@@ -114,6 +115,9 @@ func main() {
 	}
 	captured := io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"], Tee: logTee(logVol, "janusd")})
 	log.SetOutput(captured)
+	// What the services print is kept whole above; on the console they
+	// share a budget that never waits (internal/consolelimit).
+	console := consolelimit.New(os.Stdout, consolelimit.Rate, consolelimit.Burst)
 	logVolumeSays(logVol, logDev, logWhy)
 	if logVol != nil {
 		shutdown.Before(func() { _ = logVol.Flush() })
@@ -203,6 +207,7 @@ func main() {
 
 	haproxyMgr := haproxy.NewManager(*haproxyBin, *haproxyCfg, *haproxyPid, *haproxySock)
 	haproxyMgr.Output = &ring.LineWriter{Ring: serviceLogs["haproxy"], Tee: haproxyLogTee(logVol)}
+	haproxyMgr.Console = console.For("haproxy")
 	haproxyMgr.CertStoreDir = *haproxyCertStore
 	if haproxyMgr.CertStoreDir == "" {
 		haproxyMgr.CertStoreDir = filepath.Join(filepath.Dir(*haproxyCfg), "runtime-certs")
@@ -236,7 +241,7 @@ func main() {
 	serviceLogs[acme.LogID] = ring.New[string](serviceLogLines)
 	acmeMgr := acme.New(acme.Options{
 		HAProxy: haproxyMgr, HAProxyConfig: *haproxyCfg, Healthy: haproxyHealthy,
-		Output: io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs[acme.LogID], Tee: logTee(logVol, acme.LogID)}),
+		Output: io.MultiWriter(console.For(acme.LogID), &ring.LineWriter{Ring: serviceLogs[acme.LogID], Tee: logTee(logVol, acme.LogID)}),
 	})
 	if *manageHost && acmeMgr.Available() {
 		if err := acmeMgr.Boot(); err != nil {
@@ -301,7 +306,7 @@ func main() {
 	}
 	extMgr := extensions.NewManager(extManifests, func(id string) io.Writer {
 		serviceLogs[id] = ring.New[string](serviceLogLines)
-		return io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs[id], Tee: logTee(logVol, id)})
+		return io.MultiWriter(console.For(id), &ring.LineWriter{Ring: serviceLogs[id], Tee: logTee(logVol, id)})
 	})
 	// keepalived (the VRRP extension) waits for its configuration file:
 	// put the saved one there, and the HAProxy health file it can track,
