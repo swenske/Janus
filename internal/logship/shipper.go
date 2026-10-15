@@ -2,8 +2,9 @@ package logship
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -109,6 +110,10 @@ type Shipper struct {
 	accessOnDisk atomic.Bool
 	labels       atomic.Pointer[map[string]string]
 	nodeID       atomic.Pointer[string]
+	// runID and memSeq number the records offered from memory: an ID
+	// so a batch sent again is stored once (Elasticsearch).
+	runID  string
+	memSeq atomic.Uint64
 
 	cursorsMu    sync.Mutex
 	cursors      cursorFile
@@ -131,6 +136,9 @@ type volCursors struct {
 // New makes a Shipper, with no target until Apply.
 func New(opt Options) *Shipper {
 	s := &Shipper{opt: opt, targets: map[string]*target{}, stop: make(chan struct{}), done: make(chan struct{})}
+	var run [6]byte
+	_, _ = rand.Read(run[:])
+	s.runID = hex.EncodeToString(run[:])
 	if opt.CursorFile != "" {
 		_ = os.MkdirAll(filepath.Dir(opt.CursorFile), 0o700)
 		if b, err := os.ReadFile(opt.CursorFile); err == nil {
@@ -228,6 +236,12 @@ func (s *Shipper) Offer(r Record) {
 		}
 	}
 	s.mu.Unlock()
+	if len(to) == 0 {
+		return
+	}
+	if r.ID == "" {
+		r.ID = fmt.Sprintf("m%s-%d", s.runID, s.memSeq.Add(1))
+	}
 	for _, t := range to {
 		t.mem.push(r)
 		t.poke()
@@ -574,7 +588,7 @@ func (t *target) run() {
 	}()
 	sk, err := t.s.newSink(t.cfg)
 	if err != nil {
-		t.failed(err)
+		t.failedSince(err, time.Now().Add(-failingAfter))
 		<-t.stop
 		return
 	}
@@ -598,6 +612,7 @@ func (t *target) run() {
 			}
 			continue
 		}
+		tried := time.Now()
 		sendCtx, sendCancel := context.WithTimeout(ctx, 30*time.Second)
 		err := sk.Send(sendCtx, b.recs)
 		sendCancel()
@@ -605,7 +620,7 @@ func (t *target) run() {
 			if ctx.Err() != nil {
 				return
 			}
-			t.failed(err)
+			t.failedSince(err, tried)
 			select {
 			case <-time.After(backoff):
 			case <-t.stop:
@@ -651,13 +666,15 @@ func (t *target) wait(vol <-chan struct{}, feeds []<-chan struct{}) bool {
 	return true
 }
 
-func (t *target) failed(err error) {
+// failedSince records a failed send that started at tried: a target
+// failing since failingAfter is said so.
+func (t *target) failedSince(err error, tried time.Time) {
 	t.smu.Lock()
 	t.errs++
 	t.lastErr = err.Error()
 	now := time.Now()
 	if t.failingSince.IsZero() {
-		t.failingSince = now
+		t.failingSince = tried
 	}
 	tell := t.state != "failing" && now.Sub(t.failingSince) >= failingAfter
 	if tell {
@@ -874,8 +891,3 @@ func (q *queue) droppedCount() uint64 {
 	defer q.mu.Unlock()
 	return q.dropped
 }
-
-// errNoElastic is until the Elasticsearch sink is there.
-var errNoElastic = errors.New("elasticsearch isn't supported yet")
-
-func newElasticSink(Target, *env) (sink, error) { return nil, errNoElastic }

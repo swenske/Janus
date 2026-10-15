@@ -1,0 +1,17 @@
+{
+  "targets": [
+    {
+      "name": "elastic",
+      "sources": ["janusd", "haproxy", "access", "extensions", "kernel", "events", "audit"],
+      "elasticsearch": {
+        "url": "https://elastic.example.com:9200",
+        "namespace": "prod",
+        "apiKey": "VnVhQ2ZHY0JDZGJrUW0tZTVhT3g6dWkybHAyYXhUTm1zeWFrdzl0dk5udw==",
+        "gzip": true
+      },
+      "tls": {
+        "fingerprint": "93:BA:4A:A9:69:30:C1:B5:0D:DF:89:AD:FC:CA:5A:88:5D:D4:14:62:B9:2A:0F:1F:DF:FB:D9:60:FF:22:56:D9"
+      }
+    }
+  ]
+}
