@@ -52,7 +52,7 @@ const PILLARS = [
     icon: Feather,
     title: 'Light',
     points: [
-      'A 16 MB root filesystem with 4 binaries - a Go init and its shutdown command, janusd and HAProxy - beside a signed kernel image: nothing else unless you add it.',
+      'A 15 MB root filesystem with 4 binaries - a Go init and its shutdown command, janusd and HAProxy - beside a signed kernel image: nothing else unless you add it.',
       'A 53 MB compressed VM disk, both update slots included; boots straight to a serving HAProxy.',
       'Built from scratch (LFS-style), from a kernel configured symbol by symbol.',
       'Optional software is chosen per image, not installed: an image carries exactly what you picked.',
@@ -186,7 +186,7 @@ export default function Landing() {
         </div>
         <div className="hero-facts">
           <div>
-            <strong>16 MB</strong>
+            <strong>15 MB</strong>
             <span>root filesystem, 4 binaries</span>
           </div>
           <div>
