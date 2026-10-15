@@ -1,5 +1,7 @@
 import { ScrollText } from 'lucide-react'
 import { useState } from 'react'
+import BootLog from '../components/BootLog.jsx'
+import BootSelect from '../components/BootSelect.jsx'
 import LogViewer from '../components/LogViewer.jsx'
 import { Card, PageHeader, Tabs } from '../../shared/ui.jsx'
 import { usePoll } from '../hooks.jsx'
@@ -20,24 +22,32 @@ export default function Logs({ route = '' }) {
   const tabs = [...BUILT_IN, ...(services.data?.services || []).filter((s) => !BUILT_IN.some((b) => b.id === s.id)).map((s) => ({ id: s.id, label: s.id }))]
   const [service, setService] = useState(() => new URLSearchParams(route.split('?')[1] || '').get('service') || 'haproxy')
   const [tail, setTail] = useState(200)
+  const [boot, setBoot] = useState(0)
   return (
     <>
       <PageHeader
         title="Service logs"
-        subtitle="Live output of the node's managed services (the node keeps the last 5000 lines of each, in memory)"
+        subtitle="Live output of the node's managed services (the node keeps the last 5000 lines of each in memory, and previous boots' on its LOGS partition)"
         actions={
-          <select value={tail} onChange={(e) => setTail(Number(e.target.value))}>
-            {TAILS.map((t) => (
-              <option key={t.n} value={t.n}>
-                Start from {t.label}
-              </option>
-            ))}
-          </select>
+          <>
+            <BootSelect value={boot} onChange={setBoot} />
+            <select value={tail} onChange={(e) => setTail(Number(e.target.value))}>
+              {TAILS.map((t) => (
+                <option key={t.n} value={t.n}>
+                  {boot === 0 ? 'Start from' : 'Show'} {t.label}
+                </option>
+              ))}
+            </select>
+          </>
         }
       />
       <Tabs tabs={tabs.some((t) => t.id === service) ? tabs : [...tabs, { id: service, label: service }]} active={service} onChange={setService} />
       <Card title={service === 'haproxy' ? 'HAProxy output (stdout/stderr)' : service === 'janusd' ? 'janusd log' : `${service} output (stdout/stderr)`} icon={ScrollText}>
-        <LogViewer key={`${service}-${tail}`} url={`/api/stream/logs?id=${service}&tail=${tail}`} name={service} />
+        {boot === 0 ? (
+          <LogViewer key={`${service}-${tail}`} url={`/api/stream/logs?id=${service}&tail=${tail}`} name={service} />
+        ) : (
+          <BootLog key={`${service}-${boot}-${tail}`} url={`/api/logs?id=${service}&boot=${boot}&tail=${tail}`} name={`${service}-boot${boot}`} />
+        )}
       </Card>
     </>
   )
