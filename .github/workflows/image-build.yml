@@ -652,6 +652,12 @@ jobs:
       - name: The logs reach Elasticsearch, stored once each
         run: make qemu-logforward-es-test
 
+      # The Controller's log forwarding with two real nodes: its own audit
+      # and log, a fleet profile picked by labels, kept applied, taken
+      # off. See hack/qemu-logforward-fleet-test.sh.
+      - name: The Controller sends its logs and keeps its fleet's profiles applied
+        run: make qemu-logforward-fleet-test
+
       # Every other SystemService/HAProxyService/NetworkService method on
       # a real enforcing node, ending with janusd restart, reboot, reset
       # and shutdown. See hack/qemu-system-api-test.sh.
