@@ -54,6 +54,7 @@ import (
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/nodeexporter"
+	"github.com/swenske/Janus/internal/oomadj"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/schematic"
@@ -108,6 +109,9 @@ func main() {
 
 	// The event log, kept where it survives a reboot or an update before
 	// anything is published: what happened before still shows after.
+	if *manageHost {
+		oomadj.Enable() // what janusd starts gets its OOM score (internal/oomadj)
+	}
 	if *eventsDir == "" && *manageHost {
 		*eventsDir = nodeEventsDir
 	}

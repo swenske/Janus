@@ -36,6 +36,7 @@ import (
 	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/nocloud"
+	"github.com/swenske/Janus/internal/oomadj"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/sysctl"
 )
@@ -672,6 +673,16 @@ func startDaemon(pendingMarker *bootcommit.Marker, kernelDone float64) {
 		if err := (boottime.Times{Kernel: kernelDone, Init: up}).Save(boottime.File); err != nil {
 			fmt.Printf("init: boot times: %v\n", err)
 		}
+	}
+
+	// janusd and what it starts go last for the OOM killer (internal/
+	// oomadj): init lowers its own score - init itself is never picked -
+	// so janusd is born with it, and janusd raises each process it
+	// starts to its own.
+	if err := oomadj.SetSelf(oomadj.Janusd); err != nil {
+		fmt.Printf("init: oom_score_adj: %v - janusd runs with the kernel's default\n", err)
+	} else {
+		fmt.Printf("init: janusd starts with oom_score_adj %d\n", oomadj.Janusd)
 	}
 
 	sv := &Supervisor{

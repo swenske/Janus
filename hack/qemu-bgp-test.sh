@@ -177,6 +177,14 @@ for n in a b; do
 done
 echo "  ok: OSPF and BFD run next to BGP"
 
+# bird behind HAProxy and ahead of the other extensions for the OOM
+# killer (its manifest, internal/oomadj).
+pid="$(ctl a system ps | awk 'index($0, "/usr/local/sbin/bird") {print $1; exit}')"
+[ -n "$pid" ] || fail "no bird in Processes"
+got="$(ctl a system cat "/proc/$pid/oom_score_adj" | tr -d '[:space:]')"
+[ "$got" = -300 ] || fail "bird (pid $pid): oom_score_adj $got, want -300"
+echo "  ok: bird at oom_score_adj -300"
+
 # A's HAProxy stops answering: haproxy_anycast is held down, B loses
 # that route and keeps the other.
 ctl a system service stop haproxy >/dev/null || fail "stopping HAProxy on A"

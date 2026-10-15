@@ -176,6 +176,16 @@ check "node_exporter logs captured" 'Starting node_exporter' "$(ctl system logs 
 ps_out="$(ctl system ps)"
 check "node_exporter listed by Processes" 'node_exporter' "$ps_out"
 check "qemu-ga listed by Processes" 'qemu-ga' "$ps_out"
+# The OOM killer's order (internal/oomadj): janusd last, then HAProxy,
+# then the extensions - set by init and janusd on the real processes.
+for want in "/sbin/janusd -900" "/usr/local/sbin/haproxy -500" "node_exporter 0" "qemu-ga 0"; do
+  name=${want% *} adj=${want##* }
+  pid="$(awk -v n="$name" 'index($0, n) {print $1; exit}' <<<"$ps_out")"
+  [ -n "$pid" ] || fail "no $name in Processes"
+  got="$(ctl system cat "/proc/$pid/oom_score_adj" | tr -d '[:space:]')"
+  [ "$got" = "$adj" ] || fail "$name (pid $pid): oom_score_adj $got, want $adj"
+done
+echo "  ok: oom_score_adj - janusd -900, HAProxy -500, the extensions 0"
 # Janus's own exporter reports the extensions and their services.
 jm="$(curl -s -m 5 "http://127.0.0.1:${P_JANUS}/metrics" || true)"
 check "janus exporter: the image's extensions" '^janus_extension_info\{extension="prometheus-node-exporter",version="[0-9.]+"\} 1$' "$jm"

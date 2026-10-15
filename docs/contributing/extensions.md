@@ -44,7 +44,7 @@ models ([images and extensions](../image-factory.md)).
 | `name`, `description`, `homepage` | What the image builder and the catalog show |
 | `arches` | `amd64`, `arm64` - what it's built for |
 | `replaces` | Its former names: a node built with one is offered this one |
-| `services` | The processes `janusd` supervises - restarted with a backoff when they exit, their output in the node's logs, listed with `janusd` and `haproxy`. `wait_for` paths keep a service `waiting`, not failing, until they exist |
+| `services` | The processes `janusd` supervises - restarted with a backoff when they exit, their output in the node's logs, listed with `janusd` and `haproxy`. `wait_for` paths keep a service `waiting`, not failing, until they exist. `oom_score_adj` (default 0) orders it for the kernel's OOM killer: between -300, for a daemon the node's traffic depends on (bird, keepalived), and 1000 - never as kept as HAProxy (-500) or janusd (-900) |
 | `selinux_labels` | The SELinux type of each file it installs, applied when the root filesystem is built |
 
 The image carries the manifest at `/usr/lib/janus/extensions/<name>.json`.

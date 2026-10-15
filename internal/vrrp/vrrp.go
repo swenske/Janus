@@ -7,6 +7,7 @@
 package vrrp
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/modcfg"
+	"github.com/swenske/Janus/internal/oomadj"
 )
 
 // Where keepalived and its files are - vars, so tests can move them.
@@ -243,7 +245,11 @@ func (m *Manager) jsonSignal() (syscall.Signal, error) {
 	if m.jsonSig != 0 {
 		return m.jsonSig, nil
 	}
-	out, err := exec.Command(Binary, "--signum=JSON").Output()
+	var outBuf bytes.Buffer
+	cmd := exec.Command(Binary, "--signum=JSON")
+	cmd.Stdout = &outBuf
+	err := oomadj.Run(cmd, oomadj.Default)
+	out := outBuf.Bytes()
 	if err != nil {
 		return 0, fmt.Errorf("keepalived --signum=JSON: %w", err)
 	}

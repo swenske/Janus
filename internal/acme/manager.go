@@ -39,6 +39,7 @@ import (
 	"github.com/swenske/Janus/internal/acme/acmewire"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/haproxy"
+	"github.com/swenske/Janus/internal/oomadj"
 )
 
 // Where things are - vars, so tests can move them.
@@ -856,7 +857,7 @@ func (m *Manager) run(req *acmewire.Request, timeout time.Duration) (*acmewire.R
 	if cmd.Stderr == nil {
 		cmd.Stderr = os.Stderr
 	}
-	runErr := cmd.Run()
+	runErr := oomadj.Run(cmd, oomadj.Default)
 	res := &acmewire.Result{}
 	if err := json.Unmarshal(out.Bytes(), res); err != nil {
 		if ctx.Err() != nil {

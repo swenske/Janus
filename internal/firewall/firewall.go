@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/oomadj"
 )
 
 // Binary is nft, from the nftables extension; Dir is where the ruleset
@@ -187,7 +188,7 @@ func run(stdin string, args ...string) (stdout, stderr string, err error) {
 	cmd.Stdin = strings.NewReader(stdin)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
-	err = cmd.Run()
+	err = oomadj.Run(cmd, oomadj.Default)
 	return out.String(), errb.String(), err
 }
 
