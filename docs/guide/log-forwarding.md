@@ -7,9 +7,12 @@ What it keeps on disk is sent at least once, even across a server outage
 or a reboot.
 
 There's no syslog daemon to configure on a node, and no agent to install:
-janusd sends the logs (`internal/logship`), set through the API -
-`janusctl system log-forwarding`, or the `SystemService.LogForwarding*`
-calls ([API reference](../private-cloud/api-reference.md)).
+janusd sends the logs (`internal/logship`), set through the API - the
+node's page, `janusctl system log-forwarding`, the
+`SystemService.LogForwarding*` calls
+([API reference](../private-cloud/api-reference.md)) - or for a fleet by
+the Controller, which sends its own log and audit too
+([below](#from-the-controller)).
 
 ## What's sent
 
@@ -262,6 +265,33 @@ show-info`) says how many.
 - Nothing waits for a target: a line is queued, written to disk or
   dropped - HAProxy, janusd and the API never slow down for a log
   server.
+
+## From the Controller
+
+The Controller's **Log forwarding** page (admins) sets two things:
+
+- **The Controller's own logs**: its log and its audit - every change
+  made through it, every sign-in - to its own targets, its audit from
+  where it stopped after a restart.
+- **Fleet profiles**: each a label selector (`team=web,env=prod`; empty:
+  every node) and the log targets of the nodes it picks. A node takes the
+  first profile whose labels it has, and the Controller keeps it applied:
+  at once when a profile or a node's labels change, every ten minutes
+  otherwise - a change made on the node is undone, a profile that no
+  longer picks a node is taken off it. A node no profile picks keeps its
+  own configuration, set on its page (Logs › Forwarding) or with
+  `janusctl`. The page lists each node's state: `applied`, `unmanaged`,
+  `removed`, `unsupported` (a release without log forwarding).
+
+A node's page shows what the Controller set as read-only, and its
+configuration says by whom (`managed_by`: the Controller and the
+profile). The secrets - API keys, passwords, client keys - are sealed
+with the Controller's master key and sent to the nodes the profile picks;
+neither the page nor the API gives them back. A target is tested from
+the Controller (its own) or from one of the profile's nodes.
+
+The Controller in a container keeps writing its log on its standard
+error too: `docker logs` and Docker's own logging drivers still see it.
 
 ## Watching it
 
