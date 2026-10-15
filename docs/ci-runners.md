@@ -177,12 +177,45 @@ against the release) into `/opt/actions-runner`, `/opt/actions-runner-2`...:
 ```sh
 sudo -u actions-runner ./config.sh --unattended --url https://github.com/swenske/Janus \
   --token <registration token> --name janus-runnerNN[-i] --labels docker,janus --work _work
-printf 'LANG=C\nJANUS_TEST_PORT_OFFSET=%d\n' <offset> > .env
+printf 'LANG=C\nJANUS_TEST_PORT_OFFSET=%d\nACTIONS_RUNNER_ACTION_ARCHIVE_CACHE=/opt/actionarchivecache\n' <offset> > .env
 sudo ./svc.sh install actions-runner && sudo ./svc.sh start
 ```
 
 A registration token comes from `gh api -X POST
 repos/swenske/Janus/actions/runners/registration-token -q .token`.
+
+### Action archive cache
+
+A runner downloads every action a job uses, at the start of the job,
+from GitHub's archive of the pinned commit. That archive can fail while
+the commit is fine: on 2026-10-15, codeload answered 404 for
+`actions/setup-go` v7.0.0's commit for hours, and every image-build job
+failed within seconds of starting.
+
+So each machine keeps the archives in `/opt/actionarchivecache`, and
+each instance's `.env` points there
+(`ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE`, a runner setting - GitHub's own
+runners use it). An action found there isn't downloaded.
+`hack/runner-action-cache.sh` makes the archives:
+
+- every action the workflows and composite actions pin by commit;
+- as `<owner>_<repo>/<sha>.tar.gz`, the layout the runner expects;
+- built with git from the commit itself, so nothing comes from codeload.
+
+**Refresh it when a pin changes** (a Dependabot update): a pin missing
+from the cache is still downloaded, so a stale cache costs nothing
+until GitHub fails again. From a checkout of `main`:
+
+```sh
+hack/runner-action-cache.sh /tmp/actionarchivecache
+rsync -a --delete /tmp/actionarchivecache/ janus-runnerNN:/tmp/actionarchivecache/
+ssh janus-runnerNN 'sudo rsync -a --delete --chown=root:root --chmod=D755,F644 \
+  /tmp/actionarchivecache/ /opt/actionarchivecache/'
+```
+
+The runner reads `.env` when it starts: after adding the line to an
+instance, restart its service, once it is idle (`pgrep -x
+Runner.Worker` finds nothing).
 
 ## Publishing janusctl on apt.sw-servers.net
 
