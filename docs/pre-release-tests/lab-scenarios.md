@@ -186,6 +186,7 @@ campaign; every other threshold keeps its default.
 | Memory under pressure | a 700 MB HAProxy cache on 1 GiB (7 % of the memory available), removed after 6 minutes | the step up, the kernel parameters following (`tcp_mem`, `fs.file-max`), the step down, the parameters back, lost requests |
 | Paused | the policy's mode set to paused | back to its size, how fast |
 | Modes and removal | since v2026.10.14-4: on, an OOM kill (the three-cache configuration below), the usual configuration back, paused, on again for 2 minutes, the policy removed | the kernel parameters back with its size and before the removal's restart; no step on again for a kill already answered (since -5); the node's events and probes throughout |
+| Put back with HAProxy down | since v2026.10.14-6, on a machine whose kernel parameters nobody changed by hand: the three-cache configuration applied until it runs at 2 GiB, then paused (back to 1 GiB, where it can't run), on again, the policy removed at 2 GiB | the parameters confirmed back at 1 GiB and still there past the trial's 2 minutes; put back before the removal's restart; HAProxy's processes listed every 3 s |
 | Its pages | the Hypervisors tab: the machine's card, its status, its journal | both themes, no console error |
 
 ## The scripts
