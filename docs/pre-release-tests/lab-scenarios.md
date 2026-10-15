@@ -148,7 +148,10 @@ example:
 - v2026.10.14 and -2: auto-scaling, below;
 - v2026.10.14-4 and -5: what auto-scaling does when its mode changes or
   its policy goes - the kernel parameters put back, an OOM kill counted
-  once - below.
+  once - below;
+- v2026.10.15: the image with every extension - built by the factory, a
+  machine created from it through the Controller, its services and
+  denials; the nodes of the previous release naming the new image.
 
 ### HAProxy killed by the kernel
 
