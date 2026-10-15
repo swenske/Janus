@@ -533,7 +533,7 @@ function Light() {
         </div>
         <div className="row2">
           <div className="tile win" style={{ '--d': '2.2s' }}>
-            <b>53 MB VM disk</b>
+            <b>52 MB VM disk</b>
             <span>compressed, both update slots included</span>
             <div className="diskbar">
               <i className="grow" style={{ '--d': '2.5s', '--len': '1.2s', width: '50%', background: 'var(--accent)' }} />

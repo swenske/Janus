@@ -53,7 +53,7 @@ const PILLARS = [
     title: 'Light',
     points: [
       'A 15 MB root filesystem with 4 binaries - a Go init and its shutdown command, janusd and HAProxy - beside a signed kernel image: nothing else unless you add it.',
-      'A 53 MB compressed VM disk, both update slots included; boots straight to a serving HAProxy.',
+      'A 52 MB compressed VM disk, both update slots included; boots straight to a serving HAProxy.',
       'Built from scratch (LFS-style), from a kernel configured symbol by symbol.',
       'Optional software is chosen per image, not installed: an image carries exactly what you picked.',
     ],
