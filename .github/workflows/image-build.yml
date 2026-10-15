@@ -777,6 +777,13 @@ jobs:
       - name: Optional extensions and image schematics
         run: make qemu-extensions-test
 
+      # Every extension at once still fits a boot slot (64 MiB): an
+      # installed disk keeps its partitions, and an image too big for them
+      # can't be built by the factory - v2026.10.14-6's every-extension
+      # schematic couldn't. Warns with less than 2 MiB left.
+      - name: Every extension at once fits a boot slot
+        run: make rootfs-fit-test
+
       # The firewall (nftables extension) on a real enforcing node: a
       # ruleset checked, applied on trial and confirmed over a new
       # connection, filtering for real; a lockout reverted by itself; sets

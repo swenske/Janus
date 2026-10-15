@@ -82,7 +82,16 @@ mkdir -p "$OUT_DIR"
 # /etc/passwd on the target to resolve another owner against.
 # -root-mode 0755: mktemp -d's 0700 would otherwise become the image's
 # root directory mode.
-mksquashfs "$TREE" "$OUT_DIR/rootfs.squashfs" -noappend -comp zstd -Xcompression-level 19 -all-root -root-mode 0755 \
+#
+# -b 1M, squashfs's largest block: zstd compresses the big Go binaries
+# better over a larger window. The image with every extension was 64.26
+# MiB with the default 128 KiB blocks - over the 64 MiB BOOT-*-DATA
+# partitions an installed disk has for good (v2026.10.14-6: the factory
+# couldn't build it) - and 60.09 MiB with 1 MiB blocks (256 KiB: 62.61,
+# 512 KiB: 61.22); the default image went from 14.96 to 14.10 MiB. The
+# kernel reads a block whole; janusd still listens 1.2 s after the
+# kernel started, as with 128 KiB (OVMF + KVM, six boots each).
+mksquashfs "$TREE" "$OUT_DIR/rootfs.squashfs" -noappend -comp zstd -Xcompression-level 19 -b 1M -all-root -root-mode 0755 \
   "${PSEUDO[@]}"
 
 veritysetup format "$OUT_DIR/rootfs.squashfs" "$OUT_DIR/rootfs.verity" > "$OUT_DIR/rootfs.verity.info"
