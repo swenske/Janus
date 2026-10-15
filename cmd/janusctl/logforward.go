@@ -123,7 +123,11 @@ func printLogForwarding(resp *janusv1alpha1.LogForwardingResponse) {
 	for _, st := range resp.GetTargets() {
 		last := "-"
 		if ns := st.GetLastSentUnixNs(); ns > 0 {
-			last = time.Since(time.Unix(0, ns)).Round(time.Second).String() + " ago"
+			// The node's clock may be a few seconds ahead of this one.
+			last = "now"
+			if d := time.Since(time.Unix(0, ns)).Round(time.Second); d > 0 {
+				last = d.String() + " ago"
+			}
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%s\t%s\n", st.GetName(), st.GetState(), st.GetSent(), st.GetDropped(), st.GetQueued(), last, where[st.GetName()])
 	}

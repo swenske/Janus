@@ -118,6 +118,25 @@ func TestTrustModes(t *testing.T) {
 	}
 }
 
+// A server that sends its own certificate alone (Logstash, rsyslog) is
+// trusted by that certificate's fingerprint, not its CA's - and the
+// refusal says which one to pin.
+func TestLeafOnlyServer(t *testing.T) {
+	ca := mint(t, "Logs CA", nil, true)
+	leaf := mint(t, "logs", ca, false, "logs.example")
+	addr := serve(t, leaf)
+	if err := dial(t, Trust{Fingerprint: Fingerprint(leaf.cert.Raw)}, addr); err != nil {
+		t.Errorf("the leaf's fingerprint: %v", err)
+	}
+	err := dial(t, Trust{Fingerprint: Fingerprint(ca.cert.Raw)}, addr)
+	if err == nil || !strings.Contains(err.Error(), "only its own certificate") || !strings.Contains(err.Error(), Fingerprint(leaf.cert.Raw)) {
+		t.Errorf("the CA's fingerprint: err = %v, want the leaf's fingerprint named", err)
+	}
+	if err := dial(t, Trust{CAPEM: ca.pem}, addr); err != nil {
+		t.Errorf("the CA as a PEM: %v", err)
+	}
+}
+
 func colons(h string) string {
 	var parts []string
 	for i := 0; i < len(h); i += 2 {

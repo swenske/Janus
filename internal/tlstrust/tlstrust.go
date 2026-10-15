@@ -125,6 +125,11 @@ func verifyPinned(chain []*x509.Certificate, want, name string) error {
 		_, err := chain[0].Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, DNSName: name})
 		return err
 	}
+	if len(chain) == 1 {
+		// Many servers (Logstash, rsyslog...) send their own certificate
+		// alone: a CA's fingerprint can't match there.
+		return fmt.Errorf("the server presented only its own certificate (SHA-256 %s), not %s: pin that one, or give its CA as a PEM", Fingerprint(chain[0].Raw), want)
+	}
 	return fmt.Errorf("no certificate the server presented has the SHA-256 fingerprint %s (its own: %s)", want, Fingerprint(chain[0].Raw))
 }
 

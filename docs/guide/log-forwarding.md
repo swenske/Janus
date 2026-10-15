@@ -163,7 +163,9 @@ A `tls` target checks the server's certificate:
   certificate;
 - `tls.fingerprint`: the SHA-256 fingerprint of the server's certificate,
   or of a CA in the chain it presents - colons or not; a wrong one is
-  refused with the server's own;
+  refused with the server's own. Many servers (Logstash, rsyslog) present
+  their own certificate alone: pin that one, or give the CA as
+  `tls.ca_pem`;
 - `tls.server_name`: the name the certificate carries, when it isn't the
   address's;
 - `tls.client_cert_pem` and `tls.client_key_pem`: a client certificate,
