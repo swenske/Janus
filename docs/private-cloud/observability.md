@@ -94,9 +94,22 @@ servers - syslog, Elasticsearch - from the node itself:
 
 **Who did what**: each node logs every call that changes something with
 the account behind it (`api: <Method>: <caller>`), the Controller
-included - it acts on a node for the account using its page. The
-Controller keeps its own audit log of every change made through it
-(`audit.jsonl` in its data directory).
+included - it acts on a node for the account using its page - and keeps
+an audit: every such call once done, with where it came from, how it
+ended and how long it took, and every call refused. Its last 2000
+entries stay on STATE across reboots and updates, for admins:
+
+```sh
+janusctl -n lb1 system audit
+# 412  2026-10-16T08:12:03Z  SystemService/Reboot  ci-reader (os:reader)  10.0.0.5:41234  refused: ... requires role [os:admin os:operator] ...
+# 413  2026-10-16T08:12:40Z  HAProxyService/ApplyConfig  alice (os:operator) via janus-controller  10.0.0.2:52110  OK, 84 ms
+```
+
+The audit is a [log forwarding](../guide/log-forwarding.md) source like
+the others: to a syslog server as `authpriv`, to Elasticsearch with ECS's
+`user.name`, `source.ip` and `event.outcome`. The Controller keeps its
+own audit log of every change made through it (`audit.jsonl` in its
+data directory).
 
 ## When something's wrong
 

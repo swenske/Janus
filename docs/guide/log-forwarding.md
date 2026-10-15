@@ -23,6 +23,7 @@ Each target - a log server - takes the sources it names:
 | `extensions` | The extensions' services: keepalived, BIRD, Consul, node_exporter, the guest agent, Let's Encrypt | LOGS partition |
 | `kernel` | The kernel's messages: AVC denials, OOM kills, devices | LOGS partition |
 | `events` | The [event log](../private-cloud/observability.md#logs): configuration applied, reboots, updates, failovers... | STATE |
+| `audit` | Every call that changed something - who, from where, how it ended - and every call refused ([who did what](../private-cloud/observability.md#logs)) | STATE |
 
 A target that names no source takes them all but `access`: HAProxy logs
 a line per request, thousands a second under load - ask for them.
@@ -69,7 +70,7 @@ where it keeps its place: rename it, and it starts again from now.
 | `transport` | `udp` (the default), `tcp`, `tls` |
 | `format` | `rfc5424` (the default) or `rfc3164` (BSD) |
 | `framing` | over `tcp` and `tls`: `octet-counting` (RFC 6587, the default with `rfc5424`) or `lf` (a message a line, the default with `rfc3164`) |
-| `facility` | the services' lines: `local0` (the default) to `local7`, `daemon`, `user`, `auth`. The kernel's messages are `kern` |
+| `facility` | the services' lines: `local0` (the default) to `local7`, `daemon`, `user`, `auth`. The kernel's messages are `kern`, the audit's `authpriv` |
 
 A message carries the node's hostname, the service as its app name
 (`janusd`, `haproxy`, `keepalived`, `kernel`...), the source as its
@@ -130,8 +131,10 @@ or `openssl x509 -noout -fingerprint -sha256 -in config/certs/http_ca.crt`.
 The documents have ECS fields: `@timestamp`, `message`, `log.level`,
 `host.name` and `host.id` (the node's CA SHA-256: the console's `pki:
 this node's CA` line), `service.name`, `event.dataset`, an event's
-`event.action` (its type) and `janus.payload`, `labels.*`, `janus.slot`
-and `janus.schematic`. In Kibana, a data view on `logs-janus*` shows them
+`event.action` (its type) and `janus.payload`, an audit entry's
+`user.name`, `user.roles`, `source.ip`, `event.action` (the method),
+`event.outcome` and `event.duration`, `labels.*`, `janus.slot` and
+`janus.schematic`. In Kibana, a data view on `logs-janus*` shows them
 all.
 
 A batch sent again - a timeout, the cluster busy (429) - is stored once:
@@ -240,7 +243,8 @@ show-info`) says how many.
 
 - **From disk, at least once**: what the LOGS partition and STATE keep -
   janusd's log, HAProxy's messages, the extensions', the kernel's, the
-  event log - each target reads behind a cursor saved as it goes. A
+  event log, the audit - each target reads behind a cursor saved as it
+  goes. A
   server down, then back: what was logged meanwhile goes then, in order.
   A reboot, janusd restarted: each target goes on from its cursor. As
   long as the partition still holds it: the oldest boots go when it's
