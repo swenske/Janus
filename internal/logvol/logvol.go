@@ -626,6 +626,14 @@ func (v *Volume) Boots() []Boot {
 // Current is this boot's number.
 func (v *Volume) Current() uint32 { return v.boot }
 
+// LastSeq is the newest record's sequence number, written or still
+// queued: a reader starting now starts after it.
+func (v *Volume) LastSeq() uint64 {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.nextSeq - 1
+}
+
 // ID is the volume's UUID: record sequence numbers are unique within it
 // (a Reset or a reinstall makes a new one).
 func (v *Volume) ID() [16]byte {

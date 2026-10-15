@@ -152,6 +152,12 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "events", help: "the node's event log, live", flags: []flagDef{valFlag("since", "ID", "only events after this ID", argNone)}},
 		{name: "dmesg", help: "the kernel's messages", flags: []flagDef{boolFlag("f", "follow"), valFlag("boot", "N", "a previous boot's: -1 the one before this one (system boots)", argNone)}},
 		{name: "boots", help: "the boots whose logs the LOGS partition keeps"},
+		{name: "log-forwarding", help: "where the node's logs go: syslog, Elasticsearch (docs/guide/log-forwarding.md)", subs: []*command{
+			{name: "status", help: "each target's state: sent, dropped, waiting, the last error"},
+			{name: "get", help: "the configuration as JSON, without its secrets"},
+			{name: "set", args: "FILE", help: "replace the configuration (JSON, as get prints it; a secret left out keeps its saved value)", pos: []argKind{argFile}, required: 1},
+			{name: "test", args: "TARGET", help: "send one record to a target now", flags: []flagDef{valFlag("file", "FILE", "take the target from this configuration rather than the saved one", argFile)}, required: 1},
+		}},
 		{name: "stats", help: "CPU and memory of janusd and haproxy"},
 		{name: "systemstat", help: "boot time, context switches, processes created, the CPUs' ticks (idle, steal)"},
 		{name: "ps", help: "every process"},

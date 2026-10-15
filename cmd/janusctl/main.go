@@ -469,6 +469,10 @@ func runSystem(conn *grpc.ClientConn, endpoint string, redial redialer, args []s
 		runSysctl(conn, endpoint, redial, args[1:])
 		return
 	}
+	if len(args) > 0 && args[0] == "log-forwarding" {
+		runLogForwarding(conn, args[1:])
+		return
+	}
 	if len(args) > 0 && args[0] != "info" && runSystemCommand(conn, args[0], args[1:]) {
 		return
 	}

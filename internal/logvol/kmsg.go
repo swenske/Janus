@@ -46,11 +46,11 @@ func ParseKmsg(rec []byte) (KmsgRecord, bool) {
 	return KmsgRecord{Priority: prio, Seq: seq, Usec: usec, Message: msg}, true
 }
 
-// FollowKmsg appends the kernel's messages to v as service "kernel",
-// from the start of its buffer, forever. seqFile (on a tmpfs: it
-// outlives janusd, not the boot) keeps the last one appended, so a
-// restarted janusd doesn't append them twice.
-func FollowKmsg(v *Volume, path, seqFile string) error {
+// FollowKmsg gives emit each of the kernel's messages, with its time of
+// day, from the start of its buffer, forever. seqFile (on a tmpfs: it
+// outlives janusd, not the boot) keeps the last one given, so a
+// restarted janusd doesn't give them twice.
+func FollowKmsg(path, seqFile string, emit func(KmsgRecord, time.Time)) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -77,7 +77,7 @@ func FollowKmsg(v *Volume, path, seqFile string) error {
 		if !ok || (after > 0 && k.Seq <= after) {
 			continue
 		}
-		v.Append(Record{Time: kmsgTime(k.Usec), Severity: uint8(k.Priority & 7), Service: "kernel", Message: k.Line()})
+		emit(k, kmsgTime(k.Usec))
 		after = k.Seq
 		if time.Since(saved) >= time.Second {
 			_ = os.WriteFile(seqFile, []byte(strconv.FormatUint(after, 10)), 0o600)

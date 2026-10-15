@@ -20,6 +20,7 @@ import (
 	"github.com/swenske/Janus/internal/firewall"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/kmsgwatch"
+	"github.com/swenske/Janus/internal/logship"
 	"github.com/swenske/Janus/internal/logvol"
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/pki"
@@ -44,6 +45,7 @@ type metricsSources struct {
 	acme       *acme.Manager
 	statePath  string          // STATE's mount point, for its filesystem's error count
 	logVol     *logvol.Volume  // the LOGS partition, nil without one
+	ship       *logship.Shipper
 	boot       *boottime.Times // this boot's timing, on a node
 
 	certsMu      sync.Mutex
@@ -57,7 +59,7 @@ type metricsSources struct {
 const haproxyCertTTL = time.Minute
 
 func (m *metricsSources) collectors() []exporter.Collector {
-	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.acmeMetrics, m.security, m.apiRequests}
+	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.acmeMetrics, m.security, m.apiRequests, m.logshipMetrics}
 }
 
 func gauge(name, help string, samples ...exporter.Sample) exporter.Family {
@@ -392,4 +394,32 @@ func (m *metricsSources) apiRequests() []exporter.Family {
 		samples = append(samples, sample(float64(c.N), "method", c.Method, "code", c.Code))
 	}
 	return []exporter.Family{counter("janus_api_requests_total", "Calls to the node's API since janusd started, by method and status code - refused ones included.", samples...)}
+}
+
+// logshipMetrics are the log shipper's, a sample per target.
+func (m *metricsSources) logshipMetrics() []exporter.Family {
+	if m.ship == nil {
+		return nil
+	}
+	var up, sent, dropped, errs, queued []exporter.Sample
+	for _, st := range m.ship.Status() {
+		if st.State == "disabled" {
+			continue
+		}
+		up = append(up, sample(exporter.Bool(st.State == "ok"), "target", st.Name, "kind", st.Kind))
+		sent = append(sent, sample(float64(st.Sent), "target", st.Name))
+		dropped = append(dropped, sample(float64(st.Dropped), "target", st.Name))
+		errs = append(errs, sample(float64(st.Errors), "target", st.Name))
+		queued = append(queued, sample(float64(st.QueuedRecords), "target", st.Name))
+	}
+	if len(up) == 0 {
+		return nil
+	}
+	return []exporter.Family{
+		gauge("janus_logship_target_up", "1 when the log target's last send worked, 0 while it fails (docs/guide/log-forwarding.md).", up...),
+		counter("janus_logship_records_sent_total", "Log records sent to the target since janusd started.", sent...),
+		counter("janus_logship_records_dropped_total", "Log records the target lost since janusd started: its queue in memory was full - it should stay 0.", dropped...),
+		counter("janus_logship_send_errors_total", "Failed sends to the target since janusd started (each is retried).", errs...),
+		gauge("janus_logship_queued_records", "Log records waiting in memory for the target.", queued...),
+	}
 }

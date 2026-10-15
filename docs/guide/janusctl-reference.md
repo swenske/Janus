@@ -178,6 +178,46 @@ The boots whose logs the LOGS partition keeps.
 janusctl system boots
 ```
 
+#### janusctl system log-forwarding
+
+Where the node's logs go: syslog, Elasticsearch (docs/guide/log-forwarding.md).
+
+##### janusctl system log-forwarding status
+
+Each target's state: sent, dropped, waiting, the last error.
+
+```text
+janusctl system log-forwarding status
+```
+
+##### janusctl system log-forwarding get
+
+The configuration as JSON, without its secrets.
+
+```text
+janusctl system log-forwarding get
+```
+
+##### janusctl system log-forwarding set
+
+Replace the configuration (JSON, as get prints it; a secret left out keeps its saved value).
+
+```text
+janusctl system log-forwarding set FILE
+```
+
+##### janusctl system log-forwarding test
+
+Send one record to a target now.
+
+```text
+janusctl system log-forwarding test [-file FILE] TARGET
+```
+
+| Flag | |
+|---|---|
+| `-file FILE` | take the target from this configuration rather than the saved one |
+
 #### janusctl system stats
 
 CPU and memory of janusd and haproxy.

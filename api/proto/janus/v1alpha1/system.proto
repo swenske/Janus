@@ -139,6 +139,26 @@ service SystemService {
   // as it was.
   rpc MetricsConfigSet(MetricsConfig) returns (MetricsConfigResponse);
 
+  // The log shipper (docs/guide/log-forwarding.md): the node's logs -
+  // janusd's, HAProxy's own messages and access logs, the extensions',
+  // the kernel's, the event log, the audit - sent to syslog servers and
+  // Elasticsearch clusters. What the node keeps on disk (the LOGS
+  // partition, the event log) each target takes behind a cursor: what
+  // it couldn't take while down goes once it's back.
+
+  // LogForwardingGet returns where the logs go - never a secret: an API
+  // key, a password or a client key come back empty, LogTargetStatus
+  // says which are set - and how each target is doing.
+  rpc LogForwardingGet(google.protobuf.Empty) returns (LogForwardingResponse);
+  // LogForwardingSet replaces the configuration, at once and for good
+  // (STATE). A target left without a secret keeps the one saved under
+  // its name; a new target starts with what's logged from now on.
+  rpc LogForwardingSet(LogForwardingConfig) returns (LogForwardingResponse);
+  // LogForwardingTest sends one record to a target now - the target as
+  // given, a secret it lacks taken from the saved target of its name -
+  // and says what happened.
+  rpc LogForwardingTest(LogTarget) returns (LogForwardingTestResponse);
+
   // The prometheus-node-exporter extension's settings (docs/metrics.md):
   // whether node_exporter runs, the address and port it listens on, and
   // its collectors, from a fixed list. FailedPrecondition when the image
@@ -828,3 +848,107 @@ message GenerateClientConfigurationResponse {
   bytes crt = 2;
   bytes key = 3;
 }
+
+message LogForwardingConfig {
+  repeated LogTarget targets = 1;
+  // Added to every record (Elasticsearch's labels.*): env=prod...
+  map<string, string> labels = 2;
+  // "never" (the default): HAProxy's access logs wait in memory only,
+  // dropped when a target can't keep up. "always": kept on the LOGS
+  // partition too, each target then takes them at least once - every
+  // request written to the disk.
+  string access_logs_on_disk = 3;
+  // The Controller that set this configuration (a fleet profile); empty
+  // when set by hand.
+  string managed_by = 4;
+}
+
+message LogTarget {
+  // What it has taken is kept under its name: lowercase letters, digits,
+  // ".", "_", "-".
+  string name = 1;
+  // janusd, haproxy (its own messages), access (its access logs),
+  // extensions, kernel, events, audit. Empty: all but access.
+  repeated string sources = 2;
+  bool disabled = 3;
+  // One of the two.
+  SyslogTarget syslog = 4;
+  ElasticsearchTarget elasticsearch = 5;
+  // How the server is trusted: the system's store by default.
+  TLSTrust tls = 6;
+}
+
+message SyslogTarget {
+  // host[:port] - 514 by default, 6514 with tls.
+  string address = 1;
+  // "udp" (the default), "tcp" or "tls".
+  string transport = 2;
+  // "rfc5424" (the default) or "rfc3164" (BSD).
+  string format = 3;
+  // Over tcp and tls: "octet-counting" (RFC 6587, the default with
+  // rfc5424) or "lf" (the default with rfc3164).
+  string framing = 4;
+  // The services' facility: local0 (the default) to local7, daemon,
+  // user, auth. The kernel's messages are kern, the audit authpriv.
+  string facility = 5;
+}
+
+message ElasticsearchTarget {
+  // e.g. https://elastic.example:9200
+  string url = 1;
+  // Of the data streams logs-janus.<source>-<namespace>: "default" by
+  // default.
+  string namespace = 2;
+  // Secret: an API key - encoded, as Kibana shows it, or "id:key".
+  string api_key = 3;
+  // Or a user and its password (secret).
+  string username = 4;
+  string password = 5;
+  // Compress what's sent.
+  bool gzip = 6;
+}
+
+message TLSTrust {
+  // A CA (PEM) - or the SHA-256 fingerprint of the server's certificate
+  // or of a CA in its chain (Elasticsearch prints its CA's at first
+  // start). Neither: the system's trust store.
+  string ca_pem = 1;
+  string fingerprint = 2;
+  // The name the server's certificate carries, when it isn't the
+  // address's host.
+  string server_name = 3;
+  // A client certificate and its key (secret), for a server that asks.
+  string client_cert_pem = 4;
+  string client_key_pem = 5;
+}
+
+message LogForwardingResponse {
+  LogForwardingConfig config = 1;
+  repeated LogTargetStatus targets = 2;
+}
+
+message LogTargetStatus {
+  string name = 1;
+  // "syslog" or "elasticsearch".
+  string kind = 2;
+  // "starting", "ok", "failing", "disabled".
+  string state = 3;
+  string last_error = 4;
+  int64 last_sent_unix_ns = 5;
+  int64 failing_since_unix_ns = 6;
+  // Records sent; dropped (a queue in memory full); failed sends.
+  uint64 sent = 7;
+  uint64 dropped = 8;
+  uint64 errors = 9;
+  // Records waiting in memory.
+  uint64 queued = 10;
+  // The secrets it has: "api_key", "password", "client_key".
+  repeated string secrets = 11;
+}
+
+message LogForwardingTestResponse {
+  bool ok = 1;
+  // What went wrong - or what the server said.
+  string detail = 2;
+}
+

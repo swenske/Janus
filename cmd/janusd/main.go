@@ -51,6 +51,7 @@ import (
 	"github.com/swenske/Janus/internal/firewall"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/kmsgwatch"
+	"github.com/swenske/Janus/internal/logship"
 	"github.com/swenske/Janus/internal/logvol"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/netmgr"
@@ -112,13 +113,35 @@ func main() {
 	if *manageHost {
 		logVol, logDev, logWhy = openLogVolume()
 	}
-	captured := io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"], Tee: logTee(logVol, "janusd")})
+	// And to the log servers configured (internal/logship) - applied once
+	// the event log is loaded, below.
+	logshipDir := filepath.Join(*configDir, "logforward")
+	shipOpt := logship.Options{
+		Meta:   logship.Meta{Agent: "janusd", AgentVersion: version, Slot: api.CurrentActiveSlot(), Schematic: api.CurrentSchematic()},
+		Volume: logVol,
+		Feeds:  []logship.Feed{eventsFeed()},
+		OnState: func(target, state, lastError string) {
+			typ := "logship.failing"
+			if state == "ok" {
+				typ = "logship.recovered"
+			}
+			events.Publish(typ, map[string]string{"target": target, "error": lastError})
+		},
+	}
+	if *manageHost {
+		shipOpt.CursorFile = filepath.Join(logshipDir, logship.CursorFile)
+	}
+	ship := logship.New(shipOpt)
+	logs := &logHub{vol: logVol, ship: ship}
+	captured := io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"], Tee: logs.tee("janusd")})
 	log.SetOutput(captured)
 	logVolumeSays(logVol, logDev, logWhy)
 	if logVol != nil {
 		shutdown.Before(func() { _ = logVol.Flush() })
+	}
+	if *manageHost {
 		go func() {
-			if err := logvol.FollowKmsg(logVol, "/dev/kmsg", "/run/janus/logvol-kmsg-seq"); err != nil {
+			if err := logvol.FollowKmsg("/dev/kmsg", "/run/janus/logvol-kmsg-seq", logs.kernel); err != nil {
 				log.Printf("logs: the kernel's messages aren't kept: %v", err)
 			}
 		}()
@@ -142,6 +165,18 @@ func main() {
 	// First in each run's events: what follows is this run's - after a
 	// restart, a reboot or an update.
 	events.Publish("janusd.started", map[string]string{"version": version, "slot": api.CurrentActiveSlot(), "boot": bootID()})
+
+	// The log servers, now that the event log is what it was: each
+	// target goes on from where it was.
+	if cfg, err := logship.LoadConfig(logshipDir); err != nil {
+		log.Printf("logship: %v - logs aren't sent anywhere", err)
+	} else {
+		ship.Apply(cfg)
+		if n := len(cfg.Targets); n > 0 {
+			log.Printf("logship: sending to %d targets", n)
+		}
+	}
+	shutdown.Before(ship.Flush)
 
 	// The firewall (the nftables extension) before anything listens: the
 	// window where the node is up without its saved ruleset is the boot
@@ -202,7 +237,7 @@ func main() {
 	}
 
 	haproxyMgr := haproxy.NewManager(*haproxyBin, *haproxyCfg, *haproxyPid, *haproxySock)
-	haproxyMgr.Output = &ring.LineWriter{Ring: serviceLogs["haproxy"], Tee: haproxyLogTee(logVol)}
+	haproxyMgr.Output = &ring.LineWriter{Ring: serviceLogs["haproxy"], Tee: logs.tee("haproxy")}
 	haproxyMgr.CertStoreDir = *haproxyCertStore
 	if haproxyMgr.CertStoreDir == "" {
 		haproxyMgr.CertStoreDir = filepath.Join(filepath.Dir(*haproxyCfg), "runtime-certs")
@@ -236,7 +271,7 @@ func main() {
 	serviceLogs[acme.LogID] = ring.New[string](serviceLogLines)
 	acmeMgr := acme.New(acme.Options{
 		HAProxy: haproxyMgr, HAProxyConfig: *haproxyCfg, Healthy: haproxyHealthy,
-		Output: io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs[acme.LogID], Tee: logTee(logVol, acme.LogID)}),
+		Output: io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs[acme.LogID], Tee: logs.tee(acme.LogID)}),
 	})
 	if *manageHost && acmeMgr.Available() {
 		if err := acmeMgr.Boot(); err != nil {
@@ -301,7 +336,7 @@ func main() {
 	}
 	extMgr := extensions.NewManager(extManifests, func(id string) io.Writer {
 		serviceLogs[id] = ring.New[string](serviceLogLines)
-		return io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs[id], Tee: logTee(logVol, id)})
+		return io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs[id], Tee: logs.tee(id)})
 	})
 	// keepalived (the VRRP extension) waits for its configuration file:
 	// put the saved one there, and the HAProxy health file it can track,
@@ -413,6 +448,7 @@ func main() {
 	// orchestrator reading the serial console pins (docs/private-cloud/
 	// first-contact.md) - a stable line, unlike the banner's.
 	log.Print(caConsoleLine(pkiBootstrap.CA.Cert.Raw))
+	ship.SetNodeID(pki.Fingerprint(pkiBootstrap.CA.Cert.Raw))
 	if pkiBootstrap.AdminIssued {
 		log.SetOutput(os.Stderr) // console only - see serviceLogs above
 		log.Printf("pki: first boot - generated a new CA and admin client certificate in %s", *pkiDir)
@@ -486,6 +522,7 @@ func main() {
 		}}
 		metrics.statePath = "/etc/.state"
 		metrics.logVol = logVol
+		metrics.ship = ship
 		go kmsgwatch.Watch("/dev/kmsg", metrics.kmsg)
 	}
 	exp := exporter.New(metrics.collectors()...)
@@ -506,7 +543,7 @@ func main() {
 		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})

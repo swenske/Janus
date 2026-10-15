@@ -54,7 +54,7 @@ func TestComplete(t *testing.T) {
 		line, want, dirs string
 	}{
 		{"", "login context nodes version tui system haproxy network access pki fleet lifecycle image completion help", ""},
-		{"system lo", "info hostname services service logs events dmesg boots stats systemstat ps netdev netstat mounts du ls cat cp pcap metrics node-exporter sysctl reboot shutdown restart reset", ""},
+		{"system lo", "info hostname services service logs events dmesg boots log-forwarding stats systemstat ps netdev netstat mounts du ls cat cp pcap metrics node-exporter sysctl reboot shutdown restart reset", ""},
 		{"system logs ", "janusd haproxy", ""},
 		{"system logs -", "-f -n -boot", ""},
 		{"system logs -n ", "", ""},
