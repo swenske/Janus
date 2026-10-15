@@ -14,7 +14,8 @@
         "-s", "/run/janus/bird/bird.ctl",
         "-P", "/run/janus/bird/bird.pid"
       ],
-      "wait_for": ["/run/janus/bird/bird.conf"]
+      "wait_for": ["/run/janus/bird/bird.conf"],
+      "oom_score_adj": -300
     }
   ],
   "selinux_labels": {

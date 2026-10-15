@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/oomadj"
 )
 
 // Timing is the supervision timing: the backoff between restarts of a
@@ -292,6 +293,7 @@ func (s *service) run() {
 		s.mu.Lock()
 		s.cmd, s.exited = cmd, exited
 		s.mu.Unlock()
+		oomadj.StartedTree(cmd, oomadj.Clamp(s.def.OOMScoreAdj))
 		log.Printf("extensions: started %s (%s, pid %d)", s.def.ID, s.ext, cmd.Process.Pid)
 		events.Publish("service.started", map[string]string{"id": s.def.ID, "extension": s.ext})
 

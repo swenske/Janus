@@ -126,5 +126,21 @@ release refuses ([updating nodes](updates.md#when-an-update-reverted)).
   (`janus_haproxy_restarts_total`, the `haproxy.restarted` event). A
   stop through the API stays a stop.
 
+  When the node runs out of memory, the kernel picks the processes in
+  this order - their `oom_score_adj`, readable in
+  `/proc/<pid>/oom_score_adj` through `janusctl system cat`:
+
+  | Process | `oom_score_adj` |
+  |---|---|
+  | The extensions' other services (Consul, node_exporter, the guest agent), and what janusd runs to check a configuration (`haproxy -c`, `nft`...) | 0 - first |
+  | bird and keepalived: a routing daemon killed moves the node's traffic away | -300 |
+  | HAProxy | -500 |
+  | janusd, which starts HAProxy again | -900 - last |
+
+  The kernel subtracts the score's thousandths of the memory from each
+  process's size: on 1 GiB, HAProxy goes before an extension only once
+  it holds about 500 MiB more - an HAProxy that takes the memory still
+  goes first.
+
 [GitHub issues](https://github.com/swenske/Janus/issues) - or, for a
 security problem, privately: [security policy](../../SECURITY.md).

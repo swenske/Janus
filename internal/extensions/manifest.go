@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/swenske/Janus/internal/oomadj"
 	"github.com/swenske/Janus/internal/schematic"
 )
 
@@ -60,6 +61,10 @@ type Service struct {
 	// agent's virtio port. Until they do, the service is "waiting",
 	// not failing.
 	WaitFor []string `json:"wait_for,omitempty"`
+	// OOMScoreAdj is the service's oom_score_adj (internal/oomadj): 0,
+	// or lower for a daemon the node's traffic depends on - never below
+	// oomadj.MinExtension, behind HAProxy.
+	OOMScoreAdj int `json:"oom_score_adj,omitempty"`
 }
 
 var (
@@ -95,6 +100,9 @@ func (m *Manifest) Validate() error {
 			if !path.IsAbs(w) || path.Clean(w) != w {
 				return fmt.Errorf("extension %s: service %s: wait_for path %q must be absolute and clean", m.Name, s.ID, w)
 			}
+		}
+		if s.OOMScoreAdj < oomadj.MinExtension || s.OOMScoreAdj > 1000 {
+			return fmt.Errorf("extension %s: service %s: oom_score_adj %d must be between %d (behind HAProxy) and 1000", m.Name, s.ID, s.OOMScoreAdj, oomadj.MinExtension)
 		}
 	}
 	for p, t := range m.Labels {

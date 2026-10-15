@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/swenske/Janus/internal/oomadj"
 )
 
 // Dir holds the saved configurations: STATE's config/. A var so tests
@@ -92,7 +94,7 @@ func (m *Module) Check(config string) ([]string, error) {
 	cmd := exec.Command(m.Binary, m.CheckArgs(f.Name())...)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
-	if err := cmd.Run(); err != nil {
+	if err := oomadj.Run(cmd, oomadj.Default); err != nil {
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) {
 			return nil, fmt.Errorf("run %s: %w", m.Name, err)

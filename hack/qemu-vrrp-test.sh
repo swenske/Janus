@@ -166,6 +166,16 @@ got_vip a || fail "A is MASTER without the virtual IP"
 if has_vip b; then fail "B holds the virtual IP while backup"; fi
 echo "  ok: A is master with the virtual IP, B is backup"
 
+# keepalived, and the VRRP process it forks, behind HAProxy and ahead of
+# the other extensions for the OOM killer (its manifest, internal/oomadj).
+pids="$(ctl a system ps | awk 'index($0, "/usr/local/sbin/keepalived") {print $1}')"
+[ "$(wc -w <<<"$pids")" -ge 2 ] || fail "keepalived and its VRRP process not both in Processes: $pids"
+for pid in $pids; do
+  got="$(ctl a system cat "/proc/$pid/oom_score_adj" | tr -d '[:space:]')"
+  [ "$got" = -300 ] || fail "keepalived (pid $pid): oom_score_adj $got, want -300"
+done
+echo "  ok: keepalived's processes at oom_score_adj -300"
+
 # A's HAProxy stops answering: A gives the IP up, B takes it.
 ctl a system service stop haproxy >/dev/null || fail "stopping HAProxy on A"
 wait_state a FAULT

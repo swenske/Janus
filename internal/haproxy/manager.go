@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/oomadj"
 )
 
 // Manager supervises one HAProxy process instance.
@@ -202,7 +203,12 @@ func (m *Manager) Validate(cfg []byte) (bool, []string) {
 
 	check := exec.Command(m.BinaryPath, "-c", "-f", tmp.Name())
 	check.Env = m.env()
-	out, err := check.CombinedOutput()
+	var combined bytes.Buffer
+	check.Stdout, check.Stderr = &combined, &combined
+	// Not the serving HAProxy's score: a check of a configuration too big
+	// for the node must not have the kernel kill the one serving.
+	err = oomadj.Run(check, oomadj.Default)
+	out := combined.Bytes()
 	if err != nil {
 		// HAProxy names the file it checked: the operator knows it as
 		// haproxy.cfg, not as this temporary copy.
@@ -316,6 +322,7 @@ func (m *Manager) startLocked(wait bool) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start haproxy: %w", err)
 	}
+	oomadj.Started(cmd, oomadj.HAProxy)
 	m.counters.Starts.Add(1)
 	if reload {
 		m.counters.Reloads.Add(1)

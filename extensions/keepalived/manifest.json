@@ -17,7 +17,8 @@
         "--pid=/run/janus/keepalived/keepalived.pid",
         "--vrrp_pid=/run/janus/keepalived/vrrp.pid"
       ],
-      "wait_for": ["/run/janus/keepalived/keepalived.conf"]
+      "wait_for": ["/run/janus/keepalived/keepalived.conf"],
+      "oom_score_adj": -300
     }
   ],
   "selinux_labels": {
