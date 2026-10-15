@@ -263,6 +263,29 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 	mux.HandleFunc("GET /api/log-boots", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
 		return c.LogBoots(ctx, empty)
 	}))
+	// Where the node's logs go (docs/guide/log-forwarding.md): read,
+	// set - a body as SystemService.LogForwardingSet takes it - and test.
+	mux.HandleFunc("GET /api/log-forwarding", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
+		return c.LogForwardingGet(ctx, empty)
+	}))
+	mux.HandleFunc("POST /api/log-forwarding", func(w http.ResponseWriter, r *http.Request) {
+		cfg := &janusv1alpha1.LogForwardingConfig{}
+		if !decodeProto(w, r, cfg) {
+			return
+		}
+		unary(w, r, node, unaryTimeout, func(ctx context.Context, conn *grpc.ClientConn) (any, error) {
+			return janusv1alpha1.NewSystemServiceClient(conn).LogForwardingSet(ctx, cfg)
+		})
+	})
+	mux.HandleFunc("POST /api/log-forwarding/test", func(w http.ResponseWriter, r *http.Request) {
+		t := &janusv1alpha1.LogTarget{}
+		if !decodeProto(w, r, t) {
+			return
+		}
+		unary(w, r, node, 30*time.Second, func(ctx context.Context, conn *grpc.ClientConn) (any, error) {
+			return janusv1alpha1.NewSystemServiceClient(conn).LogForwardingTest(ctx, t)
+		})
+	})
 
 	// --- live streams (Server-Sent Events) ---
 	mux.HandleFunc("GET /api/stream/logs", func(w http.ResponseWriter, r *http.Request) {

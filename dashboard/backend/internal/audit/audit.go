@@ -2,7 +2,9 @@
 // request that isn't a read, with the account that made it, and every
 // sign-in, failed or not. One JSON object per line in
 // <data-dir>/audit.jsonl, the previous file kept as audit.jsonl.1 once it
-// reaches MaxSize - a bounded history, newest first when read.
+// reaches MaxSize - a bounded history, newest first when read. Each
+// entry has an ID, one more than the previous, for a reader that keeps
+// its place (the log shipper: Since, Changed).
 package audit
 
 import (
@@ -22,6 +24,9 @@ var MaxSize int64 = 4 << 20
 
 // Entry is one action.
 type Entry struct {
+	// ID goes on from one entry to the next, across restarts (0: an
+	// entry written before IDs existed).
+	ID   uint64    `json:"id,omitempty"`
 	Time time.Time `json:"time"`
 	// User is the account - the name tried, for a failed sign-in -, or
 	// empty when the request had none.
@@ -39,12 +44,14 @@ type Entry struct {
 type Log struct {
 	path string
 
-	mu   sync.Mutex
-	size int64
+	mu      sync.Mutex
+	size    int64
+	next    uint64
+	changed chan struct{}
 }
 
 func Open(dataDir string) (*Log, error) {
-	l := &Log{path: filepath.Join(dataDir, "audit.jsonl")}
+	l := &Log{path: filepath.Join(dataDir, "audit.jsonl"), next: 1, changed: make(chan struct{})}
 	fi, err := os.Stat(l.path)
 	switch {
 	case err == nil:
@@ -52,19 +59,28 @@ func Open(dataDir string) (*Log, error) {
 	case !errors.Is(err, os.ErrNotExist):
 		return nil, err
 	}
+	// IDs go on from the newest entry kept.
+	all, err := l.all()
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range all {
+		l.next = max(l.next, e.ID+1)
+	}
 	return l, nil
 }
 
 // Append records e - an audit that can't be written is logged by the
 // caller, never fails the request it records.
 func (l *Log) Append(e Entry) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e.ID = l.next
 	line, err := json.Marshal(e)
 	if err != nil {
 		return err
 	}
 	line = append(line, '\n')
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.size > 0 && l.size+int64(len(line)) > MaxSize {
 		if err := os.Rename(l.path, l.path+".1"); err != nil {
 			return err
@@ -78,7 +94,66 @@ func (l *Log) Append(e Entry) error {
 	defer f.Close()
 	n, err := f.Write(line)
 	l.size += int64(n)
+	if err == nil {
+		l.next++
+		close(l.changed)
+		l.changed = make(chan struct{})
+	}
 	return err
+}
+
+// Changed returns a channel closed on the next entry appended.
+func (l *Log) Changed() <-chan struct{} {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.changed
+}
+
+// Latest is the newest entry's ID (0: none).
+func (l *Log) Latest() uint64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.next - 1
+}
+
+// Since returns up to limit entries with an ID greater than id, oldest
+// first, and the last ID returned (id when none).
+func (l *Log) Since(id uint64, limit int) ([]Entry, uint64) {
+	l.mu.Lock()
+	all, _ := l.all()
+	l.mu.Unlock()
+	var out []Entry
+	last := id
+	for _, e := range all {
+		if e.ID > id && len(out) < limit {
+			out = append(out, e)
+			last = e.ID
+		}
+	}
+	return out, last
+}
+
+// all is every entry kept, oldest first. Under mu.
+func (l *Log) all() ([]Entry, error) {
+	var out []Entry
+	for _, p := range []string{l.path + ".1", l.path} {
+		data, err := os.ReadFile(p)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		sc := bufio.NewScanner(bytes.NewReader(data))
+		sc.Buffer(make([]byte, 64<<10), 1<<20)
+		for sc.Scan() {
+			var e Entry
+			if json.Unmarshal(sc.Bytes(), &e) == nil {
+				out = append(out, e)
+			}
+		}
+	}
+	return out, nil
 }
 
 // Recent returns up to limit entries, newest first, matching keep (nil:
