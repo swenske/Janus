@@ -129,7 +129,7 @@ NODE_FP="$(openssl x509 -in "$WORKDIR/ca.crt" -outform der | sha256sum | cut -d'
 
 # --- 1. the target, tested ---
 target() { # target FINGERPRINT - the configuration's JSON
-  python3 -c 'import json,sys; print(json.dumps({"labels": {"env": "test"}, "targets": [{"name": "es", "sources": ["janusd", "events", "access"],
+  python3 -c 'import json,sys; print(json.dumps({"labels": {"env": "test"}, "targets": [{"name": "es", "sources": ["janusd", "events", "access", "audit"],
     "elasticsearch": {"url": "https://%s:%s" % (sys.argv[1], sys.argv[2]), "apiKey": sys.argv[3]},
     "tls": {"fingerprint": sys.argv[4], "serverName": "localhost"}}]}))' "$HOST_FROM_GUEST" "$P_ES" "$API_KEY" "$1"
 }
@@ -187,7 +187,18 @@ import json, sys
 d = json.loads(sys.argv[1])
 assert d["data_stream"]["dataset"] == "janus.access" and d["haproxy"]["status"] == 200 and d["haproxy"]["method"] == "GET", d
 ' "$doc" || fail "the access log's document: $doc"
-echo "Part 2 OK: janusd's log, the events and HAProxy's JSON access logs in their data streams, with ECS fields and the node's CA as host.id"
+ctl pki generate-client-config -role os:reader -name ci-reader -ttl 1h "$WORKDIR/reader" >/dev/null || fail "generate-client-config failed"
+if "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/reader/ca.crt" -cert "$WORKDIR/reader/client.crt" -key "$WORKDIR/reader/client.key" system reboot 2>/dev/null; then
+  fail "a reader rebooted the node"
+fi
+wait_doc "the reader's refused reboot in the audit" 'event.action:"SystemService/Reboot" AND user.name:"ci-reader"'
+doc="$(search 'event.action:"SystemService/Reboot" AND user.name:"ci-reader"' | head -1)"
+python3 -c '
+import json, sys
+d = json.loads(sys.argv[1])
+assert d["data_stream"]["dataset"] == "janus.audit" and d["event"]["outcome"] == "failure" and d["source"]["ip"] and d["janus"]["audit"]["denied"], d
+' "$doc" || fail "the audit document: $doc"
+echo "Part 2 OK: janusd's log, the events, the audit (a reader's refused reboot: user.name, source.ip, event.outcome) and HAProxy's JSON access logs in their data streams, with ECS fields and the node's CA as host.id"
 
 # --- 3. the cluster away, then back ---
 docker pause "$NAME" >/dev/null

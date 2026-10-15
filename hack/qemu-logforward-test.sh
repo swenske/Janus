@@ -16,7 +16,9 @@
 #      target: each target goes on from where it was.
 #   4. HAProxy's own `log` lines, without janusd: UDP straight to the
 #      server, and a ring with a TLS server (the CA an HAProxy file).
-#   5. Secrets never come back (a client key), no AVC denial anywhere.
+#   5. The audit: an admin's change and a reader's refused reboot, kept
+#      across the reboot (system audit, admins only), sent as authpriv.
+#   6. Secrets never come back (a client key), no AVC denial anywhere.
 #
 # Usage: hack/qemu-logforward-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -168,7 +170,8 @@ EOF
 ctl system log-forwarding set "$WORKDIR/forwarding.json" > "$WORKDIR/set.out" || fail "log-forwarding set refused: $(cat "$WORKDIR/set.out")"
 ctl system log-forwarding get > "$WORKDIR/get.json"
 if grep -q "PRIVATE KEY" "$WORKDIR/get.json"; then fail "the client key came back"; fi
-grep -q '"framing": "lf"' "$WORKDIR/get.json" || fail "the defaults weren't filled in: $(cat "$WORKDIR/get.json")"
+python3 -c 'import json,sys; t={x["name"]: x for x in json.load(open(sys.argv[1]))["targets"]}; assert t["tcp"]["syslog"]["framing"] == "lf" and t["udp"]["syslog"]["facility"] == "local0" and t["tls"]["syslog"]["address"].endswith(":" + sys.argv[2]), t' "$WORKDIR/get.json" "$P_TLS" ||
+  fail "the defaults weren't filled in: $(cat "$WORKDIR/get.json")"
 ctl system log-forwarding test tls >/dev/null || fail "test tls failed"
 wait_received "the test record over TLS" 'm["input"] == "tls" and "log forwarding test from" in m["msg"]'
 
@@ -220,6 +223,18 @@ for t in udp tcp tls; do
 done
 echo "Part 1 OK: each target gets what it takes - janusd and events over UDP, HAProxy's messages and access logs over TCP (RFC 3164), the defaults over TLS with a pinned CA"
 
+# --- the audit: an admin's change, a reader refused ---
+ctl pki generate-client-config -role os:reader -name ci-reader -ttl 1h "$WORKDIR/reader" >/dev/null || fail "generate-client-config failed"
+reader() { "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/reader/ca.crt" -cert "$WORKDIR/reader/client.crt" -key "$WORKDIR/reader/client.key" "$@"; }
+if reader system reboot 2>/dev/null; then fail "a reader rebooted the node"; fi
+audit="$(timeout 5 "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" system audit || true)"
+grep -qE $'\tSystemService/MetricsConfigSet\tadmin \(os:admin\)\t[0-9.:]+\tOK, [0-9]+ ms$' <<<"$audit" || fail "system audit lacks the admin's change: $audit"
+grep -qE $'\tSystemService/Reboot\tci-reader \(os:reader\)\t[0-9.:]+\trefused: ' <<<"$audit" || fail "system audit lacks the reader's refused reboot: $audit"
+if reader system audit 2>/dev/null | grep -q .; then fail "a reader read the audit"; fi
+wait_received "the reader's refused reboot over TLS, as authpriv" 'm["input"] == "tls" and m["msgid"] == "audit" and m["facility"] == "10" and m["severity"] == "4" and "SystemService/Reboot by ci-reader (os:reader)" in m["msg"] and "refused" in m["msg"]'
+wait_received "the admin's change in the audit over TLS" 'm["input"] == "tls" and m["msgid"] == "audit" and "SystemService/MetricsConfigSet by admin (os:admin)" in m["msg"] and ": OK in " in m["msg"]'
+echo "Part 1b OK: the audit keeps an admin's change and a reader's refused reboot (system audit, admins only), sent as authpriv"
+
 # --- 2. the server goes away ---
 docker stop -t 1 "$NAME" >/dev/null
 ctl system metrics -port 10082 >/dev/null
@@ -242,7 +257,9 @@ ctl system reboot >/dev/null
 wait_janusd 2
 wait_received "the new boot's kernel messages over TLS" 'm["input"] == "tls" and m["app"] == "kernel" and m["facility"] == "0" and "Linux version" in m["msg"]' 60
 wait_received "the new boot's kernel messages over TCP" 'm["input"] == "tcp" and m["app"] == "kernel" and "Linux version" in m["msg"]' 30
-echo "Part 3 OK: after a reboot, the new boot's kernel messages reach the targets - each went on from its cursor"
+audit="$(timeout 5 "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" system audit || true)"
+grep -q $'\tSystemService/Reboot\tci-reader' <<<"$audit" && grep -q $'\tSystemService/Reboot\tadmin (os:admin)' <<<"$audit" || fail "the audit didn't come through the reboot: $audit"
+echo "Part 3 OK: after a reboot, the new boot's kernel messages reach the targets - each went on from its cursor; the audit is still there (STATE)"
 
 # --- 4. HAProxy's own log lines, without janusd ---
 ctl haproxy file-put certs/logs-ca.pem "$CONF/ca.pem" >/dev/null || fail "file-put the CA"
