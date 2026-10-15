@@ -145,7 +145,10 @@ example:
   the SMM-locked Secure Boot OVMF;
 - v2026.10.14: the other slot and the kept event log - event IDs going on
   without a gap through a power cut, reboots and a rollback;
-- v2026.10.14 and -2: auto-scaling, below.
+- v2026.10.14 and -2: auto-scaling, below;
+- v2026.10.14-4 and -5: what auto-scaling does when its mode changes or
+  its policy goes - the kernel parameters put back, an OOM kill counted
+  once - below.
 
 ### HAProxy killed by the kernel
 
@@ -182,6 +185,7 @@ campaign; every other threshold keeps its default.
 | Back to its size | the load gone | each step down after the return delay, lost requests |
 | Memory under pressure | a 700 MB HAProxy cache on 1 GiB (7 % of the memory available), removed after 6 minutes | the step up, the kernel parameters following (`tcp_mem`, `fs.file-max`), the step down, the parameters back, lost requests |
 | Paused | the policy's mode set to paused | back to its size, how fast |
+| Modes and removal | since v2026.10.14-4: on, an OOM kill (the three-cache configuration below), the usual configuration back, paused, on again for 2 minutes, the policy removed | the kernel parameters back with its size and before the removal's restart; no step on again for a kill already answered (since -5); the node's events and probes throughout |
 | Its pages | the Hypervisors tab: the machine's card, its status, its journal | both themes, no console error |
 
 ## The scripts
