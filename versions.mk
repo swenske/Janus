@@ -28,8 +28,8 @@ HAPROXY_3_4_VERSION := 3.4.6
 HAPROXY_3_4_SHA256  := 791e1815f8af6e8b850a227a9a0a190f3d3478c9e8d38a0f51c98b7f4bfe368b
 HAPROXY_3_2_VERSION := 3.2.25
 HAPROXY_3_2_SHA256  := d59a68d0daef7b5c596b019b742089788ff1748513ef96e71fe7b3943577866e
-HAPROXY_3_0_VERSION := 3.0.29
-HAPROXY_3_0_SHA256  := 225dbddbab9eb0abc0ff3db39ded1e07f20028105a36f4c36fc2f85bf86835d1
+HAPROXY_3_0_VERSION := 3.0.30
+HAPROXY_3_0_SHA256  := a7c594a1985936890737219ae2d7c3769346a92a2f536522b8b3abc540d7a608
 
 # Single Board Computer tranche follow-up: pkgs/musl-toolchain builds a
 # real aarch64-linux-musl cross-toolchain (musl-cross-make, pinned by
