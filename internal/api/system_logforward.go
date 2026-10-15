@@ -12,7 +12,6 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/logship"
-	"github.com/swenske/Janus/internal/tlstrust"
 )
 
 // LogForwardingGet returns the log shipper's configuration, without its
@@ -26,7 +25,7 @@ func (s *System) LogForwardingGet(_ context.Context, _ *emptypb.Empty) (*janusv1
 
 func (s *System) logForwardingResponse() *janusv1alpha1.LogForwardingResponse {
 	cfg := s.LogShip.Config()
-	resp := &janusv1alpha1.LogForwardingResponse{Config: logConfigToProto(cfg.Redacted())}
+	resp := &janusv1alpha1.LogForwardingResponse{Config: logship.ToProto(cfg.Redacted())}
 	secrets := map[string][]string{}
 	for _, t := range cfg.Targets {
 		for name := range t.HasSecret() {
@@ -58,7 +57,7 @@ func (s *System) LogForwardingSet(ctx context.Context, req *janusv1alpha1.LogFor
 	if s.LogShip == nil {
 		return nil, status.Error(codes.Unavailable, "no log shipper on this node")
 	}
-	cfg := logConfigFromProto(req)
+	cfg := logship.FromProto(req)
 	saved, err := logship.LoadConfig(s.LogShipDir)
 	if err != nil {
 		saved = s.LogShip.Config()
@@ -85,7 +84,7 @@ func (s *System) LogForwardingTest(ctx context.Context, req *janusv1alpha1.LogTa
 	if s.LogShip == nil {
 		return nil, status.Error(codes.Unavailable, "no log shipper on this node")
 	}
-	one := logship.Config{Targets: []logship.Target{logTargetFromProto(req)}}
+	one := logship.Config{Targets: []logship.Target{logship.TargetFromProto(req)}}
 	saved, err := logship.LoadConfig(s.LogShipDir)
 	if err != nil {
 		saved = s.LogShip.Config()
@@ -100,44 +99,4 @@ func (s *System) LogForwardingTest(ctx context.Context, req *janusv1alpha1.LogTa
 		return &janusv1alpha1.LogForwardingTestResponse{Detail: err.Error()}, nil
 	}
 	return &janusv1alpha1.LogForwardingTestResponse{Ok: true, Detail: "sent"}, nil
-}
-
-func logConfigFromProto(p *janusv1alpha1.LogForwardingConfig) logship.Config {
-	c := logship.Config{Labels: p.GetLabels(), AccessLogsOnDisk: p.GetAccessLogsOnDisk(), ManagedBy: p.GetManagedBy()}
-	for _, t := range p.GetTargets() {
-		c.Targets = append(c.Targets, logTargetFromProto(t))
-	}
-	return c
-}
-
-func logTargetFromProto(t *janusv1alpha1.LogTarget) logship.Target {
-	out := logship.Target{Name: t.GetName(), Sources: t.GetSources(), Disabled: t.GetDisabled()}
-	if sl := t.GetSyslog(); sl != nil {
-		out.Syslog = &logship.SyslogTarget{Address: sl.GetAddress(), Transport: sl.GetTransport(), Format: sl.GetFormat(), Framing: sl.GetFraming(), Facility: sl.GetFacility()}
-	}
-	if es := t.GetElasticsearch(); es != nil {
-		out.Elasticsearch = &logship.ElasticsearchTarget{URL: es.GetUrl(), Namespace: es.GetNamespace(), APIKey: es.GetApiKey(), Username: es.GetUsername(), Password: es.GetPassword(), Gzip: es.GetGzip()}
-	}
-	if tr := t.GetTls(); tr != nil {
-		out.TLS = tlstrust.Trust{CAPEM: tr.GetCaPem(), Fingerprint: tr.GetFingerprint(), ServerName: tr.GetServerName(), ClientCertPEM: tr.GetClientCertPem(), ClientKeyPEM: tr.GetClientKeyPem()}
-	}
-	return out
-}
-
-func logConfigToProto(c logship.Config) *janusv1alpha1.LogForwardingConfig {
-	p := &janusv1alpha1.LogForwardingConfig{Labels: c.Labels, AccessLogsOnDisk: c.AccessLogsOnDisk, ManagedBy: c.ManagedBy}
-	for _, t := range c.Targets {
-		pt := &janusv1alpha1.LogTarget{Name: t.Name, Sources: t.Sources, Disabled: t.Disabled}
-		if sl := t.Syslog; sl != nil {
-			pt.Syslog = &janusv1alpha1.SyslogTarget{Address: sl.Address, Transport: sl.Transport, Format: sl.Format, Framing: sl.Framing, Facility: sl.Facility}
-		}
-		if es := t.Elasticsearch; es != nil {
-			pt.Elasticsearch = &janusv1alpha1.ElasticsearchTarget{Url: es.URL, Namespace: es.Namespace, ApiKey: es.APIKey, Username: es.Username, Password: es.Password, Gzip: es.Gzip}
-		}
-		if t.TLS != (tlstrust.Trust{}) {
-			pt.Tls = &janusv1alpha1.TLSTrust{CaPem: t.TLS.CAPEM, Fingerprint: t.TLS.Fingerprint, ServerName: t.TLS.ServerName, ClientCertPem: t.TLS.ClientCertPEM, ClientKeyPem: t.TLS.ClientKeyPEM}
-		}
-		p.Targets = append(p.Targets, pt)
-	}
-	return p
 }

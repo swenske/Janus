@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/logship"
 )
 
 // The log forwarding configurations the docs show (examples/logforward)
@@ -28,7 +29,7 @@ func TestLogForwardingExamples(t *testing.T) {
 			t.Errorf("%s: %v", f, err)
 			continue
 		}
-		cfg := logConfigFromProto(&p)
+		cfg := logship.FromProto(&p)
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("%s: %v", f, err)
 		}
