@@ -371,7 +371,7 @@ function Hero() {
       <div className="facts">
         <div className="win" style={{ '--d': '2.1s' }}>
           <strong>
-            <CountUp to={16} /> MB
+            <CountUp to={15} /> MB
           </strong>
           <span>root filesystem, 4 binaries</span>
         </div>
@@ -515,7 +515,7 @@ function Light() {
           <div className="rootfs-h win" style={{ '--d': '.3s' }}>
             <span>read-only root filesystem</span>
             <b>
-              <CountUp to={16} /> MB
+              <CountUp to={15} /> MB
             </b>
           </div>
           <div className="bin win" style={{ '--d': '.8s' }}>
@@ -533,7 +533,7 @@ function Light() {
         </div>
         <div className="row2">
           <div className="tile win" style={{ '--d': '2.2s' }}>
-            <b>53 MB VM disk</b>
+            <b>52 MB VM disk</b>
             <span>compressed, both update slots included</span>
             <div className="diskbar">
               <i className="grow" style={{ '--d': '2.5s', '--len': '1.2s', width: '50%', background: 'var(--accent)' }} />
