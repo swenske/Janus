@@ -16,7 +16,7 @@
 
 ARG KEEPALIVED_VERSION
 
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS fetch
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS fetch
 ARG KEEPALIVED_VERSION
 ARG KEEPALIVED_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates autoconf automake pkgconf \
@@ -62,7 +62,7 @@ RUN apk add --no-cache build-base linux-headers
 COPY --from=fetch /src /src
 RUN STRIP=strip /src/build.sh
 
-FROM --platform=linux/amd64 debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS build-arm64
+FROM --platform=linux/amd64 debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS build-arm64
 # The cross-toolchain's kernel headers predate what keepalived includes
 # (linux/close_range.h, 5.9): Debian's arm64 kernel headers instead - the
 # kernel's own uapi directories only, nothing of glibc's.
