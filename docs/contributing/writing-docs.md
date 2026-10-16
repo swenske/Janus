@@ -46,7 +46,9 @@ site, `/docs/<file>.md` redirects to the file's page whatever its route.
   as asides.
 - **Diagrams** are Mermaid code blocks - GitHub draws them too - and each
   carries an `accTitle` and an `accDescr`, for screen readers and search:
-  the build fails without them.
+  the build fails without them. The site draws them in its own colours,
+  for both themes - give them none of yours - and a reader can zoom any
+  of them to the whole screen: its `accTitle` names it there.
 
   ````text
   ```mermaid
