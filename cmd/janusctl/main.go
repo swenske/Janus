@@ -469,6 +469,10 @@ func runSystem(conn *grpc.ClientConn, endpoint string, redial redialer, args []s
 		runSysctl(conn, endpoint, redial, args[1:])
 		return
 	}
+	if len(args) > 0 && args[0] == "log-forwarding" {
+		runLogForwarding(conn, args[1:])
+		return
+	}
 	if len(args) > 0 && args[0] != "info" && runSystemCommand(conn, args[0], args[1:]) {
 		return
 	}
@@ -613,10 +617,11 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 		fleetRootFile := fs.String("fleet-root", "", "with -fleet-bundle: a fleet for the installed node to trust from its first boot (janusctl fleet export)")
 		regToken := fs.String("registration-token", "", "with -controller-address: a token the node presents - the Controller's enrollment token admits it without approval, with the token's labels")
 		fleetBundleFile := fs.String("fleet-bundle", "", "with -fleet-root: the bundle the fleet's root signed")
+		logsSizeMB := fs.Int("logs-size-mb", 0, "the LOGS partition's size in MiB - the node's logs kept across reboots; 0: 5 % of the disk, between 512 MiB and 8 GiB, none under 4 GiB; -1: none")
 		insecureSkip := fs.Bool("insecure-skip-signature-check", false, "accept UKIs not signed by a Janus release key - development bundles only: without the check, whoever can alter the bundle on its way to the node controls what it boots")
 		_ = fs.Parse(args[1:])
 		if fs.NArg() != 2 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE [-controller-fleet-root FILE] [-registration-token TOKEN]] [-network-config FILE] [-fleet-root FILE -fleet-bundle FILE] [-insecure-skip-signature-check] DISK BUNDLE_DIR")
+			fmt.Fprintln(os.Stderr, "usage: janusctl lifecycle install [-sha256 HEX] [-controller-address HOST:PORT -controller-ca FILE [-controller-fleet-root FILE] [-registration-token TOKEN]] [-network-config FILE] [-fleet-root FILE -fleet-bundle FILE] [-logs-size-mb MIB] [-insecure-skip-signature-check] DISK BUNDLE_DIR")
 			os.Exit(2)
 		}
 		disk, bundleDir := fs.Arg(0), fs.Arg(1)
@@ -679,6 +684,7 @@ func runLifecycle(conn *grpc.ClientConn, args []string) {
 			FleetRootCert:           fleetRootPEM,
 			FleetBundle:             fleetBundle,
 			RegistrationToken:       *regToken,
+			LogsSizeMb:              int32(*logsSizeMB),
 		})
 		if err != nil {
 			log.Fatalf("Install: %v", err)
@@ -927,6 +933,7 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 		fmt.Printf("Version:      %s\n", info.GetVersion())
 		fmt.Printf("Uptime:       %ds\n", info.GetUptimeSeconds())
 		fmt.Printf("Connections:  %d / %d\n", info.GetCurrentConnections(), info.GetMaxConnections())
+		fmt.Printf("Dropped logs: %d\n", info.GetDroppedLogs())
 
 	case "stats":
 		c, cancel := ctx()

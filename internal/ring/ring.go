@@ -12,29 +12,40 @@ import (
 // resume exactly where it stopped even after older items fall off.
 type Ring[T any] struct {
 	mu      sync.Mutex
-	items   []T
-	first   uint64 // sequence number of items[0]
+	buf     []T    // up to cap items; once full, a circle starting at start
+	start   int    // index in buf of the oldest item
+	first   uint64 // sequence number of the oldest item
 	cap     int
 	changed chan struct{}
+	watched bool // changed was handed out since the last Append
 }
 
 func New[T any](capacity int) *Ring[T] {
 	return &Ring[T]{cap: capacity, changed: make(chan struct{})}
 }
 
-// Append adds v and returns its sequence number.
+// Append adds v and returns its sequence number. It takes the same time
+// however full the Ring is: once full, v takes the oldest item's place
+// (a log ring takes a line per HAProxy request).
 func (r *Ring[T]) Append(v T) uint64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	seq := r.first + uint64(len(r.items))
-	r.items = append(r.items, v)
-	if len(r.items) > r.cap {
-		drop := len(r.items) - r.cap
-		r.items = append(r.items[:0:0], r.items[drop:]...)
-		r.first += uint64(drop)
+	seq := r.first + uint64(len(r.buf))
+	switch {
+	case len(r.buf) < r.cap:
+		r.buf = append(r.buf, v)
+	case r.cap > 0:
+		r.buf[r.start] = v
+		r.start = (r.start + 1) % r.cap
+		r.first++
+	default:
+		r.first++
 	}
-	close(r.changed)
-	r.changed = make(chan struct{})
+	if r.watched {
+		close(r.changed)
+		r.changed = make(chan struct{})
+		r.watched = false
+	}
 	return seq
 }
 
@@ -43,21 +54,28 @@ func (r *Ring[T]) Append(v T) uint64 {
 func (r *Ring[T]) Since(seq uint64) ([]T, uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	end := r.first + uint64(len(r.items))
+	end := r.first + uint64(len(r.buf))
 	if seq < r.first {
 		seq = r.first
 	}
 	if seq >= end {
 		return nil, end
 	}
-	return append([]T(nil), r.items[seq-r.first:]...), end
+	n := int(end - seq)
+	i := (r.start + int(seq-r.first)) % len(r.buf)
+	out := make([]T, 0, n)
+	if i+n <= len(r.buf) {
+		return append(out, r.buf[i:i+n]...), end
+	}
+	out = append(out, r.buf[i:]...)
+	return append(out, r.buf[:n-(len(r.buf)-i)]...), end
 }
 
 // Last returns up to n of the most recent items (all of them if n <= 0),
 // and the sequence number to follow from.
 func (r *Ring[T]) Last(n int) ([]T, uint64) {
 	r.mu.Lock()
-	end := r.first + uint64(len(r.items))
+	end := r.first + uint64(len(r.buf))
 	r.mu.Unlock()
 	start := uint64(0)
 	if n > 0 && end > uint64(n) {
@@ -72,8 +90,8 @@ func (r *Ring[T]) Last(n int) ([]T, uint64) {
 func (r *Ring[T]) Each(fn func(*T)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for i := range r.items {
-		fn(&r.items[i])
+	for i := range r.buf {
+		fn(&r.buf[(r.start+i)%len(r.buf)])
 	}
 }
 
@@ -83,6 +101,7 @@ func (r *Ring[T]) Each(fn func(*T)) {
 func (r *Ring[T]) Changed() <-chan struct{} {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.watched = true
 	return r.changed
 }
 
@@ -90,6 +109,9 @@ func (r *Ring[T]) Changed() <-chan struct{} {
 // it (without its trailing newline) to a Ring. Safe for concurrent use.
 type LineWriter struct {
 	Ring *Ring[string]
+	// Tee, when set, is also given each line (internal/logvol keeps
+	// them across reboots). It must not wait.
+	Tee func(string)
 
 	mu      sync.Mutex
 	partial []byte
@@ -104,15 +126,22 @@ func (w *LineWriter) Write(p []byte) (int, error) {
 	defer w.mu.Unlock()
 	for _, c := range p {
 		if c == '\n' {
-			w.Ring.Append(string(w.partial))
-			w.partial = w.partial[:0]
+			w.line()
 			continue
 		}
 		w.partial = append(w.partial, c)
 		if len(w.partial) >= maxLine {
-			w.Ring.Append(string(w.partial))
-			w.partial = w.partial[:0]
+			w.line()
 		}
 	}
 	return len(p), nil
+}
+
+func (w *LineWriter) line() {
+	line := string(w.partial)
+	w.partial = w.partial[:0]
+	w.Ring.Append(line)
+	if w.Tee != nil {
+		w.Tee(line)
+	}
 }

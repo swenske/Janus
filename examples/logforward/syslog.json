@@ -1,0 +1,17 @@
+{
+  "labels": {"env": "prod"},
+  "targets": [
+    {
+      "name": "nas",
+      "syslog": {"address": "logs.example.com:6514", "transport": "tls"},
+      "tls": {
+        "fingerprint": "3F:1C:9A:52:07:E4:B8:6D:21:F0:A3:94:5C:7E:18:B2:60:D9:4F:A7:13:8E:C5:02:6B:F1:39:DA:84:57:2E:C0"
+      }
+    },
+    {
+      "name": "access-logs",
+      "sources": ["access"],
+      "syslog": {"address": "10.0.0.20", "transport": "udp", "format": "rfc3164", "facility": "local1"}
+    }
+  ]
+}

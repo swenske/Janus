@@ -10,7 +10,8 @@
 //
 // The partition layout this package assumes is image/disk/
 // assemble.sh's own fixed convention: 1:ESP, 2:BOOT-A-DATA,
-// 3:BOOT-A-HASH, 4:BOOT-B-DATA, 5:BOOT-B-HASH, 6:STATE.
+// 3:BOOT-A-HASH, 4:BOOT-B-DATA, 5:BOOT-B-HASH, 6:STATE, and 7:LOGS
+// when the disk has one (internal/logvol).
 //
 // The UKIs name the root partitions by GPT label
 // (PARTLABEL=BOOT-A-DATA), so the same disk boots as /dev/vda, /dev/sda
@@ -162,6 +163,25 @@ func StateDevice(dataDev string) (string, bool) {
 		return "", false
 	}
 	return disk + "6", true
+}
+
+// LogsPartName is the LOGS partition's GPT name.
+const LogsPartName = "LOGS"
+
+// LogsDevice is the LOGS partition on the same disk as dataDev:
+// partition 7, but only when its GPT name says LOGS - it's written raw,
+// so a partition 7 that's anything else (a disk laid out before LOGS
+// existed has none) is never taken for it.
+func LogsDevice(dataDev string) (string, bool) {
+	disk, _, ok := diskAndPartition(dataDev)
+	if !ok {
+		return "", false
+	}
+	dev := disk + "7"
+	if _, partname := readUevent(filepath.Join(sysClassBlock, filepath.Base(dev), "uevent")); partname != LogsPartName {
+		return "", false
+	}
+	return dev, true
 }
 
 // ESPDevice derives the ESP's device path the same way StateDevice

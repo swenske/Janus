@@ -41,12 +41,12 @@ func TestPublishAndSince(t *testing.T) {
 // Persist kept is still on the disk.
 func restart(t *testing.T) {
 	t.Helper()
-	mu.Lock()
-	defer mu.Unlock()
-	if disk != nil && disk.f != nil {
-		disk.f.Close()
+	std.mu.Lock()
+	defer std.mu.Unlock()
+	if std.disk != nil && std.disk.f != nil {
+		std.disk.f.Close()
 	}
-	held, nextID, disk = ring.New[Event](Capacity), 1, nil
+	std.held, std.nextID, std.disk = ring.New[Event](Capacity), 1, nil
 }
 
 func types(evs []Event) []string {

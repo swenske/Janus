@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -103,13 +104,31 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 			fmt.Printf("%d\t%s\t%s\t%s\n", e.GetId(), time.Unix(0, e.GetUnixTimeNs()).Format(time.RFC3339), e.GetType(), e.GetPayload())
 		}
 
-	case "dmesg":
-		fs := flag.NewFlagSet("system dmesg", flag.ExitOnError)
-		follow := fs.Bool("f", false, "follow")
+	case "audit":
+		fs := flag.NewFlagSet("system audit", flag.ExitOnError)
+		since := fs.Uint64("since", 0, "only entries after this ID")
 		_ = fs.Parse(args)
 		c, stop := interruptible()
 		defer stop()
-		stream, err := client.Dmesg(c, &janusv1alpha1.DmesgRequest{Follow: *follow})
+		stream, err := client.Audit(c, &janusv1alpha1.EventsRequest{SinceId: *since})
+		check("Audit", err)
+		for {
+			e, err := stream.Recv()
+			if done(c, err) {
+				return true
+			}
+			check("Audit", err)
+			fmt.Println(auditLine(e))
+		}
+
+	case "dmesg":
+		fs := flag.NewFlagSet("system dmesg", flag.ExitOnError)
+		follow := fs.Bool("f", false, "follow")
+		boot := fs.Int("boot", 0, "a previous boot's kernel messages, from the LOGS partition: -1 the boot before this one (janusctl system boots)")
+		_ = fs.Parse(args)
+		c, stop := interruptible()
+		defer stop()
+		stream, err := client.Dmesg(c, &janusv1alpha1.DmesgRequest{Follow: *follow, Boot: int32(*boot)})
 		check("Dmesg", err)
 		copyData(c, "Dmesg", stream.Recv, os.Stdout)
 
@@ -117,16 +136,34 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 		fs := flag.NewFlagSet("system logs", flag.ExitOnError)
 		follow := fs.Bool("f", false, "follow")
 		lines := fs.Int("n", 0, "only the last N lines (0 = everything kept)")
+		boot := fs.Int("boot", 0, "a previous boot's output, from the LOGS partition: -1 the boot before this one (janusctl system boots)")
 		_ = fs.Parse(args)
 		if fs.NArg() != 1 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl system logs [-f] [-n LINES] janusd|haproxy")
+			fmt.Fprintln(os.Stderr, "usage: janusctl system logs [-f] [-n LINES] [-boot N] janusd|haproxy")
 			os.Exit(2)
 		}
 		c, stop := interruptible()
 		defer stop()
-		stream, err := client.Logs(c, &janusv1alpha1.LogsRequest{Id: fs.Arg(0), Follow: *follow, TailLines: int32(*lines)})
+		stream, err := client.Logs(c, &janusv1alpha1.LogsRequest{Id: fs.Arg(0), Follow: *follow, TailLines: int32(*lines), Boot: int32(*boot)})
 		check("Logs", err)
 		copyData(c, "Logs", stream.Recv, os.Stdout)
+
+	case "boots":
+		c, cancel := ctx()
+		defer cancel()
+		resp, err := client.LogBoots(c, &emptypb.Empty{})
+		check("LogBoots", err)
+		if !resp.GetAvailable() {
+			fmt.Println("no LOGS partition: only this boot's logs are kept, in memory")
+			return true
+		}
+		fmt.Printf("LOGS partition %s, %s: %d records written since janusd started, %d dropped\n",
+			resp.GetDevice(), humanBytes(resp.GetSizeBytes()), resp.GetRecordsWritten(), resp.GetRecordsDropped())
+		tw := table("BOOT", "STARTED", "SIZE", "BOOT ID")
+		for _, b := range resp.GetBoots() {
+			fmt.Fprintf(tw, "%d\t%s\t%d MiB\t%s\n", b.GetOffset(), time.Unix(0, b.GetStartedUnixNs()).Format(time.RFC3339), b.GetMebibytes(), b.GetBootId())
+		}
+		tw.Flush()
 
 	case "stats":
 		c, cancel := ctx()
@@ -503,4 +540,35 @@ func humanBytes(n uint64) string {
 
 func fs2mode(m uint32) string {
 	return fs.FileMode(m).String()
+}
+
+// auditLine is an audit entry as janusctl system audit prints it: "ID
+// TIME METHOD by WHO from PEER: RESULT".
+func auditLine(e *janusv1alpha1.Event) string {
+	var a struct {
+		Caller     string   `json:"caller"`
+		Roles      []string `json:"roles"`
+		Via        string   `json:"via"`
+		Peer       string   `json:"peer"`
+		Code       string   `json:"code"`
+		Error      string   `json:"error"`
+		Denied     bool     `json:"denied"`
+		DurationMs int64    `json:"duration_ms"`
+	}
+	_ = json.Unmarshal(e.GetPayload(), &a)
+	who := a.Caller
+	if len(a.Roles) > 0 {
+		who += " (" + strings.Join(a.Roles, ", ") + ")"
+	}
+	if a.Via != "" {
+		who += " via " + a.Via
+	}
+	result := fmt.Sprintf("OK, %d ms", a.DurationMs)
+	switch {
+	case a.Denied:
+		result = "refused: " + a.Error
+	case a.Code != "OK":
+		result = a.Code + ": " + a.Error
+	}
+	return fmt.Sprintf("%d\t%s\t%s\t%s\t%s\t%s", e.GetId(), time.Unix(0, e.GetUnixTimeNs()).Format(time.RFC3339), e.GetType(), who, a.Peer, result)
 }

@@ -154,6 +154,10 @@ message ShowInfoResponse {
   uint32 session_rate = 8;
   // Share of the last second HAProxy's threads spent idle, 0-100.
   uint32 idle_percent = 9;
+  // Log lines this HAProxy process dropped rather than wait: its stdout
+  // (janusd) or a log server couldn't take them at once, or two of its
+  // threads wrote to its stdout at the same time.
+  uint64 dropped_logs = 10;
 }
 
 message Backend {

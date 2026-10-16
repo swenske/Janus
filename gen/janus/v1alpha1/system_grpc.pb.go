@@ -30,6 +30,8 @@ const (
 	SystemService_Events_FullMethodName                      = "/janus.v1alpha1.SystemService/Events"
 	SystemService_Dmesg_FullMethodName                       = "/janus.v1alpha1.SystemService/Dmesg"
 	SystemService_Logs_FullMethodName                        = "/janus.v1alpha1.SystemService/Logs"
+	SystemService_LogBoots_FullMethodName                    = "/janus.v1alpha1.SystemService/LogBoots"
+	SystemService_Audit_FullMethodName                       = "/janus.v1alpha1.SystemService/Audit"
 	SystemService_Stats_FullMethodName                       = "/janus.v1alpha1.SystemService/Stats"
 	SystemService_SystemStat_FullMethodName                  = "/janus.v1alpha1.SystemService/SystemStat"
 	SystemService_Memory_FullMethodName                      = "/janus.v1alpha1.SystemService/Memory"
@@ -54,6 +56,9 @@ const (
 	SystemService_GenerateClientConfiguration_FullMethodName = "/janus.v1alpha1.SystemService/GenerateClientConfiguration"
 	SystemService_MetricsConfigGet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigGet"
 	SystemService_MetricsConfigSet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigSet"
+	SystemService_LogForwardingGet_FullMethodName            = "/janus.v1alpha1.SystemService/LogForwardingGet"
+	SystemService_LogForwardingSet_FullMethodName            = "/janus.v1alpha1.SystemService/LogForwardingSet"
+	SystemService_LogForwardingTest_FullMethodName           = "/janus.v1alpha1.SystemService/LogForwardingTest"
 	SystemService_NodeExporterConfigGet_FullMethodName       = "/janus.v1alpha1.SystemService/NodeExporterConfigGet"
 	SystemService_NodeExporterConfigSet_FullMethodName       = "/janus.v1alpha1.SystemService/NodeExporterConfigSet"
 	SystemService_SysctlList_FullMethodName                  = "/janus.v1alpha1.SystemService/SysctlList"
@@ -100,10 +105,21 @@ type SystemServiceClient interface {
 	// events, kept on STATE across reboots and updates, then new ones as
 	// they come.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
-	// Dmesg streams the kernel ring buffer.
+	// Dmesg streams the kernel ring buffer - or, with boot, a previous
+	// boot's kernel messages from the LOGS partition.
 	Dmesg(ctx context.Context, in *DmesgRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
-	// Logs streams a managed service's log output.
+	// Logs streams a managed service's log output - or, with boot, what it
+	// printed during a previous boot, from the LOGS partition.
 	Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
+	// LogBoots lists the boots whose logs the node keeps on its LOGS
+	// partition, newest first: what Logs and Dmesg take as boot.
+	LogBoots(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LogBootsResponse, error)
+	// Audit streams the node's audit - every call that changed something,
+	// once done, and every call refused: the method as the type, who (the
+	// user a Controller acted for), from where, how it ended and how long
+	// it took as the JSON payload. Its last 2000 entries are kept on STATE
+	// across reboots and updates; since_id resumes, then new ones follow.
+	Audit(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
 	// Stats sums the CPU time and memory of each managed service's
 	// processes - janusd, haproxy (a reload briefly leaves an old haproxy
 	// process finishing its connections next to the new one).
@@ -175,6 +191,18 @@ type SystemServiceClient interface {
 	// good; a port that can't be bound is refused and the exporter stays
 	// as it was.
 	MetricsConfigSet(ctx context.Context, in *MetricsConfig, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
+	// LogForwardingGet returns where the logs go - never a secret: an API
+	// key, a password or a client key come back empty, LogTargetStatus
+	// says which are set - and how each target is doing.
+	LogForwardingGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LogForwardingResponse, error)
+	// LogForwardingSet replaces the configuration, at once and for good
+	// (STATE). A target left without a secret keeps the one saved under
+	// its name; a new target starts with what's logged from now on.
+	LogForwardingSet(ctx context.Context, in *LogForwardingConfig, opts ...grpc.CallOption) (*LogForwardingResponse, error)
+	// LogForwardingTest sends one record to a target now - the target as
+	// given, a secret it lacks taken from the saved target of its name -
+	// and says what happened.
+	LogForwardingTest(ctx context.Context, in *LogTarget, opts ...grpc.CallOption) (*LogForwardingTestResponse, error)
 	// NodeExporterConfigGet reports node_exporter's settings.
 	NodeExporterConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NodeExporterConfigResponse, error)
 	// NodeExporterConfigSet changes node_exporter's settings: it restarts
@@ -347,6 +375,35 @@ func (c *systemServiceClient) Logs(ctx context.Context, in *LogsRequest, opts ..
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SystemService_LogsClient = grpc.ServerStreamingClient[Data]
 
+func (c *systemServiceClient) LogBoots(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LogBootsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LogBootsResponse)
+	err := c.cc.Invoke(ctx, SystemService_LogBoots_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) Audit(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[4], SystemService_Audit_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[EventsRequest, Event]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SystemService_AuditClient = grpc.ServerStreamingClient[Event]
+
 func (c *systemServiceClient) Stats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*StatsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StatsResponse)
@@ -409,7 +466,7 @@ func (c *systemServiceClient) DiskStats(ctx context.Context, in *emptypb.Empty, 
 
 func (c *systemServiceClient) DiskUsage(ctx context.Context, in *DiskUsageRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DiskUsageInfo], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[4], SystemService_DiskUsage_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[5], SystemService_DiskUsage_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -508,7 +565,7 @@ func (c *systemServiceClient) ServiceRestart(ctx context.Context, in *ServiceReq
 
 func (c *systemServiceClient) List(ctx context.Context, in *ListRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileInfo], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[5], SystemService_List_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[6], SystemService_List_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +584,7 @@ type SystemService_ListClient = grpc.ServerStreamingClient[FileInfo]
 
 func (c *systemServiceClient) Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[6], SystemService_Read_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[7], SystemService_Read_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +603,7 @@ type SystemService_ReadClient = grpc.ServerStreamingClient[Data]
 
 func (c *systemServiceClient) Copy(ctx context.Context, in *CopyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[7], SystemService_Copy_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[8], SystemService_Copy_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -565,7 +622,7 @@ type SystemService_CopyClient = grpc.ServerStreamingClient[Data]
 
 func (c *systemServiceClient) PacketCapture(ctx context.Context, in *PacketCaptureRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[8], SystemService_PacketCapture_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[9], SystemService_PacketCapture_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -626,6 +683,36 @@ func (c *systemServiceClient) MetricsConfigSet(ctx context.Context, in *MetricsC
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MetricsConfigResponse)
 	err := c.cc.Invoke(ctx, SystemService_MetricsConfigSet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) LogForwardingGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LogForwardingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LogForwardingResponse)
+	err := c.cc.Invoke(ctx, SystemService_LogForwardingGet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) LogForwardingSet(ctx context.Context, in *LogForwardingConfig, opts ...grpc.CallOption) (*LogForwardingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LogForwardingResponse)
+	err := c.cc.Invoke(ctx, SystemService_LogForwardingSet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) LogForwardingTest(ctx context.Context, in *LogTarget, opts ...grpc.CallOption) (*LogForwardingTestResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LogForwardingTestResponse)
+	err := c.cc.Invoke(ctx, SystemService_LogForwardingTest_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -739,10 +826,21 @@ type SystemServiceServer interface {
 	// events, kept on STATE across reboots and updates, then new ones as
 	// they come.
 	Events(*EventsRequest, grpc.ServerStreamingServer[Event]) error
-	// Dmesg streams the kernel ring buffer.
+	// Dmesg streams the kernel ring buffer - or, with boot, a previous
+	// boot's kernel messages from the LOGS partition.
 	Dmesg(*DmesgRequest, grpc.ServerStreamingServer[Data]) error
-	// Logs streams a managed service's log output.
+	// Logs streams a managed service's log output - or, with boot, what it
+	// printed during a previous boot, from the LOGS partition.
 	Logs(*LogsRequest, grpc.ServerStreamingServer[Data]) error
+	// LogBoots lists the boots whose logs the node keeps on its LOGS
+	// partition, newest first: what Logs and Dmesg take as boot.
+	LogBoots(context.Context, *emptypb.Empty) (*LogBootsResponse, error)
+	// Audit streams the node's audit - every call that changed something,
+	// once done, and every call refused: the method as the type, who (the
+	// user a Controller acted for), from where, how it ended and how long
+	// it took as the JSON payload. Its last 2000 entries are kept on STATE
+	// across reboots and updates; since_id resumes, then new ones follow.
+	Audit(*EventsRequest, grpc.ServerStreamingServer[Event]) error
 	// Stats sums the CPU time and memory of each managed service's
 	// processes - janusd, haproxy (a reload briefly leaves an old haproxy
 	// process finishing its connections next to the new one).
@@ -814,6 +912,18 @@ type SystemServiceServer interface {
 	// good; a port that can't be bound is refused and the exporter stays
 	// as it was.
 	MetricsConfigSet(context.Context, *MetricsConfig) (*MetricsConfigResponse, error)
+	// LogForwardingGet returns where the logs go - never a secret: an API
+	// key, a password or a client key come back empty, LogTargetStatus
+	// says which are set - and how each target is doing.
+	LogForwardingGet(context.Context, *emptypb.Empty) (*LogForwardingResponse, error)
+	// LogForwardingSet replaces the configuration, at once and for good
+	// (STATE). A target left without a secret keeps the one saved under
+	// its name; a new target starts with what's logged from now on.
+	LogForwardingSet(context.Context, *LogForwardingConfig) (*LogForwardingResponse, error)
+	// LogForwardingTest sends one record to a target now - the target as
+	// given, a secret it lacks taken from the saved target of its name -
+	// and says what happened.
+	LogForwardingTest(context.Context, *LogTarget) (*LogForwardingTestResponse, error)
 	// NodeExporterConfigGet reports node_exporter's settings.
 	NodeExporterConfigGet(context.Context, *emptypb.Empty) (*NodeExporterConfigResponse, error)
 	// NodeExporterConfigSet changes node_exporter's settings: it restarts
@@ -879,6 +989,12 @@ func (UnimplementedSystemServiceServer) Dmesg(*DmesgRequest, grpc.ServerStreamin
 }
 func (UnimplementedSystemServiceServer) Logs(*LogsRequest, grpc.ServerStreamingServer[Data]) error {
 	return status.Error(codes.Unimplemented, "method Logs not implemented")
+}
+func (UnimplementedSystemServiceServer) LogBoots(context.Context, *emptypb.Empty) (*LogBootsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LogBoots not implemented")
+}
+func (UnimplementedSystemServiceServer) Audit(*EventsRequest, grpc.ServerStreamingServer[Event]) error {
+	return status.Error(codes.Unimplemented, "method Audit not implemented")
 }
 func (UnimplementedSystemServiceServer) Stats(context.Context, *emptypb.Empty) (*StatsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Stats not implemented")
@@ -951,6 +1067,15 @@ func (UnimplementedSystemServiceServer) MetricsConfigGet(context.Context, *empty
 }
 func (UnimplementedSystemServiceServer) MetricsConfigSet(context.Context, *MetricsConfig) (*MetricsConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MetricsConfigSet not implemented")
+}
+func (UnimplementedSystemServiceServer) LogForwardingGet(context.Context, *emptypb.Empty) (*LogForwardingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LogForwardingGet not implemented")
+}
+func (UnimplementedSystemServiceServer) LogForwardingSet(context.Context, *LogForwardingConfig) (*LogForwardingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LogForwardingSet not implemented")
+}
+func (UnimplementedSystemServiceServer) LogForwardingTest(context.Context, *LogTarget) (*LogForwardingTestResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LogForwardingTest not implemented")
 }
 func (UnimplementedSystemServiceServer) NodeExporterConfigGet(context.Context, *emptypb.Empty) (*NodeExporterConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method NodeExporterConfigGet not implemented")
@@ -1145,6 +1270,35 @@ func _SystemService_Logs_Handler(srv interface{}, stream grpc.ServerStream) erro
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SystemService_LogsServer = grpc.ServerStreamingServer[Data]
+
+func _SystemService_LogBoots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).LogBoots(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_LogBoots_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).LogBoots(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_Audit_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(EventsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SystemServiceServer).Audit(m, &grpc.GenericServerStream[EventsRequest, Event]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SystemService_AuditServer = grpc.ServerStreamingServer[Event]
 
 func _SystemService_Stats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
@@ -1543,6 +1697,60 @@ func _SystemService_MetricsConfigSet_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemService_LogForwardingGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).LogForwardingGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_LogForwardingGet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).LogForwardingGet(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_LogForwardingSet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogForwardingConfig)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).LogForwardingSet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_LogForwardingSet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).LogForwardingSet(ctx, req.(*LogForwardingConfig))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_LogForwardingTest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogTarget)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).LogForwardingTest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_LogForwardingTest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).LogForwardingTest(ctx, req.(*LogTarget))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SystemService_NodeExporterConfigGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -1701,6 +1909,10 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _SystemService_Reset_Handler,
 		},
 		{
+			MethodName: "LogBoots",
+			Handler:    _SystemService_LogBoots_Handler,
+		},
+		{
 			MethodName: "Stats",
 			Handler:    _SystemService_Stats_Handler,
 		},
@@ -1777,6 +1989,18 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _SystemService_MetricsConfigSet_Handler,
 		},
 		{
+			MethodName: "LogForwardingGet",
+			Handler:    _SystemService_LogForwardingGet_Handler,
+		},
+		{
+			MethodName: "LogForwardingSet",
+			Handler:    _SystemService_LogForwardingSet_Handler,
+		},
+		{
+			MethodName: "LogForwardingTest",
+			Handler:    _SystemService_LogForwardingTest_Handler,
+		},
+		{
 			MethodName: "NodeExporterConfigGet",
 			Handler:    _SystemService_NodeExporterConfigGet_Handler,
 		},
@@ -1824,6 +2048,11 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "Logs",
 			Handler:       _SystemService_Logs_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "Audit",
+			Handler:       _SystemService_Audit_Handler,
 			ServerStreams: true,
 		},
 		{

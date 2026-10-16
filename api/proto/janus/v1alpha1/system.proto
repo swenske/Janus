@@ -43,10 +43,21 @@ service SystemService {
   // events, kept on STATE across reboots and updates, then new ones as
   // they come.
   rpc Events(EventsRequest) returns (stream Event);
-  // Dmesg streams the kernel ring buffer.
+  // Dmesg streams the kernel ring buffer - or, with boot, a previous
+  // boot's kernel messages from the LOGS partition.
   rpc Dmesg(DmesgRequest) returns (stream Data);
-  // Logs streams a managed service's log output.
+  // Logs streams a managed service's log output - or, with boot, what it
+  // printed during a previous boot, from the LOGS partition.
   rpc Logs(LogsRequest) returns (stream Data);
+  // LogBoots lists the boots whose logs the node keeps on its LOGS
+  // partition, newest first: what Logs and Dmesg take as boot.
+  rpc LogBoots(google.protobuf.Empty) returns (LogBootsResponse);
+  // Audit streams the node's audit - every call that changed something,
+  // once done, and every call refused: the method as the type, who (the
+  // user a Controller acted for), from where, how it ended and how long
+  // it took as the JSON payload. Its last 2000 entries are kept on STATE
+  // across reboots and updates; since_id resumes, then new ones follow.
+  rpc Audit(EventsRequest) returns (stream Event);
 
   // Stats sums the CPU time and memory of each managed service's
   // processes - janusd, haproxy (a reload briefly leaves an old haproxy
@@ -133,6 +144,26 @@ service SystemService {
   // good; a port that can't be bound is refused and the exporter stays
   // as it was.
   rpc MetricsConfigSet(MetricsConfig) returns (MetricsConfigResponse);
+
+  // The log shipper (docs/guide/log-forwarding.md): the node's logs -
+  // janusd's, HAProxy's own messages and access logs, the extensions',
+  // the kernel's, the event log, the audit - sent to syslog servers and
+  // Elasticsearch clusters. What the node keeps on disk (the LOGS
+  // partition, the event log) each target takes behind a cursor: what
+  // it couldn't take while down goes once it's back.
+
+  // LogForwardingGet returns where the logs go - never a secret: an API
+  // key, a password or a client key come back empty, LogTargetStatus
+  // says which are set - and how each target is doing.
+  rpc LogForwardingGet(google.protobuf.Empty) returns (LogForwardingResponse);
+  // LogForwardingSet replaces the configuration, at once and for good
+  // (STATE). A target left without a secret keeps the one saved under
+  // its name; a new target starts with what's logged from now on.
+  rpc LogForwardingSet(LogForwardingConfig) returns (LogForwardingResponse);
+  // LogForwardingTest sends one record to a target now - the target as
+  // given, a secret it lacks taken from the saved target of its name -
+  // and says what happened.
+  rpc LogForwardingTest(LogTarget) returns (LogForwardingTestResponse);
 
   // The prometheus-node-exporter extension's settings (docs/metrics.md):
   // whether node_exporter runs, the address and port it listens on, and
@@ -545,6 +576,10 @@ message Event {
 
 message DmesgRequest {
   bool follow = 1;
+  // 0: this boot, from the kernel. -1: the boot before it, -2 the one
+  // before that... (LogBoot.offset), from the LOGS partition - follow
+  // is for this boot only.
+  int32 boot = 2;
 }
 
 message LogsRequest {
@@ -553,6 +588,42 @@ message LogsRequest {
   string id = 1;
   bool follow = 2;
   int32 tail_lines = 3;
+  // 0: this boot, from memory. -1: the boot before it, -2 the one
+  // before that... (LogBoot.offset), from the LOGS partition - follow
+  // is for this boot only. A previous boot keeps HAProxy's own messages
+  // ([NOTICE], [WARNING], [ALERT]), not its access logs.
+  int32 boot = 4;
+}
+
+message LogBootsResponse {
+  // Whether the node has a LOGS partition. Without one - a node
+  // installed before it existed - only this boot's logs are kept, in
+  // memory.
+  bool available = 1;
+  // The partition, e.g. "/dev/vda7", and its size.
+  string device = 2;
+  uint64 size_bytes = 3;
+  // Newest first; this boot's is there once its first records are
+  // written (a few seconds after janusd starts).
+  repeated LogBoot boots = 4;
+  // Records written to and dropped from the partition since janusd
+  // started (dropped: the disk too slow for what's printed).
+  uint64 records_written = 5;
+  uint64 records_dropped = 6;
+}
+
+message LogBoot {
+  // What LogsRequest.boot and DmesgRequest.boot take: 0 for this boot,
+  // -1 for the one before...
+  int32 offset = 1;
+  // The partition's own count of boots.
+  uint32 number = 2;
+  // The kernel's boot_id of that boot.
+  string boot_id = 3;
+  // When its first records were written.
+  int64 started_unix_ns = 4;
+  // How much of the partition it takes, in MiB.
+  uint32 mebibytes = 5;
 }
 
 message StatsResponse {
@@ -783,3 +854,110 @@ message GenerateClientConfigurationResponse {
   bytes crt = 2;
   bytes key = 3;
 }
+
+message LogForwardingConfig {
+  repeated LogTarget targets = 1;
+  // Added to every record (Elasticsearch's labels.*): env=prod...
+  map<string, string> labels = 2;
+  // "never" (the default): HAProxy's access logs wait in memory only,
+  // dropped when a target can't keep up. "always": kept on the LOGS
+  // partition too, each target then takes them at least once - every
+  // request written to the disk.
+  string access_logs_on_disk = 3;
+  // The Controller that set this configuration (a fleet profile); empty
+  // when set by hand.
+  string managed_by = 4;
+}
+
+message LogTarget {
+  // What it has taken is kept under its name: lowercase letters, digits,
+  // ".", "_", "-".
+  string name = 1;
+  // janusd, haproxy (its own messages), access (its access logs),
+  // extensions, kernel, events, audit. Empty: all but access.
+  repeated string sources = 2;
+  bool disabled = 3;
+  // One of the two.
+  SyslogTarget syslog = 4;
+  ElasticsearchTarget elasticsearch = 5;
+  // How the server is trusted: the system's store by default.
+  TLSTrust tls = 6;
+}
+
+message SyslogTarget {
+  // host[:port] - 514 by default, 6514 with tls.
+  string address = 1;
+  // "udp" (the default), "tcp" or "tls".
+  string transport = 2;
+  // "rfc5424" (the default) or "rfc3164" (BSD).
+  string format = 3;
+  // Over tcp and tls: "octet-counting" (RFC 6587, the default with
+  // rfc5424) or "lf" (the default with rfc3164).
+  string framing = 4;
+  // The services' facility: local0 (the default) to local7, daemon,
+  // user, auth. The kernel's messages are kern, the audit authpriv.
+  string facility = 5;
+}
+
+message ElasticsearchTarget {
+  // e.g. https://elastic.example:9200
+  string url = 1;
+  // Of the data streams logs-janus.<source>-<namespace>: "default" by
+  // default.
+  string namespace = 2;
+  // Secret: an API key - encoded, as Kibana shows it, or "id:key".
+  string api_key = 3;
+  // Or a user and its password (secret).
+  string username = 4;
+  string password = 5;
+  // Compress what's sent.
+  bool gzip = 6;
+}
+
+message TLSTrust {
+  // A CA (PEM) - or the SHA-256 fingerprint of the server's certificate
+  // or of a CA in its chain (Elasticsearch prints its CA's at first
+  // start). Neither: the system's trust store.
+  string ca_pem = 1;
+  string fingerprint = 2;
+  // The name the server's certificate carries, when it isn't the
+  // address's host.
+  string server_name = 3;
+  // A client certificate and its key (secret), for a server that asks.
+  string client_cert_pem = 4;
+  string client_key_pem = 5;
+}
+
+message LogForwardingResponse {
+  LogForwardingConfig config = 1;
+  repeated LogTargetStatus targets = 2;
+}
+
+message LogTargetStatus {
+  string name = 1;
+  // "syslog" or "elasticsearch".
+  string kind = 2;
+  // "starting", "ok", "failing", "disabled".
+  string state = 3;
+  string last_error = 4;
+  int64 last_sent_unix_ns = 5;
+  int64 failing_since_unix_ns = 6;
+  // Records sent; dropped (a queue in memory full, or the LOGS
+  // partition wrote over them before they were sent - whatever their
+  // source); failed sends.
+  uint64 sent = 7;
+  uint64 dropped = 8;
+  uint64 errors = 9;
+  // Records waiting: in memory, and on the LOGS partition behind the
+  // target's place (whatever their source).
+  uint64 queued = 10;
+  // The secrets it has: "api_key", "password", "client_key".
+  repeated string secrets = 11;
+}
+
+message LogForwardingTestResponse {
+  bool ok = 1;
+  // What went wrong - or what the server said.
+  string detail = 2;
+}
+

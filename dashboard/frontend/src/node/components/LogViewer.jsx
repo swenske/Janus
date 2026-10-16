@@ -14,8 +14,10 @@ function lineTone(line) {
 }
 
 // LogViewer follows a Server-Sent Events stream of text lines. Pausing
-// freezes the view (lines keep arriving and show on resume).
-export default function LogViewer({ url, name = 'log', height = '65vh', emptyText = 'Waiting for output…' }) {
+// freezes the view (lines keep arriving and show on resume). With text
+// (a previous boot's, fetched whole), it shows that instead and follows
+// nothing.
+export default function LogViewer({ url, text = null, name = 'log', height = '65vh', emptyText = 'Waiting for output…' }) {
   const [lines, setLines] = useState([])
   const [failure, setFailure] = useState(null)
   const [paused, setPaused] = useState(false)
@@ -30,7 +32,12 @@ export default function LogViewer({ url, name = 'log', height = '65vh', emptyTex
     setFailure(null)
   }, [url])
 
+  const still = text !== null
+  const stillLines = useMemo(() => (!still || text === '' ? [] : text.replace(/\n$/, '').split('\n').slice(-MAX_LINES)), [still, text])
+  const kept = still ? stillLines : lines
+
   const status = useSSE(url, {
+    enabled: !still,
     onMessage: (data) => {
       const incoming = data.split('\n')
       setLines((ls) => {
@@ -41,7 +48,7 @@ export default function LogViewer({ url, name = 'log', height = '65vh', emptyTex
     onFailure: (msg) => setFailure(msg),
   })
 
-  const shownSource = paused ? frozen || lines : lines
+  const shownSource = paused ? frozen || kept : kept
   const shown = useMemo(() => {
     if (!q) return shownSource
     const needle = q.toLowerCase()
@@ -57,7 +64,7 @@ export default function LogViewer({ url, name = 'log', height = '65vh', emptyTex
     setPaused(!paused)
   }
   const save = () => {
-    const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' })
+    const blob = new Blob([kept.join('\n') + '\n'], { type: 'text/plain' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = `${name}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`
@@ -68,9 +75,13 @@ export default function LogViewer({ url, name = 'log', height = '65vh', emptyTex
   return (
     <div className="stack">
       <div className="row">
-        <Badge tone={failure ? 'danger' : paused ? 'warn' : stateTone(status)} dot>
-          {failure ? 'failed' : paused ? 'paused' : status}
-        </Badge>
+        {still ? (
+          <Badge tone="info">previous boot</Badge>
+        ) : (
+          <Badge tone={failure ? 'danger' : paused ? 'warn' : stateTone(status)} dot>
+            {failure ? 'failed' : paused ? 'paused' : status}
+          </Badge>
+        )}
         <label className="search">
           <Search size={14} />
           <input placeholder="Filter lines…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -80,20 +91,26 @@ export default function LogViewer({ url, name = 'log', height = '65vh', emptyTex
           {q ? ` of ${shownSource.length}` : ''} lines
         </span>
         <span className="grow" />
-        <button className="small" onClick={togglePause}>
-          {paused ? <Play size={14} /> : <Pause size={14} />}
-          {paused ? 'Resume' : 'Pause'}
-        </button>
-        <button className={`small ${follow ? 'active' : ''}`} onClick={() => setFollow(!follow)} title="Keep scrolled to the newest line">
-          <ArrowDownToLine size={14} /> Follow
-        </button>
+        {!still && (
+          <>
+            <button className="small" onClick={togglePause}>
+              {paused ? <Play size={14} /> : <Pause size={14} />}
+              {paused ? 'Resume' : 'Pause'}
+            </button>
+            <button className={`small ${follow ? 'active' : ''}`} onClick={() => setFollow(!follow)} title="Keep scrolled to the newest line">
+              <ArrowDownToLine size={14} /> Follow
+            </button>
+          </>
+        )}
         <button className={`small ${wrap ? 'active' : ''}`} onClick={() => setWrap(!wrap)}>
           <WrapText size={14} /> Wrap
         </button>
-        <button className="small" onClick={() => setLines([])}>
-          <Trash2 size={14} /> Clear
-        </button>
-        <button className="small" onClick={save} disabled={!lines.length}>
+        {!still && (
+          <button className="small" onClick={() => setLines([])}>
+            <Trash2 size={14} /> Clear
+          </button>
+        )}
+        <button className="small" onClick={save} disabled={!kept.length}>
           <Download size={14} /> Download
         </button>
       </div>

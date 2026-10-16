@@ -8,6 +8,9 @@
 // before an update is still there after it -, IDs going on from where
 // they stopped. A janusd elsewhere (on a host, in a test) keeps it in
 // memory only.
+//
+// The package's functions are the event log's; NewLog makes another
+// log kept the same way - the node's audit (internal/api).
 package events
 
 import (
@@ -46,36 +49,65 @@ type Event struct {
 	Payload []byte // JSON
 }
 
-var (
+// Log is a log of events: the last capacity of them in memory, and on a
+// disk once Persist is called.
+type Log struct {
+	name     string // the file's, and the messages'
+	capacity int
+
 	mu     sync.Mutex
-	held          = ring.New[Event](Capacity)
-	nextID uint64 = 1
+	held   *ring.Ring[Event]
+	nextID uint64
 	disk   *store // nil: in memory only
-)
+}
+
+// NewLog makes a log named name (its file: name.jsonl) keeping capacity
+// events.
+func NewLog(name string, capacity int) *Log {
+	return &Log{name: name, capacity: capacity, held: ring.New[Event](capacity), nextID: 1}
+}
+
+// std is the event log.
+var std = NewLog("events", Capacity)
+
+// Publish records an event in the event log.
+func Publish(typ string, payload any) { std.Publish(typ, payload) }
+
+// Since is the event log's Log.Since.
+func Since(id uint64) ([]Event, uint64) { return std.Since(id) }
+
+// Changed is the event log's Log.Changed.
+func Changed() <-chan struct{} { return std.Changed() }
+
+// Persist is the event log's Log.Persist.
+func Persist(dir string) error { return std.Persist(dir) }
+
+// Flush is the event log's Log.Flush.
+func Flush() { std.Flush() }
 
 // Publish records an event. payload is JSON-encoded; nil means none.
-func Publish(typ string, payload any) {
+func (l *Log) Publish(typ string, payload any) {
 	var data []byte
 	if payload != nil {
 		data, _ = json.Marshal(payload)
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	e := Event{ID: nextID, Time: time.Now(), Type: typ, Payload: data}
-	nextID++
-	held.Append(e)
-	if disk != nil {
-		disk.add(e)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e := Event{ID: l.nextID, Time: time.Now(), Type: typ, Payload: data}
+	l.nextID++
+	l.held.Append(e)
+	if l.disk != nil {
+		l.disk.add(e)
 	}
 }
 
 // Since returns the events with an ID greater than id still held, and
 // the ID to pass next time. A reader ahead of the log - it remembered an
 // ID from a log that started over since - gets the events from now on.
-func Since(id uint64) ([]Event, uint64) {
-	mu.Lock()
-	r, last := held, nextID-1
-	mu.Unlock()
+func (l *Log) Since(id uint64) ([]Event, uint64) {
+	l.mu.Lock()
+	r, last := l.held, l.nextID-1
+	l.mu.Unlock()
 	id = min(id, last)
 	var out []Event
 	r.Each(func(e *Event) {
@@ -91,10 +123,10 @@ func Since(id uint64) ([]Event, uint64) {
 
 // Changed returns a channel closed on the next Publish - see
 // ring.Ring.Changed for how to use it without missing one.
-func Changed() <-chan struct{} {
-	mu.Lock()
-	r := held
-	mu.Unlock()
+func (l *Log) Changed() <-chan struct{} {
+	l.mu.Lock()
+	r := l.held
+	l.mu.Unlock()
 	return r.Changed()
 }
 
@@ -104,64 +136,64 @@ func Changed() <-chan struct{} {
 // follow, renumbered. Lines that can't be read - a torn last line after
 // a power cut - are skipped. On an error the log stays in memory, as it
 // was. Called once, before anything reads the log.
-func Persist(dir string) error {
+func (l *Log) Persist(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, FileName)
-	kept, skipped, err := load(path)
+	path := filepath.Join(dir, l.name+".jsonl")
+	kept, skipped, err := load(path, l.capacity)
 	if err != nil {
 		return err
 	}
 	if skipped > 0 {
-		log.Printf("events: %d unreadable line(s) in %s skipped", skipped, path)
+		log.Printf("%s: %d unreadable line(s) in %s skipped", l.name, skipped, path)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	if disk != nil {
-		return fmt.Errorf("events: already kept in %s", disk.path)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.disk != nil {
+		return fmt.Errorf("%s: already kept in %s", l.name, l.disk.path)
 	}
 	all := kept
 	next := uint64(1)
 	if len(kept) > 0 {
 		next = kept[len(kept)-1].ID + 1
 	}
-	held.Each(func(e *Event) {
+	l.held.Each(func(e *Event) {
 		early := *e
 		early.ID = next
 		next++
 		all = append(all, early)
 	})
-	if len(all) > Capacity {
-		all = all[len(all)-Capacity:]
+	if len(all) > l.capacity {
+		all = all[len(all)-l.capacity:]
 	}
-	s := &store{path: path}
+	s := &store{l: l, path: path}
 	if err := s.rewrite(all); err != nil {
 		return err
 	}
-	r := ring.New[Event](Capacity)
+	r := ring.New[Event](l.capacity)
 	for _, e := range all {
 		r.Append(e)
 	}
-	held, nextID, disk = r, next, s
+	l.held, l.nextID, l.disk = r, next, s
 	go s.syncLoop()
 	return nil
 }
 
 // Flush forces what's been logged to the disk - before the machine goes
 // down.
-func Flush() {
-	mu.Lock()
-	defer mu.Unlock()
-	if disk != nil {
-		disk.sync()
+func (l *Log) Flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.disk != nil {
+		l.disk.sync()
 	}
 }
 
-// load reads the events kept at path, the last Capacity of them; a
+// load reads the events kept at path, the last capacity of them; a
 // missing file is an empty log.
-func load(path string) (kept []Event, skipped int, err error) {
+func load(path string, capacity int) (kept []Event, skipped int, err error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, 0, nil
@@ -179,8 +211,8 @@ func load(path string) (kept []Event, skipped int, err error) {
 		}
 		kept = append(kept, l.event())
 	}
-	if len(kept) > Capacity {
-		kept = kept[len(kept)-Capacity:]
+	if len(kept) > capacity {
+		kept = kept[len(kept)-capacity:]
 	}
 	return kept, skipped, nil
 }
@@ -210,10 +242,11 @@ func encode(e Event) []byte {
 	return append(data, '\n')
 }
 
-// store is the log's file, appended to as events come and rewritten
-// with the last Capacity once it holds twice that. Its methods run
-// under mu.
+// store is a log's file, appended to as events come and rewritten
+// with the last capacity once it holds twice that. Its methods run
+// under the log's mu.
 type store struct {
+	l     *Log
 	path  string
 	f     *os.File
 	lines int
@@ -230,9 +263,9 @@ func (s *store) add(e Event) {
 	}
 	s.lines++
 	s.dirty = true
-	if s.lines >= 2*Capacity {
+	if s.lines >= 2*s.l.capacity {
 		var all []Event
-		held.Each(func(e *Event) { all = append(all, *e) })
+		s.l.held.Each(func(e *Event) { all = append(all, *e) })
 		if err := s.rewrite(all); err != nil {
 			s.fail(err)
 		}
@@ -299,7 +332,7 @@ func (s *store) sync() {
 // fail stops keeping the log on the disk, logged once: it goes on in
 // memory.
 func (s *store) fail(err error) {
-	log.Printf("events: %s: %v - the event log is kept in memory only from now on", s.path, err)
+	log.Printf("%s: %s: %v - kept in memory only from now on", s.l.name, s.path, err)
 	if s.f != nil {
 		s.f.Close()
 		s.f = nil
@@ -309,12 +342,12 @@ func (s *store) fail(err error) {
 func (s *store) syncLoop() {
 	for {
 		time.Sleep(syncEvery)
-		mu.Lock()
-		if s != disk || s.f == nil {
-			mu.Unlock()
+		s.l.mu.Lock()
+		if s != s.l.disk || s.f == nil {
+			s.l.mu.Unlock()
 			return
 		}
 		s.sync()
-		mu.Unlock()
+		s.l.mu.Unlock()
 	}
 }

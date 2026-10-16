@@ -20,6 +20,8 @@ import (
 	"github.com/swenske/Janus/internal/firewall"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/kmsgwatch"
+	"github.com/swenske/Janus/internal/logship"
+	"github.com/swenske/Janus/internal/logvol"
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/timesync"
@@ -42,6 +44,8 @@ type metricsSources struct {
 	bgp        *bgp.Manager
 	acme       *acme.Manager
 	statePath  string          // STATE's mount point, for its filesystem's error count
+	logVol     *logvol.Volume  // the LOGS partition, nil without one
+	ship       *logship.Shipper
 	boot       *boottime.Times // this boot's timing, on a node
 
 	certsMu      sync.Mutex
@@ -55,7 +59,7 @@ type metricsSources struct {
 const haproxyCertTTL = time.Minute
 
 func (m *metricsSources) collectors() []exporter.Collector {
-	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.acmeMetrics, m.security, m.apiRequests}
+	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.acmeMetrics, m.security, m.apiRequests, m.logshipMetrics}
 }
 
 func gauge(name, help string, samples ...exporter.Sample) exporter.Family {
@@ -160,7 +164,7 @@ func commonName(subject string) string {
 }
 
 func (m *metricsSources) haproxyMetrics() []exporter.Family {
-	_, err := m.haproxy.ShowInfo()
+	info, err := m.haproxy.ShowInfo()
 	c := m.haproxy.Counters()
 	fams := []exporter.Family{
 		gauge("janus_haproxy_up", "1 if HAProxy answers on its stats socket. HAProxy's own metrics can't say it's down.", sample(exporter.Bool(err == nil))),
@@ -171,6 +175,9 @@ func (m *metricsSources) haproxyMetrics() []exporter.Family {
 		gauge("janus_haproxy_untracked_processes", "HAProxy processes that listen but aren't the one janusd runs - each one also an haproxy.untracked event. It may serve another configuration.", sample(float64(c.UntrackedListening.Load()))),
 		counter("janus_haproxy_config_applies_total", "HAProxy configurations applied through the API, by result.",
 			sample(float64(c.ApplyAccepted.Load()), "result", "accepted"), sample(float64(c.ApplyRejected.Load()), "result", "rejected")),
+	}
+	if err == nil {
+		fams = append(fams, counter("janus_haproxy_dropped_logs_total", "Log lines the running HAProxy process dropped rather than wait: its stdout (janusd) or a log server couldn't take them at once, or two of its threads wrote to its stdout at the same time. Starts again at 0 with each process.", sample(float64(info.DroppedLogs))))
 	}
 	if t := c.LastApplyUnix.Load(); t > 0 {
 		fams = append(fams, gauge("janus_haproxy_config_last_apply_timestamp_seconds", "When the last HAProxy configuration was applied through the API.", sample(float64(t))))
@@ -338,6 +345,14 @@ func (m *metricsSources) security() []exporter.Family {
 	if n, ok := ext4Errors(m.statePath); ok {
 		fams = append(fams, gauge("janus_state_filesystem_errors", "Errors the kernel recorded on the STATE filesystem (PKI, configuration) - it should be 0.", sample(float64(n))))
 	}
+	if m.logVol != nil {
+		st := m.logVol.Stats()
+		fams = append(fams,
+			gauge("janus_logs_volume_size_bytes", "The size of the LOGS partition, where the node keeps its logs across reboots.", sample(float64(st.SizeBytes))),
+			counter("janus_logs_volume_written_bytes_total", "Bytes written to the LOGS partition since janusd started.", sample(float64(st.WrittenBytes))),
+			counter("janus_logs_volume_dropped_records_total", "Log records the LOGS partition couldn't take since janusd started (more printed than the disk wrote) - it should be 0.", sample(float64(st.Dropped))),
+			counter("janus_logs_volume_errors_total", "Failed writes to the LOGS partition since janusd started - it should be 0.", sample(float64(st.Errors))))
+	}
 	return fams
 }
 
@@ -382,4 +397,32 @@ func (m *metricsSources) apiRequests() []exporter.Family {
 		samples = append(samples, sample(float64(c.N), "method", c.Method, "code", c.Code))
 	}
 	return []exporter.Family{counter("janus_api_requests_total", "Calls to the node's API since janusd started, by method and status code - refused ones included.", samples...)}
+}
+
+// logshipMetrics are the log shipper's, a sample per target.
+func (m *metricsSources) logshipMetrics() []exporter.Family {
+	if m.ship == nil {
+		return nil
+	}
+	var up, sent, dropped, errs, queued []exporter.Sample
+	for _, st := range m.ship.Status() {
+		if st.State == "disabled" {
+			continue
+		}
+		up = append(up, sample(exporter.Bool(st.State == "ok"), "target", st.Name, "kind", st.Kind))
+		sent = append(sent, sample(float64(st.Sent), "target", st.Name))
+		dropped = append(dropped, sample(float64(st.Dropped), "target", st.Name))
+		errs = append(errs, sample(float64(st.Errors), "target", st.Name))
+		queued = append(queued, sample(float64(st.QueuedRecords), "target", st.Name))
+	}
+	if len(up) == 0 {
+		return nil
+	}
+	return []exporter.Family{
+		gauge("janus_logship_target_up", "1 when the log target's last send worked, 0 while it fails (docs/guide/log-forwarding.md).", up...),
+		counter("janus_logship_records_sent_total", "Log records sent to the target since janusd started.", sent...),
+		counter("janus_logship_records_dropped_total", "Log records the target lost since janusd started: its queue in memory was full, or the LOGS partition wrote over them before they were sent - it should stay 0.", dropped...),
+		counter("janus_logship_send_errors_total", "Failed sends to the target since janusd started (each is retried).", errs...),
+		gauge("janus_logship_queued_records", "Log records waiting for the target: in memory, and on the LOGS partition behind its place.", queued...),
+	}
 }

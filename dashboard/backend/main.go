@@ -216,6 +216,9 @@ func main() {
 	go app.autoscaler.run(context.Background())
 	go app.trustLoop(context.Background())
 	go app.backupLoop(context.Background())
+	if err := app.startLogForwarding(masterKey); err != nil {
+		log.Fatalf("log forwarding: %v", err)
+	}
 	// The node pages: a machine's lock, and its record read again after a
 	// change made there.
 	nodeproxy.LockedBy = func(n *store.Node) string {
@@ -295,6 +298,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	a.registerSSHKeyRoutes(mux)
 	a.registerCLIBrowserRoutes(mux)
 	a.registerBackupRoutes(mux)
+	a.registerLogForwardingRoutes(mux)
 	a.registerRestoreRoutes(mux)
 	a.registerHypervisorRoutes(mux)
 	a.registerFleetRoutes(mux)
@@ -340,6 +344,9 @@ type app struct {
 	enroll *enroll.Store
 	fleet  *fleet.Store
 	trust  *trustTracker
+	// logfwd is the log forwarding: the Controller's own and the fleet's
+	// profiles (logforward.go).
+	logfwd *logForwarding
 	runner *machineRunner
 	// autoscaler resizes machines with an auto-scaling policy
 	autoscaler *autoscaler
@@ -499,6 +506,7 @@ func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.trust.Kick() // brought to trust the fleet at once
+	a.logfwd.Poke()
 
 	writeJSON(w, http.StatusCreated, struct {
 		ID string `json:"id"`
@@ -548,6 +556,7 @@ func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		a.logfwd.Poke() // another log forwarding profile may pick it
 		writeJSON(w, http.StatusOK, viewNode(n))
 		return
 	}

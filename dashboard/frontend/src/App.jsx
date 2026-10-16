@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Rocket,
   ScrollText,
+  Send,
   Server,
   ShieldCheck,
   Tag,
@@ -35,6 +36,7 @@ import { SSHKeys } from './SSHKeys.jsx'
 import { CliDevicePage, CliLoginPage } from './CliLogin.jsx'
 import { backupAlert } from './backupAlert.js'
 import BackupsPage from './Backups.jsx'
+import LogForwardingPage from './LogForwarding.jsx'
 import EnrollTokens from './Enroll.jsx'
 import HTTPSCertificate from './HTTPSCert.jsx'
 import { RestoreForm } from './Restore.jsx'
@@ -875,7 +877,7 @@ const STATUS_EVERY = 15000
 function MainApp() {
   const route = useHashRoute()
   const can = useCan()
-  const tab = ['hypervisors', 'tokens', 'accounts', 'audit', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
+  const tab = ['hypervisors', 'tokens', 'accounts', 'audit', 'log-forwarding', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
   const [nodes, setNodes] = useState(null)
   const [pending, setPending] = useState([])
   const [statuses, setStatuses] = useState({})
@@ -1070,6 +1072,7 @@ function MainApp() {
               ? [
                   { id: 'accounts', label: 'Accounts', icon: Users },
                   { id: 'audit', label: 'Audit', icon: ScrollText },
+                  { id: 'log-forwarding', label: 'Log forwarding', icon: Send },
                   { id: 'backups', label: 'Backups', icon: Archive },
                 ]
               : []),
@@ -1088,6 +1091,8 @@ function MainApp() {
           <UsersPage />
         ) : tab === 'audit' && can('admin') ? (
           <AuditPage />
+        ) : tab === 'log-forwarding' && can('admin') ? (
+          <LogForwardingPage />
         ) : tab === 'backups' && can('admin') ? (
           <BackupsPage />
         ) : tab === 'hypervisors' ? (

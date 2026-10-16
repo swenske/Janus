@@ -14,6 +14,7 @@ import {
   HardDrive,
   KeyRound,
   LayoutDashboard,
+  Lock,
   LockKeyhole,
   Menu,
   Network,
@@ -22,15 +23,15 @@ import {
   RefreshCw,
   Route,
   ScrollText,
+  Send,
   Server,
   Shield,
   Shuffle,
   SlidersHorizontal,
   Terminal,
+  UserRound,
   Waypoints,
   Workflow,
-  Lock,
-  UserRound,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
@@ -49,6 +50,7 @@ import Files from './views/Files.jsx'
 import Flow from './views/Flow.jsx'
 import HAProxy from './views/HAProxy.jsx'
 import Kernel from './views/Kernel.jsx'
+import LogForwarding from './views/LogForwarding.jsx'
 import Logs from './views/Logs.jsx'
 import Metrics from './views/Metrics.jsx'
 import Firewall from './views/Firewall.jsx'
@@ -87,6 +89,7 @@ const NAV = [
       { path: '/logs', label: 'Service logs', icon: ScrollText, view: Logs, needs: 'SystemService/Logs' },
       { path: '/events', label: 'Events', icon: Activity, view: Events },
       { path: '/kernel', label: 'Kernel (dmesg)', icon: Terminal, view: Kernel, needs: 'SystemService/Dmesg' },
+      { path: '/log-forwarding', label: 'Forwarding', icon: Send, view: LogForwarding, needs: 'SystemService/LogForwardingGet' },
     ],
   },
   {

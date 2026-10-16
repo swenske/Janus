@@ -43,11 +43,15 @@ async function visit(page, url, scheme) {
   if (resp.status() !== 200) problems.push(`${url}: ${resp.status()}`)
   const diagrams = await page.locator('pre.mermaid').count()
   if (diagrams) {
-    // Drawn as they come near the screen: go to each.
-    for (const d of await page.locator('pre.mermaid').all()) await d.scrollIntoViewIfNeeded()
-    await page
-      .waitForFunction(() => [...document.querySelectorAll('pre.mermaid')].every((p) => p.querySelector('svg')), null, { timeout: 15000 })
-      .catch(() => problems.push(`${url} (${scheme}): a Mermaid diagram wasn't drawn`))
+    // Drawn as they come near the screen: go to each, and wait for it
+    // there - scrolled past within a frame, a diagram never comes near
+    // the screen for the page (a reader scrolling back draws it).
+    let drawn = true
+    for (const d of await page.locator('pre.mermaid').all()) {
+      await d.scrollIntoViewIfNeeded()
+      drawn &&= await d.locator('svg').first().waitFor({ timeout: 15000 }).then(() => true, () => false)
+    }
+    if (!drawn) problems.push(`${url} (${scheme}): a Mermaid diagram wasn't drawn`)
     if (await page.locator('pre.mermaid :text("Syntax error")').count()) problems.push(`${url}: a Mermaid syntax error`)
   }
   // Every image the page shows in this theme, loaded - lazy ones too

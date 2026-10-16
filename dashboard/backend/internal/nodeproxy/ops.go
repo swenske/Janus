@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
@@ -268,6 +270,20 @@ const maxJSONBody = 4 << 20
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBody)).Decode(v); err != nil {
+		http.Error(w, fmt.Sprintf("decode request: %v", err), http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+// decodeProto reads a request body as m's JSON (protojson: field names
+// as in the .proto or in lowerCamelCase).
+func decodeProto(w http.ResponseWriter, r *http.Request, m proto.Message) bool {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxJSONBody))
+	if err == nil {
+		err = protojson.Unmarshal(data, m)
+	}
+	if err != nil {
 		http.Error(w, fmt.Sprintf("decode request: %v", err), http.StatusBadRequest)
 		return false
 	}

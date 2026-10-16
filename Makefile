@@ -33,7 +33,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean rootfs-fit-test kernel-menuconfig janusctl-deb janusctl-deb-test apt-publish-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-console-flood-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-console-flood-test qemu-logvol-test qemu-logforward-test qemu-logforward-es-test qemu-logforward-fleet-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build kernel-builds kernel-config-refresh rpi4-kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -1215,6 +1215,30 @@ qemu-metrics-test: build disk-image
 # hack/qemu-console-flood-test.sh.
 qemu-console-flood-test: build disk-image
 	./hack/qemu-console-flood-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# The LOGS partition on a real node: previous boots' logs and kernel
+# messages read back after a reboot and a power cut, a janusd restart
+# keeps the boot, Reset forgets them. See hack/qemu-logvol-test.sh.
+qemu-logvol-test: build disk-image
+	./hack/qemu-logvol-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# Log forwarding on a real node against a real rsyslog (a container,
+# hack/rsyslog): UDP, TCP and TLS targets, an outage, a reboot, HAProxy's
+# own log lines. See hack/qemu-logforward-test.sh.
+qemu-logforward-test: build disk-image
+	./hack/qemu-logforward-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# The same to a real Elasticsearch (Elastic's image, security on): an API
+# key, the CA's fingerprint, ECS documents in their data streams, an
+# outage's lines stored once. See hack/qemu-logforward-es-test.sh.
+qemu-logforward-es-test: build disk-image
+	./hack/qemu-logforward-es-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# The Controller's log forwarding with two real nodes: its own audit and
+# log, a fleet profile picked by labels, kept applied, taken off. See
+# hack/qemu-logforward-fleet-test.sh.
+qemu-logforward-fleet-test: build dashboard-bin disk-image
+	./hack/qemu-logforward-fleet-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
 # The same proof over https:// against a real published GitHub Release,
 # verified against the node's own bundled CA trust store (requires

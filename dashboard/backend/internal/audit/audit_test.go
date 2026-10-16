@@ -49,3 +49,39 @@ func TestLog(t *testing.T) {
 		t.Errorf("filtered: %+v", got)
 	}
 }
+
+// IDs go on across a reopen; Since reads behind a cursor, across the
+// rotated file; Changed says when there's more.
+func TestSinceAndChanged(t *testing.T) {
+	dir := t.TempDir()
+	old := MaxSize
+	MaxSize = 1000
+	t.Cleanup(func() { MaxSize = old })
+	l, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := l.Changed()
+	for i := range 20 {
+		if err := l.Append(Entry{User: fmt.Sprint("u", i), Method: "POST", Path: "/api/x", Status: 200}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case <-ch:
+	default:
+		t.Fatal("Changed wasn't closed by an append")
+	}
+	if l.Latest() != 20 {
+		t.Fatalf("Latest = %d", l.Latest())
+	}
+	got, last := l.Since(15, 100)
+	if len(got) != 5 || got[0].ID != 16 || got[0].User != "u15" || last != 20 {
+		t.Fatalf("Since(15) = %d entries from %+v, last %d", len(got), got, last)
+	}
+	l2, _ := Open(dir)
+	_ = l2.Append(Entry{User: "after a restart", Method: "PUT", Path: "/api/y"})
+	if got, _ := l2.Since(20, 10); len(got) != 1 || got[0].ID != 21 {
+		t.Fatalf("after a reopen: %+v", got)
+	}
+}

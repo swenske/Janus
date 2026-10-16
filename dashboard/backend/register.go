@@ -350,6 +350,7 @@ func (a *app) admitLabelled(p *pending.Node, machineID string, l map[string]stri
 		return nil, fmt.Errorf("persist node: %w", err)
 	}
 	a.trust.Kick() // brought to trust the fleet at once
+	a.logfwd.Poke()
 	return node, nil
 }
 

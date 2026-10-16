@@ -153,6 +153,11 @@ type InstallRequest struct {
 	// written.
 	FleetRootCert []byte `protobuf:"bytes,7,opt,name=fleet_root_cert,json=fleetRootCert,proto3" json:"fleet_root_cert,omitempty"`
 	FleetBundle   []byte `protobuf:"bytes,8,opt,name=fleet_bundle,json=fleetBundle,proto3" json:"fleet_bundle,omitempty"`
+	// Optional: the size of the LOGS partition - the node's logs kept
+	// across reboots (SystemService.LogBoots) - in MiB. 0: 5 % of the
+	// disk, between 512 MiB and 8 GiB, and none on a disk under 4 GiB;
+	// -1: no LOGS partition.
+	LogsSizeMb    int32 `protobuf:"varint,10,opt,name=logs_size_mb,json=logsSizeMb,proto3" json:"logs_size_mb,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -248,6 +253,13 @@ func (x *InstallRequest) GetFleetBundle() []byte {
 		return x.FleetBundle
 	}
 	return nil
+}
+
+func (x *InstallRequest) GetLogsSizeMb() int32 {
+	if x != nil {
+		return x.LogsSizeMb
+	}
+	return 0
 }
 
 type InstallResponse struct {
@@ -621,7 +633,7 @@ const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\treference\x18\x01 \x01(\tR\treference\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12A\n" +
 	"\x1dinsecure_skip_signature_check\x18\x03 \x01(\bR\x1ainsecureSkipSignatureCheck\x124\n" +
-	"\x16allow_schematic_change\x18\x04 \x01(\bR\x14allowSchematicChange\"\xb3\x03\n" +
+	"\x16allow_schematic_change\x18\x04 \x01(\bR\x14allowSchematicChange\"\xd5\x03\n" +
 	"\x0eInstallRequest\x123\n" +
 	"\x06source\x18\x01 \x01(\v2\x1b.janus.v1alpha1.ImageSourceR\x06source\x12\x12\n" +
 	"\x04disk\x18\x02 \x01(\tR\x04disk\x12-\n" +
@@ -631,7 +643,10 @@ const file_janus_v1alpha1_lifecycle_proto_rawDesc = "" +
 	"\x12registration_token\x18\t \x01(\tR\x11registrationToken\x12D\n" +
 	"\x0enetwork_config\x18\x05 \x01(\v2\x1d.janus.v1alpha1.NetworkConfigR\rnetworkConfig\x12&\n" +
 	"\x0ffleet_root_cert\x18\a \x01(\fR\rfleetRootCert\x12!\n" +
-	"\ffleet_bundle\x18\b \x01(\fR\vfleetBundle\"]\n" +
+	"\ffleet_bundle\x18\b \x01(\fR\vfleetBundle\x12 \n" +
+	"\flogs_size_mb\x18\n" +
+	" \x01(\x05R\n" +
+	"logsSizeMb\"]\n" +
 	"\x0fInstallResponse\x12\x14\n" +
 	"\x05stage\x18\x01 \x01(\tR\x05stage\x12\x1a\n" +
 	"\bprogress\x18\x02 \x01(\x01R\bprogress\x12\x18\n" +

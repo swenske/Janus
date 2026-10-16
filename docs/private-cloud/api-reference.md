@@ -123,8 +123,10 @@ SystemService is the reduced, non-Kubernetes equivalent of Talos's MachineServic
 | `Reset` | `ResetRequest` → `ResetResponse` | `os:admin` | system | Reset wipes the requested partitions (state/ephemeral) and reboots - the equivalent of returning the node to its just-installed state. |
 | `ApplyConfiguration` | `ApplyConfigurationRequest` → `stream ApplyConfigurationResponse` | `os:admin` | system | ApplyConfiguration is not implemented - it answers Unimplemented: a node has no declarative machine configuration, each area has its own calls (HAProxyService, NetworkService...). |
 | `Events` | `EventsRequest` → `stream Event` | `os:reader` | observe | Events streams the machine's internal event log (config applied, service state changes, upgrades, reboots, etc.): its last thousand events, kept on STATE across reboots and updates, then new ones as they come. |
-| `Dmesg` | `DmesgRequest` → `stream Data` | `os:admin` | system | Dmesg streams the kernel ring buffer. |
-| `Logs` | `LogsRequest` → `stream Data` | `os:operator` | services | Logs streams a managed service's log output. |
+| `Dmesg` | `DmesgRequest` → `stream Data` | `os:admin` | system | Dmesg streams the kernel ring buffer - or, with boot, a previous boot's kernel messages from the LOGS partition. |
+| `Logs` | `LogsRequest` → `stream Data` | `os:operator` | services | Logs streams a managed service's log output - or, with boot, what it printed during a previous boot, from the LOGS partition. |
+| `LogBoots` | `Empty` → `LogBootsResponse` | `os:reader` | observe | LogBoots lists the boots whose logs the node keeps on its LOGS partition, newest first: what Logs and Dmesg take as boot. |
+| `Audit` | `EventsRequest` → `stream Event` | `os:admin` | system | Audit streams the node's audit - every call that changed something, once done, and every call refused: the method as the type, who (the user a Controller acted for), from where, how it ended and how long it took as the JSON payload. Its last 2000 entries are kept on STATE across reboots and updates; since_id resumes, then new ones follow. |
 | `Stats` | `Empty` → `StatsResponse` | `os:reader` | observe | Stats sums the CPU time and memory of each managed service's processes - janusd, haproxy (a reload briefly leaves an old haproxy process finishing its connections next to the new one). |
 | `SystemStat` | `Empty` → `SystemStatResponse` | `os:reader` | observe | SystemStat reports the machine's counters since boot: boot time, context switches, processes created, CPU ticks (/proc/stat). |
 | `Memory` | `Empty` → `MemoryResponse` | `os:reader` | observe | Memory reports the machine's total, available and cached memory, and the processes the kernel killed for lack of it since boot. |
@@ -159,6 +161,14 @@ The node's Prometheus exporter ([docs/metrics.md](../metrics.md)): Janus's own m
 |---|---|---|---|---|
 | `MetricsConfigGet` | `Empty` → `MetricsConfigResponse` | `os:reader` | observe | MetricsConfigGet reports the exporter's settings. |
 | `MetricsConfigSet` | `MetricsConfig` → `MetricsConfigResponse` | `os:admin` | system | MetricsConfigSet changes the exporter's settings, at once and for good; a port that can't be bound is refused and the exporter stays as it was. |
+
+The log shipper ([docs/guide/log-forwarding.md](../guide/log-forwarding.md)): the node's logs - janusd's, HAProxy's own messages and access logs, the extensions', the kernel's, the event log, the audit - sent to syslog servers and Elasticsearch clusters. What the node keeps on disk (the LOGS partition, the event log) each target takes behind a cursor: what it couldn't take while down goes once it's back.
+
+| Call | Request → response | Role | Domain | What it does |
+|---|---|---|---|---|
+| `LogForwardingGet` | `Empty` → `LogForwardingResponse` | `os:reader` | observe | LogForwardingGet returns where the logs go - never a secret: an API key, a password or a client key come back empty, LogTargetStatus says which are set - and how each target is doing. |
+| `LogForwardingSet` | `LogForwardingConfig` → `LogForwardingResponse` | `os:admin` | system | LogForwardingSet replaces the configuration, at once and for good (STATE). A target left without a secret keeps the one saved under its name; a new target starts with what's logged from now on. |
+| `LogForwardingTest` | `LogTarget` → `LogForwardingTestResponse` | `os:admin` | system | LogForwardingTest sends one record to a target now - the target as given, a secret it lacks taken from the saved target of its name - and says what happened. |
 
 The prometheus-node-exporter extension's settings ([docs/metrics.md](../metrics.md)): whether node_exporter runs, the address and port it listens on, and its collectors, from a fixed list. FailedPrecondition when the image doesn't have the extension.
 

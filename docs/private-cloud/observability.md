@@ -72,21 +72,50 @@ janusctl -n lb1 system events               # the node's event log, live
 janusctl -n lb1 system dmesg -f             # the kernel: AVC denials, OOM kills...
 ```
 
+**Previous boots**: a node also keeps them on its LOGS partition -
+janusd's log, each extension's, HAProxy's own messages (`[WARNING]`,
+`[ALERT]`... not its access logs) and the kernel's - until newer ones
+take the room, a power cut losing at most the last two seconds:
+
+```sh
+janusctl -n lb1 system boots                # the boots it holds: 0 this one, -1 the one before...
+janusctl -n lb1 system logs -boot -1 janusd # what janusd said before the last reboot
+janusctl -n lb1 system dmesg -boot -1       # the kernel's messages of that boot
+```
+
+A node installed before the LOGS partition existed has none (`system
+boots` says so): it keeps only this boot's logs, in memory, until it's
+installed again.
+
 The node's console only shows a share of the services' output - about
 2 KB/s, and it says what it left out: HAProxy's access logs under load
 are for the API, not for the serial console
 ([HAProxy configuration](../haproxy-config.md#the-global-section)).
 
 The Controller's **Logs** page shows the same, with filters, pause and
-download. To keep logs longer than the node does, a collector on the
-management network can follow them through the API - `janusctl ...
-system logs -f haproxy` into the collector's input.
+download. To keep them longer than the node does, send them to your log
+servers - syslog, Elasticsearch - from the node itself:
+[log forwarding](../guide/log-forwarding.md).
 
-**Who did what**: each node logs every call that changes something with
-the account behind it (`api: <Method>: <caller>`), the Controller
-included - it acts on a node for the account using its page. The
-Controller keeps its own audit log of every change made through it
-(`audit.jsonl` in its data directory).
+**Who did what**: each node logs every call that changes something, or
+reads what a reader may not (files, services' logs, packet captures),
+with the account behind it (`api: <Method>: <caller>`), the Controller
+included - it acts on a node for the account using its page - and keeps
+an audit: every such call once done, with where it came from, how it
+ended and how long it took, and every call refused. Its last 2000
+entries stay on STATE across reboots and updates, for admins:
+
+```sh
+janusctl -n lb1 system audit
+# 412  2026-10-16T08:12:03Z  SystemService/Reboot  ci-reader (os:reader)  10.0.0.5:41234  refused: ... requires role [os:admin os:operator] ...
+# 413  2026-10-16T08:12:40Z  HAProxyService/ApplyConfig  alice (os:operator) via janus-controller  10.0.0.2:52110  OK, 84 ms
+```
+
+The audit is a [log forwarding](../guide/log-forwarding.md) source like
+the others: to a syslog server as `authpriv`, to Elasticsearch with ECS's
+`user.name`, `source.ip` and `event.outcome`. The Controller keeps its
+own audit log of every change made through it (`audit.jsonl` in its
+data directory).
 
 ## When something's wrong
 

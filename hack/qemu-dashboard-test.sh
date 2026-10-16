@@ -621,6 +621,17 @@ else
   echo "Dashboard test FAILED: extension catalog -> $code: $body" >&2; exit 1
 fi
 expect_json /api/system/metrics-config 'd["config"]["enabled"] and d["config"]["port"] == 10056 and d["listening"] and d["is_default"]' "exporter config"
+# The LOGS partition (nodeproxy: log-boots, logs?boot=): there, this boot
+# listed once written, no previous one yet.
+expect_json /api/log-boots 'd["available"] and d["device"].endswith("7") and d["size_bytes"] > 500 << 20' "LOGS partition"
+# Log forwarding (nodeproxy, logforward.go): the node's own, empty; the
+# Controller's page lists the node, picked by no profile.
+expect_json /api/log-forwarding '"targets" not in d.get("config", {})' "node log forwarding"
+lf="$(curl -sk "${DASH_CERT[@]}" "https://127.0.0.1:${DASHBOARD_ADDR_PORT}/api/log-forwarding")"
+python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["profiles"] == [] and any(n["id"] == sys.argv[2] for n in d["nodes"]), d' "$lf" "$NODE_ID" ||
+  { echo "Dashboard test FAILED: GET /api/log-forwarding: $lf" >&2; exit 1; }
+out="$(jget '/api/logs?id=janusd&boot=-1')"; code="${out##*$'\n'}"
+[ "$code" = "404" ] && grep -q "holds no boot -1" <<<"${out%$'\n'*}" || { echo "Dashboard test FAILED: a previous boot the node doesn't hold -> $code: ${out%$'\n'*}" >&2; exit 1; }
 # Kernel parameters (nodeproxy/sysctl.go): the list and the CIS
 # benchmark, a CIS key refused, a change on trial then confirmed over a
 # fresh connection - the node's history records it -, then every

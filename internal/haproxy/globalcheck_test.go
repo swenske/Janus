@@ -13,7 +13,7 @@ func nodeTestPolicy() *GlobalPolicy {
 // TestGlobalPolicyAcceptsTheNodeConfigs: the bootstrap configuration and
 // the documented example pass as they are.
 func TestGlobalPolicyAcceptsTheNodeConfigs(t *testing.T) {
-	for _, f := range []string{"../../rootfs/base/etc/haproxy/haproxy.cfg", "../../examples/haproxy/web.cfg"} {
+	for _, f := range []string{"../../rootfs/base/etc/haproxy/haproxy.cfg", "../../examples/haproxy/web.cfg", "../../examples/haproxy/log-direct.cfg"} {
 		cfg, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)

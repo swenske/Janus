@@ -72,6 +72,63 @@ func TestRingChanged(t *testing.T) {
 	}
 }
 
+// The Ring against the obvious model - a slice that keeps everything -
+// across many wraps: Since from every sequence number, Last, Each.
+func TestRingMatchesModel(t *testing.T) {
+	for _, capacity := range []int{1, 2, 7} {
+		r := New[int](capacity)
+		var all []int
+		for v := 0; v < 5*capacity+3; v++ {
+			if seq := r.Append(v); seq != uint64(v) {
+				t.Fatalf("cap %d: Append(%d) = %d", capacity, v, seq)
+			}
+			all = append(all, v)
+			held := all[max(0, len(all)-capacity):]
+			first := len(all) - len(held)
+			for seq := 0; seq <= len(all)+1; seq++ {
+				got, next := r.Since(uint64(seq))
+				want := held[min(len(held), max(0, seq-first)):]
+				if fmt.Sprint(got) != fmt.Sprint(want) && len(got)+len(want) > 0 || next != uint64(len(all)) {
+					t.Fatalf("cap %d after %d: Since(%d) = %v, %d; want %v, %d", capacity, v, seq, got, next, want, len(all))
+				}
+			}
+			if got, _ := r.Last(2); fmt.Sprint(got) != fmt.Sprint(held[max(0, len(held)-2):]) {
+				t.Fatalf("cap %d after %d: Last(2) = %v", capacity, v, got)
+			}
+			var each []int
+			r.Each(func(p *int) { each = append(each, *p) })
+			if fmt.Sprint(each) != fmt.Sprint(held) {
+				t.Fatalf("cap %d after %d: Each = %v, want %v", capacity, v, each, held)
+			}
+		}
+	}
+}
+
+// A full Ring takes an item without allocating: a log ring takes one a
+// request (it once copied all its items each time - 27 µs a line).
+func TestAppendFullAllocatesNothing(t *testing.T) {
+	r := New[int](5000)
+	for i := 0; i < 5000; i++ {
+		r.Append(i)
+	}
+	if n := testing.AllocsPerRun(1000, func() { r.Append(1) }); n != 0 {
+		t.Errorf("Append on a full Ring: %v allocations", n)
+	}
+}
+
+func BenchmarkLineWriterFull(b *testing.B) {
+	w := &LineWriter{Ring: New[string](5000)}
+	line := []byte("10.200.40.7:40000 [15/Oct/2026:21:30:01.123] web web/<NOSRV> 0/-1/-1/-1/0 200 64 - - LR-- 1/1/0/0/0 0/0 \"GET / HTTP/1.1\"\n")
+	for i := 0; i < 5000; i++ {
+		_, _ = w.Write(line)
+	}
+	b.SetBytes(int64(len(line)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = w.Write(line)
+	}
+}
+
 func TestLineWriter(t *testing.T) {
 	r := New[string](10)
 	w := &LineWriter{Ring: r}
@@ -86,5 +143,15 @@ func TestLineWriter(t *testing.T) {
 	got, _ = r.Since(3)
 	if len(got) != 1 || len(got[0]) != maxLine || !strings.HasPrefix(got[0], "third") {
 		t.Errorf("oversized line: %d lines, first %d bytes", len(got), len(got[0]))
+	}
+}
+
+func TestLineWriterTee(t *testing.T) {
+	var teed []string
+	w := &LineWriter{Ring: New[string](10), Tee: func(l string) { teed = append(teed, l) }}
+	fmt.Fprint(w, "one\ntw")
+	fmt.Fprint(w, "o\n")
+	if strings.Join(teed, "|") != "one|two" {
+		t.Errorf("teed = %q", teed)
 	}
 }
