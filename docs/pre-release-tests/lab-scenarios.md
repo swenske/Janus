@@ -156,7 +156,10 @@ example:
   nodes, and the three-cache configuration (below) without janusd ever
   killed;
 - v2026.10.16 and -2: log forwarding and the LOGS partition, below - for
-  -2, each boot's kernel messages counted by host on the updated nodes.
+  -2, each boot's kernel messages counted by host on the updated nodes;
+- v2026.10.16-3: an *unsupported* machine updated through the Controller,
+  timed until its profile is applied; a target never saved tested
+  through the Controller's API.
 
 ### HAProxy killed by the kernel
 
