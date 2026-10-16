@@ -582,6 +582,7 @@ type Info struct {
 	ConnectionRate        uint32
 	SessionRate           uint32
 	IdlePercent           uint32
+	DroppedLogs           uint64
 	Pid                   int // the process answering
 }
 
@@ -626,6 +627,8 @@ func parseShowInfo(out string) *Info {
 			info.SessionRate = u32()
 		case "Idle_pct":
 			info.IdlePercent = u32()
+		case "DroppedLogs":
+			info.DroppedLogs = u64()
 		}
 	}
 	return info

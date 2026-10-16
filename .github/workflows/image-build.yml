@@ -646,6 +646,24 @@ jobs:
       - name: The LOGS partition keeps the logs across reboots
         run: make qemu-logvol-test
 
+      # Log forwarding against a real rsyslog (a container): UDP, TCP and
+      # TLS targets, an outage, a reboot, HAProxy's own log lines. See
+      # hack/qemu-logforward-test.sh.
+      - name: The logs reach a syslog server, an outage and a reboot included
+        run: make qemu-logforward-test
+
+      # The same to a real Elasticsearch (a container): an API key, the
+      # CA's fingerprint, ECS documents, an outage's lines stored once.
+      # See hack/qemu-logforward-es-test.sh.
+      - name: The logs reach Elasticsearch, stored once each
+        run: make qemu-logforward-es-test
+
+      # The Controller's log forwarding with two real nodes: its own audit
+      # and log, a fleet profile picked by labels, kept applied, taken
+      # off. See hack/qemu-logforward-fleet-test.sh.
+      - name: The Controller sends its logs and keeps its fleet's profiles applied
+        run: make qemu-logforward-fleet-test
+
       # Every other SystemService/HAProxyService/NetworkService method on
       # a real enforcing node, ending with janusd restart, reboot, reset
       # and shutdown. See hack/qemu-system-api-test.sh.

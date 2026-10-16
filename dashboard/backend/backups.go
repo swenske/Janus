@@ -228,6 +228,10 @@ func (a *app) archiveNode(ctx context.Context, w archiveWriter, n *store.Node) e
 	call("node-exporter", func(c context.Context, cc *grpc.ClientConn) (proto.Message, error) {
 		return sys(cc).NodeExporterConfigGet(c, empty)
 	})
+	// Without its secrets: the node never gives them back.
+	call("log-forwarding", func(c context.Context, cc *grpc.ClientConn) (proto.Message, error) {
+		return sys(cc).LogForwardingGet(c, empty)
+	})
 	if len(failures) > 0 {
 		return errors.New(strings.Join(failures, "; "))
 	}

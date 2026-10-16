@@ -2,11 +2,16 @@ package main
 
 import (
 	"encoding/hex"
+	"fmt"
 	"log"
+	"math"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/events"
+	"github.com/swenske/Janus/internal/logship"
 	"github.com/swenske/Janus/internal/logvol"
 )
 
@@ -61,49 +66,83 @@ func logVolumeSays(v *logvol.Volume, dev, why string) {
 	log.Printf("logs: kept on %s (%d MiB, %d earlier boots) - this is boot %d", dev, v.Stats().SizeBytes>>20, len(boots), v.Current())
 }
 
-// logTee is what a service's output also goes to on the LOGS partition
-// (nil without one).
-func logTee(v *logvol.Volume, service string) func(string) {
-	if v == nil {
-		return nil
-	}
-	return v.Line(service)
+// logHub is where every line a service prints goes besides the console
+// and the rings: the LOGS partition (internal/logvol) and the log
+// shipper (internal/logship). Nothing in it waits.
+type logHub struct {
+	vol  *logvol.Volume // nil without a LOGS partition
+	ship *logship.Shipper
 }
 
-// haproxyLogTee keeps HAProxy's own messages ("[WARNING]  (85) : ...")
-// on the LOGS partition, not its access logs: those can be thousands a
-// second, and are the log shipper's.
-func haproxyLogTee(v *logvol.Volume) func(string) {
-	if v == nil {
-		return nil
-	}
+// tee is what service's output also goes to (ring.LineWriter's Tee).
+// The LOGS partition keeps all but HAProxy's access logs - unless the
+// configuration says always: they can be thousands a second.
+func (h *logHub) tee(service string) func(string) {
 	return func(line string) {
-		if sev, ok := haproxyMessage(line); ok {
-			v.Append(logvol.Record{Service: "haproxy", Severity: sev, Message: line})
+		src, sev, msg := logship.Classify(service, line)
+		if h.vol != nil {
+			switch {
+			case src != logship.SourceAccess:
+				h.vol.Append(logvol.Record{Service: service, Severity: uint8(sev), Message: line})
+			case h.ship.AccessOnDisk():
+				h.vol.Append(logvol.Record{Service: logship.AccessService, Severity: uint8(sev), Message: line})
+			}
 		}
+		h.ship.Offer(logship.Record{Time: time.Now(), Source: src, Service: service, Severity: sev, Message: msg})
 	}
 }
 
-// haproxyMessage says whether line is one of HAProxy's own messages, and
-// its syslog severity.
-func haproxyMessage(line string) (uint8, bool) {
-	level, _, ok := strings.Cut(strings.TrimPrefix(line, "["), "]")
-	if !ok || !strings.HasPrefix(line, "[") {
-		return 0, false
+// kernel takes one of the kernel's messages (logvol.FollowKmsg).
+func (h *logHub) kernel(k logvol.KmsgRecord, at time.Time) {
+	sev := k.Priority & 7
+	if h.vol != nil {
+		h.vol.Append(logvol.Record{Time: at, Service: "kernel", Severity: uint8(sev), Message: k.Line()})
 	}
-	switch level {
-	case "EMERG":
-		return 0, true
-	case "ALERT":
-		return 1, true
-	case "ERROR", "ERR":
-		return 3, true
-	case "WARNING":
-		return 4, true
-	case "NOTICE":
-		return 5, true
-	case "DIAG", "DEBUG":
-		return 7, true
+	h.ship.Offer(logship.Record{Time: at, Source: logship.SourceKernel, Service: "kernel", Severity: sev, Message: k.Line()})
+}
+
+// eventsFeed is the event log (internal/events) as a source the log
+// shipper's targets read behind their cursors.
+func eventsFeed() logship.Feed {
+	return logship.Feed{
+		Name: logship.SourceEvents,
+		Since: func(id uint64) ([]logship.FeedItem, uint64) {
+			evs, last := events.Since(id)
+			items := make([]logship.FeedItem, 0, len(evs))
+			for _, e := range evs {
+				r := logship.EventRecord(e.ID, e.Time, e.Type, e.Payload, "janusd")
+				r.ID = fmt.Sprintf("ev-%d", e.ID)
+				items = append(items, logship.FeedItem{ID: e.ID, Record: r})
+			}
+			return items, last
+		},
+		Latest: func() uint64 {
+			_, last := events.Since(math.MaxUint64)
+			return last
+		},
+		Changed: events.Changed,
 	}
-	return 0, false
+}
+
+// auditFeed is the node's audit (api.AuditLog) as a source the log
+// shipper's targets read behind their cursors.
+func auditFeed(l *events.Log) logship.Feed {
+	return logship.Feed{
+		Name: logship.SourceAudit,
+		Since: func(id uint64) ([]logship.FeedItem, uint64) {
+			evs, last := l.Since(id)
+			items := make([]logship.FeedItem, 0, len(evs))
+			for _, e := range evs {
+				r := logship.AuditRecord(e.ID, e.Time, e.Type, e.Payload)
+				r.ID = fmt.Sprintf("au-%d", e.ID)
+				items = append(items, logship.FeedItem{ID: e.ID, Record: r})
+			}
+			return items, last
+		},
+		Latest: func() uint64 {
+			_, last := l.Since(math.MaxUint64)
+			return last
+		},
+		Changed: l.Changed,
+	}
 }

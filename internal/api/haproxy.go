@@ -101,6 +101,7 @@ func (h *HAProxy) ShowInfo(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.
 		ConnectionRate:        info.ConnectionRate,
 		SessionRate:           info.SessionRate,
 		IdlePercent:           info.IdlePercent,
+		DroppedLogs:           info.DroppedLogs,
 	}, nil
 }
 

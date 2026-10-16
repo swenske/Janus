@@ -25,14 +25,23 @@ const followPollInterval = 250 * time.Millisecond
 // cancels. On a node the log is kept on STATE: IDs go on across janusd
 // restarts, reboots and updates.
 func (s *System) Events(req *janusv1alpha1.EventsRequest, stream janusv1alpha1.SystemService_EventsServer) error {
-	ctx := stream.Context()
-	next := req.GetSinceId()
+	return streamLog(stream.Context(), nil, req.GetSinceId(), stream.Send)
+}
+
+// streamLog sends what l holds after since, then new events as they
+// come, until ctx ends; l nil is the event log.
+func streamLog(ctx context.Context, l *events.Log, since uint64, send func(*janusv1alpha1.Event) error) error {
+	sinceFn, changedFn := events.Since, events.Changed
+	if l != nil {
+		sinceFn, changedFn = l.Since, l.Changed
+	}
+	next := since
 	for {
-		changed := events.Changed()
-		evs, n := events.Since(next)
+		changed := changedFn()
+		evs, n := sinceFn(next)
 		next = n
 		for _, e := range evs {
-			if err := stream.Send(&janusv1alpha1.Event{Id: e.ID, UnixTimeNs: e.Time.UnixNano(), Type: e.Type, Payload: e.Payload}); err != nil {
+			if err := send(&janusv1alpha1.Event{Id: e.ID, UnixTimeNs: e.Time.UnixNano(), Type: e.Type, Payload: e.Payload}); err != nil {
 				return nil
 			}
 		}
