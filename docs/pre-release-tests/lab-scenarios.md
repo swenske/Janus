@@ -18,7 +18,7 @@ added.
 | The auto-scaled node | since v2026.10.14: a machine the Controller creates on the same host, 2 vCPU and 1 GiB from the release's default image, room for 4 vCPU and 2 GiB |
 | Backends | two nginx VMs, 1 vCPU each |
 | Load client | a 2-vCPU VM on the same host, with `wrk` - up to v2026.10.14, removed since: it took the host's CPUs from the nodes |
-| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
+| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
 | Controller | Docker Compose with its updater, an admin with TOTP |
 
 The two nodes and the backends saturate the host's 4 cores under a
@@ -159,7 +159,12 @@ example:
   -2, each boot's kernel messages counted by host on the updated nodes;
 - v2026.10.16-3: an *unsupported* machine updated through the Controller,
   timed until its profile is applied; a target never saved tested
-  through the Controller's API.
+  through the Controller's API;
+- v2026.10.16-4: both kernel tracks updated - a machine on the other
+  track (longterm) created through the Controller, the image factory
+  building its image; its health, and its kexec and firmware reboots
+  timed from its own event log. The lab keeps it for the next kernel
+  updates.
 
 ### HAProxy killed by the kernel
 
@@ -236,5 +241,9 @@ ran:
   `bench.sh` (scenario 16): log forwarding's cost, one configuration a
   run;
 - `measure`, `rmeasure`, `probe`, `probe-summary`: the probes;
+- `health`, `machine-health`: the nodes' health - a node with its own
+  credentials, a Controller machine through its node page;
+  `machine-reboot`: a Controller machine's reboots through its node page;
+  `kernel-count`: each node's kernel messages in Elasticsearch, by host;
 - for auto-scaling, the policy, journal and load helpers and the HAProxy
   configurations.
