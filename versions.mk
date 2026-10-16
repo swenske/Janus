@@ -15,8 +15,8 @@
 # sha256sums.asc (Kernel.org checksum autosigner,
 # B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1), which agree. Every track is
 # built with kernel/patches/ applied - its README says which and why.
-KERNEL_LONGTERM_VERSION := 6.18.56
-KERNEL_LONGTERM_SHA256  := 4633bbda2ab95eaf2a7af4041236451d6759c72e6946265531af4b3aacefbf89
+KERNEL_LONGTERM_VERSION := 6.18.57
+KERNEL_LONGTERM_SHA256  := 5bd9acdc82ec5efc3790ae840e5aaa40dfde7efff261cf6dde902dc570acf98c
 KERNEL_STABLE_VERSION   := 7.2.10
 KERNEL_STABLE_SHA256    := 2feaa70453e91f541be6a5c9078d8168e081af45a3d9718054850538cff2ebf3
 
