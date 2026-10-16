@@ -30,6 +30,7 @@ const (
 	SystemService_Events_FullMethodName                      = "/janus.v1alpha1.SystemService/Events"
 	SystemService_Dmesg_FullMethodName                       = "/janus.v1alpha1.SystemService/Dmesg"
 	SystemService_Logs_FullMethodName                        = "/janus.v1alpha1.SystemService/Logs"
+	SystemService_LogBoots_FullMethodName                    = "/janus.v1alpha1.SystemService/LogBoots"
 	SystemService_Stats_FullMethodName                       = "/janus.v1alpha1.SystemService/Stats"
 	SystemService_SystemStat_FullMethodName                  = "/janus.v1alpha1.SystemService/SystemStat"
 	SystemService_Memory_FullMethodName                      = "/janus.v1alpha1.SystemService/Memory"
@@ -100,10 +101,15 @@ type SystemServiceClient interface {
 	// events, kept on STATE across reboots and updates, then new ones as
 	// they come.
 	Events(ctx context.Context, in *EventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
-	// Dmesg streams the kernel ring buffer.
+	// Dmesg streams the kernel ring buffer - or, with boot, a previous
+	// boot's kernel messages from the LOGS partition.
 	Dmesg(ctx context.Context, in *DmesgRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
-	// Logs streams a managed service's log output.
+	// Logs streams a managed service's log output - or, with boot, what it
+	// printed during a previous boot, from the LOGS partition.
 	Logs(ctx context.Context, in *LogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
+	// LogBoots lists the boots whose logs the node keeps on its LOGS
+	// partition, newest first: what Logs and Dmesg take as boot.
+	LogBoots(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LogBootsResponse, error)
 	// Stats sums the CPU time and memory of each managed service's
 	// processes - janusd, haproxy (a reload briefly leaves an old haproxy
 	// process finishing its connections next to the new one).
@@ -346,6 +352,16 @@ func (c *systemServiceClient) Logs(ctx context.Context, in *LogsRequest, opts ..
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SystemService_LogsClient = grpc.ServerStreamingClient[Data]
+
+func (c *systemServiceClient) LogBoots(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LogBootsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LogBootsResponse)
+	err := c.cc.Invoke(ctx, SystemService_LogBoots_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func (c *systemServiceClient) Stats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*StatsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -739,10 +755,15 @@ type SystemServiceServer interface {
 	// events, kept on STATE across reboots and updates, then new ones as
 	// they come.
 	Events(*EventsRequest, grpc.ServerStreamingServer[Event]) error
-	// Dmesg streams the kernel ring buffer.
+	// Dmesg streams the kernel ring buffer - or, with boot, a previous
+	// boot's kernel messages from the LOGS partition.
 	Dmesg(*DmesgRequest, grpc.ServerStreamingServer[Data]) error
-	// Logs streams a managed service's log output.
+	// Logs streams a managed service's log output - or, with boot, what it
+	// printed during a previous boot, from the LOGS partition.
 	Logs(*LogsRequest, grpc.ServerStreamingServer[Data]) error
+	// LogBoots lists the boots whose logs the node keeps on its LOGS
+	// partition, newest first: what Logs and Dmesg take as boot.
+	LogBoots(context.Context, *emptypb.Empty) (*LogBootsResponse, error)
 	// Stats sums the CPU time and memory of each managed service's
 	// processes - janusd, haproxy (a reload briefly leaves an old haproxy
 	// process finishing its connections next to the new one).
@@ -879,6 +900,9 @@ func (UnimplementedSystemServiceServer) Dmesg(*DmesgRequest, grpc.ServerStreamin
 }
 func (UnimplementedSystemServiceServer) Logs(*LogsRequest, grpc.ServerStreamingServer[Data]) error {
 	return status.Error(codes.Unimplemented, "method Logs not implemented")
+}
+func (UnimplementedSystemServiceServer) LogBoots(context.Context, *emptypb.Empty) (*LogBootsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LogBoots not implemented")
 }
 func (UnimplementedSystemServiceServer) Stats(context.Context, *emptypb.Empty) (*StatsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Stats not implemented")
@@ -1145,6 +1169,24 @@ func _SystemService_Logs_Handler(srv interface{}, stream grpc.ServerStream) erro
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SystemService_LogsServer = grpc.ServerStreamingServer[Data]
+
+func _SystemService_LogBoots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).LogBoots(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_LogBoots_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).LogBoots(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 func _SystemService_Stats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
@@ -1699,6 +1741,10 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Reset",
 			Handler:    _SystemService_Reset_Handler,
+		},
+		{
+			MethodName: "LogBoots",
+			Handler:    _SystemService_LogBoots_Handler,
 		},
 		{
 			MethodName: "Stats",

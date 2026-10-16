@@ -123,8 +123,9 @@ SystemService is the reduced, non-Kubernetes equivalent of Talos's MachineServic
 | `Reset` | `ResetRequest` → `ResetResponse` | `os:admin` | system | Reset wipes the requested partitions (state/ephemeral) and reboots - the equivalent of returning the node to its just-installed state. |
 | `ApplyConfiguration` | `ApplyConfigurationRequest` → `stream ApplyConfigurationResponse` | `os:admin` | system | ApplyConfiguration is not implemented - it answers Unimplemented: a node has no declarative machine configuration, each area has its own calls (HAProxyService, NetworkService...). |
 | `Events` | `EventsRequest` → `stream Event` | `os:reader` | observe | Events streams the machine's internal event log (config applied, service state changes, upgrades, reboots, etc.): its last thousand events, kept on STATE across reboots and updates, then new ones as they come. |
-| `Dmesg` | `DmesgRequest` → `stream Data` | `os:admin` | system | Dmesg streams the kernel ring buffer. |
-| `Logs` | `LogsRequest` → `stream Data` | `os:operator` | services | Logs streams a managed service's log output. |
+| `Dmesg` | `DmesgRequest` → `stream Data` | `os:admin` | system | Dmesg streams the kernel ring buffer - or, with boot, a previous boot's kernel messages from the LOGS partition. |
+| `Logs` | `LogsRequest` → `stream Data` | `os:operator` | services | Logs streams a managed service's log output - or, with boot, what it printed during a previous boot, from the LOGS partition. |
+| `LogBoots` | `Empty` → `LogBootsResponse` | `os:reader` | observe | LogBoots lists the boots whose logs the node keeps on its LOGS partition, newest first: what Logs and Dmesg take as boot. |
 | `Stats` | `Empty` → `StatsResponse` | `os:reader` | observe | Stats sums the CPU time and memory of each managed service's processes - janusd, haproxy (a reload briefly leaves an old haproxy process finishing its connections next to the new one). |
 | `SystemStat` | `Empty` → `SystemStatResponse` | `os:reader` | observe | SystemStat reports the machine's counters since boot: boot time, context switches, processes created, CPU ticks (/proc/stat). |
 | `Memory` | `Empty` → `MemoryResponse` | `os:reader` | observe | Memory reports the machine's total, available and cached memory, and the processes the kernel killed for lack of it since boot. |

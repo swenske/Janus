@@ -106,10 +106,11 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 	case "dmesg":
 		fs := flag.NewFlagSet("system dmesg", flag.ExitOnError)
 		follow := fs.Bool("f", false, "follow")
+		boot := fs.Int("boot", 0, "a previous boot's kernel messages, from the LOGS partition: -1 the boot before this one (janusctl system boots)")
 		_ = fs.Parse(args)
 		c, stop := interruptible()
 		defer stop()
-		stream, err := client.Dmesg(c, &janusv1alpha1.DmesgRequest{Follow: *follow})
+		stream, err := client.Dmesg(c, &janusv1alpha1.DmesgRequest{Follow: *follow, Boot: int32(*boot)})
 		check("Dmesg", err)
 		copyData(c, "Dmesg", stream.Recv, os.Stdout)
 
@@ -117,16 +118,34 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 		fs := flag.NewFlagSet("system logs", flag.ExitOnError)
 		follow := fs.Bool("f", false, "follow")
 		lines := fs.Int("n", 0, "only the last N lines (0 = everything kept)")
+		boot := fs.Int("boot", 0, "a previous boot's output, from the LOGS partition: -1 the boot before this one (janusctl system boots)")
 		_ = fs.Parse(args)
 		if fs.NArg() != 1 {
-			fmt.Fprintln(os.Stderr, "usage: janusctl system logs [-f] [-n LINES] janusd|haproxy")
+			fmt.Fprintln(os.Stderr, "usage: janusctl system logs [-f] [-n LINES] [-boot N] janusd|haproxy")
 			os.Exit(2)
 		}
 		c, stop := interruptible()
 		defer stop()
-		stream, err := client.Logs(c, &janusv1alpha1.LogsRequest{Id: fs.Arg(0), Follow: *follow, TailLines: int32(*lines)})
+		stream, err := client.Logs(c, &janusv1alpha1.LogsRequest{Id: fs.Arg(0), Follow: *follow, TailLines: int32(*lines), Boot: int32(*boot)})
 		check("Logs", err)
 		copyData(c, "Logs", stream.Recv, os.Stdout)
+
+	case "boots":
+		c, cancel := ctx()
+		defer cancel()
+		resp, err := client.LogBoots(c, &emptypb.Empty{})
+		check("LogBoots", err)
+		if !resp.GetAvailable() {
+			fmt.Println("no LOGS partition: only this boot's logs are kept, in memory")
+			return true
+		}
+		fmt.Printf("LOGS partition %s, %s: %d records written since janusd started, %d dropped\n",
+			resp.GetDevice(), humanBytes(resp.GetSizeBytes()), resp.GetRecordsWritten(), resp.GetRecordsDropped())
+		tw := table("BOOT", "STARTED", "SIZE", "BOOT ID")
+		for _, b := range resp.GetBoots() {
+			fmt.Fprintf(tw, "%d\t%s\t%d MiB\t%s\n", b.GetOffset(), time.Unix(0, b.GetStartedUnixNs()).Format(time.RFC3339), b.GetMebibytes(), b.GetBootId())
+		}
+		tw.Flush()
 
 	case "stats":
 		c, cancel := ctx()

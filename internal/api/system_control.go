@@ -73,7 +73,7 @@ func (s *System) Restart(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Re
 // the persistent STATE partition - PKI (a new CA and admin certificate
 // are generated and printed on the console at the next boot), applied
 // HAProxy config, Controller registration, pending boot confirmations -
-// then reboots. The A/B slots and the ESP aren't touched.
+// and forgets the logs of the LOGS partition, then reboots. The A/B slots and the ESP aren't touched.
 // wipe_ephemeral alone just reboots: everything ephemeral is tmpfs.
 func (s *System) Reset(_ context.Context, req *janusv1alpha1.ResetRequest) (*janusv1alpha1.ResetResponse, error) {
 	if !req.GetWipeState() && !req.GetWipeEphemeral() {
@@ -90,6 +90,11 @@ func (s *System) Reset(_ context.Context, req *janusv1alpha1.ResetRequest) (*jan
 		shutdown.Run() // what's saved goes before the wipe, never after
 		if err := wipeDirContents(stateMountpoint); err != nil {
 			return nil, status.Errorf(codes.Internal, "wipe %s: %v", stateMountpoint, err)
+		}
+		if s.LogVolume != nil {
+			if err := s.LogVolume.Wipe(); err != nil {
+				return nil, status.Errorf(codes.Internal, "wipe the logs on %s: %v", s.LogDevice, err)
+			}
 		}
 	}
 	events.Publish("system.reset", map[string]bool{"wipe_state": req.GetWipeState(), "wipe_ephemeral": req.GetWipeEphemeral()})

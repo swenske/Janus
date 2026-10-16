@@ -42,9 +42,11 @@ Modeled on Talos's own disk layout:
 | `BOOT-A-DATA`, `BOOT-A-HASH` | Slot A: the squashfs rootfs and its dm-verity hash tree |
 | `BOOT-B-DATA`, `BOOT-B-HASH` | Slot B, the same |
 | `STATE`    | Node identity, mTLS certs, the applied configuration, the event log - shared by both slots |
+| `LOGS`     | The logs of this boot and the previous ones, raw (no filesystem) - a disk installed before it existed has none |
 
 There is no writable overlay and no META partition: what persists is on
-STATE, everything else is the read-only image or memory.
+STATE (and the logs on LOGS), everything else is the read-only image or
+memory.
 
 Only one slot is active at a time. `LifecycleService.Upgrade` writes the
 new image to the *inactive* slot, switches the ESP's default image,

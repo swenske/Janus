@@ -109,6 +109,9 @@ func (r *Ring[T]) Changed() <-chan struct{} {
 // it (without its trailing newline) to a Ring. Safe for concurrent use.
 type LineWriter struct {
 	Ring *Ring[string]
+	// Tee, when set, is also given each line (internal/logvol keeps
+	// them across reboots). It must not wait.
+	Tee func(string)
 
 	mu      sync.Mutex
 	partial []byte
@@ -123,15 +126,22 @@ func (w *LineWriter) Write(p []byte) (int, error) {
 	defer w.mu.Unlock()
 	for _, c := range p {
 		if c == '\n' {
-			w.Ring.Append(string(w.partial))
-			w.partial = w.partial[:0]
+			w.line()
 			continue
 		}
 		w.partial = append(w.partial, c)
 		if len(w.partial) >= maxLine {
-			w.Ring.Append(string(w.partial))
-			w.partial = w.partial[:0]
+			w.line()
 		}
 	}
 	return len(p), nil
+}
+
+func (w *LineWriter) line() {
+	line := string(w.partial)
+	w.partial = w.partial[:0]
+	w.Ring.Append(line)
+	if w.Tee != nil {
+		w.Tee(line)
+	}
 }

@@ -640,6 +640,12 @@ jobs:
       - name: The console never holds a service's output back
         run: make qemu-console-flood-test
 
+      # The LOGS partition: previous boots' logs and kernel messages read
+      # back after a reboot and a power cut, Reset forgets them. See
+      # hack/qemu-logvol-test.sh.
+      - name: The LOGS partition keeps the logs across reboots
+        run: make qemu-logvol-test
+
       # Every other SystemService/HAProxyService/NetworkService method on
       # a real enforcing node, ending with janusd restart, reboot, reset
       # and shutdown. See hack/qemu-system-api-test.sh.

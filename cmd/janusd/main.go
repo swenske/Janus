@@ -52,6 +52,7 @@ import (
 	"github.com/swenske/Janus/internal/firewall"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/kmsgwatch"
+	"github.com/swenske/Janus/internal/logvol"
 	"github.com/swenske/Janus/internal/netconfig"
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/nodeexporter"
@@ -105,11 +106,27 @@ func main() {
 		"janusd":  ring.New[string](serviceLogLines),
 		"haproxy": ring.New[string](serviceLogLines),
 	}
-	captured := io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"]})
+	// And on the LOGS partition (internal/logvol), across reboots - a
+	// node installed before it existed has none.
+	var logVol *logvol.Volume
+	var logDev, logWhy string
+	if *manageHost {
+		logVol, logDev, logWhy = openLogVolume()
+	}
+	captured := io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"], Tee: logTee(logVol, "janusd")})
 	log.SetOutput(captured)
 	// What the services print is kept whole above; on the console they
 	// share a budget that never waits (internal/consolelimit).
 	console := consolelimit.New(os.Stdout, consolelimit.Rate, consolelimit.Burst)
+	logVolumeSays(logVol, logDev, logWhy)
+	if logVol != nil {
+		shutdown.Before(func() { _ = logVol.Flush() })
+		go func() {
+			if err := logvol.FollowKmsg(logVol, "/dev/kmsg", "/run/janus/logvol-kmsg-seq"); err != nil {
+				log.Printf("logs: the kernel's messages aren't kept: %v", err)
+			}
+		}()
+	}
 
 	// The event log, kept where it survives a reboot or an update before
 	// anything is published: what happened before still shows after.
@@ -189,7 +206,7 @@ func main() {
 	}
 
 	haproxyMgr := haproxy.NewManager(*haproxyBin, *haproxyCfg, *haproxyPid, *haproxySock)
-	haproxyMgr.Output = &ring.LineWriter{Ring: serviceLogs["haproxy"]}
+	haproxyMgr.Output = &ring.LineWriter{Ring: serviceLogs["haproxy"], Tee: haproxyLogTee(logVol)}
 	haproxyMgr.Console = console.For("haproxy")
 	haproxyMgr.CertStoreDir = *haproxyCertStore
 	if haproxyMgr.CertStoreDir == "" {
@@ -224,7 +241,7 @@ func main() {
 	serviceLogs[acme.LogID] = ring.New[string](serviceLogLines)
 	acmeMgr := acme.New(acme.Options{
 		HAProxy: haproxyMgr, HAProxyConfig: *haproxyCfg, Healthy: haproxyHealthy,
-		Output: io.MultiWriter(console.For(acme.LogID), &ring.LineWriter{Ring: serviceLogs[acme.LogID]}),
+		Output: io.MultiWriter(console.For(acme.LogID), &ring.LineWriter{Ring: serviceLogs[acme.LogID], Tee: logTee(logVol, acme.LogID)}),
 	})
 	if *manageHost && acmeMgr.Available() {
 		if err := acmeMgr.Boot(); err != nil {
@@ -289,7 +306,7 @@ func main() {
 	}
 	extMgr := extensions.NewManager(extManifests, func(id string) io.Writer {
 		serviceLogs[id] = ring.New[string](serviceLogLines)
-		return io.MultiWriter(console.For(id), &ring.LineWriter{Ring: serviceLogs[id]})
+		return io.MultiWriter(console.For(id), &ring.LineWriter{Ring: serviceLogs[id], Tee: logTee(logVol, id)})
 	})
 	// keepalived (the VRRP extension) waits for its configuration file:
 	// put the saved one there, and the HAProxy health file it can track,
@@ -473,6 +490,7 @@ func main() {
 			events.Publish("kernel.oom_kill", map[string]any{"pid": pid, "process": process})
 		}}
 		metrics.statePath = "/etc/.state"
+		metrics.logVol = logVol
 		go kmsgwatch.Watch("/dev/kmsg", metrics.kmsg)
 	}
 	exp := exporter.New(metrics.collectors()...)
@@ -493,7 +511,7 @@ func main() {
 		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})

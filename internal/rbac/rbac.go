@@ -40,6 +40,7 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.SystemService/Events":                      readers,
 	"/janus.v1alpha1.SystemService/Dmesg":                       adminOnly, // kernel log can leak boot secrets/paths
 	"/janus.v1alpha1.SystemService/Logs":                        operators, // service logs can leak request data: not readers
+	"/janus.v1alpha1.SystemService/LogBoots":                    readers,   // boots and sizes, no log line
 	"/janus.v1alpha1.SystemService/Stats":                       readers,
 	"/janus.v1alpha1.SystemService/SystemStat":                  readers,
 	"/janus.v1alpha1.SystemService/Memory":                      readers,

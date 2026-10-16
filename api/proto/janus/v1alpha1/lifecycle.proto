@@ -119,6 +119,11 @@ message InstallRequest {
   // written.
   bytes fleet_root_cert = 7;
   bytes fleet_bundle = 8;
+  // Optional: the size of the LOGS partition - the node's logs kept
+  // across reboots (SystemService.LogBoots) - in MiB. 0: 5 % of the
+  // disk, between 512 MiB and 8 GiB, and none on a disk under 4 GiB;
+  // -1: no LOGS partition.
+  int32 logs_size_mb = 10;
 }
 
 message InstallResponse {

@@ -15,6 +15,7 @@ One GPT disk, the same for every node of a release:
 | 2, 3 | `BOOT-A-DATA`, `BOOT-A-HASH` | Slot A: the root filesystem (squashfs) and its dm-verity hash tree |
 | 4, 5 | `BOOT-B-DATA`, `BOOT-B-HASH` | Slot B, the same |
 | 6 | `STATE` (ext4) | The node's own: its PKI, HAProxy's configuration and files, the network, the Controller, extensions' settings, the boot-commit marker - **shared by both slots**, so an update never touches the configuration |
+| 7 | `LOGS` (raw) | What the services and the kernel printed, boot after boot, until newer logs take the room (`internal/logvol`): a ring of 1 MiB segments, one boot each, every record with its CRC. Nothing to mount - janusd writes it, `system logs -boot -1` reads it. 512 MiB in the images, 5 % of the disk (512 MiB to 8 GiB) on an installed one; none on a disk installed before it existed, or on the Raspberry Pi images |
 
 Partitions are found by their GPT label, never their device name: the
 same image boots from virtio, SATA, NVMe or USB. The installer ISO is

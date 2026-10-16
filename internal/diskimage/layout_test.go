@@ -113,3 +113,47 @@ func TestComputeLargerDiskGrowsState(t *testing.T) {
 		t.Fatalf("BOOT-B-HASH end differs between disk sizes: %d vs %d", small.BHashEnd, large.BHashEnd)
 	}
 }
+
+func TestDefaultLogsMB(t *testing.T) {
+	for _, c := range []struct{ diskMB, want int64 }{
+		{2 << 10, 0},         // a test disk: none
+		{4 << 10, MinLogsMB}, // 5 % = 204 MiB: the floor
+		{32 << 10, 1638},     // 5 %
+		{1 << 20, MaxLogsMB}, // 1 TiB: the ceiling
+	} {
+		if got := DefaultLogsMB(mb(c.diskMB)); got != c.want {
+			t.Errorf("DefaultLogsMB(%d MiB) = %d, want %d", c.diskMB, got, c.want)
+		}
+	}
+}
+
+func TestComputeWithLogs(t *testing.T) {
+	diskBytes := mb(32 << 10)
+	l, err := ComputeWithLogs(diskBytes, 1638)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !l.HasLogs() {
+		t.Fatal("no LOGS partition")
+	}
+	if l.LogsStart%AlignSectors != 0 || l.LogsStart != l.StateEnd+1 {
+		t.Fatalf("LOGS starts at %d, STATE ends at %d", l.LogsStart, l.StateEnd)
+	}
+	if got := int64(l.LogsEnd-l.LogsStart+1) * SectorSize; got < mb(1638) || got > mb(1638)+mb(1)*2 {
+		t.Fatalf("LOGS is %d bytes, want about 1638 MiB", got)
+	}
+	if free := uint64(diskBytes/SectorSize) - 1 - l.LogsEnd; free < GPTBackupSectors {
+		t.Fatalf("only %d sectors after LOGS for the backup GPT", free)
+	}
+	without, _ := Compute(diskBytes)
+	if without.HasLogs() || without.StateEnd != l.LogsEnd {
+		t.Fatalf("without LOGS, STATE should end where LOGS does: %d vs %d", without.StateEnd, l.LogsEnd)
+	}
+
+	if _, err := ComputeWithLogs(mb(1<<10), 900); err == nil {
+		t.Fatal("a 900 MiB LOGS partition fit on a 1 GiB disk")
+	}
+	if _, err := ComputeWithLogs(diskBytes, 8); err == nil {
+		t.Fatal("an 8 MiB LOGS partition was laid out")
+	}
+}

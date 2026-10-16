@@ -145,3 +145,13 @@ func TestLineWriter(t *testing.T) {
 		t.Errorf("oversized line: %d lines, first %d bytes", len(got), len(got[0]))
 	}
 }
+
+func TestLineWriterTee(t *testing.T) {
+	var teed []string
+	w := &LineWriter{Ring: New[string](10), Tee: func(l string) { teed = append(teed, l) }}
+	fmt.Fprint(w, "one\ntw")
+	fmt.Fprint(w, "o\n")
+	if strings.Join(teed, "|") != "one|two" {
+		t.Errorf("teed = %q", teed)
+	}
+}

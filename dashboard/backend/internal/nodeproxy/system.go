@@ -245,10 +245,24 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 		})
 	})
 	mux.HandleFunc("GET /api/dmesg", func(w http.ResponseWriter, r *http.Request) {
+		boot, _ := strconv.Atoi(r.URL.Query().Get("boot"))
 		relayData(w, r, node, "text/plain; charset=utf-8", attachmentName(r.URL.Query().Get("download") == "true", "dmesg.txt"), -1, func(ctx context.Context, c janusv1alpha1.SystemServiceClient) (dataStream, error) {
-			return c.Dmesg(ctx, &janusv1alpha1.DmesgRequest{})
+			return c.Dmesg(ctx, &janusv1alpha1.DmesgRequest{Boot: int32(boot)}) //nolint:gosec // G109: a wrapped boot is a nonsense offset the node refuses
 		})
 	})
+	// A previous boot's logs, from the node's LOGS partition: whole, not
+	// followed.
+	mux.HandleFunc("GET /api/logs", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		tail, _ := strconv.Atoi(q.Get("tail"))
+		boot, _ := strconv.Atoi(q.Get("boot"))
+		relayData(w, r, node, "text/plain; charset=utf-8", attachmentName(q.Get("download") == "true", q.Get("id")+".log"), -1, func(ctx context.Context, c janusv1alpha1.SystemServiceClient) (dataStream, error) {
+			return c.Logs(ctx, &janusv1alpha1.LogsRequest{Id: q.Get("id"), TailLines: int32(tail), Boot: int32(boot)}) //nolint:gosec // G109: wrapped numbers are nonsense the node refuses or bounds
+		})
+	})
+	mux.HandleFunc("GET /api/log-boots", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
+		return c.LogBoots(ctx, empty)
+	}))
 
 	// --- live streams (Server-Sent Events) ---
 	mux.HandleFunc("GET /api/stream/logs", func(w http.ResponseWriter, r *http.Request) {

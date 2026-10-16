@@ -318,3 +318,29 @@ func TestWholeDisk(t *testing.T) {
 		t.Error("WholeDisk of a whole disk")
 	}
 }
+
+// LOGS is written raw: only a partition 7 named LOGS on the booted disk
+// is taken for it.
+func TestLogsDevice(t *testing.T) {
+	fakeSysfs(t, map[string]struct {
+		label string
+		held  bool
+	}{
+		"nvme0n1p4": {"BOOT-B-DATA", true},
+		"nvme0n1p7": {"LOGS", false},
+		"vda2":      {"BOOT-A-DATA", true},
+		"vda7":      {"DATA", false}, // someone else's partition 7
+		"sda2":      {"BOOT-A-DATA", true},
+	})
+	for dataDev, want := range map[string]string{
+		"/dev/nvme0n1p4": "/dev/nvme0n1p7",
+		"/dev/vda2":      "",
+		"/dev/sda2":      "", // no partition 7 at all
+		"/dev/vda":       "",
+	} {
+		got, ok := LogsDevice(dataDev)
+		if ok != (want != "") || got != want {
+			t.Errorf("LogsDevice(%q) = %q, %v; want %q", dataDev, got, ok, want)
+		}
+	}
+}

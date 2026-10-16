@@ -77,6 +77,8 @@ var notShown = map[string]string{
 	"janus_time_stratum":                           "the offset and the last synchronization say more",
 	"janus_vrrp_instance_became_master_total":      "the VRRP timeline shows every change of state",
 	"janus_bgp_protocol_up":                        "the BGP sessions and the held-down protocols are shown",
+	"janus_logs_volume_size_bytes":                 "what's lost on LOGS is shown; its size is the node's own",
+	"janus_logs_volume_written_bytes_total":        "what's lost on LOGS is shown; what's written is the node's own",
 }
 
 // q is one query. Range queries draw over time, instant ones are the
@@ -362,11 +364,12 @@ func dashboard() obj {
 			{ref: "B", expr: "round(sum(increase(janus_selinux_denials_total{" + sel + "}[$__range]))) or vector(0)", legend: "denials", instant: true},
 		}, green1Red))
 	b.add(stat("Kernel and STATE",
-		"Processes the kernel killed for lack of memory over the time range, and errors the kernel recorded "+
-			"on STATE (PKI, configuration).",
+		"Processes the kernel killed for lack of memory over the time range, errors the kernel recorded "+
+			"on STATE (PKI, configuration), and log records the LOGS partition failed to write or had to drop.",
 		b.pos(4, 4, 20), []q{
 			{ref: "A", expr: "round(sum(increase(janus_kernel_oom_kills_total{" + sel + "}[$__range]))) or vector(0)", legend: "OOM kills", instant: true},
 			{ref: "B", expr: "sum(janus_state_filesystem_errors{" + sel + "}) or vector(0)", legend: "STATE errors", instant: true},
+			{ref: "C", expr: "round(sum(increase(janus_logs_volume_errors_total{" + sel + "}[$__range])) + sum(increase(janus_logs_volume_dropped_records_total{" + sel + "}[$__range]))) or vector(0)", legend: "LOGS lost", instant: true},
 		}, green1Red))
 	b.y += 4
 
