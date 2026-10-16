@@ -145,9 +145,9 @@ and issues itself a server certificate for the gRPC listener - reissued
 whenever the node's addresses or hostname change, and renewed 30 days
 before it expires. On first boot
 it also issues an initial admin client certificate and prints it once
-(there's no shell to retrieve it later) - the trust anchor a real
-deployment would instead hand out through `LifecycleService.Install`'s
-side channel (Phase 3, not built yet). `SystemService.
+(there's no shell to retrieve it later; it stays on STATE, out of the
+file API's reach) - the way in when nothing else is set up: a node can
+instead trust its fleet from its first boot (below). `SystemService.
 GenerateClientConfiguration` issues further client certificates once
 you already have one, named after who they're for (the common name) and
 valid for the time asked - one year at most, no renewal/rotation flow;
@@ -178,8 +178,10 @@ The Controller holds a fleet (`dashboard/backend/internal/fleet`): set
 up from its page, the root's key goes in a recovery kit the operator
 keeps - an age file encrypted with a passphrase - and leaves the
 Controller once the operator gave both back. It keeps the issuing CA,
-its key sealed with a master key kept outside its data directory
-(`internal/secrets`), and signs itself a `janus:controller` certificate
+its key sealed with a master key (`internal/secrets`) - a file of its
+own outside the data directory when `JANUS_CONTROLLER_MASTER_KEY_FILE`
+names one, else `master.key` in it, with a warning at every start -
+and signs itself a `janus:controller` certificate
 valid a day. A background loop brings every node to trust the fleet -
 with the service credential it got when the node was added, then
 checked with the fleet certificate - and deletes that credential: from
@@ -259,7 +261,8 @@ CA limited, in the bundle, to the roles its machine's certificates may
 carry (`Bundle.Limits`, enforced by the node's `AcceptChains`: an
 operator's CI signs no admin, nor a Controller) - and synced to the nodes
 by any machine (`TrustGet` returns the signed bundle; the
-newest wins, versions in milliseconds). A node can trust the fleet from
+newest wins; janusctl's versions are milliseconds, a Controller's one
+bundle is version 1). A node can trust the fleet from
 its first boot: provisioning writes the root and the bundle to STATE
 `pki/fleet/` (`Install`, `diskseed.SeedFleet`, NoCloud via
 `pki.ProvisionFleet` in init), where `Fleet.Set` keeps them. janusctl
