@@ -58,3 +58,29 @@ export function cleanTarget(t) {
 export function withSources(targets, defaults) {
   return (targets || []).map((t) => ({ ...t, sources: t.sources?.length ? t.sources : [...defaults], tls: t.tls || {} }))
 }
+
+// stable is v as JSON with its keys sorted: two targets compared field by
+// field, whatever order their fields were set in.
+function stable(v) {
+  if (Array.isArray(v)) return `[${v.map(stable).join(',')}]`
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stable(v[k])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(v)
+}
+
+// sameTarget says whether two targets send the same - a draft against
+// what's saved (secrets aren't read back: one typed in is a change).
+export function sameTarget(a, b) {
+  return stable(cleanTarget(a)) === stable(cleanTarget(b))
+}
+
+// targetWhere is where a target sends, in a few words.
+export function targetWhere(t) {
+  if (t.elasticsearch) return t.elasticsearch.url || '-'
+  const s = t.syslog || {}
+  return `${s.transport || 'udp'}://${s.address || '-'}`
+}

@@ -63,7 +63,8 @@ func (r *machineRunner) watchNode(id string) {
 		read:
 			for {
 				select {
-				case <-sub.done:
+				case err := <-sub.done:
+					_ = err // the console ended (a reboot, its host): opened again below, whatever why
 					break read
 				case <-r.quit:
 					r.a.consoles.unsubscribe(sub)

@@ -105,6 +105,12 @@ type Shipper struct {
 	cfg     Config
 	targets map[string]*target
 	closed  bool
+	// applied: Apply was called once. Before, what's offered is kept in
+	// early (janusd starting: the kernel's boot, its first lines) and
+	// given to the targets the first configuration brings.
+	applied      bool
+	early        []Record
+	earlyDropped int
 	// accessOnDisk is cfg.AccessLogsOnDisk == "always", and labels
 	// cfg.Labels, read without mu; nodeID is SetNodeID's.
 	accessOnDisk atomic.Bool
@@ -153,11 +159,19 @@ func New(opt Options) *Shipper {
 // from now, targets removed stop, a target changed starts again where
 // it was.
 func (s *Shipper) Apply(cfg Config) {
+	// Said once s.mu is released: janusd's log comes back through Offer.
+	var left int
+	defer func() {
+		if left > 0 {
+			log.Printf("logship: %d records from before the configuration left out (%d kept)", left, earlyRecords)
+		}
+	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return
 	}
+	defer func() { left = s.giveEarly() }()
 	s.cfg = cfg
 	labels := cfg.Labels
 	s.labels.Store(&labels)
@@ -221,13 +235,37 @@ func (s *Shipper) onDisk(source string) bool {
 	return false
 }
 
+// earlyRecords is how many records offered before the first Apply are
+// kept for it: a kernel's boot and janusd's first lines, with room.
+const earlyRecords = 8192
+
 // Offer queues r for the targets that take its source, unless they read
-// it from disk. It never waits.
+// it from disk. It never waits. Before the first Apply - janusd reads
+// its saved configuration once the network is up, so that what it
+// sends carries the node's hostname - r waits for the targets it
+// brings.
 func (s *Shipper) Offer(r Record) {
 	s.mu.Lock()
-	if s.onDisk(r.Source) || len(s.targets) == 0 {
+	if !s.applied {
+		if !s.onDisk(r.Source) {
+			if len(s.early) < earlyRecords {
+				s.early = append(s.early, r)
+			} else {
+				s.earlyDropped++
+			}
+		}
 		s.mu.Unlock()
 		return
+	}
+	to := s.takers(r)
+	s.mu.Unlock()
+	s.push(r, to)
+}
+
+// takers are the targets r goes to from memory; s.mu held.
+func (s *Shipper) takers(r Record) []*target {
+	if s.onDisk(r.Source) || len(s.targets) == 0 {
+		return nil
 	}
 	var to []*target
 	for _, t := range s.targets {
@@ -235,7 +273,11 @@ func (s *Shipper) Offer(r Record) {
 			to = append(to, t)
 		}
 	}
-	s.mu.Unlock()
+	return to
+}
+
+// push queues r for the targets to.
+func (s *Shipper) push(r Record, to []*target) {
 	if len(to) == 0 {
 		return
 	}
@@ -246,6 +288,22 @@ func (s *Shipper) Offer(r Record) {
 		t.mem.push(r)
 		t.poke()
 	}
+}
+
+// giveEarly gives what was offered before the first Apply to the
+// targets it brought, in order, before anything offered after; s.mu
+// held. It returns how many records didn't fit.
+func (s *Shipper) giveEarly() int {
+	if s.applied {
+		return 0
+	}
+	s.applied = true
+	for _, r := range s.early {
+		s.push(r, s.takers(r))
+	}
+	left := s.earlyDropped
+	s.early, s.earlyDropped = nil, 0
+	return left
 }
 
 // Close stops every target and saves the cursors.

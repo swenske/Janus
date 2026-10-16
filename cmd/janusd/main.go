@@ -115,7 +115,7 @@ func main() {
 		logVol, logDev, logWhy = openLogVolume()
 	}
 	// And to the log servers configured (internal/logship) - applied once
-	// the event log is loaded, below.
+	// the event log is loaded and the network is up, below.
 	logshipDir := filepath.Join(*configDir, "logforward")
 	// The audit (api.AuditLog): every call that changed something, every
 	// call refused - kept on STATE with the event log, below.
@@ -179,17 +179,6 @@ func main() {
 	// restart, a reboot or an update.
 	events.Publish("janusd.started", map[string]string{"version": version, "slot": api.CurrentActiveSlot(), "boot": bootID()})
 
-	// The log servers, now that the event log is what it was: each
-	// target goes on from where it was.
-	if cfg, err := logship.LoadConfig(logshipDir); err != nil {
-		log.Printf("logship: %v - logs aren't sent anywhere", err)
-	} else {
-		ship.Apply(cfg)
-		if n := len(cfg.Targets); n > 0 {
-			log.Printf("logship: sending to %d targets", n)
-		}
-	}
-	shutdown.Before(ship.Flush)
 
 	// The firewall (the nftables extension) before anything listens: the
 	// window where the node is up without its saved ruleset is the boot
@@ -223,6 +212,19 @@ func main() {
 		log.Printf("netmgr: the stored network configuration can't apply (%v) - running on the defaults this boot", err)
 		events.Publish("network.fallback", map[string]string{"error": err.Error()})
 	}
+	// The log servers, now that the event log is what it was - each
+	// target goes on from where it was - and the network and hostname
+	// are the node's: what was logged since janusd started (the
+	// kernel's boot on a node without LOGS) goes then, under its name.
+	if cfg, err := logship.LoadConfig(logshipDir); err != nil {
+		log.Printf("logship: %v - logs aren't sent anywhere", err)
+	} else {
+		ship.Apply(cfg)
+		if n := len(cfg.Targets); n > 0 {
+			log.Printf("logship: sending to %d targets", n)
+		}
+	}
+	shutdown.Before(ship.Flush)
 	timeSvc = timesync.New(timesync.Options{
 		Manage: *manageHost,
 		Servers: func() ([]string, string) {
