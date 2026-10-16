@@ -652,6 +652,12 @@ jobs:
       - name: The logs reach a syslog server, an outage and a reboot included
         run: make qemu-logforward-test
 
+      # The same on a node without the LOGS partition - one updated from
+      # before it existed: a boot's kernel messages from memory, all of
+      # them, under the node's name.
+      - name: The logs reach a syslog server from a node without LOGS
+        run: make qemu-logforward-nologs-test
+
       # The same to a real Elasticsearch (a container): an API key, the
       # CA's fingerprint, ECS documents, an outage's lines stored once.
       # See hack/qemu-logforward-es-test.sh.

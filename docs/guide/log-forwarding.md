@@ -301,6 +301,9 @@ What it says:
   `always`), and everything on a node installed before the LOGS
   partition existed - a queue per target, the oldest dropped when it's
   full, counted (`dropped`, `janus_logship_records_dropped_total`).
+  What's logged as janusd starts, before it reads its configuration -
+  the kernel's boot, its first lines - waits for it (8 192 lines), then
+  goes under the node's hostname.
 - **UDP** has no acknowledgement: a server down loses what's sent. Over
   **TCP and TLS**, syslog has none either - a server that goes away in
   the middle of a batch loses it; one that went away between two is
