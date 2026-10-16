@@ -325,8 +325,9 @@ The Controller's **Log forwarding** page (admins) sets two things:
   every node) and the log targets of the nodes it picks. A node takes the
   first profile whose labels it has, and the Controller keeps it applied:
   at once when a profile or a node's labels change, every ten minutes
-  otherwise - a change made on the node is undone, a profile that no
-  longer picks a node is taken off it. A node no profile picks keeps its
+  otherwise - every minute while a node can't take it yet (an older
+  release being updated, a node away) - a change made on the node is
+  undone, a profile that no longer picks a node is taken off it. A node no profile picks keeps its
   own configuration, set on its page (Logs › Forwarding) or with
   `janusctl`. The page lists each node's state: `applied`, `unmanaged`,
   `removed`, `unsupported` (a release without log forwarding).
@@ -335,8 +336,10 @@ A node's page shows what the Controller set as read-only, and its
 configuration says by whom (`managed_by`: the Controller and the
 profile). The secrets - API keys, passwords, client keys - are sealed
 with the Controller's master key and sent to the nodes the profile picks;
-neither the page nor the API gives them back. A target is tested from
-the Controller (its own) or from one of the profile's nodes.
+neither the page nor the API gives them back. A target is tested as the
+page shows it, saved or not, from the Controller (its own) or from one
+of the profile's nodes; what's added, changed or removed applies once
+the page is saved - it says so until then.
 
 The Controller in a container keeps writing its log on its standard
 error too: `docker logs` and Docker's own logging drivers still see it.
