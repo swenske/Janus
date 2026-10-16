@@ -47,6 +47,12 @@ DISK="$WORKDIR/disk.img"
 cp --sparse=always "$SRC_DISK" "$DISK"
 cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/OVMF_VARS.fd"
 sgdisk -i 7 "$DISK" | grep -q "^Partition name: 'LOGS'" || fail "the image has no LOGS partition 7"
+# Tests before this one may have booted the image itself (a CI job's
+# tests share build/rootfs/disk.img): its LOGS partition made blank
+# again, as a fresh image has it - this test starts from a first boot.
+LOGS_FIRST="$(sgdisk -i 7 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
+LOGS_SECTORS="$(sgdisk -i 7 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
+fallocate --punch-hole --offset $((LOGS_FIRST * 512)) --length $((LOGS_SECTORS * 512)) "$DISK"
 
 # start_qemu - boots the disk; the console goes to a new $LOG, the
 # previous one is appended to $ALL_LOGS (the AVC check reads them all).
