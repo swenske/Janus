@@ -13,12 +13,18 @@
 #      says so), lines logged meanwhile reach them once it's back - read
 #      from the LOGS partition behind their cursors.
 #   3. After a reboot, the new boot's kernel messages reach the TLS
-#      target: each target goes on from where it was.
+#      target - all of them, under the node's hostname: each target goes
+#      on from where it was.
 #   4. HAProxy's own `log` lines, without janusd: UDP straight to the
 #      server, and a ring with a TLS server (the CA an HAProxy file).
 #   5. The audit: an admin's change and a reader's refused reboot, kept
 #      across the reboot (system audit, admins only), sent as authpriv.
 #   6. Secrets never come back (a client key), no AVC denial anywhere.
+#
+# QEMU_LOGFORWARD_WITHOUT_LOGS=1: the same on a node installed before the
+# LOGS partition existed (partition 7 taken out of the test's copy) -
+# every node updated to a release with log forwarding: the outage's lines
+# and the new boot's kernel messages come from memory.
 #
 # Usage: hack/qemu-logforward-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -117,6 +123,10 @@ wait_received() {
 # --- the node ---
 DISK="$WORKDIR/disk.img"
 cp --sparse=always "$SRC_DISK" "$DISK"
+WITHOUT_LOGS="${QEMU_LOGFORWARD_WITHOUT_LOGS:-}"
+if [ "$WITHOUT_LOGS" = 1 ]; then
+  sgdisk -d 7 "$DISK" >/dev/null || fail "couldn't take the LOGS partition out"
+fi
 cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/OVMF_VARS.fd"
 start_qemu() {
   [ -f "$LOG" ] && cat "$LOG" >> "$ALL_LOGS"
@@ -257,9 +267,20 @@ ctl system reboot >/dev/null
 wait_janusd 2
 wait_received "the new boot's kernel messages over TLS" 'm["input"] == "tls" and m["app"] == "kernel" and m["facility"] == "0" and "Linux version" in m["msg"]' 60
 wait_received "the new boot's kernel messages over TCP" 'm["input"] == "tcp" and m["app"] == "kernel" and "Linux version" in m["msg"]' 30
+# All of them, under the node's name - not just what came once its
+# configuration was read, nor under the address it had before its
+# hostname was set (v2026.10.16 on a node without LOGS: 9 lines a boot).
+host="$(ctl system hostname)"
+deadline=$((SECONDS + 30))
+until [ "$(received 'm["input"] == "tls" and m["app"] == "kernel"' | wc -l)" -ge 100 ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "only $(received 'm["input"] == "tls" and m["app"] == "kernel"' | wc -l) of the new boot's kernel messages over TLS"
+  sleep 1
+done
+other="$(received "m['input'] == 'tls' and m['app'] == 'kernel' and m['host'] != '$host'")"
+[ -z "$other" ] || fail "kernel messages under another name than $host: $(head -3 <<<"$other")"
 audit="$(timeout 5 "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" system audit || true)"
 grep -q $'\tSystemService/Reboot\tci-reader' <<<"$audit" && grep -q $'\tSystemService/Reboot\tadmin (os:admin)' <<<"$audit" || fail "the audit didn't come through the reboot: $audit"
-echo "Part 3 OK: after a reboot, the new boot's kernel messages reach the targets - each went on from its cursor; the audit is still there (STATE)"
+echo "Part 3 OK: after a reboot, the new boot's kernel messages reach the targets ($(received 'm["input"] == "tls" and m["app"] == "kernel"' | wc -l) over TLS, all as $host) - each went on from its cursor; the audit is still there (STATE)"
 
 # --- 4. HAProxy's own log lines, without janusd ---
 ctl haproxy file-put certs/logs-ca.pem "$CONF/ca.pem" >/dev/null || fail "file-put the CA"
@@ -300,4 +321,5 @@ cat "$LOG" >> "$ALL_LOGS"
 if grep -aq "avc:  denied" "$ALL_LOGS"; then
   fail "AVC denials: $(grep -a 'avc:  denied' "$ALL_LOGS" | head -5)"
 fi
-echo "Log forwarding test passed: a real rsyslog got each target's sources over UDP, TCP and TLS, the outage's lines once back, the new boot's kernel messages after a reboot, HAProxy's own UDP and TLS log lines; no secret came back, no AVC denial"
+[ "$WITHOUT_LOGS" != 1 ] || grep -aq "no LOGS partition on this disk" "$ALL_LOGS" "$LOG" || fail "janusd didn't say the node has no LOGS partition"
+echo "Log forwarding test passed${WITHOUT_LOGS:+ without a LOGS partition}: a real rsyslog got each target's sources over UDP, TCP and TLS, the outage's lines once back, the new boot's kernel messages after a reboot, HAProxy's own UDP and TLS log lines; no secret came back, no AVC denial"

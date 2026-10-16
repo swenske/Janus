@@ -470,6 +470,45 @@ func TestVolumeOverwrittenCountsLost(t *testing.T) {
 	}
 }
 
+// What's offered before the first configuration - janusd starting, on a
+// node without a LOGS partition: the kernel's boot, its first lines -
+// goes to the targets it brings, in order, before what follows; a
+// second configuration doesn't send it again.
+func TestOfferedBeforeTheFirstApply(t *testing.T) {
+	srv := newServer(t, "tcp", "octet-counting", nil)
+	cfg := Config{Targets: []Target{{Name: "t", Sources: []string{SourceKernel, SourceJanusd}, Syslog: &SyslogTarget{Address: srv.addr(), Transport: "tcp"}}}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	sh := New(Options{Meta: Meta{Hostname: func() string { return "lb1" }}})
+	defer sh.Close()
+	for i := range 300 {
+		sh.Offer(Record{Time: time.Now(), Source: SourceKernel, Service: "kernel", Severity: SevInfo, Message: fmt.Sprintf("[ 0.%06d] boot line %d", i, i)})
+	}
+	sh.Offer(Record{Time: time.Now(), Source: SourceJanusd, Service: "janusd", Severity: SevInfo, Message: "logs: no LOGS partition"})
+	sh.Offer(Record{Time: time.Now(), Source: SourceAccess, Service: "haproxy", Severity: SevInfo, Message: "not taken"})
+	sh.Apply(cfg)
+	sh.Offer(Record{Time: time.Now(), Source: SourceJanusd, Service: "janusd", Severity: SevInfo, Message: "after the configuration"})
+	got := srv.waitFor(t, "", 302)
+	if !strings.HasSuffix(got[0], "boot line 0") || !strings.HasSuffix(got[299], "boot line 299") ||
+		!strings.HasSuffix(got[300], "no LOGS partition") || !strings.HasSuffix(got[301], "after the configuration") {
+		t.Fatalf("order: %q ... %q", got[0], got[298:])
+	}
+	if !strings.Contains(got[0], " lb1 ") {
+		t.Errorf("hostname: %q", got[0])
+	}
+	sh.Apply(Config{Targets: []Target{cfg.Targets[0], {Name: "u", Syslog: &SyslogTarget{Address: srv.addr(), Transport: "tcp"}}}})
+	time.Sleep(500 * time.Millisecond)
+	for _, m := range srv.got() {
+		if strings.Contains(m, "not taken") {
+			t.Fatalf("a source no target takes was sent: %q", m)
+		}
+	}
+	if n := len(srv.got()); n != 302 {
+		t.Errorf("%d messages after a second configuration, want 302 (nothing sent again)", n)
+	}
+}
+
 func TestFeedsAndTheirCursorFile(t *testing.T) {
 	srv := newServer(t, "tcp", "octet-counting", nil)
 	var mu sync.Mutex
