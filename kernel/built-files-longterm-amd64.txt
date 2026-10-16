@@ -2928,6 +2928,7 @@ include/linux/irq-entry-common.h
 include/linux/irq.h
 include/linux/irq_poll.h
 include/linux/irq_work.h
+include/linux/irq_work_types.h
 include/linux/irqbypass.h
 include/linux/irqchip/chained_irq.h
 include/linux/irqchip/irq-msi-lib.h
