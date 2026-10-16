@@ -154,7 +154,8 @@ example:
   denials; the nodes of the previous release naming the new image;
 - v2026.10.15-2: the OOM order - every process's `oom_score_adj` on the
   nodes, and the three-cache configuration (below) without janusd ever
-  killed.
+  killed;
+- v2026.10.16: log forwarding and the LOGS partition, below.
 
 ### HAProxy killed by the kernel
 
@@ -195,6 +196,20 @@ campaign; every other threshold keeps its default.
 | Put back with HAProxy down | since v2026.10.14-6, on a machine whose kernel parameters nobody changed by hand: the three-cache configuration applied until it runs at 2 GiB, then paused (back to 1 GiB, where it can't run), on again, the policy removed at 2 GiB | the parameters confirmed back at 1 GiB and still there past the trial's 2 minutes; put back before the removal's restart; HAProxy's processes listed every 3 s |
 | Its pages | the Hypervisors tab: the machine's card, its status, its journal | both themes, no console error |
 
+### Log forwarding
+
+Since v2026.10.16. The log servers: a single-node Elasticsearch (2 CPUs)
+and a Logstash (1 CPU, syslog over UDP, TCP and TLS with its own CA) on
+a Docker host of the home network, behind its reverse proxy.
+
+| Step | How | Measured |
+|---|---|---|
+| From the Controller | its Log forwarding page through the API: its own log and audit to Elasticsearch; a profile for every node - Elasticsearch and Logstash over TLS | each node's state (applied, *unsupported* for the older ones), `managed by` on the node, what each data stream and Logstash received, by host |
+| A new machine | created by the Controller from the release's image, then rebooted | time to ready, its LOGS partition and boots (its node page), the profile applied at admission, its boot's kernel messages in Elasticsearch |
+| The updated nodes' reboots | the firmware and kexec reboots below, forwarding on | each boot's kernel messages in Elasticsearch and the host they're under |
+| Throughput | the benchmark below with forwarding on (a profile's default sources) | against the release, measured the same morning |
+| The cost | on a node of the branch with LOGS, HAProxy answering every request itself, four clients for a minute: no log, `log stdout` sent nowhere, to syslog, to Elasticsearch, with the access logs on LOGS, HAProxy's own `log` over UDP and through a TLS ring | requests/s, janusd's and HAProxy's CPU, the lines HAProxy dropped (`DroppedLogs`), what the target sent and dropped, what the server kept, LOGS's write rate; then the queue drained |
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -208,6 +223,14 @@ ran:
 - `reboot-time`: the reboots;
 - `rolling`: the drained rolling update through the Controller;
 - `ctl-update`: the Controller's update with its probe;
+- `factory-ready`: a node's page asks for the pre-release's bundle until
+  the image factory has it;
+- `new-machine`: a machine created by the Controller, its journal;
+- `rollback-twice`: rollbacks timed from the call to the API back (gone
+  first);
+- `logfwd-setup`: the Controller's log forwarding and the lab's profile;
+  `bench.sh` (scenario 16): log forwarding's cost, one configuration a
+  run;
 - `measure`, `rmeasure`, `probe`, `probe-summary`: the probes;
 - for auto-scaling, the policy, journal and load helpers and the HAProxy
   configurations.
