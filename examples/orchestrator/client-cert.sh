@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A client certificate nodes accept (docs/private-cloud/trust.md): its
+# A client certificate nodes accept (docs/internals/trust.md): its
 # role in the subject's O, its name in CN - what a node logs for each
 # change -, for client authentication, signed by the fleet's issuing CA.
 # Short-lived: issue one when it's needed rather than renew it.

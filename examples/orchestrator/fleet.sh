@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A Janus fleet made with openssl and jq alone
-# (docs/private-cloud/trust.md): the root CA - its key goes offline
+# (docs/internals/trust.md): the root CA - its key goes offline
 # once this ran -, an issuing CA for the orchestrator, and the bundle the
 # root signs to tell nodes which issuing CAs they accept.
 #
