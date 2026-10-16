@@ -1,7 +1,8 @@
 // The docs site in a real browser (make docs-smoke): every page of a
 // channel, reached by following the site's own links from its home, in
 // both themes - no console error or warning, no page error, no CSP
-// violation, every image loaded, every Mermaid diagram drawn; no
+// violation, every image loaded, every Mermaid diagram drawn and its
+// viewer working (zoom, close, the focus back); no
 // horizontal scroll on a phone; search answering - suggestions,
 // completion, "did you mean" too; axe finding nothing serious.
 //   node docs-smoke.mjs <site URL> <channel path: /docs/ or /docs/next/>
@@ -53,6 +54,27 @@ async function visit(page, url, scheme) {
     }
     if (!drawn) problems.push(`${url} (${scheme}): a Mermaid diagram wasn't drawn`)
     if (await page.locator('pre.mermaid :text("Syntax error")').count()) problems.push(`${url}: a Mermaid syntax error`)
+    // Each diagram's Zoom button (diagrams.mjs) - /docs/ has them from the
+    // first release that does - and once a theme, the viewer: open, +
+    // zooms in, Escape closes it and gives the focus back to the button.
+    const zoom = page.locator('pre.mermaid > .diagram-zoom')
+    if (root === '/docs/next/' && (await zoom.count()) !== diagrams) problems.push(`${url} (${scheme}): a Mermaid diagram without its Zoom button`)
+    if (!viewerChecked.has(scheme) && (await zoom.count())) {
+      viewerChecked.add(scheme)
+      viewerPage ??= url
+      await zoom.first().click()
+      const dialog = page.locator('dialog.diagram-viewer[open]')
+      const shown = await dialog.locator('.diagram-viewer-stage svg').waitFor({ timeout: 10000 }).then(() => true, () => false)
+      const before = parseInt(await dialog.locator('[data-do="fit"]').textContent())
+      await page.keyboard.press('+')
+      const after = parseInt(await dialog.locator('[data-do="fit"]').textContent())
+      await page.keyboard.press('Escape')
+      const closed = await dialog.waitFor({ state: 'detached', timeout: 5000 }).then(() => true, () => false)
+      const back = await page.evaluate(() => document.activeElement?.classList.contains('diagram-zoom'))
+      if (!shown || !(after > before) || !closed || !back) {
+        problems.push(`${url} (${scheme}): the diagram viewer - drawn ${shown}, ${before} % then ${after} % with +, closed ${closed}, focus back ${back}`)
+      }
+    }
   }
   // Every image the page shows in this theme, loaded - lazy ones too
   // (made eager); the screenshots' twin for the other theme isn't shown.
@@ -76,6 +98,8 @@ async function visit(page, url, scheme) {
 
 // Every page: from the home, follow the links (sidebar included).
 const pages = new Set()
+const viewerChecked = new Set()
+let viewerPage
 for (const scheme of ['light', 'dark']) {
   const { ctx, page } = await newPage(scheme)
   const queue = [site + root]
@@ -150,6 +174,18 @@ for (const scheme of ['light', 'dark']) {
     const { violations } = await new AxeBuilder({ page }).analyze()
     for (const v of violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')) {
       problems.push(`${url}: axe ${v.impact} ${v.id} (${v.help}) - ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)
+    }
+  }
+  // The diagram viewer, open.
+  if (viewerPage) {
+    await page.goto(viewerPage, { waitUntil: 'networkidle' })
+    const zoom = page.locator('pre.mermaid > .diagram-zoom').first()
+    await zoom.scrollIntoViewIfNeeded()
+    await zoom.click()
+    await page.locator('dialog.diagram-viewer[open] .diagram-viewer-stage svg').waitFor({ timeout: 10000 })
+    const { violations } = await new AxeBuilder({ page }).include('dialog.diagram-viewer').analyze()
+    for (const v of violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')) {
+      problems.push(`${viewerPage} (the diagram viewer): axe ${v.impact} ${v.id} (${v.help}) - ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)
     }
   }
   await ctx.close()

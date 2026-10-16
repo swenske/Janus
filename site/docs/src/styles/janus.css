@@ -274,10 +274,12 @@
 
 /* Mermaid diagrams (diagrams.mjs): the source until it's drawn, wrapped,
    then the drawing, centred and as wide as the page at most - neither
-   scrolls (a scrolling region would need to take the keyboard's focus). */
+   scrolls (a scrolling region would need to take the keyboard's focus) -
+   with its Zoom button under it, on the right: never over the drawing. */
 pre.mermaid {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
   margin: 1.5rem 0;
   padding: 1rem;
   overflow: hidden;
@@ -293,4 +295,111 @@ pre.mermaid:not([data-drawn]) {
 pre.mermaid svg {
   max-width: 100%;
   height: auto;
+  cursor: zoom-in;
+}
+.diagram-zoom {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.65rem;
+  font: inherit;
+  font-size: var(--sl-text-xs);
+  color: var(--sl-color-gray-2);
+  background: var(--sl-color-black);
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.4rem;
+  cursor: zoom-in;
+}
+.diagram-zoom:hover,
+.diagram-zoom:focus-visible {
+  color: var(--sl-color-white);
+  border-color: var(--sl-color-gray-3);
+}
+.diagram-zoom svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  cursor: inherit;
+}
+
+/* The diagram viewer (diagrams.mjs): the whole screen, the page's own
+   background, the drawing moved and sized by its script. */
+.diagram-viewer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  color: var(--sl-color-white);
+  background: var(--sl-color-black);
+}
+.diagram-viewer::backdrop {
+  background: var(--sl-color-black);
+}
+.diagram-viewer-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+.diagram-viewer-stage.dragging {
+  cursor: grabbing;
+}
+.diagram-viewer-stage svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.diagram-viewer-bar {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: var(--sl-color-gray-6);
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+}
+.diagram-viewer-bar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  height: 2.75rem;
+  padding: 0 0.5rem;
+  font: inherit;
+  font-size: var(--sl-text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--sl-color-white);
+  background: transparent;
+  border: none;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+.diagram-viewer-bar button:hover,
+.diagram-viewer-bar button:focus-visible {
+  background: var(--sl-color-gray-5);
+}
+.diagram-viewer-bar svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.diagram-viewer-hint {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  font-size: var(--sl-text-xs);
+  color: var(--sl-color-gray-3);
+  pointer-events: none;
 }
