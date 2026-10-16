@@ -486,10 +486,20 @@ both tests.
   Forwarding): both edit targets with `src/shared/LogTargets.jsx` (the
   model in `src/shared/logTargets.js`: sources, defaults, `cleanTarget`
   - an empty secret field keeps the saved secret, the server merges it).
-  The Controller's page saves its own targets and the fleet profiles
-  whole (`PUT /api/log-forwarding`), lists each node's state with the
+  Each target shows folded - name, kind, where, its state and counts
+  (the status merged in, by name), *not saved* when it differs from the
+  saved one - with Test, Edit and Remove; Edit or a new target opens the
+  editor (Done folds it). Nothing applies until the page is saved: an
+  `UnsavedBar` (sticky) says so with Save and Discard; a save or a
+  discard bumps the list's `key`, so everything folds again. Test sends
+  the target as shown (the Controller's `POST /api/log-forwarding/test`
+  takes it as `config`, the saved secrets merged by name). The
+  Controller's page saves its own targets and the fleet profiles whole
+  (`PUT /api/log-forwarding`), lists each node's state with the
   profiles, tests a target from the Controller or a profile's node. A
   node's page is read-only while `managed_by` is set (a profile's).
+  `fieldset.plain` (theme.css) has no frame: a fieldset there only
+  disables a group of fields.
 - **Previous boots** (Logs › Service logs, Logs › Kernel): a node with a
   LOGS partition lists its earlier boots (`/api/log-boots`) in a
   `BootSelect` next to the page's other controls - only once there is

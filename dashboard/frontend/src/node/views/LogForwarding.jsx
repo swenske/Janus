@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { postJSON } from '../api.js'
 import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
-import LogTargets, { TargetStatusTable } from '../../shared/LogTargets.jsx'
+import LogTargets, { UnsavedBar } from '../../shared/LogTargets.jsx'
 import { NODE_DEFAULT_SOURCES, NODE_SOURCES, cleanTarget, withSources } from '../../shared/logTargets.js'
 import { Card, ErrorBox, PageHeader, useAction, useToast } from '../../shared/ui.jsx'
 
@@ -17,6 +17,8 @@ export default function LogForwarding() {
   const [draft, setDraft] = useState(null)
   const [busy, run] = useAction()
   const [testing, setTesting] = useState(false)
+  // Changes on a save or a discard: the target list folds again.
+  const [formKey, setFormKey] = useState(0)
   const toast = useToast()
   const may = useMay()
   if (error) return <ErrorBox error={error} />
@@ -27,7 +29,8 @@ export default function LogForwarding() {
   const canSet = may('SystemService/LogForwardingSet') && !managed
   const secrets = Object.fromEntries((data.targets || []).map((s) => [s.name, s.secrets || []]))
   // The form's edits; null until something is changed.
-  const targets = draft?.targets ?? withSources(cfg.targets, NODE_DEFAULT_SOURCES)
+  const savedTargets = withSources(cfg.targets, NODE_DEFAULT_SOURCES)
+  const targets = draft?.targets ?? savedTargets
   const accessOnDisk = draft?.access ?? cfg.access_logs_on_disk ?? ''
   const edit = (patch) => setDraft({ targets, access: accessOnDisk, ...patch })
 
@@ -35,8 +38,13 @@ export default function LogForwarding() {
     run(async () => {
       await postJSON('/api/log-forwarding', { targets: targets.map(cleanTarget), labels: cfg.labels, access_logs_on_disk: accessOnDisk || undefined })
       setDraft(null)
+      setFormKey((k) => k + 1)
       reload()
     }, 'Log forwarding saved')
+  const discard = () => {
+    setDraft(null)
+    setFormKey((k) => k + 1)
+  }
   const test = async (t) => {
     setTesting(true)
     try {
@@ -78,10 +86,13 @@ export default function LogForwarding() {
       >
         <div className="stack">
           <LogTargets
+            key={formKey}
             value={targets}
             onChange={(t) => edit({ targets: t })}
             sources={NODE_SOURCES}
             defaultSources={NODE_DEFAULT_SOURCES}
+            saved={savedTargets}
+            status={data.targets || []}
             secrets={secrets}
             onTest={may('SystemService/LogForwardingTest') ? test : null}
             testing={testing}
@@ -95,9 +106,9 @@ export default function LogForwarding() {
               <option value="always">always (sent at least once)</option>
             </select>
           </label>
-          <TargetStatusTable status={data.targets} />
         </div>
       </Card>
+      {canSet && draft && <UnsavedBar onSave={save} onDiscard={discard} busy={busy} />}
     </>
   )
 }

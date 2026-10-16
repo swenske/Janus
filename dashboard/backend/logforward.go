@@ -160,31 +160,50 @@ func controllerAuditRecord(e audit.Entry) logship.Record {
 	return logship.Record{Time: e.Time, Source: logship.SourceAudit, Service: "dashboardd", Severity: sev, Message: msg, Fields: fields, ID: fmt.Sprintf("ca-%d", e.ID)}
 }
 
+// How often the profiles are applied again: every node checked, a change
+// made on one undone - and sooner while a node can't take its profile
+// yet (an older release being updated, a node away): it gets it within a
+// minute of being able to.
+var (
+	logProfilesEvery = 10 * time.Minute
+	logProfilesRetry = time.Minute
+)
+
 func (a *app) logForwardLoop(ctx context.Context) {
-	tick := time.NewTicker(10 * time.Minute)
-	defer tick.Stop()
 	for {
-		a.applyLogProfiles(ctx)
+		wait := logProfilesEvery
+		if a.applyLogProfiles(ctx) {
+			wait = logProfilesRetry
+		}
+		t := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return
-		case <-tick.C:
+		case <-t.C:
 		case <-a.logfwd.kick:
+			t.Stop()
 		}
 	}
 }
 
-func (a *app) applyLogProfiles(ctx context.Context) {
+// applyLogProfiles applies the profiles to every node; it says whether a
+// node couldn't take one (unsupported, failing): worth trying again soon.
+func (a *app) applyLogProfiles(ctx context.Context) (again bool) {
 	set := a.logfwd.store.Settings()
 	for _, n := range a.store.List() {
 		nctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		st := a.ensureLogProfile(nctx, n, set)
 		cancel()
 		st.Checked = time.Now().UTC()
+		if st.State == "unsupported" || st.State == "error" {
+			again = true
+		}
 		a.logfwd.mu.Lock()
 		a.logfwd.nodes[n.ID] = st
 		a.logfwd.mu.Unlock()
 	}
+	return again
 }
 
 // ensureLogProfile gives node the profile that picks it - again when
@@ -333,12 +352,15 @@ func (a *app) handleLogForwardingSet(w http.ResponseWriter, r *http.Request) {
 
 // handleLogForwardingTest sends one record to a target: one of the
 // Controller's from the Controller, one of a profile's from a node -
-// with the secrets the Controller keeps for it.
+// with the secrets the Controller keeps for it. With config, the target
+// as the page shows it, saved or not: the secrets it leaves out are the
+// saved target's of the same name.
 func (a *app) handleLogForwardingTest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Profile string `json:"profile"`
-		Target  string `json:"target"`
-		Node    string `json:"node"`
+		Profile string          `json:"profile"`
+		Target  string          `json:"target"`
+		Node    string          `json:"node"`
+		Config  *logship.Target `json:"config"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -352,19 +374,32 @@ func (a *app) handleLogForwardingTest(w http.ResponseWriter, r *http.Request) {
 				cfg, found = p.Config, true
 			}
 		}
-		if !found {
+		if !found && req.Config == nil {
 			writeError(w, http.StatusNotFound, "no such profile")
 			return
 		}
+		if !found {
+			cfg = logship.Config{} // a profile not saved yet: no secret to keep
+		}
 	}
 	var target *logship.Target
-	for i := range cfg.Targets {
-		if cfg.Targets[i].Name == req.Target {
-			target = &cfg.Targets[i]
+	if req.Config != nil {
+		draft := logship.Config{Targets: []logship.Target{*req.Config}}
+		draft.MergeSecrets(cfg)
+		if err := draft.Validate(); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		target = &draft.Targets[0]
+	} else {
+		for i := range cfg.Targets {
+			if cfg.Targets[i].Name == req.Target {
+				target = &cfg.Targets[i]
+			}
 		}
 	}
 	if target == nil {
-		writeError(w, http.StatusNotFound, "no such target")
+		writeError(w, http.StatusNotFound, "no such target - save it first, or send it as config")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)

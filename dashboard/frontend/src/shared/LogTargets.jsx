@@ -1,5 +1,6 @@
-import { Plus, Send, Trash2 } from 'lucide-react'
-import { newTarget, trustMode } from './logTargets.js'
+import { Check, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { newTarget, sameTarget, targetWhere, trustMode } from './logTargets.js'
 import { Badge } from './ui.jsx'
 
 function Field({ label, children, grow, width }) {
@@ -12,8 +13,9 @@ function Field({ label, children, grow, width }) {
 }
 
 // TargetEditor edits one target. secrets: the names of those it has
-// saved (api_key, password, client_key); onTest sends one record.
-function TargetEditor({ target, onChange, onRemove, onTest, sources, secrets = [], disabled, testing, testNote }) {
+// saved (api_key, password, client_key); onTest sends one record;
+// onDone folds it back into its summary.
+function TargetEditor({ target, onChange, onRemove, onTest, onDone, sources, secrets = [], disabled, testing, testNote }) {
   const t = target
   const kind = t.elasticsearch ? 'elasticsearch' : 'syslog'
   const set = (patch) => onChange({ ...t, ...patch })
@@ -25,7 +27,7 @@ function TargetEditor({ target, onChange, onRemove, onTest, sources, secrets = [
   const kept = (name) => (secrets.includes(name) ? 'kept - type to change it' : '')
   const toggleSource = (id) => set({ sources: t.sources.includes(id) ? t.sources.filter((s) => s !== id) : [...t.sources, id] })
   return (
-    <fieldset className="plain stack log-target" disabled={disabled} style={{ borderTop: '1px solid var(--border)', paddingTop: '0.8rem' }}>
+    <fieldset className="plain stack log-target editing" disabled={disabled}>
       <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <Field label="Name" width="11rem">
           <input className="mono" value={t.name} onChange={(e) => set({ name: e.target.value })} placeholder="nas" />
@@ -54,6 +56,9 @@ function TargetEditor({ target, onChange, onRemove, onTest, sources, secrets = [
         )}
         <button type="button" className="small" onClick={onRemove} aria-label={`Remove target ${t.name}`}>
           <Trash2 size={14} /> Remove
+        </button>
+        <button type="button" className="small" onClick={onDone}>
+          <Check size={14} /> Done
         </button>
       </div>
       {kind === 'syslog' ? (
@@ -173,33 +178,110 @@ function TargetEditor({ target, onChange, onRemove, onTest, sources, secrets = [
   )
 }
 
+// TargetSummary is a target folded: where it sends, what, and how it's
+// doing (status: its TargetStatus, when it's saved as shown).
+function TargetSummary({ target, sources, status, unsaved, onEdit, onRemove, onTest, testing, testNote, disabled }) {
+  const t = target
+  const sent = status ? `${status.sent || 0} sent · ${status.dropped || 0} dropped · ${status.queued ?? status.queued_records ?? 0} waiting` : ''
+  const labels = sources.filter((s) => t.sources.includes(s.id)).map((s) => s.label)
+  return (
+    <div className="log-target">
+      <div className="row" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+        <strong className="mono">{t.name || '(no name)'}</strong>
+        <Badge>{t.elasticsearch ? 'Elasticsearch' : 'Syslog'}</Badge>
+        <span className="mono small muted">{targetWhere(t)}</span>
+        {t.disabled && <Badge tone="warn">paused</Badge>}
+        {unsaved && <Badge tone="accent">not saved</Badge>}
+        {status && !unsaved && (
+          <Badge tone={status.state === 'ok' ? 'ok' : status.state === 'failing' ? 'danger' : undefined} dot>
+            {status.state}
+          </Badge>
+        )}
+        {status && !unsaved && <span className="small muted">{sent}</span>}
+        <span className="grow" />
+        {onTest && (
+          <button type="button" className="small" onClick={onTest} disabled={testing} title={testNote || 'Send one record to it now - as shown here'}>
+            <Send size={14} /> Test
+          </button>
+        )}
+        {!disabled && (
+          <>
+            <button type="button" className="small" onClick={onEdit}>
+              <Pencil size={14} /> Edit
+            </button>
+            <button type="button" className="small" onClick={onRemove} aria-label={`Remove target ${t.name}`}>
+              <Trash2 size={14} /> Remove
+            </button>
+          </>
+        )}
+      </div>
+      <span className="small muted">Sends {labels.length ? labels.join(', ') : 'nothing'}</span>
+      {status?.last_error && !unsaved && <span className="small muted">{status.last_error}</span>}
+    </div>
+  )
+}
+
 // LogTargets edits a list of log targets: value the targets (as the API
-// gives them, sources filled in), onChange the new list. secrets maps a
-// target's name to the secrets it has saved.
-export default function LogTargets({ value, onChange, sources, defaultSources, secrets = {}, onTest, testing, testNote, disabled }) {
+// gives them, sources filled in), onChange the new list; saved the list
+// as saved (a target that differs says so), status how each saved one is
+// doing; secrets maps a target's name to the secrets it has saved. Each
+// target shows folded - Edit opens it, a new one opens at once. Give it
+// a key that changes on a save or a discard: what's open folds again.
+export default function LogTargets({ value, onChange, sources, defaultSources, saved = [], status = [], secrets = {}, onTest, testing, testNote, disabled }) {
+  const [open, setOpen] = useState(() => new Set())
   const update = (i, t) => onChange(value.map((x, j) => (j === i ? t : x)))
+  const remove = (i) => {
+    onChange(value.filter((_, j) => j !== i))
+    setOpen(new Set([...open].filter((j) => j !== i).map((j) => (j > i ? j - 1 : j))))
+  }
+  const toggle = (i, on) => {
+    const next = new Set(open)
+    if (on) next.add(i)
+    else next.delete(i)
+    setOpen(next)
+  }
   const add = () => {
     let n = value.length + 1
     while (value.some((t) => t.name === `target-${n}`)) n++
     onChange([...value, newTarget(`target-${n}`, defaultSources)])
+    toggle(value.length, true)
   }
   return (
     <div className="stack">
       {value.length === 0 && <div className="muted">No target: these logs aren&apos;t sent anywhere.</div>}
-      {value.map((t, i) => (
-        <TargetEditor
-          key={i}
-          target={t}
-          sources={sources}
-          secrets={secrets[t.name] || []}
-          onChange={(nt) => update(i, nt)}
-          onRemove={() => onChange(value.filter((_, j) => j !== i))}
-          onTest={onTest ? () => onTest(t) : null}
-          testing={testing}
-          testNote={testNote}
-          disabled={disabled}
-        />
-      ))}
+      {value.map((t, i) => {
+        const was = saved.find((s) => s.name === t.name)
+        const unsaved = !was || !sameTarget(t, was)
+        const st = status.find((s) => s.name === t.name)
+        return open.has(i) && !disabled ? (
+          <TargetEditor
+            key={i}
+            target={t}
+            sources={sources}
+            secrets={secrets[t.name] || []}
+            onChange={(nt) => update(i, nt)}
+            onRemove={() => remove(i)}
+            onDone={() => toggle(i, false)}
+            onTest={onTest ? () => onTest(t) : null}
+            testing={testing}
+            testNote={testNote}
+          />
+        ) : (
+          <TargetSummary
+            key={i}
+            target={t}
+            sources={sources}
+            status={st}
+            unsaved={unsaved}
+            onEdit={() => toggle(i, true)}
+            onRemove={() => remove(i)}
+            onTest={onTest ? () => onTest(t) : null}
+            testing={testing}
+            testNote={testNote}
+            disabled={disabled}
+          />
+        )
+      })}
       {!disabled && (
         <div>
           <button type="button" className="small" onClick={add}>
@@ -211,46 +293,19 @@ export default function LogTargets({ value, onChange, sources, defaultSources, s
   )
 }
 
-// TargetStatusTable is how each target is doing (logship.TargetStatus,
-// or the node's LogTargetStatus).
-export function TargetStatusTable({ status }) {
-  if (!status?.length) return null
-  const when = (v) => {
-    if (!v) return '-'
-    const t = typeof v === 'string' ? new Date(v) : new Date(Number(v) / 1e6)
-    return t.getFullYear() < 2000 ? '-' : t.toLocaleString()
-  }
+// UnsavedBar says the page holds changes not saved yet - a target added,
+// changed or removed only counts once saved - with Save and Discard.
+export function UnsavedBar({ onSave, onDiscard, busy }) {
   return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Target</th>
-            <th>State</th>
-            <th>Sent</th>
-            <th>Dropped</th>
-            <th>Waiting</th>
-            <th>Last sent</th>
-          </tr>
-        </thead>
-        <tbody>
-          {status.map((s) => (
-            <tr key={s.name}>
-              <td className="mono">{s.name}</td>
-              <td>
-                <Badge tone={s.state === 'ok' ? 'ok' : s.state === 'failing' ? 'danger' : undefined} dot>
-                  {s.state}
-                </Badge>
-                {s.last_error && <div className="small muted">{s.last_error}</div>}
-              </td>
-              <td>{s.sent || 0}</td>
-              <td>{s.dropped || 0}</td>
-              <td>{s.queued ?? s.queued_records ?? 0}</td>
-              <td className="small">{when(s.last_sent ?? s.last_sent_unix_ns)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="unsaved-bar" role="status">
+      <span>Changes not saved yet: nothing is sent differently until you save.</span>
+      <span className="grow" />
+      <button type="button" onClick={onDiscard} disabled={busy}>
+        Discard
+      </button>
+      <button type="button" className="primary" onClick={onSave} disabled={busy}>
+        Save
+      </button>
     </div>
   )
 }

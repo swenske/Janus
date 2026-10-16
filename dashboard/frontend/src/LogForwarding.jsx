@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, ExternalLink, Layers, Plus, Send, Server, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
-import LogTargets, { TargetStatusTable } from './shared/LogTargets.jsx'
+import LogTargets, { UnsavedBar } from './shared/LogTargets.jsx'
 import { CONTROLLER_SOURCES, NODE_DEFAULT_SOURCES, NODE_SOURCES, cleanTarget, withSources } from './shared/logTargets.js'
 import { Badge, Card, ErrorBox, useAction, useToast } from './shared/ui.jsx'
 
@@ -45,12 +45,15 @@ export default function LogForwardingPage() {
   const [error, setError] = useState(null)
   const [busy, run] = useAction()
   const [testing, setTesting] = useState(false)
+  // Changes on a save or a discard: the target lists fold again.
+  const [formKey, setFormKey] = useState(0)
   const toast = useToast()
   const load = useCallback(
     () =>
       call('/api/log-forwarding').then((v) => {
         setView(v)
         setDraft(draftOf(v))
+        setFormKey((k) => k + 1)
       }, setError),
     [],
   )
@@ -76,7 +79,13 @@ export default function LogForwardingPage() {
       )
       setView(v)
       setDraft(draftOf(v))
+      setFormKey((k) => k + 1)
     }, 'Log forwarding saved - the nodes get their profile now')
+  const discard = () => {
+    setDraft(draftOf(view))
+    setFormKey((k) => k + 1)
+  }
+  const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(view))
 
   const test = async (body) => {
     setTesting(true)
@@ -106,7 +115,7 @@ export default function LogForwardingPage() {
           <a href={DOCS} target="_blank" rel="noreferrer">
             Log forwarding <ExternalLink size={12} />
           </a>
-          <button className="primary" disabled={busy} onClick={save}>
+          <button className="primary" disabled={busy || !dirty} onClick={save}>
             Save
           </button>
         </div>
@@ -120,15 +129,17 @@ export default function LogForwardingPage() {
         <div className="stack">
           <span className="muted small">Its log and its audit (every change made through it, every sign-in) - its audit from where it stopped, its log from memory.</span>
           <LogTargets
+            key={`controller-${formKey}`}
             value={draft.controller}
             onChange={(controller) => setDraft({ ...draft, controller })}
             sources={CONTROLLER_SOURCES}
             defaultSources={['controller', 'audit']}
+            saved={withSources(view.controller?.targets, ['controller', 'audit'])}
+            status={view.controller_status || []}
             secrets={view.controller_secrets || {}}
-            onTest={(t) => test({ target: t.name })}
+            onTest={(t) => test({ target: t.name, config: cleanTarget(t) })}
             testing={testing}
           />
-          <TargetStatusTable status={view.controller_status} />
         </div>
       </Card>
 
@@ -191,20 +202,24 @@ export default function LogForwardingPage() {
                   </label>
                 </div>
                 <LogTargets
+                  key={`profile-${i}-${formKey}`}
                   value={p.targets}
                   onChange={(targets) => setProfile(i, { targets })}
                   sources={NODE_SOURCES}
                   defaultSources={NODE_DEFAULT_SOURCES}
+                  saved={withSources(saved(p.name)?.config?.targets, NODE_DEFAULT_SOURCES)}
                   secrets={saved(p.name)?.secrets || {}}
-                  onTest={members.length ? (t) => test({ profile: p.name, target: t.name, node: members[0].id }) : null}
+                  onTest={members.length ? (t) => test({ profile: p.name, target: t.name, node: members[0].id, config: cleanTarget(t) }) : null}
                   testing={testing}
-                  testNote={members.length ? `From ${members[0].name} (as saved)` : ''}
+                  testNote={members.length ? `Send one record from ${members[0].name} - as shown here` : ''}
                 />
               </div>
             )
           })}
         </div>
       </Card>
+
+      {dirty && <UnsavedBar onSave={save} onDiscard={discard} busy={busy} />}
 
       <Card title="Nodes" icon={Send}>
         {view.nodes.length === 0 ? (
