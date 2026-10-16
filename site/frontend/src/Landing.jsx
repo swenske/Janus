@@ -78,7 +78,11 @@ const FEATURES = [
   },
   { icon: Undo2, title: 'A/B updates', text: 'The new version is written to the idle slot and booted on trial - through kexec, without the firmware, if you ask; if HAProxy isn’t healthy, the node switches back by itself.' },
   { icon: Network, title: 'Network', text: 'Static addressing, 802.1Q VLANs, several interfaces, DNS and NTP - configured through the API, confirmed or reverted.' },
-  { icon: Terminal, title: 'No shell, still observable', text: 'Logs, kernel messages, processes, files and packet capture over the API - read-only and scoped, never a command line.' },
+  {
+    icon: Terminal,
+    title: 'No shell, still observable',
+    text: 'Logs, kernel messages, processes, files and packet capture over the API - read-only and scoped, never a command line. Logs and an audit of every change kept across reboots, and sent to syslog or Elasticsearch.',
+  },
   {
     icon: Boxes,
     title: 'Extensions',
