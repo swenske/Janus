@@ -155,7 +155,8 @@ example:
 - v2026.10.15-2: the OOM order - every process's `oom_score_adj` on the
   nodes, and the three-cache configuration (below) without janusd ever
   killed;
-- v2026.10.16: log forwarding and the LOGS partition, below.
+- v2026.10.16 and -2: log forwarding and the LOGS partition, below - for
+  -2, each boot's kernel messages counted by host on the updated nodes.
 
 ### HAProxy killed by the kernel
 
