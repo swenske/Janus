@@ -139,8 +139,15 @@ shows the other way and,
 pressed again, goes back to that choice (the options menu's **Traffic
 flow** keeps one way or the other); `s` hides the servers. Which
 frontend sends where is read from the configuration and the maps a
-`use_backend` reads. A link carrying traffic runs, a link to a server
-down is dashed red, a backend no rule names is a hollow ○. The arrows
+`use_backend` reads. A link carrying traffic runs, in its protocol's
+colour - HTTP the accent, TCP its own - and each frontend and backend
+has its mode (`http`, `tcp`) after its name; a link to a server down is
+dashed red, a backend no rule names is a hollow ○. Beyond the
+interfaces, the node's log targets - rsyslog, Elasticsearch: records
+and bytes a second - each linked to the interface its logs leave by,
+its line running out of the node (a target failing is dashed red, one
+no interface on the map is the way to, hollow). A number that starts
+from zero lights up a moment. The arrows
 move a cursor along the map - right (or down, top to bottom) follows
 the traffic, across goes along a level -: the paths through the node
 under it come forward, its counters show beside the map (below it,
@@ -151,7 +158,7 @@ goes back. Without the right to read the configuration
 (`HAProxyService/GetConfig`), the map has the proxies but not which
 frontend sends to which backend, and says so.
 
-![janusctl tui's traffic flow, left to right: eth0, HAProxy, the frontends web and prometheus, web's link to the app backend and its servers app1 and app2; web under the cursor, its counters and its link to app - default_backend app - below the map](assets/screenshots/janusctl-tui-flow-light.webp)
+![janusctl tui's traffic flow, top to bottom: the log target siem above eth0, its records and bytes a second, then HAProxy, the frontends web and prometheus marked http, web's link to the app backend and its servers app1 and app2; web under the cursor, its counters and its link to app - default_backend app - below the map](assets/screenshots/janusctl-tui-flow-light.webp)
 
 It opens on Janus's logo while the nodes first answer, as bpytop does:
 the logo's orange bar fills up with the calls answered (`12/18`), its

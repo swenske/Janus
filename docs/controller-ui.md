@@ -435,7 +435,34 @@ resolves is said in the frontend's details. Links pulse where traffic
 goes (the more bytes, the thicker and faster - drawn still under
 `prefers-reduced-motion`); a backend fed by several frontends has its
 traffic on each link at most the smaller side's, as HAProxy doesn't
-count the split. Hovering a node or link brings its paths forward;
+count the split. A link's colour is its protocol's - HTTP the accent,
+TCP `--flow-tcp`, logs `--flow-log` (tokens of `node.css`, each 3:1 on
+the surface in both themes, the badges' text 4.5:1) - from HAProxy's
+`mode` in `show stat`: a frontend's up to it, a backend's from its
+frontend on (a TCP frontend may hand its connections to an HTTP
+backend); an interface's link, all of its traffic, is neutral. A
+frontend or backend wears its mode as a badge at its ring's top left,
+where no link comes in nor label goes. The log targets
+(`/api/log-forwarding`, at the refresh interval, records and bytes a
+second from `sent` and `bytes_sent`) sit beyond the interfaces - a
+column left of them, a row above them top to bottom, only when the node
+has some, so a map without them is the one it was - each linked to the
+interface its traffic leaves by (the node's `interface`: the kernel's
+route to the target's connection), its pulse going out of the node; a
+target no interface on the map says (not connected yet, a node older
+than that field) is drawn unlinked, its details saying why. A number
+that starts from zero - a node's traffic, sessions, requests,
+connections, records - flashes (`figures` and `risen` in `flow.js`,
+`useFlashes`): a ring widening off the node, the number in the accent
+a moment, its link lit; CSS animations replayed by a new key, only the
+colour under `prefers-reduced-motion`; a number unknown before (the
+first sample, a counter that went back) never flashes. Ctrl (or ⌘) +
+scroll zooms the map - a trackpad's pinch too - around the pointer
+(a non-passive `wheel` listener on the card: a scroll alone still
+scrolls the page), from 30 % to 400 % of its size, as do the − and +
+buttons; zoomed, the map scrolls in its card, as tall as the window,
+and the mouse drags it; **Fit** is back to `arrange`'s size, as is a
+change of orientation. Hovering a node or link brings its paths forward;
 selecting one shows its counters and rules in the side panel - a
 server's Ready/Drain/Maint (`ServerStateButtons`, shared with HAProxy ›
 Backends). Without `HAProxyService/GetConfig` (a grant narrowed to other
@@ -598,6 +625,17 @@ turn, and the step waited for is written under it.
    `WebAuthn.addVirtualAuthenticator`).
 
    Look at the screenshots, not only at the absence of errors.
+
+   `make ui-preview` (`hack/ui-preview.sh`) sets all of that up at once,
+   to look at a page or a `janusctl tui` screen yourself: the Controller
+   and janusd built from the tree, three `local-dev` nodes under traffic
+   that comes and goes - HTTP and TCP frontends - sending their logs to
+   rsyslog and Elasticsearch (edge-1 through two interfaces), the
+   Controller on `https://127.0.0.1:18443` (`ssh -N -L
+   18443:127.0.0.1:18443 HOST` from another machine), its account and
+   the `janusctl login` printed. `hack/ui-preview.sh reload` after a
+   change (the binaries built again, the Controller and nodes restarted,
+   their state kept), `down` to remove it.
 4. Anything the `local-dev` container can't show (dmesg, A/B slots,
    reboot, SELinux) gets checked against a real node booted from
    `build/rootfs/disk.img` under QEMU/OVMF.

@@ -21,12 +21,17 @@ the node's interfaces, HAProxy, each frontend linked to the backends its
 when `use_backend` reads one - and each backend's servers, with their
 traffic, sessions and state, as big as the window allows - left to
 right, the labels beside the nodes for a configuration with many
-backends, or top to bottom when that's what fits. Select a frontend to
-see the rules - a
-map's keys included - behind each of its links, or a server to set its
-state:
+backends, or top to bottom when that's what fits. HTTP and TCP traffic
+have their own colours, and each frontend and backend says its mode; a
+number that starts from zero flashes. Where the node sends its logs
+([log forwarding](guide/log-forwarding.md)) shows beyond the
+interfaces: each target, its records and bytes a second, linked to the
+interface its logs actually leave by. Ctrl + scroll (or a pinch) zooms
+around the pointer, and a zoomed map is dragged with the mouse. Select a
+frontend to see the rules - a map's keys included - behind each of its
+links, or a server to set its state:
 
-![The Traffic flow, left to right: eth0, HAProxy, web.cfg's frontends web and prometheus, web linked to the app backend and its servers app1 and app2, the links carrying traffic highlighted](assets/screenshots/node-traffic-flow-light.webp)
+![The Traffic flow, top to bottom: the log target siem above eth0, its records and bytes a second, then HAProxy, the HTTP frontends web and prometheus and the TCP frontend postgres, web linked to the app backend and its servers app1 and app2, postgres to the db backend and its servers db1 and db2, each link in its protocol's colour](assets/screenshots/node-traffic-flow-light.webp)
 
 `janusctl tui` draws it in the terminal too: `f` on a node
 ([janusctl](janusctl.md#the-dashboard-janusctl-tui)).
