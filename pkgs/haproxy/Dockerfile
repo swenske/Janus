@@ -123,12 +123,21 @@ RUN cmake -S /src/aws-lc-${AWSLC_VERSION} -B /build/aws-lc -G Ninja \
 # pinned AWS-LC and zlib. HAProxy 3.0 words the TLS line "Built with
 # OpenSSL version", 3.2 and newer "Built with SSL library version".
 #
-# -no-pie: since Alpine 3.23 gcc's -static links a static PIE, and
-# linux-musl's USE_BACKTRACE adds -Wl,--export-dynamic: the static PIE
-# then keeps R_X86_64_TPOFF64 relocations against HAProxy's __thread
+# A static PIE (what Alpine >= 3.23's gcc links for -static; Alpine
+# builds every object -fPIE already): it relocates itself at start and
+# the kernel loads it at a random address each time, where a static
+# executable always sits at 0x400000 - HAProxy's and AWS-LC's code and
+# data were at addresses anyone could read off the published build.
+#
+# EXPORT_SYMBOL=--no-export-dynamic: linux-musl's USE_BACKTRACE links
+# with -Wl,--export-dynamic, and a static PIE that exports its symbols
+# keeps R_X86_64_TPOFF64 relocations against HAProxy's __thread
 # variables, which musl's static-PIE start-up doesn't apply (it only does
-# the relative ones) - `haproxy -vv` segfaulted reading epoll_fd[tid]. A
-# plain static executable, as Alpine 3.22's gcc made, and checked.
+# the relative ones) - `haproxy -vv` segfaulted reading epoll_fd[tid]
+# (#141). The export buys a static build nothing: dladdr() resolves no
+# symbol there (check_if_static_build, src/tools.c), and backtraces name
+# addresses from main and a few known functions, PIE or not. Checked: a
+# static PIE, with relative relocations only and none in its code.
 FROM deps AS build
 ARG HAPROXY_VERSION
 ARG AWSLC_VERSION
@@ -139,9 +148,12 @@ RUN make -j"$(nproc)" TARGET=linux-musl \
     USE_OPENSSL_AWSLC=1 SSL_INC=/opt/aws-lc/include SSL_LIB=/opt/aws-lc/lib \
     USE_ZLIB=1 ZLIB_INC=/opt/zlib/include ZLIB_LIB=/opt/zlib/lib \
     USE_PTHREAD_PSHARED=1 USE_PROMEX=1 \
-    LDFLAGS="-static -no-pie" \
+    LDFLAGS="-static" EXPORT_SYMBOL=--no-export-dynamic \
     && strip haproxy \
-    && readelf -h haproxy | grep -Eq '^ +Type: +EXEC ' \
+    && readelf -h haproxy | grep -Eq '^ +Type: +DYN ' \
+    && ! readelf -lW haproxy | grep -q INTERP \
+    && ! readelf -dW haproxy | grep -q TEXTREL \
+    && test "$(readelf -rW haproxy | grep -o 'R_X86_64_[A-Z0-9_]*' | sort -u)" = R_X86_64_RELATIVE \
     && ./haproxy -vv \
     && ./haproxy -vv | grep -q "^HAProxy version ${HAPROXY_VERSION}-" \
     && ./haproxy -vv | grep -Eq "^Built with (SSL library|OpenSSL) version : .*AWS-LC ${AWSLC_VERSION}" \
