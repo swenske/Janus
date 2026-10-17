@@ -14,6 +14,8 @@
 #
 # Usage: hack/qemu-fleet-trust-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -69,17 +71,7 @@ wait_boot() { # wait_boot N: the Nth boot answers HTTP
     sleep 1
   done
 }
-extract_pki() {
-  local start size
-  start="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-  size="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-  dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$start" count="$size" status=none
-  for f in ca.crt admin.crt admin.key; do
-    rm -f "$WORKDIR/$f"
-    debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-    [ -s "$WORKDIR/$f" ] || return 1
-  done
-}
+extract_pki() { STATE_READ_TIMEOUT=0 state_pki "$DISK" "$WORKDIR"; } # one try: the caller loops
 # as CERT [janusctl args]: a call with one of the test fleet's
 # certificates ("local" = the node's own first-boot admin certificate).
 as() {

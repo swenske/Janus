@@ -18,6 +18,8 @@
 #
 # Usage: hack/qemu-hotplug-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -79,13 +81,7 @@ until grep -aq "listening on" "$LOG" 2>/dev/null; do
   [ "$SECONDS" -lt "$deadline" ] || fail "janusd never listened"
   sleep 1
 done
-start="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-size="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$start" count="$size" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || fail "couldn't extract pki/$f from STATE"
-done
+state_pki "$DISK" "$WORKDIR" || fail "couldn't extract the node's pki/ from STATE"
 deadline=$((SECONDS + TIMEOUT))
 until ctl version >/dev/null 2>&1; do
   [ "$SECONDS" -lt "$deadline" ] || fail "janusd never answered"

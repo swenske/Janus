@@ -38,6 +38,8 @@
 #
 # Usage: hack/qemu-kexec-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -104,17 +106,6 @@ wait_listening() { # wait_listening N: the Nth boot's janusd listens
     sleep 0.2
   done
 }
-extract_pki() {
-  local start size
-  start="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-  size="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-  dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$start" count="$size" status=none
-  for f in ca.crt admin.crt admin.key; do
-    rm -f "$WORKDIR/$f"
-    debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-    [ -s "$WORKDIR/$f" ] || return 1
-  done
-}
 ctl() { "$CTL_BIN" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
 wait_api() {
   local deadline=$((SECONDS + 60)) out
@@ -127,7 +118,7 @@ now_ms() { date +%s%3N; }
 
 # --- 1. first boot, through the firmware ---
 wait_listening 1
-until extract_pki; do sleep 1; done
+state_pki "$DISK" "$WORKDIR" || fail "the first boot's credentials never reached STATE"
 wait_api "first boot"
 [ "$(firmware_boots)" -eq 1 ] || fail "the first boot: OVMF's '$FIRMWARE_LINE' seen $(firmware_boots) time(s), want 1"
 [ "$(kexecs)" -eq 0 ] || fail "a kexec before any was asked for"

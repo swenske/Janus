@@ -21,6 +21,8 @@
 # The disk must have been built with the same SCHEMATIC (make
 # qemu-extensions-test does both).
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 export PATH="$PATH:/usr/sbin:/sbin"
 
 SRC_DISK="${1:?usage: $0 <disk.img> <bzImage> <build-dir> <janusctl> <schematic.json>}"
@@ -108,14 +110,7 @@ wait_boot() {
     sleep 1
   done
 }
-extract_pki() {
-  dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$START" count="$SIZE" status=none
-  for f in ca.crt admin.crt admin.key; do
-    rm -f "$WORKDIR/$f"
-    debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-    [ -s "$WORKDIR/$f" ] || fail "couldn't extract pki/$f from STATE"
-  done
-}
+extract_pki() { state_pki "$DISK" "$WORKDIR" || fail "couldn't extract the node's pki/ from STATE"; }
 ctl() { "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
 qga() { python3 "$HERE/qga-client.py" "$QGA_SOCK" "$@"; }
 metrics() { curl -s -m 5 "http://127.0.0.1:${P_METRICS}/metrics" || true; }

@@ -8,6 +8,8 @@
 #
 # Usage: hack/qemu-packet-capture-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -62,13 +64,7 @@ grep -qa "boot slot A" "$LOG" || fail "the console banner doesn't show the activ
 echo "Console banner OK"
 
 # PKI from STATE (see hack/qemu-lifecycle-rollback-test.sh)
-STATE_START_SECTOR="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-STATE_SIZE_SECTORS="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || fail "couldn't extract pki/$f from STATE"
-done
+state_pki "$DISK" "$WORKDIR" || fail "couldn't extract the node's pki/ from STATE"
 ctl() { "$CTL_BIN" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
 
 # An unsupported filter must be refused, not approximated.

@@ -81,6 +81,8 @@
 # Usage: hack/qemu-lifecycle-upgrade-health-test.sh <disk.img> <bzImage> <build-dir> <janusctl-bin>
 # Same inputs as hack/qemu-lifecycle-upgrade-test.sh.
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -250,11 +252,7 @@ if ! wait_http "$HOST_PORT_8080" "$HTTP_TIMEOUT_SECS"; then
 fi
 echo "Slot A OK: real UEFI boot, HTTP 200 on :8080"
 
-dd if="$DISK" of="$STATE_IMG" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$STATE_IMG" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || { echo "Upgrade health test FAILED: couldn't extract pki/$f from STATE" >&2; exit 1; }
-done
+state_pki "$DISK" "$WORKDIR" || { echo "Upgrade health test FAILED: couldn't extract the node's pki/ from STATE" >&2; exit 1; }
 CTL_ARGS=(-endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key")
 
 # =========================================================================

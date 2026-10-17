@@ -22,6 +22,8 @@
 # Usage: hack/qemu-lifecycle-upgrade-url-test.sh <disk.img> <bzImage> <build-dir> <janusctl-bin>
 # Same argument shape as hack/qemu-lifecycle-upgrade-test.sh.
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -177,14 +179,7 @@ assert_last_boot "$A_LOG" PARTLABEL=BOOT-A-DATA PARTLABEL=BOOT-A-HASH "$V1_HASH"
 echo "Slot A (v1) OK: real UEFI boot, HTTP 200 on :8080, PKI bootstrapped, root hash $V1_HASH confirmed"
 
 # --- extract PKI material straight from disk.img's STATE partition ---
-STATE_START_SECTOR="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-STATE_SIZE_SECTORS="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-STATE_IMG="$WORKDIR/state.img"
-dd if="$DISK" of="$STATE_IMG" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$STATE_IMG" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || { echo "Upgrade URL test FAILED: couldn't extract pki/$f from disk.img's STATE partition after slot A booted" >&2; exit 1; }
-done
+state_pki "$DISK" "$WORKDIR" || { echo "Upgrade URL test FAILED: couldn't extract the node's pki/ from disk.img's STATE partition after slot A booted" >&2; exit 1; }
 
 # --- call Upgrade for real, referencing the *URL*, not a local path -
 # this is the one line that actually differs from

@@ -16,6 +16,8 @@
 #
 # Usage: hack/qemu-lifecycle-upgrade-https-test.sh <disk.img> <build-dir> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -115,13 +117,7 @@ echo "Slot A (local build) OK: HTTP 200, root hash $V1_HASH"
 # janusd listens: HAProxy answers before the PKI is on STATE ---
 for _ in $(seq 1 60); do grep -q "listening on" "$LOG" && break; sleep 1; done
 grep -q "listening on" "$LOG" || fail "janusd never listened on slot A"
-STATE_START_SECTOR="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-STATE_SIZE_SECTORS="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || fail "couldn't extract pki/$f from STATE"
-done
+state_pki "$DISK" "$WORKDIR" || fail "couldn't extract the node's pki/ from STATE"
 
 # --- the node fetches the real release over https:// itself ---
 # No signature opt-out: the newest release (v2026.09.30-3 onwards) is

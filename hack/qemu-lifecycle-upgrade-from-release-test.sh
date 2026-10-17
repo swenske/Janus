@@ -20,6 +20,8 @@
 # <bundle-dir> is image/release/assemble.sh's output for this tree's
 # default image (make release-bundle).
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -105,11 +107,7 @@ wait_boot() {
 }
 wait_boot 1 "$HTTP_TIMEOUT_SECS"
 
-dd if="$DISK" of="$STATE_IMG" bs=512 skip="$STATE_START" count="$STATE_SIZE" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$STATE_IMG" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || fail "couldn't extract pki/$f from STATE"
-done
+state_pki "$DISK" "$WORKDIR" || fail "couldn't extract the node's pki/ from STATE"
 ctl() { "$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
 
 RUNNING="$(ctl version | awk '/^Node:/ {print $2}')"

@@ -15,6 +15,8 @@
 #
 # Usage: hack/qemu-logforward-fleet-test.sh <disk.img> <janusctl-bin> <dashboardd-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -119,26 +121,7 @@ for n in a b; do
 done
 sleep 2
 creds() { # creds NAME - extracts the node's admin credentials from its STATE
-  # Read while it runs: what janusd just wrote may still be only in
-  # ext4's journal - replayed on the copy (e2fsck), read again a moment
-  # later until it's there (two nodes booting at once on a busy runner).
-  local s n try got f
-  s="$(sgdisk -i 6 "$WORKDIR/$1.img" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-  n="$(sgdisk -i 6 "$WORKDIR/$1.img" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-  mkdir -p "$WORKDIR/$1"
-  for try in $(seq 15); do
-    dd if="$WORKDIR/$1.img" of="$WORKDIR/$1.state" bs=512 skip="$s" count="$n" status=none
-    e2fsck -fy "$WORKDIR/$1.state" >/dev/null 2>&1 || true
-    got=1
-    for f in ca.crt admin.crt admin.key; do
-      rm -f "$WORKDIR/$1/$f"
-      debugfs -R "dump pki/$f $WORKDIR/$1/$f" "$WORKDIR/$1.state" >/dev/null 2>&1
-      [ -s "$WORKDIR/$1/$f" ] || got=0
-    done
-    [ "$got" = 1 ] && break
-    [ "$try" -lt 15 ] || fail "couldn't extract node $1's pki/"
-    sleep 2
-  done
+  state_pki "$WORKDIR/$1.img" "$WORKDIR/$1" || fail "couldn't extract node $1's pki/"
   openssl pkcs12 -export -inkey "$WORKDIR/$1/admin.key" -in "$WORKDIR/$1/admin.crt" -certfile "$WORKDIR/$1/ca.crt" -out "$WORKDIR/$1/admin.pfx" -passout pass:t >/dev/null 2>&1
 }
 creds a

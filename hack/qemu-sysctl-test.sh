@@ -12,6 +12,8 @@
 #
 # Usage: hack/qemu-sysctl-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -83,11 +85,7 @@ until grep -aq "listening on" "$LOG" 2>/dev/null; do
   sleep 1
 done
 stateGeometry
-dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$STATE_START" count="$STATE_SIZE" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || fail "couldn't extract pki/$f from STATE"
-done
+state_pki "$DISK" "$WORKDIR" || fail "couldn't extract the node's pki/ from STATE"
 waitUp
 
 # --- the benchmark at boot ---
