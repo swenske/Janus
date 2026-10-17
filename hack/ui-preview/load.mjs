@@ -2,9 +2,12 @@
 // for a while and then quiet, out of step with each other - so the
 // Traffic flow's numbers start from zero again and again (its flash),
 // HTTP and TCP alike (node.cfg's postgres frontend is TCP: its requests go
-// through it to the application servers' :8082). Run by
-// hack/ui-preview.sh in the browser image (Node), until it's stopped.
-const NET = process.env.NET // 10.0.30
+// through it to the application servers' :8082). And lea, another
+// account, with edge-1's page open a minute - its events streamed a
+// while - then gone longer than the Traffic flow keeps a user listed
+// (2 minutes). Run by hack/ui-preview.sh in the browser image (Node),
+// until it's stopped.
+const { NET, CONTROLLER, VISIT_NODE, VISITOR_PASSWORD } = process.env // NET: 10.0.30
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // every: ms between two requests while on; on, off: seconds; after:
@@ -34,5 +37,43 @@ async function run({ url, every, on, off, after }) {
   }
 }
 
-console.log(`load: ${streams.length} streams`)
-await Promise.all(streams.map(run))
+// visit is lea on edge-1's page, as the browser asks it: its overview,
+// stats and clients every few seconds, its events streamed for the
+// first 20 s - on 60 s, then off 150 s.
+async function visit() {
+  let cookie = ''
+  const signIn = async () => {
+    const r = await fetch(`${CONTROLLER}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'lea', password: VISITOR_PASSWORD }),
+    })
+    cookie = r.headers
+      .getSetCookie()
+      .map((c) => c.split(';')[0])
+      .join('; ')
+  }
+  const get = async (path, ms = 5000) => {
+    const r = await fetch(`${CONTROLLER}/nodes/${VISIT_NODE}${path}`, { headers: { Cookie: cookie }, signal: AbortSignal.timeout(ms) })
+    if (r.status === 401) cookie = ''
+    await r.arrayBuffer()
+  }
+  await sleep(20000)
+  for (;;) {
+    try {
+      if (!cookie) await signIn()
+      get('/api/stream/events', 20000).catch(() => {}) // held open, then dropped
+      const end = Date.now() + 60000
+      while (Date.now() < end) {
+        await Promise.allSettled(['/api/system/overview', '/api/haproxy/stats', '/api/system/clients'].map((p) => get(p)))
+        await sleep(3000)
+      }
+    } catch {
+      cookie = ''
+    }
+    await sleep(150000)
+  }
+}
+
+console.log(`load: ${streams.length} streams, lea on edge-1 now and then`)
+await Promise.all([...streams.map(run), visit()])

@@ -8,7 +8,10 @@
 # (hack/ui-preview/load.mjs), sending their logs to rsyslog and
 # Elasticsearch (hack/rsyslog, hack/elasticsearch); edge-1 has a second
 # interface, the one its rsyslog target goes by. Set up through the
-# Controller's API (hack/ui-preview/setup.mjs).
+# Controller's API (hack/ui-preview/setup.mjs), with a second account,
+# lea's, on edge-1's page now and then, and a janusctl of its own
+# following edge-1's events: the Traffic flow's Controller and direct
+# clients.
 #
 #   hack/ui-preview.sh [up|reload|down|info]
 #
@@ -37,8 +40,9 @@ BROWSER_IMAGE="${BROWSER_IMAGE:-janus-browser}"
 RSYSLOG_IMAGE=janus-rsyslog-test
 ES_IMAGE=janus-es-test
 PASSWORD=ui-preview-admin-password
+VISITOR_PASSWORD=ui-preview-lea-password
 NODES="edge-1=$NET.21,edge-2=$NET.22,edge-3=$NET.23"
-CONTAINERS=(controller app1 app2 edge-1 edge-2 edge-3 rsyslog elastic load)
+CONTAINERS=(controller app1 app2 edge-1 edge-2 edge-3 rsyslog elastic load cli)
 
 down() {
   for c in "${CONTAINERS[@]}"; do docker rm -f "$P-$c" >/dev/null 2>&1 || true; done
@@ -67,7 +71,7 @@ info() {
   cat <<EOF
 
 The Controller: https://127.0.0.1:$PORT  (a self-signed certificate: SHA-256 $fp)
-  sign in as admin, password $PASSWORD
+  sign in as admin, password $PASSWORD (or lea, an operator: $VISITOR_PASSWORD)
   the Traffic flow: a node's page, Monitoring › Traffic flow (edge-1: two interfaces, two log targets)
 
 janusctl tui, from this machine:
@@ -197,13 +201,26 @@ EOF
   echo "ui-preview: setting the Controller up"
   docker run --rm --network "$P" --ip "$NET.100" --user "$(id -u):$(id -g)" -e HOME=/tmp -e NODE_TLS_REJECT_UNAUTHORIZED=0 \
     -v "$ROOT/hack/ui-preview:/preview:ro" -v "$DIR/creds:/creds:ro" \
-    -e CONTROLLER="https://$NET.5:8080" -e NODES="$NODES" -e NET="$NET" -e LOGNET="$LOGNET" -e PASSWORD="$PASSWORD" \
+    -e CONTROLLER="https://$NET.5:8080" -e NODES="$NODES" -e NET="$NET" -e LOGNET="$LOGNET" -e PASSWORD="$PASSWORD" -e VISITOR_PASSWORD="$VISITOR_PASSWORD" \
     -e ES_URL="https://$NET.30:9200" -e ES_KEY="$key" -e ES_FP="$es_fp" \
     "$BROWSER_IMAGE" node /preview/setup.mjs >"$DIR/setup.json"
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$DIR/setup.json" >"$DIR/token"
 
+  local edge1
+  edge1="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["nodes"]["edge-1"])' "$DIR/setup.json")"
   docker run -d --name "$P-load" --network "$P" --ip "$NET.101" --user "$(id -u):$(id -g)" -e HOME=/tmp -e NET="$NET" \
-    -v "$ROOT/hack/ui-preview:/preview:ro" "$BROWSER_IMAGE" node /preview/load.mjs >/dev/null
+    -e CONTROLLER="https://$NET.5:8080" -e VISIT_NODE="$edge1" -e VISITOR_PASSWORD="$VISITOR_PASSWORD" -e NODE_TLS_REJECT_UNAUTHORIZED=0 \
+    -v "$ROOT/hack/ui-preview:/preview:ro" "$BROWSER_IMAGE" node --no-warnings /preview/load.mjs >/dev/null
+
+  # A janusctl of its own on edge-1: its events followed, a call now and
+  # then - signed in with the API token, renewed with it.
+  local fp
+  fp="$(openssl s_client -connect "127.0.0.1:$PORT" </dev/null 2>/dev/null | openssl x509 -outform der | sha256sum | cut -d' ' -f1)"
+  docker run -d --name "$P-cli" --network "$P" --ip "$NET.102" --user "$(id -u):$(id -g)" -e HOME=/tmp -e JANUSCONFIG=/tmp/janusctl.json \
+    -e JANUS_TOKEN="$(cat "$DIR/token")" -v "$DIR/bin:/opt/janus:ro" --entrypoint sh "$LOCAL_DEV_IMAGE" -c "
+      until /opt/janus/janusctl login -controller $NET.5:8080 -controller-fingerprint $fp; do sleep 5; done
+      while :; do /opt/janus/janusctl -n edge-1 system events >/dev/null 2>&1; sleep 5; done &
+      while :; do /opt/janus/janusctl -n edge-1 haproxy show-info >/dev/null 2>&1; sleep 20; done" >/dev/null
   info
 }
 
@@ -214,8 +231,8 @@ reload() {
   }
   echo "ui-preview: building dashboardd, janusd, janusctl"
   build
-  docker restart "$P-controller" "$P-edge-1" "$P-edge-2" "$P-edge-3" >/dev/null
-  echo "ui-preview: the Controller and the nodes restarted"
+  docker restart "$P-controller" "$P-edge-1" "$P-edge-2" "$P-edge-3" "$P-load" "$P-cli" >/dev/null
+  echo "ui-preview: the Controller, the nodes and their traffic restarted"
 }
 
 case "$CMD" in

@@ -2,12 +2,14 @@
 // three nodes added and trusting its fleet, each running node.cfg and
 // sending its logs - edge-1 to rsyslog through its second interface and
 // to Elasticsearch, edge-2 to rsyslog over UDP, edge-3 to Elasticsearch
-// and to a server that doesn't answer, with one target disabled. Prints
-// an API token for janusctl (the TUI). Run by hack/ui-preview.sh in the
-// browser image (Node), on the preview's network.
+// and to a server that doesn't answer, with one target disabled; a
+// second account, lea's (an operator), whose page of edge-1 load.mjs
+// opens now and then. Prints an API token for janusctl (the TUI, the
+// janusctl client hack/ui-preview.sh runs). Run by hack/ui-preview.sh in
+// the browser image (Node), on the preview's network.
 import fs from 'node:fs'
 
-const { CONTROLLER, PASSWORD, ES_URL, ES_KEY, ES_FP } = process.env
+const { CONTROLLER, PASSWORD, VISITOR_PASSWORD, ES_URL, ES_KEY, ES_FP } = process.env
 const NODES = Object.fromEntries(process.env.NODES.split(',').map((kv) => kv.split('=')))
 const NET = process.env.NET // 10.0.30
 const LOGNET = process.env.LOGNET // 10.0.31
@@ -97,4 +99,11 @@ await until('the application servers to be up', async () => {
   return true
 })
 const token = await call('POST', '/api/tokens', { name: 'ui-preview-janusctl', expires_in_days: 7, role: 'admin' })
+
+// lea, signed in once to choose her own password (asked at the first
+// sign-in).
+await call('POST', '/api/users', { name: 'lea', role: 'operator', password: 'lea-first-password-1' })
+jar.clear()
+await call('POST', '/api/auth/login', { name: 'lea', password: 'lea-first-password-1' })
+await call('POST', '/api/auth/password', { current_password: 'lea-first-password-1', new_password: VISITOR_PASSWORD })
 console.log(JSON.stringify({ token: token.token, nodes: ids }))
