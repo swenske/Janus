@@ -11,9 +11,10 @@ haproxy apply-config FILE` or the Controller's **HAProxy › Configuration**.
 ![HAProxy's configuration on a node's page: the editor with the running haproxy.cfg - here examples/haproxy/web.cfg - marked as matching the running configuration, and HAProxy's state with Reload, Restart and Stop](assets/screenshots/node-haproxy-config-light.webp)
 
 Its **Backends** tab shows each server's state, and sets it - ready,
-drain, maintenance - at runtime:
+drain, maintenance - at runtime, the one it has marked; a tile per
+backend, however many there are:
 
-![The Backends tab: the app backend's two servers, app1 and app2, up, each with Ready, Drain and Maint](assets/screenshots/node-haproxy-backends-light.webp)
+![The Backends tab: the app backend's two servers, app1 and app2, up, each with Ready - marked, the state they have -, Drain and Maint](assets/screenshots/node-haproxy-backends-light.webp)
 
 **Monitoring › Traffic flow** draws what the configuration does, live:
 the node's interfaces, HAProxy, each frontend linked to the backends its

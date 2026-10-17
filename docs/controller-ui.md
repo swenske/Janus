@@ -645,7 +645,8 @@ turn, and the step waited for is written under it.
    to look at a page or a `janusctl tui` screen yourself: the Controller
    and janusd built from the tree, three `local-dev` nodes under traffic
    that comes and goes - HTTP and TCP frontends - sending their logs to
-   rsyslog and Elasticsearch (edge-1 through two interfaces), a second
+   rsyslog and Elasticsearch (edge-1 through two interfaces; edge-3 runs
+   `many.cfg`, two dozen backends as a big load balancer has), a second
    account (lea's) on edge-1's page now and then and a janusctl
    following its events - the Traffic flow's Controller users and
    direct clients -, the Controller on `https://127.0.0.1:18443`
