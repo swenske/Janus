@@ -103,7 +103,7 @@ RUN test -n "${HAPROXY_SHA256}" \
     && echo "${HAPROXY_SHA256}  haproxy-${HAPROXY_VERSION}.tar.gz" | sha256sum -c - \
     && tar xf haproxy-${HAPROXY_VERSION}.tar.gz
 
-FROM alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS deps
+FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS deps
 ARG AWSLC_VERSION
 ARG ZLIB_VERSION
 RUN apk add --no-cache build-base linux-headers cmake samurai perl
@@ -122,6 +122,13 @@ RUN cmake -S /src/aws-lc-${AWSLC_VERSION} -B /build/aws-lc -G Ninja \
 # The -vv checks: the version built is the one pinned, linked against the
 # pinned AWS-LC and zlib. HAProxy 3.0 words the TLS line "Built with
 # OpenSSL version", 3.2 and newer "Built with SSL library version".
+#
+# -no-pie: since Alpine 3.23 gcc's -static links a static PIE, and
+# linux-musl's USE_BACKTRACE adds -Wl,--export-dynamic: the static PIE
+# then keeps R_X86_64_TPOFF64 relocations against HAProxy's __thread
+# variables, which musl's static-PIE start-up doesn't apply (it only does
+# the relative ones) - `haproxy -vv` segfaulted reading epoll_fd[tid]. A
+# plain static executable, as Alpine 3.22's gcc made, and checked.
 FROM deps AS build
 ARG HAPROXY_VERSION
 ARG AWSLC_VERSION
@@ -132,8 +139,9 @@ RUN make -j"$(nproc)" TARGET=linux-musl \
     USE_OPENSSL_AWSLC=1 SSL_INC=/opt/aws-lc/include SSL_LIB=/opt/aws-lc/lib \
     USE_ZLIB=1 ZLIB_INC=/opt/zlib/include ZLIB_LIB=/opt/zlib/lib \
     USE_PTHREAD_PSHARED=1 USE_PROMEX=1 \
-    LDFLAGS=-static \
+    LDFLAGS="-static -no-pie" \
     && strip haproxy \
+    && readelf -h haproxy | grep -Eq '^ +Type: +EXEC ' \
     && ./haproxy -vv \
     && ./haproxy -vv | grep -q "^HAProxy version ${HAPROXY_VERSION}-" \
     && ./haproxy -vv | grep -Eq "^Built with (SSL library|OpenSSL) version : .*AWS-LC ${AWSLC_VERSION}" \
