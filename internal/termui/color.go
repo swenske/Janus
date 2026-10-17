@@ -30,6 +30,8 @@ const (
 	ColorDownload   // received traffic
 	ColorUpload     // sent traffic
 	ColorBackground // the theme's background, behind everything when the palette paints it
+	ColorTCP        // TCP traffic, apart from HTTP's (the accent): the traffic flow
+	ColorLog        // logs on their way to a log server: the traffic flow
 	numSlots
 )
 
