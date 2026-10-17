@@ -5791,7 +5791,19 @@ type LogTargetStatus struct {
 	// target's place (whatever their source).
 	Queued uint64 `protobuf:"varint,10,opt,name=queued,proto3" json:"queued,omitempty"`
 	// The secrets it has: "api_key", "password", "client_key".
-	Secrets       []string `protobuf:"bytes,11,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	Secrets []string `protobuf:"bytes,11,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	// What the sent records took on the way, in bytes: syslog messages
+	// with their framing, Elasticsearch request bodies as sent (gzipped
+	// when the target says so).
+	BytesSent uint64 `protobuf:"varint,12,opt,name=bytes_sent,json=bytesSent,proto3" json:"bytes_sent,omitempty"`
+	// The network interface its traffic leaves by: the kernel's route to
+	// remote_address, from local_address. Empty before its first
+	// connection, or when no route says.
+	Interface string `protobuf:"bytes,13,opt,name=interface,proto3" json:"interface,omitempty"`
+	// Its latest connection's addresses (host:port), kept once it's
+	// closed - empty before the first.
+	LocalAddress  string `protobuf:"bytes,14,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
+	RemoteAddress string `protobuf:"bytes,15,opt,name=remote_address,json=remoteAddress,proto3" json:"remote_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5901,6 +5913,34 @@ func (x *LogTargetStatus) GetSecrets() []string {
 		return x.Secrets
 	}
 	return nil
+}
+
+func (x *LogTargetStatus) GetBytesSent() uint64 {
+	if x != nil {
+		return x.BytesSent
+	}
+	return 0
+}
+
+func (x *LogTargetStatus) GetInterface() string {
+	if x != nil {
+		return x.Interface
+	}
+	return ""
+}
+
+func (x *LogTargetStatus) GetLocalAddress() string {
+	if x != nil {
+		return x.LocalAddress
+	}
+	return ""
+}
+
+func (x *LogTargetStatus) GetRemoteAddress() string {
+	if x != nil {
+		return x.RemoteAddress
+	}
+	return ""
 }
 
 type LogForwardingTestResponse struct {
@@ -6386,7 +6426,7 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\x0eclient_key_pem\x18\x05 \x01(\tR\fclientKeyPem\"\x8f\x01\n" +
 	"\x15LogForwardingResponse\x12;\n" +
 	"\x06config\x18\x01 \x01(\v2#.janus.v1alpha1.LogForwardingConfigR\x06config\x129\n" +
-	"\atargets\x18\x02 \x03(\v2\x1f.janus.v1alpha1.LogTargetStatusR\atargets\"\xc4\x02\n" +
+	"\atargets\x18\x02 \x03(\v2\x1f.janus.v1alpha1.LogTargetStatusR\atargets\"\xcd\x03\n" +
 	"\x0fLogTargetStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
@@ -6400,7 +6440,12 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\x06errors\x18\t \x01(\x04R\x06errors\x12\x16\n" +
 	"\x06queued\x18\n" +
 	" \x01(\x04R\x06queued\x12\x18\n" +
-	"\asecrets\x18\v \x03(\tR\asecrets\"C\n" +
+	"\asecrets\x18\v \x03(\tR\asecrets\x12\x1d\n" +
+	"\n" +
+	"bytes_sent\x18\f \x01(\x04R\tbytesSent\x12\x1c\n" +
+	"\tinterface\x18\r \x01(\tR\tinterface\x12#\n" +
+	"\rlocal_address\x18\x0e \x01(\tR\flocalAddress\x12%\n" +
+	"\x0eremote_address\x18\x0f \x01(\tR\rremoteAddress\"C\n" +
 	"\x19LogForwardingTestResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x16\n" +
 	"\x06detail\x18\x02 \x01(\tR\x06detail*~\n" +

@@ -80,6 +80,7 @@ var notShown = map[string]string{
 	"janus_logs_volume_size_bytes":                 "what's lost on LOGS is shown; its size is the node's own",
 	"janus_logs_volume_written_bytes_total":        "what's lost on LOGS is shown; what's written is the node's own",
 	"janus_logship_records_sent_total":             "what log targets lose is shown; what they get is in the target",
+	"janus_logship_bytes_sent_total":               "what log targets lose is shown; what they get is in the target",
 	"janus_logship_send_errors_total":              "the targets failing are shown; each error is retried",
 	"janus_logship_queued_records":                 "what log targets lose is shown; their queue is the node's own",
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"net/netip"
 	"sort"
 	"time"
 
@@ -12,7 +13,12 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/logship"
+	"github.com/swenske/Janus/internal/netmgr"
 )
+
+// egressInterface says which interface a target's traffic leaves by
+// (tests replace it).
+var egressInterface = netmgr.EgressInterface
 
 // LogForwardingGet returns the log shipper's configuration, without its
 // secrets, and each target's state.
@@ -38,10 +44,26 @@ func (s *System) logForwardingResponse() *janusv1alpha1.LogForwardingResponse {
 			Name: st.Name, Kind: st.Kind, State: st.State, LastError: st.LastError,
 			LastSentUnixNs: unixNano(st.LastSent), FailingSinceUnixNs: unixNano(st.FailingSince),
 			Sent: st.Sent, Dropped: st.Dropped, Errors: st.Errors, Queued: uint64(st.QueuedRecords), //nolint:gosec // G115: a count, never negative
-			Secrets: secrets[st.Name],
+			Secrets: secrets[st.Name], BytesSent: st.BytesSent, LocalAddress: st.Local, RemoteAddress: st.Remote,
+			Interface: targetInterface(st.Local, st.Remote),
 		})
 	}
 	return resp
+}
+
+// targetInterface is the interface the kernel routes a target's
+// connection by now - "" when it never connected, or no route says.
+func targetInterface(local, remote string) string {
+	dst, err := netip.ParseAddrPort(remote)
+	if err != nil {
+		return ""
+	}
+	src, _ := netip.ParseAddrPort(local)
+	name, err := egressInterface(dst.Addr(), src.Addr())
+	if err != nil {
+		return ""
+	}
+	return name
 }
 
 func unixNano(t time.Time) int64 {

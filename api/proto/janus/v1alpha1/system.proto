@@ -953,6 +953,18 @@ message LogTargetStatus {
   uint64 queued = 10;
   // The secrets it has: "api_key", "password", "client_key".
   repeated string secrets = 11;
+  // What the sent records took on the way, in bytes: syslog messages
+  // with their framing, Elasticsearch request bodies as sent (gzipped
+  // when the target says so).
+  uint64 bytes_sent = 12;
+  // The network interface its traffic leaves by: the kernel's route to
+  // remote_address, from local_address. Empty before its first
+  // connection, or when no route says.
+  string interface = 13;
+  // Its latest connection's addresses (host:port), kept once it's
+  // closed - empty before the first.
+  string local_address = 14;
+  string remote_address = 15;
 }
 
 message LogForwardingTestResponse {
