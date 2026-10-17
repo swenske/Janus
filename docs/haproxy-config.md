@@ -24,14 +24,16 @@ right, the labels beside the nodes for a configuration with many
 backends, or top to bottom when that's what fits. HTTP and TCP traffic
 have their own colours, and each frontend and backend says its mode; a
 number that starts from zero flashes. Where the node sends its logs
-([log forwarding](guide/log-forwarding.md)) shows beyond the
-interfaces: each target, its records and bytes a second, linked to the
-interface its logs actually leave by. Ctrl + scroll (or a pinch) zooms
-around the pointer, and a zoomed map is dragged with the mouse. Select a
-frontend to see the rules - a map's keys included - behind each of its
-links, or a server to set its state:
+([log forwarding](guide/log-forwarding.md)) shows beyond the interfaces:
+each target, its records and bytes a second, linked to the interface its
+logs actually leave by - and next to them who is connected to the node's
+API, the Controller and janusctl, with the users the Controller acts for
+in its details. Ctrl + scroll (or a pinch) zooms around the pointer, and
+a zoomed map is dragged with the mouse. Select a frontend to see the
+rules - a map's keys included - behind each of its links, or a server to
+set its state:
 
-![The Traffic flow, top to bottom: the log target siem above eth0, its records and bytes a second, then HAProxy, the HTTP frontends web and prometheus and the TCP frontend postgres, web linked to the app backend and its servers app1 and app2, postgres to the db backend and its servers db1 and db2, each link in its protocol's colour](assets/screenshots/node-traffic-flow-light.webp)
+![The Traffic flow, top to bottom: the Controller, its calls and bytes a second and a badge counting its one user, and the log target siem, its records and bytes a second, above eth0, then HAProxy, the HTTP frontends web and prometheus and the TCP frontend postgres, web linked to the app backend and its servers app1 and app2, postgres to the db backend and its servers db1 and db2, each link in its protocol's colour](assets/screenshots/node-traffic-flow-light.webp)
 
 `janusctl tui` draws it in the terminal too: `f` on a node
 ([janusctl](janusctl.md#the-dashboard-janusctl-tui)).

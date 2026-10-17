@@ -245,6 +245,29 @@ function logs(body, k) {
   return body
 }
 
+// The API's connections: the Controller's alone - this page comes
+// through it -, its calls and bytes at the series' pace, the users it
+// acts for the shot's own account, times the clock's.
+function clients(body, k) {
+  const s = SERIES[Math.min(k, SERIES.length - 1)]
+  const ns = (ms) => ms * 1e6
+  body.connections = (body?.connections || []).filter((c) => c.controller)
+  for (const c of body.connections) {
+    Object.assign(c, {
+      remote_address: (c.remote_address || '').replace(/:\d+$/, ':40000'),
+      opened_unix_ns: ns(T0 - 3 * 3600 * 1000),
+      last_call_unix_ns: ns(T0),
+      calls: Math.round(s.reqs / 40),
+      bytes_received: Math.round(s.reqs * 9),
+      bytes_sent: Math.round(s.reqs * 110),
+      open_streams: 0,
+    })
+    c.users = (c.users || []).filter((u) => u.self).map((u) => ({ ...u, calls: Math.round(s.reqs / 40), open_streams: 0, last_call_unix_ns: ns(T0) }))
+    c.user_count = c.users.length
+  }
+  return body
+}
+
 // A Server-Sent Events stream: what the real one sends in its first
 // second, normalized, then the stream ends - with a day's retry, so the
 // page doesn't ask again.
@@ -289,6 +312,7 @@ async function newContext(browser, theme, size) {
   ctx.metricsServed = 0
   ctx.statsServed = 0
   ctx.logsServed = 0
+  ctx.clientsServed = 0
   await ctx.route(/\/api\//, async (route) => {
     const req = route.request()
     const path = new URL(req.url()).pathname
@@ -306,6 +330,7 @@ async function newContext(browser, theme, size) {
     if (path.endsWith('/api/metrics')) body = metrics(body, ctx.metricsServed++)
     if (path.endsWith('/api/haproxy/stats')) body = stats(body, ctx.statsServed++)
     if (path.endsWith('/api/log-forwarding')) body = logs(body, ctx.logsServed++)
+    if (path.endsWith('/api/system/clients')) body = clients(body, ctx.clientsServed++)
     if (/\/api\/(enroll-)?tokens$/.test(path)) for (const t of body || []) t.id = fakeHex(`token/${t.name}`).slice(0, t.id.length)
     return route.fulfill({ response: resp, json: body })
   })

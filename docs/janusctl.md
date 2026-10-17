@@ -128,14 +128,13 @@ network, firewall or sysctl trial that would otherwise revert. The
 footer offers only what the certificate's role may do; a reader sees
 everything but the logs, which are for operators.
 
-`f` draws the node's HAProxy as a map, as the Controller's Traffic
-flow does: the interfaces, HAProxy, each frontend, the backends it
-sends to and their servers, each with its traffic and sessions - left
-to right when that fits the terminal, else top to bottom when that
-does, else the way that hides less of it, with its nodes closer
-together when that's what makes it fit - and each label keeps room for
-its numbers, so the map doesn't move as traffic comes and goes; `o`
-shows the other way and,
+`f` draws the node's HAProxy as a map, as the Controller's Traffic flow
+does: the interfaces, HAProxy, each frontend, the backends it sends to
+and their servers, each with its traffic and sessions - left to right
+when that fits the terminal, else top to bottom when that does, else the
+way that hides less of it, with its nodes closer together when that's
+what makes it fit - and each label keeps room for its numbers, so the
+map doesn't move as traffic comes and goes; `o` shows the other way and,
 pressed again, goes back to that choice (the options menu's **Traffic
 flow** keeps one way or the other); `s` hides the servers. Which
 frontend sends where is read from the configuration and the maps a
@@ -143,22 +142,27 @@ frontend sends where is read from the configuration and the maps a
 colour - HTTP the accent, TCP its own - and each frontend and backend
 has its mode (`http`, `tcp`) after its name; a link to a server down is
 dashed red, a backend no rule names is a hollow ○. Beyond the
-interfaces, the node's log targets - rsyslog, Elasticsearch: records
-and bytes a second - each linked to the interface its logs leave by,
-its line running out of the node (a target failing is dashed red, one
-no interface on the map is the way to, hollow). A number that starts
-from zero lights up a moment. The arrows
-move a cursor along the map - right (or down, top to bottom) follows
-the traffic, across goes along a level -: the paths through the node
-under it come forward, its counters show beside the map (below it,
-narrower than 150 columns or when that leaves the map more room), with
-a frontend's or a backend's rules -
-a map's keys included. Enter on a server sets its state, `f` or Esc
-goes back. Without the right to read the configuration
+interfaces, who is connected to the node's API - the Controller, with
+how many users it acts for, and the direct clients, this tui among them:
+calls and bytes a second - each linked to the interface it comes by, its
+line running into the node; then the node's log targets - rsyslog,
+Elasticsearch: records and bytes a second - each linked to the interface
+its logs leave by, its line running out of the node (a target failing is
+dashed red, one no interface on the map is the way to, hollow). The
+Controller's details list the users its calls were for in the last 2
+minutes - an admin sees their names, anyone else how many -; `janusctl
+system clients` prints the same as a table. A number that starts from
+zero lights up a moment. The arrows move a cursor along the map - right
+(or down, top to bottom) follows the traffic, across goes along a level
+-: the paths through the node under it come forward, its counters show
+beside the map (below it, narrower than 150 columns or when that leaves
+the map more room), with a frontend's or a backend's rules - a map's
+keys included. Enter on a server sets its state, `f` or Esc goes back.
+Without the right to read the configuration
 (`HAProxyService/GetConfig`), the map has the proxies but not which
 frontend sends to which backend, and says so.
 
-![janusctl tui's traffic flow, top to bottom: the log target siem above eth0, its records and bytes a second, then HAProxy, the frontends web and prometheus marked http, web's link to the app backend and its servers app1 and app2; web under the cursor, its counters and its link to app - default_backend app - below the map](assets/screenshots/janusctl-tui-flow-light.webp)
+![janusctl tui's traffic flow, top to bottom: the Controller acting for 2 users, its calls and bytes a second, and the log target siem, its records and bytes a second, above eth0, then HAProxy, the frontends web and prometheus marked http, web's link to the app backend and its servers app1 and app2; web under the cursor, its counters and its link to app - default_backend app - below the map](assets/screenshots/janusctl-tui-flow-light.webp)
 
 It opens on Janus's logo while the nodes first answer, as bpytop does:
 the logo's orange bar fills up with the calls answered (`12/18`), its

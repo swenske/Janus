@@ -450,10 +450,25 @@ has some, so a map without them is the one it was - each linked to the
 interface its traffic leaves by (the node's `interface`: the kernel's
 route to the target's connection), its pulse going out of the node; a
 target no interface on the map says (not connected yet, a node older
-than that field) is drawn unlinked, its details saying why. A number
+than that field) is drawn unlinked, its details saying why. In the
+same column, first, who is connected to the node's API
+(`/api/system/clients` = `SystemService.ClientList`, at the refresh
+interval): the Controller - the connection this very page comes
+through - and the direct clients (janusctl, its tui, a script with a
+certificate of its own), one node each per interface they come by
+(`apiPeers`), with their calls and bytes a second (TLS included,
+counted by janusd's listener) and a pulse going into the node, in
+`--flow-api`; a badge at the ring's top left counts the users the
+Controller acts for, or the direct clients. The Controller's details
+list those users - whom its calls were for in the last 2 minutes (each
+call names one, `janus-as-user`), with their role, last call and open
+streams, the viewer marked *you*, `automation` and `auto-scaling` being
+the Controller's own work; the direct clients', each connection. The
+node gives names and addresses to an admin only: anyone else gets the
+Controller's users counted, the direct clients nameless. A number
 that starts from zero - a node's traffic, sessions, requests,
-connections, records - flashes (`figures` and `risen` in `flow.js`,
-`useFlashes`): a ring widening off the node, the number in the accent
+connections, records, calls - flashes (`figures` and `risen` in
+`flow.js`, `useFlashes`): a ring widening off the node, the number in the accent
 a moment, its link lit; CSS animations replayed by a new key, only the
 colour under `prefers-reduced-motion`; a number unknown before (the
 first sample, a counter that went back) never flashes. Ctrl (or ⌘) +
@@ -630,9 +645,11 @@ turn, and the step waited for is written under it.
    to look at a page or a `janusctl tui` screen yourself: the Controller
    and janusd built from the tree, three `local-dev` nodes under traffic
    that comes and goes - HTTP and TCP frontends - sending their logs to
-   rsyslog and Elasticsearch (edge-1 through two interfaces), the
-   Controller on `https://127.0.0.1:18443` (`ssh -N -L
-   18443:127.0.0.1:18443 HOST` from another machine), its account and
+   rsyslog and Elasticsearch (edge-1 through two interfaces), a second
+   account (lea's) on edge-1's page now and then and a janusctl
+   following its events - the Traffic flow's Controller users and
+   direct clients -, the Controller on `https://127.0.0.1:18443`
+   (`ssh -N -L 18443:127.0.0.1:18443 HOST` from another machine), its account and
    the `janusctl login` printed. `hack/ui-preview.sh reload` after a
    change (the binaries built again, the Controller and nodes restarted,
    their state kept), `down` to remove it.
