@@ -329,6 +329,16 @@ call `HAProxyService.ShowInfo` but gets `PermissionDenied` calling
   them, and no other daemon writes a kernel parameter at all.
 - No setuid binaries beyond what's strictly required; `janusd` runs as
   the sole privileged process, dropping capabilities it doesn't need.
+- Every binary on a node is static: no dynamic loader, no shared
+  library. On amd64, HAProxy and the extensions' C daemons (bird,
+  keepalived, nft, qemu-ga) are static PIEs: with
+  `kernel.randomize_va_space=2` the kernel loads each one at a random
+  address every time it starts, so exploiting a memory bug in what
+  parses the internet needs an address leak first. Their builds fail on
+  a relocation musl's static start-up wouldn't apply
+  (`pkgs/haproxy/Dockerfile`). Not covered: RELRO (musl doesn't apply it
+  in a static binary), the Go binaries (`janusd`, init - memory-safe,
+  not PIEs) and arm64's HAProxy.
 
 ## The "no shell" API surface
 
