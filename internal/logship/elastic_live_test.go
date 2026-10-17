@@ -63,11 +63,11 @@ func TestLiveElasticsearch(t *testing.T) {
 	recs[1].ID = run + "-2"
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := sk.Send(ctx, recs); err != nil {
+	if _, err := sk.Send(ctx, recs); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	// Again, as after a timeout: the copies are answered 409, stored once.
-	if err := sk.Send(ctx, recs[:2]); err != nil {
+	if _, err := sk.Send(ctx, recs[:2]); err != nil {
 		t.Fatalf("send again: %v", err)
 	}
 

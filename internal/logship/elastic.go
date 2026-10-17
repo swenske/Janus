@@ -35,6 +35,7 @@ type elasticSink struct {
 
 	mu         sync.Mutex
 	lastReject time.Time
+	peer       peer
 }
 
 func newElasticSink(t Target, e *env) (sink, error) {
@@ -43,9 +44,18 @@ func newElasticSink(t Target, e *env) (sink, error) {
 	if err != nil {
 		return nil, err
 	}
+	s := &elasticSink{cfg: es, env: e}
+	d := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 	tr := &http.Transport{
-		Proxy:                 nil,
-		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		Proxy: nil,
+		// The connection the client opens last: where the batches go.
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			c, err := d.DialContext(ctx, network, addr)
+			if err == nil {
+				s.peer.set(c)
+			}
+			return c, err
+		},
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 		MaxIdleConnsPerHost:   2,
@@ -58,7 +68,7 @@ func newElasticSink(t Target, e *env) (sink, error) {
 		}
 		tr.TLSClientConfig = cfg
 	}
-	s := &elasticSink{cfg: es, env: e, client: &http.Client{Transport: tr, Timeout: time.Minute}}
+	s.client = &http.Client{Transport: tr, Timeout: time.Minute}
 	switch {
 	case es.APIKey != "":
 		key := es.APIKey
@@ -74,12 +84,15 @@ func newElasticSink(t Target, e *env) (sink, error) {
 
 func (s *elasticSink) Close() { s.client.CloseIdleConnections() }
 
+func (s *elasticSink) Peer() (local, remote string) { return s.peer.get() }
+
 // Send stores recs: an error when any of them may be stored on a later
 // try (the cluster busy, unreachable, refusing the key) - the batch is
 // sent again whole, the copies answered 409. A document the cluster
 // refuses for good (its mapping, a field too long) is dropped, said
-// once a minute in janusd's log.
-func (s *elasticSink) Send(ctx context.Context, recs []Record) error {
+// once a minute in janusd's log. The bytes it says are the request's
+// body as sent - compressed with gzip.
+func (s *elasticSink) Send(ctx context.Context, recs []Record) (int, error) {
 	var body bytes.Buffer
 	var w io.Writer = &body
 	var zw *gzip.Writer
@@ -96,20 +109,21 @@ func (s *elasticSink) Send(ctx context.Context, recs []Record) error {
 			action["_id"] = docID(nodeID, r.ID)
 		}
 		if err := enc.Encode(map[string]any{"create": action}); err != nil {
-			return err
+			return 0, err
 		}
 		if err := enc.Encode(s.document(r, host, nodeID, labels)); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	if zw != nil {
 		if err := zw.Close(); err != nil {
-			return err
+			return 0, err
 		}
 	}
+	size := body.Len()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.URL+"/_bulk", &body)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/x-ndjson")
 	if zw != nil {
@@ -120,14 +134,17 @@ func (s *elasticSink) Send(ctx context.Context, recs []Record) error {
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("elasticsearch: %s: %s", resp.Status, errorReason(data))
+		return 0, fmt.Errorf("elasticsearch: %s: %s", resp.Status, errorReason(data))
 	}
-	return s.bulkResult(data)
+	if err := s.bulkResult(data); err != nil {
+		return 0, err
+	}
+	return size, nil
 }
 
 // bulkResult reads a _bulk answer: nil when every document is stored

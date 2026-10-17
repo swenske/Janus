@@ -324,6 +324,23 @@ func TestSyslogTransports(t *testing.T) {
 			if st := sh.Status(); len(st) != 1 || st[0].State != "ok" || st[0].Sent != 3 {
 				t.Fatalf("status = %+v", st)
 			}
+			// The bytes are the messages with their framing; the
+			// addresses, the connection's.
+			want := 0
+			for _, m := range got {
+				switch {
+				case c.transport == "udp":
+					want += len(m)
+				case c.framing == "lf":
+					want += len(m) + 1
+				default:
+					want += len(strconv.Itoa(len(m))) + 1 + len(m)
+				}
+			}
+			st := sh.Status()[0]
+			if st.BytesSent != uint64(want) || st.Remote != srv.addr() || !strings.HasPrefix(st.Local, "127.0.0.1:") {
+				t.Fatalf("bytes %d (want %d), local %q, remote %q (want %q)", st.BytesSent, want, st.Local, st.Remote, srv.addr())
+			}
 		})
 	}
 }
