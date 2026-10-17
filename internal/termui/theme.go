@@ -189,13 +189,13 @@ func nearest256(c RGB) int {
 }
 
 // The status colours of the Controller's themes, readable on a dark
-// background and on a light one - and its traffic flow's TCP and log
-// colours (node.css's --flow-tcp, --flow-log).
+// background and on a light one - and its traffic flow's TCP, log and
+// API colours (node.css's --flow-tcp, --flow-log, --flow-api).
 var (
 	statusDark  = [4]Shade{Hex("#66bb6a"), Hex("#f0a93b"), Hex("#ef5350"), Hex("#60a5fa")}
 	statusLight = [4]Shade{Hex("#276b2b"), Hex("#8a5200"), Hex("#b71c1c"), Hex("#1d4ed8")}
-	flowDark    = [2]Shade{Hex("#2dd4bf"), Hex("#f472b6")}
-	flowLight   = [2]Shade{Hex("#0f766e"), Hex("#be185d")}
+	flowDark    = [3]Shade{Hex("#2dd4bf"), Hex("#f472b6"), Hex("#facc15")}
+	flowLight   = [3]Shade{Hex("#0f766e"), Hex("#be185d"), Hex("#a16207")}
 )
 
 // ThemeJanus is Janus's own: the Controller's dark palette on the
@@ -212,7 +212,7 @@ var ThemeJanus = func() *Theme {
 		ColorTitle: accent, ColorKey: accent, ColorFocus: accent,
 		ColorBoxCPU: muted, ColorBoxMem: muted, ColorBoxNet: muted, ColorBoxProc: muted, ColorMeterBG: muted,
 		ColorDownload: info, ColorUpload: accent,
-		ColorTCP: fixed("#2dd4bf", 43, 6), ColorLog: fixed("#f472b6", 211, 5),
+		ColorTCP: fixed("#2dd4bf", 43, 6), ColorLog: fixed("#f472b6", 211, 5), ColorAPI: fixed("#facc15", 220, 3),
 	}
 	t.grads = [numGradients][3]Shade{
 		GradCPU: {accent}, GradUsed: {accent}, GradCached: {info}, GradDownload: {info}, GradUpload: {accent}, GradProcess: {accent},
@@ -230,7 +230,7 @@ var ThemeTTY = func() *Theme {
 		ColorTitle: ansi(15), ColorKey: ansi(9), ColorFocus: ansi(15),
 		ColorBoxCPU: ansi(2), ColorBoxMem: ansi(3), ColorBoxNet: ansi(5), ColorBoxProc: ansi(1), ColorMeterBG: ansi(8),
 		ColorSelected: ansi(15), ColorSelectedBG: ansi(1), ColorDownload: ansi(12), ColorUpload: ansi(13), ColorBackground: ansi(0),
-		ColorTCP: ansi(6), ColorLog: ansi(5),
+		ColorTCP: ansi(6), ColorLog: ansi(5), ColorAPI: ansi(3),
 	}
 	t.grads = [numGradients][3]Shade{
 		GradCPU: {ansi(10), ansi(11), ansi(9)}, GradUsed: {ansi(1), {}, ansi(9)}, GradCached: {ansi(6), {}, ansi(14)},
@@ -301,7 +301,7 @@ func bpytopTheme(name, about string, keys map[string]string) *Theme {
 		ColorBoxCPU: h("cpu_box"), ColorBoxMem: h("mem_box"), ColorBoxNet: h("net_box"), ColorBoxProc: h("proc_box"),
 		ColorMeterBG: h("meter_bg"), ColorSelected: h("selected_fg"), ColorSelectedBG: h("selected_bg"),
 		ColorDownload: bright("download"), ColorUpload: bright("upload"), ColorBackground: bg,
-		ColorTCP: flow[0], ColorLog: flow[1],
+		ColorTCP: flow[0], ColorLog: flow[1], ColorAPI: flow[2],
 	}
 	g := func(name string) [3]Shade { return [3]Shade{h(name + "_start"), h(name + "_mid"), h(name + "_end")} }
 	t.grads = [numGradients][3]Shade{
