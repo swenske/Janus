@@ -417,11 +417,11 @@ func TestFlowLogs(t *testing.T) {
 	golden(t, "tui-flow-logs-horizontal-120x40.txt", a.render(120, 40))
 	m := n.flow.m
 	g := m.g
-	if len(g.logs) != 4 {
-		t.Fatalf("%d log targets", len(g.logs))
+	if len(g.peers) != 4 {
+		t.Fatalf("%d log targets", len(g.peers))
 	}
 	eth0 := g.byID["if:eth0"]
-	for _, l := range g.logs {
+	for _, l := range g.peers {
 		if l.x >= eth0.x {
 			t.Errorf("%s at x %d, eth0 at %d: not beyond it", l.name, l.x, eth0.x)
 		}
@@ -463,7 +463,7 @@ func TestFlowLogs(t *testing.T) {
 	a.settings.FlowDirection = "vertical"
 	golden(t, "tui-flow-logs-vertical-160x48.txt", a.render(160, 48))
 	m = n.flow.m
-	for _, l := range m.g.logs {
+	for _, l := range m.g.peers {
 		if l.y >= m.g.byID["if:eth0"].y {
 			t.Errorf("%s at y %d, eth0 at %d: not above it", l.name, l.y, m.g.byID["if:eth0"].y)
 		}
@@ -480,6 +480,83 @@ func TestFlowLogs(t *testing.T) {
 	if n.flow.sel != "if:eth0" {
 		t.Errorf("right from its log target: %q", n.flow.sel)
 	}
+	n.flow.stop()
+}
+
+// flowClients is who is connected to flowCfg's node's API, every
+// counter times k: the Controller through eth0 for two users - one with
+// a stream open -, this tui and another client through eth0, one more
+// on lo (not on the map).
+func flowClients(k uint64) *janusv1alpha1.ClientListResponse {
+	at := func(d time.Duration) int64 { return tuiNow.Add(-d).UnixNano() }
+	return &janusv1alpha1.ClientListResponse{Connections: []*janusv1alpha1.ClientConnection{
+		{Id: 1, Controller: true, Name: "controller", Roles: []string{"janus:controller"}, Fleet: true, Interface: "eth0", RemoteAddress: "10.0.30.10:51000",
+			OpenedUnixNs: at(3 * time.Hour), Calls: 40 * k, OpenStreams: 1, BytesReceived: 2000 * k, BytesSent: 8000 * k, LastCallUnixNs: at(time.Second), UserCount: 2,
+			Users: []*janusv1alpha1.ClientUser{
+				{Name: "alice", Roles: []string{"os:admin"}, Calls: 30 * k, OpenStreams: 1, LastCallUnixNs: at(time.Second)},
+				{Name: "automation", Roles: []string{"os:admin"}, Calls: 10 * k, LastCallUnixNs: at(40 * time.Second)},
+			}},
+		{Id: 7, Name: "bob", Roles: []string{"os:operator"}, Interface: "eth0", RemoteAddress: "10.0.30.99:41000", OpenedUnixNs: at(time.Minute), Calls: 6 * k, BytesReceived: 600 * k, BytesSent: 900 * k, LastCallUnixNs: at(2 * time.Second), Self: true},
+		{Id: 8, Name: "ci", Roles: []string{"os:reader"}, Interface: "eth0", RemoteAddress: "10.0.30.98:41002", OpenedUnixNs: at(10 * time.Second)},
+		{Id: 9, Name: "local", Roles: []string{"os:admin"}, Interface: "lo", RemoteAddress: "127.0.0.1:41010", OpenedUnixNs: at(time.Second)},
+	}}
+}
+
+func TestFlowClients(t *testing.T) {
+	a, n := flowApp(t)
+	s := a.samplers[0]
+	s.prev.clients, s.cur.clients = flowClients(1), flowClients(3)
+	s.prev.logs, s.cur.logs = flowLogs(1), flowLogs(3)
+	s.last = derive(s.prev, s.cur)
+	a.settings.FlowDirection = "horizontal"
+	golden(t, "tui-flow-clients-horizontal-120x40.txt", a.render(120, 40))
+	g := n.flow.m.g
+	ids := []string{}
+	for _, p := range g.peers {
+		ids = append(ids, p.id)
+	}
+	if want := "api:controller:eth0 api:clients:eth0 api:clients:lo log:rsyslog log:elastic log:siem log:archive"; strings.Join(ids, " ") != want {
+		t.Errorf("peers %v, want %s", ids, want)
+	}
+	ctl := g.byID["api:controller:eth0"]
+	dt := s.cur.at.Sub(s.prev.at).Seconds()
+	if r := ctl.api; r.callRate != 80/dt || r.inRate != 4000/dt || r.outRate != 16000/dt || ctl.traffic != 20000/dt || ctl.tag() != "2 users" {
+		t.Errorf("the Controller: %v calls/s, %v/%v B/s, tag %q", r.callRate, r.inRate, r.outRate, ctl.tag())
+	}
+	if c := g.byID["api:clients:eth0"]; len(c.api.conns) != 2 || !c.api.self || !c.linked {
+		t.Errorf("the direct clients: %d, self %v", len(c.api.conns), c.api.self)
+	}
+	if lo := g.byID["api:clients:lo"]; lo.linked {
+		t.Error("lo isn't on the map: no link")
+	}
+	for _, e := range g.edges {
+		if e.kind == kindAPI && (e.to != "if:eth0" || e.proto != "api" || e.look != lookActive) && e.from != "api:clients:eth0" {
+			t.Errorf("an API link: %+v", e)
+		}
+	}
+	// Its details: whom the Controller acts for.
+	n.flow.sel = "api:controller:eth0"
+	golden(t, "tui-flow-clients-selected-120x40.txt", a.render(120, 40))
+	text := strings.Join(a.render(120, 40).Lines(), "\n")
+	for _, want := range []string{"Controller  API", "Through", "eth0", "controller · the fleet's", "alice", "1 stream open", "automation", "the Controller's own work", "40s ago"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the Controller's details lack %q:\n%s", want, text)
+		}
+	}
+	near := g.related("api:controller:eth0")
+	if !near["if:eth0"] || !near["api:controller:eth0>if:eth0"] || near["hub"] || near["log:rsyslog"] {
+		t.Errorf("related(Controller) = %v", near)
+	}
+	n.flow.sel = "api:clients:eth0"
+	text = strings.Join(a.render(120, 40).Lines(), "\n")
+	for _, want := range []string{"bob (this tui)", "from 10.0.30.99:41000", "ci", "no call yet"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the direct clients' details lack %q:\n%s", want, text)
+		}
+	}
+	n.flow.sel = ""
+	a.settings.FlowDirection = "vertical"
+	golden(t, "tui-flow-clients-vertical-160x48.txt", a.render(160, 48))
 	n.flow.stop()
 }
 

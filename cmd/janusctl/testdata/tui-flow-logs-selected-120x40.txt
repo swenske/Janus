@@ -12,15 +12,15 @@
 │                                                                │                       │                       ├─● s │
 │                                                                │                       │                       ├─● s │
 │                                                                │                       │                       ├─● s │
-│                                                                │                       │                       ├─● s ▸
-│ ● rsyslog ───━───━───━─┬─● eth0 ───────● HAProxy ──────────────┤                       │                       ├─● s │
-│   50 msg/s · 5.9KiB/s  │   16.0KiB/s     12 conns · 4 req/s    │                       │                       ╰─● + │
-│ ● elastic ─────────────╯                                       │                       ╰─● be_default http ──────● a │
-│   failing                                                      │                           4.9KiB/s · 1 sess         │
-│ ○ siem                                                         ├─● stats http ───────────● stats http                │
-│   10 msg/s · 1000B/s                                           │   0B/s · 0 sess           0B/s · 0 sess             │
-│ ○ archive                                                      ├─● tcp_in tcp ───────────● tcp_pool tcp ─────────● a │
-│   disabled                                                     │   2.0KiB/s · 1 sess       4.9KiB/s · 1 sess         │
+│ ● rsyslog ───━───━───━─╮                                       │                       │                       ├─● s ▸
+│   50 msg/s · 5.9KiB/s  ├━● eth0 ───────● HAProxy ──────────────┤                       │                       ├─● s │
+│ ● elastic ─────────────╯   16.0KiB/s     12 conns · 4 req/s    │                       │                       ╰─● + │
+│   failing                                                      │                       ╰─● be_default http ──────● a │
+│ ○ siem                                                         │                           4.9KiB/s · 1 sess         │
+│   10 msg/s · 1000B/s                                           ├─● stats http ───────────● stats http                │
+│ ○ archive                                                      │   0B/s · 0 sess           0B/s · 0 sess             │
+│   disabled                                                     ├─● tcp_in tcp ───────────● tcp_pool tcp ─────────● a │
+│                                                                │   2.0KiB/s · 1 sess       4.9KiB/s · 1 sess         │
 │                                                                ╰─● admin http            ○ unused http ──────────● a │
 │                                                                    0B/s · 0 sess           4.9KiB/s · 1 sess         │
 │                                                                                                                      │

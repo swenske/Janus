@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -57,6 +58,7 @@ type sample struct {
 	services *janusv1alpha1.ServiceListResponse   // full rounds only
 	stat     *haproxystat.Table                   // full rounds only
 	logs     *janusv1alpha1.LogForwardingResponse // full rounds only; nil: none (no shipper, an older node, refused)
+	clients  *janusv1alpha1.ClientListResponse    // full rounds only; nil: none (an older node)
 	errs     map[string]string
 }
 
@@ -98,6 +100,7 @@ type point struct {
 	services []serviceRow       // full rounds only
 	stat     *haproxystat.Table // the round's show stat, for what the rows above don't keep
 	logs     []logRow           // full rounds only: the log targets
+	apis     []apiRow           // full rounds only: who is connected to the API
 }
 
 type serviceRow struct{ id, state, health, extension string }
@@ -188,8 +191,25 @@ type logRow struct {
 	sources           []string
 }
 
+// apiRow is who is connected to the node's API, as the traffic flow
+// groups them: the Controller's connections, or the others' (janusctl,
+// this tui among them), by the interface they come by - their calls and
+// bytes a second over the connections open at both rounds (NaN before a
+// second), the users the Controller acts for.
+type apiRow struct {
+	controller bool
+	via        string
+	conns      []*janusv1alpha1.ClientConnection
+	users      []*janusv1alpha1.ClientUser // the latest first
+	userCount  int
+	self       bool // the connection this tui asks by is one of them
+	callRate   float64
+	inRate     float64 // received by the node
+	outRate    float64
+}
+
 // The calls in a round: fast ones, those a node's screen adds, slow ones.
-const fastCalls, fullCalls, slowCalls = 6, 4, 9
+const fastCalls, fullCalls, slowCalls = 6, 5, 9
 
 // firstCalls is how many calls a sampler's first round makes: the slow
 // ones are always due then.
@@ -234,6 +254,19 @@ func fetchSample(ctx context.Context, conn *grpc.ClientConn, full bool, done fun
 			switch status.Code(err) {
 			case codes.OK:
 				s.logs = resp
+			case codes.Unavailable, codes.Unimplemented, codes.PermissionDenied:
+			default:
+				return err
+			}
+			return nil
+		})
+		// Who is connected to the API - the Controller, this tui: an
+		// older node doesn't say.
+		g.run("api clients", func() error {
+			resp, err := sys.ClientList(ctx, empty)
+			switch status.Code(err) {
+			case codes.OK:
+				s.clients = resp
 			case codes.Unavailable, codes.Unimplemented, codes.PermissionDenied:
 			default:
 				return err
@@ -380,7 +413,78 @@ func derive(prev, cur *sample) point {
 		}
 		p.logs = deriveLogs(before, cur.logs, dt)
 	}
+	if cur.clients != nil {
+		var before *janusv1alpha1.ClientListResponse
+		if prev != nil {
+			before = prev.clients
+		}
+		p.apis = deriveAPIs(before, cur.clients, dt)
+	}
 	return p
+}
+
+// deriveAPIs groups the API's connections as the traffic flow shows
+// them - the Controller's first -, with their rates against the previous
+// answer: a connection new since counts from the next round, one gone
+// not at all.
+func deriveAPIs(prev, cur *janusv1alpha1.ClientListResponse, dt float64) []apiRow {
+	before := map[uint64]*janusv1alpha1.ClientConnection{}
+	for _, c := range prev.GetConnections() {
+		before[c.GetId()] = c
+	}
+	var out []apiRow
+	at := map[[2]string]int{}
+	for _, c := range cur.GetConnections() {
+		key := [2]string{fmt.Sprint(c.GetController()), c.GetInterface()}
+		i, ok := at[key]
+		if !ok {
+			i = len(out)
+			at[key] = i
+			out = append(out, apiRow{controller: c.GetController(), via: c.GetInterface(), callRate: math.NaN(), inRate: math.NaN(), outRate: math.NaN()})
+		}
+		r := &out[i]
+		r.conns = append(r.conns, c)
+		r.self = r.self || c.GetSelf()
+		r.userCount += int(c.GetUserCount())
+		for _, u := range c.GetUsers() {
+			j := slices.IndexFunc(r.users, func(x *janusv1alpha1.ClientUser) bool { return x.GetName() == u.GetName() })
+			switch {
+			case j < 0:
+				r.users = append(r.users, u)
+			case u.GetLastCallUnixNs() > r.users[j].GetLastCallUnixNs():
+				r.users[j] = u
+			}
+		}
+		if b, ok := before[c.GetId()]; ok {
+			add := func(sum *float64, v float64) {
+				if math.IsNaN(v) {
+					return
+				}
+				if math.IsNaN(*sum) {
+					*sum = 0
+				}
+				*sum += v
+			}
+			add(&r.callRate, rate(b.GetCalls(), c.GetCalls(), dt))
+			add(&r.inRate, rate(b.GetBytesReceived(), c.GetBytesReceived(), dt))
+			add(&r.outRate, rate(b.GetBytesSent(), c.GetBytesSent(), dt))
+		}
+	}
+	for i := range out {
+		slices.SortStableFunc(out[i].users, func(a, b *janusv1alpha1.ClientUser) int {
+			return cmp.Or(cmp.Compare(b.GetLastCallUnixNs(), a.GetLastCallUnixNs()), cmp.Compare(a.GetName(), b.GetName()))
+		})
+	}
+	slices.SortStableFunc(out, func(a, b apiRow) int {
+		if a.controller != b.controller {
+			if a.controller {
+				return -1
+			}
+			return 1
+		}
+		return 0
+	})
+	return out
 }
 
 // deriveLogs is each log target with its records and bytes a second

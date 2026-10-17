@@ -262,9 +262,9 @@ func TestScreenshotFrame(t *testing.T) {
 }
 
 // shotFlow is the same node's traffic flow (f), examples/haproxy/web.cfg
-// read as its configuration, its logs - the access logs among them -
-// sent to a SIEM over TCP through eth0, the web frontend under the
-// cursor.
+// read as its configuration, the Controller connected through eth0 for
+// two users, its logs - the access logs among them - sent to a SIEM over
+// TCP through eth0, the web frontend under the cursor.
 func shotFlow(t *testing.T, a *app, n *nodeScreen) *termui.Frame {
 	t.Helper()
 	cfg, err := os.ReadFile(filepath.Join("..", "..", "examples", "haproxy", "web.cfg"))
@@ -273,13 +273,15 @@ func shotFlow(t *testing.T, a *app, n *nodeScreen) *termui.Frame {
 	}
 	n.s.last.logs = []logRow{{name: "siem", kind: "syslog", state: "ok", via: "eth0", knowsBytes: true, msgRate: 2140, byteRate: 548_000,
 		sends: "syslog over TCP · RFC 5424", to: "10.0.10.9:601"}}
+	n.s.last.apis = []apiRow{{controller: true, via: "eth0", userCount: 2, callRate: 6.2, inRate: 1900, outRate: 23_400,
+		conns: []*janusv1alpha1.ClientConnection{{Id: 1, Controller: true, Name: "janus-controller", Roles: []string{"janus:controller"}, Fleet: true, Interface: "eth0"}}}}
 	top := haproxyflow.Parse(string(cfg))
 	n.flow = newFlowView(n)
 	n.flow.cfg = flowConfig{top: &top, gen: 1}
 	n.flow.sel = "fe:web"
 	f := a.render(shotCols, shotRows)
 	text := strings.Join(f.Lines(), "\n")
-	for _, want := range []string{"Traffic flow", "● HAProxy", "● web", "● prometheus", "● app", "● app1", "● app2", "→ app", "default_backend app", "● siem"} {
+	for _, want := range []string{"Traffic flow", "● HAProxy", "● web", "● prometheus", "● app", "● app1", "● app2", "→ app", "default_backend app", "● siem", "● Controller 2 users"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the traffic flow's frame misses %q:\n%s", want, text)
 		}

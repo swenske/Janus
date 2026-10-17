@@ -164,6 +164,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "ps", help: "every process"},
 		{name: "netdev", help: "network interface counters"},
 		{name: "netstat", help: "TCP and UDP sockets"},
+		{name: "clients", help: "the connections to the API: a Controller and the users it acts for, janusctl..."},
 		{name: "mounts", help: "mounted filesystems"},
 		{name: "du", args: "PATH...", help: "disk usage", flags: []flagDef{boolFlag("r", "one line per directory")}, pos: []argKind{argRemote}, required: 1, variadic: true},
 		{name: "ls", args: "PATH", help: "list a directory", flags: []flagDef{boolFlag("r", "recursive")}, pos: []argKind{argRemote}, required: 1},
