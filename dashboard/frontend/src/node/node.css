@@ -240,14 +240,14 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 
 /* Monitoring › Traffic flow: a node's colour is its kind's, unless its
    state says otherwise; links pulse where traffic goes, in their
-   protocol's colour - HTTP the accent, TCP and logs their own (each at
-   least 3:1 on the surface, its badge's text 4.5:1), an interface's
-   (all of its traffic) neutral. */
-:root { --flow-tcp: #0f766e; --flow-log: #be185d; --flow-flash: var(--accent-ink); }
+   protocol's colour - HTTP the accent, TCP, logs and the API their own
+   (each at least 3:1 on the surface, its badge's text 4.5:1), an
+   interface's (all of its traffic) neutral. */
+:root { --flow-tcp: #0f766e; --flow-log: #be185d; --flow-api: #a16207; --flow-flash: var(--accent-ink); }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --flow-tcp: #2dd4bf; --flow-log: #f472b6; }
+  :root:not([data-theme="light"]) { --flow-tcp: #2dd4bf; --flow-log: #f472b6; --flow-api: #facc15; }
 }
-:root[data-theme="dark"] { --flow-tcp: #2dd4bf; --flow-log: #f472b6; }
+:root[data-theme="dark"] { --flow-tcp: #2dd4bf; --flow-log: #f472b6; --flow-api: #facc15; }
 .flow-layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
 /* The side panel beside the map while the map still fits there
    (flow.js arrange; Flow.jsx SIDE_REM is its width), below it otherwise. */
@@ -287,6 +287,7 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .kind-be { --kind: var(--chart-4); }
 .kind-srv, .kind-more { --kind: var(--chart-3); }
 .kind-log { --kind: var(--flow-log); }
+.kind-api { --kind: var(--flow-api); }
 .flow-node.tone-warn { --kind: var(--warn); }
 .flow-node.tone-danger { --kind: var(--danger); }
 .flow-node.tone-off { --kind: var(--muted); }
@@ -298,6 +299,11 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .proto-http { --proto: var(--accent); --proto-ink: var(--accent-ink); }
 .proto-tcp { --proto: var(--flow-tcp); --proto-ink: var(--flow-tcp); }
 .proto-log { --proto: var(--flow-log); --proto-ink: var(--flow-log); }
+.proto-api { --proto: var(--flow-api); --proto-ink: var(--flow-api); }
+/* How many an API client's node stands for, at its ring's top left. */
+.flow-count rect { fill: var(--surface); stroke: var(--kind); stroke-width: 1.2; }
+.flow-count text { font-size: 8.5px; font-weight: 700; fill: var(--text); font-family: var(--font); }
+.flow-count svg { color: var(--kind); }
 .badge.flow-proto-badge { color: var(--proto-ink); border: 1px solid var(--proto); background: transparent; }
 .flow-box { fill: transparent; }
 .flow-disc { fill: var(--surface); stroke: var(--kind); stroke-width: 2.5; }
@@ -322,7 +328,7 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .flow-link.down .flow-track { stroke: var(--danger); stroke-opacity: 0.8; stroke-dasharray: 4 4; }
 .flow-link.off .flow-track { stroke-dasharray: 2 5; }
 .flow-pulse { fill: none; stroke: var(--muted); stroke-linecap: round; stroke-dasharray: 8 12; animation: flow-dash 1.5s linear infinite; }
-.flow-link.proto-http .flow-pulse, .flow-link.proto-tcp .flow-pulse, .flow-link.proto-log .flow-pulse { stroke: var(--proto); }
+.flow-link.proto-http .flow-pulse, .flow-link.proto-tcp .flow-pulse, .flow-link.proto-log .flow-pulse, .flow-link.proto-api .flow-pulse { stroke: var(--proto); }
 /* A log target's link is drawn from it: its pulse goes the other way,
    out of the node. */
 .flow-link.kind-log .flow-pulse { animation-direction: reverse; }
@@ -351,11 +357,13 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .flow-goto:hover { text-decoration: underline; }
 .flow-rules { margin: 0.25rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.3rem; }
 .flow-rules code { overflow-wrap: anywhere; }
+.flow-users { margin: 0.25rem 0 0.5rem; padding: 0; list-style: none; display: grid; gap: 0.45rem; }
+.flow-users .mono { overflow-wrap: anywhere; }
 .flow-legend { margin-top: 0.8rem; display: grid; gap: 0.5rem; font-size: 0.85rem; }
 .flow-legend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.9rem; }
 .flow-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 .flow-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--kind); display: inline-block; }
 .flow-legend-pulse { stroke: var(--muted); stroke-width: 3; stroke-linecap: round; }
-.flow-legend-pulse.proto-http, .flow-legend-pulse.proto-tcp, .flow-legend-pulse.proto-log { stroke: var(--proto); }
+.flow-legend-pulse.proto-http, .flow-legend-pulse.proto-tcp, .flow-legend-pulse.proto-log, .flow-legend-pulse.proto-api { stroke: var(--proto); }
 .flow-legend-track { stroke: var(--muted); stroke-opacity: 0.35; stroke-width: 1.5; }
 .flow-legend-down { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 4 4; }

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, Layers, Route, Scaling, ScrollText, Server, Shuffle, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, LayoutDashboard, Layers, Route, Scaling, ScrollText, Server, Shuffle, SquareTerminal, Users, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getJSON } from '../api.js'
 import ServerStateButtons from '../components/ServerStateButtons.jsx'
@@ -7,6 +7,7 @@ import { bytes, compact, duration, num, rate } from '../format.js'
 import {
   NAME_CHARS,
   VALUE_CHARS,
+  apiPeers,
   arrange,
   buildFlow,
   figures,
@@ -26,9 +27,9 @@ import {
 import { useMetrics, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 
-const ICONS = { log: ScrollText, iface: EthernetPort, hub: Shuffle, fe: Globe, be: Layers, srv: Server, more: Ellipsis }
-const ICON_SIZE = { log: 18, iface: 18, hub: 26, fe: 18, be: 18, srv: 13, more: 13 }
-const KIND = { log: 'Log target', iface: 'Interface', hub: 'HAProxy', fe: 'Frontend', be: 'Backend', srv: 'Server', more: 'Servers' }
+const ICONS = { api: SquareTerminal, log: ScrollText, iface: EthernetPort, hub: Shuffle, fe: Globe, be: Layers, srv: Server, more: Ellipsis }
+const ICON_SIZE = { api: 18, log: 18, iface: 18, hub: 26, fe: 18, be: 18, srv: 13, more: 13 }
+const KIND = { api: 'API', log: 'Log target', iface: 'Interface', hub: 'HAProxy', fe: 'Frontend', be: 'Backend', srv: 'Server', more: 'Servers' }
 const PROTO = { http: 'HTTP', tcp: 'TCP' }
 // The zoom (ctrl + scroll, the buttons): the map's drawn size, from
 // arrange's to these; a step of the buttons.
@@ -68,6 +69,9 @@ function useRoom() {
   useLayoutEffect(() => {
     if (!el) return
     const measure = () => {
+      // Gone from the page (the map replaced by a message), or not laid
+      // out: nothing to measure - the last room stays.
+      if (!el.isConnected || !el.clientWidth) return
       const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
       const card = CARD_REM * rem + 2
       const top = el.getBoundingClientRect().top + window.scrollY
@@ -104,16 +108,17 @@ function useSamples(data) {
   return s
 }
 
-// useLogSamples is useSamples for /api/log-forwarding: its log targets,
-// their records and bytes a second.
-function useLogSamples(data) {
+// usePeerSamples is useSamples for the peers' answers -
+// /api/log-forwarding read by logTargets, /api/system/clients by
+// apiPeers: the peers, their numbers a second.
+function usePeerSamples(data, peers) {
   const [s, setS] = useState({ cur: null, prev: null, seconds: 0 })
   useEffect(() => {
     if (!data) return
     const now = Date.now()
     setS((p) => ({ prev: p.cur, cur: { data, t: now }, seconds: p.cur ? (now - p.cur.t) / 1000 : 0 }))
   }, [data])
-  return useMemo(() => (s.cur ? logTargets(s.cur.data, s.prev?.data, s.seconds) : []), [s])
+  return useMemo(() => (s.cur ? peers(s.cur.data, s.prev?.data, s.seconds) : []), [s, peers])
 }
 
 // useFlashes is, by node or link id, how many times one of its numbers
@@ -179,6 +184,8 @@ function activity(row) {
 function values(n, hap) {
   const r = n.row
   switch (n.kind) {
+    case 'api':
+      return { parts: [`${n.callRate == null ? '–' : num(n.callRate, n.callRate > 0 && n.callRate < 10 ? 1 : 0)} calls/s`, rate(n.byteRate)] }
     case 'log':
       if (n.tone === 'off') return { parts: ['disabled'] }
       if (n.tone === 'danger') return { parts: ['failing'], tone: 'danger' }
@@ -208,16 +215,33 @@ function values(n, hap) {
   }
 }
 
+// peerIcon is a node's icon: an Elasticsearch target's, the Controller's
+// are their own.
+function peerIcon(n) {
+  if (n.kind === 'log' && n.es) return Database
+  if (n.kind === 'api' && n.controller) return LayoutDashboard
+  return ICONS[n.kind]
+}
+
+// apiCount is what an API client's badge counts: the users the
+// Controller acts for, the other clients' connections.
+function apiCount(n) {
+  return n.controller ? n.userCount : n.conns.length
+}
+
 function FlowNode({ n, hap, configKnown, shape, state, flash, onSelect, onHover }) {
-  const Icon = n.kind === 'log' && n.es ? Database : ICONS[n.kind]
+  const Icon = n.kind === 'log' && n.es ? Database : n.kind === 'api' && n.controller ? LayoutDashboard : ICONS[n.kind] // peerIcon's
   const s = ICON_SIZE[n.kind]
   const v = values(n, hap)
   const text = v.parts.join(' · ')
   // A backend no frontend rule names - with the configuration read; a
-  // log target no interface on the map says it leaves by.
-  const unlinked = (n.kind === 'be' && configKnown && !n.linked) || (n.kind === 'log' && !n.linked)
+  // peer no interface on the map says it goes by.
+  const peer = n.kind === 'log' || n.kind === 'api'
+  const unlinked = (n.kind === 'be' && configKnown && !n.linked) || (peer && !n.linked)
   const proto = (n.kind === 'fe' || n.kind === 'be') && PROTO[n.mode]
-  const label = `${KIND[n.kind]} ${n.name}${proto ? ` (${proto})` : ''}${text ? `: ${text}` : ''}${unlinked ? (n.kind === 'log' ? ' - not known through which interface' : ' - no frontend rule names it') : ''}`
+  const count = n.kind === 'api' ? apiCount(n) : 0
+  const who = n.kind === 'api' ? ` (${count} ${n.controller ? (count === 1 ? 'user' : 'users') : count === 1 ? 'client' : 'clients'})` : ''
+  const label = `${n.kind === 'api' ? '' : `${KIND[n.kind]} `}${n.name}${proto ? ` (${proto})` : ''}${who}${text ? `: ${text}` : ''}${unlinked ? (peer ? ' - not known through which interface' : ' - no frontend rule names it') : ''}`
   // A number that started from nothing flashes: its key replays it.
   const sub = (extra = '') => `flow-sub ${v.tone || ''} ${flash ? 'flash' : ''} ${extra}`
   // A label beside its node is part of it: hovering or clicking it too.
@@ -313,6 +337,7 @@ function FlowNode({ n, hap, configKnown, shape, state, flash, onSelect, onHover 
       {flash > 0 && <circle key={flash} className="flow-flash" r={n.r} />}
       <Icon className="flow-icon" size={s} x={-s / 2} y={-s / 2} aria-hidden="true" />
       {proto && <ProtoBadge proto={n.mode} r={n.r} />}
+      {count > 0 && <CountBadge count={count} r={n.r} />}
       {labels}
       <title>{label}</title>
     </g>
@@ -336,6 +361,22 @@ function ProtoBadge({ proto, r }) {
   )
 }
 
+// CountBadge is how many an API client's node stands for - the users
+// the Controller acts for, the other clients - at its ring's top left.
+function CountBadge({ count, r }) {
+  const label = count > 99 ? '99+' : String(count)
+  const w = label.length * 5.6 + 17
+  return (
+    <g className="flow-count" transform={`translate(${-r * 0.78} ${-r * 0.78})`} aria-hidden="true">
+      <rect x={-w / 2} y={-6} width={w} height={12} rx={6} />
+      <Users size={8} x={-w / 2 + 4} y={-4} />
+      <text x={-w / 2 + 14} y={3} textAnchor="start">
+        {label}
+      </text>
+    </g>
+  )
+}
+
 // linkLook is how a link shows: its pulse when traffic goes through, or
 // down (a server that fails its checks, a log target failing) or off
 // (stopped, in maintenance, a log target disabled) - and its protocol's
@@ -345,7 +386,9 @@ function linkLook(l, map, incoming) {
   const b = map.byId[l.to]
   let traffic = 0
   let cls = ''
-  if (l.kind === 'log') {
+  if (l.kind === 'api') {
+    traffic = a.byteRate ?? (a.callRate > 0 ? 1 : 0)
+  } else if (l.kind === 'log') {
     traffic = b.knowsBytes ? (b.byteRate ?? 0) : b.msgRate > 0 ? 1 : 0
     if (b.tone === 'danger') cls = 'down'
     else if (b.tone === 'off') cls = 'off'
@@ -465,6 +508,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   }
   const n = map.byId[id]
   if (!n) return null
+  if (n.kind === 'api') return <ApiDetails n={n} />
   const Icon = ICONS[n.kind]
   const r = n.row
   const title = (
@@ -676,6 +720,100 @@ function LogDetails({ n, title }) {
   )
 }
 
+// The Controller's own work, as it names it to a node (nodeproxy).
+const CONTROLLER_WORK = { automation: 'the Controller’s own work', 'auto-scaling': 'the Controller’s auto-scaling' }
+
+const role = (roles) => (roles || []).map((r) => r.replace(/^os:/, '')).join(', ')
+
+// ago is how long ago a node's time was (unix ns) - null for none.
+function ago(ns, now) {
+  const t = Number(ns || 0)
+  return t ? `${duration(Math.max(0, (now - t / 1e6) / 1000))} ago` : null
+}
+
+// ApiDetails is who is connected to the node's API: the Controller -
+// the users its calls are for -, or the other clients, each
+// connection.
+function ApiDetails({ n }) {
+  const now = Date.now()
+  const Icon = peerIcon(n)
+  const opened = Math.min(...n.conns.map((c) => Number(c.opened_unix_ns || 0) || Infinity))
+  const streams = n.conns.reduce((t, c) => t + Number(c.open_streams || 0), 0)
+  const calls = n.conns.reduce((t, c) => t + Number(c.calls || 0), 0)
+  let via
+  if (n.via) via = n.linked ? <span className="mono">{n.via}</span> : <span className="mono">{n.via} (not on the map)</span>
+  else via = <span className="muted">no route says</span>
+  const hidden = n.userCount - n.users.length
+  return (
+    <Card
+      title={
+        <>
+          {n.name} <Badge>{n.controller ? 'API client' : n.conns.length === 1 ? 'API client' : 'API clients'}</Badge>
+        </>
+      }
+      icon={Icon}
+    >
+      <dl className="kv">
+        <Row k="Through">{via}</Row>
+        <Row k="From">{n.controller ? <span className="mono">{[...new Set(n.conns.map((c) => c.remote_address?.replace(/:\d+$/, '')).filter(Boolean))].join(', ')}</span> : null}</Row>
+        <Row k="Certificate">
+          {n.controller
+            ? [...new Set(n.conns.map((c) => `${c.name}${c.fleet ? ' · the fleet’s' : ' · the node’s own CA'}`))].join(', ')
+            : null}
+        </Row>
+        <Row k="Connected">{Number.isFinite(opened) ? `${duration((now - opened / 1e6) / 1000)}${n.conns.length > 1 ? ` · ${n.conns.length} connections` : ''}` : null}</Row>
+        <Row k="Calls/s">{n.callRate != null ? num(n.callRate, 1) : null}</Row>
+        <Row k="Receiving">{n.inRate != null ? rate(n.inRate) : null}</Row>
+        <Row k="Sending">{n.outRate != null ? rate(n.outRate) : null}</Row>
+        <Row k="Calls">{num(calls)}</Row>
+        <Row k="Streams open">{streams ? num(streams) : null}</Row>
+      </dl>
+      {n.controller ? (
+        <>
+          <h3 className="flow-h">Users</h3>
+          {n.users.length > 0 && (
+            <ul className="flow-users">
+              {n.users.map((u) => (
+                <li key={u.name}>
+                  <span className="mono">{u.name}</span> {u.self && <Badge tone="ok">you</Badge>} <Badge>{role(u.roles)}</Badge>
+                  <div className="muted small">
+                    {[CONTROLLER_WORK[u.name], u.open_streams ? `${num(Number(u.open_streams))} ${Number(u.open_streams) === 1 ? 'stream' : 'streams'} open` : '', `last call ${ago(u.last_call_unix_ns, now)}`].filter(Boolean).join(' · ')}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {hidden > 0 && (
+            <p className="muted small">
+              {n.users.length ? `And ${hidden} more` : `${hidden} ${hidden === 1 ? 'user' : 'users'}`} - their names are shown to admins.
+            </p>
+          )}
+          {!n.userCount && <p className="muted small">None in the last 2 minutes.</p>}
+          <p className="muted small">Whom the Controller&apos;s calls were for in the last 2 minutes: those with a page of this node open, or who just acted on it.</p>
+        </>
+      ) : (
+        <>
+          <h3 className="flow-h">Connections</h3>
+          <ul className="flow-users">
+            {n.conns.map((c) => (
+              <li key={c.id}>
+                {c.name ? <span className="mono">{c.name}</span> : <span className="muted">a client</span>} {c.self && <Badge tone="ok">this one</Badge>} {c.roles?.length > 0 && <Badge>{role(c.roles)}</Badge>}
+                <div className="muted small">
+                  {[c.remote_address ? `from ${c.remote_address}` : '', c.fleet ? 'a fleet certificate' : '', `connected ${duration((now - Number(c.opened_unix_ns) / 1e6) / 1000)}`, Number(c.open_streams) ? `${num(Number(c.open_streams))} open` : '', ago(c.last_call_unix_ns, now) ? `last call ${ago(c.last_call_unix_ns, now)}` : 'no call yet']
+                    .filter(Boolean)
+                    .join(' · ')}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {n.conns.some((c) => !c.name) && <p className="muted small">The other clients&apos; names and addresses are shown to admins.</p>}
+          <p className="muted small">Clients reaching the node&apos;s API with a certificate of their own - janusctl, its tui, a script -, not through the Controller.</p>
+        </>
+      )}
+    </Card>
+  )
+}
+
 function Legend() {
   return (
     <div className="flow-legend">
@@ -696,6 +834,7 @@ function Legend() {
           ['pulse proto-http', 'HTTP'],
           ['pulse proto-tcp', 'TCP'],
           ['pulse proto-log', 'logs'],
+          ['pulse proto-api', 'the API: the Controller, janusctl'],
           ['pulse', 'an interface’s, all of it'],
         ].map(([cls, label]) => (
           <span key={cls} className="flow-legend-item">
@@ -740,6 +879,9 @@ export default function Flow() {
   // bytes a second (a node without a log shipper answers an error - no
   // targets then).
   const logPoll = usePoll('/api/log-forwarding', { enabled: may('SystemService/LogForwardingGet') })
+  // Who is connected to the node's API - the Controller this page comes
+  // through, janusctl -, at the same pace (an older node doesn't say).
+  const clientPoll = usePoll('/api/system/clients', { enabled: may('SystemService/ClientList') })
   const [servers, setServers] = useState(() => stored('janus-flow-servers', 'on') !== 'off')
   const [orientation, setOrientation] = useState(() => {
     const o = stored('janus-flow-orientation', 'auto')
@@ -772,11 +914,13 @@ export default function Flow() {
   const rows = useMemo(() => (samples.cur ? withRates(samples.cur.rows, samples.prev?.rows, samples.seconds) : []), [samples])
   const graph = useMemo(() => buildFlow(rows, topology, maps.maps), [rows, topology, maps.maps])
   const ifaces = useMemo(() => interfaces(latest?.net, net.data), [latest?.net, net.data])
-  const logs = useLogSamples(logPoll.error ? null : logPoll.data)
+  const logs = usePeerSamples(logPoll.error ? null : logPoll.data, logTargets)
+  const apis = usePeerSamples(clientPoll.error ? null : clientPoll.data, apiPeers)
+  const peers = useMemo(() => [...apis, ...logs], [apis, logs])
   // The layouts the orientation may take, then the one that shows.
-  const across = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'across', logs }) : null), [graph, ifaces, servers, orientation, logs])
-  const dense = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'dense', logs }) : null), [graph, ifaces, servers, orientation, logs])
-  const down = useMemo(() => (orientation !== 'horizontal' ? layout(graph, ifaces, { servers, shape: 'down', logs }) : null), [graph, ifaces, servers, orientation, logs])
+  const across = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'across', peers }) : null), [graph, ifaces, servers, orientation, peers])
+  const dense = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'dense', peers }) : null), [graph, ifaces, servers, orientation, peers])
+  const down = useMemo(() => (orientation !== 'horizontal' ? layout(graph, ifaces, { servers, shape: 'down', peers }) : null), [graph, ifaces, servers, orientation, peers])
   const shown = arrange(orientation, { across, dense, down }, room)
   const vertical = shown.shape === 'down'
   const map = { across, dense, down }[shown.shape]
@@ -982,7 +1126,7 @@ export default function Flow() {
   }
   const empty = samples.cur && !graph.frontends.length && !graph.backends.length
   const picked = selected && (map.byId[selected] || map.links.some((l) => l.id === selected))
-  const summary = `Traffic flow: ${graph.frontends.length} frontends, ${graph.backends.length} backends, ${graph.backends.reduce((t, b) => t + b.servers.length, 0)} servers${logs.length ? `, ${logs.length} log targets` : ''}`
+  const summary = `Traffic flow: ${graph.frontends.length} frontends, ${graph.backends.length} backends, ${graph.backends.reduce((t, b) => t + b.servers.length, 0)} servers${apis.length ? `, ${apis.map((a) => a.name.toLowerCase()).join(', ')}` : ''}${logs.length ? `, ${logs.length} log targets` : ''}`
 
   return (
     <>
