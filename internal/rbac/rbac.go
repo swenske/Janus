@@ -54,6 +54,7 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.SystemService/DiskUsage":                   adminOnly, // walks arbitrary paths
 	"/janus.v1alpha1.SystemService/NetworkDeviceStats":          readers,
 	"/janus.v1alpha1.SystemService/Netstat":                     readers,
+	"/janus.v1alpha1.SystemService/ClientList":                  readers, // the others' names: admins only
 	"/janus.v1alpha1.SystemService/Mounts":                      readers,
 	"/janus.v1alpha1.SystemService/Processes":                   readers,
 	"/janus.v1alpha1.SystemService/ServiceList":                 readers,

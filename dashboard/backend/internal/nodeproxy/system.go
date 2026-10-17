@@ -84,6 +84,9 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 	mux.HandleFunc("GET /api/system/netstat", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
 		return c.Netstat(ctx, empty)
 	}))
+	mux.HandleFunc("GET /api/system/clients", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
+		return c.ClientList(ctx, empty)
+	}))
 	mux.HandleFunc("GET /api/system/services", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
 		return c.ServiceList(ctx, empty)
 	}))
