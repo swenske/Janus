@@ -63,13 +63,18 @@ check() { # check DESCRIPTION PATTERN TEXT
 # The guest reaches the host at 10.0.2.2 (QEMU user networking): Pebble's
 # HTTPS certificate must be valid for it, under a CA of the test's own -
 # which the node trusts through directory_ca, as for a private ACME CA.
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj "/CN=ACME test CA" \
-  -keyout "$WORKDIR/ca.key" -out "$WORKDIR/test-ca.pem" 2>/dev/null
+# Both valid from an hour ago: the guest sets its clock from NTP, and a
+# host a few seconds ahead made a certificate the guest found not valid
+# yet - the first thing it does is fetch Pebble's directory.
+not_before="$(date -u -d '-1 hour' +%Y%m%d%H%M%SZ)"
+not_after="$(date -u -d '+1 day' +%Y%m%d%H%M%SZ)"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -not_before "$not_before" -not_after "$not_after" \
+  -subj "/CN=ACME test CA" -keyout "$WORKDIR/ca.key" -out "$WORKDIR/test-ca.pem" 2>/dev/null
 openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=pebble" \
   -keyout "$WORKDIR/pebble.key" -out "$WORKDIR/pebble.csr" 2>/dev/null
 printf 'subjectAltName=IP:10.0.2.2,IP:127.0.0.1\n' > "$WORKDIR/san.ext"
 openssl x509 -req -in "$WORKDIR/pebble.csr" -CA "$WORKDIR/test-ca.pem" -CAkey "$WORKDIR/ca.key" -CAcreateserial \
-  -days 1 -extfile "$WORKDIR/san.ext" -out "$WORKDIR/pebble.pem" 2>/dev/null
+  -not_before "$not_before" -not_after "$not_after" -extfile "$WORKDIR/san.ext" -out "$WORKDIR/pebble.pem" 2>/dev/null
 cat > "$WORKDIR/pebble.json" <<EOF
 {"pebble": {"listenAddress": "127.0.0.1:$P_ACME", "managementListenAddress": "127.0.0.1:$P_ACME_MGMT",
   "certificate": "$WORKDIR/pebble.pem", "privateKey": "$WORKDIR/pebble.key",
