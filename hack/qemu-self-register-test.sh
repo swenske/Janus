@@ -72,6 +72,8 @@
 #
 # Usage: hack/qemu-self-register-test.sh <rootfs-dir> <bzImage> <haproxy-bin> <janusd-bin> <janusctl-bin> <dashboardd-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -396,14 +398,9 @@ fi
 fi # ENROLL
 
 # The CA the Controller pins for the node is the one the node reported -
-# compared with the booted guest's own (partition 6, STATE - the same
-# debugfs extraction every other lifecycle test in this project uses).
-STATE_START_SECTOR="$(sgdisk -i 6 "$BLANK_DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-STATE_SIZE_SECTORS="$(sgdisk -i 6 "$BLANK_DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-dd if="$BLANK_DISK" of="$WORKDIR/state.img" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-debugfs -R "dump pki/ca.crt $WORKDIR/guest-ca.crt" "$WORKDIR/state.img" >/dev/null 2>&1
-[ -s "$WORKDIR/guest-ca.crt" ] || { echo "Self-register test FAILED: couldn't extract pki/ca.crt from the booted guest's STATE partition" >&2; exit 1; }
-cmp -s "$WORKDIR/guest-ca.crt" "$WORKDIR/dashboard-data/nodes/$APPROVED_ID/ca.crt" \
+# compared with the booted guest's own, off its STATE (hack/state-read.sh).
+state_read "$BLANK_DISK" "$WORKDIR/guest" pki/ca.crt || { echo "Self-register test FAILED: couldn't extract pki/ca.crt from the booted guest's STATE partition" >&2; exit 1; }
+cmp -s "$WORKDIR/guest/ca.crt" "$WORKDIR/dashboard-data/nodes/$APPROVED_ID/ca.crt" \
   || { echo "Self-register test FAILED: the Controller pins another CA than the node's own" >&2; exit 1; }
 
 # Its page relays: a 502 here - the guest's advertise address isn't

@@ -18,6 +18,8 @@
 #
 # Usage: hack/qemu-logforward-es-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -117,24 +119,7 @@ until grep -aq "listening on" "$LOG" 2>/dev/null; do
   sleep 1
 done
 sleep 2
-STATE_START_SECTOR="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-STATE_SIZE_SECTORS="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-# The node's first credentials, read off its STATE while it runs: what
-# janusd just wrote may still be only in ext4's journal - replayed on the
-# copy (e2fsck), and read again a moment later until it's there.
-for try in $(seq 15); do
-  dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-  e2fsck -fy "$WORKDIR/state.img" >/dev/null 2>&1 || true
-  got=1
-  for f in ca.crt admin.crt admin.key; do
-    rm -f "$WORKDIR/$f"
-    debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-    [ -s "$WORKDIR/$f" ] || got=0
-  done
-  [ "$got" = 1 ] && break
-  [ "$try" -lt 15 ] || fail "couldn't extract the node's pki/ from STATE"
-  sleep 2
-done
+state_pki "$DISK" "$WORKDIR" || fail "couldn't extract the node's pki/ from STATE"
 ctl() { "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" "$@"; }
 NODE_FP="$(openssl x509 -in "$WORKDIR/ca.crt" -outform der | sha256sum | cut -d' ' -f1)"
 

@@ -24,6 +24,8 @@
 #
 # Usage: hack/qemu-system-info-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -76,15 +78,7 @@ echo "Boot OK: real UEFI boot, HTTP 200"
 
 # --- extract PKI straight from disk.img's STATE partition, same reasoning
 # as hack/qemu-lifecycle-rollback-test.sh ---
-STATE_START_SECTOR="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-STATE_SIZE_SECTORS="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-STATE_IMG="$WORKDIR/state.img"
-dd if="$DISK" of="$STATE_IMG" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$STATE_IMG" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || { echo "System info test FAILED: couldn't extract pki/$f from disk.img's STATE partition" >&2; exit 1; }
-done
+state_pki "$DISK" "$WORKDIR" || { echo "System info test FAILED: couldn't extract the node's pki/ from disk.img's STATE partition" >&2; exit 1; }
 
 OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" system info)"
 echo "$OUT"

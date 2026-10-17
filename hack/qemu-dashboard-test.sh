@@ -155,6 +155,8 @@
 #
 # Usage: hack/qemu-dashboard-test.sh <disk.img> <dashboardd-bin> <versitygw-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 HACK="$(cd "$(dirname "$0")" && pwd)"
 
 export PATH="$PATH:/usr/sbin:/sbin"
@@ -216,13 +218,7 @@ fi
 echo "Node OK: real UEFI boot, HTTP 200"
 
 # --- extract PKI from STATE (same reasoning as every other lifecycle test) ---
-STATE_START_SECTOR="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-STATE_SIZE_SECTORS="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || { echo "Dashboard test FAILED: couldn't extract pki/$f from disk.img's STATE partition" >&2; exit 1; }
-done
+state_pki "$DISK" "$WORKDIR" || { echo "Dashboard test FAILED: couldn't extract the node's pki/ from disk.img's STATE partition" >&2; exit 1; }
 
 # --- start dashboardd ---
 mkdir -p "$WORKDIR/data"

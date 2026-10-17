@@ -47,8 +47,11 @@ on the test's command line shows every denial.
 
 ## Habits the tests rely on
 
-- **Credentials** come from the disk's STATE (`debugfs`), or from the
-  console for the ISO: a node prints them once.
+- **Credentials** come from the disk's STATE, or from the console for
+  the ISO: a node prints them once. A test reads them while the node
+  runs with `state_pki` (`hack/state-read.sh`): what janusd has just
+  written may still be only in ext4's journal, so it replays the
+  journal on a copy and reads again until they're there.
 - **Wait for janusd**, not for HTTP 200: HAProxy starts before the PKI,
   so a node answers HTTP before its API listens - wait for `listening
   on`.

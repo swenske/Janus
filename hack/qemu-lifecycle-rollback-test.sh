@@ -36,6 +36,8 @@
 #
 # Usage: hack/qemu-lifecycle-rollback-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 # debugfs (e2fsprogs) installs to /usr/sbin, same PATH gap already hit
 # for veritysetup/mkfs.ext4/mkfs.vfat/sgdisk on janus-runner01.
@@ -100,21 +102,11 @@ if ! grep -q "$FIRST_BOOT_MSG" "$LOG"; then
 fi
 echo "Slot A OK: real UEFI boot, HTTP 200, PKI bootstrapped"
 
-# --- extract PKI material straight from disk.img's STATE partition -
-# safe to read concurrently with the still-running guest: janusd's
-# PKI bootstrap calls syscall.Sync() before it even starts listening
-# (see cmd/janusd/main.go), and HTTP 200 above already proves the
-# listener is up, so those writes are already visible through the host
-# page cache backing this same disk.img file. ---
-STATE_START_SECTOR="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-STATE_SIZE_SECTORS="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-STATE_IMG="$WORKDIR/state.img"
-dd if="$DISK" of="$STATE_IMG" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$STATE_IMG" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || { echo "Rollback test FAILED: couldn't extract pki/$f from disk.img's STATE partition after slot A booted" >&2; exit 1; }
-done
+# --- the node's first credentials, off disk.img's STATE partition while
+# the guest runs (hack/state-read.sh: HTTP 200 is HAProxy's, which
+# starts before the PKI, and what janusd wrote may still be only in
+# ext4's journal) ---
+state_pki "$DISK" "$WORKDIR" || { echo "Rollback test FAILED: couldn't extract the node's pki/ from disk.img's STATE partition after slot A booted" >&2; exit 1; }
 
 # --- call Rollback for real, over mTLS ---
 ROLLBACK_OUT="$("$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle rollback)"

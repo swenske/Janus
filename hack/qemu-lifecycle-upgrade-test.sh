@@ -76,6 +76,8 @@
 # and rootfs/{rootfs.squashfs,rootfs.verity,rootfs.roothash,
 # rootfs.verity.info} (rootfs/assemble.sh's output for v1).
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -262,11 +264,7 @@ echo "Slot A (v1) OK: real UEFI boot, HTTP 200 on :8080, PKI bootstrapped, root 
 # --- extract PKI material straight from disk.img's STATE partition
 # (same sector range computed above - partition geometry doesn't
 # change between boots) ---
-dd if="$DISK" of="$STATE_IMG" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$STATE_IMG" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || { echo "Upgrade test FAILED: couldn't extract pki/$f from disk.img's STATE partition after slot A booted" >&2; exit 1; }
-done
+state_pki "$DISK" "$WORKDIR" || { echo "Upgrade test FAILED: couldn't extract the node's pki/ from disk.img's STATE partition after slot A booted" >&2; exit 1; }
 
 # --- the other slot, read off its partition: the disk image's slot B
 # holds the same image as A - its version when the image says it
@@ -408,11 +406,7 @@ if ! wait_http "$HOST_PORT_8080" "$HTTP_TIMEOUT_SECS"; then
   echo "Upgrade test FAILED: slot B (v2) didn't come back up for the Rollback bonus check" >&2
   exit 1
 fi
-for f in ca.crt admin.crt admin.key; do rm -f "$WORKDIR/$f"; done
-dd if="$DISK" of="$STATE_IMG" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$STATE_IMG" >/dev/null 2>&1
-done
+state_pki "$DISK" "$WORKDIR" || { echo "Upgrade test FAILED: couldn't extract the node's pki/ from STATE after slot B booted" >&2; exit 1; }
 "$CTL" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" lifecycle rollback
 
 if ! wait_http_and_marker "$HOST_PORT_8080" "$B_LOG" 2 "$REBOOT_TIMEOUT_SECS"; then

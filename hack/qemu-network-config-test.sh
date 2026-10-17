@@ -25,6 +25,8 @@
 #
 # Usage: hack/qemu-network-config-test.sh <bzImage> <rootfs-dir> <disk.img> <janusctl>
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -117,17 +119,7 @@ wait_grpc() { # wait_grpc PORT: janusd answers there (its clock may still be wro
     sleep 1
   done
 }
-extract_pki() {
-  local start size
-  start="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-  size="$(sgdisk -i 6 "$DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-  dd if="$DISK" of="$WORKDIR/state.img" bs=512 skip="$start" count="$size" status=none
-  for f in ca.crt admin.crt admin.key; do
-    rm -f "$WORKDIR/$f"
-    debugfs -R "dump pki/$f $WORKDIR/$f" "$WORKDIR/state.img" >/dev/null 2>&1
-    [ -s "$WORKDIR/$f" ] || fail "couldn't extract pki/$f from STATE"
-  done
-}
+extract_pki() { state_pki "$DISK" "$WORKDIR" || fail "couldn't extract the node's pki/ from STATE"; }
 server_sans() { # server_sans PORT: the node's server certificate's SANs
   openssl s_client -connect "127.0.0.1:$1" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" -CAfile "$WORKDIR/ca.crt" </dev/null 2>/dev/null |
     openssl x509 -noout -ext subjectAltName 2>/dev/null | tail -n +2

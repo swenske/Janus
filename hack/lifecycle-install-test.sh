@@ -72,6 +72,8 @@
 # <rootfs-dir> must contain rootfs.squashfs/rootfs.verity/rootfs.roothash
 # (rootfs/assemble.sh's output for the *existing* build).
 set -euo pipefail
+# shellcheck source=state-read.sh
+. "$(dirname "$0")/state-read.sh"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -334,14 +336,7 @@ echo "Part 4 OK: the installed disk is genuinely, independently bootable under r
 # --- extract fresh PKI creds from the booted instance's own STATE
 # partition (partition 6, image/disk/assemble.sh's fixed convention -
 # Install itself follows it too) ---
-STATE_START_SECTOR="$(sgdisk -i 6 "$BLANK_DISK" | awk -F': ' '/^First sector/ {print $2}' | awk '{print $1}')"
-STATE_SIZE_SECTORS="$(sgdisk -i 6 "$BLANK_DISK" | awk -F': ' '/^Partition size/ {print $2}' | awk '{print $1}')"
-STATE_IMG="$WORKDIR/state.img"
-dd if="$BLANK_DISK" of="$STATE_IMG" bs=512 skip="$STATE_START_SECTOR" count="$STATE_SIZE_SECTORS" status=none
-for f in ca.crt admin.crt admin.key; do
-  debugfs -R "dump pki/$f $WORKDIR/$f" "$STATE_IMG" >/dev/null 2>&1
-  [ -s "$WORKDIR/$f" ] || { echo "Install test FAILED: couldn't extract pki/$f from the booted disk's STATE partition" >&2; exit 1; }
-done
+state_pki "$BLANK_DISK" "$WORKDIR" || { echo "Install test FAILED: couldn't extract the node's pki/ from the booted disk's STATE partition" >&2; exit 1; }
 BOOTED_CTL_ARGS=(-endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key")
 
 # --- Install targeting the disk this instance is currently booted
