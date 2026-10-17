@@ -349,10 +349,11 @@ export function buildFlow(rows, topology, mapEntries) {
   const { links, unresolved } = topology ? resolveLinks(topology, bes.map((b) => b.proxy), mapEntries) : { links: [], unresolved: [] }
   const backends = bes.map((r) => {
     const own = servers.filter((s) => s.proxy === r.proxy)
-    const srv = own.map((s) => ({ id: `srv:${r.proxy}/${s.name}`, kind: 'srv', name: s.name, backend: r.proxy, tone: serverTone(s.status), row: s }))
+    const mode = r.mode || ''
+    const srv = own.map((s) => ({ id: `srv:${r.proxy}/${s.name}`, kind: 'srv', name: s.name, backend: r.proxy, mode, tone: serverTone(s.status), row: s }))
     const down = srv.filter((s) => s.tone === 'danger').length
     let tone = String(r.status).toUpperCase().startsWith('DOWN') ? 'danger' : down ? 'warn' : String(r.status).toUpperCase() === 'UP' ? 'ok' : ''
-    return { id: `be:${r.proxy}`, kind: 'be', name: r.proxy, tone, servers: srv, down, row: r }
+    return { id: `be:${r.proxy}`, kind: 'be', name: r.proxy, mode, tone, servers: srv, down, row: r }
   })
   return {
     configKnown: !!topology,
@@ -382,14 +383,92 @@ export function interfaces(net, status) {
     })
 }
 
+// protocol is what a link's traffic is - http or tcp, as HAProxy's mode
+// says (a backend's: a TCP frontend may hand its connections to an HTTP
+// backend, never the other way), log to a log target, '' for an
+// interface's (all of its traffic, whatever it is).
+export function protocol(link, byId) {
+  if (link.kind === 'log') return 'log'
+  if (link.kind === 'iface') return ''
+  const node = link.kind === 'fe' ? byId[link.to] : link.kind === 'be' ? byId[link.to] : byId[link.from] // srv, trunk: the backend
+  const mode = node?.mode || (link.kind === 'be' ? byId[link.from]?.mode : '')
+  return mode === 'http' || mode === 'tcp' ? mode : ''
+}
+
+const toNumber = (v) => (v == null || v === '' ? undefined : Number(v))
+
+// logTargets are the node's log targets for the map, from
+// /api/log-forwarding (its status, proto names): each with its records
+// and bytes a second from the previous answer, seconds earlier (none
+// without one, or for a counter that went back - janusd restarted), and
+// the interface its traffic leaves by. A node older than that interface
+// doesn't say it nor its bytes: via null, bytes unknown.
+export function logTargets(resp, prevResp, seconds) {
+  const cfg = new Map((resp?.config?.targets || []).map((t) => [t.name, t]))
+  const prev = new Map((prevResp?.targets || []).map((t) => [t.name, t]))
+  return (resp?.targets || []).map((st) => {
+    const p = prev.get(st.name)
+    const knowsBytes = 'bytes_sent' in st
+    const rate = (k) => {
+      const a = toNumber(st[k])
+      const b = toNumber(p?.[k])
+      return p && seconds > 0 && a != null && b != null && a >= b ? (a - b) / seconds : undefined
+    }
+    const c = cfg.get(st.name) || {}
+    const state = st.state || ''
+    return {
+      id: `log:${st.name}`,
+      kind: 'log',
+      name: st.name,
+      es: !!c.elasticsearch || st.kind === 'elasticsearch',
+      target: c,
+      status: st,
+      via: 'interface' in st ? st.interface || '' : null,
+      msgRate: rate('sent'),
+      byteRate: knowsBytes ? rate('bytes_sent') : undefined,
+      knowsBytes,
+      tone: state === 'disabled' ? 'off' : state === 'failing' ? 'danger' : state === 'ok' ? 'ok' : '',
+    }
+  })
+}
+
+// logPlaces is where the log targets go along the interfaces' column (or
+// row): each level with the interface it leaves by - several on one, a
+// step apart -, those no interface on the map says after the others.
+// at is an interface's place (undefined when it isn't on the map).
+function logPlaces(logs, at, step, start) {
+  const want = logs.map((t, i) => {
+    const p = t.via ? at(t.via) : undefined
+    return { t, i, p: p ?? Infinity }
+  })
+  want.sort((a, b) => a.p - b.p || a.i - b.i)
+  let prev = start - step
+  return want.map((w) => {
+    prev = Math.max(Number.isFinite(w.p) ? w.p : -Infinity, prev + step)
+    return { t: w.t, p: prev }
+  })
+}
+
+// linkLog joins a log target to its interface, when it's on the map.
+function linkLog(n, byId, links) {
+  const iface = n.via ? byId[`if:${n.via}`] : null
+  n.linked = !!iface
+  if (iface) links.push({ id: `${iface.id}>${n.id}`, from: iface.id, to: n.id, kind: 'log' })
+}
+
 // --- layout ---
 
 export const MAX_SERVERS = 8
 const ROW = 92 // a frontend's, backend's or interface's height
 const SRV_ROW = 46 // a server's: its label is beside it
 const TOP = 24
-const R = { iface: 22, hub: 32, fe: 22, be: 22, srv: 14, more: 14 }
-const X = { iface: 60, hub: 240, fe: 440, be: 650, srv: 850 }
+const R = { log: 22, iface: 22, hub: 32, fe: 22, be: 22, srv: 14, more: 14 }
+const COLUMNS = { iface: 60, hub: 240, fe: 440, be: 650, srv: 850 }
+const shifted = (dx) => Object.fromEntries(Object.entries(COLUMNS).map(([k, x]) => [k, x + dx]))
+// The log targets' column, its labels centred under it whole - "15
+// msg/s · 13.0 KiB/s" -, the others moved right of it.
+const LOG_X = 95
+const LOG_SHIFT = 220
 
 function curve(a, b) {
   const x1 = a.x + a.r
@@ -434,18 +513,21 @@ function serverSlots(b, servers) {
 
 // layout places the map's nodes and draws its links in a shape: across
 // (left to right, labels under the nodes), dense (left to right, labels
-// beside them) or down (top to bottom) - vertical is down.
-export function layout(graph, ifaces, { servers = true, vertical = false, shape = vertical ? 'down' : 'across' } = {}) {
-  if (shape === 'down') return layoutDown(graph, ifaces, servers)
-  if (shape === 'dense') return layoutDense(graph, ifaces, servers)
-  return layoutAcross(graph, ifaces, servers)
+// beside them) or down (top to bottom) - vertical is down. Log targets
+// (logTargets), when there are, go beyond the interfaces: a column left
+// of them, a row above them.
+export function layout(graph, ifaces, { servers = true, vertical = false, shape = vertical ? 'down' : 'across', logs = [] } = {}) {
+  if (shape === 'down') return layoutDown(graph, ifaces, servers, logs)
+  if (shape === 'dense') return layoutDense(graph, ifaces, servers, logs)
+  return layoutAcross(graph, ifaces, servers, logs)
 }
 
 // layoutAcross places the nodes in columns - interfaces, HAProxy,
 // frontends, backends, servers (when shown). Backends follow the first
 // frontend that names them, each as tall as its servers; frontends sit
 // level with their backends, never closer than a row.
-function layoutAcross(graph, ifaces, servers) {
+function layoutAcross(graph, ifaces, servers, logs) {
+  const X = logs.length ? shifted(LOG_SHIFT) : COLUMNS
   const nodes = []
   const byId = {}
   const put = (n) => {
@@ -497,10 +579,16 @@ function layoutAcross(graph, ifaces, servers) {
   })
   for (const f of graph.frontends) links.push({ id: `hub>${f.id}`, from: 'hub', to: f.id, kind: 'fe' })
   for (const l of graph.links) links.push({ ...l, kind: 'be' })
+  let logBottom = 0
+  for (const { t, p } of logPlaces(logs, (name) => byId[`if:${name}`]?.y, ROW, TOP + ROW / 2)) {
+    linkLog(put({ ...t, x: LOG_X, y: p, r: R.log }), byId, links)
+    logBottom = p + ROW / 2
+  }
 
-  for (const l of links) l.d = curve(byId[l.from], byId[l.to])
+  // A log link is drawn from its target: left to right too.
+  for (const l of links) l.d = l.kind === 'log' ? curve(byId[l.to], byId[l.from]) : curve(byId[l.from], byId[l.to])
 
-  const bottom = Math.max(beBottom, prev + ROW / 2, first + span + ROW / 2, hub.y + ROW / 2)
+  const bottom = Math.max(beBottom, prev + ROW / 2, first + span + ROW / 2, hub.y + ROW / 2, logBottom)
   const width = servers && graph.backends.some((b) => b.servers.length) ? X.srv + 200 : X.be + 120
   return { nodes, links, byId, width, height: bottom + TOP, hubY: hub.y }
 }
@@ -537,7 +625,7 @@ export function reach(n) {
 // backends with their servers below them. Backends follow the first
 // frontend that names them; frontends sit above the middle of their
 // backends, never closer than their labels allow.
-function layoutDown(graph, ifaces, servers) {
+function layoutDown(graph, ifaces, servers, logs) {
   const nodes = []
   const byId = {}
   const put = (n) => {
@@ -548,7 +636,8 @@ function layoutDown(graph, ifaces, servers) {
   const links = []
   const { rank, ordered } = rankBackends(graph)
 
-  const ifY = TOP + R.iface
+  const logY = TOP + R.log
+  const ifY = logs.length ? logY + LEVEL : TOP + R.iface
   const hubY = ifY + LEVEL
   const feY = hubY + LEVEL
   const beY = feY + FAN
@@ -598,6 +687,12 @@ function layoutDown(graph, ifaces, servers) {
   })
   for (const f of graph.frontends) links.push({ id: `hub>${f.id}`, from: 'hub', to: f.id, kind: 'fe' })
   for (const l of graph.links) links.push({ ...l, kind: 'be' })
+  // Log targets above their interfaces, their labels apart.
+  if (logs.length) {
+    const logStep = Math.max(...logs.map((t) => reach({ ...t, r: R.log }))) + GAP + R.log
+    const left = ifaces.length ? mid - ((ifaces.length - 1) / 2) * step : mid
+    for (const { t, p } of logPlaces(logs, (name) => byId[`if:${name}`]?.x, logStep, left)) linkLog(put({ ...t, x: p, y: logY, r: R.log }), byId, links)
+  }
 
   // Everything moved right of the margin, then the links drawn.
   const shift = TOP - Math.min(...nodes.map((n) => n.x - n.r))
@@ -607,6 +702,7 @@ function layoutDown(graph, ifaces, servers) {
     const b = byId[l.to]
     if (l.kind === 'trunk') l.d = `M${a.x} ${a.y + a.r}V${l.end}`
     else if (l.kind === 'srv') l.d = `M${a.x} ${b.y - ELBOW}Q${a.x} ${b.y} ${a.x + ELBOW} ${b.y}H${b.x - b.r}`
+    else if (l.kind === 'log') l.d = curveDown(b, a) // from the target above
     else l.d = curveDown(a, b)
   }
   const width = Math.max(...nodes.map((n) => n.x + reach(n))) + TOP
@@ -617,7 +713,7 @@ function layoutDown(graph, ifaces, servers) {
 // links that leave it, its numbers on a line below them; a server's name
 // and numbers on one line - so a row is as tall as a node: half the
 // across layout's, for a configuration with many backends.
-const LINE_CHARS = { iface: 11, hub: 20 } // a dense label's numbers on one line: "999.9 KiB/s", "999 conns · 99 req/s"
+const LINE_CHARS = { iface: 11, hub: 20, log: 23 } // a dense label's numbers on one line: "999.9 KiB/s", "999 conns · 99 req/s", "999 msg/s · 999.9 KiB/s"
 
 // lineChars is the room a dense label keeps for its numbers: "999.9
 // KiB/s · 999 sess" but for an interface's and HAProxy's.
@@ -626,7 +722,7 @@ export function lineChars(n) {
 }
 
 const DENSE = {
-  r: { iface: 18, hub: 24, fe: 18, be: 18, srv: 11, more: 11 },
+  r: { log: 18, iface: 18, hub: 24, fe: 18, be: 18, srv: 11, more: 11 },
   row: 44, // a row of interfaces, frontends or backends
   srv: 28, // a server's
   gap: 44, // between a label and the next column
@@ -640,7 +736,7 @@ function stem(n) {
   return n.x + reach(n) + 6
 }
 
-function layoutDense(graph, ifaces, servers) {
+function layoutDense(graph, ifaces, servers, logs) {
   const nodes = []
   const byId = {}
   const put = (n) => {
@@ -692,25 +788,32 @@ function layoutDense(graph, ifaces, servers) {
   })
   for (const f of graph.frontends) links.push({ id: `hub>${f.id}`, from: 'hub', to: f.id, kind: 'fe' })
   for (const l of graph.links) links.push({ ...l, kind: 'be' })
+  let logBottom = 0
+  for (const { t, p } of logPlaces(logs, (name) => byId[`if:${name}`]?.y, DENSE.row, TOP + DENSE.row / 2)) {
+    linkLog(put({ ...t, y: p, r: R.log, dense: true }), byId, links)
+    logBottom = p + DENSE.row / 2
+  }
 
   // Columns as wide as their labels.
   const widest = (kind) => Math.max(0, ...nodes.filter((n) => n.kind === kind).map((n) => reach(n)))
-  const x = { iface: TOP + R.iface }
-  x.hub = (ifaces.length ? x.iface + widest('iface') + DENSE.gap : TOP) + R.hub
+  const x = { log: TOP + R.log }
+  x.iface = (logs.length ? x.log + widest('log') + DENSE.gap : TOP) + R.iface
+  x.hub = (ifaces.length ? x.iface + widest('iface') + DENSE.gap : logs.length ? x.log + widest('log') + DENSE.gap : TOP) + R.hub
   x.fe = x.hub + reach(hub) + DENSE.gap + R.fe
   x.be = x.fe + widest('fe') + DENSE.fan + R.be
   x.srv = x.be + widest('be') + DENSE.gap + R.srv
   for (const n of nodes) n.x = x[n.kind === 'more' ? 'srv' : n.kind]
 
   for (const l of links) {
-    const a = byId[l.from]
-    const b = byId[l.to]
+    // A log link is drawn from its target: left to right too.
+    const a = byId[l.kind === 'log' ? l.to : l.from]
+    const b = byId[l.kind === 'log' ? l.from : l.to]
     const from = stem(a)
     const to = b.x - b.r
     const xm = (from + to) / 2
     l.d = `M${a.x + a.r} ${a.y}H${from}C${xm} ${a.y} ${xm} ${b.y} ${to} ${b.y}`
   }
-  const bottom = Math.max(beBottom, prev + DENSE.row / 2, first + span + DENSE.row / 2, hub.y + DENSE.row / 2)
+  const bottom = Math.max(beBottom, prev + DENSE.row / 2, first + span + DENSE.row / 2, hub.y + DENSE.row / 2, logBottom)
   const width = Math.max(...nodes.map((n) => n.x + reach(n))) + TOP
   return { nodes, links, byId, width, height: bottom + TOP, hubY: hub.y }
 }
@@ -765,6 +868,18 @@ export function arrange(choice, maps, room) {
 // crosses; null for HAProxy and the interfaces (everything).
 export function related(map, id) {
   const link = map.links.find((l) => l.id === id)
+  // A log target: its link and the interface it leaves by.
+  const log = link?.kind === 'log' ? map.byId[link.to] : map.byId[id]?.kind === 'log' ? map.byId[id] : null
+  if (log) {
+    const out = new Set([log.id])
+    for (const l of map.links) {
+      if (l.to === log.id) {
+        out.add(l.id)
+        out.add(l.from)
+      }
+    }
+    return out
+  }
   const start = link ? [link.from, link.to] : [id]
   if (start.some((n) => !map.byId[n] || map.byId[n].kind === 'hub' || map.byId[n].kind === 'iface')) return null
   const out = new Set([...start, ...(link ? [link.id] : [])])
@@ -808,4 +923,40 @@ export function pulse(bytesPerSecond) {
     width: Math.min(5, Math.max(1.5, 1.2 + 0.45 * l)),
     seconds: Math.round(Math.min(2.4, Math.max(0.35, 2.6 - 0.3 * l)) * 100) / 100,
   }
+}
+
+// figures are the numbers the map shows, by node or link id - a node's
+// traffic and sessions, HAProxy's connections and requests, a log
+// target's records and bytes a second, a link's traffic (traffic, by
+// link id) - what a flash watches.
+export function figures(map, hap, traffic = {}) {
+  const f = {}
+  for (const n of map.nodes) {
+    const r = n.row
+    if (n.kind === 'iface') f[n.id] = { traffic: n.traffic }
+    else if (n.kind === 'hub') f[n.id] = { conns: hap?.conns, req: hap?.reqRate }
+    else if (n.kind === 'log') f[n.id] = { msgs: n.msgRate, bytes: n.byteRate }
+    else if (r) f[n.id] = { traffic: r.traffic, sess: r.scur }
+  }
+  for (const [id, t] of Object.entries(traffic)) f[id] = { traffic: t }
+  return f
+}
+
+// risen is what started from nothing between two figures: the ids one
+// of whose numbers was 0 and is more now - not one that wasn't known
+// (the first sample, a counter that went back).
+export function risen(prev, cur) {
+  const out = new Set()
+  if (!prev) return out
+  for (const [id, v] of Object.entries(cur)) {
+    const p = prev[id]
+    if (!p) continue
+    for (const [k, x] of Object.entries(v)) {
+      if (p[k] === 0 && x > 0) {
+        out.add(id)
+        break
+      }
+    }
+  }
+  return out
 }

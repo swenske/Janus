@@ -1,16 +1,40 @@
-import { ArrowDown, ArrowRight, Ellipsis, EthernetPort, Globe, Layers, Route, Scaling, Server, Shuffle, X } from 'lucide-react'
+import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, Layers, Route, Scaling, ScrollText, Server, Shuffle, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getJSON } from '../api.js'
 import ServerStateButtons from '../components/ServerStateButtons.jsx'
 import { Badge, Card, Empty, ErrorBox, Loading, PageHeader } from '../../shared/ui.jsx'
 import { bytes, compact, duration, num, rate } from '../format.js'
-import { NAME_CHARS, VALUE_CHARS, arrange, buildFlow, interfaces, layout, lineChars, parseTopology, pulse, reach, related, statRows, withRates } from '../flow.js'
+import {
+  NAME_CHARS,
+  VALUE_CHARS,
+  arrange,
+  buildFlow,
+  figures,
+  interfaces,
+  layout,
+  lineChars,
+  logTargets,
+  parseTopology,
+  protocol,
+  pulse,
+  reach,
+  related,
+  risen,
+  statRows,
+  withRates,
+} from '../flow.js'
 import { useMetrics, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 
-const ICONS = { iface: EthernetPort, hub: Shuffle, fe: Globe, be: Layers, srv: Server, more: Ellipsis }
-const ICON_SIZE = { iface: 18, hub: 26, fe: 18, be: 18, srv: 13, more: 13 }
-const KIND = { iface: 'Interface', hub: 'HAProxy', fe: 'Frontend', be: 'Backend', srv: 'Server', more: 'Servers' }
+const ICONS = { log: ScrollText, iface: EthernetPort, hub: Shuffle, fe: Globe, be: Layers, srv: Server, more: Ellipsis }
+const ICON_SIZE = { log: 18, iface: 18, hub: 26, fe: 18, be: 18, srv: 13, more: 13 }
+const KIND = { log: 'Log target', iface: 'Interface', hub: 'HAProxy', fe: 'Frontend', be: 'Backend', srv: 'Server', more: 'Servers' }
+const PROTO = { http: 'HTTP', tcp: 'TCP' }
+// The zoom (ctrl + scroll, the buttons): the map's drawn size, from
+// arrange's to these; a step of the buttons.
+const ZOOM_MIN = 0.3
+const ZOOM_MAX = 4
+const ZOOM_STEP = 1.25
 const SLOW = 30000 // the configuration, maps and interfaces' state change seldom
 const ORIENTATIONS = ['auto', 'vertical', 'horizontal']
 const SIDE_REM = 22 + 1 // the side panel beside the map, and the gap before it
@@ -80,6 +104,36 @@ function useSamples(data) {
   return s
 }
 
+// useLogSamples is useSamples for /api/log-forwarding: its log targets,
+// their records and bytes a second.
+function useLogSamples(data) {
+  const [s, setS] = useState({ cur: null, prev: null, seconds: 0 })
+  useEffect(() => {
+    if (!data) return
+    const now = Date.now()
+    setS((p) => ({ prev: p.cur, cur: { data, t: now }, seconds: p.cur ? (now - p.cur.t) / 1000 : 0 }))
+  }, [data])
+  return useMemo(() => (s.cur ? logTargets(s.cur.data, s.prev?.data, s.seconds) : []), [s])
+}
+
+// useFlashes is, by node or link id, how many times one of its numbers
+// started from nothing (figures, risen): a new count replays its flash.
+function useFlashes(cur) {
+  const last = useRef(null)
+  const [flash, setFlash] = useState({})
+  useEffect(() => {
+    const up = risen(last.current, cur)
+    last.current = cur
+    if (!up.size) return
+    setFlash((f) => {
+      const next = { ...f }
+      for (const id of up) next[id] = (next[id] || 0) + 1
+      return next
+    })
+  }, [cur])
+  return flash
+}
+
 // useMaps reads the maps a dynamic use_backend reads ({path: entries},
 // a path missing when the node didn't answer for it), every 30 s.
 function useMaps(paths, enabled, reloadKey) {
@@ -125,6 +179,10 @@ function activity(row) {
 function values(n, hap) {
   const r = n.row
   switch (n.kind) {
+    case 'log':
+      if (n.tone === 'off') return { parts: ['disabled'] }
+      if (n.tone === 'danger') return { parts: ['failing'], tone: 'danger' }
+      return { parts: [`${n.msgRate == null ? '–' : num(n.msgRate, n.msgRate > 0 && n.msgRate < 10 ? 1 : 0)} msg/s`, ...(n.knowsBytes ? [rate(n.byteRate)] : [])] }
     case 'iface':
       return n.up === false ? { parts: [n.status?.up ? 'No carrier' : 'Down'] } : { parts: [rate(n.traffic)] }
     case 'hub':
@@ -150,14 +208,18 @@ function values(n, hap) {
   }
 }
 
-function FlowNode({ n, hap, configKnown, shape, state, onSelect, onHover }) {
-  const Icon = ICONS[n.kind]
+function FlowNode({ n, hap, configKnown, shape, state, flash, onSelect, onHover }) {
+  const Icon = n.kind === 'log' && n.es ? Database : ICONS[n.kind]
   const s = ICON_SIZE[n.kind]
   const v = values(n, hap)
   const text = v.parts.join(' · ')
-  // A backend no frontend rule names - with the configuration read.
-  const unlinked = n.kind === 'be' && configKnown && !n.linked
-  const label = `${KIND[n.kind]} ${n.name}${text ? `: ${text}` : ''}${unlinked ? ' - no frontend rule names it' : ''}`
+  // A backend no frontend rule names - with the configuration read; a
+  // log target no interface on the map says it leaves by.
+  const unlinked = (n.kind === 'be' && configKnown && !n.linked) || (n.kind === 'log' && !n.linked)
+  const proto = (n.kind === 'fe' || n.kind === 'be') && PROTO[n.mode]
+  const label = `${KIND[n.kind]} ${n.name}${proto ? ` (${proto})` : ''}${text ? `: ${text}` : ''}${unlinked ? (n.kind === 'log' ? ' - not known through which interface' : ' - no frontend rule names it') : ''}`
+  // A number that started from nothing flashes: its key replays it.
+  const sub = (extra = '') => `flow-sub ${v.tone || ''} ${flash ? 'flash' : ''} ${extra}`
   // A label beside its node is part of it: hovering or clicking it too.
   const leaf = n.kind === 'srv' || n.kind === 'more'
   const beside = shape !== 'across' || leaf
@@ -168,7 +230,7 @@ function FlowNode({ n, hap, configKnown, shape, state, onSelect, onHover }) {
     labels = leaf ? (
       <text x={n.r + 8} y={4} textAnchor="start">
         <tspan className="flow-name">{short(n.name, NAME_CHARS)}</tspan>
-        <tspan className={`flow-sub ${v.tone || ''}`} dx={10}>
+        <tspan key={flash || 0} className={sub()} dx={10}>
           {short(text, lineChars(n))}
         </tspan>
       </text>
@@ -177,7 +239,7 @@ function FlowNode({ n, hap, configKnown, shape, state, onSelect, onHover }) {
         <text className="flow-name" x={n.r + 8} y={-6} textAnchor="start">
           {short(n.name, NAME_CHARS)}
         </text>
-        <text className={`flow-sub ${v.tone || ''}`} x={n.r + 8} y={15} textAnchor="start">
+        <text key={flash || 0} className={sub()} x={n.r + 8} y={15} textAnchor="start">
           {short(text, lineChars(n))}
         </text>
       </>
@@ -192,7 +254,7 @@ function FlowNode({ n, hap, configKnown, shape, state, onSelect, onHover }) {
           {short(n.name, NAME_CHARS)}
         </text>
         {v.parts.map((p, i) => (
-          <text key={i} className={`flow-sub ${v.tone || ''}`} x={n.r + 8} y={top + 14 + i * 13} textAnchor="start">
+          <text key={`${i}.${flash || 0}`} className={sub()} x={n.r + 8} y={top + 14 + i * 13} textAnchor="start">
             {short(p, VALUE_CHARS)}
           </text>
         ))}
@@ -204,7 +266,7 @@ function FlowNode({ n, hap, configKnown, shape, state, onSelect, onHover }) {
         <text className="flow-name" x={n.r + 8} y={-3} textAnchor="start">
           {short(n.name, 20)}
         </text>
-        <text className={`flow-sub ${v.tone || ''}`} x={n.r + 8} y={11} textAnchor="start">
+        <text key={flash || 0} className={sub()} x={n.r + 8} y={11} textAnchor="start">
           {short(text, 30)}
         </text>
       </>
@@ -215,7 +277,7 @@ function FlowNode({ n, hap, configKnown, shape, state, onSelect, onHover }) {
         <text className="flow-name" y={n.r + 15} textAnchor="middle">
           {short(n.name)}
         </text>
-        <text className={`flow-sub ${v.tone || ''}`} y={n.r + 29} textAnchor="middle">
+        <text key={flash || 0} className={sub()} y={n.r + 29} textAnchor="middle">
           {text}
         </text>
       </>
@@ -248,21 +310,46 @@ function FlowNode({ n, hap, configKnown, shape, state, onSelect, onHover }) {
     >
       {beside && <rect className="flow-box" x={-n.r} y={-half} width={n.r + reach(n)} height={2 * half} />}
       <circle className="flow-disc" r={n.r} />
+      {flash > 0 && <circle key={flash} className="flow-flash" r={n.r} />}
       <Icon className="flow-icon" size={s} x={-s / 2} y={-s / 2} aria-hidden="true" />
+      {proto && <ProtoBadge proto={n.mode} r={n.r} />}
       {labels}
       <title>{label}</title>
     </g>
   )
 }
 
+// ProtoBadge says a frontend's or backend's mode - HTTP or TCP - at its
+// ring's top left, where no link comes in nor label goes.
+function ProtoBadge({ proto, r }) {
+  const label = PROTO[proto]
+  const w = label.length * 5.6 + 7
+  const cx = -r * 0.78
+  const cy = -r * 0.78
+  return (
+    <g className={`flow-proto proto-${proto}`} transform={`translate(${cx} ${cy})`} aria-hidden="true">
+      <rect x={-w / 2} y={-6} width={w} height={12} rx={6} />
+      <text y={3} textAnchor="middle">
+        {label}
+      </text>
+    </g>
+  )
+}
+
 // linkLook is how a link shows: its pulse when traffic goes through, or
-// down (a server that fails its checks) or off (stopped, in maintenance).
+// down (a server that fails its checks, a log target failing) or off
+// (stopped, in maintenance, a log target disabled) - and its protocol's
+// colour.
 function linkLook(l, map, incoming) {
   const a = map.byId[l.from]
   const b = map.byId[l.to]
   let traffic = 0
   let cls = ''
-  if (l.kind === 'iface') {
+  if (l.kind === 'log') {
+    traffic = b.knowsBytes ? (b.byteRate ?? 0) : b.msgRate > 0 ? 1 : 0
+    if (b.tone === 'danger') cls = 'down'
+    else if (b.tone === 'off') cls = 'off'
+  } else if (l.kind === 'iface') {
     traffic = a.up === false ? 0 : (a.traffic ?? 0)
     if (a.up === false) cls = 'off'
   } else if (l.kind === 'fe') {
@@ -284,14 +371,16 @@ function linkLook(l, map, incoming) {
     if (b.tone === 'danger') cls = 'down'
     else if (b.tone === 'off') cls = 'off'
   }
-  return { cls, pulse: cls ? null : pulse(traffic) }
+  const proto = protocol(l, map.byId)
+  return { cls, proto, traffic: cls ? 0 : traffic, pulse: cls ? null : pulse(traffic) }
 }
 
-function FlowLink({ l, look, state, onSelect, onHover }) {
+function FlowLink({ l, look, state, flash, onSelect, onHover }) {
   const clickable = l.kind === 'be'
   return (
-    <g className={`flow-link ${look.cls} ${state}`} data-id={l.id}>
+    <g className={`flow-link kind-${l.kind} ${look.proto ? `proto-${look.proto}` : ''} ${look.cls} ${state}`} data-id={l.id}>
       <path className="flow-track" d={l.d} />
+      {flash > 0 && look.pulse && <path key={flash} className="flow-flash-link" d={l.d} />}
       {look.pulse && <path className="flow-pulse" d={l.d} style={{ strokeWidth: look.pulse.width, animationDuration: `${look.pulse.seconds}s` }} />}
       {clickable && (
         <path
@@ -380,7 +469,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   const r = n.row
   const title = (
     <>
-      {n.name} <Badge>{KIND[n.kind].toLowerCase()}</Badge>
+      {n.name} <Badge>{KIND[n.kind].toLowerCase()}</Badge> {(n.kind === 'fe' || n.kind === 'be') && PROTO[n.mode] && <span className={`badge flow-proto-badge proto-${n.mode}`}>{PROTO[n.mode]}</span>}
     </>
   )
   const go = (other) => (
@@ -410,6 +499,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
       </Card>
     )
   }
+  if (n.kind === 'log') return <LogDetails n={n} title={title} />
   if (n.kind === 'iface') {
     const s = n.status
     return (
@@ -469,6 +559,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
       <Card title={title} icon={Icon}>
         <dl className="kv">
           <Row k="Status">{r.status}</Row>
+          <Row k="Mode">{n.mode}</Row>
           <Row k="Servers">{`${n.servers.length - n.down} of ${n.servers.length} up${r.act != null ? ` · ${num(r.act)} active, ${num(r.bck)} backup` : ''}`}</Row>
           <Row k="Sessions">{sessions(r)}</Row>
           <Row k="Queued">{r.qcur ? num(r.qcur) : null}</Row>
@@ -537,6 +628,54 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   )
 }
 
+// logKind is how a log target sends: "syslog over UDP · RFC 5424",
+// "Elasticsearch · gzip".
+function logKind(t) {
+  if (t.elasticsearch) return `Elasticsearch${t.elasticsearch.gzip ? ' · gzip' : ''}`
+  const s = t.syslog || {}
+  const framing = s.transport === 'tcp' || s.transport === 'tls' ? ` · ${s.framing || (s.format === 'rfc3164' ? 'lf' : 'octet-counting')}` : ''
+  return `syslog over ${(s.transport || 'udp').toUpperCase()} · ${s.format === 'rfc3164' ? 'RFC 3164' : 'RFC 5424'}${framing}`
+}
+
+function LogDetails({ n, title }) {
+  const st = n.status
+  const t = n.target
+  const Icon = n.es ? Database : ScrollText
+  const lastSent = Number(st.last_sent_unix_ns || 0)
+  let via
+  if (n.via == null) via = <span className="muted">not said - the node runs an older Janus</span>
+  else if (n.via) via = n.linked ? <span className="mono">{n.via}</span> : <span className="mono">{n.via} (not on the map)</span>
+  else via = <span className="muted">{st.remote_address ? 'no route says' : 'not connected yet'}</span>
+  return (
+    <Card title={title} icon={Icon}>
+      <dl className="kv">
+        <Row k="State">
+          <Badge tone={n.tone === 'off' ? '' : n.tone} dot>
+            {st.state}
+          </Badge>
+        </Row>
+        <Row k="Sends">{logKind(t)}</Row>
+        <Row k="To">{t.syslog?.address || t.elasticsearch?.url ? <span className="mono">{t.syslog?.address || t.elasticsearch?.url}</span> : null}</Row>
+        <Row k="Through">{via}</Row>
+        <Row k="Connection">{st.remote_address ? <span className="mono">{`${st.local_address || '?'} → ${st.remote_address}`}</span> : null}</Row>
+        <Row k="Records/s">{n.msgRate != null ? num(n.msgRate, 1) : null}</Row>
+        <Row k="Throughput">{n.knowsBytes ? rate(n.byteRate) : null}</Row>
+        <Row k="Sent">{`${num(Number(st.sent || 0))} records${n.knowsBytes ? ` · ${bytes(Number(st.bytes_sent || 0))}` : ''}`}</Row>
+        <Row k="Waiting">{num(Number(st.queued || 0))}</Row>
+        <Row k="Dropped">{Number(st.dropped || 0) ? num(Number(st.dropped)) : null}</Row>
+        <Row k="Failed sends">{Number(st.errors || 0) ? num(Number(st.errors)) : null}</Row>
+        <Row k="Last sent">{lastSent ? `${duration(Math.max(0, (Date.now() - lastSent / 1e6) / 1000))} ago` : null}</Row>
+        <Row k="Sources">{t.sources?.length ? t.sources.join(', ') : 'all but the access logs'}</Row>
+      </dl>
+      {st.last_error && <div className="notice danger small">{st.last_error}</div>}
+      <p className="muted small">What janusd sends: its own lines, HAProxy&apos;s, the kernel&apos;s, the events and audit - through the interface the node&apos;s routes pick.</p>
+      <p className="small">
+        <a href="#/log-forwarding">Logs › Forwarding</a>
+      </p>
+    </Card>
+  )
+}
+
 function Legend() {
   return (
     <div className="flow-legend">
@@ -554,9 +693,23 @@ function Legend() {
       </div>
       <div className="flow-legend-row">
         {[
-          ['pulse', 'traffic'],
+          ['pulse proto-http', 'HTTP'],
+          ['pulse proto-tcp', 'TCP'],
+          ['pulse proto-log', 'logs'],
+          ['pulse', 'an interface’s, all of it'],
+        ].map(([cls, label]) => (
+          <span key={cls} className="flow-legend-item">
+            <svg width="26" height="8" aria-hidden="true">
+              <path className={cls.split(' ').map((c, i) => (i ? c : `flow-legend-${c}`)).join(' ')} d="M1 4H25" />
+            </svg>
+            {label}
+          </span>
+        ))}
+      </div>
+      <div className="flow-legend-row">
+        {[
           ['track', 'none'],
-          ['down', 'server down'],
+          ['down', 'server down, log target failing'],
         ].map(([cls, label]) => (
           <span key={cls} className="flow-legend-item">
             <svg width="26" height="8" aria-hidden="true">
@@ -568,7 +721,8 @@ function Legend() {
       </div>
       <p className="muted small">
         Links come from the configuration - <code>default_backend</code>, <code>use_backend</code>, a map&apos;s values when <code>use_backend</code> reads one. The numbers are
-        HAProxy&apos;s counters at each refresh: it doesn&apos;t count how a backend&apos;s traffic splits between the frontends that send to it.
+        HAProxy&apos;s counters at each refresh: it doesn&apos;t count how a backend&apos;s traffic splits between the frontends that send to it. A number that starts from
+        zero flashes. Ctrl + scroll zooms; drag to move a zoomed map.
       </p>
     </div>
   )
@@ -582,6 +736,10 @@ export default function Flow() {
   const stats = usePoll('/api/haproxy/stats')
   const config = usePoll('/api/haproxy/config', { every: SLOW, enabled: mayConfig })
   const net = usePoll('/api/network/status', { every: SLOW, enabled: may('NetworkService/NetworkStatus') })
+  // Where the node's logs go, at the stats' pace: their records and
+  // bytes a second (a node without a log shipper answers an error - no
+  // targets then).
+  const logPoll = usePoll('/api/log-forwarding', { enabled: may('SystemService/LogForwardingGet') })
   const [servers, setServers] = useState(() => stored('janus-flow-servers', 'on') !== 'off')
   const [orientation, setOrientation] = useState(() => {
     const o = stored('janus-flow-orientation', 'auto')
@@ -614,10 +772,11 @@ export default function Flow() {
   const rows = useMemo(() => (samples.cur ? withRates(samples.cur.rows, samples.prev?.rows, samples.seconds) : []), [samples])
   const graph = useMemo(() => buildFlow(rows, topology, maps.maps), [rows, topology, maps.maps])
   const ifaces = useMemo(() => interfaces(latest?.net, net.data), [latest?.net, net.data])
+  const logs = useLogSamples(logPoll.error ? null : logPoll.data)
   // The layouts the orientation may take, then the one that shows.
-  const across = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'across' }) : null), [graph, ifaces, servers, orientation])
-  const dense = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'dense' }) : null), [graph, ifaces, servers, orientation])
-  const down = useMemo(() => (orientation !== 'horizontal' ? layout(graph, ifaces, { servers, shape: 'down' }) : null), [graph, ifaces, servers, orientation])
+  const across = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'across', logs }) : null), [graph, ifaces, servers, orientation, logs])
+  const dense = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'dense', logs }) : null), [graph, ifaces, servers, orientation, logs])
+  const down = useMemo(() => (orientation !== 'horizontal' ? layout(graph, ifaces, { servers, shape: 'down', logs }) : null), [graph, ifaces, servers, orientation, logs])
   const shown = arrange(orientation, { across, dense, down }, room)
   const vertical = shown.shape === 'down'
   const map = { across, dense, down }[shown.shape]
@@ -626,15 +785,70 @@ export default function Flow() {
     for (const l of graph.links) c[l.to] = (c[l.to] || 0) + 1
     return c
   }, [graph])
+  const looks = useMemo(() => Object.fromEntries(map.links.map((l) => [l.id, linkLook(l, map, incoming)])), [map, incoming])
+  // What started from nothing since the last refresh flashes.
+  const now = useMemo(
+    () =>
+      figures(
+        map,
+        hap,
+        Object.fromEntries(Object.entries(looks).map(([id, look]) => [id, look.traffic])),
+      ),
+    [map, hap, looks],
+  )
+  const flash = useFlashes(now)
+
+  const scroller = useRef(null) // the map's card, its scrolling element
+
+  // The zoom: a factor of arrange's scale, 1 the map whole in the window.
+  // The point under the pointer (or the view's middle, from the buttons)
+  // stays where it is: anchor is it, in the map's units, until the new
+  // size is laid out.
+  const [zoom, setZoom] = useState(1)
+  const scale = shown.scale * zoom
+  const anchor = useRef(null)
+  const sizes = useRef({ fit: shown.scale, width: map.width })
+  sizes.current = { fit: shown.scale, width: map.width }
+  const zoomBy = useCallback((factor, cx, cy) => {
+    const el = scroller.current
+    const svg = el?.querySelector('svg')
+    if (!svg) return
+    const { fit, width } = sizes.current
+    const r = svg.getBoundingClientRect()
+    const k = r.width / width
+    const box = el.getBoundingClientRect()
+    const x = cx ?? box.left + box.width / 2
+    const y = cy ?? (Math.max(box.top, 0) + Math.min(box.bottom, window.innerHeight)) / 2
+    anchor.current = { px: (x - r.left) / k, py: (y - r.top) / k, cx: x, cy: y }
+    setZoom((z) => {
+      const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, fit * z * factor)) / fit
+      return Math.abs(next - 1) < 0.03 ? 1 : next
+    })
+  }, [])
+  useLayoutEffect(() => {
+    const a = anchor.current
+    anchor.current = null
+    const el = scroller.current
+    const svg = el?.querySelector('svg')
+    if (!a || !svg) return
+    const r = svg.getBoundingClientRect()
+    const k = r.width / sizes.current.width
+    el.scrollLeft += r.left + a.px * k - a.cx
+    const dy = r.top + a.py * k - a.cy
+    const before = el.scrollTop
+    el.scrollTop += dy
+    const rest = dy - (el.scrollTop - before) // what the card's own scroll didn't take
+    if (Math.abs(rest) > 0.5) window.scrollBy(0, rest)
+  }, [zoom])
 
   // A map wider than its card keeps HAProxy in the middle - as the
-  // configuration arrives and moves it - until the user scrolls it.
-  const scroller = useRef(null)
+  // configuration arrives and moves it - until the user scrolls or
+  // zooms it.
   const centred = useRef({ key: '', left: null })
   const drawn = graph.frontends.length + graph.backends.length > 0
   useEffect(() => {
     const el = scroller.current
-    if (!el || !drawn) return
+    if (!el || !drawn || zoom !== 1) return
     const key = shown.shape
     const last = centred.current
     if (last.key === key && last.left != null && Math.abs(el.scrollLeft - last.left) > 1) return // scrolled by hand
@@ -642,7 +856,59 @@ export default function Flow() {
     const scale = svg ? svg.getBoundingClientRect().width / map.width : 1
     el.scrollLeft = vertical ? Math.max(0, map.byId.hub.x * scale - el.clientWidth / 2) : 0
     centred.current = { key, left: el.scrollLeft }
-  }, [vertical, shown.shape, drawn, map])
+  }, [vertical, shown.shape, drawn, map, zoom])
+
+  // Ctrl (or ⌘) + scroll zooms - a trackpad's pinch comes as one too -,
+  // not the page; a scroll alone still scrolls it. The listener can't
+  // be React's: those are passive, and preventDefault needs not.
+  const [scrollEl, setScrollEl] = useState(null)
+  const scrollRef = useCallback((el) => {
+    scroller.current = el
+    setScrollEl(el)
+  }, [])
+  useEffect(() => {
+    if (!scrollEl) return undefined
+    const onWheel = (e) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1 // lines, pages: in pixels
+      zoomBy(Math.exp(-e.deltaY * unit * 0.0025), e.clientX, e.clientY)
+    }
+    scrollEl.addEventListener('wheel', onWheel, { passive: false })
+    return () => scrollEl.removeEventListener('wheel', onWheel)
+  }, [scrollEl, zoomBy])
+
+  // A zoomed map is dragged with the mouse, from anywhere but a node.
+  const drag = useRef(null)
+  const dragged = useRef(false)
+  const [dragging, setDragging] = useState(false)
+  const pointer = {
+    onPointerDown: (e) => {
+      const el = scroller.current
+      if (zoom === 1 || e.pointerType !== 'mouse' || e.button !== 0 || e.target.closest('.flow-node, .flow-hit')) return
+      drag.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop, id: e.pointerId }
+      dragged.current = false
+    },
+    onPointerMove: (e) => {
+      const d = drag.current
+      if (!d) return
+      const dx = e.clientX - d.x
+      const dy = e.clientY - d.y
+      if (!dragged.current && Math.abs(dx) + Math.abs(dy) < 4) return
+      if (!dragged.current) {
+        dragged.current = true
+        setDragging(true)
+        scroller.current.setPointerCapture(d.id)
+      }
+      scroller.current.scrollLeft = d.left - dx
+      scroller.current.scrollTop = d.top - dy
+    },
+    onPointerUp: () => {
+      drag.current = null
+      setDragging(false)
+    },
+  }
+  pointer.onPointerCancel = pointer.onPointerUp
 
   const focus = hover || selected
   const near = useMemo(() => (focus ? related(map, focus) : null), [map, focus])
@@ -655,6 +921,7 @@ export default function Flow() {
   const orient = (o) => {
     store('janus-flow-orientation', o)
     setOrientation(o)
+    setZoom(1)
   }
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && setSelected(null)
@@ -687,6 +954,20 @@ export default function Flow() {
           <button className={`small chip ${servers ? 'active' : ''}`} aria-pressed={servers} onClick={toggleServers}>
             Servers
           </button>
+          <div className="chips flow-zoom" role="group" aria-label="Zoom">
+            <button className="small chip" onClick={() => zoomBy(1 / ZOOM_STEP)} disabled={scale <= ZOOM_MIN + 0.001} aria-label="Zoom out" title="Zoom out (Ctrl + scroll)">
+              <ZoomOut size={14} aria-hidden="true" />
+            </button>
+            <span className="flow-zoom-level small mono" aria-live="polite" title="The map's size">
+              {Math.round(scale * 100)}%
+            </span>
+            <button className="small chip" onClick={() => zoomBy(ZOOM_STEP)} disabled={scale >= ZOOM_MAX - 0.001} aria-label="Zoom in" title="Zoom in (Ctrl + scroll)">
+              <ZoomIn size={14} aria-hidden="true" />
+            </button>
+            <button className={`small chip ${zoom === 1 ? 'active' : ''}`} aria-pressed={zoom === 1} onClick={() => setZoom(1)} title="The map whole in the window, as big as it allows">
+              Fit
+            </button>
+          </div>
         </>
       }
     />
@@ -701,7 +982,7 @@ export default function Flow() {
   }
   const empty = samples.cur && !graph.frontends.length && !graph.backends.length
   const picked = selected && (map.byId[selected] || map.links.some((l) => l.id === selected))
-  const summary = `Traffic flow: ${graph.frontends.length} frontends, ${graph.backends.length} backends, ${graph.backends.reduce((t, b) => t + b.servers.length, 0)} servers`
+  const summary = `Traffic flow: ${graph.frontends.length} frontends, ${graph.backends.length} backends, ${graph.backends.reduce((t, b) => t + b.servers.length, 0)} servers${logs.length ? `, ${logs.length} log targets` : ''}`
 
   return (
     <>
@@ -722,22 +1003,43 @@ export default function Flow() {
         ) : (
           <div className={`flow-layout ${shown.beside ? 'beside' : ''}`} ref={measured}>
             <Card className="flow-card">
-              <div className="flow-scroll" ref={scroller} onClick={() => setSelected(null)}>
+              <div
+                className={`flow-scroll ${zoom !== 1 ? 'zoomed' : ''} ${dragging ? 'dragging' : ''}`}
+                ref={scrollRef}
+                {...pointer}
+                onClick={() => {
+                  if (dragged.current) {
+                    dragged.current = false // the end of a drag, not a click
+                    return
+                  }
+                  setSelected(null)
+                }}
+              >
                 <svg
                   className={`flow-map ${vertical ? 'vertical' : ''} ${shown.shape} ${near ? 'focused' : ''}`}
                   viewBox={`0 0 ${map.width} ${map.height}`}
-                  style={{ width: Math.round(map.width * shown.scale) }}
+                  style={{ width: Math.round(map.width * scale) }}
                   role="group"
                   aria-label={summary}
                 >
                   <g>
                     {map.links.map((l) => (
-                      <FlowLink key={l.id} l={l} look={linkLook(l, map, incoming)} state={stateOf(l.id)} onSelect={select} onHover={setHover} />
+                      <FlowLink key={l.id} l={l} look={looks[l.id]} state={stateOf(l.id)} flash={flash[l.id]} onSelect={select} onHover={setHover} />
                     ))}
                   </g>
                   <g>
                     {map.nodes.map((n) => (
-                      <FlowNode key={n.id} n={n} hap={hap} configKnown={graph.configKnown} shape={shown.shape} state={`${stateOf(n.id)} ${selected === n.id ? 'selected' : ''}`} onSelect={select} onHover={setHover} />
+                      <FlowNode
+                        key={n.id}
+                        n={n}
+                        hap={hap}
+                        configKnown={graph.configKnown}
+                        shape={shown.shape}
+                        state={`${stateOf(n.id)} ${selected === n.id ? 'selected' : ''}`}
+                        flash={flash[n.id]}
+                        onSelect={select}
+                        onHover={setHover}
+                      />
                     ))}
                   </g>
                 </svg>

@@ -239,7 +239,15 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .user-chip:hover { background: var(--surface-2); }
 
 /* Monitoring › Traffic flow: a node's colour is its kind's, unless its
-   state says otherwise; links pulse where traffic goes. */
+   state says otherwise; links pulse where traffic goes, in their
+   protocol's colour - HTTP the accent, TCP and logs their own (each at
+   least 3:1 on the surface, its badge's text 4.5:1), an interface's
+   (all of its traffic) neutral. */
+:root { --flow-tcp: #0f766e; --flow-log: #be185d; --flow-flash: var(--accent-ink); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --flow-tcp: #2dd4bf; --flow-log: #f472b6; }
+}
+:root[data-theme="dark"] { --flow-tcp: #2dd4bf; --flow-log: #f472b6; }
 .flow-layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
 /* The side panel beside the map while the map still fits there
    (flow.js arrange; Flow.jsx SIDE_REM is its width), below it otherwise. */
@@ -262,6 +270,13 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 }
 .flow-card { padding: 0.6rem; }
 .flow-scroll { overflow-x: auto; }
+/* Zoomed (ctrl + scroll, the buttons): the map scrolls in its card, both
+   ways, as tall as the window below the bar, and the mouse drags it. */
+.flow-scroll.zoomed { overflow: auto; max-height: calc(100vh - 7rem); cursor: grab; overscroll-behavior: contain; }
+.flow-scroll.zoomed.dragging { cursor: grabbing; user-select: none; }
+.flow-zoom { align-items: center; }
+.flow-zoom .chip { display: inline-flex; align-items: center; }
+.flow-zoom-level { min-width: 3.2em; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* Its width is arrange's scale's (Flow.jsx): whole in the window, as big
    as it can be - the page as wide as the screen for it. */
 .flow-map { display: block; height: auto; margin: 0 auto; font-family: var(--mono); }
@@ -271,11 +286,19 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .kind-fe { --kind: var(--chart-2); }
 .kind-be { --kind: var(--chart-4); }
 .kind-srv, .kind-more { --kind: var(--chart-3); }
+.kind-log { --kind: var(--flow-log); }
 .flow-node.tone-warn { --kind: var(--warn); }
 .flow-node.tone-danger { --kind: var(--danger); }
 .flow-node.tone-off { --kind: var(--muted); }
 .flow-node.tone-off .flow-disc, .flow-node.tone-off .flow-icon, .flow-node.unlinked .flow-icon { opacity: 0.55; }
 .flow-node.unlinked .flow-disc { stroke-dasharray: 4 3; }
+/* A frontend's or backend's mode at its ring's top left. */
+.flow-proto rect { fill: var(--surface); stroke: var(--proto); stroke-width: 1.2; }
+.flow-proto text { font-size: 8.5px; font-weight: 700; letter-spacing: 0.04em; fill: var(--proto-ink); font-family: var(--font); }
+.proto-http { --proto: var(--accent); --proto-ink: var(--accent-ink); }
+.proto-tcp { --proto: var(--flow-tcp); --proto-ink: var(--flow-tcp); }
+.proto-log { --proto: var(--flow-log); --proto-ink: var(--flow-log); }
+.badge.flow-proto-badge { color: var(--proto-ink); border: 1px solid var(--proto); background: transparent; }
 .flow-box { fill: transparent; }
 .flow-disc { fill: var(--surface); stroke: var(--kind); stroke-width: 2.5; }
 .kind-hub .flow-disc { stroke-width: 3; }
@@ -298,14 +321,30 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .flow-track { fill: none; stroke: var(--muted); stroke-opacity: 0.35; stroke-width: 1.5; }
 .flow-link.down .flow-track { stroke: var(--danger); stroke-opacity: 0.8; stroke-dasharray: 4 4; }
 .flow-link.off .flow-track { stroke-dasharray: 2 5; }
-.flow-pulse { fill: none; stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 8 12; animation: flow-dash 1.5s linear infinite; }
+.flow-pulse { fill: none; stroke: var(--muted); stroke-linecap: round; stroke-dasharray: 8 12; animation: flow-dash 1.5s linear infinite; }
+.flow-link.proto-http .flow-pulse, .flow-link.proto-tcp .flow-pulse, .flow-link.proto-log .flow-pulse { stroke: var(--proto); }
+/* A log target's link is drawn from it: its pulse goes the other way,
+   out of the node. */
+.flow-link.kind-log .flow-pulse { animation-direction: reverse; }
+/* A number that started from nothing: a ring widening off the node, the
+   number in the accent a moment, the link lit (CSS animations, no
+   timer - each replays as its element is made again). */
+.flow-flash { fill: none; stroke: var(--kind); stroke-width: 3; transform-box: fill-box; transform-origin: center; pointer-events: none; animation: flow-flash-ring 0.9s ease-out forwards; }
+.flow-sub.flash { animation: flow-flash-text 1.4s ease-out; }
+.flow-flash-link { fill: none; stroke: var(--proto, var(--muted)); stroke-width: 7; stroke-linecap: round; pointer-events: none; opacity: 0; animation: flow-flash-link 1s ease-out; }
+@keyframes flow-flash-ring { from { transform: scale(1); opacity: 0.9; } to { transform: scale(1.9); opacity: 0; } }
+@keyframes flow-flash-text { from, 35% { fill: var(--flow-flash); } }
+@keyframes flow-flash-link { from { opacity: 0.55; } to { opacity: 0; } }
 .flow-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
 .flow-map.focused .far { opacity: 0.18; }
 .flow-map.focused .flow-link.near .flow-track { stroke-opacity: 0.7; }
 @keyframes flow-dash { to { stroke-dashoffset: -20; } }
 @media (prefers-reduced-motion: reduce) {
   .flow-pulse { animation: none; stroke-dasharray: none; stroke-opacity: 0.75; }
+  /* The flash without movement: its colour only. */
+  .flow-flash { animation-name: flow-flash-fade; }
 }
+@keyframes flow-flash-fade { from { opacity: 0.9; } to { opacity: 0; } }
 .flow-h { font-size: 0.9rem; margin: 1rem 0 0.4rem; }
 .flow-target { margin-bottom: 0.5rem; }
 .flow-goto { background: none; border: none; padding: 0; color: var(--accent-ink); font: inherit; font-family: var(--mono); cursor: pointer; }
@@ -316,6 +355,7 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .flow-legend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.9rem; }
 .flow-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 .flow-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--kind); display: inline-block; }
-.flow-legend-pulse { stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
+.flow-legend-pulse { stroke: var(--muted); stroke-width: 3; stroke-linecap: round; }
+.flow-legend-pulse.proto-http, .flow-legend-pulse.proto-tcp, .flow-legend-pulse.proto-log { stroke: var(--proto); }
 .flow-legend-track { stroke: var(--muted); stroke-opacity: 0.35; stroke-width: 1.5; }
 .flow-legend-down { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 4 4; }
