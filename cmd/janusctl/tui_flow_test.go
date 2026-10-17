@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/haproxyflow"
 	"github.com/swenske/Janus/internal/haproxystat"
 	"github.com/swenske/Janus/internal/termui"
@@ -50,7 +53,11 @@ func flowStat(k uint64) string {
 	b.WriteString(flowStatHead)
 	u := func(v uint64) string { return strconv.FormatUint(v, 10) }
 	row := func(px, sv, status string, scur, bytes uint64, check, addr string) {
-		b.WriteString(strings.Join([]string{px, sv, "0", u(scur), u(scur + 2), "", "100", u(bytes * k), u(bytes * 4 * k), status, "1", "30", "1", "4", check, "", "2", "90", "0", "3", "1", addr, "http"}, ",") + ",\n")
+		mode := "http"
+		if px == "tcp_in" || px == "tcp_pool" {
+			mode = "tcp"
+		}
+		b.WriteString(strings.Join([]string{px, sv, "0", u(scur), u(scur + 2), "", "100", u(bytes * k), u(bytes * 4 * k), status, "1", "30", "1", "4", check, "", "2", "90", "0", "3", "1", addr, mode}, ",") + ",\n")
 	}
 	row("https", "FRONTEND", "OPEN", 8, 9000, "", "")
 	row("admin", "FRONTEND", "OPEN", 0, 0, "", "")
@@ -378,5 +385,218 @@ func TestFlowWithoutConfig(t *testing.T) {
 	a.settings.FlowDirection = "horizontal"
 	if wide := strings.Join(a.render(200, 60).Lines(), "\n"); !strings.Contains(wide, "● unused") {
 		t.Errorf("unused, without the configuration, is a backend like the others:\n%s", wide)
+	}
+}
+
+// flowLogs is where flowCfg's node sends its logs, every counter times
+// k: rsyslog and Elasticsearch through eth0 - the second failing -, one
+// through an interface the map doesn't have, one disabled.
+func flowLogs(k uint64) *janusv1alpha1.LogForwardingResponse {
+	return &janusv1alpha1.LogForwardingResponse{
+		Config: &janusv1alpha1.LogForwardingConfig{Targets: []*janusv1alpha1.LogTarget{
+			{Name: "rsyslog", Syslog: &janusv1alpha1.SyslogTarget{Address: "10.0.31.20:601", Transport: "tcp"}},
+			{Name: "elastic", Sources: []string{"access", "audit"}, Elasticsearch: &janusv1alpha1.ElasticsearchTarget{Url: "https://10.0.30.30:9200", Gzip: true}},
+			{Name: "siem", Syslog: &janusv1alpha1.SyslogTarget{Address: "10.9.0.5:514"}},
+			{Name: "archive", Disabled: true, Syslog: &janusv1alpha1.SyslogTarget{Address: "10.0.31.20:514"}},
+		}},
+		Targets: []*janusv1alpha1.LogTargetStatus{
+			{Name: "rsyslog", Kind: "syslog", State: "ok", Sent: 50 * k, BytesSent: 6000 * k, Interface: "eth0", LocalAddress: "10.0.30.21:40312", RemoteAddress: "10.0.31.20:601"},
+			{Name: "elastic", Kind: "elasticsearch", State: "failing", Sent: 7, BytesSent: 900, Interface: "eth0", RemoteAddress: "10.0.30.30:9200", LastError: "elasticsearch: 429 Too Many Requests"},
+			{Name: "siem", Kind: "syslog", State: "ok", Sent: 10 * k, BytesSent: 1000 * k, Interface: "eth3", RemoteAddress: "10.9.0.5:514"},
+			{Name: "archive", Kind: "syslog", State: "disabled"},
+		},
+	}
+}
+
+func TestFlowLogs(t *testing.T) {
+	a, n := flowApp(t)
+	s := a.samplers[0]
+	s.prev.logs, s.cur.logs = flowLogs(1), flowLogs(3)
+	s.last = derive(s.prev, s.cur)
+	a.settings.FlowDirection = "horizontal"
+	golden(t, "tui-flow-logs-horizontal-120x40.txt", a.render(120, 40))
+	m := n.flow.m
+	g := m.g
+	if len(g.peers) != 4 {
+		t.Fatalf("%d log targets", len(g.peers))
+	}
+	eth0 := g.byID["if:eth0"]
+	for _, l := range g.peers {
+		if l.x >= eth0.x {
+			t.Errorf("%s at x %d, eth0 at %d: not beyond it", l.name, l.x, eth0.x)
+		}
+	}
+	look := map[string]*flowEdge{}
+	for _, e := range g.edges {
+		if e.kind == kindLog {
+			look[e.from] = e
+		}
+	}
+	if e := look["log:rsyslog"]; e == nil || e.to != "if:eth0" || e.look != lookActive || e.proto != "log" {
+		t.Errorf("rsyslog's link: %+v", e)
+	}
+	if e := look["log:elastic"]; e == nil || e.look != lookDown {
+		t.Errorf("elastic, failing: %+v", e)
+	}
+	if look["log:siem"] != nil || look["log:archive"] != nil || g.byID["log:siem"].linked {
+		t.Error("an interface not on the map, a disabled target: no link")
+	}
+	if r := g.byID["log:rsyslog"].log; r.msgRate != 50 || r.byteRate != 6000 {
+		t.Errorf("rsyslog: %v msg/s, %v B/s - want 50, 6000", r.msgRate, r.byteRate)
+	}
+	// Its details: how it sends, through what, how much.
+	n.flow.sel = "log:rsyslog"
+	golden(t, "tui-flow-logs-selected-120x40.txt", a.render(120, 40))
+	text := strings.Join(a.render(120, 40).Lines(), "\n")
+	for _, want := range []string{"rsyslog  log target", "syslog over TCP · RFC 5424", "Through    eth0", "10.0.30.21:40312 → 10.0.31.20:601", "Records/s  50.0", "Throughput 5.9KiB/s"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("rsyslog's details lack %q", want)
+		}
+	}
+	// Selected: its link and interface forward, the rest back.
+	near := g.related("log:rsyslog")
+	if !near["if:eth0"] || !near["log:rsyslog>if:eth0"] || near["hub"] || near["log:elastic"] {
+		t.Errorf("related(rsyslog) = %v", near)
+	}
+	// Top to bottom: above the interfaces.
+	n.flow.sel = ""
+	a.settings.FlowDirection = "vertical"
+	golden(t, "tui-flow-logs-vertical-160x48.txt", a.render(160, 48))
+	m = n.flow.m
+	for _, l := range m.g.peers {
+		if l.y >= m.g.byID["if:eth0"].y {
+			t.Errorf("%s at y %d, eth0 at %d: not above it", l.name, l.y, m.g.byID["if:eth0"].y)
+		}
+	}
+	// Left from eth0 goes to its log target, right from it back.
+	a.settings.FlowDirection = "horizontal"
+	a.render(120, 40)
+	n.flow.sel = "if:eth0"
+	a.key("\x1b[D")
+	if !strings.HasPrefix(n.flow.sel, "log:") {
+		t.Errorf("left from eth0: %q", n.flow.sel)
+	}
+	a.key("\x1b[C")
+	if n.flow.sel != "if:eth0" {
+		t.Errorf("right from its log target: %q", n.flow.sel)
+	}
+	n.flow.stop()
+}
+
+// flowClients is who is connected to flowCfg's node's API, every
+// counter times k: the Controller through eth0 for two users - one with
+// a stream open -, this tui and another client through eth0, one more
+// on lo (not on the map).
+func flowClients(k uint64) *janusv1alpha1.ClientListResponse {
+	at := func(d time.Duration) int64 { return tuiNow.Add(-d).UnixNano() }
+	return &janusv1alpha1.ClientListResponse{Connections: []*janusv1alpha1.ClientConnection{
+		{Id: 1, Controller: true, Name: "controller", Roles: []string{"janus:controller"}, Fleet: true, Interface: "eth0", RemoteAddress: "10.0.30.10:51000",
+			OpenedUnixNs: at(3 * time.Hour), Calls: 40 * k, OpenStreams: 1, BytesReceived: 2000 * k, BytesSent: 8000 * k, LastCallUnixNs: at(time.Second), UserCount: 2,
+			Users: []*janusv1alpha1.ClientUser{
+				{Name: "alice", Roles: []string{"os:admin"}, Calls: 30 * k, OpenStreams: 1, LastCallUnixNs: at(time.Second)},
+				{Name: "automation", Roles: []string{"os:admin"}, Calls: 10 * k, LastCallUnixNs: at(40 * time.Second)},
+			}},
+		{Id: 7, Name: "bob", Roles: []string{"os:operator"}, Interface: "eth0", RemoteAddress: "10.0.30.99:41000", OpenedUnixNs: at(time.Minute), Calls: 6 * k, BytesReceived: 600 * k, BytesSent: 900 * k, LastCallUnixNs: at(2 * time.Second), Self: true},
+		{Id: 8, Name: "ci", Roles: []string{"os:reader"}, Interface: "eth0", RemoteAddress: "10.0.30.98:41002", OpenedUnixNs: at(10 * time.Second)},
+		{Id: 9, Name: "local", Roles: []string{"os:admin"}, Interface: "lo", RemoteAddress: "127.0.0.1:41010", OpenedUnixNs: at(time.Second)},
+	}}
+}
+
+func TestFlowClients(t *testing.T) {
+	a, n := flowApp(t)
+	s := a.samplers[0]
+	s.prev.clients, s.cur.clients = flowClients(1), flowClients(3)
+	s.prev.logs, s.cur.logs = flowLogs(1), flowLogs(3)
+	s.last = derive(s.prev, s.cur)
+	a.settings.FlowDirection = "horizontal"
+	golden(t, "tui-flow-clients-horizontal-120x40.txt", a.render(120, 40))
+	g := n.flow.m.g
+	ids := []string{}
+	for _, p := range g.peers {
+		ids = append(ids, p.id)
+	}
+	if want := "api:controller:eth0 api:clients:eth0 api:clients:lo log:rsyslog log:elastic log:siem log:archive"; strings.Join(ids, " ") != want {
+		t.Errorf("peers %v, want %s", ids, want)
+	}
+	ctl := g.byID["api:controller:eth0"]
+	dt := s.cur.at.Sub(s.prev.at).Seconds()
+	if r := ctl.api; r.callRate != 80/dt || r.inRate != 4000/dt || r.outRate != 16000/dt || ctl.traffic != 20000/dt || ctl.tag() != "2 users" {
+		t.Errorf("the Controller: %v calls/s, %v/%v B/s, tag %q", r.callRate, r.inRate, r.outRate, ctl.tag())
+	}
+	if c := g.byID["api:clients:eth0"]; len(c.api.conns) != 2 || !c.api.self || !c.linked {
+		t.Errorf("the direct clients: %d, self %v", len(c.api.conns), c.api.self)
+	}
+	if lo := g.byID["api:clients:lo"]; lo.linked {
+		t.Error("lo isn't on the map: no link")
+	}
+	for _, e := range g.edges {
+		if e.kind == kindAPI && (e.to != "if:eth0" || e.proto != "api" || e.look != lookActive) && e.from != "api:clients:eth0" {
+			t.Errorf("an API link: %+v", e)
+		}
+	}
+	// Its details: whom the Controller acts for.
+	n.flow.sel = "api:controller:eth0"
+	golden(t, "tui-flow-clients-selected-120x40.txt", a.render(120, 40))
+	text := strings.Join(a.render(120, 40).Lines(), "\n")
+	for _, want := range []string{"Controller  API", "Through", "eth0", "controller · the fleet's", "alice", "1 stream open", "automation", "the Controller's own work", "40s ago"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the Controller's details lack %q:\n%s", want, text)
+		}
+	}
+	near := g.related("api:controller:eth0")
+	if !near["if:eth0"] || !near["api:controller:eth0>if:eth0"] || near["hub"] || near["log:rsyslog"] {
+		t.Errorf("related(Controller) = %v", near)
+	}
+	n.flow.sel = "api:clients:eth0"
+	text = strings.Join(a.render(120, 40).Lines(), "\n")
+	for _, want := range []string{"bob (this tui)", "from 10.0.30.99:41000", "ci", "no call yet"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the direct clients' details lack %q:\n%s", want, text)
+		}
+	}
+	n.flow.sel = ""
+	a.settings.FlowDirection = "vertical"
+	golden(t, "tui-flow-clients-vertical-160x48.txt", a.render(160, 48))
+	n.flow.stop()
+}
+
+// A number that starts from nothing flashes - a moment with the
+// animation, until the next round without it -, not one that wasn't
+// known.
+func TestFlowFlash(t *testing.T) {
+	if got := risenFigures(map[string][]float64{"a": {0, 1}, "b": {math.NaN(), 0}, "c": {2, 0}}, map[string][]float64{"a": {5, 1}, "b": {3, 0}, "c": {0, 0}, "d": {9, 9}}); len(got) != 1 || got[0] != "a" {
+		t.Errorf("risen = %v, want [a]", got)
+	}
+	a := testApp(t)
+	at := tuiNow
+	a.now = func() time.Time { return at }
+	a.settings.FlowAnimation = true
+	fv := &flowView{}
+	fe := &flowNode{id: "fe:web", kind: kindFE, fe: &frontendRow{}, traffic: 0}
+	m := &flowMap{g: &flowGraph{nodes: []*flowNode{fe}}}
+	v := &nodeView{rounds: 1}
+	if on := fv.watchFlash(a, m, v); len(on) != 0 {
+		t.Fatalf("the first round: %v", on)
+	}
+	fe.traffic, v.rounds = 1200, 2
+	if on := fv.watchFlash(a, m, v); !on["fe:web"] || !fv.flashing(at) {
+		t.Fatalf("0 then 1200: %v", on)
+	}
+	at = at.Add(flowFlash + time.Millisecond)
+	if on := fv.watchFlash(a, m, v); on["fe:web"] || fv.flashing(at) {
+		t.Errorf("past its moment: %v", on)
+	}
+	// Without the animation: until the next round.
+	a.settings.FlowAnimation = false
+	fe.traffic, v.rounds = 0, 3
+	fv.watchFlash(a, m, v)
+	fe.traffic, v.rounds = 10, 4
+	at = at.Add(10 * time.Second)
+	if on := fv.watchFlash(a, m, v); !on["fe:web"] {
+		t.Error("no animation: the round it started")
+	}
+	v.rounds = 5
+	if on := fv.watchFlash(a, m, v); on["fe:web"] {
+		t.Error("no animation: gone at the next round")
 	}
 }

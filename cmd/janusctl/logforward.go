@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -119,7 +120,9 @@ func printLogForwarding(resp *janusv1alpha1.LogForwardingResponse) {
 			where[t.GetName()] += " (" + strings.Join(t.GetSources(), ",") + ")"
 		}
 	}
-	tw := table("TARGET", "STATE", "SENT", "DROPPED", "QUEUED", "LAST SENT", "WHERE")
+	// VIA is the interface the node routes the target's connection by
+	// (an older node doesn't say: "-").
+	tw := table("TARGET", "STATE", "SENT", "BYTES", "DROPPED", "QUEUED", "VIA", "LAST SENT", "WHERE")
 	for _, st := range resp.GetTargets() {
 		last := "-"
 		if ns := st.GetLastSentUnixNs(); ns > 0 {
@@ -129,7 +132,8 @@ func printLogForwarding(resp *janusv1alpha1.LogForwardingResponse) {
 				last = d.String() + " ago"
 			}
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%s\t%s\n", st.GetName(), st.GetState(), st.GetSent(), st.GetDropped(), st.GetQueued(), last, where[st.GetName()])
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%d\t%d\t%s\t%s\t%s\n", st.GetName(), st.GetState(), st.GetSent(), humanBytes(st.GetBytesSent()),
+			st.GetDropped(), st.GetQueued(), cmp.Or(st.GetInterface(), "-"), last, where[st.GetName()])
 	}
 	tw.Flush()
 	for _, st := range resp.GetTargets() {

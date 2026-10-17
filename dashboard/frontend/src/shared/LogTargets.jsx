@@ -178,11 +178,24 @@ function TargetEditor({ target, onChange, onRemove, onTest, onDone, sources, sec
   )
 }
 
+// size is a byte count as the summary says it: 1.2 MiB.
+function size(n) {
+  let v = Number(n) || 0
+  let i = 0
+  while (v >= 1024 && i < 4) {
+    v /= 1024
+    i++
+  }
+  return `${i ? v.toFixed(1) : v} ${['B', 'KiB', 'MiB', 'GiB', 'TiB'][i]}`
+}
+
 // TargetSummary is a target folded: where it sends, what, and how it's
-// doing (status: its TargetStatus, when it's saved as shown).
+// doing (status: its TargetStatus, when it's saved as shown) - the bytes
+// sent when it says them (a node older than bytes_sent doesn't).
 function TargetSummary({ target, sources, status, unsaved, onEdit, onRemove, onTest, testing, testNote, disabled }) {
   const t = target
-  const sent = status ? `${status.sent || 0} sent · ${status.dropped || 0} dropped · ${status.queued ?? status.queued_records ?? 0} waiting` : ''
+  const bytes = status && 'bytes_sent' in status ? ` (${size(status.bytes_sent)})` : ''
+  const sent = status ? `${status.sent || 0} sent${bytes} · ${status.dropped || 0} dropped · ${status.queued ?? status.queued_records ?? 0} waiting` : ''
   const labels = sources.filter((s) => t.sources.includes(s.id)).map((s) => s.label)
   return (
     <div className="log-target">

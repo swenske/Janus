@@ -1,0 +1,40 @@
+ janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok            15:04:05
+╭─ Traffic flow  left to right ────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                      │
+│                                                                                        ╭─● api http ───────────┬─● a │
+│                                                                                        │   4.9KiB/s · 1 sess   ╰─● a │
+│                                                                                        ├─● be_blog http ───────┬─● a │
+│                                                                                        │   1/2 servers up      ╰─● d │
+│                                                                                        ├─● be_www http ────────┬─● a │
+│                                                                ╭─● https http ─────────┤   4.9KiB/s · 1 sess   ╰─● a │
+│                                                                │   43.9KiB/s · 8 sess  ├─● be_many http ───────┬─● s │
+│                                                                │                       │   4.9KiB/s · 1 sess   ├─● s │
+│                                                                │                       │                       ├─● s │
+│                                                                │                       │                       ├─● s │
+│                                                                │                       │                       ├─● s │
+│ ● rsyslog ───━───━───━─╮                                       │                       │                       ├─● s ▸
+│   50 msg/s · 5.9KiB/s  ├━● eth0 ───────● HAProxy ──────────────┤                       │                       ├─● s │
+│ ● elastic ─────────────╯   16.0KiB/s     12 conns · 4 req/s    │                       │                       ╰─● + │
+│   failing                                                      │                       ╰─● be_default http ──────● a │
+│ ○ siem                                                         │                           4.9KiB/s · 1 sess         │
+│   10 msg/s · 1000B/s                                           ├─● stats http ───────────● stats http                │
+│ ○ archive                                                      │   0B/s · 0 sess           0B/s · 0 sess             │
+│   disabled                                                     ├─● tcp_in tcp ───────────● tcp_pool tcp ─────────● a │
+│                                                                │   2.0KiB/s · 1 sess       4.9KiB/s · 1 sess         │
+│                                                                ╰─● admin http            ○ unused http ──────────● a │
+│                                                                    0B/s · 0 sess           4.9KiB/s · 1 sess         │
+│                                                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭ rsyslog  log target ─────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ State      ok                                                                                                        │
+│ Sends      syslog over TCP · RFC 5424                                                                                │
+│ To         10.0.31.20:601                                                                                            │
+│ Through    eth0                                                                                                      │
+│ Connection 10.0.30.21:40312 → 10.0.31.20:601                                                                         │
+│ Records/s  50.0                                                                                                      │
+│ Throughput 5.9KiB/s                                                                                                  │
+│ Sent       150 records · 17.6KiB                                                                                     │
+│ Waiting    0                                                                                                         │
+│ Sources    all but the access logs                                                                                   │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ? help  q quit  f back  ←↑↓→ move  o vertical  s servers  R reload  M menu                                     every 2s

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
+	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -27,9 +30,10 @@ import (
 const (
 	flowConfigEvery = 30 * time.Second // the configuration and maps change seldom
 	flowFrame       = 150 * time.Millisecond
-	flowSideWidth   = 46  // the details beside the map, from
-	flowSideFrom    = 150 // columns
-	flowSideMin     = 36  // narrower when the map needs it
+	flowFlash       = 1200 * time.Millisecond // a number that started from nothing, highlighted
+	flowSideWidth   = 46                      // the details beside the map, from
+	flowSideFrom    = 150                     // columns
+	flowSideMin     = 36                      // narrower when the map needs it
 )
 
 // flowConfig is what the node said of its configuration.
@@ -65,6 +69,92 @@ type flowView struct {
 	// opened: a label grows with them and never shrinks back, so the map
 	// moves once at most as traffic rises, never back and forth.
 	room map[string]int
+	// The flash: each node's numbers at the last round seen, and until
+	// when one that started from nothing is highlighted - or, without
+	// the animation, the round it did in.
+	figRound   int
+	figures    map[string][]float64
+	flashUntil map[string]time.Time
+	flashRound map[string]int
+}
+
+// flowFigures are each node's numbers, the flash watches: an
+// interface's traffic, HAProxy's connections and requests, a frontend's,
+// backend's or server's traffic and sessions, a log target's records
+// and bytes a second, an API client's calls and bytes a second (NaN
+// unknown).
+func flowFigures(g *flowGraph, v *nodeView) map[string][]float64 {
+	out := map[string][]float64{}
+	for _, n := range g.nodes {
+		switch {
+		case n.kind == kindIface:
+			out[n.id] = []float64{n.traffic}
+		case n.kind == kindHub && v.last.hap.ok:
+			out[n.id] = []float64{float64(v.last.hap.conns), v.last.hap.reqRate}
+		case n.kind == kindLog:
+			out[n.id] = []float64{n.log.msgRate, n.traffic}
+		case n.kind == kindAPI:
+			out[n.id] = []float64{n.api.callRate, n.traffic}
+		case n.kind == kindFE:
+			out[n.id] = []float64{n.traffic, float64(n.fe.scur)}
+		case n.row != nil:
+			out[n.id] = []float64{n.traffic, float64(n.row.scur)}
+		}
+	}
+	return out
+}
+
+// risenFigures are the nodes one of whose numbers was 0 and is more now -
+// not one unknown before (NaN: the first round, a counter that went back).
+func risenFigures(prev, cur map[string][]float64) []string {
+	var out []string
+	for id, vs := range cur {
+		p, ok := prev[id]
+		if !ok || len(p) != len(vs) {
+			continue
+		}
+		for i, x := range vs {
+			if p[i] == 0 && x > 0 {
+				out = append(out, id)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// watchFlash compares this round's numbers with the last one's, once a
+// round, and says which nodes flash now.
+func (fv *flowView) watchFlash(a *app, m *flowMap, v *nodeView) map[string]bool {
+	now := a.now()
+	if fv.flashUntil == nil {
+		fv.flashUntil, fv.flashRound = map[string]time.Time{}, map[string]int{}
+	}
+	if v.rounds != fv.figRound {
+		cur := flowFigures(m.g, v)
+		for _, id := range risenFigures(fv.figures, cur) {
+			fv.flashUntil[id], fv.flashRound[id] = now.Add(flowFlash), v.rounds
+		}
+		fv.figures, fv.figRound = cur, v.rounds
+	}
+	on := map[string]bool{}
+	for id, until := range fv.flashUntil {
+		if a.settings.FlowAnimation && now.Before(until) || !a.settings.FlowAnimation && fv.flashRound[id] == v.rounds {
+			on[id] = true
+		}
+	}
+	return on
+}
+
+// flashing reports whether a flash is on, the animation's frames needed
+// for it to end.
+func (fv *flowView) flashing(now time.Time) bool {
+	for _, until := range fv.flashUntil {
+		if now.Before(until) {
+			return true
+		}
+	}
+	return false
 }
 
 func newFlowView(n *nodeScreen) *flowView {
@@ -516,7 +606,7 @@ func (fv *flowView) render(a *app, f *termui.Frame, v *nodeView) {
 	if m.h < inner.H && !m.vertical { // left to right, lower than its box: level with its middle
 		oy = -(inner.H - m.h) / 2
 	}
-	m.draw(f, inner, ox, oy, flowDraw{sel: fv.sel, near: near, phase: int(a.now().UnixMilli() / flowFrame.Milliseconds()), animate: a.settings.FlowAnimation})
+	m.draw(f, inner, ox, oy, flowDraw{sel: fv.sel, near: near, phase: int(a.now().UnixMilli() / flowFrame.Milliseconds()), animate: a.settings.FlowAnimation, flash: fv.watchFlash(a, m, v)})
 	// More of the map past an edge: an arrow on the border says so.
 	if fv.ox > 0 {
 		f.Set(mapR.X, mapR.Y+mapR.H/2, '◂', styleFocus)
@@ -547,7 +637,7 @@ func (fv *flowView) renderDetails(a *app, f *termui.Frame, r termui.Rect, m *flo
 	if n == nil {
 		lines = flowLegend(fv.nextDirection(a))
 	} else {
-		title = n.name + "  " + map[string]string{kindIface: "interface", kindHub: "HAProxy", kindFE: "frontend", kindBE: "backend", kindSrv: "server", kindMore: "servers"}[n.kind]
+		title = n.name + "  " + map[string]string{kindAPI: "API", kindLog: "log target", kindIface: "interface", kindHub: "HAProxy", kindFE: "frontend", kindBE: "backend", kindSrv: "server", kindMore: "servers"}[n.kind]
 		lines = flowDetails(m.g, n, v)
 	}
 	in := f.Box(r, termui.Truncate(title, max(r.W-6, 0)), termui.Style{FG: termui.ColorBoxProc}, styleTitle)
@@ -632,7 +722,13 @@ func flowLegend(next string) []detail {
 		{value: "← ↑ ↓ → select a node: its paths come forward. Enter on a server: ready, drain, maint.", st: styleDefault},
 		{value: "o " + next + " · s servers · f or Esc back", st: styleDefault},
 		{value: ""},
-		{value: "━ traffic  ─ none  ╌ server down  ┄ off  ○ named by no rule", st: styleMuted},
+		{value: "━ traffic  ─ none  ╌ server down, log target failing  ┄ off  ○ named by no rule", st: styleMuted},
+		{value: "━ HTTP", st: termui.Style{FG: termui.ColorAccent}},
+		{value: "━ TCP", st: termui.Style{FG: termui.ColorTCP}},
+		{value: "━ logs, out of the node", st: termui.Style{FG: termui.ColorLog}},
+		{value: "━ the API: the Controller, janusctl, into the node", st: termui.Style{FG: termui.ColorAPI}},
+		{value: "━ an interface's, all of it", st: styleDefault},
+		{value: "A number that starts from zero lights up a moment.", st: styleMuted},
 		{value: ""},
 		{value: "Links come from the configuration: default_backend, use_backend, a map's values when use_backend reads one. " +
 			"HAProxy doesn't count how a backend's traffic splits between the frontends that send to it.", st: styleMuted},
@@ -663,6 +759,133 @@ func statRow(t *haproxystat.Table, px, sv string) []string {
 		}
 	}
 	return nil
+}
+
+// controllerWork is the Controller's own work, as it names it to a node
+// (nodeproxy).
+var controllerWork = map[string]string{"automation": "the Controller's own work", "auto-scaling": "the Controller's auto-scaling"}
+
+// apiDetails is who is connected to the API: the Controller - the users
+// its calls are for -, or the other clients, a connection each; how long
+// ago is said from now, the round's time.
+func apiDetails(n *flowNode, now time.Time, add func(k, val string, st termui.Style), out *[]detail) {
+	r := n.api
+	ago := func(ns int64) string {
+		if ns <= 0 {
+			return ""
+		}
+		return humanDuration(max(now.Sub(time.Unix(0, ns)), 0).Round(time.Second)) + " ago"
+	}
+	roles := func(rs []string) string {
+		out := make([]string, len(rs))
+		for i, r := range rs {
+			out[i] = strings.TrimPrefix(r, "os:")
+		}
+		return strings.Join(out, ", ")
+	}
+	switch {
+	case r.via != "" && n.linked:
+		add("Through", r.via, styleDefault)
+	case r.via != "":
+		add("Through", r.via+" (not on the map)", styleDefault)
+	default:
+		add("Through", "no route says", styleMuted)
+	}
+	var opened int64
+	var calls uint64
+	var streams uint32
+	var from, certs []string
+	for _, c := range r.conns {
+		if ns := c.GetOpenedUnixNs(); ns > 0 && (opened == 0 || ns < opened) {
+			opened = ns
+		}
+		calls += c.GetCalls()
+		streams += c.GetOpenStreams()
+		if a := c.GetRemoteAddress(); a != "" {
+			if h, _, err := net.SplitHostPort(a); err == nil && !slices.Contains(from, h) {
+				from = append(from, h)
+			}
+		}
+		cert := c.GetName() + " · the node's own CA"
+		if c.GetFleet() {
+			cert = c.GetName() + " · the fleet's"
+		}
+		if !slices.Contains(certs, cert) {
+			certs = append(certs, cert)
+		}
+	}
+	if r.controller {
+		add("From", strings.Join(from, ", "), styleDefault)
+		add("Certificate", strings.Join(certs, ", "), styleDefault)
+	}
+	connected := strings.TrimSuffix(ago(opened), " ago")
+	if len(r.conns) > 1 {
+		connected += fmt.Sprintf(" · %d connections", len(r.conns))
+	}
+	add("Connected", connected, styleDefault)
+	add("Calls/s", fmtFloat(r.callRate, 1), styleDefault)
+	add("Receiving", fmtRate(r.inRate), styleDefault)
+	add("Sending", fmtRate(r.outRate), styleDefault)
+	add("Calls", fmt.Sprint(calls), styleDefault)
+	if streams > 0 {
+		add("Streams open", fmt.Sprint(streams), styleDefault)
+	}
+	*out = append(*out, detail{})
+	if r.controller {
+		*out = append(*out, detail{value: "Users - whom its calls were for in the last 2 minutes:", st: styleMuted})
+		for _, u := range r.users {
+			line := u.GetName()
+			if u.GetSelf() {
+				line += " (you)"
+			}
+			parts := []string{roles(u.GetRoles())}
+			if w := controllerWork[u.GetName()]; w != "" {
+				parts = append(parts, w)
+			}
+			if s := u.GetOpenStreams(); s > 0 {
+				parts = append(parts, plural(int(s), "stream")+" open")
+			}
+			parts = append(parts, "last call "+ago(u.GetLastCallUnixNs()))
+			*out = append(*out, detail{key: line, value: strings.Join(parts, " · "), st: styleDefault})
+		}
+		switch hidden := r.userCount - len(r.users); {
+		case hidden > 0 && len(r.users) > 0:
+			*out = append(*out, detail{value: fmt.Sprintf("and %d more - their names are shown to admins", hidden), st: styleMuted})
+		case hidden > 0:
+			*out = append(*out, detail{value: plural(hidden, "user") + " - their names are shown to admins", st: styleMuted})
+		case r.userCount == 0:
+			*out = append(*out, detail{value: "none", st: styleMuted})
+		}
+		return
+	}
+	*out = append(*out, detail{value: "Clients with a certificate of their own - janusctl, this tui, a script:", st: styleMuted})
+	unnamed := false
+	for _, c := range r.conns {
+		line := cmp.Or(c.GetName(), "a client")
+		unnamed = unnamed || c.GetName() == ""
+		if c.GetSelf() {
+			line += " (this tui)"
+		}
+		var parts []string
+		if rs := roles(c.GetRoles()); rs != "" {
+			parts = append(parts, rs)
+		}
+		if a := c.GetRemoteAddress(); a != "" {
+			parts = append(parts, "from "+a)
+		}
+		if s := c.GetOpenStreams(); s > 0 {
+			parts = append(parts, plural(int(s), "stream")+" open")
+		}
+		if l := ago(c.GetLastCallUnixNs()); l != "" {
+			parts = append(parts, "last call "+l)
+		} else {
+			parts = append(parts, "no call yet")
+		}
+		*out = append(*out, detail{key: line, value: strings.Join(parts, " · "), st: styleDefault})
+	}
+	if unnamed {
+		*out = append(*out, detail{value: "The other clients' names and addresses are shown to admins.", st: styleMuted})
+	}
 }
 
 func flowTraffic(in, out float64) string {
@@ -724,6 +947,49 @@ func flowDetails(g *flowGraph, n *flowNode, v *nodeView) []detail {
 		return fmt.Sprintf("%s\u00a02xx · %s\u00a03xx · %s\u00a04xx · %s\u00a05xx", col(row, "hrsp_2xx"), col(row, "hrsp_3xx"), col(row, "hrsp_4xx"), col(row, "hrsp_5xx"))
 	}
 	switch n.kind {
+	case kindAPI:
+		apiDetails(n, cmp.Or(v.last.at, time.Now()), add, &out)
+	case kindLog:
+		r := n.log
+		add("State", r.state, toneOf(map[string]string{"ok": "up", "failing": "down"}[r.state]))
+		add("Sends", r.sends, styleDefault)
+		add("To", r.to, styleDefault)
+		switch {
+		case r.via != "" && n.linked:
+			add("Through", r.via, styleDefault)
+		case r.via != "":
+			add("Through", r.via+" (not on the map)", styleDefault)
+		case r.remote != "":
+			add("Through", "no route says", styleMuted)
+		case r.sent > 0:
+			add("Through", "not said - the node runs an older Janus", styleMuted)
+		default:
+			add("Through", "not connected yet", styleMuted)
+		}
+		if r.remote != "" {
+			add("Connection", cmp.Or(r.local, "?")+" → "+r.remote, styleDefault)
+		}
+		add("Records/s", fmtFloat(r.msgRate, 1), styleDefault)
+		if r.knowsBytes {
+			add("Throughput", fmtRate(r.byteRate), styleDefault)
+			add("Sent", fmt.Sprintf("%d records · %s", r.sent, humanBytes(r.bytes)), styleDefault)
+		} else {
+			add("Sent", fmt.Sprintf("%d records", r.sent), styleDefault)
+		}
+		add("Waiting", fmt.Sprint(r.queued), styleDefault)
+		if r.dropped > 0 {
+			add("Dropped", fmt.Sprint(r.dropped), styleWarn)
+		}
+		if r.errors > 0 {
+			add("Failed sends", fmt.Sprint(r.errors), styleWarn)
+		}
+		if !r.lastSent.IsZero() {
+			add("Last sent", humanDuration(max(time.Since(r.lastSent), 0).Round(time.Second))+" ago", styleDefault)
+		}
+		add("Sources", cmp.Or(strings.Join(r.sources, ", "), "all but the access logs"), styleDefault)
+		if r.lastErr != "" {
+			out = append(out, detail{}, detail{value: r.lastErr, st: styleDanger})
+		}
 	case kindIface:
 		st := n.status
 		switch {
@@ -802,6 +1068,7 @@ func flowDetails(g *flowGraph, n *flowNode, v *nodeView) []detail {
 	case kindBE:
 		row := statRow(t, n.name, haproxystat.Backend)
 		add("Status", n.row.status, toneOf(n.row.status))
+		add("Mode", n.mode, styleDefault)
 		add("Servers", fmt.Sprintf("%d of %d up", len(n.servers)-n.down, len(n.servers)), styleDefault)
 		add("Sessions", sessions(row), styleDefault)
 		if n.row.qcur > 0 {

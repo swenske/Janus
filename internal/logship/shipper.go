@@ -530,6 +530,13 @@ type TargetStatus struct {
 	Dropped       uint64    `json:"dropped"`
 	Errors        uint64    `json:"errors"`
 	QueuedRecords int       `json:"queued_records"`
+	// BytesSent is what the sent records took on the way: syslog
+	// messages with their framing, Elasticsearch request bodies as sent.
+	BytesSent uint64 `json:"bytes_sent"`
+	// Local and Remote are the latest connection's addresses (host:port),
+	// kept once it's closed: empty before the first.
+	Local  string `json:"local_address,omitempty"`
+	Remote string `json:"remote_address,omitempty"`
 }
 
 // Status is every configured target's.
@@ -564,11 +571,12 @@ func (s *Shipper) Test(ctx context.Context, t Target) error {
 	}
 	defer sk.Close()
 	host := s.opt.Meta.hostname()
-	return sk.Send(ctx, []Record{{
+	_, err = sk.Send(ctx, []Record{{
 		Time: time.Now(), Source: SourceEvents, Service: s.opt.Meta.Agent, Severity: SevNotice,
 		Message: fmt.Sprintf("log forwarding test from %s to target %s", host, t.Name),
 		Fields:  map[string]any{"event": map[string]any{"type": "logship.test"}},
 	}})
+	return err
 }
 
 func (s *Shipper) newSink(t Target) (sink, error) {
@@ -610,6 +618,8 @@ type target struct {
 	lastSent     time.Time
 	failingSince time.Time
 	sent, errs   uint64
+	bytes        uint64
+	sk           sink // once run made it
 }
 
 func (t *target) poke() {
@@ -633,11 +643,15 @@ func (t *target) status() TargetStatus {
 		behind = v.LastSeq() - min(t.volCursor, v.LastSeq())
 	}
 	t.cmu.Unlock()
-	return TargetStatus{
+	st := TargetStatus{
 		Name: t.cfg.Name, Kind: t.cfg.Kind(), State: t.state, LastError: t.lastErr, LastSent: t.lastSent,
 		FailingSince: t.failingSince, Sent: t.sent, Dropped: t.mem.droppedCount() + lost, Errors: t.errs,
-		QueuedRecords: t.mem.len() + int(behind),
+		QueuedRecords: t.mem.len() + int(behind), BytesSent: t.bytes,
 	}
+	if t.sk != nil {
+		st.Local, st.Remote = t.sk.Peer()
+	}
+	return st
 }
 
 func (t *target) run() {
@@ -658,6 +672,9 @@ func (t *target) run() {
 		return
 	}
 	defer sk.Close()
+	t.smu.Lock()
+	t.sk = sk
+	t.smu.Unlock()
 	backoff := time.Second
 	for {
 		var waitVol <-chan struct{}
@@ -679,7 +696,7 @@ func (t *target) run() {
 		}
 		tried := time.Now()
 		sendCtx, sendCancel := context.WithTimeout(ctx, 30*time.Second)
-		err := sk.Send(sendCtx, b.recs)
+		size, err := sk.Send(sendCtx, b.recs)
 		sendCancel()
 		if err != nil {
 			if ctx.Err() != nil {
@@ -696,7 +713,7 @@ func (t *target) run() {
 		}
 		backoff = time.Second
 		b.commit()
-		t.succeeded(len(b.recs))
+		t.succeeded(len(b.recs), size)
 	}
 }
 
@@ -755,12 +772,13 @@ func (t *target) failedSince(err error, tried time.Time) {
 	}
 }
 
-func (t *target) succeeded(n int) {
+func (t *target) succeeded(n, size int) {
 	t.smu.Lock()
 	recovered := t.state == "failing"
 	t.state, t.lastErr, t.failingSince = "ok", "", time.Time{}
 	t.lastSent = time.Now()
 	t.sent += uint64(n)
+	t.bytes += uint64(size) //nolint:gosec // G115: a length, never negative
 	t.smu.Unlock()
 	if recovered {
 		log.Printf("logship: target %s works again", t.cfg.Name)

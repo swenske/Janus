@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,6 +28,7 @@ type syslogSink struct {
 
 	conn net.Conn
 	w    *bufio.Writer
+	peer peer
 }
 
 func newSyslogSink(t Target, e *env) (*syslogSink, error) {
@@ -59,6 +61,7 @@ func (s *syslogSink) connect(ctx context.Context) error {
 		return err
 	}
 	s.conn, s.w = conn, bufio.NewWriterSize(conn, 64<<10)
+	s.peer.set(conn)
 	return nil
 }
 
@@ -90,32 +93,38 @@ func (s *syslogSink) close() {
 
 // Send writes recs. With TCP or TLS, an error leaves the connection
 // closed: the next Send dials again, and sends the batch whole again.
-func (s *syslogSink) Send(ctx context.Context, recs []Record) error {
+func (s *syslogSink) Send(ctx context.Context, recs []Record) (int, error) {
 	if s.conn != nil && s.stale() {
 		s.close()
 	}
 	if s.conn == nil {
 		if err := s.connect(ctx); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	if err := s.write(recs); err != nil {
+	n, err := s.write(recs)
+	if err != nil {
 		s.close()
-		return err
+		return 0, err
 	}
-	return nil
+	return n, nil
 }
 
-func (s *syslogSink) write(recs []Record) error {
+// write sends recs and says how many bytes went: the messages with
+// their framing.
+func (s *syslogSink) write(recs []Record) (int, error) {
 	_ = s.conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
 	host := s.env.meta.hostname()
 	var buf []byte
+	n := 0
 	for _, r := range recs {
 		buf = s.encode(buf[:0], r, host)
 		if s.cfg.Transport == "udp" {
-			if _, err := s.conn.Write(buf[:min(len(buf), maxUDP)]); err != nil {
-				return err
+			w, err := s.conn.Write(buf[:min(len(buf), maxUDP)])
+			if err != nil {
+				return 0, err
 			}
+			n += w
 			continue
 		}
 		if len(buf) > maxSyslog {
@@ -123,18 +132,28 @@ func (s *syslogSink) write(recs []Record) error {
 		}
 		if s.cfg.Framing == "lf" {
 			buf = append(buf, '\n')
-		} else if _, err := s.w.WriteString(strconv.Itoa(len(buf)) + " "); err != nil {
-			return err
+		} else {
+			w, err := s.w.WriteString(strconv.Itoa(len(buf)) + " ")
+			if err != nil {
+				return 0, err
+			}
+			n += w
 		}
-		if _, err := s.w.Write(buf); err != nil {
-			return err
+		w, err := s.w.Write(buf)
+		if err != nil {
+			return 0, err
 		}
+		n += w
 	}
 	if s.w != nil {
-		return s.w.Flush()
+		if err := s.w.Flush(); err != nil {
+			return 0, err
+		}
 	}
-	return nil
+	return n, nil
 }
+
+func (s *syslogSink) Peer() (local, remote string) { return s.peer.get() }
 
 func (s *syslogSink) Close() { s.close() }
 
@@ -203,6 +222,30 @@ func tag(s string) string {
 
 // sink is a target's way to its server.
 type sink interface {
-	Send(ctx context.Context, recs []Record) error
+	// Send sends recs and says how many bytes it handed the transport.
+	Send(ctx context.Context, recs []Record) (int, error)
+	// Peer is its latest connection's local and remote addresses
+	// (host:port), kept once it's closed - empty before the first.
+	Peer() (local, remote string)
 	Close()
+}
+
+// peer is a sink's latest connection's addresses: where its traffic goes
+// (the node's status says through which interface). Set by the sink's
+// goroutine, read by the status's.
+type peer struct {
+	mu            sync.Mutex
+	local, remote string
+}
+
+func (p *peer) set(c net.Conn) {
+	p.mu.Lock()
+	p.local, p.remote = c.LocalAddr().String(), c.RemoteAddr().String()
+	p.mu.Unlock()
+}
+
+func (p *peer) get() (local, remote string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.local, p.remote
 }

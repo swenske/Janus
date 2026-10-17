@@ -81,8 +81,10 @@ mkdir -p "$WORK/terminal"
 
 docker network create --internal --subnet "$NET.0/24" --gateway "$NET.1" "$P" >/dev/null
 
-# The application servers web.cfg balances - HAProxy answering "ok" - and
-# the Controller's releases: one, the version the nodes run.
+# The application servers web.cfg balances - HAProxy answering "ok" -,
+# the Controller's releases: one, the version the nodes run - and a
+# syslog server (HAProxy's log-forward), where edge-par-3 sends its logs
+# for the Traffic flow's screenshot.
 mkdir -p "$WORK/releases"
 cat >"$WORK/app.cfg" <<'EOF'
 global
@@ -103,6 +105,9 @@ frontend releases
     http-request return status 200 content-type application/json file /releases/releases.json if { path /releases }
     http-request return status 200 content-type text/plain file /releases/rootfs.squashfs.sha256 if { path_end /rootfs.squashfs.sha256 }
     http-request return status 404
+log-forward syslog
+    bind :601
+    log stdout format raw local0
 EOF
 cat >"$WORK/releases/releases.json" <<EOF
 [{"tag_name": "$VERSION", "html_url": "http://$NET.11:8081/releases/tag/$VERSION",

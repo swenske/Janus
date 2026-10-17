@@ -33,7 +33,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean rootfs-fit-test kernel-menuconfig janusctl-deb janusctl-deb-test apt-publish-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check qemu-metrics-test qemu-console-flood-test qemu-logvol-test qemu-logforward-test qemu-logforward-nologs-test qemu-logforward-es-test qemu-logforward-fleet-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check ui-preview qemu-metrics-test qemu-console-flood-test qemu-logvol-test qemu-logforward-test qemu-logforward-nologs-test qemu-logforward-es-test qemu-logforward-fleet-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-consul-test \
 	kernel-build kernel-builds kernel-config-refresh rpi4-kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -928,6 +928,12 @@ docs-screenshots: browser-image local-dev-image
 
 docs-screenshots-check: browser-image local-dev-image
 	./hack/docs-screenshots.sh check $(BROWSER_IMAGE)
+
+# A Controller and three nodes built from this tree, under traffic and
+# sending their logs, to look at in a browser and with janusctl tui
+# (hack/ui-preview.sh: up, reload, down, info).
+ui-preview: browser-image local-dev-image
+	BROWSER_IMAGE=$(BROWSER_IMAGE) ./hack/ui-preview.sh up
 
 # Dashboard prep, tranche 2: proves the dashboard backend's whole
 # add-node/list/per-node-mTLS-relay/delete/restart-persistence flow

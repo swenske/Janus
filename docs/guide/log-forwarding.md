@@ -57,7 +57,7 @@ A configuration lists the targets:
 
 ```sh
 janusctl -n lb1 system log-forwarding set syslog.json   # applied at once, kept on STATE
-janusctl -n lb1 system log-forwarding status            # each target: sent, dropped, waiting, the last error
+janusctl -n lb1 system log-forwarding status            # each target: sent, bytes, dropped, waiting, its interface, the last error
 janusctl -n lb1 system log-forwarding test nas          # one record now - or why it can't
 janusctl -n lb1 system log-forwarding get               # the configuration, without its secrets
 ```
@@ -347,9 +347,18 @@ error too: `docker logs` and Docker's own logging drivers still see it.
 ## Watching it
 
 `janusctl system log-forwarding status` - each target's state (`ok`,
-`failing`), records sent, dropped, waiting, the last error. A target
+`failing`), records sent and the bytes they took (syslog messages with
+their framing, Elasticsearch request bodies as sent - gzipped when the
+target says so), dropped, waiting, the interface its logs leave by
+(`VIA`: the kernel's route to the server the target is connected to,
+from the address it's connected from - so a policy route or a VRRP
+address are what the kernel says, not a guess), the last error. A target
 failing for 30 seconds is said so in the event log
 (`logship.failing`, then `logship.recovered`) and janusd's log, and in
 the [metrics](../metrics.md): `janus_logship_target_up`,
-`janus_logship_records_dropped_total`; the Grafana dashboard's *Kernel
-and STATE* tile counts the targets failing and the records lost.
+`janus_logship_records_dropped_total`, `janus_logship_bytes_sent_total`;
+the Grafana dashboard's *Kernel and STATE* tile counts the targets
+failing and the records lost. The node's **Traffic flow** (the
+Controller's Monitoring › Traffic flow, `janusctl tui`'s `f`) draws each
+target beyond the interface it goes by, with its records and bytes a
+second.

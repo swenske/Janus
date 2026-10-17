@@ -45,6 +45,7 @@ var Domain = map[string]string{
 	"SystemService/DiskUsage":                   DomainSystem,
 	"SystemService/NetworkDeviceStats":          DomainObserve,
 	"SystemService/Netstat":                     DomainObserve,
+	"SystemService/ClientList":                  DomainObserve,
 	"SystemService/Mounts":                      DomainObserve,
 	"SystemService/Processes":                   DomainObserve,
 	"SystemService/ServiceList":                 DomainObserve,

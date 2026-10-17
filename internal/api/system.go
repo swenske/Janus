@@ -65,6 +65,10 @@ type System struct {
 	LogShip    *logship.Shipper
 	LogShipDir string
 
+	// Clients are the connections to the API (ClientList) - nil: none
+	// kept.
+	Clients *Clients
+
 	// HAProxy is the supervised haproxy, for the service-control and
 	// Stats RPCs.
 	HAProxy *haproxy.Manager

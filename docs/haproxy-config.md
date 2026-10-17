@@ -11,9 +11,10 @@ haproxy apply-config FILE` or the Controller's **HAProxy › Configuration**.
 ![HAProxy's configuration on a node's page: the editor with the running haproxy.cfg - here examples/haproxy/web.cfg - marked as matching the running configuration, and HAProxy's state with Reload, Restart and Stop](assets/screenshots/node-haproxy-config-light.webp)
 
 Its **Backends** tab shows each server's state, and sets it - ready,
-drain, maintenance - at runtime:
+drain, maintenance - at runtime, the one it has marked; a tile per
+backend, however many there are:
 
-![The Backends tab: the app backend's two servers, app1 and app2, up, each with Ready, Drain and Maint](assets/screenshots/node-haproxy-backends-light.webp)
+![The Backends tab: the app backend's two servers, app1 and app2, up, each with Ready - marked, the state they have -, Drain and Maint](assets/screenshots/node-haproxy-backends-light.webp)
 
 **Monitoring › Traffic flow** draws what the configuration does, live:
 the node's interfaces, HAProxy, each frontend linked to the backends its
@@ -21,12 +22,19 @@ the node's interfaces, HAProxy, each frontend linked to the backends its
 when `use_backend` reads one - and each backend's servers, with their
 traffic, sessions and state, as big as the window allows - left to
 right, the labels beside the nodes for a configuration with many
-backends, or top to bottom when that's what fits. Select a frontend to
-see the rules - a
-map's keys included - behind each of its links, or a server to set its
-state:
+backends, or top to bottom when that's what fits. HTTP and TCP traffic
+have their own colours, and each frontend and backend says its mode; a
+number that starts from zero flashes. Where the node sends its logs
+([log forwarding](guide/log-forwarding.md)) shows beyond the interfaces:
+each target, its records and bytes a second, linked to the interface its
+logs actually leave by - and next to them who is connected to the node's
+API, the Controller and janusctl, with the users the Controller acts for
+in its details. Ctrl + scroll (or a pinch) zooms around the pointer, and
+a zoomed map is dragged with the mouse. Select a frontend to see the
+rules - a map's keys included - behind each of its links, or a server to
+set its state:
 
-![The Traffic flow, left to right: eth0, HAProxy, web.cfg's frontends web and prometheus, web linked to the app backend and its servers app1 and app2, the links carrying traffic highlighted](assets/screenshots/node-traffic-flow-light.webp)
+![The Traffic flow, top to bottom: the Controller, its calls and bytes a second and a badge counting its one user, and the log target siem, its records and bytes a second, above eth0, then HAProxy, the HTTP frontends web and prometheus and the TCP frontend postgres, web linked to the app backend and its servers app1 and app2, postgres to the db backend and its servers db1 and db2, each link in its protocol's colour](assets/screenshots/node-traffic-flow-light.webp)
 
 `janusctl tui` draws it in the terminal too: `f` on a node
 ([janusctl](janusctl.md#the-dashboard-janusctl-tui)).

@@ -86,6 +86,12 @@ service SystemService {
   // Netstat lists the machine's TCP and UDP sockets: listening ones and
   // connections.
   rpc Netstat(google.protobuf.Empty) returns (NetstatResponse);
+  // ClientList lists the connections to this API open now: whose each
+  // is - its certificate; a Controller's names the users its calls are
+  // for -, the interface it comes by, its calls and bytes. The users a
+  // Controller acts for, and the other clients' names and addresses,
+  // come back to an admin only.
+  rpc ClientList(google.protobuf.Empty) returns (ClientListResponse);
   // Mounts lists the mounted filesystems with their size and free space.
   rpc Mounts(google.protobuf.Empty) returns (MountsResponse);
   // Processes lists the machine's processes.
@@ -953,6 +959,74 @@ message LogTargetStatus {
   uint64 queued = 10;
   // The secrets it has: "api_key", "password", "client_key".
   repeated string secrets = 11;
+  // What the sent records took on the way, in bytes: syslog messages
+  // with their framing, Elasticsearch request bodies as sent (gzipped
+  // when the target says so).
+  uint64 bytes_sent = 12;
+  // The network interface its traffic leaves by: the kernel's route to
+  // remote_address, from local_address. Empty before its first
+  // connection, or when no route says.
+  string interface = 13;
+  // Its latest connection's addresses (host:port), kept once it's
+  // closed - empty before the first.
+  string local_address = 14;
+  string remote_address = 15;
+}
+
+message ClientListResponse {
+  repeated ClientConnection connections = 1;
+}
+
+// ClientConnection is one connection to the API.
+message ClientConnection {
+  // Its number, the same as long as it stays open.
+  uint64 id = 1;
+  // A Controller's: its certificate is the fleet's Controller's
+  // (janus:controller), or the service credential a Controller got when
+  // it added the node (named janus-controller).
+  bool controller = 2;
+  // The certificate's common name and roles (its Subject.Organization) -
+  // empty for a client other than the caller's or a Controller, but for
+  // an admin.
+  string name = 3;
+  repeated string roles = 4;
+  // The certificate is the fleet's (chained to its root), not one the
+  // node's own CA issued.
+  bool fleet = 5;
+  // host:port; remote_address empty like name.
+  string local_address = 6;
+  string remote_address = 7;
+  // The network interface it comes by: the kernel's route back to the
+  // client, from local_address. Empty when no route says.
+  string interface = 8;
+  int64 opened_unix_ns = 9;
+  // Calls made on it, the streaming ones still open, when the latest
+  // began or a stream ended.
+  uint64 calls = 10;
+  uint32 open_streams = 11;
+  int64 last_call_unix_ns = 12;
+  // The bytes it carried, TLS included.
+  uint64 bytes_received = 13;
+  uint64 bytes_sent = 14;
+  // The users a Controller's calls were for lately - a stream open, or
+  // a call in the last 2 minutes -, the latest first: for an admin (any
+  // other caller gets its own entry alone); user_count counts them all.
+  repeated ClientUser users = 15;
+  uint32 user_count = 16;
+  // The connection the ClientList call itself came by.
+  bool self = 17;
+}
+
+// ClientUser is a user a Controller acts for, as it names them.
+message ClientUser {
+  string name = 1;
+  // As the Controller said (janus-as-roles).
+  repeated string roles = 2;
+  uint64 calls = 3;
+  uint32 open_streams = 4;
+  int64 last_call_unix_ns = 5;
+  // The user the ClientList call is for.
+  bool self = 6;
 }
 
 message LogForwardingTestResponse {

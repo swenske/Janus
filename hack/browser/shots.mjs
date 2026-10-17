@@ -99,14 +99,32 @@ await until('the nodes to trust the fleet', async () => {
   return Object.values(ids).every((id) => f.nodes?.[id]?.state === 'trusted')
 })
 const web = fs.readFileSync('/examples/haproxy/web.cfg', 'utf8')
-for (const id of Object.values(ids)) {
-  await call('POST', `/nodes/${id}/api/haproxy/config`, { config: web })
+// edge-par-3 - the Traffic flow's shot - a TCP frontend too, and its logs
+// sent to app1's syslog (a log-forward section, hack/docs-screenshots.sh).
+const TCP = `
+frontend postgres
+    mode tcp
+    option tcplog
+    bind :5432
+    default_backend db
+
+backend db
+    mode tcp
+    default-server check inter 2s fall 3 rise 2
+    server db1 10.0.10.11:8080
+    server db2 10.0.10.12:8080
+`
+for (const [name, id] of Object.entries(ids)) {
+  await call('POST', `/nodes/${id}/api/haproxy/config`, { config: name === 'edge-par-3' ? web + TCP : web })
   await until('the application servers to be up', async () => {
     const b = await call('GET', `/nodes/${id}/api/haproxy/backends`)
     const servers = (b.backends || []).flatMap((x) => x.servers || [])
     return servers.length > 0 && servers.every((s) => s.state.toLowerCase() === 'up')
   })
 }
+await call('POST', `/nodes/${ids['edge-par-3']}/api/log-forwarding`, {
+  targets: [{ name: 'siem', sources: ['janusd', 'haproxy', 'access', 'events', 'audit'], syslog: { address: '10.0.10.11:601', transport: 'tcp' } }],
+})
 for (const user of [
   { name: 'alice', role: 'operator', password: 'alice-given-password' },
   { name: 'rita', role: 'reader', password: 'rita-given-password' },
@@ -196,8 +214,9 @@ function metrics(m, k) {
 
 // HAProxy's counters per proxy and server: the same series, all of it
 // through web.cfg's frontend web and backend app, app1 and app2 taking
-// about half each - the Traffic flow's pulses.
-const SHARES = { 'web/FRONTEND': 1, 'app/BACKEND': 1, 'app/app1': 0.53, 'app/app2': 0.47 }
+// about half each - the Traffic flow's pulses -, a quarter more through
+// edge-par-3's TCP frontend postgres to db.
+const SHARES = { 'web/FRONTEND': 1, 'app/BACKEND': 1, 'app/app1': 0.53, 'app/app2': 0.47, 'postgres/FRONTEND': 0.25, 'db/BACKEND': 0.25, 'db/db1': 0.13, 'db/db2': 0.12 }
 function stats(t, k) {
   const s = SERIES[Math.min(k, SERIES.length - 1)]
   const col = Object.fromEntries((t.columns || []).map((c, i) => [c, i]))
@@ -216,6 +235,37 @@ function stats(t, k) {
     set('hrsp_2xx', s.reqs * share)
   }
   return t
+}
+
+// The log targets' counters: a record and 240 bytes each, about as many
+// as requests.
+function logs(body, k) {
+  const s = SERIES[Math.min(k, SERIES.length - 1)]
+  for (const t of body?.targets || []) Object.assign(t, { sent: String(Math.round(s.reqs * 1.2)), bytes_sent: String(Math.round(s.reqs * 1.2 * 240)) })
+  return body
+}
+
+// The API's connections: the Controller's alone - this page comes
+// through it -, its calls and bytes at the series' pace, the users it
+// acts for the shot's own account, times the clock's.
+function clients(body, k) {
+  const s = SERIES[Math.min(k, SERIES.length - 1)]
+  const ns = (ms) => ms * 1e6
+  body.connections = (body?.connections || []).filter((c) => c.controller)
+  for (const c of body.connections) {
+    Object.assign(c, {
+      remote_address: (c.remote_address || '').replace(/:\d+$/, ':40000'),
+      opened_unix_ns: ns(T0 - 3 * 3600 * 1000),
+      last_call_unix_ns: ns(T0),
+      calls: Math.round(s.reqs / 40),
+      bytes_received: Math.round(s.reqs * 9),
+      bytes_sent: Math.round(s.reqs * 110),
+      open_streams: 0,
+    })
+    c.users = (c.users || []).filter((u) => u.self).map((u) => ({ ...u, calls: Math.round(s.reqs / 40), open_streams: 0, last_call_unix_ns: ns(T0) }))
+    c.user_count = c.users.length
+  }
+  return body
 }
 
 // A Server-Sent Events stream: what the real one sends in its first
@@ -261,6 +311,8 @@ async function newContext(browser, theme, size) {
   await ctx.clock.pauseAt(T0)
   ctx.metricsServed = 0
   ctx.statsServed = 0
+  ctx.logsServed = 0
+  ctx.clientsServed = 0
   await ctx.route(/\/api\//, async (route) => {
     const req = route.request()
     const path = new URL(req.url()).pathname
@@ -277,6 +329,8 @@ async function newContext(browser, theme, size) {
     let body = normalize(await resp.json())
     if (path.endsWith('/api/metrics')) body = metrics(body, ctx.metricsServed++)
     if (path.endsWith('/api/haproxy/stats')) body = stats(body, ctx.statsServed++)
+    if (path.endsWith('/api/log-forwarding')) body = logs(body, ctx.logsServed++)
+    if (path.endsWith('/api/system/clients')) body = clients(body, ctx.clientsServed++)
     if (/\/api\/(enroll-)?tokens$/.test(path)) for (const t of body || []) t.id = fakeHex(`token/${t.name}`).slice(0, t.id.length)
     return route.fulfill({ response: resp, json: body })
   })

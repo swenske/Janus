@@ -194,7 +194,12 @@ import json, sys
 d = json.loads(sys.argv[1])
 assert d["data_stream"]["dataset"] == "janus.audit" and d["event"]["outcome"] == "failure" and d["source"]["ip"] and d["janus"]["audit"]["denied"], d
 ' "$doc" || fail "the audit document: $doc"
-echo "Part 2 OK: janusd's log, the events, the audit (a reader's refused reboot: user.name, source.ip, event.outcome) and HAProxy's JSON access logs in their data streams, with ECS fields and the node's CA as host.id"
+# What it sent took bytes - the gzipped bodies -, through the interface the
+# node routes the cluster by (janusctl's BYTES and VIA).
+status="$(ctl system log-forwarding status)"
+read -r bytes via < <(awk '$1 == "es" {print $4, $7}' <<<"$status")
+[ "$bytes" != "0B" ] && [ "$via" = eth0 ] || fail "es: $bytes sent, by ${via:-?} (want eth0): $status"
+echo "Part 2 OK: janusd's log, the events, the audit (a reader's refused reboot: user.name, source.ip, event.outcome) and HAProxy's JSON access logs in their data streams, with ECS fields and the node's CA as host.id - $bytes sent through $via"
 
 # --- 3. the cluster away, then back ---
 docker pause "$NAME" >/dev/null

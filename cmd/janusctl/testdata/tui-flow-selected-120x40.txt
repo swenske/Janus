@@ -10,12 +10,12 @@
 │                                                                                                                      │
 │                                                       ╭──━───━───━───━───━───━───━───━───━───━───━───━───━───━───━── │
 │                                                       ┃                                                              │
-│                                                       ● https                                                        │
+│                                                       ● https http                                                   │
 │                                                       │ 43.9KiB/s · 8 sess                                           │
 │                                                       ┃                                                              ▸
 │ ╭──────────────────────────┬───━───━───━───━───━───━──┴┬──────────────────────────┬─────────────────────────╮        │
 │ │                          │                           │                          │                         │        │
-│ ● api                      ● be_blog                   ● be_www                   ● be_many                 ● be_def │
+│ ● api http                 ● be_blog http              ● be_www http              ● be_many http            ● be_def │
 │ │ 4.9KiB/s · 1 sess        │ 1/2 servers up            │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess       │ 4.9KiB │
 │ ├─● app1 2.4KiB/s · 1 sess ├─● app2 12.2KiB/s · 1 sess ├─● app1 9.8KiB/s · 2 sess ├─● s1 500B/s · 0 sess    ╰─● app1 │
 │ ╰─● app2 MAINT             ╰╌● dead DOWN · L4TOUT      ╰─● app2 8.8KiB/s · 2 sess ├─● s2 500B/s · 0 sess             │

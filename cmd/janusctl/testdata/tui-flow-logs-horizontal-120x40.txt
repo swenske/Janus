@@ -1,0 +1,40 @@
+ janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok            15:04:05
+╭─ Traffic flow  left to right ────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                      │
+│                                                                                        ╭─● api http ─━───━───━─┬─● a │
+│                                                                                        ┃   4.9KiB/s · 1 sess   ╰┄● a │
+│                                                                                        ├━● be_blog http ─━───━─┬─● a │
+│                                                                                        │   1/2 servers up      ╰╌● d │
+│                                                                                        ├─● be_www http ─━───━──┬━● a │
+│                                                                ╭─● https http ─━───━───┤   4.9KiB/s · 1 sess   ╰─● a │
+│                                                                │   43.9KiB/s · 8 sess  ├─● be_many http ─━───━─┬─● s │
+│                                                                │                       │   4.9KiB/s · 1 sess   ├━● s │
+│                                                                │                       │                       ├─● s │
+│                                                                ┃                       ┃                       ├─● s │
+│                                                                │                       │                       ├─● s │
+│ ● rsyslog ───━───━───━─╮                                       │                       │                       ├━● s ▸
+│   50 msg/s · 5.9KiB/s  ├━● eth0 ─━───━─● HAProxy ─━───━───━───━┤                       │                       ├─● s │
+│ ● elastic ╌╌╌╌╌╌╌╌╌╌╌╌╌╯   16.0KiB/s     12 conns · 4 req/s    │                       ┃                       ╰─● + │
+│   failing                                                      │                       ╰─● be_default http ─━───━● a │
+│ ○ siem                                                         ┃                           4.9KiB/s · 1 sess         │
+│   10 msg/s · 1000B/s                                           ├─● stats http ───────────● stats http                │
+│ ○ archive                                                      │   0B/s · 0 sess           0B/s · 0 sess             │
+│   disabled                                                     ├━● tcp_in tcp ─━───━───━─● tcp_pool tcp ─━───━───● a │
+│                                                                │   2.0KiB/s · 1 sess       4.9KiB/s · 1 sess         │
+│                                                                ╰─● admin http            ○ unused http ──────────● a │
+│                                                                    0B/s · 0 sess           4.9KiB/s · 1 sess         │
+│                                                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭ Details ─────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ← ↑ ↓ → select a node: its paths come forward. Enter on    ━ an interface's, all of it                               │
+│ a server: ready, drain, maint.                             A number that starts from zero lights up a moment.        │
+│ o vertical · s servers · f or Esc back                                                                               │
+│                                                            Links come from the configuration: default_backend,       │
+│ ━ traffic  ─ none  ╌ server down, log target failing  ┄    use_backend, a map's values when use_backend reads one.   │
+│ off  ○ named by no rule                                    HAProxy doesn't count how a backend's traffic splits      │
+│ ━ HTTP                                                     between the frontends that send to it.                    │
+│ ━ TCP                                                                                                                │
+│ ━ logs, out of the node                                                                                              │
+│ ━ the API: the Controller, janusctl, into the node                                                                   │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ? help  q quit  f back  ←↑↓→ move  o vertical  s servers  R reload  M menu                                     every 2s

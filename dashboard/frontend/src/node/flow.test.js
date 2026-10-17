@@ -2,7 +2,30 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { test } from 'node:test'
-import { FIT_MIN, MAX_SCALE, MIN_SCALE, arrange, buildFlow, interfaces, layout, mapCalls, parseTopology, pulse, reach, related, resolveLinks, serverTone, statRows, tokenize, withRates } from './flow.js'
+import {
+  FIT_MIN,
+  MAX_SCALE,
+  MIN_SCALE,
+  apiPeers,
+  arrange,
+  buildFlow,
+  figures,
+  interfaces,
+  layout,
+  logTargets,
+  mapCalls,
+  parseTopology,
+  protocol,
+  pulse,
+  reach,
+  related,
+  resolveLinks,
+  risen,
+  serverTone,
+  statRows,
+  tokenize,
+  withRates,
+} from './flow.js'
 
 // examples/haproxy/web.cfg's proxies.
 const WEB = `
@@ -446,4 +469,300 @@ test('pulse', () => {
   const fast = pulse(100e6)
   assert.ok(fast.width > slow.width && fast.seconds < slow.seconds)
   assert.ok(fast.width <= 5 && fast.seconds >= 0.35)
+})
+
+// A frontend in each mode, and the backends they send to.
+const MODES = `
+defaults
+    mode http
+frontend web
+    bind :80
+    default_backend app
+frontend db
+    mode tcp
+    bind :5432
+    default_backend pg
+backend app
+    server a1 10.0.0.1:80
+backend pg
+    mode tcp
+    server p1 10.0.0.2:5432
+`
+function modeRows() {
+  return statRows({
+    columns: COLUMNS,
+    rows: [
+      row('web', 'FRONTEND', 0, 'OPEN', 1, 10, 10),
+      row('db', 'FRONTEND', 0, 'OPEN', 1, 10, 10, { mode: 'tcp' }),
+      row('app', 'a1', 2, 'UP', 1, 10, 10),
+      row('app', 'BACKEND', 1, 'UP', 1, 10, 10),
+      row('pg', 'p1', 2, 'UP', 1, 10, 10, { mode: 'tcp' }),
+      row('pg', 'BACKEND', 1, 'UP', 1, 10, 10, { mode: 'tcp' }),
+    ],
+  })
+}
+
+test('protocol: a link is its frontend\'s or backend\'s mode', () => {
+  const g = buildFlow(modeRows(), parseTopology(MODES), {})
+  assert.deepEqual(g.backends.map((b) => [b.name, b.mode, b.servers.map((s) => s.mode)]), [
+    ['app', 'http', ['http']],
+    ['pg', 'tcp', ['tcp']],
+  ])
+  const m = layout(g, interfaces({ eth0: { rx: 1, tx: 1 } }, null))
+  const by = Object.fromEntries(m.links.map((l) => [l.id, protocol(l, m.byId)]))
+  assert.deepEqual(by, {
+    'if:eth0>hub': '',
+    'hub>fe:web': 'http',
+    'hub>fe:db': 'tcp',
+    'fe:web>be:app': 'http',
+    'fe:db>be:pg': 'tcp',
+    'be:app>srv:app/a1': 'http',
+    'be:pg>srv:pg/p1': 'tcp',
+  })
+  // A TCP frontend handing its connections to an HTTP backend: HTTP.
+  const tcpToHttp = buildFlow(
+    modeRows().map((r) => (r.proxy === 'web' ? { ...r, mode: 'tcp' } : r)),
+    parseTopology(MODES),
+    {},
+  )
+  const t = layout(tcpToHttp, [])
+  assert.equal(protocol(t.links.find((l) => l.id === 'fe:web>be:app'), t.byId), 'http')
+  assert.equal(protocol(t.links.find((l) => l.id === 'hub>fe:web'), t.byId), 'tcp')
+})
+
+// /api/log-forwarding's answer (proto names, 64-bit counters as strings).
+function logAnswer(sent, bytes, extra = {}) {
+  return {
+    config: {
+      targets: [
+        { name: 'rsyslog', syslog: { address: '10.0.31.20:601', transport: 'tcp' }, elasticsearch: null },
+        { name: 'elastic', syslog: null, elasticsearch: { url: 'https://10.0.30.30:9200' } },
+        { name: 'old', syslog: { address: '10.0.30.20:514' }, elasticsearch: null },
+        { name: 'off', disabled: true, syslog: { address: '10.0.30.20:514' }, elasticsearch: null },
+      ],
+    },
+    targets: [
+      { name: 'rsyslog', kind: 'syslog', state: 'ok', sent: String(sent), bytes_sent: String(bytes), interface: 'eth1', remote_address: '10.0.31.20:601', ...extra },
+      { name: 'elastic', kind: 'elasticsearch', state: 'failing', sent: '7', bytes_sent: '900', interface: 'eth0' },
+      { name: 'old', kind: 'syslog', state: 'ok', sent: String(sent) }, // a node older than bytes and interfaces
+      { name: 'off', kind: 'syslog', state: 'disabled', sent: '0', bytes_sent: '0', interface: '' },
+    ],
+  }
+}
+
+test('log targets: records and bytes a second, the interface, the state', () => {
+  const first = logTargets(logAnswer(100, 10000), null, 0)
+  assert.deepEqual(first.map((t) => [t.id, t.es, t.via, t.msgRate, t.byteRate, t.knowsBytes, t.tone]), [
+    ['log:rsyslog', false, 'eth1', undefined, undefined, true, 'ok'],
+    ['log:elastic', true, 'eth0', undefined, undefined, true, 'danger'],
+    ['log:old', false, null, undefined, undefined, false, 'ok'],
+    ['log:off', false, '', undefined, undefined, true, 'off'],
+  ])
+  const t = logTargets(logAnswer(150, 16000), logAnswer(100, 10000), 5)
+  assert.deepEqual([t[0].msgRate, t[0].byteRate], [10, 1200])
+  assert.deepEqual([t[2].msgRate, t[2].byteRate], [10, undefined])
+  // janusd restarted: its counters start again - no rate.
+  const back = logTargets(logAnswer(3, 300), logAnswer(150, 16000), 5)
+  assert.deepEqual([back[0].msgRate, back[0].byteRate], [undefined, undefined])
+  assert.deepEqual(logTargets(null, null, 0), [])
+})
+
+test('layout with log targets: beyond the interfaces they leave by', () => {
+  const g = buildFlow(modeRows(), parseTopology(MODES), {})
+  const ifs = interfaces({ eth0: { rx: 1, tx: 1 }, eth1: { rx: 1, tx: 1 } }, null)
+  const logs = logTargets(logAnswer(150, 16000), logAnswer(100, 10000), 5)
+  for (const shape of ['across', 'dense', 'down']) {
+    const plain = layout(g, ifs, { shape })
+    const m = layout(g, ifs, { shape, peers: logs })
+    const lg = m.nodes.filter((n) => n.kind === 'log')
+    assert.equal(lg.length, 4, shape)
+    // Linked to their interface when it's on the map, not otherwise.
+    assert.deepEqual(
+      m.links.filter((l) => l.kind === 'log').map((l) => l.id),
+      ['if:eth0>log:elastic', 'if:eth1>log:rsyslog'],
+      shape,
+    )
+    assert.deepEqual(lg.filter((n) => !n.linked).map((n) => n.name), ['old', 'off'], shape)
+    assert.ok(m.links.every((l) => !/NaN|Infinity|undefined/.test(l.d)), shape)
+    // Beyond the interfaces: left of them, or above them top to bottom.
+    const iface = m.nodes.filter((n) => n.kind === 'iface')
+    if (shape === 'down') {
+      assert.ok(lg.every((n) => n.y < Math.min(...iface.map((i) => i.y))), shape)
+      const row = [...lg].sort((p, q) => p.x - q.x)
+      assert.ok(row.every((n, i) => i === 0 || n.x - n.r >= row[i - 1].x + reach(row[i - 1])), `${shape}: labels apart`)
+      assert.equal(m.byId['log:rsyslog'].x, m.byId['if:eth1'].x)
+    } else {
+      assert.ok(lg.every((n) => n.x + reach(n) < Math.min(...iface.map((i) => i.x - i.r)) || shape === 'across'), shape)
+      assert.ok(lg.every((n) => n.x < Math.min(...iface.map((i) => i.x))), shape)
+      assert.equal(overlaps(lg, shape === 'dense' ? 44 : 92), false, shape)
+      // Level with their interface; the unlinked ones after.
+      assert.equal(m.byId['log:rsyslog'].y, m.byId['if:eth1'].y, shape)
+      assert.equal(m.byId['log:elastic'].y, m.byId['if:eth0'].y, shape)
+      assert.ok(m.byId['log:old'].y > m.byId['log:rsyslog'].y, shape)
+    }
+    assert.ok(m.nodes.every((n) => n.x - n.r >= 0 && n.x + reach(n) <= m.width + 1 && n.y - n.r >= 0 && n.y + n.r <= m.height), shape)
+    // Across, a label is centred under its node: a log target's whole.
+    if (shape === 'across') assert.ok(lg.every((n) => n.x >= (22 * 6.7) / 2), shape)
+    // Without log targets, the map is what it was.
+    assert.deepEqual(layout(g, ifs, { shape, peers: [] }), plain, shape)
+  }
+})
+
+test('related: a log target is its link and its interface', () => {
+  const g = buildFlow(modeRows(), parseTopology(MODES), {})
+  const ifs = interfaces({ eth0: { rx: 1, tx: 1 }, eth1: { rx: 1, tx: 1 } }, null)
+  const m = layout(g, ifs, { peers: logTargets(logAnswer(1, 1), null, 0) })
+  assert.deepEqual([...related(m, 'log:rsyslog')].sort(), ['if:eth1', 'if:eth1>log:rsyslog', 'log:rsyslog'])
+  assert.deepEqual([...related(m, 'if:eth1>log:rsyslog')].sort(), ['if:eth1', 'if:eth1>log:rsyslog', 'log:rsyslog'])
+  // A frontend's paths leave the log targets out.
+  assert.ok(!related(m, 'fe:web').has('log:rsyslog'))
+})
+
+test('arrange: no room at all - a card not laid out - is the first shape, not a crash', () => {
+  const g = buildFlow(modeRows(), parseTopology(MODES), {})
+  const maps = Object.fromEntries(['across', 'dense', 'down'].map((shape) => [shape, layout(g, [], { shape })]))
+  for (const width of [0, -21]) {
+    assert.deepEqual(arrange('auto', maps, { width, side: 368, height: 800 }), { shape: 'across', beside: false, scale: MIN_SCALE })
+    assert.deepEqual(arrange('vertical', maps, { width, side: 368, height: 800 }), { shape: 'down', beside: false, scale: MIN_SCALE })
+  }
+})
+
+test('risen: what started from nothing', () => {
+  const g = buildFlow(withRates(modeRows(), modeRows(), 2), parseTopology(MODES), {})
+  const m = layout(g, [], { peers: [...apiPeers(clientAnswer(20, 9000), clientAnswer(10, 4000), 5), ...logTargets(logAnswer(150, 16000), logAnswer(100, 10000), 5)] })
+  const a = figures(m, { conns: 0, reqRate: 3 }, { 'hub>fe:web': 0 })
+  assert.equal(a['fe:web'].traffic, 0)
+  assert.equal(a.hub.conns, 0)
+  assert.equal(a['log:rsyslog'].msgs, 10)
+  assert.deepEqual(a['api:controller:eth0'], { calls: 2, bytes: 1000 })
+  const busier = buildFlow(
+    withRates(
+      modeRows().map((r) => (r.proxy === 'web' ? { ...r, bin: r.bin + 100 } : r)),
+      modeRows(),
+      2,
+    ),
+    parseTopology(MODES),
+    {},
+  )
+  const b = figures(layout(busier, [], {}), { conns: 2, reqRate: 3 }, { 'hub>fe:web': 50 })
+  assert.deepEqual([...risen(a, b)].sort(), ['fe:web', 'hub', 'hub>fe:web'])
+  // The first figures, or a number unknown before: nothing flashes.
+  assert.equal(risen(null, b).size, 0)
+  assert.equal(risen({ 'fe:web': { traffic: undefined, sess: 1 } }, b).size, 0)
+  // Back to nothing: nothing flashes either.
+  assert.equal(risen(b, a).size, 0)
+})
+
+// /api/system/clients's answer (proto names, 64-bit counters as
+// strings): the Controller - a connection on eth0, its users -, two
+// clients of their own on eth0, one on lo (not on the map).
+function clientAnswer(calls, bytes, { gone = false } = {}) {
+  const c = (id, extra) => ({ id: String(id), calls: String(calls), bytes_received: String(bytes / 2), bytes_sent: String(bytes / 2), opened_unix_ns: '1792000000000000000', ...extra })
+  return {
+    connections: [
+      c(1, {
+        controller: true,
+        name: 'controller',
+        roles: ['janus:controller'],
+        fleet: true,
+        interface: 'eth0',
+        remote_address: '10.0.30.10:51000',
+        self: true,
+        users: [
+          { name: 'alice', roles: ['os:admin'], calls: '9', last_call_unix_ns: '1792000000900000000', self: true },
+          { name: 'automation', roles: ['os:admin'], calls: '2', last_call_unix_ns: '1792000000100000000' },
+        ],
+        user_count: 3,
+      }),
+      c(2, { name: 'bob', roles: ['os:reader'], interface: 'eth0', remote_address: '10.0.30.99:41000' }),
+      ...(gone ? [] : [c(3, { name: '', roles: [], interface: 'eth0' })]),
+      c(4, { name: 'local', interface: 'lo' }),
+    ],
+  }
+}
+
+test('API clients: the Controller, the others by interface - their calls and bytes a second', () => {
+  const first = apiPeers(clientAnswer(10, 4000), null, 0)
+  assert.deepEqual(
+    first.map((p) => [p.id, p.controller, p.name, p.via, p.conns.length, p.callRate, p.byteRate, p.userCount, p.self]),
+    [
+      ['api:controller:eth0', true, 'Controller', 'eth0', 1, undefined, undefined, 3, true],
+      ['api:clients:eth0', false, 'Direct clients', 'eth0', 2, undefined, undefined, 0, false],
+      ['api:clients:lo', false, 'Direct clients', 'lo', 1, undefined, undefined, 0, false],
+    ],
+  )
+  assert.deepEqual(
+    first[0].users.map((u) => u.name),
+    ['alice', 'automation'],
+  )
+  const p = apiPeers(clientAnswer(20, 9000), clientAnswer(10, 4000), 5)
+  assert.deepEqual([p[0].callRate, p[0].inRate, p[0].outRate, p[0].byteRate], [2, 500, 500, 1000])
+  assert.deepEqual([p[1].callRate, p[1].byteRate], [4, 2000])
+  // A connection new since the last answer counts from the next one; one
+  // gone, not at all.
+  const fresh = apiPeers(clientAnswer(20, 9000), clientAnswer(10, 4000, { gone: true }), 5)
+  assert.deepEqual([fresh[1].callRate, fresh[1].byteRate], [2, 1000])
+  // Counters that went back (janusd restarted): no rate.
+  const back = apiPeers(clientAnswer(1, 100), clientAnswer(20, 9000), 5)
+  assert.deepEqual([back[0].callRate, back[0].byteRate], [undefined, undefined])
+  assert.deepEqual(apiPeers(null, null, 0), [])
+})
+
+test('layout with API clients: beyond the interfaces they come by, with the log targets', () => {
+  const g = buildFlow(modeRows(), parseTopology(MODES), {})
+  const ifs = interfaces({ eth0: { rx: 1, tx: 1 }, eth1: { rx: 1, tx: 1 } }, null)
+  const peers = [...apiPeers(clientAnswer(20, 9000), clientAnswer(10, 4000), 5), ...logTargets(logAnswer(150, 16000), logAnswer(100, 10000), 5)]
+  for (const shape of ['across', 'dense', 'down']) {
+    const m = layout(g, ifs, { shape, peers })
+    // From the client to its interface; the log targets' the other way.
+    assert.deepEqual(
+      m.links.filter((l) => l.kind === 'api').map((l) => [l.id, l.from, l.to]),
+      [
+        ['api:controller:eth0>if:eth0', 'api:controller:eth0', 'if:eth0'],
+        ['api:clients:eth0>if:eth0', 'api:clients:eth0', 'if:eth0'],
+      ],
+      shape,
+    )
+    assert.equal(m.byId['api:clients:lo'].linked, false, shape)
+    assert.equal(protocol(m.links.find((l) => l.kind === 'api'), m.byId), 'api')
+    const ps = m.nodes.filter((n) => n.kind === 'api' || n.kind === 'log')
+    assert.equal(ps.length, 7, shape)
+    assert.ok(m.links.every((l) => !/NaN|Infinity|undefined/.test(l.d)), shape)
+    if (shape === 'down') {
+      const row = [...ps].sort((p, q) => p.x - q.x)
+      assert.ok(row.every((n, i) => i === 0 || n.x - n.r >= row[i - 1].x + reach(row[i - 1])), `${shape}: labels apart`)
+      // Those of eth0 around it, in their order, the Controller first,
+      // then eth1's: no links cross.
+      const [c, d, e] = ['api:controller:eth0', 'api:clients:eth0', 'log:elastic'].map((id) => m.byId[id].x)
+      assert.ok(c < d && d < e && e < m.byId['log:rsyslog'].x, `${shape}: ${c} ${d} ${e}`)
+      assert.ok(Math.abs(d - m.byId['if:eth0'].x) <= d - c, `${shape}: the direct clients near eth0`)
+    } else {
+      const row = shape === 'dense' ? 44 : 92
+      assert.equal(overlaps(ps, row), false, shape)
+      // Those of eth0 around it, in their order - the Controller first -,
+      // rsyslog near eth1: no further than the map's top pushes them.
+      const [c, d, e] = ['api:controller:eth0', 'api:clients:eth0', 'log:elastic'].map((id) => m.byId[id].y)
+      assert.ok(c < d && d < e, `${shape}: ${c} ${d} ${e}`)
+      assert.ok(Math.abs(d - m.byId['if:eth0'].y) <= row, shape)
+      assert.ok(Math.abs(m.byId['log:rsyslog'].y - m.byId['if:eth1'].y) <= 2 * row, `${shape}: rsyslog at ${m.byId['log:rsyslog'].y}, eth1 at ${m.byId['if:eth1'].y}`)
+      // eth0's together, then eth1's: no links cross.
+      assert.ok(e < m.byId['log:rsyslog'].y, shape)
+      // Those no interface on the map says, after.
+      assert.ok(m.byId['api:clients:lo'].y > m.byId['log:rsyslog'].y, shape)
+      assert.ok(ps.every((n) => n.x < Math.min(...m.nodes.filter((i) => i.kind === 'iface').map((i) => i.x))), shape)
+    }
+    assert.ok(m.nodes.every((n) => n.x - n.r >= 0 && n.x + reach(n) <= m.width + 1 && n.y - n.r >= 0 && n.y + n.r <= m.height), shape)
+    // Across, a label is centred under its node: "999 calls/s · 999.9 KiB/s" whole.
+    if (shape === 'across') assert.ok(ps.every((n) => n.x >= (25 * 6.7) / 2), shape)
+  }
+})
+
+test('related: an API client is its link and its interface', () => {
+  const g = buildFlow(modeRows(), parseTopology(MODES), {})
+  const ifs = interfaces({ eth0: { rx: 1, tx: 1 } }, null)
+  const m = layout(g, ifs, { peers: apiPeers(clientAnswer(1, 2), null, 0) })
+  const want = ['api:controller:eth0', 'api:controller:eth0>if:eth0', 'if:eth0']
+  assert.deepEqual([...related(m, 'api:controller:eth0')].sort(), want)
+  assert.deepEqual([...related(m, 'api:controller:eth0>if:eth0')].sort(), want)
+  assert.ok(!related(m, 'fe:web').has('api:controller:eth0'))
 })

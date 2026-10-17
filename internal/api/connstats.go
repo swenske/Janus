@@ -10,17 +10,40 @@ import (
 // ConnStats is a grpc stats.Handler recording when each connection was
 // opened, for the RPCs that must come over a connection newer than some
 // change (FirewallConfirm: an established connection survives any
-// ruleset, so only a new one proves the node is still reachable).
-type ConnStats struct{}
+// ruleset, so only a new one proves the node is still reachable) - and,
+// with Clients, the connections open and their calls (ClientList).
+type ConnStats struct {
+	Clients *Clients
+}
 
 type connOpenedKey struct{}
 
-func (ConnStats) TagConn(ctx context.Context, _ *stats.ConnTagInfo) context.Context {
-	return context.WithValue(ctx, connOpenedKey{}, time.Now())
+func (s ConnStats) TagConn(ctx context.Context, info *stats.ConnTagInfo) context.Context {
+	ctx = context.WithValue(ctx, connOpenedKey{}, time.Now())
+	if s.Clients != nil {
+		ctx = s.Clients.tag(ctx, info)
+	}
+	return ctx
 }
-func (ConnStats) HandleConn(context.Context, stats.ConnStats)                     {}
-func (ConnStats) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context { return ctx }
-func (ConnStats) HandleRPC(context.Context, stats.RPCStats)                       {}
+
+func (s ConnStats) HandleConn(ctx context.Context, st stats.ConnStats) {
+	if _, end := st.(*stats.ConnEnd); end && s.Clients != nil {
+		s.Clients.end(ctx)
+	}
+}
+
+func (s ConnStats) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context {
+	if s.Clients != nil {
+		ctx = s.Clients.tagRPC(ctx)
+	}
+	return ctx
+}
+
+func (s ConnStats) HandleRPC(ctx context.Context, st stats.RPCStats) {
+	if s.Clients != nil {
+		s.Clients.handleRPC(ctx, st)
+	}
+}
 
 // ConnOpened is when the connection carrying ctx's RPC was opened - the
 // zero time without ConnStats installed.

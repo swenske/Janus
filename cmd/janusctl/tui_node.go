@@ -118,9 +118,9 @@ func (n *nodeScreen) close(*app) {
 }
 
 // animating reports whether the screen moves between two rounds: the
-// traffic flow's links, when traffic goes through them.
+// traffic flow's links, when traffic goes through them, and its flashes.
 func (n *nodeScreen) animating(a *app) bool {
-	return n.flow != nil && a.settings.FlowAnimation && n.flow.active()
+	return n.flow != nil && a.settings.FlowAnimation && (n.flow.active() || n.flow.flashing(a.now()))
 }
 
 // switchLog follows another service's log.

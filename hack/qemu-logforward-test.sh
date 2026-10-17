@@ -20,6 +20,9 @@
 #   5. The audit: an admin's change and a reader's refused reboot, kept
 #      across the reboot (system audit, admins only), sent as authpriv.
 #   6. Secrets never come back (a client key), no AVC denial anywhere.
+#   7. system clients: the connections to the API - this janusctl,
+#      through eth0 (the route the node takes back to it) -, a reader
+#      seeing the others nameless.
 #
 # QEMU_LOGFORWARD_WITHOUT_LOGS=1: the same on a node installed before the
 # LOGS partition existed (partition 7 taken out of the test's copy) -
@@ -226,8 +229,12 @@ status="$(ctl system log-forwarding status)"
 echo "$status"
 for t in udp tcp tls; do
   grep -qE "^$t +ok " <<<"$status" || fail "target $t isn't ok: $status"
+  # What it sent took bytes, and went by the interface the node routes
+  # the server by (janusctl's BYTES and VIA - the Traffic flow's).
+  read -r bytes via < <(awk -v t="$t" '$1 == t {print $4, $7}' <<<"$status")
+  [ "$bytes" != "0B" ] && [ "$via" = eth0 ] || fail "target $t: $bytes sent, by ${via:-?} (want eth0): $status"
 done
-echo "Part 1 OK: each target gets what it takes - janusd and events over UDP, HAProxy's messages and access logs over TCP (RFC 3164), the defaults over TLS with a pinned CA"
+echo "Part 1 OK: each target gets what it takes - janusd and events over UDP, HAProxy's messages and access logs over TCP (RFC 3164), the defaults over TLS with a pinned CA - its bytes counted, through eth0"
 
 # --- the audit: an admin's change, a reader refused ---
 ctl pki generate-client-config -role os:reader -name ci-reader -ttl 1h "$WORKDIR/reader" >/dev/null || fail "generate-client-config failed"
@@ -240,6 +247,23 @@ if reader system audit 2>/dev/null | grep -q .; then fail "a reader read the aud
 wait_received "the reader's refused reboot over TLS, as authpriv" 'm["input"] == "tls" and m["msgid"] == "audit" and m["facility"] == "10" and m["severity"] == "4" and "SystemService/Reboot by ci-reader (os:reader)" in m["msg"] and "refused" in m["msg"]'
 wait_received "the admin's change in the audit over TLS" 'm["input"] == "tls" and m["msgid"] == "audit" and "SystemService/MetricsConfigSet by admin (os:admin)" in m["msg"] and ": OK in " in m["msg"]'
 echo "Part 1b OK: the audit keeps an admin's change and a reader's refused reboot (system audit, admins only), sent as authpriv"
+
+# --- who is connected to the API (the Traffic flow's API clients) ---
+# This janusctl, its certificate's, through eth0 (the kernel's route back
+# to it); an admin's stream open beside it - a reader sees that one
+# without its name or address.
+ctl system events >/dev/null 2>&1 &
+events_pid=$!
+sleep 2
+clients="$(ctl system clients)"
+echo "$clients"
+grep -qE '^[0-9]+ +admin \(this one\) +os:admin +[0-9.]+:[0-9]+ +eth0 ' <<<"$clients" || fail "system clients lacks this janusctl, through eth0: $clients"
+grep -qE '^[0-9]+ +admin +os:admin +[0-9.]+:[0-9]+ +eth0 +.* [0-9]+ +1 +[0-9.]+[KM]?i?B ' <<<"$clients" || fail "system clients lacks the admin's open stream: $clients"
+clients="$(reader system clients)"
+grep -qE '^[0-9]+ +ci-reader \(this one\) +os:reader ' <<<"$clients" && grep -qE '^[0-9]+ +- +- +- +eth0 ' <<<"$clients" ||
+  fail "a reader's system clients: $clients"
+kill "$events_pid" 2>/dev/null || true
+echo "Part 1c OK: system clients - this janusctl through eth0, its bytes and calls, an admin's stream; a reader sees the others nameless"
 
 # --- 2. the server goes away ---
 docker stop -t 1 "$NAME" >/dev/null

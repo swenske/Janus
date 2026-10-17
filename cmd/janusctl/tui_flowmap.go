@@ -1,8 +1,10 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -14,8 +16,10 @@ import (
 
 // The node screen's traffic flow (f) is HAProxy drawn as a map - the
 // node's interfaces, HAProxy, its frontends, the backends they send to
-// and their servers - with each one's traffic, as the Controller's node
-// page draws it (Monitoring › Traffic flow). Which frontend sends to
+// and their servers, and beyond the interfaces who is connected to its
+// API - the Controller, janusctl - and the log targets its logs leave by
+// - with each one's traffic, as the Controller's node page
+// draws it (Monitoring › Traffic flow). Which frontend sends to
 // which backend is in the configuration (internal/haproxyflow); the
 // counters are the sampler's. This file is the map: the graph, where
 // each node goes on a grid of cells, top to bottom or left to right,
@@ -24,6 +28,8 @@ import (
 
 // The kinds of node, and the level each sits on.
 const (
+	kindAPI   = "api" // the Controller, or the other clients of the API, beyond the interface they come by
+	kindLog   = "log" // a log target, beyond the interface its logs leave by
 	kindIface = "iface"
 	kindHub   = "hub"
 	kindFE    = "fe"
@@ -32,19 +38,24 @@ const (
 	kindMore  = "more" // "+N more": a backend's servers past flowMaxServers
 )
 
-var flowLevel = map[string]int{kindIface: 0, kindHub: 1, kindFE: 2, kindBE: 3, kindSrv: 4, kindMore: 4}
+// A level no node sits on takes no room: without API clients nor log
+// targets - the peers -, the interfaces are the first column (or row).
+var flowLevel = map[string]int{kindAPI: 0, kindLog: 0, kindIface: 1, kindHub: 2, kindFE: 3, kindBE: 4, kindSrv: 5, kindMore: 5}
+
+const flowLevels = 6
 
 const (
 	flowMaxServers = 8  // a backend's servers shown, the last as "+N more" when there are more
 	flowNameMax    = 18 // a node's name, cut beyond
-	flowValuesMax  = 22 // its numbers
+	flowValuesMax  = 24 // its numbers
 )
 
 // flowValuesRoom is the cells a node's numbers have whatever they say,
 // so the map doesn't move as traffic comes and goes: "14.5KiB/s",
-// "14.5KiB/s · 12 sess", "12 conns · 1.7k req/s"; a server's - at the
-// end of its line - what it says idle, "0B/s · 0 sess".
-var flowValuesRoom = map[string]int{kindIface: 9, kindHub: 21, kindFE: 19, kindBE: 19, kindSrv: 13, kindMore: 13}
+// "14.5KiB/s · 12 sess", "12 conns · 1.7k req/s", "12 msg/s · 1.2KiB/s",
+// "6.2 calls/s · 24.7KiB/s"; a server's - at the end of its line - what
+// it says idle, "0B/s · 0 sess".
+var flowValuesRoom = map[string]int{kindAPI: 23, kindLog: 20, kindIface: 9, kindHub: 21, kindFE: 19, kindBE: 19, kindSrv: 13, kindMore: 13}
 
 // How a link looks, worst first: a cell several links cross shows the
 // best of them.
@@ -72,6 +83,9 @@ type flowNode struct {
 	status         *janusv1alpha1.NetworkInterfaceStatus
 	up             int      // an interface: 1 up, 0 down, -1 unknown
 	binds, answers []string // a frontend's, from the configuration
+	mode           string   // a frontend's or backend's: http, tcp
+	log            *logRow  // a log target's
+	api            *apiRow  // an API client's
 	room           int      // the cells its numbers have: more than they take, so the map holds still
 
 	x, y int // its dot's cell once placed
@@ -95,13 +109,50 @@ func (n *flowNode) oneLine() bool { return n.kind == kindSrv || n.kind == kindMo
 
 func (n *flowNode) shownName() string { return termui.Truncate(n.name, flowNameMax) }
 
+// tag is what follows a frontend's or backend's name: its mode; the
+// Controller's: how many users it acts for.
+func (n *flowNode) tag() string {
+	if (n.kind == kindFE || n.kind == kindBE) && (n.mode == "http" || n.mode == "tcp") {
+		return n.mode
+	}
+	if n.kind == kindAPI && n.api.controller {
+		return plural(n.api.userCount, "user")
+	}
+	return ""
+}
+
+// apiTagRoom is the cells the Controller's tag keeps, whatever it says:
+// "99 users" - the map holds still as they come and go.
+const apiTagRoom = 8
+
+// nameWidth is the cells its name and tag take.
+func (n *flowNode) nameWidth() int {
+	w := len([]rune(n.shownName()))
+	t := n.tag()
+	switch {
+	case n.kind == kindAPI && n.api.controller:
+		w += 1 + max(len(t), apiTagRoom)
+	case t != "":
+		w += 1 + len(t)
+	}
+	return w
+}
+
+// plural is "1 user", "2 users".
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return fmt.Sprintf("%d %ss", n, word)
+}
+
 func (n *flowNode) shownValues() string {
 	return termui.Truncate(strings.Join(n.values, " · "), flowValuesMax)
 }
 
 // width is the cells the node's label takes from its dot.
 func (n *flowNode) width() int {
-	name, values := len([]rune(n.shownName())), max(len([]rune(n.shownValues())), n.room)
+	name, values := n.nameWidth(), max(len([]rune(n.shownValues())), n.room)
 	if n.oneLine() {
 		if values == 0 {
 			return 2 + name
@@ -120,9 +171,10 @@ func (n *flowNode) height() int {
 
 type flowEdge struct {
 	id, from, to string
-	kind         string // the level it leaves: iface, hub (to a frontend), fe (to a backend), be (to a server)
+	kind         string // the level it leaves: iface, hub (to a frontend), fe (to a backend), be (to a server), log (a log target to its interface), api (an API client to its interface)
 	rules        []haproxyflow.LinkRule
 	look         int
+	proto        string // http, tcp, log, api - or "" (an interface's: all of its traffic)
 }
 
 // flowGraph is the map's nodes and links, before they're placed.
@@ -130,6 +182,7 @@ type flowGraph struct {
 	nodes       []*flowNode
 	byID        map[string]*flowNode
 	edges       []*flowEdge
+	peers       []*flowNode // beyond the interfaces: API clients, log targets
 	ifaces      []*flowNode
 	hub         *flowNode
 	frontends   []*flowNode
@@ -313,7 +366,7 @@ func buildFlow(v *nodeView, top *haproxyflow.Topology, maps map[string]map[strin
 	})
 	for _, f := range fronts {
 		n := &flowNode{id: "fe:" + f.name, kind: kindFE, name: f.name, tone: frontendTone(f.status), fe: f, traffic: sumRate(f.in, f.out), busy: f.scur > 0 || f.rate > 0,
-			binds: conf[f.name].Binds, answers: conf[f.name].Answers}
+			binds: conf[f.name].Binds, answers: conf[f.name].Answers, mode: f.mode}
 		if n.tone == "off" {
 			n.values = []string{f.status}
 		} else {
@@ -330,7 +383,7 @@ func buildFlow(v *nodeView, top *haproxyflow.Topology, maps map[string]map[strin
 			continue
 		}
 		if r.server == "" {
-			n := &flowNode{id: "be:" + r.backend, kind: kindBE, name: r.backend, row: r, traffic: sumRate(r.in, r.out), busy: r.scur > 0 || r.rate > 0}
+			n := &flowNode{id: "be:" + r.backend, kind: kindBE, name: r.backend, row: r, traffic: sumRate(r.in, r.out), busy: r.scur > 0 || r.rate > 0, mode: r.mode}
 			g.backends = append(g.backends, g.add(n))
 			continue
 		}
@@ -427,7 +480,57 @@ func buildFlow(v *nodeView, top *haproxyflow.Topology, maps map[string]map[strin
 	for _, it := range g.ifaces {
 		g.link(it.id, kindHub, kindIface, nil)
 	}
-	// The interfaces' links first: they're drawn first.
+	// Who is connected to the API - the Controller first -, each linked
+	// to the interface it comes by when that's on the map.
+	for i := range v.last.apis {
+		r := &v.last.apis[i]
+		id, name := "api:clients", "Direct clients"
+		if r.controller {
+			id, name = "api:controller", "Controller"
+		}
+		if r.via != "" {
+			id += ":" + r.via
+		}
+		n := &flowNode{id: id, kind: kindAPI, name: name, api: r, traffic: math.NaN(), busy: r.callRate > 0}
+		if !math.IsNaN(r.inRate) && !math.IsNaN(r.outRate) {
+			n.traffic = r.inRate + r.outRate
+		}
+		n.values = []string{fmtCount(r.callRate) + " calls/s", fmtRate(n.traffic)}
+		g.peers = append(g.peers, g.add(n))
+		if it := g.byID["if:"+r.via]; r.via != "" && it != nil {
+			n.linked = true
+			g.link(n.id, it.id, kindAPI, nil)
+		}
+	}
+	// The log targets, each linked to the interface its logs leave by
+	// when that's on the map: drawn from the target, beyond it.
+	for i := range v.last.logs {
+		r := &v.last.logs[i]
+		n := &flowNode{id: "log:" + r.name, kind: kindLog, name: r.name, log: r, traffic: math.NaN(), busy: r.msgRate > 0}
+		if r.knowsBytes {
+			n.traffic = r.byteRate
+		}
+		switch r.state {
+		case "disabled":
+			n.tone, n.values = "off", []string{"disabled"}
+		case "failing":
+			n.tone, n.values, n.valuesTone = "danger", []string{"failing"}, "danger"
+		default:
+			if r.state == "ok" {
+				n.tone = "ok"
+			}
+			n.values = []string{fmtCount(r.msgRate) + " msg/s"}
+			if r.knowsBytes {
+				n.values = append(n.values, fmtRate(r.byteRate))
+			}
+		}
+		g.peers = append(g.peers, g.add(n))
+		if it := g.byID["if:"+r.via]; r.via != "" && it != nil {
+			n.linked = true
+			g.link(n.id, it.id, kindLog, nil)
+		}
+	}
+	// The peers' and interfaces' links first: they're drawn first.
 	sort.SliceStable(g.edges, func(i, j int) bool {
 		return flowLevel[g.byID[g.edges[i].from].kind] < flowLevel[g.byID[g.edges[j].from].kind]
 	})
@@ -438,7 +541,21 @@ func buildFlow(v *nodeView, top *haproxyflow.Topology, maps map[string]map[strin
 	for _, e := range g.edges {
 		a, b := g.byID[e.from], g.byID[e.to]
 		e.look = lookIdle
+		e.proto = flowProto(e, a, b)
 		switch e.kind {
+		case kindAPI:
+			if a.activity() > 0 {
+				e.look = lookActive
+			}
+		case kindLog:
+			switch {
+			case a.tone == "danger":
+				e.look = lookDown
+			case a.tone == "off":
+				e.look = lookOff
+			case a.activity() > 0:
+				e.look = lookActive
+			}
 		case kindIface:
 			if a.up == 0 {
 				e.look = lookOff
@@ -469,16 +586,48 @@ func buildFlow(v *nodeView, top *haproxyflow.Topology, maps map[string]map[strin
 	return g
 }
 
+// flowProto is what a link's traffic is: a backend's mode from its
+// frontend on (a TCP frontend may hand its connections to an HTTP
+// backend, never the other way), a frontend's to it, log to a log
+// target, api from an API client, "" for an interface's - all of its
+// traffic.
+func flowProto(e *flowEdge, a, b *flowNode) string {
+	mode := ""
+	switch e.kind {
+	case kindLog, kindAPI:
+		return e.kind
+	case kindHub:
+		mode = b.mode
+	case kindFE:
+		mode = cmp.Or(b.mode, a.mode)
+	case kindBE:
+		mode = a.mode
+	}
+	if mode == "http" || mode == "tcp" {
+		return mode
+	}
+	return ""
+}
+
 // related is what a node is part of, to bring forward: the paths
 // through it - up to HAProxy, down to the servers - and HAProxy and the
-// interfaces, which every path crosses; nil for HAProxy and the
-// interfaces (everything).
+// interfaces, which every path crosses; a peer's (a log target's, an
+// API client's) link and interface; nil for HAProxy and the interfaces
+// (everything).
 func (g *flowGraph) related(id string) map[string]bool {
 	n := g.byID[id]
 	if n == nil || n.kind == kindHub || n.kind == kindIface {
 		return nil
 	}
 	out := map[string]bool{id: true}
+	if n.kind == kindLog || n.kind == kindAPI {
+		for _, e := range g.edges {
+			if e.from == id {
+				out[e.id], out[e.to] = true, true
+			}
+		}
+		return out
+	}
 	var down, up func(string)
 	down = func(from string) {
 		for _, e := range g.edges {
@@ -723,7 +872,7 @@ func targets(g *flowGraph, f *flowNode, at func(*flowNode) int) (float64, bool) 
 func layoutFlow(g *flowGraph, vertical, tight bool) *flowMap {
 	m := &flowMap{g: g, vertical: vertical, tight: tight, marks: map[[2]int][]flowMark{}}
 	bes := rankedBackends(g)
-	m.order = append(append(append(m.order, g.ifaces...), g.hub), g.frontends...)
+	m.order = append(append(append(append(m.order, g.peers...), g.ifaces...), g.hub), g.frontends...)
 	for _, b := range bes {
 		m.order = append(append(m.order, b), b.servers...)
 	}
@@ -783,6 +932,9 @@ func (m *flowMap) placeAcross(bes []*flowNode) {
 	for i, it := range g.ifaces {
 		it.y = g.hub.y - (len(g.ifaces)-1)*step/2 + step*i
 	}
+	// Peers level with their interface, a step apart; those no
+	// interface on the map says, after.
+	m.placePeers(func(it *flowNode) int { return it.y }, func(n *flowNode, at int) { n.y = at }, step, g.hub.y-(len(g.ifaces)-1)*step/2)
 	top := 0
 	for _, n := range g.nodes {
 		top = min(top, n.y)
@@ -793,27 +945,27 @@ func (m *flowMap) placeAcross(bes []*flowNode) {
 
 	// Columns, each as wide as its widest label, and the gaps between
 	// them as wide as their lanes.
-	var cols [5]int
-	var present [5]bool
+	var cols [flowLevels]int
+	var present [flowLevels]bool
 	for _, n := range g.nodes {
 		l := flowLevel[n.kind]
 		cols[l], present[l] = max(cols[l], n.width()), true
 	}
 	x := 0
-	var colX, gapX [5]int
+	var colX, gapX [flowLevels]int
 	nets := map[*flowEdge]string{}
 	laneOf := map[*flowEdge]int{}
-	for l := 0; l < 5; l++ {
+	for l := 0; l < flowLevels; l++ {
 		if !present[l] {
 			continue
 		}
 		colX[l] = x
 		x += cols[l]
 		next := l + 1
-		for next < 5 && !present[next] {
+		for next < flowLevels && !present[next] {
 			next++
 		}
-		if next == 5 {
+		if next == flowLevels {
 			break
 		}
 		edges := gapEdges(g, l)
@@ -833,9 +985,78 @@ func (m *flowMap) placeAcross(bes []*flowNode) {
 	}
 	for _, e := range g.edges {
 		a, b := g.byID[e.from], g.byID[e.to]
-		start := a.x + 2 + len([]rune(a.shownName())) + 1
+		start := a.x + 2 + a.nameWidth() + 1
 		lx := gapX[flowLevel[a.kind]] + 1 + laneOf[e]
 		m.path(e, nets[e], [2]int{start, a.y}, [2]int{lx, a.y}, [2]int{lx, b.y}, [2]int{b.x - 1, b.y})
+	}
+}
+
+// placePeers places the peers - API clients, log targets - along the
+// interfaces' column (or row), a step apart at least: those of one
+// interface together around it - at is an interface's place -, in their
+// order, the interfaces' order kept - no two links cross -, all as near
+// to that as the room they take allows (the least moved overall: pooling
+// adjacent violators); those no interface on the map says after the
+// others - from start on when there are none of the first.
+func (m *flowMap) placePeers(at func(*flowNode) int, set func(*flowNode, int), step, start int) {
+	type want struct {
+		n    *flowNode
+		i, p int
+		want float64
+	}
+	var linked []*want
+	var rest []*flowNode
+	for i, n := range m.g.peers {
+		w := &want{n: n, i: i}
+		ok := false
+		for _, e := range m.g.edges {
+			if e.from == n.id {
+				w.p, ok = at(m.g.byID[e.to]), true
+			}
+		}
+		if !ok {
+			rest = append(rest, n)
+			continue
+		}
+		linked = append(linked, w)
+	}
+	for _, w := range linked {
+		var same []*want
+		for _, o := range linked {
+			if o.p == w.p {
+				same = append(same, o)
+			}
+		}
+		w.want = float64(w.p) + (float64(slices.Index(same, w))-float64(len(same)-1)/2)*float64(step)
+	}
+	sort.SliceStable(linked, func(i, j int) bool { return linked[i].p < linked[j].p })
+	// Each k-th wants want - k·step: those in order, the same for a block.
+	type block struct {
+		sum float64
+		n   int
+	}
+	var blocks []block
+	for k, w := range linked {
+		b := block{w.want - float64(k*step), 1}
+		for len(blocks) > 0 && blocks[len(blocks)-1].sum/float64(blocks[len(blocks)-1].n) > b.sum/float64(b.n) {
+			last := blocks[len(blocks)-1]
+			blocks = blocks[:len(blocks)-1]
+			b = block{last.sum + b.sum, last.n + b.n}
+		}
+		blocks = append(blocks, b)
+	}
+	k, prev := 0, start-step
+	for _, b := range blocks {
+		q := int(math.Round(b.sum / float64(b.n)))
+		for range b.n {
+			prev = q + k*step
+			set(linked[k].n, prev)
+			k++
+		}
+	}
+	for _, n := range rest {
+		prev += step
+		set(n, prev)
 	}
 }
 
@@ -916,6 +1137,12 @@ func (m *flowMap) placeDown(bes []*flowNode) {
 	for i, it := range g.ifaces {
 		it.x = g.hub.x - (len(g.ifaces)-1)*step/2 + step*i
 	}
+	// Peers above their interface, their labels apart.
+	peerStep := 0
+	for _, n := range g.peers {
+		peerStep = max(peerStep, n.width()+space)
+	}
+	m.placePeers(func(it *flowNode) int { return it.x }, func(n *flowNode, at int) { n.x = at }, peerStep, g.hub.x-(len(g.ifaces)-1)*step/2)
 	left := 0
 	for _, n := range g.nodes {
 		left = min(left, n.x)
@@ -925,9 +1152,9 @@ func (m *flowMap) placeDown(bes []*flowNode) {
 	}
 
 	// Rows, and the gaps between them as tall as their lanes.
-	levels := [][]*flowNode{g.ifaces, {g.hub}, g.frontends, bes}
+	levels := [][]*flowNode{g.peers, g.ifaces, {g.hub}, g.frontends, bes}
 	y := 0
-	var gapY [4]int
+	var gapY [flowLevels]int
 	nets := map[*flowEdge]string{}
 	laneOf := map[*flowEdge]int{}
 	placed := false
@@ -981,11 +1208,16 @@ type flowDraw struct {
 	near    map[string]bool // what's brought forward; nil everything
 	phase   int             // the animation's step
 	animate bool
+	flash   map[string]bool // the nodes whose numbers just started from nothing
 }
 
 var kindColor = map[string]termui.Color{
-	kindIface: termui.ColorAccent, kindHub: termui.ColorAccent, kindFE: termui.ColorInfo, kindBE: termui.ColorDefault, kindSrv: termui.ColorOK, kindMore: termui.ColorMuted,
+	kindAPI: termui.ColorAPI, kindLog: termui.ColorLog, kindIface: termui.ColorAccent, kindHub: termui.ColorAccent, kindFE: termui.ColorInfo, kindBE: termui.ColorDefault, kindSrv: termui.ColorOK, kindMore: termui.ColorMuted,
 }
+
+// protoColor is an active link's colour: its protocol's, the text's for
+// an interface's (all of its traffic).
+var protoColor = map[string]termui.Color{"http": termui.ColorAccent, "tcp": termui.ColorTCP, "log": termui.ColorLog, "api": termui.ColorAPI, "": termui.ColorDefault}
 
 func toneColor(tone string, fallback termui.Color) termui.Color {
 	switch tone {
@@ -1039,13 +1271,14 @@ func (m *flowMap) cell(x, y int, d flowDraw) (rune, termui.Style, bool) {
 	}
 	var bits uint8
 	look, dist, near := -1, -1, d.near == nil
+	var active *flowEdge
 	for _, mk := range shown {
 		bits |= mk.bits
 		if mk.edge.look > look {
 			look = mk.edge.look
 		}
 		if mk.edge.look == lookActive && (dist < 0 || mk.dist < dist) {
-			dist = mk.dist
+			dist, active = mk.dist, mk.edge
 		}
 		if d.near[mk.edge.id] {
 			near = true
@@ -1057,9 +1290,14 @@ func (m *flowMap) cell(x, y int, d flowDraw) (rune, termui.Style, bool) {
 	case !near:
 		st.Dim = true
 	case look == lookActive:
-		st = termui.Style{FG: termui.ColorAccent}
-		// Traffic: a heavier stretch running along the link.
-		if d.animate && dist >= 0 && (dist-d.phase)%4 == 0 {
+		st = termui.Style{FG: protoColor[active.proto]}
+		// Traffic: a heavier stretch running along the link - out of the
+		// node on a log target's, drawn from the target.
+		step := dist - d.phase
+		if active.kind == kindLog {
+			step = dist + d.phase
+		}
+		if d.animate && dist >= 0 && ((step%4)+4)%4 == 0 {
 			switch r {
 			case '─':
 				r = '━'
@@ -1113,17 +1351,25 @@ func (m *flowMap) draw(f *termui.Frame, r termui.Rect, ox, oy int, d flowDraw) {
 	for _, n := range m.g.nodes {
 		far := d.near != nil && !d.near[n.id]
 		dot := '●'
-		if n.kind == kindBE && m.g.configKnown && !n.linked {
-			dot = '○' // no frontend rule names it
+		if (n.kind == kindBE && m.g.configKnown && !n.linked) || ((n.kind == kindLog || n.kind == kindAPI) && !n.linked) {
+			dot = '○' // no frontend rule names it; no interface on the map is the peer's
 		}
 		dotSt := termui.Style{FG: toneColor(n.tone, kindColor[n.kind])}
 		nameSt := termui.Style{Bold: true}
 		valSt := termui.Style{FG: toneColor(n.valuesTone, termui.ColorMuted)}
+		tagSt := termui.Style{FG: protoColor[n.tag()]}
+		if n.kind == kindAPI {
+			tagSt = termui.Style{FG: termui.ColorMuted}
+		}
 		if n.tone == "off" || dot == '○' {
 			nameSt = termui.Style{}
 		}
+		if d.flash[n.id] { // a number that started from nothing
+			valSt = termui.Style{FG: termui.ColorAccent, Bold: true, Reverse: true}
+		}
 		if far {
 			dotSt, nameSt, valSt = termui.Style{FG: termui.ColorMuted, Dim: true}, termui.Style{FG: termui.ColorMuted, Dim: true}, termui.Style{FG: termui.ColorMuted, Dim: true}
+			tagSt = valSt
 		}
 		if n.id == d.sel {
 			nameSt = styleCursor
@@ -1131,6 +1377,9 @@ func (m *flowMap) draw(f *termui.Frame, r termui.Rect, ox, oy int, d flowDraw) {
 		}
 		put(n.x, n.y, dot, dotSt)
 		w := text(n.x+2, n.y, n.shownName(), nameSt)
+		if t := n.tag(); t != "" {
+			w += 1 + text(n.x+3+w, n.y, t, tagSt)
+		}
 		if n.oneLine() {
 			text(n.x+3+w, n.y, n.shownValues(), valSt)
 		} else {

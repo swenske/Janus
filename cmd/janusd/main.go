@@ -553,13 +553,14 @@ func main() {
 	tlsConfig := pki.NodeTLSConfig(local.CA, serverCert, fleet)
 	api.FleetRoot = fleet.Root
 	api.LocalCA = func() *x509.Certificate { return local.CA().Cert }
+	clients := api.NewClients()
 	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
-		grpc.StatsHandler(api.ConnStats{}),
+		grpc.StatsHandler(api.ConnStats{Clients: clients}),
 		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})
@@ -581,7 +582,7 @@ func main() {
 		FirstBoot:      pkiBootstrap.AdminIssued,
 		CAFingerprint:  pki.Fingerprint(local.CA().Cert.Raw),
 	})
-	if err := srv.Serve(lis); err != nil {
+	if err := srv.Serve(clients.Listener(lis)); err != nil {
 		fmt.Fprintln(os.Stderr, "serve:", err)
 		os.Exit(1)
 	}

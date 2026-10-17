@@ -1,0 +1,40 @@
+ janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok            15:04:05
+╭─ Traffic flow  left to right ────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                           ╭─● api http ───────────┬─ │
+│                                                                                           │   4.9KiB/s · 1 sess   ╰─ │
+│                                                                                           ├─● be_blog http ───────┬─ │
+│                                                                                           │   1/2 servers up      ╰─ │
+│                                                                                           ├─● be_www http ────────┬─ │
+│                                                                   ╭─● https http ─────────┤   4.9KiB/s · 1 sess   ╰─ │
+│                                                                   │   43.9KiB/s · 8 sess  ├─● be_many http ───────┬─ │
+│                                                                   │                       │   4.9KiB/s · 1 sess   ├─ │
+│                                                                   │                       │                       ├─ │
+│ ● Controller 2 users  ─━──╮                                       │                       │                       ├─ │
+│   40 calls/s · 9.8KiB/s   ┃                                       │                       │                       ├─ │
+│ ● Direct clients ─────────┤                                       │                       │                       ├─ │
+│   6 calls/s · 1.5KiB/s    ├─● eth0 ───────● HAProxy ──────────────┤                       │                       ├─ ▸
+│ ● rsyslog ────────────────┤   16.0KiB/s     12 conns · 4 req/s    │                       │                       ╰─ │
+│   50 msg/s · 5.9KiB/s     │                                       │                       ╰─● be_default http ────── │
+│ ● elastic ────────────────╯                                       │                           4.9KiB/s · 1 sess      │
+│   failing                                                         ├─● stats http ───────────● stats http             │
+│ ○ Direct clients                                                  │   0B/s · 0 sess           0B/s · 0 sess          │
+│   0 calls/s · 0B/s                                                ├─● tcp_in tcp ───────────● tcp_pool tcp ───────── │
+│ ○ siem                                                            │   2.0KiB/s · 1 sess       4.9KiB/s · 1 sess      │
+│   10 msg/s · 1000B/s                                              ╰─● admin http            ○ unused http ────────── │
+│ ○ archive                                                             0B/s · 0 sess           4.9KiB/s · 1 sess      │
+│   disabled                                                                                                           │
+│                                                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭ Controller  API ─────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Through      eth0                                          Users - whom its calls were for in the last 2 minutes:    │
+│ From         10.0.30.10                                    alice        admin · 1 stream open · last call 1s ago     │
+│ Certificate  controller · the fleet's                      automation   admin · the Controller's own work · last     │
+│ Connected    3h 00m                                                     call 40s ago                                 │
+│ Calls/s      40.0                                                                                                    │
+│ Receiving    2.0KiB/s                                                                                                │
+│ Sending      7.8KiB/s                                                                                                │
+│ Calls        120                                                                                                     │
+│ Streams open 1                                                                                                       │
+│                                                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ? help  q quit  f back  ←↑↓→ move  o vertical  s servers  R reload  M menu                                     every 2s

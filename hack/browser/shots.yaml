@@ -56,9 +56,9 @@ shots:
     samples: 36
 
   - id: node-traffic-flow
-    node: edge-par-1
+    node: edge-par-3
     page: '#/flow'
-    wait: app2
+    wait: siem
     samples: 2
 
   - id: node-haproxy-config

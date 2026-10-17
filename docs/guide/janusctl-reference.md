@@ -270,6 +270,14 @@ TCP and UDP sockets.
 janusctl system netstat
 ```
 
+#### janusctl system clients
+
+The connections to the API: a Controller and the users it acts for, janusctl....
+
+```text
+janusctl system clients
+```
+
 #### janusctl system mounts
 
 Mounted filesystems.

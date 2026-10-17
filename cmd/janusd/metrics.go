@@ -404,13 +404,14 @@ func (m *metricsSources) logshipMetrics() []exporter.Family {
 	if m.ship == nil {
 		return nil
 	}
-	var up, sent, dropped, errs, queued []exporter.Sample
+	var up, sent, bytes, dropped, errs, queued []exporter.Sample
 	for _, st := range m.ship.Status() {
 		if st.State == "disabled" {
 			continue
 		}
 		up = append(up, sample(exporter.Bool(st.State == "ok"), "target", st.Name, "kind", st.Kind))
 		sent = append(sent, sample(float64(st.Sent), "target", st.Name))
+		bytes = append(bytes, sample(float64(st.BytesSent), "target", st.Name))
 		dropped = append(dropped, sample(float64(st.Dropped), "target", st.Name))
 		errs = append(errs, sample(float64(st.Errors), "target", st.Name))
 		queued = append(queued, sample(float64(st.QueuedRecords), "target", st.Name))
@@ -421,6 +422,7 @@ func (m *metricsSources) logshipMetrics() []exporter.Family {
 	return []exporter.Family{
 		gauge("janus_logship_target_up", "1 when the log target's last send worked, 0 while it fails (docs/guide/log-forwarding.md).", up...),
 		counter("janus_logship_records_sent_total", "Log records sent to the target since janusd started.", sent...),
+		counter("janus_logship_bytes_sent_total", "Bytes the records sent to the target took since janusd started: syslog messages with their framing, Elasticsearch request bodies as sent.", bytes...),
 		counter("janus_logship_records_dropped_total", "Log records the target lost since janusd started: its queue in memory was full, or the LOGS partition wrote over them before they were sent - it should stay 0.", dropped...),
 		counter("janus_logship_send_errors_total", "Failed sends to the target since janusd started (each is retried).", errs...),
 		gauge("janus_logship_queued_records", "Log records waiting for the target: in memory, and on the LOGS partition behind its place.", queued...),

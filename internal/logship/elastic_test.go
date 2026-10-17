@@ -27,6 +27,7 @@ type bulkServer struct {
 	index  []string
 	answer []int
 	gzip   bool
+	length []int64 // each request's body, as it came
 }
 
 func (b *bulkServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +48,7 @@ func (b *bulkServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer b.mu.Unlock()
 	b.auth = append(b.auth, r.Header.Get("Authorization"))
 	b.gzip = b.gzip || r.Header.Get("Content-Encoding") == "gzip"
+	b.length = append(b.length, r.ContentLength)
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
 	var items []map[string]any
@@ -121,7 +123,7 @@ func TestElasticDocuments(t *testing.T) {
 	defer ts.Close()
 	sk := newESSink(t, esTarget(ts.URL, ElasticsearchTarget{APIKey: "VuaCfGcBCdbkQm-e5aOx:ui2lp2axTNmsyakw9tvNnw", Gzip: true}), map[string]string{"env": "prod"})
 	at := time.Date(2026, 10, 16, 8, 0, 0, 123456789, time.UTC)
-	err := sk.Send(context.Background(), []Record{
+	n, err := sk.Send(context.Background(), []Record{
 		{Time: at, Source: SourceJanusd, Service: "janusd", Severity: SevNotice, Message: "api: SystemService/Reboot: admin (os:admin)", ID: "0011223344556677-42"},
 		EventRecord(7, at, "haproxy.config.applied", []byte(`{"bytes":512,"by":"admin"}`), "janusd"),
 		{Time: at, Source: SourceAccess, Service: "haproxy", Severity: SevInfo, Message: `{"client_ip":"10.0.2.2","status":200}`},
@@ -131,6 +133,14 @@ func TestElasticDocuments(t *testing.T) {
 	}
 	if !srv.gzip {
 		t.Error("not gzipped")
+	}
+	// The bytes said are the body as sent, compressed; the addresses the
+	// connection's.
+	if len(srv.length) != 1 || int64(n) != srv.length[0] || n == 0 {
+		t.Errorf("Send said %d bytes, the server got %v", n, srv.length)
+	}
+	if local, remote := sk.Peer(); remote != ts.Listener.Addr().String() || !strings.HasPrefix(local, "127.0.0.1:") {
+		t.Errorf("peer %q -> %q, want -> %s", local, remote, ts.Listener.Addr())
 	}
 	if want := "ApiKey " + base64.StdEncoding.EncodeToString([]byte("VuaCfGcBCdbkQm-e5aOx:ui2lp2axTNmsyakw9tvNnw")); srv.auth[0] != want {
 		t.Errorf("Authorization = %q", srv.auth[0])
@@ -182,11 +192,11 @@ func TestElasticRetriesAndRefusals(t *testing.T) {
 	// The cluster busy with one of them: an error, the batch sent again;
 	// the one stored the first time answers 409 - stored, not an error.
 	srv.answer = []int{201, 429}
-	if err := sk.Send(context.Background(), recs); err == nil || !strings.Contains(err.Error(), "rejected execution") {
+	if _, err := sk.Send(context.Background(), recs); err == nil || !strings.Contains(err.Error(), "rejected execution") {
 		t.Fatalf("a 429 = %v", err)
 	}
 	srv.answer = []int{409, 201}
-	if err := sk.Send(context.Background(), recs); err != nil {
+	if _, err := sk.Send(context.Background(), recs); err != nil {
 		t.Fatalf("the batch sent again: %v", err)
 	}
 	if len(srv.docs) != 2 || srv.auth[0] != "Basic "+base64.StdEncoding.EncodeToString([]byte("janus:pw")) {
@@ -194,7 +204,7 @@ func TestElasticRetriesAndRefusals(t *testing.T) {
 	}
 	// A document refused for good is dropped: no error, no retry.
 	srv.answer = []int{400}
-	if err := sk.Send(context.Background(), recs[:1]); err != nil {
+	if _, err := sk.Send(context.Background(), recs[:1]); err != nil {
 		t.Fatalf("a 400 = %v", err)
 	}
 }
@@ -206,7 +216,7 @@ func TestElasticErrors(t *testing.T) {
 	}))
 	defer ts.Close()
 	sk := newESSink(t, esTarget(ts.URL, ElasticsearchTarget{APIKey: "bad"}), nil)
-	err := sk.Send(context.Background(), []Record{{Time: time.Now(), Source: SourceJanusd, Message: "x"}})
+	_, err := sk.Send(context.Background(), []Record{{Time: time.Now(), Source: SourceJanusd, Message: "x"}})
 	if err == nil || !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "unable to authenticate") {
 		t.Fatalf("a 401 = %v", err)
 	}
@@ -258,7 +268,7 @@ func TestElasticAuditDocument(t *testing.T) {
 	if r.Severity != SevWarning || !strings.Contains(r.Message, "SystemService/Reboot by rita (os:reader) from 10.0.2.2:41234: refused: requires os:admin") {
 		t.Fatalf("record = %+v", r)
 	}
-	if err := sk.Send(context.Background(), []Record{r}); err != nil {
+	if _, err := sk.Send(context.Background(), []Record{r}); err != nil {
 		t.Fatal(err)
 	}
 	d := srv.docs[0]

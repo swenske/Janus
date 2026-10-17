@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -240,6 +241,13 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", conn.GetProtocol(), conn.GetLocalAddress(), conn.GetRemoteAddress(), conn.GetState())
 		}
 		tw.Flush()
+
+	case "clients":
+		c, cancel := ctx()
+		defer cancel()
+		resp, err := client.ClientList(c, &emptypb.Empty{})
+		check("ClientList", err)
+		printClients(os.Stdout, resp, time.Now())
 
 	case "mounts":
 		c, cancel := ctx()
@@ -571,4 +579,50 @@ func auditLine(e *janusv1alpha1.Event) string {
 		result = a.Code + ": " + a.Error
 	}
 	return fmt.Sprintf("%d\t%s\t%s\t%s\t%s\t%s", e.GetId(), time.Unix(0, e.GetUnixTimeNs()).Format(time.RFC3339), e.GetType(), who, a.Peer, result)
+}
+
+// printClients is ClientList as a table: a connection a line - this
+// one marked, a name the node keeps from a non-admin "-" -, then the
+// users a Controller acts for, under it.
+func printClients(w io.Writer, resp *janusv1alpha1.ClientListResponse, now time.Time) {
+	ago := func(ns int64) string {
+		if ns <= 0 {
+			return "-"
+		}
+		// The node's clock may be a few seconds ahead of this one.
+		if d := now.Sub(time.Unix(0, ns)).Round(time.Second); d > 0 {
+			return d.String() + " ago"
+		}
+		return "now"
+	}
+	tw := newTable(w)
+	unnamed := false
+	fmt.Fprintln(tw, "ID\tCLIENT\tROLES\tFROM\tVIA\tOPENED\tCALLS\tSTREAMS\tIN\tOUT\tLAST CALL")
+	for _, c := range resp.GetConnections() {
+		name := cmp.Or(c.GetName(), "-")
+		if c.GetController() {
+			name += " (Controller)"
+		}
+		if c.GetSelf() {
+			name += " (this one)"
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\n", c.GetId(), name, cmp.Or(strings.Join(c.GetRoles(), ","), "-"),
+			cmp.Or(c.GetRemoteAddress(), "-"), cmp.Or(c.GetInterface(), "-"), ago(c.GetOpenedUnixNs()), c.GetCalls(), c.GetOpenStreams(),
+			humanBytes(c.GetBytesReceived()), humanBytes(c.GetBytesSent()), ago(c.GetLastCallUnixNs()))
+		for _, u := range c.GetUsers() {
+			name := "  for " + u.GetName()
+			if u.GetSelf() {
+				name += " (you)"
+			}
+			fmt.Fprintf(tw, "\t%s\t%s\t\t\t\t%d\t%d\t\t\t%s\n", name, strings.Join(u.GetRoles(), ","), u.GetCalls(), u.GetOpenStreams(), ago(u.GetLastCallUnixNs()))
+		}
+		if hidden := int(c.GetUserCount()) - len(c.GetUsers()); hidden > 0 {
+			fmt.Fprintf(tw, "\t  for %d more\t\t\t\t\t\t\t\t\t\n", hidden)
+			unnamed = true
+		}
+	}
+	tw.Flush()
+	if unnamed {
+		fmt.Fprintln(w, "The users a Controller acts for are named to an admin.")
+	}
 }

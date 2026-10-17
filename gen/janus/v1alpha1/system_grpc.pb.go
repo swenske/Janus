@@ -41,6 +41,7 @@ const (
 	SystemService_DiskUsage_FullMethodName                   = "/janus.v1alpha1.SystemService/DiskUsage"
 	SystemService_NetworkDeviceStats_FullMethodName          = "/janus.v1alpha1.SystemService/NetworkDeviceStats"
 	SystemService_Netstat_FullMethodName                     = "/janus.v1alpha1.SystemService/Netstat"
+	SystemService_ClientList_FullMethodName                  = "/janus.v1alpha1.SystemService/ClientList"
 	SystemService_Mounts_FullMethodName                      = "/janus.v1alpha1.SystemService/Mounts"
 	SystemService_Processes_FullMethodName                   = "/janus.v1alpha1.SystemService/Processes"
 	SystemService_ServiceList_FullMethodName                 = "/janus.v1alpha1.SystemService/ServiceList"
@@ -147,6 +148,12 @@ type SystemServiceClient interface {
 	// Netstat lists the machine's TCP and UDP sockets: listening ones and
 	// connections.
 	Netstat(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetstatResponse, error)
+	// ClientList lists the connections to this API open now: whose each
+	// is - its certificate; a Controller's names the users its calls are
+	// for -, the interface it comes by, its calls and bytes. The users a
+	// Controller acts for, and the other clients' names and addresses,
+	// come back to an admin only.
+	ClientList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ClientListResponse, error)
 	// Mounts lists the mounted filesystems with their size and free space.
 	Mounts(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MountsResponse, error)
 	// Processes lists the machine's processes.
@@ -497,6 +504,16 @@ func (c *systemServiceClient) Netstat(ctx context.Context, in *emptypb.Empty, op
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(NetstatResponse)
 	err := c.cc.Invoke(ctx, SystemService_Netstat_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) ClientList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ClientListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClientListResponse)
+	err := c.cc.Invoke(ctx, SystemService_ClientList_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -868,6 +885,12 @@ type SystemServiceServer interface {
 	// Netstat lists the machine's TCP and UDP sockets: listening ones and
 	// connections.
 	Netstat(context.Context, *emptypb.Empty) (*NetstatResponse, error)
+	// ClientList lists the connections to this API open now: whose each
+	// is - its certificate; a Controller's names the users its calls are
+	// for -, the interface it comes by, its calls and bytes. The users a
+	// Controller acts for, and the other clients' names and addresses,
+	// come back to an admin only.
+	ClientList(context.Context, *emptypb.Empty) (*ClientListResponse, error)
 	// Mounts lists the mounted filesystems with their size and free space.
 	Mounts(context.Context, *emptypb.Empty) (*MountsResponse, error)
 	// Processes lists the machine's processes.
@@ -1022,6 +1045,9 @@ func (UnimplementedSystemServiceServer) NetworkDeviceStats(context.Context, *emp
 }
 func (UnimplementedSystemServiceServer) Netstat(context.Context, *emptypb.Empty) (*NetstatResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Netstat not implemented")
+}
+func (UnimplementedSystemServiceServer) ClientList(context.Context, *emptypb.Empty) (*ClientListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ClientList not implemented")
 }
 func (UnimplementedSystemServiceServer) Mounts(context.Context, *emptypb.Empty) (*MountsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Mounts not implemented")
@@ -1451,6 +1477,24 @@ func _SystemService_Netstat_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(SystemServiceServer).Netstat(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_ClientList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).ClientList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_ClientList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).ClientList(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1943,6 +1987,10 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Netstat",
 			Handler:    _SystemService_Netstat_Handler,
+		},
+		{
+			MethodName: "ClientList",
+			Handler:    _SystemService_ClientList_Handler,
 		},
 		{
 			MethodName: "Mounts",

@@ -1,40 +1,40 @@
  janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok            15:04:05
 ╭─ Traffic flow  left to right ────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                                                      │
-│                                                                ╭─● api ─━───━───━───━──┬━● app1 2.4KiB/s · 1 sess    │
-│                                                                │   4.9KiB/s · 1 sess   ╰┄● app2 MAINT                │
-│                                                                ├─● be_blog ─━───━───━──┬━● app2 12.2KiB/s · 1 sess   │
+│                                                                ╭─● api http ─━───━───━─┬─● app1 2.4KiB/s · 1 sess    │
+│                                                                ┃   4.9KiB/s · 1 sess   ╰┄● app2 MAINT                │
+│                                                                ├━● be_blog http ─━───━─┬─● app2 12.2KiB/s · 1 sess   │
 │                                                                │   1/2 servers up      ╰╌● dead DOWN · L4TOUT        │
-│                                                                ├─● be_www ─━───━───━───┬─● app1 9.8KiB/s · 2 sess    │
-│                                        ╭─● https ─━───━───━───━┤   4.9KiB/s · 1 sess   ╰─● app2 8.8KiB/s · 2 sess    │
-│                                        │   43.9KiB/s · 8 sess  ├─● be_many ─━───━───━──┬━● s1 500B/s · 0 sess        │
-│                                        │                       │   4.9KiB/s · 1 sess   ├─● s2 500B/s · 0 sess        │
-│                                        │                       ┃                       ├─● s3 500B/s · 0 sess        │
-│                                        ┃                       │                       ├─● s4 500B/s · 0 sess        │
-│                                        │                       │                       ├━● s5 500B/s · 0 sess        │
-│                                        │                       │                       ├─● s6 500B/s · 0 sess        │
-│  ● eth0 ─━───━─● HAProxy ─━───━───━───━┤                       ┃                       ├─● s7 500B/s · 0 sess        │
-│    16.0KiB/s     12 conns · 4 req/s    │                       │                       ╰─● +3 more 3 servers         │
-│                                        │                       ╰─● be_default ─━───━───━─● app1 5.9KiB/s · 1 sess    │
+│                                                                ├─● be_www http ─━───━──┬━● app1 9.8KiB/s · 2 sess    │
+│                                        ╭─● https http ─━───━───┤   4.9KiB/s · 1 sess   ╰─● app2 8.8KiB/s · 2 sess    │
+│                                        │   43.9KiB/s · 8 sess  ├─● be_many http ─━───━─┬─● s1 500B/s · 0 sess        │
+│                                        │                       │   4.9KiB/s · 1 sess   ├━● s2 500B/s · 0 sess        │
+│                                        │                       │                       ├─● s3 500B/s · 0 sess        │
+│                                        ┃                       ┃                       ├─● s4 500B/s · 0 sess        │
+│                                        │                       │                       ├─● s5 500B/s · 0 sess        │
+│                                        │                       │                       ├━● s6 500B/s · 0 sess        │
+│  ● eth0 ─━───━─● HAProxy ─━───━───━───━┤                       │                       ├─● s7 500B/s · 0 sess        │
+│    16.0KiB/s     12 conns · 4 req/s    │                       ┃                       ╰─● +3 more 3 servers         │
+│                                        │                       ╰─● be_default http ─━───━● app1 5.9KiB/s · 1 sess    │
 │                                        ┃                           4.9KiB/s · 1 sess                                 │
-│                                        ├─● stats ────────────────● stats                                             │
+│                                        ├─● stats http ───────────● stats http                                        │
 │                                        │   0B/s · 0 sess           0B/s · 0 sess                                     │
-│                                        ├━● tcp_in ─━───━───━───━─● tcp_pool ─━───━───━───● app1 2.0KiB/s · 1 sess    │
+│                                        ├━● tcp_in tcp ─━───━───━─● tcp_pool tcp ─━───━───● app1 2.0KiB/s · 1 sess    │
 │                                        │   2.0KiB/s · 1 sess       4.9KiB/s · 1 sess                                 │
-│                                        ╰─● admin                 ○ unused ───────────────● app1 0B/s · 0 sess        │
+│                                        ╰─● admin http            ○ unused http ──────────● app1 0B/s · 0 sess        │
 │                                            0B/s · 0 sess           4.9KiB/s · 1 sess                                 │
 │                                                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭ Details ─────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ← ↑ ↓ → select a node: its paths come forward. Enter on a server: ready, drain, maint.                               │
+│ ← ↑ ↓ → select a node: its paths come forward. Enter on    ━ an interface's, all of it                               │
+│ a server: ready, drain, maint.                             A number that starts from zero lights up a moment.        │
 │ o vertical · s servers · f or Esc back                                                                               │
-│                                                                                                                      │
-│ ━ traffic  ─ none  ╌ server down  ┄ off  ○ named by no rule                                                          │
-│                                                                                                                      │
-│ Links come from the configuration: default_backend, use_backend, a map's values when use_backend reads one.          │
-│ HAProxy doesn't count how a backend's traffic splits between the frontends that send to it.                          │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
+│                                                            Links come from the configuration: default_backend,       │
+│ ━ traffic  ─ none  ╌ server down, log target failing  ┄    use_backend, a map's values when use_backend reads one.   │
+│ off  ○ named by no rule                                    HAProxy doesn't count how a backend's traffic splits      │
+│ ━ HTTP                                                     between the frontends that send to it.                    │
+│ ━ TCP                                                                                                                │
+│ ━ logs, out of the node                                                                                              │
+│ ━ the API: the Controller, janusctl, into the node                                                                   │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  ? help  q quit  f back  ←↑↓→ move  o vertical  s servers  R reload  M menu                                     every 2s

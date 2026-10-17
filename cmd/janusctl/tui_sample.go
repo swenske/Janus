@@ -1,10 +1,12 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -52,9 +54,11 @@ type sample struct {
 	net      *janusv1alpha1.NetworkDeviceStatsResponse
 	svc      *janusv1alpha1.StatsResponse
 	info     *janusv1alpha1.ShowInfoResponse
-	procs    *janusv1alpha1.ProcessesResponse   // full rounds only
-	services *janusv1alpha1.ServiceListResponse // full rounds only
-	stat     *haproxystat.Table                 // full rounds only
+	procs    *janusv1alpha1.ProcessesResponse     // full rounds only
+	services *janusv1alpha1.ServiceListResponse   // full rounds only
+	stat     *haproxystat.Table                   // full rounds only
+	logs     *janusv1alpha1.LogForwardingResponse // full rounds only; nil: none (no shipper, an older node, refused)
+	clients  *janusv1alpha1.ClientListResponse    // full rounds only; nil: none (an older node)
 	errs     map[string]string
 }
 
@@ -95,6 +99,8 @@ type point struct {
 	servers  []serverRow
 	services []serviceRow       // full rounds only
 	stat     *haproxystat.Table // the round's show stat, for what the rows above don't keep
+	logs     []logRow           // full rounds only: the log targets
+	apis     []apiRow           // full rounds only: who is connected to the API
 }
 
 type serviceRow struct{ id, state, health, extension string }
@@ -137,6 +143,7 @@ type frontendRow struct {
 // serverRow is a backend's own row (server == "") or one of its servers.
 type serverRow struct {
 	backend, server, status string
+	mode                    string // a backend's: http, tcp
 	weight, scur, qcur      uint64
 	rate                    uint64
 	in, out                 float64 // bytes/s, NaN unknown
@@ -167,8 +174,42 @@ func (g *fetchGroup) run(name string, fn func() error) {
 	}()
 }
 
+// logRow is a log target: how it's doing, its records and bytes a
+// second (NaN unknown), the interface its traffic leaves by.
+type logRow struct {
+	name, kind, state string
+	via               string // "" unknown: not connected yet, or an older node
+	local, remote     string
+	sent, bytes       uint64
+	knowsBytes        bool // false: a node older than LogTargetStatus.bytes_sent
+	msgRate, byteRate float64
+	queued, dropped   uint64
+	errors            uint64
+	lastErr           string
+	lastSent          time.Time
+	sends, to         string // how and where: "syslog over TCP · RFC 5424", its address or URL
+	sources           []string
+}
+
+// apiRow is who is connected to the node's API, as the traffic flow
+// groups them: the Controller's connections, or the others' (janusctl,
+// this tui among them), by the interface they come by - their calls and
+// bytes a second over the connections open at both rounds (NaN before a
+// second), the users the Controller acts for.
+type apiRow struct {
+	controller bool
+	via        string
+	conns      []*janusv1alpha1.ClientConnection
+	users      []*janusv1alpha1.ClientUser // the latest first
+	userCount  int
+	self       bool // the connection this tui asks by is one of them
+	callRate   float64
+	inRate     float64 // received by the node
+	outRate    float64
+}
+
 // The calls in a round: fast ones, those a node's screen adds, slow ones.
-const fastCalls, fullCalls, slowCalls = 6, 3, 9
+const fastCalls, fullCalls, slowCalls = 6, 5, 9
 
 // firstCalls is how many calls a sampler's first round makes: the slow
 // ones are always due then.
@@ -205,6 +246,32 @@ func fetchSample(ctx context.Context, conn *grpc.ClientConn, full bool, done fun
 			}
 			s.stat, err = haproxystat.Parse(resp.GetRawCsv())
 			return err
+		})
+		// Where the logs go, for the traffic flow: a node without a
+		// shipper, older, or a role refused it has none to show.
+		g.run("log forwarding", func() error {
+			resp, err := sys.LogForwardingGet(ctx, empty)
+			switch status.Code(err) {
+			case codes.OK:
+				s.logs = resp
+			case codes.Unavailable, codes.Unimplemented, codes.PermissionDenied:
+			default:
+				return err
+			}
+			return nil
+		})
+		// Who is connected to the API - the Controller, this tui: an
+		// older node doesn't say.
+		g.run("api clients", func() error {
+			resp, err := sys.ClientList(ctx, empty)
+			switch status.Code(err) {
+			case codes.OK:
+				s.clients = resp
+			case codes.Unavailable, codes.Unimplemented, codes.PermissionDenied:
+			default:
+				return err
+			}
+			return nil
 		})
 	}
 	g.wg.Wait()
@@ -339,7 +406,132 @@ func derive(prev, cur *sample) point {
 		p.fronts, p.servers = deriveStat(prev, cur, dt)
 		p.stat = cur.stat
 	}
+	if cur.logs != nil {
+		var before *janusv1alpha1.LogForwardingResponse
+		if prev != nil {
+			before = prev.logs
+		}
+		p.logs = deriveLogs(before, cur.logs, dt)
+	}
+	if cur.clients != nil {
+		var before *janusv1alpha1.ClientListResponse
+		if prev != nil {
+			before = prev.clients
+		}
+		p.apis = deriveAPIs(before, cur.clients, dt)
+	}
 	return p
+}
+
+// deriveAPIs groups the API's connections as the traffic flow shows
+// them - the Controller's first -, with their rates against the previous
+// answer: a connection new since counts from the next round, one gone
+// not at all.
+func deriveAPIs(prev, cur *janusv1alpha1.ClientListResponse, dt float64) []apiRow {
+	before := map[uint64]*janusv1alpha1.ClientConnection{}
+	for _, c := range prev.GetConnections() {
+		before[c.GetId()] = c
+	}
+	var out []apiRow
+	at := map[[2]string]int{}
+	for _, c := range cur.GetConnections() {
+		key := [2]string{fmt.Sprint(c.GetController()), c.GetInterface()}
+		i, ok := at[key]
+		if !ok {
+			i = len(out)
+			at[key] = i
+			out = append(out, apiRow{controller: c.GetController(), via: c.GetInterface(), callRate: math.NaN(), inRate: math.NaN(), outRate: math.NaN()})
+		}
+		r := &out[i]
+		r.conns = append(r.conns, c)
+		r.self = r.self || c.GetSelf()
+		r.userCount += int(c.GetUserCount())
+		for _, u := range c.GetUsers() {
+			j := slices.IndexFunc(r.users, func(x *janusv1alpha1.ClientUser) bool { return x.GetName() == u.GetName() })
+			switch {
+			case j < 0:
+				r.users = append(r.users, u)
+			case u.GetLastCallUnixNs() > r.users[j].GetLastCallUnixNs():
+				r.users[j] = u
+			}
+		}
+		if b, ok := before[c.GetId()]; ok {
+			add := func(sum *float64, v float64) {
+				if math.IsNaN(v) {
+					return
+				}
+				if math.IsNaN(*sum) {
+					*sum = 0
+				}
+				*sum += v
+			}
+			add(&r.callRate, rate(b.GetCalls(), c.GetCalls(), dt))
+			add(&r.inRate, rate(b.GetBytesReceived(), c.GetBytesReceived(), dt))
+			add(&r.outRate, rate(b.GetBytesSent(), c.GetBytesSent(), dt))
+		}
+	}
+	for i := range out {
+		slices.SortStableFunc(out[i].users, func(a, b *janusv1alpha1.ClientUser) int {
+			return cmp.Or(cmp.Compare(b.GetLastCallUnixNs(), a.GetLastCallUnixNs()), cmp.Compare(a.GetName(), b.GetName()))
+		})
+	}
+	slices.SortStableFunc(out, func(a, b apiRow) int {
+		if a.controller != b.controller {
+			if a.controller {
+				return -1
+			}
+			return 1
+		}
+		return 0
+	})
+	return out
+}
+
+// deriveLogs is each log target with its records and bytes a second
+// against the previous answer. A node older than bytes_sent and
+// interface sends neither: bytes are unknown when records went but no
+// byte did.
+func deriveLogs(prev, cur *janusv1alpha1.LogForwardingResponse, dt float64) []logRow {
+	before := map[string]*janusv1alpha1.LogTargetStatus{}
+	for _, t := range prev.GetTargets() {
+		before[t.GetName()] = t
+	}
+	conf := map[string]*janusv1alpha1.LogTarget{}
+	for _, t := range cur.GetConfig().GetTargets() {
+		conf[t.GetName()] = t
+	}
+	var out []logRow
+	for _, t := range cur.GetTargets() {
+		r := logRow{name: t.GetName(), kind: t.GetKind(), state: t.GetState(), via: t.GetInterface(), local: t.GetLocalAddress(), remote: t.GetRemoteAddress(),
+			sent: t.GetSent(), bytes: t.GetBytesSent(), knowsBytes: t.GetBytesSent() > 0 || t.GetSent() == 0, msgRate: math.NaN(), byteRate: math.NaN(),
+			queued: t.GetQueued(), dropped: t.GetDropped(), errors: t.GetErrors(), lastErr: t.GetLastError()}
+		if ns := t.GetLastSentUnixNs(); ns > 0 {
+			r.lastSent = time.Unix(0, ns)
+		}
+		if b, ok := before[t.GetName()]; ok {
+			r.msgRate = rate(b.GetSent(), t.GetSent(), dt)
+			if r.knowsBytes {
+				r.byteRate = rate(b.GetBytesSent(), t.GetBytesSent(), dt)
+			}
+		}
+		if c := conf[t.GetName()]; c != nil {
+			r.sources = c.GetSources()
+			if es := c.GetElasticsearch(); es != nil {
+				r.sends, r.to = "Elasticsearch", es.GetUrl()
+				if es.GetGzip() {
+					r.sends += " · gzip"
+				}
+			} else if sl := c.GetSyslog(); sl != nil {
+				format := "RFC 5424"
+				if sl.GetFormat() == "rfc3164" {
+					format = "RFC 3164"
+				}
+				r.sends, r.to = "syslog over "+strings.ToUpper(cmp.Or(sl.GetTransport(), "udp"))+" · "+format, sl.GetAddress()
+			}
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // deriveProcs is each process with its CPU over the interval. A node
@@ -410,7 +602,7 @@ func deriveStat(prev, cur *sample, dt float64) ([]frontendRow, []serverRow) {
 			f.slim, f.hasSlim = t.Uint(r, "slim")
 			fronts = append(fronts, f)
 		case haproxystat.KindBackend:
-			servers = append(servers, serverRow{backend: px, status: t.Get(r, "status"), weight: u(r, "weight"), scur: u(r, "scur"), qcur: u(r, "qcur"),
+			servers = append(servers, serverRow{backend: px, status: t.Get(r, "status"), mode: t.Get(r, "mode"), weight: u(r, "weight"), scur: u(r, "scur"), qcur: u(r, "qcur"),
 				rate: u(r, "rate"), in: byteRate(r, "bin"), out: byteRate(r, "bout"), lastchg: t.Get(r, "lastchg")})
 		case haproxystat.KindServer:
 			servers = append(servers, serverRow{backend: px, server: sv, status: t.Get(r, "status"), weight: u(r, "weight"), scur: u(r, "scur"), qcur: u(r, "qcur"),

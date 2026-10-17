@@ -1,0 +1,48 @@
+ janus ▸ lgslbpub01  v2026.10.08 slot A  up 3d 4h  HAProxy 3.2.9  amd64  schematic a055fbb6  time ok  [network trial reverts in 42s]                    15:04:05
+╭─ Traffic flow  top to bottom ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                             ● Controller 2 users      ● Direct clients          ● rsyslog                 ● elastic                 ○ Direct clients         │
+│                             │ 40 calls/s · 9.8KiB/s   │ 6 calls/s · 1.5KiB/s    │ 50 msg/s · 5.9KiB/s     ╎ failing                   0 calls/s · 0B/s       │
+│                             ┃                         ┃                         │                         ╎                                                  │
+│                             ╰──━───━───━───━───━───━──┴──━───━───━─┬───━───━───━┴╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯                                                  │
+│                                                                    │                                                                                         │
+│                                                                    ● eth0                                                                                    │
+│                                                                    │ 16.0KiB/s                                                                               │
+│                                                                    ┃                                                                                         │
+│                                                                    │                                                                                         │
+│                                                                    │                                                                                         │
+│                                                                    ● HAProxy                                                                                 │
+│                                                                    │ 12 conns · 4 req/s                                                                      │
+│                                                                    ┃                                                                                         │
+│      ╭──━───━───━───━───━───━───━───━───━───━───━───━───━───━───━──┴──━───━───━───━───┬───━───━───━───━───━─┬─────────────────────╮                          │
+│      ┃                                                                                │                     │                     │                          │
+│      ● https http                                                                     ● stats http          ● tcp_in tcp          ● admin http               │
+◂      │ 43.9KiB/s · 8 sess                                                             │ 0B/s · 0 sess       │ 2.0KiB/s · 1 sess     0B/s · 0 sess            ▸
+│      ┃                                                                                │                     ┃                                                │
+│ ──━──┴┬─━───━───━───━───━───━───━┬──━───━───━───━───━───━──╮                          │                     │                                                │
+│       │                          │                         ┃                          │                     │                                                │
+│       ● be_www http              ● be_many http            ● be_default http          ● stats http          ● tcp_pool tcp             ○ unused http         │
+│       │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess       │ 4.9KiB/s · 1 sess          0B/s · 0 sess       │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess   │
+│  sess ├─● app1 9.8KiB/s · 2 sess ├─● s1 500B/s · 0 sess    ╰─● app1 5.9KiB/s · 1 sess                       ╰─● app1 2.0KiB/s · 1 sess ╰─● app1 0B/s · 0 ses │
+│       ╰─● app2 8.8KiB/s · 2 sess ├─● s2 500B/s · 0 sess                                                                                                      │
+│                                  ├─● s3 500B/s · 0 sess                                                                                                      │
+│                                  ├━● s4 500B/s · 0 sess                                                                                                      │
+│                                  ├─● s5 500B/s · 0 sess                                                                                                      │
+│                                  ├─● s6 500B/s · 0 sess                                                                                                      │
+│                                  ├─● s7 500B/s · 0 sess                                                                                                      │
+│                                  ╰━● +3 more 3 servers                                                                                                       │
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭ Details ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ← ↑ ↓ → select a node: its paths come forward. Enter on a server: ready,       ━ an interface's, all of it                                                   │
+│ drain, maint.                                                                  A number that starts from zero lights up a moment.                            │
+│ o horizontal · s servers · f or Esc back                                                                                                                     │
+│                                                                                Links come from the configuration: default_backend, use_backend, a map's      │
+│ ━ traffic  ─ none  ╌ server down, log target failing  ┄ off  ○ named by no     values when use_backend reads one. HAProxy doesn't count how a backend's      │
+│ rule                                                                           traffic splits between the frontends that send to it.                         │
+│ ━ HTTP                                                                                                                                                       │
+│ ━ TCP                                                                                                                                                        │
+│ ━ logs, out of the node                                                                                                                                      │
+│ ━ the API: the Controller, janusctl, into the node                                                                                                           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ? help  q quit  f back  ←↑↓→ move  o horizontal  s servers  R reload  M menu                                                                           every 2s

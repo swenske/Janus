@@ -349,10 +349,11 @@ export function buildFlow(rows, topology, mapEntries) {
   const { links, unresolved } = topology ? resolveLinks(topology, bes.map((b) => b.proxy), mapEntries) : { links: [], unresolved: [] }
   const backends = bes.map((r) => {
     const own = servers.filter((s) => s.proxy === r.proxy)
-    const srv = own.map((s) => ({ id: `srv:${r.proxy}/${s.name}`, kind: 'srv', name: s.name, backend: r.proxy, tone: serverTone(s.status), row: s }))
+    const mode = r.mode || ''
+    const srv = own.map((s) => ({ id: `srv:${r.proxy}/${s.name}`, kind: 'srv', name: s.name, backend: r.proxy, mode, tone: serverTone(s.status), row: s }))
     const down = srv.filter((s) => s.tone === 'danger').length
     let tone = String(r.status).toUpperCase().startsWith('DOWN') ? 'danger' : down ? 'warn' : String(r.status).toUpperCase() === 'UP' ? 'ok' : ''
-    return { id: `be:${r.proxy}`, kind: 'be', name: r.proxy, tone, servers: srv, down, row: r }
+    return { id: `be:${r.proxy}`, kind: 'be', name: r.proxy, mode, tone, servers: srv, down, row: r }
   })
   return {
     configKnown: !!topology,
@@ -382,14 +383,168 @@ export function interfaces(net, status) {
     })
 }
 
+// protocol is what a link's traffic is - http or tcp, as HAProxy's mode
+// says (a backend's: a TCP frontend may hand its connections to an HTTP
+// backend, never the other way), log to a log target, api from a client
+// of the node's API, '' for an interface's (all of its traffic, whatever
+// it is).
+export function protocol(link, byId) {
+  if (link.kind === 'log' || link.kind === 'api') return link.kind
+  if (link.kind === 'iface') return ''
+  const node = link.kind === 'fe' ? byId[link.to] : link.kind === 'be' ? byId[link.to] : byId[link.from] // srv, trunk: the backend
+  const mode = node?.mode || (link.kind === 'be' ? byId[link.from]?.mode : '')
+  return mode === 'http' || mode === 'tcp' ? mode : ''
+}
+
+const toNumber = (v) => (v == null || v === '' ? undefined : Number(v))
+
+// logTargets are the node's log targets for the map, from
+// /api/log-forwarding (its status, proto names): each with its records
+// and bytes a second from the previous answer, seconds earlier (none
+// without one, or for a counter that went back - janusd restarted), and
+// the interface its traffic leaves by. A node older than that interface
+// doesn't say it nor its bytes: via null, bytes unknown.
+export function logTargets(resp, prevResp, seconds) {
+  const cfg = new Map((resp?.config?.targets || []).map((t) => [t.name, t]))
+  const prev = new Map((prevResp?.targets || []).map((t) => [t.name, t]))
+  return (resp?.targets || []).map((st) => {
+    const p = prev.get(st.name)
+    const knowsBytes = 'bytes_sent' in st
+    const rate = (k) => {
+      const a = toNumber(st[k])
+      const b = toNumber(p?.[k])
+      return p && seconds > 0 && a != null && b != null && a >= b ? (a - b) / seconds : undefined
+    }
+    const c = cfg.get(st.name) || {}
+    const state = st.state || ''
+    return {
+      id: `log:${st.name}`,
+      kind: 'log',
+      name: st.name,
+      es: !!c.elasticsearch || st.kind === 'elasticsearch',
+      target: c,
+      status: st,
+      via: 'interface' in st ? st.interface || '' : null,
+      msgRate: rate('sent'),
+      byteRate: knowsBytes ? rate('bytes_sent') : undefined,
+      knowsBytes,
+      tone: state === 'disabled' ? 'off' : state === 'failing' ? 'danger' : state === 'ok' ? 'ok' : '',
+    }
+  })
+}
+
+// apiPeers are who is connected to the node's API, for the map, from
+// /api/system/clients (ClientList, proto names): the Controller's
+// connections, and the other clients' (janusctl...), each by the
+// interface they come by - their calls and bytes a second over the
+// connections open at both answers, seconds apart (none before a second
+// answer); the users the Controller acts for, the latest first.
+export function apiPeers(resp, prevResp, seconds) {
+  const prev = new Map((prevResp?.connections || []).map((c) => [String(c.id), c]))
+  const groups = new Map()
+  for (const c of resp?.connections || []) {
+    const controller = !!c.controller
+    const via = c.interface || ''
+    const id = `api:${controller ? 'controller' : 'clients'}${via ? `:${via}` : ''}`
+    let g = groups.get(id)
+    if (!g) {
+      g = { id, kind: 'api', controller, name: controller ? 'Controller' : 'Direct clients', via, conns: [], users: [], userCount: 0, self: false, tone: '' }
+      groups.set(id, g)
+    }
+    const p = prev.get(String(c.id))
+    const rate = (k) => {
+      const a = toNumber(c[k])
+      const b = toNumber(p?.[k])
+      return p && seconds > 0 && a != null && b != null && a >= b ? (a - b) / seconds : undefined
+    }
+    for (const [k, v] of [
+      ['callRate', rate('calls')],
+      ['inRate', rate('bytes_received')],
+      ['outRate', rate('bytes_sent')],
+    ]) {
+      if (v != null) g[k] = (g[k] ?? 0) + v
+    }
+    g.conns.push(c)
+    g.self ||= !!c.self
+    g.userCount += Number(c.user_count || 0)
+    for (const u of c.users || []) {
+      const had = g.users.find((x) => x.name === u.name)
+      if (!had) g.users.push({ ...u })
+      else if (Number(u.last_call_unix_ns) > Number(had.last_call_unix_ns)) Object.assign(had, u)
+    }
+  }
+  for (const g of groups.values()) {
+    g.byteRate = g.inRate != null && g.outRate != null ? g.inRate + g.outRate : undefined
+    g.users.sort((a, b) => Number(b.last_call_unix_ns) - Number(a.last_call_unix_ns) || a.name.localeCompare(b.name))
+  }
+  // The Controller first.
+  return [...groups.values()].sort((a, b) => b.controller - a.controller)
+}
+
+// peerPlaces is where the peers - API clients, log targets - go along
+// the interfaces' column (or row), a step apart at least: those of one
+// interface together around it, in their order, the interfaces' order
+// kept - no two links cross -, all as near to that as the room they take
+// allows (the least moved overall: pooling adjacent violators); those no
+// interface on the map says after the others. at is an interface's
+// place (undefined when it isn't on the map); none before start.
+function peerPlaces(peers, at, step, start) {
+  const linked = []
+  const rest = []
+  peers.forEach((t, i) => {
+    const p = t.via ? at(t.via) : undefined
+    if (p == null) rest.push(t)
+    else linked.push({ t, i, p })
+  })
+  for (const w of linked) {
+    const same = linked.filter((o) => o.p === w.p)
+    w.want = w.p + (same.indexOf(w) - (same.length - 1) / 2) * step
+  }
+  linked.sort((a, b) => a.p - b.p || a.i - b.i)
+  // Each k-th wants want - k·step: those in order, the same for a block.
+  const blocks = []
+  linked.forEach((w, k) => {
+    let b = { sum: w.want - k * step, n: 1 }
+    while (blocks.length && blocks.at(-1).sum / blocks.at(-1).n > b.sum / b.n) {
+      const prev = blocks.pop()
+      b = { sum: prev.sum + b.sum, n: prev.n + b.n }
+    }
+    blocks.push(b)
+  })
+  const out = []
+  for (const b of blocks) {
+    const q = Math.max(b.sum / b.n, start)
+    for (let j = 0; j < b.n; j++) out.push({ t: linked[out.length].t, p: q + out.length * step })
+  }
+  let prev = out.length ? out.at(-1).p : start - step
+  for (const t of rest) out.push({ t, p: (prev += step) })
+  return out
+}
+
+// linkPeer joins a peer to its interface, when it's on the map: to a
+// log target from it, from an API client to it.
+function linkPeer(n, byId, links) {
+  const iface = n.via ? byId[`if:${n.via}`] : null
+  n.linked = !!iface
+  if (!iface) return
+  if (n.kind === 'log') links.push({ id: `${iface.id}>${n.id}`, from: iface.id, to: n.id, kind: 'log' })
+  else links.push({ id: `${n.id}>${iface.id}`, from: n.id, to: iface.id, kind: 'api' })
+}
+
 // --- layout ---
 
 export const MAX_SERVERS = 8
 const ROW = 92 // a frontend's, backend's or interface's height
 const SRV_ROW = 46 // a server's: its label is beside it
 const TOP = 24
-const R = { iface: 22, hub: 32, fe: 22, be: 22, srv: 14, more: 14 }
-const X = { iface: 60, hub: 240, fe: 440, be: 650, srv: 850 }
+const R = { log: 22, api: 22, iface: 22, hub: 32, fe: 22, be: 22, srv: 14, more: 14 }
+const COLUMNS = { iface: 60, hub: 240, fe: 440, be: 650, srv: 850 }
+const shifted = (dx) => Object.fromEntries(Object.entries(COLUMNS).map(([k, x]) => [k, x + dx]))
+// The peers' column (log targets, API clients), its labels centred
+// under it whole - "15 msg/s · 13.0 KiB/s", "12 calls/s · 3.4 KiB/s" -,
+// the others moved right of it.
+const PEER_X = 95
+const PEER_SHIFT = 220
 
 function curve(a, b) {
   const x1 = a.x + a.r
@@ -434,18 +589,21 @@ function serverSlots(b, servers) {
 
 // layout places the map's nodes and draws its links in a shape: across
 // (left to right, labels under the nodes), dense (left to right, labels
-// beside them) or down (top to bottom) - vertical is down.
-export function layout(graph, ifaces, { servers = true, vertical = false, shape = vertical ? 'down' : 'across' } = {}) {
-  if (shape === 'down') return layoutDown(graph, ifaces, servers)
-  if (shape === 'dense') return layoutDense(graph, ifaces, servers)
-  return layoutAcross(graph, ifaces, servers)
+// beside them) or down (top to bottom) - vertical is down. Peers - API
+// clients (apiPeers), log targets (logTargets) -, when there are, go
+// beyond the interfaces: a column left of them, a row above them.
+export function layout(graph, ifaces, { servers = true, vertical = false, shape = vertical ? 'down' : 'across', peers = [] } = {}) {
+  if (shape === 'down') return layoutDown(graph, ifaces, servers, peers)
+  if (shape === 'dense') return layoutDense(graph, ifaces, servers, peers)
+  return layoutAcross(graph, ifaces, servers, peers)
 }
 
 // layoutAcross places the nodes in columns - interfaces, HAProxy,
 // frontends, backends, servers (when shown). Backends follow the first
 // frontend that names them, each as tall as its servers; frontends sit
 // level with their backends, never closer than a row.
-function layoutAcross(graph, ifaces, servers) {
+function layoutAcross(graph, ifaces, servers, peers) {
+  const X = peers.length ? shifted(PEER_SHIFT) : COLUMNS
   const nodes = []
   const byId = {}
   const put = (n) => {
@@ -497,10 +655,16 @@ function layoutAcross(graph, ifaces, servers) {
   })
   for (const f of graph.frontends) links.push({ id: `hub>${f.id}`, from: 'hub', to: f.id, kind: 'fe' })
   for (const l of graph.links) links.push({ ...l, kind: 'be' })
+  let peerBottom = 0
+  for (const { t, p } of peerPlaces(peers, (name) => byId[`if:${name}`]?.y, ROW, TOP + ROW / 2)) {
+    linkPeer(put({ ...t, x: PEER_X, y: p, r: R[t.kind] }), byId, links)
+    peerBottom = p + ROW / 2
+  }
 
-  for (const l of links) l.d = curve(byId[l.from], byId[l.to])
+  // A log link is drawn from its target: left to right too.
+  for (const l of links) l.d = l.kind === 'log' ? curve(byId[l.to], byId[l.from]) : curve(byId[l.from], byId[l.to])
 
-  const bottom = Math.max(beBottom, prev + ROW / 2, first + span + ROW / 2, hub.y + ROW / 2)
+  const bottom = Math.max(beBottom, prev + ROW / 2, first + span + ROW / 2, hub.y + ROW / 2, peerBottom)
   const width = servers && graph.backends.some((b) => b.servers.length) ? X.srv + 200 : X.be + 120
   return { nodes, links, byId, width, height: bottom + TOP, hubY: hub.y }
 }
@@ -537,7 +701,7 @@ export function reach(n) {
 // backends with their servers below them. Backends follow the first
 // frontend that names them; frontends sit above the middle of their
 // backends, never closer than their labels allow.
-function layoutDown(graph, ifaces, servers) {
+function layoutDown(graph, ifaces, servers, peers) {
   const nodes = []
   const byId = {}
   const put = (n) => {
@@ -548,7 +712,8 @@ function layoutDown(graph, ifaces, servers) {
   const links = []
   const { rank, ordered } = rankBackends(graph)
 
-  const ifY = TOP + R.iface
+  const peerY = TOP + R.log
+  const ifY = peers.length ? peerY + LEVEL : TOP + R.iface
   const hubY = ifY + LEVEL
   const feY = hubY + LEVEL
   const beY = feY + FAN
@@ -598,6 +763,12 @@ function layoutDown(graph, ifaces, servers) {
   })
   for (const f of graph.frontends) links.push({ id: `hub>${f.id}`, from: 'hub', to: f.id, kind: 'fe' })
   for (const l of graph.links) links.push({ ...l, kind: 'be' })
+  // Peers above their interfaces, their labels apart.
+  if (peers.length) {
+    const peerStep = Math.max(...peers.map((t) => reach({ ...t, r: R[t.kind] }))) + GAP + R.log
+    const left = ifaces.length ? mid - ((ifaces.length - 1) / 2) * step : mid
+    for (const { t, p } of peerPlaces(peers, (name) => byId[`if:${name}`]?.x, peerStep, left)) linkPeer(put({ ...t, x: p, y: peerY, r: R[t.kind] }), byId, links)
+  }
 
   // Everything moved right of the margin, then the links drawn.
   const shift = TOP - Math.min(...nodes.map((n) => n.x - n.r))
@@ -607,6 +778,7 @@ function layoutDown(graph, ifaces, servers) {
     const b = byId[l.to]
     if (l.kind === 'trunk') l.d = `M${a.x} ${a.y + a.r}V${l.end}`
     else if (l.kind === 'srv') l.d = `M${a.x} ${b.y - ELBOW}Q${a.x} ${b.y} ${a.x + ELBOW} ${b.y}H${b.x - b.r}`
+    else if (l.kind === 'log') l.d = curveDown(b, a) // from the target above
     else l.d = curveDown(a, b)
   }
   const width = Math.max(...nodes.map((n) => n.x + reach(n))) + TOP
@@ -617,7 +789,7 @@ function layoutDown(graph, ifaces, servers) {
 // links that leave it, its numbers on a line below them; a server's name
 // and numbers on one line - so a row is as tall as a node: half the
 // across layout's, for a configuration with many backends.
-const LINE_CHARS = { iface: 11, hub: 20 } // a dense label's numbers on one line: "999.9 KiB/s", "999 conns · 99 req/s"
+const LINE_CHARS = { iface: 11, hub: 20, log: 23, api: 25 } // a dense label's numbers on one line: "999.9 KiB/s", "999 conns · 99 req/s", "999 msg/s · 999.9 KiB/s", "999 calls/s · 999.9 KiB/s"
 
 // lineChars is the room a dense label keeps for its numbers: "999.9
 // KiB/s · 999 sess" but for an interface's and HAProxy's.
@@ -626,7 +798,7 @@ export function lineChars(n) {
 }
 
 const DENSE = {
-  r: { iface: 18, hub: 24, fe: 18, be: 18, srv: 11, more: 11 },
+  r: { log: 18, api: 18, iface: 18, hub: 24, fe: 18, be: 18, srv: 11, more: 11 },
   row: 44, // a row of interfaces, frontends or backends
   srv: 28, // a server's
   gap: 44, // between a label and the next column
@@ -640,7 +812,7 @@ function stem(n) {
   return n.x + reach(n) + 6
 }
 
-function layoutDense(graph, ifaces, servers) {
+function layoutDense(graph, ifaces, servers, peers) {
   const nodes = []
   const byId = {}
   const put = (n) => {
@@ -692,25 +864,33 @@ function layoutDense(graph, ifaces, servers) {
   })
   for (const f of graph.frontends) links.push({ id: `hub>${f.id}`, from: 'hub', to: f.id, kind: 'fe' })
   for (const l of graph.links) links.push({ ...l, kind: 'be' })
+  let peerBottom = 0
+  for (const { t, p } of peerPlaces(peers, (name) => byId[`if:${name}`]?.y, DENSE.row, TOP + DENSE.row / 2)) {
+    linkPeer(put({ ...t, y: p, r: R[t.kind], dense: true }), byId, links)
+    peerBottom = p + DENSE.row / 2
+  }
 
   // Columns as wide as their labels.
-  const widest = (kind) => Math.max(0, ...nodes.filter((n) => n.kind === kind).map((n) => reach(n)))
-  const x = { iface: TOP + R.iface }
-  x.hub = (ifaces.length ? x.iface + widest('iface') + DENSE.gap : TOP) + R.hub
+  const widest = (...kinds) => Math.max(0, ...nodes.filter((n) => kinds.includes(n.kind)).map((n) => reach(n)))
+  const x = { log: TOP + R.log }
+  x.api = x.log
+  x.iface = (peers.length ? x.log + widest('log', 'api') + DENSE.gap : TOP) + R.iface
+  x.hub = (ifaces.length ? x.iface + widest('iface') + DENSE.gap : peers.length ? x.log + widest('log', 'api') + DENSE.gap : TOP) + R.hub
   x.fe = x.hub + reach(hub) + DENSE.gap + R.fe
   x.be = x.fe + widest('fe') + DENSE.fan + R.be
   x.srv = x.be + widest('be') + DENSE.gap + R.srv
   for (const n of nodes) n.x = x[n.kind === 'more' ? 'srv' : n.kind]
 
   for (const l of links) {
-    const a = byId[l.from]
-    const b = byId[l.to]
+    // A log link is drawn from its target: left to right too.
+    const a = byId[l.kind === 'log' ? l.to : l.from]
+    const b = byId[l.kind === 'log' ? l.from : l.to]
     const from = stem(a)
     const to = b.x - b.r
     const xm = (from + to) / 2
     l.d = `M${a.x + a.r} ${a.y}H${from}C${xm} ${a.y} ${xm} ${b.y} ${to} ${b.y}`
   }
-  const bottom = Math.max(beBottom, prev + DENSE.row / 2, first + span + DENSE.row / 2, hub.y + DENSE.row / 2)
+  const bottom = Math.max(beBottom, prev + DENSE.row / 2, first + span + DENSE.row / 2, hub.y + DENSE.row / 2, peerBottom)
   const width = Math.max(...nodes.map((n) => n.x + reach(n))) + TOP
   return { nodes, links, byId, width, height: bottom + TOP, hubY: hub.y }
 }
@@ -756,6 +936,9 @@ export function arrange(choice, maps, room) {
   }
   const wide = options.find((o) => o.wide >= MIN_SCALE)
   if (wide) return pick(wide, Math.min(wide.wide, 1))
+  // No room at all (a card not laid out): the first shape, as when not
+  // measured yet.
+  if (!options.length) return { shape: order[0], beside: false, scale: MIN_SCALE }
   return pick(options.reduce((a, o) => (o.wide > a.wide ? o : a)), MIN_SCALE)
 }
 
@@ -765,6 +948,21 @@ export function arrange(choice, maps, room) {
 // crosses; null for HAProxy and the interfaces (everything).
 export function related(map, id) {
   const link = map.links.find((l) => l.id === id)
+  // A peer - a log target, an API client: its link and the interface it
+  // goes by.
+  const isPeer = (n) => n?.kind === 'log' || n?.kind === 'api'
+  const peer = link?.kind === 'log' ? map.byId[link.to] : link?.kind === 'api' ? map.byId[link.from] : isPeer(map.byId[id]) ? map.byId[id] : null
+  if (peer) {
+    const out = new Set([peer.id])
+    for (const l of map.links) {
+      if (l.to === peer.id || l.from === peer.id) {
+        out.add(l.id)
+        out.add(l.from)
+        out.add(l.to)
+      }
+    }
+    return out
+  }
   const start = link ? [link.from, link.to] : [id]
   if (start.some((n) => !map.byId[n] || map.byId[n].kind === 'hub' || map.byId[n].kind === 'iface')) return null
   const out = new Set([...start, ...(link ? [link.id] : [])])
@@ -808,4 +1006,42 @@ export function pulse(bytesPerSecond) {
     width: Math.min(5, Math.max(1.5, 1.2 + 0.45 * l)),
     seconds: Math.round(Math.min(2.4, Math.max(0.35, 2.6 - 0.3 * l)) * 100) / 100,
   }
+}
+
+// figures are the numbers the map shows, by node or link id - a node's
+// traffic and sessions, HAProxy's connections and requests, a log
+// target's records and bytes a second, an API client's calls and bytes
+// a second, a link's traffic (traffic, by link id) - what a flash
+// watches.
+export function figures(map, hap, traffic = {}) {
+  const f = {}
+  for (const n of map.nodes) {
+    const r = n.row
+    if (n.kind === 'iface') f[n.id] = { traffic: n.traffic }
+    else if (n.kind === 'hub') f[n.id] = { conns: hap?.conns, req: hap?.reqRate }
+    else if (n.kind === 'log') f[n.id] = { msgs: n.msgRate, bytes: n.byteRate }
+    else if (n.kind === 'api') f[n.id] = { calls: n.callRate, bytes: n.byteRate }
+    else if (r) f[n.id] = { traffic: r.traffic, sess: r.scur }
+  }
+  for (const [id, t] of Object.entries(traffic)) f[id] = { traffic: t }
+  return f
+}
+
+// risen is what started from nothing between two figures: the ids one
+// of whose numbers was 0 and is more now - not one that wasn't known
+// (the first sample, a counter that went back).
+export function risen(prev, cur) {
+  const out = new Set()
+  if (!prev) return out
+  for (const [id, v] of Object.entries(cur)) {
+    const p = prev[id]
+    if (!p) continue
+    for (const [k, x] of Object.entries(v)) {
+      if (p[k] === 0 && x > 0) {
+        out.add(id)
+        break
+      }
+    }
+  }
+  return out
 }
