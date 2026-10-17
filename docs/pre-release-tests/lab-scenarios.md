@@ -18,7 +18,7 @@ added.
 | The auto-scaled node | since v2026.10.14: a machine the Controller creates on the same host, 2 vCPU and 1 GiB from the release's default image, room for 4 vCPU and 2 GiB |
 | Backends | two nginx VMs, 1 vCPU each |
 | Load client | a 2-vCPU VM on the same host, with `wrk` - up to v2026.10.14, removed since: it took the host's CPUs from the nodes |
-| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
+| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of v2026.10.17-2's campaign for a memory fault, the probes then ran from a runner). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
 | Controller | Docker Compose with its updater, an admin with TOTP |
 
 The two nodes and the backends saturate the host's 4 cores under a
@@ -36,7 +36,8 @@ other, they aren't a capacity measure.
   request, about one every 1 to 2 minutes, when nothing changes in the
   lab: a request that gets no answer within its second. Before a
   campaign, each prober is run for 2 minutes against an untouched VIP
-  (the fourth machine: none lost in 4,385). A single isolated timeout
+  (the fourth machine: none lost in 4,385; a runner, for v2026.10.17-2:
+  none in 4,680). A single isolated timeout
   outside the moment a scenario changes something is reported apart
   from the scenario's losses.
 - **Load**: `wrk` (4.1.0). Keep-alive connections unless a scenario says
@@ -88,10 +89,11 @@ Upgrade to back in service, `wrk`'s rate, 99th percentile and errors.
 - from one client: keep-alive with 8, 64 and 256 connections, then a new
   connection for every request (32 connections) - 30 s each, two runs;
   since v2026.10.14-3 that client is the fourth machine (a runner
-  before, the lab's own client up to v2026.10.14);
+  before, the lab's own client up to v2026.10.14; a runner again for
+  v2026.10.17-2);
 - since v2026.10.14-2, from the clients at once: 256 keep-alive
   connections each, 30 s, two runs (the three runners, and the fourth
-  machine since v2026.10.14-3).
+  machine since v2026.10.14-3 - except v2026.10.17-2).
 
 Measured: requests per second and the 99th percentile, with the nodes'
 boot stages. When the release's runs couldn't be taken before the
@@ -167,7 +169,12 @@ example:
   updates;
 - v2026.10.17: dependency updates only - every step against the release
   measured the same morning, the longterm machine updated through the
-  Controller, and the Controller serving its rebuilt pages.
+  Controller, and the Controller serving its rebuilt pages;
+- v2026.10.17-2: HAProxy, keepalived and BIRD as static PIEs - where
+  each binary's first mapping starts (`/proc/<pid>/maps`), on the
+  release and then after the update, a reload, HAProxy stopped and
+  started, firmware and kexec reboots and a rollback: a new address at
+  every start.
 
 ### HAProxy killed by the kernel
 
@@ -233,6 +240,8 @@ ran:
 - `bench`, `rbench`: the throughput runs;
 - `failover`, `rfailover`: node loss and HAProxy stopped;
 - `reboot-time`: the reboots;
+- `haproxy-address`: where HAProxy, keepalived and BIRD are mapped on
+  each node;
 - `rolling`: the drained rolling update through the Controller;
 - `ctl-update`: the Controller's update with its probe;
 - `factory-ready`: a node's page asks for the pre-release's bundle until
