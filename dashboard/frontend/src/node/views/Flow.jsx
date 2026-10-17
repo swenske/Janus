@@ -648,7 +648,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   }
   // A server.
   return (
-    <Card title={title} icon={Icon} actions={may('HAProxyService/ServerSetState') ? <ServerStateButtons backend={n.backend} server={n.name} onDone={onChanged} /> : null}>
+    <Card title={title} icon={Icon} actions={may('HAProxyService/ServerSetState') ? <ServerStateButtons backend={n.backend} server={n.name} state={r.status} onDone={onChanged} /> : null}>
       <dl className="kv">
         <Row k="Backend">{go(`be:${n.backend}`)}</Row>
         <Row k="Status">

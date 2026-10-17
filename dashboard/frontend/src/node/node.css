@@ -197,6 +197,17 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .chips { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 .chip { padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.82rem; }
 
+/* HAProxy › Backends: a tile's servers, a row each - its name over its
+   address, its state, the buttons setting it -, the buttons going under
+   them when the tile is too narrow: nothing wider than its tile. */
+.backend .card-title { min-width: 0; overflow-wrap: anywhere; }
+.servers { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.servers li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; padding: 0.5rem 0.7rem; }
+.servers li + li { border-top: 1px solid var(--border); }
+.server-id { flex: 1 1 8rem; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.server-id > * { overflow-wrap: anywhere; }
+.servers .server-state { margin-left: auto; flex-wrap: nowrap; }
+
 @media (max-width: 900px) {
   .sidebar { position: fixed; left: 0; z-index: 60; transform: translateX(-100%); transition: transform 0.18s; box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2); }
   .nav-open .sidebar { transform: none; }
