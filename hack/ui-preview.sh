@@ -7,7 +7,8 @@
 # TCP frontends - under traffic that comes and goes
 # (hack/ui-preview/load.mjs), sending their logs to rsyslog and
 # Elasticsearch (hack/rsyslog, hack/elasticsearch); edge-1 has a second
-# interface, the one its rsyslog target goes by. Set up through the
+# interface, the one its rsyslog target goes by; edge-3 runs many.cfg
+# instead, two dozen backends. Set up through the
 # Controller's API (hack/ui-preview/setup.mjs), with a second account,
 # lea's, on edge-1's page now and then, and a janusctl of its own
 # following edge-1's events: the Traffic flow's Controller and direct
@@ -73,6 +74,7 @@ info() {
 The Controller: https://127.0.0.1:$PORT  (a self-signed certificate: SHA-256 $fp)
   sign in as admin, password $PASSWORD (or lea, an operator: $VISITOR_PASSWORD)
   the Traffic flow: a node's page, Monitoring › Traffic flow (edge-1: two interfaces, two log targets)
+  many backends: edge-3's page, Apps › HAProxy › Backends
 
 janusctl tui, from this machine:
   export JANUSCONFIG=$DIR/janusctl.json

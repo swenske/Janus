@@ -1,6 +1,6 @@
 // hack/ui-preview's Controller, set up through its API: its admin, the
-// three nodes added and trusting its fleet, each running node.cfg and
-// sending its logs - edge-1 to rsyslog through its second interface and
+// three nodes added and trusting its fleet, edge-1 and edge-2 running
+// node.cfg, edge-3 many.cfg (many backends), each sending its logs - edge-1 to rsyslog through its second interface and
 // to Elasticsearch, edge-2 to rsyslog over UDP, edge-3 to Elasticsearch
 // and to a server that doesn't answer, with one target disabled; a
 // second account, lea's (an operator), whose page of edge-1 load.mjs
@@ -70,6 +70,7 @@ await until('the nodes to trust the fleet', async () => {
   return Object.values(ids).every((id) => f.nodes?.[id]?.state === 'trusted')
 })
 
+const cfgs = { 'edge-3': fs.readFileSync('/preview/many.cfg', 'utf8') }
 const cfg = fs.readFileSync('/preview/node.cfg', 'utf8')
 const es = (name, sources) => ({ name, sources, elasticsearch: { url: ES_URL, api_key: ES_KEY, gzip: true }, tls: { fingerprint: ES_FP, server_name: 'localhost' } })
 const logs = {
@@ -86,14 +87,15 @@ const logs = {
 }
 for (const [name, id] of Object.entries(ids)) {
   // Its last stage: one HAProxy refuses isn't accepted, the answer's 200.
-  const applied = await call('POST', `/nodes/${id}/api/haproxy/config`, { config: cfg })
+  const applied = await call('POST', `/nodes/${id}/api/haproxy/config`, { config: cfgs[name] || cfg })
   if (!applied.accepted) throw new Error(`${name}: the configuration wasn't applied - ${applied.stage}: ${applied.message}`)
   await call('POST', `/nodes/${id}/api/log-forwarding`, { targets: logs[name] })
 }
+// many.cfg's down on purpose: only those at the application servers'.
 await until('the application servers to be up', async () => {
   for (const id of Object.values(ids)) {
     const b = await call('GET', `/nodes/${id}/api/haproxy/backends`)
-    const servers = (b.backends || []).flatMap((x) => x.servers || [])
+    const servers = (b.backends || []).flatMap((x) => x.servers || []).filter((s) => /^10\.0\.30\.1[12]:/.test(s.address))
     if (!servers.length || servers.some((s) => s.state.toLowerCase() !== 'up')) return false
   }
   return true
