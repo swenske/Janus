@@ -164,7 +164,10 @@ example:
   track (longterm) created through the Controller, the image factory
   building its image; its health, and its kexec and firmware reboots
   timed from its own event log. The lab keeps it for the next kernel
-  updates.
+  updates;
+- v2026.10.17: dependency updates only - every step against the release
+  measured the same morning, the longterm machine updated through the
+  Controller, and the Controller serving its rebuilt pages.
 
 ### HAProxy killed by the kernel
 
