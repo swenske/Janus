@@ -226,8 +226,12 @@ status="$(ctl system log-forwarding status)"
 echo "$status"
 for t in udp tcp tls; do
   grep -qE "^$t +ok " <<<"$status" || fail "target $t isn't ok: $status"
+  # What it sent took bytes, and went by the interface the node routes
+  # the server by (janusctl's BYTES and VIA - the Traffic flow's).
+  read -r bytes via < <(awk -v t="$t" '$1 == t {print $4, $7}' <<<"$status")
+  [ "$bytes" != "0B" ] && [ "$via" = eth0 ] || fail "target $t: $bytes sent, by ${via:-?} (want eth0): $status"
 done
-echo "Part 1 OK: each target gets what it takes - janusd and events over UDP, HAProxy's messages and access logs over TCP (RFC 3164), the defaults over TLS with a pinned CA"
+echo "Part 1 OK: each target gets what it takes - janusd and events over UDP, HAProxy's messages and access logs over TCP (RFC 3164), the defaults over TLS with a pinned CA - its bytes counted, through eth0"
 
 # --- the audit: an admin's change, a reader refused ---
 ctl pki generate-client-config -role os:reader -name ci-reader -ttl 1h "$WORKDIR/reader" >/dev/null || fail "generate-client-config failed"
