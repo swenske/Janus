@@ -87,14 +87,14 @@ func shotStat(t *testing.T, conns, sessRate, reqRate, sessions, bin, bout uint64
 		return v - v*51/100
 	}
 	var b strings.Builder
-	b.WriteString("# pxname,svname,qcur,scur,slim,stot,bin,bout,ereq,status,weight,lastchg,rate,check_status,req_rate,hrsp_2xx,hrsp_3xx,hrsp_4xx,hrsp_5xx,\n")
-	fmt.Fprintf(&b, "web,FRONTEND,,%d,32741,%d,%d,%d,3,OPEN,,,%d,,%d,%d,%d,%d,14,\n", conns, sessions, bin, bout, sessRate, reqRate, sessions*3*97/100, sessions*3*2/100, sessions*3/100)
+	b.WriteString("# pxname,svname,qcur,scur,slim,stot,bin,bout,ereq,status,weight,lastchg,rate,check_status,req_rate,hrsp_2xx,hrsp_3xx,hrsp_4xx,hrsp_5xx,mode,\n")
+	fmt.Fprintf(&b, "web,FRONTEND,,%d,32741,%d,%d,%d,3,OPEN,,,%d,,%d,%d,%d,%d,14,http,\n", conns, sessions, bin, bout, sessRate, reqRate, sessions*3*97/100, sessions*3*2/100, sessions*3/100)
 	for i, name := range []string{"app1", "app2"} {
 		first := i == 0
-		fmt.Fprintf(&b, "app,%s,0,%d,,%d,%d,%d,,UP,1,1052220,%d,L7OK,,,,,,\n", name, half(conns*7/10, first), half(sessions, first), half(bin, first), half(bout, first), half(sessRate, first))
+		fmt.Fprintf(&b, "app,%s,0,%d,,%d,%d,%d,,UP,1,1052220,%d,L7OK,,,,,,http,\n", name, half(conns*7/10, first), half(sessions, first), half(bin, first), half(bout, first), half(sessRate, first))
 	}
-	fmt.Fprintf(&b, "app,BACKEND,0,%d,3275,%d,%d,%d,,UP,2,1052220,%d,,,,,,,\n", conns*7/10, sessions, bin, bout, sessRate)
-	b.WriteString("prometheus,FRONTEND,,1,32741,4183,312040,51207133,0,OPEN,,,0,,0,4183,0,0,0,\n")
+	fmt.Fprintf(&b, "app,BACKEND,0,%d,3275,%d,%d,%d,,UP,2,1052220,%d,,,,,,,http,\n", conns*7/10, sessions, bin, bout, sessRate)
+	b.WriteString("prometheus,FRONTEND,,1,32741,4183,312040,51207133,0,OPEN,,,0,,0,4183,0,0,0,http,\n")
 	stat, err := haproxystat.Parse([]byte(b.String()))
 	if err != nil {
 		t.Fatal(err)
@@ -262,20 +262,24 @@ func TestScreenshotFrame(t *testing.T) {
 }
 
 // shotFlow is the same node's traffic flow (f), examples/haproxy/web.cfg
-// read as its configuration, the web frontend under the cursor.
+// read as its configuration, its logs - the access logs among them -
+// sent to a SIEM over TCP through eth0, the web frontend under the
+// cursor.
 func shotFlow(t *testing.T, a *app, n *nodeScreen) *termui.Frame {
 	t.Helper()
 	cfg, err := os.ReadFile(filepath.Join("..", "..", "examples", "haproxy", "web.cfg"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	n.s.last.logs = []logRow{{name: "siem", kind: "syslog", state: "ok", via: "eth0", knowsBytes: true, msgRate: 2140, byteRate: 548_000,
+		sends: "syslog over TCP · RFC 5424", to: "10.0.10.9:601"}}
 	top := haproxyflow.Parse(string(cfg))
 	n.flow = newFlowView(n)
 	n.flow.cfg = flowConfig{top: &top, gen: 1}
 	n.flow.sel = "fe:web"
 	f := a.render(shotCols, shotRows)
 	text := strings.Join(f.Lines(), "\n")
-	for _, want := range []string{"Traffic flow", "● HAProxy", "● web", "● prometheus", "● app", "● app1", "● app2", "→ app", "default_backend app"} {
+	for _, want := range []string{"Traffic flow", "● HAProxy", "● web", "● prometheus", "● app", "● app1", "● app2", "→ app", "default_backend app", "● siem"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the traffic flow's frame misses %q:\n%s", want, text)
 		}

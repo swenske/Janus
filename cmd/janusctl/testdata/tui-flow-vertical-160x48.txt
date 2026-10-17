@@ -10,12 +10,12 @@
 │                                                                    ┃                                                                                         │
 │      ╭──━───━───━───━───━───━───━───━───━───━───━───━───━───━───━──┴──━───━───━───━───┬───━───━───━───━───━─┬─────────────────────╮                          │
 │      ┃                                                                                │                     │                     │                          │
-│      ● https                                                                          ● stats               ● tcp_in              ● admin                    │
+│      ● https http                                                                     ● stats http          ● tcp_in tcp          ● admin http               │
 │      │ 43.9KiB/s · 8 sess                                                             │ 0B/s · 0 sess       │ 2.0KiB/s · 1 sess     0B/s · 0 sess            │
 │      ┃                                                                                │                     ┃                                                │
 │ ──━──┴┬─━───━───━───━───━───━───━┬──━───━───━───━───━───━──╮                          │                     │                                                │
 │       │                          │                         ┃                          │                     │                                                │
-│       ● be_www                   ● be_many                 ● be_default               ● stats               ● tcp_pool                 ○ unused              │
+│       ● be_www http              ● be_many http            ● be_default http          ● stats http          ● tcp_pool tcp             ○ unused http         │
 ◂       │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess       │ 4.9KiB/s · 1 sess          0B/s · 0 sess       │ 4.9KiB/s · 1 sess        │ 4.9KiB/s · 1 sess   ▸
 │  sess ├─● app1 9.8KiB/s · 2 sess ├─● s1 500B/s · 0 sess    ╰─● app1 5.9KiB/s · 1 sess                       ╰─● app1 2.0KiB/s · 1 sess ╰─● app1 0B/s · 0 ses │
 │       ╰─● app2 8.8KiB/s · 2 sess ├─● s2 500B/s · 0 sess                                                                                                      │
@@ -34,15 +34,15 @@
 │                                                                                                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭ Details ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ← ↑ ↓ → select a node: its paths come forward. Enter on a server: ready, drain, maint.                                                                       │
-│ o horizontal · s servers · f or Esc back                                                                                                                     │
-│                                                                                                                                                              │
-│ ━ traffic  ─ none  ╌ server down  ┄ off  ○ named by no rule                                                                                                  │
-│                                                                                                                                                              │
-│ Links come from the configuration: default_backend, use_backend, a map's values when use_backend reads one. HAProxy doesn't count how a backend's traffic    │
-│ splits between the frontends that send to it.                                                                                                                │
-│                                                                                                                                                              │
-│                                                                                                                                                              │
-│                                                                                                                                                              │
+│ ← ↑ ↓ → select a node: its paths come forward. Enter on a server: ready,       A number that starts from zero lights up a moment.                            │
+│ drain, maint.                                                                                                                                                │
+│ o horizontal · s servers · f or Esc back                                       Links come from the configuration: default_backend, use_backend, a map's      │
+│                                                                                values when use_backend reads one. HAProxy doesn't count how a backend's      │
+│ ━ traffic  ─ none  ╌ server down, log target failing  ┄ off  ○ named by no     traffic splits between the frontends that send to it.                         │
+│ rule                                                                                                                                                         │
+│ ━ HTTP                                                                                                                                                       │
+│ ━ TCP                                                                                                                                                        │
+│ ━ logs, out of the node                                                                                                                                      │
+│ ━ an interface's, all of it                                                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  ? help  q quit  f back  ←↑↓→ move  o horizontal  s servers  R reload  M menu                                                                           every 2s

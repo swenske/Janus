@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -52,9 +53,10 @@ type sample struct {
 	net      *janusv1alpha1.NetworkDeviceStatsResponse
 	svc      *janusv1alpha1.StatsResponse
 	info     *janusv1alpha1.ShowInfoResponse
-	procs    *janusv1alpha1.ProcessesResponse   // full rounds only
-	services *janusv1alpha1.ServiceListResponse // full rounds only
-	stat     *haproxystat.Table                 // full rounds only
+	procs    *janusv1alpha1.ProcessesResponse     // full rounds only
+	services *janusv1alpha1.ServiceListResponse   // full rounds only
+	stat     *haproxystat.Table                   // full rounds only
+	logs     *janusv1alpha1.LogForwardingResponse // full rounds only; nil: none (no shipper, an older node, refused)
 	errs     map[string]string
 }
 
@@ -95,6 +97,7 @@ type point struct {
 	servers  []serverRow
 	services []serviceRow       // full rounds only
 	stat     *haproxystat.Table // the round's show stat, for what the rows above don't keep
+	logs     []logRow           // full rounds only: the log targets
 }
 
 type serviceRow struct{ id, state, health, extension string }
@@ -137,6 +140,7 @@ type frontendRow struct {
 // serverRow is a backend's own row (server == "") or one of its servers.
 type serverRow struct {
 	backend, server, status string
+	mode                    string // a backend's: http, tcp
 	weight, scur, qcur      uint64
 	rate                    uint64
 	in, out                 float64 // bytes/s, NaN unknown
@@ -167,8 +171,25 @@ func (g *fetchGroup) run(name string, fn func() error) {
 	}()
 }
 
+// logRow is a log target: how it's doing, its records and bytes a
+// second (NaN unknown), the interface its traffic leaves by.
+type logRow struct {
+	name, kind, state string
+	via               string // "" unknown: not connected yet, or an older node
+	local, remote     string
+	sent, bytes       uint64
+	knowsBytes        bool // false: a node older than LogTargetStatus.bytes_sent
+	msgRate, byteRate float64
+	queued, dropped   uint64
+	errors            uint64
+	lastErr           string
+	lastSent          time.Time
+	sends, to         string // how and where: "syslog over TCP · RFC 5424", its address or URL
+	sources           []string
+}
+
 // The calls in a round: fast ones, those a node's screen adds, slow ones.
-const fastCalls, fullCalls, slowCalls = 6, 3, 9
+const fastCalls, fullCalls, slowCalls = 6, 4, 9
 
 // firstCalls is how many calls a sampler's first round makes: the slow
 // ones are always due then.
@@ -205,6 +226,19 @@ func fetchSample(ctx context.Context, conn *grpc.ClientConn, full bool, done fun
 			}
 			s.stat, err = haproxystat.Parse(resp.GetRawCsv())
 			return err
+		})
+		// Where the logs go, for the traffic flow: a node without a
+		// shipper, older, or a role refused it has none to show.
+		g.run("log forwarding", func() error {
+			resp, err := sys.LogForwardingGet(ctx, empty)
+			switch status.Code(err) {
+			case codes.OK:
+				s.logs = resp
+			case codes.Unavailable, codes.Unimplemented, codes.PermissionDenied:
+			default:
+				return err
+			}
+			return nil
 		})
 	}
 	g.wg.Wait()
@@ -339,7 +373,61 @@ func derive(prev, cur *sample) point {
 		p.fronts, p.servers = deriveStat(prev, cur, dt)
 		p.stat = cur.stat
 	}
+	if cur.logs != nil {
+		var before *janusv1alpha1.LogForwardingResponse
+		if prev != nil {
+			before = prev.logs
+		}
+		p.logs = deriveLogs(before, cur.logs, dt)
+	}
 	return p
+}
+
+// deriveLogs is each log target with its records and bytes a second
+// against the previous answer. A node older than bytes_sent and
+// interface sends neither: bytes are unknown when records went but no
+// byte did.
+func deriveLogs(prev, cur *janusv1alpha1.LogForwardingResponse, dt float64) []logRow {
+	before := map[string]*janusv1alpha1.LogTargetStatus{}
+	for _, t := range prev.GetTargets() {
+		before[t.GetName()] = t
+	}
+	conf := map[string]*janusv1alpha1.LogTarget{}
+	for _, t := range cur.GetConfig().GetTargets() {
+		conf[t.GetName()] = t
+	}
+	var out []logRow
+	for _, t := range cur.GetTargets() {
+		r := logRow{name: t.GetName(), kind: t.GetKind(), state: t.GetState(), via: t.GetInterface(), local: t.GetLocalAddress(), remote: t.GetRemoteAddress(),
+			sent: t.GetSent(), bytes: t.GetBytesSent(), knowsBytes: t.GetBytesSent() > 0 || t.GetSent() == 0, msgRate: math.NaN(), byteRate: math.NaN(),
+			queued: t.GetQueued(), dropped: t.GetDropped(), errors: t.GetErrors(), lastErr: t.GetLastError()}
+		if ns := t.GetLastSentUnixNs(); ns > 0 {
+			r.lastSent = time.Unix(0, ns)
+		}
+		if b, ok := before[t.GetName()]; ok {
+			r.msgRate = rate(b.GetSent(), t.GetSent(), dt)
+			if r.knowsBytes {
+				r.byteRate = rate(b.GetBytesSent(), t.GetBytesSent(), dt)
+			}
+		}
+		if c := conf[t.GetName()]; c != nil {
+			r.sources = c.GetSources()
+			if es := c.GetElasticsearch(); es != nil {
+				r.sends, r.to = "Elasticsearch", es.GetUrl()
+				if es.GetGzip() {
+					r.sends += " · gzip"
+				}
+			} else if sl := c.GetSyslog(); sl != nil {
+				format := "RFC 5424"
+				if sl.GetFormat() == "rfc3164" {
+					format = "RFC 3164"
+				}
+				r.sends, r.to = "syslog over "+strings.ToUpper(cmp.Or(sl.GetTransport(), "udp"))+" · "+format, sl.GetAddress()
+			}
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // deriveProcs is each process with its CPU over the interval. A node
@@ -410,7 +498,7 @@ func deriveStat(prev, cur *sample, dt float64) ([]frontendRow, []serverRow) {
 			f.slim, f.hasSlim = t.Uint(r, "slim")
 			fronts = append(fronts, f)
 		case haproxystat.KindBackend:
-			servers = append(servers, serverRow{backend: px, status: t.Get(r, "status"), weight: u(r, "weight"), scur: u(r, "scur"), qcur: u(r, "qcur"),
+			servers = append(servers, serverRow{backend: px, status: t.Get(r, "status"), mode: t.Get(r, "mode"), weight: u(r, "weight"), scur: u(r, "scur"), qcur: u(r, "qcur"),
 				rate: u(r, "rate"), in: byteRate(r, "bin"), out: byteRate(r, "bout"), lastchg: t.Get(r, "lastchg")})
 		case haproxystat.KindServer:
 			servers = append(servers, serverRow{backend: px, server: sv, status: t.Get(r, "status"), weight: u(r, "weight"), scur: u(r, "scur"), qcur: u(r, "qcur"),
