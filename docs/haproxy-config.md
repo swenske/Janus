@@ -160,3 +160,25 @@ Every configuration goes through `haproxy -c` first, then through a real
 start: a configuration HAProxy refuses at either step changes nothing.
 Reloads are seamless (`-sf`), and the configuration is kept on the node
 across reboots and updates.
+
+## Who reads it
+
+Whoever may apply a configuration (`os:operator`, `os:admin`) reads it
+whole. Whoever may only read the node (`os:reader`) gets it with its
+secrets replaced by `<redacted>`, in the Controller's HAProxy ›
+Configuration as from `janusctl haproxy get-config`:
+
+- `userlist` passwords, hashed ones too (a hash can be cracked offline);
+- `stats auth` passwords;
+- `setenv`/`presetenv` and `acme-vars` values;
+- the values of the `Authorization`, `Proxy-Authorization`, `Cookie`,
+  `Set-Cookie`, `X-Api-Key` and `X-Auth-Token` headers that
+  `http-request`/`http-response` rules set or `http-check send` and
+  `option httpchk` send;
+- the patterns an ACL compares those headers with
+  (`acl key_ok req.hdr(x-api-key) -m str ...`).
+
+Every line keeps its place, and the SHA-256 shown is that of the masked
+text. The masking is best effort: a secret written elsewhere - a
+comment, a map, a file under `/etc/haproxy/files` - is shown as it is to
+whoever may read the node.

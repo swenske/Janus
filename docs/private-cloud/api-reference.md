@@ -22,7 +22,7 @@ HAProxyService configures and drives the node's HAProxy - what editing haproxy.c
 
 | Call | Request → response | Role | Domain | What it does |
 |---|---|---|---|---|
-| `GetConfig` | `Empty` → `GetConfigResponse` | `os:reader` | haproxy | GetConfig returns the applied haproxy.cfg and its SHA-256. |
+| `GetConfig` | `Empty` → `GetConfigResponse` | `os:reader` | haproxy | GetConfig returns the applied haproxy.cfg and its SHA-256. A caller who may not apply a configuration (os:reader) gets it with its secrets masked - userlist and "stats auth" passwords, credential headers' values, setenv values - and the SHA-256 of what it got. |
 | `ApplyConfig` | `ApplyConfigRequest` → `stream ApplyConfigResponse` | `os:operator` | haproxy | ApplyConfig validates the given config via `haproxy -c` before reloading - a rejected config never reaches the running process. The stages stream: "validating", then "reloading" and "done" (accepted), or "rejected" with HAProxy's errors. The configuration is kept across reboots and updates. |
 | `ValidateConfig` | `ValidateConfigRequest` → `ValidateConfigResponse` | `os:reader` | haproxy | ValidateConfig runs the same validation as ApplyConfig without touching the running process (dry-run). |
 | `Reload` | `Empty` → `ReloadResponse` | `os:operator` | haproxy | Reload triggers a seamless (zero-downtime) reload of the currently applied config. |

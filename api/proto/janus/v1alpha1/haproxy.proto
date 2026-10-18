@@ -12,7 +12,10 @@ option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
 // runtime state (servers, maps, ACLs, certificates) over its stats
 // socket, its files, and the letsencrypt extension's certificates.
 service HAProxyService {
-  // GetConfig returns the applied haproxy.cfg and its SHA-256.
+  // GetConfig returns the applied haproxy.cfg and its SHA-256. A caller
+  // who may not apply a configuration (os:reader) gets it with its
+  // secrets masked - userlist and "stats auth" passwords, credential
+  // headers' values, setenv values - and the SHA-256 of what it got.
   rpc GetConfig(google.protobuf.Empty) returns (GetConfigResponse);
   // ApplyConfig validates the given config via `haproxy -c` before
   // reloading - a rejected config never reaches the running process.
@@ -107,7 +110,10 @@ service HAProxyService {
 
 message GetConfigResponse {
   bytes config = 1;
-  string sha256 = 2;
+  string sha256 = 2; // of config, as returned
+  // redacted: secrets were replaced by "<redacted>" - the caller may
+  // read the configuration but not apply one.
+  bool redacted = 3;
 }
 
 message ApplyConfigRequest {

@@ -9,6 +9,7 @@ import { useMay } from '../../may.js'
 export default function Config() {
   const [original, setOriginal] = useState(null)
   const [sha, setSha] = useState('')
+  const [redacted, setRedacted] = useState(false)
   const [draft, setDraft] = useState('')
   const [loadError, setLoadError] = useState(null)
   const [validation, setValidation] = useState(null)
@@ -23,6 +24,7 @@ export default function Config() {
       setOriginal(c.config)
       setDraft(c.config)
       setSha(c.sha256)
+      setRedacted(!!c.redacted)
       setValidation(null)
       setLoadError(null)
     } catch (err) {
@@ -91,12 +93,17 @@ export default function Config() {
         actions={
           <>
             {dirty ? <Badge tone="warn">{changes} changed lines</Badge> : <Badge tone="ok">matches the running config</Badge>}
-            <span className="muted small mono" title="sha256 of the running config">
+            <span className="muted small mono" title={redacted ? 'sha256 of the configuration as shown, secrets masked' : 'sha256 of the running config'}>
               {sha.slice(0, 12)}
             </span>
           </>
         }
       >
+        {redacted && (
+          <div className="notice" style={{ marginBottom: '0.8rem' }}>
+            Passwords and credentials are masked (<code>&lt;redacted&gt;</code>): your role may read this configuration, not apply one.
+          </div>
+        )}
         <Editor
           value={draft}
           onChange={(v) => {

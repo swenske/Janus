@@ -592,8 +592,9 @@ jobs:
       # real HAProxy of every branch an image can carry (variants.mk):
       # file-backed map/ACL entries, certificates uploaded and bound
       # through a crt-list with SNI, put back after a reload, show
-      # info/stat parsed - hack/haproxy-runtime-test.sh, one branch after
-      # the other (the real /run/janus paths and ports 8080/8443).
+      # info/stat parsed, the configuration masked for a reader -
+      # hack/haproxy-runtime-test.sh, one branch after the other (the
+      # real /run/janus paths and ports 8080/8443).
       - name: HAProxy runtime map/ACL/certificate test, every branch
         run: |
           set -euo pipefail

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -29,12 +30,28 @@ type HAProxy struct {
 	ACME *acme.Manager
 }
 
-func (h *HAProxy) GetConfig(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.GetConfigResponse, error) {
+// GetConfig gives the configuration whole only to who may apply one: a
+// reader gets it with its secrets masked (JANUS-2026-006), and the hash
+// of what it got - the real file's would let it try passwords offline.
+func (h *HAProxy) GetConfig(ctx context.Context, _ *emptypb.Empty) (*janusv1alpha1.GetConfigResponse, error) {
 	cfg, err := readFile(h.Manager.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	return &janusv1alpha1.GetConfigResponse{Config: cfg, Sha256: sha256Hex(cfg)}, nil
+	redacted := false
+	if checkRole(ctx, janusv1alpha1.HAProxyService_ApplyConfig_FullMethodName) != nil {
+		masked := haproxy.RedactConfig(cfg)
+		redacted = !bytes.Equal(masked, cfg)
+		cfg = masked
+	}
+	return &janusv1alpha1.GetConfigResponse{Config: cfg, Sha256: sha256Hex(cfg), Redacted: redacted}, nil
+}
+
+// readableSHA256 names a configuration in events - which readers read,
+// and log targets receive - by the hash of what a reader's GetConfig
+// shows: the same as the file's when it holds no secret.
+func readableSHA256(cfg []byte) string {
+	return sha256Hex(haproxy.RedactConfig(cfg))
 }
 
 func (h *HAProxy) ApplyConfig(req *janusv1alpha1.ApplyConfigRequest, stream janusv1alpha1.HAProxyService_ApplyConfigServer) error {
@@ -47,7 +64,7 @@ func (h *HAProxy) ApplyConfig(req *janusv1alpha1.ApplyConfigRequest, stream janu
 		if len(errs) == 0 {
 			errs = []string{err.Error()}
 		}
-		events.Publish("haproxy.config.rejected", map[string]any{"sha256": sha256Hex(req.GetConfig()), "errors": errs})
+		events.Publish("haproxy.config.rejected", map[string]any{"sha256": readableSHA256(req.GetConfig()), "errors": errs})
 		return stream.Send(&janusv1alpha1.ApplyConfigResponse{
 			Stage:    "rejected",
 			Message:  strings.Join(errs, "; "),
@@ -55,7 +72,7 @@ func (h *HAProxy) ApplyConfig(req *janusv1alpha1.ApplyConfigRequest, stream janu
 		})
 	}
 
-	events.Publish("haproxy.config.applied", map[string]string{"sha256": sha256Hex(req.GetConfig())})
+	events.Publish("haproxy.config.applied", map[string]string{"sha256": readableSHA256(req.GetConfig())})
 	if err := stream.Send(&janusv1alpha1.ApplyConfigResponse{Stage: "reloading"}); err != nil {
 		return err
 	}

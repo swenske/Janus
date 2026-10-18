@@ -120,7 +120,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
-| `GetConfig` | | ✅ | Current `haproxy.cfg` |
+| `GetConfig` | | ✅ | Current `haproxy.cfg` - its secrets masked for a caller who may not apply one, see [haproxy-config.md](haproxy-config.md#who-reads-it) |
 | `ApplyConfig` | server | ✅ | Validate (`haproxy -c`) then seamless-reload (`-sf <pid>`) |
 | `ValidateConfig` | | ✅ | Dry-run validation only |
 | `Reload` | | ✅ | Seamless reload of the current config |

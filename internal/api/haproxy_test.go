@@ -1,9 +1,20 @@
 package api
 
 import (
+	"context"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/types/known/emptypb"
+
+	"github.com/swenske/Janus/internal/haproxy"
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // testdata/show-stat.csv is real "show stat" output from this project's
@@ -71,5 +82,54 @@ func TestParseBackendsSocketStats(t *testing.T) {
 	old := "# pxname,svname,status,addr,\nfe,FRONTEND,OPEN,,\nbe,web1,UP,10.0.0.1:80,\nbe,BACKEND,UP,,\n"
 	if got, err := parseBackends(old); err != nil || len(got) != 1 || len(got[0].Servers) != 1 || got[0].Servers[0].Name != "web1" {
 		t.Errorf("without a type column: %v, %v", got, err)
+	}
+}
+
+// TestGetConfigRedactedForReaders: who may apply a configuration reads
+// it whole; a reader - with its own certificate or through the
+// Controller - gets it masked, with the hash of what it got
+// (JANUS-2026-006).
+func TestGetConfigRedactedForReaders(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "haproxy.cfg")
+	cfg := "userlist ops\n    user a insecure-password s3cret\nlisten stats\n    stats auth admin:hunter2\n"
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := &HAProxy{Manager: &haproxy.Manager{ConfigPath: path}}
+	as := func(roles ...string) context.Context {
+		return peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "u", Organization: roles}})
+	}
+	ctl := func(roles string) context.Context {
+		return metadata.NewIncomingContext(as(pki.RoleController), metadata.Pairs(pki.AsUserKey, "carol", pki.AsRolesKey, roles))
+	}
+	for _, c := range []struct {
+		name   string
+		ctx    context.Context
+		masked bool
+	}{
+		{"admin", as(pki.RoleAdmin), false},
+		{"operator", as(pki.RoleOperator), false},
+		{"reader", as(pki.RoleReader), true},
+		{"reader through the Controller", ctl(pki.RoleReader), true},
+		{"operator through the Controller", ctl(pki.RoleOperator), false},
+	} {
+		resp, err := h.GetConfig(c.ctx, &emptypb.Empty{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		got := string(resp.GetConfig())
+		if leaked := strings.Contains(got, "s3cret") || strings.Contains(got, "hunter2"); leaked == c.masked || resp.GetRedacted() != c.masked {
+			t.Errorf("%s: redacted %v, got %q", c.name, resp.GetRedacted(), got)
+		}
+		if resp.GetSha256() != sha256Hex(resp.GetConfig()) {
+			t.Errorf("%s: sha256 isn't the hash of what was returned", c.name)
+		}
+	}
+
+	if err := os.WriteFile(path, []byte("global\n    maxconn 100\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := h.GetConfig(as(pki.RoleReader), &emptypb.Empty{}); err != nil || resp.GetRedacted() {
+		t.Errorf("a configuration without a secret: redacted %v, %v", resp.GetRedacted(), err)
 	}
 }
