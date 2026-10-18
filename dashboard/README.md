@@ -31,7 +31,7 @@ with a sidebar:
   serving), reboot, shut down, reset - with the page following the node
   until it's back.
 
-![A node's overview: gauges of its CPU, memory and STATE, HAProxy connections and uptime, live charts of CPU and memory, HAProxy traffic and the network, and the node's release, kernel and CPU](../docs/assets/screenshots/node-overview-light.webp)
+![A node's overview: its traffic across the top, gauges of its CPU, memory and STATE, HAProxy connections and uptime, live charts of CPU and memory and HAProxy traffic, and the node's release, kernel and CPU](../docs/assets/screenshots/node-overview-light.webp)
 
 A node's page is on the Controller's own address, under
 `/nodes/<id>/`, behind your account - no certificate in the browser. The

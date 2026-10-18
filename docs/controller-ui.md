@@ -567,7 +567,8 @@ both tests.
 ### Live data
 
 - **Polling** follows the global refresh interval (Off, 1 s … 30 s,
-  remembered per browser) through `usePoll`, and pauses while the tab is
+  every second by default, remembered per browser) through `usePoll`,
+  and pauses while the tab is
   hidden. Use a longer fixed `every` only for slow-changing data. A
   failed poll is retried after 5 s at most, so a node coming back from
   a reboot replaces what it left on screen quickly.
@@ -633,7 +634,19 @@ for every chart (`scheduler.js`).
   docs' screenshots take (Playwright's clock drives animation frames
   too).
 - Value axes end on round quarters (`niceMax`), time ticks on round
-  times, scrolling with the data and fading at the ends.
+  times, scrolling with the data and fading at the ends; the left margin
+  is the widest label's.
+- Every series has its area, fading down to the baseline. The legend
+  shows the newest figures, each in room of its own (a changing value
+  never moves the next); hovering shows the sample under the pointer -
+  its time and values - in a tooltip beside it, on the side it fits,
+  riding with the sample as it scrolls.
+- **The time shown**: Overview and Metrics share one choice
+  (`WindowPicker`, `chartWindow.js`: 1 min - the default -, 5 min,
+  15 min, all the history kept), remembered per browser as
+  `janus-chart-window`. At one sample a second over a minute, the
+  charts move about as fast as the eye follows. Overview opens on the
+  node's traffic, the widest chart, its figures in its header.
 - **Events** (Logs › Events): the node's event log, kept on its STATE -
   the last thousand, across reboots and updates; each `janusd.started` is
   drawn as a line of its own (version, slot), the events of another day

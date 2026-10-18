@@ -342,7 +342,13 @@ async function newContext(browser, theme, size) {
   })
   // A node page's sidebar pinned open: the docs show its labels (folded,
   // it's a rail of icons that opens under the pointer).
-  await ctx.addInitScript(() => localStorage.setItem('janus-sidebar', 'pinned'))
+  // Its charts sampled every 5 s, five minutes shown: the fixed series'
+  // pace (the default is 1 s, one minute).
+  await ctx.addInitScript(() => {
+    localStorage.setItem('janus-sidebar', 'pinned')
+    localStorage.setItem('janus-refresh', '5000')
+    localStorage.setItem('janus-chart-window', '300000')
+  })
   await ctx.clock.install({ time: T0 - 1000 })
   await ctx.clock.pauseAt(T0)
   ctx.metricsServed = 0
