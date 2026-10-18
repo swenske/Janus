@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -114,6 +115,10 @@ func TestManagerProcessLifecycle(t *testing.T) {
 		}
 		return len(reasons) == 2
 	})
+	// Either may be published first: the replaced process's reaper closes
+	// done, then waits for the lock Stop holds while it waits on the
+	// current one.
+	slices.Sort(reasons)
 	if strings.Join(reasons, ",") != "replaced by a reload,stopped" {
 		t.Errorf("haproxy.exited reasons = %q", reasons)
 	}
