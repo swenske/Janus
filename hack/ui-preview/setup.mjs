@@ -85,7 +85,10 @@ const logs = {
     { name: 'archive', disabled: true, syslog: { address: `${NET}.20:514`, transport: 'udp' } },
   ],
 }
+const tlsPEM = Buffer.from(fs.readFileSync('/creds/tls.pem')).toString('base64')
 for (const [name, id] of Object.entries(ids)) {
+  // node.cfg's HTTPS certificate first: the configuration reads it.
+  if (!cfgs[name]) await call('POST', `/nodes/${id}/api/haproxy/files`, { name: 'preview.pem', content_base64: tlsPEM })
   // Its last stage: one HAProxy refuses isn't accepted, the answer's 200.
   const applied = await call('POST', `/nodes/${id}/api/haproxy/config`, { config: cfgs[name] || cfg })
   if (!applied.accepted) throw new Error(`${name}: the configuration wasn't applied - ${applied.stage}: ${applied.message}`)

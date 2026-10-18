@@ -4,7 +4,7 @@
 # committed frontend build: rebuild it first, make
 # dashboard-frontend-build), three janus-local-dev containers (a real
 # janusd and HAProxy each) running hack/ui-preview/node.cfg - HTTP and
-# TCP frontends - under traffic that comes and goes
+# TCP frontends, HTTPS with HTTP/2 - under traffic that comes and goes
 # (hack/ui-preview/load.mjs), sending their logs to rsyslog and
 # Elasticsearch (hack/rsyslog, hack/elasticsearch); edge-1 has a second
 # interface, the one its rsyslog target goes by; edge-3 runs many.cfg
@@ -214,6 +214,10 @@ EOF
   docker start "$P-controller" >/dev/null
 
   creds
+  # The nodes' HTTPS certificate (node.cfg's web-tls), key included.
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 -subj "/CN=edge" \
+    -keyout "$DIR/creds/tls.key" -out "$DIR/creds/tls.crt" >/dev/null 2>&1
+  cat "$DIR/creds/tls.crt" "$DIR/creds/tls.key" >"$DIR/creds/tls.pem"
 
   echo "ui-preview: waiting for Elasticsearch"
   local deadline=$((SECONDS + 240)) es_ca="$DIR/es-ca.crt"
