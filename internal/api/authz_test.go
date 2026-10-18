@@ -134,6 +134,26 @@ func TestOperatorRole(t *testing.T) {
 	}
 }
 
+// TestHAProxyDiagnosticsRoles: a reader looks at stick tables, streams
+// and lookups; changing them, or reading the bytes of refused requests
+// (credentials in them, as in logs), takes an operator.
+func TestHAProxyDiagnosticsRoles(t *testing.T) {
+	reader := peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "r", Organization: []string{"os:reader"}}})
+	operator := peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "op", Organization: []string{"os:operator"}}})
+	for method, readerMay := range map[string]bool{
+		"TableList": true, "TableShow": true, "SessionList": true, "MapLookup": true, "ACLLookup": true,
+		"TableClear": false, "SessionShutdown": false, "ErrorsShow": false,
+	} {
+		full := "/janus.v1alpha1.HAProxyService/" + method
+		if got := checkRole(reader, full) == nil; got != readerMay {
+			t.Errorf("reader calling %s: allowed %v", method, got)
+		}
+		if err := checkRole(operator, full); err != nil {
+			t.Errorf("operator calling %s: %v", method, err)
+		}
+	}
+}
+
 func peerWith(leaf *x509.Certificate) context.Context {
 	return peer.NewContext(context.Background(), &peer.Peer{
 		Addr:     &net.TCPAddr{},

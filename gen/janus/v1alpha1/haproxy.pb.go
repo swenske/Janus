@@ -2576,6 +2576,1228 @@ func (x *FileDeleteResponse) GetErrors() []string {
 	return nil
 }
 
+type PatternLookupRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // the map or ACL list, as MapList names it
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PatternLookupRequest) Reset() {
+	*x = PatternLookupRequest{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PatternLookupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PatternLookupRequest) ProtoMessage() {}
+
+func (x *PatternLookupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PatternLookupRequest.ProtoReflect.Descriptor instead.
+func (*PatternLookupRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *PatternLookupRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PatternLookupRequest) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+type PatternLookupResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Found           bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
+	Method          string                 `protobuf:"bytes,2,opt,name=method,proto3" json:"method,omitempty"` // how the configuration matches it: str, beg, dom, reg, ip...
+	CaseInsensitive bool                   `protobuf:"varint,3,opt,name=case_insensitive,json=caseInsensitive,proto3" json:"case_insensitive,omitempty"`
+	Pattern         string                 `protobuf:"bytes,4,opt,name=pattern,proto3" json:"pattern,omitempty"` // the key or pattern value matched
+	Value           string                 `protobuf:"bytes,5,opt,name=value,proto3" json:"value,omitempty"`     // a map's value for it
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PatternLookupResponse) Reset() {
+	*x = PatternLookupResponse{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PatternLookupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PatternLookupResponse) ProtoMessage() {}
+
+func (x *PatternLookupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PatternLookupResponse.ProtoReflect.Descriptor instead.
+func (*PatternLookupResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *PatternLookupResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+func (x *PatternLookupResponse) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *PatternLookupResponse) GetCaseInsensitive() bool {
+	if x != nil {
+		return x.CaseInsensitive
+	}
+	return false
+}
+
+func (x *PatternLookupResponse) GetPattern() string {
+	if x != nil {
+		return x.Pattern
+	}
+	return ""
+}
+
+func (x *PatternLookupResponse) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+type StickTable struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"` // the key's: ip, ipv6, integer, string, binary
+	Size          uint64                 `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	Used          uint64                 `protobuf:"varint,4,opt,name=used,proto3" json:"used,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StickTable) Reset() {
+	*x = StickTable{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StickTable) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StickTable) ProtoMessage() {}
+
+func (x *StickTable) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StickTable.ProtoReflect.Descriptor instead.
+func (*StickTable) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *StickTable) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *StickTable) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *StickTable) GetSize() uint64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *StickTable) GetUsed() uint64 {
+	if x != nil {
+		return x.Used
+	}
+	return 0
+}
+
+type TableListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tables        []*StickTable          `protobuf:"bytes,1,rep,name=tables,proto3" json:"tables,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TableListResponse) Reset() {
+	*x = TableListResponse{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableListResponse) ProtoMessage() {}
+
+func (x *TableListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableListResponse.ProtoReflect.Descriptor instead.
+func (*TableListResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *TableListResponse) GetTables() []*StickTable {
+	if x != nil {
+		return x.Tables
+	}
+	return nil
+}
+
+// TableFilter keeps the entries whose stored data compares to value with
+// op - HAProxy's "data.<type> <op> <value>".
+type TableFilter struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          string                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"` // a data type the table stores: "http_req_rate", "gpc0", "conn_cur"...
+	Op            string                 `protobuf:"bytes,2,opt,name=op,proto3" json:"op,omitempty"`     // eq, ne, lt, le, gt, ge
+	Value         int64                  `protobuf:"varint,3,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TableFilter) Reset() {
+	*x = TableFilter{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableFilter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableFilter) ProtoMessage() {}
+
+func (x *TableFilter) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableFilter.ProtoReflect.Descriptor instead.
+func (*TableFilter) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *TableFilter) GetData() string {
+	if x != nil {
+		return x.Data
+	}
+	return ""
+}
+
+func (x *TableFilter) GetOp() string {
+	if x != nil {
+		return x.Op
+	}
+	return ""
+}
+
+func (x *TableFilter) GetValue() int64 {
+	if x != nil {
+		return x.Value
+	}
+	return 0
+}
+
+type TableShowRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Table         string                 `protobuf:"bytes,1,opt,name=table,proto3" json:"table,omitempty"`
+	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`         // that entry only
+	Filters       []*TableFilter         `protobuf:"bytes,3,rep,name=filters,proto3" json:"filters,omitempty"` // at most 4; not with a key
+	Limit         uint32                 `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`    // entries returned: 500 when 0, 5000 at most
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TableShowRequest) Reset() {
+	*x = TableShowRequest{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableShowRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableShowRequest) ProtoMessage() {}
+
+func (x *TableShowRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableShowRequest.ProtoReflect.Descriptor instead.
+func (*TableShowRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *TableShowRequest) GetTable() string {
+	if x != nil {
+		return x.Table
+	}
+	return ""
+}
+
+func (x *TableShowRequest) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *TableShowRequest) GetFilters() []*TableFilter {
+	if x != nil {
+		return x.Filters
+	}
+	return nil
+}
+
+func (x *TableShowRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type TableEntry struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Key       string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Use       uint64                 `protobuf:"varint,2,opt,name=use,proto3" json:"use,omitempty"`                              // streams tracking it now
+	ExpiresMs int64                  `protobuf:"varint,3,opt,name=expires_ms,json=expiresMs,proto3" json:"expires_ms,omitempty"` // until it expires
+	// data: what the table stores for it, by HAProxy's names - a rate with
+	// its period in milliseconds ("http_req_rate(10000)").
+	Data          []*TableData `protobuf:"bytes,4,rep,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TableEntry) Reset() {
+	*x = TableEntry{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableEntry) ProtoMessage() {}
+
+func (x *TableEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableEntry.ProtoReflect.Descriptor instead.
+func (*TableEntry) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *TableEntry) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *TableEntry) GetUse() uint64 {
+	if x != nil {
+		return x.Use
+	}
+	return 0
+}
+
+func (x *TableEntry) GetExpiresMs() int64 {
+	if x != nil {
+		return x.ExpiresMs
+	}
+	return 0
+}
+
+func (x *TableEntry) GetData() []*TableData {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type TableData struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TableData) Reset() {
+	*x = TableData{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableData) ProtoMessage() {}
+
+func (x *TableData) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableData.ProtoReflect.Descriptor instead.
+func (*TableData) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *TableData) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *TableData) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+type TableShowResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Table         *StickTable            `protobuf:"bytes,1,opt,name=table,proto3" json:"table,omitempty"`
+	Entries       []*TableEntry          `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries,omitempty"`
+	Truncated     bool                   `protobuf:"varint,3,opt,name=truncated,proto3" json:"truncated,omitempty"` // more entries matched than limit
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TableShowResponse) Reset() {
+	*x = TableShowResponse{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableShowResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableShowResponse) ProtoMessage() {}
+
+func (x *TableShowResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableShowResponse.ProtoReflect.Descriptor instead.
+func (*TableShowResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *TableShowResponse) GetTable() *StickTable {
+	if x != nil {
+		return x.Table
+	}
+	return nil
+}
+
+func (x *TableShowResponse) GetEntries() []*TableEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *TableShowResponse) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+type TableClearRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Table         string                 `protobuf:"bytes,1,opt,name=table,proto3" json:"table,omitempty"`
+	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	Filters       []*TableFilter         `protobuf:"bytes,3,rep,name=filters,proto3" json:"filters,omitempty"` // at most 4; not with a key
+	All           bool                   `protobuf:"varint,4,opt,name=all,proto3" json:"all,omitempty"`        // every entry - neither key nor filters
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TableClearRequest) Reset() {
+	*x = TableClearRequest{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableClearRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableClearRequest) ProtoMessage() {}
+
+func (x *TableClearRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableClearRequest.ProtoReflect.Descriptor instead.
+func (*TableClearRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *TableClearRequest) GetTable() string {
+	if x != nil {
+		return x.Table
+	}
+	return ""
+}
+
+func (x *TableClearRequest) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *TableClearRequest) GetFilters() []*TableFilter {
+	if x != nil {
+		return x.Filters
+	}
+	return nil
+}
+
+func (x *TableClearRequest) GetAll() bool {
+	if x != nil {
+		return x.All
+	}
+	return false
+}
+
+type SessionListRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Frontend      string                 `protobuf:"bytes,1,opt,name=frontend,proto3" json:"frontend,omitempty"`
+	Backend       string                 `protobuf:"bytes,2,opt,name=backend,proto3" json:"backend,omitempty"`
+	Source        string                 `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"` // a client's address, with or without its port
+	Limit         uint32                 `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`  // streams returned: 500 when 0, 5000 at most
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionListRequest) Reset() {
+	*x = SessionListRequest{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionListRequest) ProtoMessage() {}
+
+func (x *SessionListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionListRequest.ProtoReflect.Descriptor instead.
+func (*SessionListRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *SessionListRequest) GetFrontend() string {
+	if x != nil {
+		return x.Frontend
+	}
+	return ""
+}
+
+func (x *SessionListRequest) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
+func (x *SessionListRequest) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *SessionListRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type Session struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`         // what SessionShutdown takes
+	Proto         string                 `protobuf:"bytes,2,opt,name=proto,proto3" json:"proto,omitempty"`   // tcpv4, tcpv6...
+	Source        string                 `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"` // the client's address and port
+	Frontend      string                 `protobuf:"bytes,4,opt,name=frontend,proto3" json:"frontend,omitempty"`
+	Backend       string                 `protobuf:"bytes,5,opt,name=backend,proto3" json:"backend,omitempty"` // empty until one is chosen
+	Server        string                 `protobuf:"bytes,6,opt,name=server,proto3" json:"server,omitempty"`
+	Age           string                 `protobuf:"bytes,7,opt,name=age,proto3" json:"age,omitempty"` // as HAProxy writes it: "1m30s"
+	AgeSeconds    uint64                 `protobuf:"varint,8,opt,name=age_seconds,json=ageSeconds,proto3" json:"age_seconds,omitempty"`
+	Calls         uint64                 `protobuf:"varint,9,opt,name=calls,proto3" json:"calls,omitempty"`
+	Expires       string                 `protobuf:"bytes,10,opt,name=expires,proto3" json:"expires,omitempty"` // the next timeout, as HAProxy writes it
+	Raw           string                 `protobuf:"bytes,11,opt,name=raw,proto3" json:"raw,omitempty"`         // HAProxy's whole line: its internal state
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Session) Reset() {
+	*x = Session{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Session) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Session) ProtoMessage() {}
+
+func (x *Session) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Session.ProtoReflect.Descriptor instead.
+func (*Session) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *Session) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Session) GetProto() string {
+	if x != nil {
+		return x.Proto
+	}
+	return ""
+}
+
+func (x *Session) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *Session) GetFrontend() string {
+	if x != nil {
+		return x.Frontend
+	}
+	return ""
+}
+
+func (x *Session) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
+func (x *Session) GetServer() string {
+	if x != nil {
+		return x.Server
+	}
+	return ""
+}
+
+func (x *Session) GetAge() string {
+	if x != nil {
+		return x.Age
+	}
+	return ""
+}
+
+func (x *Session) GetAgeSeconds() uint64 {
+	if x != nil {
+		return x.AgeSeconds
+	}
+	return 0
+}
+
+func (x *Session) GetCalls() uint64 {
+	if x != nil {
+		return x.Calls
+	}
+	return 0
+}
+
+func (x *Session) GetExpires() string {
+	if x != nil {
+		return x.Expires
+	}
+	return ""
+}
+
+func (x *Session) GetRaw() string {
+	if x != nil {
+		return x.Raw
+	}
+	return ""
+}
+
+type SessionListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sessions      []*Session             `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
+	Truncated     bool                   `protobuf:"varint,2,opt,name=truncated,proto3" json:"truncated,omitempty"` // more streams matched than limit
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionListResponse) Reset() {
+	*x = SessionListResponse{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionListResponse) ProtoMessage() {}
+
+func (x *SessionListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionListResponse.ProtoReflect.Descriptor instead.
+func (*SessionListResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *SessionListResponse) GetSessions() []*Session {
+	if x != nil {
+		return x.Sessions
+	}
+	return nil
+}
+
+func (x *SessionListResponse) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+type SessionShutdownRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionShutdownRequest) Reset() {
+	*x = SessionShutdownRequest{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionShutdownRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionShutdownRequest) ProtoMessage() {}
+
+func (x *SessionShutdownRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionShutdownRequest.ProtoReflect.Descriptor instead.
+func (*SessionShutdownRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *SessionShutdownRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type ErrorsShowRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Proxy         string                 `protobuf:"bytes,1,opt,name=proxy,proto3" json:"proxy,omitempty"`         // a frontend or backend; every one when empty
+	Direction     string                 `protobuf:"bytes,2,opt,name=direction,proto3" json:"direction,omitempty"` // "request" or "response"; both when empty
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ErrorsShowRequest) Reset() {
+	*x = ErrorsShowRequest{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ErrorsShowRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ErrorsShowRequest) ProtoMessage() {}
+
+func (x *ErrorsShowRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ErrorsShowRequest.ProtoReflect.Descriptor instead.
+func (*ErrorsShowRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *ErrorsShowRequest) GetProxy() string {
+	if x != nil {
+		return x.Proxy
+	}
+	return ""
+}
+
+func (x *ErrorsShowRequest) GetDirection() string {
+	if x != nil {
+		return x.Direction
+	}
+	return ""
+}
+
+type CapturedError struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	When          string                 `protobuf:"bytes,1,opt,name=when,proto3" json:"when,omitempty"` // as HAProxy writes it: "18/Oct/2026:07:38:35.666"
+	WhenUnixMs    int64                  `protobuf:"varint,2,opt,name=when_unix_ms,json=whenUnixMs,proto3" json:"when_unix_ms,omitempty"`
+	ProxyKind     string                 `protobuf:"bytes,3,opt,name=proxy_kind,json=proxyKind,proto3" json:"proxy_kind,omitempty"` // frontend, backend
+	Proxy         string                 `protobuf:"bytes,4,opt,name=proxy,proto3" json:"proxy,omitempty"`
+	Direction     string                 `protobuf:"bytes,5,opt,name=direction,proto3" json:"direction,omitempty"` // request, response
+	Frontend      string                 `protobuf:"bytes,6,opt,name=frontend,proto3" json:"frontend,omitempty"`
+	Backend       string                 `protobuf:"bytes,7,opt,name=backend,proto3" json:"backend,omitempty"`
+	Server        string                 `protobuf:"bytes,8,opt,name=server,proto3" json:"server,omitempty"`
+	Source        string                 `protobuf:"bytes,9,opt,name=source,proto3" json:"source,omitempty"`       // the client's address
+	Event         uint64                 `protobuf:"varint,10,opt,name=event,proto3" json:"event,omitempty"`       // HAProxy's count of captured errors when it happened
+	Position      int32                  `protobuf:"varint,11,opt,name=position,proto3" json:"position,omitempty"` // of the refused byte in the buffer
+	Details       []string               `protobuf:"bytes,12,rep,name=details,proto3" json:"details,omitempty"`    // HAProxy's lines on its buffer and parser state
+	Lines         []*ErrorLine           `protobuf:"bytes,13,rep,name=lines,proto3" json:"lines,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CapturedError) Reset() {
+	*x = CapturedError{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapturedError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapturedError) ProtoMessage() {}
+
+func (x *CapturedError) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapturedError.ProtoReflect.Descriptor instead.
+func (*CapturedError) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *CapturedError) GetWhen() string {
+	if x != nil {
+		return x.When
+	}
+	return ""
+}
+
+func (x *CapturedError) GetWhenUnixMs() int64 {
+	if x != nil {
+		return x.WhenUnixMs
+	}
+	return 0
+}
+
+func (x *CapturedError) GetProxyKind() string {
+	if x != nil {
+		return x.ProxyKind
+	}
+	return ""
+}
+
+func (x *CapturedError) GetProxy() string {
+	if x != nil {
+		return x.Proxy
+	}
+	return ""
+}
+
+func (x *CapturedError) GetDirection() string {
+	if x != nil {
+		return x.Direction
+	}
+	return ""
+}
+
+func (x *CapturedError) GetFrontend() string {
+	if x != nil {
+		return x.Frontend
+	}
+	return ""
+}
+
+func (x *CapturedError) GetBackend() string {
+	if x != nil {
+		return x.Backend
+	}
+	return ""
+}
+
+func (x *CapturedError) GetServer() string {
+	if x != nil {
+		return x.Server
+	}
+	return ""
+}
+
+func (x *CapturedError) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *CapturedError) GetEvent() uint64 {
+	if x != nil {
+		return x.Event
+	}
+	return 0
+}
+
+func (x *CapturedError) GetPosition() int32 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+func (x *CapturedError) GetDetails() []string {
+	if x != nil {
+		return x.Details
+	}
+	return nil
+}
+
+func (x *CapturedError) GetLines() []*ErrorLine {
+	if x != nil {
+		return x.Lines
+	}
+	return nil
+}
+
+// ErrorLine is one line of the buffer HAProxy captured, its bytes
+// escaped as HAProxy writes them ("\r\n", "\xHH").
+type ErrorLine struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Offset        int32                  `protobuf:"varint,1,opt,name=offset,proto3" json:"offset,omitempty"`
+	Continued     bool                   `protobuf:"varint,2,opt,name=continued,proto3" json:"continued,omitempty"` // goes on the line above, cut for length
+	Text          string                 `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	ErrorAt       int32                  `protobuf:"varint,4,opt,name=error_at,json=errorAt,proto3" json:"error_at,omitempty"` // where in text the refused byte is; -1 when elsewhere
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ErrorLine) Reset() {
+	*x = ErrorLine{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ErrorLine) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ErrorLine) ProtoMessage() {}
+
+func (x *ErrorLine) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ErrorLine.ProtoReflect.Descriptor instead.
+func (*ErrorLine) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *ErrorLine) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *ErrorLine) GetContinued() bool {
+	if x != nil {
+		return x.Continued
+	}
+	return false
+}
+
+func (x *ErrorLine) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *ErrorLine) GetErrorAt() int32 {
+	if x != nil {
+		return x.ErrorAt
+	}
+	return 0
+}
+
+type ErrorsShowResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Total         uint64                 `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"` // errors captured since HAProxy started
+	Errors        []*CapturedError       `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ErrorsShowResponse) Reset() {
+	*x = ErrorsShowResponse{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ErrorsShowResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ErrorsShowResponse) ProtoMessage() {}
+
+func (x *ErrorsShowResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ErrorsShowResponse.ProtoReflect.Descriptor instead.
+func (*ErrorsShowResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *ErrorsShowResponse) GetTotal() uint64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *ErrorsShowResponse) GetErrors() []*CapturedError {
+	if x != nil {
+		return x.Errors
+	}
+	return nil
+}
+
 var File_janus_v1alpha1_haproxy_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
@@ -2771,7 +3993,104 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\x06reload\x18\x02 \x01(\bR\x06reload\"H\n" +
 	"\x12FileDeleteResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x16\n" +
-	"\x06errors\x18\x02 \x03(\tR\x06errors2\x9f\x0e\n" +
+	"\x06errors\x18\x02 \x03(\tR\x06errors\"@\n" +
+	"\x14PatternLookupRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\xa0\x01\n" +
+	"\x15PatternLookupResponse\x12\x14\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\x12\x16\n" +
+	"\x06method\x18\x02 \x01(\tR\x06method\x12)\n" +
+	"\x10case_insensitive\x18\x03 \x01(\bR\x0fcaseInsensitive\x12\x18\n" +
+	"\apattern\x18\x04 \x01(\tR\apattern\x12\x14\n" +
+	"\x05value\x18\x05 \x01(\tR\x05value\"\\\n" +
+	"\n" +
+	"StickTable\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
+	"\x04size\x18\x03 \x01(\x04R\x04size\x12\x12\n" +
+	"\x04used\x18\x04 \x01(\x04R\x04used\"G\n" +
+	"\x11TableListResponse\x122\n" +
+	"\x06tables\x18\x01 \x03(\v2\x1a.janus.v1alpha1.StickTableR\x06tables\"G\n" +
+	"\vTableFilter\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\tR\x04data\x12\x0e\n" +
+	"\x02op\x18\x02 \x01(\tR\x02op\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\x03R\x05value\"\x87\x01\n" +
+	"\x10TableShowRequest\x12\x14\n" +
+	"\x05table\x18\x01 \x01(\tR\x05table\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x125\n" +
+	"\afilters\x18\x03 \x03(\v2\x1b.janus.v1alpha1.TableFilterR\afilters\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\rR\x05limit\"~\n" +
+	"\n" +
+	"TableEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x10\n" +
+	"\x03use\x18\x02 \x01(\x04R\x03use\x12\x1d\n" +
+	"\n" +
+	"expires_ms\x18\x03 \x01(\x03R\texpiresMs\x12-\n" +
+	"\x04data\x18\x04 \x03(\v2\x19.janus.v1alpha1.TableDataR\x04data\"5\n" +
+	"\tTableData\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\x99\x01\n" +
+	"\x11TableShowResponse\x120\n" +
+	"\x05table\x18\x01 \x01(\v2\x1a.janus.v1alpha1.StickTableR\x05table\x124\n" +
+	"\aentries\x18\x02 \x03(\v2\x1a.janus.v1alpha1.TableEntryR\aentries\x12\x1c\n" +
+	"\ttruncated\x18\x03 \x01(\bR\ttruncated\"\x84\x01\n" +
+	"\x11TableClearRequest\x12\x14\n" +
+	"\x05table\x18\x01 \x01(\tR\x05table\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x125\n" +
+	"\afilters\x18\x03 \x03(\v2\x1b.janus.v1alpha1.TableFilterR\afilters\x12\x10\n" +
+	"\x03all\x18\x04 \x01(\bR\x03all\"x\n" +
+	"\x12SessionListRequest\x12\x1a\n" +
+	"\bfrontend\x18\x01 \x01(\tR\bfrontend\x12\x18\n" +
+	"\abackend\x18\x02 \x01(\tR\abackend\x12\x16\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\rR\x05limit\"\x8a\x02\n" +
+	"\aSession\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05proto\x18\x02 \x01(\tR\x05proto\x12\x16\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\x12\x1a\n" +
+	"\bfrontend\x18\x04 \x01(\tR\bfrontend\x12\x18\n" +
+	"\abackend\x18\x05 \x01(\tR\abackend\x12\x16\n" +
+	"\x06server\x18\x06 \x01(\tR\x06server\x12\x10\n" +
+	"\x03age\x18\a \x01(\tR\x03age\x12\x1f\n" +
+	"\vage_seconds\x18\b \x01(\x04R\n" +
+	"ageSeconds\x12\x14\n" +
+	"\x05calls\x18\t \x01(\x04R\x05calls\x12\x18\n" +
+	"\aexpires\x18\n" +
+	" \x01(\tR\aexpires\x12\x10\n" +
+	"\x03raw\x18\v \x01(\tR\x03raw\"h\n" +
+	"\x13SessionListResponse\x123\n" +
+	"\bsessions\x18\x01 \x03(\v2\x17.janus.v1alpha1.SessionR\bsessions\x12\x1c\n" +
+	"\ttruncated\x18\x02 \x01(\bR\ttruncated\"(\n" +
+	"\x16SessionShutdownRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"G\n" +
+	"\x11ErrorsShowRequest\x12\x14\n" +
+	"\x05proxy\x18\x01 \x01(\tR\x05proxy\x12\x1c\n" +
+	"\tdirection\x18\x02 \x01(\tR\tdirection\"\xfb\x02\n" +
+	"\rCapturedError\x12\x12\n" +
+	"\x04when\x18\x01 \x01(\tR\x04when\x12 \n" +
+	"\fwhen_unix_ms\x18\x02 \x01(\x03R\n" +
+	"whenUnixMs\x12\x1d\n" +
+	"\n" +
+	"proxy_kind\x18\x03 \x01(\tR\tproxyKind\x12\x14\n" +
+	"\x05proxy\x18\x04 \x01(\tR\x05proxy\x12\x1c\n" +
+	"\tdirection\x18\x05 \x01(\tR\tdirection\x12\x1a\n" +
+	"\bfrontend\x18\x06 \x01(\tR\bfrontend\x12\x18\n" +
+	"\abackend\x18\a \x01(\tR\abackend\x12\x16\n" +
+	"\x06server\x18\b \x01(\tR\x06server\x12\x16\n" +
+	"\x06source\x18\t \x01(\tR\x06source\x12\x14\n" +
+	"\x05event\x18\n" +
+	" \x01(\x04R\x05event\x12\x1a\n" +
+	"\bposition\x18\v \x01(\x05R\bposition\x12\x18\n" +
+	"\adetails\x18\f \x03(\tR\adetails\x12/\n" +
+	"\x05lines\x18\r \x03(\v2\x19.janus.v1alpha1.ErrorLineR\x05lines\"p\n" +
+	"\tErrorLine\x12\x16\n" +
+	"\x06offset\x18\x01 \x01(\x05R\x06offset\x12\x1c\n" +
+	"\tcontinued\x18\x02 \x01(\bR\tcontinued\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\x12\x19\n" +
+	"\berror_at\x18\x04 \x01(\x05R\aerrorAt\"a\n" +
+	"\x12ErrorsShowResponse\x12\x14\n" +
+	"\x05total\x18\x01 \x01(\x04R\x05total\x125\n" +
+	"\x06errors\x18\x02 \x03(\v2\x1d.janus.v1alpha1.CapturedErrorR\x06errors2\xb6\x13\n" +
 	"\x0eHAProxyService\x12F\n" +
 	"\tGetConfig\x12\x16.google.protobuf.Empty\x1a!.janus.v1alpha1.GetConfigResponse\x12X\n" +
 	"\vApplyConfig\x12\".janus.v1alpha1.ApplyConfigRequest\x1a#.janus.v1alpha1.ApplyConfigResponse0\x01\x12_\n" +
@@ -2783,8 +4102,10 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\x0eServerSetState\x12%.janus.v1alpha1.ServerSetStateRequest\x1a\x16.google.protobuf.Empty\x12B\n" +
 	"\aMapList\x12\x16.google.protobuf.Empty\x1a\x1f.janus.v1alpha1.MapListResponse\x12G\n" +
 	"\x06MapGet\x12\x1d.janus.v1alpha1.MapGetRequest\x1a\x1e.janus.v1alpha1.MapGetResponse\x12E\n" +
-	"\tMapUpdate\x12 .janus.v1alpha1.MapUpdateRequest\x1a\x16.google.protobuf.Empty\x12E\n" +
-	"\tACLUpdate\x12 .janus.v1alpha1.ACLUpdateRequest\x1a\x16.google.protobuf.Empty\x12R\n" +
+	"\tMapUpdate\x12 .janus.v1alpha1.MapUpdateRequest\x1a\x16.google.protobuf.Empty\x12X\n" +
+	"\tMapLookup\x12$.janus.v1alpha1.PatternLookupRequest\x1a%.janus.v1alpha1.PatternLookupResponse\x12E\n" +
+	"\tACLUpdate\x12 .janus.v1alpha1.ACLUpdateRequest\x1a\x16.google.protobuf.Empty\x12X\n" +
+	"\tACLLookup\x12$.janus.v1alpha1.PatternLookupRequest\x1a%.janus.v1alpha1.PatternLookupResponse\x12R\n" +
 	"\x0fCertificateList\x12\x16.google.protobuf.Empty\x1a'.janus.v1alpha1.CertificateListResponse\x12U\n" +
 	"\x11CertificateUpload\x12(.janus.v1alpha1.CertificateUploadRequest\x1a\x16.google.protobuf.Empty\x12U\n" +
 	"\x11CertificateDelete\x12(.janus.v1alpha1.CertificateDeleteRequest\x1a\x16.google.protobuf.Empty\x12D\n" +
@@ -2797,7 +4118,15 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"ACMEStatus\x12\x16.google.protobuf.Empty\x1a\".janus.v1alpha1.ACMEStatusResponse\x12N\n" +
 	"\rACMEGetConfig\x12\x16.google.protobuf.Empty\x1a%.janus.v1alpha1.ACMEGetConfigResponse\x12b\n" +
 	"\x0fACMEApplyConfig\x12&.janus.v1alpha1.ACMEApplyConfigRequest\x1a'.janus.v1alpha1.ACMEApplyConfigResponse\x12P\n" +
-	"\tACMERenew\x12 .janus.v1alpha1.ACMERenewRequest\x1a!.janus.v1alpha1.ACMERenewResponseB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
+	"\tACMERenew\x12 .janus.v1alpha1.ACMERenewRequest\x1a!.janus.v1alpha1.ACMERenewResponse\x12F\n" +
+	"\tTableList\x12\x16.google.protobuf.Empty\x1a!.janus.v1alpha1.TableListResponse\x12P\n" +
+	"\tTableShow\x12 .janus.v1alpha1.TableShowRequest\x1a!.janus.v1alpha1.TableShowResponse\x12G\n" +
+	"\n" +
+	"TableClear\x12!.janus.v1alpha1.TableClearRequest\x1a\x16.google.protobuf.Empty\x12V\n" +
+	"\vSessionList\x12\".janus.v1alpha1.SessionListRequest\x1a#.janus.v1alpha1.SessionListResponse\x12Q\n" +
+	"\x0fSessionShutdown\x12&.janus.v1alpha1.SessionShutdownRequest\x1a\x16.google.protobuf.Empty\x12S\n" +
+	"\n" +
+	"ErrorsShow\x12!.janus.v1alpha1.ErrorsShowRequest\x1a\".janus.v1alpha1.ErrorsShowResponseB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
 
 var (
 	file_janus_v1alpha1_haproxy_proto_rawDescOnce sync.Once
@@ -2812,7 +4141,7 @@ func file_janus_v1alpha1_haproxy_proto_rawDescGZIP() []byte {
 }
 
 var file_janus_v1alpha1_haproxy_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_janus_v1alpha1_haproxy_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
+var file_janus_v1alpha1_haproxy_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
 var file_janus_v1alpha1_haproxy_proto_goTypes = []any{
 	(ServerSetStateRequest_State)(0), // 0: janus.v1alpha1.ServerSetStateRequest.State
 	(*GetConfigResponse)(nil),        // 1: janus.v1alpha1.GetConfigResponse
@@ -2855,77 +4184,120 @@ var file_janus_v1alpha1_haproxy_proto_goTypes = []any{
 	(*FilePutResponse)(nil),          // 38: janus.v1alpha1.FilePutResponse
 	(*FileDeleteRequest)(nil),        // 39: janus.v1alpha1.FileDeleteRequest
 	(*FileDeleteResponse)(nil),       // 40: janus.v1alpha1.FileDeleteResponse
-	nil,                              // 41: janus.v1alpha1.MapGetResponse.EntriesEntry
-	nil,                              // 42: janus.v1alpha1.ACMEDNSProvider.SettingsEntry
-	(ModuleState)(0),                 // 43: janus.v1alpha1.ModuleState
-	(*emptypb.Empty)(nil),            // 44: google.protobuf.Empty
+	(*PatternLookupRequest)(nil),     // 41: janus.v1alpha1.PatternLookupRequest
+	(*PatternLookupResponse)(nil),    // 42: janus.v1alpha1.PatternLookupResponse
+	(*StickTable)(nil),               // 43: janus.v1alpha1.StickTable
+	(*TableListResponse)(nil),        // 44: janus.v1alpha1.TableListResponse
+	(*TableFilter)(nil),              // 45: janus.v1alpha1.TableFilter
+	(*TableShowRequest)(nil),         // 46: janus.v1alpha1.TableShowRequest
+	(*TableEntry)(nil),               // 47: janus.v1alpha1.TableEntry
+	(*TableData)(nil),                // 48: janus.v1alpha1.TableData
+	(*TableShowResponse)(nil),        // 49: janus.v1alpha1.TableShowResponse
+	(*TableClearRequest)(nil),        // 50: janus.v1alpha1.TableClearRequest
+	(*SessionListRequest)(nil),       // 51: janus.v1alpha1.SessionListRequest
+	(*Session)(nil),                  // 52: janus.v1alpha1.Session
+	(*SessionListResponse)(nil),      // 53: janus.v1alpha1.SessionListResponse
+	(*SessionShutdownRequest)(nil),   // 54: janus.v1alpha1.SessionShutdownRequest
+	(*ErrorsShowRequest)(nil),        // 55: janus.v1alpha1.ErrorsShowRequest
+	(*CapturedError)(nil),            // 56: janus.v1alpha1.CapturedError
+	(*ErrorLine)(nil),                // 57: janus.v1alpha1.ErrorLine
+	(*ErrorsShowResponse)(nil),       // 58: janus.v1alpha1.ErrorsShowResponse
+	nil,                              // 59: janus.v1alpha1.MapGetResponse.EntriesEntry
+	nil,                              // 60: janus.v1alpha1.ACMEDNSProvider.SettingsEntry
+	(ModuleState)(0),                 // 61: janus.v1alpha1.ModuleState
+	(*emptypb.Empty)(nil),            // 62: google.protobuf.Empty
 }
 var file_janus_v1alpha1_haproxy_proto_depIdxs = []int32{
 	10, // 0: janus.v1alpha1.Backend.servers:type_name -> janus.v1alpha1.BackendServer
 	9,  // 1: janus.v1alpha1.BackendListResponse.backends:type_name -> janus.v1alpha1.Backend
 	0,  // 2: janus.v1alpha1.ServerSetStateRequest.state:type_name -> janus.v1alpha1.ServerSetStateRequest.State
-	41, // 3: janus.v1alpha1.MapGetResponse.entries:type_name -> janus.v1alpha1.MapGetResponse.EntriesEntry
+	59, // 3: janus.v1alpha1.MapGetResponse.entries:type_name -> janus.v1alpha1.MapGetResponse.EntriesEntry
 	19, // 4: janus.v1alpha1.CertificateListResponse.certificates:type_name -> janus.v1alpha1.CertificateInfo
 	23, // 5: janus.v1alpha1.ACMEConfig.account:type_name -> janus.v1alpha1.ACMEAccount
 	24, // 6: janus.v1alpha1.ACMEConfig.certificates:type_name -> janus.v1alpha1.ACMECertificate
 	25, // 7: janus.v1alpha1.ACMEConfig.dns_providers:type_name -> janus.v1alpha1.ACMEDNSProvider
-	42, // 8: janus.v1alpha1.ACMEDNSProvider.settings:type_name -> janus.v1alpha1.ACMEDNSProvider.SettingsEntry
+	60, // 8: janus.v1alpha1.ACMEDNSProvider.settings:type_name -> janus.v1alpha1.ACMEDNSProvider.SettingsEntry
 	22, // 9: janus.v1alpha1.ACMEGetConfigResponse.config:type_name -> janus.v1alpha1.ACMEConfig
 	22, // 10: janus.v1alpha1.ACMEApplyConfigRequest.config:type_name -> janus.v1alpha1.ACMEConfig
-	43, // 11: janus.v1alpha1.ACMEStatusResponse.state:type_name -> janus.v1alpha1.ModuleState
+	61, // 11: janus.v1alpha1.ACMEStatusResponse.state:type_name -> janus.v1alpha1.ModuleState
 	32, // 12: janus.v1alpha1.ACMEStatusResponse.certificates:type_name -> janus.v1alpha1.ACMECertificateStatus
 	33, // 13: janus.v1alpha1.FileListResponse.files:type_name -> janus.v1alpha1.HAProxyFile
-	44, // 14: janus.v1alpha1.HAProxyService.GetConfig:input_type -> google.protobuf.Empty
-	2,  // 15: janus.v1alpha1.HAProxyService.ApplyConfig:input_type -> janus.v1alpha1.ApplyConfigRequest
-	4,  // 16: janus.v1alpha1.HAProxyService.ValidateConfig:input_type -> janus.v1alpha1.ValidateConfigRequest
-	44, // 17: janus.v1alpha1.HAProxyService.Reload:input_type -> google.protobuf.Empty
-	44, // 18: janus.v1alpha1.HAProxyService.Stats:input_type -> google.protobuf.Empty
-	44, // 19: janus.v1alpha1.HAProxyService.ShowInfo:input_type -> google.protobuf.Empty
-	44, // 20: janus.v1alpha1.HAProxyService.BackendList:input_type -> google.protobuf.Empty
-	12, // 21: janus.v1alpha1.HAProxyService.ServerSetState:input_type -> janus.v1alpha1.ServerSetStateRequest
-	44, // 22: janus.v1alpha1.HAProxyService.MapList:input_type -> google.protobuf.Empty
-	14, // 23: janus.v1alpha1.HAProxyService.MapGet:input_type -> janus.v1alpha1.MapGetRequest
-	16, // 24: janus.v1alpha1.HAProxyService.MapUpdate:input_type -> janus.v1alpha1.MapUpdateRequest
-	17, // 25: janus.v1alpha1.HAProxyService.ACLUpdate:input_type -> janus.v1alpha1.ACLUpdateRequest
-	44, // 26: janus.v1alpha1.HAProxyService.CertificateList:input_type -> google.protobuf.Empty
-	20, // 27: janus.v1alpha1.HAProxyService.CertificateUpload:input_type -> janus.v1alpha1.CertificateUploadRequest
-	21, // 28: janus.v1alpha1.HAProxyService.CertificateDelete:input_type -> janus.v1alpha1.CertificateDeleteRequest
-	44, // 29: janus.v1alpha1.HAProxyService.FileList:input_type -> google.protobuf.Empty
-	35, // 30: janus.v1alpha1.HAProxyService.FileGet:input_type -> janus.v1alpha1.FileGetRequest
-	37, // 31: janus.v1alpha1.HAProxyService.FilePut:input_type -> janus.v1alpha1.FilePutRequest
-	39, // 32: janus.v1alpha1.HAProxyService.FileDelete:input_type -> janus.v1alpha1.FileDeleteRequest
-	44, // 33: janus.v1alpha1.HAProxyService.ACMEStatus:input_type -> google.protobuf.Empty
-	44, // 34: janus.v1alpha1.HAProxyService.ACMEGetConfig:input_type -> google.protobuf.Empty
-	27, // 35: janus.v1alpha1.HAProxyService.ACMEApplyConfig:input_type -> janus.v1alpha1.ACMEApplyConfigRequest
-	29, // 36: janus.v1alpha1.HAProxyService.ACMERenew:input_type -> janus.v1alpha1.ACMERenewRequest
-	1,  // 37: janus.v1alpha1.HAProxyService.GetConfig:output_type -> janus.v1alpha1.GetConfigResponse
-	3,  // 38: janus.v1alpha1.HAProxyService.ApplyConfig:output_type -> janus.v1alpha1.ApplyConfigResponse
-	5,  // 39: janus.v1alpha1.HAProxyService.ValidateConfig:output_type -> janus.v1alpha1.ValidateConfigResponse
-	6,  // 40: janus.v1alpha1.HAProxyService.Reload:output_type -> janus.v1alpha1.ReloadResponse
-	7,  // 41: janus.v1alpha1.HAProxyService.Stats:output_type -> janus.v1alpha1.HAProxyStatsResponse
-	8,  // 42: janus.v1alpha1.HAProxyService.ShowInfo:output_type -> janus.v1alpha1.ShowInfoResponse
-	11, // 43: janus.v1alpha1.HAProxyService.BackendList:output_type -> janus.v1alpha1.BackendListResponse
-	44, // 44: janus.v1alpha1.HAProxyService.ServerSetState:output_type -> google.protobuf.Empty
-	13, // 45: janus.v1alpha1.HAProxyService.MapList:output_type -> janus.v1alpha1.MapListResponse
-	15, // 46: janus.v1alpha1.HAProxyService.MapGet:output_type -> janus.v1alpha1.MapGetResponse
-	44, // 47: janus.v1alpha1.HAProxyService.MapUpdate:output_type -> google.protobuf.Empty
-	44, // 48: janus.v1alpha1.HAProxyService.ACLUpdate:output_type -> google.protobuf.Empty
-	18, // 49: janus.v1alpha1.HAProxyService.CertificateList:output_type -> janus.v1alpha1.CertificateListResponse
-	44, // 50: janus.v1alpha1.HAProxyService.CertificateUpload:output_type -> google.protobuf.Empty
-	44, // 51: janus.v1alpha1.HAProxyService.CertificateDelete:output_type -> google.protobuf.Empty
-	34, // 52: janus.v1alpha1.HAProxyService.FileList:output_type -> janus.v1alpha1.FileListResponse
-	36, // 53: janus.v1alpha1.HAProxyService.FileGet:output_type -> janus.v1alpha1.FileGetResponse
-	38, // 54: janus.v1alpha1.HAProxyService.FilePut:output_type -> janus.v1alpha1.FilePutResponse
-	40, // 55: janus.v1alpha1.HAProxyService.FileDelete:output_type -> janus.v1alpha1.FileDeleteResponse
-	31, // 56: janus.v1alpha1.HAProxyService.ACMEStatus:output_type -> janus.v1alpha1.ACMEStatusResponse
-	26, // 57: janus.v1alpha1.HAProxyService.ACMEGetConfig:output_type -> janus.v1alpha1.ACMEGetConfigResponse
-	28, // 58: janus.v1alpha1.HAProxyService.ACMEApplyConfig:output_type -> janus.v1alpha1.ACMEApplyConfigResponse
-	30, // 59: janus.v1alpha1.HAProxyService.ACMERenew:output_type -> janus.v1alpha1.ACMERenewResponse
-	37, // [37:60] is the sub-list for method output_type
-	14, // [14:37] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	43, // 14: janus.v1alpha1.TableListResponse.tables:type_name -> janus.v1alpha1.StickTable
+	45, // 15: janus.v1alpha1.TableShowRequest.filters:type_name -> janus.v1alpha1.TableFilter
+	48, // 16: janus.v1alpha1.TableEntry.data:type_name -> janus.v1alpha1.TableData
+	43, // 17: janus.v1alpha1.TableShowResponse.table:type_name -> janus.v1alpha1.StickTable
+	47, // 18: janus.v1alpha1.TableShowResponse.entries:type_name -> janus.v1alpha1.TableEntry
+	45, // 19: janus.v1alpha1.TableClearRequest.filters:type_name -> janus.v1alpha1.TableFilter
+	52, // 20: janus.v1alpha1.SessionListResponse.sessions:type_name -> janus.v1alpha1.Session
+	57, // 21: janus.v1alpha1.CapturedError.lines:type_name -> janus.v1alpha1.ErrorLine
+	56, // 22: janus.v1alpha1.ErrorsShowResponse.errors:type_name -> janus.v1alpha1.CapturedError
+	62, // 23: janus.v1alpha1.HAProxyService.GetConfig:input_type -> google.protobuf.Empty
+	2,  // 24: janus.v1alpha1.HAProxyService.ApplyConfig:input_type -> janus.v1alpha1.ApplyConfigRequest
+	4,  // 25: janus.v1alpha1.HAProxyService.ValidateConfig:input_type -> janus.v1alpha1.ValidateConfigRequest
+	62, // 26: janus.v1alpha1.HAProxyService.Reload:input_type -> google.protobuf.Empty
+	62, // 27: janus.v1alpha1.HAProxyService.Stats:input_type -> google.protobuf.Empty
+	62, // 28: janus.v1alpha1.HAProxyService.ShowInfo:input_type -> google.protobuf.Empty
+	62, // 29: janus.v1alpha1.HAProxyService.BackendList:input_type -> google.protobuf.Empty
+	12, // 30: janus.v1alpha1.HAProxyService.ServerSetState:input_type -> janus.v1alpha1.ServerSetStateRequest
+	62, // 31: janus.v1alpha1.HAProxyService.MapList:input_type -> google.protobuf.Empty
+	14, // 32: janus.v1alpha1.HAProxyService.MapGet:input_type -> janus.v1alpha1.MapGetRequest
+	16, // 33: janus.v1alpha1.HAProxyService.MapUpdate:input_type -> janus.v1alpha1.MapUpdateRequest
+	41, // 34: janus.v1alpha1.HAProxyService.MapLookup:input_type -> janus.v1alpha1.PatternLookupRequest
+	17, // 35: janus.v1alpha1.HAProxyService.ACLUpdate:input_type -> janus.v1alpha1.ACLUpdateRequest
+	41, // 36: janus.v1alpha1.HAProxyService.ACLLookup:input_type -> janus.v1alpha1.PatternLookupRequest
+	62, // 37: janus.v1alpha1.HAProxyService.CertificateList:input_type -> google.protobuf.Empty
+	20, // 38: janus.v1alpha1.HAProxyService.CertificateUpload:input_type -> janus.v1alpha1.CertificateUploadRequest
+	21, // 39: janus.v1alpha1.HAProxyService.CertificateDelete:input_type -> janus.v1alpha1.CertificateDeleteRequest
+	62, // 40: janus.v1alpha1.HAProxyService.FileList:input_type -> google.protobuf.Empty
+	35, // 41: janus.v1alpha1.HAProxyService.FileGet:input_type -> janus.v1alpha1.FileGetRequest
+	37, // 42: janus.v1alpha1.HAProxyService.FilePut:input_type -> janus.v1alpha1.FilePutRequest
+	39, // 43: janus.v1alpha1.HAProxyService.FileDelete:input_type -> janus.v1alpha1.FileDeleteRequest
+	62, // 44: janus.v1alpha1.HAProxyService.ACMEStatus:input_type -> google.protobuf.Empty
+	62, // 45: janus.v1alpha1.HAProxyService.ACMEGetConfig:input_type -> google.protobuf.Empty
+	27, // 46: janus.v1alpha1.HAProxyService.ACMEApplyConfig:input_type -> janus.v1alpha1.ACMEApplyConfigRequest
+	29, // 47: janus.v1alpha1.HAProxyService.ACMERenew:input_type -> janus.v1alpha1.ACMERenewRequest
+	62, // 48: janus.v1alpha1.HAProxyService.TableList:input_type -> google.protobuf.Empty
+	46, // 49: janus.v1alpha1.HAProxyService.TableShow:input_type -> janus.v1alpha1.TableShowRequest
+	50, // 50: janus.v1alpha1.HAProxyService.TableClear:input_type -> janus.v1alpha1.TableClearRequest
+	51, // 51: janus.v1alpha1.HAProxyService.SessionList:input_type -> janus.v1alpha1.SessionListRequest
+	54, // 52: janus.v1alpha1.HAProxyService.SessionShutdown:input_type -> janus.v1alpha1.SessionShutdownRequest
+	55, // 53: janus.v1alpha1.HAProxyService.ErrorsShow:input_type -> janus.v1alpha1.ErrorsShowRequest
+	1,  // 54: janus.v1alpha1.HAProxyService.GetConfig:output_type -> janus.v1alpha1.GetConfigResponse
+	3,  // 55: janus.v1alpha1.HAProxyService.ApplyConfig:output_type -> janus.v1alpha1.ApplyConfigResponse
+	5,  // 56: janus.v1alpha1.HAProxyService.ValidateConfig:output_type -> janus.v1alpha1.ValidateConfigResponse
+	6,  // 57: janus.v1alpha1.HAProxyService.Reload:output_type -> janus.v1alpha1.ReloadResponse
+	7,  // 58: janus.v1alpha1.HAProxyService.Stats:output_type -> janus.v1alpha1.HAProxyStatsResponse
+	8,  // 59: janus.v1alpha1.HAProxyService.ShowInfo:output_type -> janus.v1alpha1.ShowInfoResponse
+	11, // 60: janus.v1alpha1.HAProxyService.BackendList:output_type -> janus.v1alpha1.BackendListResponse
+	62, // 61: janus.v1alpha1.HAProxyService.ServerSetState:output_type -> google.protobuf.Empty
+	13, // 62: janus.v1alpha1.HAProxyService.MapList:output_type -> janus.v1alpha1.MapListResponse
+	15, // 63: janus.v1alpha1.HAProxyService.MapGet:output_type -> janus.v1alpha1.MapGetResponse
+	62, // 64: janus.v1alpha1.HAProxyService.MapUpdate:output_type -> google.protobuf.Empty
+	42, // 65: janus.v1alpha1.HAProxyService.MapLookup:output_type -> janus.v1alpha1.PatternLookupResponse
+	62, // 66: janus.v1alpha1.HAProxyService.ACLUpdate:output_type -> google.protobuf.Empty
+	42, // 67: janus.v1alpha1.HAProxyService.ACLLookup:output_type -> janus.v1alpha1.PatternLookupResponse
+	18, // 68: janus.v1alpha1.HAProxyService.CertificateList:output_type -> janus.v1alpha1.CertificateListResponse
+	62, // 69: janus.v1alpha1.HAProxyService.CertificateUpload:output_type -> google.protobuf.Empty
+	62, // 70: janus.v1alpha1.HAProxyService.CertificateDelete:output_type -> google.protobuf.Empty
+	34, // 71: janus.v1alpha1.HAProxyService.FileList:output_type -> janus.v1alpha1.FileListResponse
+	36, // 72: janus.v1alpha1.HAProxyService.FileGet:output_type -> janus.v1alpha1.FileGetResponse
+	38, // 73: janus.v1alpha1.HAProxyService.FilePut:output_type -> janus.v1alpha1.FilePutResponse
+	40, // 74: janus.v1alpha1.HAProxyService.FileDelete:output_type -> janus.v1alpha1.FileDeleteResponse
+	31, // 75: janus.v1alpha1.HAProxyService.ACMEStatus:output_type -> janus.v1alpha1.ACMEStatusResponse
+	26, // 76: janus.v1alpha1.HAProxyService.ACMEGetConfig:output_type -> janus.v1alpha1.ACMEGetConfigResponse
+	28, // 77: janus.v1alpha1.HAProxyService.ACMEApplyConfig:output_type -> janus.v1alpha1.ACMEApplyConfigResponse
+	30, // 78: janus.v1alpha1.HAProxyService.ACMERenew:output_type -> janus.v1alpha1.ACMERenewResponse
+	44, // 79: janus.v1alpha1.HAProxyService.TableList:output_type -> janus.v1alpha1.TableListResponse
+	49, // 80: janus.v1alpha1.HAProxyService.TableShow:output_type -> janus.v1alpha1.TableShowResponse
+	62, // 81: janus.v1alpha1.HAProxyService.TableClear:output_type -> google.protobuf.Empty
+	53, // 82: janus.v1alpha1.HAProxyService.SessionList:output_type -> janus.v1alpha1.SessionListResponse
+	62, // 83: janus.v1alpha1.HAProxyService.SessionShutdown:output_type -> google.protobuf.Empty
+	58, // 84: janus.v1alpha1.HAProxyService.ErrorsShow:output_type -> janus.v1alpha1.ErrorsShowResponse
+	54, // [54:85] is the sub-list for method output_type
+	23, // [23:54] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_janus_v1alpha1_haproxy_proto_init() }
@@ -2940,7 +4312,7 @@ func file_janus_v1alpha1_haproxy_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_haproxy_proto_rawDesc), len(file_janus_v1alpha1_haproxy_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   42,
+			NumMessages:   60,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

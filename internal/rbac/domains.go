@@ -104,6 +104,14 @@ var Domain = map[string]string{
 	"HAProxyService/ACMEGetConfig":     DomainHAProxy,
 	"HAProxyService/ACMEApplyConfig":   DomainHAProxy,
 	"HAProxyService/ACMERenew":         DomainHAProxy,
+	"HAProxyService/MapLookup":         DomainHAProxy,
+	"HAProxyService/ACLLookup":         DomainHAProxy,
+	"HAProxyService/TableList":         DomainHAProxy,
+	"HAProxyService/TableShow":         DomainHAProxy,
+	"HAProxyService/TableClear":        DomainHAProxy,
+	"HAProxyService/SessionList":       DomainHAProxy,
+	"HAProxyService/SessionShutdown":   DomainHAProxy,
+	"HAProxyService/ErrorsShow":        DomainHAProxy,
 
 	// The network's state is everyone's; its configuration the network
 	// domain's.

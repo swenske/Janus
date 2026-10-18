@@ -116,6 +116,14 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.HAProxyService/ACMEGetConfig":     readers, // secrets come back empty
 	"/janus.v1alpha1.HAProxyService/ACMEApplyConfig":   operators,
 	"/janus.v1alpha1.HAProxyService/ACMERenew":         operators,
+	"/janus.v1alpha1.HAProxyService/MapLookup":         readers,
+	"/janus.v1alpha1.HAProxyService/ACLLookup":         readers,
+	"/janus.v1alpha1.HAProxyService/TableList":         readers,
+	"/janus.v1alpha1.HAProxyService/TableShow":         readers, // clients' addresses and counters, as Netstat shows connections
+	"/janus.v1alpha1.HAProxyService/TableClear":        operators,
+	"/janus.v1alpha1.HAProxyService/SessionList":       readers,
+	"/janus.v1alpha1.HAProxyService/SessionShutdown":   operators,
+	"/janus.v1alpha1.HAProxyService/ErrorsShow":        operators, // requests' raw bytes, as Logs: not readers
 
 	// NetworkService
 	"/janus.v1alpha1.NetworkService/BGPStatus":            readers,

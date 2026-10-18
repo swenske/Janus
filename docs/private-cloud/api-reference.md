@@ -38,7 +38,9 @@ Runtime maps and ACL lists (stats socket "show/add/del map", "add/del acl"): onl
 | `MapList` | `Empty` → `MapListResponse` | `os:reader` | haproxy | MapList lists the maps the running HAProxy loaded. |
 | `MapGet` | `MapGetRequest` → `MapGetResponse` | `os:reader` | haproxy | MapGet returns a map's entries. |
 | `MapUpdate` | `MapUpdateRequest` → `Empty` | `os:operator` | haproxy | MapUpdate adds, replaces or deletes one entry of a map. |
+| `MapLookup` | `PatternLookupRequest` → `PatternLookupResponse` | `os:reader` | haproxy | MapLookup tells which entry of a map a value matches, the way a request's value would - with the method the configuration reads the map with (str, beg, dom, reg...), unlike MapGet's exact keys. |
 | `ACLUpdate` | `ACLUpdateRequest` → `Empty` | `os:operator` | haproxy | ACLUpdate adds or deletes one value of an ACL list. |
+| `ACLLookup` | `PatternLookupRequest` → `PatternLookupResponse` | `os:reader` | haproxy | ACLLookup tells which pattern of an ACL list a value matches. |
 | `CertificateList` | `Empty` → `CertificateListResponse` | `os:reader` | haproxy | CertificateList lists the certificates the running HAProxy holds, with their expiry. |
 | `CertificateUpload` | `CertificateUploadRequest` → `Empty` | `os:operator` | haproxy | CertificateUpload loads a certificate into the running HAProxy and keeps it on the node (STATE): janusd puts it back - crt-list binding included - into every new HAProxy process, after a reload, a restart or a reboot. |
 | `CertificateDelete` | `CertificateDeleteRequest` → `Empty` | `os:operator` | haproxy | CertificateDelete removes an uploaded certificate from the running HAProxy and from the node, unbinding it from crt_list first. |
@@ -60,6 +62,17 @@ ACME: the letsencrypt extension ([docs/letsencrypt.md](../letsencrypt.md)). The 
 | `ACMEGetConfig` | `Empty` → `ACMEGetConfigResponse` | `os:reader` | haproxy | ACMEGetConfig returns the configuration - never a secret (a DNS provider's settings, the EAB key): their values come back empty. |
 | `ACMEApplyConfig` | `ACMEApplyConfigRequest` → `ACMEApplyConfigResponse` | `os:operator` | haproxy | ACMEApplyConfig replaces the configuration; an empty secret keeps the saved one. |
 | `ACMERenew` | `ACMERenewRequest` → `ACMERenewResponse` | `os:operator` | haproxy | ACMERenew obtains the named certificates (every one if none is named) now, whether or not they're due, in the background: ACMEStatus says how it went. |
+
+Runtime diagnostics (stats socket "show table", "show sess", "show errors"): what the running HAProxy holds in its stick tables, the streams it is processing, the last requests and responses it refused as invalid. Read from the process, never kept.
+
+| Call | Request → response | Role | Domain | What it does |
+|---|---|---|---|---|
+| `TableList` | `Empty` → `TableListResponse` | `os:reader` | haproxy | TableList lists the running configuration's stick tables: each one's key type, size and entries in use. |
+| `TableShow` | `TableShowRequest` → `TableShowResponse` | `os:reader` | haproxy | TableShow returns a stick table's entries: the one whose key is key, or those whose stored data match every filter - limit at most. |
+| `TableClear` | `TableClearRequest` → `Empty` | `os:operator` | haproxy | TableClear removes stick table entries: the one whose key is key, the ones whose data match the filters, or every one when all is set - a client a rate limit blocked is let through again. |
+| `SessionList` | `SessionListRequest` → `SessionListResponse` | `os:reader` | haproxy | SessionList lists the streams HAProxy is processing - requests not yet answered, TCP connections being relayed - a frontend's, a backend's or a client's when asked. |
+| `SessionShutdown` | `SessionShutdownRequest` → `Empty` | `os:operator` | haproxy | SessionShutdown ends one of those streams: its client and server connections are closed. |
+| `ErrorsShow` | `ErrorsShowRequest` → `ErrorsShowResponse` | `os:operator` | haproxy | ErrorsShow returns the last invalid request and response HAProxy kept for each proxy - what it answered 400 or 502 for - with the bytes it read and the one it refused; credential headers' values are masked. |
 
 ## NetworkService
 

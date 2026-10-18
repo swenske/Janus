@@ -31,7 +31,9 @@ const (
 	HAProxyService_MapList_FullMethodName           = "/janus.v1alpha1.HAProxyService/MapList"
 	HAProxyService_MapGet_FullMethodName            = "/janus.v1alpha1.HAProxyService/MapGet"
 	HAProxyService_MapUpdate_FullMethodName         = "/janus.v1alpha1.HAProxyService/MapUpdate"
+	HAProxyService_MapLookup_FullMethodName         = "/janus.v1alpha1.HAProxyService/MapLookup"
 	HAProxyService_ACLUpdate_FullMethodName         = "/janus.v1alpha1.HAProxyService/ACLUpdate"
+	HAProxyService_ACLLookup_FullMethodName         = "/janus.v1alpha1.HAProxyService/ACLLookup"
 	HAProxyService_CertificateList_FullMethodName   = "/janus.v1alpha1.HAProxyService/CertificateList"
 	HAProxyService_CertificateUpload_FullMethodName = "/janus.v1alpha1.HAProxyService/CertificateUpload"
 	HAProxyService_CertificateDelete_FullMethodName = "/janus.v1alpha1.HAProxyService/CertificateDelete"
@@ -43,6 +45,12 @@ const (
 	HAProxyService_ACMEGetConfig_FullMethodName     = "/janus.v1alpha1.HAProxyService/ACMEGetConfig"
 	HAProxyService_ACMEApplyConfig_FullMethodName   = "/janus.v1alpha1.HAProxyService/ACMEApplyConfig"
 	HAProxyService_ACMERenew_FullMethodName         = "/janus.v1alpha1.HAProxyService/ACMERenew"
+	HAProxyService_TableList_FullMethodName         = "/janus.v1alpha1.HAProxyService/TableList"
+	HAProxyService_TableShow_FullMethodName         = "/janus.v1alpha1.HAProxyService/TableShow"
+	HAProxyService_TableClear_FullMethodName        = "/janus.v1alpha1.HAProxyService/TableClear"
+	HAProxyService_SessionList_FullMethodName       = "/janus.v1alpha1.HAProxyService/SessionList"
+	HAProxyService_SessionShutdown_FullMethodName   = "/janus.v1alpha1.HAProxyService/SessionShutdown"
+	HAProxyService_ErrorsShow_FullMethodName        = "/janus.v1alpha1.HAProxyService/ErrorsShow"
 )
 
 // HAProxyServiceClient is the client API for HAProxyService service.
@@ -87,8 +95,14 @@ type HAProxyServiceClient interface {
 	MapGet(ctx context.Context, in *MapGetRequest, opts ...grpc.CallOption) (*MapGetResponse, error)
 	// MapUpdate adds, replaces or deletes one entry of a map.
 	MapUpdate(ctx context.Context, in *MapUpdateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// MapLookup tells which entry of a map a value matches, the way a
+	// request's value would - with the method the configuration reads the
+	// map with (str, beg, dom, reg...), unlike MapGet's exact keys.
+	MapLookup(ctx context.Context, in *PatternLookupRequest, opts ...grpc.CallOption) (*PatternLookupResponse, error)
 	// ACLUpdate adds or deletes one value of an ACL list.
 	ACLUpdate(ctx context.Context, in *ACLUpdateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// ACLLookup tells which pattern of an ACL list a value matches.
+	ACLLookup(ctx context.Context, in *PatternLookupRequest, opts ...grpc.CallOption) (*PatternLookupResponse, error)
 	// CertificateList lists the certificates the running HAProxy holds,
 	// with their expiry.
 	CertificateList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*CertificateListResponse, error)
@@ -122,6 +136,27 @@ type HAProxyServiceClient interface {
 	// now, whether or not they're due, in the background: ACMEStatus says
 	// how it went.
 	ACMERenew(ctx context.Context, in *ACMERenewRequest, opts ...grpc.CallOption) (*ACMERenewResponse, error)
+	// TableList lists the running configuration's stick tables: each one's
+	// key type, size and entries in use.
+	TableList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TableListResponse, error)
+	// TableShow returns a stick table's entries: the one whose key is key,
+	// or those whose stored data match every filter - limit at most.
+	TableShow(ctx context.Context, in *TableShowRequest, opts ...grpc.CallOption) (*TableShowResponse, error)
+	// TableClear removes stick table entries: the one whose key is key, the
+	// ones whose data match the filters, or every one when all is set - a
+	// client a rate limit blocked is let through again.
+	TableClear(ctx context.Context, in *TableClearRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// SessionList lists the streams HAProxy is processing - requests not
+	// yet answered, TCP connections being relayed - a frontend's, a
+	// backend's or a client's when asked.
+	SessionList(ctx context.Context, in *SessionListRequest, opts ...grpc.CallOption) (*SessionListResponse, error)
+	// SessionShutdown ends one of those streams: its client and server
+	// connections are closed.
+	SessionShutdown(ctx context.Context, in *SessionShutdownRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// ErrorsShow returns the last invalid request and response HAProxy kept
+	// for each proxy - what it answered 400 or 502 for - with the bytes it
+	// read and the one it refused; credential headers' values are masked.
+	ErrorsShow(ctx context.Context, in *ErrorsShowRequest, opts ...grpc.CallOption) (*ErrorsShowResponse, error)
 }
 
 type hAProxyServiceClient struct {
@@ -251,10 +286,30 @@ func (c *hAProxyServiceClient) MapUpdate(ctx context.Context, in *MapUpdateReque
 	return out, nil
 }
 
+func (c *hAProxyServiceClient) MapLookup(ctx context.Context, in *PatternLookupRequest, opts ...grpc.CallOption) (*PatternLookupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PatternLookupResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_MapLookup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *hAProxyServiceClient) ACLUpdate(ctx context.Context, in *ACLUpdateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, HAProxyService_ACLUpdate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) ACLLookup(ctx context.Context, in *PatternLookupRequest, opts ...grpc.CallOption) (*PatternLookupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PatternLookupResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ACLLookup_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -371,6 +426,66 @@ func (c *hAProxyServiceClient) ACMERenew(ctx context.Context, in *ACMERenewReque
 	return out, nil
 }
 
+func (c *hAProxyServiceClient) TableList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TableListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TableListResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_TableList_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) TableShow(ctx context.Context, in *TableShowRequest, opts ...grpc.CallOption) (*TableShowResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TableShowResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_TableShow_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) TableClear(ctx context.Context, in *TableClearRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, HAProxyService_TableClear_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) SessionList(ctx context.Context, in *SessionListRequest, opts ...grpc.CallOption) (*SessionListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SessionListResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_SessionList_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) SessionShutdown(ctx context.Context, in *SessionShutdownRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, HAProxyService_SessionShutdown_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) ErrorsShow(ctx context.Context, in *ErrorsShowRequest, opts ...grpc.CallOption) (*ErrorsShowResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ErrorsShowResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ErrorsShow_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // HAProxyServiceServer is the server API for HAProxyService service.
 // All implementations must embed UnimplementedHAProxyServiceServer
 // for forward compatibility.
@@ -413,8 +528,14 @@ type HAProxyServiceServer interface {
 	MapGet(context.Context, *MapGetRequest) (*MapGetResponse, error)
 	// MapUpdate adds, replaces or deletes one entry of a map.
 	MapUpdate(context.Context, *MapUpdateRequest) (*emptypb.Empty, error)
+	// MapLookup tells which entry of a map a value matches, the way a
+	// request's value would - with the method the configuration reads the
+	// map with (str, beg, dom, reg...), unlike MapGet's exact keys.
+	MapLookup(context.Context, *PatternLookupRequest) (*PatternLookupResponse, error)
 	// ACLUpdate adds or deletes one value of an ACL list.
 	ACLUpdate(context.Context, *ACLUpdateRequest) (*emptypb.Empty, error)
+	// ACLLookup tells which pattern of an ACL list a value matches.
+	ACLLookup(context.Context, *PatternLookupRequest) (*PatternLookupResponse, error)
 	// CertificateList lists the certificates the running HAProxy holds,
 	// with their expiry.
 	CertificateList(context.Context, *emptypb.Empty) (*CertificateListResponse, error)
@@ -448,6 +569,27 @@ type HAProxyServiceServer interface {
 	// now, whether or not they're due, in the background: ACMEStatus says
 	// how it went.
 	ACMERenew(context.Context, *ACMERenewRequest) (*ACMERenewResponse, error)
+	// TableList lists the running configuration's stick tables: each one's
+	// key type, size and entries in use.
+	TableList(context.Context, *emptypb.Empty) (*TableListResponse, error)
+	// TableShow returns a stick table's entries: the one whose key is key,
+	// or those whose stored data match every filter - limit at most.
+	TableShow(context.Context, *TableShowRequest) (*TableShowResponse, error)
+	// TableClear removes stick table entries: the one whose key is key, the
+	// ones whose data match the filters, or every one when all is set - a
+	// client a rate limit blocked is let through again.
+	TableClear(context.Context, *TableClearRequest) (*emptypb.Empty, error)
+	// SessionList lists the streams HAProxy is processing - requests not
+	// yet answered, TCP connections being relayed - a frontend's, a
+	// backend's or a client's when asked.
+	SessionList(context.Context, *SessionListRequest) (*SessionListResponse, error)
+	// SessionShutdown ends one of those streams: its client and server
+	// connections are closed.
+	SessionShutdown(context.Context, *SessionShutdownRequest) (*emptypb.Empty, error)
+	// ErrorsShow returns the last invalid request and response HAProxy kept
+	// for each proxy - what it answered 400 or 502 for - with the bytes it
+	// read and the one it refused; credential headers' values are masked.
+	ErrorsShow(context.Context, *ErrorsShowRequest) (*ErrorsShowResponse, error)
 	mustEmbedUnimplementedHAProxyServiceServer()
 }
 
@@ -491,8 +633,14 @@ func (UnimplementedHAProxyServiceServer) MapGet(context.Context, *MapGetRequest)
 func (UnimplementedHAProxyServiceServer) MapUpdate(context.Context, *MapUpdateRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method MapUpdate not implemented")
 }
+func (UnimplementedHAProxyServiceServer) MapLookup(context.Context, *PatternLookupRequest) (*PatternLookupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MapLookup not implemented")
+}
 func (UnimplementedHAProxyServiceServer) ACLUpdate(context.Context, *ACLUpdateRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ACLUpdate not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ACLLookup(context.Context, *PatternLookupRequest) (*PatternLookupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ACLLookup not implemented")
 }
 func (UnimplementedHAProxyServiceServer) CertificateList(context.Context, *emptypb.Empty) (*CertificateListResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CertificateList not implemented")
@@ -526,6 +674,24 @@ func (UnimplementedHAProxyServiceServer) ACMEApplyConfig(context.Context, *ACMEA
 }
 func (UnimplementedHAProxyServiceServer) ACMERenew(context.Context, *ACMERenewRequest) (*ACMERenewResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ACMERenew not implemented")
+}
+func (UnimplementedHAProxyServiceServer) TableList(context.Context, *emptypb.Empty) (*TableListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TableList not implemented")
+}
+func (UnimplementedHAProxyServiceServer) TableShow(context.Context, *TableShowRequest) (*TableShowResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TableShow not implemented")
+}
+func (UnimplementedHAProxyServiceServer) TableClear(context.Context, *TableClearRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method TableClear not implemented")
+}
+func (UnimplementedHAProxyServiceServer) SessionList(context.Context, *SessionListRequest) (*SessionListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SessionList not implemented")
+}
+func (UnimplementedHAProxyServiceServer) SessionShutdown(context.Context, *SessionShutdownRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method SessionShutdown not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ErrorsShow(context.Context, *ErrorsShowRequest) (*ErrorsShowResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ErrorsShow not implemented")
 }
 func (UnimplementedHAProxyServiceServer) mustEmbedUnimplementedHAProxyServiceServer() {}
 func (UnimplementedHAProxyServiceServer) testEmbeddedByValue()                        {}
@@ -739,6 +905,24 @@ func _HAProxyService_MapUpdate_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HAProxyService_MapLookup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PatternLookupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).MapLookup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_MapLookup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).MapLookup(ctx, req.(*PatternLookupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _HAProxyService_ACLUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ACLUpdateRequest)
 	if err := dec(in); err != nil {
@@ -753,6 +937,24 @@ func _HAProxyService_ACLUpdate_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(HAProxyServiceServer).ACLUpdate(ctx, req.(*ACLUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_ACLLookup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PatternLookupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ACLLookup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ACLLookup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ACLLookup(ctx, req.(*PatternLookupRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -955,6 +1157,114 @@ func _HAProxyService_ACMERenew_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HAProxyService_TableList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).TableList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_TableList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).TableList(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_TableShow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TableShowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).TableShow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_TableShow_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).TableShow(ctx, req.(*TableShowRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_TableClear_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TableClearRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).TableClear(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_TableClear_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).TableClear(ctx, req.(*TableClearRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_SessionList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SessionListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).SessionList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_SessionList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).SessionList(ctx, req.(*SessionListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_SessionShutdown_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SessionShutdownRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).SessionShutdown(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_SessionShutdown_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).SessionShutdown(ctx, req.(*SessionShutdownRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_ErrorsShow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ErrorsShowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ErrorsShow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ErrorsShow_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ErrorsShow(ctx, req.(*ErrorsShowRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // HAProxyService_ServiceDesc is the grpc.ServiceDesc for HAProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1003,8 +1313,16 @@ var HAProxyService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _HAProxyService_MapUpdate_Handler,
 		},
 		{
+			MethodName: "MapLookup",
+			Handler:    _HAProxyService_MapLookup_Handler,
+		},
+		{
 			MethodName: "ACLUpdate",
 			Handler:    _HAProxyService_ACLUpdate_Handler,
+		},
+		{
+			MethodName: "ACLLookup",
+			Handler:    _HAProxyService_ACLLookup_Handler,
 		},
 		{
 			MethodName: "CertificateList",
@@ -1049,6 +1367,30 @@ var HAProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ACMERenew",
 			Handler:    _HAProxyService_ACMERenew_Handler,
+		},
+		{
+			MethodName: "TableList",
+			Handler:    _HAProxyService_TableList_Handler,
+		},
+		{
+			MethodName: "TableShow",
+			Handler:    _HAProxyService_TableShow_Handler,
+		},
+		{
+			MethodName: "TableClear",
+			Handler:    _HAProxyService_TableClear_Handler,
+		},
+		{
+			MethodName: "SessionList",
+			Handler:    _HAProxyService_SessionList_Handler,
+		},
+		{
+			MethodName: "SessionShutdown",
+			Handler:    _HAProxyService_SessionShutdown_Handler,
+		},
+		{
+			MethodName: "ErrorsShow",
+			Handler:    _HAProxyService_ErrorsShow_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

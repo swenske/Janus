@@ -200,11 +200,15 @@ func (h *HAProxy) CertificateDelete(_ context.Context, req *janusv1alpha1.Certif
 }
 
 // haproxyError turns an argument internal/haproxy refused before
-// reaching the stats socket into codes.InvalidArgument; anything else is
-// returned unchanged.
+// reaching the stats socket into codes.InvalidArgument, and what HAProxy
+// says it doesn't have into codes.NotFound; anything else is returned
+// unchanged.
 func haproxyError(err error) error {
-	if errors.Is(err, haproxy.ErrInvalidArgument) {
+	switch {
+	case errors.Is(err, haproxy.ErrInvalidArgument):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, haproxy.ErrNotFound):
+		return status.Error(codes.NotFound, err.Error())
 	}
 	return err
 }
