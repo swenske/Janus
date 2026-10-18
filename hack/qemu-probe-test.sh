@@ -143,6 +143,7 @@ probe "ping the loopback" '2 sent, 2 received' ping -count 2 -interval 200ms 127
 probe "ping its own address" '1 sent, 1 received' ping -count 1 10.0.2.15
 probe "traceroute" 'reached in 1 hop' traceroute 127.0.0.1
 probe "the source address" 'from 10\.0\.2\.15:' tcp -source 10.0.2.15 "10.0.2.2:${P_HTTP}"
+probe "DNS from the source address" 'probe\.test A via 10\.0\.2\.2:[0-9]+: 10\.0\.2\.2' dns -source 10.0.2.15 -server "10.0.2.2:${P_DNS}" -type A probe.test
 
 if out="$(ctl system probe tcp -timeout 2s 10.0.2.2:1 2>&1)"; then
   fail "a refused connection passed: $out"
