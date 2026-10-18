@@ -38,9 +38,10 @@ A node's page is on the Controller's own address, under
 Controller acts on the node for your account, with its role there
 (`os:reader`, `os:operator`, `os:admin`), and the node logs who acted.
 
-Five palettes - Janus (the default), Nord, Abysse, Tokyo Night and
-Catppuccin - each light and dark, the mode following the system or
-chosen, per browser. A node's charts move continuously while its page
+Eighteen palettes - Janus (the default), Abysse, and the well-known
+ones from Ayu to Tomorrow (Dracula, Gruvbox, Nord, Solarized, Tokyo
+Night…) - each light and dark, the mode following the system or chosen,
+per browser; T takes the next one. A node's charts move continuously while its page
 samples it, and the node list shows each node's last five minutes.
 Design principles and how to verify a UI change:
 [`docs/controller-ui.md`](../docs/controller-ui.md).

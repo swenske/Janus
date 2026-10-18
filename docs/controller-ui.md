@@ -74,13 +74,21 @@ Rules:
 
 ### Appearance
 
-Five palettes, each light and dark (`palettes.css`): **Janus** - the
-default, theme.css's own colours -, **Nord**, **Abysse** (a deep night
-blue, slightly translucent cards, cyan and green), **Tokyo Night** and
-**Catppuccin**, the official shades adjusted where they fall short of
-AA. The top bar's palette button (`ThemePicker`, on both pages and the
+Eighteen palettes, each light and dark (`palettes.css`): **Janus** -
+the default, theme.css's own colours -, **Abysse** (a deep night blue,
+slightly translucent cards, cyan and green), and the well-known ones,
+each from its makers' colours, light and dark: Ayu, Catppuccin
+(Latte, Mocha), Dracula (Alucard, Dracula), Everforest, Flexoki,
+GitHub, Gruvbox, Kanagawa (Lotus, Wave), Night Owl (Light Owl, Night
+Owl), Nightfox (Dayfox, Nightfox), Nord, One (Light, Dark), Rosé Pine
+(Dawn, Main), Solarized, Tokyo Night (Day, Night) and Tomorrow - a
+colour that falls short of AA here moved in lightness just enough, its
+hue kept. The top bar's palette button (`ThemePicker`, on both pages and the
 sign-in screen) chooses the mode - the system's, light or dark - and the
-palette, from tiles drawn in each palette's own colours: a block of
+palette, from tiles drawn in each palette's own colours - and **T**,
+anywhere but in a field, takes the next palette, shift+T the previous,
+its name said a moment at the window's foot (a key alone: the picker
+turns it off, WCAG 2.1.4; `janus-palette-shortcut`): a block of
 `palettes.css` applies to any element carrying `data-palette` and
 `data-theme`, not only to the page. Remembered per browser
 (`appearance.js`: `janus-theme`, the site's key for the mode, and

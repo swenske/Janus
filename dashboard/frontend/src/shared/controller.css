@@ -107,7 +107,7 @@ p a, li a, .notice a, .muted a, .small a { text-decoration: underline; text-deco
   top: calc(100% + 0.45rem);
   right: 0;
   z-index: 40;
-  width: 19.5rem;
+  width: 27rem;
   max-width: calc(100vw - 1.5rem);
   display: flex;
   flex-direction: column;
@@ -133,7 +133,32 @@ p a, li a, .notice a, .muted a, .small a { text-decoration: underline; text-deco
 }
 .tp-mode:hover { color: var(--text); }
 .tp-mode.checked { color: var(--accent-ink); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); font-weight: 600; }
-.tp-palettes { display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem; }
+.tp-palettes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; max-height: min(52vh, 25rem); overflow-y: auto; padding: 2px; margin: -2px; overscroll-behavior: contain; }
+@media (max-width: 520px) { .tp-palettes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tp-shortcut { align-items: flex-start; color: var(--muted); }
+.tp-shortcut input { margin-top: 0.15rem; }
+/* The palette T took, a moment at the window's foot. */
+.tp-said {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  z-index: 110;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+  font-weight: 600;
+  pointer-events: none;
+  animation: tp-said 1.6s ease-in forwards;
+}
+.tp-swatch-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+@keyframes tp-said { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+kbd { font-family: var(--mono); font-size: 0.85em; padding: 0 0.3rem; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); color: var(--text); }
 .tp-palette {
   display: flex;
   flex-direction: column;
@@ -155,7 +180,7 @@ p a, li a, .notice a, .muted a, .small a { text-decoration: underline; text-deco
 .tp-swatch {
   position: relative;
   display: block;
-  height: 46px;
+  height: 40px;
   background: var(--bg);
   background-image: radial-gradient(70px 40px at 0% 0%, var(--glow-1), transparent 70%);
 }

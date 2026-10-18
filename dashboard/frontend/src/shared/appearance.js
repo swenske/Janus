@@ -6,12 +6,26 @@
 // another tab - a node's page is one - or the system turning dark.
 import { useSyncExternalStore } from 'react'
 
+// Janus's own two first, then the well-known ones by name.
 export const PALETTES = [
   { id: 'janus', name: 'Janus' },
-  { id: 'nord', name: 'Nord' },
   { id: 'abysse', name: 'Abysse' },
-  { id: 'tokyo-night', name: 'Tokyo Night' },
+  { id: 'ayu', name: 'Ayu' },
   { id: 'catppuccin', name: 'Catppuccin' },
+  { id: 'dracula', name: 'Dracula' },
+  { id: 'everforest', name: 'Everforest' },
+  { id: 'flexoki', name: 'Flexoki' },
+  { id: 'github', name: 'GitHub' },
+  { id: 'gruvbox', name: 'Gruvbox' },
+  { id: 'kanagawa', name: 'Kanagawa' },
+  { id: 'night-owl', name: 'Night Owl' },
+  { id: 'nightfox', name: 'Nightfox' },
+  { id: 'nord', name: 'Nord' },
+  { id: 'one', name: 'One' },
+  { id: 'rose-pine', name: 'Rosé Pine' },
+  { id: 'solarized', name: 'Solarized' },
+  { id: 'tokyo-night', name: 'Tokyo Night' },
+  { id: 'tomorrow', name: 'Tomorrow' },
 ]
 export const MODES = ['light', 'dark']
 export const PREFERENCES = ['system', 'light', 'dark']
@@ -95,6 +109,27 @@ export function setPalette(palette) {
   if (!PALETTES.some((p) => p.id === palette)) return
   save(PALETTE_KEY, palette)
   changed()
+}
+
+// cyclePalette moves to the next palette (step 1) or the previous (-1),
+// and says which.
+export function cyclePalette(step) {
+  const i = PALETTES.findIndex((p) => p.id === current().palette)
+  const next = PALETTES[(i + step + PALETTES.length) % PALETTES.length]
+  setPalette(next.id)
+  return next
+}
+
+// The keyboard's T (shift: back) through the palettes - a key alone, so
+// it can be turned off (WCAG 2.1.4), per browser.
+const SHORTCUT_KEY = 'janus-palette-shortcut'
+
+export function shortcutOn() {
+  return stored(SHORTCUT_KEY) !== 'off'
+}
+
+export function setShortcut(on) {
+  save(SHORTCUT_KEY, on ? 'on' : 'off')
 }
 
 function subscribe(fn) {

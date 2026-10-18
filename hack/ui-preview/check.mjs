@@ -1,17 +1,18 @@
 // hack/ui-preview's pages walked in a browser (hack/ui-preview.sh
 // check): every palette in both modes - the sign-in screen, the node
-// list, the hypervisors tab, and pages of edge-1 - with no page or
+// list (cards and rows), the hypervisors tab, and pages of edge-1 - with no page or
 // console error, no failed request, no CSP report, and nothing serious
 // for axe (WCAG 2 A/AA); a screenshot of each in $OUT. Then what the
 // appearance and the sidebar do: a palette chosen in one tab followed by
-// another, no animation frame under "reduce motion", the charts moving
-// otherwise, the sidebar opening over the page and pinned. Run by
+// another, the T shortcut, no animation frame under "reduce motion", the
+// charts moving otherwise, the sidebar opening over the page and pinned. Run by
 // hack/ui-preview.sh in the browser image, on the preview's network.
 import AxeBuilder from '@axe-core/playwright'
 import { chromium } from 'playwright'
 
 const { CONTROLLER, PASSWORD, OUT } = process.env
-const PALETTES = (process.env.PALETTES || 'janus,nord,abysse,tokyo-night,catppuccin').split(',')
+// Every palette (appearance.js's); PALETTES=a,b for a few.
+const PALETTES = (process.env.PALETTES || 'janus,abysse,ayu,catppuccin,dracula,everforest,flexoki,github,gruvbox,kanagawa,night-owl,nightfox,nord,one,rose-pine,solarized,tokyo-night,tomorrow').split(',')
 const MODES = ['light', 'dark']
 const NODE_PAGES = ['/', '/metrics', '/storage', '/flow', '/haproxy', '/system/update']
 const problems = []
@@ -79,6 +80,14 @@ for (const palette of PALETTES) {
       await axe(page, `${palette}/${mode} ${name}`)
       await page.screenshot({ path: `${OUT}/${palette}-${mode}-${name}.png` })
     }
+    // The node list as rows.
+    at = 'nodes-list'
+    await page.evaluate(() => localStorage.setItem('janus-nodes-view', 'list'))
+    await page.goto(`${CONTROLLER}/`)
+    await settle(page)
+    await axe(page, `${palette}/${mode} nodes-list`)
+    await page.screenshot({ path: `${OUT}/${palette}-${mode}-nodes-list.png` })
+    await page.evaluate(() => localStorage.removeItem('janus-nodes-view'))
     // The picker, open.
     at = 'picker'
     await page.goto(`${CONTROLLER}/`)
@@ -107,6 +116,39 @@ for (const palette of PALETTES) {
   await node.waitForTimeout(300)
   const got = await node.evaluate(() => [document.documentElement.dataset.palette, document.documentElement.dataset.theme])
   if (got.join() !== 'nord,dark') problems.push(`another tab: ${got}`)
+  await ctx.close()
+}
+
+// The palette shortcut: T the next, shift+T back, nothing while typing,
+// nothing once turned off.
+{
+  const ctx = await context()
+  await signIn(ctx)
+  const page = await ctx.newPage()
+  await page.goto(`${CONTROLLER}/nodes/${edge1}/#/`)
+  await settle(page)
+  const palette = () => page.evaluate(() => document.documentElement.dataset.palette)
+  await page.mouse.move(900, 600)
+  await page.keyboard.press('t')
+  const next = await palette()
+  const said = await page.locator('.tp-said').textContent().catch(() => '')
+  await page.keyboard.press('Shift+T')
+  const back = await palette()
+  await page.goto(`${CONTROLLER}/nodes/${edge1}/#/tools/probe`)
+  await settle(page)
+  const field = page.locator('input:not([type=checkbox]):not([type=radio])').first()
+  await field.click()
+  await page.keyboard.type('tt')
+  const typing = await palette()
+  await page.mouse.click(900, 700)
+  await page.click('.theme-picker > button')
+  await page.click('.tp-shortcut input')
+  await page.keyboard.press('Escape')
+  await page.mouse.move(900, 600)
+  await page.keyboard.press('t')
+  const off = await palette()
+  const got = { next, said, back, typing, off }
+  if (next !== 'abysse' || !/Abysse/.test(said) || back !== 'janus' || typing !== 'janus' || off !== 'janus') problems.push(`shortcut: ${JSON.stringify(got)}`)
   await ctx.close()
 }
 
@@ -188,4 +230,4 @@ if (problems.length) {
   console.log(problems.join('\n'))
   process.exit(1)
 }
-console.log(`ui-preview check: ${PALETTES.length} palettes × 2 modes, ${NODE_PAGES.length + 4} pages each, the appearance, motion and the sidebar - no problem`)
+console.log(`ui-preview check: ${PALETTES.length} palettes × 2 modes, ${NODE_PAGES.length + 5} pages each, the appearance, its shortcut, motion and the sidebar - no problem`)

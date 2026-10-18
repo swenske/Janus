@@ -3,7 +3,7 @@
 // dark palette would flash the default light one. Same lists as there
 // (palettes.test.js runs this file).
 ;(function () {
-  var palettes = ['janus', 'nord', 'abysse', 'tokyo-night', 'catppuccin']
+  var palettes = ['janus', 'abysse', 'ayu', 'catppuccin', 'dracula', 'everforest', 'flexoki', 'github', 'gruvbox', 'kanagawa', 'night-owl', 'nightfox', 'nord', 'one', 'rose-pine', 'solarized', 'tokyo-night', 'tomorrow']
   var mode = null
   var palette = null
   try {

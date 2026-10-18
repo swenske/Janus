@@ -1,6 +1,7 @@
 import { Check, Monitor, Moon, Palette, Sun } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { PALETTES, setPalette, setPreference, useAppearance } from './appearance.js'
+import { createPortal } from 'react-dom'
+import { PALETTES, cyclePalette, setPalette, setPreference, setShortcut, shortcutOn, useAppearance } from './appearance.js'
 
 const PREFERENCE_OPTIONS = [
   { id: 'system', label: 'System', icon: Monitor },
@@ -28,15 +29,35 @@ function Swatch({ palette, mode }) {
   )
 }
 
+// The shortcut doesn't type into a field.
+const typing = (el) => el instanceof Element && !!el.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+
 // ThemePicker: the page's appearance - the mode (the system's, light or
 // dark) and the palette, remembered per browser (appearance.js), applied
-// at once to every open page of this Controller.
+// at once to every open page of this Controller. T anywhere takes the
+// next palette, shift+T the previous - unless turned off here.
 export default function ThemePicker() {
   const { preference, palette, mode } = useAppearance()
   const [open, setOpen] = useState(false)
+  const [shortcut, setShortcutState] = useState(shortcutOn)
   const wrap = useRef(null)
   const trigger = useRef(null)
   const name = useId()
+  // The palette T just took, said a moment at the window's foot - each
+  // press replaces it (a key: the fading starts again).
+  const [said, setSaid] = useState(null)
+
+  useEffect(() => {
+    if (!shortcut) return undefined
+    const onKey = (e) => {
+      if ((e.key !== 't' && e.key !== 'T') || e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.isComposing || typing(e.target)) return
+      e.preventDefault()
+      const p = cyclePalette(e.shiftKey ? -1 : 1)
+      setSaid((s) => ({ name: p.name, key: (s?.key || 0) + 1 }))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [shortcut])
 
   useEffect(() => {
     if (!open) return undefined
@@ -61,6 +82,15 @@ export default function ThemePicker() {
   const current = PALETTES.find((p) => p.id === palette)?.name
   return (
     <div className="theme-picker" ref={wrap}>
+      {said &&
+        createPortal(
+          <div key={said.key} className="tp-said" role="status" onAnimationEnd={() => setSaid(null)}>
+            <span className="tp-swatch-dot" />
+            {said.name}
+            <span className="muted"> · {mode}</span>
+          </div>,
+          document.body,
+        )}
       <button
         ref={trigger}
         className="ghost icon"
@@ -104,6 +134,19 @@ export default function ThemePicker() {
               ))}
             </div>
           </fieldset>
+          <label className="check small tp-shortcut">
+            <input
+              type="checkbox"
+              checked={shortcut}
+              onChange={(e) => {
+                setShortcut(e.target.checked)
+                setShortcutState(e.target.checked)
+              }}
+            />
+            <span>
+              <kbd>T</kbd> the next palette, <kbd>Shift</kbd>+<kbd>T</kbd> the previous - anywhere but in a field
+            </span>
+          </label>
           <div className="muted small">Saved in this browser.</div>
         </div>
       )}
