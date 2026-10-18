@@ -29,7 +29,7 @@ export default function Gauge({ value, max = 100, label, display, color = 'var(-
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={known ? Math.round(pct) : undefined}
+      aria-valuenow={Math.round(pct)}
       aria-valuetext={known ? undefined : 'unknown'}
     >
       <svg viewBox="4 4 92 50" aria-hidden="true" focusable="false">

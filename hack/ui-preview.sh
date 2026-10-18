@@ -14,7 +14,7 @@
 # following edge-1's events: the Traffic flow's Controller and direct
 # clients.
 #
-#   hack/ui-preview.sh [up|reload [ui]|down|info]
+#   hack/ui-preview.sh [up|reload [ui]|check|down|info]
 #
 # up (the default): the environment from scratch - the Controller at
 # https://127.0.0.1:18443 (UI_PREVIEW_PORT), its address, account and
@@ -29,6 +29,9 @@
 # configuration): to see a change of the tree. reload ui: dashboardd
 # only, the Controller alone restarted - a frontend change, rebuilt
 # first (cd dashboard/frontend && npm run build).
+# check: its pages walked in the browser image (hack/ui-preview/
+# check.mjs) - every palette in both modes, axe, no error - and their
+# screenshots in build/ui-preview/check.
 # down: everything removed.
 #
 # Nothing reaches the internet: the networks are internal; only the
@@ -275,13 +278,27 @@ reload() {
   echo "ui-preview: the Controller, the nodes and their traffic restarted"
 }
 
+check() {
+  docker inspect "$P-controller" >/dev/null 2>&1 || {
+    echo "ui-preview: not running - hack/ui-preview.sh up" >&2
+    exit 1
+  }
+  rm -rf "$DIR/check"
+  mkdir -p "$DIR/check"
+  docker run --rm --network "$P" --ip "$NET.103" --user "$(id -u):$(id -g)" -e HOME=/tmp -e NODE_TLS_REJECT_UNAUTHORIZED=0 \
+    -v "$ROOT/hack/ui-preview/check.mjs:/browser/check.mjs:ro" -v "$DIR/check:/out" \
+    -e CONTROLLER="https://$NET.5:8080" -e PASSWORD="$PASSWORD" -e OUT=/out ${PALETTES:+-e PALETTES="$PALETTES"} \
+    "$BROWSER_IMAGE" node --no-warnings check.mjs
+}
+
 case "$CMD" in
 up) up ;;
 reload) reload "${2:-}" ;;
+check) check ;;
 down) down ;;
 info) info ;;
 *)
-  echo "usage: $0 [up|reload [ui]|down|info]" >&2
+  echo "usage: $0 [up|reload [ui]|check|down|info]" >&2
   exit 2
   ;;
 esac

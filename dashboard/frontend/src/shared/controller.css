@@ -57,8 +57,14 @@ body::before {
 .stat-value { font-family: var(--mono); font-weight: 600; letter-spacing: -0.02em; }
 td.num, th.num, .num { font-family: var(--mono); font-size: 0.92em; font-variant-numeric: tabular-nums; }
 
-/* --- pills: their tint, edged in their own colour --- */
+/* --- pills: their tint, edged in their own colour; a plain one on the
+   second surface (the muted text's 4.5:1 is held there) --- */
 .badge { border: 1px solid color-mix(in srgb, currentColor 26%, transparent); line-height: 1.35; }
+.badge:not(.ok, .warn, .danger, .info, .accent) { background: var(--surface-2); }
+
+/* A link inside a sentence is underlined: its colour alone is too close
+   to the text's in some palettes. */
+p a, li a, .notice a, .muted a, .small a { text-decoration: underline; text-decoration-thickness: from-font; text-underline-offset: 0.15em; }
 .badge .dot { width: 6px; height: 6px; box-shadow: 0 0 6px color-mix(in srgb, currentColor 55%, transparent); }
 
 /* --- gauges (Gauge.jsx) --- */
@@ -86,6 +92,8 @@ td.num, th.num, .num { font-family: var(--mono); font-size: 0.92em; font-variant
 .gauges .gauge-cell { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; min-width: 0; }
 .gauges .gauge-cell .gauge { max-width: 130px; }
 .gauges .gauge-cell .gauge-value { font-size: 1.1rem; }
+.hv-gauges { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; margin-bottom: 0.2rem; }
+.hv-gauges .gauge-cell .gauge-value { font-size: 0.95rem; }
 
 /* --- the symbol (BrandMark) --- */
 .brand-mark { display: block; flex: none; }

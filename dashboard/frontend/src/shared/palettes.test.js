@@ -91,6 +91,8 @@ const PAIRS = [
   ['--muted', ['--bg', '--surface', '--surface-2', '--card-bg@--bg'], 4.5],
   ['--accent-ink', ['--bg', '--surface', '--card-bg@--bg', '--accent-soft@--surface', '--accent-soft@--bg'], 4.5],
   ...['--ok', '--warn', '--danger', '--info'].map((s) => [s, ['--bg', '--surface', '--card-bg@--bg', `${s}-soft@--surface`, `${s}-soft@--bg`], 4.5]),
+  // A danger button's text, on a button's background.
+  ['--danger', ['--surface-2'], 4.5],
   ['--accent-text', ['--accent'], 4.5],
   ['#ffffff', ['--danger-solid'], 4.5],
   ['--accent', ['--bg', '--surface'], 3],

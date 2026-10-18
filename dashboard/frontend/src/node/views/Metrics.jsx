@@ -96,7 +96,7 @@ export default function Metrics() {
           title="Network"
           icon={Network}
           actions={
-            <select value={selected} onChange={(e) => setIface(e.target.value)}>
+            <select aria-label="Interface" value={selected} onChange={(e) => setIface(e.target.value)}>
               {ifaces.map((n) => (
                 <option key={n}>{n}</option>
               ))}
