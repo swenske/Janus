@@ -330,6 +330,18 @@ janusctl system cp [-o FILE] PATH
 |---|---|
 | `-o FILE` | the archive's file, - for stdout |
 
+#### janusctl system support
+
+A diagnostic bundle of the node, without its secrets (docs/guide/diagnostic-bundle.md).
+
+```text
+janusctl system support [-o FILE]
+```
+
+| Flag | |
+|---|---|
+| `-o FILE` | the bundle's file (janus-support-<hostname>-<time>.tar.gz), - for stdout |
+
 #### janusctl system pcap
 
 Live packet capture, as a pcap file (docs/packet-capture.md).

@@ -358,6 +358,22 @@ func TestAudit(t *testing.T) {
 	}
 }
 
+// TestAuditedReads: the reads recorded - the recovery kit, a node's
+// diagnostic bundle - and no other.
+func TestAuditedReads(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/api/fleet/recovery-kit":       true,
+		"/nodes/n1/api/support":         true,
+		"/nodes/n1/api/system/services": false,
+		"/api/support":                  false,
+		"/api/version":                  false,
+	} {
+		if got := auditedRead(path); got != want {
+			t.Errorf("auditedRead(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
 // tokenFor makes an API token from session with role, answering its ID
 // and its "Bearer ..." credential.
 func (a *authApp) tokenFor(t *testing.T, session, role string) (string, string) {

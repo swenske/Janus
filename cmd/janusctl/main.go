@@ -231,6 +231,7 @@ func main() {
 	}
 	echo()
 
+	certRole = firstOr(tuiOpts.role, roleFromCertFile(*certFile))
 	switch cmd := args[0]; cmd {
 	case "version":
 		runVersion(conn)
@@ -463,6 +464,10 @@ func cpuTopology(cpu *janusv1alpha1.CPUInfoResponse) string {
 func runSystem(conn *grpc.ClientConn, endpoint string, redial redialer, args []string) {
 	if len(args) > 0 && args[0] == "pcap" {
 		runPcap(conn, args[1:])
+		return
+	}
+	if len(args) > 0 && args[0] == "support" {
+		runSupport(conn, args[1:])
 		return
 	}
 	if len(args) > 0 && args[0] == "sysctl" {

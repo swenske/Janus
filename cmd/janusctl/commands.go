@@ -170,6 +170,9 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "ls", args: "PATH", help: "list a directory", flags: []flagDef{boolFlag("r", "recursive")}, pos: []argKind{argRemote}, required: 1},
 		{name: "cat", args: "PATH", help: "print a file", pos: []argKind{argRemote}, required: 1},
 		{name: "cp", args: "PATH", help: "a tar archive of PATH (stdout by default)", flags: []flagDef{valFlag("o", "FILE", "the archive's file, - for stdout", argFile)}, pos: []argKind{argRemote}, required: 1},
+		{name: "support", help: "a diagnostic bundle of the node, without its secrets (docs/guide/diagnostic-bundle.md)", flags: []flagDef{
+			valFlag("o", "FILE", "the bundle's file (janus-support-<hostname>-<time>.tar.gz), - for stdout", argFile),
+		}},
 		{name: "pcap", help: "live packet capture, as a pcap file (docs/packet-capture.md)", flags: []flagDef{
 			valFlag("i", "IFACE", "the interface to capture on", argInterface),
 			valFlag("f", "FILTER", "a tcpdump-style filter", argNone),

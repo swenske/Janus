@@ -36,10 +36,12 @@ func TestPerNodeCSRF(t *testing.T) {
 		{"old browser, foreign Origin", req{"POST", "/api/system/services/haproxy/stop", "", map[string]string{"Origin": "https://evil.example"}}, http.StatusForbidden},
 		{"cross-site DELETE certificate", req{"DELETE", "/api/haproxy/certs/site.pem", "", map[string]string{"Sec-Fetch-Site": "cross-site"}}, http.StatusForbidden},
 		{"cross-site GET pcap", req{"GET", "/api/pcap?interface=eth0&duration=5&promisc=true", "", map[string]string{"Sec-Fetch-Site": "cross-site"}}, http.StatusForbidden},
+		{"cross-site GET diagnostic bundle", req{"GET", "/api/support", "", map[string]string{"Sec-Fetch-Site": "cross-site"}}, http.StatusForbidden},
 
 		{"same-origin POST", req{"POST", "/api/system/services/haproxy/stop", "", map[string]string{"Sec-Fetch-Site": "same-origin"}}, http.StatusBadGateway},
 		{"non-browser POST (no headers)", req{"POST", "/api/system/power", `{"action":"reboot"}`, nil}, http.StatusBadGateway},
 		{"same-origin GET pcap", req{"GET", "/api/pcap?interface=eth0&duration=5", "", map[string]string{"Sec-Fetch-Site": "same-origin"}}, http.StatusBadGateway},
+		{"same-origin GET diagnostic bundle", req{"GET", "/api/support", "", map[string]string{"Sec-Fetch-Site": "same-origin"}}, http.StatusBadGateway},
 		{"cross-site GET read-only view", req{"GET", "/api/system/services", "", map[string]string{"Sec-Fetch-Site": "cross-site"}}, http.StatusBadGateway},
 	}
 	for _, c := range cases {

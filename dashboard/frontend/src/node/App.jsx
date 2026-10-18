@@ -9,6 +9,7 @@ import {
   ChartLine,
   CirclePlus,
   Cpu,
+  FileArchive,
   FolderOpen,
   Gauge,
   HardDrive,
@@ -68,6 +69,7 @@ import PowerView from './views/Power.jsx'
 import Processes from './views/Processes.jsx'
 import Services from './views/Services.jsx'
 import Storage from './views/Storage.jsx'
+import Support from './views/Support.jsx'
 import Sysctl from './views/Sysctl.jsx'
 import Update from './views/Update.jsx'
 
@@ -115,6 +117,7 @@ const NAV = [
     items: [
       { path: '/tools/capture', label: 'Packet capture', icon: Radar, view: Capture, needs: 'SystemService/PacketCapture' },
       { path: '/tools/files', label: 'Files', icon: FolderOpen, view: Files, needs: 'SystemService/List' },
+      { path: '/tools/support', label: 'Diagnostic bundle', icon: FileArchive, view: Support, needs: 'SystemService/Version' },
     ],
   },
   {

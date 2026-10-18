@@ -680,6 +680,9 @@ func runOnEach(ctxName string, ctx *cliContext, nodes []ctxNode, cmdArgs []strin
 	if len(cmdArgs) >= 2 && cmdArgs[0] == "system" && cmdArgs[1] == "pcap" {
 		log.Fatal("janusctl: a packet capture is one node at a time (-n NAME)")
 	}
+	if len(cmdArgs) >= 2 && cmdArgs[0] == "system" && cmdArgs[1] == "support" && slices.Contains(cmdArgs, "-o") {
+		log.Fatal("janusctl: -o names one file: leave it out on several nodes - each writes janus-support-<hostname>-<time>.tar.gz")
+	}
 	if encryptedKeyFile(ctx.SSHKey) {
 		log.Fatal("janusctl: the context's SSH key file has a passphrase - each node would ask it: add the key to ssh-agent (ssh-add) to run on several nodes")
 	}

@@ -290,7 +290,10 @@ theme toggle:
   VRRP (and BGP): instances/sessions, then the daemon's configuration in
   the shared ModuleConfigEditor (check by the daemon itself, diff, apply,
   remove)
-- **Tools** - packet capture, files
+- **Tools** - packet capture, files, diagnostic bundle (`views/Support.jsx`:
+  what the bundle holds for the account, from `may`; GET `/api/support`,
+  `nodeproxy/support.go` - `internal/support` with the account's
+  permissions, streamed; the Controller's audit records each download)
 - **System** - network (hostname, interfaces, VLANs, DNS, NTP), sysctl
   (the kernel parameters HAProxy depends on: edited in the table, checked
   as typed from the node's own bounds, tested on trial with a countdown -
