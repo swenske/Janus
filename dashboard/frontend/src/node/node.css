@@ -376,3 +376,73 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .flow-legend-pulse.proto-http, .flow-legend-pulse.proto-tcp, .flow-legend-pulse.proto-log, .flow-legend-pulse.proto-api { stroke: var(--proto); }
 .flow-legend-track { stroke: var(--muted); stroke-opacity: 0.35; stroke-width: 1.5; }
 .flow-legend-down { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 4 4; }
+
+/* The rail (wide screens with a mouse): the sidebar folds into its
+   icons and opens over the page - never pushing it - while the pointer
+   or the keyboard's focus is in it, or stays open pinned (rail.js); its
+   labels only fade, they stay what assistive technology reads. A
+   touch screen keeps it open; a narrow one has the drawer below. */
+.skip-link { position: absolute; left: 0.5rem; top: 0.5rem; z-index: 2; transform: translateY(-200%); }
+.skip-link:focus-visible { transform: none; }
+.rail-pin { display: none; }
+@media (min-width: 901px) {
+  .rail { flex: none; width: 56px; position: relative; z-index: 30; }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: auto;
+    width: 56px;
+    display: flex;
+    flex-direction: column;
+    padding: 0.9rem 0.45rem 0.7rem;
+    overflow: hidden auto;
+    scrollbar-width: none;
+    transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1) 0.18s, box-shadow 0.22s 0.18s;
+  }
+  .sidebar::-webkit-scrollbar { display: none; }
+  /* Laid out at the open width either way: folding moves nothing. */
+  .sidebar-brand { padding: 0.2rem 0.5rem 1rem 0.55rem; align-items: flex-start; }
+  .brand-text { flex: none; width: 168px; }
+  .chip-text { white-space: nowrap; }
+  .user-chip { margin: 0 0 0.6rem; padding: 0.3rem 0.75rem; }
+  .user-chip svg { flex: none; }
+  .nav-item { position: relative; padding: 0.42rem 0.8rem; white-space: nowrap; }
+  .nav-item.active { box-shadow: inset -2px 0 var(--accent); }
+  .nav-dot { position: absolute; left: 1.65rem; top: 0.3rem; width: 7px; height: 7px; box-shadow: 0 0 0 2px var(--surface); }
+  .nav-group-title { position: relative; white-space: nowrap; }
+  .nav-group-title::before { content: ""; position: absolute; left: 0.8rem; right: 0.8rem; top: 45%; border-top: 1px solid var(--border); transition: opacity 0.15s; }
+  .rail-pin { display: flex; align-items: center; gap: 0.6rem; margin-top: auto; padding: 0.42rem 0.8rem; color: var(--muted); white-space: nowrap; }
+  .rail-pin[aria-pressed="true"] { color: var(--accent-ink); }
+
+  .brand-text, .chip-text, .nav-label { transition: opacity 0.12s; opacity: 0; }
+  .nav-group-title { color: transparent; transition: color 0.12s; }
+
+  .sidebar:has(:focus-visible),
+  .pinned .sidebar { width: 236px; transition-delay: 0s; }
+  .sidebar:has(:focus-visible) { box-shadow: 6px 0 28px rgba(0, 0, 0, 0.2); }
+  .pinned .rail { width: 236px; }
+  .sidebar:has(:focus-visible) :is(.brand-text, .chip-text, .nav-label),
+  .pinned .sidebar :is(.brand-text, .chip-text, .nav-label) { opacity: 1; transition-delay: 0.1s; }
+  .sidebar:has(:focus-visible) .nav-group-title,
+  .pinned .sidebar .nav-group-title { color: var(--muted); transition-delay: 0.1s; }
+  .sidebar:has(:focus-visible) .nav-group-title::before,
+  .pinned .sidebar .nav-group-title::before { opacity: 0; }
+}
+@media (min-width: 901px) and (hover: hover) and (pointer: fine) {
+  .sidebar:hover { width: 236px; transition-delay: 0.12s; box-shadow: 6px 0 28px rgba(0, 0, 0, 0.2); }
+  .pinned .sidebar:hover { box-shadow: none; }
+  .sidebar:hover :is(.brand-text, .chip-text, .nav-label) { opacity: 1; transition-delay: 0.2s; }
+  .sidebar:hover .nav-group-title { color: var(--muted); transition-delay: 0.2s; }
+  .sidebar:hover .nav-group-title::before { opacity: 0; }
+}
+@media (min-width: 901px) and (hover: none) {
+  .rail, .sidebar { width: 236px; }
+  .sidebar :is(.brand-text, .chip-text, .nav-label) { opacity: 1; }
+  .sidebar .nav-group-title { color: var(--muted); }
+  .sidebar .nav-group-title::before, .rail-pin { display: none; }
+}
+@media (min-width: 901px) and (prefers-reduced-motion: reduce) {
+  .sidebar, .brand-text, .chip-text, .nav-label, .nav-group-title { transition: none; }
+}
