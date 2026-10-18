@@ -500,7 +500,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   const link = map.links.find((l) => l.id === id && l.kind === 'be')
   if (link) {
     return (
-      <Card title={`${link.from.slice(3)} → ${link.to.slice(3)}`} icon={Route}>
+      <Card className="data-title" title={`${link.from.slice(3)} → ${link.to.slice(3)}`} icon={Route}>
         <p className="muted small">The rules that send this frontend&apos;s traffic to this backend:</p>
         <Rules rules={link.rules} />
       </Card>
@@ -524,7 +524,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
 
   if (n.kind === 'hub') {
     return (
-      <Card title={title} icon={Icon}>
+      <Card className="data-title" title={title} icon={Icon}>
         {hap?.up ? (
           <dl className="kv">
             <Row k="Version">{hap.version}</Row>
@@ -547,7 +547,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   if (n.kind === 'iface') {
     const s = n.status
     return (
-      <Card title={title} icon={Icon}>
+      <Card className="data-title" title={title} icon={Icon}>
         <dl className="kv">
           <Row k="State">{s ? (!s.up ? 'down' : s.carrier ? 'up' : 'no carrier') : null}</Row>
           <Row k="Kind">{s ? (s.vlan_parent ? `VLAN ${s.vlan_id} on ${s.vlan_parent}` : s.kind) : null}</Row>
@@ -564,7 +564,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
     const out = graph.links.filter((l) => l.from === n.id)
     const open = graph.unresolved.filter((u) => u.frontend === n.name)
     return (
-      <Card title={title} icon={Icon}>
+      <Card className="data-title" title={title} icon={Icon}>
         <dl className="kv">
           <Row k="Status">{r.status}</Row>
           <Row k={n.listen ? 'Listen' : 'Mode'}>{n.listen ? `a listen section · ${n.mode}` : n.mode}</Row>
@@ -600,7 +600,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   if (n.kind === 'be') {
     const from = graph.links.filter((l) => l.to === n.id)
     return (
-      <Card title={title} icon={Icon}>
+      <Card className="data-title" title={title} icon={Icon}>
         <dl className="kv">
           <Row k="Status">{r.status}</Row>
           <Row k="Mode">{n.mode}</Row>
@@ -632,7 +632,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   }
   if (n.kind === 'more') {
     return (
-      <Card title={`${n.backend}: ${n.hidden.length} more servers`} icon={Icon}>
+      <Card className="data-title" title={`${n.backend}: ${n.hidden.length} more servers`} icon={Icon}>
         <ul className="flow-rules">
           {n.hidden.map((s) => (
             <li key={s.id}>
@@ -648,7 +648,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   }
   // A server.
   return (
-    <Card title={title} icon={Icon} actions={may('HAProxyService/ServerSetState') ? <ServerStateButtons backend={n.backend} server={n.name} state={r.status} onDone={onChanged} /> : null}>
+    <Card className="data-title" title={title} icon={Icon} actions={may('HAProxyService/ServerSetState') ? <ServerStateButtons backend={n.backend} server={n.name} state={r.status} onDone={onChanged} /> : null}>
       <dl className="kv">
         <Row k="Backend">{go(`be:${n.backend}`)}</Row>
         <Row k="Status">
@@ -691,7 +691,7 @@ function LogDetails({ n, title }) {
   else if (n.via) via = n.linked ? <span className="mono">{n.via}</span> : <span className="mono">{n.via} (not on the map)</span>
   else via = <span className="muted">{st.remote_address ? 'no route says' : 'not connected yet'}</span>
   return (
-    <Card title={title} icon={Icon}>
+    <Card className="data-title" title={title} icon={Icon}>
       <dl className="kv">
         <Row k="State">
           <Badge tone={n.tone === 'off' ? '' : n.tone} dot>

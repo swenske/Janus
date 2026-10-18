@@ -23,7 +23,7 @@ export default function Backends() {
         {backends.map((b) => {
           const servers = b.servers || []
           return (
-            <Card key={b.name} className="backend" title={b.name} icon={Server} actions={<span className="muted small">{servers.length === 1 ? '1 server' : `${servers.length} servers`}</span>}>
+            <Card key={b.name} className="backend data-title" title={b.name} icon={Server} actions={<span className="muted small">{servers.length === 1 ? '1 server' : `${servers.length} servers`}</span>}>
               {servers.length === 0 ? (
                 <div className="muted">No servers.</div>
               ) : (

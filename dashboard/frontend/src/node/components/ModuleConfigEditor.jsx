@@ -156,7 +156,7 @@ function ModuleConfig({ base, file, daemon, starter, applyNote, onApplied, extra
         )}
       </Card>
       {dirty && !saved.is_default && (
-        <Card title={`Changes against the saved ${file}`}>
+        <Card className="data-title" title={`Changes against the saved ${file}`}>
           <DiffView diff={diff} />
         </Card>
       )}

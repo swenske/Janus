@@ -1,8 +1,63 @@
 /* The Controller's own look, over theme.css (shared with the site):
    imported by both of its pages after theme.css and palettes.css. */
 
-/* --- the page --- */
+/* The figures' face: JetBrains Mono (fonts/jetbrains-mono/README.md),
+   never the machine's own - a system "JetBrains Mono" would be another
+   build of it. */
+@font-face {
+  font-family: "Janus Mono";
+  src: url("./fonts/jetbrains-mono/janus-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Janus Mono";
+  src: url("./fonts/jetbrains-mono/janus-mono-600.woff2") format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
+:root { --mono: "Janus Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
+
+/* --- the page: two faint glows from its corners, on a layer of their
+   own (a fixed background would repaint on every scroll) --- */
 body { background: var(--bg); }
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1100px 620px at 8% -8%, var(--glow-1), transparent 62%),
+    radial-gradient(900px 560px at 104% 6%, var(--glow-2), transparent 60%);
+}
+@media (forced-colors: active) { body::before { display: none; } }
+
+/* --- cards: a title in small capitals over a rule; a title that names
+   something (a backend, a file, a flow node: .data-title, or set in
+   .mono) keeps its case --- */
+.card { background: var(--card-bg); box-shadow: var(--card-shadow); }
+.card > .card-header {
+  margin: -0.1rem -1.1rem 0.85rem;
+  padding: 0 1.1rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.card-title { font-size: 0.78rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.card-title svg { color: var(--muted); }
+.card.data-title > .card-header .card-title,
+.modal > .card-header .card-title,
+.card-title:has(.mono) { font-size: 0.95rem; text-transform: none; letter-spacing: normal; color: var(--text); }
+
+/* --- figures --- */
+.stat-label { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.07em; }
+.stat-value { font-family: var(--mono); font-weight: 600; letter-spacing: -0.02em; }
+td.num, th.num, .num { font-family: var(--mono); font-size: 0.92em; font-variant-numeric: tabular-nums; }
+
+/* --- pills: their tint, edged in their own colour --- */
+.badge { border: 1px solid color-mix(in srgb, currentColor 26%, transparent); line-height: 1.35; }
+.badge .dot { width: 6px; height: 6px; box-shadow: 0 0 6px color-mix(in srgb, currentColor 55%, transparent); }
 
 /* --- the symbol (BrandMark) --- */
 .brand-mark { display: block; flex: none; }
