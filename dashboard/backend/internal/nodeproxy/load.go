@@ -10,6 +10,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/nodemetrics"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 )
 
@@ -92,6 +93,67 @@ func ReadLoad(ctx context.Context, node *store.Node) (*Load, error) {
 		return nil, errs[0]
 	}
 	return l, nil
+}
+
+// ReadCounters reads what the node list's curves are drawn from
+// (internal/nodemetrics): node's CPU ticks, the bytes its interfaces
+// moved (the loopback's aside) and HAProxy's requests, in parallel.
+// HAProxy not answering isn't an error - Counters.HAProxy says so.
+func ReadCounters(ctx context.Context, node *store.Node) (*nodemetrics.Counters, error) {
+	conn, err := dialNode(node)
+	if err != nil {
+		return nil, err
+	}
+	sys := janusv1alpha1.NewSystemServiceClient(conn)
+	hap := janusv1alpha1.NewHAProxyServiceClient(conn)
+	c := &nodemetrics.Counters{}
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
+	)
+	fail := func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		errs = append(errs, errors.New(status.Convert(err).Message()))
+	}
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		st, err := sys.SystemStat(ctx, &emptypb.Empty{})
+		if err != nil {
+			fail(err)
+			return
+		}
+		c.TotalTicks, c.IdleTicks = st.GetCpuTotalTicks(), st.GetCpuIdleTicks()
+	}()
+	go func() {
+		defer wg.Done()
+		n, err := sys.NetworkDeviceStats(ctx, &emptypb.Empty{})
+		if err != nil {
+			fail(err)
+			return
+		}
+		for _, d := range n.GetDevices() {
+			if d.GetName() != "lo" {
+				c.RxBytes += d.GetRxBytes()
+				c.TxBytes += d.GetTxBytes()
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		i, err := hap.ShowInfo(ctx, &emptypb.Empty{})
+		if err != nil {
+			return
+		}
+		c.Requests, c.HAProxy = i.GetCumulativeRequests(), true
+	}()
+	wg.Wait()
+	if len(errs) > 0 {
+		return nil, errs[0]
+	}
+	return c, nil
 }
 
 // HAProxyConfig is node's HAProxy configuration.
