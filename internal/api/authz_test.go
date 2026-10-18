@@ -120,6 +120,7 @@ func TestOperatorRole(t *testing.T) {
 		"/janus.v1alpha1.SystemService/Reset":                       codes.PermissionDenied,
 		"/janus.v1alpha1.SystemService/Read":                        codes.PermissionDenied,
 		"/janus.v1alpha1.SystemService/PacketCapture":               codes.PermissionDenied,
+		"/janus.v1alpha1.SystemService/Probe":                       codes.OK,
 		"/janus.v1alpha1.SystemService/GenerateClientConfiguration": codes.PermissionDenied,
 		"/janus.v1alpha1.LifecycleService/Upgrade":                  codes.PermissionDenied,
 		"/janus.v1alpha1.NetworkService/NetworkConfigApply":         codes.PermissionDenied,
@@ -131,6 +132,9 @@ func TestOperatorRole(t *testing.T) {
 	}
 	if got := status.Code(checkRole(peerWith(&x509.Certificate{Subject: pkix.Name{Organization: []string{"os:reader"}}}), "/janus.v1alpha1.SystemService/Logs")); got != codes.PermissionDenied {
 		t.Errorf("reader reading logs: %v", got)
+	}
+	if got := status.Code(checkRole(peerWith(&x509.Certificate{Subject: pkix.Name{Organization: []string{"os:reader"}}}), "/janus.v1alpha1.SystemService/Probe")); got != codes.PermissionDenied {
+		t.Errorf("reader probing: %v", got)
 	}
 }
 

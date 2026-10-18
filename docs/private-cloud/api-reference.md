@@ -157,7 +157,7 @@ SystemService is the reduced, non-Kubernetes equivalent of Talos's MachineServic
 | `ServiceStop` | `ServiceRequest` → `ServiceResponse` | `os:operator` | services | ServiceStop stops a managed service - haproxy after a soft stop; never janusd (FailedPrecondition: Restart restarts it). |
 | `ServiceRestart` | `ServiceRequest` → `ServiceResponse` | `os:operator` | services | ServiceRestart restarts a managed service. |
 
-List, Read, Copy and PacketCapture are the deliberate, narrow replacements for an interactive shell: read-only, scoped, never arbitrary command execution. None of them serves the node's secrets.
+List, Read, Copy, PacketCapture and Probe are the deliberate, narrow replacements for an interactive shell: read-only or a bounded test, scoped, never arbitrary command execution. None of them serves the node's secrets.
 
 | Call | Request → response | Role | Domain | What it does |
 |---|---|---|---|---|
@@ -165,6 +165,7 @@ List, Read, Copy and PacketCapture are the deliberate, narrow replacements for a
 | `Read` | `ReadRequest` → `stream Data` | `os:admin` | system | Read streams a file's content - never a device's. |
 | `Copy` | `CopyRequest` → `stream Data` | `os:admin` | system | Copy streams a file or a directory as a tar archive - never from /proc or /sys. |
 | `PacketCapture` | `PacketCaptureRequest` → `stream Data` | `os:admin` | system | PacketCapture streams a live capture as a pcap file (classic libpcap format, microsecond timestamps), split across Data messages - concatenate them to get a file tcpdump/Wireshark read directly. Runs for duration_seconds, or until the client cancels. |
+| `Probe` | `ProbeRequest` → `stream ProbeEvent` | `os:operator` | network | Probe tests the network from the node - a DNS lookup, a TCP connection, a TLS handshake, an HTTP request, ICMP echo requests, a traceroute - from its routes, resolver and addresses, and streams each step timed, then a "done". Bounded: 60 s, 20 echo requests, one HTTP request without a body, 4 probes at once per node. |
 | `MetaWrite` | `MetaWriteRequest` → `Empty` | `os:admin` | system | MetaWrite is not implemented - it answers Unimplemented: a node has no META partition for small key/value entries. |
 | `MetaDelete` | `MetaDeleteRequest` → `Empty` | `os:admin` | system | MetaDelete is not implemented - it answers Unimplemented, like MetaWrite. |
 | `GenerateClientConfiguration` | `GenerateClientConfigurationRequest` → `GenerateClientConfigurationResponse` | `os:admin` | system | GenerateClientConfiguration issues a client certificate signed by this node's CA (see internal/pki), for the given roles, named after who it's for and valid one year or less. |

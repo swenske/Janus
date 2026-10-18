@@ -629,6 +629,12 @@ jobs:
       - name: SystemService.PacketCapture captures real traffic
         run: make qemu-packet-capture-test
 
+      # SystemService.Probe on a real enforcing node: HTTP, TLS, DNS,
+      # TCP against this runner, ping and traceroute from its raw ICMP
+      # socket, a reader refused. See hack/qemu-probe-test.sh.
+      - name: SystemService.Probe tests the network from the node
+        run: make qemu-probe-test
+
       # The node's own Prometheus exporter on a real enforcing node: real
       # values, moved through the API, persisted across a reboot. See
       # hack/qemu-metrics-test.sh and docs/metrics.md.

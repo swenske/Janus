@@ -65,6 +65,7 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.SystemService/Read":                        adminOnly, // can read secrets/keys
 	"/janus.v1alpha1.SystemService/Copy":                        adminOnly, // can read secrets/keys
 	"/janus.v1alpha1.SystemService/PacketCapture":               adminOnly, // can capture unencrypted traffic
+	"/janus.v1alpha1.SystemService/Probe":                       operators, // connects where it's told - as a backend an operator configures does
 	"/janus.v1alpha1.SystemService/MetaWrite":                   adminOnly,
 	"/janus.v1alpha1.SystemService/MetaDelete":                  adminOnly,
 	"/janus.v1alpha1.SystemService/GenerateClientConfiguration": adminOnly, // issuing credentials is itself a privileged operation
