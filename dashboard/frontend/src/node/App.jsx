@@ -23,7 +23,6 @@ import {
   PinOff,
   Power,
   Radar,
-  RefreshCw,
   Route,
   ScrollText,
   Send,
@@ -40,6 +39,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
 import BrandMark from '../shared/BrandMark.jsx'
+import RefreshButton from '../shared/RefreshButton.jsx'
 import ThemePicker from '../shared/ThemePicker.jsx'
 import { Badge, Loading } from '../shared/ui.jsx'
 import { useSplash, useSplashStep } from '../shared/Splash.jsx'
@@ -156,16 +156,8 @@ function RefreshSelect() {
   const { recheck } = useNodeStatus()
   return (
     <div className="refresh">
-      <button
-        className="ghost icon"
-        title="Refresh now"
-        onClick={() => {
-          refresh()
-          recheck()
-        }}
-      >
-        <RefreshCw size={16} />
-      </button>
+      <RefreshButton onRefresh={() => Promise.all([refresh(), recheck()])} />
+      <ThemePicker />
       <select value={interval} onChange={(e) => setInterval(Number(e.target.value))} title="Auto-refresh interval">
         {INTERVALS.map((i) => (
           <option key={i.ms} value={i.ms}>
@@ -323,7 +315,6 @@ export default function App() {
           </div>
           <span className="grow" />
           <RefreshSelect />
-          <ThemePicker />
         </header>
         {error && !ended && (
           <div className="banner danger">

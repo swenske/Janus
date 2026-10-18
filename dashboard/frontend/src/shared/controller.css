@@ -181,3 +181,8 @@ p a, li a, .notice a, .muted a, .small a { text-decoration: underline; text-deco
 
 /* --- buttons --- */
 button.danger.solid { background: var(--danger-solid); border-color: var(--danger-solid); color: #fff; }
+
+/* A refresh that did something (RefreshButton). */
+.refresh-button.done { color: var(--ok); }
+.refresh-button.busy svg { color: var(--accent-ink); }
+@media (prefers-reduced-motion: reduce) { .refresh-button .spin { animation: none; } }

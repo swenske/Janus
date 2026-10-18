@@ -8,7 +8,6 @@ import {
   KeyRound,
   LogOut,
   Plus,
-  RefreshCw,
   Rocket,
   ScrollText,
   Send,
@@ -30,6 +29,7 @@ import { FleetCard, FleetSetup, TrustBadge } from './Fleet.jsx'
 import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
 import { navigate, useHashRoute } from './shared/route.js'
 import BrandMark from './shared/BrandMark.jsx'
+import RefreshButton from './shared/RefreshButton.jsx'
 import ThemePicker from './shared/ThemePicker.jsx'
 import NodeSparklines from './NodeSparklines.jsx'
 import { useNodeMetrics } from './nodeMetrics.js'
@@ -921,7 +921,7 @@ function MainApp() {
     }
   }, [isReader])
   const refreshStatus = useCallback((hvs) => {
-    call('/api/nodes/status', { background: true })
+    const done = call('/api/nodes/status', { background: true })
       .then((s) => setStatuses(s || {}))
       .catch(() => {})
       .finally(() => setStatusLoaded(true))
@@ -931,6 +931,7 @@ function MainApp() {
         .then((st) => setHvStatus((all) => ({ ...all, [hv.id]: st })))
         .catch(() => {})
     }
+    return done
   }, [])
   const isAdmin = can('admin')
   // The header's Refresh: the releases asked from GitHub again too, past
@@ -941,7 +942,7 @@ function MainApp() {
       call('/api/backups', { background: true })
         .then(setBackups)
         .catch(() => {})
-    refreshStatus(await refresh())
+    return refreshStatus(await refresh())
   }, [refresh, refreshStatus, isAdmin])
 
   // Faster while a machine is being created or destroyed: its phase moves
@@ -1051,16 +1052,13 @@ function MainApp() {
           )}
         </div>
         <span className="grow" />
-        <button
-          className="ghost icon"
+        <RefreshButton
           title="Refresh"
-          onClick={() => {
-            reload()
+          onRefresh={() => {
             setCheckNow((n) => n + 1)
+            return reload()
           }}
-        >
-          <RefreshCw size={16} />
-        </button>
+        />
         <ThemePicker />
         <AccountButton />
         <button className="ghost" onClick={signOut}>

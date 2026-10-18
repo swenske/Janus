@@ -178,6 +178,8 @@ export function MetricsProvider({ children }) {
   const [tick, setTick] = useState(0)
   // One clock for every chart of the page: they scroll together.
   const [clock] = useState(() => new ServerClock())
+  // refresh's callers, waiting for the next sample.
+  const waiting = useRef([])
 
   useEffect(() => {
     let cancelled = false
@@ -202,6 +204,9 @@ export function MetricsProvider({ children }) {
       } catch (err) {
         if (!cancelled) setError(err)
       }
+      const done = waiting.current
+      waiting.current = []
+      for (const resolve of done) resolve()
       if (!cancelled && interval > 0 && visible) timer = setTimeout(run, interval)
     }
     run()
@@ -211,7 +216,16 @@ export function MetricsProvider({ children }) {
     }
   }, [interval, visible, tick, clock])
 
-  const refresh = useCallback(() => setTick((t) => t + 1), [])
+  // refresh samples now; its promise is the sample's (5 s at most).
+  const refresh = useCallback(
+    () =>
+      new Promise((resolve) => {
+        waiting.current.push(resolve)
+        setTick((t) => t + 1)
+        setTimeout(resolve, 5000)
+      }),
+    [],
+  )
   const clear = useCallback(() => {
     prevRaw.current = null
     clock.reset()
@@ -249,7 +263,7 @@ export function NodeStatusProvider({ children }) {
   }, [reloadOverview, reloadCheck])
   const recheck = useCallback(() => {
     reloadOverview()
-    getJSON('/api/update-check?refresh=1')
+    return getJSON('/api/update-check?refresh=1')
       .catch(() => {})
       .finally(reloadCheck)
   }, [reloadOverview, reloadCheck])
