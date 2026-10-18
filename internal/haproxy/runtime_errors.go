@@ -185,11 +185,8 @@ func escapedWidth(s string) int {
 	return 2
 }
 
-// maskedValue stands in for a credential header's value.
-const maskedValue = "<redacted>"
-
 // maskCredentials replaces the value of a credential header - on its
-// line and on the lines continuing it - by maskedValue, keeping the
+// line and on the lines continuing it - by Redacted, keeping the
 // escaped line end.
 func maskCredentials(lines []ErrorLine) {
 	masking := false
@@ -215,7 +212,7 @@ func maskCredentials(lines []ErrorLine) {
 		}
 		value := l.Text[start:end]
 		lead := len(value) - len(strings.TrimLeft(value, " "))
-		l.Text = l.Text[:start+lead] + maskedValue + l.Text[end:]
+		l.Text = l.Text[:start+lead] + Redacted + l.Text[end:]
 		if l.ErrorAt > start+lead {
 			l.ErrorAt = start + lead
 		}
