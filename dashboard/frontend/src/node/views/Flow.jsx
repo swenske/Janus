@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, LayoutDashboard, Layers, Route, Scaling, ScrollText, Server, Shuffle, SquareTerminal, Users, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, LayoutDashboard, Layers, Route, Scaling, ScrollText, Server, SquareTerminal, Users, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getJSON } from '../api.js'
 import ServerStateButtons from '../components/ServerStateButtons.jsx'
@@ -29,10 +29,12 @@ import {
 import { useMetrics, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import { useReducedMotion } from '../../shared/chart/motion.js'
+import BrandMark from '../../shared/BrandMark.jsx'
 
-const ICONS = { api: SquareTerminal, log: ScrollText, iface: EthernetPort, hub: Shuffle, fe: Globe, be: Layers, srv: Server, more: Ellipsis }
-const ICON_SIZE = { api: 18, log: 18, iface: 18, hub: 26, fe: 18, be: 18, srv: 13, more: 13 }
-const KIND = { api: 'API', log: 'Log target', iface: 'Interface', hub: 'HAProxy', fe: 'Frontend', be: 'Backend', srv: 'Server', more: 'Servers' }
+// The middle node is Janus's: its symbol, in the palette's colours.
+const ICONS = { api: SquareTerminal, log: ScrollText, iface: EthernetPort, hub: BrandMark, fe: Globe, be: Layers, srv: Server, more: Ellipsis }
+const ICON_SIZE = { api: 18, log: 18, iface: 18, hub: 34, fe: 18, be: 18, srv: 13, more: 13 }
+const KIND = { api: 'API', log: 'Log target', iface: 'Interface', hub: 'Janus', fe: 'Frontend', be: 'Backend', srv: 'Server', more: 'Servers' }
 const PROTO = { http: 'HTTP', tcp: 'TCP' }
 // The zoom (ctrl + scroll, the buttons): the map's drawn size, from
 // arrange's to these; a step of the buttons.
@@ -860,7 +862,7 @@ function Legend() {
     <div className="flow-legend">
       <div className="flow-legend-row">
         {[
-          ['iface', 'Interface · HAProxy'],
+          ['iface', 'Interface · Janus'],
           ['fe', 'Frontend'],
           ['be', 'Backend'],
           ['srv', 'Server'],

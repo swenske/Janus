@@ -486,7 +486,8 @@ scroll.
 
 Monitoring › Traffic flow (`views/Flow.jsx`, the logic in `flow.js` -
 pure, `npm test`) draws the node in one of three shapes: columns left
-to right - interfaces, HAProxy, frontends, backends, servers - with the
+to right - interfaces, Janus (its HAProxy: the node in the middle, the
+symbol in the palette's colours), frontends, backends, servers - with the
 labels under the nodes (`across`) or beside them (`dense`: a name above
 the line its links leave by, the numbers below it, rows half as tall,
 for many backends), or rows top to bottom (`down`), the backends'
@@ -499,7 +500,7 @@ whole in the window the biggest, between 75 % and 150 % of its size
 (any at full size or more counting as one, the earlier shape winning
 when nearly as big); when none can be whole, the first as wide as its
 card down to 85 %, the page scrolling down it; else the one overflowing
-less, scrolling in its card, opened on HAProxy. **Horizontal** keeps to
+less, scrolling in its card, opened on Janus. **Horizontal** keeps to
 the two left-to-right shapes, **Vertical** to top to bottom. The page
 drops its 1500 px limit for it: a full screen is room. With the panel
 below, a selected node's details are pinned to the window's bottom,

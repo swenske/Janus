@@ -648,7 +648,7 @@ function layoutAcross(graph, ifaces, servers, peers) {
   const span = (ifaces.length - 1) * ROW
   const first = Math.max(TOP + ROW / 2, mid - span / 2)
   const hubY = Math.max(mid, TOP + R.hub + 4)
-  const hub = put({ id: 'hub', kind: 'hub', name: 'HAProxy', x: X.hub, y: hubY, r: R.hub })
+  const hub = put({ id: 'hub', kind: 'hub', name: 'Janus', x: X.hub, y: hubY, r: R.hub })
   ifaces.forEach((it, i) => {
     const n = put({ ...it, x: X.iface, y: first + i * ROW, r: R.iface })
     links.push({ id: `${n.id}>hub`, from: n.id, to: 'hub', kind: 'iface' })
@@ -755,7 +755,7 @@ function layoutDown(graph, ifaces, servers, peers) {
   // HAProxy above the middle of its frontends, the interfaces above it.
   const xs = (graph.frontends.length ? graph.frontends : ordered).map((n) => byId[n.id].x)
   const mid = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0
-  const hub = put({ id: 'hub', kind: 'hub', name: 'HAProxy', x: mid, y: hubY, r: R.hub })
+  const hub = put({ id: 'hub', kind: 'hub', name: 'Janus', x: mid, y: hubY, r: R.hub })
   const step = ifaces.length ? Math.max(...ifaces.map((it) => reach({ ...it, r: R.iface }))) + GAP + R.iface : 0
   ifaces.forEach((it, i) => {
     const n = put({ ...it, x: mid + (i - (ifaces.length - 1) / 2) * step, y: ifY, r: R.iface })
