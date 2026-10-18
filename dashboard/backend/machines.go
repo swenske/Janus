@@ -641,6 +641,7 @@ func (r *machineRunner) forget(ctx context.Context, id string) error {
 func (a *app) removeNode(_ context.Context, id string) error {
 	a.forgetNodePage(id)
 	nodeproxy.Forget(id)
+	a.nodeMetrics.Forget(id)
 	return a.store.Remove(id)
 }
 

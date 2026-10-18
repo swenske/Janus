@@ -8,7 +8,7 @@ it in one click with the updater (see [Updating the
 Controller](#updating-the-controller)). Each node then has its own page,
 with a sidebar:
 
-![The Controller's node list: three nodes online, each with its labels, version, HAProxy health, uptime and fleet trust, then the fleet's state](../docs/assets/screenshots/controller-nodes-light.webp)
+![The Controller's node list: three nodes online, each with its last minutes of CPU, requests and traffic, its labels, version, HAProxy health, uptime and fleet trust, then the fleet's state](../docs/assets/screenshots/controller-nodes-light.webp)
 
 - **Monitoring** - an overview, live charts (CPU, memory, load, network,
   HAProxy requests/connections/rates; refresh selectable from 1 s to
@@ -31,14 +31,18 @@ with a sidebar:
   serving), reboot, shut down, reset - with the page following the node
   until it's back.
 
-![A node's overview: CPU, memory, HAProxy connections and uptime, live charts of CPU and memory, HAProxy traffic and the network, and the node's release, kernel and CPU](../docs/assets/screenshots/node-overview-light.webp)
+![A node's overview: its traffic across the top, gauges of its CPU, memory and STATE, HAProxy connections and uptime, live charts of CPU and memory and HAProxy traffic, and the node's release, kernel and CPU](../docs/assets/screenshots/node-overview-light.webp)
 
 A node's page is on the Controller's own address, under
 `/nodes/<id>/`, behind your account - no certificate in the browser. The
 Controller acts on the node for your account, with its role there
 (`os:reader`, `os:operator`, `os:admin`), and the node logs who acted.
 
-Light and dark themes follow the system, or can be chosen per browser.
+Eighteen palettes - Janus (the default), Abysse, and the well-known
+ones from Ayu to Tomorrow (Dracula, Gruvbox, Nord, Solarized, Tokyo
+Night…) - each light and dark, the mode following the system or chosen,
+per browser; T takes the next one. A node's charts move continuously while its page
+samples it, and the node list shows each node's last five minutes.
 Design principles and how to verify a UI change:
 [`docs/controller-ui.md`](../docs/controller-ui.md).
 

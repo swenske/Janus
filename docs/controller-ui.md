@@ -31,10 +31,18 @@ else from `src/shared/`:
   `--accent`, `--ok`/`--warn`/`--danger`/`--info` and their `-soft`
   backgrounds, `--chart-1..5`) and the base components (cards, buttons,
   inputs, badges, tables, notices, meters). Colors come from the logo:
-  warm off-white and near-black, and the brand orange (`#C2502A`,
-  `#D8643C` in dark mode).
+  warm off-white and near-black, and the brand orange (`#C2502A`).
+  **The site imports it too** (`site/`): its colours are the Janus
+  palette's, and a change to it, `theme.jsx` or `ui.jsx` changes the
+  site's build.
 - `theme.jsx` - `ThemeToggle` (system → light → dark, remembered per
-  browser) and `Logo`.
+  browser) and `Logo`: the site's; the Controller has its own (below).
+- The Controller's own, imported by both of its pages after
+  `theme.css` (never by the site): see [Appearance](#appearance) -
+  `palettes.css`, `appearance.js`, `ThemePicker.jsx`, `BrandMark.jsx`,
+  `controller.css` (its look over theme.css: cards, pills, figures,
+  the page's glows, gauges), `Gauge.jsx`, and `chart/` - the charts
+  ([Charts](#charts)).
 - `ui.jsx` - `Card`, `Stat`, `Badge` (+ `stateTone`), `Tabs`,
   `PageHeader`, `Meter`, `Loading`/`ErrorBox`/`Empty`, toasts
   (`useToast`), the confirmation dialog (`useConfirm`) and `useAction`
@@ -48,13 +56,71 @@ else from `src/shared/`:
 
 Rules:
 
-- **Use the tokens, never raw colors.** Every color must work in both
-  themes; dark mode is not an afterthought. Check new screens in both.
+- **Use the tokens, never raw colors.** Every color must work in every
+  palette, light and dark; dark mode is not an afterthought. Check new
+  screens in several (`hack/ui-preview.sh check` walks them all). A new
+  token goes in every block of `palettes.css` - `npm test` holds each
+  one to the same tokens and to WCAG AA.
 - **Reuse the shared primitives** before writing new ones. Something
   both pages could use goes in `src/shared/`.
 - Icons come from `lucide-react` (tree-shaken, only what's imported ships).
 - No UI or chart library beyond that: the chart is our own SVG component
-  (`src/node/components/Chart.jsx`) - small, and it does what we need.
+  (`src/shared/chart/`) - small, and it does what we need.
+- **A card's title is set in small capitals** (`controller.css`); one
+  that names something - a backend, a file, a certificate, a flow node -
+  keeps its case: `className="data-title"` on its `Card`, or a title in
+  `.mono`. Figures are in the monospace face (`--mono`: JetBrains Mono,
+  shipped with the pages - `src/shared/fonts/jetbrains-mono/README.md`).
+
+### Appearance
+
+Eighteen palettes, each light and dark (`palettes.css`): **Janus** -
+the default, theme.css's own colours -, **Abysse** (a deep night blue,
+slightly translucent cards, cyan and green), and the well-known ones,
+each from its makers' colours, light and dark: Ayu, Catppuccin
+(Latte, Mocha), Dracula (Alucard, Dracula), Everforest, Flexoki,
+GitHub, Gruvbox, Kanagawa (Lotus, Wave), Night Owl (Light Owl, Night
+Owl), Nightfox (Dayfox, Nightfox), Nord, One (Light, Dark), Rosé Pine
+(Dawn, Main), Solarized, Tokyo Night (Day, Night) and Tomorrow - a
+colour that falls short of AA here moved in lightness just enough, its
+hue kept. The top bar's palette button (`ThemePicker`, on both pages and the
+sign-in screen) chooses the mode - the system's, light or dark - and the
+palette, from tiles drawn in each palette's own colours - and **T**,
+anywhere but in a field, takes the next palette, shift+T the previous,
+its name said a moment at the window's foot (a key alone: the picker
+turns it off, WCAG 2.1.4; `janus-palette-shortcut`): a block of
+`palettes.css` applies to any element carrying `data-palette` and
+`data-theme`, not only to the page. Remembered per browser
+(`appearance.js`: `janus-theme`, the site's key for the mode, and
+`janus-palette`) and followed at once by every open page of the
+Controller (`storage` events) and by the system turning dark.
+
+`<html>` always carries the palette and the mode in effect
+(`data-palette`, `data-theme`), set before the page paints by
+`public/theme-boot.js` - a module script runs too late, and a dark
+palette would flash the light default; keep its lists equal to
+`appearance.js`' (a test runs it). `BrandMark` draws the symbol in the
+palette's accent and text colours (the favicon follows only the system's
+mode).
+
+Every block defines the same tokens - theme.css's, plus the Controller's
+own: `--card-bg` (a card's background, translucent in Abysse;
+`--surface` stays opaque for sticky table headers and inputs),
+`--card-shadow`, `--glow-1`/`--glow-2` (the page's two faint glows),
+`--danger-solid` (a solid danger button's fill) and the traffic flow's
+`--flow-tcp`/`--flow-log`/`--flow-api`. `palettes.test.js` holds each
+block to WCAG AA: text and muted text 4.5:1 on the page and its
+surfaces, `--accent-ink` and the status colours 4.5:1 on the page and
+on their `-soft` tints (composited), a danger button's text, the
+accent 3:1, chart colours 3:1 on a card, a flow badge's text 4.5:1 -
+and theme.css to the Janus blocks.
+
+**Gauges** (`Gauge.jsx`, `GaugeStat`): how full something is, a half
+circle of 28 segments lit from the left in a chart colour, amber past
+75 % and red past 90 % (Meter's thresholds), a `meter` to assistive
+technology - a node's CPU, memory and STATE on its Overview, each
+writable filesystem on Storage, a hypervisor's CPU, memory and pool.
+`Meter` stays for bars in tables and relative sizes.
 
 ## The main page
 
@@ -63,7 +129,9 @@ Three tabs (hash routes `#/`, `#/hypervisors`, `#/tokens`), and two more for an 
 **Nodes**: until the fleet is set up, **Secure your fleet**
 (`Fleet.jsx`: create it, store the recovery kit and its passphrase,
 give both back - `/api/fleet/*`, session only); pending approvals, then
-the nodes as cards - each with its **Trust** once the fleet is ready
+the nodes as cards - each with its last five minutes (CPU, HAProxy's
+requests, its traffic: `NodeSparklines`, see [Live data](#live-data))
+and its **Trust** once the fleet is ready
 (`fleet`, `needs an update`, an error) - then the **Fleet** card and
 provisioning. A node the Controller created on a hypervisor shows its
 virtual machine on its card (state, reset/force-off/start, console) and
@@ -265,7 +333,13 @@ confirmation repeats the warning; the Controller's `POST` needs
 Hash routing (`#/haproxy/config`, `#/tools/files?path=/etc`), a sidebar
 grouped by intent, and a sticky top bar with the node's identity, health
 badges, version (and available update), the refresh interval and the
-theme toggle:
+appearance picker. On a wide screen with a mouse the sidebar is a rail
+of its icons (`rail.js`, `node.css`) that opens over the page - never
+pushing it - while the pointer or the keyboard's focus is in it, or
+stays open pinned ("Keep it open", remembered per browser as
+`janus-sidebar`); folding moves nothing - the labels only fade, still
+read by assistive technology. A touch screen keeps it open, a narrow one
+has its drawer. Its groups:
 
 - **Monitoring** - overview, metrics, traffic flow, processes, network,
   storage
@@ -412,7 +486,8 @@ scroll.
 
 Monitoring › Traffic flow (`views/Flow.jsx`, the logic in `flow.js` -
 pure, `npm test`) draws the node in one of three shapes: columns left
-to right - interfaces, HAProxy, frontends, backends, servers - with the
+to right - interfaces, Janus (its HAProxy: the node in the middle, the
+symbol in the palette's colours), frontends, backends, servers - with the
 labels under the nodes (`across`) or beside them (`dense`: a name above
 the line its links leave by, the numbers below it, rows half as tall,
 for many backends), or rows top to bottom (`down`), the backends'
@@ -425,7 +500,7 @@ whole in the window the biggest, between 75 % and 150 % of its size
 (any at full size or more counting as one, the earlier shape winning
 when nearly as big); when none can be whole, the first as wide as its
 card down to 85 %, the page scrolling down it; else the one overflowing
-less, scrolling in its card, opened on HAProxy. **Horizontal** keeps to
+less, scrolling in its card, opened on Janus. **Horizontal** keeps to
 the two left-to-right shapes, **Vertical** to top to bottom. The page
 drops its 1500 px limit for it: a full screen is room. With the panel
 below, a selected node's details are pinned to the window's bottom,
@@ -442,9 +517,12 @@ back - a reload): `default_backend` (a `defaults` section's too),
 `use_backend %[...]` through the maps it reads - directly or through a
 `set-var` - whose values name the backends and whose keys say for what
 (`/api/haproxy/maps/<path>`, every 30 s). A `use_backend` nothing
-resolves is said in the frontend's details. Links pulse where traffic
-goes (the more bytes, the thicker and faster - drawn still under
-`prefers-reduced-motion`); a backend fed by several frontends has its
+resolves is said in the frontend's details. Where traffic goes, a link
+is lit and particles run along it - glowing dots with a short trail,
+closer together and faster the more bytes (`flow.js` `particles`: as
+many as fit the link's length at that spacing, at most eight), each an
+SVG `animateMotion` (no script runs a frame); under
+`prefers-reduced-motion` the link is only lit. A backend fed by several frontends has its
 traffic on each link at most the smaller side's, as HAProxy doesn't
 count the split. A link's colour is its protocol's - HTTP the accent,
 TCP `--flow-tcp`, logs `--flow-log` (tokens of `node.css`, each 3:1 on
@@ -501,7 +579,8 @@ both tests.
 ### Live data
 
 - **Polling** follows the global refresh interval (Off, 1 s … 30 s,
-  remembered per browser) through `usePoll`, and pauses while the tab is
+  every second by default, remembered per browser) through `usePoll`,
+  and pauses while the tab is
   hidden. Use a longer fixed `every` only for slow-changing data. A
   failed poll is retried after 5 s at most, so a node coming back from
   a reboot replaces what it left on screen quickly.
@@ -526,8 +605,69 @@ both tests.
   counter going backwards (HAProxy reload) gives no point rather than a
   negative rate.
 - **Charts** leave gaps where data is missing (e.g. during a reboot)
+  and where samples are more than 2.5 intervals apart (a hidden tab),
   instead of drawing a line through them, follow the data until the time
-  window is full, and use binary steps for bytes.
+  window is full, and use binary steps for bytes - see [Charts](#charts).
+  Each sample carries its interval (`iv`); `MetricsProvider` gives every
+  chart of the page one clock (`clock`), so they scroll together.
+- **Metrics' breakdowns** (`breakdown.js`, `Donut`): below the charts,
+  what HAProxy's own counters say since it started (`/api/haproxy/
+  stats`, every 5 s; HAProxyService/Stats): its frontends' responses by
+  status class, their requests by HTTP version, their TLS handshakes -
+  full, resumed (`ssl_sess` counts the new sessions only, the resumed
+  ones in `ssl_reused_sess`), failed -, the bytes each backend moved,
+  and how fast each backend answers (averages over its last 1024
+  requests). No counter says which TLS version or cipher a connection
+  used: only the access log does (`%sslv`, `%sslc`).
+- **The node list's curves** (`NodeSparklines.jsx`, `nodeMetrics.js`):
+  `GET /api/nodes/metrics` - each node the account sees, its last
+  minutes of CPU, HAProxy requests and traffic, from the Controller's
+  sampler (below), asked only for what's newer (`?since=`), at the
+  sampler's pace, only while the Nodes tab shows - each request keeps
+  the sampling going -, as a background request.
+
+### Charts
+
+`src/shared/chart/`: `Chart` (and `Sparkline`, a chart reduced to its
+curve), its arithmetic in `math.js` (unit-tested), one animation loop
+for every chart (`scheduler.js`).
+
+- **They move continuously** while the page samples: the time axis
+  scrolls every frame, its right edge about one sampling interval behind
+  the samples' clock (`ServerClock`: the Controller's, a sample's time
+  being when it asked the node; the browser's offset smoothed) - each
+  new sample is already there, just off the edge, when the line reaches
+  it, so the line grows instead of jumping a step per sample. The edge
+  keeps to 0.75-1.25 times the real pace, never goes back, and stops at
+  the newest sample when samples stop; the value axis eases to a new
+  scale.
+- **Curves are monotone cubics** (Steffen's tangents): between two
+  samples the line stays between their values - never below zero beside
+  a burst, never past 100 % - the first series' area (or any with
+  `fill`) fading down to the baseline.
+- **Cheap frames**: a chart builds its paths once per sample, in the
+  samples' own units; a frame sets one transform on them (the lines
+  keep their width, `vector-effect`), the time ticks' and the hovered
+  sample's - set directly, no render. Asleep off screen
+  (IntersectionObserver) and in a hidden tab.
+- **Still** - redrawn per sample, the edge on the newest sample - under
+  "reduce motion", with sampling off, or `motion="static"`: what the
+  docs' screenshots take (Playwright's clock drives animation frames
+  too).
+- Value axes end on round quarters (`niceMax`), time ticks on round
+  times, scrolling with the data and fading at the ends; the left margin
+  is the widest label's.
+- Every series has its area, fading down to the baseline. The legend
+  shows the newest figures, each in room of its own (a changing value
+  never moves the next); hovering shows the sample under the pointer -
+  its time and values - in a tooltip beside it, on the side it fits,
+  riding with the sample as it scrolls.
+- **The time shown**: Overview and Metrics share one choice
+  (`WindowPicker`, `chartWindow.js`: 1 min - the default -, 5 min,
+  15 min, all the history kept), remembered per browser as
+  `janus-chart-window`. At one sample a second over a minute, the
+  charts move about as fast as the eye follows. Overview opens on the
+  node's traffic, the widest chart, its figures in its header.
 - **Events** (Logs › Events): the node's event log, kept on its STATE -
   the last thousand, across reboots and updates; each `janusd.started` is
   drawn as a line of its own (version, slot), the events of another day
@@ -620,6 +760,17 @@ turn, and the step waited for is written under it.
 - The Controller never exposes its service credential, and the
   browser's certificate is never used to reach the node (see the package
   doc) - a new feature must not change that.
+- **The node list's curves** (`internal/nodemetrics`, `nodes_metrics.go`):
+  one sampler however many pages look, reading a node (`nodeproxy.
+  ReadCounters`: SystemStat, NetworkDeviceStats, ShowInfo) every 5 s
+  only while a page asks for it - each request renews a 45 s lease -,
+  16 at once at most, 4 s each, detached from the request; it keeps 10
+  minutes, so a page opened again finds its curves drawn. It reads as
+  the Controller (`Automation`, like `/api/nodes/status`): those calls
+  are a reader's, in the observe domain every permission on a node
+  includes, so whoever sees a node may read its figures anyway; a node
+  that doesn't trust the fleet yet gets curves for an admin only, like
+  its page.
 
 ## Verifying a change
 
@@ -661,10 +812,16 @@ turn, and the step waited for is written under it.
    account (lea's) on edge-1's page now and then and a janusctl
    following its events - the Traffic flow's Controller users and
    direct clients -, the Controller on `https://127.0.0.1:18443`
-   (`ssh -N -L 18443:127.0.0.1:18443 HOST` from another machine), its account and
-   the `janusctl login` printed. `hack/ui-preview.sh reload` after a
-   change (the binaries built again, the Controller and nodes restarted,
-   their state kept), `down` to remove it.
+   (`ssh -N -L 18443:127.0.0.1:18443 HOST` from another machine, or
+   published on one of its addresses: `UI_PREVIEW_BIND=ADDRESS
+   UI_PREVIEW_HOST=NAME`, the name in its certificate - its passwords
+   are fixed), its account and the `janusctl login` printed.
+   `hack/ui-preview.sh reload` after a change (the binaries built again,
+   the Controller and nodes restarted, their state kept; `reload ui`:
+   the Controller alone, after a frontend build), `check` to walk its
+   pages in every palette and mode (`hack/ui-preview/check.mjs`: axe,
+   no error, the appearance, motion and the sidebar - its screenshots
+   in `build/ui-preview/check`), `down` to remove it.
 4. Anything the `local-dev` container can't show (dmesg, A/B slots,
    reboot, SELinux) gets checked against a real node booted from
    `build/rootfs/disk.img` under QEMU/OVMF.

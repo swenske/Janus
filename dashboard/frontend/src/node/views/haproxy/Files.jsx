@@ -202,7 +202,7 @@ export default function Files() {
         />
       </Card>
       {editing && (
-        <Card title={editing === 'new' ? 'Add a file' : `Edit ${editing.name}`} icon={editing === 'new' ? Plus : Pencil}>
+        <Card className="data-title" title={editing === 'new' ? 'Add a file' : `Edit ${editing.name}`} icon={editing === 'new' ? Plus : Pencil}>
           <FileForm
             key={editing === 'new' ? 'new' : editing.name}
             dir={dir}

@@ -1,13 +1,14 @@
 import { Activity, Archive, Cpu, Gauge, Server, Shuffle } from 'lucide-react'
 import { useState } from 'react'
-import Chart from '../components/Chart.jsx'
-import { Badge, Card, Meter, PageHeader, Stat, stateTone } from '../../shared/ui.jsx'
+import Chart from '../../shared/chart/Chart.jsx'
+import { Badge, Card, PageHeader, Stat, stateTone } from '../../shared/ui.jsx'
+import { GaugeStat } from '../../shared/Gauge.jsx'
 import { bytes, compact, cpuModels, cpuShape, dateTime, duration, num, percent, rate } from '../format.js'
 import { useMetrics, useNodeStatus, usePoll, useSSE } from '../hooks.jsx'
 import { UpdateBadge } from './Update.jsx'
+import { useChartWindow } from '../chartWindow.js'
+import WindowPicker from '../WindowPicker.jsx'
 import { variantNote } from '../../variants.js'
-
-const WINDOW = 5 * 60 * 1000
 
 function netTotal(p, dir) {
   if (!p.net) return undefined
@@ -46,10 +47,25 @@ function RecentEvents() {
   )
 }
 
+// The filesystem a node fills: STATE, where its configuration, logs and
+// uploads go - or, outside an image (a local-dev container), its root.
+function stateMount(mounts) {
+  const all = mounts?.mounts || []
+  const m = all.find((x) => x.mounted_on === '/etc/.state') || all.find((x) => x.mounted_on === '/')
+  const size = Number(m?.size_bytes) || 0
+  return m && size ? { name: m.mounted_on === '/' ? '/' : 'STATE', size, used: size - (Number(m.available_bytes) || 0) } : null
+}
+
 export default function Overview() {
-  const { points, latest } = useMetrics()
+  const { points, latest, clock } = useMetrics()
   const { overview, check } = useNodeStatus()
   const services = usePoll('/api/system/services')
+  const mounts = usePoll('/api/system/mounts', { every: 30000 })
+  const disk = stateMount(mounts.data)
+  const [windowMs, setWindowMs] = useChartWindow()
+  const WINDOW = windowMs || undefined
+  const rx = latest && netTotal(latest, 'rx')
+  const tx = latest && netTotal(latest, 'tx')
 
   const v = overview.data?.version
   const cpu = overview.data?.cpu
@@ -59,14 +75,58 @@ export default function Overview() {
 
   return (
     <>
-      <PageHeader title="Overview" subtitle="Live state of this node" />
-      <div className="grid grid-4" style={{ marginBottom: '1rem' }}>
-        <Stat
+      <PageHeader title="Overview" subtitle="Live state of this node" actions={<WindowPicker value={windowMs} onChange={setWindowMs} />} />
+      <Card
+        title="Traffic (all interfaces)"
+        icon={Activity}
+        className="traffic-card"
+        actions={
+          <div className="traffic-figures">
+            <span className="traffic-figure rx">
+              <span className="chart-swatch" />
+              Received <strong>{rx == null ? '–' : rate(rx)}</strong>
+            </span>
+            <span className="traffic-figure tx">
+              <span className="chart-swatch" />
+              Sent <strong>{tx == null ? '–' : rate(tx)}</strong>
+            </span>
+          </div>
+        }
+      >
+        <Chart
+          points={points}
+          clock={clock}
+          windowMs={WINDOW}
+          height={230}
+          legend={false}
+          format={(x) => rate(x)}
+          binary
+          series={[
+            { label: 'Received', color: 'var(--chart-2)', get: (p) => netTotal(p, 'rx') },
+            { label: 'Sent', color: 'var(--chart-4)', get: (p) => netTotal(p, 'tx') },
+          ]}
+        />
+      </Card>
+      <div className="grid grid-5" style={{ marginBottom: '1rem' }}>
+        <GaugeStat
           label="CPU"
-          value={percent(latest?.cpu)}
+          value={latest?.cpu}
+          display={percent(latest?.cpu)}
           sub={latest ? `${cpu ? `${cpu.count} CPU${cpu.count === 1 ? '' : 's'} · ` : ''}load ${num(latest.load1, 2)} · ${num(latest.load5, 2)} · ${num(latest.load15, 2)}` : ''}
         />
-        <Stat label="Memory" value={percent(latest?.memPct)} sub={latest?.memTotal ? `${bytes(latest.memUsed)} of ${bytes(latest.memTotal)}` : ''} />
+        <GaugeStat
+          label="Memory"
+          color="var(--chart-2)"
+          value={latest?.memPct}
+          display={percent(latest?.memPct)}
+          sub={latest?.memTotal ? `${bytes(latest.memUsed)} of ${bytes(latest.memTotal)}` : ''}
+        />
+        <GaugeStat
+          label={disk?.name === '/' ? 'Disk' : 'STATE'}
+          color="var(--chart-4)"
+          value={disk ? (disk.used / disk.size) * 100 : undefined}
+          sub={disk ? `${bytes(disk.used)} of ${bytes(disk.size)}` : mounts.data ? 'not mounted' : ''}
+        />
         <Stat
           label="HAProxy connections"
           value={hap?.up ? num(hap.conns) : '–'}
@@ -80,6 +140,7 @@ export default function Overview() {
         <Card title="CPU & memory" icon={Cpu}>
           <Chart
             points={points}
+            clock={clock}
             windowMs={WINDOW}
             yMax={100}
             format={(x) => `${x.toFixed(0)}%`}
@@ -92,23 +153,12 @@ export default function Overview() {
         <Card title="HAProxy traffic" icon={Shuffle}>
           <Chart
             points={points}
+            clock={clock}
             windowMs={WINDOW}
             format={(x) => compact(x)}
             series={[
               { label: 'Requests/s', color: 'var(--chart-1)', get: (p) => p.hap?.reqRate },
               { label: 'Connections', color: 'var(--chart-3)', get: (p) => p.hap?.conns },
-            ]}
-          />
-        </Card>
-        <Card title="Network (all interfaces)" icon={Activity}>
-          <Chart
-            points={points}
-            windowMs={WINDOW}
-            format={(x) => rate(x)}
-            binary
-            series={[
-              { label: 'Received', color: 'var(--chart-2)', get: (p) => netTotal(p, 'rx') },
-              { label: 'Sent', color: 'var(--chart-4)', get: (p) => netTotal(p, 'tx') },
             ]}
           />
         </Card>
@@ -148,9 +198,7 @@ export default function Overview() {
               {v?.haproxy?.variant && <span className="muted small"> · {variantNote(v.haproxy, 'branch')}</span>}
             </dd>
             <dt>Memory</dt>
-            <dd>
-              <Meter value={latest?.memUsed || 0} max={latest?.memTotal || 1} />
-            </dd>
+            <dd>{latest?.memTotal ? `${bytes(latest.memTotal)} · ${bytes(latest.memUsed)} used` : '…'}</dd>
           </dl>
         </Card>
       </div>

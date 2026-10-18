@@ -22,6 +22,12 @@
 .node-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
 .node-card { display: flex; flex-direction: column; gap: 0.8rem; }
 .node-card-name { font-weight: 650; font-size: 1.05rem; overflow-wrap: anywhere; }
+/* A node card's trends (NodeSparklines.jsx). */
+.sparks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.55rem; padding: 0.55rem 0.6rem 0.4rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.spark-cell { min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.spark-head { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
+.spark-label { font-size: 0.66rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); white-space: nowrap; }
+.spark-value { font-family: var(--mono); font-size: 0.86rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .pending { border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
 .pending-row { padding: 0.5rem 0; border-top: 1px solid var(--border); }
 .controller-update { display: flex; flex-direction: column; gap: 0.7rem; }
@@ -159,3 +165,16 @@
 .badge-link:hover .badge {
   filter: brightness(0.95);
 }
+
+/* The node list as rows (NodeTable). */
+.node-table-card { padding: 0; overflow: hidden; }
+.node-table-card .table-wrap { border: 0; border-radius: var(--radius); }
+.node-table td { vertical-align: middle; }
+.node-table .spark-col { width: 9rem; }
+/* A fixed width: a chart takes its container's, and a table cell would
+   otherwise take the chart's. */
+.node-table .spark-cell { width: 8rem; }
+.node-table .spark-cell .spark-value { font-size: 0.8rem; }
+.node-table .actions { width: 1%; }
+.node-table-labels { gap: 0.25rem; margin-top: 0.25rem; }
+.node-table-labels .badge { font-size: 0.7rem; padding: 0.05rem 0.4rem; }

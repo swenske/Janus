@@ -1,8 +1,9 @@
-import { Database, FolderTree, HardDrive } from 'lucide-react'
+import { Database, FolderTree, Gauge as GaugeIcon, HardDrive } from 'lucide-react'
 import { useState } from 'react'
 import { getJSON } from '../api.js'
 import DataTable from '../components/DataTable.jsx'
 import { Badge, Card, ErrorBox, Meter, PageHeader, useAction } from '../../shared/ui.jsx'
+import Gauge from '../../shared/Gauge.jsx'
 import { bytes, num } from '../format.js'
 import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
@@ -56,6 +57,21 @@ function DiskUsage() {
   )
 }
 
+// writable is the filesystems the node writes to, each once: a bind
+// mount (STATE's directories, a container's files) is its filesystem
+// again - the same device, size and use - shown under its shortest path;
+// the kernel's own (/proc, /sys, /dev) aren't space.
+function writable(rows) {
+  const seen = new Map()
+  for (const r of rows) {
+    if (r.read_only || !r.size || /^\/(proc|sys|dev)(\/|$)/.test(r.mounted_on)) continue
+    const key = `${r.filesystem} ${r.size} ${r.used}`
+    const had = seen.get(key)
+    if (!had || r.mounted_on.length < had.mounted_on.length) seen.set(key, r)
+  }
+  return [...seen.values()].sort((a, b) => a.mounted_on.localeCompare(b.mounted_on))
+}
+
 export default function Storage() {
   const mounts = usePoll('/api/system/mounts', { every: 30000 })
   const disks = usePoll('/api/system/disks')
@@ -66,10 +82,26 @@ export default function Storage() {
     size: Number(m.size_bytes) || 0,
     used: (Number(m.size_bytes) || 0) - (Number(m.available_bytes) || 0),
   }))
+  const space = writable(rows)
   return (
     <>
       <PageHeader title="Storage" subtitle="Mounted filesystems, disks and space usage" />
       <div className="stack">
+        {space.length > 0 && (
+          <Card title="Space" icon={GaugeIcon}>
+            <div className="gauges">
+              {space.map((r, i) => (
+                  <div key={r.__key} className="gauge-cell">
+                    <Gauge label={r.mounted_on} color={`var(--chart-${(i % 5) + 1})`} value={(r.used / r.size) * 100} />
+                    <span className="mono small">{r.mounted_on}</span>
+                    <span className="muted small">
+                      {bytes(r.used)} of {bytes(r.size)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </Card>
+        )}
         <Card title="Mounts" icon={HardDrive}>
           <ErrorBox error={mounts.error} />
           <DataTable

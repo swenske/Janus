@@ -19,9 +19,10 @@ import {
   LockKeyhole,
   Menu,
   Network,
+  Pin,
+  PinOff,
   Power,
   Radar,
-  RefreshCw,
   Route,
   ScrollText,
   Send,
@@ -37,7 +38,9 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
-import { Logo, ThemeToggle } from '../shared/theme.jsx'
+import BrandMark from '../shared/BrandMark.jsx'
+import RefreshButton from '../shared/RefreshButton.jsx'
+import ThemePicker from '../shared/ThemePicker.jsx'
 import { Badge, Loading } from '../shared/ui.jsx'
 import { useSplash, useSplashStep } from '../shared/Splash.jsx'
 import { PrereleaseBadge } from '../PrereleaseBadge.jsx'
@@ -45,6 +48,7 @@ import { SecurityBadge } from '../SecurityBadge.jsx'
 import { securityText, securityTone } from '../severity.js'
 import { INTERVALS, navigate, useHashRoute, useMetrics, useNodeStatus, usePoll, useRefresh } from './hooks.jsx'
 import { MayContext } from './may.js'
+import { usePinned } from './rail.js'
 import Access from './views/Access.jsx'
 import Capture from './views/Capture.jsx'
 import Events from './views/Events.jsx'
@@ -152,16 +156,8 @@ function RefreshSelect() {
   const { recheck } = useNodeStatus()
   return (
     <div className="refresh">
-      <button
-        className="ghost icon"
-        title="Refresh now"
-        onClick={() => {
-          refresh()
-          recheck()
-        }}
-      >
-        <RefreshCw size={16} />
-      </button>
+      <RefreshButton onRefresh={() => Promise.all([refresh(), recheck()])} />
+      <ThemePicker />
       <select value={interval} onChange={(e) => setInterval(Number(e.target.value))} title="Auto-refresh interval">
         {INTERVALS.map((i) => (
           <option key={i.ms} value={i.ms}>
@@ -177,6 +173,7 @@ export default function App() {
   const route = useHashRoute()
   const current = findRoute(route)
   const [navOpen, setNavOpen] = useState(false)
+  const [pinned, togglePinned] = usePinned()
   const { latest, error } = useMetrics()
   const node = usePoll('/api/node', { every: 0 })
   const me = usePoll('/api/me', { every: 0 })
@@ -228,18 +225,28 @@ export default function App() {
 
   return (
     <MayContext.Provider value={may}>
-    <div className={`layout ${navOpen ? 'nav-open' : ''}`}>
-      <aside className="sidebar">
+    <div className={`layout ${navOpen ? 'nav-open' : ''} ${pinned ? 'pinned' : ''}`}>
+      <div className="rail">
+      <aside className="sidebar" aria-label="Node">
+        <button
+          className="skip-link"
+          onClick={() => document.getElementById('content')?.focus()}
+        >
+          Skip to the page
+        </button>
         <div className="sidebar-brand">
-          <Logo size={26} />
-          <div>
+          <BrandMark size={26} />
+          <div className="brand-text">
             <div className="brand-name">Janus</div>
             <div className="muted small">Controller{node.data?.controller_version ? <span className="mono"> {node.data.controller_version}</span> : null}</div>
           </div>
         </div>
         {me.data && (
           <a href="/" className="user-chip" title="The Controller account this page acts for - back to the Controller">
-            <UserRound size={14} /> {me.data.name} {role && <Badge>{role}</Badge>}
+            <UserRound size={14} />
+            <span className="chip-text">
+              {me.data.name} {role && <Badge>{role}</Badge>}
+            </span>
           </a>
         )}
         <nav>
@@ -251,7 +258,7 @@ export default function App() {
                 return (
                   <a key={item.path} href={`#${item.path}`} className={`nav-item ${active ? 'active' : ''} ${item.link ? 'nav-link' : ''}`}>
                     <item.icon size={16} />
-                    <span className="grow">{item.label}</span>
+                    <span className="grow nav-label">{item.label}</span>
                     {item.path === '/system/update' && (securityUpdate || updateAvailable) && (
                       <span
                         className={`nav-dot ${securityUpdate ? securityTone(securityUpdate) : ''}`}
@@ -264,7 +271,12 @@ export default function App() {
             </div>
           ))}
         </nav>
+        <button className="ghost rail-pin" aria-pressed={pinned} title={pinned ? 'Let the sidebar fold into icons' : 'Keep the sidebar open'} onClick={togglePinned}>
+          {pinned ? <PinOff size={16} /> : <Pin size={16} />}
+          <span className="nav-label">{pinned ? 'Fold the sidebar' : 'Keep it open'}</span>
+        </button>
       </aside>
+      </div>
       <div className="main">
         <header className="topbar">
           <button className="ghost icon nav-toggle" aria-label="Menu" onClick={() => setNavOpen(!navOpen)}>
@@ -303,7 +315,6 @@ export default function App() {
           </div>
           <span className="grow" />
           <RefreshSelect />
-          <ThemeToggle />
         </header>
         {error && !ended && (
           <div className="banner danger">
@@ -322,7 +333,7 @@ export default function App() {
             Your session on the Controller ended. <a href="/">Sign in again</a>, then reload this page.
           </div>
         )}
-        <main className="content">
+        <main className="content" id="content" tabIndex={-1}>
           {/* Update reads its query (?extensions) when it mounts: a new query, a new instance. */}
           {!me.data && !me.error ? (
             <Loading />

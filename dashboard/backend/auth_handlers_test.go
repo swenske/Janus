@@ -171,6 +171,15 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 	if code, body := a.req(t, "GET", "/api/version", rita, nil); code != http.StatusOK || !strings.Contains(body, "version") {
 		t.Errorf("a reader reads the version: %d %s", code, body)
 	}
+	// The node list's: anyone signed in, for the nodes it sees.
+	for _, path := range []string{"/api/nodes/status", "/api/nodes/metrics"} {
+		if code, _ := a.req(t, "GET", path, "", nil); code != http.StatusUnauthorized {
+			t.Errorf("GET %s with nothing: %d", path, code)
+		}
+		if code, _ := a.req(t, "GET", path, rita, nil); code != http.StatusOK {
+			t.Errorf("GET %s as a reader: %d", path, code)
+		}
+	}
 }
 
 // TestAuthStatus: who the page is signed in as.

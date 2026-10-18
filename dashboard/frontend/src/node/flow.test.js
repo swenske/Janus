@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { test } from 'node:test'
 import {
+  pathLength,
+  particles,
   FIT_MIN,
   MAX_SCALE,
   MIN_SCALE,
@@ -765,4 +767,27 @@ test('related: an API client is its link and its interface', () => {
   assert.deepEqual([...related(m, 'api:controller:eth0')].sort(), want)
   assert.deepEqual([...related(m, 'api:controller:eth0>if:eth0')].sort(), want)
   assert.ok(!related(m, 'fe:web').has('api:controller:eth0'))
+})
+
+test('a link path is measured along its curve', () => {
+  assert.equal(Math.round(pathLength('M0 0C10 0 20 0 30 0')), 30)
+  // an S curve is longer than its chord
+  const len = pathLength('M0 0C50 0 50 100 100 100')
+  assert.ok(len > Math.hypot(100, 100) && len < 200, String(len))
+  assert.equal(pathLength(''), 0)
+})
+
+test('particles: closer and faster with more traffic, within bounds', () => {
+  assert.equal(particles(0, 200), null)
+  assert.equal(particles(100, 0), null)
+  const slow = particles(100, 300)
+  const fast = particles(1e6, 300)
+  assert.ok(fast.count > slow.count && fast.seconds < slow.seconds, JSON.stringify({ slow, fast }))
+  for (const b of [1, 1e3, 1e6, 1e9]) {
+    for (const len of [10, 100, 1000, 5000]) {
+      const p = particles(b, len)
+      assert.ok(p.count >= 1 && p.count <= 8 && p.seconds >= 0.6 && p.seconds <= 8, JSON.stringify({ b, len, p }))
+      assert.equal(p.seconds, Math.round(p.seconds * 10) / 10)
+    }
+  }
 })

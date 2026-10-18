@@ -14,7 +14,8 @@
 // - what a container shares with its host - CPUs, memory, kernel, boot
 //   time - is shown as shots.yaml's small VM, and the charts' counters
 //   are a fixed series, sampled every 5 s of the page's clock - HAProxy's
-//   own (show stat) too, shared out between web.cfg's proxies;
+//   own (show stat) too, shared out between web.cfg's proxies, and the
+//   node list's curves; a filesystem on the host's disk is a VM's;
 // - fingerprints and token IDs, new at every setup, are fixed ones.
 // What might still change can be left out of the comparison (a shot's
 // `ignore`); images.mjs says what the comparison tolerates.
@@ -212,6 +213,38 @@ function metrics(m, k) {
   return m
 }
 
+// The node list's curves (/api/nodes/metrics): five minutes of the same
+// series ending at T0, each node's a little apart from the next - only
+// what's after since, as the Controller answers.
+function nodeMetrics(since) {
+  const nodes = {}
+  const names = Object.keys(ids).sort()
+  for (const [n, name] of names.entries()) {
+    const sr = { t: [], cpu: [], req: [], rx: [], tx: [] }
+    for (let k = 1; k <= 60; k++) {
+      const t = T0 - (60 - k) * 5000
+      if (t <= since) continue
+      const [a, b] = [SERIES[k + 7 * n], SERIES[k + 7 * n + 1]]
+      sr.t.push(t)
+      sr.cpu.push(100 * (1 - (b.idle - a.idle) / (b.ticks - a.ticks)) * (1 + 0.3 * n))
+      sr.req.push(((b.reqs - a.reqs) / 5) * (1 - 0.25 * n))
+      sr.rx.push(((b.rx - a.rx) / 5) * (1 - 0.25 * n))
+      sr.tx.push(((b.tx - a.tx) / 5) * (1 - 0.25 * n))
+    }
+    if (sr.t.length) nodes[ids[name]] = sr
+  }
+  return { interval_ms: 5000, now_ms: T0, nodes }
+}
+
+// Mounts: a filesystem on the build host's disk (a container's root and
+// files bound into it) as a VM's would be - the gauges' figures fixed.
+function mounts(body) {
+  for (const m of body?.mounts || []) {
+    if (Number(m.size_bytes) > 64 * 2 ** 20) Object.assign(m, { size_bytes: String(8 * 2 ** 30), available_bytes: String(Math.round(5.9 * 2 ** 30)) })
+  }
+  return body
+}
+
 // HAProxy's counters per proxy and server: the same series, all of it
 // through web.cfg's frontend web and backend app, app1 and app2 taking
 // about half each - the Traffic flow's pulses -, a quarter more through
@@ -307,6 +340,15 @@ async function newContext(browser, theme, size) {
     viewport: size,
     deviceScaleFactor: DPR,
   })
+  // A node page's sidebar pinned open: the docs show its labels (folded,
+  // it's a rail of icons that opens under the pointer).
+  // Its charts sampled every 5 s, five minutes shown: the fixed series'
+  // pace (the default is 1 s, one minute).
+  await ctx.addInitScript(() => {
+    localStorage.setItem('janus-sidebar', 'pinned')
+    localStorage.setItem('janus-refresh', '5000')
+    localStorage.setItem('janus-chart-window', '300000')
+  })
   await ctx.clock.install({ time: T0 - 1000 })
   await ctx.clock.pauseAt(T0)
   ctx.metricsServed = 0
@@ -331,6 +373,8 @@ async function newContext(browser, theme, size) {
     if (path.endsWith('/api/haproxy/stats')) body = stats(body, ctx.statsServed++)
     if (path.endsWith('/api/log-forwarding')) body = logs(body, ctx.logsServed++)
     if (path.endsWith('/api/system/clients')) body = clients(body, ctx.clientsServed++)
+    if (path.endsWith('/api/nodes/metrics')) body = nodeMetrics(Number(new URL(req.url()).searchParams.get('since')) || 0)
+    if (path.endsWith('/api/system/mounts')) body = mounts(body)
     if (/\/api\/(enroll-)?tokens$/.test(path)) for (const t of body || []) t.id = fakeHex(`token/${t.name}`).slice(0, t.id.length)
     return route.fulfill({ response: resp, json: body })
   })
@@ -369,6 +413,7 @@ for (const shot of spec.shots) {
       // The splash (dashboard/frontend/src/shared/Splash.jsx) leaves on
       // the browser's own time - the page's clock stays where it is.
       await page.locator('.splash').waitFor({ state: 'detached', timeout: 15000 })
+      await page.evaluate(() => document.fonts.ready)
     }
     for (let k = 1; k <= (shot.samples || 0); k++) {
       await page.clock.runFor(5000)
@@ -377,7 +422,9 @@ for (const shot of spec.shots) {
     await page.clock.runFor(100)
     await page.waitForLoadState('networkidle')
     await page.evaluate(() => document.activeElement?.blur())
-    await page.mouse.move(0, 0)
+    // The pointer out of the page's way: the top bar's right padding -
+    // (0, 0) is on a node page's sidebar, which opens under it.
+    await page.mouse.move((shot.size || spec.size).width - 1, 0)
     await sleep(300)
     if (problems.length) throw new Error(`${shot.id} (${theme}): ${problems.join('; ')}`)
 

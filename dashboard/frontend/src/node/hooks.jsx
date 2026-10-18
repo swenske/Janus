@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { getJSON } from './api.js'
+import { ServerClock } from '../shared/chart/math.js'
 
 // --- refresh interval (global, remembered per browser) ---
 
@@ -12,16 +13,18 @@ export const INTERVALS = [
   { ms: 30000, label: '30s' },
 ]
 
-const RefreshContext = createContext({ interval: 5000, setInterval: () => {} })
+// Every second by default: the charts move at the pace of a second.
+const DEFAULT_INTERVAL = 1000
+const RefreshContext = createContext({ interval: DEFAULT_INTERVAL, setInterval: () => {} })
 
 function storedInterval() {
   try {
     // Nothing stored is null, and Number(null) is 0 - "Off".
     const stored = localStorage.getItem('janus-refresh')
     const v = Number(stored)
-    return stored !== null && INTERVALS.some((i) => i.ms === v) ? v : 5000
+    return stored !== null && INTERVALS.some((i) => i.ms === v) ? v : DEFAULT_INTERVAL
   } catch {
-    return 5000
+    return DEFAULT_INTERVAL
   }
 }
 
@@ -173,6 +176,10 @@ export function MetricsProvider({ children }) {
   const [error, setError] = useState(null)
   const prevRaw = useRef(null)
   const [tick, setTick] = useState(0)
+  // One clock for every chart of the page: they scroll together.
+  const [clock] = useState(() => new ServerClock())
+  // refresh's callers, waiting for the next sample.
+  const waiting = useRef([])
 
   useEffect(() => {
     let cancelled = false
@@ -182,6 +189,10 @@ export function MetricsProvider({ children }) {
         const raw = await getJSON('/api/metrics')
         if (cancelled) return
         const point = derive(prevRaw.current, raw)
+        // The interval it was taken at: the charts break their lines over a
+        // longer gap, and scroll at that pace.
+        point.iv = interval
+        clock.update(raw.time_ms, Date.now(), interval)
         prevRaw.current = raw
         setLatest(point)
         setError(null)
@@ -193,6 +204,9 @@ export function MetricsProvider({ children }) {
       } catch (err) {
         if (!cancelled) setError(err)
       }
+      const done = waiting.current
+      waiting.current = []
+      for (const resolve of done) resolve()
       if (!cancelled && interval > 0 && visible) timer = setTimeout(run, interval)
     }
     run()
@@ -200,14 +214,24 @@ export function MetricsProvider({ children }) {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [interval, visible, tick])
+  }, [interval, visible, tick, clock])
 
-  const refresh = useCallback(() => setTick((t) => t + 1), [])
+  // refresh samples now; its promise is the sample's (5 s at most).
+  const refresh = useCallback(
+    () =>
+      new Promise((resolve) => {
+        waiting.current.push(resolve)
+        setTick((t) => t + 1)
+        setTimeout(resolve, 5000)
+      }),
+    [],
+  )
   const clear = useCallback(() => {
     prevRaw.current = null
+    clock.reset()
     setPoints([])
-  }, [])
-  return <MetricsContext.Provider value={{ points, latest, error, refresh, clear }}>{children}</MetricsContext.Provider>
+  }, [clock])
+  return <MetricsContext.Provider value={{ points, latest, error, refresh, clear, clock }}>{children}</MetricsContext.Provider>
 }
 
 export function useMetrics() {
@@ -239,7 +263,7 @@ export function NodeStatusProvider({ children }) {
   }, [reloadOverview, reloadCheck])
   const recheck = useCallback(() => {
     reloadOverview()
-    getJSON('/api/update-check?refresh=1')
+    return getJSON('/api/update-check?refresh=1')
       .catch(() => {})
       .finally(reloadCheck)
   }, [reloadOverview, reloadCheck])

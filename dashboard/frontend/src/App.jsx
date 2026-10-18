@@ -6,9 +6,10 @@ import {
   ChevronDown,
   Copy,
   KeyRound,
+  LayoutGrid,
+  List,
   LogOut,
   Plus,
-  RefreshCw,
   Rocket,
   ScrollText,
   Send,
@@ -29,7 +30,12 @@ import ControllerUpdate from './ControllerUpdate.jsx'
 import { FleetCard, FleetSetup, TrustBadge } from './Fleet.jsx'
 import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
 import { navigate, useHashRoute } from './shared/route.js'
-import { Logo, ThemeToggle } from './shared/theme.jsx'
+import BrandMark from './shared/BrandMark.jsx'
+import RefreshButton from './shared/RefreshButton.jsx'
+import ThemePicker from './shared/ThemePicker.jsx'
+import NodeSparklines, { NodeSpark } from './NodeSparklines.jsx'
+import { useNodesView } from './nodesView.js'
+import { useNodeMetrics } from './nodeMetrics.js'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
@@ -124,7 +130,7 @@ function NodeLabels({ node, onChanged }) {
   )
 }
 
-function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, onChanged }) {
+function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, onChanged, metrics, clock }) {
   const can = useCan()
   const st = status
   const reachable = st?.reachable
@@ -147,6 +153,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
           </Badge>
         )}
       </div>
+      {reachable && <NodeSparklines points={metrics} clock={clock} />}
       {machine && (
         <div className="machine-strip small">
           <div className="row" style={{ gap: '0.4rem' }}>
@@ -239,6 +246,131 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
         )}
       </div>
     </section>
+  )
+}
+
+// NodeTable is the node list as rows of a table - many nodes at a glance:
+// each one's state, its last five minutes, version, HAProxy, uptime and
+// trust, and Open; its card has the rest (labels edited, a machine's
+// power, kernel).
+function NodeTable({ nodes, statuses, metrics, clock, machineOf, vmOf, fleet, onRemove, machineActions }) {
+  const can = useCan()
+  const trust = fleet?.state === 'ready'
+  return (
+    <div className="card node-table-card">
+      <div className="table-wrap">
+        <table className="node-table">
+          <thead>
+            <tr>
+              <th>Node</th>
+              <th>State</th>
+              <th className="spark-col">CPU</th>
+              <th className="spark-col">Req/s</th>
+              <th className="spark-col">Traffic</th>
+              <th>Version</th>
+              <th>HAProxy</th>
+              <th>Uptime</th>
+              {trust && <th>Trust</th>}
+              <th aria-label="Actions" />
+            </tr>
+          </thead>
+          <tbody>
+            {nodes.map((n) => {
+              const st = statuses[n.id]
+              const m = machineOf(n)
+              const vm = vmOf(m)
+              const up = st?.reachable
+              return (
+                <tr key={n.id}>
+                  <td>
+                    <div className="node-card-name">{n.name}</div>
+                    <div className="muted small mono">{n.address}</div>
+                    {Object.keys(n.labels || {}).length > 0 && (
+                      <div className="row node-table-labels">
+                        {Object.entries(n.labels).map(([k, v]) => (
+                          <span key={k} className="badge mono">
+                            {k}={v}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    <div className="row" style={{ gap: '0.3rem' }}>
+                      {!st ? (
+                        <Badge>checking…</Badge>
+                      ) : up ? (
+                        <Badge tone="ok" dot>
+                          online
+                        </Badge>
+                      ) : (
+                        <Badge tone="danger" dot>
+                          unreachable
+                        </Badge>
+                      )}
+                      {m && <PowerBadge power={vm?.power} />}
+                    </div>
+                    {st && !up && <div className="small" style={{ color: 'var(--danger)' }}>{st.error || 'no answer'}</div>}
+                  </td>
+                  {['cpu', 'req', 'net'].map((k) => (
+                    <td key={k} className="spark-col">
+                      {up && <NodeSpark kind={k} points={metrics[n.id]} clock={clock} head={false} />}
+                    </td>
+                  ))}
+                  <td>
+                    {up && (
+                      <div className="row" style={{ gap: '0.3rem' }}>
+                        <span className="mono small">{st.version}</span>
+                        {st.prerelease && <PrereleaseBadge />}
+                        {st.security_update ? (
+                          <SecurityBadge severity={st.security_update}>{st.latest_release}</SecurityBadge>
+                        ) : (
+                          st.update_available && (
+                            <Badge tone="accent">
+                              <Rocket size={11} /> {st.latest_release}
+                            </Badge>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    {up && (
+                      <div className="row" style={{ gap: '0.3rem' }}>
+                        <Badge tone={stateTone(st.haproxy_state)} dot>
+                          {st.haproxy_state || '–'}
+                        </Badge>
+                        {st.haproxy_version && <span className="mono muted small">{st.haproxy_version}</span>}
+                      </div>
+                    )}
+                  </td>
+                  <td className="nowrap">{up ? uptime(st.boot_time_unix) : ''}</td>
+                  {trust && <td>{up && <TrustBadge fleet={fleet} nodeID={n.id} />}</td>}
+                  <td className="actions">
+                    <div className="row" style={{ gap: '0.3rem', flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+                      <button className="primary small" onClick={() => openNode(n)}>
+                        Open <ArrowUpRight size={13} />
+                      </button>
+                      {!can('admin') ? null : m ? (
+                        !m.spec.locked && (
+                          <button className="ghost icon danger" onClick={() => machineActions.destroy(m)} disabled={machineActions.busy} title="Destroy its virtual machine" aria-label={`Destroy ${n.name}'s virtual machine`}>
+                            <Trash2 size={14} />
+                          </button>
+                        )
+                      ) : (
+                        <button className="ghost icon danger" onClick={() => onRemove(n)} title="Remove from this Controller" aria-label={`Remove ${n.name}`}>
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 
@@ -572,7 +704,7 @@ function AuthScreen({ title, children }) {
     <div className="auth-screen">
       <div className="auth-box card">
         <div className="auth-brand">
-          <Logo size={44} />
+          <BrandMark size={44} />
           <div>
             <h1>Janus Controller</h1>
             <div className="muted">{title}</div>
@@ -581,7 +713,7 @@ function AuthScreen({ title, children }) {
         {children}
       </div>
       <div className="auth-theme">
-        <ThemeToggle />
+        <ThemePicker />
       </div>
     </div>
   )
@@ -892,6 +1024,8 @@ function MainApp() {
   const [fleet, setFleet] = useState(null)
   const [backups, setBackups] = useState(null)
   const [statusLoaded, setStatusLoaded] = useState(false)
+  const metrics = useNodeMetrics(tab === 'nodes' && (nodes?.length ?? 0) > 0)
+  const [nodesView, setNodesView] = useNodesView()
   const isReader = can('reader')
   const confirm = useConfirm()
   const toast = useToast()
@@ -916,7 +1050,7 @@ function MainApp() {
     }
   }, [isReader])
   const refreshStatus = useCallback((hvs) => {
-    call('/api/nodes/status', { background: true })
+    const done = call('/api/nodes/status', { background: true })
       .then((s) => setStatuses(s || {}))
       .catch(() => {})
       .finally(() => setStatusLoaded(true))
@@ -926,6 +1060,7 @@ function MainApp() {
         .then((st) => setHvStatus((all) => ({ ...all, [hv.id]: st })))
         .catch(() => {})
     }
+    return done
   }, [])
   const isAdmin = can('admin')
   // The header's Refresh: the releases asked from GitHub again too, past
@@ -936,7 +1071,7 @@ function MainApp() {
       call('/api/backups', { background: true })
         .then(setBackups)
         .catch(() => {})
-    refreshStatus(await refresh())
+    return refreshStatus(await refresh())
   }, [refresh, refreshStatus, isAdmin])
 
   // Faster while a machine is being created or destroyed: its phase moves
@@ -993,7 +1128,7 @@ function MainApp() {
     <div className="main-page">
       <header className="topbar">
         <div className="row" style={{ gap: '0.6rem' }}>
-          <Logo size={26} />
+          <BrandMark size={26} />
           <div>
             <div className="node-name">Janus Controller</div>
             <div className="muted small">
@@ -1046,17 +1181,14 @@ function MainApp() {
           )}
         </div>
         <span className="grow" />
-        <button
-          className="ghost icon"
+        <RefreshButton
           title="Refresh"
-          onClick={() => {
-            reload()
+          onRefresh={() => {
             setCheckNow((n) => n + 1)
+            return reload()
           }}
-        >
-          <RefreshCw size={16} />
-        </button>
-        <ThemeToggle />
+        />
+        <ThemePicker />
         <AccountButton />
         <button className="ghost" onClick={signOut}>
           <LogOut size={15} /> Log out
@@ -1105,11 +1237,23 @@ function MainApp() {
             <PendingList pending={pending} onApprove={approve} onReject={reject} busy={busy} machines={machines} />
             <div className="spread">
               <h1>Nodes</h1>
-              {!adding && can('admin') && (
-                <button className="primary" onClick={() => setAdding(true)}>
-                  <Plus size={15} /> Add node
-                </button>
-              )}
+              <div className="row">
+                {nodes?.length > 0 && (
+                  <div className="segmented" role="group" aria-label="Show the nodes as">
+                    <button className={`small ${nodesView === 'cards' ? 'active' : ''}`} aria-pressed={nodesView === 'cards'} onClick={() => setNodesView('cards')}>
+                      <LayoutGrid size={14} /> Cards
+                    </button>
+                    <button className={`small ${nodesView === 'list' ? 'active' : ''}`} aria-pressed={nodesView === 'list'} onClick={() => setNodesView('list')}>
+                      <List size={14} /> List
+                    </button>
+                  </div>
+                )}
+                {!adding && can('admin') && (
+                  <button className="primary" onClick={() => setAdding(true)}>
+                    <Plus size={15} /> Add node
+                  </button>
+                )}
+              </div>
             </div>
             {adding && (
               <AddNodeForm
@@ -1135,6 +1279,19 @@ function MainApp() {
                 )}
               </div>
             )}
+            {nodesView === 'list' && nodes?.length > 0 ? (
+              <NodeTable
+                nodes={nodes}
+                statuses={statuses}
+                metrics={metrics.byNode}
+                clock={metrics.clock}
+                machineOf={machineOf}
+                vmOf={vmOf}
+                fleet={fleet}
+                onRemove={remove}
+                machineActions={machineActions}
+              />
+            ) : (
             <div className="node-grid">
               {(nodes || []).map((n) => (
                 <NodeCard
@@ -1147,9 +1304,12 @@ function MainApp() {
                   machineActions={machineActions}
                   fleet={fleet}
                   onChanged={reload}
+                  metrics={metrics.byNode[n.id]}
+                  clock={metrics.clock}
                 />
               ))}
             </div>
+            )}
             <FleetCard fleet={fleet} nodes={nodes} />
             {can('admin') && <ProvisionInfo />}
             {can('admin') && <EnrollTokens />}

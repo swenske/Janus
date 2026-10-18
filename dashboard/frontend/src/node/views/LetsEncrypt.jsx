@@ -578,7 +578,7 @@ function CertForm({ cert, names, providers, busy, onCancel, onSave }) {
   }
   return (
     <div style={{ marginTop: '1rem' }}>
-      <Card title={cert ? `Edit ${cert.name}` : 'Add a certificate'} icon={ShieldCheck}>
+      <Card className="data-title" title={cert ? `Edit ${cert.name}` : 'Add a certificate'} icon={ShieldCheck}>
         <div className="grid grid-2">
           <label className="field">
             <span>Name - its file is /etc/haproxy/acme/&lt;name&gt;.pem</span>
@@ -665,7 +665,7 @@ function ProviderForm({ provider, names, busy, onCancel, onSave }) {
   }
   return (
     <div style={{ marginTop: '1rem' }}>
-      <Card title={provider ? `Edit ${provider.name}` : 'Add a DNS provider'} icon={Waypoints}>
+      <Card className="data-title" title={provider ? `Edit ${provider.name}` : 'Add a DNS provider'} icon={Waypoints}>
         <div className="grid grid-2">
           <label className="field">
             <span>Name - what certificates refer to it by</span>

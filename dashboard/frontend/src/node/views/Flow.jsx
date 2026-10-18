@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, LayoutDashboard, Layers, Route, Scaling, ScrollText, Server, Shuffle, SquareTerminal, Users, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, LayoutDashboard, Layers, Route, Scaling, ScrollText, Server, SquareTerminal, Users, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getJSON } from '../api.js'
 import ServerStateButtons from '../components/ServerStateButtons.jsx'
@@ -16,6 +16,8 @@ import {
   lineChars,
   logTargets,
   parseTopology,
+  particles,
+  pathLength,
   protocol,
   pulse,
   reach,
@@ -26,10 +28,13 @@ import {
 } from '../flow.js'
 import { useMetrics, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
+import { useReducedMotion } from '../../shared/chart/motion.js'
+import BrandMark from '../../shared/BrandMark.jsx'
 
-const ICONS = { api: SquareTerminal, log: ScrollText, iface: EthernetPort, hub: Shuffle, fe: Globe, be: Layers, srv: Server, more: Ellipsis }
-const ICON_SIZE = { api: 18, log: 18, iface: 18, hub: 26, fe: 18, be: 18, srv: 13, more: 13 }
-const KIND = { api: 'API', log: 'Log target', iface: 'Interface', hub: 'HAProxy', fe: 'Frontend', be: 'Backend', srv: 'Server', more: 'Servers' }
+// The middle node is Janus's: its symbol, in the palette's colours.
+const ICONS = { api: SquareTerminal, log: ScrollText, iface: EthernetPort, hub: BrandMark, fe: Globe, be: Layers, srv: Server, more: Ellipsis }
+const ICON_SIZE = { api: 18, log: 18, iface: 18, hub: 34, fe: 18, be: 18, srv: 13, more: 13 }
+const KIND = { api: 'API', log: 'Log target', iface: 'Interface', hub: 'Janus', fe: 'Frontend', be: 'Backend', srv: 'Server', more: 'Servers' }
 const PROTO = { http: 'HTTP', tcp: 'TCP' }
 // The zoom (ctrl + scroll, the buttons): the map's drawn size, from
 // arrange's to these; a step of the buttons.
@@ -418,13 +423,51 @@ function linkLook(l, map, incoming) {
   return { cls, proto, traffic: cls ? 0 : traffic, pulse: cls ? null : pulse(traffic) }
 }
 
-function FlowLink({ l, look, state, flash, onSelect, onHover }) {
+// Particles run along a link while traffic goes through: glowing dots,
+// closer together and faster the more bytes (flow.js particles), spread
+// along it from the start - a log target's from it, out of the node. An
+// SVG animation each: no script runs a frame. None under "reduce motion",
+// where the link is only lit.
+function Particles({ l, look }) {
+  const len = useMemo(() => pathLength(l.d), [l.d])
+  const p = particles(look.traffic, len)
+  if (!p) return null
+  const r = Math.max(2, look.pulse.width * 0.6)
+  const back = l.kind === 'log'
+  // A comet: the dot in its glow, two fainter ones trailing it.
+  const parts = [
+    { lag: 0, r: r * 3, cls: 'flow-particle-halo' },
+    { lag: 0.05, r: r * 0.55, cls: 'flow-particle-tail far2' },
+    { lag: 0.025, r: r * 0.75, cls: 'flow-particle-tail' },
+    { lag: 0, r, cls: 'flow-particle-core' },
+  ]
+  return Array.from({ length: p.count }, (_, i) => (
+    <g key={i} className="flow-particle">
+      {parts.map((part, j) => (
+        <circle key={j} r={part.r} className={part.cls}>
+          <animateMotion
+            dur={`${p.seconds}s`}
+            begin={`${(-(i * p.seconds) / p.count + part.lag * p.seconds).toFixed(2)}s`}
+            repeatCount="indefinite"
+            path={l.d}
+            keyPoints={back ? '1;0' : '0;1'}
+            keyTimes="0;1"
+            calcMode="linear"
+          />
+        </circle>
+      ))}
+    </g>
+  ))
+}
+
+function FlowLink({ l, look, state, flash, onSelect, onHover, moving }) {
   const clickable = l.kind === 'be'
   return (
     <g className={`flow-link kind-${l.kind} ${look.proto ? `proto-${look.proto}` : ''} ${look.cls} ${state}`} data-id={l.id}>
       <path className="flow-track" d={l.d} />
       {flash > 0 && look.pulse && <path key={flash} className="flow-flash-link" d={l.d} />}
-      {look.pulse && <path className="flow-pulse" d={l.d} style={{ strokeWidth: look.pulse.width, animationDuration: `${look.pulse.seconds}s` }} />}
+      {look.pulse && <path className="flow-pulse" d={l.d} style={{ strokeWidth: look.pulse.width }} />}
+      {look.pulse && moving && <Particles l={l} look={look} />}
       {clickable && (
         <path
           className="flow-hit"
@@ -500,7 +543,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   const link = map.links.find((l) => l.id === id && l.kind === 'be')
   if (link) {
     return (
-      <Card title={`${link.from.slice(3)} → ${link.to.slice(3)}`} icon={Route}>
+      <Card className="data-title" title={`${link.from.slice(3)} → ${link.to.slice(3)}`} icon={Route}>
         <p className="muted small">The rules that send this frontend&apos;s traffic to this backend:</p>
         <Rules rules={link.rules} />
       </Card>
@@ -524,7 +567,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
 
   if (n.kind === 'hub') {
     return (
-      <Card title={title} icon={Icon}>
+      <Card className="data-title" title={title} icon={Icon}>
         {hap?.up ? (
           <dl className="kv">
             <Row k="Version">{hap.version}</Row>
@@ -547,7 +590,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   if (n.kind === 'iface') {
     const s = n.status
     return (
-      <Card title={title} icon={Icon}>
+      <Card className="data-title" title={title} icon={Icon}>
         <dl className="kv">
           <Row k="State">{s ? (!s.up ? 'down' : s.carrier ? 'up' : 'no carrier') : null}</Row>
           <Row k="Kind">{s ? (s.vlan_parent ? `VLAN ${s.vlan_id} on ${s.vlan_parent}` : s.kind) : null}</Row>
@@ -564,7 +607,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
     const out = graph.links.filter((l) => l.from === n.id)
     const open = graph.unresolved.filter((u) => u.frontend === n.name)
     return (
-      <Card title={title} icon={Icon}>
+      <Card className="data-title" title={title} icon={Icon}>
         <dl className="kv">
           <Row k="Status">{r.status}</Row>
           <Row k={n.listen ? 'Listen' : 'Mode'}>{n.listen ? `a listen section · ${n.mode}` : n.mode}</Row>
@@ -600,7 +643,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   if (n.kind === 'be') {
     const from = graph.links.filter((l) => l.to === n.id)
     return (
-      <Card title={title} icon={Icon}>
+      <Card className="data-title" title={title} icon={Icon}>
         <dl className="kv">
           <Row k="Status">{r.status}</Row>
           <Row k="Mode">{n.mode}</Row>
@@ -632,7 +675,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   }
   if (n.kind === 'more') {
     return (
-      <Card title={`${n.backend}: ${n.hidden.length} more servers`} icon={Icon}>
+      <Card className="data-title" title={`${n.backend}: ${n.hidden.length} more servers`} icon={Icon}>
         <ul className="flow-rules">
           {n.hidden.map((s) => (
             <li key={s.id}>
@@ -648,7 +691,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   }
   // A server.
   return (
-    <Card title={title} icon={Icon} actions={may('HAProxyService/ServerSetState') ? <ServerStateButtons backend={n.backend} server={n.name} state={r.status} onDone={onChanged} /> : null}>
+    <Card className="data-title" title={title} icon={Icon} actions={may('HAProxyService/ServerSetState') ? <ServerStateButtons backend={n.backend} server={n.name} state={r.status} onDone={onChanged} /> : null}>
       <dl className="kv">
         <Row k="Backend">{go(`be:${n.backend}`)}</Row>
         <Row k="Status">
@@ -691,7 +734,7 @@ function LogDetails({ n, title }) {
   else if (n.via) via = n.linked ? <span className="mono">{n.via}</span> : <span className="mono">{n.via} (not on the map)</span>
   else via = <span className="muted">{st.remote_address ? 'no route says' : 'not connected yet'}</span>
   return (
-    <Card title={title} icon={Icon}>
+    <Card className="data-title" title={title} icon={Icon}>
       <dl className="kv">
         <Row k="State">
           <Badge tone={n.tone === 'off' ? '' : n.tone} dot>
@@ -819,7 +862,7 @@ function Legend() {
     <div className="flow-legend">
       <div className="flow-legend-row">
         {[
-          ['iface', 'Interface · HAProxy'],
+          ['iface', 'Interface · Janus'],
           ['fe', 'Frontend'],
           ['be', 'Backend'],
           ['srv', 'Server'],
@@ -869,6 +912,7 @@ function Legend() {
 
 export default function Flow() {
   const may = useMay()
+  const moving = !useReducedMotion()
   const mayConfig = may('HAProxyService/GetConfig')
   const { latest } = useMetrics()
   const hap = latest?.hap
@@ -1168,7 +1212,7 @@ export default function Flow() {
                 >
                   <g>
                     {map.links.map((l) => (
-                      <FlowLink key={l.id} l={l} look={looks[l.id]} state={stateOf(l.id)} flash={flash[l.id]} onSelect={select} onHover={setHover} />
+                      <FlowLink key={l.id} l={l} look={looks[l.id]} state={stateOf(l.id)} flash={flash[l.id]} onSelect={select} onHover={setHover} moving={moving} />
                     ))}
                   </g>
                   <g>

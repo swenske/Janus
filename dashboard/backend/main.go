@@ -59,6 +59,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/labels"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
+	"github.com/swenske/Janus/dashboard/backend/internal/nodemetrics"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
 	"github.com/swenske/Janus/dashboard/backend/internal/ratelimit"
@@ -207,6 +208,7 @@ func main() {
 		trust:                 newTrustTracker(),
 	}
 	app.runner = newMachineRunner(app)
+	app.nodeMetrics = newNodeMetrics(app)
 	if err := app.startRegistrationListener(*registerAddr); err != nil {
 		log.Fatalf("registration listener: %v", err)
 	}
@@ -281,6 +283,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	// an admin's.
 	mux.HandleFunc("/api/nodes", a.gate(anyone, auth.Admin, a.handleNodes))
 	mux.HandleFunc("GET /api/nodes/status", a.gate(anyone, anyone, a.handleNodesStatus))
+	mux.HandleFunc("GET /api/nodes/metrics", a.gate(anyone, anyone, a.handleNodesMetrics))
 	mux.HandleFunc("GET /api/version", a.gate(anyone, anyone, func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"version": version})
 	}))
@@ -364,6 +367,9 @@ type app struct {
 	// their records.
 	createMu sync.Mutex
 	hvStatus statusCache
+	// nodeMetrics: the node list's curves (nodes_metrics.go); nil in
+	// tests that don't look at them.
+	nodeMetrics *nodemetrics.Sampler
 }
 
 // addNodeRequest is the JSON form of "add a node": three raw PEM blocks

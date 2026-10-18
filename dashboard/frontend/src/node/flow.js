@@ -648,7 +648,7 @@ function layoutAcross(graph, ifaces, servers, peers) {
   const span = (ifaces.length - 1) * ROW
   const first = Math.max(TOP + ROW / 2, mid - span / 2)
   const hubY = Math.max(mid, TOP + R.hub + 4)
-  const hub = put({ id: 'hub', kind: 'hub', name: 'HAProxy', x: X.hub, y: hubY, r: R.hub })
+  const hub = put({ id: 'hub', kind: 'hub', name: 'Janus', x: X.hub, y: hubY, r: R.hub })
   ifaces.forEach((it, i) => {
     const n = put({ ...it, x: X.iface, y: first + i * ROW, r: R.iface })
     links.push({ id: `${n.id}>hub`, from: n.id, to: 'hub', kind: 'iface' })
@@ -755,7 +755,7 @@ function layoutDown(graph, ifaces, servers, peers) {
   // HAProxy above the middle of its frontends, the interfaces above it.
   const xs = (graph.frontends.length ? graph.frontends : ordered).map((n) => byId[n.id].x)
   const mid = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0
-  const hub = put({ id: 'hub', kind: 'hub', name: 'HAProxy', x: mid, y: hubY, r: R.hub })
+  const hub = put({ id: 'hub', kind: 'hub', name: 'Janus', x: mid, y: hubY, r: R.hub })
   const step = ifaces.length ? Math.max(...ifaces.map((it) => reach({ ...it, r: R.iface }))) + GAP + R.iface : 0
   ifaces.forEach((it, i) => {
     const n = put({ ...it, x: mid + (i - (ifaces.length - 1) / 2) * step, y: ifY, r: R.iface })
@@ -1005,6 +1005,51 @@ export function pulse(bytesPerSecond) {
   return {
     width: Math.min(5, Math.max(1.5, 1.2 + 0.45 * l)),
     seconds: Math.round(Math.min(2.4, Math.max(0.35, 2.6 - 0.3 * l)) * 100) / 100,
+  }
+}
+
+// pathLength is the length of a link's path (curve, curveDown: a move
+// then cubics), its curves measured on 24 points each.
+export function pathLength(d) {
+  const n = (d.match(/-?\d+(\.\d+)?/g) || []).map(Number)
+  if (n.length < 2) return 0
+  let [x, y] = n
+  let len = 0
+  for (let i = 2; i + 5 < n.length; i += 6) {
+    const [x1, y1, x2, y2, x3, y3] = n.slice(i, i + 6)
+    let px = x
+    let py = y
+    for (let k = 1; k <= 24; k++) {
+      const u = k / 24
+      const a = (1 - u) ** 3
+      const b = 3 * (1 - u) ** 2 * u
+      const c = 3 * (1 - u) * u ** 2
+      const e = u ** 3
+      const qx = a * x + b * x1 + c * x2 + e * x3
+      const qy = a * y + b * y1 + c * y2 + e * y3
+      len += Math.hypot(qx - px, qy - py)
+      px = qx
+      py = qy
+    }
+    x = x3
+    y = y3
+  }
+  return len
+}
+
+// particles is how a link's traffic shows moving: glowing dots running
+// along it, closer together and faster the more bytes go through - as
+// many as fit its length at that spacing (one at least, eight at most),
+// each taking seconds to cross it (between 0.6 and 8 s, in tenths, so a
+// small change of traffic doesn't restart them).
+export function particles(bytesPerSecond, length) {
+  if (!(bytesPerSecond > 0) || !(length > 0)) return null
+  const l = Math.log10(Math.max(1, bytesPerSecond))
+  const spacing = Math.min(170, Math.max(45, 170 - 20 * l))
+  const speed = 45 + 30 * l // px a second
+  return {
+    count: Math.min(8, Math.max(1, Math.round(length / spacing))),
+    seconds: Math.round(Math.min(8, Math.max(0.6, length / speed)) * 10) / 10,
   }
 }
 

@@ -1,0 +1,221 @@
+/* The Controller's own look, over theme.css (shared with the site):
+   imported by both of its pages after theme.css and palettes.css. */
+
+@import "./chart/chart.css";
+
+/* The figures' face: JetBrains Mono (fonts/jetbrains-mono/README.md),
+   never the machine's own - a system "JetBrains Mono" would be another
+   build of it. */
+@font-face {
+  font-family: "Janus Mono";
+  src: url("./fonts/jetbrains-mono/janus-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Janus Mono";
+  src: url("./fonts/jetbrains-mono/janus-mono-600.woff2") format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
+:root { --mono: "Janus Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
+
+/* --- the page: two faint glows from its corners, on a layer of their
+   own (a fixed background would repaint on every scroll) --- */
+body { background: var(--bg); }
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1100px 620px at 8% -8%, var(--glow-1), transparent 62%),
+    radial-gradient(900px 560px at 104% 6%, var(--glow-2), transparent 60%);
+}
+@media (forced-colors: active) { body::before { display: none; } }
+
+/* --- cards: a title in small capitals over a rule; a title that names
+   something (a backend, a file, a flow node: .data-title, or set in
+   .mono) keeps its case --- */
+.card { background: var(--card-bg); box-shadow: var(--card-shadow); }
+.card > .card-header {
+  margin: -0.1rem -1.1rem 0.85rem;
+  padding: 0 1.1rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.card-title { font-size: 0.78rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.card-title svg { color: var(--muted); }
+.card.data-title > .card-header .card-title,
+.modal > .card-header .card-title,
+.card-title:has(.mono) { font-size: 0.95rem; text-transform: none; letter-spacing: normal; color: var(--text); }
+
+/* --- figures --- */
+.stat-label { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.07em; }
+.stat-value { font-family: var(--mono); font-weight: 600; letter-spacing: -0.02em; }
+td.num, th.num, .num { font-family: var(--mono); font-size: 0.92em; font-variant-numeric: tabular-nums; }
+
+/* --- pills: their tint, edged in their own colour; a plain one on the
+   second surface (the muted text's 4.5:1 is held there) --- */
+.badge { border: 1px solid color-mix(in srgb, currentColor 26%, transparent); line-height: 1.35; }
+.badge:not(.ok, .warn, .danger, .info, .accent) { background: var(--surface-2); }
+
+/* A link inside a sentence is underlined: its colour alone is too close
+   to the text's in some palettes. */
+p a, li a, .notice a, .muted a, .small a { text-decoration: underline; text-decoration-thickness: from-font; text-underline-offset: 0.15em; }
+.badge .dot { width: 6px; height: 6px; box-shadow: 0 0 6px color-mix(in srgb, currentColor 55%, transparent); }
+
+/* --- gauges (Gauge.jsx) --- */
+.gauge { position: relative; width: 100%; max-width: 170px; margin: 0.4rem auto 0.1rem; }
+.gauge svg { display: block; width: 100%; height: auto; overflow: visible; }
+.gauge path { stroke: color-mix(in srgb, var(--muted) 22%, transparent); stroke-width: 3.6; stroke-linecap: round; fill: none; transition: stroke 0.35s; }
+.gauge path.on { stroke: var(--gauge); }
+.gauge.warn path.on { stroke: var(--warn); }
+.gauge.danger path.on { stroke: var(--danger); }
+.gauge-value {
+  position: absolute;
+  inset: auto 0 0;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 1.4rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.gauge-stat { display: flex; flex-direction: column; }
+.gauge-stat .stat-sub { text-align: center; }
+.grid-5 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.6rem; }
+.gauges .gauge-cell { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; min-width: 0; }
+.gauges .gauge-cell .gauge { max-width: 130px; }
+.gauges .gauge-cell .gauge-value { font-size: 1.1rem; }
+.hv-gauges { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; margin-bottom: 0.2rem; }
+.hv-gauges .gauge-cell .gauge-value { font-size: 0.95rem; }
+
+/* --- the symbol (BrandMark) --- */
+.brand-mark { display: block; flex: none; }
+.brand-bar { fill: var(--accent); }
+.brand-face { fill: var(--text); }
+
+/* --- the appearance picker (ThemePicker) --- */
+.theme-picker { position: relative; }
+.tp-panel {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 40;
+  width: 27rem;
+  max-width: calc(100vw - 1.5rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  background: var(--surface);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.22);
+}
+.tp-legend { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 0; margin-bottom: 0.4rem; }
+.tp-panel input[type="radio"] { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.tp-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem; }
+.tp-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.tp-mode:hover { color: var(--text); }
+.tp-mode.checked { color: var(--accent-ink); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); font-weight: 600; }
+.tp-palettes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem; max-height: min(52vh, 25rem); overflow-y: auto; padding: 2px; margin: -2px; overscroll-behavior: contain; }
+@media (max-width: 520px) { .tp-palettes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tp-shortcut { align-items: flex-start; color: var(--muted); }
+.tp-shortcut input { margin-top: 0.15rem; }
+/* The palette T took, a moment at the window's foot. */
+.tp-said {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  z-index: 110;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+  font-weight: 600;
+  pointer-events: none;
+  animation: tp-said 1.6s ease-in forwards;
+}
+.tp-swatch-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+@keyframes tp-said { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+kbd { font-family: var(--mono); font-size: 0.85em; padding: 0 0.3rem; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); color: var(--text); }
+.tp-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.tp-palette:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.tp-palette.checked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.tp-mode:has(input:focus-visible), .tp-palette:has(input:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.tp-name { display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; font-weight: 600; padding: 0 0.15rem; }
+.tp-name svg { color: var(--accent-ink); }
+.tp-swatches { display: grid; grid-template-columns: 1fr 1fr; border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+.tp-swatch {
+  position: relative;
+  display: block;
+  height: 40px;
+  background: var(--bg);
+  background-image: radial-gradient(70px 40px at 0% 0%, var(--glow-1), transparent 70%);
+}
+.tp-card {
+  position: absolute;
+  inset: 7px 6px 6px 6px;
+  border-radius: 3px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tp-rule { height: 3px; width: 55%; border-radius: 2px; background: var(--muted); opacity: 0.7; }
+.tp-line { height: 2px; width: 80%; border-radius: 1px; background: var(--border); }
+.tp-dots { display: flex; gap: 3px; margin-top: auto; }
+.tp-dots i { width: 6px; height: 6px; border-radius: 50%; }
+.tp-dots .c1 { background: var(--chart-1); }
+.tp-dots .c2 { background: var(--chart-2); }
+.tp-dots .c3 { background: var(--chart-3); }
+.tp-pill { position: absolute; top: 11px; right: 10px; width: 12px; height: 5px; border-radius: 3px; background: var(--accent); }
+
+/* --- buttons --- */
+button.danger.solid { background: var(--danger-solid); border-color: var(--danger-solid); color: #fff; }
+
+/* A refresh that did something (RefreshButton). */
+.refresh-button.done { color: var(--ok); }
+.refresh-button.busy svg { color: var(--accent-ink); }
+@media (prefers-reduced-motion: reduce) { .refresh-button .spin { animation: none; } }
+
+/* A choice among a few buttons, joined (the node list's Cards/List). */
+button.active { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent-ink); }
+.segmented { display: inline-flex; }
+.segmented > button { border-radius: 0; }
+.segmented > button + button { margin-left: -1px; }
+.segmented > button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.segmented > button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
