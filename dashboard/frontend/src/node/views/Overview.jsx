@@ -6,9 +6,9 @@ import { GaugeStat } from '../../shared/Gauge.jsx'
 import { bytes, compact, cpuModels, cpuShape, dateTime, duration, num, percent, rate } from '../format.js'
 import { useMetrics, useNodeStatus, usePoll, useSSE } from '../hooks.jsx'
 import { UpdateBadge } from './Update.jsx'
+import { useChartWindow } from '../chartWindow.js'
+import WindowPicker from '../WindowPicker.jsx'
 import { variantNote } from '../../variants.js'
-
-const WINDOW = 5 * 60 * 1000
 
 function netTotal(p, dir) {
   if (!p.net) return undefined
@@ -62,6 +62,10 @@ export default function Overview() {
   const services = usePoll('/api/system/services')
   const mounts = usePoll('/api/system/mounts', { every: 30000 })
   const disk = stateMount(mounts.data)
+  const [windowMs, setWindowMs] = useChartWindow()
+  const WINDOW = windowMs || undefined
+  const rx = latest && netTotal(latest, 'rx')
+  const tx = latest && netTotal(latest, 'tx')
 
   const v = overview.data?.version
   const cpu = overview.data?.cpu
@@ -71,7 +75,38 @@ export default function Overview() {
 
   return (
     <>
-      <PageHeader title="Overview" subtitle="Live state of this node" />
+      <PageHeader title="Overview" subtitle="Live state of this node" actions={<WindowPicker value={windowMs} onChange={setWindowMs} />} />
+      <Card
+        title="Traffic (all interfaces)"
+        icon={Activity}
+        className="traffic-card"
+        actions={
+          <div className="traffic-figures">
+            <span className="traffic-figure rx">
+              <span className="chart-swatch" />
+              Received <strong>{rx == null ? '–' : rate(rx)}</strong>
+            </span>
+            <span className="traffic-figure tx">
+              <span className="chart-swatch" />
+              Sent <strong>{tx == null ? '–' : rate(tx)}</strong>
+            </span>
+          </div>
+        }
+      >
+        <Chart
+          points={points}
+          clock={clock}
+          windowMs={WINDOW}
+          height={230}
+          legend={false}
+          format={(x) => rate(x)}
+          binary
+          series={[
+            { label: 'Received', color: 'var(--chart-2)', get: (p) => netTotal(p, 'rx') },
+            { label: 'Sent', color: 'var(--chart-4)', get: (p) => netTotal(p, 'tx') },
+          ]}
+        />
+      </Card>
       <div className="grid grid-5" style={{ marginBottom: '1rem' }}>
         <GaugeStat
           label="CPU"
@@ -124,19 +159,6 @@ export default function Overview() {
             series={[
               { label: 'Requests/s', color: 'var(--chart-1)', get: (p) => p.hap?.reqRate },
               { label: 'Connections', color: 'var(--chart-3)', get: (p) => p.hap?.conns },
-            ]}
-          />
-        </Card>
-        <Card title="Network (all interfaces)" icon={Activity}>
-          <Chart
-            points={points}
-            clock={clock}
-            windowMs={WINDOW}
-            format={(x) => rate(x)}
-            binary
-            series={[
-              { label: 'Received', color: 'var(--chart-2)', get: (p) => netTotal(p, 'rx') },
-              { label: 'Sent', color: 'var(--chart-4)', get: (p) => netTotal(p, 'tx') },
             ]}
           />
         </Card>

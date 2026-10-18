@@ -37,15 +37,15 @@ export function timeTicks(t0, t1, step) {
 
 // segments splits the points a series has values for into runs of
 // [t, v]: a missing value ends one, and so does a gap longer than 2.5
-// sampling intervals (a hidden tab, a node rebooting) - never a line
-// drawn across a time with no data.
+// sampling intervals and 2 s (a hidden tab, a node rebooting - not a
+// slow answer at 1 s) - never a line drawn across a time with no data.
 export function segments(points, get) {
   const out = []
   let run = null
   let prev = null
   for (const p of points) {
     const v = get(p)
-    const gap = prev && p.iv > 0 && p.t - prev.t > 2.5 * Math.max(p.iv, prev.iv || 0)
+    const gap = prev && p.iv > 0 && p.t - prev.t > 2.5 * Math.max(p.iv, prev.iv || 0) + 2000
     if (v == null || Number.isNaN(v) || gap) {
       run = null
       if (v == null || Number.isNaN(v)) {

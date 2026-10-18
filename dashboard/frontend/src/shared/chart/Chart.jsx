@@ -63,7 +63,8 @@ function layout({ edge, yCur, first, tRef, yRef, windowMs, w, h, pad }) {
 const fade = (px, c) => Math.min(1, Math.max(0, (px - c.pad.left) / 24), Math.max(0, (c.pad.left + c.w - px) / 24))
 
 // place moves what a frame moves: the curves, the time ticks (fading in
-// and out at the ends), the hovered sample's marks.
+// and out at the ends), the hovered sample's marks and its tooltip -
+// beside it, on the side it fits.
 function place(els, L, c) {
   els.series?.setAttribute('transform', L.series)
   c.ticks.forEach((t, i) => {
@@ -75,11 +76,17 @@ function place(els, L, c) {
   })
   const p = c.points[c.hover]
   if (!p || !els.hover) return
-  els.hover.setAttribute('transform', `translate(${L.x(p.t).toFixed(1)},0)`)
+  const x = L.x(p.t)
+  els.hover.setAttribute('transform', `translate(${x.toFixed(1)},0)`)
   c.series.forEach((s, i) => {
     const v = s.get(p)
     if (v != null && els.dots[i]) els.dots[i].setAttribute('cy', L.y(Math.min(v, c.yMax ?? Infinity)).toFixed(1))
   })
+  if (els.tip) {
+    const tw = els.tip.offsetWidth
+    const left = x + 14 + tw <= c.pad.left + c.w ? x + 14 : Math.max(0, x - 14 - tw)
+    els.tip.style.transform = `translate(${left.toFixed(1)}px, ${c.pad.top}px)`
+  }
 }
 
 // startEdge is where a chart starting to move puts its right edge.
@@ -98,7 +105,7 @@ function hoverAt(els, L, c) {
   if (i !== c.hover) c.setHover(i)
 }
 
-export default function Chart({ points, series, format = (v) => v.toFixed(1), height = 170, yMax, windowMs, binary = false, clock, motion = 'auto', compact = false, label }) {
+export default function Chart({ points, series, format = (v) => v.toFixed(1), height = 170, yMax, windowMs, binary = false, clock, motion = 'auto', compact = false, legend = true, label }) {
   const [ref, width] = useWidth()
   const inView = useInView(ref)
   const reduced = useReducedMotion()
@@ -156,11 +163,11 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
     const pts = points.slice(from)
     const X = (t) => (t - tRef) / 1000
     const Y = (v) => -Math.min(v, yMax ?? Infinity) / yRef
-    return series.map((s, i) => {
+    return series.map((s) => {
       const runs = segments(pts, s.get)
       return {
         line: runs.map((r) => curve(r, X, Y)).join(''),
-        area: (s.fill ?? i === 0) ? runs.map((r) => area(r, X, Y, 0)).join('') : '',
+        area: (s.fill ?? true) ? runs.map((r) => area(r, X, Y, 0)).join('') : '',
       }
     })
   }, [points, series, windowMs, yMax, yRef, tRef, last])
@@ -183,6 +190,8 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
     now.current = { last, yTarget, yMax, points, series, hover, setHover, ticks, ...shape }
     if (!live || !last) {
       anim.current = { edge: null, yCur: null, key: '' }
+      // Still: only the tooltip needs its side.
+      if (last && hover >= 0) place(els.current, layout({ ...shape, edge: last.t, yCur: yTarget }), now.current)
       return
     }
     const a = anim.current
@@ -236,27 +245,29 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
   }
 
   const hovered = hover >= 0 ? points[hover] : null
-  const shown = hovered || last
   const clipId = `chart-clip-${id}`
+  // The legend's figures keep their room (the widest axis label's): a
+  // value changing never moves the next one.
+  const figure = `${Math.max(4, ...labels.map((l) => l.length))}ch`
 
   return (
     <div className={`chart${compact ? ' compact' : ''}`} ref={ref}>
-      {!compact && (
+      {!compact && legend && (
         <div className="chart-legend">
           {series.map((s) => {
-            const v = shown && s.get(shown)
+            const v = last && s.get(last)
             return (
               <span key={s.label} className="chart-legend-item">
                 <span className="chart-swatch" style={{ background: s.color }} />
                 {s.label}
-                <strong>{v == null ? '–' : format(v)}</strong>
+                <strong style={{ minWidth: figure }}>{v == null ? '–' : format(v)}</strong>
               </span>
             )
           })}
-          {hovered && <span className="muted small">{new Date(hovered.t).toLocaleTimeString()}</span>}
         </div>
       )}
-      <svg width={width} height={height} onPointerMove={onMove} onPointerLeave={onLeave} role="img" aria-label={label || series.map((s) => s.label).join(', ')}>
+      <div className="chart-plot" onPointerMove={onMove} onPointerLeave={onLeave}>
+      <svg width={width} height={height} role="img" aria-label={label || series.map((s) => s.label).join(', ')}>
         <defs>
           <clipPath id={clipId}>
             <rect x={pad.left} y={pad.top - 3} width={Math.max(0, w)} height={h + 4} />
@@ -313,6 +324,22 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
           </text>
         )}
       </svg>
+        {hovered && S && (
+          <div className="chart-tip" ref={(el) => (els.current.tip = el)} style={{ transform: `translate(${(S.x(hovered.t) + 14).toFixed(1)}px, ${pad.top}px)` }}>
+            <div className="chart-tip-time">{new Date(hovered.t).toLocaleTimeString([], { hour12: false })}</div>
+            {series.map((s) => {
+              const v = s.get(hovered)
+              return (
+                <div key={s.label} className="chart-tip-row">
+                  <span className="chart-swatch" style={{ background: s.color }} />
+                  <span className="chart-tip-label">{s.label}</span>
+                  <strong>{v == null ? '–' : format(v)}</strong>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

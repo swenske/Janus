@@ -13,16 +13,18 @@ export const INTERVALS = [
   { ms: 30000, label: '30s' },
 ]
 
-const RefreshContext = createContext({ interval: 5000, setInterval: () => {} })
+// Every second by default: the charts move at the pace of a second.
+const DEFAULT_INTERVAL = 1000
+const RefreshContext = createContext({ interval: DEFAULT_INTERVAL, setInterval: () => {} })
 
 function storedInterval() {
   try {
     // Nothing stored is null, and Number(null) is 0 - "Off".
     const stored = localStorage.getItem('janus-refresh')
     const v = Number(stored)
-    return stored !== null && INTERVALS.some((i) => i.ms === v) ? v : 5000
+    return stored !== null && INTERVALS.some((i) => i.ms === v) ? v : DEFAULT_INTERVAL
   } catch {
-    return 5000
+    return DEFAULT_INTERVAL
   }
 }
 

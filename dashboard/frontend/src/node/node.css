@@ -446,3 +446,12 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 @media (min-width: 901px) and (prefers-reduced-motion: reduce) {
   .sidebar, .brand-text, .chip-text, .nav-label, .nav-group-title { transition: none; }
 }
+
+/* Overview's traffic: the widest chart, its figures in its header. */
+.traffic-card { margin-bottom: 1rem; }
+.traffic-figures { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 1.2rem; }
+.traffic-figure { display: inline-flex; align-items: baseline; gap: 0.4rem; color: var(--muted); font-size: 0.82rem; }
+.traffic-figure strong { font-family: var(--mono); font-size: 1.15rem; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; min-width: 9ch; text-align: right; }
+.traffic-figure .chart-swatch { align-self: center; }
+.traffic-figure.rx .chart-swatch { background: var(--chart-2); }
+.traffic-figure.tx .chart-swatch { background: var(--chart-4); }

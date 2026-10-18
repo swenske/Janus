@@ -4,18 +4,14 @@ import Chart from '../../shared/chart/Chart.jsx'
 import { Card, PageHeader } from '../../shared/ui.jsx'
 import { bytes, compact, rate } from '../format.js'
 import { useMetrics, useRefresh } from '../hooks.jsx'
+import { useChartWindow } from '../chartWindow.js'
+import WindowPicker from '../WindowPicker.jsx'
 
-const WINDOWS = [
-  { ms: 60 * 1000, label: '1 min' },
-  { ms: 5 * 60 * 1000, label: '5 min' },
-  { ms: 15 * 60 * 1000, label: '15 min' },
-  { ms: 0, label: 'All' },
-]
 
 export default function Metrics() {
   const { points, clear, clock } = useMetrics()
   const { interval } = useRefresh()
-  const [windowMs, setWindowMs] = useState(5 * 60 * 1000)
+  const [windowMs, setWindowMs] = useChartWindow()
   const [iface, setIface] = useState('')
 
   const ifaces = useMemo(() => {
@@ -36,13 +32,7 @@ export default function Metrics() {
         }
         actions={
           <>
-            <div className="row" role="group">
-              {WINDOWS.map((w) => (
-                <button key={w.label} className={`small ${windowMs === w.ms ? 'active' : ''}`} onClick={() => setWindowMs(w.ms)}>
-                  {w.label}
-                </button>
-              ))}
-            </div>
+            <WindowPicker value={windowMs} onChange={setWindowMs} />
             <button className="small" onClick={clear}>
               Clear history
             </button>
