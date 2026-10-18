@@ -47,6 +47,7 @@ const (
 	argSysctl                // a kernel parameter the node lets change
 	argSysctlAssign          // NAME=VALUE for such a parameter
 	argTheme                 // a janusctl tui colour theme
+	argStickTable            // a stick table of the running config
 )
 
 // fixedValues are the kinds whose values are known here.
@@ -214,8 +215,32 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "map-get", args: "MAP", help: "a map's entries", pos: []argKind{argMap}, required: 1},
 		{name: "map-set", args: "MAP KEY VALUE", help: "set one entry", pos: []argKind{argMap, argMapKey, argNone}, required: 3},
 		{name: "map-delete", args: "MAP KEY", help: "delete one entry", pos: []argKind{argMap, argMapKey}, required: 2},
+		{name: "map-lookup", args: "MAP VALUE", help: "the entry a value matches, as a request's would (exit status 1: none)", pos: []argKind{argMap, argNone}, required: 2},
 		{name: "acl-add", args: "ACL VALUE", help: "add a pattern to an ACL", required: 2},
 		{name: "acl-delete", args: "ACL VALUE", help: "delete a pattern from an ACL", required: 2},
+		{name: "acl-lookup", args: "ACL VALUE", help: "the pattern a value matches (exit status 1: none)", required: 2},
+		{name: "tables", help: "the stick tables: key type, entries used, size"},
+		{name: "table", args: "TABLE", help: "a stick table's entries", flags: []flagDef{
+			valFlag("key", "KEY", "that entry only", argNone),
+			valFlag("filter", "DATA:OP:VALUE,...", "the entries whose data match, e.g. http_req_rate:gt:100 (eq ne lt le gt ge; 4 at most)", argNone),
+			valFlag("limit", "N", "entries shown: 500 by default, 5000 at most", argNone),
+		}, pos: []argKind{argStickTable}, required: 1},
+		{name: "table-clear", args: "TABLE", help: "remove stick table entries - a blocked client let through", flags: []flagDef{
+			valFlag("key", "KEY", "that entry", argNone),
+			valFlag("filter", "DATA:OP:VALUE,...", "the entries whose data match", argNone),
+			boolFlag("all", "every entry"),
+		}, pos: []argKind{argStickTable}, required: 1},
+		{name: "sessions", help: "the streams HAProxy is processing", flags: []flagDef{
+			valFlag("frontend", "NAME", "a frontend's only", argNone),
+			valFlag("backend", "NAME", "a backend's only", argNone),
+			valFlag("source", "ADDRESS", "a client's only, with or without its port", argNone),
+			valFlag("limit", "N", "streams shown: 500 by default, 5000 at most", argNone),
+		}},
+		{name: "session-kill", args: "ID", help: "end a stream, its ID from sessions", required: 1},
+		{name: "errors", help: "the last invalid request and response of each proxy (credentials masked)", flags: []flagDef{
+			valFlag("proxy", "NAME", "a frontend's or backend's only", argNone),
+			valFlag("direction", "request|response", "one direction only", argNone),
+		}},
 		{name: "cert-list", help: "certificates in HAProxy's store"},
 		{name: "cert-upload", args: "NAME FILE", help: "upload a PEM certificate and key as NAME", flags: []flagDef{
 			valFlag("crt-list", "PATH", "bind it into this crt-list", argNone),
