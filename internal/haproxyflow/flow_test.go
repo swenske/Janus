@@ -92,6 +92,24 @@ func TestTokenize(t *testing.T) {
 	}
 }
 
+// TestWords: each word knows the bytes it takes, quotes and escapes
+// included, and a comment ends the last one.
+func TestWords(t *testing.T) {
+	line := `  stats auth "admin:s3 cr\"et" x\ y#c`
+	want := []Word{{"stats", 2, 7}, {"auth", 8, 12}, {`admin:s3 cr"et`, 13, 30}, {"x y", 31, 35}}
+	if got := Words(line); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Words = %+v, want %+v", got, want)
+	}
+	for _, w := range want {
+		if raw := line[w.Start:w.End]; Tokenize(raw)[0] != w.Text {
+			t.Errorf("%q reads %q, want %q", raw, Tokenize(raw)[0], w.Text)
+		}
+	}
+	if got := Words("é\\ü"); len(got) != 1 || got[0].Text != "éü" || got[0].End != 5 {
+		t.Errorf("escaped multibyte character: %+v", got)
+	}
+}
+
 func TestMapCalls(t *testing.T) {
 	got := MapCalls(`req.hdr(host),lower,map_dom(/etc/haproxy/files/hosts.map,be_default)`)
 	if want := []MapCall{{"/etc/haproxy/files/hosts.map", "be_default"}}; !reflect.DeepEqual(got, want) {

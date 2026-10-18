@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Topology is what a configuration says about where traffic goes.
@@ -97,50 +98,77 @@ var sections = map[string]bool{
 // unquoted # starts a comment.
 func Tokenize(line string) []string {
 	var words []string
+	for _, w := range Words(line) {
+		words = append(words, w.Text)
+	}
+	return words
+}
+
+// Word is one word of a configuration line: its text as HAProxy reads
+// it, and the bytes it takes in the line, quotes and backslashes
+// included.
+type Word struct {
+	Text       string
+	Start, End int
+}
+
+// Words splits a configuration line as Tokenize does, keeping where
+// each word stands.
+func Words(line string) []Word {
+	var words []Word
 	var cur strings.Builder
-	started := false // "" is still a word
-	var quote rune
-	rs := []rune(line)
-	for i := 0; i < len(rs); i++ {
-		c := rs[i]
+	start := -1 // between words; "" is still a word
+	end := len(line)
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		c := line[i]
 		if quote != 0 {
 			switch {
 			case c == quote:
 				quote = 0
-			case c == '\\' && quote == '"' && i+1 < len(rs):
-				i++
-				cur.WriteRune(rs[i])
+			case c == '\\' && quote == '"' && i+1 < len(line):
+				i += escaped(&cur, line[i+1:])
 			default:
-				cur.WriteRune(c)
+				cur.WriteByte(c)
 			}
 			continue
 		}
 		if c == '#' {
+			end = i
 			break
 		}
 		if c == ' ' || c == '\t' || c == '\r' {
-			if started {
-				words = append(words, cur.String())
+			if start >= 0 {
+				words = append(words, Word{cur.String(), start, i})
 			}
 			cur.Reset()
-			started = false
+			start = -1
 			continue
 		}
-		started = true
+		if start < 0 {
+			start = i
+		}
 		switch {
 		case c == '"' || c == '\'':
 			quote = c
-		case c == '\\' && i+1 < len(rs):
-			i++
-			cur.WriteRune(rs[i])
+		case c == '\\' && i+1 < len(line):
+			i += escaped(&cur, line[i+1:])
 		default:
-			cur.WriteRune(c)
+			cur.WriteByte(c)
 		}
 	}
-	if started {
-		words = append(words, cur.String())
+	if start >= 0 {
+		words = append(words, Word{cur.String(), start, end})
 	}
 	return words
+}
+
+// escaped writes the character s starts with - the one a backslash
+// escapes - and is how many bytes it takes.
+func escaped(b *strings.Builder, s string) int {
+	_, n := utf8.DecodeRuneInString(s)
+	b.WriteString(s[:n])
+	return n
 }
 
 // sectionArgs reads "<name> [args...] [from <defaults>]".
