@@ -1,0 +1,11 @@
+{
+  "id": "JANUS-2026-006",
+  "title": "A reader could read the passwords in a node's haproxy.cfg",
+  "severity": "medium",
+  "cvss": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+  "cwe": [
+    "CWE-200"
+  ],
+  "target": "node",
+  "description": "`GetConfig` - the node's running `haproxy.cfg` - answered the `os:reader` role with the file as it is. A configuration can carry secrets: `userlist` passwords (`insecure-password` in clear, `password` as a hash that can be cracked offline), `stats auth` passwords, the `Authorization` or API key header a rule adds on the way to a backend or a health check sends, the API keys an ACL compares a request's header with. A reader got them all, from the Controller's HAProxy › Configuration page or `janusctl haproxy get-config`.\n\nA reader - an account with the reader role on the Controller, a janusctl certificate issued as `os:reader`, an API token limited to it - could take credentials to the statistics page, to the sites a userlist protects, to the backends HAProxy authenticates to.\n\n**Affected**: nodes whose haproxy.cfg carries such a secret, where someone holds a reader credential they shouldn't trust with it.\n\n**Fix**: a caller who may not apply a configuration gets it with those secrets replaced by `<redacted>` - every line in its place - and the SHA-256 of what it got; the `haproxy.config.applied` and `haproxy.config.rejected` events, which readers read too, name a configuration by that same hash. Operators and admins still read it whole. The Controller's page tells a reader what was masked, and so does janusctl.\n\n**Besides updating**: if a reader credential given to someone untrusted may have read the configuration, change the passwords and keys in it."
+}

@@ -968,6 +968,9 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 			log.Fatalf("GetConfig: %v", err)
 		}
 		os.Stdout.Write(resp.GetConfig())
+		if resp.GetRedacted() {
+			fmt.Fprintln(os.Stderr, "janusctl: secrets masked (<redacted>): this certificate may read the configuration, not apply one")
+		}
 
 	case "apply-config":
 		if len(args) != 2 {

@@ -2,7 +2,8 @@
 # Proves janusd's HAProxy runtime API code (internal/haproxy/
 # runtime_maps.go, runtime_certs.go) against a real HAProxy binary -
 # file-backed map/ACL entries and real uploaded certificates, not just
-# the fixtures captured in internal/haproxy/*_test.go. Run once per HAProxy
+# the fixtures captured in internal/haproxy/*_test.go - and that a
+# reader gets the configuration with its secrets masked (redact.go). Run once per HAProxy
 # branch an image can carry (variants.mk): the runtime API's answers
 # changed between branches before.
 #
@@ -66,6 +67,10 @@ frontend janus-health
 frontend janus-tls
     bind *:8443 ssl crt-list $WORKDIR/certs/crt-list.txt
     http-request return status 200 content-type text/plain string "tls-up\n"
+userlist ops
+    user rt insecure-password s3cret-rt
+backend stats-auth
+    stats auth admin:hunter2-rt
 EOF
 
 # A separate -pki-dir, possibly left over by a previous run on a
@@ -144,6 +149,20 @@ ctl haproxy cert-delete -crt-list "$WORKDIR/certs/crt-list.txt" "$WORKDIR/certs/
 if ctl haproxy cert-list | grep -q "^$WORKDIR/certs/uploaded.pem"; then
     fail "the cert is still listed after delete"
 fi
+
+# The configuration: whole for an admin, its secrets masked for a reader
+# (JANUS-2026-006) - which HAProxy itself still accepts as written.
+ctl haproxy get-config | grep -q "insecure-password s3cret-rt" || fail "an admin doesn't get the configuration whole"
+ctl pki generate-client-config -role os:reader -name rt-reader -ttl 1h "$WORKDIR/reader" > /dev/null || fail "generate-client-config failed"
+reader() { "$CTL_BIN" -endpoint "127.0.0.1:$P_GRPC" -ca "$WORKDIR/reader/ca.crt" -cert "$WORKDIR/reader/client.crt" -key "$WORKDIR/reader/client.key" "$@"; }
+masked="$(reader haproxy get-config 2> "$WORKDIR/reader.err")" || fail "a reader can't read the configuration"
+if grep -q -e s3cret-rt -e hunter2-rt <<<"$masked"; then fail "a reader got a secret: $masked"; fi
+grep -q "insecure-password <redacted>" <<<"$masked" || fail "the userlist password isn't masked: $masked"
+grep -q "stats auth admin:<redacted>" <<<"$masked" || fail "the stats auth password isn't masked: $masked"
+grep -q "secrets masked" "$WORKDIR/reader.err" || fail "janusctl doesn't say the configuration is masked"
+[ "$(wc -l <<<"$masked")" = "$(ctl haproxy get-config | wc -l)" ] || fail "masking moved lines"
+printf '%s\n' "$masked" > "$WORKDIR/masked.cfg"
+"$HAPROXY" -c -q -f "$WORKDIR/masked.cfg" || fail "HAProxy refuses the masked configuration"
 
 # What the Controller and the exporter read: show info and show stat
 # parse on this branch.

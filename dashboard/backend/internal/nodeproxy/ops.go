@@ -42,9 +42,10 @@ func registerOpsRoutes(mux *http.ServeMux, node *store.Node) {
 					return nil, err
 				}
 				return struct {
-					Config string `json:"config"`
-					SHA256 string `json:"sha256"`
-				}{Config: string(resp.GetConfig()), SHA256: resp.GetSha256()}, nil
+					Config   string `json:"config"`
+					SHA256   string `json:"sha256"`
+					Redacted bool   `json:"redacted,omitempty"` // secrets masked: the user may read, not apply
+				}{Config: string(resp.GetConfig()), SHA256: resp.GetSha256(), Redacted: resp.GetRedacted()}, nil
 			})
 		case http.MethodPost:
 			handleApplyConfig(w, r, node)

@@ -72,9 +72,12 @@ func (ServerSetStateRequest_State) EnumDescriptor() ([]byte, []int) {
 }
 
 type GetConfigResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Config        []byte                 `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
-	Sha256        string                 `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Config []byte                 `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	Sha256 string                 `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"` // of config, as returned
+	// redacted: secrets were replaced by "<redacted>" - the caller may
+	// read the configuration but not apply one.
+	Redacted      bool `protobuf:"varint,3,opt,name=redacted,proto3" json:"redacted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -121,6 +124,13 @@ func (x *GetConfigResponse) GetSha256() string {
 		return x.Sha256
 	}
 	return ""
+}
+
+func (x *GetConfigResponse) GetRedacted() bool {
+	if x != nil {
+		return x.Redacted
+	}
+	return false
 }
 
 type ApplyConfigRequest struct {
@@ -2570,10 +2580,11 @@ var File_janus_v1alpha1_haproxy_proto protoreflect.FileDescriptor
 
 const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\n" +
-	"\x1cjanus/v1alpha1/haproxy.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cjanus/v1alpha1/network.proto\"C\n" +
+	"\x1cjanus/v1alpha1/haproxy.proto\x12\x0ejanus.v1alpha1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1cjanus/v1alpha1/network.proto\"_\n" +
 	"\x11GetConfigResponse\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12\x16\n" +
-	"\x06sha256\x18\x02 \x01(\tR\x06sha256\",\n" +
+	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12\x1a\n" +
+	"\bredacted\x18\x03 \x01(\bR\bredacted\",\n" +
 	"\x12ApplyConfigRequest\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\"a\n" +
 	"\x13ApplyConfigResponse\x12\x14\n" +

@@ -54,7 +54,10 @@ const (
 // runtime state (servers, maps, ACLs, certificates) over its stats
 // socket, its files, and the letsencrypt extension's certificates.
 type HAProxyServiceClient interface {
-	// GetConfig returns the applied haproxy.cfg and its SHA-256.
+	// GetConfig returns the applied haproxy.cfg and its SHA-256. A caller
+	// who may not apply a configuration (os:reader) gets it with its
+	// secrets masked - userlist and "stats auth" passwords, credential
+	// headers' values, setenv values - and the SHA-256 of what it got.
 	GetConfig(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetConfigResponse, error)
 	// ApplyConfig validates the given config via `haproxy -c` before
 	// reloading - a rejected config never reaches the running process.
@@ -377,7 +380,10 @@ func (c *hAProxyServiceClient) ACMERenew(ctx context.Context, in *ACMERenewReque
 // runtime state (servers, maps, ACLs, certificates) over its stats
 // socket, its files, and the letsencrypt extension's certificates.
 type HAProxyServiceServer interface {
-	// GetConfig returns the applied haproxy.cfg and its SHA-256.
+	// GetConfig returns the applied haproxy.cfg and its SHA-256. A caller
+	// who may not apply a configuration (os:reader) gets it with its
+	// secrets masked - userlist and "stats auth" passwords, credential
+	// headers' values, setenv values - and the SHA-256 of what it got.
 	GetConfig(context.Context, *emptypb.Empty) (*GetConfigResponse, error)
 	// ApplyConfig validates the given config via `haproxy -c` before
 	// reloading - a rejected config never reaches the running process.
