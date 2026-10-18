@@ -46,7 +46,7 @@ run them from:
 - **Its own updates** - one click from its page, rolled back by itself
   if the new version doesn't start.
 
-![The Controller's node list: three nodes online, each with its labels, version, HAProxy health, uptime and fleet trust, then the fleet's state](https://raw.githubusercontent.com/swenske/Janus/main/docs/assets/screenshots/controller-nodes-light.webp)
+![The Controller's node list: three nodes online, each with its last minutes of CPU, requests and traffic, its labels, version, HAProxy health, uptime and fleet trust, then the fleet's state](https://raw.githubusercontent.com/swenske/Janus/main/docs/assets/screenshots/controller-nodes-light.webp)
 
 The complete guide - accounts, the fleet, hypervisors, backups,
 updates: [The Controller](https://janus.sw-servers.net/docs/dashboard/README.md).
