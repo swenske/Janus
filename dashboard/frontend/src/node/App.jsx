@@ -29,6 +29,7 @@ import {
   Shield,
   Shuffle,
   SlidersHorizontal,
+  Stethoscope,
   Terminal,
   UserRound,
   Waypoints,
@@ -66,6 +67,7 @@ import NetworkView from './views/Network.jsx'
 import NetworkConfig from './views/NetworkConfig.jsx'
 import Overview from './views/Overview.jsx'
 import PowerView from './views/Power.jsx'
+import Probe from './views/Probe.jsx'
 import Processes from './views/Processes.jsx'
 import Services from './views/Services.jsx'
 import Storage from './views/Storage.jsx'
@@ -117,6 +119,7 @@ const NAV = [
     items: [
       { path: '/tools/capture', label: 'Packet capture', icon: Radar, view: Capture, needs: 'SystemService/PacketCapture' },
       { path: '/tools/files', label: 'Files', icon: FolderOpen, view: Files, needs: 'SystemService/List' },
+      { path: '/tools/probe', label: 'Connectivity test', icon: Stethoscope, view: Probe, needs: 'SystemService/Probe' },
       { path: '/tools/support', label: 'Diagnostic bundle', icon: FileArchive, view: Support, needs: 'SystemService/Version' },
     ],
   },

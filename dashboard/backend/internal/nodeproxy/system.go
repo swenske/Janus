@@ -366,6 +366,8 @@ func grpcHTTPStatus(err error) int {
 		return http.StatusNotImplemented
 	case codes.DeadlineExceeded:
 		return http.StatusGatewayTimeout
+	case codes.ResourceExhausted:
+		return http.StatusTooManyRequests
 	default:
 		return http.StatusBadGateway
 	}

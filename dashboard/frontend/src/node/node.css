@@ -102,6 +102,9 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .log-info { color: var(--info); }
 .logline .offset { color: var(--muted); user-select: none; }
 mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1px solid var(--danger); border-radius: 2px; }
+.probe-step { display: grid; grid-template-columns: 7rem 4.5rem 1fr; gap: 0.6rem; align-items: baseline; padding: 0.35rem 0; border-top: 1px solid var(--border); }
+.probe-step:first-child { border-top: none; }
+@media (max-width: 640px) { .probe-step { grid-template-columns: 1fr auto; } .probe-step > div { grid-column: 1 / -1; } }
 
 .code {
   font-family: var(--mono);
