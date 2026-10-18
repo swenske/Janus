@@ -124,6 +124,16 @@ test('palettes hold WCAG AA contrasts', () => {
   assert.deepEqual(failures, [])
 })
 
+// PAIRS hold a status colour on its tint over --surface: a pill must lay
+// its tint there wherever it sits - over a lighter --surface-2 (a machine's
+// strip on the node list) the tint alone fell under 4.5:1 in most palettes.
+test('status pills lay their tint over --surface', () => {
+  const css = blocks(read('./controller.css'))
+  for (const s of ['ok', 'warn', 'danger', 'info', 'accent']) {
+    assert.equal(css[`.badge.${s}`]?.background, `linear-gradient(var(--${s}-soft), var(--${s}-soft)) var(--surface)`, `.badge.${s}`)
+  }
+})
+
 test('theme.css is the janus palette, its two dark blocks alike', () => {
   const theme = blocks(read('./theme.css'))
   const media = theme[':root:not([data-theme="light"])']

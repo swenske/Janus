@@ -61,6 +61,15 @@ td.num, th.num, .num { font-family: var(--mono); font-size: 0.92em; font-variant
    second surface (the muted text's 4.5:1 is held there) --- */
 .badge { border: 1px solid color-mix(in srgb, currentColor 26%, transparent); line-height: 1.35; }
 .badge:not(.ok, .warn, .danger, .info, .accent) { background: var(--surface-2); }
+/* A status pill lays its tint over the card's colour wherever it sits:
+   the tint alone let a lighter strip under it (a machine's, in
+   --surface-2) take its 4.5:1 away. palettes.test.js holds the tint over
+   --surface. */
+.badge.ok { background: linear-gradient(var(--ok-soft), var(--ok-soft)) var(--surface); }
+.badge.warn { background: linear-gradient(var(--warn-soft), var(--warn-soft)) var(--surface); }
+.badge.danger { background: linear-gradient(var(--danger-soft), var(--danger-soft)) var(--surface); }
+.badge.info { background: linear-gradient(var(--info-soft), var(--info-soft)) var(--surface); }
+.badge.accent { background: linear-gradient(var(--accent-soft), var(--accent-soft)) var(--surface); }
 
 /* A link inside a sentence is underlined: its colour alone is too close
    to the text's in some palettes. */
