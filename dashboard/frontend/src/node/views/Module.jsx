@@ -31,6 +31,7 @@ export default function Module({ module }) {
     <>
       <PageHeader title={`${m.title} · ${m.daemon}`} subtitle="Optional network module" />
       <Card
+        className="data-title"
         title={m.daemon}
         icon={m.icon}
         actions={state && <Badge tone={stateTone(state.state)}>{state.state === 'not_enabled' ? 'not in this image' : state.state}</Badge>}

@@ -169,7 +169,7 @@ export default function ControllerUpdate({ checkNow = 0 }) {
   if (running) {
     const to = job?.state === 'running' ? job.to_version : installing || latest?.version
     return (
-      <Card title={`Updating the Controller to ${to}`} icon={Rocket} className="controller-update accent">
+      <Card title={`Updating the Controller to ${to}`} icon={Rocket} className="controller-update data-title accent">
         <div className="row">
           <Loader2 size={15} className="spin" />
           <span>{phase === 'restarting' ? 'The Controller is restarting…' : job?.state === 'running' ? job.message : 'Starting the update…'}</span>
@@ -200,7 +200,7 @@ export default function ControllerUpdate({ checkNow = 0 }) {
         key="result"
         title={result.title(job)}
         icon={result.tone === 'ok' ? CheckCircle2 : TriangleAlert}
-        className={`controller-update ${result.tone}`}
+        className={`controller-update data-title ${result.tone}`}
         actions={
           <button className="ghost icon" onClick={dismiss} aria-label="Dismiss">
             <X size={16} />
@@ -242,7 +242,7 @@ export default function ControllerUpdate({ checkNow = 0 }) {
         key="available"
         title={`Janus Controller ${latest.version} is available`}
         icon={Rocket}
-        className="controller-update accent"
+        className="controller-update data-title accent"
         actions={
           <a className="small row" style={{ gap: '0.2rem' }} href={latest.url} target="_blank" rel="noreferrer">
             Release notes <ArrowUpRight size={14} />
