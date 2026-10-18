@@ -153,6 +153,33 @@ expect "ServiceList" '^haproxy +running +healthy' ctl system services
 expect "BackendList" '^BACKEND' ctl haproxy backends
 expect "NetworkService reports modules not in the image" 'bgp \(bird\): +not_enabled' ctl network modules
 
+# The diagnostic bundle (internal/support): an admin's holds the logs,
+# the kernel's messages and the audit; a reader's leaves them out and
+# says why; neither holds a private key.
+ctl system support -o "$WORKDIR/admin-bundle.tar.gz" 2>/dev/null || fail "system support failed"
+reader system support -o "$WORKDIR/reader-bundle.tar.gz" 2>/dev/null || fail "a reader's system support failed"
+python3 - "$WORKDIR/admin-bundle.tar.gz" "$WORKDIR/reader-bundle.tar.gz" <<'EOF' || fail "the diagnostic bundles don't hold what they should"
+import json, sys, tarfile
+def read(path):
+    with tarfile.open(path) as t:
+        return {m.name: t.extractfile(m).read().decode("utf-8", "replace") for m in t.getmembers()}
+admin, reader = read(sys.argv[1]), read(sys.argv[2])
+for name in ("README.txt", "MANIFEST.json", "version.json", "system/services.json", "haproxy/haproxy.cfg", "haproxy/stat.csv",
+             "events.jsonl", "logs/janusd.log", "logs/haproxy.log", "kernel/dmesg.log", "kernel/avc-denials.log", "audit.jsonl"):
+    assert name in admin, f"the admin's bundle lacks {name}: {sorted(admin)}"
+assert "listening on :9505" in admin["logs/janusd.log"], "janusd's log"
+assert "Linux version" in admin["kernel/dmesg.log"], "the kernel's messages"
+for name in ("logs/janusd.log", "kernel/dmesg.log", "audit.jsonl"):
+    assert name not in reader, f"the reader's bundle holds {name}"
+skipped = {s["file"]: s for s in json.loads(reader["MANIFEST.json"])["sections"] if s["status"] == "skipped"}
+assert skipped["logs/"]["reason"] == "not for this role", skipped
+assert "events.jsonl" in reader and "version.json" in reader, "a reader's bundle"
+for b in (admin, reader):
+    for name, text in b.items():
+        assert "PRIVATE KEY-----" not in text, f"{name} holds a private key"
+print(f"  ok: diagnostic bundles - an admin's {len(admin)} files, a reader's {len(reader)}")
+EOF
+
 # A certificate uploaded at runtime: kept on STATE, it must be back in
 # HAProxy after the reloads, the janusd restart and the reboot below.
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 \
