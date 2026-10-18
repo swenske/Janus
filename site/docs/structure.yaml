@@ -63,6 +63,7 @@ topics:
               - { file: docs/metrics.md, label: Metrics }
               - { file: docs/guide/log-forwarding.md, label: Log forwarding }
               - { file: docs/packet-capture.md, label: Packet capture }
+              - { file: docs/guide/connectivity-probe.md, label: Connectivity test }
               - { file: docs/guide/troubleshooting.md, label: Troubleshooting }
               - { file: docs/guide/diagnostic-bundle.md, label: Diagnostic bundle }
               - { file: SECURITY.md, label: Security policy }

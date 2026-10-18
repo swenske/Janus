@@ -59,6 +59,7 @@ are calls the Controller makes for a `janus_node`.
 | `ServiceStart`, `ServiceStop`, `ServiceRestart` | `system service` | - | Services | - |
 | `List`, `Read`, `Copy` - the node's files, never its secrets | `system ls`, `cat`, `cp` | - | Files | - |
 | `PacketCapture` - a live capture, as pcap | `system pcap` | - | Packet capture | - |
+| `Probe` - DNS, TCP, TLS, HTTP, ping, traceroute from the node | `system probe` | - | Connectivity test | - |
 | `GenerateClientConfiguration` - a certificate of the node's own CA | `pki generate-client-config` | - | Access; ⚙️ adding a node | - |
 | `MetricsConfigGet`, `MetricsConfigSet` - the Janus exporter | `system metrics` | - | Janus exporter | - |
 | `NodeExporterConfigGet`, `NodeExporterConfigSet` - prometheus-node-exporter | `system node-exporter` | - | Node exporter | - |

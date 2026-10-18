@@ -295,10 +295,13 @@ theme toggle:
   VRRP (and BGP): instances/sessions, then the daemon's configuration in
   the shared ModuleConfigEditor (check by the daemon itself, diff, apply,
   remove)
-- **Tools** - packet capture, files, diagnostic bundle (`views/Support.jsx`:
-  what the bundle holds for the account, from `may`; GET `/api/support`,
-  `nodeproxy/support.go` - `internal/support` with the account's
-  permissions, streamed; the Controller's audit records each download)
+- **Tools** - packet capture, files, connectivity test (`views/Probe.jsx`:
+  each step as the node streams it - POST `/api/system/probe`, NDJSON,
+  read with fetch: an EventSource would run the probe again once it
+  ended), diagnostic bundle (`views/Support.jsx`: what the bundle holds
+  for the account, from `may`; GET `/api/support`, `nodeproxy/support.go`:
+  `internal/support` with the account's permissions, streamed; the
+  Controller's audit records each download)
 - **System** - network (hostname, interfaces, VLANs, DNS, NTP), sysctl
   (the kernel parameters HAProxy depends on: edited in the table, checked
   as typed from the node's own bounds, tested on trial with a countdown -
@@ -325,7 +328,7 @@ certificates and files tabs, Let's Encrypt, the network's saved
 configuration, the firewall's ruleset and sets, VRRP's and BGP's
 configuration aren't fetched without it (`readMethod` on
 `ModuleConfigEditor`) - the state stays. `useMay()` (`src/node/may.js`) answers per RPC: the nav hides
-what the role can't open (logs, dmesg, capture, files, "Add or remove
+what the role can't open (logs, dmesg, capture, files, connectivity test, "Add or remove
 apps…"), a group left empty goes too, a route opened by hand says the
 role doesn't reach it; views hide their actions (Apply, Reload, maps,
 certificates, servers' state, the modules' check/apply, power actions

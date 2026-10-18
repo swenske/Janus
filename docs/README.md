@@ -53,6 +53,7 @@ Install, configure and operate Janus nodes and the Controller.
 - [Metrics](metrics.md)
 - [Log forwarding](guide/log-forwarding.md)
 - [Packet capture](packet-capture.md)
+- [Connectivity test](guide/connectivity-probe.md)
 - [Troubleshooting](guide/troubleshooting.md)
 - [Diagnostic bundle](guide/diagnostic-bundle.md)
 - [Security policy](../SECURITY.md)
