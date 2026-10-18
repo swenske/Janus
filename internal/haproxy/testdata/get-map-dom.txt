@@ -1,0 +1,2 @@
+type=dom, case=sensitive, found=yes, idx=list, key=".example.org", value="be_slow", type="str"
+

@@ -1,0 +1,2 @@
+type=ip, case=sensitive, match=yes, idx=tree, pattern="10.1.2.0/24"
+

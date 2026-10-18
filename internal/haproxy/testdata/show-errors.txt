@@ -1,0 +1,32 @@
+Total events captured on [18/Oct/2026:07:44:12.076] : 2
+ 
+[18/Oct/2026:07:44:09.667] frontend web (#2): invalid request
+  backend <NONE> (#-1), server <NONE> (#-1), event #0, src 127.0.0.1:45926
+  buffer starts at 0 (including 0 out), 16268 free,
+  len 116, wraps at 16344, error at position 102
+  H1 connection flags 0x00000000, H1 stream flags 0x00000810
+  H1 msg state MSG_HDR_NAME(17), H1 msg flags 0x00001410
+  H1 chunk len 0 bytes, H1 body len 0 bytes :
+  
+  00000  GET /x HTTP/1.1\r\n
+  00017  Host: www.example.com\r\n
+  00040  Authorization: Basic c2VjcmV0OnBhc3M=\r\n
+  00079  Cookie: sid=abc123\r\n
+  00099  Bad Header: x\r\n
+  00114  \r\n
+ 
+[18/Oct/2026:07:44:10.971] backend be_slow (#5): invalid response
+  frontend web (#2), server s2 (#1), event #1, src 127.0.0.1:45938
+  buffer starts at 0 (including 0 out), 16306 free,
+  len 78, wraps at 16344, error at position 39
+  H1 connection flags 0x80000000, H1 stream flags 0x00014810
+  H1 msg state MSG_HDR_NAME(17), H1 msg flags 0x00001415
+  H1 chunk len 2 bytes, H1 body len 2 bytes :
+  
+  00000  HTTP/1.1 200 OK\r\n
+  00017  Content-Length: 2\r\n
+  00036  Bad\x01Header: y\r\n
+  00051  Set-Cookie: token=zzz\r\n
+  00074  \r\n
+  00076  ok
+

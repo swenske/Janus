@@ -1,0 +1,3 @@
+# table: st_users, type: string, size:100, used:2
+# table: web, type: ip, size:1024, used:1
+
