@@ -48,6 +48,7 @@ const (
 	argSysctlAssign          // NAME=VALUE for such a parameter
 	argTheme                 // a janusctl tui colour theme
 	argStickTable            // a stick table of the running config
+	argProbeKind             // dns, tcp, tls, http, ping, traceroute
 )
 
 // fixedValues are the kinds whose values are known here.
@@ -59,6 +60,8 @@ var fixedValues = map[argKind][]candidate{
 	argContextAction: {{"list", "the contexts"}, {"use", "switch to a context"}, {"delete", "forget a context"}},
 	argShell:         {{"bash", ""}, {"zsh", ""}, {"fish", ""}},
 	argTheme:         themeCandidates(),
+	argProbeKind: {{"dns", "a lookup"}, {"tcp", "a connection to host:port"}, {"tls", "a handshake: the certificate presented"}, {"http", "a request to a URL"},
+		{"ping", "ICMP echo requests"}, {"traceroute", "the routers on the way"}},
 }
 
 // themeCandidates are the dashboard's themes, then list.
@@ -183,6 +186,24 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("duration", "DURATION", "stop after this long", argNone),
 			valFlag("o", "FILE", "the pcap file, - for stdout", argFile),
 		}},
+		{name: "probe", args: "KIND TARGET", help: "test the network from the node: dns, tcp, tls, http, ping, traceroute (docs/guide/connectivity-probe.md)", flags: []flagDef{
+			valFlag("source", "IP", "send from this address of the node (a VIP, an anycast address)", argNone),
+			valFlag("type", "TYPE", "dns: A, AAAA, CNAME, SRV, TXT, MX, NS or PTR", argNone),
+			valFlag("server", "HOST[:PORT]", "dns: ask this server", argNone),
+			valFlag("connect-to", "HOST[:PORT]", "tls, http: connect here, the target giving SNI and Host", argNone),
+			valFlag("sni", "NAME", "tls, http: the server name sent", argNone),
+			valFlag("alpn", "P,P", "tls, http: protocols offered", argNone),
+			valFlag("ca-file", "FILE", "tls, http: verify against this CA (PEM)", argFile),
+			valFlag("method", "METHOD", "http: GET, HEAD or OPTIONS", argNone),
+			valFlag("H", "'NAME: VALUE'", "http: a header (repeatable)", argNone),
+			valFlag("count", "N", "ping: echo requests (4)", argNone),
+			valFlag("interval", "DURATION", "ping: between them (1s)", argNone),
+			valFlag("size", "BYTES", "ping, traceroute: payload (56)", argNone),
+			boolFlag("df", "ping, traceroute: the DF bit - an MTU test"),
+			valFlag("max-hops", "N", "traceroute: 30 by default and at most", argNone),
+			valFlag("timeout", "DURATION", "each step's", argNone),
+			boolFlag("v", "the HTTP headers and body, every certificate"),
+		}, pos: []argKind{argProbeKind, argNone}, required: 2},
 		{name: "metrics", help: "the node's Prometheus exporter: show or change", flags: []flagDef{boolFlag("enable", "turn it on"), boolFlag("disable", "turn it off"), valFlag("address", "IP", "serve on this address only (* for all)", argNone), valFlag("port", "PORT", "serve on this port", argNone)}},
 		{name: "node-exporter", help: "prometheus-node-exporter: show or change", flags: []flagDef{
 			boolFlag("enable", "run it"), boolFlag("disable", "stop it, and keep it stopped"),

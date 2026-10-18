@@ -360,6 +360,33 @@ janusctl system pcap [-i IFACE] [-f FILTER] [-promisc] [-include-own-stream] [-s
 | `-duration DURATION` | stop after this long |
 | `-o FILE` | the pcap file, - for stdout |
 
+#### janusctl system probe
+
+Test the network from the node: dns, tcp, tls, http, ping, traceroute (docs/guide/connectivity-probe.md).
+
+```text
+janusctl system probe [-source IP] [-type TYPE] [-server HOST[:PORT]] [-connect-to HOST[:PORT]] [-sni NAME] [-alpn P,P] [-ca-file FILE] [-method METHOD] [-H 'NAME: VALUE'] [-count N] [-interval DURATION] [-size BYTES] [-df] [-max-hops N] [-timeout DURATION] [-v] KIND TARGET
+```
+
+| Flag | |
+|---|---|
+| `-source IP` | send from this address of the node (a VIP, an anycast address) |
+| `-type TYPE` | dns: A, AAAA, CNAME, SRV, TXT, MX, NS or PTR |
+| `-server HOST[:PORT]` | dns: ask this server |
+| `-connect-to HOST[:PORT]` | tls, http: connect here, the target giving SNI and Host |
+| `-sni NAME` | tls, http: the server name sent |
+| `-alpn P,P` | tls, http: protocols offered |
+| `-ca-file FILE` | tls, http: verify against this CA (PEM) |
+| `-method METHOD` | http: GET, HEAD or OPTIONS |
+| `-H 'NAME: VALUE'` | http: a header (repeatable) |
+| `-count N` | ping: echo requests (4) |
+| `-interval DURATION` | ping: between them (1s) |
+| `-size BYTES` | ping, traceroute: payload (56) |
+| `-df` | ping, traceroute: the DF bit - an MTU test |
+| `-max-hops N` | traceroute: 30 by default and at most |
+| `-timeout DURATION` | each step's |
+| `-v` | the HTTP headers and body, every certificate |
+
 #### janusctl system metrics
 
 The node's Prometheus exporter: show or change.
