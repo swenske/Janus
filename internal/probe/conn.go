@@ -17,6 +17,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -213,12 +215,11 @@ func stapled(st tls.ConnectionState) string {
 // TLS done when https - and reads the answer, its body counted up to
 // BodyRead.
 func (p *prober) request(ctx context.Context, conn net.Conn) error {
-	used := false
+	var used atomic.Bool
 	once := func(context.Context, string, string) (net.Conn, error) {
-		if used {
+		if used.Swap(true) {
 			return nil, errors.New("one connection per probe")
 		}
-		used = true
 		return conn, nil
 	}
 	tr := &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: p.r.Timeout, ForceAttemptHTTP2: true}
@@ -242,10 +243,16 @@ func (p *prober) request(ctx context.Context, conn net.Conn) error {
 		}
 		req.Header.Add(h[0], h[1])
 	}
-	var sent, first time.Time
+	// The trace's callbacks run on the transport's goroutines: HTTP/2
+	// writes a request on one of its own, and may say it's written after
+	// the answer's first byte came back.
+	var (
+		mu          sync.Mutex
+		sent, first time.Time
+	)
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
-		WroteRequest:         func(httptrace.WroteRequestInfo) { sent = time.Now() },
-		GotFirstResponseByte: func() { first = time.Now() },
+		WroteRequest:         func(httptrace.WroteRequestInfo) { mu.Lock(); sent = time.Now(); mu.Unlock() },
+		GotFirstResponseByte: func() { mu.Lock(); first = time.Now(); mu.Unlock() },
 	}))
 	start := time.Now()
 	resp, err := client.Do(req)
@@ -265,9 +272,15 @@ func (p *prober) request(ctx context.Context, conn net.Conn) error {
 		BodyBytes: min(total, BodyRead), BodyTruncated: total > BodyRead,
 		BodyPreview: strings.ToValidUTF8(string(body[:n]), string(utf8.RuneError)),
 	}
-	if !sent.IsZero() && !first.IsZero() {
-		res.TTFBMS = float64(first.Sub(sent).Microseconds()) / 1000
+	mu.Lock()
+	if !first.IsZero() {
+		from := start // the request, when it said it was written too late to tell
+		if !sent.IsZero() && sent.Before(first) {
+			from = sent
+		}
+		res.TTFBMS = float64(first.Sub(from).Microseconds()) / 1000
 	}
+	mu.Unlock()
 	for name, values := range resp.Header {
 		for _, v := range values {
 			if len(res.Headers) < maxHeadersBack {
