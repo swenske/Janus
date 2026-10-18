@@ -25,6 +25,9 @@ JANUSD="$(realpath "${1:?usage: $0 <janusd-bin> <janusctl-bin> <haproxy-bin>}")"
 CTL_BIN="$(realpath "${2:?usage: $0 <janusd-bin> <janusctl-bin> <haproxy-bin>}")"
 HAPROXY="$(realpath "${3:?usage: $0 <janusd-bin> <janusctl-bin> <haproxy-bin>}")"
 P_GRPC="${HAPROXY_RUNTIME_GRPC_PORT:-19506}"
+# The diagnostics' frontend, and the server behind it that never answers.
+P_DIAG="$((18420 + ${JANUS_TEST_PORT_OFFSET:-0}))"
+P_SILENT="$((18421 + ${JANUS_TEST_PORT_OFFSET:-0}))"
 
 echo "haproxy-runtime-test: $("$HAPROXY" -v | head -1)"
 
@@ -78,13 +81,13 @@ userlist ops
 backend stats-auth
     stats auth admin:hunter2-rt
 frontend diag
-    bind 127.0.0.1:18090
+    bind 127.0.0.1:$P_DIAG
     stick-table type ip size 1k expire 10m store http_req_rate(10s),gpc0
     http-request track-sc0 src
     http-request return status 200 content-type text/plain string "ok\n" if { path /fill }
     default_backend silent
 backend silent
-    server never 127.0.0.1:18091
+    server never 127.0.0.1:$P_SILENT
 EOF
 
 # A separate -pki-dir, possibly left over by a previous run on a
@@ -186,11 +189,11 @@ ctl haproxy acl-lookup "$WORKDIR/acls/blocked.acl" 1.2.3.4 | grep -q "^method   
 
 # A server that accepts connections and never answers: a request to it
 # stays a stream until it's shut down.
-python3 -c 'import socket, time; s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", 18091)); s.listen(8); time.sleep(300)' &
+python3 -c 'import socket, sys, time; s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(8); time.sleep(300)' "$P_SILENT" &
 SILENT_PID=$!
 sleep 0.5
-for _ in 1 2 3; do curl -s -o /dev/null --max-time 5 http://127.0.0.1:18090/fill || fail "diag doesn't answer"; done
-curl -s -o /dev/null --max-time 60 http://127.0.0.1:18090/held &
+for _ in 1 2 3; do curl -s -o /dev/null --max-time 5 "http://127.0.0.1:$P_DIAG/fill" || fail "diag doesn't answer"; done
+curl -s -o /dev/null --max-time 60 "http://127.0.0.1:$P_DIAG/held" &
 CURL_PID=$!
 sleep 1
 
@@ -215,7 +218,7 @@ if ctl haproxy table diag | grep -q "^127\.0\.0\.1"; then fail "table-clear left
 if ctl haproxy table-clear diag 2>/dev/null; then fail "table-clear with neither key, filter nor -all cleared"; fi
 
 # An invalid request (a space in a header name) carrying credentials.
-exec 3<>/dev/tcp/127.0.0.1/18090
+exec 3<>"/dev/tcp/127.0.0.1/$P_DIAG"
 printf 'GET /x HTTP/1.1\r\nHost: diag\r\nAuthorization: Basic c2VjcmV0OnBhc3M=\r\nCookie: sid=s3cret\r\nBad Header: x\r\n\r\n' >&3
 timeout 2 cat <&3 > /dev/null || true
 exec 3>&-
