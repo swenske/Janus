@@ -16,6 +16,8 @@ import {
   lineChars,
   logTargets,
   parseTopology,
+  particles,
+  pathLength,
   protocol,
   pulse,
   reach,
@@ -26,6 +28,7 @@ import {
 } from '../flow.js'
 import { useMetrics, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
+import { useReducedMotion } from '../../shared/chart/motion.js'
 
 const ICONS = { api: SquareTerminal, log: ScrollText, iface: EthernetPort, hub: Shuffle, fe: Globe, be: Layers, srv: Server, more: Ellipsis }
 const ICON_SIZE = { api: 18, log: 18, iface: 18, hub: 26, fe: 18, be: 18, srv: 13, more: 13 }
@@ -418,13 +421,51 @@ function linkLook(l, map, incoming) {
   return { cls, proto, traffic: cls ? 0 : traffic, pulse: cls ? null : pulse(traffic) }
 }
 
-function FlowLink({ l, look, state, flash, onSelect, onHover }) {
+// Particles run along a link while traffic goes through: glowing dots,
+// closer together and faster the more bytes (flow.js particles), spread
+// along it from the start - a log target's from it, out of the node. An
+// SVG animation each: no script runs a frame. None under "reduce motion",
+// where the link is only lit.
+function Particles({ l, look }) {
+  const len = useMemo(() => pathLength(l.d), [l.d])
+  const p = particles(look.traffic, len)
+  if (!p) return null
+  const r = Math.max(2, look.pulse.width * 0.6)
+  const back = l.kind === 'log'
+  // A comet: the dot in its glow, two fainter ones trailing it.
+  const parts = [
+    { lag: 0, r: r * 3, cls: 'flow-particle-halo' },
+    { lag: 0.05, r: r * 0.55, cls: 'flow-particle-tail far2' },
+    { lag: 0.025, r: r * 0.75, cls: 'flow-particle-tail' },
+    { lag: 0, r, cls: 'flow-particle-core' },
+  ]
+  return Array.from({ length: p.count }, (_, i) => (
+    <g key={i} className="flow-particle">
+      {parts.map((part, j) => (
+        <circle key={j} r={part.r} className={part.cls}>
+          <animateMotion
+            dur={`${p.seconds}s`}
+            begin={`${(-(i * p.seconds) / p.count + part.lag * p.seconds).toFixed(2)}s`}
+            repeatCount="indefinite"
+            path={l.d}
+            keyPoints={back ? '1;0' : '0;1'}
+            keyTimes="0;1"
+            calcMode="linear"
+          />
+        </circle>
+      ))}
+    </g>
+  ))
+}
+
+function FlowLink({ l, look, state, flash, onSelect, onHover, moving }) {
   const clickable = l.kind === 'be'
   return (
     <g className={`flow-link kind-${l.kind} ${look.proto ? `proto-${look.proto}` : ''} ${look.cls} ${state}`} data-id={l.id}>
       <path className="flow-track" d={l.d} />
       {flash > 0 && look.pulse && <path key={flash} className="flow-flash-link" d={l.d} />}
-      {look.pulse && <path className="flow-pulse" d={l.d} style={{ strokeWidth: look.pulse.width, animationDuration: `${look.pulse.seconds}s` }} />}
+      {look.pulse && <path className="flow-pulse" d={l.d} style={{ strokeWidth: look.pulse.width }} />}
+      {look.pulse && moving && <Particles l={l} look={look} />}
       {clickable && (
         <path
           className="flow-hit"
@@ -869,6 +910,7 @@ function Legend() {
 
 export default function Flow() {
   const may = useMay()
+  const moving = !useReducedMotion()
   const mayConfig = may('HAProxyService/GetConfig')
   const { latest } = useMetrics()
   const hap = latest?.hap
@@ -1168,7 +1210,7 @@ export default function Flow() {
                 >
                   <g>
                     {map.links.map((l) => (
-                      <FlowLink key={l.id} l={l} look={looks[l.id]} state={stateOf(l.id)} flash={flash[l.id]} onSelect={select} onHover={setHover} />
+                      <FlowLink key={l.id} l={l} look={looks[l.id]} state={stateOf(l.id)} flash={flash[l.id]} onSelect={select} onHover={setHover} moving={moving} />
                     ))}
                   </g>
                   <g>

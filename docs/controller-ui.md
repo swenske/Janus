@@ -508,9 +508,12 @@ back - a reload): `default_backend` (a `defaults` section's too),
 `use_backend %[...]` through the maps it reads - directly or through a
 `set-var` - whose values name the backends and whose keys say for what
 (`/api/haproxy/maps/<path>`, every 30 s). A `use_backend` nothing
-resolves is said in the frontend's details. Links pulse where traffic
-goes (the more bytes, the thicker and faster - drawn still under
-`prefers-reduced-motion`); a backend fed by several frontends has its
+resolves is said in the frontend's details. Where traffic goes, a link
+is lit and particles run along it - glowing dots with a short trail,
+closer together and faster the more bytes (`flow.js` `particles`: as
+many as fit the link's length at that spacing, at most eight), each an
+SVG `animateMotion` (no script runs a frame); under
+`prefers-reduced-motion` the link is only lit. A backend fed by several frontends has its
 traffic on each link at most the smaller side's, as HAProxy doesn't
 count the split. A link's colour is its protocol's - HTTP the accent,
 TCP `--flow-tcp`, logs `--flow-log` (tokens of `node.css`, each 3:1 on

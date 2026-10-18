@@ -336,11 +336,15 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .flow-track { fill: none; stroke: var(--muted); stroke-opacity: 0.35; stroke-width: 1.5; }
 .flow-link.down .flow-track { stroke: var(--danger); stroke-opacity: 0.8; stroke-dasharray: 4 4; }
 .flow-link.off .flow-track { stroke-dasharray: 2 5; }
-.flow-pulse { fill: none; stroke: var(--muted); stroke-linecap: round; stroke-dasharray: 8 12; animation: flow-dash 1.5s linear infinite; }
+.flow-pulse { fill: none; stroke: var(--muted); stroke-linecap: round; stroke-opacity: 0.3; }
+/* Traffic moving along a link (Flow.jsx Particles): a dot in the link's
+   protocol colour - the accent for an interface's - in a soft halo. */
+.flow-particle { pointer-events: none; }
+.flow-particle-core { fill: var(--proto, var(--accent)); }
+.flow-particle-halo { fill: var(--proto, var(--accent)); opacity: 0.16; }
+.flow-particle-tail { fill: var(--proto, var(--accent)); opacity: 0.5; }
+.flow-particle-tail.far2 { opacity: 0.28; }
 .flow-link.proto-http .flow-pulse, .flow-link.proto-tcp .flow-pulse, .flow-link.proto-log .flow-pulse, .flow-link.proto-api .flow-pulse { stroke: var(--proto); }
-/* A log target's link is drawn from it: its pulse goes the other way,
-   out of the node. */
-.flow-link.kind-log .flow-pulse { animation-direction: reverse; }
 /* A number that started from nothing: a ring widening off the node, the
    number in the accent a moment, the link lit (CSS animations, no
    timer - each replays as its element is made again). */
@@ -353,9 +357,9 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .flow-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
 .flow-map.focused .far { opacity: 0.18; }
 .flow-map.focused .flow-link.near .flow-track { stroke-opacity: 0.7; }
-@keyframes flow-dash { to { stroke-dashoffset: -20; } }
 @media (prefers-reduced-motion: reduce) {
-  .flow-pulse { animation: none; stroke-dasharray: none; stroke-opacity: 0.75; }
+  /* No particles: the link lit instead. */
+  .flow-pulse { stroke-opacity: 0.75; }
   /* The flash without movement: its colour only. */
   .flow-flash { animation-name: flow-flash-fade; }
 }

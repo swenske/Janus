@@ -1008,6 +1008,51 @@ export function pulse(bytesPerSecond) {
   }
 }
 
+// pathLength is the length of a link's path (curve, curveDown: a move
+// then cubics), its curves measured on 24 points each.
+export function pathLength(d) {
+  const n = (d.match(/-?\d+(\.\d+)?/g) || []).map(Number)
+  if (n.length < 2) return 0
+  let [x, y] = n
+  let len = 0
+  for (let i = 2; i + 5 < n.length; i += 6) {
+    const [x1, y1, x2, y2, x3, y3] = n.slice(i, i + 6)
+    let px = x
+    let py = y
+    for (let k = 1; k <= 24; k++) {
+      const u = k / 24
+      const a = (1 - u) ** 3
+      const b = 3 * (1 - u) ** 2 * u
+      const c = 3 * (1 - u) * u ** 2
+      const e = u ** 3
+      const qx = a * x + b * x1 + c * x2 + e * x3
+      const qy = a * y + b * y1 + c * y2 + e * y3
+      len += Math.hypot(qx - px, qy - py)
+      px = qx
+      py = qy
+    }
+    x = x3
+    y = y3
+  }
+  return len
+}
+
+// particles is how a link's traffic shows moving: glowing dots running
+// along it, closer together and faster the more bytes go through - as
+// many as fit its length at that spacing (one at least, eight at most),
+// each taking seconds to cross it (between 0.6 and 8 s, in tenths, so a
+// small change of traffic doesn't restart them).
+export function particles(bytesPerSecond, length) {
+  if (!(bytesPerSecond > 0) || !(length > 0)) return null
+  const l = Math.log10(Math.max(1, bytesPerSecond))
+  const spacing = Math.min(170, Math.max(45, 170 - 20 * l))
+  const speed = 45 + 30 * l // px a second
+  return {
+    count: Math.min(8, Math.max(1, Math.round(length / spacing))),
+    seconds: Math.round(Math.min(8, Math.max(0.6, length / speed)) * 10) / 10,
+  }
+}
+
 // figures are the numbers the map shows, by node or link id - a node's
 // traffic and sessions, HAProxy's connections and requests, a log
 // target's records and bytes a second, an API client's calls and bytes
