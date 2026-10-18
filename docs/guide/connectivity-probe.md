@@ -54,7 +54,10 @@ or which certificate HAProxy serves for a name on the node itself
 
 `-source` sends from one of the node's addresses - a VRRP virtual
 address, a BGP anycast address -, refused when the node doesn't have it
-at that moment.
+at that moment; the DNS queries a name needs leave from it too. The
+answers come back the way the network routes that address: to an
+anycast address, to the node the routers send it to - test from that
+one.
 
 ## Limits
 
