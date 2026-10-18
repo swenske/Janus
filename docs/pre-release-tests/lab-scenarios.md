@@ -18,7 +18,7 @@ added.
 | The auto-scaled node | since v2026.10.14: a machine the Controller creates on the same host, 2 vCPU and 1 GiB from the release's default image, room for 4 vCPU and 2 GiB |
 | Backends | two nginx VMs, 1 vCPU each |
 | Load client | a 2-vCPU VM on the same host, with `wrk` - up to v2026.10.14, removed since: it took the host's CPUs from the nodes |
-| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of v2026.10.17-2's and v2026.10.18-2's campaigns for a memory fault, the probes then ran from a runner). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
+| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of the campaigns from v2026.10.17-2 to v2026.10.18-3 for a memory fault, the probes then ran from a runner). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
 | Controller | Docker Compose with its updater, an admin with TOTP |
 
 The two nodes and the backends saturate the host's 4 cores under a
@@ -186,7 +186,13 @@ example:
   connectivity tests from the nodes to the backends, the Controller and
   the internet, from their own addresses, the VIP and the anycast
   address; a diagnostic bundle made by janusctl and one downloaded
-  through the Controller, read for secrets, and the Controller's audit.
+  through the Controller, read for secrets, and the Controller's audit;
+- v2026.10.18-3: a short check, its only change being one SELinux rule -
+  the Controller, the image factory, the rolling update under load, the
+  longterm machine, the nodes' health, and the connectivity tests given
+  a source address that resolve a name, from each node's address, the
+  VIP and the anycast address, with each node's AVC denials before and
+  after.
 
 ### HAProxy killed by the kernel
 
