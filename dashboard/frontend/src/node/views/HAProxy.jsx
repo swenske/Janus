@@ -1,4 +1,4 @@
-import { FileCode2, FileText, KeyRound, ListTree, Play, RefreshCw, RotateCw, Server, Shuffle, Square } from 'lucide-react'
+import { Activity, AlertTriangle, FileCode2, FileText, KeyRound, ListTree, Play, RefreshCw, RotateCw, Server, Shuffle, Square, Table2 } from 'lucide-react'
 import { postJSON } from '../api.js'
 import { Badge, PageHeader, Tabs, stateTone, useAction, useConfirm } from '../../shared/ui.jsx'
 import { navigate, useMetrics, usePoll } from '../hooks.jsx'
@@ -6,9 +6,12 @@ import { useMay } from '../may.js'
 import Backends from './haproxy/Backends.jsx'
 import Certificates from './haproxy/Certificates.jsx'
 import Config from './haproxy/Config.jsx'
+import Errors from './haproxy/Errors.jsx'
 import Files from './haproxy/Files.jsx'
 import MapsAcls from './haproxy/MapsAcls.jsx'
+import Sessions from './haproxy/Sessions.jsx'
 import Status from './haproxy/Status.jsx'
+import StickTables from './haproxy/StickTables.jsx'
 
 // The state - status, backends - is everyone's; the configuration's tabs
 // the haproxy domain's (needs: what each reads).
@@ -19,6 +22,9 @@ const TABS = [
   { id: 'maps', label: 'Maps & ACLs', icon: ListTree, view: MapsAcls, needs: 'HAProxyService/MapList' },
   { id: 'certificates', label: 'Certificates', icon: KeyRound, view: Certificates, needs: 'HAProxyService/CertificateList' },
   { id: 'files', label: 'Files', icon: FileText, view: Files, needs: 'HAProxyService/FileList' },
+  { id: 'tables', label: 'Stick tables', icon: Table2, view: StickTables, needs: 'HAProxyService/TableList' },
+  { id: 'sessions', label: 'Sessions', icon: Activity, view: Sessions, needs: 'HAProxyService/SessionList' },
+  { id: 'errors', label: 'Errors', icon: AlertTriangle, view: Errors, needs: 'HAProxyService/ErrorsShow' },
 ]
 
 function ServiceControls() {

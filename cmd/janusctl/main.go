@@ -921,7 +921,7 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 	}
 	client := janusv1alpha1.NewHAProxyServiceClient(conn)
 
-	if runHAProxyFiles(client, args[0], args[1:]) {
+	if runHAProxyFiles(client, args[0], args[1:]) || runHAProxyRuntime(client, args[0], args[1:]) {
 		return
 	}
 	switch sub := args[0]; sub {

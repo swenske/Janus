@@ -443,6 +443,14 @@ func onlineCandidates(c context.Context, conn *grpc.ClientConn, kind argKind, pr
 		for _, x := range resp.GetCertificates() {
 			out = append(out, candidate{x.GetName(), "until " + x.GetNotAfter()})
 		}
+	case argStickTable:
+		resp, err := hap.TableList(c, &emptypb.Empty{})
+		if err != nil {
+			return nil, nil
+		}
+		for _, t := range resp.GetTables() {
+			out = append(out, candidate{t.GetName(), fmt.Sprintf("%s, %d used", t.GetType(), t.GetUsed())})
+		}
 	case argHAProxyFile:
 		resp, err := hap.FileList(c, &emptypb.Empty{})
 		if err != nil {

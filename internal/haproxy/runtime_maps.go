@@ -140,3 +140,91 @@ func mustEmpty(out []byte, err error) error {
 	}
 	return nil
 }
+
+// PatternMatch is what "get map" or "get acl" answers: whether a value
+// matches one of a map's keys or an ACL's patterns, with HAProxy's own
+// matching - the method the configuration reads it with (str, beg, dom,
+// reg, ip...).
+type PatternMatch struct {
+	Found           bool   `json:"found"`
+	Method          string `json:"method"`
+	CaseInsensitive bool   `json:"case_insensitive,omitempty"`
+	Pattern         string `json:"pattern,omitempty"` // the key or pattern that matched
+	Value           string `json:"value,omitempty"`   // a map's value for it
+}
+
+// MapLookup runs "get map <map> <value>": which entry value matches -
+// as a request would, unlike MapGet's exact keys.
+func (m *Manager) MapLookup(mapName, value string) (PatternMatch, error) {
+	return m.patternLookup("get map", "map", mapName, value)
+}
+
+// ACLLookup runs "get acl <acl> <value>": which pattern value matches.
+func (m *Manager) ACLLookup(aclName, value string) (PatternMatch, error) {
+	return m.patternLookup("get acl", "acl", aclName, value)
+}
+
+func (m *Manager) patternLookup(verb, what, name, value string) (PatternMatch, error) {
+	n, err := cliToken(what, name)
+	if err != nil {
+		return PatternMatch{}, err
+	}
+	if value == "" {
+		return PatternMatch{}, fmt.Errorf("%w: no value to look up", ErrInvalidArgument)
+	}
+	v, err := cliText("value", value)
+	if err != nil {
+		return PatternMatch{}, err
+	}
+	out, err := m.statsCommand(verb + " " + n + " " + v)
+	if err != nil {
+		return PatternMatch{}, err
+	}
+	return parsePatternMatch(strings.TrimSpace(string(out)))
+}
+
+// parsePatternMatch reads `type=dom, case=sensitive, found=yes,
+// idx=list, key="www.example.com", value="be_default", type="str"` (an
+// ACL says match= and pattern=; testdata/get-*.txt).
+func parsePatternMatch(out string) (PatternMatch, error) {
+	var pm PatternMatch
+	seen := false
+	for rest := out; rest != ""; {
+		name, after, ok := strings.Cut(rest, "=")
+		if !ok {
+			break
+		}
+		var value string
+		if strings.HasPrefix(after, `"`) {
+			end := strings.Index(after[1:], `", `)
+			if end < 0 {
+				value, rest = strings.TrimSuffix(after[1:], `"`), ""
+			} else {
+				value, rest = after[1:1+end], after[1+end+3:]
+			}
+		} else {
+			value, rest, _ = strings.Cut(after, ", ")
+		}
+		switch name {
+		case "type":
+			if pm.Method == "" { // the second type= is the value's
+				pm.Method = value
+			}
+		case "case":
+			pm.CaseInsensitive = value == "insensitive"
+		case "found", "match":
+			pm.Found, seen = value == "yes", true
+		case "key", "pattern":
+			pm.Pattern = value
+		case "value":
+			pm.Value = value
+		}
+	}
+	if !seen {
+		if strings.HasPrefix(out, "Unknown") {
+			return PatternMatch{}, fmt.Errorf("%w: %s", ErrNotFound, out)
+		}
+		return PatternMatch{}, fmt.Errorf("%s", out)
+	}
+	return pm, nil
+}

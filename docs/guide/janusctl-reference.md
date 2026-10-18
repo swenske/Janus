@@ -604,6 +604,14 @@ Delete one entry.
 janusctl haproxy map-delete MAP KEY
 ```
 
+#### janusctl haproxy map-lookup
+
+The entry a value matches, as a request's would (exit status 1: none).
+
+```text
+janusctl haproxy map-lookup MAP VALUE
+```
+
 #### janusctl haproxy acl-add
 
 Add a pattern to an ACL.
@@ -619,6 +627,86 @@ Delete a pattern from an ACL.
 ```text
 janusctl haproxy acl-delete ACL VALUE
 ```
+
+#### janusctl haproxy acl-lookup
+
+The pattern a value matches (exit status 1: none).
+
+```text
+janusctl haproxy acl-lookup ACL VALUE
+```
+
+#### janusctl haproxy tables
+
+The stick tables: key type, entries used, size.
+
+```text
+janusctl haproxy tables
+```
+
+#### janusctl haproxy table
+
+A stick table's entries.
+
+```text
+janusctl haproxy table [-key KEY] [-filter DATA:OP:VALUE,...] [-limit N] TABLE
+```
+
+| Flag | |
+|---|---|
+| `-key KEY` | that entry only |
+| `-filter DATA:OP:VALUE,...` | the entries whose data match, e.g. http_req_rate:gt:100 (eq ne lt le gt ge; 4 at most) |
+| `-limit N` | entries shown: 500 by default, 5000 at most |
+
+#### janusctl haproxy table-clear
+
+Remove stick table entries - a blocked client let through.
+
+```text
+janusctl haproxy table-clear [-key KEY] [-filter DATA:OP:VALUE,...] [-all] TABLE
+```
+
+| Flag | |
+|---|---|
+| `-key KEY` | that entry |
+| `-filter DATA:OP:VALUE,...` | the entries whose data match |
+| `-all` | every entry |
+
+#### janusctl haproxy sessions
+
+The streams HAProxy is processing.
+
+```text
+janusctl haproxy sessions [-frontend NAME] [-backend NAME] [-source ADDRESS] [-limit N]
+```
+
+| Flag | |
+|---|---|
+| `-frontend NAME` | a frontend's only |
+| `-backend NAME` | a backend's only |
+| `-source ADDRESS` | a client's only, with or without its port |
+| `-limit N` | streams shown: 500 by default, 5000 at most |
+
+#### janusctl haproxy session-kill
+
+End a stream, its ID from sessions.
+
+```text
+janusctl haproxy session-kill ID
+```
+
+#### janusctl haproxy errors
+
+The last invalid request and response of each proxy (credentials masked).
+
+```text
+janusctl haproxy errors [-proxy NAME] [-direction request|response]
+```
+
+| Flag | |
+|---|---|
+| `-proxy NAME` | a frontend's or backend's only |
+| `-direction request\|response` | one direction only |
 
 #### janusctl haproxy cert-list
 

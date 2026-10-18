@@ -2,6 +2,7 @@ package haproxy
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"path/filepath"
 	"strings"
@@ -80,6 +81,18 @@ func (f *fakeStatsSocket) serve(conn net.Conn) {
 		_, _ = conn.Write([]byte("Certificate deleted!\n"))
 	case strings.HasPrefix(cmd, "show map "):
 		_, _ = conn.Write([]byte("0x55d0 key1 value one\n\n"))
+	case cmd == "show table big\n": // a table bigger than what's asked for
+		var b strings.Builder
+		b.WriteString("# table: big, type: ip, size:1024, used:10\n")
+		for i := range 10 {
+			fmt.Fprintf(&b, "0x%x: key=10.0.0.%d use=0 exp=1000 shard=0 gpc0=%d\n", 0x1000+i, i, i)
+		}
+		_, _ = conn.Write([]byte(b.String() + "\n"))
+	case cmd == "show sess\n":
+		_, _ = conn.Write([]byte("0x1: proto=unix_stream src=unix:1 fe=GLOBAL be=<NONE> srv=<none> age=0s calls=1 exp=10s\n" +
+			"0x2: proto=tcpv4 src=10.0.0.1:5000 fe=web be=app srv=s1 age=1m30s calls=4 exp=29s\n" +
+			"0x3: proto=tcpv4 src=10.0.0.11:5001 fe=web be=app srv=s2 age=2s calls=2 exp=28s\n" +
+			"0x4: proto=tcpv6 src=2001:db8::1:5002 fe=api be=<NONE> srv=<none> age=1h2m calls=9 exp=\n\n"))
 	default:
 		_, _ = conn.Write([]byte("\n"))
 	}

@@ -1,0 +1,4 @@
+# table: st_users, type: string, size:100, used:2
+0x7b6ea3fdcb60: key=alice use=0 exp=3596991 shard=0 http_req_cnt=5 http_req_rate(60000)=5
+0x7b6ea3f337a0: key=bob\ smith use=0 exp=3597292 shard=0 http_req_cnt=1 http_req_rate(60000)=1
+

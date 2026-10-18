@@ -1,0 +1,2 @@
+type=dom, case=sensitive, found=yes, idx=list, key="www.example.com", value="be_default", type="str"
+

@@ -2,8 +2,12 @@
 # Proves janusd's HAProxy runtime API code (internal/haproxy/
 # runtime_maps.go, runtime_certs.go) against a real HAProxy binary -
 # file-backed map/ACL entries and real uploaded certificates, not just
-# the fixtures captured in internal/haproxy/*_test.go - and that a
-# reader gets the configuration with its secrets masked (redact.go). Run once per HAProxy
+# the fixtures captured in internal/haproxy/*_test.go - that a reader
+# gets the configuration with its secrets masked (redact.go), and the
+# runtime diagnostics (runtime_tables.go, runtime_sessions.go,
+# runtime_errors.go): a stick table filled by real requests and cleared,
+# a stream held by a server that never answers and shut down, an invalid
+# request carrying credentials, map/ACL lookups. Run once per HAProxy
 # branch an image can carry (variants.mk): the runtime API's answers
 # changed between branches before.
 #
@@ -21,13 +25,18 @@ JANUSD="$(realpath "${1:?usage: $0 <janusd-bin> <janusctl-bin> <haproxy-bin>}")"
 CTL_BIN="$(realpath "${2:?usage: $0 <janusd-bin> <janusctl-bin> <haproxy-bin>}")"
 HAPROXY="$(realpath "${3:?usage: $0 <janusd-bin> <janusctl-bin> <haproxy-bin>}")"
 P_GRPC="${HAPROXY_RUNTIME_GRPC_PORT:-19506}"
+# The diagnostics' frontend, and the server behind it that never answers.
+P_DIAG="$((18420 + ${JANUS_TEST_PORT_OFFSET:-0}))"
+P_SILENT="$((18421 + ${JANUS_TEST_PORT_OFFSET:-0}))"
 
 echo "haproxy-runtime-test: $("$HAPROXY" -v | head -1)"
 
 WORKDIR="$(mktemp -d)"
 JANUSD_PID=""
+SILENT_PID=""
 cleanup() {
     [ -n "$JANUSD_PID" ] && kill "$JANUSD_PID" 2>/dev/null || true
+    [ -n "$SILENT_PID" ] && kill "$SILENT_PID" 2>/dev/null || true
     # janusd's own pid file for the HAProxy it started - never pkill -f a
     # path that is also on this script's command line.
     if [ -f /run/janus/haproxy.pid ]; then
@@ -71,6 +80,14 @@ userlist ops
     user rt insecure-password s3cret-rt
 backend stats-auth
     stats auth admin:hunter2-rt
+frontend diag
+    bind 127.0.0.1:$P_DIAG
+    stick-table type ip size 1k expire 10m store http_req_rate(10s),gpc0
+    http-request track-sc0 src
+    http-request return status 200 content-type text/plain string "ok\n" if { path /fill }
+    default_backend silent
+backend silent
+    server never 127.0.0.1:$P_SILENT
 EOF
 
 # A separate -pki-dir, possibly left over by a previous run on a
@@ -163,6 +180,59 @@ grep -q "secrets masked" "$WORKDIR/reader.err" || fail "janusctl doesn't say the
 [ "$(wc -l <<<"$masked")" = "$(ctl haproxy get-config | wc -l)" ] || fail "masking moved lines"
 printf '%s\n' "$masked" > "$WORKDIR/masked.cfg"
 "$HAPROXY" -c -q -f "$WORKDIR/masked.cfg" || fail "HAProxy refuses the masked configuration"
+
+# --- runtime diagnostics ---
+# Lookups: HAProxy's own matching - the map is read as str, the ACL as ip.
+ctl haproxy map-lookup "$WORKDIR/maps/hosts.map" www.example.com | grep -q "^value    backend1$" || fail "map-lookup didn't find www.example.com"
+if ctl haproxy map-lookup "$WORKDIR/maps/hosts.map" nothing.test > /dev/null; then fail "map-lookup found a key the map hasn't"; fi
+ctl haproxy acl-lookup "$WORKDIR/acls/blocked.acl" 1.2.3.4 | grep -q "^method   ip$" || fail "acl-lookup didn't match 1.2.3.4 as an address"
+
+# A server that accepts connections and never answers: a request to it
+# stays a stream until it's shut down.
+python3 -c 'import socket, sys, time; s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(8); time.sleep(300)' "$P_SILENT" &
+SILENT_PID=$!
+sleep 0.5
+for _ in 1 2 3; do curl -s -o /dev/null --max-time 5 "http://127.0.0.1:$P_DIAG/fill" || fail "diag doesn't answer"; done
+curl -s -o /dev/null --max-time 60 "http://127.0.0.1:$P_DIAG/held" &
+CURL_PID=$!
+sleep 1
+
+ctl haproxy tables | grep -qE "^diag[[:space:]]+ip[[:space:]]+1[[:space:]]+1024$" || fail "tables doesn't list diag with its entry: $(ctl haproxy tables)"
+ctl haproxy table diag | grep -qE "^127\.0\.0\.1[[:space:]]" || fail "table diag lacks the client"
+ctl haproxy table -filter http_req_rate:gt:2 diag | grep -q "^127\.0\.0\.1" || fail "a filter on the request rate missed the client"
+if ctl haproxy table -filter http_req_rate:gt:1000 diag | grep -q "^127\.0\.0\.1"; then fail "a filter let a client through it shouldn't"; fi
+if ctl haproxy table nosuch 2> "$WORKDIR/err"; then fail "table nosuch didn't fail"; fi
+grep -q "NotFound" "$WORKDIR/err" || fail "table nosuch: $(cat "$WORKDIR/err")"
+
+held="$(ctl haproxy sessions -frontend diag)"
+id="$(awk '$5 == "never" {print $1; exit}' <<<"$held")"
+[ -n "$id" ] || fail "sessions doesn't show the held request: $held"
+if ctl haproxy sessions | grep -q GLOBAL; then fail "sessions lists the runtime API's own stream"; fi
+ctl haproxy session-kill "$id"
+for _ in $(seq 1 20); do kill -0 "$CURL_PID" 2>/dev/null || break; sleep 0.2; done
+if kill -0 "$CURL_PID" 2>/dev/null; then fail "the held request is still running after session-kill"; fi
+if ctl haproxy session-kill "$id" 2>/dev/null; then fail "a stream shut down twice"; fi
+
+ctl haproxy table-clear diag -key 127.0.0.1
+if ctl haproxy table diag | grep -q "^127\.0\.0\.1"; then fail "table-clear left the entry"; fi
+if ctl haproxy table-clear diag 2>/dev/null; then fail "table-clear with neither key, filter nor -all cleared"; fi
+
+# An invalid request (a space in a header name) carrying credentials.
+exec 3<>"/dev/tcp/127.0.0.1/$P_DIAG"
+printf 'GET /x HTTP/1.1\r\nHost: diag\r\nAuthorization: Basic c2VjcmV0OnBhc3M=\r\nCookie: sid=s3cret\r\nBad Header: x\r\n\r\n' >&3
+timeout 2 cat <&3 > /dev/null || true
+exec 3>&-
+errs="$(ctl haproxy errors -proxy diag)"
+grep -q "frontend diag: invalid request" <<<"$errs" || fail "errors doesn't show the invalid request: $errs"
+grep -qF 'Authorization: <redacted>\r\n' <<<"$errs" || fail "errors doesn't mask Authorization: $errs"
+if grep -q -e c2VjcmV0 -e s3cret <<<"$errs"; then fail "errors shows a credential: $errs"; fi
+grep -q "^ *\^$" <<<"$errs" || fail "errors doesn't point at the refused byte: $errs"
+
+# What a reader may: look, not change, not read refused requests' bytes.
+reader haproxy tables > /dev/null || fail "a reader can't list the stick tables"
+reader haproxy sessions > /dev/null || fail "a reader can't list the streams"
+if reader haproxy errors 2>/dev/null; then fail "a reader read the captured errors"; fi
+if reader haproxy table-clear diag -all 2>/dev/null; then fail "a reader cleared a stick table"; fi
 
 # What the Controller and the exporter read: show info and show stat
 # parse on this branch.

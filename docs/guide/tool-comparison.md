@@ -90,6 +90,10 @@ and no META partition.
 | `MapList`, `MapGet` - the maps and their entries | `haproxy map-list`, `map-get` | ⚙️ | HAProxy › Maps & ACLs | - |
 | `MapUpdate` - set or delete an entry, live | `haproxy map-set`, `map-delete` | - | HAProxy › Maps & ACLs | - |
 | `ACLUpdate` - add or delete a pattern, live | `haproxy acl-add`, `acl-delete` | - | HAProxy › Maps & ACLs | - |
+| `MapLookup`, `ACLLookup` - the entry or pattern a value matches | `haproxy map-lookup`, `acl-lookup` | - | HAProxy › Maps & ACLs | - |
+| `TableList`, `TableShow`, `TableClear` - stick tables | `haproxy tables`, `table`, `table-clear` | - | HAProxy › Stick tables | - |
+| `SessionList`, `SessionShutdown` - the sessions in progress | `haproxy sessions`, `session-kill` | - | HAProxy › Sessions | - |
+| `ErrorsShow` - the last refused requests and responses | `haproxy errors` | - | HAProxy › Errors | - |
 | `CertificateList`, `CertificateUpload`, `CertificateDelete` | `haproxy cert-list`, `cert-upload`, `cert-delete` | - | HAProxy › Certificates | - |
 | `FileList`, `FileGet`, `FilePut`, `FileDelete` - error pages, CAs... | `haproxy files`, `file-get`, `file-put`, `file-delete` | - | HAProxy › Files | - |
 | `ACMEStatus`, `ACMEGetConfig`, `ACMEApplyConfig`, `ACMERenew` - Let's Encrypt | `haproxy acme` | - | Let's Encrypt | - |

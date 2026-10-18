@@ -12,6 +12,11 @@ import (
 // codes.InvalidArgument.
 var ErrInvalidArgument = errors.New("invalid argument")
 
+// ErrNotFound marks HAProxy's answer that what a command names - a
+// stick table, a stream, a map - doesn't exist in the running process
+// (internal/api maps it to codes.NotFound).
+var ErrNotFound = errors.New("not found")
+
 // Every runtime API command is built by pasting caller-supplied values
 // (map/ACL/backend/server/certificate names, keys, values) into one text
 // line sent to a "level admin" socket. HAProxy's CLI runs each line as a

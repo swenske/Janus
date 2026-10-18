@@ -8,6 +8,7 @@
 package haproxy
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -686,6 +687,39 @@ func (m *Manager) statsCommand(cmd string) ([]byte, error) {
 		return nil, fmt.Errorf("read stats response: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// statsStream runs cmd and hands each line of the answer to line until
+// it returns false or the answer ends - for answers a busy node makes
+// huge ("show table", "show sess"), which statsCommand would read
+// whole. Past maxBytes it stops too, and says so (truncated).
+func (m *Manager) statsStream(cmd string, maxBytes int64, line func(string) bool) (truncated bool, err error) {
+	conn, err := net.DialTimeout("unix", m.StatsSocketPath, 2*time.Second)
+	if err != nil {
+		return false, fmt.Errorf("dial stats socket: %w", err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return false, fmt.Errorf("set stats socket deadline: %w", err)
+	}
+	if _, err := conn.Write([]byte(cmd + "\n")); err != nil {
+		return false, fmt.Errorf("write stats command: %w", err)
+	}
+	r := &io.LimitedReader{R: conn, N: maxBytes + 1}
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if r.N <= 0 { // the last line may be cut: not handed over
+			return true, nil
+		}
+		if !line(sc.Text()) {
+			return false, nil
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return false, fmt.Errorf("read stats response: %w", err)
+	}
+	return r.N <= 0, nil
 }
 
 func splitNonEmptyLines(s string) []string {

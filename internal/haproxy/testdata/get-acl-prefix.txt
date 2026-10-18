@@ -1,0 +1,2 @@
+type=beg, case=sensitive, match=yes, idx=tree, pattern="/api"
+
