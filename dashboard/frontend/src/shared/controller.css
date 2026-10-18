@@ -186,3 +186,11 @@ button.danger.solid { background: var(--danger-solid); border-color: var(--dange
 .refresh-button.done { color: var(--ok); }
 .refresh-button.busy svg { color: var(--accent-ink); }
 @media (prefers-reduced-motion: reduce) { .refresh-button .spin { animation: none; } }
+
+/* A choice among a few buttons, joined (the node list's Cards/List). */
+button.active { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent-ink); }
+.segmented { display: inline-flex; }
+.segmented > button { border-radius: 0; }
+.segmented > button + button { margin-left: -1px; }
+.segmented > button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.segmented > button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }

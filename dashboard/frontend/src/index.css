@@ -165,3 +165,16 @@
 .badge-link:hover .badge {
   filter: brightness(0.95);
 }
+
+/* The node list as rows (NodeTable). */
+.node-table-card { padding: 0; overflow: hidden; }
+.node-table-card .table-wrap { border: 0; border-radius: var(--radius); }
+.node-table td { vertical-align: middle; }
+.node-table .spark-col { width: 9rem; }
+/* A fixed width: a chart takes its container's, and a table cell would
+   otherwise take the chart's. */
+.node-table .spark-cell { width: 8rem; }
+.node-table .spark-cell .spark-value { font-size: 0.8rem; }
+.node-table .actions { width: 1%; }
+.node-table-labels { gap: 0.25rem; margin-top: 0.25rem; }
+.node-table-labels .badge { font-size: 0.7rem; padding: 0.05rem 0.4rem; }

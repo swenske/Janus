@@ -1,6 +1,7 @@
 /* Charts (chart/Chart.jsx): lines a constant 1.6 px however their group
    is scaled, the first series' area fading down to the baseline. */
-.chart svg { display: block; overflow: visible; touch-action: pan-y; }
+.chart { min-width: 0; }
+.chart svg { display: block; max-width: 100%; overflow: visible; touch-action: pan-y; }
 .chart-axis { font-size: 10px; fill: var(--muted); font-family: var(--mono); }
 .chart-grid { stroke: var(--chart-grid); }
 .chart-grid-x { stroke-dasharray: 2 4; opacity: 0.8; }
