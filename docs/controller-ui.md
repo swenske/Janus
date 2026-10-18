@@ -601,6 +601,15 @@ both tests.
   window is full, and use binary steps for bytes - see [Charts](#charts).
   Each sample carries its interval (`iv`); `MetricsProvider` gives every
   chart of the page one clock (`clock`), so they scroll together.
+- **Metrics' breakdowns** (`breakdown.js`, `Donut`): below the charts,
+  what HAProxy's own counters say since it started (`/api/haproxy/
+  stats`, every 5 s; HAProxyService/Stats): its frontends' responses by
+  status class, their requests by HTTP version, their TLS handshakes -
+  full, resumed (`ssl_sess` counts the new sessions only, the resumed
+  ones in `ssl_reused_sess`), failed -, the bytes each backend moved,
+  and how fast each backend answers (averages over its last 1024
+  requests). No counter says which TLS version or cipher a connection
+  used: only the access log does (`%sslv`, `%sslc`).
 - **The node list's curves** (`NodeSparklines.jsx`, `nodeMetrics.js`):
   `GET /api/nodes/metrics` - each node the account sees, its last
   minutes of CPU, HAProxy requests and traffic, from the Controller's

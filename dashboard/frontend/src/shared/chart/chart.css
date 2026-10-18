@@ -37,3 +37,19 @@
 .chart-tip-row { display: flex; align-items: center; gap: 0.4rem; }
 .chart-tip-label { flex: 1; color: var(--muted); }
 .chart-tip-row strong { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; margin-left: 0.6rem; }
+
+/* A whole and its parts (chart/Donut.jsx). */
+.donut { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.donut svg { width: 128px; height: 128px; flex: none; }
+.donut-track { fill: none; stroke: color-mix(in srgb, var(--muted) 14%, transparent); stroke-width: 14; }
+.donut-arc { fill: none; stroke-width: 14; transition: opacity 0.15s; }
+.donut-arc.faded, .donut-legend li.faded { opacity: 0.35; }
+.donut-total { font-family: var(--mono); font-size: 15px; font-weight: 600; fill: var(--text); }
+.donut-caption { font-size: 8.5px; fill: var(--muted); }
+.donut-legend { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 9rem; display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.82rem; }
+.donut-legend li { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 0.45rem; transition: opacity 0.15s; }
+.donut-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.donut-value { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.donut-pct { font-family: var(--mono); color: var(--muted); min-width: 4.5ch; text-align: right; font-variant-numeric: tabular-nums; }
+.donut-empty { padding: 2.2rem 0; text-align: center; }
+@media (prefers-reduced-motion: reduce) { .donut-arc, .donut-legend li { transition: none; } }

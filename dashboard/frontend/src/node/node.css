@@ -459,3 +459,14 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .traffic-figure .chart-swatch { align-self: center; }
 .traffic-figure.rx .chart-swatch { background: var(--chart-2); }
 .traffic-figure.tx .chart-swatch { background: var(--chart-4); }
+
+/* Metrics' HAProxy breakdowns. */
+.metrics-h { display: flex; align-items: baseline; gap: 0.6rem; margin: 1.4rem 0 0.8rem; font-size: 1.05rem; }
+.metrics-backends { margin-top: 1rem; }
+.metrics-backends td.rtime { position: relative; min-width: 12rem; }
+.rtime-bar { position: absolute; left: 0.7rem; top: 50%; height: 6px; margin-top: -3px; max-width: calc(100% - 6.5rem); border-radius: 3px; background: color-mix(in srgb, var(--chart-1) 55%, transparent); }
+.metrics-backends td.rtime .mono { position: relative; float: right; }
+/* Metrics' six charts: two rows of three, two columns, one. */
+.metrics-charts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1250px) { .metrics-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .metrics-charts { grid-template-columns: minmax(0, 1fr); } }
