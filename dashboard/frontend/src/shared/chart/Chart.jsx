@@ -109,9 +109,6 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
   const [id] = useState(() => ++nextId)
   const [ownClock] = useState(() => new ServerClock())
   const clk = clock || ownClock
-  const pad = compact ? COMPACT : PAD
-  const w = width - pad.left - pad.right
-  const h = height - pad.top - pad.bottom
 
   const last = points[points.length - 1]
   const first = points[0]
@@ -135,6 +132,15 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
     }
     return niceMax(maxV, binary)
   }, [points, series, windowMs, yMax, binary, last])
+
+  // The value axis' labels set the left margin: the widest, in the
+  // monospace face (0.6 em a character, 10 px).
+  const yTicks = useMemo(() => (compact ? [] : [0, 0.25, 0.5, 0.75, 1].map((f) => f * yTarget)), [compact, yTarget])
+  const labels = yTicks.map((v) => format(v))
+  const left = compact ? COMPACT.left : Math.max(34, Math.ceil(Math.max(0, ...labels.map((l) => l.length)) * 6) + 12)
+  const pad = useMemo(() => (compact ? COMPACT : { ...PAD, left }), [compact, left])
+  const w = width - pad.left - pad.right
+  const h = height - pad.top - pad.bottom
 
   // The curves, in the samples' own units: seconds before the newest
   // sample across, the value over yRef up (negative: SVG's y goes down).
@@ -231,7 +237,6 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
 
   const hovered = hover >= 0 ? points[hover] : null
   const shown = hovered || last
-  const yTicks = compact ? [] : [0, 0.25, 0.5, 0.75, 1].map((f) => f * yTarget)
   const clipId = `chart-clip-${id}`
 
   return (
@@ -269,7 +274,7 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
           <g key={i} transform={`translate(0,${(pad.top + h - (i / 4) * h).toFixed(1)})`}>
             <line x1={pad.left} x2={pad.left + w} className="chart-grid" />
             <text x={pad.left - 6} y={4} textAnchor="end" className="chart-axis">
-              {format(v)}
+              {labels[i]}
             </text>
           </g>
         ))}
