@@ -62,7 +62,7 @@ const PILLARS = [
     icon: Workflow,
     title: 'Managed through an API',
     points: [
-      'A gRPC API for everything: HAProxy configuration, maps, ACLs, certificates, backends, network, firewall, kernel tuning, logs, packet capture, updates.',
+      'A gRPC API for everything: HAProxy configuration, maps, ACLs, certificates, backends, stick tables, network, firewall, kernel tuning, logs, packet capture, connectivity tests, updates.',
       'janusctl on the command line - with a live dashboard of a node or of the fleet in the terminal; the Janus Controller in the browser, for all your nodes.',
       'A/B updates with automatic rollback when HAProxy doesn’t come back healthy.',
       'Network, firewall and kernel changes applied on trial: one that cuts the node off reverts by itself.',
@@ -81,7 +81,7 @@ const FEATURES = [
   {
     icon: Terminal,
     title: 'No shell, still observable',
-    text: 'Logs, kernel messages, processes, files and packet capture over the API - read-only and scoped, never a command line. Logs and an audit of every change kept across reboots, and sent to syslog or Elasticsearch.',
+    text: 'Logs, kernel messages, processes, files, packet capture and connectivity tests over the API - read-only or bounded, never a command line. HAProxy’s stick tables, sessions and refused requests at a glance; a diagnostic bundle, without secrets, for an issue. Logs and an audit of every change kept across reboots, and sent to syslog or Elasticsearch.',
   },
   {
     icon: Boxes,
@@ -304,7 +304,8 @@ export default function Landing() {
                 <a href={`${DOCS}/guide/kernel-tuning.md`}>Kernel tuning</a> <span className="muted">- HAProxy&apos;s kernel parameters, the CIS benchmark</span>
               </li>
               <li>
-                <a href={`${DOCS}/packet-capture.md`}>Packet capture</a>
+                <a href={`${DOCS}/packet-capture.md`}>Packet capture</a> <span className="muted">- and the</span>{' '}
+                <a href={`${DOCS}/guide/connectivity-probe.md`}>connectivity test</a>
               </li>
               <li>
                 <a href={`${DOCS}/api-routes.md`}>API reference</a>
