@@ -31,6 +31,8 @@ import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, Powe
 import { navigate, useHashRoute } from './shared/route.js'
 import BrandMark from './shared/BrandMark.jsx'
 import ThemePicker from './shared/ThemePicker.jsx'
+import NodeSparklines from './NodeSparklines.jsx'
+import { useNodeMetrics } from './nodeMetrics.js'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
@@ -125,7 +127,7 @@ function NodeLabels({ node, onChanged }) {
   )
 }
 
-function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, onChanged }) {
+function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, onChanged, metrics, clock }) {
   const can = useCan()
   const st = status
   const reachable = st?.reachable
@@ -148,6 +150,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
           </Badge>
         )}
       </div>
+      {reachable && <NodeSparklines points={metrics} clock={clock} />}
       {machine && (
         <div className="machine-strip small">
           <div className="row" style={{ gap: '0.4rem' }}>
@@ -893,6 +896,7 @@ function MainApp() {
   const [fleet, setFleet] = useState(null)
   const [backups, setBackups] = useState(null)
   const [statusLoaded, setStatusLoaded] = useState(false)
+  const metrics = useNodeMetrics(tab === 'nodes' && (nodes?.length ?? 0) > 0)
   const isReader = can('reader')
   const confirm = useConfirm()
   const toast = useToast()
@@ -1148,6 +1152,8 @@ function MainApp() {
                   machineActions={machineActions}
                   fleet={fleet}
                   onChanged={reload}
+                  metrics={metrics.byNode[n.id]}
+                  clock={metrics.clock}
                 />
               ))}
             </div>
