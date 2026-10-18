@@ -37,7 +37,8 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
-import { Logo, ThemeToggle } from '../shared/theme.jsx'
+import BrandMark from '../shared/BrandMark.jsx'
+import ThemePicker from '../shared/ThemePicker.jsx'
 import { Badge, Loading } from '../shared/ui.jsx'
 import { useSplash, useSplashStep } from '../shared/Splash.jsx'
 import { PrereleaseBadge } from '../PrereleaseBadge.jsx'
@@ -231,7 +232,7 @@ export default function App() {
     <div className={`layout ${navOpen ? 'nav-open' : ''}`}>
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <Logo size={26} />
+          <BrandMark size={26} />
           <div>
             <div className="brand-name">Janus</div>
             <div className="muted small">Controller{node.data?.controller_version ? <span className="mono"> {node.data.controller_version}</span> : null}</div>
@@ -303,7 +304,7 @@ export default function App() {
           </div>
           <span className="grow" />
           <RefreshSelect />
-          <ThemeToggle />
+          <ThemePicker />
         </header>
         {error && !ended && (
           <div className="banner danger">

@@ -1,0 +1,92 @@
+/* The Controller's own look, over theme.css (shared with the site):
+   imported by both of its pages after theme.css and palettes.css. */
+
+/* --- the page --- */
+body { background: var(--bg); }
+
+/* --- the symbol (BrandMark) --- */
+.brand-mark { display: block; flex: none; }
+.brand-bar { fill: var(--accent); }
+.brand-face { fill: var(--text); }
+
+/* --- the appearance picker (ThemePicker) --- */
+.theme-picker { position: relative; }
+.tp-panel {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 40;
+  width: 19.5rem;
+  max-width: calc(100vw - 1.5rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  background: var(--surface);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.22);
+}
+.tp-legend { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 0; margin-bottom: 0.4rem; }
+.tp-panel input[type="radio"] { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.tp-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem; }
+.tp-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.tp-mode:hover { color: var(--text); }
+.tp-mode.checked { color: var(--accent-ink); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); font-weight: 600; }
+.tp-palettes { display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem; }
+.tp-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.tp-palette:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.tp-palette.checked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.tp-mode:has(input:focus-visible), .tp-palette:has(input:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.tp-name { display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; font-weight: 600; padding: 0 0.15rem; }
+.tp-name svg { color: var(--accent-ink); }
+.tp-swatches { display: grid; grid-template-columns: 1fr 1fr; border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+.tp-swatch {
+  position: relative;
+  display: block;
+  height: 46px;
+  background: var(--bg);
+  background-image: radial-gradient(70px 40px at 0% 0%, var(--glow-1), transparent 70%);
+}
+.tp-card {
+  position: absolute;
+  inset: 7px 6px 6px 6px;
+  border-radius: 3px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tp-rule { height: 3px; width: 55%; border-radius: 2px; background: var(--muted); opacity: 0.7; }
+.tp-line { height: 2px; width: 80%; border-radius: 1px; background: var(--border); }
+.tp-dots { display: flex; gap: 3px; margin-top: auto; }
+.tp-dots i { width: 6px; height: 6px; border-radius: 50%; }
+.tp-dots .c1 { background: var(--chart-1); }
+.tp-dots .c2 { background: var(--chart-2); }
+.tp-dots .c3 { background: var(--chart-3); }
+.tp-pill { position: absolute; top: 11px; right: 10px; width: 12px; height: 5px; border-radius: 3px; background: var(--accent); }
+
+/* --- buttons --- */
+button.danger.solid { background: var(--danger-solid); border-color: var(--danger-solid); color: #fff; }

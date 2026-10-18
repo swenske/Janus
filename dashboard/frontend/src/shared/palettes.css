@@ -1,0 +1,416 @@
+/* The Controller's palettes: each one light and dark, chosen per browser
+   (ThemePicker, appearance.js). <html> carries the palette and the mode
+   in effect - data-palette and data-theme, set before the page paints by
+   public/theme-boot.js - and a block below gives every token for that
+   pair. The blocks also apply to any element carrying both attributes:
+   the picker's tiles show each palette in its own colours.
+
+   Every block defines the same tokens, and palettes.test.js holds each
+   one to WCAG AA: text 4.5:1 on its surfaces, --accent-ink and the
+   status colours 4.5:1 on the page and on their -soft tints, the accent
+   3:1, chart and flow colours 3:1 on a card (a flow badge's text 4.5:1).
+   "janus" is theme.css's own colours (the site's), plus the tokens only
+   the Controller uses.
+
+   --surface stays opaque (sticky table headers, inputs); a card may be
+   translucent (--card-bg). --glow-1/2 tint the page's background from
+   two corners (controller.css). */
+
+:root[data-palette="janus"][data-theme="light"],
+[data-palette="janus"][data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f4ef;
+  --surface: #ffffff;
+  --surface-2: #f1eee7;
+  --surface-3: #e8e4da;
+  --border: #e2ddd2;
+  --text: #1d1c1a;
+  --muted: #6b665c;
+  --accent: #c2502a;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(194, 80, 42, 0.12);
+  --accent-ink: #a8401c;
+  --ok: #276b2b;
+  --ok-soft: rgba(46, 125, 50, 0.12);
+  --warn: #8a5200;
+  --warn-soft: rgba(178, 106, 0, 0.13);
+  --danger: #b71c1c;
+  --danger-soft: rgba(198, 40, 40, 0.11);
+  --danger-solid: #b71c1c;
+  --info: #1d4ed8;
+  --info-soft: rgba(37, 99, 235, 0.11);
+  --shadow: 0 1px 2px rgba(29, 28, 26, 0.06), 0 1px 8px rgba(29, 28, 26, 0.04);
+  --card-bg: #ffffff;
+  --card-shadow: 0 1px 2px rgba(29, 28, 26, 0.06), 0 1px 8px rgba(29, 28, 26, 0.04);
+  --glow-1: rgba(194, 80, 42, 0.05);
+  --glow-2: rgba(37, 99, 235, 0.035);
+  --chart-1: #c2502a;
+  --chart-2: #2563eb;
+  --chart-3: #2e7d32;
+  --chart-4: #8b5cf6;
+  --chart-5: #b26a00;
+  --chart-grid: #ebe7de;
+  --flow-tcp: #0f766e;
+  --flow-log: #be185d;
+  --flow-api: #a16207;
+}
+
+:root[data-palette="janus"][data-theme="dark"],
+[data-palette="janus"][data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #131211;
+  --surface: #1b1a18;
+  --surface-2: #23211e;
+  --surface-3: #2d2a26;
+  --border: #33302b;
+  --text: #f3efe6;
+  --muted: #a39d91;
+  --accent: #c2502a;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(216, 100, 60, 0.16);
+  --accent-ink: #e8835c;
+  --ok: #66bb6a;
+  --ok-soft: rgba(102, 187, 106, 0.14);
+  --warn: #f0a93b;
+  --warn-soft: rgba(240, 169, 59, 0.14);
+  --danger: #f16462;
+  --danger-soft: rgba(239, 83, 80, 0.14);
+  --danger-solid: #cb4744;
+  --info: #60a5fa;
+  --info-soft: rgba(96, 165, 250, 0.14);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --card-bg: #1b1a18;
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --glow-1: rgba(216, 100, 60, 0.07);
+  --glow-2: rgba(96, 165, 250, 0.04);
+  --chart-1: #e0754c;
+  --chart-2: #60a5fa;
+  --chart-3: #66bb6a;
+  --chart-4: #a78bfa;
+  --chart-5: #f0a93b;
+  --chart-grid: #2a2825;
+  --flow-tcp: #2dd4bf;
+  --flow-log: #f472b6;
+  --flow-api: #facc15;
+}
+
+/* Nord (nordtheme.com): Snow Storm and Polar Night, the frost blues for
+   the accent, the aurora for states - shades darkened (light) or
+   lightened (dark) where the originals fall short of AA. */
+:root[data-palette="nord"][data-theme="light"],
+[data-palette="nord"][data-theme="light"] {
+  color-scheme: light;
+  --bg: #eceff4;
+  --surface: #fafbfc;
+  --surface-2: #e5e9f0;
+  --surface-3: #d8dee9;
+  --border: #d8dee9;
+  --text: #2e3440;
+  --muted: #4c566a;
+  --accent: #56779e;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(94, 129, 172, 0.13);
+  --accent-ink: #476283;
+  --ok: #4a6a33;
+  --ok-soft: rgba(163, 190, 140, 0.22);
+  --warn: #7a5600;
+  --warn-soft: rgba(235, 203, 139, 0.3);
+  --danger: #9c3f48;
+  --danger-soft: rgba(191, 97, 106, 0.13);
+  --danger-solid: #a5444d;
+  --info: #3f5f8a;
+  --info-soft: rgba(129, 161, 193, 0.18);
+  --shadow: 0 1px 2px rgba(46, 52, 64, 0.06), 0 1px 8px rgba(46, 52, 64, 0.05);
+  --card-bg: #fafbfc;
+  --card-shadow: 0 1px 2px rgba(46, 52, 64, 0.06), 0 1px 8px rgba(46, 52, 64, 0.05);
+  --glow-1: rgba(94, 129, 172, 0.06);
+  --glow-2: rgba(136, 192, 208, 0.06);
+  --chart-1: #5e81ac;
+  --chart-2: #2f7d91;
+  --chart-3: #5b8a3c;
+  --chart-4: #8f6c8a;
+  --chart-5: #b0632f;
+  --chart-grid: #e5e9f0;
+  --flow-tcp: #2f7d74;
+  --flow-log: #a04a7c;
+  --flow-api: #7d5d10;
+}
+
+:root[data-palette="nord"][data-theme="dark"],
+[data-palette="nord"][data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #242933;
+  --surface: #2e3440;
+  --surface-2: #3b4252;
+  --surface-3: #434c5e;
+  --border: #3b4252;
+  --text: #eceff4;
+  --muted: #b4bccb;
+  --accent: #88c0d0;
+  --accent-text: #2e3440;
+  --accent-soft: rgba(136, 192, 208, 0.13);
+  --accent-ink: #88c0d0;
+  --ok: #a3be8c;
+  --ok-soft: rgba(163, 190, 140, 0.12);
+  --warn: #ebcb8b;
+  --warn-soft: rgba(235, 203, 139, 0.12);
+  --danger: #e09aa1;
+  --danger-soft: rgba(191, 97, 106, 0.16);
+  --danger-solid: #a5444d;
+  --info: #9ab8d6;
+  --info-soft: rgba(129, 161, 193, 0.14);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --card-bg: #2e3440;
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 12px rgba(0, 0, 0, 0.18);
+  --glow-1: rgba(136, 192, 208, 0.06);
+  --glow-2: rgba(180, 142, 173, 0.05);
+  --chart-1: #88c0d0;
+  --chart-2: #81a1c1;
+  --chart-3: #a3be8c;
+  --chart-4: #b48ead;
+  --chart-5: #d08770;
+  --chart-grid: #3b4252;
+  --flow-tcp: #8fbcbb;
+  --flow-log: #d6a0c4;
+  --flow-api: #ebcb8b;
+}
+
+/* Abysse: a deep night blue, cards a shade lighter and slightly
+   translucent over two faint glows, cyan and green. */
+:root[data-palette="abysse"][data-theme="light"],
+[data-palette="abysse"][data-theme="light"] {
+  color-scheme: light;
+  --bg: #e8eaee;
+  --surface: #fcfcfd;
+  --surface-2: #f0f2f5;
+  --surface-3: #dde1e7;
+  --border: #cfd5df;
+  --text: #121826;
+  --muted: #4a5568;
+  --accent: #247ba1;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(36, 123, 161, 0.12);
+  --accent-ink: #1d6482;
+  --ok: #1a694c;
+  --ok-soft: rgba(32, 131, 95, 0.12);
+  --warn: #8a4a07;
+  --warn-soft: rgba(178, 107, 0, 0.13);
+  --danger: #a73225;
+  --danger-soft: rgba(196, 43, 43, 0.11);
+  --danger-solid: #b42318;
+  --info: #3b4fb8;
+  --info-soft: rgba(79, 70, 229, 0.1);
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 2px 10px rgba(15, 23, 42, 0.05);
+  --card-bg: rgba(255, 255, 255, 0.9);
+  --card-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 18px rgba(15, 23, 42, 0.06);
+  --glow-1: rgba(36, 123, 161, 0.07);
+  --glow-2: rgba(32, 131, 95, 0.05);
+  --chart-1: #247ba1;
+  --chart-2: #4f5bd5;
+  --chart-3: #20835f;
+  --chart-4: #8b45d6;
+  --chart-5: #b45309;
+  --chart-grid: #e6e9ee;
+  --flow-tcp: #0f766e;
+  --flow-log: #be185d;
+  --flow-api: #92580a;
+}
+
+:root[data-palette="abysse"][data-theme="dark"],
+[data-palette="abysse"][data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #07090f;
+  --surface: #0d121e;
+  --surface-2: #131a29;
+  --surface-3: #1a2334;
+  --border: #1c2638;
+  --text: #dfe7f3;
+  --muted: #8d9bb3;
+  --accent: #38bdf8;
+  --accent-text: #07090f;
+  --accent-soft: rgba(56, 189, 248, 0.12);
+  --accent-ink: #38bdf8;
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.12);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.12);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  --danger-solid: #c62f2f;
+  --info: #a5b4fc;
+  --info-soft: rgba(129, 140, 248, 0.13);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --card-bg: rgba(13, 18, 30, 0.85);
+  --card-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --glow-1: rgba(56, 189, 248, 0.07);
+  --glow-2: rgba(52, 211, 153, 0.05);
+  --chart-1: #38bdf8;
+  --chart-2: #818cf8;
+  --chart-3: #34d399;
+  --chart-4: #c084fc;
+  --chart-5: #fbbf24;
+  --chart-grid: #151d2c;
+  --flow-tcp: #2dd4bf;
+  --flow-log: #f472b6;
+  --flow-api: #facc15;
+}
+
+/* Tokyo Night (github.com/enkia/tokyo-night-vscode-theme): Night, and
+   Day for the light one. */
+:root[data-palette="tokyo-night"][data-theme="light"],
+[data-palette="tokyo-night"][data-theme="light"] {
+  color-scheme: light;
+  --bg: #e1e2e7;
+  --surface: #f2f3f6;
+  --surface-2: #e9e9ed;
+  --surface-3: #d5d6db;
+  --border: #c8cbd6;
+  --text: #343b58;
+  --muted: #545c7e;
+  --accent: #2a73d6;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(46, 125, 233, 0.12);
+  --accent-ink: #2057a3;
+  --ok: #48602f;
+  --ok-soft: rgba(88, 117, 57, 0.13);
+  --warn: #6d5430;
+  --warn-soft: rgba(140, 108, 62, 0.15);
+  --danger: #a71d45;
+  --danger-soft: rgba(245, 42, 101, 0.1);
+  --danger-solid: #c0244f;
+  --info: #005f7f;
+  --info-soft: rgba(0, 113, 151, 0.11);
+  --shadow: 0 1px 2px rgba(52, 59, 88, 0.07), 0 1px 8px rgba(52, 59, 88, 0.05);
+  --card-bg: #f2f3f6;
+  --card-shadow: 0 1px 2px rgba(52, 59, 88, 0.07), 0 2px 12px rgba(52, 59, 88, 0.05);
+  --glow-1: rgba(46, 125, 233, 0.06);
+  --glow-2: rgba(152, 84, 241, 0.04);
+  --chart-1: #2e7de9;
+  --chart-2: #007197;
+  --chart-3: #587539;
+  --chart-4: #9854f1;
+  --chart-5: #b15c00;
+  --chart-grid: #dfe0e6;
+  --flow-tcp: #2f6f68;
+  --flow-log: #b2307a;
+  --flow-api: #8f5605;
+}
+
+:root[data-palette="tokyo-night"][data-theme="dark"],
+[data-palette="tokyo-night"][data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1a1b26;
+  --surface: #1f2335;
+  --surface-2: #24283b;
+  --surface-3: #292e42;
+  --border: #2f344a;
+  --text: #c0caf5;
+  --muted: #9aa5ce;
+  --accent: #7aa2f7;
+  --accent-text: #1a1b26;
+  --accent-soft: rgba(122, 162, 247, 0.13);
+  --accent-ink: #7aa2f7;
+  --ok: #9ece6a;
+  --ok-soft: rgba(158, 206, 106, 0.12);
+  --warn: #e0af68;
+  --warn-soft: rgba(224, 175, 104, 0.12);
+  --danger: #f7768e;
+  --danger-soft: rgba(247, 118, 142, 0.12);
+  --danger-solid: #c53b53;
+  --info: #7dcfff;
+  --info-soft: rgba(125, 207, 255, 0.12);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --card-bg: #1f2335;
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 14px rgba(0, 0, 0, 0.2);
+  --glow-1: rgba(122, 162, 247, 0.07);
+  --glow-2: rgba(187, 154, 247, 0.05);
+  --chart-1: #7aa2f7;
+  --chart-2: #7dcfff;
+  --chart-3: #9ece6a;
+  --chart-4: #bb9af7;
+  --chart-5: #ff9e64;
+  --chart-grid: #292e42;
+  --flow-tcp: #73daca;
+  --flow-log: #ff79c6;
+  --flow-api: #e0af68;
+}
+
+/* Catppuccin (catppuccin.com): Latte and Mocha, mauve for the accent;
+   the page is the mantle, a card the base. */
+:root[data-palette="catppuccin"][data-theme="light"],
+[data-palette="catppuccin"][data-theme="light"] {
+  color-scheme: light;
+  --bg: #e6e9ef;
+  --surface: #eff1f5;
+  --surface-2: #e6e9ef;
+  --surface-3: #dce0e8;
+  --border: #ccd0da;
+  --text: #4c4f69;
+  --muted: #5c5f77;
+  --accent: #8839ef;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(136, 57, 239, 0.11);
+  --accent-ink: #7529d6;
+  --ok: #2a691c;
+  --ok-soft: rgba(64, 160, 43, 0.12);
+  --warn: #805210;
+  --warn-soft: rgba(223, 142, 29, 0.14);
+  --danger: #b00d31;
+  --danger-soft: rgba(210, 15, 57, 0.1);
+  --danger-solid: #d20f39;
+  --info: #1a52c4;
+  --info-soft: rgba(30, 102, 245, 0.1);
+  --shadow: 0 1px 2px rgba(76, 79, 105, 0.07), 0 1px 8px rgba(76, 79, 105, 0.05);
+  --card-bg: #eff1f5;
+  --card-shadow: 0 1px 2px rgba(76, 79, 105, 0.07), 0 2px 12px rgba(76, 79, 105, 0.05);
+  --glow-1: rgba(136, 57, 239, 0.05);
+  --glow-2: rgba(30, 102, 245, 0.04);
+  --chart-1: #8839ef;
+  --chart-2: #1e66f5;
+  --chart-3: #379127;
+  --chart-4: #c2408f;
+  --chart-5: #d4530a;
+  --chart-grid: #dce0e8;
+  --flow-tcp: #13757d;
+  --flow-log: #b5367f;
+  --flow-api: #8a5410;
+}
+
+:root[data-palette="catppuccin"][data-theme="dark"],
+[data-palette="catppuccin"][data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #181825;
+  --surface: #1e1e2e;
+  --surface-2: #313244;
+  --surface-3: #45475a;
+  --border: #313244;
+  --text: #cdd6f4;
+  --muted: #a6adc8;
+  --accent: #cba6f7;
+  --accent-text: #1e1e2e;
+  --accent-soft: rgba(203, 166, 247, 0.12);
+  --accent-ink: #cba6f7;
+  --ok: #a6e3a1;
+  --ok-soft: rgba(166, 227, 161, 0.12);
+  --warn: #f9e2af;
+  --warn-soft: rgba(249, 226, 175, 0.12);
+  --danger: #f38ba8;
+  --danger-soft: rgba(243, 139, 168, 0.12);
+  --danger-solid: #d20f39;
+  --info: #89b4fa;
+  --info-soft: rgba(137, 180, 250, 0.12);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --card-bg: #1e1e2e;
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 14px rgba(0, 0, 0, 0.2);
+  --glow-1: rgba(203, 166, 247, 0.06);
+  --glow-2: rgba(137, 180, 250, 0.05);
+  --chart-1: #cba6f7;
+  --chart-2: #89b4fa;
+  --chart-3: #a6e3a1;
+  --chart-4: #f5c2e7;
+  --chart-5: #fab387;
+  --chart-grid: #313244;
+  --flow-tcp: #94e2d5;
+  --flow-log: #f5c2e7;
+  --flow-api: #f9e2af;
+}

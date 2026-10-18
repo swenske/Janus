@@ -29,7 +29,8 @@ import ControllerUpdate from './ControllerUpdate.jsx'
 import { FleetCard, FleetSetup, TrustBadge } from './Fleet.jsx'
 import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
 import { navigate, useHashRoute } from './shared/route.js'
-import { Logo, ThemeToggle } from './shared/theme.jsx'
+import BrandMark from './shared/BrandMark.jsx'
+import ThemePicker from './shared/ThemePicker.jsx'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
@@ -572,7 +573,7 @@ function AuthScreen({ title, children }) {
     <div className="auth-screen">
       <div className="auth-box card">
         <div className="auth-brand">
-          <Logo size={44} />
+          <BrandMark size={44} />
           <div>
             <h1>Janus Controller</h1>
             <div className="muted">{title}</div>
@@ -581,7 +582,7 @@ function AuthScreen({ title, children }) {
         {children}
       </div>
       <div className="auth-theme">
-        <ThemeToggle />
+        <ThemePicker />
       </div>
     </div>
   )
@@ -993,7 +994,7 @@ function MainApp() {
     <div className="main-page">
       <header className="topbar">
         <div className="row" style={{ gap: '0.6rem' }}>
-          <Logo size={26} />
+          <BrandMark size={26} />
           <div>
             <div className="node-name">Janus Controller</div>
             <div className="muted small">
@@ -1056,7 +1057,7 @@ function MainApp() {
         >
           <RefreshCw size={16} />
         </button>
-        <ThemeToggle />
+        <ThemePicker />
         <AccountButton />
         <button className="ghost" onClick={signOut}>
           <LogOut size={15} /> Log out
