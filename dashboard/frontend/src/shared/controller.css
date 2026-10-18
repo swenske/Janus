@@ -59,6 +59,32 @@ td.num, th.num, .num { font-family: var(--mono); font-size: 0.92em; font-variant
 .badge { border: 1px solid color-mix(in srgb, currentColor 26%, transparent); line-height: 1.35; }
 .badge .dot { width: 6px; height: 6px; box-shadow: 0 0 6px color-mix(in srgb, currentColor 55%, transparent); }
 
+/* --- gauges (Gauge.jsx) --- */
+.gauge { position: relative; width: 100%; max-width: 170px; margin: 0.4rem auto 0.1rem; }
+.gauge svg { display: block; width: 100%; height: auto; overflow: visible; }
+.gauge path { stroke: color-mix(in srgb, var(--muted) 22%, transparent); stroke-width: 3.6; stroke-linecap: round; fill: none; transition: stroke 0.35s; }
+.gauge path.on { stroke: var(--gauge); }
+.gauge.warn path.on { stroke: var(--warn); }
+.gauge.danger path.on { stroke: var(--danger); }
+.gauge-value {
+  position: absolute;
+  inset: auto 0 0;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 1.4rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.gauge-stat { display: flex; flex-direction: column; }
+.gauge-stat .stat-sub { text-align: center; }
+.grid-5 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.6rem; }
+.gauges .gauge-cell { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; min-width: 0; }
+.gauges .gauge-cell .gauge { max-width: 130px; }
+.gauges .gauge-cell .gauge-value { font-size: 1.1rem; }
+
 /* --- the symbol (BrandMark) --- */
 .brand-mark { display: block; flex: none; }
 .brand-bar { fill: var(--accent); }

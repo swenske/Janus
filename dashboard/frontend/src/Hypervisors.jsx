@@ -28,7 +28,8 @@ import { call, gib, postJSON } from './call.js'
 import { nodeCan, useCan, useMe } from './me.jsx'
 import { AutoscaleFields, AutoscaleSummary } from './Autoscale.jsx'
 import { autoscalePolicy, initialAutoscale, samePolicy, sizeText, useAutoscale } from './autoscale.js'
-import { Badge, Card, ErrorBox, Meter, stateTone, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import { Badge, Card, ErrorBox, stateTone, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import Gauge from './shared/Gauge.jsx'
 
 // The hypervisors this Controller creates its own nodes on, and those
 // machines (dashboard/backend/hypervisors.go, machines.go,
@@ -683,6 +684,22 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
       )}
       {host && (
         <>
+          <div className="gauges hv-gauges">
+            <div className="gauge-cell">
+              <Gauge label="CPU busy" value={status.cpu_percent >= 0 ? status.cpu_percent : undefined} />
+              <span className="muted small">CPU</span>
+            </div>
+            <div className="gauge-cell">
+              <Gauge label="Memory used" color="var(--chart-2)" value={host.memory_total - host.memory_free} max={host.memory_total} />
+              <span className="muted small">Memory</span>
+            </div>
+            {!host.storage.error && (
+              <div className="gauge-cell">
+                <Gauge label={`${host.storage.name} allocated`} color="var(--chart-4)" value={host.storage.allocated} max={host.storage.capacity} />
+                <span className="muted small">{hv.kind === 'proxmox' ? 'Storage' : 'Pool'}</span>
+              </div>
+            )}
+          </div>
           <dl className="kv small">
             <dt>Host</dt>
             <dd className="mono">{host.hostname}</dd>
@@ -695,14 +712,12 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
             </dt>
             <dd>
               {host.cpus} × {host.cpu_mhz} MHz{status.cpu_percent >= 0 && ` · ${status.cpu_percent.toFixed(0)}% busy`}
-              {status.cpu_percent >= 0 && <Meter value={status.cpu_percent} max={100} />}
             </dd>
             <dt>
               <MemoryStick size={13} /> Memory
             </dt>
             <dd>
               {gib(host.memory_total - host.memory_free)} of {gib(host.memory_total)} used ({pct(host.memory_total - host.memory_free, host.memory_total)})
-              <Meter value={host.memory_total - host.memory_free} max={host.memory_total} />
             </dd>
             <dt>
               <HardDrive size={13} /> {hv.kind === 'proxmox' ? 'Storage' : 'Pool'}
@@ -716,7 +731,6 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
                 <>
                   <span className="mono">{host.storage.name}</span> · {gib(host.storage.available)} free of {gib(host.storage.capacity)}
                   {!host.storage.active && <Badge tone="danger">inactive</Badge>}
-                  <Meter value={host.storage.allocated} max={host.storage.capacity} />
                 </>
               )}
             </dd>
