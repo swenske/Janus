@@ -34,14 +34,27 @@ echo "haproxy-runtime-test: $("$HAPROXY" -v | head -1)"
 WORKDIR="$(mktemp -d)"
 JANUSD_PID=""
 SILENT_PID=""
+# gone PID: waits up to 10 s for PID to exit.
+gone() {
+    for _ in $(seq 1 50); do
+        kill -0 "$1" 2>/dev/null || return 0
+        sleep 0.2
+    done
+    echo "haproxy-runtime-test: pid $1 still running" >&2
+}
 cleanup() {
-    [ -n "$JANUSD_PID" ] && kill "$JANUSD_PID" 2>/dev/null || true
-    [ -n "$SILENT_PID" ] && kill "$SILENT_PID" 2>/dev/null || true
     # janusd's own pid file for the HAProxy it started - never pkill -f a
     # path that is also on this script's command line.
-    if [ -f /run/janus/haproxy.pid ]; then
-        kill "$(cat /run/janus/haproxy.pid)" 2>/dev/null || true
-    fi
+    local haproxy_pid=""
+    [ -f /run/janus/haproxy.pid ] && haproxy_pid="$(cat /run/janus/haproxy.pid)"
+    [ -n "$JANUSD_PID" ] && kill "$JANUSD_PID" 2>/dev/null || true
+    [ -n "$SILENT_PID" ] && kill "$SILENT_PID" 2>/dev/null || true
+    [ -n "$haproxy_pid" ] && kill "$haproxy_pid" 2>/dev/null || true
+    # image-build runs this once per HAProxy branch, back to back, on the
+    # same ports: the next run's janusd failed to listen while this one
+    # was still exiting (v2026.10.18-3's first build).
+    [ -n "$JANUSD_PID" ] && gone "$JANUSD_PID"
+    [ -n "$haproxy_pid" ] && gone "$haproxy_pid"
     rm -rf "$WORKDIR"
 }
 trap cleanup EXIT

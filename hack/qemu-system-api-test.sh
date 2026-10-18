@@ -90,7 +90,10 @@ expect() { # expect "description" "grep -E pattern" command...
   local what="$1" pattern="$2" out
   shift 2
   out="$("$@" 2>&1)" || fail "$what: janusctl $* failed: $out"
-  echo "$out" | grep -Eq "$pattern" || fail "$what: output of janusctl $* doesn't match /$pattern/: $out"
+  # A here-string, not echo | grep -q: grep stops at its first match, and
+  # echo writing more than a pipe holds (dmesg) dies of SIGPIPE - a
+  # failure under pipefail (v2026.10.18-3's build).
+  grep -Eq "$pattern" <<<"$out" || fail "$what: output of janusctl $* doesn't match /$pattern/: $out"
   echo "  ok: $what"
 }
 haproxy_count() { ctl system ps | grep -c '/usr/local/sbin/haproxy -f' || true; }
@@ -112,10 +115,10 @@ expect "DiskUsage" '[0-9.]+(B|KiB)'$'\t''/etc/haproxy$' ctl system du /etc/hapro
 expect "List" 'haproxy\.cfg$' ctl system ls /etc/haproxy
 expect "Read" '^frontend ' ctl system cat /etc/haproxy/haproxy.cfg
 ctl system cp -o "$WORKDIR/etc-haproxy.tar" /etc/haproxy || fail "Copy failed"
-tar tf "$WORKDIR/etc-haproxy.tar" | grep -qx 'haproxy/haproxy.cfg' || fail "Copy's tar doesn't hold haproxy/haproxy.cfg: $(tar tf "$WORKDIR/etc-haproxy.tar")"
+grep -qx 'haproxy/haproxy.cfg' <<<"$(tar tf "$WORKDIR/etc-haproxy.tar")" || fail "Copy's tar doesn't hold haproxy/haproxy.cfg: $(tar tf "$WORKDIR/etc-haproxy.tar")"
 echo "  ok: Copy (valid tar)"
 if out="$(ctl system cat /dev/vda 2>&1)"; then fail "Read of a block device was allowed"; fi
-echo "$out" | grep -q PermissionDenied || fail "Read(/dev/vda) didn't answer PermissionDenied: $out"
+grep -q PermissionDenied <<<"$out" || fail "Read(/dev/vda) didn't answer PermissionDenied: $out"
 echo "  ok: Read refuses devices"
 # The node's secrets are never served, however they're asked for: an
 # admin certificate must not carry the CA's key away.
@@ -186,7 +189,7 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 \
   -subj "/CN=persist.example.test" -keyout "$WORKDIR/persist.key" -out "$WORKDIR/persist.crt" 2>/dev/null
 cat "$WORKDIR/persist.crt" "$WORKDIR/persist.key" > "$WORKDIR/persist.pem"
 ctl haproxy cert-upload persist-test.pem "$WORKDIR/persist.pem" >/dev/null || fail "cert-upload"
-has_cert() { ctl haproxy cert-list 2>/dev/null | grep -q '^persist-test\.pem'; }
+has_cert() { grep -q '^persist-test\.pem' <<<"$(ctl haproxy cert-list 2>/dev/null)"; }
 has_cert || fail "the uploaded certificate isn't listed: $(ctl haproxy cert-list 2>&1)"
 
 # HAProxy's own files: an error page and a certificate haproxy.cfg uses,
@@ -238,7 +241,7 @@ if out="$(ctl haproxy apply-config "$WORKDIR/daemon.cfg" 2>&1)"; then fail "daem
 grep -q '"daemon" isn.t allowed' <<<"$out" || fail "the refusal doesn't name daemon: $out"
 files_served || fail "the files aren't served any more after the refused configurations"
 echo "  ok: the global section a node requires (uid, janusd's only stats socket, no daemon)"
-ctl system logs -n 500 haproxy | grep -q "files-test" || fail "HAProxy's access log (log stdout) isn't in its service log"
+grep -q "files-test" <<<"$(ctl system logs -n 500 haproxy)" || fail "HAProxy's access log (log stdout) isn't in its service log"
 if ctl haproxy file-delete errors/503.http >/dev/null 2>&1; then fail "an error page in use was removed"; fi
 echo garbage > "$WORKDIR/garbage.pem"
 if ctl haproxy file-put -reload certs/files.pem "$WORKDIR/garbage.pem" >/dev/null 2>&1; then fail "a broken certificate was accepted"; fi
@@ -311,7 +314,7 @@ until ctl version >/dev/null 2>&1; do
   sleep 1
 done
 sleep 2
-ctl system ps | grep -q "/usr/local/sbin/haproxy -f /etc/haproxy/haproxy.cfg -sf $old_haproxy" || fail "the restarted janusd didn't take over haproxy $old_haproxy with -sf: $(ctl system ps)"
+grep -q "/usr/local/sbin/haproxy -f /etc/haproxy/haproxy.cfg -sf $old_haproxy" <<<"$(ctl system ps)" || fail "the restarted janusd didn't take over haproxy $old_haproxy with -sf: $(ctl system ps)"
 [ "$(haproxy_count)" -eq 1 ] || fail "$(haproxy_count) haproxy processes after the janusd restart, want 1: $(ctl system ps)"
 [ "$(markers)" -eq 1 ] || fail "the machine rebooted during a janusd-only Restart"
 echo "  ok: Restart (HAProxy served every request, new janusd took haproxy over)"
