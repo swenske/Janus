@@ -92,7 +92,7 @@ func TestSSESendFraming(t *testing.T) {
 func TestGRPCHTTPStatus(t *testing.T) {
 	for code, want := range map[codes.Code]int{
 		codes.InvalidArgument: 400, codes.FailedPrecondition: 400, codes.NotFound: 404,
-		codes.PermissionDenied: 403, codes.Unimplemented: 501, codes.DeadlineExceeded: 504, codes.Unknown: 502,
+		codes.PermissionDenied: 403, codes.Unimplemented: 501, codes.DeadlineExceeded: 504, codes.ResourceExhausted: 429, codes.Unknown: 502,
 	} {
 		if got := grpcHTTPStatus(status.Error(code, "x")); got != want {
 			t.Errorf("%v -> %d, want %d", code, got, want)

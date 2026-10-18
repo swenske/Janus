@@ -110,9 +110,10 @@ service SystemService {
   // ServiceRestart restarts a managed service.
   rpc ServiceRestart(ServiceRequest) returns (ServiceResponse);
 
-  // List, Read, Copy and PacketCapture are the deliberate, narrow
-  // replacements for an interactive shell: read-only, scoped, never
-  // arbitrary command execution. None of them serves the node's secrets.
+  // List, Read, Copy, PacketCapture and Probe are the deliberate, narrow
+  // replacements for an interactive shell: read-only or a bounded test,
+  // scoped, never arbitrary command execution. None of them serves the
+  // node's secrets.
 
   // List walks a directory, never into /proc, /sys or /dev.
   rpc List(ListRequest) returns (stream FileInfo);
@@ -126,6 +127,12 @@ service SystemService {
   // messages - concatenate them to get a file tcpdump/Wireshark read
   // directly. Runs for duration_seconds, or until the client cancels.
   rpc PacketCapture(PacketCaptureRequest) returns (stream Data);
+  // Probe tests the network from the node - a DNS lookup, a TCP
+  // connection, a TLS handshake, an HTTP request, ICMP echo requests, a
+  // traceroute - from its routes, resolver and addresses, and streams
+  // each step timed, then a "done". Bounded: 60 s, 20 echo requests, one
+  // HTTP request without a body, 4 probes at once per node.
+  rpc Probe(ProbeRequest) returns (stream ProbeEvent);
 
   // MetaWrite is not implemented - it answers Unimplemented: a node has
   // no META partition for small key/value entries.
@@ -1035,3 +1042,125 @@ message LogForwardingTestResponse {
   string detail = 2;
 }
 
+message ProbeRequest {
+  // kind: dns, tcp, tls, http, ping or traceroute.
+  string kind = 1;
+  // target: a name (dns), host:port (tcp; tls - port 443 by default), a
+  // URL (http), a host (ping, traceroute).
+  string target = 2;
+  // source: one of the node's addresses to send from - a VRRP VIP, an
+  // anycast address; the route's when empty.
+  string source = 3;
+  string record_type = 4; // dns: A, AAAA, CNAME, SRV, TXT, MX, NS, PTR; both families when empty
+  string dns_server = 5; // dns: host[:port] to ask; the node's resolv.conf when empty
+  // connect_to: tls, http - host[:port] to connect to instead of
+  // resolving the target's host, which still gives the SNI and the Host
+  // header (curl's --resolve).
+  string connect_to = 6;
+  string sni = 7; // tls, http: the target's host when empty
+  repeated string alpn = 8; // tls, http: h2 and http/1.1 by default for http
+  string ca_pem = 9; // tls, http: verify against this CA rather than the system's roots
+  string method = 10; // http: GET (default), HEAD, OPTIONS
+  repeated ProbeHeader headers = 11; // http: 16 at most; Host overrides the Host header
+  uint32 count = 12; // ping: echo requests, 4 by default, 20 at most
+  uint32 interval_ms = 13; // ping: between them, 1000 by default, 200 at least
+  uint32 size = 14; // ping, traceroute: payload bytes, 56 by default, 9216 at most
+  bool dont_fragment = 15; // ping, traceroute: the DF bit - an MTU test
+  uint32 max_hops = 16; // traceroute: 30 by default and at most
+  // timeout_ms: each step's - a connection, a reply, a hop: 5000, 2000
+  // for ping, 1000 for traceroute by default; 10000 at most.
+  uint32 timeout_ms = 17;
+}
+
+message ProbeHeader {
+  string name = 1;
+  string value = 2;
+}
+
+message ProbeEvent {
+  string stage = 1; // dns, connect, tls, http, reply, hop, done
+  bool ok = 2;
+  double elapsed_ms = 3; // the step took
+  string message = 4; // what happened: an error's text
+  oneof detail {
+    ProbeDNS dns = 5;
+    ProbeConnect connect = 6;
+    ProbeTLS tls = 7;
+    ProbeHTTP http = 8;
+    ProbeReply reply = 9;
+    ProbeHop hop = 10;
+    ProbeSummary summary = 11;
+  }
+}
+
+message ProbeDNS {
+  string name = 1;
+  string type = 2;
+  string server = 3;
+  repeated string records = 4;
+}
+
+message ProbeConnect {
+  string local = 1;
+  string remote = 2;
+}
+
+message ProbeTLS {
+  string server_name = 1;
+  string version = 2;
+  string cipher = 3;
+  string alpn = 4;
+  bool verified = 5;
+  string verify_error = 6;
+  repeated ProbeCert chain = 7;
+  string ocsp = 8; // the stapled response: good, revoked, unknown, unreadable; none: empty
+}
+
+message ProbeCert {
+  string subject = 1;
+  string issuer = 2;
+  repeated string dns_names = 3;
+  repeated string ips = 4;
+  int64 not_before_unix = 5;
+  int64 not_after_unix = 6;
+  string sha256 = 7;
+}
+
+message ProbeHTTP {
+  int32 status = 1;
+  string status_text = 2;
+  string proto = 3;
+  repeated ProbeHeader headers = 4;
+  int64 body_bytes = 5; // read, 1 MiB at most
+  bool body_truncated = 6; // more than that
+  string body_preview = 7; // its first KiB
+  double ttfb_ms = 8; // from the request sent to the first byte back
+}
+
+message ProbeReply {
+  int32 seq = 1;
+  string from = 2;
+  int32 ttl = 3;
+  int32 bytes = 4;
+  double rtt_ms = 5;
+  string kind = 6; // reply, timeout, unreachable, time-exceeded, too-big, unsent
+  int32 mtu = 7; // too-big: the MTU a router or the node's route said
+}
+
+message ProbeHop {
+  int32 ttl = 1;
+  string address = 2;
+  string name = 3;
+  repeated double rtts_ms = 4; // one per probe; -1: no answer
+  bool reached = 5;
+}
+
+message ProbeSummary {
+  int32 sent = 1;
+  int32 received = 2;
+  double min_ms = 3;
+  double avg_ms = 4;
+  double max_ms = 5;
+  bool reached = 6;
+  int32 hops = 7;
+}

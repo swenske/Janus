@@ -344,7 +344,9 @@ call `HAProxyService.ShowInfo` but gets `PermissionDenied` calling
 
 Talos replaces shell access with a fixed set of read-only, scoped gRPC
 methods (`List`, `Read`, `Copy`, `Logs`, `Dmesg`, `PacketCapture`) instead
-of arbitrary command execution. Janus follows the same approach - see
+of arbitrary command execution. Janus follows the same approach - plus
+`Probe`, a bounded network test where a shell would run `ping`, `dig`
+or `curl` ([connectivity-probe.md](guide/connectivity-probe.md)) - see
 `docs/api-routes.md` for the full catalog, derived directly from Talos's
 own `machine.proto`/`lifecycle.proto` (verified against
 `siderolabs/talos` on GitHub, not reconstructed from memory).

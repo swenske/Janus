@@ -56,6 +56,7 @@ var Domain = map[string]string{
 	"SystemService/Read":                        DomainSystem,
 	"SystemService/Copy":                        DomainSystem,
 	"SystemService/PacketCapture":               DomainSystem,
+	"SystemService/Probe":                       DomainNetwork,
 	"SystemService/MetaWrite":                   DomainSystem,
 	"SystemService/MetaDelete":                  DomainSystem,
 	"SystemService/GenerateClientConfiguration": DomainSystem,

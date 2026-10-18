@@ -470,6 +470,10 @@ func runSystem(conn *grpc.ClientConn, endpoint string, redial redialer, args []s
 		runSupport(conn, args[1:])
 		return
 	}
+	if len(args) > 0 && args[0] == "probe" {
+		runProbe(conn, args[1:])
+		return
+	}
 	if len(args) > 0 && args[0] == "sysctl" {
 		runSysctl(conn, endpoint, redial, args[1:])
 		return

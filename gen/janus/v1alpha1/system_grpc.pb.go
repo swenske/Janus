@@ -52,6 +52,7 @@ const (
 	SystemService_Read_FullMethodName                        = "/janus.v1alpha1.SystemService/Read"
 	SystemService_Copy_FullMethodName                        = "/janus.v1alpha1.SystemService/Copy"
 	SystemService_PacketCapture_FullMethodName               = "/janus.v1alpha1.SystemService/PacketCapture"
+	SystemService_Probe_FullMethodName                       = "/janus.v1alpha1.SystemService/Probe"
 	SystemService_MetaWrite_FullMethodName                   = "/janus.v1alpha1.SystemService/MetaWrite"
 	SystemService_MetaDelete_FullMethodName                  = "/janus.v1alpha1.SystemService/MetaDelete"
 	SystemService_GenerateClientConfiguration_FullMethodName = "/janus.v1alpha1.SystemService/GenerateClientConfiguration"
@@ -182,6 +183,12 @@ type SystemServiceClient interface {
 	// messages - concatenate them to get a file tcpdump/Wireshark read
 	// directly. Runs for duration_seconds, or until the client cancels.
 	PacketCapture(ctx context.Context, in *PacketCaptureRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
+	// Probe tests the network from the node - a DNS lookup, a TCP
+	// connection, a TLS handshake, an HTTP request, ICMP echo requests, a
+	// traceroute - from its routes, resolver and addresses, and streams
+	// each step timed, then a "done". Bounded: 60 s, 20 echo requests, one
+	// HTTP request without a body, 4 probes at once per node.
+	Probe(ctx context.Context, in *ProbeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ProbeEvent], error)
 	// MetaWrite is not implemented - it answers Unimplemented: a node has
 	// no META partition for small key/value entries.
 	MetaWrite(ctx context.Context, in *MetaWriteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -656,6 +663,25 @@ func (c *systemServiceClient) PacketCapture(ctx context.Context, in *PacketCaptu
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SystemService_PacketCaptureClient = grpc.ServerStreamingClient[Data]
 
+func (c *systemServiceClient) Probe(ctx context.Context, in *ProbeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ProbeEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[10], SystemService_Probe_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ProbeRequest, ProbeEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SystemService_ProbeClient = grpc.ServerStreamingClient[ProbeEvent]
+
 func (c *systemServiceClient) MetaWrite(ctx context.Context, in *MetaWriteRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -919,6 +945,12 @@ type SystemServiceServer interface {
 	// messages - concatenate them to get a file tcpdump/Wireshark read
 	// directly. Runs for duration_seconds, or until the client cancels.
 	PacketCapture(*PacketCaptureRequest, grpc.ServerStreamingServer[Data]) error
+	// Probe tests the network from the node - a DNS lookup, a TCP
+	// connection, a TLS handshake, an HTTP request, ICMP echo requests, a
+	// traceroute - from its routes, resolver and addresses, and streams
+	// each step timed, then a "done". Bounded: 60 s, 20 echo requests, one
+	// HTTP request without a body, 4 probes at once per node.
+	Probe(*ProbeRequest, grpc.ServerStreamingServer[ProbeEvent]) error
 	// MetaWrite is not implemented - it answers Unimplemented: a node has
 	// no META partition for small key/value entries.
 	MetaWrite(context.Context, *MetaWriteRequest) (*emptypb.Empty, error)
@@ -1078,6 +1110,9 @@ func (UnimplementedSystemServiceServer) Copy(*CopyRequest, grpc.ServerStreamingS
 }
 func (UnimplementedSystemServiceServer) PacketCapture(*PacketCaptureRequest, grpc.ServerStreamingServer[Data]) error {
 	return status.Error(codes.Unimplemented, "method PacketCapture not implemented")
+}
+func (UnimplementedSystemServiceServer) Probe(*ProbeRequest, grpc.ServerStreamingServer[ProbeEvent]) error {
+	return status.Error(codes.Unimplemented, "method Probe not implemented")
 }
 func (UnimplementedSystemServiceServer) MetaWrite(context.Context, *MetaWriteRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method MetaWrite not implemented")
@@ -1651,6 +1686,17 @@ func _SystemService_PacketCapture_Handler(srv interface{}, stream grpc.ServerStr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SystemService_PacketCaptureServer = grpc.ServerStreamingServer[Data]
 
+func _SystemService_Probe_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ProbeRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SystemServiceServer).Probe(m, &grpc.GenericServerStream[ProbeRequest, ProbeEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SystemService_ProbeServer = grpc.ServerStreamingServer[ProbeEvent]
+
 func _SystemService_MetaWrite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MetaWriteRequest)
 	if err := dec(in); err != nil {
@@ -2126,6 +2172,11 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "PacketCapture",
 			Handler:       _SystemService_PacketCapture_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "Probe",
+			Handler:       _SystemService_Probe_Handler,
 			ServerStreams: true,
 		},
 	},
