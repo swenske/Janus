@@ -1,6 +1,8 @@
 /* The Controller's own look, over theme.css (shared with the site):
    imported by both of its pages after theme.css and palettes.css. */
 
+@import "./chart/chart.css";
+
 /* The figures' face: JetBrains Mono (fonts/jetbrains-mono/README.md),
    never the machine's own - a system "JetBrains Mono" would be another
    build of it. */

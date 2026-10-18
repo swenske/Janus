@@ -1,6 +1,6 @@
 import { Activity, Cpu, Gauge, MemoryStick, Network, Shuffle } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import Chart from '../components/Chart.jsx'
+import Chart from '../../shared/chart/Chart.jsx'
 import { Card, PageHeader } from '../../shared/ui.jsx'
 import { bytes, compact, rate } from '../format.js'
 import { useMetrics, useRefresh } from '../hooks.jsx'
@@ -13,7 +13,7 @@ const WINDOWS = [
 ]
 
 export default function Metrics() {
-  const { points, clear } = useMetrics()
+  const { points, clear, clock } = useMetrics()
   const { interval } = useRefresh()
   const [windowMs, setWindowMs] = useState(5 * 60 * 1000)
   const [iface, setIface] = useState('')
@@ -53,6 +53,7 @@ export default function Metrics() {
         <Card title="CPU" icon={Cpu}>
           <Chart
             points={points}
+            clock={clock}
             windowMs={win}
             yMax={100}
             format={(x) => `${x.toFixed(0)}%`}
@@ -66,6 +67,7 @@ export default function Metrics() {
         <Card title="Memory" icon={MemoryStick}>
           <Chart
             points={points}
+            clock={clock}
             windowMs={win}
             format={(x) => bytes(x, 0)}
             binary
@@ -80,6 +82,7 @@ export default function Metrics() {
         <Card title="Load average" icon={Gauge}>
           <Chart
             points={points}
+            clock={clock}
             windowMs={win}
             format={(x) => x.toFixed(2)}
             series={[
@@ -102,6 +105,7 @@ export default function Metrics() {
         >
           <Chart
             points={points}
+            clock={clock}
             windowMs={win}
             format={(x) => rate(x)}
             binary
@@ -114,6 +118,7 @@ export default function Metrics() {
         <Card title="HAProxy requests & connections" icon={Shuffle}>
           <Chart
             points={points}
+            clock={clock}
             windowMs={win}
             format={(x) => compact(x)}
             series={[
@@ -126,6 +131,7 @@ export default function Metrics() {
         <Card title="HAProxy load" icon={Activity}>
           <Chart
             points={points}
+            clock={clock}
             windowMs={win}
             format={(x) => compact(x)}
             series={[

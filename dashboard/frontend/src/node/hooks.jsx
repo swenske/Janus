@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { getJSON } from './api.js'
+import { ServerClock } from '../shared/chart/math.js'
 
 // --- refresh interval (global, remembered per browser) ---
 
@@ -173,6 +174,8 @@ export function MetricsProvider({ children }) {
   const [error, setError] = useState(null)
   const prevRaw = useRef(null)
   const [tick, setTick] = useState(0)
+  // One clock for every chart of the page: they scroll together.
+  const [clock] = useState(() => new ServerClock())
 
   useEffect(() => {
     let cancelled = false
@@ -182,6 +185,10 @@ export function MetricsProvider({ children }) {
         const raw = await getJSON('/api/metrics')
         if (cancelled) return
         const point = derive(prevRaw.current, raw)
+        // The interval it was taken at: the charts break their lines over a
+        // longer gap, and scroll at that pace.
+        point.iv = interval
+        clock.update(raw.time_ms, Date.now(), interval)
         prevRaw.current = raw
         setLatest(point)
         setError(null)
@@ -200,14 +207,15 @@ export function MetricsProvider({ children }) {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [interval, visible, tick])
+  }, [interval, visible, tick, clock])
 
   const refresh = useCallback(() => setTick((t) => t + 1), [])
   const clear = useCallback(() => {
     prevRaw.current = null
+    clock.reset()
     setPoints([])
-  }, [])
-  return <MetricsContext.Provider value={{ points, latest, error, refresh, clear }}>{children}</MetricsContext.Provider>
+  }, [clock])
+  return <MetricsContext.Provider value={{ points, latest, error, refresh, clear, clock }}>{children}</MetricsContext.Provider>
 }
 
 export function useMetrics() {

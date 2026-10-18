@@ -151,13 +151,6 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .diff .del { background: var(--danger-soft); color: var(--danger); }
 .diff .ctx { color: var(--muted); }
 
-/* --- chart --- */
-.chart svg { display: block; overflow: visible; }
-.chart-axis { font-size: 10.5px; fill: var(--muted); font-family: var(--font); }
-.chart-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; margin-bottom: 0.4rem; font-size: 0.82rem; color: var(--muted); align-items: center; }
-.chart-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
-.chart-legend-item strong { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
-.chart-swatch { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
 
 /* --- toasts --- */
 .toasts { position: fixed; right: 1rem; bottom: 1rem; z-index: 100; display: flex; flex-direction: column; gap: 0.5rem; max-width: min(460px, calc(100vw - 2rem)); }

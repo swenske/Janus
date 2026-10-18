@@ -1,0 +1,17 @@
+/* Charts (chart/Chart.jsx): lines a constant 1.6 px however their group
+   is scaled, the first series' area fading down to the baseline. */
+.chart svg { display: block; overflow: visible; touch-action: pan-y; }
+.chart-axis { font-size: 10px; fill: var(--muted); font-family: var(--mono); }
+.chart-grid { stroke: var(--chart-grid); }
+.chart-grid-x { stroke-dasharray: 2 4; opacity: 0.8; }
+.chart-line { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.chart-fill-top { stop-opacity: 0.22; }
+.chart-fill-bottom { stop-opacity: 0.02; }
+.chart-crosshair { stroke: var(--muted); stroke-dasharray: 3 3; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; margin-bottom: 0.4rem; font-size: 0.82rem; color: var(--muted); align-items: center; }
+.chart-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+.chart-legend-item strong { color: var(--text); font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; }
+.chart-swatch { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.chart.compact .chart-line { stroke-width: 1.4; }
+.chart.compact .chart-fill-top { stop-opacity: 0.3; }
+:root[data-theme="dark"] .chart-fill-top { stop-opacity: 0.28; }

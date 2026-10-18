@@ -1,6 +1,6 @@
 import { Activity, Archive, Cpu, Gauge, Server, Shuffle } from 'lucide-react'
 import { useState } from 'react'
-import Chart from '../components/Chart.jsx'
+import Chart from '../../shared/chart/Chart.jsx'
 import { Badge, Card, PageHeader, Stat, stateTone } from '../../shared/ui.jsx'
 import { GaugeStat } from '../../shared/Gauge.jsx'
 import { bytes, compact, cpuModels, cpuShape, dateTime, duration, num, percent, rate } from '../format.js'
@@ -57,7 +57,7 @@ function stateMount(mounts) {
 }
 
 export default function Overview() {
-  const { points, latest } = useMetrics()
+  const { points, latest, clock } = useMetrics()
   const { overview, check } = useNodeStatus()
   const services = usePoll('/api/system/services')
   const mounts = usePoll('/api/system/mounts', { every: 30000 })
@@ -105,6 +105,7 @@ export default function Overview() {
         <Card title="CPU & memory" icon={Cpu}>
           <Chart
             points={points}
+            clock={clock}
             windowMs={WINDOW}
             yMax={100}
             format={(x) => `${x.toFixed(0)}%`}
@@ -117,6 +118,7 @@ export default function Overview() {
         <Card title="HAProxy traffic" icon={Shuffle}>
           <Chart
             points={points}
+            clock={clock}
             windowMs={WINDOW}
             format={(x) => compact(x)}
             series={[
@@ -128,6 +130,7 @@ export default function Overview() {
         <Card title="Network (all interfaces)" icon={Activity}>
           <Chart
             points={points}
+            clock={clock}
             windowMs={WINDOW}
             format={(x) => rate(x)}
             binary
