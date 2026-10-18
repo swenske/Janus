@@ -16,7 +16,9 @@ where each one shows.
 | State | `janusctl -n lb1 system services`, `system info`, `network status`, `haproxy show-info` |
 
 The Controller's node pages show the same: **Logs**, **Monitoring**,
-**System**.
+**System**. All of it at once, without the node's secrets - what to
+attach to an issue: a [diagnostic bundle](diagnostic-bundle.md)
+(`janusctl -n lb1 system support`, or **Tools › Diagnostic bundle**).
 
 ## A node doesn't register
 
