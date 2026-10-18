@@ -86,6 +86,7 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	registerConsulRoutes(mux, node)
 	registerACMERoutes(mux, node)
 	registerHAProxyFileRoutes(mux, node)
+	registerHAProxyRuntimeRoutes(mux, node)
 	registerAccessRoutes(mux, node)
 	mux.Handle("/", http.FileServerFS(view))
 

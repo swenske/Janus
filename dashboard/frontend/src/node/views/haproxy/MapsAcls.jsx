@@ -1,10 +1,74 @@
-import { ListTree, Plus, Trash2 } from 'lucide-react'
+import { FlaskConical, ListTree, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getJSON, postJSON } from '../../api.js'
 import DataTable from '../../components/DataTable.jsx'
 import { Card, Empty, ErrorBox, useAction } from '../../../shared/ui.jsx'
 import { usePoll } from '../../hooks.jsx'
 import { useMay } from '../../may.js'
+
+// Lookup tells which entry of a map, or pattern of an ACL, a value
+// matches - with HAProxy's own matching, as a request's value would.
+function Lookup({ kind, name }) {
+  const [value, setValue] = useState('')
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const test = async () => {
+    setBusy(true)
+    try {
+      setResult({ ...(await getJSON(`/api/haproxy/lookup?${new URLSearchParams({ kind, name, value })}`)), tested: value })
+      setError(null)
+    } catch (err) {
+      setResult(null)
+      setError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="stack">
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (name && value) test()
+        }}
+      >
+        <input className="mono grow" placeholder={kind === 'map' ? 'a value to look up, e.g. www.example.com' : 'a value to test, e.g. 203.0.113.7'} value={value} onChange={(e) => setValue(e.target.value)} />
+        <button disabled={busy || !name || !value}>
+          <FlaskConical size={15} /> Test
+        </button>
+      </form>
+      {error?.status === 501 ? (
+        <div className="notice">This node's Janus is older than lookups: update it (System › Update) to test values here.</div>
+      ) : (
+        <ErrorBox error={error} />
+      )}
+      {result && (
+        <div className="notice">
+          {result.found ? (
+            <>
+              <span className="mono">{result.tested}</span> matches <span className="mono">{result.pattern}</span>
+              {kind === 'map' && (
+                <>
+                  {' '}
+                  → <span className="mono">{result.value}</span>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="mono">{result.tested}</span> matches no {kind === 'map' ? 'entry' : 'pattern'}
+            </>
+          )}{' '}
+          <span className="muted">
+            ({result.method} matching{result.case_insensitive ? ', case-insensitive' : ''})
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function MapEntries({ name }) {
   const [entries, setEntries] = useState(null)
@@ -32,6 +96,7 @@ function MapEntries({ name }) {
   return (
     <div className="stack">
       <ErrorBox error={error} />
+      {may('HAProxyService/MapLookup') && <Lookup key={name} kind="map" name={name} />}
       {canUpdate && (
       <form
         className="row"
@@ -77,6 +142,21 @@ function MapEntries({ name }) {
       />
       <p className="muted small">Runtime changes apply immediately but live in memory: they're lost at the next reload unless the map file is updated too.</p>
     </div>
+  )
+}
+
+function AclTest() {
+  const [acl, setAcl] = useState('')
+  return (
+    <Card title="Test an ACL" icon={FlaskConical}>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        Which pattern of a file-backed ACL a value matches, the way a request's would - by its file path or <code>#id</code>.
+      </p>
+      <div className="stack">
+        <input className="mono" placeholder="/etc/haproxy/blocked.acl" value={acl} onChange={(e) => setAcl(e.target.value.trim())} />
+        <Lookup kind="acl" name={acl} />
+      </div>
+    </Card>
   )
 }
 
@@ -130,6 +210,7 @@ export default function MapsAcls() {
         )}
       </Card>
       {may('HAProxyService/ACLUpdate') && <Acls />}
+      {may('HAProxyService/ACLLookup') && <AclTest />}
     </div>
   )
 }

@@ -100,6 +100,8 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .log-danger { color: var(--danger); }
 .log-warn { color: var(--warn); }
 .log-info { color: var(--info); }
+.logline .offset { color: var(--muted); user-select: none; }
+mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1px solid var(--danger); border-radius: 2px; }
 
 .code {
   font-family: var(--mono);
