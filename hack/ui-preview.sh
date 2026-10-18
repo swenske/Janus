@@ -14,19 +14,27 @@
 # following edge-1's events: the Traffic flow's Controller and direct
 # clients.
 #
-#   hack/ui-preview.sh [up|reload|down|info]
+#   hack/ui-preview.sh [up|reload [ui]|down|info]
 #
 # up (the default): the environment from scratch - the Controller at
 # https://127.0.0.1:18443 (UI_PREVIEW_PORT), its address, account and
 # janusctl commands printed (info prints them again). From another
-# machine, through ssh: ssh -N -L 18443:127.0.0.1:18443 HOST.
+# machine, through ssh: ssh -N -L 18443:127.0.0.1:18443 HOST - or
+# published on one of this machine's addresses: UI_PREVIEW_BIND=ADDRESS
+# (0.0.0.0: all of them), UI_PREVIEW_HOST=NAME the name it's opened by.
+# Both are read by up only: the port's mapping and the names in the
+# Controller's certificate are fixed then (reload and info reuse them).
 # reload: the binaries built again and the Controller and nodes
 # restarted - their state kept (the Controller's data, the nodes' PKI and
-# configuration): to see a change of the tree.
+# configuration): to see a change of the tree. reload ui: dashboardd
+# only, the Controller alone restarted - a frontend change, rebuilt
+# first (cd dashboard/frontend && npm run build).
 # down: everything removed.
 #
 # Nothing reaches the internet: the networks are internal; only the
-# Controller's port is published, on the loopback.
+# Controller's port is published, on the loopback unless UI_PREVIEW_BIND
+# says otherwise - its passwords are fixed: anyone on that network signs
+# in.
 set -euo pipefail
 
 CMD="${1:-up}"
@@ -36,6 +44,16 @@ P=janus-preview
 NET=10.0.30    # the nodes, application servers, Controller, Elasticsearch
 LOGNET=10.0.31 # edge-1's second interface, rsyslog's
 PORT="${UI_PREVIEW_PORT:-18443}"
+BIND="${UI_PREVIEW_BIND:-127.0.0.1}"
+HOST="${UI_PREVIEW_HOST:-}"
+# What up chose, for reload and info.
+if [ "$CMD" != up ] && [ -s "$ROOT/build/ui-preview/env" ]; then
+  # shellcheck source=/dev/null
+  . "$ROOT/build/ui-preview/env"
+fi
+CONNECT="$BIND"                            # where this machine reaches the Controller
+[ "$CONNECT" != 0.0.0.0 ] || CONNECT=127.0.0.1
+PUBLIC="${HOST:-$CONNECT}"                 # what a browser opens
 LOCAL_DEV_IMAGE="${LOCAL_DEV_IMAGE:-janus-local-dev}"
 BROWSER_IMAGE="${BROWSER_IMAGE:-janus-browser}"
 RSYSLOG_IMAGE=janus-rsyslog-test
@@ -54,7 +72,7 @@ build() {
   mkdir -p "$DIR/bin"
   local version
   version="$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)"
-  for bin in dashboardd:./dashboard/backend janusd:./cmd/janusd janusctl:./cmd/janusctl; do
+  for bin in ${1:-dashboardd:./dashboard/backend janusd:./cmd/janusd janusctl:./cmd/janusctl}; do
     # Built aside, then moved: the containers see the directory, a new
     # file in it at their next start.
     (cd "$ROOT" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$DIR/bin/.${bin%%:*}" "${bin#*:}")
@@ -68,21 +86,28 @@ info() {
     exit 1
   }
   local fp
-  fp="$(openssl s_client -connect "127.0.0.1:$PORT" </dev/null 2>/dev/null | openssl x509 -outform der | sha256sum | cut -d' ' -f1)"
+  fp="$(fingerprint)"
   cat <<EOF
 
-The Controller: https://127.0.0.1:$PORT  (a self-signed certificate: SHA-256 $fp)
+The Controller: https://$PUBLIC:$PORT  (a self-signed certificate: SHA-256 $fp)
   sign in as admin, password $PASSWORD (or lea, an operator: $VISITOR_PASSWORD)
   the Traffic flow: a node's page, Monitoring › Traffic flow (edge-1: two interfaces, two log targets)
   many backends: edge-3's page, Apps › HAProxy › Backends
 
 janusctl tui, from this machine:
   export JANUSCONFIG=$DIR/janusctl.json
-  JANUS_TOKEN=$(cat "$DIR/token") $DIR/bin/janusctl login -controller 127.0.0.1:$PORT -controller-fingerprint $fp
+  JANUS_TOKEN=$(cat "$DIR/token") $DIR/bin/janusctl login -controller $CONNECT:$PORT -controller-fingerprint $fp
   $DIR/bin/janusctl -n edge-1 tui     # f: the traffic flow
 
-hack/ui-preview.sh reload - after a change; down - to remove it all.
+hack/ui-preview.sh reload - after a change (reload ui: a frontend change); down - to remove it all.
 EOF
+  if [ "$CONNECT" != 127.0.0.1 ]; then
+    echo "Published on $BIND: these passwords are fixed - anyone on that network signs in."
+  fi
+}
+
+fingerprint() {
+  openssl s_client -connect "$CONNECT:$PORT" </dev/null 2>/dev/null | openssl x509 -outform der | sha256sum | cut -d' ' -f1
 }
 
 # Each node prints its CA and admin credential once, on its first start.
@@ -118,6 +143,7 @@ up() {
   down
   rm -rf "$DIR/controller" "$DIR/creds" "$DIR/token" "$DIR/janusctl.json" "$DIR"/janusctl
   mkdir -p "$DIR/preview" "$DIR/controller" "$DIR/rsyslog/out"
+  printf 'BIND=%q\nHOST=%q\n' "$BIND" "$HOST" >"$DIR/env"
   echo "ui-preview: building dashboardd, janusd, janusctl"
   build
   docker build -q -t "$RSYSLOG_IMAGE" "$ROOT/hack/rsyslog" >/dev/null
@@ -170,12 +196,17 @@ EOF
   docker network connect --ip "$LOGNET.21" "$P-logs" "$P-edge-1"
   for i in 1 2 3; do docker start "$P-edge-$i" >/dev/null; done
 
-  # The Controller: its port on this machine's loopback only.
-  docker create --name "$P-controller" --hostname janus-controller --network "$P-pub" -p "127.0.0.1:$PORT:8080" \
+  # The Controller: its port on this machine's loopback only, unless
+  # UI_PREVIEW_BIND. Its certificate names the addresses and name it's
+  # opened by: from inside its container it sees only the container's.
+  local names=127.0.0.1
+  [ "$CONNECT" = 127.0.0.1 ] || names="$names,$CONNECT"
+  [ -z "$HOST" ] || names="$names,$HOST"
+  docker create --name "$P-controller" --hostname janus-controller --network "$P-pub" -p "$BIND:$PORT:8080" \
     --user "$(id -u):$(id -g)" -v "$DIR/bin:/opt/janus:ro" -v "$DIR/controller:/data" \
     --entrypoint /opt/janus/dashboardd "$LOCAL_DEV_IMAGE" \
     -data-dir /data -master-key-file /data/master.key -image-factory "" -updater-socket "" \
-    -advertise-address 127.0.0.1 -releases-url "http://$NET.11:8081/releases" >/dev/null
+    -advertise-address "$names" -releases-url "http://$NET.11:8081/releases" >/dev/null
   docker network connect --ip "$NET.5" "$P" "$P-controller"
   docker start "$P-controller" >/dev/null
 
@@ -217,7 +248,7 @@ EOF
   # A janusctl of its own on edge-1: its events followed, a call now and
   # then - signed in with the API token, renewed with it.
   local fp
-  fp="$(openssl s_client -connect "127.0.0.1:$PORT" </dev/null 2>/dev/null | openssl x509 -outform der | sha256sum | cut -d' ' -f1)"
+  fp="$(fingerprint)"
   docker run -d --name "$P-cli" --network "$P" --ip "$NET.102" --user "$(id -u):$(id -g)" -e HOME=/tmp -e JANUSCONFIG=/tmp/janusctl.json \
     -e JANUS_TOKEN="$(cat "$DIR/token")" -v "$DIR/bin:/opt/janus:ro" --entrypoint sh "$LOCAL_DEV_IMAGE" -c "
       until /opt/janus/janusctl login -controller $NET.5:8080 -controller-fingerprint $fp; do sleep 5; done
@@ -231,6 +262,13 @@ reload() {
     echo "ui-preview: not running - hack/ui-preview.sh up" >&2
     exit 1
   }
+  if [ "${1:-}" = ui ]; then
+    echo "ui-preview: building dashboardd"
+    build dashboardd:./dashboard/backend
+    docker restart "$P-controller" >/dev/null
+    echo "ui-preview: the Controller restarted"
+    return
+  fi
   echo "ui-preview: building dashboardd, janusd, janusctl"
   build
   docker restart "$P-controller" "$P-edge-1" "$P-edge-2" "$P-edge-3" "$P-load" "$P-cli" >/dev/null
@@ -239,11 +277,11 @@ reload() {
 
 case "$CMD" in
 up) up ;;
-reload) reload ;;
+reload) reload "${2:-}" ;;
 down) down ;;
 info) info ;;
 *)
-  echo "usage: $0 [up|reload|down|info]" >&2
+  echo "usage: $0 [up|reload [ui]|down|info]" >&2
   exit 2
   ;;
 esac
