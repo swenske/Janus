@@ -119,13 +119,13 @@ const SCREENS = [
   {
     light: nodesLight,
     dark: nodesDark,
-    alt: "The Controller's node list: three nodes online, with their labels, version, HAProxy health, uptime and fleet trust",
+    alt: "The Controller's node list: three nodes online, with their last minutes of CPU, requests and traffic, labels, version, HAProxy health, uptime and fleet trust",
     caption: 'Your fleet at a glance: every node, its release, its HAProxy, its trust.',
   },
   {
     light: overviewLight,
     dark: overviewDark,
-    alt: "A node's overview: CPU, memory, HAProxy connections and uptime, with live charts",
+    alt: "A node's overview: its traffic across the top, gauges of its CPU, memory and storage, HAProxy connections and uptime, with live charts",
     caption: 'Each node live: its system and its traffic.',
   },
   {
