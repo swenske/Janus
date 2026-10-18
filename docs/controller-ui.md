@@ -277,7 +277,12 @@ theme toggle:
   the modules (bird, keepalived, nftables) - HAProxy's tabs include
   Files (`/etc/haproxy/files`: error pages, maps, certificates; edit,
   upload, remove, each refused by the node when haproxy.cfg wouldn't
-  load with it; files holding a private key are never shown) - Let's Encrypt (account, the
+  load with it; files holding a private key are never shown), Stick
+  tables, Sessions and Errors (`views/haproxy/StickTables.jsx`,
+  `Sessions.jsx`, `Errors.jsx`, relayed by `nodeproxy/haproxy_runtime.go`
+  as protojson - 64-bit numbers arrive as strings; a node older than them
+  answers 501, `RuntimeError.jsx` says to update it;
+  docs/guide/haproxy-runtime.md) - Let's Encrypt (account, the
   HTTP-01 rule, certificates and DNS providers as forms - secrets never
   shown, kept when left empty - and the configuration as JSON) and Consul
   (agent, members, the configuration's files, the configuration in the
