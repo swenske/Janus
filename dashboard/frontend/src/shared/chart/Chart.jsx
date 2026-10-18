@@ -45,14 +45,18 @@ function layout({ edge, yCur, first, tRef, yRef, windowMs, w, h, pad }) {
   const t0 = edge - span
   const k = w / (span / 1000) // px a second
   const y = yCur || yRef
+  const tx = pad.left + ((tRef - t0) / 1000) * k
+  const sy = (h * yRef) / y
   return {
     t0,
     t1: edge,
     span,
     k,
+    tx,
+    sy,
     x: (t) => pad.left + ((t - t0) / 1000) * k,
     y: (v) => pad.top + h - (v / y) * h,
-    series: `matrix(${k},0,0,${(h * yRef) / y},${pad.left + ((tRef - t0) / 1000) * k},${pad.top + h})`,
+    series: `matrix(${k},0,0,${sy},${tx},${pad.top + h})`,
   }
 }
 
@@ -180,7 +184,9 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
       a.edge = startEdge(clk, firstT, last.t)
       a.yCur = yTarget
     }
-    place(els.current, layout({ ...shape, edge: a.edge, yCur: a.yCur }), now.current)
+    const L = layout({ ...shape, edge: a.edge, yCur: a.yCur })
+    place(els.current, L, now.current)
+    Object.assign(a, { tx: L.tx, k: L.k, sy: L.sy })
   }, [live, last, firstT, yTarget, yMax, points, series, hover, ticks, shape, clk])
 
   useEffect(() => {
@@ -199,6 +205,13 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
         a.key = key
         setMoving({ t0: L.t0, t1: L.t1, span: L.span })
       }
+      // Nothing moved by a quarter of a pixel (a sparkline over five
+      // minutes moves a third of one a second): the frame is skipped -
+      // what costs is the browser painting the chart again. The scale
+      // changes while the window fills: by its effect at the far end.
+      const moved = Math.abs(L.tx - a.tx) >= 0.25 || Math.abs(L.k - a.k) * (c.w / L.k) >= 0.25 || Math.abs(L.sy - a.sy) > 0.01 || c.hover >= 0
+      if (!moved) return
+      Object.assign(a, { tx: L.tx, k: L.k, sy: L.sy })
       place(els.current, L, c)
       hoverAt(els.current, L, c)
     }, compact ? 15 : 30)
