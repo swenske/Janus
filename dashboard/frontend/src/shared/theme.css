@@ -289,13 +289,18 @@ hr { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
 
 /* --- tabs --- */
 .tabs { display: flex; gap: 0.2rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; overflow-x: auto; }
+/* Wide enough for a sidebar: tabs that don't fit go to a second row - a
+   tab scrolled out of sight showed no sign of being there. A phone
+   keeps the row scrolling sideways. */
+@media (min-width: 901px) { .tabs { flex-wrap: wrap; overflow-x: visible; } }
 .tab {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   border-radius: 0;
-  padding: 0.5rem 0.8rem;
+  padding: 0.5rem 0.65rem;
   color: var(--muted);
+  white-space: nowrap;
 }
 .tab:hover:not(:disabled) { background: none; color: var(--text); }
 .tab.active { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
