@@ -57,6 +57,12 @@ function usePageVisible() {
 
 const RETRY_MS = 5000
 
+// pollTimeout bounds a repeated request: a few periods, never under
+// `min` - one that never answers would otherwise stop the poll for good.
+function pollTimeout(period, min) {
+  return period > 0 ? Math.max(min, 3 * period) : undefined
+}
+
 // usePoll fetches path now, then again at the global refresh interval
 // (or `every`, if given; 0 = once). Pauses while the tab is hidden.
 export function usePoll(path, { every, enabled = true } = {}) {
@@ -74,7 +80,7 @@ export function usePoll(path, { every, enabled = true } = {}) {
     const run = async () => {
       let failed = false
       try {
-        const data = await getJSON(path)
+        const data = await getJSON(path, { timeout: pollTimeout(period, 30000) })
         if (!cancelled) setState({ data, error: null, loading: false })
       } catch (error) {
         failed = true
@@ -97,6 +103,10 @@ export function usePoll(path, { every, enabled = true } = {}) {
 // --- metrics history (app-wide, so charts keep their data across views) ---
 
 const MAX_SAMPLES = 900
+// A hidden tab keeps sampling this long - a look at another tab leaves no
+// hole in the curves - then stops: a tab forgotten in the background
+// mustn't keep its node busy. What it missed shows as a gap, shaded.
+const HIDDEN_SAMPLING_MS = 15 * 60 * 1000
 const MetricsContext = createContext(null)
 
 // derive turns two consecutive raw samples into the rates the charts plot.
@@ -170,7 +180,6 @@ function derive(prev, cur) {
 
 export function MetricsProvider({ children }) {
   const { interval } = useRefresh()
-  const visible = usePageVisible()
   const [points, setPoints] = useState([])
   const [latest, setLatest] = useState(null)
   const [error, setError] = useState(null)
@@ -184,9 +193,13 @@ export function MetricsProvider({ children }) {
   useEffect(() => {
     let cancelled = false
     let timer
+    let busy = false
+    let hiddenSince = document.hidden ? Date.now() : null
     const run = async () => {
+      clearTimeout(timer)
+      busy = true
       try {
-        const raw = await getJSON('/api/metrics')
+        const raw = await getJSON('/api/metrics', { timeout: pollTimeout(interval, 10000) })
         if (cancelled) return
         const point = derive(prevRaw.current, raw)
         // The interval it was taken at: the charts break their lines over a
@@ -203,18 +216,34 @@ export function MetricsProvider({ children }) {
         })
       } catch (err) {
         if (!cancelled) setError(err)
+      } finally {
+        busy = false
       }
       const done = waiting.current
       waiting.current = []
       for (const resolve of done) resolve()
-      if (!cancelled && interval > 0 && visible) timer = setTimeout(run, interval)
+      if (cancelled || interval <= 0) return
+      // Hidden too long: the poll stops, until the tab shows again.
+      if (hiddenSince != null && Date.now() - hiddenSince >= HIDDEN_SAMPLING_MS) return
+      timer = setTimeout(run, interval)
+    }
+    const onVisibility = () => {
+      if (document.hidden) {
+        hiddenSince = Date.now()
+        return
+      }
+      hiddenSince = null
+      // Shown again: a sample at once, unless one is on its way.
+      if (!busy && interval > 0) run()
     }
     run()
+    document.addEventListener('visibilitychange', onVisibility)
     return () => {
       cancelled = true
       clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [interval, visible, tick, clock])
+  }, [interval, tick, clock])
 
   // refresh samples now; its promise is the sample's (5 s at most).
   const refresh = useCallback(

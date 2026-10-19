@@ -6,23 +6,29 @@ import { ServerClock } from './shared/chart/math.js'
 // {byNode: {id: [{t, iv, cpu, req, rx, tx}]}, clock} - each request
 // keeps the Controller sampling the nodes shown, so it runs only while
 // the list is (on), asks only for the readings it hasn't got, and pauses
-// in a hidden tab (the sampling then lapses). A background request: it
-// never keeps an idle session alive.
-const KEEP = 120
+// in a hidden tab: the Controller goes on sampling ten minutes after the
+// last request, so a list shown again within them has no hole. A
+// background request: it never keeps an idle session alive.
+const KEEP = 300
 
-export function useNodeMetrics(on) {
+export function useNodeMetrics(on, windowMs) {
   const [state, setState] = useState(() => ({ byNode: {}, clock: new ServerClock() }))
   useEffect(() => {
     if (!on) return undefined
     let stop = false
     let timer
-    let since = 0
+    let busy = false
+    // The first request asks for what the curves show, not for all the
+    // Controller keeps (this browser's clock is near enough for it).
+    let since = Date.now() - 2 * windowMs
     let newest = 0
     const run = async () => {
+      clearTimeout(timer)
       if (document.hidden) return
-      let every = 5000
+      busy = true
+      let every = 2000
       try {
-        const m = await call(`/api/nodes/metrics?since=${since}`, { background: true })
+        const m = await call(`/api/nodes/metrics?since=${since}`, { background: true, timeout: 15000 })
         if (stop) return
         every = m.interval_ms || every
         // Only the readings after since: a node without a new one keeps
@@ -45,14 +51,15 @@ export function useNodeMetrics(on) {
         since = top
       } catch {
         // the next round tries again
+      } finally {
+        busy = false
       }
       if (!stop) timer = setTimeout(run, every)
     }
+    // Shown again: the readings since at once, unless a request is on
+    // its way.
     const onVisible = () => {
-      if (!document.hidden) {
-        clearTimeout(timer)
-        run()
-      }
+      if (!document.hidden && !busy) run()
     }
     run()
     document.addEventListener('visibilitychange', onVisible)
@@ -61,6 +68,6 @@ export function useNodeMetrics(on) {
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [on, state.clock])
+  }, [on, windowMs, state.clock])
   return state
 }

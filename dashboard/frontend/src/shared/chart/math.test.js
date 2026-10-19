@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ServerClock, advanceEdge, area, bezier, curve, ease, nearest, niceMax, segments, timeStep, timeTicks } from './math.js'
+import { ServerClock, advanceEdge, area, bezier, curve, ease, gaps, nearest, niceMax, segments, snapDistance, timeStep, timeTicks } from './math.js'
 
 test('niceMax: four round quarters', () => {
   assert.equal(niceMax(0), 1)
@@ -111,6 +111,24 @@ test('the clock: smoothed offset, a buffer of one interval', () => {
   assert.ok(Math.abs(c.now(0) - (1_202_000 - 1_308_000)) < 1)
 })
 
+test('a pause leaves the edge one interval behind', () => {
+  // Five samples a second apart, the tab hidden a minute, then again:
+  // the minute is a pause, not the sampling's jitter.
+  const c = new ServerClock()
+  for (let i = 0; i < 5; i++) c.update(i * 1000, i * 1000, 1000)
+  c.update(64_000, 64_000, 1000)
+  c.update(65_000, 65_000, 1000)
+  assert.equal(c.buffer(), 1250)
+})
+
+test('gaps: the times with no sample', () => {
+  const pts = [0, 1000, 2000, 30000, 31000, 32000].map((t) => ({ t, iv: 1000 }))
+  assert.deepEqual(gaps(pts), [[2000, 30000]])
+  // A slow answer isn't one; nor is a longer interval's step.
+  assert.deepEqual(gaps([0, 1000, 4000, 5000].map((t) => ({ t, iv: 1000 }))), [])
+  assert.deepEqual(gaps([{ t: 0, iv: 1000 }, { t: 5000, iv: 5000 }, { t: 10000, iv: 5000 }]), [])
+})
+
 test('the edge moves forward at about the real pace, stops at the newest sample', () => {
   let edge = advanceEdge(null, 10_000, 16, 20_000)
   assert.equal(edge, 10_000)
@@ -131,6 +149,11 @@ test('the edge moves forward at about the real pace, stops at the newest sample'
   assert.equal(advanceEdge(50_000, 60_000, 16, 50_005), 50_005)
   // Far behind (a tab shown again): at once.
   assert.equal(advanceEdge(10_000, 90_000, 16, 1e12), 90_000)
+  // Samples back after a node's 13 s reboot, at 1 s: at once too.
+  assert.equal(advanceEdge(50_000, 63_000, 16, 64_000, snapDistance(1000)), 63_000)
+  // A sampling's own jitter doesn't make it jump.
+  assert.ok(advanceEdge(50_000, 52_000, 16, 64_000, snapDistance(1000)) < 50_100)
+  assert.equal(snapDistance(5000), 14_500)
 })
 
 test('ease reaches its target, at any frame rate', () => {

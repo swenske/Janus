@@ -14,12 +14,17 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path, opts = {}) {
+// timeout (ms) bounds a request that may never answer - one sent on a
+// connection that died while the computer slept: a poll waiting for it
+// would never poll again.
+async function request(path, { timeout, ...opts } = {}) {
   const read = !opts.method || opts.method === 'GET'
+  if (timeout) opts = { ...opts, signal: AbortSignal.timeout(timeout) }
   let resp
   try {
     resp = await fetch(apiURL(path), read ? { ...opts, headers: { ...(opts.headers || {}), ...backgroundHeaders() } } : opts)
   } catch (err) {
+    if (err.name === 'TimeoutError') throw new ApiError(`the Controller didn't answer in ${Math.round(timeout / 1000)} s`, 0)
     throw new ApiError(`Controller unreachable: ${err.message}`, 0)
   }
   if (resp.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
@@ -30,8 +35,8 @@ async function request(path, opts = {}) {
   return resp
 }
 
-export async function getJSON(path) {
-  const resp = await request(path)
+export async function getJSON(path, opts) {
+  const resp = await request(path, opts)
   const text = await resp.text()
   return text ? JSON.parse(text) : null
 }

@@ -188,9 +188,17 @@ func TestOnlyWatchedNodesWhileLeased(t *testing.T) {
 	if len(s.Snapshot([]string{"a"}, 0)["a"].T) < 3 {
 		t.Errorf("history gone with the lease")
 	}
-	// A watch starts it again.
+	// A watch starts it again - with no rate across the lapse: it would
+	// be the average of the time nothing was read, drawn as a reading.
+	before := s.Snapshot([]string{"a"}, 0)["a"].T
+	since := before[len(before)-1]
 	s.Watch([]string{"a", "b"})
 	waitFor(t, "b read", func() bool { return c.reads("b") >= 2 })
+	waitFor(t, "two readings of a after the lapse", func() bool { return len(s.Snapshot([]string{"a"}, since)["a"].T) >= 2 })
+	after := s.Snapshot([]string{"a"}, since)["a"]
+	if after.CPU[0] != nil || after.CPU[1] == nil {
+		t.Errorf("after the lapse: cpu %s then %s, want - then a rate", val(after.CPU[0]), val(after.CPU[1]))
+	}
 }
 
 func TestForgottenAfterRetention(t *testing.T) {
