@@ -37,7 +37,8 @@ other, they aren't a capacity measure.
   lab: a request that gets no answer within its second. Before a
   campaign, each prober is run for 2 minutes against an untouched VIP
   (the fourth machine: none lost in 4,385; a runner, for v2026.10.17-2:
-  none in 4,680, for v2026.10.18-2: none in 4,678). A single isolated
+  none in 4,680, for v2026.10.18-2: none in 4,678, for v2026.10.19-4:
+  none in 5,062). A single isolated
   timeout
   outside the moment a scenario changes something is reported apart
   from the scenario's losses.
@@ -205,7 +206,16 @@ example:
   no page, Metrics at a sample a second and at five, and the node list;
 - v2026.10.19-2: a short check of its Controller fixes - the same walk,
   nothing laid over the pages - with the update steps and the nodes'
-  health.
+  health;
+- v2026.10.19-4:
+  - the neighbour table on both nodes, through janusctl and the
+    Controller, then the VIP's MAC seen from the backup before, during
+    and after a drain of the node holding it;
+  - haproxy.cfg's history through the Controller: a change applied, then
+    back to the first version under the runners' probes, a reader's
+    masked view and refused revert, the history read again after
+    firmware and kexec reboots and a rollback to the release and back;
+  - the pages showing them, in two palettes (Janus and Everforest).
 
 ### HAProxy killed by the kernel
 
@@ -277,6 +287,11 @@ ran:
   with a page open (v2026.10.19);
 - `haproxy-address`: where HAProxy, keepalived and BIRD are mapped on
   each node;
+- `n-neighbors`: both nodes' neighbour tables, and the VIP's MAC from
+  the backup around a drain (v2026.10.19-4);
+- `h-history`: haproxy.cfg's history through the Controller - a change,
+  back to the first version, optionally under probes -, and a reader's
+  view (v2026.10.19-4);
 - `rolling`: the drained rolling update through the Controller (since
   v2026.10.19-2 it trusts its own wait and names the check that fails);
 - `ctl-update`: the Controller's update with its probe;
