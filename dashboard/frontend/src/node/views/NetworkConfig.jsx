@@ -1,4 +1,4 @@
-import { Clock, Code2, Globe, ListTree, Plus, Save, Trash2, Undo2, Waypoints } from 'lucide-react'
+import { Clock, Code2, Globe, ListTree, Network, Plus, Save, Trash2, Undo2, Waypoints } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { getJSON, postJSON } from '../api.js'
 import { hunks, lineDiff } from '../diff.js'
@@ -87,6 +87,85 @@ function DiffView({ diff }) {
           {d.op === '…' ? '  …' : `${d.op} ${d.text}`}
         </div>
       ))}
+    </div>
+  )
+}
+
+// The kernel's neighbour states (NeighborList), by how they should read:
+// FAILED and INCOMPLETE are a neighbour that never answered at layer 2.
+const NEIGHBOR_TONE = { REACHABLE: 'ok', PERMANENT: 'info', STALE: 'warn', DELAY: 'warn', PROBE: 'warn', FAILED: 'danger', INCOMPLETE: 'danger' }
+const neighborState = (n) => String(n.state || 'NEIGHBOR_STATE_NONE').replace('NEIGHBOR_STATE_', '')
+const unanswered = (n) => ['FAILED', 'INCOMPLETE'].includes(neighborState(n))
+
+function NeighborsCard() {
+  const may = useMay()
+  const allowed = may('NetworkService/NeighborList')
+  const neighbors = usePoll('/api/network/neighbors', { enabled: allowed })
+  const [iface, setIface] = useState('')
+  if (!allowed) return null
+  const all = neighbors.data?.neighbors || []
+  const interfaces = [...new Set(all.map((n) => n.interface))]
+  const shown = all.filter((n) => !iface || n.interface === iface)
+  const failing = shown.filter(unanswered).length
+  return (
+    <div style={{ marginTop: '1rem' }}>
+    <Card
+      title="Neighbours"
+      icon={Network}
+      actions={
+        <div className="row">
+          {failing > 0 && <Badge tone="danger">{failing} not answering</Badge>}
+          {interfaces.length > 1 && (
+            <select aria-label="Interface" value={iface} onChange={(e) => setIface(e.target.value)}>
+              <option value="">Every interface</option>
+              {interfaces.map((i) => (
+                <option key={i}>{i}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      }
+    >
+      <p className="small muted" style={{ marginTop: 0 }}>
+        ARP for IPv4, NDP for IPv6: the MAC each neighbour answered with. <i>Failed</i> or <i>incomplete</i>: it never answered at layer 2.
+      </p>
+      <ErrorBox error={neighbors.error} />
+      {!neighbors.data ? (
+        !neighbors.error && <Loading />
+      ) : !shown.length ? (
+        <Empty>No neighbours</Empty>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Interface</th>
+              <th>Address</th>
+              <th>MAC</th>
+              <th>State</th>
+              <th title="Since an ARP or NDP answer, or traffic, last proved it reachable">Confirmed</th>
+              <th title="Since the entry was last used to send">Used</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((n) => (
+              <tr key={`${n.interface} ${n.address}`}>
+                <td className="mono">{n.interface}</td>
+                <td className="mono">{n.address}</td>
+                <td className="mono small">{n.link_address || <span className="muted">-</span>}</td>
+                <td>
+                  <Badge tone={NEIGHBOR_TONE[neighborState(n)] || ''} dot>
+                    {neighborState(n).toLowerCase()}
+                  </Badge>
+                  {n.router && <span className="muted small"> router</span>}
+                </td>
+                <td className="small">{duration(Number(n.confirmed_ms_ago) / 1000)} ago</td>
+                <td className="small">{duration(Number(n.used_ms_ago) / 1000)} ago</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
     </div>
   )
 }
@@ -214,6 +293,7 @@ function StatusPanel({ status }) {
           </tbody>
         </table>
       </Card>
+      <NeighborsCard />
     </>
   )
 }

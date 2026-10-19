@@ -874,6 +874,18 @@ Interfaces, addresses, routes, DNS, clock.
 janusctl network status
 ```
 
+#### janusctl network neighbors
+
+The neighbour table: ARP and NDP entries, their MAC and state.
+
+```text
+janusctl network neighbors [-interface IF]
+```
+
+| Flag | |
+|---|---|
+| `-interface IF` | only this interface's |
+
 #### janusctl network get
 
 The network configuration, as JSON.

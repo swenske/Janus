@@ -143,6 +143,40 @@ The Controller's **Provision new nodes** panel builds all three for you.
 A configuration given at creation is never overwritten by a later boot's
 NoCloud volume: a node keeps what it has.
 
+## The neighbours
+
+With no shell there is no `ip neigh`: the node reads its neighbour table
+for you. This is ARP for IPv4 and NDP for IPv6, the link-layer address
+each neighbour on its links answered with:
+
+```sh
+janusctl network neighbors
+janusctl network neighbors -interface eth0
+```
+
+The Controller shows the same table under the interfaces in System ›
+Network. For each neighbour you get:
+- its address and MAC;
+- its state: `reachable`, `stale`, `delay`, `probe`, `failed`,
+  `incomplete`, `permanent` or `noarp`, and whether an IPv6 neighbour is
+  a router;
+- how long ago it was last confirmed and last used.
+
+What it tells you that a connectivity test can't:
+
+- **A backend or a gateway that doesn't answer**: `failed` or
+  `incomplete` means it never answered at layer 2 - wrong VLAN, host
+  down, a firewall dropping ARP. A
+  [connectivity test](guide/connectivity-probe.md) only sees a timeout.
+- **Who holds a VRRP address**: from the backup node, the virtual IP's
+  MAC names the node holding it. After a failover, it shows whether the
+  new master's gratuitous ARP was taken.
+- **A duplicate address**: one IP whose MAC changes from one reading to
+  the next.
+
+Readers may read it. It is the network domain's: a permission narrowed
+to other domains doesn't reach it.
+
 ## Time
 
 `janusd` is the NTP client - no extra daemon: it queries the servers

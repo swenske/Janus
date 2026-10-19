@@ -39,6 +39,7 @@ const (
 	NetworkService_NetworkConfigApply_FullMethodName   = "/janus.v1alpha1.NetworkService/NetworkConfigApply"
 	NetworkService_NetworkConfigConfirm_FullMethodName = "/janus.v1alpha1.NetworkService/NetworkConfigConfirm"
 	NetworkService_NetworkStatus_FullMethodName        = "/janus.v1alpha1.NetworkService/NetworkStatus"
+	NetworkService_NeighborList_FullMethodName         = "/janus.v1alpha1.NetworkService/NeighborList"
 )
 
 // NetworkServiceClient is the client API for NetworkService service.
@@ -112,6 +113,11 @@ type NetworkServiceClient interface {
 	// NetworkStatus reports what's actually in effect: links, addresses,
 	// DHCP leases, routes, resolvers, hostname and clock synchronization.
 	NetworkStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkStatusResponse, error)
+	// NeighborList reads the kernel's neighbour table - ARP for IPv4, NDP
+	// for IPv6: the link-layer address each neighbour answered with, and
+	// whether it still answers. An entry that stays INCOMPLETE or FAILED
+	// is a neighbour that never answered at layer 2.
+	NeighborList(ctx context.Context, in *NeighborListRequest, opts ...grpc.CallOption) (*NeighborListResponse, error)
 }
 
 type networkServiceClient struct {
@@ -321,6 +327,16 @@ func (c *networkServiceClient) NetworkStatus(ctx context.Context, in *emptypb.Em
 	return out, nil
 }
 
+func (c *networkServiceClient) NeighborList(ctx context.Context, in *NeighborListRequest, opts ...grpc.CallOption) (*NeighborListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NeighborListResponse)
+	err := c.cc.Invoke(ctx, NetworkService_NeighborList_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NetworkServiceServer is the server API for NetworkService service.
 // All implementations must embed UnimplementedNetworkServiceServer
 // for forward compatibility.
@@ -392,6 +408,11 @@ type NetworkServiceServer interface {
 	// NetworkStatus reports what's actually in effect: links, addresses,
 	// DHCP leases, routes, resolvers, hostname and clock synchronization.
 	NetworkStatus(context.Context, *emptypb.Empty) (*NetworkStatusResponse, error)
+	// NeighborList reads the kernel's neighbour table - ARP for IPv4, NDP
+	// for IPv6: the link-layer address each neighbour answered with, and
+	// whether it still answers. An entry that stays INCOMPLETE or FAILED
+	// is a neighbour that never answered at layer 2.
+	NeighborList(context.Context, *NeighborListRequest) (*NeighborListResponse, error)
 	mustEmbedUnimplementedNetworkServiceServer()
 }
 
@@ -458,6 +479,9 @@ func (UnimplementedNetworkServiceServer) NetworkConfigConfirm(context.Context, *
 }
 func (UnimplementedNetworkServiceServer) NetworkStatus(context.Context, *emptypb.Empty) (*NetworkStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method NetworkStatus not implemented")
+}
+func (UnimplementedNetworkServiceServer) NeighborList(context.Context, *NeighborListRequest) (*NeighborListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method NeighborList not implemented")
 }
 func (UnimplementedNetworkServiceServer) mustEmbedUnimplementedNetworkServiceServer() {}
 func (UnimplementedNetworkServiceServer) testEmbeddedByValue()                        {}
@@ -815,6 +839,24 @@ func _NetworkService_NetworkStatus_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NetworkService_NeighborList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NeighborListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).NeighborList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_NeighborList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).NeighborList(ctx, req.(*NeighborListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NetworkService_ServiceDesc is the grpc.ServiceDesc for NetworkService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -893,6 +935,10 @@ var NetworkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "NetworkStatus",
 			Handler:    _NetworkService_NetworkStatus_Handler,
+		},
+		{
+			MethodName: "NeighborList",
+			Handler:    _NetworkService_NeighborList_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

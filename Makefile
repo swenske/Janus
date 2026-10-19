@@ -1211,7 +1211,8 @@ qemu-packet-capture-test: build disk-image
 
 # SystemService.Probe on a real enforcing node: HTTP, TLS, DNS against
 # servers on this host, ping and traceroute from the raw ICMP socket, a
-# reader refused, zero AVC denials (hack/qemu-probe-test.sh).
+# reader refused; NetworkService.NeighborList - QEMU's gateway reachable
+# with slirp's MAC; zero AVC denials (hack/qemu-probe-test.sh).
 qemu-probe-test: build disk-image
 	./hack/qemu-probe-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 

@@ -14,7 +14,7 @@ const { CONTROLLER, PASSWORD, OUT } = process.env
 // Every palette (appearance.js's); PALETTES=a,b for a few.
 const PALETTES = (process.env.PALETTES || 'janus,abysse,ayu,catppuccin,dracula,everforest,flexoki,github,gruvbox,kanagawa,night-owl,nightfox,nord,one,rose-pine,solarized,tokyo-night,tomorrow').split(',')
 const MODES = ['light', 'dark']
-const NODE_PAGES = ['/', '/metrics', '/storage', '/flow', '/haproxy', '/system/update']
+const NODE_PAGES = ['/', '/metrics', '/storage', '/flow', '/haproxy', '/system/network', '/system/update']
 const problems = []
 const browser = await chromium.launch()
 

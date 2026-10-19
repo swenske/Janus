@@ -41,6 +41,8 @@ func runNetwork(conn *grpc.ClientConn, endpoint string, redial redialer, args []
 		st, err := client.NetworkStatus(c, &emptypb.Empty{})
 		check("NetworkStatus", err)
 		printNetworkStatus(st)
+	case "neighbors":
+		runNeighbors(client, args[1:])
 	case "get":
 		c, cancel := ctx()
 		defer cancel()
@@ -264,6 +266,48 @@ func printNetworkStatus(st *janusv1alpha1.NetworkStatusResponse) {
 		}
 		fmt.Println()
 	}
+}
+
+// runNeighbors prints the node's neighbour table, as `ip neigh` would.
+func runNeighbors(client janusv1alpha1.NetworkServiceClient, args []string) {
+	fs := flag.NewFlagSet("network neighbors", flag.ExitOnError)
+	iface := fs.String("interface", "", "only this interface's")
+	parseAnywhere(fs, args)
+	if fs.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "usage: janusctl network neighbors [-interface IF]")
+		os.Exit(2)
+	}
+	c, cancel := ctx()
+	defer cancel()
+	resp, err := client.NeighborList(c, &janusv1alpha1.NeighborListRequest{Interface: *iface})
+	check("NeighborList", err)
+	printNeighbors(os.Stdout, resp.GetNeighbors())
+}
+
+func printNeighbors(out io.Writer, ns []*janusv1alpha1.Neighbor) {
+	if len(ns) == 0 {
+		fmt.Fprintln(out, "no neighbours")
+		return
+	}
+	t := newTable(out)
+	fmt.Fprintln(t, "INTERFACE\tADDRESS\tMAC\tSTATE\tCONFIRMED\tUSED")
+	for _, n := range ns {
+		state := strings.ToLower(strings.TrimPrefix(n.GetState().String(), "NEIGHBOR_STATE_"))
+		if n.GetRouter() {
+			state += " (router)"
+		}
+		mac := n.GetLinkAddress()
+		if mac == "" {
+			mac = "-"
+		}
+		fmt.Fprintf(t, "%s\t%s\t%s\t%s\t%s\t%s\n", n.GetInterface(), n.GetAddress(), mac, state, ago(n.GetConfirmedMsAgo()), ago(n.GetUsedMsAgo()))
+	}
+	_ = t.Flush()
+}
+
+// ago reads a neighbour entry's age: "12s ago", to the second.
+func ago(ms uint64) string {
+	return (time.Duration(ms) * time.Millisecond).Round(time.Second).String() + " ago" //nolint:gosec // G115: ages the kernel counts in hundredths of a second fit
 }
 
 func runNetworkModules(client janusv1alpha1.NetworkServiceClient) {
