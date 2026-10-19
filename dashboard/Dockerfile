@@ -25,7 +25,7 @@
 # entrypoint in the compose file (dashboard/README.md, "Updating the
 # Controller"), with Docker Compose's static binary next to it - pinned in
 # versions.mk, checked against its sha256 here.
-FROM golang:1.26.9-trixie@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c AS compose
+FROM golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS compose
 ARG TARGETARCH
 ARG DOCKER_COMPOSE_VERSION
 ARG DOCKER_COMPOSE_SHA256_AMD64
@@ -41,7 +41,7 @@ RUN set -eu; \
     echo "${sum}  /docker-compose" | sha256sum -c -; \
     chmod 0755 /docker-compose
 
-FROM golang:1.26.9-trixie@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c AS build
+FROM golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY gen/ gen/
