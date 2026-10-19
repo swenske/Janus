@@ -636,7 +636,9 @@ func TestVariantUpdates(t *testing.T) {
 			t.Errorf("%s:\n%s\nwant:\n%s", name, strings.Join(describe(got), "\n"), strings.Join(want, "\n"))
 		}
 	}
-	pin := func(name, version string, def bool) variantPin { return variantPin{name: name, version: version, isDefault: def} }
+	pin := func(name, version string, def bool) variantPin {
+		return variantPin{name: name, version: version, isDefault: def}
+	}
 
 	// A release from before variants (its one HAProxy and kernel are the
 	// defaults) to one offering three branches and two tracks: those it

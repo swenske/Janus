@@ -179,7 +179,6 @@ func main() {
 	// restart, a reboot or an update.
 	events.Publish("janusd.started", map[string]string{"version": version, "slot": api.CurrentActiveSlot(), "boot": bootID()})
 
-
 	// The firewall (the nftables extension) before anything listens: the
 	// window where the node is up without its saved ruleset is the boot
 	// itself, until here.
