@@ -42,7 +42,7 @@
 
 /* A whole and its parts (chart/Donut.jsx). */
 .donut { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-.donut svg { width: 128px; height: 128px; flex: none; }
+.donut svg { width: 148px; height: 148px; flex: none; }
 .donut-track { fill: none; stroke: color-mix(in srgb, var(--muted) 14%, transparent); stroke-width: 14; }
 .donut-arc { fill: none; stroke-width: 14; transition: opacity 0.15s; }
 .donut-arc.faded, .donut-legend li.faded { opacity: 0.35; }
@@ -53,5 +53,6 @@
 .donut-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .donut-value { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .donut-pct { font-family: var(--mono); color: var(--muted); min-width: 4.5ch; text-align: right; font-variant-numeric: tabular-nums; }
-.donut-empty { padding: 2.2rem 0; text-align: center; }
+.donut-empty { padding: 2.2rem 0.5rem; text-align: center; }
+.donut-note { margin: 0.7rem 0 0; }
 @media (prefers-reduced-motion: reduce) { .donut-arc, .donut-legend li { transition: none; } }

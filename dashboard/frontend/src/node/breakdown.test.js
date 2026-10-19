@@ -1,7 +1,7 @@
 // node --test (npm test)
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { backends, responses, tls, traffic, versions } from './breakdown.js'
+import { backends, ciphers, responses, tls, tlsVersions, traffic, versions } from './breakdown.js'
 
 const columns = ['pxname', 'svname', 'status', 'mode', 'bin', 'bout', 'hrsp_1xx', 'hrsp_2xx', 'hrsp_3xx', 'hrsp_4xx', 'hrsp_5xx', 'hrsp_other', 'h1req', 'h2req', 'h3req', 'req_other', 'ssl_sess', 'ssl_reused_sess', 'ssl_failed_handshake', 'rtime', 'ctime', 'qtime', 'ttime', 'req_rate', 'rate', 'econ', 'eresp']
 const row = (o) => columns.map((c) => (o[c] == null ? '' : String(o[c])))
@@ -72,4 +72,39 @@ test('backends: slowest first, servers up, errors', () => {
 
 test('nothing to break down', () => {
   for (const f of [responses, versions, tls, traffic, backends]) assert.deepEqual(f(null), [])
+})
+
+test('TLS versions coloured by age, ciphers the biggest five and the rest', () => {
+  const log = {
+    lines: 100,
+    tls: 90,
+    versions: [
+      { name: 'TLSv1.3', count: 70 },
+      { name: 'TLSv1.2', count: 19 },
+      { name: 'TLSv1', count: 1 },
+    ],
+    ciphers: ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((n, i) => ({ name: `CIPHER_${n}`, count: 40 - i * 5 })),
+  }
+  assert.deepEqual(
+    tlsVersions(log).map((s) => [s.label, s.value, s.color]),
+    [
+      ['TLSv1.3', 70, 'var(--ok)'],
+      ['TLSv1.2', 19, 'var(--info)'],
+      ['TLSv1', 1, 'var(--danger)'],
+    ],
+  )
+  const c = ciphers(log)
+  assert.deepEqual(
+    c.map((s) => [s.label, s.value]),
+    [
+      ['CIPHER_A', 40],
+      ['CIPHER_B', 35],
+      ['CIPHER_C', 30],
+      ['CIPHER_D', 25],
+      ['CIPHER_E', 20],
+      ['2 more', 25],
+    ],
+  )
+  assert.deepEqual(tlsVersions(null), [])
+  assert.deepEqual(ciphers({ ciphers: [] }), [])
 })

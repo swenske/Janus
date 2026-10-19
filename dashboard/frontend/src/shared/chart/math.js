@@ -237,3 +237,15 @@ export function nearest(points, t) {
   }
   return Math.abs(points[lo].t - t) <= Math.abs(points[hi].t - t) ? lo : hi
 }
+
+// fitSize is the font size at which text - monospace, 0.6 em a
+// character - fits width, up to max: a donut's "113.8 GiB" at its usual
+// size ran over the ring.
+export function fitSize(text, max, width) {
+  return Math.min(max, width / (Math.max(1, String(text).length) * 0.6))
+}
+
+// clip shortens a label to n characters, an ellipsis at its end.
+export function clip(label, n) {
+  return label.length > n ? `${label.slice(0, n - 1)}…` : label
+}

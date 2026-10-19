@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ServerClock, advanceEdge, area, bezier, curve, ease, gaps, nearest, niceMax, segments, snapDistance, timeStep, timeTicks } from './math.js'
+import { ServerClock, advanceEdge, area, bezier, clip, curve, ease, fitSize, gaps, nearest, niceMax, segments, snapDistance, timeStep, timeTicks } from './math.js'
 
 test('niceMax: four round quarters', () => {
   assert.equal(niceMax(0), 1)
@@ -174,4 +174,13 @@ test('nearest', () => {
   assert.equal(nearest(pts, 16), 2)
   assert.equal(nearest(pts, 99), 3)
   assert.equal(nearest([], 1), -1)
+})
+
+test('the figure fits a donut hole, a long label is cut', () => {
+  // The hole: 68 units; at 15 a character is 9 wide.
+  assert.equal(fitSize('1M', 15, 68), 15)
+  const size = fitSize('113.8 GiB', 15, 68)
+  assert.ok(size < 15 && 9 * size * 0.6 <= 68, `size ${size}`)
+  assert.equal(clip('be_landing_production', 13), 'be_landing_p…')
+  assert.equal(clip('app', 13), 'app')
 })

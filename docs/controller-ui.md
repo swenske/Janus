@@ -632,7 +632,17 @@ both tests.
   ones in `ssl_reused_sess`), failed -, the bytes each backend moved,
   and how fast each backend answers (averages over its last 1024
   requests). No counter says which TLS version or cipher a connection
-  used: only the access log does (`%sslv`, `%sslc`).
+  used: only the access log does (`%sslv`, `%sslc` - `option httpslog`
+  ends its lines with them). So **TLS versions** and **Ciphers** come
+  from HAProxy's last log lines (`/api/haproxy/tls-log`, every 30 s, for
+  whoever may read the node's logs - SystemService.Logs, the services
+  domain): the Controller reads them on the node (this boot's 5000,
+  from memory) and counts the version and cipher each line ends with
+  (`nodeproxy/tlslog.go`) - a sample of what was logged, said under
+  them, not every request since HAProxy started; with nothing to count,
+  the cards say how to log them. A donut's figure shrinks to fit its
+  ring (`fitSize`), a hovered part's name is cut (`clip`) - the legend
+  has it whole.
 - **The node list's curves** (`NodeSparklines.jsx`, `nodeMetrics.js`):
   `GET /api/nodes/metrics` - each node the account sees, its last
   minutes of CPU, HAProxy requests and traffic, from the Controller's

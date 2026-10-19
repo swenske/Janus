@@ -470,3 +470,12 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .metrics-charts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 1250px) { .metrics-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .metrics-charts { grid-template-columns: minmax(0, 1fr); } }
+
+/* Metrics' donuts: three a row as the charts above (then two, one),
+   each ring larger and centred over a legend the card's width - a
+   cipher's name has room. */
+.metrics-donuts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.metrics-donuts .donut { flex-direction: column; align-items: stretch; }
+.metrics-donuts .donut svg { width: 172px; height: 172px; align-self: center; }
+@media (max-width: 1250px) { .metrics-donuts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .metrics-donuts { grid-template-columns: minmax(0, 1fr); } }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { clip, fitSize } from './math.js'
 
 // Donut: a whole split into its parts - slices [{label, value, color}] -
 // as a ring, its total (or the hovered part's) in the middle, and a
@@ -7,6 +8,9 @@ import { useState } from 'react'
 const R = 46
 const C = 2 * Math.PI * R
 const GAP = 1.6 // between two parts, along the ring
+// The hole's width a text may take: the ring's inner edge (R less half
+// its 14-unit stroke) on both sides, a little room kept.
+const HOLE = 2 * (R - 7) - 10
 
 export default function Donut({ slices, format = (v) => String(v), unit = '', empty = 'Nothing yet', label }) {
   const [hover, setHover] = useState(-1)
@@ -21,6 +25,10 @@ export default function Donut({ slices, format = (v) => String(v), unit = '', em
     arcs.push({ ...s, full: len, len: Math.max(0, many ? len - GAP : len), start: prev ? prev.start + prev.full : 0 })
   }
   const shown = slices[hover]
+  const figure = format(shown ? shown.value : total)
+  // The caption under it: the hovered part's name cut to what the hole
+  // takes beside its share (the legend has it whole).
+  const caption = shown ? `${clip(shown.label, 13)} · ${pct(shown.value)}` : unit
   return (
     <div className="donut">
       <svg viewBox="0 0 120 120" role="img" aria-label={`${label}: ${slices.map((s) => `${s.label} ${pct(s.value)}`).join(', ')}`}>
@@ -39,18 +47,20 @@ export default function Donut({ slices, format = (v) => String(v), unit = '', em
             />
           ))}
         </g>
-        <text x="60" y="58" textAnchor="middle" className="donut-total">
-          {format(shown ? shown.value : total)}
+        <text x="60" y="58" textAnchor="middle" className="donut-total" style={{ fontSize: `${fitSize(figure, 15, HOLE).toFixed(1)}px` }}>
+          {figure}
         </text>
         <text x="60" y="74" textAnchor="middle" className="donut-caption">
-          {shown ? `${shown.label} · ${pct(shown.value)}` : unit}
+          {caption}
         </text>
       </svg>
       <ul className="donut-legend">
         {slices.map((s, i) => (
           <li key={s.label} className={hover >= 0 && hover !== i ? 'faded' : undefined} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(-1)}>
             <span className="chart-swatch" style={{ background: s.color }} />
-            <span className="donut-label">{s.label}</span>
+            <span className="donut-label" title={s.label}>
+              {s.label}
+            </span>
             <span className="donut-value">{format(s.value)}</span>
             <span className="donut-pct">{pct(s.value)}</span>
           </li>
