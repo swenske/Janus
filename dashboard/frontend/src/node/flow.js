@@ -857,7 +857,7 @@ function layoutDense(graph, ifaces, servers, peers) {
   const mid = feYs.length ? (Math.min(...feYs) + Math.max(...feYs)) / 2 : Math.max(TOP + DENSE.row / 2, (TOP + beBottom) / 2)
   const span = (ifaces.length - 1) * DENSE.row
   const first = Math.max(TOP + DENSE.row / 2, mid - span / 2)
-  const hub = put({ id: 'hub', kind: 'hub', name: 'HAProxy', y: Math.max(mid, TOP + R.hub), r: R.hub, dense: true })
+  const hub = put({ id: 'hub', kind: 'hub', name: 'Janus', y: Math.max(mid, TOP + R.hub), r: R.hub, dense: true })
   ifaces.forEach((it, i) => {
     const n = put({ ...it, y: first + i * DENSE.row, r: R.iface, dense: true })
     links.push({ id: `${n.id}>hub`, from: n.id, to: 'hub', kind: 'iface' })

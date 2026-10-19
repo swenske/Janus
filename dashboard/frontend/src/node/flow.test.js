@@ -372,6 +372,9 @@ test('layout: columns, bands, no overlap', () => {
     assert.ok(bare.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)), shape)
     assert.ok(bare.links.every((l) => !/NaN|Infinity/.test(l.d)), shape)
     assert.ok(Number.isFinite(bare.width) && Number.isFinite(bare.height), shape)
+    // The middle node is Janus in every shape - dense, the one a big
+    // configuration gets, kept "HAProxy" once.
+    assert.equal(bare.byId.hub.name, 'Janus', shape)
   }
 
   // Dense: columns as across's, the labels beside the nodes, rows half
