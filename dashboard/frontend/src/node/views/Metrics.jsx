@@ -203,6 +203,9 @@ function Breakdown({ stats, uptime, tlsLog }) {
         <Card title="HTTP versions" icon={Waypoints}>
           <Donut slices={versions(stats)} format={compact} unit="requests" empty="No HTTP request yet" label="Requests by HTTP version" />
         </Card>
+        <Card title="Traffic by backend" icon={Shuffle}>
+          <Donut slices={traffic(stats)} format={(v) => bytes(v)} unit="in and out" empty="No traffic yet" label="Bytes by backend" />
+        </Card>
         <Card title="TLS handshakes" icon={Lock}>
           <Donut slices={tls(stats)} format={compact} unit="handshakes" empty="No TLS frontend, or no handshake yet" label="TLS handshakes" />
         </Card>
@@ -213,9 +216,6 @@ function Breakdown({ stats, uptime, tlsLog }) {
         <Card title="Ciphers" icon={KeyRound}>
           <Donut slices={ciphers(tlsLog.data)} format={compact} unit="requests" empty={tlsEmpty(tlsLog, handshakes)} label="Requests by cipher" />
           <TLSLogNote log={tlsLog.data} />
-        </Card>
-        <Card title="Traffic by backend" icon={Shuffle}>
-          <Donut slices={traffic(stats)} format={(v) => bytes(v)} unit="in and out" empty="No traffic yet" label="Bytes by backend" />
         </Card>
       </div>
       {rows.length > 0 && (
