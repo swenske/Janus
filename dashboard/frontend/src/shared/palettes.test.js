@@ -88,6 +88,8 @@ test('every block defines the same tokens, and its own color-scheme', () => {
 // A background named "x@y" is x composited over y.
 const PAIRS = [
   ['--text', ['--bg', '--surface', '--surface-2', '--surface-3', '--card-bg@--bg'], 4.5],
+  // A .notice: the text on a status's tint, over the page or a card.
+  ['--text', ['--info-soft@--bg', '--warn-soft@--bg', '--danger-soft@--bg', '--info-soft@--surface', '--warn-soft@--surface', '--danger-soft@--surface'], 4.5],
   ['--muted', ['--bg', '--surface', '--surface-2', '--card-bg@--bg'], 4.5],
   ['--accent-ink', ['--bg', '--surface', '--card-bg@--bg', '--accent-soft@--surface', '--accent-soft@--bg'], 4.5],
   ...['--ok', '--warn', '--danger', '--info'].map((s) => [s, ['--bg', '--surface', '--card-bg@--bg', `${s}-soft@--surface`, `${s}-soft@--bg`], 4.5]),
