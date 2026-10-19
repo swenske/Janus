@@ -60,16 +60,20 @@ Rules:
   palette, light and dark; dark mode is not an afterthought. Check new
   screens in several (`hack/ui-preview.sh check` walks them all). A new
   token goes in every block of `palettes.css` - `npm test` holds each
-  one to the same tokens and to WCAG AA.
+  one to the same tokens and to WCAG AA. A tint (`--ok-soft`...) is
+  translucent, and the test holds it over `--surface` and `--bg`: a
+  status pill lays its tint over `--surface` itself (`controller.css`),
+  so a strip in `--surface-2` under it changes nothing - something new
+  that puts a tint on another surface does the same.
 - **Reuse the shared primitives** before writing new ones. Something
   both pages could use goes in `src/shared/`.
 - Icons come from `lucide-react` (tree-shaken, only what's imported ships).
 - No UI or chart library beyond that: the chart is our own SVG component
   (`src/shared/chart/`) - small, and it does what we need.
 - **A card's title is set in small capitals** (`controller.css`); one
-  that names something - a backend, a file, a certificate, a flow node -
-  keeps its case: `className="data-title"` on its `Card`, or a title in
-  `.mono`. Figures are in the monospace face (`--mono`: JetBrains Mono,
+  that names something - a backend, a file, a certificate, a flow node,
+  a daemon, a version - or is a sentence, as a notice's is, keeps its
+  case: `className="data-title"` on its `Card`, or a title in `.mono`. Figures are in the monospace face (`--mono`: JetBrains Mono,
   shipped with the pages - `src/shared/fonts/jetbrains-mono/README.md`).
 
 ### Appearance

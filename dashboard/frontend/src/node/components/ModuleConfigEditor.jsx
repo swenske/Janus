@@ -103,6 +103,7 @@ function ModuleConfig({ base, file, daemon, starter, applyNote, onApplied, extra
   return (
     <div className="stack">
       <Card
+        className="data-title"
         title={file}
         actions={
           saved.is_default ? (

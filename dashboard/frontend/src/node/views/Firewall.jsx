@@ -338,6 +338,7 @@ function SetCard({ set, reload }) {
 
   return (
     <Card
+      className="data-title"
       title={`${set.family} ${set.table} ${set.name}`}
       icon={ListPlus}
       actions={
