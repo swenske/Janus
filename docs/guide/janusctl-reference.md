@@ -585,11 +585,15 @@ janusctl haproxy backends
 
 #### janusctl haproxy get-config
 
-The running haproxy.cfg.
+The running haproxy.cfg, or a version of its history.
 
 ```text
-janusctl haproxy get-config
+janusctl haproxy get-config [-version ID]
 ```
+
+| Flag | |
+|---|---|
+| `-version ID` | this version of config-history instead |
 
 #### janusctl haproxy apply-config
 
@@ -597,6 +601,26 @@ Validate, apply and reload seamlessly.
 
 ```text
 janusctl haproxy apply-config FILE
+```
+
+#### janusctl haproxy config-history
+
+The configurations applied: who, when, lines changed.
+
+```text
+janusctl haproxy config-history [-limit N]
+```
+
+| Flag | |
+|---|---|
+| `-limit N` | the newest N only |
+
+#### janusctl haproxy config-revert
+
+Apply a version of config-history again: back to it.
+
+```text
+janusctl haproxy config-revert ID
 ```
 
 #### janusctl haproxy map-list

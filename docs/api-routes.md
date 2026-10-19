@@ -122,8 +122,10 @@ certificate the root signed itself lets in too. Its own CA always does.
 | Method | Streaming | Status | Purpose |
 |---|---|---|---|
 | `GetConfig` | | ✅ | Current `haproxy.cfg` - its secrets masked for a caller who may not apply one, see [haproxy-config.md](haproxy-config.md#who-reads-it) |
-| `ApplyConfig` | server | ✅ | Validate (`haproxy -c`) then seamless-reload (`-sf <pid>`) |
+| `ApplyConfig` | server | ✅ | Validate (`haproxy -c`) then seamless-reload (`-sf <pid>`); with `version`, a version of the history applied again - going back. Each accepted configuration is kept in the history |
 | `ValidateConfig` | | ✅ | Dry-run validation only |
+| `ConfigHistory` | | ✅ | The configurations applied: who, when, SHA-256, lines added and removed - figures of the masked texts for a caller who may not apply one, see [haproxy-config.md](haproxy-config.md#the-history-who-applied-what-and-going-back) |
+| `ConfigVersion` | | ✅ | One version's text, masked like `GetConfig` |
 | `Reload` | | ✅ | Seamless reload of the current config |
 | `Stats` | | ✅ | Proxy of the HAProxy stats socket `show stat` (raw CSV) |
 | `ShowInfo` | | ✅ | Proxy of `show info` (version/uptime/connections) |

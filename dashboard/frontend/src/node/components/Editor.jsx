@@ -1,7 +1,8 @@
 import { useRef } from 'react'
 
 // Editor is a plain-text editor with line numbers (config files, rulesets).
-export function Editor({ value, onChange }) {
+// label names the text for assistive technology: the file it is.
+export function Editor({ value, onChange, label = 'Text' }) {
   const gutter = useRef(null)
   const lines = value.split('\n').length
   return (
@@ -12,6 +13,7 @@ export function Editor({ value, onChange }) {
         ))}
       </div>
       <textarea
+        aria-label={label}
         value={value}
         spellCheck={false}
         rows={Math.min(40, Math.max(18, lines + 1))}

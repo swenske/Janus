@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,6 +53,33 @@ func registerOpsRoutes(mux *http.ServeMux, node *store.Node) {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
+	})
+
+	// The configuration's history: the versions, and one's text - masked
+	// by the node for whoever may not apply one. Going back to a version
+	// is a POST to /api/haproxy/config naming it.
+	mux.HandleFunc("GET /api/haproxy/config/history", func(w http.ResponseWriter, r *http.Request) {
+		withHAProxyClient(w, r, node, func(ctx context.Context, c janusv1alpha1.HAProxyServiceClient) (any, error) {
+			return c.ConfigHistory(ctx, &janusv1alpha1.ConfigHistoryRequest{})
+		})
+	})
+	mux.HandleFunc("GET /api/haproxy/config/history/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+		if err != nil || id == 0 {
+			http.Error(w, "a version's ID", http.StatusBadRequest)
+			return
+		}
+		withHAProxyClient(w, r, node, func(ctx context.Context, c janusv1alpha1.HAProxyServiceClient) (any, error) {
+			resp, err := c.ConfigVersion(ctx, &janusv1alpha1.ConfigVersionRequest{Id: id})
+			if err != nil {
+				return nil, err
+			}
+			return struct {
+				Version  *janusv1alpha1.ConfigVersionInfo `json:"version"`
+				Config   string                           `json:"config"`
+				Redacted bool                             `json:"redacted,omitempty"`
+			}{Version: resp.GetVersion(), Config: string(resp.GetConfig()), Redacted: resp.GetRedacted()}, nil
+		})
 	})
 
 	mux.HandleFunc("/api/haproxy/backends", func(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +214,8 @@ func registerOpsRoutes(mux *http.ServeMux, node *store.Node) {
 func handleApplyConfig(w http.ResponseWriter, r *http.Request, node *store.Node) {
 	var req struct {
 		Config string `json:"config"`
+		// A version of the history to apply again instead.
+		Version uint64 `json:"version"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -200,7 +230,7 @@ func handleApplyConfig(w http.ResponseWriter, r *http.Request, node *store.Node)
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	stream, err := janusv1alpha1.NewHAProxyServiceClient(conn).ApplyConfig(ctx, &janusv1alpha1.ApplyConfigRequest{Config: []byte(req.Config)})
+	stream, err := janusv1alpha1.NewHAProxyServiceClient(conn).ApplyConfig(ctx, &janusv1alpha1.ApplyConfigRequest{Config: []byte(req.Config), Version: req.Version})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("ApplyConfig: %v", err), http.StatusBadGateway)
 		return

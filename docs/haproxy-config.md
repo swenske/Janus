@@ -183,6 +183,41 @@ start: a configuration HAProxy refuses at either step changes nothing.
 Reloads are seamless (`-sf`), and the configuration is kept on the node
 across reboots and updates.
 
+## The history: who applied what, and going back
+
+The node keeps every configuration it accepted, with who applied it and
+when, next to `haproxy.cfg` - across reboots and updates like the
+configuration itself:
+
+```sh
+janusctl haproxy config-history          # the versions, newest first
+janusctl haproxy get-config -version 12  # one version's text
+janusctl haproxy config-revert 12        # apply it again
+```
+
+- **What a version records**: the text, its SHA-256, when, and who: the
+  certificate's name and roles, and the Controller that acted for it.
+  The list shows the lines each version added and removed against the
+  one before it.
+- **Not a new version**: the same file applied again, a reload.
+- **The first one**: the configuration the node ran when it began
+  keeping a history, applied before by someone it can't name.
+- **Going back** applies a version again, as any configuration: checked,
+  reloaded without dropping connections, and kept as a new version that
+  names the one it came from. It needs the role that applies a
+  configuration.
+- **Bounds**: the newest 50 versions, 8 MiB in all - the running
+  configuration's version is always kept.
+
+The Controller shows the same under HAProxy › Configuration › History:
+the versions, any one's changes against the running configuration or the
+version before it, and **Apply this version…**.
+
+Whoever may only read the node sees the versions masked like the running
+configuration (below), and their SHA-256, sizes and line counts are the
+masked texts'. The files under `/etc/haproxy/files` have no history:
+a version records `haproxy.cfg` alone.
+
 ## Who reads it
 
 Whoever may apply a configuration (`os:operator`, `os:admin`) reads it

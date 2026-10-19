@@ -7,7 +7,9 @@
 # runtime diagnostics (runtime_tables.go, runtime_sessions.go,
 # runtime_errors.go): a stick table filled by real requests and cleared,
 # a stream held by a server that never answers and shut down, an invalid
-# request carrying credentials, map/ACL lookups. Run once per HAProxy
+# request carrying credentials, map/ACL lookups; and the configuration's
+# history (history.go): versions, a reload that isn't one, going back, a
+# reader's masked versions. Run once per HAProxy
 # branch an image can carry (variants.mk): the runtime API's answers
 # changed between branches before.
 #
@@ -257,5 +259,35 @@ if reader haproxy table-clear diag -all 2>/dev/null; then fail "a reader cleared
 # parse on this branch.
 ctl haproxy show-info | grep -q "$("$HAPROXY" -v | head -1 | awk '{print $3}')" || fail "show-info doesn't report this HAProxy's version"
 ctl haproxy backends > /dev/null || fail "show stat doesn't parse"
+
+# --- the configuration's history ---
+# The one apply-config above, of the file janusd started with: version 1.
+# janusd writes the configuration it applies to $WORKDIR/haproxy.cfg - a
+# copy of the first one, to compare with.
+cp "$WORKDIR/haproxy.cfg" "$WORKDIR/first.cfg"
+hist() { ctl haproxy config-history | awk 'NR > 1 && $1 ~ /^[0-9]+$/'; }
+[ "$(hist | wc -l)" = 1 ] || fail "after one apply, the history isn't one version: $(ctl haproxy config-history)"
+sed 's/^global$/global\n    # a change for the history/' "$WORKDIR/first.cfg" > "$WORKDIR/changed.cfg"
+ctl haproxy apply-config "$WORKDIR/changed.cfg" > /dev/null || fail "the changed configuration was refused"
+hist | head -1 | grep -qE '^2 .* \+1 -0 .*running' || fail "version 2 isn't the newest, +1 -0, running: $(ctl haproxy config-history)"
+ctl haproxy get-config -version 1 | cmp -s - "$WORKDIR/first.cfg" || fail "get-config -version 1 isn't the first configuration"
+ctl haproxy config-revert 1 > /dev/null || fail "config-revert 1 failed"
+hist | head -1 | grep -qE '^3 .*running, back to 1' || fail "going back isn't version 3, back to 1: $(ctl haproxy config-history)"
+ctl haproxy get-config | cmp -s - "$WORKDIR/first.cfg" || fail "config-revert didn't put the first configuration back"
+ctl haproxy apply-config "$WORKDIR/first.cfg" > /dev/null || fail "applying the same file again failed"
+[ "$(hist | wc -l)" = 3 ] || fail "the same file applied again made a version: $(ctl haproxy config-history)"
+if out="$(ctl haproxy get-config -version 99 2>&1)"; then fail "a version the history lacks was returned"; fi
+grep -q NotFound <<<"$out" || fail "an unknown version: $out"
+[ -f "$WORKDIR/history/index.json" ] && [ -f "$WORKDIR/history/v3.cfg" ] || fail "the history isn't kept next to haproxy.cfg: $(ls "$WORKDIR/history" 2>&1)"
+# A reader: the versions masked, their SHA-256 the masked text's, no going back.
+out="$(reader haproxy config-history)" || fail "a reader can't list the history"
+grep -q "secrets masked" <<<"$out" || fail "the reader's history doesn't say it's masked: $out"
+if grep -q "$(sha256sum < "$WORKDIR/first.cfg" | cut -c1-12)" <<<"$out"; then fail "a reader got the real configuration's SHA-256: $out"; fi
+masked="$(reader haproxy get-config -version 1 2>/dev/null)" || fail "a reader can't read a version"
+if grep -q -e s3cret-rt -e hunter2-rt <<<"$masked"; then fail "a reader got a secret from the history: $masked"; fi
+grep -q "insecure-password <redacted>" <<<"$masked" || fail "a version isn't masked for a reader: $masked"
+if out="$(reader haproxy config-revert 2 2>&1)"; then fail "a reader went back to a version"; fi
+grep -q PermissionDenied <<<"$out" || fail "a reader's revert: $out"
+echo "  ok: the configuration's history (versions, a reload not one, going back, a reader masked)"
 
 echo "haproxy-runtime-test: OK"

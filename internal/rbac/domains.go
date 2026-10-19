@@ -88,6 +88,8 @@ var Domain = map[string]string{
 	"HAProxyService/GetConfig":         DomainHAProxy,
 	"HAProxyService/ApplyConfig":       DomainHAProxy,
 	"HAProxyService/ValidateConfig":    DomainHAProxy,
+	"HAProxyService/ConfigHistory":     DomainHAProxy,
+	"HAProxyService/ConfigVersion":     DomainHAProxy,
 	"HAProxyService/Reload":            DomainHAProxy,
 	"HAProxyService/ServerSetState":    DomainHAProxy,
 	"HAProxyService/MapList":           DomainHAProxy,

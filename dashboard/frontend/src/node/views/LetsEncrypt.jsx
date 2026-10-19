@@ -760,6 +760,7 @@ function JSONCard({ config, isDefault, busy, run, onApply }) {
       <div style={{ marginTop: '0.6rem' }}>
         <Card title="letsencrypt.json">
           <Editor
+            label="letsencrypt.json"
             value={draft}
             onChange={(v) => {
               setDraft(v)

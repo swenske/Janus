@@ -353,6 +353,10 @@ has its drawer. Its groups:
   node's image has: the extensions' apps (Node exporter - status and
   settings; QEMU guest agent - status, what the hypervisor may do) and
   the modules (bird, keepalived, nftables) - HAProxy's tabs include
+  Configuration (the editor, then the History panel - `views/haproxy/
+  ConfigHistory.jsx`: the versions, a version's diff against the running
+  configuration or the one before it, "Open in the editor", "Apply this
+  version…" when `may` allows ApplyConfig - a POST naming the version),
   Files (`/etc/haproxy/files`: error pages, maps, certificates; edit,
   upload, remove, each refused by the node when haproxy.cfg wouldn't
   load with it; files holding a private key are never shown), Stick

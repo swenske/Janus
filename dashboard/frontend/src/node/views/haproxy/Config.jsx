@@ -5,6 +5,7 @@ import { Badge, Card, ErrorBox, Loading, useAction, useConfirm, useToast } from 
 import { DiffView, Editor } from '../../components/Editor.jsx'
 import { hunks, lineDiff } from '../../diff.js'
 import { useMay } from '../../may.js'
+import ConfigHistory from './ConfigHistory.jsx'
 
 export default function Config() {
   const [original, setOriginal] = useState(null)
@@ -13,6 +14,8 @@ export default function Config() {
   const [draft, setDraft] = useState('')
   const [loadError, setLoadError] = useState(null)
   const [validation, setValidation] = useState(null)
+  // Bumped after an apply: the history reads its versions again.
+  const [generation, setGeneration] = useState(0)
   const [busy, run] = useAction()
   const confirm = useConfirm()
   const toast = useToast()
@@ -67,6 +70,7 @@ export default function Config() {
       }
       toast('Configuration applied')
       await load()
+      setGeneration((g) => g + 1)
     })
   }
 
@@ -105,6 +109,7 @@ export default function Config() {
           </div>
         )}
         <Editor
+          label="haproxy.cfg"
           value={draft}
           onChange={(v) => {
             setDraft(v)
@@ -150,6 +155,19 @@ export default function Config() {
           <DiffView diff={diff} />
         </Card>
       )}
+      <ConfigHistory
+        running={original}
+        generation={generation}
+        onApplied={async () => {
+          await load()
+          setGeneration((g) => g + 1)
+        }}
+        onOpen={(text) => {
+          setDraft(text)
+          setValidation(null)
+          window.scrollTo({ top: 0 })
+        }}
+      />
     </div>
   )
 }

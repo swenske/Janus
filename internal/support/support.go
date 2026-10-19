@@ -246,6 +246,10 @@ var unaries = []unary{
 	{"network/bgp.json", "NetworkService/BGPStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).BGPStatus(x, empty) }},
 	{"network/consul.json", "NetworkService/ConsulStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).ConsulStatus(x, empty) }},
 	{"haproxy/info.json", "HAProxyService/ShowInfo", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).ShowInfo(x, empty) }},
+	// The history's list - who applied what, when - not the versions.
+	{"haproxy/config-history.json", "HAProxyService/ConfigHistory", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return hap(c).ConfigHistory(x, &janusv1alpha1.ConfigHistoryRequest{})
+	}},
 	{"haproxy/backends.json", "HAProxyService/BackendList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).BackendList(x, empty) }},
 	{"haproxy/certificates.json", "HAProxyService/CertificateList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).CertificateList(x, empty) }},
 	{"haproxy/files.json", "HAProxyService/FileList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).FileList(x, empty) }},
