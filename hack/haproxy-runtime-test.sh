@@ -198,7 +198,8 @@ printf '%s\n' "$masked" > "$WORKDIR/masked.cfg"
 # Lookups: HAProxy's own matching - the map is read as str, the ACL as ip.
 ctl haproxy map-lookup "$WORKDIR/maps/hosts.map" www.example.com | grep -q "^value    backend1$" || fail "map-lookup didn't find www.example.com"
 if ctl haproxy map-lookup "$WORKDIR/maps/hosts.map" nothing.test > /dev/null; then fail "map-lookup found a key the map hasn't"; fi
-ctl haproxy acl-lookup "$WORKDIR/acls/blocked.acl" 1.2.3.4 | grep -q "^method   ip$" || fail "acl-lookup didn't match 1.2.3.4 as an address"
+out="$(ctl haproxy acl-lookup "$WORKDIR/acls/blocked.acl" 1.2.3.4 2>&1)" || true
+grep -q "^method   ip$" <<<"$out" || fail "acl-lookup didn't match 1.2.3.4 as an address: $out"
 
 # A server that accepts connections and never answers: a request to it
 # stays a stream until it's shut down.
@@ -224,7 +225,12 @@ if ctl haproxy sessions | grep -q GLOBAL; then fail "sessions lists the runtime 
 ctl haproxy session-kill "$id"
 for _ in $(seq 1 20); do kill -0 "$CURL_PID" 2>/dev/null || break; sleep 0.2; done
 if kill -0 "$CURL_PID" 2>/dev/null; then fail "the held request is still running after session-kill"; fi
-if ctl haproxy session-kill "$id" 2>/dev/null; then fail "a stream shut down twice"; fi
+# A stream's ID is its address: once it has ended, HAProxy may give that
+# address to the next stream - often the runtime API connection of the next
+# command, which then shuts itself down "successfully" (3.2 did, once) - so
+# killing the same ID again isn't sure to fail. An address no stream has is.
+if ctl haproxy session-kill 0x1 2> "$WORKDIR/err"; then fail "session-kill shut down a stream that doesn't exist"; fi
+grep -q "NotFound" "$WORKDIR/err" || fail "session-kill 0x1: $(cat "$WORKDIR/err")"
 
 ctl haproxy table-clear diag -key 127.0.0.1
 if ctl haproxy table diag | grep -q "^127\.0\.0\.1"; then fail "table-clear left the entry"; fi
