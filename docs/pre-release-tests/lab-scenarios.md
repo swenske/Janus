@@ -202,7 +202,10 @@ example:
   them to try a fix on the same data before it's in an image; the
   fleet's curves from `GET /api/nodes/metrics`; and what an open page
   costs a node - its janusd's CPU time from `/proc` over a minute, with
-  no page, Metrics at a sample a second and at five, and the node list.
+  no page, Metrics at a sample a second and at five, and the node list;
+- v2026.10.19-2: a short check of its Controller fixes - the same walk,
+  nothing laid over the pages - with the update steps and the nodes'
+  health.
 
 ### HAProxy killed by the kernel
 
@@ -274,7 +277,8 @@ ran:
   with a page open (v2026.10.19);
 - `haproxy-address`: where HAProxy, keepalived and BIRD are mapped on
   each node;
-- `rolling`: the drained rolling update through the Controller;
+- `rolling`: the drained rolling update through the Controller (since
+  v2026.10.19-2 it trusts its own wait and names the check that fails);
 - `ctl-update`: the Controller's update with its probe;
 - `factory-ready`: a node's page asks for the pre-release's bundle until
   the image factory has it;
