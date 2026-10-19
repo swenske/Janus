@@ -153,6 +153,7 @@ The node's own network configuration - see
 | `NetworkConfigApply` | server | ✅ | Applies a configuration **on trial**: reverts by itself unless confirmed in time (30 s default); streams `validating`, `applying`, `awaiting-confirmation` |
 | `NetworkConfigConfirm` | | ✅ | Keeps and saves the trial - only over a connection to an address the new configuration keeps |
 | `NetworkStatus` | | ✅ | Links, addresses, boot DHCP lease, routes, resolvers, hostname, clock synchronization |
+| `NeighborList` | | ✅ | The kernel's neighbour table - ARP and NDP: each neighbour's MAC, state (reachable, stale, failed...), router flag and ages; one interface's or all |
 
 Optional modules:
 

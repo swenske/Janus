@@ -146,6 +146,7 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.NetworkService/NetworkConfigApply":   adminOnly,
 	"/janus.v1alpha1.NetworkService/NetworkConfigConfirm": adminOnly,
 	"/janus.v1alpha1.NetworkService/NetworkStatus":        readers,
+	"/janus.v1alpha1.NetworkService/NeighborList":         readers,
 }
 
 // RolesFor is the roles that may call fullMethod - admin only for an RPC

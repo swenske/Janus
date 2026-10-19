@@ -282,6 +282,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 	}},
 	{name: "network", group: "🌐 Network", help: "addresses, routes, firewall, VRRP, BGP, Consul", subs: []*command{
 		{name: "status", help: "interfaces, addresses, routes, DNS, clock"},
+		{name: "neighbors", help: "the neighbour table: ARP and NDP entries, their MAC and state", flags: []flagDef{valFlag("interface", "IF", "only this interface's", argInterface)}},
 		{name: "get", help: "the network configuration, as JSON"},
 		{name: "apply", args: "FILE", help: "apply a configuration on trial, then confirm it", flags: []flagDef{timeoutFlag, noConfirm}, pos: []argKind{argFile}, required: 1},
 		{name: "confirm", help: "confirm the configuration on trial"},

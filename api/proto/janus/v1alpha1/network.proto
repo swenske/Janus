@@ -95,6 +95,11 @@ service NetworkService {
   // NetworkStatus reports what's actually in effect: links, addresses,
   // DHCP leases, routes, resolvers, hostname and clock synchronization.
   rpc NetworkStatus(google.protobuf.Empty) returns (NetworkStatusResponse);
+  // NeighborList reads the kernel's neighbour table - ARP for IPv4, NDP
+  // for IPv6: the link-layer address each neighbour answered with, and
+  // whether it still answers. An entry that stays INCOMPLETE or FAILED
+  // is a neighbour that never answered at layer 2.
+  rpc NeighborList(NeighborListRequest) returns (NeighborListResponse);
 }
 
 // NetworkConfig is the node's whole network configuration. It's also the
@@ -253,6 +258,63 @@ message NetworkRoute {
   string gateway = 2;
   string interface = 3;
   uint32 metric = 4;
+}
+
+message NeighborListRequest {
+  // Only this interface's neighbours; empty: every interface's.
+  string interface = 1;
+}
+
+message NeighborListResponse {
+  // By interface, then IPv4 before IPv6, then by address.
+  repeated Neighbor neighbors = 1;
+}
+
+message Neighbor {
+  string interface = 1;
+  NeighborFamily family = 2;
+  string address = 3;
+  // Empty while the neighbour hasn't answered (INCOMPLETE, FAILED).
+  string link_address = 4;
+  NeighborState state = 5;
+  // IPv6: the neighbour advertises itself as a router.
+  bool router = 6;
+  // How long ago, in milliseconds (the kernel counts hundredths of a
+  // second): the neighbour's reachability was last confirmed - by an
+  // ARP or NDP answer, or by traffic that proved it (a TCP ACK) - the
+  // entry was last used to send, and it entered its state.
+  uint64 confirmed_ms_ago = 7;
+  uint64 used_ms_ago = 8;
+  uint64 updated_ms_ago = 9;
+}
+
+enum NeighborFamily {
+  NEIGHBOR_FAMILY_UNSPECIFIED = 0;
+  NEIGHBOR_FAMILY_IPV4 = 1; // ARP
+  NEIGHBOR_FAMILY_IPV6 = 2; // NDP
+}
+
+// NeighborState is the kernel's NUD state (include/uapi/linux/
+// neighbour.h).
+enum NeighborState {
+  // None the kernel names (NUD_NONE): a new entry.
+  NEIGHBOR_STATE_NONE = 0;
+  // Asked, no answer yet.
+  NEIGHBOR_STATE_INCOMPLETE = 1;
+  // Answered recently.
+  NEIGHBOR_STATE_REACHABLE = 2;
+  // Known, not confirmed for a while; asked again before it's used.
+  NEIGHBOR_STATE_STALE = 3;
+  // Used while stale, waiting a moment for traffic to confirm it.
+  NEIGHBOR_STATE_DELAY = 4;
+  // Being asked again.
+  NEIGHBOR_STATE_PROBE = 5;
+  // Asked and never answered.
+  NEIGHBOR_STATE_FAILED = 6;
+  // Needs no resolution (multicast, point-to-point links).
+  NEIGHBOR_STATE_NOARP = 7;
+  // Set by hand, never expires.
+  NEIGHBOR_STATE_PERMANENT = 8;
 }
 
 message TimeStatus {

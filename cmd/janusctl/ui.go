@@ -72,9 +72,9 @@ func (e errorWriter) Write(p []byte) (int, error) {
 
 // stateWords are the states janusctl's tables show, by colour.
 var (
-	goodState = regexp.MustCompile(`\b(running|healthy|ready|up|ok|confirmed|established|enabled|MASTER|active|yes)\b`)
-	badState  = regexp.MustCompile(`\b(failed|unhealthy|down|error|stopped|exited|crashed|FAULT|disabled|no)\b`)
-	waitState = regexp.MustCompile(`\b(waiting|pending|starting|trial|BACKUP|connecting|idle|backoff)\b`)
+	goodState = regexp.MustCompile(`\b(running|healthy|ready|up|ok|confirmed|established|enabled|MASTER|active|yes|reachable)\b`)
+	badState  = regexp.MustCompile(`\b(failed|unhealthy|down|error|stopped|exited|crashed|FAULT|disabled|no|incomplete)\b`)
+	waitState = regexp.MustCompile(`\b(waiting|pending|starting|trial|BACKUP|connecting|idle|backoff|stale)\b`)
 )
 
 // tableWriter is a tabwriter whose output gets its header in bold and

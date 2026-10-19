@@ -235,6 +235,9 @@ var unaries = []unary{
 	{"system/metrics.json", "SystemService/MetricsConfigGet", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).MetricsConfigGet(x, empty) }},
 	{"network/status.json", "NetworkService/NetworkStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).NetworkStatus(x, empty) }},
 	{"network/config.json", "NetworkService/NetworkConfigGet", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).NetworkConfigGet(x, empty) }},
+	{"network/neighbors.json", "NetworkService/NeighborList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return netw(c).NeighborList(x, &janusv1alpha1.NeighborListRequest{})
+	}},
 	{"network/netdev.json", "SystemService/NetworkDeviceStats", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).NetworkDeviceStats(x, empty) }},
 	{"network/netstat.json", "SystemService/Netstat", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).Netstat(x, empty) }},
 	{"network/firewall.json", "NetworkService/FirewallGetRuleset", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).FirewallGetRuleset(x, empty) }},

@@ -86,6 +86,23 @@ func registerNetworkRoutes(mux *http.ServeMux, node *store.Node, st *store.Store
 		writeProto(w, resp)
 	})
 
+	// The neighbour table (ARP, NDP), of one interface with ?interface=.
+	mux.HandleFunc("GET /api/network/neighbors", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := dialNode(node)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("dial node: %v", err), http.StatusBadGateway)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), unaryTimeout)
+		defer cancel()
+		resp, err := janusv1alpha1.NewNetworkServiceClient(conn).NeighborList(ctx, &janusv1alpha1.NeighborListRequest{Interface: r.URL.Query().Get("interface")})
+		if err != nil {
+			http.Error(w, status.Convert(err).Message(), grpcHTTPStatus(err))
+			return
+		}
+		writeProto(w, resp)
+	})
+
 	mux.HandleFunc("GET /api/network/config", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := dialNode(node)
 		if err != nil {

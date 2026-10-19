@@ -136,6 +136,9 @@ func TestOperatorRole(t *testing.T) {
 	if got := status.Code(checkRole(peerWith(&x509.Certificate{Subject: pkix.Name{Organization: []string{"os:reader"}}}), "/janus.v1alpha1.SystemService/Probe")); got != codes.PermissionDenied {
 		t.Errorf("reader probing: %v", got)
 	}
+	if got := status.Code(checkRole(peerWith(&x509.Certificate{Subject: pkix.Name{Organization: []string{"os:reader"}}}), "/janus.v1alpha1.NetworkService/NeighborList")); got != codes.OK {
+		t.Errorf("reader reading the neighbour table: %v", got)
+	}
 }
 
 // TestHAProxyDiagnosticsRoles: a reader looks at stick tables, streams

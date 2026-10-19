@@ -109,6 +109,7 @@ applying it; checking alone is the Controller's.
 | Call | janusctl | TUI | Controller | Terraform |
 |---|---|---|---|---|
 | `NetworkStatus` - interfaces, addresses, routes, DNS, clock | `network status` | ✅ | Network | ⚙️ |
+| `NeighborList` - the neighbour table (ARP, NDP) | `network neighbors` | - | System › Network | - |
 | `NetworkConfigGet` - the saved configuration | `network get` | - | System › Network | ✅ |
 | `NetworkConfigApply` - a configuration on trial | `network apply` | - | System › Network | ✅ |
 | `NetworkConfigConfirm` - keep it | `network confirm` | ✅ | System › Network | ✅ |

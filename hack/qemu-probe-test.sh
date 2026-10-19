@@ -4,7 +4,9 @@
 # against servers on this host (QEMU's gateway, 10.0.2.2) - an HTTP
 # server, a TLS server with a certificate of a CA made here, a DNS
 # responder -, ICMP echo requests and a traceroute from the node's raw
-# socket, a refused connection, a reader refused; and no AVC denial.
+# socket, a refused connection, a reader refused; then the neighbour table
+# (NetworkService.NeighborList) - QEMU's gateway with slirp's MAC, an
+# interface the node lacks, a reader allowed; and no AVC denial.
 #
 # Usage: hack/qemu-probe-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -163,8 +165,25 @@ fi
 grep -q PermissionDenied <<<"$out" || fail "a reader's probe: $out"
 echo "Reader refused OK"
 
+# The neighbour table, right after a connection to QEMU's gateway: slirp
+# answers ARP for 10.0.2.2 with 52:55 and the address's own bytes, and
+# the connection's ACKs keep the entry reachable.
+probe "TCP before the neighbour table" '^connect +ok' tcp -timeout 5s "10.0.2.2:${P_HTTP}"
+out="$(ctl network neighbors 2>&1)" || fail "network neighbors failed: $out"
+grep -qE '^[a-z0-9.]+ +10\.0\.2\.2 +52:55:0a:00:02:02 +(reachable|delay) ' <<<"$out" || fail "no reachable entry for the gateway: $out"
+iface="$(awk '$2 == "10.0.2.2" {print $1}' <<<"$out")"
+out="$(ctl network neighbors -interface "$iface" 2>&1)" || fail "network neighbors -interface $iface failed: $out"
+grep -q '10\.0\.2\.2' <<<"$out" || fail "$iface's neighbours lack the gateway: $out"
+if out="$(ctl network neighbors -interface eth9 2>&1)"; then
+  fail "an interface the node lacks was listed: $out"
+fi
+grep -q NotFound <<<"$out" || fail "an unknown interface: $out"
+out="$("$CTL_BIN" -endpoint "127.0.0.1:${HOST_GRPC_PORT}" -ca "$WORKDIR/reader/ca.crt" -cert "$WORKDIR/reader/client.crt" -key "$WORKDIR/reader/client.key" network neighbors 2>&1)" || fail "a reader couldn't read the neighbour table: $out"
+grep -q '10\.0\.2\.2' <<<"$out" || fail "a reader's neighbour table: $out"
+echo "Neighbour table OK: the gateway reachable with slirp's MAC on $iface, eth9 NotFound, a reader allowed"
+
 if grep -q "avc:.*denied" "$LOG"; then
   grep "avc:.*denied" "$LOG" >&2
   fail "SELinux denials during the probes"
 fi
-echo "Probe test OK: HTTP, TLS, DNS, TCP, ping and traceroute from an enforcing node over mTLS, a reader refused, zero AVC denials"
+echo "Probe test OK: HTTP, TLS, DNS, TCP, ping and traceroute from an enforcing node over mTLS, a reader refused, the neighbour table, zero AVC denials"

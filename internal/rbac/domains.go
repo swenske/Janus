@@ -133,6 +133,9 @@ var Domain = map[string]string{
 	"NetworkService/FirewallSets":         DomainNetwork,
 	"NetworkService/FirewallSetUpdate":    DomainNetwork,
 	"NetworkService/NetworkConfigGet":     DomainNetwork,
+	// Other hosts' addresses and MACs on the node's links: the network
+	// domain's, like the configuration.
+	"NetworkService/NeighborList":         DomainNetwork,
 	"NetworkService/NetworkConfigApply":   DomainNetwork,
 	"NetworkService/NetworkConfigConfirm": DomainNetwork,
 }
