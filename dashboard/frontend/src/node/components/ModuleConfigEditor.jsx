@@ -116,6 +116,7 @@ function ModuleConfig({ base, file, daemon, starter, applyNote, onApplied, extra
         }
       >
         <Editor
+          label={file}
           value={draft}
           onChange={(v) => {
             setDraft(v)

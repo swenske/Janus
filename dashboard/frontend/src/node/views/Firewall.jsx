@@ -221,6 +221,7 @@ function RulesetEditor({ onApplied }) {
           The node's whole ruleset, in nft's syntax: whatever it doesn't list is removed. Write protocols that musl doesn't name by number (VRRP is <span className="mono">ip protocol 112</span>).
         </p>
         <Editor
+          label="The nftables ruleset"
           value={draft}
           onChange={(v) => {
             setDraft(v)

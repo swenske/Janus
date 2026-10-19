@@ -69,7 +69,7 @@ function FileForm({ initialName = '', initialText = '', editing, dir, onDone, on
           </div>
         </div>
       </div>
-      {!binary && <Editor value={text} onChange={setText} />}
+      {!binary && <Editor label={name || 'The file'} value={text} onChange={setText} />}
       {name && !NAME.test(name) && <div className="notice">Letters, digits, '.', '-', '_' (not starting with '.' or '-'), and at most one subdirectory (certs/site.pem).</div>}
       <label className="row small">
         <input type="checkbox" checked={reload} onChange={(e) => setReload(e.target.checked)} />
