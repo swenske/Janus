@@ -8,7 +8,8 @@
 // (2 minutes). HTTPS too (node.cfg's web-tls): new connections whose
 // TLS sessions are resumed, full handshakes now and then, HTTP/2 over one
 // connection a while, plain text at :443 - a failed handshake - every few
-// seconds; and requests refused (403), not found (404), without a server
+// seconds, a few clients on TLS 1.2 or asking for ChaCha20; and requests
+// refused (403), not found (404), without a server
 // (503). Run by hack/ui-preview.sh in the browser image (Node), until it's
 // stopped.
 import http2 from 'node:http2'
@@ -27,6 +28,11 @@ const streams = [
   { url: `https://${NET}.22/`, kind: 'https-full', every: 700, on: 30, off: 20, after: 4 },
   { url: `https://${NET}.22/`, kind: 'h2', every: 150, on: 20, off: 25, after: 10 },
   { url: `https://${NET}.22/broken`, kind: 'https', every: 2500, on: 40, off: 20, after: 7 },
+  // Older clients: TLS 1.2 (AES-GCM, ChaCha20), and TLS 1.3 asking for
+  // ChaCha20 - Metrics' TLS versions and ciphers get a few of each.
+  { url: `https://${NET}.21/`, kind: 'tls12', every: 900, on: 30, off: 20, after: 5 },
+  { url: `https://${NET}.22/`, kind: 'tls12-chacha', every: 1800, on: 25, off: 35, after: 9 },
+  { url: `https://${NET}.21/api/items`, kind: 'tls13-chacha', every: 1200, on: 30, off: 25, after: 12 },
   { url: `https://${NET}.21/`, kind: 'garbage', every: 4000, on: 60, off: 30, after: 15 },
   { url: `http://${NET}.21/admin`, every: 1500, on: 30, off: 30, after: 9 },
   { url: `http://${NET}.21/broken`, every: 3000, on: 40, off: 20, after: 11 },
@@ -42,6 +48,11 @@ const streams = [
 // HTTPS: sessions resumed from this agent's cache; agent false = a
 // full handshake each time. Self-signed: not checked.
 const resumed = new https.Agent({ keepAlive: false, rejectUnauthorized: false })
+const agents = {
+  tls12: new https.Agent({ keepAlive: false, rejectUnauthorized: false, maxVersion: 'TLSv1.2' }),
+  'tls12-chacha': new https.Agent({ keepAlive: false, rejectUnauthorized: false, maxVersion: 'TLSv1.2', ciphers: 'ECDHE-ECDSA-CHACHA20-POLY1305' }),
+  'tls13-chacha': new https.Agent({ keepAlive: false, rejectUnauthorized: false, minVersion: 'TLSv1.3', ciphers: 'TLS_CHACHA20_POLY1305_SHA256' }),
+}
 function httpsGet(url, agent) {
   https
     .get(url, { agent, rejectUnauthorized: false, timeout: 5000 }, (r) => r.resume())
@@ -62,6 +73,7 @@ async function run({ url, kind, every, on, off, after }) {
       // Not awaited: a slow answer doesn't slow the stream.
       if (kind === 'https') httpsGet(url, resumed)
       else if (kind === 'https-full') httpsGet(url, false)
+      else if (agents[kind]) httpsGet(url, agents[kind])
       else if (kind === 'h2') {
         if (!h2.closed && !h2.destroyed) {
           const req = h2.request({ ':path': u.pathname }).on('error', () => {})

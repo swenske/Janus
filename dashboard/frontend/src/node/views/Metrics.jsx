@@ -1,9 +1,9 @@
-import { Activity, ChartPie, Cpu, Gauge, Lock, MemoryStick, Network, Shuffle, Timer, Waypoints } from 'lucide-react'
+import { Activity, ChartPie, Cpu, ExternalLink, Gauge, KeyRound, Lock, MemoryStick, Network, ShieldCheck, Shuffle, Timer, Waypoints } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import Chart from '../../shared/chart/Chart.jsx'
 import { Badge, Card, PageHeader, stateTone } from '../../shared/ui.jsx'
 import Donut from '../../shared/chart/Donut.jsx'
-import { backends, responses, tls, traffic, versions } from '../breakdown.js'
+import { backends, ciphers, responses, tls, tlsVersions, traffic, versions } from '../breakdown.js'
 import { bytes, compact, duration, rate } from '../format.js'
 import { useMetrics, usePoll, useRefresh } from '../hooks.jsx'
 import { useMay } from '../may.js'
@@ -19,6 +19,10 @@ export default function Metrics() {
   const may = useMay()
   // HAProxy's own counters, for the breakdowns: since it started.
   const stats = usePoll('/api/haproxy/stats', { every: 5000, enabled: may('HAProxyService/Stats') })
+  // The TLS versions and ciphers, from HAProxy's last log lines - its
+  // log is the only place that says them.
+  const mayLogs = may('SystemService/Logs')
+  const tlsLog = usePoll('/api/haproxy/tls-log', { every: 30000, enabled: mayLogs })
   const hapUptime = points[points.length - 1]?.hap?.uptime
 
   const ifaces = useMemo(() => {
@@ -138,7 +142,7 @@ export default function Metrics() {
           />
         </Card>
       </div>
-      {may('HAProxyService/Stats') && <Breakdown stats={stats.data} uptime={hapUptime} />}
+      {may('HAProxyService/Stats') && <Breakdown stats={stats.data} uptime={hapUptime} tlsLog={{ ...tlsLog, may: mayLogs }} />}
       <p className="muted small" style={{ marginTop: '1rem' }}>
         These charts are the Controller&apos;s, kept in your browser. For Prometheus, the node serves its own metrics: <a href="#/apps/janus-exporter">Apps › Janus exporter</a>, and the host&apos;s with{' '}
         <a href="#/apps/node-exporter">the node exporter</a> when the node has it.
@@ -149,8 +153,39 @@ export default function Metrics() {
 
 // Breakdown: what HAProxy's counters say since it started - its
 // frontends' answers, HTTP versions and TLS handshakes, its backends'
-// traffic and response times (breakdown.js).
-function Breakdown({ stats, uptime }) {
+// traffic and response times (breakdown.js) - and what its last log
+// lines say of TLS versions and ciphers.
+// How to have HAProxy log what the TLS cards count.
+const TLS_LOG_DOCS = 'https://janus.sw-servers.net/docs/haproxy-config.md#tls-versions-and-ciphers-on-metrics'
+
+// tlsEmpty says why the TLS log cards have nothing to show - and, when
+// it's the configuration's doing, links to how to log them.
+function tlsEmpty(log, handshakes) {
+  if (!log.may) return "Your role doesn't read the node's logs, where these are."
+  if (log.error) return `HAProxy's log couldn't be read: ${log.error.message}`
+  if (!log.data) return "Reading HAProxy's log…"
+  if (handshakes === 0) return 'No TLS handshake on this node yet.'
+  const how = (
+    <a href={TLS_LOG_DOCS} target="_blank" rel="noreferrer">
+      How to log them <ExternalLink size={11} />
+    </a>
+  )
+  if (!log.data.access)
+    return (
+      <>
+        HAProxy keeps no access log on the node: these come from it - <code>log stdout</code> in its global section. {how}
+      </>
+    )
+  return (
+    <>
+      HAProxy&apos;s access log doesn&apos;t name TLS versions and ciphers - <code>option httpslog</code> does. {how}
+    </>
+  )
+}
+
+function Breakdown({ stats, uptime, tlsLog }) {
+  // Whether any TLS handshake happened (unknown until stats come).
+  const handshakes = stats ? tls(stats).reduce((n, s) => n + s.value, 0) : null
   const since = uptime ? `since HAProxy started, ${duration(uptime)} ago` : 'since HAProxy started'
   const rows = backends(stats)
   // A bar's scale: the slowest backend's, a tenth of a second at least -
@@ -161,18 +196,26 @@ function Breakdown({ stats, uptime }) {
       <h2 className="metrics-h">
         HAProxy <span className="muted small">{since}</span>
       </h2>
-      <div className="grid grid-4">
+      <div className="grid grid-3 metrics-donuts">
         <Card title="Responses" icon={ChartPie}>
           <Donut slices={responses(stats)} format={compact} unit="responses" empty="No HTTP response yet" label="Responses by status" />
         </Card>
         <Card title="HTTP versions" icon={Waypoints}>
           <Donut slices={versions(stats)} format={compact} unit="requests" empty="No HTTP request yet" label="Requests by HTTP version" />
         </Card>
+        <Card title="Traffic by backend" icon={Shuffle}>
+          <Donut slices={traffic(stats)} format={(v) => bytes(v)} unit="in and out" empty="No traffic yet" label="Bytes by backend" />
+        </Card>
         <Card title="TLS handshakes" icon={Lock}>
           <Donut slices={tls(stats)} format={compact} unit="handshakes" empty="No TLS frontend, or no handshake yet" label="TLS handshakes" />
         </Card>
-        <Card title="Traffic by backend" icon={Shuffle}>
-          <Donut slices={traffic(stats)} format={(v) => bytes(v)} unit="in and out" empty="No traffic yet" label="Bytes by backend" />
+        <Card title="TLS versions" icon={ShieldCheck}>
+          <Donut slices={tlsVersions(tlsLog.data)} format={compact} unit="requests" empty={tlsEmpty(tlsLog, handshakes)} label="Requests by TLS version" />
+          <TLSLogNote log={tlsLog.data} />
+        </Card>
+        <Card title="Ciphers" icon={KeyRound}>
+          <Donut slices={ciphers(tlsLog.data)} format={compact} unit="requests" empty={tlsEmpty(tlsLog, handshakes)} label="Requests by cipher" />
+          <TLSLogNote log={tlsLog.data} />
         </Card>
       </div>
       {rows.length > 0 && (
@@ -220,5 +263,16 @@ function Breakdown({ stats, uptime }) {
         </Card>
       )}
     </>
+  )
+}
+
+// TLSLogNote says what the TLS log cards counted: a sample of what
+// HAProxy logged, not every request since it started.
+function TLSLogNote({ log }) {
+  if (!log?.tls) return null
+  return (
+    <p className="muted small donut-note">
+      The last {compact(log.tls)} TLS requests in HAProxy&apos;s log ({compact(log.lines)} lines read)
+    </p>
   )
 }

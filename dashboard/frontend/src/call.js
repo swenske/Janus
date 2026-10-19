@@ -8,8 +8,12 @@ import { backgroundHeaders, SIGNED_OUT } from './shared/activity.js'
 // periodic refresh): unless the user touched the page in the last minute,
 // it doesn't keep an idle session alive. A 401 outside /api/auth/ means
 // the session ended: the page goes back to its sign-in screen.
+//
+// { timeout } (ms) bounds a request that may never answer (a connection
+// that died while the computer slept): a poll waiting for it would stop.
 export async function call(path, opts = {}) {
-  const { background, ...rest } = opts
+  const { background, timeout, ...rest } = opts
+  if (timeout) rest.signal = AbortSignal.timeout(timeout)
   const resp = await fetch(path, background ? { ...rest, headers: { ...(rest.headers || {}), ...backgroundHeaders() } } : rest)
   const text = await resp.text()
   if (!resp.ok) {

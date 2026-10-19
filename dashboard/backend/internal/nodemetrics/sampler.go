@@ -1,9 +1,9 @@
 // Package nodemetrics keeps the last minutes of each node's figures - its
 // CPU, HAProxy's requests, its traffic - for the Controller's node list,
 // whose cards draw them: one sampler however many pages look, sampling a
-// node only while a page shows it (Watch renews a lease on it) and
-// keeping what it read for a while after, so a page opened again finds
-// its curves already drawn.
+// node while a page shows it and ten minutes after (Watch renews a lease
+// on it) and keeping what it read, so a page shown again - a tab back
+// from the background - finds its curves whole.
 package nodemetrics
 
 import (
@@ -27,9 +27,9 @@ type Reader func(ctx context.Context, id string) (*Counters, error)
 // Options: zero values take the defaults.
 type Options struct {
 	Read      Reader
-	Interval  time.Duration // between two readings of a node: 5 s
+	Interval  time.Duration // between two readings of a node: 2 s
 	Retention time.Duration // what's kept: 10 min
-	Lease     time.Duration // a node sampled after its last Watch: 45 s
+	Lease     time.Duration // a node sampled after its last Watch: 10 min
 	Timeout   time.Duration // a reading's limit: 4 s
 	Parallel  int           // readings at once: 16
 	Now       func() time.Time
@@ -79,13 +79,13 @@ type Sampler struct {
 
 func New(o Options) *Sampler {
 	if o.Interval <= 0 {
-		o.Interval = 5 * time.Second
+		o.Interval = 2 * time.Second
 	}
 	if o.Retention <= 0 {
 		o.Retention = 10 * time.Minute
 	}
 	if o.Lease <= 0 {
-		o.Lease = 45 * time.Second
+		o.Lease = 10 * time.Minute
 	}
 	if o.Timeout <= 0 {
 		o.Timeout = 4 * time.Second
@@ -113,12 +113,18 @@ func (s *Sampler) Watch(ids []string) {
 	if s.closed {
 		return
 	}
-	until := s.o.Now().Add(s.o.Lease)
+	now := s.o.Now()
+	until := now.Add(s.o.Lease)
 	for _, id := range ids {
 		n := s.nodes[id]
 		if n == nil {
 			n = &node{}
 			s.nodes[id] = n
+		}
+		if !now.Before(n.lease) {
+			// Its sampling had lapsed: no rate across the time nothing
+			// was read - it would be an average drawn as a reading.
+			n.prev = nil
 		}
 		n.lease = until
 	}

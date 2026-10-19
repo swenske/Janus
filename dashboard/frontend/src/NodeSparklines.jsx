@@ -2,11 +2,11 @@ import Sparkline from './shared/chart/Sparkline.jsx'
 import { compact, percent, rate } from './node/format.js'
 
 // A node's live trends - its CPU, HAProxy's requests, its traffic in and
-// out - over the last five minutes (nodeMetrics.js): three on a node's
-// card (NodeSparklines), one per column in the node list's rows
-// (NodeSpark). Room is kept before the first readings come, so nothing
-// grows under the pointer.
-const WINDOW = 5 * 60 * 1000
+// out - over the last two minutes, a reading every 2 s (nodeMetrics.js):
+// three on a node's card (NodeSparklines), one per column in the node
+// list's rows (NodeSpark). Room is kept before the first readings come,
+// so nothing grows under the pointer.
+export const WINDOW = 2 * 60 * 1000
 
 const latest = (points, get) => {
   for (let i = points.length - 1; i >= 0; i--) {

@@ -33,7 +33,7 @@ import { navigate, useHashRoute } from './shared/route.js'
 import BrandMark from './shared/BrandMark.jsx'
 import RefreshButton from './shared/RefreshButton.jsx'
 import ThemePicker from './shared/ThemePicker.jsx'
-import NodeSparklines, { NodeSpark } from './NodeSparklines.jsx'
+import NodeSparklines, { NodeSpark, WINDOW as SPARK_WINDOW } from './NodeSparklines.jsx'
 import { useNodesView } from './nodesView.js'
 import { useNodeMetrics } from './nodeMetrics.js'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
@@ -1024,7 +1024,7 @@ function MainApp() {
   const [fleet, setFleet] = useState(null)
   const [backups, setBackups] = useState(null)
   const [statusLoaded, setStatusLoaded] = useState(false)
-  const metrics = useNodeMetrics(tab === 'nodes' && (nodes?.length ?? 0) > 0)
+  const metrics = useNodeMetrics(tab === 'nodes' && (nodes?.length ?? 0) > 0, SPARK_WINDOW)
   const [nodesView, setNodesView] = useNodesView()
   const isReader = can('reader')
   const confirm = useConfirm()

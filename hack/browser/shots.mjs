@@ -213,8 +213,9 @@ function metrics(m, k) {
   return m
 }
 
-// The node list's curves (/api/nodes/metrics): five minutes of the same
-// series ending at T0, each node's a little apart from the next - only
+// The node list's curves (/api/nodes/metrics): two minutes of the same
+// series ending at T0, a reading every 2 s (each a step of the series,
+// its rates per second), each node's a little apart from the next - only
 // what's after since, as the Controller answers.
 function nodeMetrics(since) {
   const nodes = {}
@@ -222,7 +223,7 @@ function nodeMetrics(since) {
   for (const [n, name] of names.entries()) {
     const sr = { t: [], cpu: [], req: [], rx: [], tx: [] }
     for (let k = 1; k <= 60; k++) {
-      const t = T0 - (60 - k) * 5000
+      const t = T0 - (60 - k) * 2000
       if (t <= since) continue
       const [a, b] = [SERIES[k + 7 * n], SERIES[k + 7 * n + 1]]
       sr.t.push(t)
@@ -233,7 +234,7 @@ function nodeMetrics(since) {
     }
     if (sr.t.length) nodes[ids[name]] = sr
   }
-  return { interval_ms: 5000, now_ms: T0, nodes }
+  return { interval_ms: 2000, now_ms: T0, nodes }
 }
 
 // Mounts: a filesystem on the build host's disk (a container's root and

@@ -1,7 +1,8 @@
 // HAProxy's counters broken down for Metrics (breakdown.test.js): from
 // show stat (/api/haproxy/stats: columns and rows), what its frontends
 // answered, in which HTTP version, their TLS handshakes; what each
-// backend moved and how fast it answers. Counters since HAProxy started.
+// backend moved and how fast it answers - counters since HAProxy
+// started. And from its last log lines, the TLS versions and ciphers.
 
 function table(stats) {
   const idx = Object.fromEntries((stats?.columns || []).map((c, i) => [c, i]))
@@ -52,19 +53,40 @@ export function tls(stats) {
   ])
 }
 
+const COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)']
+
+// biggest keeps the top parts, a colour each, and sums the rest.
+function biggest(all, top) {
+  const sorted = all.filter((s) => s.value > 0).sort((a, b) => b.value - a.value)
+  const out = sorted.slice(0, top).map((s, i) => ({ ...s, color: COLORS[i] }))
+  const rest = sorted.slice(top).reduce((n, s) => n + s.value, 0)
+  if (rest > 0) out.push({ label: `${sorted.length - top} more`, value: rest, color: 'var(--muted)' })
+  return out
+}
+
 // traffic: the bytes each backend moved, the biggest five and the rest.
 export function traffic(stats, top = 5) {
   const t = table(stats)
-  const colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)']
-  const all = t.rows
-    .filter((r) => t.str(r, 'svname') === 'BACKEND')
-    .map((r) => ({ label: t.str(r, 'pxname'), value: t.num(r, 'bin') + t.num(r, 'bout') }))
-    .filter((s) => s.value > 0)
-    .sort((a, b) => b.value - a.value)
-  const out = all.slice(0, top).map((s, i) => ({ ...s, color: colors[i] }))
-  const rest = all.slice(top).reduce((n, s) => n + s.value, 0)
-  if (rest > 0) out.push({ label: `${all.length - top} more`, value: rest, color: 'var(--muted)' })
-  return out
+  return biggest(
+    t.rows.filter((r) => t.str(r, 'svname') === 'BACKEND').map((r) => ({ label: t.str(r, 'pxname'), value: t.num(r, 'bin') + t.num(r, 'bout') })),
+    top,
+  )
+}
+
+// The TLS versions and ciphers in HAProxy's last log lines
+// (/api/haproxy/tls-log: {lines, tls, versions, ciphers} - the
+// Controller counts them, no counter says them). A version's colour says
+// its age: 1.3 fine, 1.2 still, older ones a warning.
+const VERSION_COLORS = { 'TLSv1.3': 'var(--ok)', 'TLSv1.2': 'var(--info)', 'TLSv1.1': 'var(--warn)', TLSv1: 'var(--danger)', SSLv3: 'var(--danger)' }
+
+export function tlsVersions(log) {
+  return (log?.versions || [])
+    .filter((v) => v.count > 0)
+    .map((v) => ({ label: v.name, value: v.count, color: VERSION_COLORS[v.name] || 'var(--muted)' }))
+}
+
+export function ciphers(log, top = 5) {
+  return biggest((log?.ciphers || []).map((c) => ({ label: c.name, value: c.count })), top)
 }
 
 // backends: each backend's answers - average response, connect and

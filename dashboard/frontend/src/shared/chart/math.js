@@ -35,17 +35,30 @@ export function timeTicks(t0, t1, step) {
   return out
 }
 
+// isGap says whether nothing was sampled between two samples: more than
+// 2.5 sampling intervals and 2 s apart (a tab hidden a long time, the
+// node rebooting, the Controller away - not a slow answer at 1 s).
+export function isGap(prev, p) {
+  return !!prev && p.iv > 0 && p.t - prev.t > 2.5 * Math.max(p.iv, prev.iv || 0) + 2000
+}
+
+// gaps lists the times with no sample, [from, to] - a chart shades them.
+export function gaps(points) {
+  const out = []
+  for (let i = 1; i < points.length; i++) if (isGap(points[i - 1], points[i])) out.push([points[i - 1].t, points[i].t])
+  return out
+}
+
 // segments splits the points a series has values for into runs of
-// [t, v]: a missing value ends one, and so does a gap longer than 2.5
-// sampling intervals and 2 s (a hidden tab, a node rebooting - not a
-// slow answer at 1 s) - never a line drawn across a time with no data.
+// [t, v]: a missing value ends one, and so does a gap (isGap) - never a
+// line drawn across a time with no data.
 export function segments(points, get) {
   const out = []
   let run = null
   let prev = null
   for (const p of points) {
     const v = get(p)
-    const gap = prev && p.iv > 0 && p.t - prev.t > 2.5 * Math.max(p.iv, prev.iv || 0) + 2000
+    const gap = isGap(prev, p)
     if (v == null || Number.isNaN(v) || gap) {
       run = null
       if (v == null || Number.isNaN(v)) {
@@ -160,8 +173,14 @@ export class ServerClock {
       this.gaps = []
       this.interval = intervalMs
     } else if (this.last != null && sampleMs > this.last) {
-      this.gaps.push(sampleMs - this.last)
-      if (this.gaps.length > 20) this.gaps.shift()
+      // A pause - the tab hidden, the node away - isn't the sampling's own
+      // jitter: counted, it held the edge up to 32 s behind once the
+      // samples came back, the newest out of sight.
+      const gap = sampleMs - this.last
+      if (!isGap({ t: this.last, iv: intervalMs }, { t: sampleMs, iv: intervalMs })) {
+        this.gaps.push(gap)
+        if (this.gaps.length > 20) this.gaps.shift()
+      }
     }
     this.last = sampleMs
   }
@@ -175,6 +194,14 @@ export class ServerClock {
     const gap = this.gaps.length ? Math.max(p90(this.gaps), this.interval) : this.interval
     return Math.max(1000, Math.min(32000, (gap || 1000) + 250))
   }
+}
+
+// snapDistance is how far behind the edge may be before it jumps instead
+// of catching up: a gap's length (isGap). At 1.25 times the real pace, the
+// 13 s of a node rebooting took the edge most of a minute to make up,
+// the newest samples out of sight meanwhile.
+export function snapDistance(iv) {
+  return 2.5 * Math.max(iv || 0, 1000) + 2000
 }
 
 // advanceEdge moves the right edge by dt towards where it should be: at
@@ -209,4 +236,16 @@ export function nearest(points, t) {
     else hi = mid
   }
   return Math.abs(points[lo].t - t) <= Math.abs(points[hi].t - t) ? lo : hi
+}
+
+// fitSize is the font size at which text - monospace, 0.6 em a
+// character - fits width, up to max: a donut's "113.8 GiB" at its usual
+// size ran over the ring.
+export function fitSize(text, max, width) {
+  return Math.min(max, width / (Math.max(1, String(text).length) * 0.6))
+}
+
+// clip shortens a label to n characters, an ellipsis at its end.
+export function clip(label, n) {
+  return label.length > n ? `${label.slice(0, n - 1)}…` : label
 }

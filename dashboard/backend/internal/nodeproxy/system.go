@@ -331,6 +331,14 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 		})
 	})
 
+	// The TLS versions and ciphers in HAProxy's last log lines
+	// (tlslog.go): SystemService.Logs, counted here.
+	mux.HandleFunc("GET /api/haproxy/tls-log", func(w http.ResponseWriter, r *http.Request) {
+		unary(w, r, node, unaryTimeout, func(ctx context.Context, conn *grpc.ClientConn) (any, error) {
+			return readTLSLog(ctx, janusv1alpha1.NewSystemServiceClient(conn))
+		})
+	})
+
 	// --- access: issue a client certificate ---
 	mux.HandleFunc("POST /api/pki/client", func(w http.ResponseWriter, r *http.Request) { handleIssueClient(w, r, node) })
 }

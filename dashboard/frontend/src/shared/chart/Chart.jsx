@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useInView, useReducedMotion } from './motion.js'
-import { ServerClock, advanceEdge, area, curve, ease, nearest, niceMax, segments, timeStep, timeTicks } from './math.js'
+import { ServerClock, advanceEdge, area, curve, ease, gaps, nearest, niceMax, segments, snapDistance, timeStep, timeTicks } from './math.js'
 import { subscribe } from './scheduler.js'
 
 // Chart plots series over time - points: [{t, iv, ...}] (iv: the sampling
@@ -155,21 +155,28 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
   // behind the newest sample, and a line runs out by the left.
   const tRef = last?.t ?? 0
   const yRef = yTarget
-  const drawn = useMemo(() => {
-    if (!last) return []
+  const { drawn, holes } = useMemo(() => {
+    if (!last) return { drawn: [], holes: '' }
     const keep = windowMs ? last.t - windowMs - 33000 - (last.iv || 0) * 3 : -Infinity
     let from = 0
     while (from < points.length - 1 && points[from + 1].t < keep) from++
     const pts = points.slice(from)
     const X = (t) => (t - tRef) / 1000
     const Y = (v) => -Math.min(v, yMax ?? Infinity) / yRef
-    return series.map((s) => {
-      const runs = segments(pts, s.get)
-      return {
-        line: runs.map((r) => curve(r, X, Y)).join(''),
-        area: (s.fill ?? true) ? runs.map((r) => area(r, X, Y, 0)).join('') : '',
-      }
-    })
+    return {
+      drawn: series.map((s) => {
+        const runs = segments(pts, s.get)
+        return {
+          line: runs.map((r) => curve(r, X, Y)).join(''),
+          area: (s.fill ?? true) ? runs.map((r) => area(r, X, Y, 0)).join('') : '',
+        }
+      }),
+      // A time with no sample, shaded from the baseline up past the top
+      // (the plot's clip ends it there, whatever the scale does).
+      holes: gaps(pts)
+        .map(([a, b]) => `M${X(a).toFixed(3)} 0H${X(b).toFixed(3)}V-4H${X(a).toFixed(3)}Z`)
+        .join(''),
+    }
   }, [points, series, windowMs, yMax, yRef, tRef, last])
 
   // A render draws the still chart - the edge on the newest sample; while
@@ -210,7 +217,7 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
       const c = now.current
       const a = anim.current
       if (!c?.last || a.edge == null) return
-      a.edge = Math.max(c.first, advanceEdge(a.edge, clk.now(Date.now()) - clk.buffer(), dt, c.last.t, Math.max(15000, 3 * (c.last.iv || 1000))))
+      a.edge = Math.max(c.first, advanceEdge(a.edge, clk.now(Date.now()) - clk.buffer(), dt, c.last.t, snapDistance(c.last.iv)))
       a.yCur = ease(a.yCur, c.yTarget, dt)
       const L = layout({ ...c, edge: a.edge, yCur: a.yCur })
       // A tick about to enter: a render brings it, with its label.
@@ -303,6 +310,11 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
           })}
         <g clipPath={`url(#${clipId})`}>
           <g ref={(el) => (els.current.series = el)} transform={S?.series}>
+            {holes && (
+              <path d={holes} className="chart-gap">
+                <title>No samples at this time: nothing was sampling the node, or it didn&apos;t answer</title>
+              </path>
+            )}
             {drawn.map((d, i) => d.area && <path key={`a${i}`} d={d.area} fill={`url(#${clipId}-g${i})`} className="chart-area" />)}
             {drawn.map((d, i) => (
               <path key={`l${i}`} d={d.line} className="chart-line" style={{ stroke: series[i].color }} vectorEffect="non-scaling-stroke" />

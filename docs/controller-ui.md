@@ -587,7 +587,12 @@ both tests.
   and pauses while the tab is
   hidden. Use a longer fixed `every` only for slow-changing data. A
   failed poll is retried after 5 s at most, so a node coming back from
-  a reboot replaces what it left on screen quickly.
+  a reboot replaces what it left on screen quickly. A repeated request
+  has a timeout (`getJSON(path, { timeout })`, `call(path, { timeout
+  })`: a few periods, 30 s at least for `usePoll`, 10 s for the
+  metrics): one sent on a connection that died while the computer
+  slept never answers, and a poll waiting for it stopped for good - the
+  charts froze until the page was reloaded.
 - **The node itself** (`/api/system/overview`, `/api/update-check`:
   version, CPU, boot time, latest release, security fixes) lives in
   `NodeStatusProvider` - one fetch for the top bar, the Update dot and
@@ -605,12 +610,22 @@ both tests.
   an hour without a token.
 - **Metrics history** lives in `MetricsProvider`, app-wide, so charts
   keep their data across page changes; it holds the last 900 samples in
-  the browser only. Counters are turned into rates client-side, and a
+  the browser only. Unlike `usePoll`, it goes on sampling while the tab
+  is hidden - for 15 minutes, then stops until the tab shows again
+  (`HIDDEN_SAMPLING_MS`): a look at another tab leaves no hole, a tab
+  forgotten in the background doesn't keep its node busy. Its requests
+  are background ones (no pointer or key reaches a hidden tab): they
+  never keep the session alive - measured, a page sampling every second,
+  shown or hidden, untouched, signed out on time. Once a 401 says the
+  session ended, nothing polls again: the banner asks to sign in and
+  reload. Counters are turned into rates client-side, and a
   counter going backwards (HAProxy reload) gives no point rather than a
   negative rate.
 - **Charts** leave gaps where data is missing (e.g. during a reboot)
-  and where samples are more than 2.5 intervals apart (a hidden tab),
-  instead of drawing a line through them, follow the data until the time
+  and where samples are more than 2.5 intervals and 2 s apart (`isGap`:
+  a tab hidden long, the node away), instead of drawing a line through
+  them - a time with no sample is shaded (`.chart-gap`), so it reads as
+  one, not as zero -, follow the data until the time
   window is full, and use binary steps for bytes - see [Charts](#charts).
   Each sample carries its interval (`iv`); `MetricsProvider` gives every
   chart of the page one clock (`clock`), so they scroll together.
@@ -622,13 +637,29 @@ both tests.
   ones in `ssl_reused_sess`), failed -, the bytes each backend moved,
   and how fast each backend answers (averages over its last 1024
   requests). No counter says which TLS version or cipher a connection
-  used: only the access log does (`%sslv`, `%sslc`).
+  used: only the access log does (`%sslv`, `%sslc` - `option httpslog`
+  ends its lines with them). So **TLS versions** and **Ciphers** come
+  from HAProxy's last log lines (`/api/haproxy/tls-log`, every 30 s, for
+  whoever may read the node's logs - SystemService.Logs, the services
+  domain): the Controller reads them on the node (this boot's 5000,
+  from memory) and counts the version and cipher each line ends with
+  (`nodeproxy/tlslog.go`) - a sample of what was logged, said under
+  them, not every request since HAProxy started. With nothing to count,
+  a card keeps its place - an empty ring, the reason under it: the role
+  doesn't read logs, no TLS handshake yet, no access log on the node
+  (`access`: lines with HAProxy's date), or one without the version and
+  cipher - the last two with a link to how to log them
+  (haproxy-config.md, "TLS versions and ciphers on Metrics"). A donut's figure shrinks to fit its
+  ring (`fitSize`), a hovered part's name is cut (`clip`) - the legend
+  has it whole.
 - **The node list's curves** (`NodeSparklines.jsx`, `nodeMetrics.js`):
   `GET /api/nodes/metrics` - each node the account sees, its last
   minutes of CPU, HAProxy requests and traffic, from the Controller's
-  sampler (below), asked only for what's newer (`?since=`), at the
-  sampler's pace, only while the Nodes tab shows - each request keeps
-  the sampling going -, as a background request.
+  sampler (below), the last two minutes at a reading every 2 s, asked
+  only for what's newer (`?since=`), at the sampler's pace, only while
+  the Nodes tab shows - each request keeps the sampling going ten more
+  minutes, so the list back from the background has no hole -, as a
+  background request.
 
 ### Charts
 
@@ -644,7 +675,11 @@ for every chart (`scheduler.js`).
   it, so the line grows instead of jumping a step per sample. The edge
   keeps to 0.75-1.25 times the real pace, never goes back, and stops at
   the newest sample when samples stop; the value axis eases to a new
-  scale.
+  scale. A pause (`isGap`) isn't counted in the edge's distance (it
+  held the edge up to 32 s behind once samples came back), and an edge
+  behind by a gap's length (`snapDistance`) jumps instead of catching
+  up - at 1.25 times the pace, a node's 13 s reboot took it most of a
+  minute.
 - **Curves are monotone cubics** (Steffen's tangents): between two
   samples the line stays between their values - never below zero beside
   a burst, never past 100 % - the first series' area (or any with
@@ -766,10 +801,12 @@ turn, and the step waited for is written under it.
   doc) - a new feature must not change that.
 - **The node list's curves** (`internal/nodemetrics`, `nodes_metrics.go`):
   one sampler however many pages look, reading a node (`nodeproxy.
-  ReadCounters`: SystemStat, NetworkDeviceStats, ShowInfo) every 5 s
-  only while a page asks for it - each request renews a 45 s lease -,
-  16 at once at most, 4 s each, detached from the request; it keeps 10
-  minutes, so a page opened again finds its curves drawn. It reads as
+  ReadCounters`: SystemStat, NetworkDeviceStats, ShowInfo) every 2 s
+  while a page asks for it and ten minutes after - each request renews
+  a 10 min lease -, 16 at once at most, 4 s each, detached from the
+  request; it keeps 10 minutes, so a page opened again, or a tab back
+  from the background, finds its curves whole. A lease that lapsed
+  starts again without a rate across the time nothing was read. It reads as
   the Controller (`Automation`, like `/api/nodes/status`): those calls
   are a reader's, in the observe domain every permission on a node
   includes, so whoever sees a node may read its figures anyway; a node
