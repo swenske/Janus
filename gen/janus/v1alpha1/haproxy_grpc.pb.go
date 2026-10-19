@@ -23,6 +23,8 @@ const (
 	HAProxyService_GetConfig_FullMethodName         = "/janus.v1alpha1.HAProxyService/GetConfig"
 	HAProxyService_ApplyConfig_FullMethodName       = "/janus.v1alpha1.HAProxyService/ApplyConfig"
 	HAProxyService_ValidateConfig_FullMethodName    = "/janus.v1alpha1.HAProxyService/ValidateConfig"
+	HAProxyService_ConfigHistory_FullMethodName     = "/janus.v1alpha1.HAProxyService/ConfigHistory"
+	HAProxyService_ConfigVersion_FullMethodName     = "/janus.v1alpha1.HAProxyService/ConfigVersion"
 	HAProxyService_Reload_FullMethodName            = "/janus.v1alpha1.HAProxyService/Reload"
 	HAProxyService_Stats_FullMethodName             = "/janus.v1alpha1.HAProxyService/Stats"
 	HAProxyService_ShowInfo_FullMethodName          = "/janus.v1alpha1.HAProxyService/ShowInfo"
@@ -76,6 +78,17 @@ type HAProxyServiceClient interface {
 	// ValidateConfig runs the same validation as ApplyConfig without
 	// touching the running process (dry-run).
 	ValidateConfig(ctx context.Context, in *ValidateConfigRequest, opts ...grpc.CallOption) (*ValidateConfigResponse, error)
+	// ConfigHistory lists the configurations ApplyConfig accepted on this
+	// node, newest first: who applied each, when, its SHA-256, and the
+	// lines it added and removed against the version before it. The
+	// history is kept with the configuration, across reboots and updates,
+	// to the newest 50 versions and 8 MiB. A caller who may not apply a
+	// configuration gets each version's figures as GetConfig would show it
+	// to them: from its text with the secrets masked.
+	ConfigHistory(ctx context.Context, in *ConfigHistoryRequest, opts ...grpc.CallOption) (*ConfigHistoryResponse, error)
+	// ConfigVersion returns one version's text, masked like GetConfig for a
+	// caller who may not apply a configuration.
+	ConfigVersion(ctx context.Context, in *ConfigVersionRequest, opts ...grpc.CallOption) (*ConfigVersionResponse, error)
 	// Reload triggers a seamless (zero-downtime) reload of the currently
 	// applied config.
 	Reload(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ReloadResponse, error)
@@ -200,6 +213,26 @@ func (c *hAProxyServiceClient) ValidateConfig(ctx context.Context, in *ValidateC
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ValidateConfigResponse)
 	err := c.cc.Invoke(ctx, HAProxyService_ValidateConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) ConfigHistory(ctx context.Context, in *ConfigHistoryRequest, opts ...grpc.CallOption) (*ConfigHistoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConfigHistoryResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ConfigHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) ConfigVersion(ctx context.Context, in *ConfigVersionRequest, opts ...grpc.CallOption) (*ConfigVersionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConfigVersionResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ConfigVersion_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -509,6 +542,17 @@ type HAProxyServiceServer interface {
 	// ValidateConfig runs the same validation as ApplyConfig without
 	// touching the running process (dry-run).
 	ValidateConfig(context.Context, *ValidateConfigRequest) (*ValidateConfigResponse, error)
+	// ConfigHistory lists the configurations ApplyConfig accepted on this
+	// node, newest first: who applied each, when, its SHA-256, and the
+	// lines it added and removed against the version before it. The
+	// history is kept with the configuration, across reboots and updates,
+	// to the newest 50 versions and 8 MiB. A caller who may not apply a
+	// configuration gets each version's figures as GetConfig would show it
+	// to them: from its text with the secrets masked.
+	ConfigHistory(context.Context, *ConfigHistoryRequest) (*ConfigHistoryResponse, error)
+	// ConfigVersion returns one version's text, masked like GetConfig for a
+	// caller who may not apply a configuration.
+	ConfigVersion(context.Context, *ConfigVersionRequest) (*ConfigVersionResponse, error)
 	// Reload triggers a seamless (zero-downtime) reload of the currently
 	// applied config.
 	Reload(context.Context, *emptypb.Empty) (*ReloadResponse, error)
@@ -608,6 +652,12 @@ func (UnimplementedHAProxyServiceServer) ApplyConfig(*ApplyConfigRequest, grpc.S
 }
 func (UnimplementedHAProxyServiceServer) ValidateConfig(context.Context, *ValidateConfigRequest) (*ValidateConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ValidateConfig not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ConfigHistory(context.Context, *ConfigHistoryRequest) (*ConfigHistoryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConfigHistory not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ConfigVersion(context.Context, *ConfigVersionRequest) (*ConfigVersionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConfigVersion not implemented")
 }
 func (UnimplementedHAProxyServiceServer) Reload(context.Context, *emptypb.Empty) (*ReloadResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Reload not implemented")
@@ -757,6 +807,42 @@ func _HAProxyService_ValidateConfig_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(HAProxyServiceServer).ValidateConfig(ctx, req.(*ValidateConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_ConfigHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfigHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ConfigHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ConfigHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ConfigHistory(ctx, req.(*ConfigHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_ConfigVersion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfigVersionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ConfigVersion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ConfigVersion_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ConfigVersion(ctx, req.(*ConfigVersionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1279,6 +1365,14 @@ var HAProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ValidateConfig",
 			Handler:    _HAProxyService_ValidateConfig_Handler,
+		},
+		{
+			MethodName: "ConfigHistory",
+			Handler:    _HAProxyService_ConfigHistory_Handler,
+		},
+		{
+			MethodName: "ConfigVersion",
+			Handler:    _HAProxyService_ConfigVersion_Handler,
 		},
 		{
 			MethodName: "Reload",

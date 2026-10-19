@@ -280,6 +280,21 @@ files_served || fail "HAProxy stopped serving after a refused start"
 [ "$(haproxy_count)" = 1 ] || fail "$(haproxy_count) haproxy processes after a refused start"
 echo "  ok: open files (ulimit-n 524288 accepted, an impossible one refused with HAProxy's reason, previous configuration kept)"
 
+# --- the configuration's history, on STATE: the bootstrap configuration
+# found when it began, files.cfg, ulimit.cfg - the refused ones never in
+# it; going back to files.cfg, then forward again ---
+hist() { ctl haproxy config-history | awk 'NR > 1 && $1 ~ /^[0-9]+$/'; }
+[ "$(hist | wc -l)" = 3 ] || fail "the history isn't three versions: $(ctl haproxy config-history)"
+hist | head -1 | grep -qE '^3 .*running' || fail "ulimit.cfg isn't version 3, running: $(ctl haproxy config-history)"
+hist | tail -1 | grep -qE '^1 .*found when the history began' || fail "the bootstrap configuration isn't version 1: $(ctl haproxy config-history)"
+ctl haproxy get-config -version 2 | cmp -s - "$WORKDIR/files.cfg" || fail "version 2 isn't files.cfg"
+ctl haproxy config-revert 2 >/dev/null || fail "config-revert 2 failed"
+ctl haproxy get-config | cmp -s - "$WORKDIR/files.cfg" || fail "config-revert 2 didn't apply files.cfg"
+ctl haproxy config-revert 3 >/dev/null || fail "config-revert 3 failed"
+hist | head -1 | grep -qE '^5 .*running, back to 3' || fail "forward again isn't version 5, back to 3: $(ctl haproxy config-history)"
+files_served || fail "HAProxy stopped serving while going back and forth"
+echo "  ok: the configuration's history (3 versions, back to files.cfg and forward, each a version)"
+
 # --- service control ---
 ctl system service restart haproxy >/dev/null || fail "ServiceRestart haproxy failed"
 sleep 2

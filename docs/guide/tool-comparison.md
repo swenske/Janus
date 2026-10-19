@@ -82,6 +82,7 @@ and no META partition.
 |---|---|---|---|---|
 | `GetConfig` - the running haproxy.cfg | `haproxy get-config` | ⚙️ | HAProxy › Configuration | ✅ |
 | `ApplyConfig` - check, write, reload without dropping connections | `haproxy apply-config` | - | HAProxy › Configuration | ✅ |
+| `ConfigHistory`, `ConfigVersion` - the configurations applied before; `ApplyConfig` of one, going back | `haproxy config-history`, `get-config -version`, `config-revert` | - | HAProxy › Configuration › History | - |
 | `ValidateConfig` - check only | - | - | HAProxy › Configuration | - |
 | `Reload` - a seamless reload | - | ✅ | HAProxy | - |
 | `Stats` - `show stat` | `haproxy stats` | ✅ | HAProxy › Status | - |

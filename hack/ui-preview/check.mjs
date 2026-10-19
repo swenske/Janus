@@ -14,7 +14,7 @@ const { CONTROLLER, PASSWORD, OUT } = process.env
 // Every palette (appearance.js's); PALETTES=a,b for a few.
 const PALETTES = (process.env.PALETTES || 'janus,abysse,ayu,catppuccin,dracula,everforest,flexoki,github,gruvbox,kanagawa,night-owl,nightfox,nord,one,rose-pine,solarized,tokyo-night,tomorrow').split(',')
 const MODES = ['light', 'dark']
-const NODE_PAGES = ['/', '/metrics', '/storage', '/flow', '/haproxy', '/system/network', '/system/update']
+const NODE_PAGES = ['/', '/metrics', '/storage', '/flow', '/haproxy', '/haproxy/config', '/system/network', '/system/update']
 const problems = []
 const browser = await chromium.launch()
 
@@ -149,6 +149,28 @@ for (const palette of PALETTES) {
   const off = await palette()
   const got = { next, said, back, typing, off }
   if (next !== 'abysse' || !/Abysse/.test(said) || back !== 'janus' || typing !== 'janus' || off !== 'janus') problems.push(`shortcut: ${JSON.stringify(got)}`)
+  await ctx.close()
+}
+
+// haproxy.cfg's history: the setup's apply made a version over the one
+// found when it began; the oldest opens with its diff against the
+// running configuration, and an admin is offered to go back to it.
+{
+  const ctx = await context()
+  const page = await ctx.newPage()
+  watch(page, () => 'config-history')
+  await signIn(ctx)
+  await page.goto(`${CONTROLLER}/nodes/${edge1}/#/haproxy/config`)
+  await settle(page)
+  const buttons = page.locator('.card', { has: page.getByText('History', { exact: true }) }).locator('button[aria-pressed]')
+  const versions = await buttons.count()
+  // Off the rail: the sidebar opens over the page under the pointer.
+  await page.mouse.move(900, 600)
+  await buttons.last().click()
+  const diff = await page.waitForSelector('.diff', { timeout: 10000 }).then(() => true).catch(() => false)
+  const apply = await page.getByRole('button', { name: /Apply this version/ }).count()
+  if (versions < 2 || !diff || apply !== 1) problems.push(`config history: ${versions} versions, a diff ${diff}, Apply offered ${apply} times`)
+  await page.screenshot({ path: `${OUT}/config-history.png`, fullPage: true })
   await ctx.close()
 }
 

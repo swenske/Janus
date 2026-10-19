@@ -562,7 +562,10 @@ func main() {
 	)...)
 	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
-	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr})
+	// Every accepted configuration, next to haproxy.cfg - on STATE on a
+	// node, like the configuration itself.
+	haproxyHistory := &haproxy.History{Dir: filepath.Join(filepath.Dir(*haproxyCfg), "history")}
+	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr, History: haproxyHistory})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr, Consul: consulMgr, Services: extMgr})
 

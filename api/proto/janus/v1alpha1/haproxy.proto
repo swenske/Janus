@@ -26,6 +26,17 @@ service HAProxyService {
   // ValidateConfig runs the same validation as ApplyConfig without
   // touching the running process (dry-run).
   rpc ValidateConfig(ValidateConfigRequest) returns (ValidateConfigResponse);
+  // ConfigHistory lists the configurations ApplyConfig accepted on this
+  // node, newest first: who applied each, when, its SHA-256, and the
+  // lines it added and removed against the version before it. The
+  // history is kept with the configuration, across reboots and updates,
+  // to the newest 50 versions and 8 MiB. A caller who may not apply a
+  // configuration gets each version's figures as GetConfig would show it
+  // to them: from its text with the secrets masked.
+  rpc ConfigHistory(ConfigHistoryRequest) returns (ConfigHistoryResponse);
+  // ConfigVersion returns one version's text, masked like GetConfig for a
+  // caller who may not apply a configuration.
+  rpc ConfigVersion(ConfigVersionRequest) returns (ConfigVersionResponse);
   // Reload triggers a seamless (zero-downtime) reload of the currently
   // applied config.
   rpc Reload(google.protobuf.Empty) returns (ReloadResponse);
@@ -151,12 +162,72 @@ message GetConfigResponse {
 
 message ApplyConfigRequest {
   bytes config = 1;
+  // Apply this version of ConfigHistory instead of config, which must
+  // then be empty: going back to a configuration applied before. It is
+  // validated and reloaded like any other, and recorded as a new version
+  // that names the one it came from.
+  uint64 version = 2;
 }
 
 message ApplyConfigResponse {
   string stage = 1; // "validating", "reloading", "done"
   string message = 2;
   bool accepted = 3;
+}
+
+message ConfigHistoryRequest {
+  // The newest versions only; 0: every version kept.
+  uint32 limit = 1;
+}
+
+message ConfigHistoryResponse {
+  repeated ConfigVersionInfo versions = 1;
+  // The figures are a masked text's: the caller may not apply a
+  // configuration.
+  bool redacted = 2;
+  // The bounds the history is kept to.
+  uint32 max_versions = 3;
+  uint64 max_bytes = 4;
+}
+
+message ConfigVersionInfo {
+  uint64 id = 1;
+  // When it was applied; 0 for the configuration found when the history
+  // began.
+  int64 applied_unix = 2;
+  ConfigAuthor author = 3;
+  string sha256 = 4;
+  uint64 size = 5;
+  // Against the version before it in the history; for the oldest kept,
+  // against nothing.
+  uint32 lines_added = 6;
+  uint32 lines_removed = 7;
+  // Applied again from this version: going back. 0: none.
+  uint64 reverted_from = 8;
+  // The configuration this node ran when it began keeping a history:
+  // applied before, by someone it can't name.
+  bool before_history = 9;
+  // The configuration HAProxy runs now.
+  bool running = 10;
+}
+
+// ConfigAuthor is who applied a version: a certificate's name and roles,
+// and the Controller that acted for it.
+message ConfigAuthor {
+  string name = 1;
+  repeated string roles = 2;
+  string via = 3;
+}
+
+message ConfigVersionRequest {
+  uint64 id = 1;
+}
+
+message ConfigVersionResponse {
+  ConfigVersionInfo version = 1;
+  bytes config = 2;
+  // Secrets masked, as in GetConfig.
+  bool redacted = 3;
 }
 
 message ValidateConfigRequest {

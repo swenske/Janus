@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -970,16 +971,43 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 		tw.Flush()
 
 	case "get-config":
+		fs := flag.NewFlagSet("haproxy get-config", flag.ExitOnError)
+		version := fs.Uint64("version", 0, "this version of config-history instead")
+		parseAnywhere(fs, args[1:])
 		c, cancel := ctx()
 		defer cancel()
-		resp, err := client.GetConfig(c, &emptypb.Empty{})
-		if err != nil {
-			log.Fatalf("GetConfig: %v", err)
+		var cfg []byte
+		var redacted bool
+		if *version != 0 {
+			resp, err := client.ConfigVersion(c, &janusv1alpha1.ConfigVersionRequest{Id: *version})
+			check("ConfigVersion", err)
+			cfg, redacted = resp.GetConfig(), resp.GetRedacted()
+		} else {
+			resp, err := client.GetConfig(c, &emptypb.Empty{})
+			if err != nil {
+				log.Fatalf("GetConfig: %v", err)
+			}
+			cfg, redacted = resp.GetConfig(), resp.GetRedacted()
 		}
-		os.Stdout.Write(resp.GetConfig())
-		if resp.GetRedacted() {
+		os.Stdout.Write(cfg)
+		if redacted {
 			fmt.Fprintln(os.Stderr, "janusctl: secrets masked (<redacted>): this certificate may read the configuration, not apply one")
 		}
+
+	case "config-history":
+		runConfigHistory(client, args[1:])
+
+	case "config-revert":
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: janusctl haproxy config-revert ID")
+			os.Exit(2)
+		}
+		id, err := strconv.ParseUint(args[1], 10, 64)
+		if err != nil || id == 0 {
+			fmt.Fprintf(os.Stderr, "janusctl: %q isn't a version ID (config-history lists them)\n", args[1])
+			os.Exit(2)
+		}
+		applyConfig(client, &janusv1alpha1.ApplyConfigRequest{Version: id})
 
 	case "apply-config":
 		if len(args) != 2 {
@@ -991,27 +1019,7 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 			log.Fatalf("read %s: %v", args[1], err)
 		}
 
-		c, cancel := ctx()
-		defer cancel()
-		stream, err := client.ApplyConfig(c, &janusv1alpha1.ApplyConfigRequest{Config: data})
-		if err != nil {
-			log.Fatalf("ApplyConfig: %v", err)
-		}
-		var last *janusv1alpha1.ApplyConfigResponse
-		for {
-			resp, err := stream.Recv()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				log.Fatalf("ApplyConfig: %v", err)
-			}
-			fmt.Println(progressLine(os.Stdout, resp.GetStage(), 0, false, resp.GetMessage()))
-			last = resp
-		}
-		if last != nil && !last.GetAccepted() {
-			os.Exit(1)
-		}
+		applyConfig(client, &janusv1alpha1.ApplyConfigRequest{Config: data})
 
 	case "map-list":
 		c, cancel := ctx()

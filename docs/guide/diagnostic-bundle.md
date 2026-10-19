@@ -31,7 +31,7 @@ one per node.
 |---|---|---|
 | `version.json`, `system/` - image, services, processes, mounts, memory, CPU, disks, kernel parameters and their history, log forwarding (secrets left empty by the node) | `Version`, `ServiceList`, `Processes`, `Mounts`, `SysctlList`... | readers |
 | `network/` - state and configuration, the neighbour table, sockets, the firewall's ruleset, VRRP, BGP and Consul states | `NetworkStatus`, `NetworkConfigGet`, `NeighborList`, `FirewallGetRuleset`... | readers |
-| `haproxy/` - `show info`, `show stat`, backends, certificates (names and expiry), files, maps, Let's Encrypt; `haproxy.cfg` masked | `ShowInfo`, `Stats`, `GetConfig`... | readers |
+| `haproxy/` - `show info`, `show stat`, backends, certificates (names and expiry), files, maps, Let's Encrypt; `haproxy.cfg` masked; the configuration's history - who applied what, when, not the versions | `ShowInfo`, `Stats`, `GetConfig`, `ConfigHistory`... | readers |
 | `events.jsonl` | `Events` | readers |
 | `logs/<service>.log`, `logs/<service>.boot-1.log` | `Logs` | operators |
 | `kernel/dmesg.log`, `kernel/dmesg.boot-1.log`, `kernel/avc-denials.log` | `Dmesg` | admins |
