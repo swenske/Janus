@@ -18,7 +18,7 @@ added.
 | The auto-scaled node | since v2026.10.14: a machine the Controller creates on the same host, 2 vCPU and 1 GiB from the release's default image, room for 4 vCPU and 2 GiB |
 | Backends | two nginx VMs, 1 vCPU each |
 | Load client | a 2-vCPU VM on the same host, with `wrk` - up to v2026.10.14, removed since: it took the host's CPUs from the nodes |
-| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of the campaigns from v2026.10.17-2 to v2026.10.18-3 for a memory fault, the probes then ran from a runner). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
+| The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of the campaigns from v2026.10.17-2 to v2026.10.18-3 for a memory fault, the probes then ran from a runner; back with its memory replaced for v2026.10.19, where it ran the browser while the load and probes stayed on the runners, to compare). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
 | Controller | Docker Compose with its updater, an admin with TOTP |
 
 The two nodes and the backends saturate the host's 4 cores under a
@@ -48,7 +48,11 @@ other, they aren't a capacity measure.
   `/proc/stat` read through its file API for the CPU split with steal
   time, the event log (`system events`).
 - **The Controller's pages**: headless Chromium (the docs' pinned one),
-  both themes, console errors and failed requests collected.
+  console errors and failed requests collected; since v2026.10.19 every
+  palette, light and dark, over the node list (cards and rows) and a
+  node's Overview, Metrics, Traffic flow and Storage, with axe (WCAG 2
+  A and AA, serious and critical) - on the lab's Controller, whose
+  nodes are real and include machines it made, which the demo has not.
 
 ## The scenarios
 
@@ -192,7 +196,16 @@ example:
   longterm machine, the nodes' health, and the connectivity tests given
   a source address that resolve a name, from each node's address, the
   VIP and the anycast address, with each node's AVC denials before and
-  after.
+  after;
+- v2026.10.19: the Controller's new pages, every palette in both modes
+  over the lab's seven nodes with axe (above), a stylesheet laid over
+  them to try a fix on the same data before it's in an image; the
+  fleet's curves from `GET /api/nodes/metrics`; and what an open page
+  costs a node - its janusd's CPU time from `/proc` over a minute, with
+  no page, Metrics at a sample a second and at five, and the node list;
+- v2026.10.19-2: a short check of its Controller fixes - the same walk,
+  nothing laid over the pages - with the update steps and the nodes'
+  health.
 
 ### HAProxy killed by the kernel
 
@@ -259,9 +272,13 @@ ran:
 - `failover`, `rfailover`: node loss and HAProxy stopped;
 - `reboot-time`: the reboots;
 - `d-diag`: the diagnostic tools on both nodes (v2026.10.18-2);
+- `u-check`: the Controller's pages in every palette, with axe (`CSS`:
+  a stylesheet laid over each page); `u-cost`: a node's janusd CPU time
+  with a page open (v2026.10.19);
 - `haproxy-address`: where HAProxy, keepalived and BIRD are mapped on
   each node;
-- `rolling`: the drained rolling update through the Controller;
+- `rolling`: the drained rolling update through the Controller (since
+  v2026.10.19-2 it trusts its own wait and names the check that fails);
 - `ctl-update`: the Controller's update with its probe;
 - `factory-ready`: a node's page asks for the pre-release's bundle until
   the image factory has it;
