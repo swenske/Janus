@@ -100,9 +100,23 @@ const unanswered = (n) => ['FAILED', 'INCOMPLETE'].includes(neighborState(n))
 function NeighborsCard() {
   const may = useMay()
   const allowed = may('NetworkService/NeighborList')
-  const neighbors = usePoll('/api/network/neighbors', { enabled: allowed })
+  // A node older than NeighborList answers 501: said once, not asked again.
+  const [unsupported, setUnsupported] = useState(false)
+  const neighbors = usePoll('/api/network/neighbors', { enabled: allowed && !unsupported })
   const [iface, setIface] = useState('')
+  if (!unsupported && neighbors.error?.status === 501) setUnsupported(true)
   if (!allowed) return null
+  if (unsupported) {
+    return (
+      <div style={{ marginTop: '1rem' }}>
+        <Card title="Neighbours" icon={Network}>
+          <p className="muted small" style={{ margin: 0 }}>
+            This node&apos;s version can&apos;t read its neighbour table: update it.
+          </p>
+        </Card>
+      </div>
+    )
+  }
   const all = neighbors.data?.neighbors || []
   const interfaces = [...new Set(all.map((n) => n.interface))]
   const shown = all.filter((n) => !iface || n.interface === iface)
