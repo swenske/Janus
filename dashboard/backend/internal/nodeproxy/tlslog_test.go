@@ -21,6 +21,7 @@ func TestParseTLSLog(t *testing.T) {
 	got := parseTLSLog(log)
 	want := TLSLog{
 		Lines:    7,
+		Access:   6,
 		TLS:      4,
 		Versions: []NamedCount{{"TLSv1.2", 2}, {"TLSv1.3", 2}},
 		Ciphers:  []NamedCount{{"TLS_AES_256_GCM_SHA384", 2}, {"ECDHE-ECDSA-AES128-GCM-SHA256", 1}, {"ECDHE-ECDSA-CHACHA20-POLY1305", 1}},

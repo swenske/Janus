@@ -30,16 +30,23 @@ const tlsLogLimit = 8 << 20
 // log-format may put them.
 var tlsField = regexp.MustCompile(`(?:^|[\s/|{])(TLSv1(?:\.[0-3])?|SSLv3)[/ ]([A-Z0-9][A-Z0-9_-]{5,})(?:$|[\s/|}])`)
 
+// accessDate finds an access log line: HAProxy's date in brackets, as
+// httplog, tcplog, httpslog and clf put it ([19/Oct/2026:10:12:01.123]).
+var accessDate = regexp.MustCompile(`\[\d{2}/[A-Z][a-z]{2}/\d{4}:\d{2}:\d{2}:\d{2}`)
+
 // NamedCount is a name and how many lines carried it.
 type NamedCount struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
 }
 
-// TLSLog is what the lines read say: how many there were, how many named
-// a TLS version and a cipher, and those counted, the most first.
+// TLSLog is what the lines read say: how many there were, how many were
+// access log lines, how many named a TLS version and a cipher, and those
+// counted, the most first. No access line: HAProxy logs elsewhere, or
+// not at all; access lines but no TLS: not with the version and cipher.
 type TLSLog struct {
 	Lines    int          `json:"lines"`
+	Access   int          `json:"access"`
 	TLS      int          `json:"tls"`
 	Versions []NamedCount `json:"versions"`
 	Ciphers  []NamedCount `json:"ciphers"`
@@ -55,6 +62,9 @@ func parseTLSLog(text string) TLSLog {
 		}
 		out.Lines++
 		m := tlsField.FindStringSubmatch(line)
+		if m != nil || accessDate.MatchString(line) {
+			out.Access++
+		}
 		if m == nil {
 			continue
 		}

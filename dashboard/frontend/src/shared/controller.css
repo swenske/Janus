@@ -226,5 +226,8 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .segmented { display: inline-flex; }
 .segmented > button { border-radius: 0; }
 .segmented > button + button { margin-left: -1px; }
+/* The pressed one (and one with the focus) over its neighbours: the next
+   button's overlapping border hid its right edge. */
+.segmented > button.active, .segmented > button:focus-visible { position: relative; z-index: 1; }
 .segmented > button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 .segmented > button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }

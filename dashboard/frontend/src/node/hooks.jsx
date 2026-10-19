@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { getJSON } from './api.js'
+import { SIGNED_OUT } from '../shared/activity.js'
 import { ServerClock } from '../shared/chart/math.js'
 
 // --- refresh interval (global, remembered per browser) ---
@@ -57,6 +58,12 @@ function usePageVisible() {
 
 const RETRY_MS = 5000
 
+// Once the session has ended nothing polls again: every answer would be a
+// 401 until the user signs in and reloads the page, as its banner says -
+// a hidden tab sampling on would ask for 15 minutes.
+let signedOut = false
+if (typeof window !== 'undefined') window.addEventListener(SIGNED_OUT, () => (signedOut = true))
+
 // pollTimeout bounds a repeated request: a few periods, never under
 // `min` - one that never answers would otherwise stop the poll for good.
 function pollTimeout(period, min) {
@@ -88,7 +95,7 @@ export function usePoll(path, { every, enabled = true } = {}) {
       }
       // A failure (the node rebooting, say) is retried sooner: what it
       // left on screen is stale until the next answer.
-      if (!cancelled && period > 0 && visible) timer = setTimeout(run, failed ? Math.min(period, RETRY_MS) : period)
+      if (!cancelled && period > 0 && visible && !signedOut) timer = setTimeout(run, failed ? Math.min(period, RETRY_MS) : period)
     }
     run()
     return () => {
@@ -222,7 +229,7 @@ export function MetricsProvider({ children }) {
       const done = waiting.current
       waiting.current = []
       for (const resolve of done) resolve()
-      if (cancelled || interval <= 0) return
+      if (cancelled || interval <= 0 || signedOut) return
       // Hidden too long: the poll stops, until the tab shows again.
       if (hiddenSince != null && Date.now() - hiddenSince >= HIDDEN_SAMPLING_MS) return
       timer = setTimeout(run, interval)
@@ -234,7 +241,7 @@ export function MetricsProvider({ children }) {
       }
       hiddenSince = null
       // Shown again: a sample at once, unless one is on its way.
-      if (!busy && interval > 0) run()
+      if (!busy && interval > 0 && !signedOut) run()
     }
     run()
     document.addEventListener('visibilitychange', onVisibility)

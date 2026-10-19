@@ -70,6 +70,28 @@ says every 10 seconds how many it left out. A serial console, emulated
 by the hypervisor, costs CPU: printing every access log there under load
 took most of a vCPU from HAProxy.
 
+### TLS versions and ciphers on Metrics
+
+No counter of HAProxy's says which TLS version or cipher a client used:
+only an access log line does. The Controller's Metrics page counts them
+in the last 5000 lines janusd keeps of HAProxy's output, so they show
+when:
+
+- the global section logs to `log stdout` - HAProxy sending its log
+  straight to a server leaves nothing on the node;
+- each TLS frontend's lines end with the version and the cipher:
+  `option httpslog` instead of `option httplog`, or `%sslv` and `%sslc`
+  in a `log-format`.
+
+```haproxy
+frontend web-tls
+    bind :443 ssl crt /etc/haproxy/files/site.pem alpn h2,http/1.1
+    option httpslog
+```
+
+It's a sample of what HAProxy logged, not a count since it started: with
+`option dontlog-normal`, only the requests that failed are in it.
+
 ## TLS: AWS-LC
 
 HAProxy is built against [AWS-LC](https://github.com/aws/aws-lc) rather

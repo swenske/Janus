@@ -15,7 +15,20 @@ const HOLE = 2 * (R - 7) - 10
 export default function Donut({ slices, format = (v) => String(v), unit = '', empty = 'Nothing yet', label }) {
   const [hover, setHover] = useState(-1)
   const total = slices.reduce((n, s) => n + s.value, 0)
-  if (!total) return <div className="donut-empty muted small">{empty}</div>
+  // Nothing to split: the ring still stands, empty, its reason (and what
+  // to do, a link) under it - the card keeps its place and its look.
+  if (!total)
+    return (
+      <div className="donut empty">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r={R} className="donut-track" />
+          <text x="60" y="65" textAnchor="middle" className="donut-total">
+            –
+          </text>
+        </svg>
+        <div className="donut-empty muted small">{empty}</div>
+      </div>
+    )
   const pct = (v) => `${((v / total) * 100).toFixed(v / total < 0.1 ? 1 : 0)}%`
   const many = slices.length > 1
   const arcs = []

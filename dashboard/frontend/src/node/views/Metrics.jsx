@@ -1,4 +1,4 @@
-import { Activity, ChartPie, Cpu, Gauge, KeyRound, Lock, MemoryStick, Network, ShieldCheck, Shuffle, Timer, Waypoints } from 'lucide-react'
+import { Activity, ChartPie, Cpu, ExternalLink, Gauge, KeyRound, Lock, MemoryStick, Network, ShieldCheck, Shuffle, Timer, Waypoints } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import Chart from '../../shared/chart/Chart.jsx'
 import { Badge, Card, PageHeader, stateTone } from '../../shared/ui.jsx'
@@ -155,20 +155,37 @@ export default function Metrics() {
 // frontends' answers, HTTP versions and TLS handshakes, its backends'
 // traffic and response times (breakdown.js) - and what its last log
 // lines say of TLS versions and ciphers.
-// tlsEmpty says why the TLS log cards have nothing to show.
-function tlsEmpty(log) {
+// How to have HAProxy log what the TLS cards count.
+const TLS_LOG_DOCS = 'https://janus.sw-servers.net/docs/haproxy-config.md#tls-versions-and-ciphers-on-metrics'
+
+// tlsEmpty says why the TLS log cards have nothing to show - and, when
+// it's the configuration's doing, links to how to log them.
+function tlsEmpty(log, handshakes) {
   if (!log.may) return "Your role doesn't read the node's logs, where these are."
   if (log.error) return `HAProxy's log couldn't be read: ${log.error.message}`
   if (!log.data) return "Reading HAProxy's log…"
-  if (!log.data.lines) return "HAProxy hasn't logged anything since the node started."
+  if (handshakes === 0) return 'No TLS handshake on this node yet.'
+  const how = (
+    <a href={TLS_LOG_DOCS} target="_blank" rel="noreferrer">
+      How to log them <ExternalLink size={11} />
+    </a>
+  )
+  if (!log.data.access)
+    return (
+      <>
+        HAProxy keeps no access log on the node: these come from it - <code>log stdout</code> in its global section. {how}
+      </>
+    )
   return (
     <>
-      No version or cipher in HAProxy&apos;s log lines: <code>option httpslog</code> writes them, or <code>%sslv</code> and <code>%sslc</code> in a <code>log-format</code>.
+      HAProxy&apos;s access log doesn&apos;t name TLS versions and ciphers - <code>option httpslog</code> does. {how}
     </>
   )
 }
 
 function Breakdown({ stats, uptime, tlsLog }) {
+  // Whether any TLS handshake happened (unknown until stats come).
+  const handshakes = stats ? tls(stats).reduce((n, s) => n + s.value, 0) : null
   const since = uptime ? `since HAProxy started, ${duration(uptime)} ago` : 'since HAProxy started'
   const rows = backends(stats)
   // A bar's scale: the slowest backend's, a tenth of a second at least -
@@ -190,11 +207,11 @@ function Breakdown({ stats, uptime, tlsLog }) {
           <Donut slices={tls(stats)} format={compact} unit="handshakes" empty="No TLS frontend, or no handshake yet" label="TLS handshakes" />
         </Card>
         <Card title="TLS versions" icon={ShieldCheck}>
-          <Donut slices={tlsVersions(tlsLog.data)} format={compact} unit="requests" empty={tlsEmpty(tlsLog)} label="Requests by TLS version" />
+          <Donut slices={tlsVersions(tlsLog.data)} format={compact} unit="requests" empty={tlsEmpty(tlsLog, handshakes)} label="Requests by TLS version" />
           <TLSLogNote log={tlsLog.data} />
         </Card>
         <Card title="Ciphers" icon={KeyRound}>
-          <Donut slices={ciphers(tlsLog.data)} format={compact} unit="requests" empty={tlsEmpty(tlsLog)} label="Requests by cipher" />
+          <Donut slices={ciphers(tlsLog.data)} format={compact} unit="requests" empty={tlsEmpty(tlsLog, handshakes)} label="Requests by cipher" />
           <TLSLogNote log={tlsLog.data} />
         </Card>
         <Card title="Traffic by backend" icon={Shuffle}>

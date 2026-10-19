@@ -613,7 +613,12 @@ both tests.
   the browser only. Unlike `usePoll`, it goes on sampling while the tab
   is hidden - for 15 minutes, then stops until the tab shows again
   (`HIDDEN_SAMPLING_MS`): a look at another tab leaves no hole, a tab
-  forgotten in the background doesn't keep its node busy. Counters are turned into rates client-side, and a
+  forgotten in the background doesn't keep its node busy. Its requests
+  are background ones (no pointer or key reaches a hidden tab): they
+  never keep the session alive - measured, a page sampling every second,
+  shown or hidden, untouched, signed out on time. Once a 401 says the
+  session ended, nothing polls again: the banner asks to sign in and
+  reload. Counters are turned into rates client-side, and a
   counter going backwards (HAProxy reload) gives no point rather than a
   negative rate.
 - **Charts** leave gaps where data is missing (e.g. during a reboot)
@@ -639,8 +644,12 @@ both tests.
   domain): the Controller reads them on the node (this boot's 5000,
   from memory) and counts the version and cipher each line ends with
   (`nodeproxy/tlslog.go`) - a sample of what was logged, said under
-  them, not every request since HAProxy started; with nothing to count,
-  the cards say how to log them. A donut's figure shrinks to fit its
+  them, not every request since HAProxy started. With nothing to count,
+  a card keeps its place - an empty ring, the reason under it: the role
+  doesn't read logs, no TLS handshake yet, no access log on the node
+  (`access`: lines with HAProxy's date), or one without the version and
+  cipher - the last two with a link to how to log them
+  (haproxy-config.md, "TLS versions and ciphers on Metrics"). A donut's figure shrinks to fit its
   ring (`fitSize`), a hovered part's name is cut (`clip`) - the legend
   has it whole.
 - **The node list's curves** (`NodeSparklines.jsx`, `nodeMetrics.js`):
