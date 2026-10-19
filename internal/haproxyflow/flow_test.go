@@ -81,10 +81,10 @@ func check(t *testing.T, what string, got, want any) {
 func TestTokenize(t *testing.T) {
 	for line, want := range map[string][]string{
 		"  use_backend api if { hdr(host) -i api.example.com }  # the API": {"use_backend", "api", "if", "{", "hdr(host)", "-i", "api.example.com", "}"},
-		`http-request return string "a \"b\" # c" 'd\e'`:                     {"http-request", "return", "string", `a "b" # c`, `d\e`},
-		`acl a path_beg /a\ b ""`:                                             {"acl", "a", "path_beg", "/a b", ""},
-		"# only a comment":                                                    nil,
-		"\tbind :80\r":                                                        {"bind", ":80"},
+		`http-request return string "a \"b\" # c" 'd\e'`:                   {"http-request", "return", "string", `a "b" # c`, `d\e`},
+		`acl a path_beg /a\ b ""`:                                          {"acl", "a", "path_beg", "/a b", ""},
+		"# only a comment":                                                 nil,
+		"\tbind :80\r":                                                     {"bind", ":80"},
 	} {
 		if got := Tokenize(line); !reflect.DeepEqual(got, want) {
 			t.Errorf("Tokenize(%q) = %q, want %q", line, got, want)

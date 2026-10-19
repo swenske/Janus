@@ -43,8 +43,8 @@ type metricsSources struct {
 	vrrp       *vrrp.Manager
 	bgp        *bgp.Manager
 	acme       *acme.Manager
-	statePath  string          // STATE's mount point, for its filesystem's error count
-	logVol     *logvol.Volume  // the LOGS partition, nil without one
+	statePath  string         // STATE's mount point, for its filesystem's error count
+	logVol     *logvol.Volume // the LOGS partition, nil without one
 	ship       *logship.Shipper
 	boot       *boottime.Times // this boot's timing, on a node
 

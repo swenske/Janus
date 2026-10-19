@@ -67,6 +67,10 @@ issues:
   max-same-issues: 0
 
 formatters:
+  # Every Go file gofmt -s'd: lint fails on one that isn't (gofmt never
+  # ran on a few edits, and nothing noticed).
+  enable:
+    - gofmt
   exclusions:
     generated: lax
     paths:

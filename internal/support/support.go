@@ -225,37 +225,63 @@ var unaries = []unary{
 	{"system/diskstats.json", "SystemService/DiskStats", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).DiskStats(x, empty) }},
 	{"system/mounts.json", "SystemService/Mounts", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).Mounts(x, empty) }},
 	{"system/processes.json", "SystemService/Processes", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).Processes(x, empty) }},
-	{"system/services.json", "SystemService/ServiceList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).ServiceList(x, empty) }},
+	{"system/services.json", "SystemService/ServiceList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return sys(c).ServiceList(x, empty)
+	}},
 	{"system/sysctl.json", "SystemService/SysctlList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).SysctlList(x, empty) }},
 	{"system/sysctl-history.json", "SystemService/SysctlHistory", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
 		return sys(c).SysctlHistory(x, &janusv1alpha1.SysctlHistoryRequest{})
 	}},
 	{"system/log-boots.json", "SystemService/LogBoots", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).LogBoots(x, empty) }},
-	{"system/log-forwarding.json", "SystemService/LogForwardingGet", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).LogForwardingGet(x, empty) }},
-	{"system/metrics.json", "SystemService/MetricsConfigGet", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).MetricsConfigGet(x, empty) }},
-	{"network/status.json", "NetworkService/NetworkStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).NetworkStatus(x, empty) }},
-	{"network/config.json", "NetworkService/NetworkConfigGet", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).NetworkConfigGet(x, empty) }},
+	{"system/log-forwarding.json", "SystemService/LogForwardingGet", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return sys(c).LogForwardingGet(x, empty)
+	}},
+	{"system/metrics.json", "SystemService/MetricsConfigGet", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return sys(c).MetricsConfigGet(x, empty)
+	}},
+	{"network/status.json", "NetworkService/NetworkStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return netw(c).NetworkStatus(x, empty)
+	}},
+	{"network/config.json", "NetworkService/NetworkConfigGet", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return netw(c).NetworkConfigGet(x, empty)
+	}},
 	{"network/neighbors.json", "NetworkService/NeighborList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
 		return netw(c).NeighborList(x, &janusv1alpha1.NeighborListRequest{})
 	}},
-	{"network/netdev.json", "SystemService/NetworkDeviceStats", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).NetworkDeviceStats(x, empty) }},
+	{"network/netdev.json", "SystemService/NetworkDeviceStats", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return sys(c).NetworkDeviceStats(x, empty)
+	}},
 	{"network/netstat.json", "SystemService/Netstat", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return sys(c).Netstat(x, empty) }},
-	{"network/firewall.json", "NetworkService/FirewallGetRuleset", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).FirewallGetRuleset(x, empty) }},
-	{"network/firewall-sets.json", "NetworkService/FirewallSets", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).FirewallSets(x, empty) }},
-	{"network/vrrp.json", "NetworkService/VRRPStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).VRRPStatus(x, empty) }},
+	{"network/firewall.json", "NetworkService/FirewallGetRuleset", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return netw(c).FirewallGetRuleset(x, empty)
+	}},
+	{"network/firewall-sets.json", "NetworkService/FirewallSets", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return netw(c).FirewallSets(x, empty)
+	}},
+	{"network/vrrp.json", "NetworkService/VRRPStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return netw(c).VRRPStatus(x, empty)
+	}},
 	{"network/bgp.json", "NetworkService/BGPStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).BGPStatus(x, empty) }},
-	{"network/consul.json", "NetworkService/ConsulStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return netw(c).ConsulStatus(x, empty) }},
+	{"network/consul.json", "NetworkService/ConsulStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return netw(c).ConsulStatus(x, empty)
+	}},
 	{"haproxy/info.json", "HAProxyService/ShowInfo", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).ShowInfo(x, empty) }},
 	// The history's list - who applied what, when - not the versions.
 	{"haproxy/config-history.json", "HAProxyService/ConfigHistory", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
 		return hap(c).ConfigHistory(x, &janusv1alpha1.ConfigHistoryRequest{})
 	}},
-	{"haproxy/backends.json", "HAProxyService/BackendList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).BackendList(x, empty) }},
-	{"haproxy/certificates.json", "HAProxyService/CertificateList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).CertificateList(x, empty) }},
+	{"haproxy/backends.json", "HAProxyService/BackendList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return hap(c).BackendList(x, empty)
+	}},
+	{"haproxy/certificates.json", "HAProxyService/CertificateList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return hap(c).CertificateList(x, empty)
+	}},
 	{"haproxy/files.json", "HAProxyService/FileList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).FileList(x, empty) }},
 	{"haproxy/maps.json", "HAProxyService/MapList", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).MapList(x, empty) }},
 	{"haproxy/acme-status.json", "HAProxyService/ACMEStatus", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).ACMEStatus(x, empty) }},
-	{"haproxy/acme-config.json", "HAProxyService/ACMEGetConfig", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) { return hap(c).ACMEGetConfig(x, empty) }},
+	{"haproxy/acme-config.json", "HAProxyService/ACMEGetConfig", func(x context.Context, c *grpc.ClientConn) (proto.Message, error) {
+		return hap(c).ACMEGetConfig(x, empty)
+	}},
 }
 
 var protoOut = protojson.MarshalOptions{Multiline: true, Indent: "  ", UseProtoNames: true}

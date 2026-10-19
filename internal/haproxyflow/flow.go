@@ -282,7 +282,7 @@ func (p *proxy) answer(a string) {
 // to. Conditional blocks (.if/.endif) are read as if they all held: a
 // link that may exist is shown.
 func Parse(cfg string) Topology {
-	named := map[string]*proxy{} // named defaults sections
+	named := map[string]*proxy{}     // named defaults sections
 	last := &proxy{kind: "defaults"} // what a proxy without "from" inherits
 	var fronts []*proxy
 	var t Topology

@@ -146,4 +146,5 @@ func (r *haproxyConfigResource) Update(ctx context.Context, req resource.UpdateR
 
 // Delete leaves the node's configuration: HAProxy can't run without one,
 // and the node keeps serving.
-func (r *haproxyConfigResource) Delete(context.Context, resource.DeleteRequest, *resource.DeleteResponse) {}
+func (r *haproxyConfigResource) Delete(context.Context, resource.DeleteRequest, *resource.DeleteResponse) {
+}
