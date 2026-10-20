@@ -1,0 +1,3 @@
+function e(e,t){let n=e.split(`
+`),r=t.split(`
+`),i=n.length,a=r.length,o=Array.from({length:i+1},()=>new Uint32Array(a+1));for(let e=i-1;e>=0;e--)for(let t=a-1;t>=0;t--)o[e][t]=n[e]===r[t]?o[e+1][t+1]+1:Math.max(o[e+1][t],o[e][t+1]);let s=[],c=0,l=0;for(;c<i&&l<a;)n[c]===r[l]?(s.push({op:` `,text:n[c]}),c++,l++):o[c+1][l]>=o[c][l+1]?s.push({op:`-`,text:n[c++]}):s.push({op:`+`,text:r[l++]});for(;c<i;)s.push({op:`-`,text:n[c++]});for(;l<a;)s.push({op:`+`,text:r[l++]});return s}function t(e,t=2){let n=Array(e.length).fill(!1);e.forEach((r,i)=>{if(r.op!==` `)for(let r=Math.max(0,i-t);r<=Math.min(e.length-1,i+t);r++)n[r]=!0});let r=[],i=!1;return e.forEach((e,t)=>{n[t]?(i&&r.length&&r.push({op:`…`,text:``}),r.push(e),i=!1):i=!0}),r}export{e as n,t};

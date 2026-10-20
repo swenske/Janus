@@ -238,13 +238,16 @@ jobs:
   # diagram without its accessible title fails; then check-dist on the
   # built site - every link and #fragment resolves, every page has its
   # title and description and is in its sidebar, the sitemap and the
-  # search index are whole. Then janus-site serves it, and the pinned
-  # browser (hack/browser) walks every page: both themes, a phone,
-  # search, axe, no console error, no CSP violation. Full history: git
-  # describe names the build.
-  docs:
+  # search index are whole. Always: a relative link from a page to a
+  # file of the repository is checked by the build, so a Go file renamed
+  # can break it. Full history: git describe names the build. The built
+  # site goes to docs-smoke as an artifact.
+  docs-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
+    outputs:
+      # Whether the change touches what the browser walk looks at.
+      docs: ${{ steps.changes.outputs.docs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -255,11 +258,6 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # One cache per job (modules and build cache, keyed on go.sum, the
-      # job's last one as a fallback): setup-go's single key was saved by
-      # whichever job finished first - vulncheck, in 25 s - so it never
-      # held the -race objects test needs nor build's. A PR reads main's
-      # caches, never the other way round.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -270,11 +268,92 @@ jobs:
 
       - run: make docs-build
 
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docsdist-${{ github.sha }}
+          path: site/backend/docsdist
+          retention-days: 1
+          if-no-files-found: error
+
+      # What the browser walk (docs-smoke) depends on: the pages and
+      # their sources, the site that serves them, the walk itself. A
+      # pull request that touches none of it skips the walk - it took 4
+      # of the 5 minutes of the job it was in; a push to main always
+      # walks. Checked on the checkout (git diff against the PR's base),
+      # no third-party action, no permission. Never the required checks
+      # (lint, test, build): a skipped required check blocks a merge.
+      - id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            echo "docs=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BASE" "$GITHUB_SHA")
+          if grep -qE '^(docs/|site/|examples/|brand/|api/proto/|hack/browser/|internal/rbac/|(.*/)?README\.md$|Makefile$|hack/docs-[^/]*\.sh$|\.github/workflows/ci\.yml$)' <<<"$changed"; then
+            echo "docs=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "nothing the browser walk looks at changed: no walk"
+            echo "docs=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # janus-site serves the built docs, and the pinned browser (hack/browser)
+  # walks every page: both themes, a phone, search, axe, no console
+  # error, no CSP violation; then the Lighthouse budget. On its own
+  # since 2026-10-20 (it was the critical path of every run, docs or
+  # not), only when docs-build says the change concerns it.
+  docs-smoke:
+    needs: docs-build
+    if: ${{ needs.docs-build.outputs.docs == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ github.job }}-
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: docsdist-${{ github.sha }}
+          path: site/backend/docsdist
+
       - run: make docs-smoke
 
-      # The examples the docs show (examples/): OpenTofu validates the
-      # Terraform ones against the provider built here, promtool the
-      # Prometheus ones, docker compose the Controller's compose.yaml.
+  # The examples the docs show (examples/): OpenTofu validates the
+  # Terraform ones against the provider built here, promtool the
+  # Prometheus ones, docker compose the Controller's compose.yaml.
+  examples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ github.job }}-
+
       - run: make examples-check
 
   # The site's frontend (site/frontend/): its lint, and its committed build

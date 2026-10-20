@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # Optional extension: BIRD - BGP (and OSPF, BFD, static routes...) to
 # announce the node's addresses to the network, e.g. an anycast address

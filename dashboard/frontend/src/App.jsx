@@ -21,14 +21,12 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import AuditPage from './Audit.jsx'
 import { call, postJSON, SIGNED_OUT } from './call.js'
-import MachineConsole from './Console.jsx'
 import ControllerUpdate from './ControllerUpdate.jsx'
 import { FleetCard, FleetSetup, TrustBadge } from './Fleet.jsx'
-import HypervisorsPage, { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './Hypervisors.jsx'
+import { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './machines.jsx'
 import { navigate, useHashRoute } from './shared/route.js'
 import BrandMark from './shared/BrandMark.jsx'
 import RefreshButton from './shared/RefreshButton.jsx'
@@ -39,21 +37,30 @@ import { useNodeMetrics } from './nodeMetrics.js'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
-import { CliDevicePage, CliLoginPage } from './CliLogin.jsx'
 import { backupAlert } from './backupAlert.js'
-import BackupsPage from './Backups.jsx'
-import LogForwardingPage from './LogForwarding.jsx'
 import EnrollTokens from './Enroll.jsx'
 import HTTPSCertificate from './HTTPSCert.jsx'
-import { RestoreForm } from './Restore.jsx'
-import TokensPage from './Tokens.jsx'
-import UsersPage from './Users.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
 import { PrereleaseBadge } from './PrereleaseBadge.jsx'
 import { SupportBadge } from './SupportBadge.jsx'
 import { worstSeverity } from './severity.js'
-import { Badge, Card, ErrorBox, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
+import { Badge, Card, ErrorBox, Loading, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
+import { lazyView } from './shared/lazy.jsx'
 import { useSplash, useSplashStep } from './shared/Splash.jsx'
+
+// The nodes page comes with the page; the other tabs, the machines'
+// console, the CLI sign-in pages and the restore form in their own
+// chunks, fetched when first shown (shared/lazy.jsx).
+const AuditPage = lazyView(() => import('./Audit.jsx'))
+const BackupsPage = lazyView(() => import('./Backups.jsx'))
+const HypervisorsPage = lazyView(() => import('./Hypervisors.jsx'))
+const LogForwardingPage = lazyView(() => import('./LogForwarding.jsx'))
+const MachineConsole = lazyView(() => import('./Console.jsx'))
+const TokensPage = lazyView(() => import('./Tokens.jsx'))
+const UsersPage = lazyView(() => import('./Users.jsx'))
+const CliLoginPage = lazyView(() => import('./CliLogin.jsx').then((m) => ({ default: m.CliLoginPage })))
+const CliDevicePage = lazyView(() => import('./CliLogin.jsx').then((m) => ({ default: m.CliDevicePage })))
+const RestoreForm = lazyView(() => import('./Restore.jsx').then((m) => ({ default: m.RestoreForm })))
 
 // A node's page is on this origin too, under /nodes/<id>/ (dashboard/
 // backend/internal/nodeproxy): it acts for the signed-in account.
@@ -930,7 +937,9 @@ function AuthGate({ children }) {
   if (status.setup_required)
     return restoring ? (
       <AuthScreen title="First run - restore a backup">
-        <RestoreForm onCancel={() => setRestoring(false)} />
+        <Suspense fallback={<Loading />}>
+          <RestoreForm onCancel={() => setRestoring(false)} />
+        </Suspense>
       </AuthScreen>
     ) : (
       <SetupForm onDone={refreshStatus} onRestore={() => setRestoring(true)} />
@@ -1212,7 +1221,12 @@ function MainApp() {
           active={tab}
           onChange={(id) => navigate(id === 'nodes' ? '/' : `/${id}`)}
         />
-        {consoleOf && <MachineConsole machine={consoleOf} onClose={() => setConsoleOf(null)} />}
+        {consoleOf && (
+          <Suspense fallback={null}>
+            <MachineConsole machine={consoleOf} onClose={() => setConsoleOf(null)} />
+          </Suspense>
+        )}
+        <Suspense fallback={<Loading />}>
         {route.startsWith('/cli-login') ? (
           <CliLoginPage route={route} />
         ) : route.startsWith('/cli-device') ? (
@@ -1316,6 +1330,7 @@ function MainApp() {
             {can('admin') && <HTTPSCertificate />}
           </div>
         )}
+        </Suspense>
       </main>
     </div>
   )

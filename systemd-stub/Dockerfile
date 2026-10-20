@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # Exports systemd's UKI stubs - linuxx64.efi.stub (amd64) and
 # linuxaa64.efi.stub (arm64) - that `ukify` embeds in every Janus UKI
