@@ -13,6 +13,7 @@ import { compareRelease } from '../../releases.js'
 import { securityText, securityTone } from '../../severity.js'
 import { SupportBadge } from '../../SupportBadge.jsx'
 import { variantNote } from '../../variants.js'
+import { UpdateBadge } from './UpdateBadge.jsx'
 
 const FILES = [
   { field: 'rootfs_squashfs', label: 'rootfs.squashfs' },
@@ -971,13 +972,3 @@ function RelayProgress({ p }) {
 
 const RELAY_FILES = ['rootfs.squashfs', 'rootfs.verity', 'uki-a.efi', 'uki-b.efi']
 
-// UpdateBadge is the update state of a node, from /api/update-check.
-export function UpdateBadge({ uc }) {
-  if (!uc) return null
-  if (uc.state === 'building') return <Badge tone="info">Building</Badge>
-  if (uc.state === 'failed') return <Badge tone="danger">Build failed</Badge>
-  if (uc.state !== 'ready') return <Badge tone="warn">Unavailable</Badge>
-  if (uc.security_update) return <SecurityBadge severity={uc.security_update}>Security update available</SecurityBadge>
-  if (uc.support?.retired && !uc.update_available) return <SupportBadge support={uc.support} />
-  return uc.update_available ? <Badge tone="accent">Update available</Badge> : <Badge tone="ok">Up to date</Badge>
-}

@@ -36,12 +36,13 @@ import {
   Waypoints,
   Workflow,
 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
 import BrandMark from '../shared/BrandMark.jsx'
 import RefreshButton from '../shared/RefreshButton.jsx'
 import ThemePicker from '../shared/ThemePicker.jsx'
 import { Badge, Loading } from '../shared/ui.jsx'
+import { lazyView } from '../shared/lazy.jsx'
 import { useSplash, useSplashStep } from '../shared/Splash.jsx'
 import { PrereleaseBadge } from '../PrereleaseBadge.jsx'
 import { SecurityBadge } from '../SecurityBadge.jsx'
@@ -49,35 +50,40 @@ import { securityText, securityTone } from '../severity.js'
 import { INTERVALS, navigate, useHashRoute, useMetrics, useNodeStatus, usePoll, useRefresh } from './hooks.jsx'
 import { MayContext } from './may.js'
 import { usePinned } from './rail.js'
-import Access from './views/Access.jsx'
-import Capture from './views/Capture.jsx'
 import Events from './views/Events.jsx'
-import Files from './views/Files.jsx'
-import Flow from './views/Flow.jsx'
-import HAProxy from './views/HAProxy.jsx'
-import Kernel from './views/Kernel.jsx'
-import LogForwarding from './views/LogForwarding.jsx'
-import Logs from './views/Logs.jsx'
 import Metrics from './views/Metrics.jsx'
-import Firewall from './views/Firewall.jsx'
-import GuestAgent from './views/GuestAgent.jsx'
-import JanusExporter from './views/JanusExporter.jsx'
-import NodeExporter from './views/NodeExporter.jsx'
-import VRRP from './views/VRRP.jsx'
-import BGP from './views/BGP.jsx'
-import Consul from './views/Consul.jsx'
-import LetsEncrypt from './views/LetsEncrypt.jsx'
 import NetworkView from './views/Network.jsx'
-import NetworkConfig from './views/NetworkConfig.jsx'
 import Overview from './views/Overview.jsx'
 import PowerView from './views/Power.jsx'
-import Probe from './views/Probe.jsx'
 import Processes from './views/Processes.jsx'
 import Services from './views/Services.jsx'
 import Storage from './views/Storage.jsx'
-import Support from './views/Support.jsx'
-import Sysctl from './views/Sysctl.jsx'
-import Update from './views/Update.jsx'
+
+// The views a page opens on - the overview, the metrics, the small
+// monitoring ones - come with the page; the rest in their own chunks,
+// fetched when first shown (shared/lazy.jsx). Twenty-nine views in one
+// bundle made it 627 KB.
+const Access = lazyView(() => import('./views/Access.jsx'))
+const Capture = lazyView(() => import('./views/Capture.jsx'))
+const Files = lazyView(() => import('./views/Files.jsx'))
+const Flow = lazyView(() => import('./views/Flow.jsx'))
+const HAProxy = lazyView(() => import('./views/HAProxy.jsx'))
+const Kernel = lazyView(() => import('./views/Kernel.jsx'))
+const LogForwarding = lazyView(() => import('./views/LogForwarding.jsx'))
+const Logs = lazyView(() => import('./views/Logs.jsx'))
+const Firewall = lazyView(() => import('./views/Firewall.jsx'))
+const GuestAgent = lazyView(() => import('./views/GuestAgent.jsx'))
+const JanusExporter = lazyView(() => import('./views/JanusExporter.jsx'))
+const NodeExporter = lazyView(() => import('./views/NodeExporter.jsx'))
+const VRRP = lazyView(() => import('./views/VRRP.jsx'))
+const BGP = lazyView(() => import('./views/BGP.jsx'))
+const Consul = lazyView(() => import('./views/Consul.jsx'))
+const LetsEncrypt = lazyView(() => import('./views/LetsEncrypt.jsx'))
+const NetworkConfig = lazyView(() => import('./views/NetworkConfig.jsx'))
+const Probe = lazyView(() => import('./views/Probe.jsx'))
+const Support = lazyView(() => import('./views/Support.jsx'))
+const Sysctl = lazyView(() => import('./views/Sysctl.jsx'))
+const Update = lazyView(() => import('./views/Update.jsx'))
 
 const NAV = [
   {
@@ -338,7 +344,9 @@ export default function App() {
           {!me.data && !me.error ? (
             <Loading />
           ) : allowed ? (
-            <View key={current.view === Update ? route : current.path} {...(current.props || {})} route={route} navigate={navigate} />
+            <Suspense fallback={<Loading />}>
+              <View key={current.view === Update ? route : current.path} {...(current.props || {})} route={route} navigate={navigate} />
+            </Suspense>
           ) : (
             <div className="notice">{current.label}: your role ({role}) doesn&apos;t reach it on this node.</div>
           )}
