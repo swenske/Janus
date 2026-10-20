@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -318,6 +320,148 @@ func BenchmarkElasticSend(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if _, err := sk.Send(context.Background(), recs); err != nil {
 			b.Fatal(err)
+		}
+	}
+}
+
+// legacyDocument is the document as it was built before the typed one
+// (a map of maps, encoded with its keys sorted): what the cluster
+// stored until now.
+func (s *elasticSink) legacyDocument(r Record, host, nodeID string, labels map[string]string) map[string]any {
+	sev := clampSeverity(r.Severity)
+	doc := map[string]any{
+		"@timestamp": r.Time.UTC().Format(time.RFC3339Nano),
+		"message":    r.Message,
+		"log": map[string]any{
+			"level":  SeverityName(sev),
+			"syslog": map[string]any{"severity": map[string]any{"code": sev, "name": SeverityName(sev)}},
+		},
+		"host":        map[string]any{"name": host, "hostname": host},
+		"service":     map[string]any{"name": r.Service},
+		"event":       map[string]any{"dataset": dataset(r.Source), "module": "janus"},
+		"data_stream": map[string]any{"type": "logs", "dataset": dataset(r.Source), "namespace": s.cfg.Namespace},
+		"agent":       map[string]any{"type": s.env.meta.Agent, "version": s.env.meta.AgentVersion},
+	}
+	janus := map[string]any{"source": r.Source}
+	if nodeID != "" {
+		janus["node_id"] = nodeID
+		doc["host"].(map[string]any)["id"] = nodeID
+	}
+	if s.env.meta.Slot != "" {
+		janus["slot"] = s.env.meta.Slot
+	}
+	if s.env.meta.Schematic != "" {
+		janus["schematic"] = s.env.meta.Schematic
+	}
+	doc["janus"] = janus
+	if len(labels) > 0 {
+		doc["labels"] = labels
+	}
+	for k, v := range r.Fields {
+		switch k {
+		case "event":
+			if m, ok := v.(map[string]any); ok {
+				ev := doc["event"].(map[string]any)
+				if t, ok := m["type"]; ok {
+					ev["action"] = t
+				}
+				if id, ok := m["id"]; ok {
+					ev["sequence"] = id
+				}
+			}
+		case "audit":
+			if m, ok := v.(map[string]any); ok {
+				user := map[string]any{"name": m["caller"]}
+				if roles, ok := m["roles"]; ok {
+					user["roles"] = roles
+				}
+				doc["user"] = user
+				if p, ok := m["peer"].(string); ok && p != "" {
+					src := map[string]any{"address": p}
+					if host, _, err := net.SplitHostPort(p); err == nil {
+						src["ip"] = host
+					}
+					doc["source"] = src
+				}
+				ev := doc["event"].(map[string]any)
+				ev["outcome"] = "success"
+				if m["code"] != "OK" {
+					ev["outcome"] = "failure"
+				}
+				if ms, ok := m["duration_ms"].(float64); ok {
+					ev["duration"] = int64(ms * 1e6)
+				}
+				ev["category"] = []string{"configuration"}
+				janus["audit"] = m
+			}
+		case "payload":
+			if b, err := json.Marshal(v); err == nil {
+				janus["payload"] = string(b)
+			}
+		default:
+			janus[k] = v
+		}
+	}
+	if r.Source == SourceAccess && strings.HasPrefix(r.Message, "{") {
+		var fields map[string]any
+		if json.Unmarshal([]byte(r.Message), &fields) == nil {
+			doc["haproxy"] = fields
+		}
+	}
+	return doc
+}
+
+// The typed documents are byte for byte the maps' - but an access log's
+// fields, kept as HAProxy wrote them (the map had them sorted): the same
+// once parsed.
+func TestElasticDocumentsAsBefore(t *testing.T) {
+	at := time.Date(2026, 10, 20, 8, 0, 0, 123456789, time.UTC)
+	audit := func(m map[string]any) Record {
+		return Record{Time: at, Source: SourceAudit, Service: "janusd", Severity: SevNotice, Message: "HAProxyService/ApplyConfig: admin", ID: "0011223344556677-9", Fields: map[string]any{"audit": m}}
+	}
+	recs := []Record{
+		{Time: at, Source: SourceJanusd, Service: "janusd", Severity: SevNotice, Message: "api: SystemService/Reboot: admin (os:admin)", ID: "0011223344556677-42"},
+		{Time: at, Source: SourceKernel, Service: "kernel", Severity: 9, Message: "usb 1-1: new high-speed USB device <b>&amp;</b>"},
+		EventRecord(7, at, "haproxy.config.applied", []byte(`{"bytes":512,"by":"admin"}`), "janusd"),
+		audit(map[string]any{"caller": "admin", "roles": []any{"os:admin"}, "peer": "10.1.2.3:4567", "code": "OK", "duration_ms": 12.5}),
+		audit(map[string]any{"caller": "lea", "code": "PermissionDenied", "duration_ms": 0.0}),
+		audit(map[string]any{"caller": nil, "peer": "not-a-host-port"}),
+		{Time: at, Source: SourceHAProxy, Service: "haproxy", Severity: SevWarning, Message: "[WARNING] x", Fields: map[string]any{"extra": "field", "n": 3.0}},
+		{Time: at, Source: SourceAccess, Service: "haproxy", Severity: SevInfo, Message: `{"status":200,"client_ip":"10.0.2.2","path":"/a?b=1&c=<x>","ratio":1.5,"ok":true,"nil":null}`},
+		{Time: at, Source: SourceAccess, Service: "haproxy", Severity: SevInfo, Message: `{"broken":`},
+		{Time: at, Source: SourceAccess, Service: "haproxy", Severity: SevInfo, Message: `10.0.2.2:1234 [20/Oct/2026] plain`},
+	}
+	for _, c := range []struct {
+		name   string
+		labels map[string]string
+		nodeID string
+	}{
+		{"a node with labels", map[string]string{"env": "prod", "site": "par"}, "f55632ea6473b530ee44c09feb798d3b672273202eaee28994ed8cd943c4347e"},
+		{"the Controller", nil, ""},
+	} {
+		sk := newESSink(t, esTarget("http://127.0.0.1:9", ElasticsearchTarget{APIKey: "x"}), c.labels)
+		for i, r := range recs {
+			encode := func(v any) string {
+				var b strings.Builder
+				enc := json.NewEncoder(&b)
+				enc.SetEscapeHTML(false)
+				if err := enc.Encode(v); err != nil {
+					t.Fatal(err)
+				}
+				return b.String()
+			}
+			got := encode(sk.document(r, "lb1", c.nodeID, c.labels))
+			want := encode(sk.legacyDocument(r, "lb1", c.nodeID, c.labels))
+			if r.Source == SourceAccess && strings.HasPrefix(r.Message, "{") && json.Valid([]byte(r.Message)) {
+				var g, w map[string]any
+				if json.Unmarshal([]byte(got), &g) != nil || json.Unmarshal([]byte(want), &w) != nil || !reflect.DeepEqual(g, w) {
+					t.Errorf("%s, record %d (access): parsed documents differ\n got %s\nwant %s", c.name, i, got, want)
+				}
+				continue
+			}
+			if got != want {
+				t.Errorf("%s, record %d: the document changed\n got %s\nwant %s", c.name, i, got, want)
+			}
 		}
 	}
 }

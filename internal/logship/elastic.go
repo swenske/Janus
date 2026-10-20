@@ -104,11 +104,12 @@ func (s *elasticSink) Send(ctx context.Context, recs []Record) (int, error) {
 	enc.SetEscapeHTML(false)
 	host, nodeID, labels := s.env.meta.hostname(), s.env.nodeID(), s.env.labels()
 	for _, r := range recs {
-		action := map[string]any{"_index": dataStream(r.Source, s.cfg.Namespace)}
+		var action esAction
+		action.Create.Index = dataStream(r.Source, s.cfg.Namespace)
 		if r.ID != "" {
-			action["_id"] = docID(nodeID, r.ID)
+			action.Create.ID = docID(nodeID, r.ID)
 		}
-		if err := enc.Encode(map[string]any{"create": action}); err != nil {
+		if err := enc.Encode(&action); err != nil {
 			return 0, err
 		}
 		if err := enc.Encode(s.document(r, host, nodeID, labels)); err != nil {
@@ -235,26 +236,106 @@ func docID(nodeID, id string) string {
 	return nodeID + "-" + id
 }
 
+// The _bulk lines, typed: a map of maps per record was built and
+// encoded by reflection, its keys sorted, for every access log line. The
+// fields keep the order encoding/json gave the maps - sorted - so the
+// documents are byte for byte what they were (TestElasticDocumentsAsBefore).
+type esAction struct {
+	Create struct {
+		ID    string `json:"_id,omitempty"`
+		Index string `json:"_index"`
+	} `json:"create"`
+}
+
+type esDocument struct {
+	Timestamp  string            `json:"@timestamp"`
+	Agent      esAgent           `json:"agent"`
+	DataStream esDataStream      `json:"data_stream"`
+	Event      esEvent           `json:"event"`
+	HAProxy    json.RawMessage   `json:"haproxy,omitempty"`
+	Host       esHost            `json:"host"`
+	Janus      map[string]any    `json:"janus"`
+	Labels     map[string]string `json:"labels,omitempty"`
+	Log        esLog             `json:"log"`
+	Message    string            `json:"message"`
+	Service    esService         `json:"service"`
+	Source     *esSource         `json:"source,omitempty"`
+	User       *esUser           `json:"user,omitempty"`
+}
+
+type esAgent struct {
+	Type    string `json:"type"`
+	Version string `json:"version"`
+}
+
+type esDataStream struct {
+	Dataset   string `json:"dataset"`
+	Namespace string `json:"namespace"`
+	Type      string `json:"type"`
+}
+
+type esEvent struct {
+	Action   any      `json:"action,omitempty"`
+	Category []string `json:"category,omitempty"`
+	Dataset  string   `json:"dataset"`
+	Duration *int64   `json:"duration,omitempty"`
+	Module   string   `json:"module"`
+	Outcome  string   `json:"outcome,omitempty"`
+	Sequence any      `json:"sequence,omitempty"`
+}
+
+type esHost struct {
+	Hostname string `json:"hostname"`
+	ID       string `json:"id,omitempty"`
+	Name     string `json:"name"`
+}
+
+type esLog struct {
+	Level  string   `json:"level"`
+	Syslog esSyslog `json:"syslog"`
+}
+
+type esSyslog struct {
+	Severity esSeverity `json:"severity"`
+}
+
+type esSeverity struct {
+	Code int    `json:"code"`
+	Name string `json:"name"`
+}
+
+type esService struct {
+	Name string `json:"name"`
+}
+
+type esSource struct {
+	Address string `json:"address"`
+	IP      string `json:"ip,omitempty"`
+}
+
+type esUser struct {
+	Name  any `json:"name"`
+	Roles any `json:"roles,omitempty"`
+}
+
 // document is r as an ECS document.
-func (s *elasticSink) document(r Record, host, nodeID string, labels map[string]string) map[string]any {
+func (s *elasticSink) document(r Record, host, nodeID string, labels map[string]string) *esDocument {
 	sev := clampSeverity(r.Severity)
-	doc := map[string]any{
-		"@timestamp": r.Time.UTC().Format(time.RFC3339Nano),
-		"message":    r.Message,
-		"log": map[string]any{
-			"level":  SeverityName(sev),
-			"syslog": map[string]any{"severity": map[string]any{"code": sev, "name": SeverityName(sev)}},
-		},
-		"host":        map[string]any{"name": host, "hostname": host},
-		"service":     map[string]any{"name": r.Service},
-		"event":       map[string]any{"dataset": dataset(r.Source), "module": "janus"},
-		"data_stream": map[string]any{"type": "logs", "dataset": dataset(r.Source), "namespace": s.cfg.Namespace},
-		"agent":       map[string]any{"type": s.env.meta.Agent, "version": s.env.meta.AgentVersion},
+	ds := dataset(r.Source)
+	doc := &esDocument{
+		Timestamp:  r.Time.UTC().Format(time.RFC3339Nano),
+		Message:    r.Message,
+		Log:        esLog{Level: SeverityName(sev), Syslog: esSyslog{Severity: esSeverity{Code: sev, Name: SeverityName(sev)}}},
+		Host:       esHost{Name: host, Hostname: host, ID: nodeID},
+		Service:    esService{Name: r.Service},
+		Event:      esEvent{Dataset: ds, Module: "janus"},
+		DataStream: esDataStream{Type: "logs", Dataset: ds, Namespace: s.cfg.Namespace},
+		Agent:      esAgent{Type: s.env.meta.Agent, Version: s.env.meta.AgentVersion},
 	}
-	janus := map[string]any{"source": r.Source}
+	janus := make(map[string]any, 4+len(r.Fields))
+	janus["source"] = r.Source
 	if nodeID != "" {
 		janus["node_id"] = nodeID
-		doc["host"].(map[string]any)["id"] = nodeID
 	}
 	if s.env.meta.Slot != "" {
 		janus["slot"] = s.env.meta.Slot
@@ -262,9 +343,9 @@ func (s *elasticSink) document(r Record, host, nodeID string, labels map[string]
 	if s.env.meta.Schematic != "" {
 		janus["schematic"] = s.env.meta.Schematic
 	}
-	doc["janus"] = janus
+	doc.Janus = janus
 	if len(labels) > 0 {
-		doc["labels"] = labels
+		doc.Labels = labels
 	}
 	for k, v := range r.Fields {
 		switch k {
@@ -272,39 +353,38 @@ func (s *elasticSink) document(r Record, host, nodeID string, labels map[string]
 			// The event log's type and ID: ECS's event.action and
 			// event.sequence.
 			if m, ok := v.(map[string]any); ok {
-				ev := doc["event"].(map[string]any)
 				if t, ok := m["type"]; ok {
-					ev["action"] = t
+					doc.Event.Action = t
 				}
 				if id, ok := m["id"]; ok {
-					ev["sequence"] = id
+					doc.Event.Sequence = id
 				}
 			}
 		case "audit":
 			// Who, from where, how it ended: ECS's user, source and
 			// event.outcome - and the whole entry under janus.audit.
 			if m, ok := v.(map[string]any); ok {
-				user := map[string]any{"name": m["caller"]}
+				user := &esUser{Name: m["caller"]}
 				if roles, ok := m["roles"]; ok {
-					user["roles"] = roles
+					user.Roles = roles
 				}
-				doc["user"] = user
+				doc.User = user
 				if p, ok := m["peer"].(string); ok && p != "" {
-					src := map[string]any{"address": p}
+					src := &esSource{Address: p}
 					if host, _, err := net.SplitHostPort(p); err == nil {
-						src["ip"] = host
+						src.IP = host
 					}
-					doc["source"] = src
+					doc.Source = src
 				}
-				ev := doc["event"].(map[string]any)
-				ev["outcome"] = "success"
+				doc.Event.Outcome = "success"
 				if m["code"] != "OK" {
-					ev["outcome"] = "failure"
+					doc.Event.Outcome = "failure"
 				}
 				if ms, ok := m["duration_ms"].(float64); ok {
-					ev["duration"] = int64(ms * 1e6)
+					d := int64(ms * 1e6)
+					doc.Event.Duration = &d
 				}
-				ev["category"] = []string{"configuration"}
+				doc.Event.Category = []string{"configuration"}
 				janus["audit"] = m
 			}
 		case "payload":
@@ -317,12 +397,12 @@ func (s *elasticSink) document(r Record, host, nodeID string, labels map[string]
 			janus[k] = v
 		}
 	}
-	if r.Source == SourceAccess && strings.HasPrefix(r.Message, "{") {
-		// An access log HAProxy formats as JSON (%{+json}o): its fields.
-		var fields map[string]any
-		if json.Unmarshal([]byte(r.Message), &fields) == nil {
-			doc["haproxy"] = fields
-		}
+	if r.Source == SourceAccess && strings.HasPrefix(r.Message, "{") && json.Valid([]byte(r.Message)) {
+		// An access log HAProxy formats as JSON (%{+json}o): its
+		// fields, as HAProxy wrote them - not decoded into a map and
+		// encoded again (the keys came out sorted then; the cluster
+		// doesn't mind the order).
+		doc.HAProxy = json.RawMessage(r.Message)
 	}
 	return doc
 }
