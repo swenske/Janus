@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,4 +192,31 @@ func TestProcessesCarryCPUSeconds(t *testing.T) {
 		}
 	}
 	t.Fatalf("own pid %d not listed among %d processes", me, len(resp.Processes))
+}
+
+// procStat64 is /proc/stat as a 64-vCPU host shows it: 64 "cpuN" lines
+// and an "intr" line of 2000 counters, none of which SystemStat reads.
+func procStat64() string {
+	var b strings.Builder
+	b.WriteString("cpu  7056906 456708 1854500 210542554 699538 0 533616 0 988 0\n")
+	for i := 0; i < 64; i++ {
+		fmt.Fprintf(&b, "cpu%d 442827 28970 125299 13135937 37014 0 306215 0 80 0\n", i)
+	}
+	b.WriteString("intr 1565512303")
+	for i := 0; i < 2000; i++ {
+		fmt.Fprintf(&b, " %d", i*7)
+	}
+	b.WriteString("\nctxt 2919364153\nbtime 1790747957\nprocesses 1180583\nprocs_running 3\nprocs_blocked 0\nsoftirq 1081041128 3 324254498 58 1398371 1 0 15573203 420187104 1 319627889\n")
+	return b.String()
+}
+
+func BenchmarkParseProcStat(b *testing.B) {
+	content := procStat64()
+	b.SetBytes(int64(len(content)))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if r := parseProcStat(content); r.CpuTotalTicks == 0 {
+			b.Fatal("no cpu line")
+		}
+	}
 }

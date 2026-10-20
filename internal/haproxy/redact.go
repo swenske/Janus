@@ -1,6 +1,7 @@
 package haproxy
 
 import (
+	"bytes"
 	"regexp"
 	"sort"
 	"strings"
@@ -40,13 +41,14 @@ var (
 // secret written anywhere else (a comment, a map file, a Lua string)
 // stays.
 func RedactConfig(cfg []byte) []byte {
-	var b strings.Builder
+	var b bytes.Buffer
+	b.Grow(len(cfg))
 	for _, line := range strings.SplitAfter(string(cfg), "\n") {
 		body := strings.TrimSuffix(line, "\n")
 		b.WriteString(redactLine(body))
 		b.WriteString(line[len(body):])
 	}
-	return []byte(b.String())
+	return b.Bytes()
 }
 
 // cut is a part of a line to replace.
@@ -144,6 +146,9 @@ func redactLine(line string) string {
 	// escaped CR or the word's end.
 	for _, w := range ws {
 		raw := line[w.Start:w.End]
+		if strings.IndexByte(raw, ':') < 0 {
+			continue // inlineHeader needs the header's colon: most words
+		}
 		for _, m := range inlineHeader.FindAllStringIndex(raw, -1) {
 			end := len(raw)
 			if k := strings.Index(raw[m[1]:], `\r`); k >= 0 {

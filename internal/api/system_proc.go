@@ -45,6 +45,13 @@ func (s *System) SystemStat(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1
 func parseProcStat(content string) *janusv1alpha1.SystemStatResponse {
 	resp := &janusv1alpha1.SystemStatResponse{}
 	for _, line := range strings.Split(content, "\n") {
+		// Only "cpu " and the two-field counters are read: "intr" holds
+		// one count per IRQ (thousands of fields), "softirq" and each
+		// "cpuN" aren't used - not worth splitting, every 2 s per node.
+		if !strings.HasPrefix(line, "cpu ") && !strings.HasPrefix(line, "btime ") &&
+			!strings.HasPrefix(line, "ctxt ") && !strings.HasPrefix(line, "processes ") {
+			continue
+		}
 		f := strings.Fields(line)
 		if len(f) >= 9 && f[0] == "cpu" {
 			// user nice system idle iowait irq softirq steal [guest

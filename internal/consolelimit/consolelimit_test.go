@@ -149,3 +149,17 @@ func TestRunWritesLinesThenNotes(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// A budget long exhausted (the clock never moves): every line is left
+// out, the common case under load.
+func BenchmarkWriteDropped(b *testing.B) {
+	c := &clock{time.Unix(0, 0)}
+	bud := newBudget(io.Discard, 1, 1, c.now)
+	w := bud.For("haproxy")
+	line := []byte("10.200.40.7:40000 [15/Oct/2026:21:30:01.123] web web/<NOSRV> 0/-1/-1/-1/0 200 64 - - LR-- 1/1/0/0/0 0/0 \"GET / HTTP/1.1\"\n")
+	b.SetBytes(int64(len(line)))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = w.Write(line)
+	}
+}

@@ -66,3 +66,45 @@ func TestRedactConfig(t *testing.T) {
 		t.Errorf("a configuration without a secret changed: %q", got)
 	}
 }
+
+// A 1 MB configuration with a credential header and a password here and
+// there, like a real one.
+func BenchmarkRedactConfig(b *testing.B) {
+	block := `frontend fe_web
+    bind :443 ssl crt /etc/haproxy/certs/
+    http-request set-header X-Forwarded-Proto https
+    acl is_api path_beg /api
+    use_backend be_api if is_api
+    default_backend be_web
+
+backend be_web
+    option httpchk GET /healthz HTTP/1.1\r\nHost:\ web.example.com\r\nAuthorization:\ Bearer\ s3cret
+    http-check expect status 200
+    server web01 10.0.10.11:8080 check weight 100 maxconn 500
+    server web02 10.0.10.12:8080 check weight 100 maxconn 500
+    server web03 10.0.10.13:8080 check backup
+
+userlist ops
+    user admin password $6$salt$hash
+    user bob insecure-password hunter2
+
+listen stats
+    bind :8404
+    stats enable
+    stats uri /stats
+    stats auth admin:hunter2
+
+`
+	var cfg strings.Builder
+	for cfg.Len() < 1<<20 {
+		cfg.WriteString(block)
+	}
+	in := []byte(cfg.String())
+	b.SetBytes(int64(len(in)))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if out := RedactConfig(in); len(out) == 0 {
+			b.Fatal("empty")
+		}
+	}
+}

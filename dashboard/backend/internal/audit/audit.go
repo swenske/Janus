@@ -120,6 +120,12 @@ func (l *Log) Latest() uint64 {
 // first, and the last ID returned (id when none).
 func (l *Log) Since(id uint64, limit int) ([]Entry, uint64) {
 	l.mu.Lock()
+	if id >= l.next-1 {
+		// Nothing after id - the log shipper asks at least twice a
+		// flush: not worth reading and decoding the files.
+		l.mu.Unlock()
+		return nil, id
+	}
 	all, _ := l.all()
 	l.mu.Unlock()
 	var out []Entry

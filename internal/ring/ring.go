@@ -4,6 +4,7 @@
 package ring
 
 import (
+	"bytes"
 	"sync"
 )
 
@@ -124,17 +125,30 @@ const maxLine = 64 * 1024
 func (w *LineWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	for _, c := range p {
-		if c == '\n' {
-			w.line()
-			continue
+	n := len(p)
+	for len(p) > 0 {
+		i := bytes.IndexByte(p, '\n')
+		if i < 0 {
+			w.add(p)
+			break
 		}
-		w.partial = append(w.partial, c)
+		w.add(p[:i])
+		w.line()
+		p = p[i+1:]
+	}
+	return n, nil
+}
+
+// add appends p to the pending line, cut at maxLine.
+func (w *LineWriter) add(p []byte) {
+	for len(p) > 0 {
+		k := min(len(p), maxLine-len(w.partial))
+		w.partial = append(w.partial, p[:k]...)
+		p = p[k:]
 		if len(w.partial) >= maxLine {
 			w.line()
 		}
 	}
-	return len(p), nil
 }
 
 func (w *LineWriter) line() {
