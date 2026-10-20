@@ -96,11 +96,14 @@ async function visit(page, url, scheme) {
   )
 }
 
-// Every page: from the home, follow the links (sidebar included).
+// Every page: from the home, follow the links (sidebar included). The
+// light pass first - it finds the pages -, then the dark pass, the phone
+// and axe at once, each in its own context: the four in sequence took
+// 308 s for 71 pages in CI.
 const pages = new Set()
 const viewerChecked = new Set()
 let viewerPage
-for (const scheme of ['light', 'dark']) {
+async function crawl(scheme) {
   const { ctx, page } = await newPage(scheme)
   const queue = [site + root]
   const seen = new Set(queue)
@@ -155,10 +158,13 @@ for (const scheme of ['light', 'dark']) {
   await ctx.close()
 }
 
+// shard returns the pages one of n parallel passes takes.
+const shard = (i, n) => [...pages].filter((_, k) => k % n === i)
+
 // A phone: nothing wider than the screen.
-{
+async function phone(i, n) {
   const { ctx, page } = await newPage('light', { width: 390, height: 844 })
-  for (const url of pages) {
+  for (const url of shard(i, n)) {
     await page.goto(url, { waitUntil: 'networkidle' })
     const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
     if (over > 1) problems.push(`${url} (phone): ${over}px wider than the screen`)
@@ -167,9 +173,9 @@ for (const scheme of ['light', 'dark']) {
 }
 
 // Accessibility: axe on every page, serious and critical issues only.
-{
+async function axe(i, n) {
   const { ctx, page } = await newPage('light')
-  for (const url of pages) {
+  for (const url of shard(i, n)) {
     await page.goto(url, { waitUntil: 'networkidle' })
     const { violations } = await new AxeBuilder({ page }).analyze()
     for (const v of violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')) {
@@ -177,7 +183,7 @@ for (const scheme of ['light', 'dark']) {
     }
   }
   // The diagram viewer, open.
-  if (viewerPage) {
+  if (viewerPage && i === 0) {
     await page.goto(viewerPage, { waitUntil: 'networkidle' })
     const zoom = page.locator('pre.mermaid > .diagram-zoom').first()
     await zoom.scrollIntoViewIfNeeded()
@@ -191,6 +197,8 @@ for (const scheme of ['light', 'dark']) {
   await ctx.close()
 }
 
+await crawl('light')
+await Promise.all([crawl('dark'), phone(0, 2), phone(1, 2), axe(0, 2), axe(1, 2)])
 await browser.close()
 if (problems.length) {
   console.error(`docs smoke: ${problems.length} problem(s):\n  ${[...new Set(problems)].join('\n  ')}`)

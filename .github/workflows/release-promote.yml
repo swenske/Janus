@@ -38,6 +38,7 @@ jobs:
     # janus-publish runners only: the apt publishing key lives there
     # (docs/ci-runners.md).
     runs-on: [self-hosted, docker, janus, janus-publish]
+    timeout-minutes: 30
     # contents: write to edit the release, actions: write to dispatch
     # site-deploy.
     permissions:

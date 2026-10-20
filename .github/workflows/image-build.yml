@@ -37,6 +37,8 @@ jobs:
   test-boot:
     name: "Tests: Boot, dm-verity, SELinux, UEFI, ISO, PXE, arm64"
     runs-on: [self-hosted, docker, janus]
+    # A hung QEMU test held an instance 6 h (the default) before.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -325,6 +327,8 @@ jobs:
   test-lifecycle:
     name: "Tests: A/B slots, rollback, upgrades, install"
     runs-on: [self-hosted, docker, janus]
+    # A hung QEMU test held an instance 6 h (the default) before.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -490,6 +494,8 @@ jobs:
   test-api:
     name: "Tests: API, HAProxy, Controller, self-registration"
     runs-on: [self-hosted, docker, janus]
+    # A hung QEMU test held an instance 6 h (the default) before.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -797,6 +803,8 @@ jobs:
   test-network:
     name: "Tests: Network config, extensions, firewall, VRRP, BGP"
     runs-on: [self-hosted, docker, janus]
+    # A hung QEMU test held an instance 6 h (the default) before.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -850,6 +858,8 @@ jobs:
   test-services:
     name: "Tests: Let's Encrypt, Consul"
     runs-on: [self-hosted, docker, janus]
+    # A hung QEMU test held an instance 6 h (the default) before.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -882,6 +892,8 @@ jobs:
   test-variants:
     name: "Tests: HAProxy branches, kernel tracks"
     runs-on: [self-hosted, docker, janus]
+    # A hung QEMU test held an instance 6 h (the default) before.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -929,6 +941,8 @@ jobs:
   test-hardware:
     name: "Tests: Secure Boot, bare metal, Controller self-update, hypervisors and Terraform"
     runs-on: [self-hosted, docker, janus]
+    # A hung QEMU test held an instance 6 h (the default) before.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -996,6 +1010,8 @@ jobs:
   docs-screenshots:
     name: "Docs: the Controller's screenshots"
     runs-on: [self-hosted, docker, janus]
+    # A hung QEMU test held an instance 6 h (the default) before.
+    timeout-minutes: 120
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1021,6 +1037,7 @@ jobs:
     # published (and its release bundle signed) - never from a machine
     # that isn't trusted to build bit-exact (docs/ci-runners.md).
     runs-on: [self-hosted, docker, janus, janus-publish]
+    timeout-minutes: 90
     # contents: write is only for the optional "Publish a real GitHub
     # Release" step at the very end (gated on release_version being
     # set); actions: write for dispatching site-deploy after it (a
