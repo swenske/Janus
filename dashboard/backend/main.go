@@ -50,6 +50,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/pki"
+	"github.com/swenske/Janus/internal/webstatic"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
@@ -231,7 +232,14 @@ func main() {
 	}
 	nodeproxy.NodeChanged = app.runner.syncNode
 
-	spa, err := fs.Sub(staticFiles, "static")
+	spaFiles, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		log.Fatalf("static assets: %v", err)
+	}
+	// The page's files with an ETag, gzip and Cache-Control
+	// (internal/webstatic): http.FileServerFS sent none of them for
+	// embedded files, so every page load fetched the whole 560 KB again.
+	spa, err := webstatic.SPA(spaFiles)
 	if err != nil {
 		log.Fatalf("static assets: %v", err)
 	}
@@ -269,7 +277,7 @@ func main() {
 
 // routes is the main port's API and the page: every API route behind a
 // gate naming the role a read and a change of it need.
-func (a *app) routes(spa fs.FS) *http.ServeMux {
+func (a *app) routes(spa http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/status", a.handleAuthStatus)
 	mux.HandleFunc("POST /api/auth/setup", a.handleAuthSetup)
@@ -306,7 +314,7 @@ func (a *app) routes(spa fs.FS) *http.ServeMux {
 	a.registerHypervisorRoutes(mux)
 	a.registerFleetRoutes(mux)
 	a.registerMachineRoutes(mux)
-	mux.Handle("/", http.FileServerFS(spa))
+	mux.Handle("/", spa)
 	return mux
 }
 

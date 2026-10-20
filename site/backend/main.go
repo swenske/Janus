@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/swenske/Janus/internal/schematic"
+	"github.com/swenske/Janus/internal/webstatic"
 )
 
 //go:embed all:static
@@ -55,7 +56,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	frontend, err := loadStatic(static)
+	frontend, err := webstatic.Load(static)
 	if err != nil || frontend["index.html"] == nil {
 		log.Fatalf("static: %v (index.html: %v)", err, frontend["index.html"] != nil)
 	}
@@ -90,13 +91,13 @@ var spaRoutes = []string{"/", "/builder", "/tour"}
 // (/builder... too: the builder keeps its state in the path's query) -
 // and for anything else index.html again, with a 404 (the frontend shows
 // its "not found" page; a crawler sees the status).
-func spa(files staticSet, publicURL string) http.Handler {
+func spa(files webstatic.Set, publicURL string) http.Handler {
 	index := files["index.html"]
 	// Each page's own index.html: its title, description, canonical link,
 	// cards and JSON-LD (seo.go).
-	pages := map[string]*staticFile{}
+	pages := map[string]*webstatic.File{}
 	for route, p := range spaPages(publicURL) {
-		pages[route] = newStaticFile("index.html", withMeta(index.body, route, p, publicURL))
+		pages[route] = webstatic.New("index.html", withMeta(index.Body, route, p, publicURL))
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -115,19 +116,19 @@ func spa(files staticSet, publicURL string) http.Handler {
 			} else {
 				w.Header().Set("Cache-Control", "public, max-age=3600")
 			}
-			f.serve(w, r, http.StatusOK)
+			f.Serve(w, r, http.StatusOK)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-cache")
 		switch {
 		case name == "":
-			pages["/"].serve(w, r, http.StatusOK)
+			pages["/"].Serve(w, r, http.StatusOK)
 		case name == "builder" || strings.HasPrefix(name, "builder/"):
-			pages["/builder"].serve(w, r, http.StatusOK)
+			pages["/builder"].Serve(w, r, http.StatusOK)
 		case name == "tour":
-			pages["/tour"].serve(w, r, http.StatusOK)
+			pages["/tour"].Serve(w, r, http.StatusOK)
 		default:
-			index.serve(w, r, http.StatusNotFound)
+			index.Serve(w, r, http.StatusNotFound)
 		}
 	})
 }

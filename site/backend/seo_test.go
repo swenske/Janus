@@ -7,10 +7,12 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/swenske/Janus/internal/webstatic"
 )
 
 func TestSPARoutes(t *testing.T) {
-	files, err := loadStatic(fstest.MapFS{
+	files, err := webstatic.Load(fstest.MapFS{
 		"index.html":           {Data: []byte("<!doctype html><title>Janus</title>" + strings.Repeat("<p>x</p>", 200))},
 		"assets/index-Ab12.js": {Data: []byte("console.log(1)")},
 		"favicon.svg":          {Data: []byte("<svg/>")},
@@ -88,7 +90,7 @@ func TestRobotsAndSitemap(t *testing.T) {
 // are - index.html doesn't: each gets its title, description, canonical
 // link, OpenGraph card and JSON-LD; anything else none of it.
 func TestSPAPagesMeta(t *testing.T) {
-	files, err := loadStatic(fstest.MapFS{
+	files, err := webstatic.Load(fstest.MapFS{
 		"index.html": {Data: []byte(`<!doctype html><html><head><title>Janus</title><meta name="description" content="generic" /></head><body></body></html>`)},
 	})
 	if err != nil {
