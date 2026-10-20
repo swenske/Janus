@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -277,5 +278,46 @@ func TestElasticAuditDocument(t *testing.T) {
 	ev, _ := d["event"].(map[string]any)
 	if user["name"] != "rita" || src["ip"] != "10.0.2.2" || ev["outcome"] != "failure" || ev["action"] != "SystemService/Reboot" || srv.index[0] != "logs-janus.audit-default" {
 		t.Fatalf("audit document: %v in %s", d, srv.index[0])
+	}
+}
+
+// A batch of 500 records of the three kinds a node sends most - janusd
+// lines, access logs HAProxy formats as JSON, events - built and sent
+// to a cluster that stores them all.
+func BenchmarkElasticSend(b *testing.B) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = w.Write([]byte(`{"errors":false,"items":[]}`))
+	}))
+	defer ts.Close()
+	cfg := Config{Targets: []Target{esTarget(ts.URL, ElasticsearchTarget{APIKey: "VuaCfGcBCdbkQm-e5aOx:ui2lp2axTNmsyakw9tvNnw"})}}
+	if err := cfg.Validate(); err != nil {
+		b.Fatal(err)
+	}
+	e := &env{
+		meta:   &Meta{Hostname: func() string { return "lb1" }, Agent: "janusd", AgentVersion: "v2026.10.20", Slot: "A", Schematic: "a055fbb6"},
+		labels: func() map[string]string { return map[string]string{"env": "prod", "site": "par"} },
+		nodeID: func() string { return "f55632ea6473b530ee44c09feb798d3b672273202eaee28994ed8cd943c4347e" },
+	}
+	sk, err := newElasticSink(cfg.Targets[0], e)
+	if err != nil {
+		b.Fatal(err)
+	}
+	at := time.Date(2026, 10, 20, 8, 0, 0, 123456789, time.UTC)
+	recs := make([]Record, 0, 500)
+	for i := 0; len(recs) < 500; i++ {
+		recs = append(recs,
+			Record{Time: at, Source: SourceJanusd, Service: "janusd", Severity: SevNotice, Message: "api: HAProxyService/ShowInfo: admin (os:admin)", ID: fmt.Sprintf("0011223344556677-%d", i)},
+			Record{Time: at, Source: SourceAccess, Service: "haproxy", Severity: SevInfo, Message: `{"client_ip":"10.200.40.7","client_port":40000,"request_date":"15/Oct/2026:21:30:01.123","frontend_name":"web","backend_name":"web","server_name":"srv1","status_code":200,"bytes_read":1234,"termination_state":"----","http_method":"GET","http_uri":"/api/x","http_version":"HTTP/1.1"}`, ID: fmt.Sprintf("0011223344556677-a%d", i)},
+			EventRecord(uint64(i), at, "haproxy.config.applied", []byte(`{"bytes":512,"by":"admin"}`), "janusd"),
+		)
+	}
+	recs = recs[:500]
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := sk.Send(context.Background(), recs); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

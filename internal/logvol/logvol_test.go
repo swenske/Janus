@@ -447,3 +447,45 @@ func TestWrittenSignals(t *testing.T) {
 		t.Fatal("Written wasn't closed by a write")
 	}
 }
+
+// A reader that keeps its place (the log shipper) asking for what's
+// after the last record, twice a flush, on a full current segment.
+func BenchmarkReadFromFollow(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "logs.img")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.Truncate(path, 4<<20); err != nil {
+		b.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer f.Close()
+	c := &clock{time.Unix(1_800_000_000, 0)}
+	v, err := open(f, Options{BootID: [16]byte{1}, Now: c.now})
+	if err != nil {
+		b.Fatal(err)
+	}
+	line := `10.200.40.7:40000 [15/Oct/2026:21:30:01.123] web web/srv1 0/0/1/2/3 200 1234 "GET /api/x HTTP/1.1"`
+	for i := 0; i < 7000; i++ { // 7000 × (28 + 7 + 96) bytes: one segment, nearly full
+		v.Append(Record{Service: "haproxy", Severity: SeverityUnknown, Message: line})
+	}
+	if err := v.Flush(); err != nil {
+		b.Fatal(err)
+	}
+	last := v.LastSeq()
+	if v.seg != 0 || v.off < 900<<10 {
+		b.Fatalf("the records should nearly fill the first segment: segment %d, %d bytes", v.seg, v.off)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		n := 0
+		got, err := v.ReadFrom(last-1, func(Record) bool { n++; return true })
+		if err != nil || n != 1 || got != last {
+			b.Fatalf("ReadFrom: %d records, last %d, err %v", n, got, err)
+		}
+	}
+}
