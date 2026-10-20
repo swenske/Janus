@@ -6,12 +6,14 @@ import (
 	"crypto/rand"
 	"encoding/pem"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
 
 	"filippo.io/age"
 	"filippo.io/age/agessh"
+	"filippo.io/age/armor"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -210,4 +212,39 @@ func TestSettingsCheck(t *testing.T) {
 	if err := (Settings{IntervalHours: 6, Recipients: []string{id.Recipient().String()}}).check(); err != nil {
 		t.Error(err)
 	}
+}
+
+// A kit made outside the tests' setting is at age's default work
+// factor, 18 - the tests lower it (TestMain), production never does.
+func TestKitDefaultWorkFactor(t *testing.T) {
+	SetKitWorkFactorForTests(DefaultKitWorkFactor)
+	t.Cleanup(func() { SetKitWorkFactorForTests(10) })
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	kit, _, err := NewKit("c1", pub, "pass phrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := scryptWorkFactor(t, kit); got != "18" {
+		t.Fatalf("kit at the default work factor says %s, want 18", got)
+	}
+	SetKitWorkFactorForTests(10)
+	kit, _, _ = NewKit("c1", pub, "pass phrase")
+	if got := scryptWorkFactor(t, kit); got != "10" {
+		t.Fatalf("kit for the tests says %s, want 10", got)
+	}
+}
+
+// scryptWorkFactor reads the work factor an armored age file's header
+// names: "-> scrypt <salt> <logN>".
+func scryptWorkFactor(t *testing.T, kit []byte) string {
+	t.Helper()
+	head := make([]byte, 256)
+	n, _ := io.ReadFull(armor.NewReader(bytes.NewReader(bytes.TrimSpace(kit))), head)
+	for _, line := range strings.Split(string(head[:n]), "\n") {
+		if f := strings.Fields(line); len(f) == 4 && f[0] == "->" && f[1] == "scrypt" {
+			return f[3]
+		}
+	}
+	t.Fatalf("no scrypt stanza in %q", head[:n])
+	return ""
 }
