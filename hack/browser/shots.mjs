@@ -38,6 +38,7 @@ const ONLY = (process.env.SHOTS_ONLY || '').split(',').filter(Boolean)
 const PASSWORD = 'screenshots-admin-password'
 const spec = YAML.parse(fs.readFileSync('shots.yaml', 'utf8'))
 const T0 = Date.parse(spec.clock)
+const LAZY_MS = 400
 // The default kernel track's version: what a VM shows (variants.mk picks
 // the track, versions.mk pins it).
 const TRACK = fs.readFileSync('/variants.mk', 'utf8').match(/^KERNEL_DEFAULT_TRACK\s*:=\s*(\S+)/m)[1]
@@ -350,8 +351,13 @@ async function newContext(browser, theme, size) {
     localStorage.setItem('janus-refresh', '5000')
     localStorage.setItem('janus-chart-window', '300000')
   })
+  // Paused LAZY_MS short of T0: a view loaded when opened (src/shared/
+  // lazy.jsx) comes through React's Suspense, which holds a resolved
+  // view back behind a 300 ms timer once its fallback has shown - a
+  // timer a paused clock never fires. Each shot runs those LAZY_MS
+  // after its navigation, landing on T0 exactly.
   await ctx.clock.install({ time: T0 - 1000 })
-  await ctx.clock.pauseAt(T0)
+  await ctx.clock.pauseAt(T0 - LAZY_MS)
   ctx.metricsServed = 0
   ctx.statsServed = 0
   ctx.logsServed = 0
@@ -410,10 +416,12 @@ for (const shot of spec.shots) {
     } else {
       const base = shot.node ? `/nodes/${ids[shot.node]}/` : '/'
       await page.goto(CONTROLLER + base + shot.page)
-      await page.getByText(shot.wait, { exact: false }).first().waitFor({ timeout: 30000 })
       // The splash (dashboard/frontend/src/shared/Splash.jsx) leaves on
       // the browser's own time - the page's clock stays where it is.
       await page.locator('.splash').waitFor({ state: 'detached', timeout: 15000 })
+      // To T0: the lazy view's chunk is in by now, Suspense's timer fires.
+      await page.clock.runFor(LAZY_MS)
+      await page.getByText(shot.wait, { exact: false }).first().waitFor({ timeout: 30000 })
       await page.evaluate(() => document.fonts.ready)
     }
     for (let k = 1; k <= (shot.samples || 0); k++) {
