@@ -316,3 +316,39 @@ func TestImageInfo(t *testing.T) {
 		t.Error("a schematic that doesn't match its ID accepted")
 	}
 }
+
+func TestConsoleChoice(t *testing.T) {
+	s, err := Parse([]byte(`{"customization":{"console":"screen"}}`))
+	if err != nil || s.ConsoleChoice() != ConsoleScreen || s.Customization.Console != "screen" {
+		t.Fatalf("screen: %+v %v", s, err)
+	}
+	if Default().ConsoleChoice() != ConsoleSerial {
+		t.Fatal("the default isn't serial")
+	}
+	// Named, the default's own value is kept, like a branch or a track.
+	if s, _ := Parse([]byte(`{"customization":{"console":"serial"}}`)); s.Customization.Console != "serial" || s.ID() == DefaultID() {
+		t.Fatalf("serial named: %+v", s)
+	}
+	if _, err := Parse([]byte(`{"customization":{"console":"vga"}}`)); err == nil {
+		t.Fatal("vga accepted")
+	}
+	if got := s.YAML(); !strings.Contains(got, "  console: screen\n") {
+		t.Fatalf("YAML: %q", got)
+	}
+	// The default ID never moves.
+	if DefaultID() != "a055fbb697e2d0abb0c5911e7702b07040f49eb71befeaf9b90495a905327f47" {
+		t.Fatal("the default ID moved")
+	}
+	// A release that offers the choice takes it; one from before refuses it.
+	c := &Catalog{Version: "v2026.10.21", Console: []string{ConsoleSerial, ConsoleScreen}}
+	if err := c.Check(s, "amd64"); err != nil {
+		t.Fatalf("offered: %v", err)
+	}
+	old := &Catalog{Version: "v2026.10.20"}
+	if err := old.Check(s, "amd64"); err == nil || !strings.Contains(err.Error(), "no console choice") {
+		t.Fatalf("not offered: %v", err)
+	}
+	if err := old.Check(Default(), "amd64"); err != nil {
+		t.Fatalf("default on an old release: %v", err)
+	}
+}

@@ -37,6 +37,9 @@ VERSION="${JANUS_VERSION:-$(python3 -c 'import json,sys; print(json.load(open(sy
 extpack check -schematic "$SCHEMATIC_FILE" -catalog "$IN/schematic-catalog.json" -arch "$ARCH"
 JANUS_SCHEMATIC="$(extpack id -schematic "$SCHEMATIC_FILE")"
 export JANUS_SCHEMATIC
+# The console the schematic asks for (image/uki/assemble.sh).
+UKI_CONSOLE_CHOICE="$(extpack variant -schematic "$SCHEMATIC_FILE" console)"
+export UKI_CONSOLE_CHOICE
 # The HAProxy layer of the branch the schematic gets, then its extensions.
 LAYERS="$(extpack layers -schematic "$SCHEMATIC_FILE" -arch "$ARCH" -dir "$IN" -catalog "$IN/schematic-catalog.json")"
 KERNEL="$IN/$(extpack inputs -schematic "$SCHEMATIC_FILE" -catalog "$IN/schematic-catalog.json" -arch "$ARCH" -only kernel)"

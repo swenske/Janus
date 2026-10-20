@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Copy, Cpu, Download, ExternalLink, Hammer, Layers, Loader2, Package, RefreshCcw, Rocket } from 'lucide-react'
+import { AlertTriangle, Check, Copy, Cpu, Download, ExternalLink, Hammer, Layers, Loader2, Package, RefreshCcw, Rocket, Terminal } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge, Card, ErrorBox, Loading, useToast } from '@shared/ui.jsx'
 import { DOCS, REPO, bytes, getJSON, postJSON } from './api.js'
@@ -15,6 +15,7 @@ function readQuery() {
     version: q.get('version') || '',
     haproxy: q.get('haproxy') || '',
     kernel: q.get('kernel') || '',
+    console: q.get('console') || '',
     extensions: (q.get('extensions') || '').split(',').filter(Boolean),
   }
 }
@@ -25,6 +26,7 @@ function writeQuery(s) {
   if (s.version) q.set('version', s.version)
   if (s.haproxy) q.set('haproxy', s.haproxy)
   if (s.kernel) q.set('kernel', s.kernel)
+  if (s.console) q.set('console', s.console)
   if (s.extensions.length) q.set('extensions', s.extensions.join(','))
   const url = `/builder${q.toString() ? `?${q}` : ''}`
   window.history.replaceState(null, '', url)
@@ -139,6 +141,8 @@ export default function Builder() {
   const offered = (list, name) => (list || []).some((v) => v.name === name && (!arch || v.arches.includes(arch)))
   const haproxy = offered(catalog?.haproxy, choice.haproxy) ? choice.haproxy : ''
   const kernel = offered(catalog?.kernel, choice.kernel) ? choice.kernel : ''
+  // The console: screen alone, when the release offers the choice.
+  const consoleChoice = (catalog?.console || []).includes(choice.console) ? choice.console : ''
 
   // The schematic of the current choices (posted so the site knows it).
   useEffect(() => {
@@ -148,11 +152,12 @@ export default function Builder() {
     const customization = { extensions: chosen }
     if (haproxy) customization.haproxy = haproxy
     if (kernel) customization.kernel = kernel
+    if (consoleChoice) customization.console = consoleChoice
     postJSON('/api/v1/schematics', { customization })
       .then(setSchematic)
       .catch(setError)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, catalog, chosen.join(','), haproxy, kernel])
+  }, [version, catalog, chosen.join(','), haproxy, kernel, consoleChoice])
 
   const loadImage = useCallback(() => {
     if (!schematic || !version || !arch) return Promise.resolve()
@@ -305,6 +310,28 @@ export default function Builder() {
               <p className="muted small" style={{ margin: 0 }}>
                 Another HAProxy branch accepts another configuration: <a href={`${DOCS}/haproxy-config.md#haproxy-branches`}>what differs between branches</a>.
               </p>
+              {catalog.console?.includes('screen') && (
+                <div>
+                  <div className="muted small group-label">
+                    <Terminal size={12} /> Console
+                  </div>
+                  <div className="choice-grid">
+                    <button className={`choice ${consoleChoice === '' ? 'selected' : ''}`} onClick={() => update({ console: '' })}>
+                      <span className="choice-title">Serial and screen</span>
+                      <span className="muted small">The default: what a hypervisor's serial console shows, what the Controller reads of its machines</span>
+                      <span className="choice-meta">console=tty0 console=ttyS0</span>
+                    </button>
+                    <button className={`choice ${consoleChoice === 'screen' ? 'selected' : ''}`} onClick={() => update({ console: 'screen' })}>
+                      <span className="choice-title">Screen only</span>
+                      <span className="muted small">
+                        No serial console: an emulated serial port costs CPU for every byte written to it. The first boot's credentials show on the screen alone - for a node you install by hand and watch
+                        another way.
+                      </span>
+                      <span className="choice-meta">console=tty0</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </Step>

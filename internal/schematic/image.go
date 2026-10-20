@@ -24,6 +24,8 @@ type ImageInfo struct {
 	// HAProxy and Kernel are the variants the image is built with.
 	HAProxy ImageComponent `json:"haproxy"`
 	Kernel  ImageComponent `json:"kernel"`
+	// Console is where the image's console goes: "serial" or "screen".
+	Console string `json:"console,omitempty"`
 }
 
 // ImageComponent is a HAProxy branch or kernel track an image is built
@@ -44,6 +46,7 @@ func NewImageInfo(sc *Schematic, r *Resolved, version, arch string) *ImageInfo {
 		Schematic: sc.Canonical(), SchematicID: sc.ID(), Version: version, Arch: arch,
 		HAProxy: ImageComponent{Variant: r.HAProxy.Name, Version: r.HAProxy.Version, Pinned: sc.HAProxyBranch() != "", Default: r.HAProxy.Default},
 		Kernel:  ImageComponent{Variant: r.Kernel.Name, Version: r.Kernel.Version, Pinned: sc.KernelTrack() != "", Default: r.Kernel.Default},
+		Console: sc.ConsoleChoice(),
 	}
 }
 
