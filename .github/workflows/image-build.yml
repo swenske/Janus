@@ -647,42 +647,6 @@ jobs:
       - name: The Janus exporter serves the node's own metrics
         run: make qemu-metrics-test
 
-      # HAProxy logging every request to its stdout under load: janusd's
-      # API and HAProxy keep their pace, the console only gets the
-      # services' share of it. See hack/qemu-console-flood-test.sh.
-      - name: The console never holds a service's output back
-        run: make qemu-console-flood-test
-
-      # The LOGS partition: previous boots' logs and kernel messages read
-      # back after a reboot and a power cut, Reset forgets them. See
-      # hack/qemu-logvol-test.sh.
-      - name: The LOGS partition keeps the logs across reboots
-        run: make qemu-logvol-test
-
-      # Log forwarding against a real rsyslog (a container): UDP, TCP and
-      # TLS targets, an outage, a reboot, HAProxy's own log lines. See
-      # hack/qemu-logforward-test.sh.
-      - name: The logs reach a syslog server, an outage and a reboot included
-        run: make qemu-logforward-test
-
-      # The same on a node without the LOGS partition - one updated from
-      # before it existed: a boot's kernel messages from memory, all of
-      # them, under the node's name.
-      - name: The logs reach a syslog server from a node without LOGS
-        run: make qemu-logforward-nologs-test
-
-      # The same to a real Elasticsearch (a container): an API key, the
-      # CA's fingerprint, ECS documents, an outage's lines stored once.
-      # See hack/qemu-logforward-es-test.sh.
-      - name: The logs reach Elasticsearch, stored once each
-        run: make qemu-logforward-es-test
-
-      # The Controller's log forwarding with two real nodes: its own audit
-      # and log, a fleet profile picked by labels, kept applied, taken
-      # off. See hack/qemu-logforward-fleet-test.sh.
-      - name: The Controller sends its logs and keeps its fleet's profiles applied
-        run: make qemu-logforward-fleet-test
-
       # Every other SystemService/HAProxyService/NetworkService method on
       # a real enforcing node, ending with janusd restart, reboot, reset
       # and shutdown. See hack/qemu-system-api-test.sh.
@@ -700,20 +664,6 @@ jobs:
       # state from efivarfs before each kexec.
       - name: A reboot through kexec under the Secure Boot-capable OVMF
         run: make qemu-kexec-secboot-test
-
-      # The kernel parameters on a real enforcing node: the CIS benchmark
-      # at boot, every whitelisted parameter's bounds on trial, reverts,
-      # cancels, confirmations kept across a reboot, refusals, a tampered
-      # saved file refused at boot. See hack/qemu-sysctl-test.sh.
-      - name: Kernel parameters - CIS baseline, trials, refusals
-        run: make qemu-sysctl-test
-
-      # vCPUs and memory plugged into a running node and taken out (the
-      # Controller's auto-scaling), under KVM: onlined, one event each,
-      # HAProxy reloaded with a thread per CPU unless nbthread fixes it.
-      # See hack/qemu-hotplug-test.sh.
-      - name: vCPU and memory hot-plug
-        run: make qemu-hotplug-test
 
       # A node's fleet trust: its own CA always, a fleet's certificates by
       # the bundle its root signed, roles and the Controller's users. See
@@ -799,6 +749,72 @@ jobs:
       # endpoint - no Controller, no janusctl.
       - name: A custom orchestrator drives nodes through their contracts alone
         run: make qemu-orchestrator-test
+
+  # The logs, the console and the kernel's knobs - every test here boots
+  # its own node and talks to a container (rsyslog, Elasticsearch) or
+  # the Controller; none shares a host path with test-api's native
+  # tests. Its own job since 2026-10-20: these eight steps took 11 of
+  # test-api's 20 minutes, the run's longest job by seven.
+  test-logs:
+    name: "Tests: Logs, console, kernel parameters, hot-plug"
+    runs-on: [self-hosted, docker, janus]
+    # A hung QEMU test held an instance 6 h (the default) before.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/runner-setup
+
+      # HAProxy logging every request to its stdout under load: janusd's
+      # API and HAProxy keep their pace, the console only gets the
+      # services' share of it. See hack/qemu-console-flood-test.sh.
+      - name: The console never holds a service's output back
+        run: make qemu-console-flood-test
+
+      # The LOGS partition: previous boots' logs and kernel messages read
+      # back after a reboot and a power cut, Reset forgets them. See
+      # hack/qemu-logvol-test.sh.
+      - name: The LOGS partition keeps the logs across reboots
+        run: make qemu-logvol-test
+
+      # Log forwarding against a real rsyslog (a container): UDP, TCP and
+      # TLS targets, an outage, a reboot, HAProxy's own log lines. See
+      # hack/qemu-logforward-test.sh.
+      - name: The logs reach a syslog server, an outage and a reboot included
+        run: make qemu-logforward-test
+
+      # The same on a node without the LOGS partition - one updated from
+      # before it existed: a boot's kernel messages from memory, all of
+      # them, under the node's name.
+      - name: The logs reach a syslog server from a node without LOGS
+        run: make qemu-logforward-nologs-test
+
+      # The same to a real Elasticsearch (a container): an API key, the
+      # CA's fingerprint, ECS documents, an outage's lines stored once.
+      # See hack/qemu-logforward-es-test.sh.
+      - name: The logs reach Elasticsearch, stored once each
+        run: make qemu-logforward-es-test
+
+      # The Controller's log forwarding with two real nodes: its own audit
+      # and log, a fleet profile picked by labels, kept applied, taken
+      # off. See hack/qemu-logforward-fleet-test.sh.
+      - name: The Controller sends its logs and keeps its fleet's profiles applied
+        run: make qemu-logforward-fleet-test
+
+      # The kernel parameters on a real enforcing node: the CIS benchmark
+      # at boot, every whitelisted parameter's bounds on trial, reverts,
+      # cancels, confirmations kept across a reboot, refusals, a tampered
+      # saved file refused at boot. See hack/qemu-sysctl-test.sh.
+      - name: Kernel parameters - CIS baseline, trials, refusals
+        run: make qemu-sysctl-test
+
+      # vCPUs and memory plugged into a running node and taken out (the
+      # Controller's auto-scaling), under KVM: onlined, one event each,
+      # HAProxy reloaded with a thread per CPU unless nbthread fixes it.
+      # See hack/qemu-hotplug-test.sh.
+      - name: vCPU and memory hot-plug
+        run: make qemu-hotplug-test
 
   test-network:
     name: "Tests: Network config, extensions, firewall, VRRP, BGP"
@@ -1032,7 +1048,7 @@ jobs:
 
   publish:
     name: Images and release
-    needs: [test-boot, test-lifecycle, test-api, test-network, test-services, test-variants, test-hardware]
+    needs: [test-boot, test-lifecycle, test-api, test-logs, test-network, test-services, test-variants, test-hardware]
     # Only on runners labeled janus-publish: what this job builds is
     # published (and its release bundle signed) - never from a machine
     # that isn't trusted to build bit-exact (docs/ci-runners.md).
@@ -1163,60 +1179,6 @@ jobs:
           path: build/terraform-provider/terraform-provider-janus_*
           retention-days: 30
 
-      # First real, deployable artifact: image/disk/assemble.sh's single
-      # GPT disk (ESP + both A/B slots + STATE - the exact same shape
-      # every UEFI boot test above already proved works end to end,
-      # including under enforcing=1) converted to qcow2, Proxmox's own
-      # preferred import/storage format (image/kvm-proxmox/assemble.sh).
-      # Unsigned - Proxmox's own OVMF doesn't have this project's
-      # production Secure Boot cert enrolled, so Secure Boot needs to be
-      # off in the VM's EFI Disk settings regardless of whether the UKI
-      # itself is signed; signing this too would add nothing an alpha
-      # tester could actually use yet. Uploaded as a workflow artifact -
-      # not a GitHub Release (no version scheme decided yet, this is
-      # still a manually-triggered alpha, not a tagged release build).
-      - name: Build an alpha Proxmox VM image (qcow2)
-        run: |
-          make proxmox-image
-          ls -lh build/janus.qcow2
-
-      - name: Upload the alpha Proxmox VM image
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: janus-alpha-amd64-proxmox-${{ github.sha }}
-          path: build/janus.qcow2
-          retention-days: 30
-
-      # Same disk-image content, packaged for the other two
-      # Virtualized Platform targets closest to what already exists
-      # (see docs/companion-site-builder-scope.md) - generic libvirt/
-      # KVM (image/kvm/assemble.sh) and VMware/ESXi
-      # (image/vmware/assemble.sh, streamOptimized VMDK). Both unsigned,
-      # same reasoning as the Proxmox image above.
-      - name: Build an alpha generic KVM/libvirt image (qcow2)
-        run: |
-          make kvm-image
-          ls -lh build/janus-kvm.qcow2
-
-      - name: Upload the alpha KVM/libvirt image
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: janus-alpha-amd64-kvm-${{ github.sha }}
-          path: build/janus-kvm.qcow2
-          retention-days: 30
-
-      - name: Build an alpha VMware/ESXi image (VMDK)
-        run: |
-          make vmware-image
-          ls -lh build/janus.vmdk
-
-      - name: Upload the alpha VMware/ESXi image
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: janus-alpha-amd64-vmware-${{ github.sha }}
-          path: build/janus.vmdk
-          retention-days: 30
-
       # Bare-metal Machine tranche: same disk-image content again, this
       # time as the hybrid installer/maintenance-mode ISO (image/iso/
       # assemble.sh), with a real release bundle embedded (iso-image-
@@ -1245,7 +1207,18 @@ jobs:
       # The key is written to a step-scoped temp file removed by a trap,
       # and both UKIs are verified with sbverify against the committed
       # certificate.
-      - name: Build an alpha bare-metal installer ISO (signed release bundle)
+      # One make for the four images - the Proxmox and generic KVM qcow2s,
+      # the VMware VMDK (image/kvm-proxmox, image/kvm, image/vmware:
+      # image/disk/assemble.sh's GPT disk, the shape every UEFI boot test
+      # above proved, converted; unsigned, since Proxmox's and VMware's
+      # own firmware don't carry this project's Secure Boot certificate)
+      # and the installer ISO with its release bundle: rootfs-build runs
+      # once, so the four carry the same rootfs and dm-verity root hash
+      # (four make invocations built it four times, each a different
+      # hash - mksquashfs isn't byte-reproducible). The signing key's
+      # temp file therefore lives through the three conversions too, a
+      # minute or so.
+      - name: Build the alpha images - Proxmox, KVM, VMware, and the installer ISO (signed release bundle)
         # The `secrets` context isn't allowed directly in a step's own
         # `if:`, and isn't needed here - env: is readable from run:.
         env:
@@ -1256,21 +1229,48 @@ jobs:
             KEY="$(mktemp)"
             trap 'rm -f "$KEY"' EXIT
             printf '%s' "$SECUREBOOT_SIGNING_KEY" > "$KEY"
-            make iso-image-with-bundle SIGNING_KEY="$KEY" SIGNING_CERT=image/secureboot/production-cert.pem
+            make proxmox-image kvm-image vmware-image iso-image-with-bundle SIGNING_KEY="$KEY" SIGNING_CERT=image/secureboot/production-cert.pem
             sbverify --cert image/secureboot/production-cert.pem build/release/uki-a.efi
             sbverify --cert image/secureboot/production-cert.pem build/release/uki-b.efi
             echo "Release bundle UKIs signed and verified against image/secureboot/production-cert.pem"
           else
             echo "::warning::SECUREBOOT_SIGNING_KEY isn't set - release bundle left unsigned (can't be published as a release)"
-            make iso-image-with-bundle
+            make proxmox-image kvm-image vmware-image iso-image-with-bundle
           fi
-          ls -lh build/janus.iso
+          ls -lh build/janus.qcow2 build/janus-kvm.qcow2 build/janus.vmdk build/janus.iso
 
       - name: Upload the alpha installer ISO
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: janus-alpha-amd64-iso-${{ github.sha }}
           path: build/janus.iso
+          retention-days: 30
+
+      - name: Upload the alpha Proxmox VM image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: janus-alpha-amd64-proxmox-${{ github.sha }}
+          path: build/janus.qcow2
+          retention-days: 30
+
+      # Same disk-image content, packaged for the other two
+      # Virtualized Platform targets closest to what already exists
+      # (see docs/companion-site-builder-scope.md) - generic libvirt/
+      # KVM (image/kvm/assemble.sh) and VMware/ESXi
+      # (image/vmware/assemble.sh, streamOptimized VMDK). Both unsigned,
+      # same reasoning as the Proxmox image above.
+      - name: Upload the alpha KVM/libvirt image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: janus-alpha-amd64-kvm-${{ github.sha }}
+          path: build/janus-kvm.qcow2
+          retention-days: 30
+
+      - name: Upload the alpha VMware/ESXi image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: janus-alpha-amd64-vmware-${{ github.sha }}
+          path: build/janus.vmdk
           retention-days: 30
 
       # Real Raspberry Pi 4/5 hardware follow-up (user-requested: "je
