@@ -1372,6 +1372,33 @@ jobs:
           fi
           docker logout
 
+      # This machine's Docker, tidied: the per-commit swenske/janus-
+      # controller:<sha> tags the step above leaves - 124 of them on
+      # janus-runner01 by 2026-10-20, its 64 GB disk full, three jobs of
+      # run 39392456979 lost to "No space left on device" - once older
+      # than a week; the volumes no container uses; the dangling images.
+      # Never the build cache (the kernel's layers: evicted, every run
+      # rebuilds it) nor an unused tagged image (the browser image, the
+      # test tools): a job on another instance of this machine may be
+      # about to use them. docs/ci-runners.md, "Disk".
+      - name: Tidy this runner's Docker
+        if: ${{ always() }}
+        run: |
+          set -uo pipefail
+          cutoff=$(date -d '7 days ago' +%s)
+          docker images --format '{{.Repository}}:{{.Tag}}\t{{.CreatedAt}}' \
+            | awk -F'\t' '$1 ~ /^swenske\/janus-controller:[0-9a-f]{40}$/' \
+            | while IFS=$'\t' read -r tag created; do
+                # "2026-10-19 18:45:26 +0000 UTC": date takes it without the zone's name.
+                if [ "$(date -d "${created% UTC}" +%s)" -lt "$cutoff" ] && docker rmi "$tag" >/dev/null 2>&1; then
+                  echo "removed $tag"
+                fi
+              done
+          docker volume prune -af | tail -1
+          docker image prune -f | tail -1
+          docker system df
+          df -h / | tail -1
+
       # User-requested: the repository page itself (hub.docker.com/r/
       # swenske/janus-controller) - a short description (its ~100-char
       # search-result blurb, at most 100) and the full Overview (logo,

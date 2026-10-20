@@ -7,12 +7,12 @@ self-hosted runners, labeled `self-hosted, docker, janus`.
 
 ## How image-build runs
 
-- **Six test jobs at once** (`test-boot`, `test-lifecycle`, `test-api`,
-  `test-network`, `test-services`, `test-hardware`), balanced by
-  duration. Each builds what its tests need: the Docker build cache makes
+- **Seven test jobs at once** (`test-boot`, `test-lifecycle`, `test-api`,
+  `test-network`, `test-services`, `test-variants`, `test-hardware`),
+  balanced by duration. Each builds what its tests need: the Docker build cache makes
   that a matter of seconds, and nothing has to pass between jobs.
 - **`publish`** (images, workflow artifacts, the Docker Hub push, the
-  release) needs all six. A failing test still blocks everything that
+  release) needs all seven. A failing test still blocks everything that
   gets published.
 - **Shared setup** is a composite action, `.github/actions/runner-setup`:
   Go (setup-go without its GitHub cache - the runners keep Go's caches on
@@ -38,8 +38,9 @@ self-hosted runners, labeled `self-hosted, docker, janus`.
   `site-deploy.yml` also need the label `janus-publish`. A runner without
   it only ever runs test jobs: at worst a problem on it fails a test.
 
-A full run takes about 6 minutes, against 25 when it was one job,
-emulated.
+A full run takes about 26 minutes (run 39236900731, 2026-10-19), the
+longest job 20; 70 and more when a machine's Docker cache lost the kernel
+or a toolchain and a job rebuilds them (see "Disk" below).
 
 ## Runner machines
 
@@ -59,6 +60,45 @@ each - named `<machine>`, `<machine>-2`, `<machine>-3`...
 6000, 8000 - and every test adds it to its default ports. Tests use
 18080-19530 with no offset, so instances must stay 2000 apart; the
 highest offset must keep ports below 32768 (Linux's ephemeral range).
+
+### Disk
+
+GitHub gives a job to the first free instance that answers, nothing
+balances the machines: a run can land five of its eight jobs on one of
+them. On the 64 GB containers that matters twice. BuildKit's garbage
+collector, with no policy of its own, starts evicting the build cache
+when the disk fills - the kernel's layers first, the biggest - and every
+job then rebuilds the kernel and the musl toolchain, which fills the
+disk further: run 39392456979 (2026-10-20) lost three jobs on
+`janus-runner01` to "No space left on device" with 124 per-commit
+`swenske/janus-controller:<sha>` tags (one per `publish`, never removed)
+and 161 orphaned volumes on it.
+
+So `publish` ends by tidying the machine it ran on (the "Tidy this
+runner's Docker" step): the `<sha>` tags older than a week, the volumes
+no container uses, the dangling images - never the build cache nor an
+unused tagged image, which a job on a sibling instance may be about to
+use.
+
+And Docker gets an explicit cache budget, `/etc/docker/daemon.json`:
+
+```json
+{
+  "builder": {
+    "gc": {
+      "enabled": true,
+      "defaultKeepStorage": "20GB"
+    }
+  }
+}
+```
+
+20 GB on the 64 GB containers (the kernel tracks, the HAProxy branches,
+the toolchains and the extensions fit), 100 GB on `janus-runner03`.
+Applying it restarts Docker, which kills any job's containers: only
+while the machine is idle (`pgrep -x Runner.Worker || sudo systemctl
+restart docker`). The file is staged as `/etc/docker/daemon.json.janus`
+on each machine since 2026-10-20, to move into place in a quiet window.
 
 The first `janus-runner02`, a container on a host whose memory flipped
 bits, ran test jobs only until 2026-10-06. The current one was set up
