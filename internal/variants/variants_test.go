@@ -1,6 +1,7 @@
 package variants
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -102,5 +103,19 @@ func TestParseRefuses(t *testing.T) {
 	}
 	if _, err := Parse([]byte("HAPROXY_BRANCHES :=\nKERNEL_TRACKS := stable\nKERNEL_DEFAULT_TRACK := stable\n"), []byte(pins)); err == nil {
 		t.Error("no HAProxy branch accepted")
+	}
+}
+
+// The catalog a release publishes offers the console choices: the image
+// factory refuses a schematic naming one otherwise (v2026.10.20-3's
+// catalog had none).
+func TestCatalogVariantsOfferTheConsole(t *testing.T) {
+	set, err := Load("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := set.CatalogVariants()
+	if !slices.Equal(c.Console, []string{schematic.ConsoleSerial, schematic.ConsoleScreen}) {
+		t.Fatalf("console choices = %v", c.Console)
 	}
 }
