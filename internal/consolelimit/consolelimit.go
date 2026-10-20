@@ -76,8 +76,9 @@ func (b *Budget) For(service string) io.Writer {
 }
 
 // offer queues line for the console when the budget has room for it and
-// the queue isn't full, and counts it as left out otherwise.
-func (b *Budget) offer(service string, line []byte) {
+// the queue isn't full - it then keeps line - and counts it as left out
+// otherwise, returning false: the caller may reuse line.
+func (b *Budget) offer(service string, line []byte) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := b.now()
@@ -87,11 +88,12 @@ func (b *Budget) offer(service string, line []byte) {
 		select {
 		case b.lines <- line:
 			b.tokens -= n
-			return
+			return true
 		default:
 		}
 	}
 	b.dropped[service]++
+	return false
 }
 
 // notes returns one line per service whose lines were left out since
@@ -146,8 +148,11 @@ func (w *writer) Write(p []byte) (int, error) {
 		}
 		w.add(p[:i])
 		line := append(w.partial, '\n')
-		w.partial = nil
-		w.b.offer(w.service, line)
+		if w.b.offer(w.service, line) {
+			w.partial = nil // the queue holds it
+		} else {
+			w.partial = w.partial[:0] // left out: nothing allocated for the next
+		}
 		p = p[i+1:]
 	}
 	return n, nil

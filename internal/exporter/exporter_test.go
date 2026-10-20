@@ -167,3 +167,20 @@ func TestServerApply(t *testing.T) {
 		t.Fatalf("collector called %d times", n)
 	}
 }
+
+func BenchmarkWrite(b *testing.B) {
+	samples := make([]Sample, 300)
+	for i := range samples {
+		samples[i] = Sample{Labels: L("proxy", fmt.Sprint("fe_", i), "server", "web01", "state"+fmt.Sprint(i%3), "UP"), Value: float64(i)}
+	}
+	families := []Family{
+		{Name: "janus_haproxy_server_status", Help: "Server status, by proxy and server.", Type: Gauge, Samples: samples},
+		{Name: "janus_build_info", Help: "Build.", Type: Gauge, Samples: samples[:1]},
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if err := Write(io.Discard, families); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

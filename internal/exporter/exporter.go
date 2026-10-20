@@ -186,13 +186,16 @@ func Write(w io.Writer, families []Family) error {
 	return err
 }
 
-func escapeHelp(s string) string {
-	return strings.NewReplacer(`\`, `\\`, "\n", `\n`).Replace(s)
-}
+// Built once: a Replacer prepares its lookup table on first use, and
+// Write escapes every label value of every scrape.
+var (
+	helpEscaper  = strings.NewReplacer(`\`, `\\`, "\n", `\n`)
+	labelEscaper = strings.NewReplacer(`\`, `\\`, "\n", `\n`, `"`, `\"`)
+)
 
-func escapeLabel(s string) string {
-	return strings.NewReplacer(`\`, `\\`, "\n", `\n`, `"`, `\"`).Replace(s)
-}
+func escapeHelp(s string) string { return helpEscaper.Replace(s) }
+
+func escapeLabel(s string) string { return labelEscaper.Replace(s) }
 
 func formatValue(v float64) string {
 	switch {

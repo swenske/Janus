@@ -85,3 +85,26 @@ func TestSinceAndChanged(t *testing.T) {
 		t.Fatalf("after a reopen: %+v", got)
 	}
 }
+
+// Nothing newer than the last entry - what the log shipper asks at
+// least twice a flush.
+func BenchmarkSinceNothingNew(b *testing.B) {
+	dir := b.TempDir()
+	l, err := Open(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < 20000; i++ {
+		if err := l.Append(Entry{Time: time.Unix(int64(i), 0), User: "admin", Via: "session", Method: "POST", Path: "/api/nodes/node-01/haproxy/config", Status: 200, Client: "10.1.2.3:51234"}); err != nil {
+			b.Fatal(err)
+		}
+	}
+	last := l.Latest()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if got, _ := l.Since(last, 500); len(got) != 0 {
+			b.Fatal("entries after the last one")
+		}
+	}
+}
