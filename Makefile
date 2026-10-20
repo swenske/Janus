@@ -11,6 +11,9 @@ HAPROXY_BRANCH := $(if $(SCHEMATIC),$(shell go run ./hack/extpack variant -schem
 endif
 ifeq ($(origin KERNEL_TRACK),undefined)
 KERNEL_TRACK := $(if $(SCHEMATIC),$(shell go run ./hack/extpack variant -schematic $(SCHEMATIC) kernel),$(KERNEL_DEFAULT_TRACK))
+# The console the schematic's images get (image/uki/assemble.sh): serial
+# (tty0 + ttyS0, the default) or screen (tty0 alone).
+export UKI_CONSOLE_CHOICE := $(if $(SCHEMATIC),$(shell go run ./hack/extpack variant -schematic $(SCHEMATIC) console),serial)
 endif
 HAPROXY_PIN    := HAPROXY_$(subst .,_,$(HAPROXY_BRANCH))
 HAPROXY_VERSION := $($(HAPROXY_PIN)_VERSION)

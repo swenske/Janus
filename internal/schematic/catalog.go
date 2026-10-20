@@ -21,6 +21,11 @@ type Catalog struct {
 	// are the defaults, and a schematic can't name one.
 	HAProxy []Variant `json:"haproxy,omitempty"`
 	Kernel  []Variant `json:"kernel,omitempty"`
+	// Console lists the console choices the release's images take
+	// ("serial", "screen"). Absent: a release from before the choice
+	// existed - its images have the serial console, and a schematic
+	// can't name one.
+	Console []string `json:"console,omitempty"`
 	// Retired lists the branches and tracks earlier releases offered and
 	// this one no longer does, with the last release that had each: an
 	// image built with one stays on it (no automatic move to another
@@ -199,6 +204,12 @@ func (c *Catalog) Resolve(s *Schematic, arch string) (*Resolved, error) {
 		if !slices.Contains(e.Arches, arch) {
 			return nil, fmt.Errorf("extension %q isn't available for %s (only %v)", name, arch, e.Arches)
 		}
+	}
+	if choice := s.Customization.Console; choice != "" && !slices.Contains(c.Console, choice) {
+		if len(c.Console) == 0 {
+			return nil, fmt.Errorf("the images of Janus %s have no console choice: their console is the serial port", c.release())
+		}
+		return nil, fmt.Errorf("console %q isn't a choice of Janus %s (%v)", choice, c.release(), c.Console)
 	}
 	var r Resolved
 	var err error

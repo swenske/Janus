@@ -49,6 +49,13 @@
 # (QEMU's raspi4b/virt machines, PL011 UART) need ttyAMA0 instead - a
 # genuinely different device name, not a default every caller can share.
 #
+# UKI_CONSOLE_CHOICE (env var, optional, default serial): "screen" leaves
+# the serial console out of the cmdline - console=tty0 alone, a
+# schematic's choice ("console": "screen", docs/image-factory.md): an
+# emulated serial port costs CPU for every byte written to it, and a
+# node nobody watches that way needn't pay it. Everything else is the
+# same: the first boot's credentials and janusd's log go to the screen.
+#
 # UKI_SELINUX_ENFORCING (env var, optional, default 1): whether
 # `enforcing=1` is appended - left off for the Single Board Computer
 # tranche's aarch64 targets, whose kernel config has no
@@ -112,8 +119,13 @@ trap 'rm -f "$CMDLINE_FILE"' EXIT
   # (internal/sysctl). The interface ip=dhcp brings up before init would
   # otherwise take a router advertisement or a redirect in the first
   # seconds of a boot - and keep the address and route it gave.
-  printf 'console=tty0 console=%s panic=-1 dm-mod.create="%s" dm-mod.waitfor=%s,%s root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp ipv6.disable_ipv6=1%s%s%s' \
-    "${UKI_CONSOLE:-ttyS0}" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$DATA_DEV" "$HASH_DEV" "$enforcing_arg" "$schematic_arg" \
+  case "${UKI_CONSOLE_CHOICE:-serial}" in
+  serial) console_args="console=tty0 console=${UKI_CONSOLE:-ttyS0}" ;;
+  screen) console_args="console=tty0" ;;
+  *) echo "UKI_CONSOLE_CHOICE=$UKI_CONSOLE_CHOICE: serial or screen" >&2; exit 1 ;;
+  esac
+  printf '%s panic=-1 dm-mod.create="%s" dm-mod.waitfor=%s,%s root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp ipv6.disable_ipv6=1%s%s%s' \
+    "$console_args" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$DATA_DEV" "$HASH_DEV" "$enforcing_arg" "$schematic_arg" \
     "${UKI_EXTRA_CMDLINE:+ $UKI_EXTRA_CMDLINE}"
 } > "$CMDLINE_FILE"
 

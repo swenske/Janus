@@ -55,6 +55,7 @@ An image carries one HAProxy and one kernel. A release offers several:
 |---|---|---|
 | `haproxy` | the newest HAProxy **LTS branches** that build with AWS-LC, Janus's TLS library: today 3.4, 3.2 and 3.0 (2.8 can't use AWS-LC) | the newest LTS branch |
 | `kernel` | a **kernel track**: kernel.org's newest `stable` release (7.2 today) or its newest `longterm` one (6.18) | `stable` |
+| `console` | where the node's console goes: `serial` (the screen and the serial port) or `screen` (the screen alone) - see [the console](#the-console) | `serial` |
 
 A schematic that names none gets each release's default, and follows it:
 when a release makes a newer LTS branch the default, such an image moves
@@ -88,6 +89,24 @@ them, and the node's metrics export them (`janus_component_info`).
 Only amd64 images can be built with a HAProxy branch or kernel track other
 than the defaults; Raspberry Pi images come with the defaults.
 
+### The console
+
+A node's console is the screen and the serial port (`console=tty0
+console=ttyS0`): the first boot's credentials, janusd's log and a share
+of the services' output show on both, and a hypervisor's serial console
+is how an operator - and the Controller, for its own machines - reads a
+node that can't be reached otherwise. An emulated serial port costs CPU
+for every byte written to it: on a node that logs every request, about
+2 % of an older core goes to it ([log forwarding](guide/log-forwarding.md)
+says how to lower that share, down to nothing, without changing the
+image). A schematic can also leave the serial console out altogether,
+`"console": "screen"`: the image boots with `console=tty0` alone, and
+everything the console shows goes to the screen alone. For a node you
+install by hand and watch another way; the Controller's own machines
+never get it - it needs their serial console to watch them register.
+Offered by the releases from v2026.10.21 on; a schematic naming it can't
+be built for an older one.
+
 ## The schematic
 
 ```json
@@ -104,9 +123,9 @@ customization:
   haproxy: "3.2"
 ```
 
-- Only the extensions, HAProxy branches and kernel tracks a release lists
-  (its `schematic-catalog.json`) can be named; order and duplicates of
-  extensions don't matter. A HAProxy branch is named `major.minor`
+- Only the extensions, HAProxy branches, kernel tracks and console
+  choices a release lists (its `schematic-catalog.json`) can be named;
+  order and duplicates of extensions don't matter. A HAProxy branch is named `major.minor`
   (`"3.2"`, never a version: the release decides which 3.2.x), a kernel
   track by its name (`"longterm"`). Left out, each is the release's
   default; named, it stays what it is even when it happens to be today's

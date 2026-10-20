@@ -218,7 +218,7 @@ func (s *Set) CatalogVariants() *schematic.Catalog {
 		}
 		return out
 	}
-	return &schematic.Catalog{HAProxy: conv(s.HAProxy), Kernel: conv(s.Kernel), Retired: s.Retired}
+	return &schematic.Catalog{HAProxy: conv(s.HAProxy), Kernel: conv(s.Kernel), Console: []string{schematic.ConsoleSerial, schematic.ConsoleScreen}, Retired: s.Retired}
 }
 
 // Resolve returns the HAProxy branch and kernel track sc gets for arch.

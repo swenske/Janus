@@ -436,8 +436,13 @@ func variant(args []string) {
 	file := fl.String("schematic", "", "schematic JSON (default: the default schematic)")
 	arch := fl.String("arch", "amd64", "architecture")
 	_ = fl.Parse(args)
+	if fl.NArg() == 1 && fl.Arg(0) == "console" {
+		// The console needs no catalog: serial or screen, the schematic's.
+		fmt.Println(loadSchematic(*file).ConsoleChoice())
+		return
+	}
 	if fl.NArg() != 1 || (fl.Arg(0) != schematic.ComponentHAProxy && fl.Arg(0) != schematic.ComponentKernel) {
-		log.Fatal("usage: extpack variant [-schematic FILE] [-arch ARCH] haproxy|kernel")
+		log.Fatal("usage: extpack variant [-schematic FILE] [-arch ARCH] haproxy|kernel|console")
 	}
 	set, err := variants.Load(".")
 	if err != nil {

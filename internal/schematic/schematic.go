@@ -53,7 +53,19 @@ type Customization struct {
 	// Kernel picks the kernel track ("stable", "longterm"). Unset: the
 	// release's default track.
 	Kernel string `json:"kernel,omitempty"`
+	// Console is where the node's console goes: "serial" (the default,
+	// unset: the screen and the serial port - what a hypervisor's console
+	// shows, what the Controller reads of its machines) or "screen" (the
+	// screen alone: an emulated serial port costs CPU for every byte
+	// written to it, and a node nobody watches that way needn't pay it).
+	Console string `json:"console,omitempty"`
 }
+
+// The console choices.
+const (
+	ConsoleSerial = "serial"
+	ConsoleScreen = "screen"
+)
 
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
 
@@ -107,6 +119,9 @@ func (s *Schematic) Normalize() error {
 	if t := s.Customization.Kernel; t != "" && !ValidKernelTrack(t) {
 		return fmt.Errorf("schematic: %q isn't a kernel track (\"stable\", \"longterm\")", t)
 	}
+	if c := s.Customization.Console; c != "" && c != ConsoleSerial && c != ConsoleScreen {
+		return fmt.Errorf("schematic: %q isn't a console choice (\"serial\", \"screen\")", c)
+	}
 	exts := make([]string, 0, len(s.Customization.Extensions))
 	for _, name := range s.Customization.Extensions {
 		if !ValidName(name) {
@@ -159,11 +174,20 @@ func (s *Schematic) HAProxyBranch() string { return s.Customization.HAProxy }
 // release's default.
 func (s *Schematic) KernelTrack() string { return s.Customization.Kernel }
 
+// ConsoleChoice is the node's console: ConsoleScreen when the schematic
+// says so, else ConsoleSerial.
+func (s *Schematic) ConsoleChoice() string {
+	if s.Customization.Console == ConsoleScreen {
+		return ConsoleScreen
+	}
+	return ConsoleSerial
+}
+
 // YAML renders the schematic for display, in the shape Talos users know.
 func (s *Schematic) YAML() string {
 	exts := s.Extensions()
 	c := s.Customization
-	if len(exts) == 0 && c.HAProxy == "" && c.Kernel == "" {
+	if len(exts) == 0 && c.HAProxy == "" && c.Kernel == "" && c.Console == "" {
 		return "customization: {}\n"
 	}
 	var b strings.Builder
@@ -180,6 +204,9 @@ func (s *Schematic) YAML() string {
 	}
 	if c.Kernel != "" {
 		b.WriteString("  kernel: " + c.Kernel + "\n")
+	}
+	if c.Console != "" {
+		b.WriteString("  console: " + c.Console + "\n")
 	}
 	return b.String()
 }
