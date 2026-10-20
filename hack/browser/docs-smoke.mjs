@@ -158,6 +158,14 @@ async function crawl(scheme) {
   await ctx.close()
 }
 
+// settled waits for what a page's own scripts measure after load: the
+// fonts (a terminal block overflows, or not, once JetBrains Mono is in)
+// and two frames. With the passes in parallel, axe twice caught a code
+// block scrollable before Expressive Code's script had made it focusable.
+async function settled(page) {
+  await page.evaluate(() => document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))))
+}
+
 // shard returns the pages one of n parallel passes takes.
 const shard = (i, n) => [...pages].filter((_, k) => k % n === i)
 
@@ -166,6 +174,7 @@ async function phone(i, n) {
   const { ctx, page } = await newPage('light', { width: 390, height: 844 })
   for (const url of shard(i, n)) {
     await page.goto(url, { waitUntil: 'networkidle' })
+    await settled(page)
     const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
     if (over > 1) problems.push(`${url} (phone): ${over}px wider than the screen`)
   }
@@ -177,6 +186,7 @@ async function axe(i, n) {
   const { ctx, page } = await newPage('light')
   for (const url of shard(i, n)) {
     await page.goto(url, { waitUntil: 'networkidle' })
+    await settled(page)
     const { violations } = await new AxeBuilder({ page }).analyze()
     for (const v of violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')) {
       problems.push(`${url}: axe ${v.impact} ${v.id} (${v.help}) - ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)
