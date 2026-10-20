@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # "Local Platform" tranche (docs/companion-site-builder-scope.md,
 # user-requested 2026-09-29 after a real config rejection on a deployed

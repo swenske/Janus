@@ -44,6 +44,7 @@ no component follows.
 | `zlib` | every release | Mark Adler's signature, and Alpine's sha512 | osv.dev |
 | `aws-lc` | every release | Alpine's or FreeBSD's checksum of GitHub's tag archive - AWS-LC signs nothing | AWS-LC's own GitHub advisories |
 | `musl-cross-make` | by hand (a commit) | - | - |
+| `docker/dockerfile` (the BuildKit frontend every Dockerfile's `# syntax` line names - resolved on Docker Hub at each build until pinned) | its 1.x line, by hand: Dependabot reads `FROM`, not `# syntax` - bump the digest in the 14 Dockerfiles together (`docker buildx imagetools inspect docker/dockerfile:1`) | Docker Hub's digest | - |
 | `node-exporter` | its major - built from source with this tree's Go, not upstream's binary | Go's checksum database (`go mod download`) on the module's zip | govulncheck on its source, with this tree's Go |
 | `libmnl`, `libnftnl`, `nftables` | every release | the Netfilter Core Team's signature | - (none published) |
 | `jansson` | every release | Petri Lehtinen's signature | osv.dev |

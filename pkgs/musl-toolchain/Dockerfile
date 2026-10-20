@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.27@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # Builds a real aarch64-linux-musl cross-toolchain (musl-cross-make) -
 # GCC + binutils + musl libc, targeting arm64 from an amd64 build host,
