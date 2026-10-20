@@ -207,7 +207,7 @@ func (c *Catalog) Resolve(s *Schematic, arch string) (*Resolved, error) {
 	}
 	if choice := s.Customization.Console; choice != "" && !slices.Contains(c.Console, choice) {
 		if len(c.Console) == 0 {
-			return nil, fmt.Errorf("Janus %s's images have no console choice: their console is the serial port", c.release())
+			return nil, fmt.Errorf("the images of Janus %s have no console choice: their console is the serial port", c.release())
 		}
 		return nil, fmt.Errorf("console %q isn't a choice of Janus %s (%v)", choice, c.release(), c.Console)
 	}

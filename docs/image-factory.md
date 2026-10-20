@@ -97,7 +97,7 @@ of the services' output show on both, and a hypervisor's serial console
 is how an operator - and the Controller, for its own machines - reads a
 node that can't be reached otherwise. An emulated serial port costs CPU
 for every byte written to it: on a node that logs every request, about
-2 % of an older core goes to it ([the console](guide/log-forwarding.md#the-console)
+2 % of an older core goes to it ([log forwarding](guide/log-forwarding.md)
 says how to lower that share, down to nothing, without changing the
 image). A schematic can also leave the serial console out altogether,
 `"console": "screen"`: the image boots with `console=tty0` alone, and
