@@ -3,6 +3,7 @@ package fleetkit
 import (
 	"bytes"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -39,5 +40,39 @@ func TestKit(t *testing.T) {
 	}
 	if _, err := Open([]byte("hello"), pass); !errors.Is(err, ErrKit) {
 		t.Errorf("not a kit: %v", err)
+	}
+}
+
+// scryptWorkFactor reads the work factor an armored age file's header
+// names: "-> scrypt <salt> <logN>".
+func scryptWorkFactor(t *testing.T, kit []byte) string {
+	t.Helper()
+	head := make([]byte, 256)
+	n, _ := io.ReadFull(armor.NewReader(bytes.NewReader(bytes.TrimSpace(kit))), head)
+	for _, line := range strings.Split(string(head[:n]), "\n") {
+		if f := strings.Fields(line); len(f) == 4 && f[0] == "->" && f[1] == "scrypt" {
+			return f[3]
+		}
+	}
+	t.Fatalf("no scrypt stanza in %q", head[:n])
+	return ""
+}
+
+// A kit made outside the tests' setting is at age's default work
+// factor, 18 - the tests lower it (TestMain), production never does.
+func TestDefaultWorkFactor(t *testing.T) {
+	SetWorkFactorForTests(DefaultWorkFactor)
+	t.Cleanup(func() { SetWorkFactorForTests(10) })
+	kit, err := Make(Kit{Name: "f"}, "pass phrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := scryptWorkFactor(t, kit); got != "18" {
+		t.Fatalf("kit at the default work factor says %s, want 18", got)
+	}
+	SetWorkFactorForTests(10)
+	kit, _ = Make(Kit{Name: "f"}, "pass phrase")
+	if got := scryptWorkFactor(t, kit); got != "10" {
+		t.Fatalf("kit for the tests says %s, want 10", got)
 	}
 }

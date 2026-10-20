@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"sort"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -351,11 +352,25 @@ func checkPassword(password string) error {
 	return nil
 }
 
+// bcryptCost is the cost of the password hashes made from now on:
+// bcrypt's default, lowered by SetBcryptCostForTests alone. A hash
+// records its cost, so Authenticate takes any.
+var bcryptCost = bcrypt.DefaultCost
+
+// SetBcryptCostForTests lowers the cost of the password hashes made from
+// now on. Refused outside a test binary.
+func SetBcryptCostForTests(cost int) {
+	if !testing.Testing() {
+		panic("auth: SetBcryptCostForTests outside a test")
+	}
+	bcryptCost = cost
+}
+
 func hash(password string) ([]byte, error) {
 	if err := checkPassword(password); err != nil {
 		return nil, err
 	}
-	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	h, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}

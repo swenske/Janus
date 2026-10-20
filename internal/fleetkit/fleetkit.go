@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"testing"
 	"time"
 
 	"filippo.io/age"
@@ -23,6 +24,24 @@ import (
 
 // Format is what a kit says it is.
 const Format = "janus-recovery-kit/1"
+
+// DefaultWorkFactor is the kits' scrypt work factor (log2 N): age's own
+// default. A kit records it in its header, so Open takes any.
+const DefaultWorkFactor = 18
+
+// workFactor is what Make uses: DefaultWorkFactor, lowered by
+// SetWorkFactorForTests alone - a kit at 18 costs 3 s under the race
+// detector, and the Controller's tests make a dozen each.
+var workFactor = DefaultWorkFactor
+
+// SetWorkFactorForTests lowers the scrypt work factor of the kits made
+// from now on. Refused outside a test binary.
+func SetWorkFactorForTests(logN int) {
+	if !testing.Testing() {
+		panic("fleetkit: SetWorkFactorForTests outside a test")
+	}
+	workFactor = logN
+}
 
 // Kit is a recovery kit opened.
 type Kit struct {
@@ -51,6 +70,7 @@ func Make(k Kit, passphrase string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	r.SetWorkFactor(workFactor)
 	var out bytes.Buffer
 	aw := armor.NewWriter(&out)
 	w, err := age.Encrypt(aw, r)

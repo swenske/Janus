@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"testing"
 	"time"
 
 	"filippo.io/age"
@@ -46,6 +47,7 @@ func NewKit(controller string, signing ed25519.PublicKey, passphrase string) (ki
 	if err != nil {
 		return nil, "", err
 	}
+	r.SetWorkFactor(kitWorkFactor)
 	var out bytes.Buffer
 	aw := armor.NewWriter(&out)
 	w, err := age.Encrypt(aw, r)
@@ -62,6 +64,24 @@ func NewKit(controller string, signing ed25519.PublicKey, passphrase string) (ki
 		return nil, "", err
 	}
 	return out.Bytes(), id.Recipient().String(), nil
+}
+
+// DefaultKitWorkFactor is the kits' scrypt work factor (log2 N): age's
+// own default. A kit records it in its header, so OpenKit takes any.
+const DefaultKitWorkFactor = 18
+
+// kitWorkFactor is what NewKit uses: DefaultKitWorkFactor, lowered by
+// SetKitWorkFactorForTests alone (a kit at 18 costs 3 s under the race
+// detector).
+var kitWorkFactor = DefaultKitWorkFactor
+
+// SetKitWorkFactorForTests lowers the scrypt work factor of the kits
+// made from now on. Refused outside a test binary.
+func SetKitWorkFactorForTests(logN int) {
+	if !testing.Testing() {
+		panic("backup: SetKitWorkFactorForTests outside a test")
+	}
+	kitWorkFactor = logN
 }
 
 // OpenKit decrypts a backup kit (armored or not) with its passphrase.
