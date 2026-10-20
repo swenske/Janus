@@ -216,6 +216,13 @@ example:
     masked view and refused revert, the history read again after
     firmware and kexec reboots and a rollback to the release and back;
   - the pages showing them, in two palettes (Janus and Everforest).
+- v2026.10.20: the Controller's serving of its pages - the Controller's
+  own page and a node's page through it, with the session: each file's
+  `Cache-Control`, `ETag`, gzip, a 304 on `If-None-Match`, a directory
+  not listed, and the main bundle's bytes on the wire, plain and gzipped
+  (`s-static`); the rest of the campaign against the release measured
+  the same morning, the nodes' janusd being the one with the faster
+  paths.
 
 ### HAProxy killed by the kernel
 
