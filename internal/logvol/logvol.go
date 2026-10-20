@@ -163,7 +163,25 @@ type Volume struct {
 	records atomic.Uint64
 	dropped atomic.Uint64
 	errs    atomic.Uint64
+
+	// readMarks is where each reader that keeps its place (the log
+	// shipper's targets) stopped, keyed by the last record it was
+	// given: ReadFrom asked for what follows that record parses its
+	// segment from there instead of from its start - twice a flush on
+	// a segment up to 1 MiB.
+	readMu    sync.Mutex
+	readMarks map[uint64]readMark
 }
+
+// readMark is where a ReadFrom pass ended: the segment (by sequence
+// number) and the byte offset after the last record it gave.
+type readMark struct {
+	segSeq uint64
+	off    int
+}
+
+// segBufs holds segment images for the readers (1 MiB each).
+var segBufs = sync.Pool{New: func() any { b := make([]byte, SegmentSize); return &b }}
 
 // Open opens the LOGS partition at path for a new boot - formatting it
 // first when it holds no volume (a blank partition, another volume's
@@ -376,7 +394,8 @@ func encodeRecord(dst []byte, r Record, segSeq uint64) []byte {
 	}
 	n := recordHeader + len(service) + len(message)
 	start := len(dst)
-	dst = append(dst, make([]byte, recordHeader)...)
+	var hdr [recordHeader]byte
+	dst = append(dst, hdr[:]...)
 	b := dst[start:]
 	binary.LittleEndian.PutUint32(b[0:], uint32(n))
 	binary.LittleEndian.PutUint64(b[8:], r.Seq)
@@ -400,19 +419,26 @@ func recordCRC(body []byte, segSeq uint64) uint32 {
 // order, until the segment ends, a record doesn't check out, or fn
 // returns false.
 func parseRecords(seg []byte, segSeq uint64, fn func(Record) bool) {
-	off := BlockSize
+	parseRecordsFrom(seg, segSeq, BlockSize, fn)
+}
+
+// parseRecordsFrom is parseRecords from byte offset start - a record's
+// first byte - and returns the offset of the first record not taken:
+// after the last one fn accepted, or at the one it refused.
+func parseRecordsFrom(seg []byte, segSeq uint64, start int, fn func(Record) bool) int {
+	off := start
 	for off+recordHeader <= len(seg) {
 		b := seg[off:]
 		n := int(binary.LittleEndian.Uint32(b))
 		if n < recordHeader || n > len(b) {
-			return
+			return off
 		}
 		if binary.LittleEndian.Uint32(b[4:]) != recordCRC(b[8:n], segSeq) {
-			return
+			return off
 		}
 		sl, ml := int(b[25]), int(binary.LittleEndian.Uint16(b[26:]))
 		if recordHeader+sl+ml != n {
-			return
+			return off
 		}
 		r := Record{
 			Seq:      binary.LittleEndian.Uint64(b[8:]),
@@ -422,10 +448,11 @@ func parseRecords(seg []byte, segSeq uint64, fn func(Record) bool) {
 			Message:  string(b[recordHeader+sl : n]),
 		}
 		if !fn(r) {
-			return
+			return off
 		}
 		off += n
 	}
+	return off
 }
 
 // Append queues a record of this boot; Seq is set here, Time too when
@@ -495,16 +522,17 @@ func (v *Volume) Flush() error {
 		if v.seg < 0 {
 			v.startSegment(r.Seq)
 		}
-		rec := encodeRecord(nil, r, v.segSeq)
-		if v.off+len(rec) > SegmentSize {
+		n := recordHeader + min(len(r.Service), MaxService) + min(len(r.Message), MaxMessage)
+		if v.off+n > SegmentSize {
 			if err := v.writeDirty(); err != nil {
 				return err
 			}
 			v.startSegment(r.Seq)
-			rec = encodeRecord(rec[:0], r, v.segSeq) // its CRC covers the segment's number
 		}
-		copy(v.segBuf[v.off:], rec)
-		v.off += len(rec)
+		// Straight into the segment's image (its CRC covers the
+		// segment's number, known by now).
+		v.segBuf = encodeRecord(v.segBuf[:v.off], r, v.segSeq)[:SegmentSize]
+		v.off += n
 		v.records.Add(1)
 	}
 	return v.writeDirty()
@@ -664,7 +692,16 @@ func (v *Volume) ReadFrom(after uint64, fn func(Record) bool) (uint64, error) {
 	}
 	sort.Slice(order, func(a, b int) bool { return segs[order[a]].seq < segs[order[b]].seq })
 	last := after
-	seg := make([]byte, SegmentSize)
+	bp := segBufs.Get().(*[]byte)
+	defer segBufs.Put(bp)
+	seg := *bp
+	// Where this reader's last pass ended, if it asks for what follows
+	// the record it stopped at: that segment is parsed from there.
+	v.readMu.Lock()
+	mark, marked := v.readMarks[after]
+	v.readMu.Unlock()
+	var end readMark
+	ended := false
 	for k, o := range order {
 		// A segment whose successor starts at or before after holds
 		// nothing new.
@@ -678,8 +715,12 @@ func (v *Volume) ReadFrom(after uint64, fn func(Record) bool) (uint64, error) {
 		if now := parseHeader(seg[:BlockSize], v.sb.uuid); !now.valid || now.seq != h.seq {
 			continue // reused since
 		}
+		start := BlockSize
+		if marked && mark.segSeq == h.seq {
+			start = mark.off // the records before it were given already
+		}
 		more := true
-		parseRecords(seg, h.seq, func(r Record) bool {
+		off := parseRecordsFrom(seg, h.seq, start, func(r Record) bool {
 			if r.Seq <= after {
 				return true
 			}
@@ -689,9 +730,19 @@ func (v *Volume) ReadFrom(after uint64, fn func(Record) bool) (uint64, error) {
 			}
 			return more
 		})
+		end, ended = readMark{segSeq: h.seq, off: off}, true
 		if !more {
 			break
 		}
+	}
+	if ended {
+		v.readMu.Lock()
+		if v.readMarks == nil || len(v.readMarks) > 64 {
+			v.readMarks = map[uint64]readMark{} // one entry per reader, a few
+		}
+		delete(v.readMarks, after)
+		v.readMarks[last] = end
+		v.readMu.Unlock()
 	}
 	return last, nil
 }
@@ -710,7 +761,9 @@ func (v *Volume) Written() <-chan struct{} {
 // returns false. This boot's records not written yet aren't read.
 func (v *Volume) Read(boot uint32, fn func(Record) bool) error {
 	segs := v.segmentsOf(boot)
-	seg := make([]byte, SegmentSize)
+	bp := segBufs.Get().(*[]byte)
+	defer segBufs.Put(bp)
+	seg := *bp
 	for _, s := range segs {
 		if _, err := v.f.ReadAt(seg, segOffset(s.index)); err != nil {
 			return err
@@ -732,7 +785,9 @@ func (v *Volume) Read(boot uint32, fn func(Record) bool) error {
 // first - read from its newest segment back.
 func (v *Volume) Tail(boot uint32, n int, keep func(Record) bool) ([]Record, error) {
 	segs := v.segmentsOf(boot)
-	seg := make([]byte, SegmentSize)
+	bp := segBufs.Get().(*[]byte)
+	defer segBufs.Put(bp)
+	seg := *bp
 	var out []Record
 	for i := len(segs) - 1; i >= 0 && (n <= 0 || len(out) < n); i-- {
 		s := segs[i]

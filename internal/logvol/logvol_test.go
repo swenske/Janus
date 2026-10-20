@@ -447,3 +447,147 @@ func TestWrittenSignals(t *testing.T) {
 		t.Fatal("Written wasn't closed by a write")
 	}
 }
+
+// A reader that keeps its place (the log shipper) asking, twice a
+// flush, for what's after the last record it got - nothing, most of the
+// time - with the current segment full.
+func BenchmarkReadFromFollow(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "logs.img")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.Truncate(path, 4<<20); err != nil {
+		b.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer f.Close()
+	c := &clock{time.Unix(1_800_000_000, 0)}
+	v, err := open(f, Options{BootID: [16]byte{1}, Now: c.now})
+	if err != nil {
+		b.Fatal(err)
+	}
+	line := `10.200.40.7:40000 [15/Oct/2026:21:30:01.123] web web/srv1 0/0/1/2/3 200 1234 "GET /api/x HTTP/1.1"`
+	for i := 0; i < 7000; i++ { // 7000 × (28 + 7 + 96) bytes: one segment, nearly full
+		v.Append(Record{Service: "haproxy", Severity: SeverityUnknown, Message: line})
+	}
+	if err := v.Flush(); err != nil {
+		b.Fatal(err)
+	}
+	last := v.LastSeq()
+	if v.seg != 0 || v.off < 900<<10 {
+		b.Fatalf("the records should nearly fill the first segment: segment %d, %d bytes", v.seg, v.off)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		got, err := v.ReadFrom(last, func(Record) bool { b.Fatal("a record past the last"); return false })
+		if err != nil || got != last {
+			b.Fatalf("ReadFrom: last %d, err %v", got, err)
+		}
+	}
+}
+
+// ReadFrom asked for what follows the record a pass ended at goes on
+// from there - and from the segment's start otherwise: another reader,
+// a stop before the end, a segment reused since.
+func TestReadFromResumes(t *testing.T) {
+	path := volumeFile(t, 16) // 15 segments of ~513 records
+	c := &clock{time.Unix(1_800_000_000, 0)}
+	v := boot(t, path, c, 1)
+	msg := strings.Repeat("m", 2000)
+	add := func(n int) { // flushed by the thousand: MaxQueued is 4 MiB
+		for i := range n {
+			v.Append(Record{Service: "janusd", Message: msg})
+			if i%1000 == 999 || i == n-1 {
+				if err := v.Flush(); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if d := v.Stats().Dropped; d != 0 {
+			t.Fatalf("%d records dropped", d)
+		}
+	}
+	// read takes up to stop records (all of them: 0) - a record fn
+	// refuses isn't taken, ReadFrom says so.
+	read := func(after uint64, stop int) (seqs []uint64, last uint64) {
+		last, err := v.ReadFrom(after, func(r Record) bool {
+			if stop > 0 && len(seqs) >= stop {
+				return false
+			}
+			seqs = append(seqs, r.Seq)
+			return true
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 1; i < len(seqs); i++ {
+			if seqs[i] != seqs[i-1]+1 {
+				t.Fatalf("ReadFrom(%d): a gap or a repeat at %d: %d then %d", after, i, seqs[i-1], seqs[i])
+			}
+		}
+		return seqs, last
+	}
+	add(100)
+	if seqs, last := read(0, 0); len(seqs) != 100 || last != 100 {
+		t.Fatalf("first pass: %d records, last %d", len(seqs), last)
+	}
+	m, ok := v.readMarks[100]
+	if !ok || m.segSeq != v.segSeq || m.off != v.off {
+		t.Fatalf("mark after the first pass: %+v (segment %d, %d bytes)", m, v.segSeq, v.off)
+	}
+	// Nothing new: nothing parsed (the mark is at the segment's end).
+	if seqs, last := read(100, 0); len(seqs) != 0 || last != 100 {
+		t.Fatalf("nothing new: %v, last %d", seqs, last)
+	}
+	// Ten more: only them, from the mark.
+	add(10)
+	if seqs, last := read(100, 0); len(seqs) != 10 || seqs[0] != 101 || last != 110 {
+		t.Fatalf("ten new: %v, last %d", seqs, last)
+	}
+	// A stop before the end leaves the mark at the record refused.
+	add(10)
+	if seqs, last := read(110, 3); len(seqs) != 3 || last != 113 {
+		t.Fatalf("stopped after 3: %v, last %d", seqs, last)
+	}
+	if seqs, last := read(113, 0); len(seqs) != 7 || seqs[0] != 114 || last != 120 {
+		t.Fatalf("the rest: %v, last %d", seqs, last)
+	}
+	// Another reader, behind: everything from its place, the marks kept
+	// apart.
+	if seqs, _ := read(50, 0); len(seqs) != 70 || seqs[0] != 51 {
+		t.Fatalf("a reader behind: %d records from %d", len(seqs), seqs[0])
+	}
+	if seqs, _ := read(120, 0); len(seqs) != 0 {
+		t.Fatalf("the first reader: %v", seqs)
+	}
+	// Across segments.
+	add(2000)
+	if seqs, last := read(120, 0); len(seqs) != 2000 || seqs[0] != 121 || last != 2120 {
+		t.Fatalf("across segments: %d records from %d, last %d", len(seqs), seqs[0], last)
+	}
+	// The ring wraps over the oldest segments: the reader at 2120 (its
+	// segment still there) gets the new records, a reader from 0 what
+	// survives.
+	add(6000)
+	if seqs, last := read(2120, 0); len(seqs) != 6000 || seqs[0] != 2121 || last != 8120 {
+		t.Fatalf("after the wrap, from 2120: %d records from %d, last %d", len(seqs), seqs[0], last)
+	}
+	if seqs, last := read(0, 0); len(seqs) == 0 || seqs[0] <= 120 || seqs[0] > 2120 || last != 8120 {
+		t.Fatalf("after the wrap, from 0: %d records, %d..%d", len(seqs), seqs[0], last)
+	}
+	// Another reader at 2120 (the first moved on, its mark with it):
+	// the same 6000 again, from the segment's start.
+	if seqs, last := read(2120, 0); len(seqs) != 6000 || seqs[0] != 2121 || last != 8120 {
+		t.Fatalf("2120 again: %d records from %d, last %d", len(seqs), seqs[0], last)
+	}
+	// A reader whose mark's segment was reused since: what survives,
+	// oldest first.
+	add(2000) // over the segment holding 2120
+	if seqs, last := read(2120, 0); len(seqs) == 0 || seqs[0] <= 2120 || last != 10120 {
+		t.Fatalf("a mark into a reused segment: %d records, %d..%d", len(seqs), seqs[0], last)
+	}
+}
