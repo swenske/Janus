@@ -24,11 +24,14 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A superseded push to a PR is cancelled; every push to main gets its
+  # full result (run 39293735858 on main was cancelled by the next push).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -37,19 +40,37 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # One cache per job (modules and build cache, keyed on go.sum, the
+      # job's last one as a fallback): setup-go's single key was saved by
+      # whichever job finished first - vulncheck, in 25 s - so it never
+      # held the -race objects test needs nor build's. A PR reads main's
+      # caches, never the other way round.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ github.job }}-
+
+      # Pinned like every other tool here (the version the build box
+      # lints with); bumped by hand.
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          version: v2.15.0
 
       # gen/janus/v1alpha1 (generated from api/proto/**.proto via
       # `make proto`) must stay committed and in sync - this job's own `go
       # build`/`go test` never regenerates it. Catch anyone who edited a
       # .proto without regenerating/committing the Go output.
+      # Pinned (@latest compiled a different buf every run, 52 s cold);
+      # from the job's build cache, seconds. Bumped by hand with the
+      # protobuf and grpc modules in go.mod.
       - name: Install buf and protoc-gen-go plugins
         run: |
-          go install github.com/bufbuild/buf/cmd/buf@latest
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          go install github.com/bufbuild/buf/cmd/buf@v1.74.0
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
 
       - name: Check generated proto code is up to date
         run: |
@@ -58,12 +79,27 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
+
+      # One cache per job (modules and build cache, keyed on go.sum, the
+      # job's last one as a fallback): setup-go's single key was saved by
+      # whichever job finished first - vulncheck, in 25 s - so it never
+      # held the -race objects test needs nor build's. A PR reads main's
+      # caches, never the other way round.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ github.job }}-
 
       - run: go test ./... -race -cover
 
@@ -73,24 +109,54 @@ jobs:
   # but doesn't fail the job). Needs no secret, safe for fork PRs.
   vulncheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
+
+      # One cache per job (modules and build cache, keyed on go.sum, the
+      # job's last one as a fallback): setup-go's single key was saved by
+      # whichever job finished first - vulncheck, in 25 s - so it never
+      # held the -race objects test needs nor build's. A PR reads main's
+      # caches, never the other way round.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ github.job }}-
 
       # Pinned as a go.mod tool (Dependabot updates it), not @latest.
       - run: go tool govulncheck ./...
 
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
+
+      # One cache per job (modules and build cache, keyed on go.sum, the
+      # job's last one as a fallback): setup-go's single key was saved by
+      # whichever job finished first - vulncheck, in 25 s - so it never
+      # held the -race objects test needs nor build's. A PR reads main's
+      # caches, never the other way round.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ github.job }}-
 
       - run: go build ./...
 
@@ -98,6 +164,7 @@ jobs:
   # so the jobs above - on the root module's ./... - don't reach it.
   provider:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: terraform-provider-janus
@@ -107,10 +174,19 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: terraform-provider-janus/go.mod
+          cache: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ github.job }}-${{ hashFiles('terraform-provider-janus/go.sum') }}
+          restore-keys: go-${{ github.job }}-
 
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          version: v2.15.0
           working-directory: terraform-provider-janus
           args: --config ../.golangci.yml
 
@@ -129,6 +205,7 @@ jobs:
   # its .nvmrc: 24, the active LTS, as the docs build.
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: dashboard/frontend
@@ -167,6 +244,7 @@ jobs:
   # describe names the build.
   docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -176,6 +254,19 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+
+      # One cache per job (modules and build cache, keyed on go.sum, the
+      # job's last one as a fallback): setup-go's single key was saved by
+      # whichever job finished first - vulncheck, in 25 s - so it never
+      # held the -race objects test needs nor build's. A PR reads main's
+      # caches, never the other way round.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ github.job }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ github.job }}-
 
       - run: make docs-build
 
@@ -192,6 +283,7 @@ jobs:
   # from its .nvmrc: 24, the active LTS.
   site-frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: site/frontend

@@ -46,9 +46,14 @@ if [ ${#channels[@]} -eq 0 ]; then
   echo "docs-smoke: nothing built in site/backend/docsdist - make docs-build first" >&2
   exit 1
 fi
+# Both channels at once when there are two (site-deploy): each is its
+# own browser.
+pids=()
 for ch in "${channels[@]}"; do
-  docker run --rm --network host --ipc host "$image" node docs-smoke.mjs "$url" "$ch"
+  docker run --rm --network host --ipc host "$image" node docs-smoke.mjs "$url" "$ch" &
+  pids+=($!)
 done
+for p in "${pids[@]}"; do wait "$p"; done
 pages=(/docs/ /docs/guide/quickstart/ /docs/internals/boot/ /docs/guide/controller/)
 if [ -n "${2:-}" ]; then
   pages+=(/ /builder /tour)
