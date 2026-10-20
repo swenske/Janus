@@ -402,6 +402,20 @@ janusctl system metrics [-enable] [-disable] [-address IP] [-port PORT]
 | `-address IP` | serve on this address only (* for all) |
 | `-port PORT` | serve on this port |
 
+#### janusctl system console-budget
+
+The services' share of the node's console (docs/guide/log-forwarding.md): show or change.
+
+```text
+janusctl system console-budget [-rate BYTES] [-burst BYTES] [-default]
+```
+
+| Flag | |
+|---|---|
+| `-rate BYTES` | bytes a second of the services' output the console gets (0: none of it) |
+| `-burst BYTES` | at most this much at once |
+| `-default` | janusd's default again |
+
 #### janusctl system node-exporter
 
 Prometheus-node-exporter: show or change.

@@ -17,8 +17,12 @@ package consolelimit
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -41,16 +45,145 @@ const (
 
 // Budget is the services' share of one console writer.
 type Budget struct {
-	out   io.Writer
-	rate  float64
-	burst float64
-	now   func() time.Time
+	out io.Writer
+	now func() time.Time
 
 	mu      sync.Mutex
+	rate    float64
+	burst   float64
 	tokens  float64
 	last    time.Time
-	dropped map[string]int
+	dropped map[string]int    // since the last note
+	leftOut map[string]uint64 // since the start
 	lines   chan []byte
+}
+
+// Config is a node's own budget, kept on STATE (config/console.json):
+// what a node whose console costs it - an emulated serial port on an old
+// core, HAProxy logging every request - sets lower, down to 0: nothing
+// of the services' output on the console at all (janusd's own log
+// stays). The lines left out are still kept whole (SystemService.Logs,
+// the LOGS partition, the log targets).
+type Config struct {
+	RateBytesPerSecond int `json:"rate_bytes_per_second"`
+	BurstBytes         int `json:"burst_bytes"`
+}
+
+// DefaultConfig is Rate and Burst.
+func DefaultConfig() Config { return Config{RateBytesPerSecond: Rate, BurstBytes: Burst} }
+
+// MaxRate and MaxBurst bound a configuration: more than this is the
+// flood the budget exists against.
+const (
+	MaxRate  = 1 << 20
+	MaxBurst = 16 << 20
+)
+
+// Validate checks c: 0 is allowed (the services' output never reaches
+// the console); a burst below the rate is raised to it.
+func (c *Config) Validate() error {
+	if c.RateBytesPerSecond < 0 || c.BurstBytes < 0 {
+		return errors.New("the console budget can't be negative")
+	}
+	if c.RateBytesPerSecond > MaxRate {
+		return fmt.Errorf("a console budget above %d bytes a second is the flood it exists against", MaxRate)
+	}
+	if c.BurstBytes > MaxBurst {
+		return fmt.Errorf("a console burst above %d bytes is the flood it exists against", MaxBurst)
+	}
+	if c.BurstBytes < c.RateBytesPerSecond {
+		c.BurstBytes = c.RateBytesPerSecond
+	}
+	return nil
+}
+
+// Dir holds the configuration file; configFile its name.
+var Dir = "/etc/.state/config"
+
+const configFile = "console.json"
+
+// Load reads the persisted configuration; isDefault reports that none
+// was saved (or that the one saved is unreadable - said in err).
+func Load() (cfg Config, isDefault bool, err error) {
+	data, err := os.ReadFile(filepath.Join(Dir, configFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return DefaultConfig(), true, nil
+	}
+	if err != nil {
+		return DefaultConfig(), true, err
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return DefaultConfig(), true, fmt.Errorf("%s: %w", configFile, err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return DefaultConfig(), true, fmt.Errorf("%s: %w", configFile, err)
+	}
+	return cfg, false, nil
+}
+
+// Save persists cfg, atomically; Reset removes it (the default again).
+func Save(cfg Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(Dir, 0o755); err != nil {
+		return err
+	}
+	tmp := filepath.Join(Dir, "."+configFile+".tmp")
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(Dir, configFile))
+}
+
+// Reset removes the saved configuration.
+func Reset() error {
+	err := os.Remove(filepath.Join(Dir, configFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// Set changes the budget from now on: the tokens in hand are capped at
+// the new burst, so a lower budget takes hold at once.
+func (b *Budget) Set(rate, burst int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.rate, b.burst = float64(rate), float64(burst)
+	b.tokens = min(b.tokens, b.burst)
+}
+
+// Settings returns the budget in force.
+func (b *Budget) Settings() (rate, burst int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return int(b.rate), int(b.burst)
+}
+
+// LeftOut returns, by service, the lines the console didn't get since
+// the start.
+func (b *Budget) LeftOut() map[string]uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make(map[string]uint64, len(b.leftOut))
+	for k, v := range b.leftOut {
+		out[k] = v
+	}
+	return out
 }
 
 // New starts a budget of rate bytes a second, burst at most, in front
@@ -65,7 +198,7 @@ func newBudget(out io.Writer, rate, burst int, now func() time.Time) *Budget {
 	return &Budget{
 		out: out, rate: float64(rate), burst: float64(burst), now: now,
 		tokens: float64(burst), last: now(),
-		dropped: map[string]int{}, lines: make(chan []byte, queued),
+		dropped: map[string]int{}, leftOut: map[string]uint64{}, lines: make(chan []byte, queued),
 	}
 }
 
@@ -93,6 +226,7 @@ func (b *Budget) offer(service string, line []byte) bool {
 		}
 	}
 	b.dropped[service]++
+	b.leftOut[service]++
 	return false
 }
 

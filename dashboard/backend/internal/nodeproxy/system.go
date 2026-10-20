@@ -121,6 +121,22 @@ func registerSystemRoutes(mux *http.ServeMux, node *store.Node) {
 			return janusv1alpha1.NewSystemServiceClient(conn).MetricsConfigSet(ctx, &janusv1alpha1.MetricsConfig{Enabled: req.Enabled, Port: req.Port, Address: req.Address})
 		})
 	})
+	mux.HandleFunc("GET /api/system/console-budget", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
+		return c.ConsoleBudgetGet(ctx, empty)
+	}))
+	mux.HandleFunc("POST /api/system/console-budget", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			RateBytesPerSecond uint32 `json:"rate_bytes_per_second"`
+			BurstBytes         uint32 `json:"burst_bytes"`
+			UseDefault         bool   `json:"use_default"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		unary(w, r, node, unaryTimeout, func(ctx context.Context, conn *grpc.ClientConn) (any, error) {
+			return janusv1alpha1.NewSystemServiceClient(conn).ConsoleBudgetSet(ctx, &janusv1alpha1.ConsoleBudget{RateBytesPerSecond: req.RateBytesPerSecond, BurstBytes: req.BurstBytes, UseDefault: req.UseDefault})
+		})
+	})
 	mux.HandleFunc("GET /api/system/node-exporter", sys(func(ctx context.Context, c janusv1alpha1.SystemServiceClient, _ *http.Request) (any, error) {
 		return c.NodeExporterConfigGet(ctx, empty)
 	}))

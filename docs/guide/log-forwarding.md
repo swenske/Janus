@@ -286,6 +286,45 @@ What it says:
   HAProxy the least - a copy in memory - but writes over its oldest
   lines, uncounted, when its server can't keep up.
 
+## The console
+
+What a service prints goes three ways: janusd's own copy (`janusctl
+system logs haproxy`, the Logs page), the LOGS partition and the log
+targets - all of it, every line; and the node's **console**, a share of
+it: 2 KiB a second with a 64 KiB burst, a few lines, the rest left out
+and said so every ten seconds (`N lines of haproxy's output not shown on
+the console - janusctl system logs haproxy`). janusd's own log always
+reaches the console: it is the boot's record, and it is little.
+
+That share has a cost. The console is a serial port the hypervisor
+emulates, and every byte written to it is a round trip through the
+hypervisor; `init`, which relays what janusd prints to it, pays for it
+in CPU. On a node that logs every request (`log stdout`), the budget is
+always full: `init` takes about 2 % of a 2013 Xeon core, 0.8 % of a
+single 2012 core, 0.4 % of a 2023 one - the same bytes, slower
+cores. Nothing of it reaches HAProxy; it is worth knowing where it
+comes from.
+
+A node that wants less of its console, or none of it - a node with a
+serial console nobody reads - sets its budget:
+
+```sh
+janusctl system console-budget                 # what it is
+janusctl system console-budget -rate 512       # 512 bytes a second
+janusctl system console-budget -rate 0         # nothing of the services' output
+janusctl system console-budget -default        # 2 KiB/s, 64 KiB again
+```
+
+Or the Controller's System › Services, the **Console** card. The budget
+is kept on STATE (`config/console.json`) across reboots and updates and
+applies at once; a lower one takes hold within a second, what was
+already in hand being capped. `0` keeps janusd's own log on the
+console and nothing else; every line of the services is still kept
+whole where it was - this changes the console alone. What's left out is
+counted, by service (`janus_console_lines_left_out_total`), and the
+budget is exported (`janus_console_budget_bytes_per_second`,
+[Metrics](../metrics.md)).
+
 ## What's guaranteed
 
 - **From disk, at least once**: what the LOGS partition and STATE keep -

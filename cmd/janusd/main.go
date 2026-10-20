@@ -94,6 +94,7 @@ func main() {
 	started := time.Now()
 	exporter.Dir = *configDir
 	nodeexporter.Dir = *configDir
+	consolelimit.Dir = *configDir
 
 	if *showVersion {
 		fmt.Println("janusd " + version)
@@ -141,7 +142,17 @@ func main() {
 	log.SetOutput(captured)
 	// What the services print is kept whole above; on the console they
 	// share a budget that never waits (internal/consolelimit).
-	console := consolelimit.New(os.Stdout, consolelimit.Rate, consolelimit.Burst)
+	consoleCfg := consolelimit.DefaultConfig()
+	if *manageHost {
+		var isDefault bool
+		var err error
+		if consoleCfg, isDefault, err = consolelimit.Load(); err != nil {
+			log.Printf("console: the saved budget isn't usable, the default applies: %v", err)
+		} else if !isDefault {
+			log.Printf("console: the services' budget is %d bytes a second, %d in a burst (config/console.json)", consoleCfg.RateBytesPerSecond, consoleCfg.BurstBytes)
+		}
+	}
+	console := consolelimit.New(os.Stdout, consoleCfg.RateBytesPerSecond, consoleCfg.BurstBytes)
 	logVolumeSays(logVol, logDev, logWhy)
 	if logVol != nil {
 		shutdown.Before(func() { _ = logVol.Flush() })
@@ -528,7 +539,7 @@ func main() {
 
 	// The node's own Prometheus exporter (internal/exporter). The kernel
 	// log and STATE are only this node's to report when janusd runs it.
-	metrics := &metricsSources{version: version, started: started, ca: local.CA, serverCert: serverCert,
+	metrics := &metricsSources{version: version, started: started, ca: local.CA, serverCert: serverCert, console: console,
 		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr, vrrp: vrrpMgr, bgp: bgpMgr, acme: acmeMgr}
 	if *manageHost {
 		metrics.kmsg = &kmsgwatch.Counts{ToldFile: "/run/janus/kmsg-oom-told", OnOOMKill: func(pid int, process string) {
@@ -559,7 +570,7 @@ func main() {
 		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr, Console: console})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
 	// Every accepted configuration, next to haproxy.cfg - on STATE on a
 	// node, like the configuration itself.

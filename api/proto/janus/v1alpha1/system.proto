@@ -158,6 +158,20 @@ service SystemService {
   // as it was.
   rpc MetricsConfigSet(MetricsConfig) returns (MetricsConfigResponse);
 
+  // The services' share of the console: what the node's console gets of
+  // HAProxy's and the extensions' output - a few lines a second, 2 KiB/s
+  // with a 64 KiB burst by default, the rest left out and said so. An
+  // emulated serial port costs CPU for every byte: a node that logs every
+  // request may want less, down to 0 (janusd's own log stays; every line
+  // is still kept - Logs, the LOGS partition, the log targets).
+
+  // ConsoleBudgetGet reports the budget in force, the default, and how
+  // many lines were left out since janusd started.
+  rpc ConsoleBudgetGet(google.protobuf.Empty) returns (ConsoleBudgetResponse);
+  // ConsoleBudgetSet changes it at once and for good (STATE
+  // config/console.json), or puts the default back.
+  rpc ConsoleBudgetSet(ConsoleBudget) returns (ConsoleBudgetResponse);
+
   // The log shipper (docs/guide/log-forwarding.md): the node's logs -
   // janusd's, HAProxy's own messages and access logs, the extensions',
   // the kernel's, the event log, the audit - sent to syslog servers and
@@ -439,6 +453,19 @@ message NodeExporterConfigResponse {
   repeated NodeExporterCollector available_collectors = 3;
   string state = 4; // the service's: "running", "disabled", "restarting"...
   string error = 5; // its last error, when it isn't running as set
+}
+
+message ConsoleBudget {
+  uint32 rate_bytes_per_second = 1; // 0 = nothing of the services' output on the console
+  uint32 burst_bytes = 2; // at most this much at once; below the rate, raised to it
+  bool use_default = 3; // on Set: the default again, the two above ignored
+}
+
+message ConsoleBudgetResponse {
+  ConsoleBudget config = 1; // in force
+  bool is_default = 2; // nothing was ever set
+  ConsoleBudget default = 3; // janusd's own
+  uint64 lines_left_out_total = 4; // of every service, since janusd started
 }
 
 message MetricsConfigResponse {

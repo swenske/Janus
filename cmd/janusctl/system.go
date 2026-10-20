@@ -320,6 +320,45 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 			fmt.Println("(default settings)")
 		}
 
+	case "console-budget":
+		fs := flag.NewFlagSet("system console-budget", flag.ExitOnError)
+		rate := fs.Int("rate", -1, "bytes a second of the services' output the console gets (0: none of it)")
+		burst := fs.Int("burst", -1, "at most this much at once")
+		useDefault := fs.Bool("default", false, "janusd's default again")
+		_ = fs.Parse(args)
+		c, cancel := ctx()
+		defer cancel()
+		resp, err := client.ConsoleBudgetGet(c, &emptypb.Empty{})
+		check("ConsoleBudgetGet", err)
+		if *useDefault || *rate >= 0 || *burst >= 0 {
+			if *useDefault && (*rate >= 0 || *burst >= 0) {
+				fmt.Fprintln(os.Stderr, "-default with -rate or -burst")
+				os.Exit(2)
+			}
+			cfg := resp.GetConfig()
+			req := &janusv1alpha1.ConsoleBudget{RateBytesPerSecond: cfg.GetRateBytesPerSecond(), BurstBytes: cfg.GetBurstBytes(), UseDefault: *useDefault}
+			if *rate >= 0 {
+				req.RateBytesPerSecond = uint32(*rate)
+			}
+			if *burst >= 0 {
+				req.BurstBytes = uint32(*burst)
+			}
+			resp, err = client.ConsoleBudgetSet(c, req)
+			check("ConsoleBudgetSet", err)
+		}
+		cfg := resp.GetConfig()
+		if cfg.GetRateBytesPerSecond() == 0 {
+			fmt.Println("Console: none of the services' output (janusd's own log only)")
+		} else {
+			fmt.Printf("Console: %d bytes a second of the services' output, %d at most at once\n", cfg.GetRateBytesPerSecond(), cfg.GetBurstBytes())
+		}
+		if resp.GetIsDefault() {
+			fmt.Println("(default)")
+		} else {
+			fmt.Printf("(default: %d a second, %d at once)\n", resp.GetDefault().GetRateBytesPerSecond(), resp.GetDefault().GetBurstBytes())
+		}
+		fmt.Printf("Lines left out since janusd started: %d (kept: janusctl system logs)\n", resp.GetLinesLeftOutTotal())
+
 	case "node-exporter":
 		fs := flag.NewFlagSet("system node-exporter", flag.ExitOnError)
 		enable := fs.Bool("enable", false, "run node_exporter")

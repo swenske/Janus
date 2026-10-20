@@ -71,6 +71,8 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.SystemService/GenerateClientConfiguration": adminOnly, // issuing credentials is itself a privileged operation
 	"/janus.v1alpha1.SystemService/MetricsConfigGet":            readers,
 	"/janus.v1alpha1.SystemService/MetricsConfigSet":            adminOnly,
+	"/janus.v1alpha1.SystemService/ConsoleBudgetGet":            readers,
+	"/janus.v1alpha1.SystemService/ConsoleBudgetSet":            adminOnly,
 	"/janus.v1alpha1.SystemService/NodeExporterConfigGet":       readers,
 	"/janus.v1alpha1.SystemService/NodeExporterConfigSet":       adminOnly,
 	"/janus.v1alpha1.SystemService/SysctlList":                  readers,
