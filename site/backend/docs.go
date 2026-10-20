@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"golang.org/x/net/html"
+
+	"github.com/swenske/Janus/internal/webstatic"
 )
 
 // The docs site (site/docs), built by hack/docs-build.sh into docsdist/
@@ -39,7 +41,7 @@ type docsBuild struct {
 
 type docsChannel struct {
 	prefix string // where it's served: /docs/ or /docs/next/
-	files  staticSet
+	files  webstatic.Set
 	// csp is each HTML page's Content-Security-Policy: its inline scripts
 	// (Starlight's theme, Astro's islands) by hash, never 'unsafe-inline'.
 	csp map[string]string
@@ -84,18 +86,18 @@ func loadDocs(dist fs.FS) (*docsSite, error) {
 }
 
 func loadDocsChannel(fsys fs.FS, prefix string, noindex bool) (*docsChannel, error) {
-	files, err := loadStatic(fsys)
+	files, err := webstatic.Load(fsys)
 	if err != nil {
 		return nil, err
 	}
 	ch := &docsChannel{prefix: prefix, files: files, csp: map[string]string{}, redirects: map[string]string{}, noindex: noindex}
 	if f := files["_janus/build.json"]; f != nil {
-		if err := json.Unmarshal(f.body, &ch.build); err != nil {
+		if err := json.Unmarshal(f.Body, &ch.build); err != nil {
 			return nil, fmt.Errorf("_janus/build.json: %w", err)
 		}
 	}
 	if f := files["_janus/redirects.json"]; f != nil {
-		if err := json.Unmarshal(f.body, &ch.redirects); err != nil {
+		if err := json.Unmarshal(f.Body, &ch.redirects); err != nil {
 			return nil, fmt.Errorf("_janus/redirects.json: %w", err)
 		}
 	}
@@ -104,7 +106,7 @@ func loadDocsChannel(fsys fs.FS, prefix string, noindex bool) (*docsChannel, err
 		case strings.HasPrefix(name, "_janus/"):
 			delete(files, name) // for this server, not for readers
 		case strings.HasSuffix(name, ".html"):
-			hashes := inlineScriptHashes(f.body)
+			hashes := inlineScriptHashes(f.Body)
 			ch.csp[name] = fmt.Sprintf(docsCSP, strings.Join(append([]string{""}, hashes...), " "))
 		}
 	}
@@ -230,7 +232,7 @@ func (ch *docsChannel) serve(w http.ResponseWriter, r *http.Request, rel string)
 // hashedPagefind: Pagefind's index files whose name carries their hash.
 var hashedPagefind = regexp.MustCompile(`^pagefind/(.+/)?[^/]*_[0-9a-f]{6,}\.pf_[a-z]+$`)
 
-func (ch *docsChannel) serveFile(w http.ResponseWriter, r *http.Request, name string, f *staticFile, status int) {
+func (ch *docsChannel) serveFile(w http.ResponseWriter, r *http.Request, name string, f *webstatic.File, status int) {
 	h := w.Header()
 	if csp, ok := ch.csp[name]; ok {
 		h.Set("Content-Security-Policy", csp)
@@ -247,7 +249,7 @@ func (ch *docsChannel) serveFile(w http.ResponseWriter, r *http.Request, name st
 	default:
 		h.Set("Cache-Control", "public, max-age=300")
 	}
-	f.serve(w, r, status)
+	f.Serve(w, r, status)
 }
 
 // redirect is a permanent redirect that keeps the query.

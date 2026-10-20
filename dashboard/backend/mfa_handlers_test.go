@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
@@ -54,7 +53,7 @@ func newMFAApp(t *testing.T) *authApp {
 		t.Fatal(err)
 	}
 	a := &app{auth: st, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: nodes, serverCert: cert, ui: ui}
-	return &authApp{app: a, h: a.audited(a.routes(fstest.MapFS{}))}
+	return &authApp{app: a, h: a.audited(a.routes(http.NotFoundHandler()))}
 }
 
 func (a *authApp) needs(t *testing.T, session string) string {

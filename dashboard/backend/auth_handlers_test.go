@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
@@ -57,7 +56,7 @@ func newAuthApp(t *testing.T) *authApp {
 		t.Fatal(err)
 	}
 	a := &app{auth: authStore, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: st, machines: ms}
-	return &authApp{app: a, h: a.audited(a.routes(fstest.MapFS{}))}
+	return &authApp{app: a, h: a.audited(a.routes(http.NotFoundHandler()))}
 }
 
 // req makes a request with a session cookie or a bearer token

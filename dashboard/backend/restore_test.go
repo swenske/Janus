@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
@@ -31,7 +30,7 @@ func freshApp(t *testing.T) *authApp {
 	log, _ := audit.Open(dir)
 	nodes, _ := store.Open(dir)
 	a := &app{auth: st, tokens: tokens, loginLimiter: auth.NewLoginLimiter(), audit: log, store: nodes, dataDir: dir, masterKeyPath: filepath.Join(t.TempDir(), "master.key")}
-	return &authApp{app: a, h: a.audited(a.routes(fstest.MapFS{}))}
+	return &authApp{app: a, h: a.audited(a.routes(http.NotFoundHandler()))}
 }
 
 func restoreRequest(t *testing.T, a *authApp, kit []byte, pass string, file []byte) (int, string) {

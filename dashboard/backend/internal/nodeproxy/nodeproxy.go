@@ -25,6 +25,7 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	"github.com/swenske/Janus/internal/webstatic"
 )
 
 // staticFiles is the node page (dashboard/frontend's node app, built
@@ -89,7 +90,14 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	registerHAProxyFileRoutes(mux, node)
 	registerHAProxyRuntimeRoutes(mux, node)
 	registerAccessRoutes(mux, node)
-	mux.Handle("/", http.FileServerFS(view))
+	// Its files with an ETag, gzip and Cache-Control (internal/webstatic):
+	// http.FileServerFS sent none for embedded files - 760 KB again on
+	// every open of a node's page.
+	page, err := webstatic.SPA(view)
+	if err != nil {
+		return nil, err
+	}
+	mux.Handle("/", page)
 
 	return http.NewCrossOriginProtection().Handler(mux), nil
 }
