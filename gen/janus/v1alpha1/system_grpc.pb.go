@@ -58,6 +58,8 @@ const (
 	SystemService_GenerateClientConfiguration_FullMethodName = "/janus.v1alpha1.SystemService/GenerateClientConfiguration"
 	SystemService_MetricsConfigGet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigGet"
 	SystemService_MetricsConfigSet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigSet"
+	SystemService_ConsoleBudgetGet_FullMethodName            = "/janus.v1alpha1.SystemService/ConsoleBudgetGet"
+	SystemService_ConsoleBudgetSet_FullMethodName            = "/janus.v1alpha1.SystemService/ConsoleBudgetSet"
 	SystemService_LogForwardingGet_FullMethodName            = "/janus.v1alpha1.SystemService/LogForwardingGet"
 	SystemService_LogForwardingSet_FullMethodName            = "/janus.v1alpha1.SystemService/LogForwardingSet"
 	SystemService_LogForwardingTest_FullMethodName           = "/janus.v1alpha1.SystemService/LogForwardingTest"
@@ -205,6 +207,12 @@ type SystemServiceClient interface {
 	// good; a port that can't be bound is refused and the exporter stays
 	// as it was.
 	MetricsConfigSet(ctx context.Context, in *MetricsConfig, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
+	// ConsoleBudgetGet reports the budget in force, the default, and how
+	// many lines were left out since janusd started.
+	ConsoleBudgetGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConsoleBudgetResponse, error)
+	// ConsoleBudgetSet changes it at once and for good (STATE
+	// config/console.json), or puts the default back.
+	ConsoleBudgetSet(ctx context.Context, in *ConsoleBudget, opts ...grpc.CallOption) (*ConsoleBudgetResponse, error)
 	// LogForwardingGet returns where the logs go - never a secret: an API
 	// key, a password or a client key come back empty, LogTargetStatus
 	// says which are set - and how each target is doing.
@@ -732,6 +740,26 @@ func (c *systemServiceClient) MetricsConfigSet(ctx context.Context, in *MetricsC
 	return out, nil
 }
 
+func (c *systemServiceClient) ConsoleBudgetGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConsoleBudgetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConsoleBudgetResponse)
+	err := c.cc.Invoke(ctx, SystemService_ConsoleBudgetGet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) ConsoleBudgetSet(ctx context.Context, in *ConsoleBudget, opts ...grpc.CallOption) (*ConsoleBudgetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConsoleBudgetResponse)
+	err := c.cc.Invoke(ctx, SystemService_ConsoleBudgetSet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *systemServiceClient) LogForwardingGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LogForwardingResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LogForwardingResponse)
@@ -967,6 +995,12 @@ type SystemServiceServer interface {
 	// good; a port that can't be bound is refused and the exporter stays
 	// as it was.
 	MetricsConfigSet(context.Context, *MetricsConfig) (*MetricsConfigResponse, error)
+	// ConsoleBudgetGet reports the budget in force, the default, and how
+	// many lines were left out since janusd started.
+	ConsoleBudgetGet(context.Context, *emptypb.Empty) (*ConsoleBudgetResponse, error)
+	// ConsoleBudgetSet changes it at once and for good (STATE
+	// config/console.json), or puts the default back.
+	ConsoleBudgetSet(context.Context, *ConsoleBudget) (*ConsoleBudgetResponse, error)
 	// LogForwardingGet returns where the logs go - never a secret: an API
 	// key, a password or a client key come back empty, LogTargetStatus
 	// says which are set - and how each target is doing.
@@ -1128,6 +1162,12 @@ func (UnimplementedSystemServiceServer) MetricsConfigGet(context.Context, *empty
 }
 func (UnimplementedSystemServiceServer) MetricsConfigSet(context.Context, *MetricsConfig) (*MetricsConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MetricsConfigSet not implemented")
+}
+func (UnimplementedSystemServiceServer) ConsoleBudgetGet(context.Context, *emptypb.Empty) (*ConsoleBudgetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConsoleBudgetGet not implemented")
+}
+func (UnimplementedSystemServiceServer) ConsoleBudgetSet(context.Context, *ConsoleBudget) (*ConsoleBudgetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConsoleBudgetSet not implemented")
 }
 func (UnimplementedSystemServiceServer) LogForwardingGet(context.Context, *emptypb.Empty) (*LogForwardingResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LogForwardingGet not implemented")
@@ -1787,6 +1827,42 @@ func _SystemService_MetricsConfigSet_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemService_ConsoleBudgetGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).ConsoleBudgetGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_ConsoleBudgetGet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).ConsoleBudgetGet(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_ConsoleBudgetSet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConsoleBudget)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).ConsoleBudgetSet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_ConsoleBudgetSet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).ConsoleBudgetSet(ctx, req.(*ConsoleBudget))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SystemService_LogForwardingGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -2081,6 +2157,14 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MetricsConfigSet",
 			Handler:    _SystemService_MetricsConfigSet_Handler,
+		},
+		{
+			MethodName: "ConsoleBudgetGet",
+			Handler:    _SystemService_ConsoleBudgetGet_Handler,
+		},
+		{
+			MethodName: "ConsoleBudgetSet",
+			Handler:    _SystemService_ConsoleBudgetSet_Handler,
 		},
 		{
 			MethodName: "LogForwardingGet",

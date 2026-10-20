@@ -21,6 +21,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/consolelimit"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/haproxy"
@@ -82,6 +83,9 @@ type System struct {
 
 	// Sysctl changes the whitelisted kernel parameters (Sysctl*).
 	Sysctl *sysctl.Manager
+	// Console is the services' share of the console (nil: not managed
+	// by this janusd - the budget can't be read or set).
+	Console *consolelimit.Budget
 }
 
 func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.VersionResponse, error) {

@@ -180,6 +180,13 @@ The node's Prometheus exporter ([docs/metrics.md](../metrics.md)): Janus's own m
 | `MetricsConfigGet` | `Empty` → `MetricsConfigResponse` | `os:reader` | observe | MetricsConfigGet reports the exporter's settings. |
 | `MetricsConfigSet` | `MetricsConfig` → `MetricsConfigResponse` | `os:admin` | system | MetricsConfigSet changes the exporter's settings, at once and for good; a port that can't be bound is refused and the exporter stays as it was. |
 
+The services' share of the console: what the node's console gets of HAProxy's and the extensions' output - a few lines a second, 2 KiB/s with a 64 KiB burst by default, the rest left out and said so. An emulated serial port costs CPU for every byte: a node that logs every request may want less, down to 0 (janusd's own log stays; every line is still kept - Logs, the LOGS partition, the log targets).
+
+| Call | Request → response | Role | Domain | What it does |
+|---|---|---|---|---|
+| `ConsoleBudgetGet` | `Empty` → `ConsoleBudgetResponse` | `os:reader` | observe | ConsoleBudgetGet reports the budget in force, the default, and how many lines were left out since janusd started. |
+| `ConsoleBudgetSet` | `ConsoleBudget` → `ConsoleBudgetResponse` | `os:admin` | system | ConsoleBudgetSet changes it at once and for good (STATE config/console.json), or puts the default back. |
+
 The log shipper ([docs/guide/log-forwarding.md](../guide/log-forwarding.md)): the node's logs - janusd's, HAProxy's own messages and access logs, the extensions', the kernel's, the event log, the audit - sent to syslog servers and Elasticsearch clusters. What the node keeps on disk (the LOGS partition, the event log) each target takes behind a cursor: what it couldn't take while down goes once it's back.
 
 | Call | Request → response | Role | Domain | What it does |

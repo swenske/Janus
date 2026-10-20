@@ -15,6 +15,7 @@ import (
 	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/boottime"
+	"github.com/swenske/Janus/internal/consolelimit"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
 	"github.com/swenske/Janus/internal/firewall"
@@ -43,6 +44,7 @@ type metricsSources struct {
 	vrrp       *vrrp.Manager
 	bgp        *bgp.Manager
 	acme       *acme.Manager
+	console    *consolelimit.Budget
 	statePath  string         // STATE's mount point, for its filesystem's error count
 	logVol     *logvol.Volume // the LOGS partition, nil without one
 	ship       *logship.Shipper
@@ -59,7 +61,7 @@ type metricsSources struct {
 const haproxyCertTTL = time.Minute
 
 func (m *metricsSources) collectors() []exporter.Collector {
-	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.acmeMetrics, m.security, m.apiRequests, m.logshipMetrics}
+	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.acmeMetrics, m.security, m.apiRequests, m.logshipMetrics, m.consoleMetrics}
 }
 
 func gauge(name, help string, samples ...exporter.Sample) exporter.Family {
@@ -400,6 +402,26 @@ func (m *metricsSources) apiRequests() []exporter.Family {
 }
 
 // logshipMetrics are the log shipper's, a sample per target.
+// consoleMetrics: the services' share of the console and what it left out.
+func (m *metricsSources) consoleMetrics() []exporter.Family {
+	if m.console == nil {
+		return nil
+	}
+	rate, burst := m.console.Settings()
+	var left []exporter.Sample
+	for service, n := range m.console.LeftOut() {
+		left = append(left, sample(float64(n), "service", service))
+	}
+	fams := []exporter.Family{
+		gauge("janus_console_budget_bytes_per_second", "What the node's console gets of the services' output, bytes a second (0: nothing of it reaches the console; janusd's own log always does).", sample(float64(rate))),
+		gauge("janus_console_budget_burst_bytes", "At most this much of the services' output on the console at once.", sample(float64(burst))),
+	}
+	if len(left) > 0 {
+		fams = append(fams, counter("janus_console_lines_left_out_total", "Lines of a service's output the console didn't get since janusd started - kept whole in the service's log, the LOGS partition and the log targets.", left...))
+	}
+	return fams
+}
+
 func (m *metricsSources) logshipMetrics() []exporter.Family {
 	if m.ship == nil {
 		return nil

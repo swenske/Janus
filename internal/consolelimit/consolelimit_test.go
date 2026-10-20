@@ -163,3 +163,68 @@ func BenchmarkWriteDropped(b *testing.B) {
 		_, _ = w.Write(line)
 	}
 }
+
+// A lower budget takes hold at once: what's in hand is capped at the
+// new burst; 0 lets nothing through and counts every line.
+func TestSetAndLeftOut(t *testing.T) {
+	c := &clock{time.Unix(0, 0)}
+	b := newBudget(io.Discard, 100, 1000, c.now)
+	w := b.For("haproxy")
+	_, _ = io.WriteString(w, "one\n")
+	if got := drain(b); got != "one\n" {
+		t.Fatalf("before: %q", got)
+	}
+	b.Set(0, 0)
+	_, _ = io.WriteString(w, "two\nthree\n")
+	if got := drain(b); got != "" {
+		t.Fatalf("at 0: console got %q", got)
+	}
+	if n := b.LeftOut()["haproxy"]; n != 2 {
+		t.Fatalf("left out = %d, want 2", n)
+	}
+	if rate, burst := b.Settings(); rate != 0 || burst != 0 {
+		t.Fatalf("settings = %d/%d", rate, burst)
+	}
+	b.Set(100, 1000)
+	c.t = c.t.Add(time.Second)
+	_, _ = io.WriteString(w, "four\n")
+	if got := drain(b); got != "four\n" {
+		t.Fatalf("back: %q", got)
+	}
+	if n := b.LeftOut()["haproxy"]; n != 2 {
+		t.Fatalf("left out after = %d, want 2 still", n)
+	}
+}
+
+func TestConfigFile(t *testing.T) {
+	Dir = t.TempDir()
+	cfg, isDefault, err := Load()
+	if err != nil || !isDefault || cfg != DefaultConfig() {
+		t.Fatalf("Load with nothing saved: %+v %v %v", cfg, isDefault, err)
+	}
+	if err := Save(Config{RateBytesPerSecond: 512, BurstBytes: 100}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, isDefault, err = Load()
+	if err != nil || isDefault || cfg.RateBytesPerSecond != 512 || cfg.BurstBytes != 512 {
+		t.Fatalf("Load after Save: %+v %v %v (a burst below the rate is raised to it)", cfg, isDefault, err)
+	}
+	for _, bad := range []Config{{RateBytesPerSecond: -1}, {RateBytesPerSecond: MaxRate + 1}, {BurstBytes: MaxBurst + 1}} {
+		if err := bad.Validate(); err == nil {
+			t.Errorf("%+v accepted", bad)
+		}
+	}
+	zero := Config{}
+	if err := zero.Validate(); err != nil {
+		t.Fatalf("0/0 refused: %v", err)
+	}
+	if err := Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if _, isDefault, _ = Load(); !isDefault {
+		t.Fatal("Reset left a configuration")
+	}
+	if err := Reset(); err != nil {
+		t.Fatalf("Reset twice: %v", err)
+	}
+}

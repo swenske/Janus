@@ -129,6 +129,9 @@ authentication: restrict who reaches the port.
 | `janus_logship_bytes_sent_total` | counter | `target` | Bytes those records took: syslog messages with their framing, Elasticsearch request bodies as sent (gzipped when the target says so) |
 | `janus_logship_records_dropped_total` | counter | `target` | Log records the target lost - its queue in memory was full, or the LOGS partition wrote over them before they were sent - it should stay 0 |
 | `janus_logship_send_errors_total` | counter | `target` | Failed sends to the target (each is retried) |
+| `janus_console_budget_bytes_per_second` | gauge | | What the node's console gets of the services' output, bytes a second - 0: none of it ([the console](guide/log-forwarding.md#the-console)) |
+| `janus_console_budget_burst_bytes` | gauge | | At most this much of the services' output on the console at once |
+| `janus_console_lines_left_out_total` | counter | `service` | Lines of the service's output the console didn't get since janusd started - kept whole in its log, the LOGS partition and the log targets |
 | `janus_logship_queued_records` | gauge | `target` | Log records waiting for the target: in memory, and on the LOGS partition behind its place |
 | `janus_api_requests_total` | counter | `method`, `code` | Calls to the node's API since janusd started, refused ones included |
 

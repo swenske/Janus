@@ -184,6 +184,24 @@ done
 last="$(ctl system logs -n 5 haproxy)" || fail "system logs haproxy failed"
 grep -q '"GET / HTTP/1.1"' <<<"$last" || fail "janusd's log of HAProxy doesn't end with the access log lines: $last"
 
+# The budget turned off (ConsoleBudgetSet 0): nothing of HAProxy's output
+# on the console under the same load - janusd's own log still -, every
+# line still in janusd's copy; then the default back, and the console
+# gets its share again.
+off="$(ctl system console-budget -rate 0 2>&1)" || fail "console-budget -rate 0 failed: $off"
+grep -q "none of the services' output" <<<"$off" || fail "console-budget -rate 0 didn't take: $off"
+sleep 2
+before="$(stat -c %s "$LOG")"
+rps_off="$(load 10)"
+off_bytes=$(($(stat -c %s "$LOG") - before))
+[ "$(tail -c +$((before + 1)) "$LOG" | grep -ac '"GET / HTTP/1.1"')" -eq 0 ] || fail "with the budget at 0, HAProxy's lines still reached the console"
+[ "$off_bytes" -le 4096 ] || fail "with the budget at 0, the console still got $off_bytes bytes in 10 s"
+last="$(ctl system logs -n 5 haproxy)" || fail "system logs haproxy failed"
+grep -q '"GET / HTTP/1.1"' <<<"$last" || fail "with the budget at 0, janusd's log of HAProxy lost its lines: $last"
+def="$(ctl system console-budget -default 2>&1)" || fail "console-budget -default failed: $def"
+grep -q "(default)" <<<"$def" || fail "console-budget -default didn't take: $def"
+echo "Budget off: $rps_off requests/s, the console got $off_bytes bytes in 10 s, janusd's log whole"
+
 if grep -aq "avc:  denied" "$LOG"; then
   fail "AVC denials: $(grep -a 'avc:  denied' "$LOG" | head -5)"
 fi

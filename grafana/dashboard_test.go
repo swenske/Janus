@@ -82,6 +82,9 @@ var notShown = map[string]string{
 	"janus_logship_records_sent_total":             "what log targets lose is shown; what they get is in the target",
 	"janus_logship_bytes_sent_total":               "what log targets lose is shown; what they get is in the target",
 	"janus_logship_send_errors_total":              "the targets failing are shown; each error is retried",
+	"janus_console_budget_bytes_per_second":        "a node's own setting (the Console card), not a signal",
+	"janus_console_budget_burst_bytes":             "a node's own setting, not a signal",
+	"janus_console_lines_left_out_total":           "by design under load: the lines are in the service's log, the LOGS partition and the targets",
 	"janus_logship_queued_records":                 "what log targets lose is shown; their queue is the node's own",
 }
 
