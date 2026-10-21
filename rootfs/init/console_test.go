@@ -37,3 +37,24 @@ func TestRelayConsole(t *testing.T) {
 		t.Errorf("screen queue holds %d chunks, want it full (2) and the rest dropped", len(toScreen))
 	}
 }
+
+// /dev/console follows the last console= of the kernel's command line:
+// the mirror to the screen is for a serial one.
+func TestLastConsoleIsSerial(t *testing.T) {
+	for _, c := range []struct {
+		cmdline string
+		serial  bool
+	}{
+		{"console=tty0 console=ttyS0 panic=-1", true},
+		{"console=tty0 console=ttyAMA0 panic=-1", true},
+		{"console=ttyS0,115200n8 root=/dev/dm-0", true},
+		{"console=tty0 panic=-1", false},
+		{"console=ttyS0 console=tty0", false},
+		{"root=/dev/dm-0 panic=-1", false},
+		{"", false},
+	} {
+		if got := lastConsoleIsSerial(c.cmdline); got != c.serial {
+			t.Errorf("%q: serial %v, want %v", c.cmdline, got, c.serial)
+		}
+	}
+}
