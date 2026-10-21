@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"os"
+	"strings"
 	"syscall"
 )
 
@@ -27,8 +28,14 @@ const screenQueue = 256
 // best effort: a slow or missing screen drops lines rather than ever
 // holding janusd back. File descriptors 1 and 2 themselves stay on
 // /dev/console, so a Go runtime crash of init still reaches it.
-// Without a screen console (no /dev/tty0), nothing changes.
+// Without a screen console (no /dev/tty0), nothing changes; and when
+// /dev/console is the screen itself - a "console": "screen" image, whose
+// kernel command line names no serial console - there is nothing to
+// mirror: every line would show twice.
 func mirrorConsole() {
+	if !serialConsole() {
+		return
+	}
 	screen, err := os.OpenFile(screenDevice, os.O_WRONLY|syscall.O_NOCTTY, 0)
 	if err != nil {
 		return
@@ -67,4 +74,29 @@ func relayConsole(r io.Reader, serial io.Writer, toScreen chan<- []byte) {
 			return
 		}
 	}
+}
+
+// cmdlinePath is the kernel's command line; a var for the test.
+var cmdlinePath = "/proc/cmdline"
+
+// serialConsole reports whether /dev/console is a serial port: the last
+// console= of the kernel's command line (what /dev/console follows)
+// names one - ttyS0, ttyAMA0, hvc0... A tty0, or no console= at all,
+// is the screen.
+func serialConsole() bool {
+	cmdline, err := os.ReadFile(cmdlinePath)
+	if err != nil {
+		return true // unknown: mirror, as before
+	}
+	return lastConsoleIsSerial(string(cmdline))
+}
+
+func lastConsoleIsSerial(cmdline string) bool {
+	last := ""
+	for _, f := range strings.Fields(cmdline) {
+		if v, ok := strings.CutPrefix(f, "console="); ok {
+			last, _, _ = strings.Cut(v, ",") // console=ttyS0,115200n8
+		}
+	}
+	return last != "" && !strings.HasPrefix(last, "tty0") && !strings.HasPrefix(last, "tty1")
 }

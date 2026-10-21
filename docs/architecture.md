@@ -405,7 +405,9 @@ Realtek r8169, Broadcom tg3/bnxt, Mellanox mlx5 and vmxnet3 NICs - none
 needs a firmware file, none is shipped. The console is the screen (EFI
 framebuffer) and the serial port: `rootfs/init` copies userspace output
 - janusd's motd and first-boot credentials included - to `/dev/tty0`,
-best effort, never holding the serial console back. Proven by
+best effort, never holding the serial console back; not on an image
+whose console is the screen alone (`"console": "screen"`), where
+`/dev/console` already is the screen. Proven by
 `hack/qemu-baremetal-test.sh`.
 
 ## Optional network features
