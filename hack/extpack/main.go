@@ -244,7 +244,16 @@ func catalog(args []string) {
 		fl.Usage()
 		os.Exit(2)
 	}
-	c := schematic.Catalog{Version: *release, Extensions: []schematic.CatalogEntry{}}
+	// Everything variants.mk says - the branches, the tracks, the console
+	// choices, what's retired - as CatalogVariants gives it: a new kind of
+	// choice reaches the catalog without a line here (v2026.10.20-3's
+	// catalog had no console choices: this copied three fields by hand).
+	set, err := variants.Load(".")
+	if err != nil {
+		log.Fatal(err)
+	}
+	c := set.CatalogVariants()
+	c.Version, c.Extensions = *release, []schematic.CatalogEntry{}
 	for _, arg := range fl.Args() {
 		name, version, ok := strings.Cut(arg, "=")
 		if !ok || version == "" {
@@ -261,17 +270,11 @@ func catalog(args []string) {
 		log.Fatal(errors.New("no extension given"))
 	}
 	slices.SortFunc(c.Extensions, func(a, b schematic.CatalogEntry) int { return strings.Compare(a.Name, b.Name) })
-	set, err := variants.Load(".")
-	if err != nil {
-		log.Fatal(err)
-	}
-	vc := set.CatalogVariants()
-	c.HAProxy, c.Kernel, c.Retired = vc.HAProxy, vc.Kernel, vc.Retired
 	data, _ := json.MarshalIndent(c, "", "  ")
 	if err := os.WriteFile(*out, append(data, '\n'), 0o644); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("wrote %s (%d extensions, %d HAProxy branches, %d kernel tracks)\n", *out, len(c.Extensions), len(c.HAProxy), len(c.Kernel))
+	fmt.Printf("wrote %s (%d extensions, %d HAProxy branches, %d kernel tracks, console %v)\n", *out, len(c.Extensions), len(c.HAProxy), len(c.Kernel), c.Console)
 }
 
 func loadSchematic(file string) *schematic.Schematic {
