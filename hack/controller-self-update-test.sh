@@ -27,7 +27,22 @@ PROJECT=janus-self-update-$$
 PASSWORD=self-update-test-password
 fail() { echo "FAIL: $*" >&2; FAILED=1; exit 1; }
 
-free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])'; }
+# A free port below the kernel's ephemeral range (32768-60999 on Linux):
+# a port bound to 0 and released is one the kernel hands the next
+# outgoing connection of any process on the runner - five instances run
+# tests side by side - and the Controller found its port taken
+# ("bind: address already in use", v2026.10.21's build).
+free_port() { python3 -c '
+import random, socket
+for _ in range(100):
+    p = random.randint(20000, 32000)
+    with socket.socket() as s:
+        try:
+            s.bind(("127.0.0.1", p))
+        except OSError:
+            continue
+    print(p); break
+'; }
 REG_PORT=$(free_port)
 GH_PORT=$(free_port)
 MAIN_PORT=$(free_port)
