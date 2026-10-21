@@ -233,7 +233,8 @@ example:
   the Controller's relay since nothing prints on its serial port: its
   serial log's size, its version and health, a screenshot of its
   screen, then the same load with init's CPU (`screen-machine`,
-  `x-screen-load`).
+  `x-screen-load`); from v2026.10.21 the image is the factory's - no
+  node runs that schematic, so the script asks for the build first.
 
 ### HAProxy killed by the kernel
 
