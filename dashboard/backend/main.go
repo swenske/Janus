@@ -278,6 +278,10 @@ func main() {
 // routes is the main port's API and the page: every API route behind a
 // gate naming the role a read and a change of it need.
 func (a *app) routes(spa http.Handler) *http.ServeMux {
+	nodeAssets, err := nodeproxy.Static()
+	if err != nil {
+		panic(err) // embedded: a bug, caught at start
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/status", a.handleAuthStatus)
 	mux.HandleFunc("POST /api/auth/setup", a.handleAuthSetup)
@@ -302,6 +306,9 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	mux.HandleFunc("/api/controller/update", a.gate(auth.Reader, auth.Admin, a.handleControllerUpdate))
 	a.registerControllerTLSRoutes(mux)
 	mux.HandleFunc("/nodes/", a.handleNodePage)
+	// The node pages' hashed assets, the same for every node: one path,
+	// cached once (nodeproxy.Static); public like the pages themselves.
+	mux.Handle("/node-app/", http.StripPrefix("/node-app", nodeAssets))
 	a.registerTokenRoutes(mux)
 	a.registerEnrollRoutes(mux)
 	a.registerUserRoutes(mux)

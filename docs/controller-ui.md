@@ -12,9 +12,12 @@ the API it drives is in [`api-routes.md`](api-routes.md).
 | One node's page | the main port, under `/nodes/<id>/` (`node_pages.go`) | `dashboard/frontend/node/index.html`, `src/node/` | `dashboard/backend/internal/nodeproxy/static` |
 
 The node page is a second app on the same origin, opened in its own tab
-(`openNode`): built with relative assets (`vite.node.config.js`'s
-`base: './'`), its API calls go through `apiURL` (`src/shared/base.js`:
-`/api/...` under `/nodes/<id>`), with the session cookie. Its static
+(`openNode`): its page at `/nodes/<id>/`, its hashed assets at
+`/node-app/` (`vite.node.config.js`'s `base: '/node-app/'`,
+`nodeproxy.Static`) - the same files for every node, so a browser caches
+them once, immutable, rather than once per node -, its API calls go
+through `apiURL` (`src/shared/base.js`: `/api/...` under `/nodes/<id>`,
+from the page's own location), with the session cookie. Its static
 files are public like the main page's; its API needs a reader for a
 read and an operator for a change, and the Controller relays it for the
 account (`nodeproxy.WithUser`, `os:<role>`) - the node checks that role

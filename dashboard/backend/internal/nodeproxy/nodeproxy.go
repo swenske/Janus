@@ -92,7 +92,8 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	registerAccessRoutes(mux, node)
 	// Its files with an ETag, gzip and Cache-Control (internal/webstatic):
 	// http.FileServerFS sent none for embedded files - 760 KB again on
-	// every open of a node's page.
+	// every open of a node's page. The page's hashed assets are served
+	// once for every node, at /node-app/ (Static), not under its path.
 	page, err := webstatic.SPA(view)
 	if err != nil {
 		return nil, err
@@ -100,6 +101,19 @@ func newHandler(node *store.Node, st *store.Store) (http.Handler, error) {
 	mux.Handle("/", page)
 
 	return http.NewCrossOriginProtection().Handler(mux), nil
+}
+
+// Static serves the node app's built tree for the Controller to mount
+// at /node-app/: the page's hashed assets (built with that base), the
+// same bytes for every node, so a browser caches them once - they were
+// under /nodes/<id>/assets/, fetched again for each node opened. Public,
+// like the page itself; a node's API stays behind its permission.
+func Static() (http.Handler, error) {
+	view, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		return nil, fmt.Errorf("static assets: %w", err)
+	}
+	return webstatic.SPA(view)
 }
 
 // sameOriginOrDirect reports whether a browser request came from this

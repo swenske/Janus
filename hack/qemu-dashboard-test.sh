@@ -521,12 +521,16 @@ mem_total="$(echo "$INFO" | python3 -c 'import json,sys; print(json.load(sys.std
 echo "Relay OK: real data (kernel_version, active_slot=A, memory=${mem_total} bytes) genuinely round-tripped through the dashboard to the real node and back"
 
 # --- the node's page itself (nodeproxy's go:embed'd node app, not the
-# main SPA), its assets relative to /nodes/<id>/ ---
+# main SPA) at /nodes/<id>/, its hashed assets at /node-app/ - the same
+# for every node, cached once by a browser (immutable) ---
 NODE_UI="$(curl -sk "${NODE_BASE}/")"
 echo "$NODE_UI" | grep -q '<title>Janus Node</title>' || { echo "Dashboard test FAILED: the node page isn't served at /nodes/<id>/: $NODE_UI" >&2; exit 1; }
-node_asset="$(echo "$NODE_UI" | grep -o 'src="./assets/[^"]*"' | head -1 | sed 's/src="\.\///; s/"$//')"
-[ "$(curl -sk -o /dev/null -w '%{http_code}' "${NODE_BASE}/${node_asset}")" = 200 ] || { echo "Dashboard test FAILED: the node page's asset ${node_asset} isn't served under its page" >&2; exit 1; }
-echo "Node page OK: the node app is served at /nodes/<id>/ with its assets"
+node_asset="$(echo "$NODE_UI" | grep -o 'src="/node-app/assets/[^"]*"' | head -1 | sed 's/^src="//; s/"$//')"
+[ -n "$node_asset" ] || { echo "Dashboard test FAILED: the node page names no /node-app/assets/ script: $NODE_UI" >&2; exit 1; }
+asset_headers="$(curl -sk -D - -o /dev/null "https://127.0.0.1:${DASHBOARD_ADDR_PORT}${node_asset}")"
+echo "$asset_headers" | grep -q '^HTTP/[0-9.]* 200' || { echo "Dashboard test FAILED: the node page's asset ${node_asset} isn't served: $asset_headers" >&2; exit 1; }
+echo "$asset_headers" | grep -qi '^Cache-Control: public, max-age=31536000, immutable' || { echo "Dashboard test FAILED: the node page's asset ${node_asset} isn't immutable: $asset_headers" >&2; exit 1; }
+echo "Node page OK: the node app is served at /nodes/<id>/, its assets once for every node at /node-app/ (immutable)"
 
 # --- tranche 4: ops/config relay (dashboard/backend/internal/nodeproxy/ops.go) ---
 DASH_CERT=(-b "$COOKIE_JAR")
