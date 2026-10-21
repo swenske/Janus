@@ -222,7 +222,18 @@ example:
   not listed, and the main bundle's bytes on the wire, plain and gzipped
   (`s-static`); the rest of the campaign against the release measured
   the same morning, the nodes' janusd being the one with the faster
-  paths.
+  paths;
+- v2026.10.20-3: the console's share, under load - a node's HAProxy
+  logging every request to its stdout under `wrk`, init's and janusd's
+  CPU with the share at its default, at 0 (set with `janusctl`, read
+  back through the Controller's relay and the exporter), then at the
+  default again (`x-budget`); and a node without a serial console - a
+  machine made by hand on the lab's host from the screen-only
+  schematic's image, provisioned by NoCloud, approved, read through
+  the Controller's relay since nothing prints on its serial port: its
+  serial log's size, its version and health, a screenshot of its
+  screen, then the same load with init's CPU (`screen-machine`,
+  `x-screen-load`).
 
 ### HAProxy killed by the kernel
 
@@ -294,6 +305,10 @@ ran:
   with a page open (v2026.10.19);
 - `haproxy-address`: where HAProxy, keepalived and BIRD are mapped on
   each node;
+- `x-budget`: the console's share set to 0 and back under load, each
+  way it shows; `screen-machine`, `x-screen-load`: a screen-only node
+  made by hand, read and loaded through the Controller's relay
+  (v2026.10.20-3);
 - `n-neighbors`: both nodes' neighbour tables, and the VIP's MAC from
   the backup around a drain (v2026.10.19-4);
 - `h-history`: haproxy.cfg's history through the Controller - a change,
