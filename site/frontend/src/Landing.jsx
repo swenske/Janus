@@ -28,12 +28,20 @@ import { DOCS, REPO, getJSON } from './api.js'
 import { Link } from './App.jsx'
 import nodesDark from '@screens/controller-nodes-dark.webp'
 import nodesLight from '@screens/controller-nodes-light.webp'
+import nodesLight1x from '@screens/controller-nodes-light-1x.webp'
+import nodesDark1x from '@screens/controller-nodes-dark-1x.webp'
 import configDark from '@screens/node-haproxy-config-dark.webp'
 import configLight from '@screens/node-haproxy-config-light.webp'
+import configLight1x from '@screens/node-haproxy-config-light-1x.webp'
+import configDark1x from '@screens/node-haproxy-config-dark-1x.webp'
 import overviewDark from '@screens/node-overview-dark.webp'
 import overviewLight from '@screens/node-overview-light.webp'
+import overviewLight1x from '@screens/node-overview-light-1x.webp'
+import overviewDark1x from '@screens/node-overview-dark-1x.webp'
 import tuiDark from '@screens/janusctl-tui-dark.webp'
 import tuiLight from '@screens/janusctl-tui-light.webp'
+import tuiLight1x from '@screens/janusctl-tui-light-1x.webp'
+import tuiDark1x from '@screens/janusctl-tui-dark-1x.webp'
 
 const PILLARS = [
   {
@@ -118,19 +126,25 @@ function LatestRelease() {
 const SCREENS = [
   {
     light: nodesLight,
+    light1x: nodesLight1x,
     dark: nodesDark,
+    dark1x: nodesDark1x,
     alt: "The Controller's node list: three nodes online, with their last minutes of CPU, requests and traffic, labels, version, HAProxy health, uptime and fleet trust",
     caption: 'Your fleet at a glance: every node, its release, its HAProxy, its trust.',
   },
   {
     light: overviewLight,
+    light1x: overviewLight1x,
     dark: overviewDark,
+    dark1x: overviewDark1x,
     alt: "A node's overview: its traffic across the top, gauges of its CPU, memory and storage, HAProxy connections and uptime, with live charts",
     caption: 'Each node live: its system and its traffic.',
   },
   {
     light: configLight,
+    light1x: configLight1x,
     dark: configDark,
+    dark1x: configDark1x,
     alt: "A node's HAProxy configuration in the Controller's editor",
     caption: 'HAProxy configured from the page - checked by the node before it applies.',
   },
@@ -140,7 +154,9 @@ const SCREENS = [
 const TERMINAL = [
   {
     light: tuiLight,
+    light1x: tuiLight1x,
     dark: tuiDark,
+    dark1x: tuiDark1x,
     alt: 'janusctl tui on a node: graphs of its CPU, memory, network and HAProxy sessions, its frontends and backends, services, processes, VRRP and firewall, and its events and logs',
     caption: 'janusctl tui: a node live in your terminal - or the whole fleet, one line per node.',
   },
@@ -151,8 +167,8 @@ function Screens({ screens }) {
     <div className="screens">
       {screens.map((s) => (
         <figure key={s.caption} className="screen">
-          <img className="screen-light" src={s.light} alt={s.alt} width="1280" height="800" loading="lazy" decoding="async" />
-          <img className="screen-dark" src={s.dark} alt={s.alt} width="1280" height="800" loading="lazy" decoding="async" />
+          <img className="screen-light" src={s.light1x} srcSet={`${s.light1x} 1x, ${s.light} 2x`} alt={s.alt} width="1280" height="800" loading="lazy" decoding="async" />
+          <img className="screen-dark" src={s.dark1x} srcSet={`${s.dark1x} 1x, ${s.dark} 2x`} alt={s.alt} width="1280" height="800" loading="lazy" decoding="async" />
           <figcaption className="muted">{s.caption}</figcaption>
         </figure>
       ))}

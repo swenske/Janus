@@ -443,15 +443,24 @@ for (const shot of spec.shots) {
     for (const sel of shot.ignore || [])
       for (const box of await Promise.all((await page.locator(sel).all()).map((l) => l.boundingBox())))
         if (box) ignore.push({ x: Math.floor((box.x - origin.x) * DPR), y: Math.floor((box.y - origin.y) * DPR), width: Math.ceil(box.width * DPR), height: Math.ceil(box.height * DPR) })
-    const webp = await toWebp(lab, await target.screenshot({ type: 'png', animations: 'disabled', caret: 'hide' }))
+    const png = await target.screenshot({ type: 'png', animations: 'disabled', caret: 'hide' })
+    const webp = await toWebp(lab, png)
+    // Its 1x variant, for the site's srcset (docs and landing): never
+    // compared - it follows the 2x, written with it.
+    const webp1x = await toWebp(lab, png, 1 / DPR)
     await browser.close()
 
     const name = `${shot.id}-${theme}.webp`
+    const name1x = `${shot.id}-${theme}-1x.webp`
     const committed = fs.existsSync(`/screenshots/${name}`) ? fs.readFileSync(`/screenshots/${name}`) : null
     const d = committed ? await diff(lab, committed, webp, { ignore }) : { ratio: 1 }
     const pct = (d.ratio * 100).toFixed(3)
     if (d.ratio <= THRESHOLD) {
       console.log(`  ${name}: unchanged (${pct} % of pixels)`)
+      if (MODE !== 'check' && !fs.existsSync(`/screenshots/${name1x}`)) {
+        fs.writeFileSync(`/screenshots/${name1x}`, webp1x)
+        console.log(`  ${name1x}: new (${Math.round(webp1x.length / 1024)} KiB)`)
+      }
       continue
     }
     if (MODE === 'check') {
@@ -462,12 +471,13 @@ for (const shot of spec.shots) {
     } else {
       written++
       fs.writeFileSync(`/screenshots/${name}`, webp)
-      console.log(`  ${name}: ${committed ? `rewritten, ${pct} % of its pixels changed` : 'new'} (${Math.round(webp.length / 1024)} KiB)`)
+      fs.writeFileSync(`/screenshots/${name1x}`, webp1x)
+      console.log(`  ${name}: ${committed ? `rewritten, ${pct} % of its pixels changed` : 'new'} (${Math.round(webp.length / 1024)} KiB, ${Math.round(webp1x.length / 1024)} KiB at 1x)`)
     }
   }
 }
 // A shot gone from shots.yaml leaves no image behind.
-const wanted = new Set(spec.shots.flatMap((s) => [`${s.id}-light.webp`, `${s.id}-dark.webp`]))
+const wanted = new Set(spec.shots.flatMap((s) => [`${s.id}-light.webp`, `${s.id}-dark.webp`, `${s.id}-light-1x.webp`, `${s.id}-dark-1x.webp`]))
 for (const f of fs.readdirSync('/screenshots').filter((f) => f.endsWith('.webp') && !wanted.has(f))) {
   if (MODE === 'check') {
     drifted++

@@ -1,19 +1,24 @@
 // Screenshots as WebP, and how much two of them differ - encoded,
 // decoded and compared by Chromium itself (canvas), so the image needs
-// no native image library. `page` is any blank page.
+// no native image library. `page` is any blank page. `scale` draws the
+// image at a fraction of its size first: the 1x variant of a shot taken
+// at a device pixel ratio of 2, for screens that would only throw the
+// other half away (half the pixels, about a third of the bytes).
 
 const QUALITY = 0.86
 
-export async function toWebp(page, png) {
+export async function toWebp(page, png, scale = 1) {
   const b64 = await page.evaluate(
-    async ({ b64, q }) => {
+    async ({ b64, q, scale }) => {
       const img = new Image()
       img.src = 'data:image/png;base64,' + b64
       await img.decode()
       const c = document.createElement('canvas')
-      c.width = img.naturalWidth
-      c.height = img.naturalHeight
-      c.getContext('2d').drawImage(img, 0, 0)
+      c.width = Math.round(img.naturalWidth * scale)
+      c.height = Math.round(img.naturalHeight * scale)
+      const ctx = c.getContext('2d')
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(img, 0, 0, c.width, c.height)
       const url = await new Promise((resolve) =>
         c.toBlob((blob) => {
           const r = new FileReader()
@@ -23,7 +28,7 @@ export async function toWebp(page, png) {
       )
       return url.slice(url.indexOf(',') + 1)
     },
-    { b64: png.toString('base64'), q: QUALITY },
+    { b64: png.toString('base64'), q: QUALITY, scale },
   )
   return Buffer.from(b64, 'base64')
 }

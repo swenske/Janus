@@ -11,7 +11,8 @@
 #
 #   hack/docs-screenshots.sh [write|check] [browser image]
 #
-# write (the default): docs/assets/screenshots/<id>-{light,dark}.webp,
+# write (the default): docs/assets/screenshots/<id>-{light,dark}.webp (and
+# their -1x variants, for the site's srcset - written with them, never compared),
 # rewritten only when more than SHOTS_THRESHOLD of their pixels changed -
 # a new run doesn't churn the repository with identical-looking images.
 # A colour changed a little - a shade - counts as no change:
