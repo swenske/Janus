@@ -955,7 +955,7 @@ jobs:
         run: make qemu-lifecycle-upgrade-from-release-test
 
   test-hardware:
-    name: "Tests: Secure Boot, bare metal, Controller self-update, hypervisors and Terraform"
+    name: "Tests: Secure Boot, bare metal"
     runs-on: [self-hosted, docker, janus]
     # A hung QEMU test held an instance 6 h (the default) before.
     timeout-minutes: 120
@@ -996,6 +996,20 @@ jobs:
       - name: Bare metal - real disks, NICs, CPUs and the ISO's install
         run: make qemu-baremetal-test
 
+  # The Controller's own tests: its self-update, and the node it creates
+  # on a libvirt host - by itself and through the Terraform provider.
+  # Apart from test-hardware since 2026-10-21: the three took nine of its
+  # thirteen minutes, after Secure Boot and bare metal's four.
+  test-controller:
+    name: "Tests: Controller self-update, hypervisors and Terraform"
+    runs-on: [self-hosted, docker, janus]
+    # A hung QEMU test held an instance 6 h (the default) before.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/runner-setup
       # The Controller updating itself (janus-controller-updater), with
       # real Docker Compose set up the way dashboard/README.md documents
       # it - before anything is published.
@@ -1048,7 +1062,7 @@ jobs:
 
   publish:
     name: Images and release
-    needs: [test-boot, test-lifecycle, test-api, test-logs, test-network, test-services, test-variants, test-hardware]
+    needs: [test-boot, test-lifecycle, test-api, test-logs, test-network, test-services, test-variants, test-hardware, test-controller]
     # Only on runners labeled janus-publish: what this job builds is
     # published (and its release bundle signed) - never from a machine
     # that isn't trusted to build bit-exact (docs/ci-runners.md).
