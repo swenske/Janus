@@ -54,6 +54,7 @@ updates:
       - "/hack/browser"
       - "/hack/elasticsearch"
       - "/hack/grpcurl"
+      - "/hack/keycloak"
       - "/hack/libvirt-host"
       - "/hack/promtool"
       - "/hack/rsyslog"

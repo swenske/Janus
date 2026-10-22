@@ -136,6 +136,27 @@ for (const user of [
 await call('POST', '/api/tokens', { name: 'terraform', expires_in_days: 90, role: 'operator' })
 await call('POST', '/api/tokens', { name: 'ci-haproxy', expires_in_days: 30, role: 'operator', scope: { selector: { team: 'web' }, domains: ['haproxy'] } })
 await call('POST', '/api/enroll-tokens', { name: 'rack-3', max_uses: 10, expires_in_days: 7, labels: { site: 'par', team: 'web' } })
+// A single sign-on provider: only its settings - nobody signs in through
+// it here (docs/guide/sso.md).
+await call('PUT', '/api/sso/providers/keycloak', {
+  id: 'keycloak',
+  name: 'Keycloak',
+  preset: 'keycloak',
+  enabled: true,
+  issuer: 'https://sso.example.com/realms/janus',
+  client_id: 'janus',
+  client_secret: 'shots-client-secret',
+  scopes: ['openid', 'profile', 'email'],
+  username_claim: 'preferred_username',
+  groups_claim: 'groups',
+  mfa: 'janus',
+  rules: [
+    { group: '/janus-admins', role: 'admin' },
+    { group: '/janus-ops', role: 'operator' },
+    { group: '/web-team', role: 'operator', selector: { team: 'web' }, domains: ['haproxy'] },
+  ],
+  sign_in_every_days: 7,
+})
 const session = await api.storageState()
 const cookie = session.cookies.map((c) => `${c.name}=${c.value}`).join('; ')
 console.log(`shots: the Controller is set up - ${Object.keys(ids).join(', ')} in its fleet, running web.cfg`)

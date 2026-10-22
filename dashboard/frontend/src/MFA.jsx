@@ -298,7 +298,9 @@ export function EnrollMFA({ me, onDone, onSignOut }) {
   )
 }
 
-// MFAPanel is the account's own second factors.
+// MFAPanel is the account's own second factors. A change is confirmed
+// with the password - or, for an account a single sign-on provider made
+// (none), with a code or a passkey.
 export function MFAPanel({ me, onChanged }) {
   const [adding, setAdding] = useState(false)
   const [codes, setCodes] = useState(null)
@@ -308,12 +310,13 @@ export function MFAPanel({ me, onChanged }) {
   const [busy, setBusy] = useState(false)
   const toast = useToast()
   const mfa = me.mfa || {}
-  const confirm = async (e) => {
-    e.preventDefault()
+  const noPassword = me.has_password === false
+  const here = (mfa.passkeys || []).filter((p) => p.here)
+  const apply = async (body) => {
     setBusy(true)
     setError(null)
     try {
-      const out = await call(confirming.path, { method: confirming.method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
+      const out = await call(confirming.path, { method: confirming.method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       setConfirming(null)
       setPassword('')
       if (out?.recovery_codes) setCodes(out.recovery_codes)
@@ -325,11 +328,31 @@ export function MFAPanel({ me, onChanged }) {
       setBusy(false)
     }
   }
+  const confirm = (e) => {
+    e.preventDefault()
+    apply(noPassword ? { code: password.trim() } : { password })
+  }
+  // A passkey given now confirms for five minutes.
+  const withPasskey = async () => {
+    setError(null)
+    try {
+      const options = await postJSON('/api/auth/mfa/passkey/begin?confirm=1')
+      await postJSON('/api/auth/mfa/passkey/finish?confirm=1', await signWithPasskey(options))
+    } catch (err) {
+      setError(err.message)
+      return
+    }
+    apply({})
+  }
   if (codes) return <RecoveryCodes name={me.name} codes={codes} onDone={() => setCodes(null)} />
   return (
     <div className="stack">
+      {mfa.by_provider && <div className="muted small">This sign-in&apos;s second factor was your single sign-on provider&apos;s.</div>}
       {!mfa.totp && mfa.passkeys?.length === 0 && (
-        <div className="muted small">No second factor yet{mfa.required ? ' - your role needs one' : ''}: a sign-in is your password alone.</div>
+        <div className="muted small">
+          No second factor yet{mfa.required && !mfa.by_provider ? ' - your role needs one' : ''}: a sign-in is your {noPassword ? 'provider’s' : 'password'} alone
+          {mfa.by_provider ? ' (and its second factor)' : ''}.
+        </div>
       )}
       <div className="factor-list">
         {mfa.totp && (
@@ -376,12 +399,24 @@ export function MFAPanel({ me, onChanged }) {
       </div>
       {confirming ? (
         <form className="stack" onSubmit={confirm}>
-          <label className="field">
-            <span>{confirming.label}: your password</span>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus autoComplete="current-password" />
-          </label>
+          {noPassword ? (
+            <label className="field">
+              <span>{confirming.label}: a code from your authenticator app, or a recovery code</span>
+              <input value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus autoComplete="one-time-code" className="mono" />
+            </label>
+          ) : (
+            <label className="field">
+              <span>{confirming.label}: your password</span>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus autoComplete="current-password" />
+            </label>
+          )}
           <ErrorBox error={error} />
           <div className="row" style={{ justifyContent: 'flex-end' }}>
+            {noPassword && here.length > 0 && passkeysSupported() && (
+              <button type="button" onClick={withPasskey} disabled={busy}>
+                <Fingerprint size={14} /> Use a passkey instead
+              </button>
+            )}
             <button type="button" onClick={() => (setConfirming(null), setError(null))}>
               Cancel
             </button>

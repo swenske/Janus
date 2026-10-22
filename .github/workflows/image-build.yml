@@ -1001,7 +1001,7 @@ jobs:
   # Apart from test-hardware since 2026-10-21: the three took nine of its
   # thirteen minutes, after Secure Boot and bare metal's four.
   test-controller:
-    name: "Tests: Controller self-update, hypervisors and Terraform"
+    name: "Tests: Controller self-update, hypervisors, Terraform and single sign-on"
     runs-on: [self-hosted, docker, janus]
     # A hung QEMU test held an instance 6 h (the default) before.
     timeout-minutes: 120
@@ -1030,6 +1030,14 @@ jobs:
       # See hack/terraform-provider-test.sh and docs/terraform.md.
       - name: Terraform provider against a real Controller and libvirt host
         run: make terraform-provider-test
+
+      # Single sign-on through a real Keycloak (pinned, hack/keycloak):
+      # headless Chromium signs in through Keycloak's own pages - accounts
+      # made by the rules, refusals, signing out of Keycloak too, linking,
+      # group and rule changes, the provider's second factor. See
+      # hack/controller-sso-test.sh and docs/guide/sso.md.
+      - name: Single sign-on through a real Keycloak
+        run: make controller-sso-test
 
   # The docs' screenshots of the Controller (make docs-screenshots-check):
   # taken again against a real Controller and real nodes, compared with

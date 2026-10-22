@@ -36,6 +36,7 @@ topics:
           - label: The Controller
             pages:
               - { file: dashboard/README.md, slug: controller, title: The Controller, label: The Controller }
+              - { file: docs/guide/sso.md, label: Single sign-on }
               - { file: docs/hypervisors.md, label: Hypervisors }
               - { file: docs/guide/auto-scaling.md, label: Auto-scaling }
           - label: janusctl

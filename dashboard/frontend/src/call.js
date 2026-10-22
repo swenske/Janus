@@ -2,7 +2,8 @@ import { backgroundHeaders, SIGNED_OUT } from './shared/activity.js'
 
 // call is the main page's fetch: same origin, the session cookie, JSON
 // back. An error carries the Controller's message - the body as is, or
-// its "error" field for the endpoints that answer {"error": ...}.
+// its "error" field for the endpoints that answer {"error": ...} (the
+// whole answer in its data: a single sign-on's code and reference).
 //
 // { background: true } marks a request the page makes by itself (a
 // periodic refresh): unless the user touched the page in the last minute,
@@ -19,14 +20,17 @@ export async function call(path, opts = {}) {
   if (!resp.ok) {
     if (resp.status === 401 && !path.startsWith('/api/auth/')) window.dispatchEvent(new Event(SIGNED_OUT))
     let msg = text.trim()
+    let data = null
     try {
       const j = JSON.parse(msg)
       if (j && typeof j.error === 'string') msg = j.error
+      data = j
     } catch {
       // plain text
     }
     const err = new Error(msg || `${resp.status} ${resp.statusText}`)
     err.status = resp.status
+    err.data = data
     throw err
   }
   return text ? JSON.parse(text) : null

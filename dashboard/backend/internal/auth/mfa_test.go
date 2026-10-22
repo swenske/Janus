@@ -112,10 +112,10 @@ func TestTOTPFactor(t *testing.T) {
 
 	// The last factor stays while the policy needs it; an admin's reset
 	// takes them all, and the sessions.
-	if err := s.RemoveTOTP("root", "long-enough"); !errors.Is(err, ErrFactorRequired) {
+	if err := s.RemoveTOTP("root", Proof{Password: "long-enough"}); !errors.Is(err, ErrFactorRequired) {
 		t.Errorf("removing the last required factor: %v", err)
 	}
-	if fresh, err := s.NewRecoveryCodes("root", "long-enough"); err != nil || len(fresh) != recoveryCodes {
+	if fresh, err := s.NewRecoveryCodes("root", Proof{Password: "long-enough"}); err != nil || len(fresh) != recoveryCodes {
 		t.Errorf("new recovery codes: %v", err)
 	}
 	live, _ := s.NewSession("root", true)

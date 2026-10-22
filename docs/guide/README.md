@@ -25,6 +25,9 @@ from the Controller's web UI, from `janusctl`, or from Terraform.
 
 - [The Controller](../../dashboard/README.md) - the web UI for a fleet:
   installing it, accounts and roles, adding nodes, backups, updates.
+- [Single sign-on](sso.md) - accounts signing in through Keycloak, a
+  Synology's SSO Server or another OpenID Connect provider, their roles
+  from its groups.
 - [Hypervisors](../hypervisors.md) - nodes the Controller creates
   itself, on libvirt/KVM or Proxmox VE.
 

@@ -20,6 +20,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
+	"github.com/swenske/Janus/dashboard/backend/internal/sso"
 )
 
 const sessionCookieName = "janus_session"
@@ -165,6 +166,12 @@ func (a *app) authenticate(w http.ResponseWriter, r *http.Request) (principal, b
 			http.Error(w, "invalid or expired API token", http.StatusUnauthorized)
 			return principal{}, false
 		}
+		if u.Lapsed(time.Now()) {
+			// The token is good; its account needs a sign-in through its
+			// provider first (auth/sso.go) - not a failure to count.
+			http.Error(w, fmt.Sprintf("%s signs in through %s: sign in there again (the Controller's page) for its API tokens to work", u.Name, u.SSO.Provider), http.StatusForbidden)
+			return principal{}, false
+		}
 		p := principal{User: u.Name, Role: auth.Lower(t.Role, u.Role), Base: auth.Lower(t.Role, u.Role), Grants: u.Grants, Cap: t.Role, Scope: t.Scope, Max: auth.Lower(t.Role, u.MaxRole()), Token: t.ID}
 		if len(t.Scope.Selector) > 0 || len(t.Scope.Domains) > 0 {
 			p.Role = auth.None // a scoped token reaches its nodes only
@@ -208,20 +215,62 @@ type meView struct {
 	// ExpiresAt is when the session ends if it isn't used again.
 	ExpiresAt time.Time `json:"expires_at"`
 	MFA       mfaView   `json:"mfa"`
+	// HasPassword: the account signs in with a password; SSO, a single
+	// sign-on provider made it; Identities are its identities at
+	// providers; Provider is the one this session signed in through.
+	HasPassword bool            `json:"has_password"`
+	SSO         *ssoAccountView `json:"sso,omitempty"`
+	Identities  []identityView  `json:"identities"`
+	Provider    string          `json:"provider,omitempty"`
+}
+
+type ssoAccountView struct {
+	Provider     string     `json:"provider"`
+	LastSignInAt time.Time  `json:"last_sign_in_at"`
+	ValidUntil   *time.Time `json:"valid_until,omitempty"`
+	Lapsed       bool       `json:"lapsed"`
+	Groups       []string   `json:"groups"`
+}
+
+type identityView struct {
+	ID         string     `json:"id"`
+	Provider   string     `json:"provider"`
+	Issuer     string     `json:"issuer"`
+	Subject    string     `json:"subject"`
+	Username   string     `json:"username"`
+	LinkedAt   time.Time  `json:"linked_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+}
+
+func viewSSO(u auth.User) (*ssoAccountView, []identityView) {
+	ids := []identityView{}
+	for _, i := range u.Identities {
+		ids = append(ids, identityView{ID: i.ID, Provider: i.Provider, Issuer: i.Issuer, Subject: i.Subject, Username: i.Username, LinkedAt: i.LinkedAt, LastUsedAt: i.LastUsedAt})
+	}
+	if u.SSO == nil {
+		return nil, ids
+	}
+	return &ssoAccountView{Provider: u.SSO.Provider, LastSignInAt: u.SSO.LastSignInAt, ValidUntil: u.SSO.ValidUntil, Lapsed: u.Lapsed(time.Now()), Groups: nonNil(u.SSO.Groups)}, ids
 }
 
 // handleAuthStatus never requires auth itself - the SPA calls this on
 // load to decide whether to show the first-run setup screen, the sign-in
-// screen, or the real app.
+// screen (with a button per single sign-on provider), or the real app.
 func (a *app) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	out := struct {
-		SetupRequired bool    `json:"setup_required"`
-		Authenticated bool    `json:"authenticated"`
-		User          *meView `json:"user,omitempty"`
-	}{SetupRequired: a.auth.SetupRequired()}
+		SetupRequired bool         `json:"setup_required"`
+		Authenticated bool         `json:"authenticated"`
+		User          *meView      `json:"user,omitempty"`
+		SSO           []sso.Button `json:"sso"`
+	}{SetupRequired: a.auth.SetupRequired(), SSO: []sso.Button{}}
+	if a.sso != nil && !out.SetupRequired {
+		out.SSO = a.sso.store.Buttons()
+	}
 	if u, ss, ok := a.session(r); ok {
 		out.Authenticated = true
-		out.User = &meView{Name: u.Name, Role: u.Role, Grants: nonNil(u.Grants), Max: u.MaxRole(), Needs: nonNil(a.auth.Needs(u, ss)), ExpiresAt: ss.Expires(a.auth.Settings()), MFA: a.viewMFA(r, u, ss)}
+		out.User = &meView{Name: u.Name, Role: u.Role, Grants: nonNil(u.Grants), Max: u.MaxRole(), Needs: nonNil(a.auth.Needs(u, ss)), ExpiresAt: ss.Expires(a.auth.Settings()), MFA: a.viewMFA(r, u, ss),
+			HasPassword: u.HasPassword, Provider: ss.Provider}
+		out.User.SSO, out.User.Identities = viewSSO(u)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -293,10 +342,14 @@ func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	a.startSession(w, u.Name, false)
 }
 
+// handleAuthLogout ends the session: 204 - or 200 {"redirect"} when it
+// signed in through a provider that signs out too (the page goes there).
 func (a *app) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	redirect := ""
 	if c, err := r.Cookie(sessionCookieName); err == nil {
-		if u, _, ok := a.auth.Session(c.Value, false); ok {
+		if u, ss, ok := a.auth.Session(c.Value, false); ok {
 			noteAudit(r, u.Name, "session")
+			redirect = a.ssoLogoutURL(r, ss)
 		}
 		a.auth.Revoke(c.Value)
 	}
@@ -304,6 +357,10 @@ func (a *app) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
+	if redirect != "" {
+		writeJSON(w, http.StatusOK, map[string]string{"redirect": redirect})
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -319,6 +376,10 @@ func (a *app) handleAuthPassword(w http.ResponseWriter, r *http.Request) {
 	noteAudit(r, u.Name, "session")
 	if slices.Contains(a.auth.Needs(u, ss), "mfa") {
 		writeError(w, http.StatusForbidden, needsMessage["mfa"])
+		return
+	}
+	if !u.HasPassword {
+		writeError(w, http.StatusConflict, "this account has no password: it signs in through its single sign-on provider")
 		return
 	}
 	var req struct {
@@ -341,11 +402,11 @@ func (a *app) handleAuthPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if ss.Trusted {
-		a.startTrustedSession(w, u.Name)
-		return
-	}
-	a.startSession(w, u.Name, ss.MFA)
+	// The same sign-in goes on - its second factor, its provider - in a
+	// new session: the change ended the account's.
+	c, _ := r.Cookie(sessionCookieName)
+	token, err := a.auth.RenewSession(c.Value)
+	a.setSession(w, token, err)
 }
 
 // startSession signs user in - mfa: the sign-in gave its second factor.
@@ -366,15 +427,20 @@ func (a *app) setSession(w http.ResponseWriter, token string, err error) {
 		http.Error(w, "create session: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Secure is safe (not just cosmetic) now that this port is
-	// HTTPS-only (see dashboard/backend/main.go's own doc comment) - a
-	// browser never sends this cookie in the clear. The cookie lasts as
-	// long as a session can; the Controller ends it sooner when idle.
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, a.sessionCookie(token))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// sessionCookie carries a session's token. Secure is safe (not just
+// cosmetic) now that this port is HTTPS-only (see
+// dashboard/backend/main.go's own doc comment) - a browser never sends
+// this cookie in the clear. The cookie lasts as long as a session can;
+// the Controller ends it sooner when idle.
+func (a *app) sessionCookie(token string) *http.Cookie {
+	return &http.Cookie{
 		Name: sessionCookieName, Value: token, Path: "/", MaxAge: int(a.auth.Settings().Max().Seconds()),
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
-	})
-	w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func clientAddr(r *http.Request) string {
@@ -401,13 +467,21 @@ type userView struct {
 	Grants []auth.Grant `json:"grants"`
 	// MFA: the account has a second factor.
 	MFA bool `json:"mfa"`
+	// HasPassword: it signs in with a password; SSO, a single sign-on
+	// provider made it (its role and grants are the provider's rules');
+	// Identities, its identities at providers.
+	HasPassword bool            `json:"has_password"`
+	SSO         *ssoAccountView `json:"sso,omitempty"`
+	Identities  []identityView  `json:"identities"`
 	// Password is set once: the one the Controller made for a new
 	// account or a reset, to hand over.
 	Password string `json:"password,omitempty"`
 }
 
 func (a *app) viewUser(u auth.User) userView {
-	return userView{Name: u.Name, Role: u.Role, Disabled: u.Disabled, MustChangePassword: u.MustChangePassword, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt, Tokens: len(a.tokens.List(u.Name)), SSHKeys: nonNil(u.SSHKeys), Grants: nonNil(u.Grants), MFA: u.MFA.Enabled()}
+	v := userView{Name: u.Name, Role: u.Role, Disabled: u.Disabled, MustChangePassword: u.MustChangePassword, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt, Tokens: len(a.tokens.List(u.Name)), SSHKeys: nonNil(u.SSHKeys), Grants: nonNil(u.Grants), MFA: u.MFA.Enabled(), HasPassword: u.HasPassword}
+	v.SSO, v.Identities = viewSSO(u)
+	return v
 }
 
 func (a *app) registerUserRoutes(mux *http.ServeMux) {
@@ -533,7 +607,7 @@ func userErrorStatus(err error) int {
 	switch {
 	case errors.Is(err, auth.ErrNoUser):
 		return http.StatusNotFound
-	case errors.Is(err, auth.ErrLastAdmin):
+	case errors.Is(err, auth.ErrLastAdmin), errors.Is(err, auth.ErrManaged):
 		return http.StatusConflict
 	}
 	return http.StatusBadRequest

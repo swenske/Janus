@@ -102,7 +102,9 @@ func (s *Store) TrustBrowser(token, label, client string) (string, time.Time, er
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	if !u.MFA.Enabled() || !ss.MFA || ss.Trusted {
+	// FactorAt, not MFA: a single sign-on provider's second factor
+	// counting for the session's doesn't stand for the Controller's.
+	if !u.MFA.Enabled() || ss.FactorAt.IsZero() || ss.Trusted {
 		return "", time.Time{}, errors.New("only a sign-in that just gave its second factor can trust its browser")
 	}
 	hours := s.settings.TrustHours()

@@ -65,6 +65,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/pending"
 	"github.com/swenske/Janus/dashboard/backend/internal/ratelimit"
 	"github.com/swenske/Janus/dashboard/backend/internal/secrets"
+	"github.com/swenske/Janus/dashboard/backend/internal/sso"
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/dashboard/backend/internal/uitls"
 	"github.com/swenske/Janus/dashboard/updater/updaterapi"
@@ -183,6 +184,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("open the fleet: %v", err)
 	}
+	ssoStore, err := sso.Open(*dataDir, masterKey)
+	if err != nil {
+		log.Fatalf("open the single sign-on settings: %v", err)
+	}
 	nodeproxy.FleetIdentity = fleetStore.ClientCertificate
 	nodeproxy.NodeCA = func(n *store.Node, caPEM []byte) error { return st.SetCA(n.ID, caPEM) }
 
@@ -207,6 +212,7 @@ func main() {
 		enroll:                enrollStore,
 		fleet:                 fleetStore,
 		trust:                 newTrustTracker(),
+		sso:                   newSingleSignOn(ssoStore),
 	}
 	app.runner = newMachineRunner(app)
 	app.nodeMetrics = newNodeMetrics(app)
@@ -290,6 +296,7 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/password", a.handleAuthPassword)
 	a.registerMFARoutes(mux)
 	a.registerTrustRoutes(mux)
+	a.registerSSORoutes(mux)
 	// The nodes an account reaches - its role over everything, or its
 	// grants' labels (access.go); adding, removing and labelling them is
 	// an admin's.
@@ -336,6 +343,9 @@ type app struct {
 	registerLimiter *ratelimit.Limiter
 	audit           *audit.Log
 	backups         *backup.Store
+	// sso is the single sign-on: providers, sign-ins under way
+	// (sso_login.go); nil in tests that don't use it.
+	sso *singleSignOn
 	// masterKeyPath is the master key's file - a backup takes it.
 	masterKeyPath string
 	// serverCert is the Controller's own identity: what nodes register

@@ -47,8 +47,10 @@ sequenceDiagram
 | What | Where | |
 |---|---|---|
 | Nodes, pending registrations, labels | `<data-dir>` (`internal/store`, `internal/pending`) | |
-| Accounts, MFA, API tokens | `users.json`, `api-tokens.json` | bcrypt passwords; tokens and enrollment tokens as SHA-256 only; TOTP secrets sealed with the master key |
-| Sessions | memory | idle 30 minutes, 12 hours at most; ended by a password change |
+| Accounts, MFA, API tokens | `users.json`, `api-tokens.json` | bcrypt passwords; tokens and enrollment tokens as SHA-256 only; TOTP secrets sealed with the master key; identities at single sign-on providers (issuer, subject) |
+| Single sign-on providers | `sso.json` | their client secrets sealed with the master key |
+| Sessions | memory | idle 30 minutes, 12 hours at most; ended by a password change; a provider's ID token, for signing out of it |
+| Single sign-ons under way | memory | ten minutes, each taken once |
 | The fleet's issuing CA | `<data-dir>`, sealed with the master key | the root's key leaves with the recovery kit |
 | Hypervisors, machines | `<data-dir>/hypervisors`, `<data-dir>/machines` | ownership tags on every machine it created |
 | The audit log | `audit.jsonl` | every change made through the API |
@@ -91,6 +93,7 @@ Controller](../../dashboard/README.md#updating-the-controller)).
 | The HTTP server, routes, gates | `dashboard/backend` (`main.go`, `auth_handlers.go`, `node_pages.go`) |
 | The relay to nodes | `dashboard/backend/internal/nodeproxy` |
 | Accounts, MFA, tokens | `dashboard/backend/internal/auth` |
+| Single sign-on | `dashboard/backend/internal/sso`, `sso_login.go`, `sso_settings.go` |
 | The fleet | `dashboard/backend/internal/fleet`, `internal/secrets` |
 | Hypervisors, machines | `dashboard/backend/internal/hypervisor`, `internal/machines` |
 | Backups | `dashboard/backend/internal/backup`, `internal/s3` |

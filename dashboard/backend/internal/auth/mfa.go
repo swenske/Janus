@@ -118,6 +118,10 @@ func totpPurpose(user string) string { return "totp:" + user }
 const (
 	mfaPendingFor = 5 * time.Minute
 	mfaTries      = 5
+	// freshFactor is how long a second factor given in a session
+	// confirms a change to the account's factors, for an account without
+	// a password.
+	freshFactor = 5 * time.Minute
 )
 
 var (
@@ -128,12 +132,19 @@ var (
 	// ErrFactorRequired refuses removing the last factor of an account
 	// the policy makes have one.
 	ErrFactorRequired = errors.New("your role needs a second factor: add another one before removing this one")
-	errNoSession      = errors.New("no such session")
+	// ErrWrongPassword and ErrWrongCode refuse a confirmation (Proof).
+	ErrWrongPassword = errors.New("the password is wrong")
+	ErrWrongCode     = errors.New("the code is wrong")
+	// ErrProofNeeded: an account without a password confirms with a
+	// second factor.
+	ErrProofNeeded = errors.New("confirm with a code from your authenticator app, a recovery code or your passkey")
+	errNoSession   = errors.New("no such session")
 )
 
 // Needs is what a session must do before anything else, in order:
 // "mfa" (give its second factor), "password" (change the one someone
-// else set), "mfa_enroll" (set up a second factor its role needs).
+// else set), "mfa_enroll" (set up a second factor its role needs - not
+// when a single sign-on provider's counts).
 func (s *Store) Needs(u User, ss Session) []string {
 	if u.MFA.Enabled() && !ss.MFA {
 		return []string{"mfa"}
@@ -142,7 +153,7 @@ func (s *Store) Needs(u User, ss Session) []string {
 	if u.MustChangePassword {
 		out = append(out, "password")
 	}
-	if !u.MFA.Enabled() && s.Settings().Requires(u.MaxRole()) {
+	if !u.MFA.Enabled() && !ss.ProviderMFA && s.Settings().Requires(u.MaxRole()) {
 		out = append(out, "mfa_enroll")
 	}
 	return out
@@ -171,8 +182,8 @@ func (s *Store) failLocked(token string, ss *Session) error {
 
 // passLocked marks the session's second factor given - in this sign-in,
 // even if a trusted browser had skipped it (a confirmation).
-func passLocked(ss *Session) {
-	ss.MFA, ss.Trusted, ss.Failures = true, false, 0
+func passLocked(ss *Session, now time.Time) {
+	ss.MFA, ss.Trusted, ss.Failures, ss.FactorAt = true, false, 0, now
 }
 
 // VerifyTOTP finishes token's sign-in with an authenticator app's code.
@@ -202,7 +213,7 @@ func (s *Store) VerifyTOTP(token, code string) error {
 	if err := s.save(); err != nil {
 		return err
 	}
-	passLocked(ss)
+	passLocked(ss, s.now())
 	return nil
 }
 
@@ -226,7 +237,7 @@ func (s *Store) UseRecoveryCode(token, code string) error {
 				u.MFA.RecoveryCodes = old
 				return err
 			}
-			passLocked(ss)
+			passLocked(ss, s.now())
 			return nil
 		}
 	}
@@ -335,7 +346,7 @@ func (s *Store) addFactorLocked(ss *Session, u *User, add func(*MFA)) ([]string,
 		return nil, err
 	}
 	ss.PendingTOTP = ""
-	passLocked(ss)
+	passLocked(ss, s.now())
 	return codes, nil
 }
 
@@ -497,14 +508,87 @@ func (s *Store) FinishPasskeyLogin(token string, c Ceremony, answer *protocol.Pa
 	if err := s.save(); err != nil {
 		return err
 	}
-	passLocked(ss)
+	passLocked(ss, s.now())
 	return nil
 }
 
-// RemoveTOTP and RemovePasskey take a factor away, with the account's
-// password - never the last one the policy makes the account have.
-func (s *Store) RemoveTOTP(name, password string) error {
-	return s.removeFactor(name, password, func(m *MFA) bool {
+// Proof confirms a change to an account's second factors: its password -
+// or, for an account without one (a single sign-on provider made it), a
+// code of its authenticator app, a recovery code (used up), or a second
+// factor its session gave in the last five minutes.
+type Proof struct {
+	Password string
+	Code     string
+	// Session is the token of the session asking.
+	Session string
+}
+
+// prove checks p for name's account.
+func (s *Store) prove(name string, p Proof) error {
+	s.mu.Lock()
+	s.fresh()
+	u, ok := s.users[name]
+	password := ok && len(u.PasswordHash) > 0
+	s.mu.Unlock()
+	if !ok {
+		return ErrNoUser
+	}
+	if password {
+		if _, err := s.Authenticate(name, p.Password); err != nil {
+			return ErrWrongPassword
+		}
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if u, ok = s.users[name]; !ok {
+		return ErrNoUser
+	}
+	now := s.now()
+	if p.Code != "" {
+		return s.useCodeLocked(u, p.Code, now)
+	}
+	if ss, ok := s.sessions[p.Session]; ok && ss.User == name && s.liveLocked(ss, now) && !ss.FactorAt.IsZero() && now.Sub(ss.FactorAt) < freshFactor {
+		return nil
+	}
+	return ErrProofNeeded
+}
+
+// useCodeLocked accepts a code of u's authenticator app, or one of its
+// recovery codes - used up. Called with s.mu held.
+func (s *Store) useCodeLocked(u *User, code string, now time.Time) error {
+	if u.MFA.TOTPAddedAt != nil && s.sealer != nil {
+		if secret, err := s.sealer.Open(u.MFA.TOTP, totpPurpose(u.Name)); err == nil {
+			if step, ok := checkTOTP(string(secret), code, now, u.MFA.TOTPLastStep); ok {
+				old := u.MFA.TOTPLastStep
+				u.MFA.TOTPLastStep = step
+				if err := s.save(); err != nil {
+					u.MFA.TOTPLastStep = old
+					return err
+				}
+				return nil
+			}
+		}
+	}
+	h := hashRecoveryCode(code)
+	for i, c := range u.MFA.RecoveryCodes {
+		if subtle.ConstantTimeCompare([]byte(c), []byte(h)) == 1 {
+			old := u.MFA.RecoveryCodes
+			u.MFA.RecoveryCodes = append(append([]string{}, old[:i]...), old[i+1:]...)
+			if err := s.save(); err != nil {
+				u.MFA.RecoveryCodes = old
+				return err
+			}
+			return nil
+		}
+	}
+	return ErrWrongCode
+}
+
+// RemoveTOTP and RemovePasskey take a factor away, confirmed by p - never
+// the last one the policy makes the account have.
+func (s *Store) RemoveTOTP(name string, p Proof) error {
+	return s.removeFactor(name, p, func(m *MFA) bool {
 		if m.TOTPAddedAt == nil {
 			return false
 		}
@@ -513,8 +597,8 @@ func (s *Store) RemoveTOTP(name, password string) error {
 	})
 }
 
-func (s *Store) RemovePasskey(name, password, id string) error {
-	return s.removeFactor(name, password, func(m *MFA) bool {
+func (s *Store) RemovePasskey(name string, p Proof, id string) error {
+	return s.removeFactor(name, p, func(m *MFA) bool {
 		for i, p := range m.Passkeys {
 			if p.ID() == id {
 				m.Passkeys = append(m.Passkeys[:i:i], m.Passkeys[i+1:]...)
@@ -525,9 +609,9 @@ func (s *Store) RemovePasskey(name, password, id string) error {
 	})
 }
 
-func (s *Store) removeFactor(name, password string, remove func(*MFA) bool) error {
-	if _, err := s.Authenticate(name, password); err != nil {
-		return errors.New("the password is wrong")
+func (s *Store) removeFactor(name string, p Proof, remove func(*MFA) bool) error {
+	if err := s.prove(name, p); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -554,11 +638,11 @@ func (s *Store) removeFactor(name, password string, remove func(*MFA) bool) erro
 	return nil
 }
 
-// NewRecoveryCodes replaces the account's recovery codes, with its
-// password: the new ones are answered once.
-func (s *Store) NewRecoveryCodes(name, password string) ([]string, error) {
-	if _, err := s.Authenticate(name, password); err != nil {
-		return nil, errors.New("the password is wrong")
+// NewRecoveryCodes replaces the account's recovery codes, confirmed by
+// p: the new ones are answered once.
+func (s *Store) NewRecoveryCodes(name string, p Proof) ([]string, error) {
+	if err := s.prove(name, p); err != nil {
+		return nil, err
 	}
 	codes, hashes, err := newRecoveryCodes()
 	if err != nil {
