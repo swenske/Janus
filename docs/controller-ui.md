@@ -131,7 +131,7 @@ writable filesystem on Storage, a hypervisor's CPU, memory and pool.
 
 ## The main page
 
-Three tabs (hash routes `#/`, `#/hypervisors`, `#/tokens`), and two more for an admin (`#/accounts`, `#/audit`).
+Three tabs (hash routes `#/`, `#/hypervisors`, `#/tokens`), and four more for an admin (`#/accounts`, `#/audit`, `#/log-forwarding`, `#/backups`).
 
 **Nodes**: until the fleet is set up, **Secure your fleet**
 (`Fleet.jsx`: create it, store the recovery kit and its passphrase,
@@ -206,7 +206,20 @@ accounts with their role (a select, applied at once - "None": its
 grants only), their **grants** (`GrantsEditor`, a dialog: per grant a
 role, the labels it picks nodes by, the domains it's narrowed to),
 **Reset password** / **Disable** / **Delete**, a new account's or a
-reset's password shown once (`GivenPassword`), the session policy; the
+reset's password shown once (`GivenPassword`), the session policy; an
+account a single sign-on provider made shows its provider (`SSOBadge`,
+"lapsed" past its life), its role as a badge and no grants button (its
+provider's rules decide - the Controller answers 409 anyway), no
+**Reset password**; a local account with linked identities, their
+providers and **Unlink**. Under the accounts, **Single sign-on**
+(`SingleSignOn.jsx`, its own chunk): the providers, and a dialog per
+provider - its kind (presets from `/api/sso/providers`, what to set up
+at the provider), the redirect and post-logout URIs to copy (the
+Controller as the page opened it), issuer, client, write-only secret,
+claims, how its certificate is trusted, the rules (`RuleRows`: group,
+role, labels, domains), a default role, the accounts' life, the second
+factor's mode, the switches a provider may need, and **Test**
+(`/api/sso/test`: discovery, keys, warnings); the
 audit's newest 500 entries, filtered by account on submit. A node card
 shows its labels (`NodeLabels`), edited in place by an admin. Under the
 Provision panel (which takes an enrollment token into its commands),
@@ -222,9 +235,28 @@ self-signed.
 **Your account** (`AccountButton`, a dialog): second factors
 (`MFAPanel`), **Trusted browsers** (`TrustedBrowsers`: "this browser"
 marked, each forgotten), SSH keys (`SSHKeys` - from a trusted browser's
-sign-in, `SecondFactorForm confirming` first), the password. Giving the
+sign-in, `SecondFactorForm confirming` first), **Single sign-on**
+(`Identities`, `SSO.jsx`: the identities linked, **Link <provider>**
+with the password again, each forgotten - or, for an account a provider
+made, how long it works), the password (only `has_password`). Giving the
 second factor offers "Trust this browser for N h" when the policy
-(Accounts › Sessions) allows it.
+(Accounts › Sessions) allows it. Without a password, `MFAPanel`
+confirms a change with a code (app or recovery) or a passkey
+(`/api/auth/mfa/passkey/*?confirm=1`, then the change within five
+minutes).
+
+**Single sign-on** (`SSO.jsx`, `docs/guide/sso.md`): the sign-in screen
+lists `/api/auth/status`'s `sso` providers under the form
+(`SSOButtons`); a button `POST`s `/api/auth/sso/<id>/start` with the
+route to come back to (`#/...`, the janusctl pages' included) and goes
+to the `redirect` it answers with `location.assign` - never a form: the
+page's policy has `form-action 'self'`. The provider sends the browser
+back to `#/sso-done`, which `AuthGate` handles before anything else
+(`SSODone`): `POST /api/auth/sso/finish`, then `history.replaceState`
+to the route it answers and the status read again - or the error and
+its reference (`call`'s error carries the answer in `data`). Signing out
+follows the `redirect` `/api/auth/logout` may answer (the provider's
+sign-out, which comes back to the page).
 
 **Roles on the page.** `AuthGate` gives the signed-in account
 (`/api/auth/status`'s `user`) to `MeContext` (`me.jsx`); a component asks
@@ -243,7 +275,8 @@ statuses with the nodes it reaches, hypervisors and pending ones empty. A sessio
 `mfa` - `SecondFactorForm` (passkey, app code, recovery code) -, then
 `password` - the forced change -, then `mfa_enroll` - `EnrollMFA`, the
 role's required first factor, then its recovery codes once
-(`RecoveryCodes`). The account button opens `MFAPanel` (factors, add,
+(`RecoveryCodes`) - not when the session's provider stood for it
+(`mfa.by_provider`). The account button opens `MFAPanel` (factors, add,
 remove and new recovery codes with the password), `SSHKeys` (janusctl's
 keys: add - only once the account has a second factor -, remove, and the
 `janusctl login` command with the Controller's fingerprint from
@@ -878,7 +911,10 @@ turn, and the step waited for is written under it.
    reboot, SELinux) gets checked against a real node booted from
    `build/rootfs/disk.img` under QEMU/OVMF.
 5. New relays get an assertion in `hack/qemu-dashboard-test.sh`, which
-   runs against a real enforcing node in `image-build.yml`.
+   runs against a real enforcing node in `image-build.yml`. The sign-in
+   screen, the account dialog and the Accounts tab's single sign-on:
+   `make controller-sso-test` (a real Keycloak, `hack/browser/sso.mjs`:
+   axe, no error, screenshots in `build/controller-sso-test/out`).
 6. A page the docs show (`hack/browser/shots.yaml`) changed: `make
    docs-screenshots` takes the docs' screenshots again - a real
    Controller, three `local-dev` nodes - and rewrites those that

@@ -37,6 +37,7 @@ import { useNodeMetrics } from './nodeMetrics.js'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
+import { Identities, SSO_DONE, SSOButtons, SSODone } from './SSO.jsx'
 import { backupAlert } from './backupAlert.js'
 import EnrollTokens from './Enroll.jsx'
 import HTTPSCertificate from './HTTPSCert.jsx'
@@ -780,7 +781,7 @@ function SetupForm({ onDone, onRestore }) {
   )
 }
 
-function LoginForm({ onDone, ended }) {
+function LoginForm({ onDone, ended, sso }) {
   const [name, setName] = useState(() => {
     try {
       return localStorage.getItem('janus-last-user') || ''
@@ -826,6 +827,7 @@ function LoginForm({ onDone, ended }) {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      <SSOButtons providers={sso} />
     </AuthScreen>
   )
 }
@@ -883,8 +885,15 @@ function PasswordForm({ onDone, forced, onCancel }) {
   )
 }
 
+// signOut ends the session - and the single sign-on provider's it came
+// through, when the Controller answers where (then the provider sends
+// the browser back to the page).
 const signOut = async () => {
-  await fetch('/api/auth/logout', { method: 'POST' })
+  const resp = await fetch('/api/auth/logout', { method: 'POST' })
+  if (resp.status === 200) {
+    const out = await resp.json().catch(() => null)
+    if (out?.redirect) return window.location.assign(out.redirect)
+  }
   window.location.reload()
 }
 
@@ -896,6 +905,9 @@ function AuthGate({ children }) {
   const [error, setError] = useState(null)
   const [ended, setEnded] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  // ssoDone: back from a single sign-on provider - finished before
+  // anything else (SSO.jsx).
+  const [ssoDone, setSSODone] = useState(() => window.location.hash.startsWith(SSO_DONE))
   const refreshStatus = useCallback(() => {
     call('/api/auth/status')
       .then(setStatus)
@@ -913,7 +925,7 @@ function AuthGate({ children }) {
   // The splash leaves at once for a form (sign-in, setup, a second
   // factor...), and comes back for the page's first load after it.
   const needs = status?.user?.needs || []
-  const inside = !!status && !status.setup_required && status.authenticated && !['mfa', 'password', 'mfa_enroll'].some((n) => needs.includes(n))
+  const inside = !!status && !ssoDone && !status.setup_required && status.authenticated && !['mfa', 'password', 'mfa_enroll'].some((n) => needs.includes(n))
   const { finish, reset } = useSplash()
   const sawForm = useRef(false)
   useSplashStep('session', 'Signing in…', !!status || !!error)
@@ -933,6 +945,12 @@ function AuthGate({ children }) {
         <ErrorBox error={error} />
       </div>
     )
+  if (ssoDone)
+    return (
+      <AuthScreen title="Single sign-on">
+        <SSODone onDone={() => (setSSODone(false), setEnded(false), refreshStatus())} />
+      </AuthScreen>
+    )
   if (!status) return null
   if (status.setup_required)
     return restoring ? (
@@ -944,7 +962,7 @@ function AuthGate({ children }) {
     ) : (
       <SetupForm onDone={refreshStatus} onRestore={() => setRestoring(true)} />
     )
-  if (!status.authenticated) return <LoginForm onDone={() => (setEnded(false), refreshStatus())} ended={ended} />
+  if (!status.authenticated) return <LoginForm onDone={() => (setEnded(false), refreshStatus())} ended={ended} sso={status.sso} />
   if (needs.includes('mfa'))
     return (
       <AuthScreen title={`Second factor for ${status.user.name}`}>
@@ -966,7 +984,7 @@ function AuthGate({ children }) {
         <EnrollMFA me={status.user} onDone={refreshStatus} onSignOut={signOut} />
       </AuthScreen>
     )
-  return <MeContext.Provider value={{ ...status.user, refresh: refreshStatus }}>{children}</MeContext.Provider>
+  return <MeContext.Provider value={{ ...status.user, sso_providers: status.sso, refresh: refreshStatus }}>{children}</MeContext.Provider>
 }
 
 // AccountButton is who's signed in - opening their password change.
@@ -995,14 +1013,24 @@ function AccountButton() {
               )}
               <h2 style={{ margin: '1.2rem 0 0.6rem' }}>SSH keys for janusctl</h2>
               <SSHKeys me={me} />
-              <h2 style={{ margin: '1.2rem 0 0.6rem' }}>Change your password</h2>
-              <PasswordForm
-                onCancel={() => setOpen(false)}
-                onDone={() => {
-                  setOpen(false)
-                  toast('Password changed')
-                }}
-              />
+              {(me.sso || me.identities?.length > 0 || me.sso_providers?.length > 0) && (
+                <>
+                  <h2 style={{ margin: '1.2rem 0 0.6rem' }}>Single sign-on</h2>
+                  <Identities me={me} />
+                </>
+              )}
+              {me.has_password && (
+                <>
+                  <h2 style={{ margin: '1.2rem 0 0.6rem' }}>Change your password</h2>
+                  <PasswordForm
+                    onCancel={() => setOpen(false)}
+                    onDone={() => {
+                      setOpen(false)
+                      toast('Password changed')
+                    }}
+                  />
+                </>
+              )}
             </div>
           </div>,
           document.body,

@@ -97,7 +97,7 @@ func Check(ctx context.Context, p Provider, hasSecret bool) Report {
 		for _, c := range []string{p.UsernameClaim, p.GroupsClaim} {
 			top, _, _ := strings.Cut(c, ".")
 			if !slices.Contains(m.ClaimsSupported, c) && !slices.Contains(m.ClaimsSupported, top) {
-				r.Warnings = append(r.Warnings, fmt.Sprintf("The provider doesn't list the claim %q: check that its tokens carry it.", c))
+				r.Warnings = append(r.Warnings, fmt.Sprintf("The provider doesn't list the claim %q - a mapper's (Keycloak's groups) aren't listed: check that its tokens carry it.", c))
 			}
 		}
 	}

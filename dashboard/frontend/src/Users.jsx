@@ -1,10 +1,15 @@
-import { Clock, Copy, KeyRound, KeySquare, Plus, RotateCcw, Tags, Trash2, UserRound, Users, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Clock, Copy, KeyRound, KeySquare, Link2, Plus, RotateCcw, Tags, Trash2, Unlink, UserRound, Users, X } from 'lucide-react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call, postJSON } from './call.js'
 import { DOMAINS, labelString, parseLabels, ROLES, useMe } from './me.jsx'
 import { MFABadge } from './MFA.jsx'
+import { SSOBadge } from './SSO.jsx'
+import { lazyView } from './shared/lazy.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
+
+// The single sign-on card comes in its own chunk, after the accounts.
+const SingleSignOn = lazyView(() => import('./SingleSignOn.jsx'))
 
 // Accounts (admin): who may sign in, with which role, and the session
 // policy - dashboard/backend/internal/auth.
@@ -338,9 +343,12 @@ export default function UsersPage() {
     const ok = await confirm({
       title: `Delete ${u.name}?`,
       body: (
-        <p>
-          The account, its sessions and its {u.tokens} API token{u.tokens === 1 ? '' : 's'} are gone. What they did stays in the audit.
-        </p>
+        <>
+          <p>
+            The account, its sessions and its {u.tokens} API token{u.tokens === 1 ? '' : 's'} are gone. What they did stays in the audit.
+          </p>
+          {u.sso && <p className="muted">{u.sso.provider} makes it again at its next sign-in if a rule still lets it in: disable it to keep it out.</p>}
+        </>
       ),
       action: 'Delete',
       danger: true,
@@ -348,6 +356,21 @@ export default function UsersPage() {
     })
     if (!ok) return
     await run(() => call(`/api/users/${encodeURIComponent(u.name)}`, { method: 'DELETE' }), `Deleted ${u.name}`)
+    load()
+  }
+  // unlink forgets the identities linked to a local account: signing in
+  // through those providers no longer reaches it.
+  const unlink = async (u) => {
+    const ok = await confirm({
+      title: `Unlink ${u.name}'s single sign-on?`,
+      body: <p>Signing in as {u.identities.map((i) => `${i.username} at ${i.provider}`).join(', ')} no longer reaches this account. Its password still does.</p>,
+      action: 'Unlink',
+      danger: true,
+    })
+    if (!ok) return
+    for (const i of u.identities) {
+      await run(() => call(`/api/users/${encodeURIComponent(u.name)}/identities/${encodeURIComponent(i.id)}`, { method: 'DELETE' }))
+    }
     load()
   }
 
@@ -397,9 +420,21 @@ export default function UsersPage() {
                   <tr key={u.name} className={u.disabled ? 'muted' : ''}>
                     <td>
                       <strong>{u.name}</strong> {u.name === me.name && <Badge>you</Badge>} {u.disabled && <Badge tone="danger">disabled</Badge>}{' '}
-                      {u.must_change_password && !u.disabled && <Badge tone="warn">password to choose</Badge>} <MFABadge on={u.mfa} />
+                      {u.must_change_password && !u.disabled && <Badge tone="warn">password to choose</Badge>} <MFABadge on={u.mfa} /> <SSOBadge sso={u.sso} />{' '}
+                      {!u.sso && u.identities?.length > 0 && (
+                        <span title={u.identities.map((i) => `${i.username} at ${i.provider}`).join('\n')}>
+                          <Badge>
+                            <Link2 size={11} /> {u.identities.map((i) => i.provider).join(', ')}
+                          </Badge>
+                        </span>
+                      )}
                     </td>
                     <td>
+                      {u.sso ? (
+                        <span title={`What ${u.sso.provider}'s rules give its groups: ${u.sso.groups.join(', ') || 'none'}`}>
+                          <Badge tone={roleTone(u.role)}>{u.role || 'none'}</Badge>
+                        </span>
+                      ) : (
                       <select
                         value={u.role || 'none'}
                         disabled={busy}
@@ -412,6 +447,7 @@ export default function UsersPage() {
                           </option>
                         ))}
                       </select>
+                      )}
                     </td>
                     <td className="small">
                       {u.grants.map((g, i) => (
@@ -419,9 +455,11 @@ export default function UsersPage() {
                           {grantSummary(g)}
                         </div>
                       ))}
-                      <button className="ghost small" onClick={() => setGrantsOf(u)} disabled={busy} title="Roles on the nodes whose labels match">
-                        <Tags size={13} /> {u.grants.length ? 'Edit' : 'Grants'}
-                      </button>
+                      {!u.sso && (
+                        <button className="ghost small" onClick={() => setGrantsOf(u)} disabled={busy} title="Roles on the nodes whose labels match">
+                          <Tags size={13} /> {u.grants.length ? 'Edit' : 'Grants'}
+                        </button>
+                      )}
                     </td>
                     <td>{when(u.last_login_at)}</td>
                     <td>
@@ -446,9 +484,16 @@ export default function UsersPage() {
                       )}
                     </td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button className="ghost small" onClick={() => reset(u)} disabled={busy} title="A new password to hand over">
-                        <RotateCcw size={14} /> Reset password
-                      </button>
+                      {u.has_password && (
+                        <button className="ghost small" onClick={() => reset(u)} disabled={busy} title="A new password to hand over">
+                          <RotateCcw size={14} /> Reset password
+                        </button>
+                      )}
+                      {!u.sso && u.identities?.length > 0 && (
+                        <button className="ghost small" onClick={() => unlink(u)} disabled={busy} title="Signing in through its provider no longer reaches it">
+                          <Unlink size={14} /> Unlink
+                        </button>
+                      )}
                       {u.mfa && (
                         <button className="ghost small" onClick={() => resetMFA(u)} disabled={busy} title="A lost phone or key: the account sets one up again">
                           Reset 2FA
@@ -467,11 +512,14 @@ export default function UsersPage() {
             </table>
           </div>
           <div className="muted small" style={{ marginTop: '0.5rem' }}>
-            The last enabled admin can&apos;t be demoted, disabled or deleted. Locked out of every admin account? On the Controller&apos;s host:{' '}
-            <code>docker exec janus-controller /dashboardd reset-user NAME</code>.
+            The last enabled admin who signs in with a password can&apos;t be demoted, disabled or deleted - a single sign-on provider&apos;s admins don&apos;t count. Locked out
+            of every admin account? On the Controller&apos;s host: <code>docker exec janus-controller /dashboardd reset-user NAME</code>.
           </div>
         </Card>
       )}
+      <Suspense fallback={null}>
+        <SingleSignOn onChanged={load} />
+      </Suspense>
       <SessionPolicy />
     </div>
   )

@@ -87,11 +87,11 @@ var ssoMessages = map[string]string{
 	sso.CodeToken:    "The provider's answer didn't check out: ask an admin, with the reference below.",
 	sso.CodeExpired:  "This sign-in is over, or another one started in this browser since: start again.",
 	"busy":           "Too many sign-ins are under way: try again in a few minutes.",
-	"access":         auth.ErrNoAccess.Error() + ": ask an admin.",
-	"name_taken":     auth.ErrNameTaken.Error() + ".",
-	"name_invalid":   auth.ErrNameInvalid.Error() + ".",
-	"disabled":       auth.ErrDisabled.Error() + ".",
-	"identity_taken": auth.ErrIdentityTaken.Error() + ".",
+	"access":         "The provider's rules give you no access to this Controller: ask an admin.",
+	"name_taken":     "An account of this name already exists: its owner can link this identity to it (Your account), or an admin can rename one.",
+	"name_invalid":   "The provider's name for you isn't one an account can have (1 to 64 lowercase letters, digits and . _ @ -).",
+	"disabled":       "This account is disabled.",
+	"identity_taken": "This identity is linked to an account already.",
 	"link":           "Linking stopped: sign in again on this page, then link from Your account.",
 }
 
