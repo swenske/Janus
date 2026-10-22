@@ -49,6 +49,11 @@ shots:
     page: '#/tokens'
     wait: terraform
 
+  - id: controller-sso
+    page: '#/accounts'
+    wait: sso.example.com
+    crop: 'section.card:has(.card-title:text-is("Single sign-on"))'
+
   - id: node-overview
     node: edge-par-1
     page: '#/'

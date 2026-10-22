@@ -226,6 +226,13 @@ scope giving more than its roles.
 A second factor - TOTP, its secret sealed with
 the master key, or a WebAuthn passkey - finishes the sign-in of an
 account that has one, required for admins by default.
+An account can sign in through an OpenID Connect provider instead
+(`dashboard/backend/internal/sso`, [single sign-on](guide/sso.md)): the
+authorization code flow with PKCE, the ID token checked by the
+Controller itself, the identity bound to one account by its issuer and
+subject; the provider's groups decide the role of the accounts it makes,
+which lapse when they stop signing in through it. The password form
+stays, for the accounts that have one.
 
 The Controller backs itself up (`dashboard/backend/internal/backup`,
 `backups.go`): its data directory, its master key and its nodes'

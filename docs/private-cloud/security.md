@@ -48,6 +48,7 @@ vulnerability: [security policy](../../SECURITY.md).
 | The fleet's issuing key | The Controller's data, sealed with its master key | Keep the master key outside the data volume (`JANUS_CONTROLLER_MASTER_KEY_FILE`): a copy of the data alone opens nothing |
 | The backups | An S3 bucket, encrypted to the backup kit's key | The kit and its passphrase in a password manager; a bucket with versioning or Object Lock, and a write-only key for the Controller |
 | Accounts | The Controller: bcrypt passwords, TOTP secrets sealed with the master key, passkeys | MFA - required for admins by default |
+| Single sign-on providers' client secrets | The Controller's data, sealed with its master key | A client per Controller, allowed its redirect URI only; the provider's own second factor counted only when you say so ([single sign-on](../guide/sso.md)) |
 | API tokens, enrollment tokens | Shown once; the Controller keeps their SHA-256 | A secret store; the lowest role and the narrowest scope that work; an expiry; revoke what's done |
 | Hypervisor credentials | The Controller's data: its SSH key for a libvirt host, the Proxmox VE token's secret | Dedicated accounts whose rights cover only the Controller's machines - polkit on libvirt, one pool on Proxmox ([hypervisors](../hypervisors.md)) |
 

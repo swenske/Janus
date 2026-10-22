@@ -370,7 +370,8 @@ others on the **Accounts** tab, each with a role:
 The Controller makes a new account's password, shown once to hand over;
 its owner chooses their own at the first sign-in. **Reset password**
 does the same for an account and ends its sessions. The last enabled
-admin can't be demoted, disabled or deleted. A Controller from before
+admin who signs in with a password can't be demoted, disabled or
+deleted. A Controller from before
 accounts had one admin password: it's the account `admin`'s now, and
 its API tokens are admin's.
 
@@ -432,6 +433,13 @@ password change, a **Reset 2FA**, a disabled account or a shorter
 policy forgets them too. A sign-in a trusted browser skipped the factor
 in gives it once more to add an SSH key (a key outlives the browser's
 trust). The audit shows such a sign-in `via trusted browser`.
+
+**Single sign-on**: accounts can sign in through an OpenID Connect
+provider - Keycloak, a Synology's SSO Server, another - set up on the
+**Accounts** tab: its rules turn the provider's groups into a role and
+make the account at its first sign-in, and an account with a password
+can link its identity there (**Your account**). The password form stays.
+See [Single sign-on](../docs/guide/sso.md).
 
 The **Audit** tab is every change made on the Controller - from its
 pages or with an API token - and every sign-in, failed or not, with who
