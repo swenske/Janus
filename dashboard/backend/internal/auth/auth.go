@@ -106,6 +106,13 @@ type User struct {
 	SSHKeys []SSHKey `json:"ssh_keys,omitempty"`
 	// Grants are roles on some nodes, besides Role (grants.go).
 	Grants []Grant `json:"grants,omitempty"`
+	// Identities are the account's at single sign-on providers; SSO marks
+	// an account one of them made (sso.go).
+	Identities []Identity  `json:"identities,omitempty"`
+	SSO        *SSOAccount `json:"sso,omitempty"`
+	// HasPassword is set on the store's copies (view), which have no
+	// password hash: the account signs in with a password.
+	HasPassword bool `json:"-"`
 }
 
 // Settings is the session policy.
@@ -175,6 +182,15 @@ type Session struct {
 	PendingTOTP string
 	WebAuthn    *webauthn.SessionData
 	PasskeyName string
+	// FactorAt is when the session last gave one of the Controller's
+	// second factors (zero: never).
+	FactorAt time.Time
+	// Provider is the single sign-on provider the session signed in
+	// through (none: a password); IDToken its ID token, for signing out
+	// of it too; ProviderMFA, its second factor counts for the session's.
+	Provider    string
+	IDToken     string
+	ProviderMFA bool
 }
 
 // Expires is when the session ends if nothing uses it again.
@@ -190,7 +206,9 @@ var (
 	// ErrInvalid is a wrong name or password - never which of the two.
 	ErrInvalid = errors.New("invalid credentials")
 	// ErrLastAdmin refuses what would leave no enabled admin.
-	ErrLastAdmin = errors.New("this is the last enabled admin: make another admin first")
+	// Admins a single sign-on provider made don't count: the password
+	// form is the way in when the provider isn't.
+	ErrLastAdmin = errors.New("this is the last enabled admin who signs in with a password: make another one first")
 	ErrNoUser    = errors.New("no such account")
 )
 
@@ -393,6 +411,13 @@ func view(u *User) User {
 	c.MFA.RecoveryCodes = make([]string, len(u.MFA.RecoveryCodes))
 	c.MFA.Passkeys = append([]Passkey{}, u.MFA.Passkeys...)
 	c.SSHKeys = append([]SSHKey{}, u.SSHKeys...)
+	c.Identities = append([]Identity{}, u.Identities...)
+	if u.SSO != nil {
+		sso := *u.SSO
+		sso.Groups = append([]string{}, u.SSO.Groups...)
+		c.SSO = &sso
+	}
+	c.HasPassword = len(u.PasswordHash) > 0
 	return c
 }
 
@@ -452,7 +477,9 @@ func (s *Store) Authenticate(name, password string) (User, error) {
 		h = u.PasswordHash
 	}
 	s.mu.Unlock()
-	if !ok {
+	if !ok || len(h) == 0 {
+		// An account a single sign-on provider made has no password:
+		// refused as slowly as an unknown name.
 		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(password))
 		return User{}, ErrInvalid
 	}
@@ -510,7 +537,7 @@ func (s *Store) newSession(ss Session) (string, error) {
 
 func (s *Store) liveLocked(ss *Session, now time.Time) bool {
 	u, ok := s.users[ss.User]
-	if !ok || u.Disabled || u.Epoch != ss.Epoch || !now.Before(ss.Expires(s.settings)) {
+	if !ok || u.Disabled || u.Epoch != ss.Epoch || !now.Before(ss.Expires(s.settings)) || u.Lapsed(now) {
 		return false
 	}
 	// A sign-in waiting for its second factor doesn't wait long.
@@ -667,6 +694,12 @@ func (s *Store) UpdateUser(name string, c Change) (User, error) {
 	if !ok {
 		return User{}, ErrNoUser
 	}
+	if u.SSO != nil && (c.Role != nil || c.Grants != nil) {
+		return User{}, fmt.Errorf("%w: its role and grants are what %s's rules give it", ErrManaged, u.SSO.Provider)
+	}
+	if u.SSO != nil && c.Password != nil {
+		return User{}, fmt.Errorf("%w: it has no password, it signs in through %s", ErrManaged, u.SSO.Provider)
+	}
 	next := *u
 	if c.Role != nil {
 		next.Role = *c.Role
@@ -682,7 +715,7 @@ func (s *Store) UpdateUser(name string, c Change) (User, error) {
 		next.PasswordHash, next.MustChangePassword = h, true
 		next.Epoch++
 	}
-	if u.Role == Admin && !u.Disabled && (next.Role != Admin || next.Disabled) && s.enabledAdminsLocked() == 1 {
+	if localAdmin(u) && !localAdmin(&next) && s.localAdminsLocked() == 1 {
 		return User{}, ErrLastAdmin
 	}
 	s.users[name] = &next
@@ -693,10 +726,16 @@ func (s *Store) UpdateUser(name string, c Change) (User, error) {
 	return view(&next), nil
 }
 
-func (s *Store) enabledAdminsLocked() int {
+// localAdmin reports whether u is an enabled admin who signs in with a
+// password - what must remain: the way in when no provider is.
+func localAdmin(u *User) bool {
+	return u.Role == Admin && !u.Disabled && len(u.PasswordHash) > 0 && u.SSO == nil
+}
+
+func (s *Store) localAdminsLocked() int {
 	n := 0
 	for _, u := range s.users {
-		if u.Role == Admin && !u.Disabled {
+		if localAdmin(u) {
 			n++
 		}
 	}
@@ -712,7 +751,7 @@ func (s *Store) DeleteUser(name string) error {
 	if !ok {
 		return ErrNoUser
 	}
-	if u.Role == Admin && !u.Disabled && s.enabledAdminsLocked() == 1 {
+	if localAdmin(u) && s.localAdminsLocked() == 1 {
 		return ErrLastAdmin
 	}
 	delete(s.users, name)
@@ -726,6 +765,9 @@ func (s *Store) DeleteUser(name string) error {
 // ChangePassword is an account changing its own password: every session
 // of the account ends, the caller starts a new one.
 func (s *Store) ChangePassword(name, current, next string) error {
+	if u, ok := s.User(name); ok && !u.HasPassword {
+		return fmt.Errorf("%w: it has no password", ErrManaged)
+	}
 	if _, err := s.Authenticate(name, current); err != nil {
 		return errors.New("the current password is wrong")
 	}
@@ -756,7 +798,8 @@ func (s *Store) ChangePassword(name, current, next string) error {
 // sign-in, takes its second factors away, and enables it - making it an
 // admin if it doesn't exist: the
 // way back in when no admin can sign in (dashboardd reset-user, run on
-// the Controller's host). Its sessions end.
+// the Controller's host). Its sessions end. An account a single sign-on
+// provider made becomes an ordinary one, its identity linked.
 func ResetFromHost(dataDir, name string) (string, error) {
 	if err := checkName(name); err != nil {
 		return "", err
@@ -783,6 +826,7 @@ func ResetFromHost(dataDir, name string) (string, error) {
 	}
 	u.PasswordHash, u.MustChangePassword, u.Disabled = h, true, false
 	u.MFA = MFA{}
+	u.SSO = nil
 	u.Epoch++
 	return password, s.save()
 }

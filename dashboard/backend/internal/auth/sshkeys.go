@@ -152,14 +152,14 @@ func (s *Store) RemoveSSHKeys(user string) (int, error) {
 }
 
 // SSHKeyFor is user's key fingerprint if it may sign in now - the
-// account enabled, the key not expired -, with the account and the role
-// the key is limited to (none: the account's).
+// account enabled and not lapsed (sso.go), the key not expired -, with
+// the account and the role the key is limited to (none: the account's).
 func (s *Store) SSHKeyFor(user, fingerprint string) (ssh.PublicKey, User, Role, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.fresh()
 	u, ok := s.users[user]
-	if !ok || u.Disabled {
+	if !ok || u.Disabled || u.Lapsed(s.now()) {
 		return nil, User{}, "", ErrInvalid
 	}
 	i := slices.IndexFunc(u.SSHKeys, func(k SSHKey) bool { return k.Fingerprint == fingerprint })

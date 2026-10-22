@@ -38,8 +38,10 @@ type mfaView struct {
 	TOTP          bool          `json:"totp"`
 	Passkeys      []passkeyView `json:"passkeys"`
 	RecoveryCodes int           `json:"recovery_codes"`
-	// Required: the account's role must have a second factor.
-	Required bool `json:"required"`
+	// Required: the account's role must have a second factor;
+	// ByProvider, the single sign-on provider's counts for it.
+	Required   bool `json:"required"`
+	ByProvider bool `json:"by_provider"`
 	// RPID is the name passkeys are made and used for here - empty when
 	// the page is opened by an IP address, where browsers refuse them.
 	RPID string `json:"rp_id"`
@@ -53,7 +55,7 @@ type mfaView struct {
 func (a *app) viewMFA(r *http.Request, u auth.User, ss auth.Session) mfaView {
 	_, rp, _ := relyingParty(r)
 	settings := a.auth.Settings()
-	v := mfaView{TOTP: u.MFA.TOTPAddedAt != nil, Passkeys: []passkeyView{}, RecoveryCodes: len(u.MFA.RecoveryCodes), Required: settings.Requires(u.MaxRole()), RPID: rp, TrustHours: settings.TrustHours(), Trusted: ss.Trusted}
+	v := mfaView{TOTP: u.MFA.TOTPAddedAt != nil, Passkeys: []passkeyView{}, RecoveryCodes: len(u.MFA.RecoveryCodes), Required: settings.Requires(u.MaxRole()), ByProvider: ss.ProviderMFA, RPID: rp, TrustHours: settings.TrustHours(), Trusted: ss.Trusted}
 	for _, p := range u.MFA.Passkeys {
 		v.Passkeys = append(v.Passkeys, passkeyView{ID: p.ID(), Name: p.Name, RPID: p.RPID, CreatedAt: p.CreatedAt, LastUsedAt: p.LastUsedAt, Here: p.RPID == rp && rp != ""})
 	}
@@ -101,8 +103,10 @@ func (a *app) registerMFARoutes(mux *http.ServeMux) {
 
 // mfaSession is the request's session for a second-factor call: signIn,
 // one finishing a sign-in that waits for its second factor - or
-// confirming it in a sign-in a trusted browser skipped it in -; else
-// one setting factors up, refused to a sign-in still waiting.
+// confirming it in a sign-in a trusted browser skipped it in, or one
+// asking to confirm (?confirm=1: an account without a password confirms
+// a change to its factors with a passkey) -; else one setting factors
+// up, refused to a sign-in still waiting.
 func (a *app) mfaSession(w http.ResponseWriter, r *http.Request, signIn bool) (string, auth.User, bool) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil {
@@ -117,7 +121,7 @@ func (a *app) mfaSession(w http.ResponseWriter, r *http.Request, signIn bool) (s
 	noteAudit(r, u.Name, "session")
 	waiting := slices.Contains(a.auth.Needs(u, ss), "mfa")
 	switch {
-	case signIn && !waiting && !ss.Trusted:
+	case signIn && !waiting && !ss.Trusted && r.URL.Query().Get("confirm") != "1":
 		writeError(w, http.StatusConflict, "this sign-in needs no second factor now")
 		return "", auth.User{}, false
 	case !signIn && waiting:
@@ -293,20 +297,34 @@ func (a *app) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, recoveryCodesView{nonNil(codes)})
 }
 
-type withPassword struct {
+// withProof confirms a change to the account's factors: its password -
+// or, without one, a code (authenticator app or recovery), or a factor
+// the session gave in the last five minutes (auth.Proof).
+type withProof struct {
 	Password string `json:"password"`
+	Code     string `json:"code"`
+}
+
+func (p withProof) proof(token string) auth.Proof {
+	return auth.Proof{Password: p.Password, Code: p.Code, Session: token}
+}
+
+// wrongProof reports whether err is a wrong password or code: it counts
+// against the address like a wrong sign-in.
+func wrongProof(err error) bool {
+	return errors.Is(err, auth.ErrWrongPassword) || errors.Is(err, auth.ErrWrongCode)
 }
 
 func (a *app) handleTOTPRemove(w http.ResponseWriter, r *http.Request) {
-	_, u, ok := a.mfaSession(w, r, false)
+	token, u, ok := a.mfaSession(w, r, false)
 	if !ok || a.throttled(w, r) {
 		return
 	}
-	var req withPassword
+	var req withProof
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	a.answerRemoval(w, r, a.auth.RemoveTOTP(u.Name, req.Password))
+	a.answerRemoval(w, r, a.auth.RemoveTOTP(u.Name, req.proof(token)))
 }
 
 func (a *app) answerRemoval(w http.ResponseWriter, r *http.Request, err error) {
@@ -316,7 +334,7 @@ func (a *app) answerRemoval(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, auth.ErrFactorRequired):
 		writeError(w, http.StatusConflict, err.Error())
 	default:
-		if strings.Contains(err.Error(), "password") {
+		if wrongProof(err) {
 			a.loginLimiter.Fail(clientAddr(r))
 		}
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -371,29 +389,29 @@ func (a *app) handlePasskeyFinish(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handlePasskeyRemove(w http.ResponseWriter, r *http.Request) {
-	_, u, ok := a.mfaSession(w, r, false)
+	token, u, ok := a.mfaSession(w, r, false)
 	if !ok || a.throttled(w, r) {
 		return
 	}
-	var req withPassword
+	var req withProof
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	a.answerRemoval(w, r, a.auth.RemovePasskey(u.Name, req.Password, r.PathValue("id")))
+	a.answerRemoval(w, r, a.auth.RemovePasskey(u.Name, req.proof(token), r.PathValue("id")))
 }
 
 func (a *app) handleRecoveryCodes(w http.ResponseWriter, r *http.Request) {
-	_, u, ok := a.mfaSession(w, r, false)
+	token, u, ok := a.mfaSession(w, r, false)
 	if !ok || a.throttled(w, r) {
 		return
 	}
-	var req withPassword
+	var req withProof
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	codes, err := a.auth.NewRecoveryCodes(u.Name, req.Password)
+	codes, err := a.auth.NewRecoveryCodes(u.Name, req.proof(token))
 	if err != nil {
-		if strings.Contains(err.Error(), "password") {
+		if wrongProof(err) {
 			a.loginLimiter.Fail(clientAddr(r))
 		}
 		writeError(w, http.StatusBadRequest, err.Error())
