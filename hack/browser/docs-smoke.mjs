@@ -182,13 +182,21 @@ async function phone(i, n) {
 }
 
 // Accessibility: axe on every page, serious and critical issues only.
+// Not counted: label-content-name-mismatch on Starlight's own search
+// button (axe-core 4.14 runs the rule): its name is "Search", what it
+// shows is "Search" plus the Ctrl K hint, and axe flags any markup of it
+// with that hint inside - with the hint aria-hidden, the name "Search
+// Ctrl K", or the word visible (measured in this image). Its shortcut is
+// in aria-keyshortcuts; a speech user saying "Search" reaches it.
+const tolerated = (v) =>
+  v.id === 'label-content-name-mismatch' && v.nodes.every((n) => n.target.join(' ') === 'button[data-open-modal=""]')
 async function axe(i, n) {
   const { ctx, page } = await newPage('light')
   for (const url of shard(i, n)) {
     await page.goto(url, { waitUntil: 'networkidle' })
     await settled(page)
     const { violations } = await new AxeBuilder({ page }).analyze()
-    for (const v of violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')) {
+    for (const v of violations.filter((v) => (v.impact === 'serious' || v.impact === 'critical') && !tolerated(v))) {
       problems.push(`${url}: axe ${v.impact} ${v.id} (${v.help}) - ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)
     }
   }
