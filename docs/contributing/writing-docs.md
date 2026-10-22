@@ -70,9 +70,12 @@ site, `/docs/<file>.md` redirects to the file's page whatever its route.
   docs-screenshots` sets a real Controller up with three real nodes,
   shoots every page `hack/browser/shots.yaml` lists in both themes, and
   writes `docs/assets/screenshots/<id>-light.webp` and `-dark.webp` -
-  only those that changed. A page shows the light one
+  only those that changed - and their `-1x.webp` variants (half the
+  pixels, a third of the bytes; written with them, never compared). A
+  page shows the light one
   (`![What it shows](../assets/screenshots/node-overview-light.webp)`,
-  the alt text saying what's on it); the site adds the dark one and
+  the alt text saying what's on it); the site adds the dark one and the
+  1x variants - a browser fetches the one for its theme and screen - and
   zooms either on a click. A page the docs show changed? `make
   docs-screenshots` in the same commit, and look at the images.
   `janusctl tui`'s is made there too: its frame drawn by

@@ -272,6 +272,19 @@
   display: none;
 }
 
+/* And the other density's (remark-screenshots): a 1x screen takes the
+   -1x file, a third of the bytes; a denser one the full screenshot. */
+@media (max-resolution: 1.49dppx) {
+  starlight-image-zoom-zoomable:has(> img.shot-2x) {
+    display: none;
+  }
+}
+@media (min-resolution: 1.5dppx) {
+  starlight-image-zoom-zoomable:has(> img.shot-1x) {
+    display: none;
+  }
+}
+
 /* Mermaid diagrams (diagrams.mjs): the source until it's drawn, wrapped,
    then the drawing, centred and as wide as the page at most - neither
    scrolls (a scrolling region would need to take the keyboard's focus) -
