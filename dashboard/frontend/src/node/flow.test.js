@@ -7,7 +7,6 @@ import {
   particles,
   FIT_MIN,
   MAX_SCALE,
-  MIN_SCALE,
   apiPeers,
   arrange,
   buildFlow,
@@ -433,16 +432,27 @@ test('arrange: the shape, the side panel and the size for the room there is', ()
   assert.equal(arrange('auto', close, room(1000, 2000)).shape, 'across')
   // Top to bottom when only that is whole.
   assert.deepEqual(arrange('auto', maps, room(600, 900)), { shape: 'down', beside: false, scale: 1 })
-  // Never smaller than FIT_MIN to be whole: as wide as the card instead,
-  // the page scrolling down it, the first that is.
-  assert.deepEqual(arrange('auto', tall, room(1050, 300)), { shape: 'across', beside: false, scale: 1 })
+  // Never smaller than FIT_MIN to be whole: at FIT_MIN, the shortest as
+  // wide as its card, the page scrolling down the rest.
+  assert.deepEqual(arrange('auto', tall, room(1050, 300)), { shape: 'dense', beside: false, scale: FIT_MIN })
   assert.ok(arrange('auto', tall, room(1050, 1600 * FIT_MIN)).scale >= FIT_MIN)
-  // Wider than the card at MIN_SCALE: the one overflowing less.
-  assert.deepEqual(arrange('auto', maps, room(340, 700)), { shape: 'down', beside: false, scale: MIN_SCALE })
+  // A pixel short of whole changes nothing but the pixel below the window.
+  assert.deepEqual(arrange('auto', tall, room(1050, 800 * FIT_MIN)), { shape: 'dense', beside: false, scale: FIT_MIN })
+  assert.deepEqual(arrange('auto', tall, room(1050, 800 * FIT_MIN - 1)), { shape: 'dense', beside: false, scale: FIT_MIN })
+  // An edge load balancer's 31 backends (lgslbpub01's map) in a window
+  // a little shorter than full screen: beside their labels, nearly whole
+  // - not left to right at full size, three times the window's height.
+  const edge = { across: { width: 1270, height: 2900 }, dense: { width: 1540, height: 1448 }, down: { width: 6147, height: 630 } }
+  assert.deepEqual(arrange('auto', edge, room(2400, 1080)), { shape: 'dense', beside: true, scale: FIT_MIN })
+  assert.deepEqual(arrange('auto', edge, room(2400, 1240)), { shape: 'dense', beside: true, scale: 1240 / 1448 })
+  // Its top below the window (notices above it): the first shortest.
+  assert.deepEqual(arrange('auto', edge, room(2400, -40)), { shape: 'across', beside: true, scale: FIT_MIN })
+  // Wider than the card at FIT_MIN: the one overflowing less.
+  assert.deepEqual(arrange('auto', maps, room(340, 700)), { shape: 'down', beside: false, scale: FIT_MIN })
   // A choice is kept, whatever the room: horizontal takes either way of
   // labelling, vertical only top to bottom.
   assert.equal(arrange('horizontal', tall, room(1900, 880)).shape, 'dense')
-  assert.deepEqual(arrange('vertical', { down: { width: 3600, height: 400 } }, room(1500, 900)), { shape: 'down', beside: false, scale: MIN_SCALE })
+  assert.deepEqual(arrange('vertical', { down: { width: 3600, height: 400 } }, room(1500, 900)), { shape: 'down', beside: false, scale: FIT_MIN })
   // Not measured yet: the first shape, the panel below, its own size.
   assert.deepEqual(arrange('auto', maps, null), { shape: 'across', beside: false, scale: 1 })
 })
@@ -627,8 +637,8 @@ test('arrange: no room at all - a card not laid out - is the first shape, not a 
   const g = buildFlow(modeRows(), parseTopology(MODES), {})
   const maps = Object.fromEntries(['across', 'dense', 'down'].map((shape) => [shape, layout(g, [], { shape })]))
   for (const width of [0, -21]) {
-    assert.deepEqual(arrange('auto', maps, { width, side: 368, height: 800 }), { shape: 'across', beside: false, scale: MIN_SCALE })
-    assert.deepEqual(arrange('vertical', maps, { width, side: 368, height: 800 }), { shape: 'down', beside: false, scale: MIN_SCALE })
+    assert.deepEqual(arrange('auto', maps, { width, side: 368, height: 800 }), { shape: 'across', beside: false, scale: FIT_MIN })
+    assert.deepEqual(arrange('vertical', maps, { width, side: 368, height: 800 }), { shape: 'down', beside: false, scale: FIT_MIN })
   }
 })
 
