@@ -1,7 +1,10 @@
 ---
 // The site's title, and which docs these are: a menu to the other
 // channel's same page - /docs/ is the newest release's, /docs/next/
-// main's - and to older releases' docs, on GitHub at their tag.
+// main's - and to older releases' docs, on GitHub at their tag. The
+// menu's name starts with the word it shows (latest, next): a speech
+// user says what they see (axe's label-content-name-mismatch, which
+// failed /docs/next/ in v2026.10.22's site deploy).
 import Default from '@astrojs/starlight/components/SiteTitle.astro'
 import { channel, commit, latestVersion, repo, version } from '../lib/build-info.mjs'
 
@@ -14,7 +17,7 @@ const main = channel === 'next' ? `main @ ${commit.slice(0, 7)}` : 'main'
 <div class="janus-title sl-flex">
   <Default />
   <details class="janus-version">
-    <summary aria-label={`These docs: ${channel === 'latest' ? `the latest release, ${release}` : `development, ${main}`}`}>
+    <summary aria-label={`These docs: ${channel}, ${channel === 'latest' ? `the latest release, ${release}` : `development, ${main}`}`}>
       {channel}
     </summary>
     <ul>
