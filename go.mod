@@ -12,7 +12,7 @@ require (
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/foxboron/go-uefi v0.0.0-20261004203234-c7f1f57bdc6e
 	github.com/go-acme/lego/v4 v4.35.2
-	github.com/go-jose/go-jose/v4 v4.1.5
+	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.58.0
