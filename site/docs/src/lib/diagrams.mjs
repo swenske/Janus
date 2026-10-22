@@ -118,7 +118,7 @@ if (diagrams.length) {
     dialog.innerHTML = `<div class="diagram-viewer-stage"></div>
       <div class="diagram-viewer-bar">
         <button type="button" data-do="out" aria-label="Zoom out" title="Zoom out (-)">${icons.out}</button>
-        <button type="button" data-do="fit" aria-label="Fit the screen" title="Fit the screen (0)">100 %</button>
+        <button type="button" data-do="fit" aria-label="100 %, fit the screen" title="Fit the screen (0)">100 %</button>
         <button type="button" data-do="in" aria-label="Zoom in" title="Zoom in (+)">${icons.in}</button>
         <button type="button" data-do="close" aria-label="Close" title="Close (Esc)">${icons.close}</button>
       </div>
@@ -143,7 +143,10 @@ if (diagrams.length) {
       v.svg.setAttribute('width', v.w * v.s)
       v.svg.setAttribute('height', v.h * v.s)
       v.svg.style.transform = `translate(${v.x}px, ${v.y}px)`
+      // Its name holds what it shows (axe: label-content-name-mismatch):
+      // a speech user says what they see.
       percent.textContent = `${Math.round(v.s * 100)} %`
+      percent.setAttribute('aria-label', `${percent.textContent}, fit the screen`)
     }
     const fit = () => {
       const r = stage.getBoundingClientRect()
