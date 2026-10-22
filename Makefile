@@ -29,6 +29,11 @@ MODULE  := github.com/swenske/Janus
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
+# keep: $(1) was just written as $(1).new - keep the old file when the
+# bytes are the same, so its modification time says when its content
+# last changed (hack/fresh.sh skips what hasn't).
+keep = if cmp -s $(1).new $(1); then rm -f $(1).new; else mv -f $(1).new $(1); fi
+
 BIN_DIR   := bin
 BINARIES  := janusd janusctl
 BUILD_DIR := build
@@ -145,7 +150,7 @@ kernel-build-%:
 		-o $(BUILD_DIR)/kernel-$* kernel
 
 kernel-build: kernel-build-$(KERNEL_TRACK)
-	cp $(BUILD_DIR)/kernel-$(KERNEL_TRACK)/bzImage $(BUILD_DIR)/bzImage
+	cp $(BUILD_DIR)/kernel-$(KERNEL_TRACK)/bzImage $(BUILD_DIR)/bzImage.new && $(call keep,$(BUILD_DIR)/bzImage)
 	cp $(BUILD_DIR)/kernel-$(KERNEL_TRACK)/built-files.txt $(BUILD_DIR)/built-files.txt
 
 kernel-builds: $(addprefix kernel-build-,$(KERNEL_TRACKS))
@@ -205,14 +210,14 @@ upstream-sbom:
 init:
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" \
-		-o $(BUILD_DIR)/init ./rootfs/init
+		-o $(BUILD_DIR)/init.new ./rootfs/init && $(call keep,$(BUILD_DIR)/init)
 
 # /sbin/shutdown: signals PID 1 for a clean power-off or reboot (what the
 # QEMU guest agent runs) - see rootfs/shutdown.
 shutdown-bin:
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" \
-		-o $(BUILD_DIR)/shutdown ./rootfs/shutdown
+		-o $(BUILD_DIR)/shutdown.new ./rootfs/shutdown && $(call keep,$(BUILD_DIR)/shutdown)
 
 # --- Optional extensions (extensions/<name>/, docs/image-factory.md) ---
 # Each builds its file tree with its Dockerfile, then hack/extpack packs it
@@ -564,7 +569,7 @@ haproxy-build-%:
 		-o $(BUILD_DIR)/haproxy-$* pkgs/haproxy
 
 haproxy-build: haproxy-build-$(HAPROXY_BRANCH)
-	cp $(BUILD_DIR)/haproxy-$(HAPROXY_BRANCH)/haproxy $(BUILD_DIR)/haproxy
+	cp $(BUILD_DIR)/haproxy-$(HAPROXY_BRANCH)/haproxy $(BUILD_DIR)/haproxy.new && $(call keep,$(BUILD_DIR)/haproxy)
 
 haproxy-builds: $(addprefix haproxy-build-,$(HAPROXY_BRANCHES))
 
@@ -575,7 +580,7 @@ haproxy-builds: $(addprefix haproxy-build-,$(HAPROXY_BRANCHES))
 daemon-static:
 	mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" \
-		-o $(BUILD_DIR)/janusd ./cmd/janusd
+		-o $(BUILD_DIR)/janusd.new ./cmd/janusd && $(call keep,$(BUILD_DIR)/janusd)
 
 # The Phase 2 network-integration rootfs: init + janusd + the real
 # static haproxy binary + the bootstrap config (see rootfs/base/etc/
@@ -631,16 +636,29 @@ ca-certificates:
 	mkdir -p $(BUILD_DIR)/ca-certificates
 	docker build --target export -o $(BUILD_DIR)/ca-certificates ca-certificates
 
+# Skipped when nothing it reads changed since build/rootfs/rootfs.squashfs
+# was made (hack/fresh.sh): the binaries above keep their modification
+# time while their bytes don't change, so a `make qemu-*-test` after
+# another rebuilds nothing - 30 steps of one image-build job each paid
+# 2-10 s for it.
 rootfs-build: init shutdown-bin daemon-static haproxy-build selinux-policy ca-certificates
 	mkdir -p $(BUILD_DIR)/rootfs
 	go run ./hack/extpack image-info $(if $(SCHEMATIC),-schematic $(SCHEMATIC)) -arch amd64 -version $(VERSION) \
-		-out $(BUILD_DIR)/rootfs/image.json
+		-out $(BUILD_DIR)/rootfs/image.json.new && $(call keep,$(BUILD_DIR)/rootfs/image.json)
 	layers="$$($(if $(SCHEMATIC),go run ./hack/extpack layers -schematic $(SCHEMATIC) -arch amd64 -dir $(EXT_DIR),true))" && \
+	if ./hack/fresh.sh $(BUILD_DIR)/rootfs/rootfs.squashfs $(BUILD_DIR)/rootfs/.stamp "$(VERSION) $$layers" -- \
+		rootfs $(BUILD_DIR)/init $(BUILD_DIR)/shutdown $(BUILD_DIR)/janusd $(BUILD_DIR)/haproxy \
+		$(BUILD_DIR)/selinux/janus.policy $(BUILD_DIR)/ca-certificates/ca-certificates.crt \
+		$(BUILD_DIR)/rootfs/image.json $$layers; then \
+		echo "rootfs-build: $(BUILD_DIR)/rootfs/rootfs.squashfs is up to date"; \
+	else \
 	JANUS_SHUTDOWN_BIN=$(BUILD_DIR)/shutdown JANUS_VERSION=$(VERSION) JANUS_EXTENSIONS="$$layers" \
 	JANUS_IMAGE_INFO=$(BUILD_DIR)/rootfs/image.json \
 	./rootfs/assemble.sh $(BUILD_DIR)/rootfs $(BUILD_DIR)/init $(BUILD_DIR)/janusd \
 		$(BUILD_DIR)/haproxy rootfs/base/etc/haproxy/haproxy.cfg \
-		$(BUILD_DIR)/selinux/janus.policy $(BUILD_DIR)/ca-certificates/ca-certificates.crt
+		$(BUILD_DIR)/selinux/janus.policy $(BUILD_DIR)/ca-certificates/ca-certificates.crt && \
+	printf '%s' "$(VERSION) $$layers" > $(BUILD_DIR)/rootfs/.stamp; \
+	fi
 
 # Phase 3 cont'd: boots the kernel directly from rootfs-build's
 # squashfs+dm-verity image via the "dm-mod.create=" cmdline parameter
@@ -674,6 +692,10 @@ qemu-selinux-test: kernel-build rootfs-build
 # image/disk/assemble.sh's own STATE_MB, or <state-image> won't
 # actually fill the partition it gets dd'd into.
 STATE_IMAGE_MB := 128
+# Always made again (40 ms): some tests boot it in place as the STATE
+# drive (qemu-state-persist-test, qemu-sysctl-test, the lifecycle
+# upgrade tests, qemu-extensions-test...) and must find it blank - which
+# is why disk-image below doesn't take its modification time as a change.
 state-image:
 	mkdir -p $(BUILD_DIR)/rootfs
 	./rootfs/state-image.sh $(BUILD_DIR)/rootfs/state.img $(STATE_IMAGE_MB)
@@ -701,9 +723,28 @@ qemu-state-persist-test: kernel-build rootfs-build state-image
 # image/disk/activate-slot.sh (switches which slot's UKI is on the ESP,
 # in place, without touching STATE or either slot's content - the
 # groundwork for a real LifecycleService.Upgrade/Rollback).
+# Every QEMU test boots build/rootfs/disk.img in place and writes its
+# STATE, so each gets a fresh copy of the pristine image - assembled
+# again (sgdisk, two UKIs, 880 MB of dd) only when the kernel, the
+# rootfs, the state image's script or size, the image scripts or the
+# UKI's environment changed. Not when state.img is newer: it is made
+# blank again by every make, and a test that boots it in place leaves it
+# written - a pristine assembled from it then held that test's STATE
+# (the first attempt: a stale events.jsonl and a bad block bitmap at the
+# next test's first boot). The copy is renamed into place, so a QEMU the
+# previous test left behind can't write into it.
+DISK_IMAGE_ENV = UKI_CONSOLE=$(UKI_CONSOLE) UKI_CONSOLE_CHOICE=$(UKI_CONSOLE_CHOICE) UKI_EXTRA_CMDLINE=$(UKI_EXTRA_CMDLINE) UKI_SELINUX_ENFORCING=$(UKI_SELINUX_ENFORCING) UKIFY_STUB=$(UKIFY_STUB) JANUS_SCHEMATIC=$(JANUS_SCHEMATIC) STATE_IMAGE_MB=$(STATE_IMAGE_MB)
 disk-image: kernel-build rootfs-build state-image
-	./image/disk/assemble.sh $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/bzImage \
-		$(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/state.img A
+	if ./hack/fresh.sh $(BUILD_DIR)/rootfs/disk.pristine.img $(BUILD_DIR)/rootfs/.disk-stamp "$(DISK_IMAGE_ENV)" -- \
+		$(BUILD_DIR)/bzImage $(BUILD_DIR)/rootfs/rootfs.squashfs $(BUILD_DIR)/rootfs/rootfs.verity \
+		rootfs/state-image.sh image/disk image/uki; then \
+		echo "disk-image: $(BUILD_DIR)/rootfs/disk.img from the pristine copy"; \
+	else \
+		./image/disk/assemble.sh $(BUILD_DIR)/rootfs/disk.pristine.img $(BUILD_DIR)/bzImage \
+			$(BUILD_DIR)/rootfs $(BUILD_DIR)/rootfs/state.img A && \
+		printf '%s' "$(DISK_IMAGE_ENV)" > $(BUILD_DIR)/rootfs/.disk-stamp; \
+	fi && cp --sparse=always $(BUILD_DIR)/rootfs/disk.pristine.img $(BUILD_DIR)/rootfs/disk.img.new && \
+		mv -f $(BUILD_DIR)/rootfs/disk.img.new $(BUILD_DIR)/rootfs/disk.img
 
 # First real, deployable artifact: disk-image's raw GPT disk converted
 # to qcow2 - Proxmox's own preferred import/storage format. Requires
