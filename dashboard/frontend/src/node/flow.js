@@ -897,10 +897,9 @@ function layoutDense(graph, ifaces, servers, peers) {
 
 // How big a map is drawn: whole in the window down to FIT_MIN of its
 // size - its labels still readable - and up to MAX_SCALE on a big screen;
-// when it can't be whole, as wide as its card down to MIN_SCALE, the page
-// scrolling down it; wider still, it scrolls in its card.
+// when it can't be whole, at FIT_MIN, the page scrolling down the rest;
+// wider than its card even then, it scrolls in its card.
 export const FIT_MIN = 0.75
-export const MIN_SCALE = 0.85
 export const MAX_SCALE = 1.5
 
 // arrange is how the map shows in the room it has, its layouts given
@@ -909,8 +908,9 @@ export const MAX_SCALE = 1.5
 // then beside them, then top to bottom - each with the side panel beside
 // the map or below it: the one that shows the map whole in the window
 // the biggest - any at full size or more counting as one -, or nearly as
-// big and earlier in that order; else the first as wide as its card;
-// else the one overflowing it less.
+// big and earlier in that order; else, at FIT_MIN, the shortest of those
+// as wide as their card - the least below the window -, or nearly as
+// short and earlier; else the one overflowing its card less.
 // room.width is the map's with the panel below it, room.side the
 // panel's with its gap, room.height the window's below the map's top;
 // null before they're measured.
@@ -920,26 +920,33 @@ export function arrange(choice, maps, room) {
   const options = []
   for (const shape of order) {
     const m = maps[shape]
+    // None when the map's top is below the window (notices above it).
+    const high = Math.max(room.height, 0) / m.height
     for (const beside of [true, false]) {
       const w = beside ? room.width - room.side : room.width
       if (w <= 0) continue
-      options.push({ shape, beside, wide: w / m.width, whole: Math.min(w / m.width, room.height / m.height, MAX_SCALE) })
+      options.push({ shape, beside, wide: w / m.width, high, whole: Math.min(w / m.width, high, MAX_SCALE) })
     }
   }
   const pick = (o, scale) => ({ shape: o.shape, beside: o.beside, scale })
+  // The best of a list by a measure, or one nearly as good earlier in it.
+  const first = (list, measure) => {
+    const best = Math.max(...list.map(measure))
+    return list.find((o) => measure(o) >= best * 0.9)
+  }
   const whole = options.filter((o) => o.whole >= FIT_MIN)
   if (whole.length) {
-    const size = (o) => Math.min(o.whole, 1)
-    const best = Math.max(...whole.map(size))
-    const o = whole.find((o) => size(o) >= best * 0.9)
+    const o = first(whole, (o) => Math.min(o.whole, 1))
     return pick(o, o.whole)
   }
-  const wide = options.find((o) => o.wide >= MIN_SCALE)
-  if (wide) return pick(wide, Math.min(wide.wide, 1))
+  // Too tall to be whole: still FIT_MIN - a window a few pixels shorter
+  // never draws it twice as big, far below the window.
+  const wide = options.filter((o) => o.wide >= FIT_MIN)
+  if (wide.length) return pick(first(wide, (o) => o.high), FIT_MIN)
   // No room at all (a card not laid out): the first shape, as when not
   // measured yet.
-  if (!options.length) return { shape: order[0], beside: false, scale: MIN_SCALE }
-  return pick(options.reduce((a, o) => (o.wide > a.wide ? o : a)), MIN_SCALE)
+  if (!options.length) return { shape: order[0], beside: false, scale: FIT_MIN }
+  return pick(options.reduce((a, o) => (o.wide > a.wide ? o : a)), FIT_MIN)
 }
 
 // related is what a node or link is part of, to bring forward: from a

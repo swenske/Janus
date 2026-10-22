@@ -511,9 +511,11 @@ the window's height below the card) and `arrange` picks the shape and
 the side panel's place - beside the map or below it - that show the map
 whole in the window the biggest, between 75 % and 150 % of its size
 (any at full size or more counting as one, the earlier shape winning
-when nearly as big); when none can be whole, the first as wide as its
-card down to 85 %, the page scrolling down it; else the one overflowing
-less, scrolling in its card, opened on Janus. **Horizontal** keeps to
+when nearly as big); when none can be whole, at 75 % still, the
+shortest of those as wide as their card, the page scrolling down the
+rest - a window a few pixels too short never jumps to a map twice as
+big; else the one overflowing less, scrolling in its card, opened on
+Janus. **Horizontal** keeps to
 the two left-to-right shapes, **Vertical** to top to bottom. The page
 drops its 1500 px limit for it: a full screen is room. With the panel
 below, a selected node's details are pinned to the window's bottom,
