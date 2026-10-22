@@ -8,6 +8,7 @@ require (
 	filippo.io/age v1.3.2
 	github.com/beevik/ntp v1.6.0
 	github.com/coder/websocket v1.8.15
+	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/digitalocean/go-libvirt v0.0.0-20260814190004-1a83157e1858
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/foxboron/go-uefi v0.0.0-20261004203234-c7f1f57bdc6e
@@ -17,6 +18,7 @@ require (
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.61.0
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
 	google.golang.org/grpc v1.84.0
@@ -87,7 +89,6 @@ require (
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260924152758-ed294f943157 // indirect
 	golang.org/x/text v0.43.0 // indirect
