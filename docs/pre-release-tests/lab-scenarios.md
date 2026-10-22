@@ -234,7 +234,10 @@ example:
   serial log's size, its version and health, a screenshot of its
   screen, then the same load with init's CPU (`screen-machine`,
   `x-screen-load`); from v2026.10.21 the image is the factory's - no
-  node runs that schematic, so the script asks for the build first.
+  node runs that schematic, so the script asks for the build first;
+- v2026.10.22: the node pages' shared assets - two nodes' pages through
+  the Controller naming the same `/node-app/` script, its caching
+  headers, a 304, public while a node's API isn't (`s-static-node-app`).
 
 ### HAProxy killed by the kernel
 
@@ -309,7 +312,8 @@ ran:
 - `x-budget`: the console's share set to 0 and back under load, each
   way it shows; `screen-machine`, `x-screen-load`: a screen-only node
   made by hand, read and loaded through the Controller's relay
-  (v2026.10.20-3);
+  (v2026.10.20-3); `s-static-node-app`: the node pages' shared assets
+  (v2026.10.22);
 - `n-neighbors`: both nodes' neighbour tables, and the VIP's MAC from
   the backup around a drain (v2026.10.19-4);
 - `h-history`: haproxy.cfg's history through the Controller - a change,
