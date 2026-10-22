@@ -51,7 +51,7 @@ GEN_DIR := gen
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
-	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test local-dev-image ca-certificates seed-controller-test \
+	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test local-dev-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
@@ -1070,6 +1070,18 @@ controller-libvirt-test: kvm-image
 	mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/dashboardd-static ./dashboard/backend
 	./hack/controller-libvirt-test.sh $(BUILD_DIR)/janus-kvm.qcow2 $(BIN_DIR)/dashboardd-static
+
+# Single sign-on through a real Keycloak (hack/keycloak, pinned): the
+# Controller and Keycloak by their own names on a private network,
+# headless Chromium signing in through Keycloak's pages - accounts made
+# by the rules, refusals, janusctl's page kept across the round trip,
+# signing out of Keycloak too, linking, group and rule changes, the
+# provider's second factor. See hack/controller-sso-test.sh and
+# docs/guide/sso.md. dashboardd runs in the browser image: built static.
+controller-sso-test: browser-image
+	mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/dashboardd-static ./dashboard/backend
+	./hack/controller-sso-test.sh $(BIN_DIR)/dashboardd-static $(BROWSER_IMAGE)
 
 # "Local Platform" tranche: a real janusd+haproxy pair as an ordinary
 # Docker container, for fast local iteration - see local-dev/
