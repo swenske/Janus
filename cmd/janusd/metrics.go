@@ -15,6 +15,7 @@ import (
 	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/boottime"
+	"github.com/swenske/Janus/internal/cluster"
 	"github.com/swenske/Janus/internal/consolelimit"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
@@ -44,6 +45,7 @@ type metricsSources struct {
 	vrrp       *vrrp.Manager
 	bgp        *bgp.Manager
 	acme       *acme.Manager
+	cluster    *cluster.Store
 	console    *consolelimit.Budget
 	statePath  string         // STATE's mount point, for its filesystem's error count
 	logVol     *logvol.Volume // the LOGS partition, nil without one
@@ -61,7 +63,7 @@ type metricsSources struct {
 const haproxyCertTTL = time.Minute
 
 func (m *metricsSources) collectors() []exporter.Collector {
-	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.acmeMetrics, m.security, m.apiRequests, m.logshipMetrics, m.consoleMetrics}
+	return []exporter.Collector{m.node, m.certificates, m.haproxyMetrics, m.services, m.network, m.firewallMetrics, m.vrrpMetrics, m.bgpMetrics, m.acmeMetrics, m.clusterMetrics, m.security, m.apiRequests, m.logshipMetrics, m.consoleMetrics}
 }
 
 func gauge(name, help string, samples ...exporter.Sample) exporter.Family {
@@ -74,6 +76,37 @@ func counter(name, help string, samples ...exporter.Sample) exporter.Family {
 
 func sample(v float64, labels ...string) exporter.Sample {
 	return exporter.Sample{Labels: exporter.L(labels...), Value: v}
+}
+
+// clusterMetrics: the node's cluster (internal/cluster) and HAProxy's
+// peers - nothing on a node that is in none.
+func (m *metricsSources) clusterMetrics() []exporter.Family {
+	if m.cluster == nil || m.haproxy == nil {
+		return nil
+	}
+	mb := m.cluster.Membership()
+	if mb == nil {
+		return nil
+	}
+	fams := []exporter.Family{gauge("janus_cluster_info", "Always 1: the cluster the node is a member of, and its member name.", sample(1, "cluster_id", mb.ID, "cluster_name", mb.Name, "member", mb.Member))}
+	peers, err := m.haproxy.ShowPeers(cluster.Section)
+	if err != nil {
+		return fams
+	}
+	var up, synced []exporter.Sample
+	for _, p := range peers {
+		if p.Local {
+			continue
+		}
+		up = append(up, sample(exporter.Bool(p.Up()), "peer", p.Name))
+		for _, t := range p.Tables {
+			synced = append(synced, sample(exporter.Bool(t.Synced()), "peer", p.Name, "table", t.Name))
+		}
+	}
+	return append(fams,
+		gauge("janus_cluster_peer_up", "1 while HAProxy's connection to the peer is established: the stick tables replicate.", up...),
+		gauge("janus_cluster_peer_table_synced", "1 while the peer acknowledged every update this node made to the stick table.", synced...),
+	)
 }
 
 func (m *metricsSources) node() []exporter.Family {

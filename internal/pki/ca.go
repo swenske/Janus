@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/url"
 	"time"
 )
 
@@ -226,6 +227,9 @@ type IssueOptions struct {
 	// (ExtKeyUsageServerAuth) - a pure client cert needs neither.
 	DNSNames    []string
 	IPAddresses []net.IP
+	// URIs: a cluster member certificate's janus://cluster/... name
+	// (internal/cluster).
+	URIs        []*url.URL
 	ExtKeyUsage []x509.ExtKeyUsage
 	// Validity is how long the certificate is valid from now: 0 means
 	// LeafValidity.
@@ -288,6 +292,7 @@ func (ca *CA) IssueFor(pub crypto.PublicKey, opts IssueOptions) ([]byte, error) 
 		ExtKeyUsage:     opts.ExtKeyUsage,
 		DNSNames:        opts.DNSNames,
 		IPAddresses:     opts.IPAddresses,
+		URIs:            opts.URIs,
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, pub, ca.Key)

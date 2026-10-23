@@ -150,6 +150,9 @@ authentication: restrict who reaches the port.
 | `janus_acme_certificate_failures` | gauge | `name` | Failed attempts in a row to obtain it |
 | `janus_acme_certificate_renew_timestamp_seconds` | gauge | `name` | When it becomes due for renewal (0 until obtained) |
 | `janus_acme_certificate_last_success_timestamp_seconds` | gauge | `name` | When it was last obtained (0: never) |
+| `janus_cluster_info` | gauge | `cluster_id`, `cluster_name`, `member` | Always 1: the cluster the node is a member of and its member name ([cluster.md](cluster.md)); absent on a node in none |
+| `janus_cluster_peer_up` | gauge | `peer` | 1 while HAProxy's connection to the peer is established: the stick tables replicate |
+| `janus_cluster_peer_table_synced` | gauge | `peer`, `table` | 1 while the peer acknowledged every update this node made to the stick table |
 | `janus_selinux_enforcing` | gauge | | 1 if SELinux is enforcing |
 | `janus_selinux_denials_total` | counter | | SELinux denials in the kernel log since boot - there should be none |
 | `janus_kernel_oom_kills_total` | counter | | Processes the kernel killed for lack of memory since boot |

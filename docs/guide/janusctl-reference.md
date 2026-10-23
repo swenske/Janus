@@ -1250,6 +1250,103 @@ janusctl access rotate-ca [-console] DIR
 |---|---|
 | `-console` | the node prints the admin key on its console |
 
+## Cluster
+
+### janusctl cluster
+
+The node's membership of a cluster: the primitives an orchestrator drives.
+
+#### janusctl cluster get
+
+What the node knows of its cluster, and the peers section HAProxy runs with.
+
+```text
+janusctl cluster get
+```
+
+#### janusctl cluster status
+
+HAProxy's peers: connected, and in sync.
+
+```text
+janusctl cluster status
+```
+
+#### janusctl cluster csr
+
+A signing request for the node's member certificate - its key stays on the node.
+
+```text
+janusctl cluster csr [OUT]
+```
+
+#### janusctl cluster set
+
+Install or update the membership (MEMBER: name=address[,api=host:port]).
+
+```text
+janusctl cluster set [-id UUID] [-name NAME] [-member NAME] [-port N] [-ca FILE] [-cert FILE] [-managed-by TEXT] MEMBER...
+```
+
+| Flag | |
+|---|---|
+| `-id UUID` | the cluster's id |
+| `-name NAME` | the cluster's name |
+| `-member NAME` | this node's member name (default: its hostname) |
+| `-port N` | the peers port (default 10057) |
+| `-ca FILE` | the cluster's CA (PEM): the first time, or to replace it |
+| `-cert FILE` | the member certificate (PEM) for the last csr: the first time, or to renew it |
+| `-managed-by TEXT` | who sets the composition |
+
+#### janusctl cluster leave
+
+Forget the membership: the node on its own again.
+
+```text
+janusctl cluster leave
+```
+
+#### janusctl cluster drain
+
+Out of service without stopping: the virtual IPs and routes move to the peers.
+
+```text
+janusctl cluster drain [-timeout SECONDS]
+```
+
+| Flag | |
+|---|---|
+| `-timeout SECONDS` | how long to wait for VRRP and BGP to show it (60) |
+
+#### janusctl cluster undrain
+
+Back in service.
+
+```text
+janusctl cluster undrain
+```
+
+#### janusctl cluster pull
+
+Fetch another member's secrets - certificates, files, ACME certificates, ticket keys - over mTLS.
+
+```text
+janusctl cluster pull [-from MEMBER] [-items LIST]
+```
+
+| Flag | |
+|---|---|
+| `-from MEMBER` | the member to pull from |
+| `-items LIST` | runtime-certs, files, acme-certs, tls-ticket-keys (default: all) |
+
+#### janusctl cluster rotate-tickets
+
+Add a TLS ticket key to the ring, handed to HAProxy without a reload.
+
+```text
+janusctl cluster rotate-tickets
+```
+
 ### janusctl pki
 
 Client certificates of the node's own CA.

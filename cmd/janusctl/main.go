@@ -250,6 +250,8 @@ func main() {
 		runPKI(conn, args[1:])
 	case "access":
 		runAccess(conn, args[1:])
+	case "cluster":
+		runCluster(conn, args[1:])
 	case "lifecycle":
 		runLifecycle(conn, args[1:])
 	case "network":

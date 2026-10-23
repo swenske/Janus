@@ -39,6 +39,10 @@ import (
 const (
 	RoleOperator   = "os:operator"
 	RoleController = "janus:controller"
+	// RoleClusterMember is a cluster member's certificate (cluster.go):
+	// no right of its own - it opens ClusterExport and HAProxy's peers
+	// listener of its own cluster, nothing else.
+	RoleClusterMember = "janus:cluster"
 )
 
 // FleetControllerName is the name a node asks the Controller's

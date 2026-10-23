@@ -2,6 +2,7 @@ package rbac
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/swenske/Janus/internal/pki"
@@ -11,8 +12,16 @@ func TestAllowing(t *testing.T) {
 	reader := Allowing([]string{pki.RoleReader})
 	operator := Allowing([]string{pki.RoleOperator})
 	admin := Allowing([]string{pki.RoleAdmin})
-	if len(admin) != len(Required) {
-		t.Errorf("admin: %d of %d", len(admin), len(Required))
+	// Every RPC but the one for cluster members alone: no human opens
+	// ClusterExport, which serves private keys.
+	var nobody []string
+	for m, roles := range Required {
+		if !slices.Contains(roles, pki.RoleAdmin) {
+			nobody = append(nobody, strings.TrimPrefix(m, "/janus.v1alpha1."))
+		}
+	}
+	if len(admin)+len(nobody) != len(Required) || !slices.Equal(nobody, []string{"ClusterService/ClusterExport"}) {
+		t.Errorf("admin: %d of %d, for no human: %v", len(admin), len(Required), nobody)
 	}
 	for _, c := range []struct {
 		list []string

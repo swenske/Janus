@@ -43,6 +43,7 @@ import (
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/boottime"
+	"github.com/swenske/Janus/internal/cluster"
 	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/consolelimit"
 	"github.com/swenske/Janus/internal/consul"
@@ -282,12 +283,50 @@ func main() {
 		haproxyMgr.CertStoreDir = filepath.Join(filepath.Dir(*haproxyCfg), "runtime-certs")
 	}
 	haproxyMgr.FilesDir = filepath.Join(filepath.Dir(*haproxyCfg), "files")
+	// The node's cluster membership (internal/cluster), next to HAProxy's
+	// files: the peers listener's certificates are HAProxy's to read.
+	clusterDir := filepath.Join(filepath.Dir(*haproxyCfg), "cluster")
+	clusterStore, err := cluster.Open(clusterDir, func() string { h, _ := os.Hostname(); return h })
+	if err != nil {
+		log.Printf("cluster: %v - the node is in no cluster this boot", err)
+	}
+	peersFile := ""
 	if *manageHost {
 		// On a node, a configuration keeps the privilege drop into the
 		// chroot above and janusd's stats socket, and daemonizes or runs
 		// nothing (internal/haproxy.GlobalPolicy). On a host, in CI, the
 		// configuration is whatever the test needs.
 		haproxyMgr.Policy = haproxy.NodePolicy(*haproxyChrootDir, *haproxySock)
+		// And HAProxy runs with the peers section generated from the
+		// membership - the node alone when it is in none, so a reload keeps
+		// the stick tables - and this node's name as its local peer. Only on
+		// a node: several janusd on one host would fight for the listener.
+		peersFile = filepath.Join(filepath.Dir(*haproxyCfg), cluster.PeersFile)
+		if _, err := clusterStore.WritePeersFile(peersFile); err != nil {
+			log.Printf("cluster: %v - HAProxy runs without a peers section", err)
+			peersFile = ""
+		} else {
+			// Regenerated before each start and check: the local peer name
+			// follows the hostname on a node that is in no cluster.
+			haproxyMgr.ExtraConfigs = func() []string {
+				if _, err := clusterStore.WritePeersFile(peersFile); err != nil {
+					log.Printf("cluster: %v", err)
+				}
+				return []string{peersFile}
+			}
+			haproxyMgr.LocalPeer = clusterStore.LocalPeer
+			haproxyMgr.Policy.PeersSection = cluster.Section
+			haproxyMgr.Policy.PeersPort = clusterStore.BindPort
+		}
+		// The member certificate's key and the ticket keys, never served.
+		api.SecretPaths = append(api.SecretPaths, clusterDir, filepath.Join("/etc/.state/haproxy", "cluster"))
+		// The TLS ticket key ring, for a configuration to name from the
+		// first boot on: a session then resumes across reloads.
+		if created, err := clusterStore.EnsureTicketKeys(); err != nil {
+			log.Printf("cluster: TLS ticket key ring: %v", err)
+		} else if created {
+			log.Printf("cluster: TLS ticket key ring made at %s", clusterStore.TicketKeysPath())
+		}
 	}
 	// HAProxy's health: it answers on its stats socket, and isn't being
 	// stopped - a soft stop closes the listeners long before the process
@@ -300,6 +339,11 @@ func main() {
 		_, err := haproxyMgr.ShowInfo()
 		return err == nil
 	}
+	// A drained cluster member (ClusterService.ClusterDrain) reads as
+	// unhealthy to keepalived and BIRD - the traffic moves to a peer while
+	// HAProxy keeps answering - never to the HTTP-01 challenges.
+	gateHealthy := func() bool { return !clusterStore.Drained() && haproxyHealthy() }
+	gateChanged := cluster.Either(haproxyMgr.Changed, clusterStore.DrainChanged)
 
 	// The letsencrypt extension (internal/acme) before HAProxy starts: its
 	// certificate files - stand-ins until the CA's arrive - must be there
@@ -385,7 +429,7 @@ func main() {
 		if err := vrrpMgr.Boot(); err != nil {
 			log.Printf("vrrp: %v", err)
 		}
-		go vrrp.KeepHealth(haproxyHealthy, haproxyMgr.Changed, 2*time.Second, nil)
+		go vrrp.KeepHealth(gateHealthy, gateChanged, 2*time.Second, nil)
 	}
 	// BIRD (the BGP extension) likewise; its haproxy_* protocols are kept
 	// down while HAProxy doesn't answer - checked every second: a BGP
@@ -395,7 +439,7 @@ func main() {
 		if err := bgpMgr.Boot(); err != nil {
 			log.Printf("bgp: %v", err)
 		}
-		go bgpMgr.KeepGate(haproxyHealthy, haproxyMgr.Changed, time.Second, nil)
+		go bgpMgr.KeepGate(gateHealthy, gateChanged, time.Second, nil)
 	}
 	// The Consul agent (consul extension) waits for its configuration
 	// likewise; janusd's own part of it (data directory, node ID) first.
@@ -575,7 +619,7 @@ func main() {
 	// The node's own Prometheus exporter (internal/exporter). The kernel
 	// log and STATE are only this node's to report when janusd runs it.
 	metrics := &metricsSources{version: version, started: started, ca: local.CA, serverCert: serverCert, console: console,
-		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr, vrrp: vrrpMgr, bgp: bgpMgr, acme: acmeMgr}
+		haproxy: haproxyMgr, ext: extMgr, net: netMgr, time: timeSvc, firewall: fwMgr, vrrp: vrrpMgr, bgp: bgpMgr, acme: acmeMgr, cluster: clusterStore}
 	if *manageHost {
 		metrics.kmsg = &kmsgwatch.Counts{ToldFile: "/run/janus/kmsg-oom-told", OnOOMKill: func(pid int, process string) {
 			log.Printf("kernel: out of memory - killed %s (%d)", process, pid)
@@ -606,9 +650,10 @@ func main() {
 		}
 	}
 
-	tlsConfig := pki.NodeTLSConfig(local.CA, serverCert, fleet)
+	tlsConfig := pki.NodeTLSConfig(local.CA, serverCert, fleet, clusterStore)
 	api.FleetRoot = fleet.Root
 	api.LocalCA = func() *x509.Certificate { return local.CA().Cert }
+	api.ClusterMember = clusterStore.AcceptMember
 	clients := api.NewClients()
 	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
@@ -616,14 +661,15 @@ func main() {
 		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Main: netMgr.MainAddresses, Sysctl: sysctlMgr, Console: console})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, Cluster: clusterStore, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Main: netMgr.MainAddresses, Sysctl: sysctlMgr, Console: console})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
 	// Every accepted configuration, next to haproxy.cfg - on STATE on a
 	// node, like the configuration itself.
 	haproxyHistory := &haproxy.History{Dir: filepath.Join(filepath.Dir(*haproxyCfg), "history")}
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &api.HAProxy{Manager: haproxyMgr, ACME: acmeMgr, History: haproxyHistory})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &api.Access{Fleet: fleet, Local: local, ServerCert: serverCert, Console: os.Stderr})
-	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: haproxyHealthy, BGP: bgpMgr, Consul: consulMgr, Services: extMgr})
+	janusv1alpha1.RegisterNetworkServiceServer(srv, &api.Network{Net: netMgr, Time: timeSvc, Firewall: fwMgr, VRRP: vrrpMgr, HAProxyHealthy: gateHealthy, BGP: bgpMgr, Consul: consulMgr, Services: extMgr})
+	janusv1alpha1.RegisterClusterServiceServer(srv, &api.Cluster{Store: clusterStore, PeersFile: peersFile, HAProxy: haproxyMgr, LocalIPs: pki.LocalIPs, VRRP: vrrpMgr, BGP: bgpMgr, ACME: acmeMgr, ACMECertDir: acme.CertDir})
 
 	log.Printf("janusd %s listening on %s (mTLS required)", version, *addr)
 	if *manageHost {

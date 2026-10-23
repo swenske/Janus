@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -34,6 +35,7 @@ func TestRequiredRolesCoversEveryRPC(t *testing.T) {
 	janusv1alpha1.RegisterHAProxyServiceServer(srv, &HAProxy{})
 	janusv1alpha1.RegisterNetworkServiceServer(srv, &Network{})
 	janusv1alpha1.RegisterAccessServiceServer(srv, &Access{})
+	janusv1alpha1.RegisterClusterServiceServer(srv, &Cluster{})
 
 	seen := map[string]bool{}
 	for serviceName, info := range srv.GetServiceInfo() {
@@ -138,6 +140,36 @@ func TestOperatorRole(t *testing.T) {
 	}
 	if got := status.Code(checkRole(peerWith(&x509.Certificate{Subject: pkix.Name{Organization: []string{"os:reader"}}}), "/janus.v1alpha1.NetworkService/NeighborList")); got != codes.OK {
 		t.Errorf("reader reading the neighbour table: %v", got)
+	}
+}
+
+// TestClusterMemberRole: a cluster member's certificate opens
+// ClusterExport, when the node's own cluster accepts it - nothing else,
+// whatever other roles it carries.
+func TestClusterMemberRole(t *testing.T) {
+	member := &x509.Certificate{Subject: pkix.Name{CommonName: "lb-2", Organization: []string{pki.RoleClusterMember, "os:admin"}}}
+	ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{}, AuthInfo: credentials.TLSInfo{State: tls.ConnectionState{
+		PeerCertificates: []*x509.Certificate{member},
+		VerifiedChains:   [][]*x509.Certificate{{member, {Subject: pkix.Name{CommonName: "Janus cluster edge"}}}},
+	}}})
+	defer func(prev func([]*x509.Certificate) (string, error)) { ClusterMember = prev }(ClusterMember)
+	ClusterMember = nil
+	if got := status.Code(checkRole(ctx, "/janus.v1alpha1.ClusterService/ClusterExport")); got != codes.PermissionDenied {
+		t.Errorf("a member on a node in no cluster: %v", got)
+	}
+	ClusterMember = func(chain []*x509.Certificate) (string, error) { return chain[0].Subject.CommonName, nil }
+	caller, err := authorize(ctx, "/janus.v1alpha1.ClusterService/ClusterExport")
+	if err != nil || caller.Name != "lb-2" || !caller.Member || len(caller.Roles) != 1 {
+		t.Errorf("a member exporting: %v %+v", err, caller)
+	}
+	for _, method := range []string{"/janus.v1alpha1.SystemService/Version", "/janus.v1alpha1.HAProxyService/ApplyConfig", "/janus.v1alpha1.ClusterService/ClusterPull", "/janus.v1alpha1.SystemService/Read"} {
+		if got := status.Code(checkRole(ctx, method)); got != codes.PermissionDenied {
+			t.Errorf("a member calling %s: %v", method, got)
+		}
+	}
+	ClusterMember = func([]*x509.Certificate) (string, error) { return "", errors.New("a member of another cluster") }
+	if got := status.Code(checkRole(ctx, "/janus.v1alpha1.ClusterService/ClusterExport")); got != codes.PermissionDenied {
+		t.Errorf("another cluster's member exporting: %v", got)
 	}
 }
 

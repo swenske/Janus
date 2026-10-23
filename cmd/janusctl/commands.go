@@ -339,6 +339,28 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "trust-reset", help: "forget the fleet (the node's own CA only)"},
 		{name: "rotate-ca", args: "DIR", help: "replace the node's own CA", flags: []flagDef{boolFlag("console", "the node prints the admin key on its console")}, pos: []argKind{argDir}, required: 1},
 	}},
+	{name: "cluster", group: "🔗 Cluster", help: "the node's membership of a cluster: the primitives an orchestrator drives", subs: []*command{
+		{name: "get", help: "what the node knows of its cluster, and the peers section HAProxy runs with"},
+		{name: "status", help: "HAProxy's peers: connected, and in sync"},
+		{name: "csr", args: "[OUT]", help: "a signing request for the node's member certificate - its key stays on the node", pos: []argKind{argFile}},
+		{name: "set", args: "MEMBER...", help: "install or update the membership (MEMBER: name=address[,api=host:port])", flags: []flagDef{
+			valFlag("id", "UUID", "the cluster's id", argNone),
+			valFlag("name", "NAME", "the cluster's name", argNone),
+			valFlag("member", "NAME", "this node's member name (default: its hostname)", argNone),
+			valFlag("port", "N", "the peers port (default 10057)", argNone),
+			valFlag("ca", "FILE", "the cluster's CA (PEM): the first time, or to replace it", argFile),
+			valFlag("cert", "FILE", "the member certificate (PEM) for the last csr: the first time, or to renew it", argFile),
+			valFlag("managed-by", "TEXT", "who sets the composition", argNone),
+		}, pos: []argKind{argNone}, required: 1, variadic: true},
+		{name: "leave", help: "forget the membership: the node on its own again"},
+		{name: "drain", help: "out of service without stopping: the virtual IPs and routes move to the peers", flags: []flagDef{valFlag("timeout", "SECONDS", "how long to wait for VRRP and BGP to show it (60)", argNone)}},
+		{name: "undrain", help: "back in service"},
+		{name: "pull", help: "fetch another member's secrets - certificates, files, ACME certificates, ticket keys - over mTLS", flags: []flagDef{
+			valFlag("from", "MEMBER", "the member to pull from", argNone),
+			valFlag("items", "LIST", "runtime-certs, files, acme-certs, tls-ticket-keys (default: all)", argNone),
+		}},
+		{name: "rotate-tickets", help: "add a TLS ticket key to the ring, handed to HAProxy without a reload"},
+	}},
 	{name: "pki", help: "client certificates of the node's own CA", subs: []*command{
 		{name: "generate-client-config", args: "DIR", help: "issue a client certificate into DIR", flags: []flagDef{
 			valFlag("role", "ROLE", "os:admin, os:operator or os:reader", argRole),

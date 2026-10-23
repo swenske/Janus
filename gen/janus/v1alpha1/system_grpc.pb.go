@@ -56,6 +56,7 @@ const (
 	SystemService_MetaWrite_FullMethodName                   = "/janus.v1alpha1.SystemService/MetaWrite"
 	SystemService_MetaDelete_FullMethodName                  = "/janus.v1alpha1.SystemService/MetaDelete"
 	SystemService_GenerateClientConfiguration_FullMethodName = "/janus.v1alpha1.SystemService/GenerateClientConfiguration"
+	SystemService_CertificateRequest_FullMethodName          = "/janus.v1alpha1.SystemService/CertificateRequest"
 	SystemService_MetricsConfigGet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigGet"
 	SystemService_MetricsConfigSet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigSet"
 	SystemService_ConsoleBudgetGet_FullMethodName            = "/janus.v1alpha1.SystemService/ConsoleBudgetGet"
@@ -202,6 +203,12 @@ type SystemServiceClient interface {
 	// this node's CA (see internal/pki), for the given roles, named after
 	// who it's for and valid one year or less.
 	GenerateClientConfiguration(ctx context.Context, in *GenerateClientConfigurationRequest, opts ...grpc.CallOption) (*GenerateClientConfigurationResponse, error)
+	// CertificateRequest makes a new private key on the node for the given
+	// purpose and returns a signing request for it (PEM). The key never
+	// leaves the node: the caller signs the request and brings the
+	// certificate back - ClusterService.ClusterSet for a cluster member.
+	// A new request replaces the pending key of the same purpose.
+	CertificateRequest(ctx context.Context, in *CertificateRequestRequest, opts ...grpc.CallOption) (*CertificateRequestResponse, error)
 	// MetricsConfigGet reports the exporter's settings.
 	MetricsConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
 	// MetricsConfigSet changes the exporter's settings, at once and for
@@ -721,6 +728,16 @@ func (c *systemServiceClient) GenerateClientConfiguration(ctx context.Context, i
 	return out, nil
 }
 
+func (c *systemServiceClient) CertificateRequest(ctx context.Context, in *CertificateRequestRequest, opts ...grpc.CallOption) (*CertificateRequestResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CertificateRequestResponse)
+	err := c.cc.Invoke(ctx, SystemService_CertificateRequest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *systemServiceClient) MetricsConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MetricsConfigResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MetricsConfigResponse)
@@ -991,6 +1008,12 @@ type SystemServiceServer interface {
 	// this node's CA (see internal/pki), for the given roles, named after
 	// who it's for and valid one year or less.
 	GenerateClientConfiguration(context.Context, *GenerateClientConfigurationRequest) (*GenerateClientConfigurationResponse, error)
+	// CertificateRequest makes a new private key on the node for the given
+	// purpose and returns a signing request for it (PEM). The key never
+	// leaves the node: the caller signs the request and brings the
+	// certificate back - ClusterService.ClusterSet for a cluster member.
+	// A new request replaces the pending key of the same purpose.
+	CertificateRequest(context.Context, *CertificateRequestRequest) (*CertificateRequestResponse, error)
 	// MetricsConfigGet reports the exporter's settings.
 	MetricsConfigGet(context.Context, *emptypb.Empty) (*MetricsConfigResponse, error)
 	// MetricsConfigSet changes the exporter's settings, at once and for
@@ -1158,6 +1181,9 @@ func (UnimplementedSystemServiceServer) MetaDelete(context.Context, *MetaDeleteR
 }
 func (UnimplementedSystemServiceServer) GenerateClientConfiguration(context.Context, *GenerateClientConfigurationRequest) (*GenerateClientConfigurationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GenerateClientConfiguration not implemented")
+}
+func (UnimplementedSystemServiceServer) CertificateRequest(context.Context, *CertificateRequestRequest) (*CertificateRequestResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CertificateRequest not implemented")
 }
 func (UnimplementedSystemServiceServer) MetricsConfigGet(context.Context, *emptypb.Empty) (*MetricsConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MetricsConfigGet not implemented")
@@ -1793,6 +1819,24 @@ func _SystemService_GenerateClientConfiguration_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemService_CertificateRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CertificateRequestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).CertificateRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_CertificateRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).CertificateRequest(ctx, req.(*CertificateRequestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SystemService_MetricsConfigGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -2151,6 +2195,10 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GenerateClientConfiguration",
 			Handler:    _SystemService_GenerateClientConfiguration_Handler,
+		},
+		{
+			MethodName: "CertificateRequest",
+			Handler:    _SystemService_CertificateRequest_Handler,
 		},
 		{
 			MethodName: "MetricsConfigGet",

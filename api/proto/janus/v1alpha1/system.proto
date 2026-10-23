@@ -147,6 +147,13 @@ service SystemService {
   // who it's for and valid one year or less.
   rpc GenerateClientConfiguration(GenerateClientConfigurationRequest) returns (GenerateClientConfigurationResponse);
 
+  // CertificateRequest makes a new private key on the node for the given
+  // purpose and returns a signing request for it (PEM). The key never
+  // leaves the node: the caller signs the request and brings the
+  // certificate back - ClusterService.ClusterSet for a cluster member.
+  // A new request replaces the pending key of the same purpose.
+  rpc CertificateRequest(CertificateRequestRequest) returns (CertificateRequestResponse);
+
   // The node's Prometheus exporter (docs/metrics.md): Janus's own
   // metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
   // extension services, time sync, SELinux - over plain HTTP, on by
@@ -914,6 +921,25 @@ message GenerateClientConfigurationResponse {
   bytes ca = 1;
   bytes crt = 2;
   bytes key = 3;
+}
+
+// CertificatePurpose is what a key CertificateRequest makes is for -
+// where the node keeps it pending, and which RPC takes its certificate.
+enum CertificatePurpose {
+  CERTIFICATE_PURPOSE_UNSPECIFIED = 0;
+  // The node's certificate as a member of a cluster (docs/cluster.md):
+  // ClusterService.ClusterSet installs it.
+  CERTIFICATE_PURPOSE_CLUSTER_MEMBER = 1;
+}
+
+message CertificateRequestRequest {
+  CertificatePurpose purpose = 1;
+}
+
+message CertificateRequestResponse {
+  // The signing request, PEM: an ECDSA P-256 key, the node's hostname as
+  // its common name - the signer decides the rest.
+  bytes csr = 1;
 }
 
 message LogForwardingConfig {

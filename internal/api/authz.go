@@ -59,6 +59,9 @@ type Caller struct {
 	// Scoped: the roles and domains are those a scoped certificate
 	// gives on this node.
 	Scoped bool
+	// Member: another member of this node's cluster, by its member
+	// certificate (internal/cluster) - Name is its member name.
+	Member bool
 }
 
 func (c Caller) String() string {
@@ -68,6 +71,9 @@ func (c Caller) String() string {
 	}
 	if c.Scoped {
 		s += ", scoped"
+	}
+	if c.Member {
+		s += ", member"
 	}
 	if len(c.Domains) > 0 {
 		s += "; " + strings.Join(c.Domains, ", ")
@@ -86,6 +92,11 @@ var FleetRoot func() *x509.Certificate
 // LocalCA is the node's own CA (janusd sets it): what a scoped
 // certificate names the node by.
 var LocalCA func() *x509.Certificate
+
+// ClusterMember checks a cluster member's certificate chain against the
+// node's own cluster (janusd sets it, internal/cluster.Store.AcceptMember):
+// the member's name. Nil: no member gets in.
+var ClusterMember func(chain []*x509.Certificate) (string, error)
 
 type callerKey struct{}
 
@@ -167,6 +178,9 @@ func authorize(ctx context.Context, fullMethod string) (Caller, error) {
 		return Caller{}, status.Error(codes.Unauthenticated, "no client certificate presented")
 	}
 	leaf := tlsInfo.State.PeerCertificates[0]
+	if slices.Contains(leaf.Subject.Organization, pki.RoleClusterMember) {
+		return authorizeMember(tlsInfo.State.VerifiedChains, fullMethod)
+	}
 	caller := Caller{Name: leaf.Subject.CommonName, Roles: leaf.Subject.Organization}
 	if chains := tlsInfo.State.VerifiedChains; len(chains) > 0 && len(chains[0]) > 0 && FleetRoot != nil {
 		if root := FleetRoot(); root != nil && chains[0][len(chains[0])-1].Equal(root) {
@@ -215,6 +229,23 @@ func authorize(ctx context.Context, fullMethod string) (Caller, error) {
 		return caller, nil
 	}
 	return Caller{}, status.Errorf(codes.PermissionDenied, "%s requires role %v, %s has %v", fullMethod, required, caller.Name, caller.Roles)
+}
+
+// authorizeMember checks a cluster member certificate's call: only the
+// RPCs for members, and only from a member of this node's own cluster -
+// whatever else the certificate's roles say.
+func authorizeMember(chains [][]*x509.Certificate, fullMethod string) (Caller, error) {
+	if !slices.Contains(rolesFor(fullMethod), pki.RoleClusterMember) {
+		return Caller{}, status.Errorf(codes.PermissionDenied, "%s isn't for a cluster member's certificate", fullMethod)
+	}
+	if ClusterMember == nil || len(chains) == 0 {
+		return Caller{}, status.Error(codes.PermissionDenied, "this node is in no cluster")
+	}
+	name, err := ClusterMember(chains[0])
+	if err != nil {
+		return Caller{}, status.Errorf(codes.PermissionDenied, "the member certificate: %v", err)
+	}
+	return Caller{Name: name, Roles: []string{pki.RoleClusterMember}, Member: true}, nil
 }
 
 // authorizeScoped checks a scoped certificate's call: the permissions its

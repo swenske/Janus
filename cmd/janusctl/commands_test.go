@@ -248,6 +248,7 @@ func TestTreeCommandsMatchTheDispatch(t *testing.T) {
 		"network bgp":      labels("runBGP", arg0),
 		"network consul":   labels("runConsul", arg0),
 		"access":           labels("runAccess", arg0),
+		"cluster":          labels("runCluster", arg0),
 		"pki":              labels("runPKI", arg0),
 		"lifecycle":        labels("runLifecycle", arg0),
 		"image":            labels("runImage", arg0),
