@@ -2,9 +2,11 @@ package sockdiag
 
 import (
 	"encoding/binary"
+	"io"
 	"net"
 	"net/netip"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -115,4 +117,85 @@ func TestParse(t *testing.T) {
 	if _, err := parse(msg(unix.NLMSG_ERROR, errMsg), nil); err == nil || err.Error() != "sock_diag: permission denied" {
 		t.Errorf("an error: %v", err)
 	}
+}
+
+// TestAttributes: INET_DIAG_INFO's byte counters after another
+// attribute, one too short for them (an older kernel's tcp_info), a
+// truncated one.
+func TestAttributes(t *testing.T) {
+	attr := func(typ uint16, value []byte) []byte {
+		b := make([]byte, 4, 4+len(value)+3)
+		binary.NativeEndian.PutUint16(b, uint16(4+len(value)))
+		binary.NativeEndian.PutUint16(b[2:], typ)
+		b = append(b, value...)
+		for len(b)%4 != 0 {
+			b = append(b, 0)
+		}
+		return b
+	}
+	info := make([]byte, 248)
+	binary.NativeEndian.PutUint64(info[tcpiBytesAcked:], 1234567)
+	binary.NativeEndian.PutUint64(info[tcpiBytesReceived:], 7654321)
+
+	var s Socket
+	attributes(append(attr(5, []byte{1}), attr(inetDiagInfo, info)...), &s) // INET_DIAG_SHUTDOWN first
+	if !s.HasBytes || s.BytesAcked != 1234567 || s.BytesReceived != 7654321 {
+		t.Errorf("counters: %+v", s)
+	}
+	s = Socket{}
+	attributes(attr(inetDiagInfo, info[:104]), &s)
+	if s.HasBytes {
+		t.Errorf("a short tcp_info: %+v", s)
+	}
+	cut := attr(inetDiagInfo, info)
+	attributes(cut[:40], &s) // the attribute says more than there is
+	if s.HasBytes {
+		t.Errorf("a truncated attribute: %+v", s)
+	}
+}
+
+// TestBytesFromTheKernel: a connection over the loopback, 100 KiB each
+// way, counted by the real kernel on both of its sockets.
+func TestBytesFromTheKernel(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	c, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	srv, err := l.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	const size = 100 << 10
+	go func() { _, _ = c.Write(make([]byte, size)) }()
+	if _, err := io.ReadFull(srv, make([]byte, size)); err != nil {
+		t.Fatal(err)
+	}
+
+	client := netip.MustParseAddrPort(c.LocalAddr().String())
+	var sent, received uint64
+	for range 100 { // the last ACK may take a moment
+		sent, received = 0, 0
+		if err := TCPWithBytes(unix.AF_INET, States(Established), func(s Socket) {
+			switch {
+			case s.Src == client && s.HasBytes:
+				sent = s.BytesAcked
+			case s.Dst == client && s.HasBytes:
+				received = s.BytesReceived
+			}
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if sent >= size && received >= size {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("client sent %d acknowledged, server received %d - want %d each", sent, received, size)
 }

@@ -149,7 +149,8 @@ type SystemServiceClient interface {
 	// error counters.
 	NetworkDeviceStats(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetworkDeviceStatsResponse, error)
 	// Netstat lists the machine's TCP and UDP sockets: listening ones and
-	// connections.
+	// connections - each TCP connection with the bytes it received and
+	// sent so far, whose difference between two calls is its throughput.
 	Netstat(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*NetstatResponse, error)
 	// ClientList lists the connections to this API open now: whose each
 	// is - its certificate; a Controller's names the users its calls are
@@ -937,7 +938,8 @@ type SystemServiceServer interface {
 	// error counters.
 	NetworkDeviceStats(context.Context, *emptypb.Empty) (*NetworkDeviceStatsResponse, error)
 	// Netstat lists the machine's TCP and UDP sockets: listening ones and
-	// connections.
+	// connections - each TCP connection with the bytes it received and
+	// sent so far, whose difference between two calls is its throughput.
 	Netstat(context.Context, *emptypb.Empty) (*NetstatResponse, error)
 	// ClientList lists the connections to this API open now: whose each
 	// is - its certificate; a Controller's names the users its calls are

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,11 +15,13 @@ import (
 	"strings"
 	"syscall"
 
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/sockdiag"
 )
 
 // userHZ is the unit of /proc/<pid>/stat's CPU times - fixed at 100 by
@@ -124,23 +128,97 @@ func parseNetDev(content string) []*janusv1alpha1.NetworkDeviceStat {
 
 // --- Netstat ---
 
+// Netstat lists the TCP sockets through sock_diag - each connection with
+// its byte counters, a single snapshot, no line formatted per socket -
+// or, should the kernel refuse it, from /proc/net/tcp{,6} without them;
+// the UDP ones from /proc/net/udp{,6}.
 func (s *System) Netstat(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.NetstatResponse, error) {
 	resp := &janusv1alpha1.NetstatResponse{}
-	for _, proto := range []string{"tcp", "tcp6", "udp", "udp6"} {
-		data, err := os.ReadFile("/proc/net/" + proto)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue // e.g. no IPv6 in this kernel
+	tcp, err := tcpConnections()
+	if err != nil {
+		tcp = nil
+		for _, name := range []string{"tcp", "tcp6"} {
+			conns, err := procNet(name)
+			if err != nil {
+				return nil, err
 			}
-			return nil, status.Errorf(codes.Internal, "read /proc/net/%s: %v", proto, err)
+			tcp = append(tcp, conns...)
 		}
-		conns, err := parseProcNet(proto, string(data))
+	}
+	resp.Connections = tcp
+	for _, name := range []string{"udp", "udp6"} {
+		conns, err := procNet(name)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "parse /proc/net/%s: %v", proto, err)
+			return nil, err
 		}
 		resp.Connections = append(resp.Connections, conns...)
 	}
 	return resp, nil
+}
+
+// procNet reads /proc/net/<name>: nothing when it isn't there (e.g. no
+// IPv6 in this kernel).
+func procNet(name string) ([]*janusv1alpha1.Connection, error) {
+	data, err := os.ReadFile("/proc/net/" + name)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, status.Errorf(codes.Internal, "read /proc/net/%s: %v", name, err)
+	}
+	conns, err := parseProcNet(name, string(data))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "parse /proc/net/%s: %v", name, err)
+	}
+	return conns, nil
+}
+
+// tcpConnections lists the TCP sockets /proc/net/tcp{,6} would, through
+// sock_diag, with each connection's byte counters.
+func tcpConnections() ([]*janusv1alpha1.Connection, error) {
+	var out []*janusv1alpha1.Connection
+	for _, f := range []struct {
+		family uint8
+		name   string
+	}{{unix.AF_INET, "tcp"}, {unix.AF_INET6, "tcp6"}} {
+		err := sockdiag.TCPWithBytes(f.family, sockdiag.All, func(s sockdiag.Socket) { out = append(out, diagConnection(f.name, s)) })
+		if err != nil {
+			if f.family == unix.AF_INET6 && (errors.Is(err, unix.ENOENT) || errors.Is(err, unix.EAFNOSUPPORT)) {
+				continue // no IPv6 in this kernel
+			}
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// diagStates names the kernel's TCP states as /proc/net/tcp's codes are
+// (sock_diag reports a connection being set up as SYN_RECV).
+var diagStates = [...]string{
+	sockdiag.Established: "ESTABLISHED", sockdiag.SynSent: "SYN_SENT", sockdiag.SynRecv: "SYN_RECV",
+	sockdiag.FinWait1: "FIN_WAIT1", sockdiag.FinWait2: "FIN_WAIT2", sockdiag.TimeWait: "TIME_WAIT",
+	sockdiag.Close: "CLOSE", sockdiag.CloseWait: "CLOSE_WAIT", sockdiag.LastAck: "LAST_ACK",
+	sockdiag.Listen: "LISTEN", sockdiag.Closing: "CLOSING", sockdiag.NewSynRecv: "NEW_SYN_RECV",
+}
+
+// diagConnection is a sock_diag socket as Netstat says it: its counters
+// only for a connection (a listener's are zeros).
+func diagConnection(name string, s sockdiag.Socket) *janusv1alpha1.Connection {
+	c := &janusv1alpha1.Connection{LocalAddress: formatAddrPort(s.Src), RemoteAddress: formatAddrPort(s.Dst), Protocol: name}
+	if int(s.State) < len(diagStates) {
+		c.State = diagStates[s.State]
+	}
+	if s.HasBytes && s.State != sockdiag.Listen {
+		rx, tx := s.BytesReceived, s.BytesAcked
+		c.RxBytes, c.TxBytes = &rx, &tx
+	}
+	return c
+}
+
+// formatAddrPort writes an address as decodeProcNetAddr does: an IPv4
+// client of an IPv6 socket as IPv4, an IPv6 address in brackets.
+func formatAddrPort(ap netip.AddrPort) string {
+	return net.JoinHostPort(ap.Addr().Unmap().String(), strconv.Itoa(int(ap.Port())))
 }
 
 var tcpStates = map[string]string{

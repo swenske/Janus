@@ -4366,6 +4366,13 @@ type Connection struct {
 	RemoteAddress string                 `protobuf:"bytes,2,opt,name=remote_address,json=remoteAddress,proto3" json:"remote_address,omitempty"`
 	State         string                 `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
 	Protocol      string                 `protobuf:"bytes,4,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// A TCP connection's bytes received, and sent that the peer
+	// acknowledged, since it opened (the kernel's tcp_info) - a rate is
+	// their difference between two calls. Unset when unknown: a UDP
+	// socket, a listener, a connection in TIME_WAIT or being set up, a
+	// node older than them.
+	RxBytes       *uint64 `protobuf:"varint,5,opt,name=rx_bytes,json=rxBytes,proto3,oneof" json:"rx_bytes,omitempty"`
+	TxBytes       *uint64 `protobuf:"varint,6,opt,name=tx_bytes,json=txBytes,proto3,oneof" json:"tx_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4426,6 +4433,20 @@ func (x *Connection) GetProtocol() string {
 		return x.Protocol
 	}
 	return ""
+}
+
+func (x *Connection) GetRxBytes() uint64 {
+	if x != nil && x.RxBytes != nil {
+		return *x.RxBytes
+	}
+	return 0
+}
+
+func (x *Connection) GetTxBytes() uint64 {
+	if x != nil && x.TxBytes != nil {
+		return *x.TxBytes
+	}
+	return 0
 }
 
 type MountsResponse struct {
@@ -7874,13 +7895,17 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\trx_errors\x18\x04 \x01(\x04R\brxErrors\x12\x1b\n" +
 	"\ttx_errors\x18\x05 \x01(\x04R\btxErrors\"O\n" +
 	"\x0fNetstatResponse\x12<\n" +
-	"\vconnections\x18\x01 \x03(\v2\x1a.janus.v1alpha1.ConnectionR\vconnections\"\x8a\x01\n" +
+	"\vconnections\x18\x01 \x03(\v2\x1a.janus.v1alpha1.ConnectionR\vconnections\"\xe4\x01\n" +
 	"\n" +
 	"Connection\x12#\n" +
 	"\rlocal_address\x18\x01 \x01(\tR\flocalAddress\x12%\n" +
 	"\x0eremote_address\x18\x02 \x01(\tR\rremoteAddress\x12\x14\n" +
 	"\x05state\x18\x03 \x01(\tR\x05state\x12\x1a\n" +
-	"\bprotocol\x18\x04 \x01(\tR\bprotocol\"C\n" +
+	"\bprotocol\x18\x04 \x01(\tR\bprotocol\x12\x1e\n" +
+	"\brx_bytes\x18\x05 \x01(\x04H\x00R\arxBytes\x88\x01\x01\x12\x1e\n" +
+	"\btx_bytes\x18\x06 \x01(\x04H\x01R\atxBytes\x88\x01\x01B\v\n" +
+	"\t_rx_bytesB\v\n" +
+	"\t_tx_bytes\"C\n" +
 	"\x0eMountsResponse\x121\n" +
 	"\x06mounts\x18\x01 \x03(\v2\x19.janus.v1alpha1.MountStatR\x06mounts\"\xaf\x01\n" +
 	"\tMountStat\x12\x1e\n" +
@@ -8533,6 +8558,7 @@ func file_janus_v1alpha1_system_proto_init() {
 		return
 	}
 	file_janus_v1alpha1_common_proto_init()
+	file_janus_v1alpha1_system_proto_msgTypes[61].OneofWrappers = []any{}
 	file_janus_v1alpha1_system_proto_msgTypes[92].OneofWrappers = []any{
 		(*ProbeEvent_Dns)(nil),
 		(*ProbeEvent_Connect)(nil),
