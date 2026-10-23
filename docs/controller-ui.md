@@ -420,9 +420,21 @@ has its drawer. Its groups:
   `Sessions.jsx`, `Errors.jsx`, relayed by `nodeproxy/haproxy_runtime.go`
   as protojson - 64-bit numbers arrive as strings; a node older than them
   answers 501, `RuntimeError.jsx` says to update it;
-  docs/guide/haproxy-runtime.md) - Let's Encrypt (account, the
-  HTTP-01 rule, certificates and DNS providers as forms - secrets never
-  shown, kept when left empty - and the configuration as JSON) and Consul
+  docs/guide/haproxy-runtime.md) - Let's Encrypt (first how the node
+  reaches the CA - the modes side by side as radio tiles, four in a
+  row, then two, then one (never a lone tile), who talks to the CA and
+  what must be open, the chosen one's settings - **Through this
+  Controller** fills the relay's address and the Controller's identity,
+  **Ordered by this Controller** the account's thumbprint, both from
+  `GET /api/haproxy/acme/controller` (answered by the Controller,
+  `nodeproxy.ACMERelay`/`ACMEOrdering`), each saying when it isn't set
+  up (a link to the Controller's tab), moved or another account's -,
+  **Test** (not for ordered)
+  fetching the CA's directory that way (POST `/api/haproxy/acme/check-path`,
+  a minute), and what this node's certificates need open, from their
+  challenges -; then the account, the HTTP-01 rule, certificates and DNS
+  providers as forms - secrets never shown, kept when left empty - and
+  the configuration as JSON) and Consul
   (agent, members, the configuration's files, the configuration in the
   shared ModuleConfigEditor). An app the node doesn't have
   isn't listed - "Add or remove apps…", last, opens the Update page's
@@ -820,6 +832,16 @@ for every chart (`scheduler.js`).
   node's page is read-only while `managed_by` is set (a profile's).
   `fieldset.plain` (theme.css) has no frame: a fieldset there only
   disables a group of fields.
+- **Let's Encrypt** (the Controller's tab, admins, `src/LetsEncrypt.jsx`):
+  the relay for the nodes (`GET`/`PUT /api/acme-relay`) - on/off, where
+  it listens, the address nodes are given, the destinations allowed
+  besides the built-in ones (folded list under the form, with what can't
+  go through), the janusctl command and the Controller's identity to
+  download, and the recent tunnels (refreshed every 15 s as background
+  requests; the form's draft is kept); then the ordering for the nodes
+  (`GET`/`PUT /api/acme`, `POST /api/acme/run`) - the account, its DNS
+  providers (`src/shared/ACMEProviderForm.jsx`, shared with a node's
+  page) and the ordered certificates by node.
 - **Previous boots** (Logs › Service logs, Logs › Kernel): a node with a
   LOGS partition lists its earlier boots (`/api/log-boots`) in a
   `BootSelect` next to the page's other controls - only once there is

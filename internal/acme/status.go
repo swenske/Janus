@@ -23,49 +23,56 @@ func (m *Manager) Status() *janusv1alpha1.ACMEStatusResponse {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out.AccountThumbprint = m.thumb
+	out.AccountThumbprint = m.answerThumbLocked()
+	out.PathMode = pathMode(m.cfg.GetPath()) // set: a node older than paths leaves it unspecified
 	if m.cfg == nil {
 		out.Directory = ResolveDirectory("")
 		return out
 	}
 	out.Configured = true
+	out.ProxyUrl = m.cfg.Path.GetProxyUrl()
 	dir := ResolveDirectory(m.cfg.Account.GetDirectory())
 	out.Directory = dir
-	if a := m.st.Accounts[m.accountKey(dir, m.thumb)]; a != nil {
+	if a := m.st.Accounts[m.accountKey(dir, m.thumb)]; a != nil && !isOrdered(m.cfg.Path) {
 		out.AccountUri, out.AccountError, out.TermsUrl = a.URI, a.Error, a.TermsURL
 	}
 	now := time.Now()
 	for _, c := range m.cfg.Certificates {
-		cs := m.certState(c.Name)
-		s := &janusv1alpha1.ACMECertificateStatus{
-			Name: c.Name, Domains: c.Domains, Path: certPath(c.Name), State: "pending",
-			InProgress: m.inProgress == c.Name || m.forced[c.Name],
-			LastError:  cs.LastError, Failures: uint32(cs.Failures),
-		}
-		s.LastAttemptUnix = unix(cs.LastAttempt)
-		s.LastSuccessUnix = unix(cs.LastSuccess)
-		s.NextAttemptUnix = unix(cs.NextAttempt)
-		if data, err := os.ReadFile(certPath(c.Name)); err == nil {
-			if b, err := parseBundle(data); err == nil && !b.Placeholder {
-				s.ServedDomains = b.Leaf.DNSNames
-				s.Issuer = b.Leaf.Issuer.CommonName
-				s.NotBeforeUnix, s.NotAfterUnix = b.Leaf.NotBefore.Unix(), b.Leaf.NotAfter.Unix()
-				s.Serial = serialHex(b.Leaf)
-				reason, at := m.due(c, cs, dir, now)
-				s.RenewAtUnix = unix(at)
-				switch {
-				case now.After(b.Leaf.NotAfter):
-					s.State = "expired"
-				case reason != "":
-					s.State = "due"
-				default:
-					s.State = "valid"
-				}
-			}
-		}
-		out.Certificates = append(out.Certificates, s)
+		out.Certificates = append(out.Certificates, m.certStatusLocked(c, dir, now))
 	}
 	return out
+}
+
+// certStatusLocked is c's status. Called with mu held.
+func (m *Manager) certStatusLocked(c *janusv1alpha1.ACMECertificate, dir string, now time.Time) *janusv1alpha1.ACMECertificateStatus {
+	cs := m.certState(c.Name)
+	s := &janusv1alpha1.ACMECertificateStatus{
+		Name: c.Name, Domains: c.Domains, Path: certPath(c.Name), State: "pending",
+		InProgress: m.inProgress == c.Name || m.forced[c.Name],
+		LastError:  cs.LastError, Failures: uint32(cs.Failures),
+	}
+	s.LastAttemptUnix = unix(cs.LastAttempt)
+	s.LastSuccessUnix = unix(cs.LastSuccess)
+	s.NextAttemptUnix = unix(cs.NextAttempt)
+	if data, err := os.ReadFile(certPath(c.Name)); err == nil {
+		if b, err := parseBundle(data); err == nil && !b.Placeholder {
+			s.ServedDomains = b.Leaf.DNSNames
+			s.Issuer = b.Leaf.Issuer.CommonName
+			s.NotBeforeUnix, s.NotAfterUnix = b.Leaf.NotBefore.Unix(), b.Leaf.NotAfter.Unix()
+			s.Serial = serialHex(b.Leaf)
+			reason, at := m.due(c, cs, dir, now)
+			s.RenewAtUnix = unix(at)
+			switch {
+			case now.After(b.Leaf.NotAfter):
+				s.State = "expired"
+			case reason != "":
+				s.State = "due"
+			default:
+				s.State = "valid"
+			}
+		}
+	}
+	return s
 }
 
 func unix(t time.Time) int64 {

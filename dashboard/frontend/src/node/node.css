@@ -506,3 +506,21 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 /* A table scrolling in its own box (DataTable's maxHeight) takes the
    keyboard's focus: the inputs' ring around it. */
 .table-wrap:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px; }
+
+/* Let's Encrypt: how the node reaches the CA - the modes side by side. */
+.acme-path { margin-bottom: 1rem; }
+.acme-modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
+@media (max-width: 1350px) { .acme-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .acme-modes { grid-template-columns: minmax(0, 1fr); } }
+.acme-relay { margin-top: 0.85rem; display: grid; gap: 0.5rem; }
+.acme-mode { display: grid; gap: 0.25rem; padding: 0.75rem 0.85rem 0.75rem 2.2rem; position: relative; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; background: var(--surface); }
+.acme-mode input { position: absolute; left: 0.8rem; top: 0.95rem; margin: 0; }
+.acme-mode.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.acme-mode-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
+.acme-proxy { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0.75rem; margin-top: 0.85rem; }
+@media (max-width: 760px) { .acme-proxy { grid-template-columns: minmax(0, 1fr); } }
+.acme-proxy .field input { width: 100%; }
+.acme-proxy-ca { grid-column: 1 / -1; }
+.acme-proxy-ca textarea { width: 100%; }
+.acme-needs { margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.acme-needs ul { margin: 0.35rem 0 0; padding-left: 1.2rem; }

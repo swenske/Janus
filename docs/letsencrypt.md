@@ -55,6 +55,199 @@ Change a certificate's domains, key type or profile, or the CA, and the
 node obtains it again. Adding a name to a certificate is a configuration
 change, nothing more.
 
+## How the node reaches Let's Encrypt
+
+Obtaining and renewing a certificate means talking to the CA - and, for
+DNS-01, to the DNS provider. What leaves the node:
+
+| Traffic | To | Protocol | Through a proxy? | Through the Controller's relay? |
+|---|---|---|---|---|
+| The ACME API: the account, orders, the certificate, renewal information | the CA (`acme-v02.api.letsencrypt.org`) | HTTPS | yes | yes |
+| DNS-01: the provider's API (every provider but `rfc2136`) | `api.cloudflare.com`, OVH, AWS... | HTTPS | yes | yes, but `route53` |
+| DNS-01 with `rfc2136`: the record's update | the zone's name server | DNS, port 53 | no | no |
+| DNS-01: finding the zone, following a CNAME on `_acme-challenge`, seeing the record appear | the node's resolvers, then the zone's servers | DNS, port 53 | no | no |
+
+Each node chooses how it reaches the CA:
+
+| | Who talks to the CA | What must be open | The account key and DNS secrets |
+|---|---|---|---|
+| **Directly** (the default) | the node | the node reaches the CA over HTTPS, and the DNS provider's API for DNS-01 | on the node |
+| **Through a proxy** | the node, through an HTTP(S) proxy | the node reaches the proxy, the proxy reaches the CA and the providers' APIs | on the node |
+| **Through this Controller** | the node, through the Controller's relay - encrypted end to end | the node reaches the Controller, the Controller reaches the CA and the providers' APIs | on the node; the relay holds none |
+| **Ordered by this Controller** | the Controller, with its own account; the node makes each key and its request | the node reaches nothing; the Controller reaches the CA, the providers' APIs and the node | the account and DNS secrets on the Controller; each certificate's key on the node only |
+
+```mermaid
+flowchart TD
+  accTitle: Which way to Let's Encrypt
+  accDescr: A node that reaches the internet goes directly; one behind an HTTP proxy goes through it; one that reaches only the Controller goes through the Controller's relay; one that reaches nothing has the Controller order its certificates.
+  q1{"Does the node reach the internet over HTTPS?"} -->|yes| direct["Directly"]
+  q1 -->|no| q2{"Is there an HTTP proxy it reaches?"}
+  q2 -->|yes| proxy["Through a proxy"]
+  q2 -->|no| q3{"Does it reach the Controller?"}
+  q3 -->|yes| relay["Through this Controller"]
+  q3 -->|no| ordered["Ordered by this Controller<br/>(the Controller reaches the node)"]
+```
+
+Whichever it is, an HTTP-01 challenge needs the CA to reach the node on
+port 80 from the internet ([HTTP-01: HAProxy answers](#http-01-haproxy-answers));
+DNS-01 doesn't. The Controller's **Apps › Let's Encrypt** page shows the
+choice first, with what this node's certificates need open, and a
+**Test** button that fetches the CA's directory that way and says how it
+went - before or after saving.
+
+### Directly
+
+Nothing to set: the node reaches the CA, and the DNS providers' APIs, on
+its own routes - its default gateway, an HTTPS egress your firewall lets
+through.
+
+### Through a proxy
+
+For a node whose only way out is an HTTP proxy (Squid, a company's
+proxy): the ACME API and the DNS providers' APIs go through it, in an
+HTTPS tunnel (`CONNECT`) - the proxy sees which host the node reaches,
+not what it says. On the page, **Through a proxy**: the proxy's URL, a
+username and password if it asks for them, and for an `https://` proxy
+whose certificate the node's trust store doesn't know, its CA. Or:
+
+```sh
+janusctl haproxy acme test-path proxy http://proxy.example.net:3128   # try it first
+janusctl haproxy acme path proxy http://proxy.example.net:3128 -user acme -password-file pw.txt
+janusctl haproxy acme path                                             # how the CA is reached now
+janusctl haproxy acme test-path                                        # try the saved way
+janusctl haproxy acme path direct                                      # back to directly
+```
+
+In the configuration's JSON, it's `path`:
+
+```json
+{
+  "path": {
+    "mode": "ACME_PATH_MODE_PROXY",
+    "proxy_url": "https://proxy.example.net:8443",
+    "proxy_username": "acme",
+    "proxy_password": "...",
+    "proxy_ca": "-----BEGIN CERTIFICATE-----..."
+  }
+}
+```
+
+- **proxy_url**: `http://` or `https://` with a host and a port - the
+  credentials go apart, not in the URL. **proxy_password** is a secret:
+  it never comes back (`haproxy acme get`, the page), and left empty it
+  keeps the saved one.
+- **proxy_ca** is the proxy's own CA, for its certificate only: the CA's
+  certificate is still checked against `directory_ca` or the node's
+  trust store, inside the tunnel.
+- **What a proxy can't carry**: DNS. DNS-01's lookups - finding the zone,
+  seeing the record appear - go from the node to its resolvers, which
+  must answer for public names; `propagation_wait_seconds` waits instead
+  of looking for the record. An `rfc2136` provider updates its name
+  server directly, on port 53.
+- **The DNS providers**: the provider's own client goes through the
+  proxy too, with its CA. `route53`'s - the AWS SDK's - takes the proxy
+  from its URL alone: through an `http://` proxy, or an `https://` one
+  the node's trust store knows.
+- The node keeps its path apart from the rest of the configuration
+  (`config/acme/path.json`, beside the account key): a node rolled back
+  to a version without it keeps its certificates' configuration, and
+  reaches the CA directly.
+
+### Through the Controller's relay
+
+For a node that reaches its Controller but nothing else: the Controller
+relays its HTTPS to the CA and to its DNS provider's API. The relay is
+an `https://` proxy on the Controller (port 8444 by default) that only
+tunnels: the node's TLS to the CA runs inside, end to end - the relay
+sees which host the node reaches and how many bytes, never what it
+says, and holds none of the node's secrets. It knows the node by a
+certificate of the node's own CA, made for each request: only a node
+added to this Controller gets through, and only to the CA's and the DNS
+providers' API hosts - or what an admin allows besides.
+
+An admin turns the relay on, on the Controller's **Let's Encrypt** tab
+([The Controller and Let's Encrypt](guide/letsencrypt-controller.md)).
+Then, on the node's page, **Through this Controller**: the relay's
+address and the Controller's identity come with the choice - nothing to
+type. Or, with the address and the identity that tab shows:
+
+```sh
+janusctl haproxy acme path controller https://controller.example.net:8444 -ca controller-identity.pem
+janusctl haproxy acme test-path
+```
+
+In the configuration's JSON, `proxy_url` is the relay's address and
+`proxy_ca` the Controller's identity:
+
+```json
+{
+  "path": {
+    "mode": "ACME_PATH_MODE_CONTROLLER_RELAY",
+    "proxy_url": "https://controller.example.net:8444",
+    "proxy_ca": "-----BEGIN CERTIFICATE-----..."
+  }
+}
+```
+
+- **The Controller must be running** for a certificate to be obtained
+  or renewed. A certificate lasts 90 days and is renewed from day 60:
+  a Controller down for a few days changes nothing; the node retries.
+- **DNS-01**: the providers whose API the relay knows go through it -
+  the tab lists them. `httpreq` and `pdns` reach the API their settings
+  name: an admin allows that host. `route53` can't go through the relay
+  (the AWS SDK doesn't present the node's certificate), nor `rfc2136`
+  (DNS); and DNS-01's lookups still go from the node to its resolvers.
+- A node moved, or a Controller whose relay address changed: the node's
+  page says so and offers the new address.
+
+### Ordered by the Controller
+
+For a node that reaches nothing - the Controller calls it, it calls no
+one - or to keep the ACME account and the DNS providers' credentials in
+one place: the Controller orders the node's certificates with its own
+account, and the node installs them. For each certificate due, the
+Controller asks the node for a new key and its certificate signing
+request - the key stays on the node -, orders it from the CA the node's
+configuration names, and hands back the chain; the node checks it
+against the waiting key and the configured domains, writes it and swaps
+it into HAProxy without a reload, as it does its own. A failure is kept
+in the certificate's status, with the next attempt.
+
+An admin sets the account up first - a contact address, the CA's terms,
+the DNS providers - on the Controller's **Let's Encrypt** tab ([The
+Controller and Let's Encrypt](guide/letsencrypt-controller.md#ordering-for-the-nodes)).
+Then, on the node's page, **Ordered by this Controller**: the account's
+thumbprint comes with the choice, and HAProxy answers HTTP-01 for it
+(it reloads once). In the configuration's JSON:
+
+```json
+{
+  "path": {
+    "mode": "ACME_PATH_MODE_CONTROLLER_ORDERED",
+    "account_thumbprint": "Kq3...the Controller's account"
+  }
+}
+```
+
+- **The certificates stay defined on the node** - names, domains,
+  challenge, key type, profile - and `account.directory` (with
+  `directory_ca`) still says which CA; the rest of the node's account
+  (its contact, terms, EAB) is unused meanwhile.
+- **DNS-01**: a certificate's `dns_provider` names one of the
+  Controller's DNS providers; the node needs none of its own. A name the
+  Controller doesn't have fails, and the certificate's status says so.
+- **Renew** on the node's page orders at once; otherwise the Controller
+  looks every 10 minutes and orders what's due (a third of the lifetime
+  left, as the node would). Renewal information (ARI) isn't asked for in
+  this mode.
+- **The Controller must be running**, as for the relay: a certificate
+  lasts 90 days and is renewed from day 60.
+- **Without the Controller** - your own orchestrator: `janusctl haproxy
+  acme path ordered THUMBPRINT`, then for each certificate `janusctl
+  haproxy acme csr NAME` (the request, PEM), and once your ACME client
+  has the chain, `janusctl haproxy acme install NAME chain.pem` - the
+  `ACMECertificateRequest` and `ACMEInstallCertificate` RPCs.
+
 ## HTTP-01: HAProxy answers
 
 An HTTP-01 challenge asks `http://<domain>/.well-known/acme-challenge/<token>`
@@ -148,7 +341,7 @@ the node can't query them, wait a fixed time instead
 
 ## Secrets
 
-The DNS providers' settings and the EAB key are secrets: the node keeps
+The DNS providers' settings, the EAB key and a proxy's password are secrets: the node keeps
 them (on STATE, mode 0600) and never gives them back. `janusctl haproxy
 acme get` and the Controller show them empty; an empty value in an
 applied configuration keeps the saved one. To change one, give the new

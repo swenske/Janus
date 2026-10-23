@@ -898,6 +898,50 @@ Obtain certificates now.
 janusctl haproxy acme renew [NAME...]
 ```
 
+##### janusctl haproxy acme path
+
+How the node reaches the CA: show it, or set it.
+
+```text
+janusctl haproxy acme path [-user NAME] [-password-file FILE] [-ca FILE] [direct | proxy URL | controller URL | ordered THUMBPRINT]
+```
+
+| Flag | |
+|---|---|
+| `-user NAME` | the proxy's username |
+| `-password-file FILE` | a file holding the proxy's password (kept when not given) |
+| `-ca FILE` | the CA (PEM) of an https:// proxy's certificate; with controller, the Controller's identity |
+
+##### janusctl haproxy acme test-path
+
+Fetch the CA's directory the saved way, or the given one.
+
+```text
+janusctl haproxy acme test-path [-user NAME] [-password-file FILE] [-ca FILE] [direct | proxy URL | controller URL]
+```
+
+| Flag | |
+|---|---|
+| `-user NAME` | the proxy's username |
+| `-password-file FILE` | a file holding the proxy's password (kept when not given) |
+| `-ca FILE` | the CA (PEM) of an https:// proxy's certificate; with controller, the Controller's identity |
+
+##### janusctl haproxy acme csr
+
+A new key kept on the node, and its certificate signing request - to order the certificate elsewhere.
+
+```text
+janusctl haproxy acme csr NAME
+```
+
+##### janusctl haproxy acme install
+
+Install the certificate issued for the request waiting.
+
+```text
+janusctl haproxy acme install NAME CHAIN-FILE
+```
+
 ## Network
 
 ### janusctl network

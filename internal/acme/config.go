@@ -68,7 +68,9 @@ func Marshal(cfg *janusv1alpha1.ACMEConfig) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// loadConfig reads the saved configuration; nil if there's none.
+// loadConfig reads the saved configuration, its path included (saved
+// apart, path.go); nil if there's none. Fields it doesn't know are left
+// out: what a newer janusd saved still reads after a rollback.
 func loadConfig() (*janusv1alpha1.ACMEConfig, error) {
 	data, err := os.ReadFile(filepath.Join(Dir, configFile))
 	if errors.Is(err, os.ErrNotExist) {
@@ -78,8 +80,11 @@ func loadConfig() (*janusv1alpha1.ACMEConfig, error) {
 		return nil, err
 	}
 	cfg := &janusv1alpha1.ACMEConfig{}
-	if err := protojson.Unmarshal(data, cfg); err != nil {
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("%s: %w", configFile, err)
+	}
+	if cfg.Path, err = loadPath(); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
@@ -89,6 +94,7 @@ func normalize(cfg *janusv1alpha1.ACMEConfig) {
 	if cfg.Account == nil {
 		cfg.Account = &janusv1alpha1.ACMEAccount{}
 	}
+	cfg.Path = normalizePath(cfg.Path)
 	cfg.Account.Directory = strings.TrimSpace(cfg.Account.Directory)
 	cfg.Account.Email = strings.TrimSpace(cfg.Account.Email)
 	for _, c := range cfg.Certificates {
@@ -105,11 +111,13 @@ func normalize(cfg *janusv1alpha1.ACMEConfig) {
 }
 
 // mergeSecrets puts the saved secrets back where cfg leaves them empty:
-// a DNS provider's settings (by provider name) and the EAB key.
+// a DNS provider's settings (by provider name), the EAB key, the proxy's
+// password.
 func mergeSecrets(cfg, saved *janusv1alpha1.ACMEConfig) {
 	if saved == nil {
 		return
 	}
+	mergePathSecret(cfg.Path, saved.Path)
 	if cfg.Account.EabHmacKey == "" && cfg.Account.EabKeyId != "" && saved.GetAccount().GetEabKeyId() == cfg.Account.EabKeyId {
 		cfg.Account.EabHmacKey = saved.GetAccount().GetEabHmacKey()
 	}
@@ -134,6 +142,7 @@ func Redacted(cfg *janusv1alpha1.ACMEConfig) *janusv1alpha1.ACMEConfig {
 	if out.Account != nil {
 		out.Account.EabHmacKey = ""
 	}
+	out.Path = redactPath(out.Path)
 	for _, p := range out.DnsProviders {
 		for k := range p.Settings {
 			p.Settings[k] = ""
@@ -147,6 +156,7 @@ func Validate(cfg *janusv1alpha1.ACMEConfig) []string {
 	var errs []string
 	add := func(format string, a ...any) { errs = append(errs, fmt.Sprintf(format, a...)) }
 
+	errs = append(errs, validatePath(cfg.Path)...)
 	acc := cfg.GetAccount()
 	dir := ResolveDirectory(acc.GetDirectory())
 	if u, err := url.Parse(dir); err != nil || u.Scheme != "https" || u.Host == "" {
@@ -244,7 +254,12 @@ func Validate(cfg *janusv1alpha1.ACMEConfig) []string {
 				add("%s: dns_provider is for the dns-01 challenge", where)
 			}
 		case acmewire.ChallengeDNS01:
-			if providers[c.DnsProvider] == nil {
+			switch {
+			case isOrdered(cfg.Path): // one of the Controller's
+				if !namePattern.MatchString(c.DnsProvider) {
+					add("%s: dns_provider %q: the name of one of the Controller's DNS providers", where, c.DnsProvider)
+				}
+			case providers[c.DnsProvider] == nil:
 				add("%s: dns_provider %q isn't one of dns_providers", where, c.DnsProvider)
 			}
 		default:

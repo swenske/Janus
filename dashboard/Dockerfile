@@ -48,6 +48,7 @@ COPY gen/ gen/
 COPY internal/ internal/
 COPY dashboard/backend/ dashboard/backend/
 COPY dashboard/updater/ dashboard/updater/
+COPY cmd/janus-acme/ cmd/janus-acme/
 # The Controller's version (make dashboard-image passes git describe's).
 ARG VERSION=dev
 # The modules and the build cache are kept by the Docker host between
@@ -58,11 +59,15 @@ ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/dashboardd ./dashboard/backend && \
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/janus-controller-updater ./dashboard/updater && \
+    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/janus-acme ./cmd/janus-acme && \
     mkdir /out/data
 
 FROM scratch AS export
 COPY --from=build /out/dashboardd /dashboardd
 COPY --from=build /out/janus-controller-updater /janus-controller-updater
+# The ACME client the Controller orders its nodes' certificates with -
+# the nodes' own (docs/guide/letsencrypt-controller.md).
+COPY --from=build /out/janus-acme /janus-acme
 COPY --from=compose /docker-compose /usr/local/bin/docker-compose
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 # /data is the persistent volume (node registry + this dashboard's own

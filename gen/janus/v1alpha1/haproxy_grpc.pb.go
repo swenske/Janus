@@ -20,39 +20,42 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	HAProxyService_GetConfig_FullMethodName         = "/janus.v1alpha1.HAProxyService/GetConfig"
-	HAProxyService_ApplyConfig_FullMethodName       = "/janus.v1alpha1.HAProxyService/ApplyConfig"
-	HAProxyService_ValidateConfig_FullMethodName    = "/janus.v1alpha1.HAProxyService/ValidateConfig"
-	HAProxyService_ConfigHistory_FullMethodName     = "/janus.v1alpha1.HAProxyService/ConfigHistory"
-	HAProxyService_ConfigVersion_FullMethodName     = "/janus.v1alpha1.HAProxyService/ConfigVersion"
-	HAProxyService_Reload_FullMethodName            = "/janus.v1alpha1.HAProxyService/Reload"
-	HAProxyService_Stats_FullMethodName             = "/janus.v1alpha1.HAProxyService/Stats"
-	HAProxyService_ShowInfo_FullMethodName          = "/janus.v1alpha1.HAProxyService/ShowInfo"
-	HAProxyService_BackendList_FullMethodName       = "/janus.v1alpha1.HAProxyService/BackendList"
-	HAProxyService_ServerSetState_FullMethodName    = "/janus.v1alpha1.HAProxyService/ServerSetState"
-	HAProxyService_MapList_FullMethodName           = "/janus.v1alpha1.HAProxyService/MapList"
-	HAProxyService_MapGet_FullMethodName            = "/janus.v1alpha1.HAProxyService/MapGet"
-	HAProxyService_MapUpdate_FullMethodName         = "/janus.v1alpha1.HAProxyService/MapUpdate"
-	HAProxyService_MapLookup_FullMethodName         = "/janus.v1alpha1.HAProxyService/MapLookup"
-	HAProxyService_ACLUpdate_FullMethodName         = "/janus.v1alpha1.HAProxyService/ACLUpdate"
-	HAProxyService_ACLLookup_FullMethodName         = "/janus.v1alpha1.HAProxyService/ACLLookup"
-	HAProxyService_CertificateList_FullMethodName   = "/janus.v1alpha1.HAProxyService/CertificateList"
-	HAProxyService_CertificateUpload_FullMethodName = "/janus.v1alpha1.HAProxyService/CertificateUpload"
-	HAProxyService_CertificateDelete_FullMethodName = "/janus.v1alpha1.HAProxyService/CertificateDelete"
-	HAProxyService_FileList_FullMethodName          = "/janus.v1alpha1.HAProxyService/FileList"
-	HAProxyService_FileGet_FullMethodName           = "/janus.v1alpha1.HAProxyService/FileGet"
-	HAProxyService_FilePut_FullMethodName           = "/janus.v1alpha1.HAProxyService/FilePut"
-	HAProxyService_FileDelete_FullMethodName        = "/janus.v1alpha1.HAProxyService/FileDelete"
-	HAProxyService_ACMEStatus_FullMethodName        = "/janus.v1alpha1.HAProxyService/ACMEStatus"
-	HAProxyService_ACMEGetConfig_FullMethodName     = "/janus.v1alpha1.HAProxyService/ACMEGetConfig"
-	HAProxyService_ACMEApplyConfig_FullMethodName   = "/janus.v1alpha1.HAProxyService/ACMEApplyConfig"
-	HAProxyService_ACMERenew_FullMethodName         = "/janus.v1alpha1.HAProxyService/ACMERenew"
-	HAProxyService_TableList_FullMethodName         = "/janus.v1alpha1.HAProxyService/TableList"
-	HAProxyService_TableShow_FullMethodName         = "/janus.v1alpha1.HAProxyService/TableShow"
-	HAProxyService_TableClear_FullMethodName        = "/janus.v1alpha1.HAProxyService/TableClear"
-	HAProxyService_SessionList_FullMethodName       = "/janus.v1alpha1.HAProxyService/SessionList"
-	HAProxyService_SessionShutdown_FullMethodName   = "/janus.v1alpha1.HAProxyService/SessionShutdown"
-	HAProxyService_ErrorsShow_FullMethodName        = "/janus.v1alpha1.HAProxyService/ErrorsShow"
+	HAProxyService_GetConfig_FullMethodName              = "/janus.v1alpha1.HAProxyService/GetConfig"
+	HAProxyService_ApplyConfig_FullMethodName            = "/janus.v1alpha1.HAProxyService/ApplyConfig"
+	HAProxyService_ValidateConfig_FullMethodName         = "/janus.v1alpha1.HAProxyService/ValidateConfig"
+	HAProxyService_ConfigHistory_FullMethodName          = "/janus.v1alpha1.HAProxyService/ConfigHistory"
+	HAProxyService_ConfigVersion_FullMethodName          = "/janus.v1alpha1.HAProxyService/ConfigVersion"
+	HAProxyService_Reload_FullMethodName                 = "/janus.v1alpha1.HAProxyService/Reload"
+	HAProxyService_Stats_FullMethodName                  = "/janus.v1alpha1.HAProxyService/Stats"
+	HAProxyService_ShowInfo_FullMethodName               = "/janus.v1alpha1.HAProxyService/ShowInfo"
+	HAProxyService_BackendList_FullMethodName            = "/janus.v1alpha1.HAProxyService/BackendList"
+	HAProxyService_ServerSetState_FullMethodName         = "/janus.v1alpha1.HAProxyService/ServerSetState"
+	HAProxyService_MapList_FullMethodName                = "/janus.v1alpha1.HAProxyService/MapList"
+	HAProxyService_MapGet_FullMethodName                 = "/janus.v1alpha1.HAProxyService/MapGet"
+	HAProxyService_MapUpdate_FullMethodName              = "/janus.v1alpha1.HAProxyService/MapUpdate"
+	HAProxyService_MapLookup_FullMethodName              = "/janus.v1alpha1.HAProxyService/MapLookup"
+	HAProxyService_ACLUpdate_FullMethodName              = "/janus.v1alpha1.HAProxyService/ACLUpdate"
+	HAProxyService_ACLLookup_FullMethodName              = "/janus.v1alpha1.HAProxyService/ACLLookup"
+	HAProxyService_CertificateList_FullMethodName        = "/janus.v1alpha1.HAProxyService/CertificateList"
+	HAProxyService_CertificateUpload_FullMethodName      = "/janus.v1alpha1.HAProxyService/CertificateUpload"
+	HAProxyService_CertificateDelete_FullMethodName      = "/janus.v1alpha1.HAProxyService/CertificateDelete"
+	HAProxyService_FileList_FullMethodName               = "/janus.v1alpha1.HAProxyService/FileList"
+	HAProxyService_FileGet_FullMethodName                = "/janus.v1alpha1.HAProxyService/FileGet"
+	HAProxyService_FilePut_FullMethodName                = "/janus.v1alpha1.HAProxyService/FilePut"
+	HAProxyService_FileDelete_FullMethodName             = "/janus.v1alpha1.HAProxyService/FileDelete"
+	HAProxyService_ACMEStatus_FullMethodName             = "/janus.v1alpha1.HAProxyService/ACMEStatus"
+	HAProxyService_ACMEGetConfig_FullMethodName          = "/janus.v1alpha1.HAProxyService/ACMEGetConfig"
+	HAProxyService_ACMEApplyConfig_FullMethodName        = "/janus.v1alpha1.HAProxyService/ACMEApplyConfig"
+	HAProxyService_ACMERenew_FullMethodName              = "/janus.v1alpha1.HAProxyService/ACMERenew"
+	HAProxyService_ACMECheckPath_FullMethodName          = "/janus.v1alpha1.HAProxyService/ACMECheckPath"
+	HAProxyService_ACMECertificateRequest_FullMethodName = "/janus.v1alpha1.HAProxyService/ACMECertificateRequest"
+	HAProxyService_ACMEInstallCertificate_FullMethodName = "/janus.v1alpha1.HAProxyService/ACMEInstallCertificate"
+	HAProxyService_TableList_FullMethodName              = "/janus.v1alpha1.HAProxyService/TableList"
+	HAProxyService_TableShow_FullMethodName              = "/janus.v1alpha1.HAProxyService/TableShow"
+	HAProxyService_TableClear_FullMethodName             = "/janus.v1alpha1.HAProxyService/TableClear"
+	HAProxyService_SessionList_FullMethodName            = "/janus.v1alpha1.HAProxyService/SessionList"
+	HAProxyService_SessionShutdown_FullMethodName        = "/janus.v1alpha1.HAProxyService/SessionShutdown"
+	HAProxyService_ErrorsShow_FullMethodName             = "/janus.v1alpha1.HAProxyService/ErrorsShow"
 )
 
 // HAProxyServiceClient is the client API for HAProxyService service.
@@ -149,6 +152,21 @@ type HAProxyServiceClient interface {
 	// now, whether or not they're due, in the background: ACMEStatus says
 	// how it went.
 	ACMERenew(ctx context.Context, in *ACMERenewRequest, opts ...grpc.CallOption) (*ACMERenewResponse, error)
+	// ACMECheckPath fetches the CA's directory the way the node would reach
+	// it - the given path, or the saved one - and says how it went, without
+	// changing anything.
+	ACMECheckPath(ctx context.Context, in *ACMECheckPathRequest, opts ...grpc.CallOption) (*ACMECheckPathResponse, error)
+	// ACMECertificateRequest makes a new private key and its certificate
+	// signing request for one of the configured certificates, for the
+	// Controller - or another orchestrator - to order it from the CA (path
+	// CONTROLLER_ORDERED). The key never leaves the node; a new request
+	// replaces the one waiting.
+	ACMECertificateRequest(ctx context.Context, in *ACMECertificateRequestRequest, opts ...grpc.CallOption) (*ACMECertificateRequestResponse, error)
+	// ACMEInstallCertificate installs the certificate the CA issued for the
+	// request waiting - checked against its key and the configured domains
+	// - and swaps it into the running HAProxy; or keeps in the
+	// certificate's status why it couldn't be obtained.
+	ACMEInstallCertificate(ctx context.Context, in *ACMEInstallCertificateRequest, opts ...grpc.CallOption) (*ACMECertificateStatus, error)
 	// TableList lists the running configuration's stick tables: each one's
 	// key type, size and entries in use.
 	TableList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TableListResponse, error)
@@ -459,6 +477,36 @@ func (c *hAProxyServiceClient) ACMERenew(ctx context.Context, in *ACMERenewReque
 	return out, nil
 }
 
+func (c *hAProxyServiceClient) ACMECheckPath(ctx context.Context, in *ACMECheckPathRequest, opts ...grpc.CallOption) (*ACMECheckPathResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ACMECheckPathResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ACMECheckPath_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) ACMECertificateRequest(ctx context.Context, in *ACMECertificateRequestRequest, opts ...grpc.CallOption) (*ACMECertificateRequestResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ACMECertificateRequestResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ACMECertificateRequest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hAProxyServiceClient) ACMEInstallCertificate(ctx context.Context, in *ACMEInstallCertificateRequest, opts ...grpc.CallOption) (*ACMECertificateStatus, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ACMECertificateStatus)
+	err := c.cc.Invoke(ctx, HAProxyService_ACMEInstallCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *hAProxyServiceClient) TableList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TableListResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TableListResponse)
@@ -613,6 +661,21 @@ type HAProxyServiceServer interface {
 	// now, whether or not they're due, in the background: ACMEStatus says
 	// how it went.
 	ACMERenew(context.Context, *ACMERenewRequest) (*ACMERenewResponse, error)
+	// ACMECheckPath fetches the CA's directory the way the node would reach
+	// it - the given path, or the saved one - and says how it went, without
+	// changing anything.
+	ACMECheckPath(context.Context, *ACMECheckPathRequest) (*ACMECheckPathResponse, error)
+	// ACMECertificateRequest makes a new private key and its certificate
+	// signing request for one of the configured certificates, for the
+	// Controller - or another orchestrator - to order it from the CA (path
+	// CONTROLLER_ORDERED). The key never leaves the node; a new request
+	// replaces the one waiting.
+	ACMECertificateRequest(context.Context, *ACMECertificateRequestRequest) (*ACMECertificateRequestResponse, error)
+	// ACMEInstallCertificate installs the certificate the CA issued for the
+	// request waiting - checked against its key and the configured domains
+	// - and swaps it into the running HAProxy; or keeps in the
+	// certificate's status why it couldn't be obtained.
+	ACMEInstallCertificate(context.Context, *ACMEInstallCertificateRequest) (*ACMECertificateStatus, error)
 	// TableList lists the running configuration's stick tables: each one's
 	// key type, size and entries in use.
 	TableList(context.Context, *emptypb.Empty) (*TableListResponse, error)
@@ -724,6 +787,15 @@ func (UnimplementedHAProxyServiceServer) ACMEApplyConfig(context.Context, *ACMEA
 }
 func (UnimplementedHAProxyServiceServer) ACMERenew(context.Context, *ACMERenewRequest) (*ACMERenewResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ACMERenew not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ACMECheckPath(context.Context, *ACMECheckPathRequest) (*ACMECheckPathResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ACMECheckPath not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ACMECertificateRequest(context.Context, *ACMECertificateRequestRequest) (*ACMECertificateRequestResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ACMECertificateRequest not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ACMEInstallCertificate(context.Context, *ACMEInstallCertificateRequest) (*ACMECertificateStatus, error) {
+	return nil, status.Error(codes.Unimplemented, "method ACMEInstallCertificate not implemented")
 }
 func (UnimplementedHAProxyServiceServer) TableList(context.Context, *emptypb.Empty) (*TableListResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TableList not implemented")
@@ -1243,6 +1315,60 @@ func _HAProxyService_ACMERenew_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HAProxyService_ACMECheckPath_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ACMECheckPathRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ACMECheckPath(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ACMECheckPath_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ACMECheckPath(ctx, req.(*ACMECheckPathRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_ACMECertificateRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ACMECertificateRequestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ACMECertificateRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ACMECertificateRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ACMECertificateRequest(ctx, req.(*ACMECertificateRequestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HAProxyService_ACMEInstallCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ACMEInstallCertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ACMEInstallCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ACMEInstallCertificate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ACMEInstallCertificate(ctx, req.(*ACMEInstallCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _HAProxyService_TableList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -1461,6 +1587,18 @@ var HAProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ACMERenew",
 			Handler:    _HAProxyService_ACMERenew_Handler,
+		},
+		{
+			MethodName: "ACMECheckPath",
+			Handler:    _HAProxyService_ACMECheckPath_Handler,
+		},
+		{
+			MethodName: "ACMECertificateRequest",
+			Handler:    _HAProxyService_ACMECertificateRequest_Handler,
+		},
+		{
+			MethodName: "ACMEInstallCertificate",
+			Handler:    _HAProxyService_ACMEInstallCertificate_Handler,
 		},
 		{
 			MethodName: "TableList",

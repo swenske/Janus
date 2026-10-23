@@ -889,6 +889,24 @@ jobs:
       - name: Let's Encrypt - ACME certificates from Pebble
         run: make qemu-acme-test
 
+      # The same with the node's only way out an HTTP proxy asking for
+      # credentials: its path through it, the CA and the DNS provider's
+      # API reached that way, not directly. See hack/qemu-acme-test.sh.
+      - name: Let's Encrypt - through a proxy
+        run: make qemu-acme-proxy-test
+
+      # Through the Controller's relay: a native Controller, the node's
+      # only way out its relay - only to allowed destinations, only as a
+      # node the Controller knows. See hack/qemu-acme-relay-test.sh.
+      - name: Let's Encrypt - through the Controller's relay
+        run: make qemu-acme-relay-test
+
+      # Ordered by the Controller: a native Controller orders the node's
+      # certificates with its own account - HTTP-01 and DNS-01 - the node
+      # reaching nothing. See hack/qemu-acme-ordered-test.sh.
+      - name: Let's Encrypt - ordered by the Controller
+        run: make qemu-acme-ordered-test
+
       # The Consul agent (consul extension) on two real enforcing nodes: a
       # server and a client with gossip encryption and TLS from the files
       # given with their configuration, HAProxy finding a service through

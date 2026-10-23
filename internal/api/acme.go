@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -56,6 +58,14 @@ func (h *HAProxy) ACMEApplyConfig(_ context.Context, req *janusv1alpha1.ACMEAppl
 	return &janusv1alpha1.ACMEApplyConfigResponse{Accepted: true}, nil
 }
 
+func (h *HAProxy) ACMECheckPath(_ context.Context, req *janusv1alpha1.ACMECheckPathRequest) (*janusv1alpha1.ACMECheckPathResponse, error) {
+	m, err := h.acme()
+	if err != nil {
+		return nil, err
+	}
+	return m.CheckPath(req.GetPath(), req.GetDirectory(), req.GetDirectoryCa()), nil
+}
+
 func (h *HAProxy) ACMERenew(_ context.Context, req *janusv1alpha1.ACMERenewRequest) (*janusv1alpha1.ACMERenewResponse, error) {
 	m, err := h.acme()
 	if err != nil {
@@ -66,4 +76,41 @@ func (h *HAProxy) ACMERenew(_ context.Context, req *janusv1alpha1.ACMERenewReque
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return &janusv1alpha1.ACMERenewResponse{Names: names}, nil
+}
+
+func (h *HAProxy) ACMECertificateRequest(_ context.Context, req *janusv1alpha1.ACMECertificateRequestRequest) (*janusv1alpha1.ACMECertificateRequestResponse, error) {
+	m, err := h.acme()
+	if err != nil {
+		return nil, err
+	}
+	out, err := m.CertificateRequest(req.GetName())
+	if errors.Is(err, acme.ErrNoCertificate) {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return out, nil
+}
+
+func (h *HAProxy) ACMEInstallCertificate(_ context.Context, req *janusv1alpha1.ACMEInstallCertificateRequest) (*janusv1alpha1.ACMECertificateStatus, error) {
+	m, err := h.acme()
+	if err != nil {
+		return nil, err
+	}
+	if (req.GetChainPem() == "") == (req.GetError() == "") {
+		return nil, status.Error(codes.InvalidArgument, "a chain, or why there's none")
+	}
+	var next time.Time
+	if req.GetNextAttemptUnix() > 0 {
+		next = time.Unix(req.GetNextAttemptUnix(), 0)
+	}
+	out, err := m.InstallCertificate(req.GetName(), req.GetChainPem(), req.GetError(), next)
+	if errors.Is(err, acme.ErrNoCertificate) {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return out, nil
 }

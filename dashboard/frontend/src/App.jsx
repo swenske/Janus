@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Copy,
   KeyRound,
+  LockKeyhole,
   LogOut,
   Plus,
   Rocket,
@@ -55,6 +56,7 @@ const AuditPage = lazyView(() => import('./Audit.jsx'))
 const BackupsPage = lazyView(() => import('./Backups.jsx'))
 const HypervisorsPage = lazyView(() => import('./Hypervisors.jsx'))
 const LogForwardingPage = lazyView(() => import('./LogForwarding.jsx'))
+const LetsEncryptPage = lazyView(() => import('./LetsEncrypt.jsx'))
 const MachineConsole = lazyView(() => import('./Console.jsx'))
 const TokensPage = lazyView(() => import('./Tokens.jsx'))
 const UsersPage = lazyView(() => import('./Users.jsx'))
@@ -1064,7 +1066,7 @@ const STATUS_EVERY = 15000
 function MainApp() {
   const route = useHashRoute()
   const can = useCan()
-  const tab = ['hypervisors', 'tokens', 'accounts', 'audit', 'log-forwarding', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
+  const tab = ['hypervisors', 'tokens', 'accounts', 'audit', 'log-forwarding', 'letsencrypt', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
   const [nodes, setNodes] = useState(null)
   const [pending, setPending] = useState([])
   const [statuses, setStatuses] = useState({})
@@ -1260,6 +1262,7 @@ function MainApp() {
                   { id: 'accounts', label: 'Accounts', icon: Users },
                   { id: 'audit', label: 'Audit', icon: ScrollText },
                   { id: 'log-forwarding', label: 'Log forwarding', icon: Send },
+                  { id: 'letsencrypt', label: 'Let’s Encrypt', icon: LockKeyhole },
                   { id: 'backups', label: 'Backups', icon: Archive },
                 ]
               : []),
@@ -1285,6 +1288,8 @@ function MainApp() {
           <AuditPage />
         ) : tab === 'log-forwarding' && can('admin') ? (
           <LogForwardingPage />
+        ) : tab === 'letsencrypt' && can('admin') ? (
+          <LetsEncryptPage />
         ) : tab === 'backups' && can('admin') ? (
           <BackupsPage />
         ) : tab === 'hypervisors' ? (

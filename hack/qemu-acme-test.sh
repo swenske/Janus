@@ -16,6 +16,12 @@
 #     reload;
 #   - after a reboot the same certificates are served, nothing is
 #     ordered again; the exporter reports them; no AVC denial.
+# With QEMU_ACME_VIA_PROXY=1 (make qemu-acme-proxy-test) the node has no
+# way out but an HTTP proxy on the host (hack/connectproxy, credentials
+# required): QEMU's user network restricted, a guestfwd to the proxy
+# only. Its configuration's path goes through the proxy, with the
+# credentials: the CA is reached, the DNS provider's API too, through
+# it; directly, it isn't; the password never comes back.
 #
 # Usage: hack/qemu-acme-test.sh <disk.img> <janusctl-bin> <pebble-bin-dir>
 #   ACME_DISCOVERY=1: don't fail on AVC denials - list them (for writing
@@ -35,6 +41,7 @@ TIMEOUT="${QEMU_ACME_TIMEOUT:-90}"
 B="${QEMU_ACME_BASE_PORT:-$((18750 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 P_HEALTH=$B P_GRPC=$((B + 1)) P_METRICS=$((B + 2)) P_80=$((B + 3)) P_443=$((B + 4)) P_8443=$((B + 5))
 P_ACME=$((B + 6)) P_ACME_MGMT=$((B + 7)) P_DNS=$((B + 8)) P_DNS_MGMT=$((B + 9)) P_SHIM=$((B + 10))
+VIA_PROXY="${QEMU_ACME_VIA_PROXY:-}"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
@@ -49,7 +56,7 @@ trap cleanup EXIT
 LOG="$WORKDIR/boot.log"
 fail() {
   echo "ACME test FAILED: $*" >&2
-  for f in pebble.log shim.log; do
+  for f in pebble.log shim.log proxy.log; do
     [ -f "$WORKDIR/$f" ] && { echo "--- $f ---" >&2; tail -40 "$WORKDIR/$f" >&2; }
   done
   [ -f "$LOG" ] && { echo "--- console output ---" >&2; tail -200 "$LOG" >&2; }
@@ -114,6 +121,14 @@ HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
 PY
 python3 "$WORKDIR/shim.py" "$P_SHIM" "http://127.0.0.1:$P_DNS_MGMT" > "$WORKDIR/shim.log" 2>&1 &
 PIDS+=($!)
+if [ "$VIA_PROXY" = 1 ]; then
+  # The node's only way out: this proxy, which the guest reaches at
+  # 10.0.2.100:3128 - a guestfwd starting one per connection (cmd:) - and
+  # which reaches the host's services the guest names 10.0.2.2.
+  (cd "$(dirname "$0")/.." && go build -o "$WORKDIR/connectproxy" ./hack/connectproxy) || fail "build the test proxy"
+  : > "$WORKDIR/proxy.log"
+  printf 'pr0xy-secret\n' > "$WORKDIR/proxy-password"
+fi
 deadline=$((SECONDS + 20))
 until curl -sk -o /dev/null "https://127.0.0.1:$P_ACME/dir"; do
   [ "$SECONDS" -lt "$deadline" ] || fail "Pebble never answered"
@@ -127,6 +142,9 @@ cp "$SRC_DISK" "$DISK"
 cp "$OVMF_VARS_TEMPLATE" "$WORKDIR/OVMF_VARS.fd"
 fwd="hostfwd=tcp::${P_HEALTH}-:8080,hostfwd=tcp::${P_GRPC}-:9505,hostfwd=tcp::${P_METRICS}-:10056"
 fwd="$fwd,hostfwd=tcp:127.0.0.1:${P_80}-:80,hostfwd=tcp::${P_443}-:443,hostfwd=tcp::${P_8443}-:8443"
+if [ "$VIA_PROXY" = 1 ]; then
+  fwd="restrict=on,$fwd,guestfwd=tcp:10.0.2.100:3128-cmd:$WORKDIR/connectproxy -stdio -log $WORKDIR/proxy.log -user acme -password pr0xy-secret -map 10.0.2.2=127.0.0.1"
+fi
 boot() {
   qemu-system-x86_64 -accel kvm -accel tcg \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
@@ -178,7 +196,30 @@ PY
 if ctl haproxy acme check <(sed 's/"httpreq"/"nope"/' "$WORKDIR/acme.json") >/dev/null 2>&1; then
   fail "an unknown DNS provider type passed the check"
 fi
-out="$(ctl haproxy acme apply "$WORKDIR/acme.json")" || fail "apply: $out"
+if [ "$VIA_PROXY" = 1 ]; then
+  python3 - "$WORKDIR/acme.json" > "$WORKDIR/acme-proxy.json" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+c["path"] = {"mode": "ACME_PATH_MODE_PROXY", "proxy_url": "http://10.0.2.100:3128", "proxy_username": "acme", "proxy_password": "wrong"}
+print(json.dumps(c))
+PY
+  ctl haproxy acme apply "$WORKDIR/acme-proxy.json" >/dev/null || fail "apply the configuration through the proxy"
+  if out="$(ctl haproxy acme test-path direct 2>&1)"; then fail "the node reached the CA directly, out of a restricted network: $out"; fi
+  echo "  ok: directly, the node can't reach the CA ($out)"
+  if out="$(ctl haproxy acme test-path 2>&1)"; then fail "a wrong proxy password went through: $out"; fi
+  check "a wrong password says so" "407|Proxy Authentication Required" "$out"
+  out="$(ctl haproxy acme path proxy http://10.0.2.100:3128 -user acme -password-file "$WORKDIR/proxy-password")" || fail "set the proxy path: $out"
+  out="$(ctl haproxy acme test-path)" || fail "the CA through the proxy: $out"
+  check "the CA reached through the proxy" "reached through the proxy http://10.0.2.100:3128" "$out"
+  grep -q "CONNECT 10.0.2.2:$P_ACME" "$WORKDIR/proxy.log" || fail "the proxy never tunnelled to the CA"
+  got="$(ctl haproxy acme get)"
+  check "the path in the configuration" '"proxy_url": "http://10.0.2.100:3128"' "$got"
+  if grep -q "pr0xy-secret" <<<"$got"; then fail "the proxy's password came back: $got"; fi
+  [ "$(ctl haproxy acme path)" = "The CA is reached through the proxy http://10.0.2.100:3128 (as acme)" ] || fail "path: $(ctl haproxy acme path)"
+  echo "  ok: through the proxy, with its credentials (a wrong password refused, the password never shown)"
+else
+  out="$(ctl haproxy acme apply "$WORKDIR/acme.json")" || fail "apply: $out"
+fi
 echo "  ok: configuration applied"
 
 ctl haproxy get-config > "$WORKDIR/haproxy.cfg"
@@ -225,6 +266,10 @@ serial() { # serial PORT NAME
 [ "$(served "$P_8443" site.test)" = "tls-dir" ] || fail "site isn't served through the directory on :8443"
 [ "$(served "$P_8443" any.wild.test)" = "tls-dir" ] || fail "the wildcard isn't served through the directory on :8443"
 grep -q "/set-txt _acme-challenge.wild.test." "$WORKDIR/shim.log" || fail "DNS-01 never went through the provider"
+if [ "$VIA_PROXY" = 1 ]; then
+  grep -q "POST http://10.0.2.2:$P_SHIM/present" "$WORKDIR/proxy.log" || fail "the DNS provider's API wasn't reached through the proxy"
+  echo "  ok: the CA and the DNS provider's API, through the proxy"
+fi
 echo "  ok: both served, valid under Pebble's root - HTTP-01 by HAProxy, the wildcard over DNS-01"
 
 # --- a renewal, without a reload -------------------------------------------
@@ -271,7 +316,10 @@ echo "  ok: after a reboot - same certificates, same thumbprint, nothing ordered
 # Without directory_ca, janus-acme checks the CA against the node's trust
 # store, as for Let's Encrypt - Pebble's test CA isn't in it. Go reads
 # /etc/ssl/certs for it: a denial a real node hit, not this test.
-python3 - "$WORKDIR/acme.json" > "$WORKDIR/acme-system.json" <<'PY'
+# The configuration as the node has it (its path too; secrets come back
+# empty and empty keeps them).
+ctl haproxy acme get > "$WORKDIR/acme-saved.json"
+python3 - "$WORKDIR/acme-saved.json" > "$WORKDIR/acme-system.json" <<'PY'
 import json, sys
 c = json.load(open(sys.argv[1]))
 del c["account"]["directory_ca"]
@@ -296,4 +344,4 @@ if [ -n "$denials" ]; then
     fail "AVC denials under enforcing"
   fi
 fi
-echo "ACME test OK: HTTP-01 answered by HAProxy and a wildcard over DNS-01 from Pebble, stand-ins first, a renewal swapped in without a reload, kept across a reboot, zero AVC denials"
+echo "ACME test OK${VIA_PROXY:+ through a proxy}: HTTP-01 answered by HAProxy and a wildcard over DNS-01 from Pebble, stand-ins first, a renewal swapped in without a reload, kept across a reboot, zero AVC denials"

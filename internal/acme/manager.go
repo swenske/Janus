@@ -126,6 +126,18 @@ type Manager struct {
 	inProgress string
 	forced     map[string]bool
 	waiting    bool // logged that HTTP-01 waits for HAProxy
+	// relayIdentity makes the certificate the Controller's relay knows
+	// the node by (SetRelayIdentity); nil until the node's CA is loaded.
+	relayIdentity func() (certPEM, keyPEM []byte, err error)
+}
+
+// SetRelayIdentity gives the Manager how to make the client certificate
+// the Controller's relay knows the node by: one of the node's own CA,
+// made for each request - janusd's PKI loads after the Manager starts.
+func (m *Manager) SetRelayIdentity(fn func() (certPEM, keyPEM []byte, err error)) {
+	m.mu.Lock()
+	m.relayIdentity = fn
+	m.mu.Unlock()
 }
 
 type state struct {
@@ -189,12 +201,26 @@ func (m *Manager) Thumbprint() string {
 	return m.thumb
 }
 
-// Env is HAProxy's part of the extension's environment.
+// Env is HAProxy's part of the extension's environment: the thumbprint
+// the HTTP-01 rule answers with.
 func (m *Manager) Env() []string {
-	if t := m.Thumbprint(); t != "" {
+	m.mu.Lock()
+	t := m.answerThumbLocked()
+	m.mu.Unlock()
+	if t != "" {
 		return []string{ThumbprintEnv + "=" + t}
 	}
 	return nil
+}
+
+// answerThumbLocked is the thumbprint HTTP-01 challenges are answered
+// with: the Controller's account's when it orders the certificates, the
+// node's own otherwise. Called with mu held.
+func (m *Manager) answerThumbLocked() string {
+	if p := m.cfg.GetPath(); isOrdered(p) {
+		return p.AccountThumbprint
+	}
+	return m.thumb
 }
 
 // Boot loads everything, creating the account key the first time, and
@@ -390,6 +416,7 @@ func (m *Manager) Apply(cfg *janusv1alpha1.ACMEConfig, accountKey string, valida
 
 	reload := false
 	started := m.opts.HAProxy.StartedAt()
+	answered := m.answerThumbLocked()
 	if key != nil && thumb != m.thumb {
 		path := filepath.Join(Dir, keyFile)
 		if err := writeDurable(filepath.Dir(path), filepath.Base(path), []byte(accountKey), 0o600); err != nil {
@@ -397,21 +424,38 @@ func (m *Manager) Apply(cfg *janusv1alpha1.ACMEConfig, accountKey string, valida
 		}
 		m.key, m.thumb = key, thumb
 		m.logger.Printf("account key replaced: thumbprint %s", thumb)
-		reload = true // HAProxy's environment has the thumbprint
 	}
-	data, err := Marshal(cfg)
+	saved := proto.Clone(cfg).(*janusv1alpha1.ACMEConfig)
+	saved.Path = nil // path.json: an older janusd refuses it in letsencrypt.json
+	data, err := Marshal(saved)
 	if err != nil {
+		return nil, err
+	}
+	if err := savePath(cfg.Path); err != nil {
 		return nil, err
 	}
 	if err := writeDurable(Dir, configFile, data, 0o600); err != nil {
 		return nil, err
 	}
+	pathChanged := !proto.Equal(cfg.Path, m.cfg.GetPath())
+	if !proto.Equal(redactPath(cfg.Path), redactPath(m.cfg.GetPath())) {
+		m.logger.Printf("the CA is reached %s from now on", via(cfg.Path))
+	}
 	m.cfg = cfg
+	if pathChanged {
+		m.retryFailedLocked()
+	}
+	if m.answerThumbLocked() != answered {
+		reload = true // HAProxy's environment has the thumbprint HTTP-01 answers with
+	}
 	for _, name := range removed {
 		if cs := m.st.Certs[name]; cs != nil && !started.IsZero() && cs.Created.Before(started) {
 			reload = true // a crt directory may have loaded it
 		}
 		if err := os.Remove(certPath(name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		if err := os.Remove(pendingPath(name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
 		delete(m.st.Certs, name)
@@ -521,6 +565,26 @@ func (m *Manager) HAProxyConfigChanged() {
 	}
 }
 
+// retryFailedLocked has what failed tried again at once - the account,
+// the certificates in their backoff: the path to the CA changed, and
+// with it, likely, what made them fail. Called with mu held.
+func (m *Manager) retryFailedLocked() {
+	retry := false
+	for _, a := range m.st.Accounts {
+		if a.Error != "" {
+			a.Checked = time.Time{}
+		}
+	}
+	for _, cs := range m.st.Certs {
+		if cs.Failures > 0 && !cs.NextAttempt.IsZero() {
+			cs.NextAttempt, retry = time.Time{}, true
+		}
+	}
+	if retry {
+		m.logger.Printf("the path to the CA changed - retrying the certificates that failed")
+	}
+}
+
 func (m *Manager) wake() {
 	select {
 	case m.kick <- struct{}{}:
@@ -587,6 +651,10 @@ func (m *Manager) pass() time.Time {
 	if m.cfg == nil || len(m.cfg.Certificates) == 0 || m.key == nil {
 		m.mu.Unlock()
 		return next
+	}
+	if isOrdered(m.cfg.Path) {
+		m.mu.Unlock()
+		return next // the Controller orders them (ordered.go)
 	}
 	cfg := proto.Clone(m.cfg).(*janusv1alpha1.ACMEConfig)
 	dir := ResolveDirectory(cfg.Account.Directory)
@@ -779,7 +847,13 @@ func (m *Manager) obtain(cfg *janusv1alpha1.ACMEConfig, c *janusv1alpha1.ACMECer
 		cs.Failures++
 		cs.LastError = err.Error()
 		cs.NextAttempt = time.Now().Add(backoff(cs.Failures))
-		m.logger.Printf("certificate %s: %v - next attempt %s", c.Name, err, cs.NextAttempt.Format(time.RFC3339))
+		if !proto.Equal(cfg.Path, m.cfg.GetPath()) {
+			// Ordered the way the CA was reached before the path changed:
+			// tried again at once the new way.
+			cs.NextAttempt = time.Time{}
+			m.wake()
+		}
+		m.logger.Printf("certificate %s: %v - next attempt %s", c.Name, err, nextAttempt(cs.NextAttempt))
 		if serr := m.saveState(); serr != nil {
 			m.logger.Printf("save the state: %v", serr)
 		}
@@ -833,15 +907,75 @@ func (m *Manager) request(action string, cfg *janusv1alpha1.ACMEConfig, dir stri
 	keyPEM, _ := os.ReadFile(filepath.Join(Dir, keyFile))
 	m.mu.Unlock()
 	a := cfg.Account
-	return &acmewire.Request{
+	req := &acmewire.Request{
 		Action: action, Directory: dir, DirectoryCA: a.DirectoryCa,
 		AccountKey: string(keyPEM), Email: a.Email, AcceptTerms: a.AcceptTerms,
 		EABKeyID: a.EabKeyId, EABHMACKey: a.EabHmacKey,
 	}
+	setPath(req, cfg.Path)
+	return req
+}
+
+// checkTimeout bounds CheckPath: fetching a directory, not ordering.
+const checkTimeout = 45 * time.Second
+
+// CheckPath fetches the CA's directory through path - the saved path when
+// nil, its saved password where it leaves it empty - from directory (the
+// saved one when empty, with directoryCA or the saved CA), and says how it
+// went. Nothing changes.
+func (m *Manager) CheckPath(path *janusv1alpha1.ACMEPath, directory, directoryCA string) *janusv1alpha1.ACMECheckPathResponse {
+	if !m.Available() {
+		return &janusv1alpha1.ACMECheckPathResponse{Error: "the letsencrypt extension isn't in this image"}
+	}
+	m.mu.Lock()
+	saved := m.cfg.GetPath()
+	if path == nil {
+		path = saved
+	} else {
+		path = normalizePath(path)
+		mergePathSecret(path, saved)
+	}
+	if directory == "" {
+		directory, directoryCA = m.cfg.GetAccount().GetDirectory(), m.cfg.GetAccount().GetDirectoryCa()
+	}
+	m.mu.Unlock()
+	out := &janusv1alpha1.ACMECheckPathResponse{Directory: ResolveDirectory(directory), Via: via(path)}
+	if isOrdered(path) {
+		out.Error = "the node doesn't reach the CA: the Controller orders its certificates - its Let's Encrypt tab says how that goes"
+		return out
+	}
+	if errs := validatePath(path); len(errs) > 0 {
+		out.Error = strings.Join(errs, "; ")
+		return out
+	}
+	start := time.Now()
+	req := &acmewire.Request{Action: acmewire.ActionDirectory, Directory: out.Directory, DirectoryCA: strings.TrimSpace(directoryCA)}
+	setPath(req, path)
+	res, err := m.run(req, checkTimeout)
+	out.Milliseconds = uint32(time.Since(start).Milliseconds())
+	if err != nil {
+		out.Error = err.Error()
+		return out
+	}
+	out.Ok, out.TermsUrl = true, res.TermsURL
+	return out
 }
 
 // run has janus-acme do req.
 func (m *Manager) run(req *acmewire.Request, timeout time.Duration) (*acmewire.Result, error) {
+	if req.Relay {
+		m.mu.Lock()
+		identity := m.relayIdentity
+		m.mu.Unlock()
+		if identity == nil {
+			return nil, errors.New("the Controller's relay knows the node by a certificate of its CA, not loaded yet")
+		}
+		cert, key, err := identity()
+		if err != nil {
+			return nil, fmt.Errorf("a certificate for the Controller's relay: %w", err)
+		}
+		req.ProxyCert, req.ProxyKey = string(cert), string(key)
+	}
 	in, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -874,9 +1008,21 @@ func (m *Manager) run(req *acmewire.Request, timeout time.Duration) (*acmewire.R
 	return res, nil
 }
 
+// nextAttempt says when: now, or a time.
+func nextAttempt(t time.Time) string {
+	if t.IsZero() {
+		return "now, the path to the CA changed"
+	}
+	return t.Format(time.RFC3339)
+}
+
 func joinDomains(d []string) string {
 	if len(d) > 3 {
 		return fmt.Sprintf("%s and %d more", strings.Join(d[:3], ", "), len(d)-3)
 	}
 	return strings.Join(d, ", ")
 }
+
+// Backoff is how long to wait after the nth failure in a row - what the
+// Controller ordering for a node waits too.
+func Backoff(n int) time.Duration { return backoff(n) }

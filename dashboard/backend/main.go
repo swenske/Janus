@@ -52,6 +52,7 @@ import (
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/webstatic"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/acmerelay"
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
@@ -103,6 +104,7 @@ func main() {
 	tlsCertFile := flag.String("tls-cert", envOr("JANUS_CONTROLLER_TLS_CERT", ""), "path to a PEM certificate (then its chain) the main HTTPS port (-addr) serves - the page, janusctl, Terraform - instead of the Controller's self-signed identity, read again when the file changes (a renewal needs no restart); with -tls-key, both or neither; nodes keep registering against the self-signed identity on -register-addr; also settable via JANUS_CONTROLLER_TLS_CERT; without it, an admin can upload one on the page")
 	masterKeyFile := flag.String("master-key-file", envOr("JANUS_CONTROLLER_MASTER_KEY_FILE", ""), "the master key sealing the fleet's issuing CA key (internal/secrets), made there the first time - keep it outside -data-dir so a copy of the data holds nothing usable; empty: <data-dir>/master.key, which the Controller warns about; also settable via JANUS_CONTROLLER_MASTER_KEY_FILE")
 	tlsKeyFile := flag.String("tls-key", envOr("JANUS_CONTROLLER_TLS_KEY", ""), "path to the PEM private key matching -tls-cert; also settable via JANUS_CONTROLLER_TLS_KEY")
+	acmeClient := flag.String("acme-client", envOr("JANUS_CONTROLLER_ACME_CLIENT", ""), "the ACME client the Controller orders its nodes' certificates with (cmd/janus-acme, docs/guide/letsencrypt-controller.md) - default: janus-acme next to dashboardd, as in the image; also settable via JANUS_CONTROLLER_ACME_CLIENT")
 	imageFactory := flag.String("image-factory", envOr("JANUS_CONTROLLER_IMAGE_FACTORY", nodeproxy.ImageFactoryURL), "image factory that builds and serves the updates of nodes whose image has optional extensions (docs/image-factory.md) - empty to disable, in which case such nodes have no update source; nodes with the default schematic update from GitHub Releases either way; also settable via JANUS_CONTROLLER_IMAGE_FACTORY")
 	updaterSocket := flag.String("updater-socket", envOr("JANUS_CONTROLLER_UPDATER_SOCKET", updaterapi.DefaultSocket), "Unix socket of janus-controller-updater, which updates this Controller when asked from its page (dashboard/README.md, Updating the Controller) - nothing happens when it isn't there; empty to never use one; also settable via JANUS_CONTROLLER_UPDATER_SOCKET")
 	releasesURL := flag.String("releases-url", envOr("JANUS_CONTROLLER_RELEASES_URL", nodeproxy.ReleasesURL), "GitHub API URL listing Janus releases, newest first - where the Controller learns about new releases for itself and its nodes (a mirror, or a test's fake); also settable via JANUS_CONTROLLER_RELEASES_URL")
@@ -228,6 +230,10 @@ func main() {
 	if err := app.startLogForwarding(masterKey); err != nil {
 		log.Fatalf("log forwarding: %v", err)
 	}
+	app.startACMERelay()
+	if err := app.startACMEOrdering(masterKey, *acmeClient); err != nil {
+		log.Fatalf("lets encrypt ordering: %v", err)
+	}
 	// The node pages: a machine's lock, and its record read again after a
 	// change made there.
 	nodeproxy.LockedBy = func(n *store.Node) string {
@@ -324,6 +330,8 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	a.registerCLIBrowserRoutes(mux)
 	a.registerBackupRoutes(mux)
 	a.registerLogForwardingRoutes(mux)
+	a.registerACMERelayRoutes(mux)
+	a.registerACMEOrderingRoutes(mux)
 	a.registerRestoreRoutes(mux)
 	a.registerHypervisorRoutes(mux)
 	a.registerFleetRoutes(mux)
@@ -348,6 +356,11 @@ type app struct {
 	sso *singleSignOn
 	// masterKeyPath is the master key's file - a backup takes it.
 	masterKeyPath string
+	// relay is the nodes' way to Let's Encrypt through the Controller
+	// (acme_relay.go), ordering the certificates it orders for them
+	// (acme_order.go); nil in tests that don't use them.
+	relay    *acmerelay.Server
+	ordering *acmeOrdering
 	// serverCert is the Controller's own identity: what nodes register
 	// against (-register-addr) and are provisioned with. ui is what the
 	// main port serves - that identity, or the page's own certificate.

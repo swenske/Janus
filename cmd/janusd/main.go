@@ -499,6 +499,12 @@ func main() {
 		log.Printf("pki: trusts the fleet of root %q, bundle version %d", root.Subject.CommonName, version)
 	}
 	local := pki.NewLocal(pkiBootstrap.CA) // LocalCARotate replaces it
+	// The Controller's relay knows the node by a certificate of its own
+	// CA, made for each ACME request; no role in it - it opens nothing
+	// on the node itself.
+	acmeMgr.SetRelayIdentity(func() ([]byte, []byte, error) {
+		return local.CA().Issue(pki.IssueOptions{CommonName: "acme-relay", ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, Validity: time.Hour})
+	})
 	// Every boot, the CA a client verifies this node with: what an
 	// orchestrator reading the serial console pins (docs/private-cloud/
 	// first-contact.md) - a stable line, unlike the banner's.
