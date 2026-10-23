@@ -237,7 +237,19 @@ example:
   node runs that schematic, so the script asks for the build first;
 - v2026.10.22: the node pages' shared assets - two nodes' pages through
   the Controller naming the same `/node-app/` script, its caching
-  headers, a 304, public while a node's API isn't (`s-static-node-app`).
+  headers, a 304, public while a node's API isn't (`s-static-node-app`);
+- v2026.10.22-2: single sign-on on the lab's Controller - a Keycloak (the
+  image CI's test pins) started on the Controller's own host with a
+  certificate of a CA made for the test, the provider set up through the
+  API and checked with **Test**, then headless Chromium through
+  Keycloak's pages: a reader and an admin made by the groups, one
+  refused, signing out of Keycloak too, Keycloak's second factor counted
+  with an `acr`; the settings file's owner, mode and secret on the
+  Controller's volume; everything removed afterwards (`sso-keycloak`,
+  `sso-check`). And the minute-long update reboot looked for: the
+  rolling update to the other slot and back under load, both nodes'
+  serial consoles timestamped on the lab's host as they're written
+  (`x-slow-reboot`).
 
 ### HAProxy killed by the kernel
 
@@ -322,6 +334,10 @@ ran:
 - `rolling`: the drained rolling update through the Controller (since
   v2026.10.19-2 it trusts its own wait and names the check that fails);
 - `ctl-update`: the Controller's update with its probe;
+- `sso-keycloak`, `sso-check`: a Keycloak next to the lab's Controller,
+  and single sign-on through it in the browser (v2026.10.22-2);
+- `x-slow-reboot`: the rolling update there and back with the nodes'
+  consoles timestamped (v2026.10.22-2);
 - `factory-ready`: a node's page asks for the pre-release's bundle until
   the image factory has it;
 - `new-machine`: a machine created by the Controller, its journal;
