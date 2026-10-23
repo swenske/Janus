@@ -203,14 +203,18 @@ certificate HAProxy loads. Alert on failures that last, not on one.
 ## Moving from acme.sh
 
 A HAProxy that used acme.sh in stateless mode (`setenv ACCOUNT_THUMBPRINT`
-and the same `http-request return` rule) moves as is:
+and the same `http-request return` rule) moves with its account and its
+rule:
 
 1. Import acme.sh's account key (above): the thumbprint stays the same.
 2. One certificate per acme.sh certificate, with the same names (`acme.sh
    --list`, `acme.sh --info -d <domain>`).
-3. In haproxy.cfg, `${ACCOUNT_THUMBPRINT}` can stay (with its `setenv`)
-   or become `${JANUS_ACME_THUMBPRINT}`; point the `crt` lines at
-   `/etc/haproxy/acme/`.
+3. In haproxy.cfg, `${ACCOUNT_THUMBPRINT}` becomes
+   `${JANUS_ACME_THUMBPRINT}` - janusd puts the thumbprint in HAProxy's
+   environment - and the `setenv ACCOUNT_THUMBPRINT` line goes: a node
+   refuses `setenv` in the global section
+   ([haproxy-config.md](haproxy-config.md#the-global-section)). Point the
+   `crt` lines at `/etc/haproxy/acme/`.
 4. A wildcard issued elsewhere (DNS-01 by hand) becomes a `dns-01`
    certificate with the zone's DNS provider: renewed by the node from then
    on.
