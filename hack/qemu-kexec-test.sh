@@ -165,6 +165,13 @@ wait_api "after the second kexec"
 echo "  ok: a second kexec from the kexec'd kernel - the EFI runtime and the ESP survive a jump"
 
 # --- 6. SELinux ---
+# Each reboot janusd made said where its time went, before the console
+# was drained (internal/api/powerdown.go): one firmware reboot, two kexecs.
+REBOOT_STEPS="system: rebooting now - haproxy stopped [0-9.]+m?s, shutdown hooks [0-9.]+[mµ]?s, sync [0-9.]+[mµ]?s"
+KEXEC_STEPS="system: rebooting through kexec now - haproxy stopped [0-9.]+m?s, shutdown hooks [0-9.]+[mµ]?s, sync [0-9.]+[mµ]?s"
+[ "$(grep -acE "$REBOOT_STEPS" "$LOG")" -eq 1 ] || fail "the firmware reboot's timed steps: $(grep -a 'now - ' "$LOG")"
+[ "$(grep -acE "$KEXEC_STEPS" "$LOG")" -eq 2 ] || fail "the kexecs' timed steps: $(grep -a 'now - ' "$LOG")"
+echo "  ok: each reboot logged its steps' times - $(grep -aoE "$REBOOT_STEPS" "$LOG" | head -1)"
 if grep -a "avc:.*denied" "$LOG"; then fail "AVC denials"; fi
 grep -aq "SELinux:  Initializing" "$LOG" || fail "no SELinux initialization in the console log"
 echo "  ok: zero AVC denials across the firmware and kexec boots"

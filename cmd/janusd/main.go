@@ -423,12 +423,21 @@ func main() {
 	go func() {
 		<-stopSignals
 		log.Printf("janusd: SIGTERM - stopping HAProxy and extension services")
+		// Each step timed, as for a reboot janusd makes itself
+		// (internal/api/powerdown.go).
+		ms := func(d time.Duration) time.Duration { return d.Round(time.Millisecond) }
+		t0 := time.Now()
 		extMgr.StopAll()
+		t1 := time.Now()
 		if err := haproxyMgr.Stop(5 * time.Second); err != nil {
 			log.Printf("haproxy: stop: %v", err)
 		}
+		t2 := time.Now()
 		shutdown.Run()
+		t3 := time.Now()
 		syscall.Sync()
+		log.Printf("janusd: stopped - extension services %s, haproxy %s, shutdown hooks %s, sync %s; init takes the machine down",
+			ms(t1.Sub(t0)), ms(t2.Sub(t1)), ms(t3.Sub(t2)), ms(time.Since(t3)))
 		os.Exit(0)
 	}()
 	for _, m := range extManifests {
