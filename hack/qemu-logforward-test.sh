@@ -285,6 +285,10 @@ echo "Part 2 OK: with the server down the stream targets fail and say so; what w
 # --- 3. a reboot: each target goes on from where it was ---
 ctl system reboot >/dev/null
 wait_janusd 2
+# janusd's own last line before the machine went down: sent then (the
+# shipper drained) - a node without LOGS has nothing to send it from
+# afterwards.
+wait_received "janusd's reboot line, sent before the machine went down" 'm["input"] == "tls" and m["app"] == "janusd" and "rebooting now - haproxy stopped" in m["msg"]' 30
 wait_received "the new boot's kernel messages over TLS" 'm["input"] == "tls" and m["app"] == "kernel" and m["facility"] == "0" and "Linux version" in m["msg"]' 60
 wait_received "the new boot's kernel messages over TCP" 'm["input"] == "tcp" and m["app"] == "kernel" and "Linux version" in m["msg"]' 30
 # All of them, under the node's name - not just what came once its
@@ -300,7 +304,7 @@ other="$(received "m['input'] == 'tls' and m['app'] == 'kernel' and m['host'] !=
 [ -z "$other" ] || fail "kernel messages under another name than $host: $(head -3 <<<"$other")"
 audit="$(timeout 5 "$CTL_BIN" -endpoint "127.0.0.1:${P_GRPC}" -ca "$WORKDIR/ca.crt" -cert "$WORKDIR/admin.crt" -key "$WORKDIR/admin.key" system audit || true)"
 grep -q $'\tSystemService/Reboot\tci-reader' <<<"$audit" && grep -q $'\tSystemService/Reboot\tadmin (os:admin)' <<<"$audit" || fail "the audit didn't come through the reboot: $audit"
-echo "Part 3 OK: after a reboot, the new boot's kernel messages reach the targets ($(received 'm["input"] == "tls" and m["app"] == "kernel"' | wc -l) over TLS, all as $host) - each went on from its cursor; the audit is still there (STATE)"
+echo "Part 3 OK: janusd's reboot line sent before the reboot; after it, the new boot's kernel messages reach the targets ($(received 'm["input"] == "tls" and m["app"] == "kernel"' | wc -l) over TLS, all as $host) - each went on from its cursor; the audit is still there (STATE)"
 
 # --- 4. HAProxy's own log lines, without janusd ---
 ctl haproxy file-put certs/logs-ca.pem "$CONF/ca.pem" >/dev/null || fail "file-put the CA"

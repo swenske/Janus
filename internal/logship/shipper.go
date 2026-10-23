@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -331,6 +332,28 @@ func (s *Shipper) Close() {
 // Flush saves the cursors now (before a reboot).
 func (s *Shipper) Flush() { s.saveCursors() }
 
+// Drain waits, d at most, until every target has sent what it was given
+// from memory, what LOGS holds for it and what its feeds hold - the
+// last lines before the
+// machine goes down (janusd's reboot line), which a node without LOGS
+// can't keep for its next boot. A target whose last try failed isn't
+// waited for.
+func (s *Shipper) Drain(d time.Duration) {
+	deadline := time.Now().Add(d)
+	for {
+		s.mu.Lock()
+		targets := make([]*target, 0, len(s.targets))
+		for _, t := range s.targets {
+			targets = append(targets, t)
+		}
+		s.mu.Unlock()
+		if !slices.ContainsFunc(targets, (*target).pending) || !time.Now().Before(deadline) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // start starts a target where prev (the same target, changed) stopped,
 // else where its saved cursors say, else now.
 func (s *Shipper) start(cfg Target, prev *target) *target {
@@ -627,6 +650,31 @@ func (t *target) poke() {
 	case t.wake <- struct{}{}:
 	default:
 	}
+}
+
+// pending says t has records to send from memory, LOGS or its feeds - not
+// when its last try failed: those wait for it to work again.
+func (t *target) pending() bool {
+	t.smu.Lock()
+	erring := !t.failingSince.IsZero()
+	t.smu.Unlock()
+	if erring {
+		return false
+	}
+	if t.mem.len() > 0 {
+		return true
+	}
+	t.cmu.Lock()
+	defer t.cmu.Unlock()
+	if v := t.s.opt.Volume; v != nil && t.takesDisk() && t.volCursor < v.LastSeq() {
+		return true
+	}
+	for _, f := range t.s.opt.Feeds {
+		if t.cfg.Takes(f.Name) && t.feedCursor[f.Name] < f.Latest() {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *target) halt() {
