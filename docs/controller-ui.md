@@ -421,13 +421,15 @@ has its drawer. Its groups:
   as protojson - 64-bit numbers arrive as strings; a node older than them
   answers 501, `RuntimeError.jsx` says to update it;
   docs/guide/haproxy-runtime.md) - Let's Encrypt (first how the node
-  reaches the CA - the modes side by side as radio tiles, three in a row
-  then one a row (never a lone tile), who talks to the CA and what must
-  be open, the chosen one's settings - **Through this Controller** fills
-  the relay's address and the Controller's identity from `GET
-  /api/haproxy/acme/relay` (answered by the Controller, `nodeproxy.
-  ACMERelay`), says when the relay is off (a link to the Controller's
-  tab) or moved -, **Test**
+  reaches the CA - the modes side by side as radio tiles, four in a
+  row, then two, then one (never a lone tile), who talks to the CA and
+  what must be open, the chosen one's settings - **Through this
+  Controller** fills the relay's address and the Controller's identity,
+  **Ordered by this Controller** the account's thumbprint, both from
+  `GET /api/haproxy/acme/controller` (answered by the Controller,
+  `nodeproxy.ACMERelay`/`ACMEOrdering`), each saying when it isn't set
+  up (a link to the Controller's tab), moved or another account's -,
+  **Test** (not for ordered)
   fetching the CA's directory that way (POST `/api/haproxy/acme/check-path`,
   a minute), and what this node's certificates need open, from their
   challenges -; then the account, the HTTP-01 rule, certificates and DNS
@@ -836,7 +838,10 @@ for every chart (`scheduler.js`).
   besides the built-in ones (folded list under the form, with what can't
   go through), the janusctl command and the Controller's identity to
   download, and the recent tunnels (refreshed every 15 s as background
-  requests; the form's draft is kept).
+  requests; the form's draft is kept); then the ordering for the nodes
+  (`GET`/`PUT /api/acme`, `POST /api/acme/run`) - the account, its DNS
+  providers (`src/shared/ACMEProviderForm.jsx`, shared with a node's
+  page) and the ordered certificates by node.
 - **Previous boots** (Logs › Service logs, Logs › Kernel): a node with a
   LOGS partition lists its earlier boots (`/api/log-boots`) in a
   `BootSelect` next to the page's other controls - only once there is

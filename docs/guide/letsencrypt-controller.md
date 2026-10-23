@@ -1,10 +1,20 @@
 # The Controller and Let's Encrypt
 
-A node that reaches its Controller but not the internet can still get
-its Let's Encrypt certificates: through the Controller's relay. This
-page is the Controller's side - turning the relay on, what it lets
+A node that can't reach the internet can still get its Let's Encrypt
+certificates through its Controller: the Controller relays the node's
+own HTTPS to the CA, or orders the certificates itself and installs
+them. This page is the Controller's side - setting each up, what goes
 through, what it records. The node's side, and the other ways to reach
 the CA, are in [Let's Encrypt](../letsencrypt.md#how-the-node-reaches-lets-encrypt).
+
+| | The relay | Ordering for the nodes |
+|---|---|---|
+| Who talks to the CA | the node, through the Controller | the Controller |
+| The node must reach | the Controller | nothing (the Controller reaches it) |
+| The ACME account, DNS credentials | on each node | on the Controller, sealed with its master key |
+| Each certificate's key | on the node | on the node - only its request leaves it |
+| Set up on the tab | Relay for the nodes | Ordering for the nodes |
+| A node's page chooses | Through this Controller | Ordered by this Controller |
 
 ## What the relay is
 
@@ -98,9 +108,45 @@ the log says so.
   minutes (what janus-acme gives an order).
 - TLS 1.3 only.
 
+## Ordering for the nodes
+
+The Controller orders the certificates of each node whose page chose
+**Ordered by this Controller**, with its own ACME account - one for all
+its nodes, its key made at the Controller's first start and sealed with
+the master key, registered with each CA a node's configuration names.
+
+On the tab, **Ordering for the nodes**:
+
+- **The account**: a contact address (optional - the CA writes about
+  the account there), **the CA's terms** - nothing is ordered until
+  they're accepted -, an external account binding for a CA that asks
+  for one.
+- **DNS providers**: what a node's `dns-01` certificate names, by name -
+  the same types and settings as on a node ([DNS-01: DNS providers](../letsencrypt.md#dns-01-dns-providers)).
+  Their settings are secrets: never shown again, kept when left empty.
+
+Every 10 minutes - at once when a node's page saves its configuration
+or asks for a renewal, or on **Order what's due now** - the Controller
+asks each node ordered by it which certificates are due (pending,
+expired, a third of their lifetime left, a renewal asked for); for each,
+the node makes a new key and its request, the Controller orders it with
+`janus-acme` - the nodes' own ACME client, in the Controller's image -
+and the node installs the chain. A failure waits 5 minutes, then twice
+as long each time, up to a day; **Order what's due now** tries again at
+once. **Ordered certificates** lists each node's, with its state, its
+expiry, the last order and the next attempt; a node that answers HTTP-01
+for another account (moved from another Controller) says so.
+
+What must be open: the Controller reaches the CA over HTTPS, and its DNS
+providers' APIs for DNS-01 - plus DNS, to see the record appear unless
+the provider waits instead (`propagation_wait_seconds`). For HTTP-01 the
+CA still reaches the node on port 80. The Controller calls the nodes as
+`lets-encrypt` (operator) - their audit shows it.
+
 ## When the Controller is down
 
-Nothing is obtained or renewed through it meanwhile: the node retries,
-its certificates go on being served. A Let's Encrypt certificate lasts
+Nothing is obtained or renewed through it meanwhile - relayed or
+ordered: the node's certificates go on being served, and the next pass
+catches up. A Let's Encrypt certificate lasts
 90 days and is renewed from day 60 - a Controller down for a few days
 changes nothing.

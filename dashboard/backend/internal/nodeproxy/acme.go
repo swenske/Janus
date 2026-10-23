@@ -14,6 +14,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/acme"
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // The letsencrypt extension (ACME): its status, its configuration (as
@@ -35,8 +36,43 @@ type RelayInfo struct {
 	NotThroughRelay map[string]string   `json:"not_through_relay,omitempty"`
 }
 
-// ACMERelay is the relay now; set by the Controller.
-var ACMERelay func() RelayInfo
+// OrderingInfo is what a node page needs to choose "Ordered by this
+// Controller" (the Controller's acme_order.go).
+type OrderingInfo struct {
+	Available bool `json:"available"` // this Controller orders for nodes
+	// Ready: an admin set it up - the account, the CA's terms; Why, if
+	// not.
+	Ready        bool            `json:"ready"`
+	Why          string          `json:"why,omitempty"`
+	Thumbprint   string          `json:"thumbprint,omitempty"` // the account's: the node's HTTP-01 rule answers with it
+	DNSProviders []NamedProvider `json:"dns_providers,omitempty"`
+}
+
+// NamedProvider is one of the Controller's DNS providers, without its
+// settings.
+type NamedProvider struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// ACMERelay is the relay now, ACMEOrdering the Controller's ordering;
+// ACMEChanged tells the Controller a node's Let's Encrypt configuration
+// changed or a renewal was asked for. Set by the Controller.
+var (
+	ACMERelay    func() RelayInfo
+	ACMEOrdering func() OrderingInfo
+	ACMEChanged  func()
+)
+
+// ACMEOrderingUser is the Controller ordering certificates for a node -
+// the name its audit shows.
+var ACMEOrderingUser = User{Name: "lets-encrypt", Perms: []Perm{{Role: pki.RoleOperator}}}
+
+func acmeChanged() {
+	if ACMEChanged != nil {
+		ACMEChanged()
+	}
+}
 
 func registerACMERoutes(mux *http.ServeMux, node *store.Node) {
 	empty := &emptypb.Empty{}
@@ -68,13 +104,20 @@ func registerACMERoutes(mux *http.ServeMux, node *store.Node) {
 		out["path_mode"] = strings.ToLower(strings.TrimPrefix(resp.GetPathMode().String(), "ACME_PATH_MODE_"))
 		return out, nil
 	}))
-	// The Controller's relay, for the page's "Through this Controller".
-	mux.HandleFunc("GET /api/haproxy/acme/relay", func(w http.ResponseWriter, r *http.Request) {
-		info := RelayInfo{}
+	// The Controller's part, for the page's "Through this Controller"
+	// and "Ordered by this Controller".
+	mux.HandleFunc("GET /api/haproxy/acme/controller", func(w http.ResponseWriter, r *http.Request) {
+		out := struct {
+			Relay    RelayInfo    `json:"relay"`
+			Ordering OrderingInfo `json:"ordering"`
+		}{}
 		if ACMERelay != nil {
-			info = ACMERelay()
+			out.Relay = ACMERelay()
 		}
-		writeJSONBody(w, http.StatusOK, info)
+		if ACMEOrdering != nil {
+			out.Ordering = ACMEOrdering()
+		}
+		writeJSONBody(w, http.StatusOK, out)
 	})
 	mux.HandleFunc("GET /api/haproxy/acme/config", hap(func(ctx context.Context, c janusv1alpha1.HAProxyServiceClient) (any, error) {
 		resp, err := c.ACMEGetConfig(ctx, empty)
@@ -108,6 +151,9 @@ func registerACMERoutes(mux *http.ServeMux, node *store.Node) {
 				resp, err := c.ACMEApplyConfig(ctx, &janusv1alpha1.ACMEApplyConfigRequest{Config: cfg, AccountKey: req.AccountKey, ValidateOnly: validate})
 				if err != nil {
 					return nil, err
+				}
+				if resp.GetAccepted() && !validate {
+					acmeChanged()
 				}
 				return moduleConfigResult{Accepted: resp.GetAccepted(), Errors: resp.GetErrors()}, nil
 			})(w, r)
@@ -147,6 +193,7 @@ func registerACMERoutes(mux *http.ServeMux, node *store.Node) {
 			if err != nil {
 				return nil, err
 			}
+			acmeChanged() // the Controller orders a certificate it orders now
 			return map[string]any{"names": resp.GetNames()}, nil
 		})(w, r)
 	})

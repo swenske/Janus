@@ -1,16 +1,22 @@
-import { Download, ExternalLink, Route } from 'lucide-react'
+import { Download, ExternalLink, Pencil, Plus, RefreshCw, Route, ShieldCheck, Trash2, Waypoints } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
+import ProviderForm from './shared/ACMEProviderForm.jsx'
 import { Badge, Card, ErrorBox, Loading, useAction, useToast } from './shared/ui.jsx'
 
 // Let's Encrypt (admin): the Controller's part in the nodes'
 // certificates - the relay, for the nodes that reach the CA through the
-// Controller (dashboard/backend/acme_relay.go,
-// docs/guide/letsencrypt-controller.md). Each node chooses its way on its
+// Controller (dashboard/backend/acme_relay.go), and the ordering, for the
+// nodes whose certificates it orders (acme_order.go);
+// docs/guide/letsencrypt-controller.md. Each node chooses its way on its
 // own page, Apps › Let's Encrypt.
 
 const DOCS = 'https://janus.sw-servers.net/docs/guide/letsencrypt-controller.md'
 const NODE_DOCS = 'https://janus.sw-servers.net/docs/letsencrypt.md#how-the-node-reaches-lets-encrypt'
+const TERMS = 'https://letsencrypt.org/repository/'
+const STATE_TONES = { valid: 'ok', pending: 'warn', due: 'info', expired: 'danger' }
+
+const when = (t) => (t && !t.startsWith('0001') ? new Date(t).toLocaleString() : '-')
 
 const draftOf = (c) => ({ enabled: !!c.enabled, listen: c.listen || ':8444', address: c.address || '', allowed: (c.allowed || []).join('\n') })
 const configOf = (d) => ({
@@ -78,9 +84,9 @@ export default function LetsEncryptPage() {
       <p className="muted">
         Each node gets its certificates itself and chooses, on its own page (Apps › Let’s Encrypt), how it reaches the CA:{' '}
         <a href={NODE_DOCS} target="_blank" rel="noreferrer">
-          directly, through a proxy, or through this Controller
+          directly, through a proxy, through this Controller
         </a>
-        . The last one needs the relay below.
+        , or have this Controller order its certificates. The last two need what’s set up below.
       </p>
       {error && <ErrorBox error={error} />}
       <Card title="Relay for the nodes" icon={Route} actions={state} className="acme-relay-card">
@@ -144,6 +150,7 @@ export default function LetsEncryptPage() {
           </div>
         )}
       </Card>
+      <Ordering />
       <Card title="Recent tunnels">
         {view.recent?.length ? (
           <div className="table-wrap">
@@ -179,5 +186,200 @@ export default function LetsEncryptPage() {
         )}
       </Card>
     </div>
+  )
+}
+
+// Ordering: the account the Controller orders its nodes' certificates
+// with, its DNS providers, and what it did for each node.
+function Ordering() {
+  const [view, setView] = useState(null)
+  const [error, setError] = useState(null)
+  const [editing, setEditing] = useState(null) // the account, or a provider ({ index })
+  const [busy, run] = useAction()
+  const toast = useToast()
+  const load = useCallback((background) => call('/api/acme', { background }).then(setView, setError), [])
+  useEffect(() => {
+    load(false)
+    const t = setInterval(() => load(true), 15000)
+    return () => clearInterval(t)
+  }, [load])
+  if (!view) return error ? <ErrorBox error={error} /> : <Loading />
+  const set = view.settings
+  const save = (next, done) =>
+    run(async () => {
+      setView(await postJSON('/api/acme', next, 'PUT'))
+      toast('Saved.')
+      done?.()
+    })
+  const providers = set.dns_providers || []
+  const orderNow = () =>
+    run(async () => {
+      await call('/api/acme/run', { method: 'POST' })
+      toast('Ordering what’s due - the list follows in a moment.')
+      setTimeout(() => load(true), 5000)
+    })
+  const state = view.ready ? <Badge tone="ok">ready</Badge> : <Badge tone="warn">not set up</Badge>
+  return (
+    <>
+      <Card title="Ordering for the nodes" icon={ShieldCheck} actions={state} className="acme-relay-card">
+        <p className="small">
+          A node whose page chose “Ordered by this Controller” reaches nothing: the Controller asks it for a key and its request for each certificate due, orders it from the CA the node’s configuration names with the account below, and installs what comes back. The keys never leave the node; the account and the DNS providers stay here, sealed with the master key.
+        </p>
+        {!view.client && <div className="notice danger">This Controller has no ACME client (janus-acme next to dashboardd): nothing can be ordered.</div>}
+        <dl className="kv">
+          <dt>Account</dt>
+          <dd className="mono small">{view.thumbprint}</dd>
+          <dt>Contact</dt>
+          <dd>{set.email || <span className="muted">none</span>}</dd>
+          <dt>Terms</dt>
+          <dd>
+            {set.accept_terms ? <Badge tone="ok">accepted</Badge> : <Badge tone="warn">not accepted - nothing is ordered until they are</Badge>}{' '}
+            <a className="small" href={TERMS} target="_blank" rel="noreferrer">
+              Let’s Encrypt’s
+            </a>
+          </dd>
+          {set.eab_key_id && (
+            <>
+              <dt>External account binding</dt>
+              <dd className="mono small">{set.eab_key_id}</dd>
+            </>
+          )}
+        </dl>
+        {editing === 'account' ? (
+          <AccountForm settings={set} busy={busy} onCancel={() => setEditing(null)} onSave={(next) => save(next, () => setEditing(null))} />
+        ) : (
+          <div className="row">
+            <button className="small" onClick={() => setEditing('account')}>
+              <Pencil size={13} /> Edit the account
+            </button>
+          </div>
+        )}
+        <div>
+          <div className="spread">
+            <strong className="small">DNS providers - what a node’s dns-01 certificate names</strong>
+            <button className="small" onClick={() => setEditing({ index: -1 })}>
+              <Plus size={13} /> Add a DNS provider
+            </button>
+          </div>
+          {providers.length ? (
+            <ul className="small relay-providers">
+              {providers.map((p, i) => (
+                <li key={p.name}>
+                  <span className="mono">{p.name}</span> <span className="muted">({p.type})</span>{' '}
+                  <button className="small ghost" aria-label={`Edit ${p.name}`} onClick={() => setEditing({ index: i })}>
+                    <Pencil size={12} />
+                  </button>
+                  <button className="small ghost" aria-label={`Remove ${p.name}`} onClick={() => save({ ...set, dns_providers: providers.filter((_, j) => j !== i) })}>
+                    <Trash2 size={12} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="small muted">None yet - only HTTP-01 certificates can be ordered.</p>
+          )}
+        </div>
+      </Card>
+      {editing?.index !== undefined && (
+        <ProviderForm
+          provider={editing.index >= 0 ? providers[editing.index] : null}
+          names={providers.map((p) => p.name)}
+          busy={busy}
+          onCancel={() => setEditing(null)}
+          onSave={(p) =>
+            save({ ...set, dns_providers: editing.index >= 0 ? providers.map((x, j) => (j === editing.index ? p : x)) : [...providers, p] }, () => setEditing(null))
+          }
+        />
+      )}
+      <Card
+        title="Ordered certificates"
+        icon={Waypoints}
+        actions={
+          <button className="small" disabled={busy || !view.ready} onClick={orderNow}>
+            <RefreshCw size={13} /> Order what’s due now
+          </button>
+        }
+      >
+        {view.nodes?.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Node</th>
+                  <th>Certificate</th>
+                  <th>State</th>
+                  <th>Valid until</th>
+                  <th>Last order</th>
+                  <th>Next attempt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {view.nodes.flatMap((n) =>
+                  n.state !== 'ordered' || !n.certificates?.length
+                    ? [
+                        <tr key={n.id}>
+                          <td>{n.name}</td>
+                          <td colSpan={5}>{n.error ? <Badge tone="danger">{n.error}</Badge> : <span className="muted">no certificate configured</span>}</td>
+                        </tr>,
+                      ]
+                    : n.certificates.map((c) => (
+                        <tr key={`${n.id}/${c.name}`}>
+                          <td>{n.name}</td>
+                          <td>
+                            <span className="mono">{c.name}</span> <span className="muted small">{c.domains.join(', ')}</span>
+                          </td>
+                          <td>
+                            <Badge tone={STATE_TONES[c.state]}>{c.state}</Badge> {c.asked && <Badge tone="info">renewal asked</Badge>}
+                          </td>
+                          <td className="nowrap">{c.not_after_unix ? new Date(c.not_after_unix * 1000).toLocaleDateString() : '-'}</td>
+                          <td>{c.order.last_error ? <Badge tone="danger">{c.order.last_error}</Badge> : when(c.order.last_success)}</td>
+                          <td className="nowrap">{when(c.order.next_attempt)}</td>
+                        </tr>
+                      )),
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted small">No node is ordered by this Controller yet - a node’s page chooses it (Apps › Let’s Encrypt, “Ordered by this Controller”).</p>
+        )}
+      </Card>
+    </>
+  )
+}
+
+function AccountForm({ settings, busy, onCancel, onSave }) {
+  const [email, setEmail] = useState(settings.email || '')
+  const [terms, setTerms] = useState(!!settings.accept_terms)
+  const [eabID, setEabID] = useState(settings.eab_key_id || '')
+  const [eabKey, setEabKey] = useState('')
+  return (
+    <fieldset className="plain relay-form" disabled={busy}>
+      <label className="field">
+        <span>Contact address (optional) - the CA writes about the account there</span>
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ops@example.com" />
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} /> I accept the CA’s terms of service
+      </label>
+      <div className="relay-fields">
+        <label className="field">
+          <span>External account binding: key ID (a CA that asks for one)</span>
+          <input className="mono" value={eabID} onChange={(e) => setEabID(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Its HMAC key</span>
+          <input className="mono" type="password" autoComplete="off" value={eabKey} onChange={(e) => setEabKey(e.target.value)} placeholder={settings.eab_key_id ? 'saved - leave empty to keep' : ''} />
+        </label>
+      </div>
+      <div className="row">
+        <button className="small primary" onClick={() => onSave({ ...settings, email: email.trim(), accept_terms: terms, eab_key_id: eabID.trim(), eab_hmac_key: eabKey })}>
+          Save
+        </button>
+        <button className="small ghost" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </fieldset>
   )
 }

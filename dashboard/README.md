@@ -107,6 +107,11 @@ nodes come from them (with `-p` mappings instead, set
   Controller ([The Controller and Let's Encrypt](../docs/guide/letsencrypt-controller.md)).
   It only tunnels, and only for the nodes added to this Controller.
 
+The image also carries `janus-acme`, the nodes' own ACME client: the
+Controller orders with it the certificates of the nodes ordered by it
+(the same tab; `-acme-client` / `JANUS_CONTROLLER_ACME_CLIENT` points
+elsewhere). The Controller then reaches the CA over HTTPS itself.
+
 ```sh
 docker run -d \
   --name janus-controller \

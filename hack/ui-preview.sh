@@ -75,7 +75,9 @@ build() {
   mkdir -p "$DIR/bin"
   local version
   version="$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)"
-  for bin in ${1:-dashboardd:./dashboard/backend janusd:./cmd/janusd janusctl:./cmd/janusctl}; do
+  # janus-acme next to dashboardd, as in the Controller's image: what it
+  # orders its nodes' certificates with.
+  for bin in ${1:-dashboardd:./dashboard/backend janus-acme:./cmd/janus-acme janusd:./cmd/janusd janusctl:./cmd/janusctl}; do
     # Built aside, then moved: the containers see the directory, a new
     # file in it at their next start.
     (cd "$ROOT" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$DIR/bin/.${bin%%:*}" "${bin#*:}")
@@ -147,7 +149,7 @@ up() {
   rm -rf "$DIR/controller" "$DIR/creds" "$DIR/token" "$DIR/janusctl.json" "$DIR"/janusctl
   mkdir -p "$DIR/preview" "$DIR/controller" "$DIR/rsyslog/out"
   printf 'BIND=%q\nHOST=%q\n' "$BIND" "$HOST" >"$DIR/env"
-  echo "ui-preview: building dashboardd, janusd, janusctl"
+  echo "ui-preview: building dashboardd, janus-acme, janusd, janusctl"
   build
   docker build -q -t "$RSYSLOG_IMAGE" "$ROOT/hack/rsyslog" >/dev/null
   docker build -q -t "$ES_IMAGE" "$ROOT/hack/elasticsearch" >/dev/null
@@ -276,7 +278,7 @@ reload() {
     echo "ui-preview: the Controller restarted"
     return
   fi
-  echo "ui-preview: building dashboardd, janusd, janusctl"
+  echo "ui-preview: building dashboardd, janus-acme, janusd, janusctl"
   build
   docker restart "$P-controller" "$P-edge-1" "$P-edge-2" "$P-edge-3" "$P-load" "$P-cli" >/dev/null
   echo "ui-preview: the Controller, the nodes and their traffic restarted"

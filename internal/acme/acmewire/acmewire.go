@@ -53,6 +53,12 @@ type Request struct {
 	// of the node's CA before running janus-acme.
 	Relay bool `json:"-"`
 
+	// CSR (PEM), with ActionIssue, is the certificate signing request to
+	// order for - the Controller ordering for a node (path
+	// CONTROLLER_ORDERED): the names are its, its key stays with whoever
+	// made it, no private key comes back.
+	CSR string `json:"csr,omitempty"`
+
 	// AccountKey is the account's private key (PEM).
 	AccountKey  string `json:"account_key"`
 	Email       string `json:"email,omitempty"`

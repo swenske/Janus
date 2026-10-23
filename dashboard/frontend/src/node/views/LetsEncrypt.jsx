@@ -6,6 +6,7 @@ import { hunks, lineDiff } from '../diff.js'
 import { DiffView, Editor } from '../components/Editor.jsx'
 import { dateTime } from '../format.js'
 import { usePoll } from '../hooks.jsx'
+import ProviderForm from '../../shared/ACMEProviderForm.jsx'
 import { useMay } from '../may.js'
 
 // Its page on the docs site, by the file's permalink.
@@ -17,23 +18,6 @@ const CAS = [
   { id: 'custom', label: 'Another ACME CA (its directory URL)' },
 ]
 
-// The DNS providers janus-acme has, with the settings they usually need
-// (lego's names - docs/letsencrypt.md lists them all).
-const PROVIDERS = {
-  gandiv5: ['GANDIV5_PERSONAL_ACCESS_TOKEN'],
-  ovh: ['OVH_ENDPOINT', 'OVH_APPLICATION_KEY', 'OVH_APPLICATION_SECRET', 'OVH_CONSUMER_KEY'],
-  cloudflare: ['CLOUDFLARE_DNS_API_TOKEN'],
-  route53: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION', 'AWS_HOSTED_ZONE_ID'],
-  pdns: ['PDNS_API_URL', 'PDNS_API_KEY'],
-  rfc2136: ['RFC2136_NAMESERVER', 'RFC2136_TSIG_KEY', 'RFC2136_TSIG_SECRET', 'RFC2136_TSIG_ALGORITHM'],
-  hetzner: ['HETZNER_API_TOKEN'],
-  digitalocean: ['DO_AUTH_TOKEN'],
-  scaleway: ['SCALEWAY_API_TOKEN', 'SCALEWAY_PROJECT_ID'],
-  ionos: ['IONOS_API_KEY'],
-  infomaniak: ['INFOMANIAK_ACCESS_TOKEN'],
-  desec: ['DESEC_TOKEN'],
-  httpreq: ['HTTPREQ_ENDPOINT', 'HTTPREQ_USERNAME', 'HTTPREQ_PASSWORD'],
-}
 const KEY_TYPES = ['ec256', 'ec384', 'rsa2048', 'rsa3072', 'rsa4096']
 const STATE_TONES = { valid: 'ok', pending: 'warn', due: 'info', expired: 'danger' }
 
@@ -65,6 +49,7 @@ const ORDER = [
   'proxy_username',
   'proxy_password',
   'proxy_ca',
+  'account_thumbprint',
 ]
 const rank = (k) => (ORDER.includes(k) ? ORDER.indexOf(k) : ORDER.length)
 function canon(v) {
@@ -231,7 +216,9 @@ export default function LetsEncrypt() {
             <dd className="mono small">{st.directory}</dd>
             <dt>Account</dt>
             <dd className="small">
-              {st.account_uri ? (
+              {st.path_mode === 'controller_ordered' ? (
+                <span>the Controller’s - it orders this node’s certificates; the account below is unused meanwhile</span>
+              ) : st.account_uri ? (
                 <span className="mono">{st.account_uri}</span>
               ) : st.account_error ? (
                 <span style={{ color: 'var(--danger)' }}>{st.account_error}</span>
@@ -648,103 +635,6 @@ function CertForm({ cert, names, providers, busy, onCancel, onSave }) {
   )
 }
 
-function ProviderForm({ provider, names, busy, onCancel, onSave }) {
-  const [name, setName] = useState(provider?.name || '')
-  const [type, setType] = useState(provider?.type || 'gandiv5')
-  // Saved settings come back without their values: empty keeps them.
-  const [settings, setSettings] = useState(() =>
-    provider ? Object.keys(provider.settings || {}).map((k) => ({ key: k, value: '', saved: true })) : PROVIDERS.gandiv5.map((k) => ({ key: k, value: '' })),
-  )
-  const [resolvers, setResolvers] = useState((provider?.resolvers || []).join(' '))
-  const [wait, setWait] = useState(provider?.propagation_wait_seconds ? String(provider.propagation_wait_seconds) : '')
-  const changeType = (t) => {
-    setType(t)
-    if (!provider) setSettings(PROVIDERS[t].map((k) => ({ key: k, value: '' })))
-  }
-  const set = (i, change) => setSettings(settings.map((s, j) => (j === i ? { ...s, ...change } : s)))
-  const used = settings.filter((s) => s.key.trim() && (s.value || s.saved))
-  const nameTaken = !provider && names.includes(name.trim())
-  const save = () => {
-    const p = { name: name.trim(), type, settings: Object.fromEntries(used.map((s) => [s.key.trim(), s.value])) }
-    const r = lines(resolvers)
-    if (r.length) p.resolvers = r
-    if (Number(wait) > 0) p.propagation_wait_seconds = Number(wait)
-    onSave(p)
-  }
-  return (
-    <div style={{ marginTop: '1rem' }}>
-      <Card className="data-title" title={provider ? `Edit ${provider.name}` : 'Add a DNS provider'} icon={Waypoints}>
-        <div className="grid grid-2">
-          <label className="field">
-            <span>Name - what certificates refer to it by</span>
-            <input className="mono" value={name} disabled={!!provider} onChange={(e) => setName(e.target.value)} placeholder="gandi" />
-          </label>
-          <label className="field">
-            <span>Type</span>
-            <select value={type} onChange={(e) => changeType(e.target.value)} disabled={!!provider}>
-              {Object.keys(PROVIDERS).map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="field" style={{ marginTop: '0.6rem' }}>
-          <span className="field-label">Settings - lego's names for {type}; see the guide for every option</span>
-          {settings.map((s, i) => (
-            <div className="row" key={i} style={{ marginBottom: '0.3rem' }}>
-              <input
-                className="mono"
-                style={{ width: '45%' }}
-                value={s.key}
-                disabled={s.saved}
-                onChange={(e) => set(i, { key: e.target.value.toUpperCase() })}
-                placeholder="SETTING_NAME"
-              />
-              <input
-                className="mono grow"
-                type="password"
-                autoComplete="off"
-                value={s.value}
-                onChange={(e) => set(i, { value: e.target.value })}
-                placeholder={s.saved ? 'saved - leave empty to keep' : 'value'}
-              />
-              <button className="small" title="Remove" onClick={() => setSettings(settings.filter((_, j) => j !== i))}>
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
-          <div>
-            <button className="small" onClick={() => setSettings([...settings, { key: `${PROVIDERS[type][0].split('_')[0]}_`, value: '' }])}>
-              <Plus size={13} /> Add a setting
-            </button>
-          </div>
-        </div>
-        <div className="grid grid-2" style={{ marginTop: '0.6rem' }}>
-          <label className="field">
-            <span>Resolvers for the propagation check (optional)</span>
-            <input
-              className="mono"
-              value={resolvers}
-              onChange={(e) => setResolvers(e.target.value)}
-              placeholder="1.1.1.1 9.9.9.9 - public ones with split-horizon DNS"
-            />
-          </label>
-          <label className="field">
-            <span>Or wait instead of checking (seconds, optional)</span>
-            <input type="number" min={0} max={3600} value={wait} onChange={(e) => setWait(e.target.value)} placeholder="check that the record is visible" />
-          </label>
-        </div>
-        {nameTaken && <div className="notice">A provider is already named {name.trim()}.</div>}
-        <div className="row" style={{ marginTop: '0.8rem' }}>
-          <button className="primary" disabled={busy || !name.trim() || nameTaken || !used.length} onClick={save}>
-            <CheckCircle2 size={15} /> Save…
-          </button>
-          <button onClick={onCancel}>Cancel</button>
-        </div>
-      </Card>
-    </div>
-  )
-}
 
 // JSONCard: the whole configuration, as janusctl haproxy acme get prints
 // it - secrets empty, kept when applied empty.
@@ -828,14 +718,22 @@ const MODES = [
     who: 'The node talks to the CA through the Controller’s relay - encrypted end to end, the relay sees host names only.',
     needs: 'The node reaches the Controller; the Controller reaches the CA and the DNS providers’ APIs.',
   },
+  {
+    id: 'ACME_PATH_MODE_CONTROLLER_ORDERED',
+    title: 'Ordered by this Controller',
+    who: 'The Controller orders the certificates with its own account and installs them - their keys never leave the node.',
+    needs: 'The node reaches nothing; the Controller reaches the CA and the DNS providers’ APIs.',
+  },
 ]
 const RELAY = 'ACME_PATH_MODE_CONTROLLER_RELAY'
+const ORDERED = 'ACME_PATH_MODE_CONTROLLER_ORDERED'
 const modeOf = (path) => (MODES.some((m) => m.id === path?.mode) ? path.mode : 'ACME_PATH_MODE_DIRECT')
 const pathToSend = (p) => {
   const mode = modeOf(p)
   if (mode === 'ACME_PATH_MODE_DIRECT') return { mode }
   if (mode === RELAY) return { mode, proxy_url: p.proxy_url, proxy_ca: p.proxy_ca }
-  return { ...p, mode }
+  if (mode === ORDERED) return { mode, account_thumbprint: p.account_thumbprint }
+  return { ...p, mode, account_thumbprint: undefined }
 }
 // The Controller's own page, its Let's Encrypt tab (admins).
 const CONTROLLER_TAB = '/#/letsencrypt'
@@ -847,19 +745,31 @@ function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
   const old = st.path_mode === 'unspecified' // a node older than the paths
   const path = draft || saved
   const mode = modeOf(path)
-  const relay = usePoll('/api/haproxy/acme/relay', { every: 60000, enabled: !old }).data
+  const controller = usePoll('/api/haproxy/acme/controller', { every: 60000, enabled: !old }).data
+  const relay = controller?.relay
+  const ordering = controller?.ordering
   const relayReady = !!(relay?.enabled && relay?.listening && relay?.url)
+  const orderingReady = !!(ordering?.ready && ordering?.thumbprint)
   const edit = (change) => {
     setDraft({ ...path, ...change })
     setCheck(null)
   }
   // The relay's address and the Controller's identity come with the
   // choice: nothing to type.
-  const choose = (id) =>
-    id === RELAY ? edit({ mode: id, proxy_url: relay?.url || '', proxy_ca: relay?.ca_cert_pem || '', proxy_username: '', proxy_password: '' }) : edit({ mode: id, ...(modeOf(saved) === RELAY ? { proxy_url: '', proxy_ca: '' } : {}) })
+  // The Controller's account comes with "Ordered by this Controller".
+  const choose = (id) => {
+    if (id === RELAY) edit({ mode: id, proxy_url: relay?.url || '', proxy_ca: relay?.ca_cert_pem || '', proxy_username: '', proxy_password: '', account_thumbprint: '' })
+    else if (id === ORDERED) edit({ mode: id, proxy_url: '', proxy_ca: '', proxy_username: '', proxy_password: '', account_thumbprint: ordering?.thumbprint || '' })
+    else edit({ mode: id, account_thumbprint: '', ...([RELAY, ORDERED].includes(modeOf(saved)) ? { proxy_url: '', proxy_ca: '' } : {}) })
+  }
   const moved = modeOf(saved) === RELAY && !draft && relayReady && saved.proxy_url !== relay.url
-  // A relay that's off or doesn't listen can't be tried nor chosen.
-  const incomplete = (mode === 'ACME_PATH_MODE_PROXY' && !path.proxy_url) || (mode === RELAY && (!path.proxy_url || !path.proxy_ca || !relayReady))
+  const otherAccount = modeOf(saved) === ORDERED && !draft && orderingReady && saved.account_thumbprint !== ordering.thumbprint
+  // A relay that's off or doesn't listen, ordering not set up: neither
+  // can be tried nor chosen.
+  const incomplete =
+    (mode === 'ACME_PATH_MODE_PROXY' && !path.proxy_url) ||
+    (mode === RELAY && (!path.proxy_url || !path.proxy_ca || !relayReady)) ||
+    (mode === ORDERED && (!path.account_thumbprint || !orderingReady))
   const test = () =>
     run(async () => {
       setCheck(await postJSON('/api/haproxy/acme/check-path', { path: pathToSend(path) }))
@@ -868,8 +778,13 @@ function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
     const next = { ...cfg }
     if (modeOf(draft) === 'ACME_PATH_MODE_DIRECT') delete next.path
     else next.path = { ...pathToSend(draft) }
-    const how = { ACME_PATH_MODE_DIRECT: 'directly', ACME_PATH_MODE_PROXY: `through the proxy ${draft.proxy_url}. A password left empty keeps the saved one`, [RELAY]: `through the Controller’s relay ${draft.proxy_url}` }
-    const note = `From now on the node reaches the CA ${how[modeOf(draft)]}.`
+    const how = {
+      ACME_PATH_MODE_DIRECT: 'From now on the node reaches the CA directly.',
+      ACME_PATH_MODE_PROXY: `From now on the node reaches the CA through the proxy ${draft.proxy_url}. A password left empty keeps the saved one.`,
+      [RELAY]: `From now on the node reaches the CA through the Controller’s relay ${draft.proxy_url}.`,
+      [ORDERED]: 'From now on the Controller orders this node’s certificates; HAProxy answers HTTP-01 for the Controller’s account (it reloads).',
+    }
+    const note = how[modeOf(draft)]
     if (await apply(next, { title: 'Change how the node reaches the CA?', note })) {
       setDraft(null)
       setCheck(null)
@@ -924,8 +839,9 @@ function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
             </fieldset>
           )}
           {mode === RELAY && <RelaySettings relay={relay} path={path} moved={moved} canApply={canApply} onFollow={() => choose(RELAY)} />}
+          {mode === ORDERED && <OrderingSettings ordering={ordering} path={path} otherAccount={otherAccount} canApply={canApply} onFollow={() => choose(ORDERED)} />}
           <div className="row" style={{ marginTop: '0.75rem' }}>
-            {canCheck && (
+            {canCheck && mode !== ORDERED && (
               <button className="small" disabled={busy || incomplete} onClick={test}>
                 <RefreshCw size={13} /> Test
               </button>
@@ -949,7 +865,7 @@ function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
           </div>
         </>
       )}
-      <Needs cfg={cfg} st={st} mode={old ? 'ACME_PATH_MODE_DIRECT' : modeOf(path)} proxy={path.proxy_url} relay={relay} choosing={!!draft} />
+      <Needs cfg={cfg} st={st} mode={old ? 'ACME_PATH_MODE_DIRECT' : modeOf(path)} proxy={path.proxy_url} relay={relay} ordering={ordering} choosing={!!draft} />
     </Card>
   )
 }
@@ -995,6 +911,40 @@ function RelaySettings({ relay, path, moved, canApply, onFollow }) {
   )
 }
 
+// OrderingSettings: the Controller ordering this node's certificates -
+// or why it can't yet.
+function OrderingSettings({ ordering, path, otherAccount, canApply, onFollow }) {
+  if (!ordering) return <Loading />
+  if (!ordering.ready) {
+    return (
+      <div className="notice acme-relay">
+        <span>
+          {ordering.available ? `The Controller can’t order yet: ${ordering.why}.` : 'This Controller doesn’t order certificates.'} See the <a href={CONTROLLER_TAB}>Controller’s Let’s Encrypt tab</a>.
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="acme-relay small">
+      <div>
+        The Controller asks this node for a key and its request for each certificate due, orders it from the CA this configuration names with its account (<span className="mono">{path.account_thumbprint || ordering.thumbprint}</span>), and installs what comes back. HAProxy answers HTTP-01 for that account; DNS-01 goes through the Controller’s DNS providers, by name.
+      </div>
+      {otherAccount && (
+        <div className="notice">
+          <span>
+            This node answers HTTP-01 for another account than this Controller’s.{' '}
+            {canApply && (
+              <button className="small" onClick={onFollow}>
+                Use this Controller’s
+              </button>
+            )}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // hostPort is a URL's host:port, 443 by default; '' when it isn't one.
 function hostPort(u) {
   try {
@@ -1007,7 +957,7 @@ function hostPort(u) {
 
 // Needs: what must be open for this node's certificates - the saved way,
 // or the one being chosen.
-function Needs({ cfg, st, mode, proxy, relay, choosing }) {
+function Needs({ cfg, st, mode, proxy, relay, ordering, choosing }) {
   const certs = cfg.certificates || []
   const http = certs.filter((c) => (c.challenge || 'http-01') === 'http-01').map((c) => c.name)
   const dnsCerts = certs.filter((c) => c.challenge === 'dns-01')
@@ -1019,6 +969,25 @@ function Needs({ cfg, st, mode, proxy, relay, choosing }) {
     // not a URL: shown as is
   }
   const lines = []
+  if (mode === ORDERED) {
+    lines.push(`The Controller reaches the CA (${ca}) over HTTPS, and this node’s API - the node reaches nothing itself.`)
+    if (http.length) lines.push(`The CA reaches this node on port 80 from the internet - HTTP-01, for ${http.join(', ')}: HAProxy answers on that port.`)
+    const names = (ordering?.dns_providers || []).map((p) => p.name)
+    for (const c of dnsCerts) {
+      if (ordering && !names.includes(c.dns_provider)) lines.push(`${c.name}: the Controller has no DNS provider named ${c.dns_provider || '(none)'} - an admin adds it on its Let’s Encrypt tab.`)
+    }
+    if (dnsCerts.length) lines.push('DNS-01: the Controller reaches its DNS providers’ APIs, and asks DNS to see the record appear.')
+    return (
+      <div className="acme-needs">
+        <div className="small muted">{choosing ? 'What must be open for this node’s certificates with this choice:' : 'What must be open for this node’s certificates:'}</div>
+        <ul className="small">
+          {lines.map((l) => (
+            <li key={l}>{l}</li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
   if (mode === RELAY) {
     const builtIn = Object.values(relay?.built_in || {}).flat()
     const reaches = (hp) => builtIn.some((h) => `${h}:443` === hp) || (relay?.allowed || []).includes(hp)

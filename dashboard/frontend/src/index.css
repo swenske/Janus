@@ -193,3 +193,5 @@
 .relay-builtin ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 .relay-give { display: grid; gap: 0.4rem; justify-items: start; }
 .relay-give pre { margin: 0; padding: 0.5rem 0.65rem; max-width: 100%; overflow-x: auto; background: var(--surface-2, var(--surface)); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.relay-providers { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+.relay-providers li { display: flex; align-items: center; gap: 0.3rem; }

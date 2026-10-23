@@ -225,7 +225,7 @@ func account(client *lego.Client, req *acmewire.Request) (*registration.Resource
 }
 
 func issue(client *lego.Client, req *acmewire.Request, res *acmewire.Result) error {
-	if len(req.Domains) == 0 {
+	if len(req.Domains) == 0 && req.CSR == "" {
 		return errors.New("no domains")
 	}
 	switch req.Challenge {
@@ -252,6 +252,22 @@ func issue(client *lego.Client, req *acmewire.Request, res *acmewire.Result) err
 		return fmt.Errorf("unknown challenge %q", req.Challenge)
 	}
 
+	if req.CSR != "" {
+		block, _ := pem.Decode([]byte(req.CSR))
+		if block == nil || block.Type != "CERTIFICATE REQUEST" {
+			return errors.New("csr: no PEM certificate request")
+		}
+		csr, err := x509.ParseCertificateRequest(block.Bytes)
+		if err != nil {
+			return fmt.Errorf("csr: %w", err)
+		}
+		cert, err := client.Certificate.ObtainForCSR(certificate.ObtainForCSRRequest{CSR: csr, Bundle: true, Profile: req.Profile})
+		if err != nil {
+			return err
+		}
+		res.Certificate = string(cert.Certificate)
+		return nil
+	}
 	obtain := certificate.ObtainRequest{Domains: req.Domains, Bundle: true, Profile: req.Profile}
 	if req.Certificate != "" {
 		if leaf, err := leafOf(req.Certificate); err == nil {
