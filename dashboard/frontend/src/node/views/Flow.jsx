@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, LayoutDashboard, Layers, Route, Scaling, ScrollText, Server, SquareTerminal, Users, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, LayoutDashboard, Layers, Route, Scaling, ScrollText, Server, SquareTerminal, Table2, Users, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getJSON } from '../api.js'
 import ServerStateButtons from '../components/ServerStateButtons.jsx'
@@ -23,10 +23,10 @@ import {
   reach,
   related,
   risen,
-  statRows,
+  stickTables,
   withRates,
 } from '../flow.js'
-import { useMetrics, usePoll } from '../hooks.jsx'
+import { useMetrics, usePoll, useStatSamples } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import { useReducedMotion } from '../../shared/chart/motion.js'
 import BrandMark from '../../shared/BrandMark.jsx'
@@ -100,20 +100,7 @@ function short(s, n = 22) {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s
 }
 
-// useSamples keeps the last two answers of /api/haproxy/stats and when
-// each came: the byte counters' difference is the traffic.
-function useSamples(data) {
-  const [s, setS] = useState({ cur: null, prev: null, seconds: 0 })
-  useEffect(() => {
-    if (!data) return
-    const now = Date.now()
-    const rows = statRows(data)
-    setS((p) => ({ prev: p.cur, cur: { rows, t: now }, seconds: p.cur ? (now - p.cur.t) / 1000 : 0 }))
-  }, [data])
-  return s
-}
-
-// usePeerSamples is useSamples for the peers' answers -
+// usePeerSamples is useStatSamples (hooks.jsx) for the peers' answers -
 // /api/log-forwarding read by logTargets, /api/system/clients by
 // apiPeers: the peers, their numbers a second.
 function usePeerSamples(data, peers) {
@@ -205,6 +192,7 @@ function values(n, hap) {
       if (n.tone === 'off') return { parts: [r.status] }
       return { parts: [rate(r.traffic), `${compact(r.scur)} sess`] }
     case 'be':
+      if (n.stick) return { parts: [`${compact(n.table.used)} of ${compact(n.table.size)} entries`] }
       if (n.tone === 'danger') return { parts: ['DOWN'], tone: 'danger' }
       if (n.down) return { parts: [`${n.servers.length - n.down}/${n.servers.length} servers up`], tone: 'warn' }
       return { parts: [rate(r.traffic), `${compact(r.scur)} sess`] }
@@ -220,12 +208,18 @@ function values(n, hap) {
   }
 }
 
-// peerIcon is a node's icon: an Elasticsearch target's, the Controller's
-// are their own.
+// peerIcon is a node's icon: an Elasticsearch target's, the Controller's,
+// a stick table's are their own.
 function peerIcon(n) {
   if (n.kind === 'log' && n.es) return Database
   if (n.kind === 'api' && n.controller) return LayoutDashboard
+  if (n.kind === 'be' && n.stick) return Table2
   return ICONS[n.kind]
+}
+
+// kindName: what a node is, in words.
+function kindName(n) {
+  return n.kind === 'be' && n.stick ? 'Stick table' : KIND[n.kind]
 }
 
 // apiCount is what an API client's badge counts: the users the
@@ -235,18 +229,19 @@ function apiCount(n) {
 }
 
 function FlowNode({ n, hap, configKnown, shape, state, flash, onSelect, onHover }) {
-  const Icon = n.kind === 'log' && n.es ? Database : n.kind === 'api' && n.controller ? LayoutDashboard : ICONS[n.kind] // peerIcon's
+  const Icon = n.kind === 'log' && n.es ? Database : n.kind === 'api' && n.controller ? LayoutDashboard : n.kind === 'be' && n.stick ? Table2 : ICONS[n.kind] // peerIcon's
   const s = ICON_SIZE[n.kind]
   const v = values(n, hap)
   const text = v.parts.join(' · ')
   // A backend no frontend rule names - with the configuration read; a
   // peer no interface on the map says it goes by.
   const peer = n.kind === 'log' || n.kind === 'api'
-  const unlinked = (n.kind === 'be' && configKnown && !n.linked) || (peer && !n.linked)
-  const proto = (n.kind === 'fe' || n.kind === 'be') && PROTO[n.mode]
+  // (A stick table's backend: no rule sends to it, by design.)
+  const unlinked = (n.kind === 'be' && configKnown && !n.linked && !n.stick) || (peer && !n.linked)
+  const proto = (n.kind === 'fe' || (n.kind === 'be' && !n.stick)) && PROTO[n.mode]
   const count = n.kind === 'api' ? apiCount(n) : 0
   const who = n.kind === 'api' ? ` (${count} ${n.controller ? (count === 1 ? 'user' : 'users') : count === 1 ? 'client' : 'clients'})` : ''
-  const label = `${n.kind === 'api' ? '' : `${KIND[n.kind]} `}${n.name}${proto ? ` (${proto})` : ''}${who}${text ? `: ${text}` : ''}${unlinked ? (peer ? ' - not known through which interface' : ' - no frontend rule names it') : ''}`
+  const label = `${n.kind === 'api' ? '' : `${kindName(n)} `}${n.name}${proto ? ` (${proto})` : ''}${who}${text ? `: ${text}` : ''}${unlinked ? (peer ? ' - not known through which interface' : ' - no frontend rule names it') : ''}`
   // A number that started from nothing flashes: its key replays it.
   const sub = (extra = '') => `flow-sub ${v.tone || ''} ${flash ? 'flash' : ''} ${extra}`
   // A label beside its node is part of it: hovering or clicking it too.
@@ -552,11 +547,11 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
   const n = map.byId[id]
   if (!n) return null
   if (n.kind === 'api') return <ApiDetails n={n} />
-  const Icon = ICONS[n.kind]
+  const Icon = n.kind === 'be' && n.stick ? Table2 : ICONS[n.kind]
   const r = n.row
   const title = (
     <>
-      {n.name} <Badge>{KIND[n.kind].toLowerCase()}</Badge> {(n.kind === 'fe' || n.kind === 'be') && PROTO[n.mode] && <span className={`badge flow-proto-badge proto-${n.mode}`}>{PROTO[n.mode]}</span>}
+      {n.name} <Badge>{kindName(n).toLowerCase()}</Badge> {(n.kind === 'fe' || (n.kind === 'be' && !n.stick)) && PROTO[n.mode] && <span className={`badge flow-proto-badge proto-${n.mode}`}>{PROTO[n.mode]}</span>}
     </>
   )
   const go = (other) => (
@@ -640,6 +635,20 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
       </Card>
     )
   }
+  if (n.kind === 'be' && n.stick) {
+    return (
+      <Card className="data-title" title={title} icon={Icon}>
+        <dl className="kv">
+          <Row k="Type">{n.table.type}</Row>
+          <Row k="Entries">{`${num(n.table.used)} of ${num(n.table.size)}`}</Row>
+        </dl>
+        <p className="muted small">A backend holding a stick table and no server: frontend rules track their clients into it (track-sc, table) - no traffic goes to it.</p>
+        <p className="small">
+          <a href="#/haproxy/tables">HAProxy › Stick tables</a>
+        </p>
+      </Card>
+    )
+  }
   if (n.kind === 'be') {
     const from = graph.links.filter((l) => l.to === n.id)
     return (
@@ -655,6 +664,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
           <Row k="Response time">{r.rtime != null ? `${num(r.rtime)} ms (last 1024)` : null}</Row>
           <Row k="Responses">{responses(r)}</Row>
           <Row k="Errors">{r.econ || r.eresp ? `${num(r.econ)} connection · ${num(r.eresp)} response` : null}</Row>
+          <Row k="Stick table">{n.table ? `${n.table.type} · ${num(n.table.used)} of ${num(n.table.size)} entries` : null}</Row>
         </dl>
         <h3 className="flow-h">Reached from</h3>
         {from.length ? (
@@ -857,7 +867,7 @@ function ApiDetails({ n }) {
   )
 }
 
-function Legend() {
+function Legend({ stick }) {
   return (
     <div className="flow-legend">
       <div className="flow-legend-row">
@@ -871,6 +881,11 @@ function Legend() {
             <span className={`flow-dot kind-${kind}`} /> {label}
           </span>
         ))}
+        {stick && (
+          <span className="flow-legend-item">
+            <Table2 size={12} aria-hidden="true" /> Stick table: a backend holding one and no server
+          </span>
+        )}
       </div>
       <div className="flow-legend-row">
         {[
@@ -919,6 +934,10 @@ export default function Flow() {
   const stats = usePoll('/api/haproxy/stats')
   const config = usePoll('/api/haproxy/config', { every: SLOW, enabled: mayConfig })
   const net = usePoll('/api/network/status', { every: SLOW, enabled: may('NetworkService/NetworkStatus') })
+  // The stick tables (their headers only): a backend holding one and no
+  // server is drawn as the table it is.
+  const tablesPoll = usePoll('/api/haproxy/tables', { every: SLOW, enabled: may('HAProxyService/TableList') })
+  const tables = useMemo(() => stickTables(tablesPoll.data), [tablesPoll.data])
   // Where the node's logs go, at the stats' pace: their records and
   // bytes a second (a node without a log shipper answers an error - no
   // targets then).
@@ -949,14 +968,14 @@ export default function Flow() {
     lastUptime.current = uptime
   }, [uptime, reloadConfig])
 
-  const samples = useSamples(stats.data)
+  const samples = useStatSamples(stats.data)
   const configText = config.data?.config
   // A string: parsed again only when the configuration changed.
   const topology = useMemo(() => (configText != null ? parseTopology(configText) : null), [configText])
   const mapPaths = topology?.maps || []
   const maps = useMaps(mapPaths, mayConfig && may('HAProxyService/MapGet'), generation)
   const rows = useMemo(() => (samples.cur ? withRates(samples.cur.rows, samples.prev?.rows, samples.seconds) : []), [samples])
-  const graph = useMemo(() => buildFlow(rows, topology, maps.maps), [rows, topology, maps.maps])
+  const graph = useMemo(() => buildFlow(rows, topology, maps.maps, tables), [rows, topology, maps.maps, tables])
   const ifaces = useMemo(() => interfaces(latest?.net, net.data), [latest?.net, net.data])
   const logs = usePeerSamples(logPoll.error ? null : logPoll.data, logTargets)
   const apis = usePeerSamples(clientPoll.error ? null : clientPoll.data, apiPeers)
@@ -1244,7 +1263,7 @@ export default function Flow() {
               ) : (
                 <Card>
                   <p className="muted">Select a node, or a link between a frontend and a backend, to see its counters and rules.</p>
-                  <Legend />
+                  <Legend stick={graph.backends.some((b) => b.stick)} />
                 </Card>
               )}
             </div>

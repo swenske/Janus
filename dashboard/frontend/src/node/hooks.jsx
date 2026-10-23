@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { getJSON } from './api.js'
 import { SIGNED_OUT } from '../shared/activity.js'
 import { ServerClock } from '../shared/chart/math.js'
+import { statRows } from './flow.js'
 
 // --- refresh interval (global, remembered per browser) ---
 
@@ -341,4 +342,20 @@ export function useCountdown(unix) {
     return () => clearInterval(t)
   }, [unix])
   return unix ? Math.max(0, Math.round(unix - now / 1000)) : 0
+}
+
+// --- HAProxy's counters, twice ---
+
+// useStatSamples keeps the last two answers of /api/haproxy/stats (rows
+// by column name, flow.js statRows) and when each came: the byte
+// counters' difference is the traffic (withRates).
+export function useStatSamples(data) {
+  const [s, setS] = useState({ cur: null, prev: null, seconds: 0 })
+  useEffect(() => {
+    if (!data) return
+    const now = Date.now()
+    const rows = statRows(data)
+    setS((p) => ({ prev: p.cur, cur: { rows, t: now }, seconds: p.cur ? (now - p.cur.t) / 1000 : 0 }))
+  }, [data])
+  return s
 }

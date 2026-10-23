@@ -1,19 +1,19 @@
 // node --test (npm test)
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { backends, ciphers, responses, tls, tlsVersions, traffic, versions } from './breakdown.js'
+import { backends, ciphers, frontendTraffic, hasIPv6, ipVersions, refusals, responses, tls, tlsVersions, traffic, versions } from './breakdown.js'
 
-const columns = ['pxname', 'svname', 'status', 'mode', 'bin', 'bout', 'hrsp_1xx', 'hrsp_2xx', 'hrsp_3xx', 'hrsp_4xx', 'hrsp_5xx', 'hrsp_other', 'h1req', 'h2req', 'h3req', 'req_other', 'ssl_sess', 'ssl_reused_sess', 'ssl_failed_handshake', 'rtime', 'ctime', 'qtime', 'ttime', 'req_rate', 'rate', 'econ', 'eresp']
+const columns = ['pxname', 'svname', 'status', 'mode', 'bin', 'bout', 'hrsp_1xx', 'hrsp_2xx', 'hrsp_3xx', 'hrsp_4xx', 'hrsp_5xx', 'hrsp_other', 'h1req', 'h2req', 'h3req', 'req_other', 'ssl_sess', 'ssl_reused_sess', 'ssl_failed_handshake', 'rtime', 'ctime', 'qtime', 'ttime', 'req_rate', 'rate', 'econ', 'eresp', 'ereq', 'dreq', 'dresp', 'dcon', 'dses', 'wretr', 'wredis']
 const row = (o) => columns.map((c) => (o[c] == null ? '' : String(o[c])))
 const stats = {
   columns,
   rows: [
-    row({ pxname: 'web', svname: 'FRONTEND', status: 'OPEN', mode: 'http', hrsp_2xx: 90, hrsp_4xx: 7, hrsp_5xx: 3, h1req: 60, h2req: 40, ssl_sess: 30, ssl_reused_sess: 20, ssl_failed_handshake: 2 }),
-    row({ pxname: 'tls', svname: 'FRONTEND', status: 'OPEN', mode: 'http', hrsp_2xx: 10, h2req: 10, ssl_sess: 10, ssl_reused_sess: 0 }),
+    row({ pxname: 'web', svname: 'FRONTEND', status: 'OPEN', mode: 'http', bin: 300, bout: 2000, hrsp_2xx: 90, hrsp_4xx: 7, hrsp_5xx: 3, h1req: 60, h2req: 40, ssl_sess: 30, ssl_reused_sess: 20, ssl_failed_handshake: 2, ereq: 4, dreq: 6, dcon: 1, dses: 1 }),
+    row({ pxname: 'tls', svname: 'FRONTEND', status: 'OPEN', mode: 'http', bin: 50, bout: 60, hrsp_2xx: 10, h2req: 10, ssl_sess: 10, ssl_reused_sess: 0 }),
     row({ pxname: 'pg', svname: 'FRONTEND', status: 'OPEN', mode: 'tcp' }),
     row({ pxname: 'app', svname: 'app1', status: 'UP', mode: 'http' }),
     row({ pxname: 'app', svname: 'app2', status: 'DOWN', mode: 'http' }),
-    row({ pxname: 'app', svname: 'BACKEND', status: 'UP', mode: 'http', bin: 100, bout: 900, rtime: 12, ttime: 20, req_rate: 5, econ: 1, eresp: 2 }),
+    row({ pxname: 'app', svname: 'BACKEND', status: 'UP', mode: 'http', bin: 100, bout: 900, rtime: 12, ttime: 20, req_rate: 5, econ: 1, eresp: 2, dreq: 6, wretr: 3 }),
     row({ pxname: 'api', svname: 'BACKEND', status: 'UP', mode: 'http', bin: 10, bout: 40, rtime: 80, ttime: 90 }),
     row({ pxname: 'db', svname: 'BACKEND', status: 'UP', mode: 'tcp', bin: 5000, bout: 5000, rate: 3 }),
   ],
@@ -70,8 +70,45 @@ test('backends: slowest first, servers up, errors', () => {
   assert.equal(b.find((x) => x.name === 'db').rate, 3)
 })
 
+test('traffic by frontend, refusals counted once', () => {
+  assert.deepEqual(
+    frontendTraffic(stats).map((s) => [s.label, s.value]),
+    [
+      ['web', 2300],
+      ['tls', 110],
+    ],
+  )
+  // The backend's dreq is the frontend's denial again: not added.
+  assert.deepEqual(
+    refusals(stats).map((s) => [s.label, s.value]),
+    [
+      ['Bad requests', 4],
+      ['Denied requests', 6],
+      ['Denied connections', 2],
+      ['Connection errors', 1],
+      ['Response errors', 2],
+      ['Retries', 3],
+    ],
+  )
+})
+
 test('nothing to break down', () => {
-  for (const f of [responses, versions, tls, traffic, backends]) assert.deepEqual(f(null), [])
+  for (const f of [responses, versions, tls, traffic, frontendTraffic, refusals, backends]) assert.deepEqual(f(null), [])
+  assert.deepEqual(ipVersions(null), [])
+})
+
+test('IP versions of the logged clients; IPv6 of the node beyond its links', () => {
+  assert.deepEqual(
+    ipVersions({ families: [{ name: 'IPv4', count: 80 }, { name: 'IPv6', count: 20 }] }).map((s) => [s.label, s.value]),
+    [
+      ['IPv4', 80],
+      ['IPv6', 20],
+    ],
+  )
+  const iface = (kind, ...addresses) => ({ kind, addresses })
+  assert.equal(hasIPv6({ interfaces: [iface('loopback', '127.0.0.1/8', '::1/128'), iface('physical', '10.0.2.15/24', 'fe80::5054:ff:fe12:3456/64')] }), false)
+  assert.equal(hasIPv6({ interfaces: [iface('physical', '10.0.2.15/24'), iface('vlan', '2001:db8::10/64')] }), true)
+  assert.equal(hasIPv6(null), false)
 })
 
 test('TLS versions coloured by age, ciphers the biggest five and the rest', () => {
