@@ -72,7 +72,7 @@ func TestComplete(t *testing.T) {
 		{"completion ", "bash zsh fish", ""},
 		{"lifecycle upgrade -sha256 ", "", ""},
 		{"nosuch ", "", ""},
-		{"haproxy acme ", "status get check apply renew path test-path", ""},
+		{"haproxy acme ", "status get check apply renew path test-path csr install", ""},
 		{"network firewall set-add inet ", "x", ""},
 		{"network firewall set-add inet filter blocked 192.0.2.1 ", "", ""},
 		{"context ", "list use delete", ""},

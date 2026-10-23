@@ -201,12 +201,26 @@ func (m *Manager) Thumbprint() string {
 	return m.thumb
 }
 
-// Env is HAProxy's part of the extension's environment.
+// Env is HAProxy's part of the extension's environment: the thumbprint
+// the HTTP-01 rule answers with.
 func (m *Manager) Env() []string {
-	if t := m.Thumbprint(); t != "" {
+	m.mu.Lock()
+	t := m.answerThumbLocked()
+	m.mu.Unlock()
+	if t != "" {
 		return []string{ThumbprintEnv + "=" + t}
 	}
 	return nil
+}
+
+// answerThumbLocked is the thumbprint HTTP-01 challenges are answered
+// with: the Controller's account's when it orders the certificates, the
+// node's own otherwise. Called with mu held.
+func (m *Manager) answerThumbLocked() string {
+	if p := m.cfg.GetPath(); isOrdered(p) {
+		return p.AccountThumbprint
+	}
+	return m.thumb
 }
 
 // Boot loads everything, creating the account key the first time, and
@@ -402,6 +416,7 @@ func (m *Manager) Apply(cfg *janusv1alpha1.ACMEConfig, accountKey string, valida
 
 	reload := false
 	started := m.opts.HAProxy.StartedAt()
+	answered := m.answerThumbLocked()
 	if key != nil && thumb != m.thumb {
 		path := filepath.Join(Dir, keyFile)
 		if err := writeDurable(filepath.Dir(path), filepath.Base(path), []byte(accountKey), 0o600); err != nil {
@@ -409,7 +424,6 @@ func (m *Manager) Apply(cfg *janusv1alpha1.ACMEConfig, accountKey string, valida
 		}
 		m.key, m.thumb = key, thumb
 		m.logger.Printf("account key replaced: thumbprint %s", thumb)
-		reload = true // HAProxy's environment has the thumbprint
 	}
 	saved := proto.Clone(cfg).(*janusv1alpha1.ACMEConfig)
 	saved.Path = nil // path.json: an older janusd refuses it in letsencrypt.json
@@ -431,11 +445,17 @@ func (m *Manager) Apply(cfg *janusv1alpha1.ACMEConfig, accountKey string, valida
 	if pathChanged {
 		m.retryFailedLocked()
 	}
+	if m.answerThumbLocked() != answered {
+		reload = true // HAProxy's environment has the thumbprint HTTP-01 answers with
+	}
 	for _, name := range removed {
 		if cs := m.st.Certs[name]; cs != nil && !started.IsZero() && cs.Created.Before(started) {
 			reload = true // a crt directory may have loaded it
 		}
 		if err := os.Remove(certPath(name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		if err := os.Remove(pendingPath(name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
 		delete(m.st.Certs, name)
@@ -631,6 +651,10 @@ func (m *Manager) pass() time.Time {
 	if m.cfg == nil || len(m.cfg.Certificates) == 0 || m.key == nil {
 		m.mu.Unlock()
 		return next
+	}
+	if isOrdered(m.cfg.Path) {
+		m.mu.Unlock()
+		return next // the Controller orders them (ordered.go)
 	}
 	cfg := proto.Clone(m.cfg).(*janusv1alpha1.ACMEConfig)
 	dir := ResolveDirectory(cfg.Account.Directory)
@@ -916,6 +940,10 @@ func (m *Manager) CheckPath(path *janusv1alpha1.ACMEPath, directory, directoryCA
 	}
 	m.mu.Unlock()
 	out := &janusv1alpha1.ACMECheckPathResponse{Directory: ResolveDirectory(directory), Via: via(path)}
+	if isOrdered(path) {
+		out.Error = "the node doesn't reach the CA: the Controller orders its certificates - its Let's Encrypt tab says how that goes"
+		return out
+	}
 	if errs := validatePath(path); len(errs) > 0 {
 		out.Error = strings.Join(errs, "; ")
 		return out
@@ -994,3 +1022,7 @@ func joinDomains(d []string) string {
 	}
 	return strings.Join(d, ", ")
 }
+
+// Backoff is how long to wait after the nth failure in a row - what the
+// Controller ordering for a node waits too.
+func Backoff(n int) time.Duration { return backoff(n) }

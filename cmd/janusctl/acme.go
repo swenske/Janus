@@ -126,6 +126,12 @@ func runACME(conn *grpc.ClientConn, args []string) {
 				check("read", err)
 				path.ProxyCa = string(ca)
 			}
+		case "ordered":
+			if fs.NArg() != 2 {
+				fmt.Fprintf(os.Stderr, "usage: janusctl haproxy acme %s ordered THUMBPRINT (the account the Controller - or your orchestrator - orders with)\n", args[0])
+				os.Exit(2)
+			}
+			path = &janusv1alpha1.ACMEPath{Mode: janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED, AccountThumbprint: fs.Arg(1)}
 		case "controller":
 			if fs.NArg() != 2 || *caFile == "" {
 				fmt.Fprintf(os.Stderr, "usage: janusctl haproxy acme %s controller URL -ca FILE (the relay's address and the Controller's identity: its Let's Encrypt tab shows both)\n", args[0])
@@ -135,7 +141,7 @@ func runACME(conn *grpc.ClientConn, args []string) {
 			check("read", err)
 			path = &janusv1alpha1.ACMEPath{Mode: janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY, ProxyUrl: fs.Arg(1), ProxyCa: string(ca)}
 		default:
-			fmt.Fprintf(os.Stderr, "janusctl haproxy acme %s: direct, proxy URL or controller URL, not %q\n", args[0], fs.Arg(0))
+			fmt.Fprintf(os.Stderr, "janusctl haproxy acme %s: direct, proxy URL, controller URL or ordered THUMBPRINT, not %q\n", args[0], fs.Arg(0))
 			os.Exit(2)
 		}
 		if args[0] == "test-path" {
@@ -167,6 +173,24 @@ func runACME(conn *grpc.ClientConn, args []string) {
 			os.Exit(1)
 		}
 		fmt.Println("The CA is reached", describePath(path), "from now on - check it with: janusctl haproxy acme test-path")
+	case "csr":
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: janusctl haproxy acme csr NAME")
+			os.Exit(2)
+		}
+		resp, err := client.ACMECertificateRequest(c, &janusv1alpha1.ACMECertificateRequestRequest{Name: args[1]})
+		check("ACMECertificateRequest", err)
+		fmt.Print(resp.GetCsrPem())
+	case "install":
+		if len(args) != 3 {
+			fmt.Fprintln(os.Stderr, "usage: janusctl haproxy acme install NAME CHAIN-FILE")
+			os.Exit(2)
+		}
+		chain, err := os.ReadFile(args[2])
+		check("read", err)
+		resp, err := client.ACMEInstallCertificate(c, &janusv1alpha1.ACMEInstallCertificateRequest{Name: args[1], ChainPem: string(chain)})
+		check("ACMEInstallCertificate", err)
+		fmt.Printf("%s: %s, serial %s, valid until %s\n", resp.GetName(), resp.GetState(), resp.GetSerial(), day(resp.GetNotAfterUnix()))
 	case "renew":
 		resp, err := client.ACMERenew(c, &janusv1alpha1.ACMERenewRequest{Names: args[1:]})
 		check("ACMERenew", err)
@@ -203,6 +227,9 @@ func or(s, def string) string {
 func describePath(p *janusv1alpha1.ACMEPath) string {
 	if p.GetMode() == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY {
 		return "through the Controller's relay " + p.GetProxyUrl()
+	}
+	if p.GetMode() == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED {
+		return "by the Controller, which orders the certificates (account " + p.GetAccountThumbprint() + ")"
 	}
 	if p.GetMode() == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY {
 		out := "through the proxy " + p.GetProxyUrl()

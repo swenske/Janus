@@ -291,8 +291,10 @@ var commands = &command{name: "janusctl", subs: []*command{
 			{name: "check", args: "FILE", help: "check a configuration", flags: []flagDef{valFlag("account-key", "FILE", "an existing account's private key", argFile)}, pos: []argKind{argFile}, required: 1},
 			{name: "apply", args: "FILE", help: "save a configuration", flags: []flagDef{valFlag("account-key", "FILE", "an existing account's private key", argFile)}, pos: []argKind{argFile}, required: 1},
 			{name: "renew", args: "[NAME...]", help: "obtain certificates now", pos: []argKind{argACMEName}, variadic: true},
-			{name: "path", args: "[direct | proxy URL | controller URL]", help: "how the node reaches the CA: show it, or set it", flags: acmePathFlags, pos: []argKind{argNone, argNone}, variadic: true},
+			{name: "path", args: "[direct | proxy URL | controller URL | ordered THUMBPRINT]", help: "how the node reaches the CA: show it, or set it", flags: acmePathFlags, pos: []argKind{argNone, argNone}, variadic: true},
 			{name: "test-path", args: "[direct | proxy URL | controller URL]", help: "fetch the CA's directory the saved way, or the given one", flags: acmePathFlags, pos: []argKind{argNone, argNone}, variadic: true},
+			{name: "csr", args: "NAME", help: "a new key kept on the node, and its certificate signing request - to order the certificate elsewhere", pos: []argKind{argACMEName}, required: 1},
+			{name: "install", args: "NAME CHAIN-FILE", help: "install the certificate issued for the request waiting", pos: []argKind{argACMEName, argFile}, required: 2},
 		}},
 	}},
 	{name: "network", group: "🌐 Network", help: "addresses, routes, firewall, VRRP, BGP, Consul", subs: []*command{

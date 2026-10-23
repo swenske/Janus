@@ -127,6 +127,17 @@ service HAProxyService {
   // it - the given path, or the saved one - and says how it went, without
   // changing anything.
   rpc ACMECheckPath(ACMECheckPathRequest) returns (ACMECheckPathResponse);
+  // ACMECertificateRequest makes a new private key and its certificate
+  // signing request for one of the configured certificates, for the
+  // Controller - or another orchestrator - to order it from the CA (path
+  // CONTROLLER_ORDERED). The key never leaves the node; a new request
+  // replaces the one waiting.
+  rpc ACMECertificateRequest(ACMECertificateRequestRequest) returns (ACMECertificateRequestResponse);
+  // ACMEInstallCertificate installs the certificate the CA issued for the
+  // request waiting - checked against its key and the configured domains
+  // - and swaps it into the running HAProxy; or keeps in the
+  // certificate's status why it couldn't be obtained.
+  rpc ACMEInstallCertificate(ACMEInstallCertificateRequest) returns (ACMECertificateStatus);
 
   // Runtime diagnostics (stats socket "show table", "show sess", "show
   // errors"): what the running HAProxy holds in its stick tables, the
@@ -381,6 +392,11 @@ enum ACMEPathMode {
   // Through the Controller's relay: an https:// proxy that knows the node
   // by a certificate of the node's own CA, made for each request.
   ACME_PATH_MODE_CONTROLLER_RELAY = 3;
+  // Ordered by the Controller: it orders the certificates from the
+  // configured CA with its own account, through the node's requests
+  // (ACMECertificateRequest, ACMEInstallCertificate); the node never
+  // reaches the CA, its keys never leave it.
+  ACME_PATH_MODE_CONTROLLER_ORDERED = 4;
 }
 
 message ACMEPath {
@@ -394,6 +410,29 @@ message ACMEPath {
   // node's trust store). CONTROLLER_RELAY: the Controller's identity -
   // what it gives nodes to register against - required.
   string proxy_ca = 5;
+  // CONTROLLER_ORDERED: the thumbprint of the account the Controller
+  // orders with - what the HTTP-01 rule answers with.
+  string account_thumbprint = 6;
+}
+
+message ACMECertificateRequestRequest {
+  string name = 1; // a configured certificate's
+}
+
+message ACMECertificateRequestResponse {
+  string name = 1;
+  string csr_pem = 2;
+  repeated string domains = 3; // what it asks for, as configured
+  string key_type = 4;
+}
+
+message ACMEInstallCertificateRequest {
+  string name = 1;
+  string chain_pem = 2; // what the CA issued, the leaf first
+  // Instead of chain_pem: why it couldn't be obtained, and when it will be
+  // tried again - kept in the certificate's status.
+  string error = 3;
+  int64 next_attempt_unix = 4;
 }
 
 message ACMECheckPathRequest {

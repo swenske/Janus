@@ -74,17 +74,18 @@ Each node chooses how it reaches the CA:
 | **Directly** (the default) | the node | the node reaches the CA over HTTPS, and the DNS provider's API for DNS-01 | on the node |
 | **Through a proxy** | the node, through an HTTP(S) proxy | the node reaches the proxy, the proxy reaches the CA and the providers' APIs | on the node |
 | **Through this Controller** | the node, through the Controller's relay - encrypted end to end | the node reaches the Controller, the Controller reaches the CA and the providers' APIs | on the node; the relay holds none |
+| **Ordered by this Controller** | the Controller, with its own account; the node makes each key and its request | the node reaches nothing; the Controller reaches the CA, the providers' APIs and the node | the account and DNS secrets on the Controller; each certificate's key on the node only |
 
 ```mermaid
 flowchart TD
   accTitle: Which way to Let's Encrypt
-  accDescr: A node that reaches the internet goes directly; one behind an HTTP proxy goes through it; one that reaches only the Controller goes through the Controller's relay.
+  accDescr: A node that reaches the internet goes directly; one behind an HTTP proxy goes through it; one that reaches only the Controller goes through the Controller's relay; one that reaches nothing has the Controller order its certificates.
   q1{"Does the node reach the internet over HTTPS?"} -->|yes| direct["Directly"]
   q1 -->|no| q2{"Is there an HTTP proxy it reaches?"}
   q2 -->|yes| proxy["Through a proxy"]
   q2 -->|no| q3{"Does it reach the Controller?"}
   q3 -->|yes| relay["Through this Controller"]
-  q3 -->|no| none["DNS-01 can't help either: the node must reach someone who reaches the CA"]
+  q3 -->|no| ordered["Ordered by this Controller<br/>(the Controller reaches the node)"]
 ```
 
 Whichever it is, an HTTP-01 challenge needs the CA to reach the node on
@@ -198,6 +199,54 @@ In the configuration's JSON, `proxy_url` is the relay's address and
   (DNS); and DNS-01's lookups still go from the node to its resolvers.
 - A node moved, or a Controller whose relay address changed: the node's
   page says so and offers the new address.
+
+### Ordered by the Controller
+
+For a node that reaches nothing - the Controller calls it, it calls no
+one - or to keep the ACME account and the DNS providers' credentials in
+one place: the Controller orders the node's certificates with its own
+account, and the node installs them. For each certificate due, the
+Controller asks the node for a new key and its certificate signing
+request - the key stays on the node -, orders it from the CA the node's
+configuration names, and hands back the chain; the node checks it
+against the waiting key and the configured domains, writes it and swaps
+it into HAProxy without a reload, as it does its own. A failure is kept
+in the certificate's status, with the next attempt.
+
+An admin sets the account up first - a contact address, the CA's terms,
+the DNS providers - on the Controller's **Let's Encrypt** tab ([The
+Controller and Let's Encrypt](guide/letsencrypt-controller.md#ordering-for-the-nodes)).
+Then, on the node's page, **Ordered by this Controller**: the account's
+thumbprint comes with the choice, and HAProxy answers HTTP-01 for it
+(it reloads once). In the configuration's JSON:
+
+```json
+{
+  "path": {
+    "mode": "ACME_PATH_MODE_CONTROLLER_ORDERED",
+    "account_thumbprint": "Kq3...the Controller's account"
+  }
+}
+```
+
+- **The certificates stay defined on the node** - names, domains,
+  challenge, key type, profile - and `account.directory` (with
+  `directory_ca`) still says which CA; the rest of the node's account
+  (its contact, terms, EAB) is unused meanwhile.
+- **DNS-01**: a certificate's `dns_provider` names one of the
+  Controller's DNS providers; the node needs none of its own. A name the
+  Controller doesn't have fails, and the certificate's status says so.
+- **Renew** on the node's page orders at once; otherwise the Controller
+  looks every 10 minutes and orders what's due (a third of the lifetime
+  left, as the node would). Renewal information (ARI) isn't asked for in
+  this mode.
+- **The Controller must be running**, as for the relay: a certificate
+  lasts 90 days and is renewed from day 60.
+- **Without the Controller** - your own orchestrator: `janusctl haproxy
+  acme path ordered THUMBPRINT`, then for each certificate `janusctl
+  haproxy acme csr NAME` (the request, PEM), and once your ACME client
+  has the chain, `janusctl haproxy acme install NAME chain.pem` - the
+  `ACMECertificateRequest` and `ACMEInstallCertificate` RPCs.
 
 ## HTTP-01: HAProxy answers
 

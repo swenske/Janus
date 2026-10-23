@@ -92,3 +92,17 @@ func thumbprint(key crypto.Signer) (string, error) {
 }
 
 func b64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
+
+// NewAccountKey is a fresh account key, PEM - the Controller's, when it
+// orders for its nodes.
+func NewAccountKey() ([]byte, error) { return newAccountKey() }
+
+// AccountThumbprint is the thumbprint of the account key keyPEM: what
+// the HTTP-01 rule of a node it orders for answers with.
+func AccountThumbprint(keyPEM []byte) (string, error) {
+	key, err := parseAccountKey(keyPEM)
+	if err != nil {
+		return "", err
+	}
+	return thumbprint(key)
+}

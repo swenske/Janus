@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -19,9 +20,10 @@ import (
 )
 
 // How the node reaches the CA (ACMEPath, docs/letsencrypt.md "How the
-// node reaches Let's Encrypt"): directly, through an HTTP(S) proxy, or
+// node reaches Let's Encrypt"): directly, through an HTTP(S) proxy,
 // through the Controller's relay - an https:// proxy that knows the node
-// by a certificate of its own CA.
+// by a certificate of its own CA -, or not at all: the Controller orders
+// its certificates (ordered.go).
 // Saved apart from letsencrypt.json - acme/path.json, beside the account
 // key: the proxy's password is a secret - because a janusd older than it
 // refuses a letsencrypt.json with a field it doesn't know, and would lose
@@ -47,6 +49,7 @@ func normalizePath(p *janusv1alpha1.ACMEPath) *janusv1alpha1.ACMEPath {
 	p.ProxyUrl = strings.TrimSpace(p.ProxyUrl)
 	p.ProxyUsername = strings.TrimSpace(p.ProxyUsername)
 	p.ProxyCa = strings.TrimSpace(p.ProxyCa)
+	p.AccountThumbprint = strings.TrimSpace(p.AccountThumbprint)
 	return p
 }
 
@@ -54,16 +57,36 @@ func isRelay(p *janusv1alpha1.ACMEPath) bool {
 	return pathMode(p) == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY
 }
 
+func isOrdered(p *janusv1alpha1.ACMEPath) bool {
+	return pathMode(p) == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED
+}
+
+// thumbprintPattern is an account key's RFC 7638 thumbprint: SHA-256,
+// base64url without padding.
+var thumbprintPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+
 // validatePath checks p (normalized).
 func validatePath(p *janusv1alpha1.ACMEPath) []string {
 	switch pathMode(p) {
 	case janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_DIRECT:
 		return nil
 	case janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY, janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY:
+	case janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED:
+		var errs []string
+		if !thumbprintPattern.MatchString(p.AccountThumbprint) {
+			errs = append(errs, fmt.Sprintf("path: account_thumbprint %q: the thumbprint of the account the Controller orders with (43 base64url characters)", p.AccountThumbprint))
+		}
+		if p.ProxyUrl != "" || p.ProxyUsername != "" || p.ProxyPassword != "" || p.ProxyCa != "" {
+			errs = append(errs, "path: ordered by the Controller, the node doesn't reach the CA - no proxy")
+		}
+		return errs
 	default:
 		return []string{fmt.Sprintf("path: mode %s isn't one this node knows", p.Mode)}
 	}
 	var errs []string
+	if p.AccountThumbprint != "" {
+		errs = append(errs, "path: account_thumbprint is for a path ordered by the Controller")
+	}
 	if isRelay(p) {
 		switch {
 		case p.ProxyUsername != "" || p.ProxyPassword != "":
@@ -127,7 +150,7 @@ func redactPath(p *janusv1alpha1.ACMEPath) *janusv1alpha1.ACMEPath {
 // proxyURL is the proxy janus-acme goes through, its credentials in it;
 // "" when it reaches the CA directly.
 func proxyURL(p *janusv1alpha1.ACMEPath) string {
-	if pathMode(p) == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_DIRECT {
+	if mode := pathMode(p); mode != janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY && mode != janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY {
 		return ""
 	}
 	u, err := url.Parse(p.ProxyUrl)
@@ -153,6 +176,8 @@ func via(p *janusv1alpha1.ACMEPath) string {
 		return "through the proxy " + p.ProxyUrl
 	case janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY:
 		return "through the Controller's relay " + p.ProxyUrl
+	case janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED:
+		return "not at all: the Controller orders the certificates"
 	}
 	return "directly"
 }

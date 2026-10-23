@@ -257,3 +257,10 @@ func TestDNSProviderAPIs(t *testing.T) {
 		}
 	}
 }
+
+// testThumb is an account thumbprint (43 base64url characters).
+const testThumb = "Ctrl3rK3yThumbpr1nt-0123456789_abcdefghijkl"
+
+func orderedPath(thumb string) *janusv1alpha1.ACMEPath {
+	return &janusv1alpha1.ACMEPath{Mode: janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED, AccountThumbprint: thumb}
+}

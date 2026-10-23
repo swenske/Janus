@@ -254,7 +254,12 @@ func Validate(cfg *janusv1alpha1.ACMEConfig) []string {
 				add("%s: dns_provider is for the dns-01 challenge", where)
 			}
 		case acmewire.ChallengeDNS01:
-			if providers[c.DnsProvider] == nil {
+			switch {
+			case isOrdered(cfg.Path): // one of the Controller's
+				if !namePattern.MatchString(c.DnsProvider) {
+					add("%s: dns_provider %q: the name of one of the Controller's DNS providers", where, c.DnsProvider)
+				}
+			case providers[c.DnsProvider] == nil:
 				add("%s: dns_provider %q isn't one of dns_providers", where, c.DnsProvider)
 			}
 		default:

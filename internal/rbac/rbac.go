@@ -96,40 +96,42 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.AccessService/LocalCARotate": adminOnly,
 
 	// HAProxyService
-	"/janus.v1alpha1.HAProxyService/GetConfig":         readers,
-	"/janus.v1alpha1.HAProxyService/ApplyConfig":       operators,
-	"/janus.v1alpha1.HAProxyService/ValidateConfig":    readers, // no side effects - validates the caller's own input
-	"/janus.v1alpha1.HAProxyService/ConfigHistory":     readers, // masked like GetConfig
-	"/janus.v1alpha1.HAProxyService/ConfigVersion":     readers, // masked like GetConfig
-	"/janus.v1alpha1.HAProxyService/Reload":            operators,
-	"/janus.v1alpha1.HAProxyService/Stats":             readers,
-	"/janus.v1alpha1.HAProxyService/ShowInfo":          readers,
-	"/janus.v1alpha1.HAProxyService/BackendList":       readers,
-	"/janus.v1alpha1.HAProxyService/ServerSetState":    operators,
-	"/janus.v1alpha1.HAProxyService/MapList":           readers,
-	"/janus.v1alpha1.HAProxyService/MapGet":            readers,
-	"/janus.v1alpha1.HAProxyService/MapUpdate":         operators,
-	"/janus.v1alpha1.HAProxyService/ACLUpdate":         operators,
-	"/janus.v1alpha1.HAProxyService/CertificateList":   readers, // names/expiry only, not key material
-	"/janus.v1alpha1.HAProxyService/CertificateUpload": operators,
-	"/janus.v1alpha1.HAProxyService/CertificateDelete": operators,
-	"/janus.v1alpha1.HAProxyService/FileList":          readers,
-	"/janus.v1alpha1.HAProxyService/FileGet":           readers, // private keys are never read back
-	"/janus.v1alpha1.HAProxyService/FilePut":           operators,
-	"/janus.v1alpha1.HAProxyService/FileDelete":        operators,
-	"/janus.v1alpha1.HAProxyService/ACMEStatus":        readers,
-	"/janus.v1alpha1.HAProxyService/ACMEGetConfig":     readers, // secrets come back empty
-	"/janus.v1alpha1.HAProxyService/ACMEApplyConfig":   operators,
-	"/janus.v1alpha1.HAProxyService/ACMERenew":         operators,
-	"/janus.v1alpha1.HAProxyService/ACMECheckPath":     operators, // reaches out to the CA
-	"/janus.v1alpha1.HAProxyService/MapLookup":         readers,
-	"/janus.v1alpha1.HAProxyService/ACLLookup":         readers,
-	"/janus.v1alpha1.HAProxyService/TableList":         readers,
-	"/janus.v1alpha1.HAProxyService/TableShow":         readers, // clients' addresses and counters, as Netstat shows connections
-	"/janus.v1alpha1.HAProxyService/TableClear":        operators,
-	"/janus.v1alpha1.HAProxyService/SessionList":       readers,
-	"/janus.v1alpha1.HAProxyService/SessionShutdown":   operators,
-	"/janus.v1alpha1.HAProxyService/ErrorsShow":        operators, // requests' raw bytes, as Logs: not readers
+	"/janus.v1alpha1.HAProxyService/GetConfig":              readers,
+	"/janus.v1alpha1.HAProxyService/ApplyConfig":            operators,
+	"/janus.v1alpha1.HAProxyService/ValidateConfig":         readers, // no side effects - validates the caller's own input
+	"/janus.v1alpha1.HAProxyService/ConfigHistory":          readers, // masked like GetConfig
+	"/janus.v1alpha1.HAProxyService/ConfigVersion":          readers, // masked like GetConfig
+	"/janus.v1alpha1.HAProxyService/Reload":                 operators,
+	"/janus.v1alpha1.HAProxyService/Stats":                  readers,
+	"/janus.v1alpha1.HAProxyService/ShowInfo":               readers,
+	"/janus.v1alpha1.HAProxyService/BackendList":            readers,
+	"/janus.v1alpha1.HAProxyService/ServerSetState":         operators,
+	"/janus.v1alpha1.HAProxyService/MapList":                readers,
+	"/janus.v1alpha1.HAProxyService/MapGet":                 readers,
+	"/janus.v1alpha1.HAProxyService/MapUpdate":              operators,
+	"/janus.v1alpha1.HAProxyService/ACLUpdate":              operators,
+	"/janus.v1alpha1.HAProxyService/CertificateList":        readers, // names/expiry only, not key material
+	"/janus.v1alpha1.HAProxyService/CertificateUpload":      operators,
+	"/janus.v1alpha1.HAProxyService/CertificateDelete":      operators,
+	"/janus.v1alpha1.HAProxyService/FileList":               readers,
+	"/janus.v1alpha1.HAProxyService/FileGet":                readers, // private keys are never read back
+	"/janus.v1alpha1.HAProxyService/FilePut":                operators,
+	"/janus.v1alpha1.HAProxyService/FileDelete":             operators,
+	"/janus.v1alpha1.HAProxyService/ACMEStatus":             readers,
+	"/janus.v1alpha1.HAProxyService/ACMEGetConfig":          readers, // secrets come back empty
+	"/janus.v1alpha1.HAProxyService/ACMEApplyConfig":        operators,
+	"/janus.v1alpha1.HAProxyService/ACMERenew":              operators,
+	"/janus.v1alpha1.HAProxyService/ACMECheckPath":          operators, // reaches out to the CA
+	"/janus.v1alpha1.HAProxyService/ACMECertificateRequest": operators, // a new key, kept on the node
+	"/janus.v1alpha1.HAProxyService/ACMEInstallCertificate": operators,
+	"/janus.v1alpha1.HAProxyService/MapLookup":              readers,
+	"/janus.v1alpha1.HAProxyService/ACLLookup":              readers,
+	"/janus.v1alpha1.HAProxyService/TableList":              readers,
+	"/janus.v1alpha1.HAProxyService/TableShow":              readers, // clients' addresses and counters, as Netstat shows connections
+	"/janus.v1alpha1.HAProxyService/TableClear":             operators,
+	"/janus.v1alpha1.HAProxyService/SessionList":            readers,
+	"/janus.v1alpha1.HAProxyService/SessionShutdown":        operators,
+	"/janus.v1alpha1.HAProxyService/ErrorsShow":             operators, // requests' raw bytes, as Logs: not readers
 
 	// NetworkService
 	"/janus.v1alpha1.NetworkService/BGPStatus":            readers,
