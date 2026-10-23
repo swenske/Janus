@@ -84,7 +84,8 @@ service SystemService {
   // error counters.
   rpc NetworkDeviceStats(google.protobuf.Empty) returns (NetworkDeviceStatsResponse);
   // Netstat lists the machine's TCP and UDP sockets: listening ones and
-  // connections.
+  // connections - each TCP connection with the bytes it received and
+  // sent so far, whose difference between two calls is its throughput.
   rpc Netstat(google.protobuf.Empty) returns (NetstatResponse);
   // ClientList lists the connections to this API open now: whose each
   // is - its certificate; a Controller's names the users its calls are
@@ -783,6 +784,13 @@ message Connection {
   string remote_address = 2;
   string state = 3;
   string protocol = 4;
+  // A TCP connection's bytes received, and sent that the peer
+  // acknowledged, since it opened (the kernel's tcp_info) - a rate is
+  // their difference between two calls. Unset when unknown: a UDP
+  // socket, a listener, a connection in TIME_WAIT or being set up, a
+  // node older than them.
+  optional uint64 rx_bytes = 5;
+  optional uint64 tx_bytes = 6;
 }
 
 message MountsResponse {

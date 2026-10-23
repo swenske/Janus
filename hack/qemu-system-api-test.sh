@@ -109,6 +109,7 @@ expect "SystemStat" '^processes created: [1-9]' ctl system systemstat
 expect "Processes shows PID 1 (rootfs/init)" '^1 +[0-9.]+ +[0-9.]+[KM]iB +/sbin/init' ctl system ps
 expect "NetworkDeviceStats counts eth0 traffic" '^eth0 +[0-9.]+[KM]iB' ctl system netdev
 expect "Netstat sees the gRPC listener" '9505 +.* LISTEN' ctl system netstat
+expect "Netstat counts the bytes of janusctl's own connection" ':9505 +10\.0\.2\.2:[0-9]+ +ESTABLISHED +[0-9.]+ ?[KMG]?i?B +[0-9.]+ ?[KMG]?i?B' ctl system netstat
 expect "Mounts shows the dm-verity root read-only" '^/dev/root \(squashfs\) +/ .* ro$' ctl system mounts
 expect "Mounts shows STATE" '/dev/vda6 \(ext4\) +/etc/\.state ' ctl system mounts
 expect "DiskUsage" '[0-9.]+(B|KiB)'$'\t''/etc/haproxy$' ctl system du /etc/haproxy

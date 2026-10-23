@@ -3,7 +3,10 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +14,8 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/types/known/emptypb"
+
+	"github.com/swenske/Janus/internal/sockdiag"
 )
 
 // Fixtures below are real /proc content captured from a Linux 6.18 host.
@@ -85,6 +90,86 @@ func TestParseProcNet(t *testing.T) {
 	if _, err := parseProcNet("tcp", "header\n 0: nothex:0019 00000000:0000 0A\n"); err == nil {
 		t.Error("malformed address parsed without error")
 	}
+}
+
+// TestFormatAddrPortMatchesProc: sock_diag's addresses written as
+// /proc/net/tcp's are - Netstat reads both.
+func TestFormatAddrPortMatchesProc(t *testing.T) {
+	for proc, ap := range map[string]string{
+		"0100007F:1F90":                         "127.0.0.1:8080",
+		"00000000:01BB":                         "0.0.0.0:443",
+		"00000000000000000000000000000000:01BB": "[::]:443",
+		"0000000000000000FFFF00000100007F:1F90": "[::ffff:127.0.0.1]:8080",
+		"B80D0120000000000000000001000000:0050": "[2001:db8::1]:80",
+		"000080FE000000000000000001000000:0016": "[fe80::1]:22",
+	} {
+		want, err := decodeProcNetAddr(proc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := formatAddrPort(netip.MustParseAddrPort(ap)); got != want {
+			t.Errorf("%s: %q, /proc says %q", ap, got, want)
+		}
+	}
+}
+
+func TestDiagConnection(t *testing.T) {
+	ap := netip.MustParseAddrPort
+	c := diagConnection("tcp6", sockdiag.Socket{State: sockdiag.Established, Src: ap("[::ffff:10.0.2.15]:9505"), Dst: ap("[::ffff:10.0.2.2]:50000"), BytesAcked: 300, BytesReceived: 200, HasBytes: true})
+	if c.LocalAddress != "10.0.2.15:9505" || c.RemoteAddress != "10.0.2.2:50000" || c.State != "ESTABLISHED" || c.Protocol != "tcp6" || c.GetRxBytes() != 200 || c.GetTxBytes() != 300 {
+		t.Errorf("connection = %+v", c)
+	}
+	// A listener's counters are zeros, a TIME_WAIT socket has none.
+	for _, s := range []sockdiag.Socket{
+		{State: sockdiag.Listen, Src: ap("0.0.0.0:443"), Dst: ap("0.0.0.0:0"), HasBytes: true},
+		{State: sockdiag.TimeWait, Src: ap("10.0.2.15:443"), Dst: ap("10.0.2.2:50001")},
+	} {
+		if c := diagConnection("tcp", s); c.RxBytes != nil || c.TxBytes != nil {
+			t.Errorf("%s: counters %+v", c.State, c)
+		}
+	}
+	if c := diagConnection("tcp", sockdiag.Socket{State: sockdiag.SynRecv, Src: ap("10.0.2.15:443"), Dst: ap("10.0.2.2:50002")}); c.State != "SYN_RECV" {
+		t.Errorf("state %q", c.State)
+	}
+}
+
+// TestNetstatCountsBytes: this test's own connection, through the real
+// kernel, with the bytes it moved.
+func TestNetstatCountsBytes(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	c, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	srv, err := l.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	if _, err := srv.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(c, make([]byte, 5)); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := (&System{}).Netstat(context.Background(), &emptypb.Empty{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, conn := range resp.Connections {
+		if conn.LocalAddress == c.LocalAddr().String() && conn.State == "ESTABLISHED" {
+			if conn.GetRxBytes() != 5 {
+				t.Errorf("client received %d bytes, want 5 (%+v)", conn.GetRxBytes(), conn)
+			}
+			return
+		}
+	}
+	t.Fatalf("own connection %s not listed", c.LocalAddr())
 }
 
 func TestParseMounts(t *testing.T) {

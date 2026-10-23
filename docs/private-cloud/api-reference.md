@@ -151,7 +151,7 @@ SystemService is the reduced, non-Kubernetes equivalent of Talos's MachineServic
 | `DiskStats` | `Empty` → `DiskStatsResponse` | `os:reader` | observe | DiskStats reports each disk's I/O counters. |
 | `DiskUsage` | `DiskUsageRequest` → `stream DiskUsageInfo` | `os:admin` | system | DiskUsage reports each requested path's total size (apparent size of every regular file under it, not crossing into /proc, /sys or /dev); with recursive, also one entry per directory beneath it. |
 | `NetworkDeviceStats` | `Empty` → `NetworkDeviceStatsResponse` | `os:reader` | observe | NetworkDeviceStats reports each network interface's traffic and error counters. |
-| `Netstat` | `Empty` → `NetstatResponse` | `os:reader` | observe | Netstat lists the machine's TCP and UDP sockets: listening ones and connections. |
+| `Netstat` | `Empty` → `NetstatResponse` | `os:reader` | observe | Netstat lists the machine's TCP and UDP sockets: listening ones and connections - each TCP connection with the bytes it received and sent so far, whose difference between two calls is its throughput. |
 | `ClientList` | `Empty` → `ClientListResponse` | `os:reader` | observe | ClientList lists the connections to this API open now: whose each is - its certificate; a Controller's names the users its calls are for -, the interface it comes by, its calls and bytes. The users a Controller acts for, and the other clients' names and addresses, come back to an admin only. |
 | `Mounts` | `Empty` → `MountsResponse` | `os:reader` | observe | Mounts lists the mounted filesystems with their size and free space. |
 | `Processes` | `Empty` → `ProcessesResponse` | `os:reader` | observe | Processes lists the machine's processes. |

@@ -6,8 +6,6 @@ import {
   ChevronDown,
   Copy,
   KeyRound,
-  LayoutGrid,
-  List,
   LogOut,
   Plus,
   Rocket,
@@ -32,7 +30,8 @@ import BrandMark from './shared/BrandMark.jsx'
 import RefreshButton from './shared/RefreshButton.jsx'
 import ThemePicker from './shared/ThemePicker.jsx'
 import NodeSparklines, { NodeSpark, WINDOW as SPARK_WINDOW } from './NodeSparklines.jsx'
-import { useNodesView } from './nodesView.js'
+import ViewToggle from './shared/ViewToggle.jsx'
+import { useStoredView } from './shared/storedView.js'
 import { useNodeMetrics } from './nodeMetrics.js'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
@@ -1081,7 +1080,7 @@ function MainApp() {
   const [backups, setBackups] = useState(null)
   const [statusLoaded, setStatusLoaded] = useState(false)
   const metrics = useNodeMetrics(tab === 'nodes' && (nodes?.length ?? 0) > 0, SPARK_WINDOW)
-  const [nodesView, setNodesView] = useNodesView()
+  const [nodesView, setNodesView] = useStoredView('janus-nodes-view')
   const isReader = can('reader')
   const confirm = useConfirm()
   const toast = useToast()
@@ -1300,14 +1299,7 @@ function MainApp() {
               <h1>Nodes</h1>
               <div className="row">
                 {nodes?.length > 0 && (
-                  <div className="segmented" role="group" aria-label="Show the nodes as">
-                    <button className={`small ${nodesView === 'cards' ? 'active' : ''}`} aria-pressed={nodesView === 'cards'} onClick={() => setNodesView('cards')}>
-                      <LayoutGrid size={14} /> Cards
-                    </button>
-                    <button className={`small ${nodesView === 'list' ? 'active' : ''}`} aria-pressed={nodesView === 'list'} onClick={() => setNodesView('list')}>
-                      <List size={14} /> List
-                    </button>
-                  </div>
+                  <ViewToggle value={nodesView} onChange={setNodesView} label="Show the nodes as" />
                 )}
                 {!adding && can('admin') && (
                   <button className="primary" onClick={() => setAdding(true)}>

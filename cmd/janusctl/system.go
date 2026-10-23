@@ -236,9 +236,9 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 		defer cancel()
 		resp, err := client.Netstat(c, &emptypb.Empty{})
 		check("Netstat", err)
-		tw := table("PROTO", "LOCAL", "REMOTE", "STATE")
+		tw := table("PROTO", "LOCAL", "REMOTE", "STATE", "RECEIVED", "SENT")
 		for _, conn := range resp.GetConnections() {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", conn.GetProtocol(), conn.GetLocalAddress(), conn.GetRemoteAddress(), conn.GetState())
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", conn.GetProtocol(), conn.GetLocalAddress(), conn.GetRemoteAddress(), conn.GetState(), countedBytes(conn.RxBytes), countedBytes(conn.TxBytes))
 		}
 		tw.Flush()
 
@@ -561,6 +561,15 @@ func table(headers ...string) *tableWriter {
 	tw := newTable(os.Stdout)
 	fmt.Fprintln(tw, strings.Join(headers, "\t"))
 	return tw
+}
+
+// countedBytes: a counter the node may not give (a UDP socket, a
+// listener, an older node) - "-" then.
+func countedBytes(n *uint64) string {
+	if n == nil {
+		return "-"
+	}
+	return humanBytes(*n)
 }
 
 func humanBytes(n uint64) string {

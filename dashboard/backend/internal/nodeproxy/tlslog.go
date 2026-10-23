@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/netip"
 	"regexp"
 	"sort"
 	"strings"
@@ -44,26 +45,35 @@ type NamedCount struct {
 // access log lines, how many named a TLS version and a cipher, and those
 // counted, the most first. No access line: HAProxy logs elsewhere, or
 // not at all; access lines but no TLS: not with the version and cipher.
+// Families counts the access lines by their client's IP version (IPv4,
+// IPv6) - a line whose client address isn't found isn't counted.
 type TLSLog struct {
 	Lines    int          `json:"lines"`
 	Access   int          `json:"access"`
 	TLS      int          `json:"tls"`
 	Versions []NamedCount `json:"versions"`
 	Ciphers  []NamedCount `json:"ciphers"`
+	Families []NamedCount `json:"families"`
 }
 
 // parseTLSLog counts the versions and ciphers in HAProxy's lines.
 func parseTLSLog(text string) TLSLog {
-	out := TLSLog{Versions: []NamedCount{}, Ciphers: []NamedCount{}}
-	versions, ciphers := map[string]int{}, map[string]int{}
+	out := TLSLog{Versions: []NamedCount{}, Ciphers: []NamedCount{}, Families: []NamedCount{}}
+	versions, ciphers, families := map[string]int{}, map[string]int{}, map[string]int{}
 	for line := range strings.SplitSeq(text, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		out.Lines++
 		m := tlsField.FindStringSubmatch(line)
-		if m != nil || accessDate.MatchString(line) {
+		date := accessDate.FindStringIndex(line)
+		if m != nil || date != nil {
 			out.Access++
+		}
+		if date != nil {
+			if f := clientFamily(line[:date[0]]); f != "" {
+				families[f]++
+			}
 		}
 		if m == nil {
 			continue
@@ -72,8 +82,40 @@ func parseTLSLog(text string) TLSLog {
 		versions[m[1]]++
 		ciphers[m[2]]++
 	}
-	out.Versions, out.Ciphers = ranked(versions), ranked(ciphers)
+	out.Versions, out.Ciphers, out.Families = ranked(versions), ranked(ciphers), ranked(families)
 	return out
+}
+
+// clientFamily says over which IP version the client of an access line
+// came, from what precedes its date: the client's address last -
+// "192.0.2.7:41234 [" (httplog, tcplog, httpslog; HAProxy writes an
+// IPv6 one without brackets, 2001:db8::7:41234), "192.0.2.7 - - ["
+// (clf), after a syslog header or not. An IPv4 client of an IPv6
+// listener (::ffff:192.0.2.7) is IPv4's. "" when it isn't an address.
+func clientFamily(before string) string {
+	fields := strings.Fields(before)
+	for len(fields) > 0 && fields[len(fields)-1] == "-" {
+		fields = fields[:len(fields)-1]
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	tok := strings.Trim(fields[len(fields)-1], `"`)
+	a, err := netip.ParseAddr(strings.Trim(tok, "[]"))
+	if err != nil {
+		// Its port after the last colon.
+		i := strings.LastIndexByte(tok, ':')
+		if i < 0 {
+			return ""
+		}
+		if a, err = netip.ParseAddr(strings.Trim(tok[:i], "[]")); err != nil {
+			return ""
+		}
+	}
+	if a.Unmap().Is4() {
+		return "IPv4"
+	}
+	return "IPv6"
 }
 
 func ranked(m map[string]int) []NamedCount {
