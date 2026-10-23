@@ -84,7 +84,7 @@ janusctl haproxy acme path controller https://controller.example.net:8444 -ca co
 | The ACME API (Let's Encrypt, its staging) | yes, built in |
 | A private ACME CA | once an admin allows its `host:port` |
 | DNS-01: `cloudflare`, `desec`, `digitalocean`, `gandiv5`, `hetzner`, `infomaniak`, `ionos`, `ovh`, `scaleway` | yes, built in |
-| DNS-01: `httpreq`, `pdns` | once an admin allows the host their settings name |
+| DNS-01: `httpreq`, `pdns` | once an admin allows the host their settings name - over `https://` only: the relay tunnels HTTPS, an `http://` API is refused (405) |
 | DNS-01: `route53` | no - the AWS SDK makes its own connections, without the node's certificate |
 | DNS-01: `rfc2136` | no - it updates the zone's name server over DNS |
 | DNS-01's lookups (the zone, the record appearing) | no - from the node to its resolvers |

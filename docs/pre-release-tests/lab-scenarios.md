@@ -20,6 +20,7 @@ added.
 | Load client | a 2-vCPU VM on the same host, with `wrk` - up to v2026.10.14, removed since: it took the host's CPUs from the nodes |
 | The clients | since v2026.10.14-2, outside the lab's host, reaching the front network through the routers like internet users: the three CI runners (16, 12 and 8 threads), used only while none runs a CI job, and since v2026.10.14-3 a fourth machine that isn't a runner (16 threads, always free: the probes run there; on a 2.5 GbE link since v2026.10.16-4, its path changed - the release measured again; left out of the campaigns from v2026.10.17-2 to v2026.10.18-3 for a memory fault, the probes then ran from a runner; back with its memory replaced for v2026.10.19, where it ran the browser while the load and probes stayed on the runners, to compare). A temporary `wrk` on each, removed afterwards. The host's CPUs go to the nodes |
 | Controller | Docker Compose with its updater, an admin with TOTP |
+| Proxy | since v2026.10.23-2: Squid 6.13 on the Controller's machine, asking for a username and password, open to the lab's networks only |
 
 The two nodes and the backends saturate the host's 4 cores under a
 full load: HAProxy's throughput figures compare releases with each
@@ -311,6 +312,26 @@ a Docker host of the home network, behind its reverse proxy.
 | Throughput | the benchmark below with forwarding on (a profile's default sources) | against the release, measured the same morning |
 | The cost | on a node of the branch with LOGS, HAProxy answering every request itself, four clients for a minute: no log, `log stdout` sent nowhere, to syslog, to Elasticsearch, with the access logs on LOGS, HAProxy's own `log` over UDP and through a TLS ring | requests/s, janusd's and HAProxy's CPU, the lines HAProxy dropped (`DroppedLogs`), what the target sent and dropped, what the server kept, LOGS's write rate; then the queue drained |
 
+### Let's Encrypt without the internet
+
+Since v2026.10.23-2. A machine the Controller creates from the
+pre-release with the Let's Encrypt extension, worked through its page
+only (it has no credentials of its own). Its internet is cut at the
+lab's router (its new connections to anything outside the lab
+rejected). The CA is a private Pebble on a machine outside the lab,
+reachable from inside only on the Controller's own host through a tunnel
+- the node can never reach it directly, the proxy and the Controller
+can; its DNS test server answers DNS-01 behind an `httpreq` provider.
+Two certificates: two names over HTTP-01, a wildcard over DNS-01.
+
+| Step | How | Measured |
+|---|---|---|
+| The checks | the page's **Test**, each way, against Let's Encrypt's own directory and the private CA: directly, the proxy without and with its password, the Controller's relay | what each says: reached in how long, or why not |
+| Through a proxy | the configuration with the proxy's URL and credentials | time to both certificates, served and checked against the CA's root; the proxy's log (tunnels, the DNS API's calls, the user) |
+| Through the relay | the relay turned on (its address, the CA allowed), the path chosen on the page, both renewed | a new serial served; the relay's journal; what fails and why |
+| Ordered by the Controller | its account and DNS provider on its tab, the path chosen on the page, a renewal asked for | time to both installed, new serials served; the node's and the Controller's logs; no tunnel through the relay |
+| The node and the pages | its health afterwards; both Let's Encrypt pages with the real data | AVC denials, the CIS audit; both themes, axe, console |
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -321,7 +342,12 @@ ran:
   VIP - the load client or the runners;
 - `bench`, `rbench`: the throughput runs;
 - `failover`, `rfailover`: node loss and HAProxy stopped;
-- `reboot-time`: the reboots;
+- `reboot-time`: the reboots; `reboot-steps`: their timing lines in the
+  log server (v2026.10.23);
+- `new-machine` (`EXTENSIONS=`, `KERNEL=`), `update-machine`: a
+  Controller machine made or updated through the API; `le-ca`: the
+  private CA and its tunnel; `le`: the Let's Encrypt steps through the
+  machine's page (v2026.10.23-2);
 - `d-diag`: the diagnostic tools on both nodes (v2026.10.18-2);
 - `u-check`: the Controller's pages in every palette, with axe (`CSS`:
   a stylesheet laid over each page); `u-cost`: a node's janusd CPU time

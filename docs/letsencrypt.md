@@ -194,7 +194,8 @@ In the configuration's JSON, `proxy_url` is the relay's address and
   a Controller down for a few days changes nothing; the node retries.
 - **DNS-01**: the providers whose API the relay knows go through it -
   the tab lists them. `httpreq` and `pdns` reach the API their settings
-  name: an admin allows that host. `route53` can't go through the relay
+  name: an admin allows that host, and it must be `https://` - the relay
+  only tunnels HTTPS, an `http://` API gets its 405. `route53` can't go through the relay
   (the AWS SDK doesn't present the node's certificate), nor `rfc2136`
   (DNS); and DNS-01's lookups still go from the node to its resolvers.
 - A node moved, or a Controller whose relay address changed: the node's
