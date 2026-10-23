@@ -94,7 +94,7 @@ const FEATURES = [
   {
     icon: Boxes,
     title: 'Extensions',
-    text: 'A firewall (nftables), VRRP (keepalived), BGP (BIRD), Let’s Encrypt certificates, Consul, Prometheus node_exporter and the QEMU guest agent. Pick them in the builder: they are part of the signed image.',
+    text: 'A firewall (nftables), VRRP (keepalived), BGP (BIRD), Let’s Encrypt certificates - even for a node without the internet, through a proxy or your Controller -, Consul, Prometheus node_exporter and the QEMU guest agent. Pick them in the builder: they are part of the signed image.',
   },
   {
     icon: SlidersHorizontal,
