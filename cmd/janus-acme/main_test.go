@@ -34,13 +34,19 @@ func (p *connectProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	conn, _, err := w.(http.Hijacker).Hijack()
+	// Hijacked before answering, and read through its buffer: the server
+	// may read the client's first bytes ahead once the answer is out.
+	conn, buf, err := w.(http.Hijacker).Hijack()
 	if err != nil {
 		up.Close()
 		return
 	}
-	go func() { _, _ = io.Copy(up, conn); up.Close() }()
+	if _, err := io.WriteString(conn, "HTTP/1.1 200 Connection established\r\n\r\n"); err != nil {
+		up.Close()
+		conn.Close()
+		return
+	}
+	go func() { _, _ = io.Copy(up, buf); up.Close() }()
 	_, _ = io.Copy(conn, up)
 	conn.Close()
 }
