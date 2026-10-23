@@ -901,6 +901,12 @@ jobs:
       - name: Let's Encrypt - through the Controller's relay
         run: make qemu-acme-relay-test
 
+      # Ordered by the Controller: a native Controller orders the node's
+      # certificates with its own account - HTTP-01 and DNS-01 - the node
+      # reaching nothing. See hack/qemu-acme-ordered-test.sh.
+      - name: Let's Encrypt - ordered by the Controller
+        run: make qemu-acme-ordered-test
+
       # The Consul agent (consul extension) on two real enforcing nodes: a
       # server and a client with gossip encryption and TLS from the files
       # given with their configuration, HAProxy finding a service through
