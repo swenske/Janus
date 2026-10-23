@@ -103,7 +103,7 @@ const FEATURES = [
   },
   { icon: KeyRound, title: 'Provisioning', text: 'Nodes register with your Controller on first boot. Controller and network settings at install, offline on an image, or from a NoCloud volume.' },
   { icon: ServerCog, title: 'Your own VMs', text: 'The Controller creates, resizes and updates nodes on libvirt and Proxmox VE - and grows them under load, vCPUs and memory plugged in while they run; a Terraform provider drives it as code.' },
-  { icon: Users, title: 'Accounts and access', text: 'Controller accounts with roles, MFA (TOTP or passkeys), API tokens and access by node label; janusctl signs in with your SSH key.' },
+  { icon: Users, title: 'Accounts and access', text: 'Controller accounts with roles, MFA (TOTP or passkeys), single sign-on through OpenID Connect (Keycloak, a Synology, others), API tokens and access by node label; janusctl signs in with your SSH key.' },
 ]
 
 function LatestRelease() {
