@@ -333,17 +333,18 @@ func (s *Server) applyLocked(cfg Config) error {
 	}
 	s.serve(lis)
 	s.cfg, s.hosts, s.lastErr = cfg, hosts, ""
-	log.Printf("exporter: metrics served on %s", where(hosts, port))
+	log.Printf("exporter: metrics served on :%s/metrics (%s)", port, where(hosts))
 	return nil
 }
 
-// where says the listeners' URLs, for the log.
-func where(hosts []string, port string) string {
-	urls := make([]string, len(hosts))
-	for i, h := range hosts {
-		urls[i] = net.JoinHostPort(h, port) + "/metrics"
+// where says the addresses it listens on, for the log - after the port:
+// the line "exporter: metrics served on :PORT/metrics" is what the log
+// tests (and anyone grepping) look for, whatever the address.
+func where(hosts []string) string {
+	if len(hosts) == 1 && hosts[0] == "" {
+		return "every address"
 	}
-	return strings.Join(urls, ", ")
+	return strings.Join(hosts, ", ")
 }
 
 // listen binds every host on port, all or none. Auto's addresses are

@@ -265,3 +265,15 @@ func TestAuto(t *testing.T) {
 		}
 	}
 }
+
+// The log line keeps ":PORT/metrics" right after "served on" whatever
+// the address: the log tests (qemu-logvol-test, qemu-logforward*-test)
+// look for it.
+func TestWhere(t *testing.T) {
+	if got := where([]string{""}); got != "every address" {
+		t.Errorf("every address: %q", got)
+	}
+	if got := where([]string{"10.0.2.15", "2001:db8::10"}); got != "10.0.2.15, 2001:db8::10" {
+		t.Errorf("main interface: %q", got)
+	}
+}
