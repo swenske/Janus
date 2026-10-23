@@ -420,9 +420,14 @@ has its drawer. Its groups:
   `Sessions.jsx`, `Errors.jsx`, relayed by `nodeproxy/haproxy_runtime.go`
   as protojson - 64-bit numbers arrive as strings; a node older than them
   answers 501, `RuntimeError.jsx` says to update it;
-  docs/guide/haproxy-runtime.md) - Let's Encrypt (account, the
-  HTTP-01 rule, certificates and DNS providers as forms - secrets never
-  shown, kept when left empty - and the configuration as JSON) and Consul
+  docs/guide/haproxy-runtime.md) - Let's Encrypt (first how the node
+  reaches the CA - the modes side by side as radio tiles, who talks to
+  the CA and what must be open, the chosen one's settings, **Test**
+  fetching the CA's directory that way (POST `/api/haproxy/acme/check-path`,
+  a minute), and what this node's certificates need open, from their
+  challenges -; then the account, the HTTP-01 rule, certificates and DNS
+  providers as forms - secrets never shown, kept when left empty - and
+  the configuration as JSON) and Consul
   (agent, members, the configuration's files, the configuration in the
   shared ModuleConfigEditor). An app the node doesn't have
   isn't listed - "Add or remove apps…", last, opens the Update page's

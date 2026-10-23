@@ -1,4 +1,4 @@
-import { CheckCircle2, Copy, ExternalLink, KeyRound, Pencil, Plus, RefreshCw, ScrollText, ShieldCheck, Trash2, Upload, Waypoints } from 'lucide-react'
+import { CheckCircle2, Copy, ExternalLink, KeyRound, Pencil, Plus, RefreshCw, Route, ScrollText, ShieldCheck, Trash2, Upload, Waypoints } from 'lucide-react'
 import { useState } from 'react'
 import { postJSON } from '../api.js'
 import { Badge, Card, ErrorBox, Loading, PageHeader, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
@@ -59,6 +59,12 @@ const ORDER = [
   'settings',
   'resolvers',
   'propagation_wait_seconds',
+  'path',
+  'mode',
+  'proxy_url',
+  'proxy_username',
+  'proxy_password',
+  'proxy_ca',
 ]
 const rank = (k) => (ORDER.includes(k) ? ORDER.indexOf(k) : ORDER.length)
 function canon(v) {
@@ -205,6 +211,8 @@ export default function LetsEncrypt() {
           {errors.join('\n')}
         </div>
       )}
+
+      <PathCard cfg={cfg} st={st} canApply={canApply} canCheck={may('HAProxyService/ACMECheckPath')} busy={busy} run={run} apply={apply} />
 
       <div className="grid grid-2">
         <Card
@@ -793,5 +801,164 @@ function JSONCard({ config, isDefault, busy, run, onApply }) {
         </Card>
       </div>
     </details>
+  )
+}
+
+// How the node reaches the CA (docs/letsencrypt.md, "How the node reaches
+// Let's Encrypt"): the modes side by side - who talks to the CA, what
+// must be open -, the chosen one's settings, a test fetching the CA's
+// directory that way, and what this node's certificates need open.
+const PATH_DOCS = `${DOCS}#how-the-node-reaches-lets-encrypt`
+const MODES = [
+  {
+    id: 'ACME_PATH_MODE_DIRECT',
+    title: 'Directly',
+    who: 'The node talks to the CA itself.',
+    needs: 'The node reaches the CA over HTTPS - and, for DNS-01, its DNS provider’s API.',
+  },
+  {
+    id: 'ACME_PATH_MODE_PROXY',
+    title: 'Through a proxy',
+    who: 'The node talks to the CA through an HTTP(S) proxy.',
+    needs: 'The node reaches the proxy; the proxy reaches the CA and the DNS providers’ APIs.',
+  },
+]
+const modeOf = (path) => (path?.mode === 'ACME_PATH_MODE_PROXY' ? 'ACME_PATH_MODE_PROXY' : 'ACME_PATH_MODE_DIRECT')
+
+function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
+  const saved = cfg.path || {}
+  const [draft, setDraft] = useState(null) // the path being edited
+  const [check, setCheck] = useState(null) // the last test's answer
+  const old = st.path_mode === 'unspecified' // a node older than the paths
+  const path = draft || saved
+  const mode = modeOf(path)
+  const edit = (change) => {
+    setDraft({ ...path, ...change })
+    setCheck(null)
+  }
+  const pathToSend = (p) => (modeOf(p) === 'ACME_PATH_MODE_DIRECT' ? { mode: 'ACME_PATH_MODE_DIRECT' } : { ...p, mode: 'ACME_PATH_MODE_PROXY' })
+  const test = () =>
+    run(async () => {
+      setCheck(await postJSON('/api/haproxy/acme/check-path', { path: pathToSend(path) }))
+    })
+  const save = async () => {
+    const next = { ...cfg }
+    if (modeOf(draft) === 'ACME_PATH_MODE_DIRECT') delete next.path
+    else next.path = { ...pathToSend(draft) }
+    const note = `From now on the node reaches the CA ${modeOf(draft) === 'ACME_PATH_MODE_DIRECT' ? 'directly' : `through ${draft.proxy_url}`}. A password left empty keeps the saved one.`
+    if (await apply(next, { title: 'Change how the node reaches the CA?', note })) {
+      setDraft(null)
+      setCheck(null)
+    }
+  }
+  return (
+    <Card
+      title="How this node reaches Let's Encrypt"
+      icon={Route}
+      className="acme-path"
+      actions={
+        <a className="small" href={PATH_DOCS} target="_blank" rel="noreferrer">
+          Which one? <ExternalLink size={11} />
+        </a>
+      }
+    >
+      {old ? (
+        <div className="notice">This node’s image reaches the CA directly - choosing a proxy needs a newer one (System › Update).</div>
+      ) : (
+        <>
+          <div className="acme-modes" role="radiogroup" aria-label="How the node reaches the CA">
+            {MODES.map((m) => (
+              <label key={m.id} className={`acme-mode ${mode === m.id ? 'active' : ''}`}>
+                <input type="radio" name="acme-path" value={m.id} checked={mode === m.id} disabled={!canApply} onChange={() => edit({ mode: m.id })} />
+                <span className="acme-mode-title">
+                  {m.title}
+                  {modeOf(saved) === m.id && <Badge tone="ok">in use</Badge>}
+                </span>
+                <span className="small">{m.who}</span>
+                <span className="small muted">{m.needs}</span>
+              </label>
+            ))}
+          </div>
+          {mode === 'ACME_PATH_MODE_PROXY' && (
+            <fieldset className="plain acme-proxy" disabled={!canApply}>
+              <label className="field">
+                <span>Proxy URL</span>
+                <input className="mono" value={path.proxy_url || ''} placeholder="http://proxy.example.net:3128" onChange={(e) => edit({ proxy_url: e.target.value.trim() })} />
+              </label>
+              <label className="field">
+                <span>Username</span>
+                <input value={path.proxy_username || ''} placeholder="none" autoComplete="off" onChange={(e) => edit({ proxy_username: e.target.value.trim() })} />
+              </label>
+              <label className="field">
+                <span>Password</span>
+                <input type="password" value={path.proxy_password || ''} placeholder={saved.proxy_username ? 'kept as saved' : 'none'} autoComplete="new-password" onChange={(e) => edit({ proxy_password: e.target.value })} />
+              </label>
+              <label className="field acme-proxy-ca">
+                <span>The proxy’s CA (PEM) - an https:// proxy whose certificate the node’s trust store doesn’t know</span>
+                <textarea className="mono small" rows={3} value={path.proxy_ca || ''} placeholder="-----BEGIN CERTIFICATE-----" onChange={(e) => edit({ proxy_ca: e.target.value })} />
+              </label>
+            </fieldset>
+          )}
+          <div className="row" style={{ marginTop: '0.75rem' }}>
+            {canCheck && (
+              <button className="small" disabled={busy || (mode === 'ACME_PATH_MODE_PROXY' && !path.proxy_url)} onClick={test}>
+                <RefreshCw size={13} /> Test
+              </button>
+            )}
+            {canApply && draft && (
+              <>
+                <button className="small primary" disabled={busy} onClick={save}>
+                  Save
+                </button>
+                <button className="small ghost" disabled={busy} onClick={() => (setDraft(null), setCheck(null))}>
+                  Cancel
+                </button>
+              </>
+            )}
+            {check && (
+              <span className="small" role="status">
+                <Badge tone={check.ok ? 'ok' : 'danger'}>{check.ok ? 'reached' : 'failed'}</Badge>{' '}
+                {check.ok ? `${check.directory} ${check.via}, in ${check.milliseconds} ms.` : `${check.directory || 'The CA'} ${check.via || ''}: ${check.error}`}
+              </span>
+            )}
+          </div>
+        </>
+      )}
+      <Needs cfg={cfg} st={st} mode={old ? 'ACME_PATH_MODE_DIRECT' : modeOf(path)} proxy={path.proxy_url} choosing={!!draft} />
+    </Card>
+  )
+}
+
+// Needs: what must be open for this node's certificates - the saved way,
+// or the one being chosen.
+function Needs({ cfg, st, mode, proxy, choosing }) {
+  const certs = cfg.certificates || []
+  const http = certs.filter((c) => (c.challenge || 'http-01') === 'http-01').map((c) => c.name)
+  const dnsCerts = certs.filter((c) => c.challenge === 'dns-01')
+  const types = [...new Set(dnsCerts.map((c) => (cfg.dns_providers || []).find((p) => p.name === c.dns_provider)?.type).filter(Boolean))]
+  let ca = st.directory
+  try {
+    ca = new URL(st.directory).host
+  } catch {
+    // not a URL: shown as is
+  }
+  const through = mode === 'ACME_PATH_MODE_PROXY' ? ` through the proxy ${proxy || '(its URL)'}` : ''
+  const lines = [`The node reaches the CA (${ca}) over HTTPS${through}.`]
+  if (http.length) lines.push(`The CA reaches this node on port 80 from the internet - HTTP-01, for ${http.join(', ')}: HAProxy answers on that port.`)
+  if (types.length) {
+    const api = types.filter((t) => t !== 'rfc2136')
+    if (api.length) lines.push(`The node reaches the ${api.join(', ')} API over HTTPS${through} - DNS-01.`)
+    if (types.includes('rfc2136')) lines.push('The node sends rfc2136 updates straight to the zone’s name server (port 53) - a proxy can’t carry them.')
+    lines.push('The node asks DNS (its resolvers, then the zone’s servers) to find the zone and see the record appear - propagation_wait_seconds waits instead of checking.')
+  }
+  return (
+    <div className="acme-needs">
+      <div className="small muted">{choosing ? 'What must be open for this node’s certificates with this choice:' : 'What must be open for this node’s certificates:'}</div>
+      <ul className="small">
+        {lines.map((l) => (
+          <li key={l}>{l}</li>
+        ))}
+      </ul>
+    </div>
   )
 }

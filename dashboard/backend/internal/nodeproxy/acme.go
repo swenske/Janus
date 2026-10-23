@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -21,12 +22,15 @@ import (
 
 func registerACMERoutes(mux *http.ServeMux, node *store.Node) {
 	empty := &emptypb.Empty{}
-	hap := func(fn func(context.Context, janusv1alpha1.HAProxyServiceClient) (any, error)) http.HandlerFunc {
+	hapWithin := func(timeout time.Duration, fn func(context.Context, janusv1alpha1.HAProxyServiceClient) (any, error)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			unary(w, r, node, unaryTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
+			unary(w, r, node, timeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
 				return fn(ctx, janusv1alpha1.NewHAProxyServiceClient(c))
 			})
 		}
+	}
+	hap := func(fn func(context.Context, janusv1alpha1.HAProxyServiceClient) (any, error)) http.HandlerFunc {
+		return hapWithin(unaryTimeout, fn)
 	}
 	mux.HandleFunc("GET /api/haproxy/acme", hap(func(ctx context.Context, c janusv1alpha1.HAProxyServiceClient) (any, error) {
 		resp, err := c.ACMEStatus(ctx, empty)
@@ -42,6 +46,8 @@ func registerACMERoutes(mux *http.ServeMux, node *store.Node) {
 			return nil, err
 		}
 		out["state"] = strings.ToLower(strings.TrimPrefix(resp.GetState().String(), "MODULE_STATE_"))
+		// direct, proxy - or unspecified: a node older than the paths.
+		out["path_mode"] = strings.ToLower(strings.TrimPrefix(resp.GetPathMode().String(), "ACME_PATH_MODE_"))
 		return out, nil
 	}))
 	mux.HandleFunc("GET /api/haproxy/acme/config", hap(func(ctx context.Context, c janusv1alpha1.HAProxyServiceClient) (any, error) {
@@ -81,6 +87,28 @@ func registerACMERoutes(mux *http.ServeMux, node *store.Node) {
 			})(w, r)
 		})
 	}
+	mux.HandleFunc("POST /api/haproxy/acme/check-path", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Path        json.RawMessage `json:"path"`
+			Directory   string          `json:"directory"`
+			DirectoryCA string          `json:"directory_ca"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		var path *janusv1alpha1.ACMEPath
+		if len(req.Path) > 0 && string(req.Path) != "null" {
+			path = &janusv1alpha1.ACMEPath{}
+			if err := protojson.Unmarshal(req.Path, path); err != nil {
+				writeJSONBody(w, http.StatusOK, map[string]any{"ok": false, "error": "the path: " + err.Error()})
+				return
+			}
+		}
+		// The node gives fetching the directory 45 s.
+		hapWithin(time.Minute, func(ctx context.Context, c janusv1alpha1.HAProxyServiceClient) (any, error) {
+			return c.ACMECheckPath(ctx, &janusv1alpha1.ACMECheckPathRequest{Path: path, Directory: req.Directory, DirectoryCa: req.DirectoryCA})
+		})(w, r)
+	})
 	mux.HandleFunc("POST /api/haproxy/acme/renew", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Names []string `json:"names"`
