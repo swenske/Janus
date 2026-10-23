@@ -7,12 +7,20 @@ import { useMetrics, usePoll } from '../hooks.jsx'
 
 const STATE_FILTERS = ['all', 'LISTEN', 'ESTABLISHED', 'TIME_WAIT', 'other']
 
+// addressFamily: a socket's IP version, from its address rather than its
+// protocol - the node writes an IPv6 one in brackets, and an IPv4
+// client of an IPv6 socket (tcp6, ::ffff:192.0.2.7) as IPv4.
+function addressFamily(address) {
+  return (address || '').startsWith('[') ? 'ipv6' : 'ipv4'
+}
+
 export default function Network() {
   const { latest } = useMetrics()
   const devices = usePoll('/api/system/netdev')
   const sockets = usePoll('/api/system/netstat')
   const [stateFilter, setStateFilter] = useState('all')
   const [proto, setProto] = useState('all')
+  const [family, setFamily] = useState('all')
 
   const ifRows = (devices.data?.devices || []).map((d) => ({
     ...d,
@@ -29,6 +37,7 @@ export default function Network() {
   }, [all])
   const sockRows = all
     .filter((s) => proto === 'all' || s.protocol.startsWith(proto))
+    .filter((s) => family === 'all' || addressFamily(s.local_address) === family)
     .filter((s) => {
       if (stateFilter === 'all') return true
       if (stateFilter === 'other') return !['LISTEN', 'ESTABLISHED', 'TIME_WAIT'].includes(s.state)
@@ -61,10 +70,15 @@ export default function Network() {
           icon={Cable}
           actions={
             <>
-              <select value={proto} onChange={(e) => setProto(e.target.value)}>
+              <select aria-label="Protocol" value={proto} onChange={(e) => setProto(e.target.value)}>
                 <option value="all">TCP + UDP</option>
                 <option value="tcp">TCP</option>
                 <option value="udp">UDP</option>
+              </select>
+              <select aria-label="IP version" value={family} onChange={(e) => setFamily(e.target.value)}>
+                <option value="all">IPv4 + IPv6</option>
+                <option value="ipv4">IPv4</option>
+                <option value="ipv6">IPv6</option>
               </select>
               <div className="chips">
                 {STATE_FILTERS.map((f) => (

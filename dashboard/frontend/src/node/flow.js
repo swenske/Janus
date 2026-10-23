@@ -320,7 +320,14 @@ function frontendTone(status) {
 // the configuration gives. Without a topology (the configuration isn't
 // readable) nothing links frontends to backends; servers always belong
 // to their backend.
-export function buildFlow(rows, topology, mapEntries) {
+// stickTables reads /api/haproxy/tables (protojson: numbers as strings)
+// as the stick tables by name - a table declared in a proxy is named
+// after it.
+export function stickTables(resp) {
+  return new Map((resp?.tables || []).map((t) => [t.name, { type: t.type, size: Number(t.size) || 0, used: Number(t.used) || 0 }]))
+}
+
+export function buildFlow(rows, topology, mapEntries, tables) {
   const internal = (r) => r.proxy.startsWith('<') // HAProxy's own (<HTTPCLIENT>...)
   const fes = rows.filter((r) => r.type === 'frontend' && !internal(r))
   const bes = rows.filter((r) => r.type === 'backend' && !internal(r))
@@ -352,8 +359,12 @@ export function buildFlow(rows, topology, mapEntries) {
     const mode = r.mode || ''
     const srv = own.map((s) => ({ id: `srv:${r.proxy}/${s.name}`, kind: 'srv', name: s.name, backend: r.proxy, mode, tone: serverTone(s.status), row: s }))
     const down = srv.filter((s) => s.tone === 'danger').length
-    let tone = String(r.status).toUpperCase().startsWith('DOWN') ? 'danger' : down ? 'warn' : String(r.status).toUpperCase() === 'UP' ? 'ok' : ''
-    return { id: `be:${r.proxy}`, kind: 'be', name: r.proxy, mode, tone, servers: srv, down, row: r }
+    // A backend holding a stick table and no server is the table's: no
+    // traffic goes to it, rules track clients into it - not DOWN.
+    const table = tables?.get(r.proxy)
+    const stick = !!table && !srv.length
+    let tone = stick ? '' : String(r.status).toUpperCase().startsWith('DOWN') ? 'danger' : down ? 'warn' : String(r.status).toUpperCase() === 'UP' ? 'ok' : ''
+    return { id: `be:${r.proxy}`, kind: 'be', name: r.proxy, mode, tone, servers: srv, down, row: r, table, stick }
   })
   return {
     configKnown: !!topology,
