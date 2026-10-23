@@ -15,10 +15,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"sync"
 )
 
 // ServiceID is the extension's service in janusd's supervisor.
@@ -26,6 +28,10 @@ const ServiceID = "prometheus-node-exporter"
 
 // DefaultPort is node_exporter's own default.
 const DefaultPort = 9100
+
+// Auto, as the address, is the node's main interface - netmgr's
+// MainAddresses, followed as the network changes (Follow).
+const Auto = "auto"
 
 // apiPort is janusd's gRPC API, which node_exporter must not take.
 const apiPort = 9505
@@ -90,16 +96,16 @@ func DefaultCollectors() []string {
 // Config is the extension's settings.
 type Config struct {
 	Enabled bool `json:"enabled"`
-	// Address to listen on - empty for every address.
+	// Address to listen on: Auto, empty for every address, or one IP.
 	Address    string   `json:"address"`
 	Port       uint32   `json:"port"`
 	Collectors []string `json:"collectors"`
 }
 
-// DefaultConfig is what a node runs until it's changed: on, every
-// address, port 9100, the default collectors.
+// DefaultConfig is what a node runs until it's changed: on, the main
+// interface, port 9100, the default collectors.
 func DefaultConfig() Config {
-	return Config{Enabled: true, Port: DefaultPort, Collectors: DefaultCollectors()}
+	return Config{Enabled: true, Address: Auto, Port: DefaultPort, Collectors: DefaultCollectors()}
 }
 
 // Validate checks c and normalizes it: port 0 is DefaultPort, no
@@ -112,8 +118,8 @@ func (c *Config) Validate() error {
 	if c.Port == apiPort {
 		return fmt.Errorf("port %d is janusd's API", apiPort)
 	}
-	if c.Address != "" && net.ParseIP(c.Address) == nil {
-		return fmt.Errorf("%q isn't an IP address", c.Address)
+	if c.Address != "" && c.Address != Auto && net.ParseIP(c.Address) == nil {
+		return fmt.Errorf("%q isn't an IP address (or %q)", c.Address, Auto)
 	}
 	if len(c.Collectors) == 0 {
 		c.Collectors = DefaultCollectors()
@@ -127,13 +133,74 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Args is node_exporter's command line for c (validated).
-func Args(c Config) []string {
-	args := []string{"--web.listen-address=" + net.JoinHostPort(c.Address, strconv.Itoa(int(c.Port))), "--collector.disable-defaults"}
+// Hosts is where c listens: an address each, "" for every address -
+// Auto's are main, none of them every address.
+func Hosts(c Config, main []netip.Addr) []string {
+	if c.Address != Auto {
+		return []string{c.Address}
+	}
+	if len(main) == 0 {
+		return []string{""}
+	}
+	hosts := make([]string, len(main))
+	for i, a := range main {
+		hosts[i] = a.String()
+	}
+	return hosts
+}
+
+// Args is node_exporter's command line for c (validated), main the main
+// interface's addresses: a --web.listen-address each (node_exporter
+// takes the flag repeated).
+func Args(c Config, main []netip.Addr) []string {
+	var args []string
+	for _, h := range Hosts(c, main) {
+		args = append(args, "--web.listen-address="+net.JoinHostPort(h, strconv.Itoa(int(c.Port))))
+	}
+	args = append(args, "--collector.disable-defaults")
 	for _, name := range c.Collectors {
 		args = append(args, "--collector."+name)
 	}
 	return args
+}
+
+// Supervisor is what runs node_exporter: janusd's extension manager.
+type Supervisor interface {
+	// Configure sets its arguments and whether it runs (restarting it).
+	Configure(id string, args []string, enabled bool) error
+	// SetArgs changes its arguments, restarting it only if it runs.
+	SetArgs(id string, args []string) error
+}
+
+// mu orders Apply and Follow: a network change followed while new
+// settings are being applied mustn't run the old ones.
+var mu sync.Mutex
+
+// Apply saves c and runs node_exporter with it (NodeExporterConfigSet) -
+// saved first: what runs is always what a reboot would run.
+func Apply(s Supervisor, c Config, main []netip.Addr) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if err := Save(c); err != nil {
+		return fmt.Errorf("save the settings: %w", err)
+	}
+	if err := s.Configure(ServiceID, Args(c, main), c.Enabled); err != nil {
+		return fmt.Errorf("apply the settings: %w", err)
+	}
+	return nil
+}
+
+// Follow gives node_exporter the main interface's new addresses when it
+// listens there (netmgr's OnChange) - restarted only if they changed and
+// it runs; one stopped on purpose stays stopped.
+func Follow(s Supervisor, main []netip.Addr) error {
+	mu.Lock()
+	defer mu.Unlock()
+	c, _, err := Load()
+	if err != nil || !c.Enabled || c.Address != Auto {
+		return err
+	}
+	return s.SetArgs(ServiceID, Args(c, main))
 }
 
 // Load reads the saved settings; isDefault reports that none were.

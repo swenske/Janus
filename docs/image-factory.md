@@ -42,7 +42,8 @@ Proxmox, enable the agent in the VM's options (**QEMU Guest Agent**);
 until the VM has the agent's channel, the service shows as `waiting`
 rather than failing.
 
-**prometheus-node-exporter** listens on every address, port 9100, without
+**prometheus-node-exporter** listens on the node's main interface
+([metrics.md](metrics.md#where-it-listens)), port 9100, without
 authentication, like a stock node_exporter: restrict who can reach it.
 Its address, port and collectors are settings - see
 [metrics.md](metrics.md#the-node-exporter).

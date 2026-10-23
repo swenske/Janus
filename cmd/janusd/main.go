@@ -205,16 +205,21 @@ func main() {
 	// are issued for its hostname and addresses, and dated by its clock.
 	var serverCert *pki.ServerCert // set once the PKI is loaded
 	var timeSvc *timesync.Service
+	var followMain func() // set once the exporters run
 	netMgr := netmgr.New(netmgr.Options{
 		Manage: *manageHost,
 		OnChange: func() {
 			// The addresses or hostname may have changed: the server
-			// certificate must cover them, and the NTP servers may have.
+			// certificate must cover them, and the NTP servers may have;
+			// the exporters follow the main interface.
 			if serverCert != nil {
 				refreshServerCert(serverCert)
 			}
 			if timeSvc != nil {
 				timeSvc.Kick()
+			}
+			if followMain != nil {
+				followMain()
 			}
 		},
 	})
@@ -399,13 +404,20 @@ func main() {
 	if *manageHost && (vrrpMgr.Available() || bgpMgr.Available()) {
 		haproxyMgr.DrainDelay = *haproxyDrain
 	}
+	// The exporters listen on the main interface by default - a node set
+	// up before keeps them on every address (before the PKI: it tells).
+	if *manageHost {
+		if err := settleListenDefault(*configDir, pki.Bootstrapped(*pkiDir), extMgr.Has(nodeexporter.ServiceID)); err != nil {
+			log.Printf("exporters: %v", err)
+		}
+	}
 	// prometheus-node-exporter runs as its saved settings say.
 	if extMgr.Has(nodeexporter.ServiceID) {
 		cfg, _, err := nodeexporter.Load()
 		if err != nil {
 			log.Printf("node-exporter: %v - running the defaults", err)
 		}
-		if err := extMgr.Configure(nodeexporter.ServiceID, nodeexporter.Args(cfg), cfg.Enabled); err != nil {
+		if err := extMgr.Configure(nodeexporter.ServiceID, nodeexporter.Args(cfg, netMgr.MainAddresses()), cfg.Enabled); err != nil {
 			log.Printf("node-exporter: %v", err)
 		}
 	}
@@ -561,12 +573,23 @@ func main() {
 		go kmsgwatch.Watch("/dev/kmsg", metrics.kmsg)
 	}
 	exp := exporter.New(metrics.collectors()...)
+	exp.Main = netMgr.MainAddresses
 	expCfg, _, err := exporter.Load()
 	if err != nil {
 		log.Printf("exporter: %v - using the defaults", err)
 	}
 	if err := exp.Apply(expCfg); err != nil {
 		log.Printf("exporter: %v", err)
+	}
+	followMain = func() {
+		if err := exp.Refresh(); err != nil {
+			log.Printf("exporter: %v", err)
+		}
+		if extMgr.Has(nodeexporter.ServiceID) {
+			if err := nodeexporter.Follow(extMgr, netMgr.MainAddresses()); err != nil {
+				log.Printf("node-exporter: %v", err)
+			}
+		}
 	}
 
 	tlsConfig := pki.NodeTLSConfig(local.CA, serverCert, fleet)
@@ -579,7 +602,7 @@ func main() {
 		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Sysctl: sysctlMgr, Console: console})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Main: netMgr.MainAddresses, Sysctl: sysctlMgr, Console: console})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
 	// Every accepted configuration, next to haproxy.cfg - on STATE on a
 	// node, like the configuration itself.

@@ -192,6 +192,25 @@ func (m *Manager) Configure(id string, args []string, enabled bool) error {
 	return nil
 }
 
+// SetArgs changes the arguments a service runs with, keeping whether it
+// runs: a running service is restarted with them if they changed, a
+// stopped one - its settings', or stopped on purpose - stays stopped.
+func (m *Manager) SetArgs(id string, args []string) error {
+	s, ok := m.services[id]
+	if !ok {
+		return errNoService
+	}
+	s.mu.Lock()
+	changed := !slices.Equal(s.def.Args, args)
+	s.def.Args = slices.Clone(args)
+	running := s.started && s.want && !s.disabled
+	s.mu.Unlock()
+	if !changed || !running {
+		return nil
+	}
+	return m.RestartService(id)
+}
+
 // RestartService stops then starts a service.
 func (m *Manager) RestartService(id string) error {
 	if err := m.StopService(id); err != nil {

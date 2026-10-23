@@ -204,7 +204,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("timeout", "DURATION", "each step's", argNone),
 			boolFlag("v", "the HTTP headers and body, every certificate"),
 		}, pos: []argKind{argProbeKind, argNone}, required: 2},
-		{name: "metrics", help: "the node's Prometheus exporter: show or change", flags: []flagDef{boolFlag("enable", "turn it on"), boolFlag("disable", "turn it off"), valFlag("address", "IP", "serve on this address only (* for all)", argNone), valFlag("port", "PORT", "serve on this port", argNone)}},
+		{name: "metrics", help: "the node's Prometheus exporter: show or change", flags: []flagDef{boolFlag("enable", "turn it on"), boolFlag("disable", "turn it off"), valFlag("address", "IP|auto|*", "serve on this address only (auto: the main interface's, *: all)", argNone), valFlag("port", "PORT", "serve on this port", argNone)}},
 		{name: "console-budget", help: "the services' share of the node's console (docs/guide/log-forwarding.md): show or change", flags: []flagDef{
 			valFlag("rate", "BYTES", "bytes a second of the services' output the console gets (0: none of it)", argNone),
 			valFlag("burst", "BYTES", "at most this much at once", argNone),
@@ -212,7 +212,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		}},
 		{name: "node-exporter", help: "prometheus-node-exporter: show or change", flags: []flagDef{
 			boolFlag("enable", "run it"), boolFlag("disable", "stop it, and keep it stopped"),
-			valFlag("address", "IP", "listen on this address only (* for all)", argNone),
+			valFlag("address", "IP|auto|*", "listen on this address only (auto: the main interface's, *: all)", argNone),
 			valFlag("port", "PORT", "listen on this port", argNone),
 			valFlag("collectors", "A,B", "the collectors to run", argNone),
 		}},

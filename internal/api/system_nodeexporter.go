@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"net/netip"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,14 +27,19 @@ func (s *System) NodeExporterConfigSet(_ context.Context, req *janusv1alpha1.Nod
 	if err := cfg.Validate(); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	// Saved first: what runs is always what a reboot would run.
-	if err := nodeexporter.Save(cfg); err != nil {
-		return nil, status.Errorf(codes.Internal, "save the settings: %v", err)
-	}
-	if err := s.Extensions.Configure(nodeexporter.ServiceID, nodeexporter.Args(cfg), cfg.Enabled); err != nil {
-		return nil, status.Errorf(codes.Internal, "apply the settings: %v", err)
+	if err := nodeexporter.Apply(s.Extensions, cfg, s.mainAddresses()); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return s.nodeExporterResponse(), nil
+}
+
+// mainAddresses is the main interface's addresses - none outside a node
+// whose network janusd manages.
+func (s *System) mainAddresses() []netip.Addr {
+	if s.Main == nil {
+		return nil
+	}
+	return s.Main()
 }
 
 func (s *System) nodeExporterPresent() error {
@@ -56,6 +62,13 @@ func (s *System) nodeExporterResponse() *janusv1alpha1.NodeExporterConfigRespons
 		resp.State = st.State
 		if st.State != "running" && st.State != "disabled" {
 			resp.Error = st.LastError
+		}
+	}
+	if cfg.Enabled {
+		for _, h := range nodeexporter.Hosts(cfg, s.mainAddresses()) {
+			if h != "" {
+				resp.EffectiveAddresses = append(resp.EffectiveAddresses, h)
+			}
 		}
 	}
 	if err != nil {

@@ -242,6 +242,71 @@ func buildPlan(cfg *janusv1alpha1.NetworkConfig, links []linkInfo, lease *BootLe
 	return p, nil
 }
 
+// mainAddresses picks the node's main interface in p - the one its IPv4
+// default route leaves by (the lowest metric among those with a
+// gateway), else the boot lease's, else the one with an IPv6 gateway -
+// and its addresses, one per family (primary). They come from the plan,
+// not the live interface: keepalived's virtual addresses are never in
+// it. None: the exporters listen on every address.
+func mainAddresses(p *plan) []netip.Addr {
+	var main *ifPlan
+	lowest := func(ok func(*ifPlan) bool) {
+		for i := range p.ifaces {
+			if f := &p.ifaces[i]; ok(f) && (main == nil || f.metric < main.metric) {
+				main = f
+			}
+		}
+	}
+	lowest(func(f *ifPlan) bool { return f.gw4.IsValid() })
+	if main == nil && p.dhcp != "" {
+		lowest(func(f *ifPlan) bool { return f.name == p.dhcp })
+	}
+	if main == nil {
+		lowest(func(f *ifPlan) bool { return f.gw6.IsValid() })
+	}
+	if main == nil {
+		return nil
+	}
+	var out []netip.Addr
+	if a, ok := primary(main.addrs, main.gw4, false); ok {
+		out = append(out, a)
+	}
+	if a, ok := primary(main.addrs, main.gw6, true); ok {
+		out = append(out, a)
+	}
+	return out
+}
+
+// primary is an interface's address of one family (IPv6: a global one,
+// not its link's): the one whose prefix holds the gateway - the address
+// the kernel answers from -, else the first that isn't a single host's
+// (a /32 or /128 is an anycast or service address, BGP's), else the
+// first.
+func primary(addrs []netip.Prefix, gw netip.Addr, v6 bool) (netip.Addr, bool) {
+	var family []netip.Prefix
+	for _, p := range addrs {
+		if a := p.Addr(); a.Is6() == v6 && (!v6 || a.IsGlobalUnicast()) {
+			family = append(family, p)
+		}
+	}
+	if len(family) == 0 {
+		return netip.Addr{}, false
+	}
+	if gw.IsValid() {
+		for _, p := range family {
+			if p.Contains(gw) {
+				return p.Addr(), true
+			}
+		}
+	}
+	for _, p := range family {
+		if !p.IsSingleIP() {
+			return p.Addr(), true
+		}
+	}
+	return family[0].Addr(), true
+}
+
 func leasePlan(lease *BootLease, l *linkInfo, name string, metric, mtu int) (ifPlan, error) {
 	addr, err := netip.ParsePrefix(lease.Address)
 	if err != nil {

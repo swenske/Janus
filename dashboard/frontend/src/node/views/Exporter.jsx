@@ -4,6 +4,8 @@ import { postJSON } from '../api.js'
 import { Badge, Card, ErrorBox, useAction } from '../../shared/ui.jsx'
 import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
+import ListenAddress from '../components/ListenAddress.jsx'
+import { listenAddress, listenMode, listenSaid, scrapeHost } from '../listen.js'
 
 const DEFAULT_PORT = 10056
 // Its page on the docs site, by the file's permalink.
@@ -22,26 +24,28 @@ export default function ExporterCard() {
   const canSet = useMay()('SystemService/MetricsConfigSet')
 
   const cfg = data?.config
+  const saved = cfg?.address || ''
   const enabled = draft ? draft.enabled : !!cfg?.enabled
   const port = draft ? draft.port : String(cfg?.port || DEFAULT_PORT)
-  const address = draft ? draft.address : cfg?.address || ''
-  const edit = (change) => setDraft({ enabled, port, address, ...change })
+  const mode = draft ? draft.mode : listenMode(saved)
+  const ip = draft ? draft.ip : listenMode(saved) === 'one' ? saved : ''
+  const address = listenAddress(mode, ip)
+  const edit = (change) => setDraft({ enabled, port, mode, ip, ...change })
 
-  // Scraped at the address it listens on, else at the node's.
-  const host = cfg?.address || (node.data?.address || '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '') || '<node>'
+  // Scraped where it listens, else at the node's address.
   const shownPort = cfg?.port || DEFAULT_PORT
-  const target = `${host.includes(':') ? `[${host}]` : host}:${shownPort}`
-  const changed = cfg && (enabled !== !!cfg.enabled || Number(port || DEFAULT_PORT) !== (cfg.port || DEFAULT_PORT) || address !== (cfg.address || ''))
+  const target = `${scrapeHost(saved, data?.effective_addresses, node.data?.address)}:${shownPort}`
+  const changed = cfg && (enabled !== !!cfg.enabled || Number(port || DEFAULT_PORT) !== (cfg.port || DEFAULT_PORT) || address !== saved)
   const portValid = /^\d+$/.test(port || String(DEFAULT_PORT)) && Number(port || DEFAULT_PORT) >= 1 && Number(port || DEFAULT_PORT) <= 65535
-  // An IP address or nothing - the node checks it for real.
-  const addressValid = address === '' || /^[0-9a-fA-F.:]+$/.test(address)
+  // An IP address - the node checks it for real.
+  const addressValid = mode !== 'one' || /^[0-9a-fA-F.:]+$/.test(ip)
 
   const save = () =>
     run(async () => {
       await postJSON('/api/system/metrics-config', { enabled, port: Number(port || DEFAULT_PORT), address })
       setDraft(null)
       reload()
-    }, enabled ? `Exporter serving on ${address || 'every address'}, port ${port || DEFAULT_PORT}` : 'Exporter disabled')
+    }, enabled ? `Exporter serving on ${listenSaid(address)}, port ${port || DEFAULT_PORT}` : 'Exporter disabled')
 
   let badge = <Badge>…</Badge>
   if (cfg && !cfg.enabled) badge = <Badge>Disabled</Badge>
@@ -74,10 +78,7 @@ export default function ExporterCard() {
             <label className="check">
               <input type="checkbox" checked={enabled} onChange={(e) => edit({ enabled: e.target.checked })} /> Enabled
             </label>
-            <label className="field" style={{ width: '12rem' }}>
-              <span>Address</span>
-              <input className="mono" value={address} placeholder="every address" onChange={(e) => edit({ address: e.target.value.trim() })} disabled={!enabled} />
-            </label>
+            <ListenAddress label="Listen on" mode={mode} ip={ip} onMode={(m) => edit({ mode: m })} onIP={(v) => edit({ ip: v })} disabled={!enabled} />
             <label className="field" style={{ width: '9rem' }}>
               <span>Port</span>
               <input className="mono" inputMode="numeric" value={port} placeholder={String(DEFAULT_PORT)} onChange={(e) => edit({ port: e.target.value.trim() })} disabled={!enabled} />
@@ -92,7 +93,11 @@ export default function ExporterCard() {
             <>
               <div className="small">
                 Scrape <span className="mono">http://{target}/metrics</span> - the node's firewall, if any, must let Prometheus reach port {shownPort}.
-                {!cfg.address && ' On every address of the node: set a management address to keep it off the networks HAProxy serves.'}
+                {saved === 'auto' &&
+                  (data?.effective_addresses?.length
+                    ? ' On the main interface: the one the node\'s default route leaves by - when HAProxy serves that network, choose the management address.'
+                    : ' No main interface known (janusd doesn\'t manage this host\'s network): on every address.')}
+                {saved === '' && ' On every address of the node: choose the main interface or a management address to keep it off the networks HAProxy serves.'}
               </div>
               <pre className="code">{`scrape_configs:
   - job_name: janus

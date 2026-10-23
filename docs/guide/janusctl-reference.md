@@ -392,14 +392,14 @@ janusctl system probe [-source IP] [-type TYPE] [-server HOST[:PORT]] [-connect-
 The node's Prometheus exporter: show or change.
 
 ```text
-janusctl system metrics [-enable] [-disable] [-address IP] [-port PORT]
+janusctl system metrics [-enable] [-disable] [-address IP|auto|*] [-port PORT]
 ```
 
 | Flag | |
 |---|---|
 | `-enable` | turn it on |
 | `-disable` | turn it off |
-| `-address IP` | serve on this address only (* for all) |
+| `-address IP\|auto\|*` | serve on this address only (auto: the main interface's, *: all) |
 | `-port PORT` | serve on this port |
 
 #### janusctl system console-budget
@@ -421,14 +421,14 @@ janusctl system console-budget [-rate BYTES] [-burst BYTES] [-default]
 Prometheus-node-exporter: show or change.
 
 ```text
-janusctl system node-exporter [-enable] [-disable] [-address IP] [-port PORT] [-collectors A,B]
+janusctl system node-exporter [-enable] [-disable] [-address IP|auto|*] [-port PORT] [-collectors A,B]
 ```
 
 | Flag | |
 |---|---|
 | `-enable` | run it |
 | `-disable` | stop it, and keep it stopped |
-| `-address IP` | listen on this address only (* for all) |
+| `-address IP\|auto\|*` | listen on this address only (auto: the main interface's, *: all) |
 | `-port PORT` | listen on this port |
 | `-collectors A,B` | the collectors to run |
 

@@ -1,12 +1,16 @@
 package exporter
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"math"
 	"net"
 	"net/http"
+	"net/netip"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -74,9 +78,11 @@ func freePort(t *testing.T) uint32 {
 	return uint32(l.Addr().(*net.TCPAddr).Port)
 }
 
-func scrape(port uint32) (string, error) {
+func scrape(port uint32) (string, error) { return scrapeAt("127.0.0.1", port) }
+
+func scrapeAt(host string, port uint32) (string, error) {
 	c := http.Client{Timeout: 2 * time.Second}
-	resp, err := c.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", port))
+	resp, err := c.Get(fmt.Sprintf("http://%s/metrics", net.JoinHostPort(host, fmt.Sprint(port))))
 	if err != nil {
 		return "", err
 	}
@@ -181,6 +187,81 @@ func BenchmarkWrite(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if err := Write(io.Discard, families); err != nil {
 			b.Fatal(err)
+		}
+	}
+}
+
+// TestAuto: the main interface's addresses, followed when they change -
+// without dropping a connection when they don't; every address when
+// there are none.
+func TestAuto(t *testing.T) {
+	var mu sync.Mutex
+	main := []netip.Addr{netip.MustParseAddr("127.0.0.1")}
+	setMain := func(a ...netip.Addr) { mu.Lock(); main = a; mu.Unlock() }
+	s := New(func() []Family {
+		return []Family{{Name: "janus_up", Help: "Up.", Type: Gauge, Samples: []Sample{{Value: 1}}}}
+	})
+	s.Main = func() []netip.Addr { mu.Lock(); defer mu.Unlock(); return slices.Clone(main) }
+	defer s.Stop()
+
+	p := freePort(t)
+	if err := s.Apply(Config{Enabled: true, Port: p, Address: Auto}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scrapeAt("127.0.0.1", p); err != nil {
+		t.Fatalf("scrape on the main address: %v", err)
+	}
+	if got := s.Addresses(); !slices.Equal(got, []string{"127.0.0.1"}) {
+		t.Errorf("addresses = %v", got)
+	}
+
+	// Unchanged: a connection open across a Refresh still answers.
+	c, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(p)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := s.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(c, "GET /metrics HTTP/1.1\r\nHost: x\r\n\r\n")
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if line, err := bufio.NewReader(c).ReadString('\n'); err != nil || !strings.Contains(line, "200") {
+		t.Fatalf("a connection across an unchanged Refresh: %q %v", line, err)
+	}
+
+	// The main address moved: the exporter with it.
+	setMain(netip.MustParseAddr("127.0.0.2"))
+	if err := s.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scrapeAt("127.0.0.2", p); err != nil {
+		t.Fatalf("scrape on the new main address: %v", err)
+	}
+	if _, err := scrapeAt("127.0.0.1", p); err == nil {
+		t.Fatal("the old main address still answers")
+	}
+
+	// No main interface: every address.
+	setMain()
+	if err := s.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scrapeAt("127.0.0.3", p); err != nil || s.Addresses() != nil {
+		t.Fatalf("every address: %v %v", err, s.Addresses())
+	}
+	s.Main = nil
+	if err := s.Apply(Config{Enabled: true, Port: p, Address: "127.0.0.1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Refresh(); err != nil || !slices.Equal(s.Addresses(), []string{"127.0.0.1"}) {
+		t.Fatalf("a fixed address isn't Auto's to move: %v %v", err, s.Addresses())
+	}
+
+	for addr, ok := range map[string]bool{Auto: true, "": true, "192.0.2.1": true, "automatic": false} {
+		c := Config{Enabled: true, Address: addr}
+		if err := c.Validate(); (err == nil) != ok {
+			t.Errorf("Validate(%q) = %v", addr, err)
 		}
 	}
 }

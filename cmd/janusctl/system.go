@@ -269,7 +269,7 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 		enable := fs.Bool("enable", false, "turn the exporter on")
 		disable := fs.Bool("disable", false, "turn the exporter off")
 		port := fs.Uint("port", 0, "serve on this port (default 10056)")
-		address := fs.String("address", "", "serve on this address only (\"*\" for every address)")
+		address := fs.String("address", "", "serve on this address only (\"auto\" for the main interface's, \"*\" for every address)")
 		_ = fs.Parse(args)
 		c, cancel := ctx()
 		defer cancel()
@@ -302,19 +302,14 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 			check("MetricsConfigSet", err)
 		}
 		cfg := resp.GetConfig()
-		host := cfg.GetAddress()
-		if host == "" {
-			host = "<node>"
-		} else if strings.Contains(host, ":") {
-			host = "[" + host + "]"
-		}
+		where := listenURLs(cfg.GetAddress(), resp.GetEffectiveAddresses(), cfg.GetPort())
 		switch {
 		case !cfg.GetEnabled():
 			fmt.Println("Exporter: disabled")
 		case resp.GetListening():
-			fmt.Printf("Exporter: http://%s:%d/metrics\n", host, cfg.GetPort())
+			fmt.Printf("Exporter: %s\n", where)
 		default:
-			fmt.Printf("Exporter: enabled on %s:%d, but not listening: %s\n", host, cfg.GetPort(), resp.GetError())
+			fmt.Printf("Exporter: enabled on %s, but not listening: %s\n", where, resp.GetError())
 		}
 		if resp.GetIsDefault() {
 			fmt.Println("(default settings)")
@@ -363,7 +358,7 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 		fs := flag.NewFlagSet("system node-exporter", flag.ExitOnError)
 		enable := fs.Bool("enable", false, "run node_exporter")
 		disable := fs.Bool("disable", false, "stop node_exporter, and keep it stopped")
-		address := fs.String("address", "", "listen on this address only (\"*\" for every address)")
+		address := fs.String("address", "", "listen on this address only (\"auto\" for the main interface's, \"*\" for every address)")
 		port := fs.Uint("port", 0, "listen on this port (default 9100)")
 		collectors := fs.String("collectors", "", "the collectors to run, comma-separated (\"default\" for the default ones)")
 		_ = fs.Parse(args)
@@ -402,12 +397,8 @@ func runSystemCommand(conn *grpc.ClientConn, cmd string, args []string) bool {
 			check("NodeExporterConfigSet", err)
 		}
 		cfg := resp.GetConfig()
-		addr := cfg.GetAddress()
-		if addr == "" {
-			addr = "<node>"
-		}
 		if cfg.GetEnabled() {
-			fmt.Printf("node_exporter: http://%s/metrics (%s)\n", net.JoinHostPort(addr, strconv.Itoa(int(cfg.GetPort()))), resp.GetState())
+			fmt.Printf("node_exporter: %s (%s)\n", listenURLs(cfg.GetAddress(), resp.GetEffectiveAddresses(), cfg.GetPort()), resp.GetState())
 		} else {
 			fmt.Printf("node_exporter: disabled (%s)\n", resp.GetState())
 		}
@@ -672,5 +663,32 @@ func printClients(w io.Writer, resp *janusv1alpha1.ClientListResponse, now time.
 	tw.Flush()
 	if unnamed {
 		fmt.Fprintln(w, "The users a Controller acts for are named to an admin.")
+	}
+}
+
+// listenURLs says where an exporter answers: its effective addresses
+// (the main interface's for "auto"), else <node> for every address, or
+// the address set (a node older than effective_addresses).
+func listenURLs(address string, effective []string, port uint32) string {
+	url := func(host string) string {
+		return "http://" + net.JoinHostPort(host, strconv.Itoa(int(port))) + "/metrics"
+	}
+	switch {
+	case len(effective) > 0:
+		urls := make([]string, len(effective))
+		for i, a := range effective {
+			urls[i] = url(a)
+		}
+		out := strings.Join(urls, " ")
+		if address == "auto" {
+			out += " (main interface)"
+		}
+		return out
+	case address == "auto":
+		return url("<node>") + " (every address: no main interface)"
+	case address == "":
+		return url("<node>")
+	default:
+		return url(address)
 	}
 }

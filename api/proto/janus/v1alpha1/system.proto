@@ -150,7 +150,8 @@ service SystemService {
   // The node's Prometheus exporter (docs/metrics.md): Janus's own
   // metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
   // extension services, time sync, SELinux - over plain HTTP, on by
-  // default on port 10056, on every address unless one is set.
+  // default on port 10056, on the node's main interface (the one its
+  // IPv4 default route leaves by) unless another address is set.
 
   // MetricsConfigGet reports the exporter's settings.
   rpc MetricsConfigGet(google.protobuf.Empty) returns (MetricsConfigResponse);
@@ -194,8 +195,9 @@ service SystemService {
   rpc LogForwardingTest(LogTarget) returns (LogForwardingTestResponse);
 
   // The prometheus-node-exporter extension's settings (docs/metrics.md):
-  // whether node_exporter runs, the address and port it listens on, and
-  // its collectors, from a fixed list. FailedPrecondition when the image
+  // whether node_exporter runs, the address and port it listens on (the
+  // main interface by default, as the Janus exporter), and its
+  // collectors, from a fixed list. FailedPrecondition when the image
   // doesn't have the extension.
 
   // NodeExporterConfigGet reports node_exporter's settings.
@@ -432,12 +434,17 @@ message SysctlHistoryResponse {
 message MetricsConfig {
   bool enabled = 1;
   uint32 port = 2; // 0 = the default, 10056
-  string address = 3; // to listen on - empty for every address
+  // To listen on: "auto" (the default) for the main interface's
+  // addresses - followed as the network changes -, empty for every
+  // address, else one IP.
+  string address = 3;
 }
 
 message NodeExporterConfig {
   bool enabled = 1;
-  string address = 2; // to listen on - empty for every address
+  // To listen on: "auto" (the default) for the main interface's
+  // addresses, empty for every address, else one IP.
+  string address = 2;
   uint32 port = 3; // 0 = the default, 9100
   repeated string collectors = 4; // empty = the default ones
 }
@@ -454,6 +461,9 @@ message NodeExporterConfigResponse {
   repeated NodeExporterCollector available_collectors = 3;
   string state = 4; // the service's: "running", "disabled", "restarting"...
   string error = 5; // its last error, when it isn't running as set
+  // The addresses it listens on, "auto"'s resolved; none for every
+  // address (or when it doesn't run).
+  repeated string effective_addresses = 6;
 }
 
 message ConsoleBudget {
@@ -474,6 +484,9 @@ message MetricsConfigResponse {
   bool is_default = 2; // nothing was ever set
   bool listening = 3;
   string error = 4; // why the exporter isn't listening as configured, if it isn't
+  // The addresses it listens on now, "auto"'s resolved; none for every
+  // address (or when it isn't listening).
+  repeated string effective_addresses = 5;
 }
 
 message VersionResponse {

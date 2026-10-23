@@ -22,7 +22,8 @@ Its settings are kept on the node across reboots and upgrades:
 janusctl system metrics                       # show
 janusctl system metrics -port 10100           # move it
 janusctl system metrics -address 192.0.2.10   # listen on one address only
-janusctl system metrics -address '*'          # back to every address
+janusctl system metrics -address '*'          # on every address
+janusctl system metrics -address auto         # back on the main interface
 janusctl system metrics -disable              # turn it off
 janusctl system metrics -enable
 ```
@@ -33,10 +34,11 @@ was.
 
 Like node_exporter, it has no authentication: anyone who reaches the port
 can read the metrics (versions, certificate names and expiry dates, API
-call counts - no secrets). It listens on every address of the node
-unless one is set: on a node with a management address, `-address` keeps
-the metrics off the networks HAProxy serves. Restrict who reaches it in
-your network, or with the node's firewall.
+call counts - no secrets). It listens on the node's main interface
+unless told otherwise ([Where it listens](#where-it-listens)): on a node
+with a management address, `-address` keeps the metrics off the
+networks HAProxy serves. Restrict who reaches it in your network, or
+with the node's firewall.
 
 ```yaml
 scrape_configs:
@@ -45,14 +47,45 @@ scrape_configs:
       - targets: ['node1.example.net:10056', 'node2.example.net:10056']
 ```
 
+## Where it listens
+
+By default both exporters - this one and [the node
+exporter](#the-node-exporter) - listen on the node's **main interface**:
+the one its IPv4 default route leaves by (the lowest route metric
+among the interfaces with a gateway), else the interface of the address
+the kernel got by DHCP at boot, else the one with an IPv6 gateway. On
+it, one address per IP version: the one whose subnet holds the gateway,
+else the first that isn't a single host's (a `/32` or `/128` - an
+anycast or service address, BGP's), else the first. Keepalived's virtual
+addresses never count. They follow the network: a configuration applied
+on trial, confirmed or reverted moves them with it. A node without any
+such interface listens on every address.
+
+The other choices: `-address '*'` for every address, `-address IP` for
+one address (a management address). `janusctl system metrics` and the
+Controller's page say the addresses in use:
+
+```text
+Exporter: http://10.0.2.15:10056/metrics (main interface)
+```
+
+> [!NOTE]
+> A node set up before this default (v2026.10.22-2 and earlier) keeps
+> listening on every address: its first boot on a newer version saves
+> that as its setting. `-address auto` moves it to the main interface.
+> When the default route goes out by the interface HAProxy serves - a
+> front network with the gateway, a management network without -, set
+> the management address instead.
+
 ## The node exporter
 
 A node built with the `prometheus-node-exporter` extension
 ([image-factory.md](image-factory.md)) also runs Prometheus's
 node_exporter: the host's CPU, memory, disks, filesystems and network.
 Its settings are kept on the node, like the Janus exporter's: whether it
-runs, the address and port it listens on (every address and **9100** by
-default), and its collectors - from a fixed list, each one known to work
+runs, the address and port it listens on (the [main
+interface](#where-it-listens) and **9100** by default), and its
+collectors - from a fixed list, each one known to work
 on a Janus node. The default ones: `cpu`, `diskstats`, `filefd`,
 `filesystem`, `loadavg`, `meminfo`, `netdev`, `netstat`, `os`,
 `pressure`, `sockstat`, `stat`, `time`, `timex`, `uname`, `vmstat`. More
@@ -63,6 +96,7 @@ can be turned on: `arp`, `conntrack`, `cpufreq`, `dmi`, `entropy`,
 ```sh
 janusctl system node-exporter                                  # show
 janusctl system node-exporter -address 192.0.2.10 -port 9200   # listen elsewhere
+janusctl system node-exporter -address auto                    # the main interface (the default)
 janusctl system node-exporter -collectors cpu,meminfo,netdev,softnet
 janusctl system node-exporter -collectors default
 janusctl system node-exporter -disable                         # stop it, and keep it stopped

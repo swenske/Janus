@@ -42,9 +42,10 @@ func (s *System) metricsConfigResponse() *janusv1alpha1.MetricsConfigResponse {
 		lastErr = err.Error()
 	}
 	return &janusv1alpha1.MetricsConfigResponse{
-		Config:    &janusv1alpha1.MetricsConfig{Enabled: cfg.Enabled, Port: cfg.Port, Address: cfg.Address},
-		IsDefault: isDefault,
-		Listening: listening,
-		Error:     lastErr,
+		Config:             &janusv1alpha1.MetricsConfig{Enabled: cfg.Enabled, Port: cfg.Port, Address: cfg.Address},
+		IsDefault:          isDefault,
+		Listening:          listening,
+		Error:              lastErr,
+		EffectiveAddresses: s.Exporter.Addresses(),
 	}
 }

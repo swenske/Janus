@@ -2,15 +2,15 @@ import { FileCode } from 'lucide-react'
 import ExporterCard from './Exporter.jsx'
 import { Card, PageHeader } from '../../shared/ui.jsx'
 import { usePoll } from '../hooks.jsx'
+import { scrapeHost } from '../listen.js'
 
 // JanusExporter is the exporter janusd itself runs - Janus's own metrics,
 // always there, unlike the extensions' apps.
 export default function JanusExporter() {
   const cfg = usePoll('/api/system/metrics-config', { every: 0 })
   const node = usePoll('/api/node', { every: 0 })
-  const host = (node.data?.address || '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '') || '<node>'
   const port = cfg.data?.config?.port || 10056
-  const target = `${host.includes(':') ? `[${host}]` : host}:${port}`
+  const target = `${scrapeHost(cfg.data?.config?.address || '', cfg.data?.effective_addresses, node.data?.address)}:${port}`
   return (
     <>
       <PageHeader title="Janus exporter" subtitle="prometheus-janus-exporter · Janus's own metrics for Prometheus, built into janusd" />

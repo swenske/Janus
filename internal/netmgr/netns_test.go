@@ -1,6 +1,7 @@
 package netmgr
 
 import (
+	"fmt"
 	"net"
 	"net/netip"
 	"os"
@@ -86,6 +87,9 @@ func TestInNetns(t *testing.T) {
 	checkAddrs(t, "eth1")
 	checkDefaultRoutes(t, "eth0", "192.0.2.1@1024", "2001:db8::1@1024")
 	checkDefaultRoutes(t, "eth1.100", "10.100.0.1@1025")
+	if got := fmt.Sprint(m.MainAddresses()); got != "[192.0.2.10 2001:db8::10]" {
+		t.Errorf("main addresses on trial = %s", got)
+	}
 	if l, _ := netlink.LinkByName("eth0"); l.Attrs().MTU != 1400 {
 		t.Errorf("eth0 MTU = %d", l.Attrs().MTU)
 	}
@@ -128,6 +132,9 @@ func TestInNetns(t *testing.T) {
 	}
 	checkAddrs(t, "eth0", "192.0.2.20/24", "2001:db8::10/64")
 	checkDefaultRoutes(t, "eth0", "192.0.2.1@1024", "2001:db8::1@1024")
+	if got := fmt.Sprint(m.MainAddresses()); got != "[192.0.2.20 2001:db8::10]" {
+		t.Errorf("main addresses after the move = %s", got)
+	}
 	if _, err := m.Confirm(netip.MustParseAddr("192.0.2.20")); err != nil {
 		t.Fatalf("confirm the move: %v", err)
 	}
