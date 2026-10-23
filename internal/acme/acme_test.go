@@ -49,6 +49,13 @@ func fakeACME() {
 		res.Error = "urn:ietf:params:acme:error:unauthorized: Invalid response from http://x/.well-known/acme-challenge/t: 404"
 	} else if req.Action == acmewire.ActionIssue {
 		res.Certificate, res.PrivateKey = issueTestCert(req.Domains, req.KeyType)
+	} else if req.Action == acmewire.ActionDirectory {
+		// What the path came to, for the tests to see.
+		if strings.Contains(req.Proxy, "unreachable") {
+			res.Error = "ACME directory " + req.Directory + ": proxyconnect tcp: connection refused"
+		} else {
+			res.TermsURL = "https://ca.test/terms?proxy=" + req.Proxy
+		}
 	} else if req.Action == acmewire.ActionRenewalInfo {
 		res.RenewalStart = time.Now().Add(40 * 24 * time.Hour)
 		res.RenewalEnd = time.Now().Add(41 * 24 * time.Hour)

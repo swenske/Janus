@@ -108,6 +108,12 @@ func boolFlag(name, help string) flagDef                     { return flagDef{na
 var (
 	timeoutFlag = valFlag("timeout", "DURATION", "how long the node waits for the confirmation before reverting", argNone)
 	noConfirm   = boolFlag("no-confirm", "apply only - confirm yourself before the timeout")
+	// haproxy acme path / test-path: a proxy's settings.
+	acmePathFlags = []flagDef{
+		valFlag("user", "NAME", "the proxy's username", argNone),
+		valFlag("password-file", "FILE", "a file holding the proxy's password (kept when not given)", argFile),
+		valFlag("ca", "FILE", "the CA (PEM) of an https:// proxy's certificate", argFile),
+	}
 	// sysctlApplyFlags are system sysctl set's and reset's.
 	sysctlApplyFlags = []flagDef{timeoutFlag, noConfirm, boolFlag("no-reload", "don't reload HAProxy for what it reads at its listeners")}
 	reloadFlag       = boolFlag("reload", "HAProxy uses it at once")
@@ -285,6 +291,8 @@ var commands = &command{name: "janusctl", subs: []*command{
 			{name: "check", args: "FILE", help: "check a configuration", flags: []flagDef{valFlag("account-key", "FILE", "an existing account's private key", argFile)}, pos: []argKind{argFile}, required: 1},
 			{name: "apply", args: "FILE", help: "save a configuration", flags: []flagDef{valFlag("account-key", "FILE", "an existing account's private key", argFile)}, pos: []argKind{argFile}, required: 1},
 			{name: "renew", args: "[NAME...]", help: "obtain certificates now", pos: []argKind{argACMEName}, variadic: true},
+			{name: "path", args: "[direct | proxy URL]", help: "how the node reaches the CA: show it, or set it", flags: acmePathFlags, pos: []argKind{argNone, argNone}, variadic: true},
+			{name: "test-path", args: "[direct | proxy URL]", help: "fetch the CA's directory the saved way, or the given one", flags: acmePathFlags, pos: []argKind{argNone, argNone}, variadic: true},
 		}},
 	}},
 	{name: "network", group: "🌐 Network", help: "addresses, routes, firewall, VRRP, BGP, Consul", subs: []*command{

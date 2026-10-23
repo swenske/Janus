@@ -121,6 +121,7 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.HAProxyService/ACMEGetConfig":     readers, // secrets come back empty
 	"/janus.v1alpha1.HAProxyService/ACMEApplyConfig":   operators,
 	"/janus.v1alpha1.HAProxyService/ACMERenew":         operators,
+	"/janus.v1alpha1.HAProxyService/ACMECheckPath":     operators, // reaches out to the CA
 	"/janus.v1alpha1.HAProxyService/MapLookup":         readers,
 	"/janus.v1alpha1.HAProxyService/ACLLookup":         readers,
 	"/janus.v1alpha1.HAProxyService/TableList":         readers,

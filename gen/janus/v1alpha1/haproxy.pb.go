@@ -22,6 +22,56 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ACMEPathMode is how the node reaches the CA.
+type ACMEPathMode int32
+
+const (
+	ACMEPathMode_ACME_PATH_MODE_UNSPECIFIED ACMEPathMode = 0 // directly
+	ACMEPathMode_ACME_PATH_MODE_DIRECT      ACMEPathMode = 1 // the node reaches the CA, and the DNS providers' APIs, itself
+	ACMEPathMode_ACME_PATH_MODE_PROXY       ACMEPathMode = 2 // through an HTTP(S) proxy
+)
+
+// Enum value maps for ACMEPathMode.
+var (
+	ACMEPathMode_name = map[int32]string{
+		0: "ACME_PATH_MODE_UNSPECIFIED",
+		1: "ACME_PATH_MODE_DIRECT",
+		2: "ACME_PATH_MODE_PROXY",
+	}
+	ACMEPathMode_value = map[string]int32{
+		"ACME_PATH_MODE_UNSPECIFIED": 0,
+		"ACME_PATH_MODE_DIRECT":      1,
+		"ACME_PATH_MODE_PROXY":       2,
+	}
+)
+
+func (x ACMEPathMode) Enum() *ACMEPathMode {
+	p := new(ACMEPathMode)
+	*p = x
+	return p
+}
+
+func (x ACMEPathMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ACMEPathMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_janus_v1alpha1_haproxy_proto_enumTypes[0].Descriptor()
+}
+
+func (ACMEPathMode) Type() protoreflect.EnumType {
+	return &file_janus_v1alpha1_haproxy_proto_enumTypes[0]
+}
+
+func (x ACMEPathMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ACMEPathMode.Descriptor instead.
+func (ACMEPathMode) EnumDescriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{0}
+}
+
 type ServerSetStateRequest_State int32
 
 const (
@@ -55,11 +105,11 @@ func (x ServerSetStateRequest_State) String() string {
 }
 
 func (ServerSetStateRequest_State) Descriptor() protoreflect.EnumDescriptor {
-	return file_janus_v1alpha1_haproxy_proto_enumTypes[0].Descriptor()
+	return file_janus_v1alpha1_haproxy_proto_enumTypes[1].Descriptor()
 }
 
 func (ServerSetStateRequest_State) Type() protoreflect.EnumType {
-	return &file_janus_v1alpha1_haproxy_proto_enumTypes[0]
+	return &file_janus_v1alpha1_haproxy_proto_enumTypes[1]
 }
 
 func (x ServerSetStateRequest_State) Number() protoreflect.EnumNumber {
@@ -1689,10 +1739,14 @@ func (x *CertificateDeleteRequest) GetCrtList() string {
 // ACMEConfig is the letsencrypt extension's configuration - also its JSON
 // form, as saved on the node.
 type ACMEConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Account       *ACMEAccount           `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
-	Certificates  []*ACMECertificate     `protobuf:"bytes,2,rep,name=certificates,proto3" json:"certificates,omitempty"`
-	DnsProviders  []*ACMEDNSProvider     `protobuf:"bytes,3,rep,name=dns_providers,json=dnsProviders,proto3" json:"dns_providers,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Account      *ACMEAccount           `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	Certificates []*ACMECertificate     `protobuf:"bytes,2,rep,name=certificates,proto3" json:"certificates,omitempty"`
+	DnsProviders []*ACMEDNSProvider     `protobuf:"bytes,3,rep,name=dns_providers,json=dnsProviders,proto3" json:"dns_providers,omitempty"`
+	// How the node reaches the CA (docs/letsencrypt.md, "How the node
+	// reaches Let's Encrypt"). Kept apart from the rest on the node, so an
+	// older janusd still reads the rest.
+	Path          *ACMEPath `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1748,6 +1802,238 @@ func (x *ACMEConfig) GetDnsProviders() []*ACMEDNSProvider {
 	return nil
 }
 
+func (x *ACMEConfig) GetPath() *ACMEPath {
+	if x != nil {
+		return x.Path
+	}
+	return nil
+}
+
+type ACMEPath struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Mode  ACMEPathMode           `protobuf:"varint,1,opt,name=mode,proto3,enum=janus.v1alpha1.ACMEPathMode" json:"mode,omitempty"`
+	// PROXY: the proxy's URL, http:// or https:// (no credentials in it).
+	ProxyUrl      string `protobuf:"bytes,2,opt,name=proxy_url,json=proxyUrl,proto3" json:"proxy_url,omitempty"`
+	ProxyUsername string `protobuf:"bytes,3,opt,name=proxy_username,json=proxyUsername,proto3" json:"proxy_username,omitempty"` // optional
+	ProxyPassword string `protobuf:"bytes,4,opt,name=proxy_password,json=proxyPassword,proto3" json:"proxy_password,omitempty"` // secret; empty keeps the saved one
+	// PROXY: PEM, the CA of an https:// proxy's certificate (default: the
+	// node's trust store).
+	ProxyCa       string `protobuf:"bytes,5,opt,name=proxy_ca,json=proxyCa,proto3" json:"proxy_ca,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMEPath) Reset() {
+	*x = ACMEPath{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMEPath) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMEPath) ProtoMessage() {}
+
+func (x *ACMEPath) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMEPath.ProtoReflect.Descriptor instead.
+func (*ACMEPath) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ACMEPath) GetMode() ACMEPathMode {
+	if x != nil {
+		return x.Mode
+	}
+	return ACMEPathMode_ACME_PATH_MODE_UNSPECIFIED
+}
+
+func (x *ACMEPath) GetProxyUrl() string {
+	if x != nil {
+		return x.ProxyUrl
+	}
+	return ""
+}
+
+func (x *ACMEPath) GetProxyUsername() string {
+	if x != nil {
+		return x.ProxyUsername
+	}
+	return ""
+}
+
+func (x *ACMEPath) GetProxyPassword() string {
+	if x != nil {
+		return x.ProxyPassword
+	}
+	return ""
+}
+
+func (x *ACMEPath) GetProxyCa() string {
+	if x != nil {
+		return x.ProxyCa
+	}
+	return ""
+}
+
+type ACMECheckPathRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty: the saved path. A password left empty is the saved one.
+	Path *ACMEPath `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// Empty: the saved directory (and its CA).
+	Directory     string `protobuf:"bytes,2,opt,name=directory,proto3" json:"directory,omitempty"`
+	DirectoryCa   string `protobuf:"bytes,3,opt,name=directory_ca,json=directoryCa,proto3" json:"directory_ca,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMECheckPathRequest) Reset() {
+	*x = ACMECheckPathRequest{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMECheckPathRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMECheckPathRequest) ProtoMessage() {}
+
+func (x *ACMECheckPathRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMECheckPathRequest.ProtoReflect.Descriptor instead.
+func (*ACMECheckPathRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ACMECheckPathRequest) GetPath() *ACMEPath {
+	if x != nil {
+		return x.Path
+	}
+	return nil
+}
+
+func (x *ACMECheckPathRequest) GetDirectory() string {
+	if x != nil {
+		return x.Directory
+	}
+	return ""
+}
+
+func (x *ACMECheckPathRequest) GetDirectoryCa() string {
+	if x != nil {
+		return x.DirectoryCa
+	}
+	return ""
+}
+
+type ACMECheckPathResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Directory     string                 `protobuf:"bytes,2,opt,name=directory,proto3" json:"directory,omitempty"`               // the URL fetched
+	Via           string                 `protobuf:"bytes,3,opt,name=via,proto3" json:"via,omitempty"`                           // how: "directly", "through the proxy http://..."
+	TermsUrl      string                 `protobuf:"bytes,4,opt,name=terms_url,json=termsUrl,proto3" json:"terms_url,omitempty"` // what the directory said
+	Error         string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	Milliseconds  uint32                 `protobuf:"varint,6,opt,name=milliseconds,proto3" json:"milliseconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ACMECheckPathResponse) Reset() {
+	*x = ACMECheckPathResponse{}
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ACMECheckPathResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ACMECheckPathResponse) ProtoMessage() {}
+
+func (x *ACMECheckPathResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ACMECheckPathResponse.ProtoReflect.Descriptor instead.
+func (*ACMECheckPathResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ACMECheckPathResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *ACMECheckPathResponse) GetDirectory() string {
+	if x != nil {
+		return x.Directory
+	}
+	return ""
+}
+
+func (x *ACMECheckPathResponse) GetVia() string {
+	if x != nil {
+		return x.Via
+	}
+	return ""
+}
+
+func (x *ACMECheckPathResponse) GetTermsUrl() string {
+	if x != nil {
+		return x.TermsUrl
+	}
+	return ""
+}
+
+func (x *ACMECheckPathResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *ACMECheckPathResponse) GetMilliseconds() uint32 {
+	if x != nil {
+		return x.Milliseconds
+	}
+	return 0
+}
+
 type ACMEAccount struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The CA's ACME directory URL, or "letsencrypt" (the default, when
@@ -1769,7 +2055,7 @@ type ACMEAccount struct {
 
 func (x *ACMEAccount) Reset() {
 	*x = ACMEAccount{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[28]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1781,7 +2067,7 @@ func (x *ACMEAccount) String() string {
 func (*ACMEAccount) ProtoMessage() {}
 
 func (x *ACMEAccount) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[28]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1794,7 +2080,7 @@ func (x *ACMEAccount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ACMEAccount.ProtoReflect.Descriptor instead.
 func (*ACMEAccount) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{28}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ACMEAccount) GetDirectory() string {
@@ -1857,7 +2143,7 @@ type ACMECertificate struct {
 
 func (x *ACMECertificate) Reset() {
 	*x = ACMECertificate{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[29]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1869,7 +2155,7 @@ func (x *ACMECertificate) String() string {
 func (*ACMECertificate) ProtoMessage() {}
 
 func (x *ACMECertificate) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[29]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1882,7 +2168,7 @@ func (x *ACMECertificate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ACMECertificate.ProtoReflect.Descriptor instead.
 func (*ACMECertificate) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{29}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ACMECertificate) GetName() string {
@@ -1947,7 +2233,7 @@ type ACMEDNSProvider struct {
 
 func (x *ACMEDNSProvider) Reset() {
 	*x = ACMEDNSProvider{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[30]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1959,7 +2245,7 @@ func (x *ACMEDNSProvider) String() string {
 func (*ACMEDNSProvider) ProtoMessage() {}
 
 func (x *ACMEDNSProvider) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[30]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1972,7 +2258,7 @@ func (x *ACMEDNSProvider) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ACMEDNSProvider.ProtoReflect.Descriptor instead.
 func (*ACMEDNSProvider) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{30}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ACMEDNSProvider) GetName() string {
@@ -2020,7 +2306,7 @@ type ACMEGetConfigResponse struct {
 
 func (x *ACMEGetConfigResponse) Reset() {
 	*x = ACMEGetConfigResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[31]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2032,7 +2318,7 @@ func (x *ACMEGetConfigResponse) String() string {
 func (*ACMEGetConfigResponse) ProtoMessage() {}
 
 func (x *ACMEGetConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[31]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2045,7 +2331,7 @@ func (x *ACMEGetConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ACMEGetConfigResponse.ProtoReflect.Descriptor instead.
 func (*ACMEGetConfigResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{31}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ACMEGetConfigResponse) GetConfig() *ACMEConfig {
@@ -2076,7 +2362,7 @@ type ACMEApplyConfigRequest struct {
 
 func (x *ACMEApplyConfigRequest) Reset() {
 	*x = ACMEApplyConfigRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[32]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2088,7 +2374,7 @@ func (x *ACMEApplyConfigRequest) String() string {
 func (*ACMEApplyConfigRequest) ProtoMessage() {}
 
 func (x *ACMEApplyConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[32]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2101,7 +2387,7 @@ func (x *ACMEApplyConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ACMEApplyConfigRequest.ProtoReflect.Descriptor instead.
 func (*ACMEApplyConfigRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{32}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ACMEApplyConfigRequest) GetConfig() *ACMEConfig {
@@ -2135,7 +2421,7 @@ type ACMEApplyConfigResponse struct {
 
 func (x *ACMEApplyConfigResponse) Reset() {
 	*x = ACMEApplyConfigResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[33]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2147,7 +2433,7 @@ func (x *ACMEApplyConfigResponse) String() string {
 func (*ACMEApplyConfigResponse) ProtoMessage() {}
 
 func (x *ACMEApplyConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[33]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2160,7 +2446,7 @@ func (x *ACMEApplyConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ACMEApplyConfigResponse.ProtoReflect.Descriptor instead.
 func (*ACMEApplyConfigResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{33}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ACMEApplyConfigResponse) GetAccepted() bool {
@@ -2186,7 +2472,7 @@ type ACMERenewRequest struct {
 
 func (x *ACMERenewRequest) Reset() {
 	*x = ACMERenewRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[34]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2198,7 +2484,7 @@ func (x *ACMERenewRequest) String() string {
 func (*ACMERenewRequest) ProtoMessage() {}
 
 func (x *ACMERenewRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[34]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2211,7 +2497,7 @@ func (x *ACMERenewRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ACMERenewRequest.ProtoReflect.Descriptor instead.
 func (*ACMERenewRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{34}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ACMERenewRequest) GetNames() []string {
@@ -2230,7 +2516,7 @@ type ACMERenewResponse struct {
 
 func (x *ACMERenewResponse) Reset() {
 	*x = ACMERenewResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[35]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2242,7 +2528,7 @@ func (x *ACMERenewResponse) String() string {
 func (*ACMERenewResponse) ProtoMessage() {}
 
 func (x *ACMERenewResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[35]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2255,7 +2541,7 @@ func (x *ACMERenewResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ACMERenewResponse.ProtoReflect.Descriptor instead.
 func (*ACMERenewResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{35}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ACMERenewResponse) GetNames() []string {
@@ -2282,13 +2568,15 @@ type ACMEStatusResponse struct {
 	Http01Rule      string                   `protobuf:"bytes,8,opt,name=http01_rule,json=http01Rule,proto3" json:"http01_rule,omitempty"`
 	CertificatesDir string                   `protobuf:"bytes,9,opt,name=certificates_dir,json=certificatesDir,proto3" json:"certificates_dir,omitempty"`
 	Certificates    []*ACMECertificateStatus `protobuf:"bytes,10,rep,name=certificates,proto3" json:"certificates,omitempty"`
+	PathMode        ACMEPathMode             `protobuf:"varint,11,opt,name=path_mode,json=pathMode,proto3,enum=janus.v1alpha1.ACMEPathMode" json:"path_mode,omitempty"` // how the node reaches the CA
+	ProxyUrl        string                   `protobuf:"bytes,12,opt,name=proxy_url,json=proxyUrl,proto3" json:"proxy_url,omitempty"`                                   // PROXY
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ACMEStatusResponse) Reset() {
 	*x = ACMEStatusResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[36]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2300,7 +2588,7 @@ func (x *ACMEStatusResponse) String() string {
 func (*ACMEStatusResponse) ProtoMessage() {}
 
 func (x *ACMEStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[36]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2313,7 +2601,7 @@ func (x *ACMEStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ACMEStatusResponse.ProtoReflect.Descriptor instead.
 func (*ACMEStatusResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{36}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ACMEStatusResponse) GetState() ModuleState {
@@ -2386,6 +2674,20 @@ func (x *ACMEStatusResponse) GetCertificates() []*ACMECertificateStatus {
 	return nil
 }
 
+func (x *ACMEStatusResponse) GetPathMode() ACMEPathMode {
+	if x != nil {
+		return x.PathMode
+	}
+	return ACMEPathMode_ACME_PATH_MODE_UNSPECIFIED
+}
+
+func (x *ACMEStatusResponse) GetProxyUrl() string {
+	if x != nil {
+		return x.ProxyUrl
+	}
+	return ""
+}
+
 type ACMECertificateStatus struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Name    string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -2412,7 +2714,7 @@ type ACMECertificateStatus struct {
 
 func (x *ACMECertificateStatus) Reset() {
 	*x = ACMECertificateStatus{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[37]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2424,7 +2726,7 @@ func (x *ACMECertificateStatus) String() string {
 func (*ACMECertificateStatus) ProtoMessage() {}
 
 func (x *ACMECertificateStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[37]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2437,7 +2739,7 @@ func (x *ACMECertificateStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ACMECertificateStatus.ProtoReflect.Descriptor instead.
 func (*ACMECertificateStatus) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{37}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ACMECertificateStatus) GetName() string {
@@ -2566,7 +2868,7 @@ type HAProxyFile struct {
 
 func (x *HAProxyFile) Reset() {
 	*x = HAProxyFile{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[38]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2578,7 +2880,7 @@ func (x *HAProxyFile) String() string {
 func (*HAProxyFile) ProtoMessage() {}
 
 func (x *HAProxyFile) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[38]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2591,7 +2893,7 @@ func (x *HAProxyFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HAProxyFile.ProtoReflect.Descriptor instead.
 func (*HAProxyFile) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{38}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *HAProxyFile) GetName() string {
@@ -2646,7 +2948,7 @@ type FileListResponse struct {
 
 func (x *FileListResponse) Reset() {
 	*x = FileListResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[39]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2658,7 +2960,7 @@ func (x *FileListResponse) String() string {
 func (*FileListResponse) ProtoMessage() {}
 
 func (x *FileListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[39]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2671,7 +2973,7 @@ func (x *FileListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileListResponse.ProtoReflect.Descriptor instead.
 func (*FileListResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{39}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *FileListResponse) GetFiles() []*HAProxyFile {
@@ -2697,7 +2999,7 @@ type FileGetRequest struct {
 
 func (x *FileGetRequest) Reset() {
 	*x = FileGetRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[40]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2709,7 +3011,7 @@ func (x *FileGetRequest) String() string {
 func (*FileGetRequest) ProtoMessage() {}
 
 func (x *FileGetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[40]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2722,7 +3024,7 @@ func (x *FileGetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileGetRequest.ProtoReflect.Descriptor instead.
 func (*FileGetRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{40}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *FileGetRequest) GetName() string {
@@ -2741,7 +3043,7 @@ type FileGetResponse struct {
 
 func (x *FileGetResponse) Reset() {
 	*x = FileGetResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[41]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2753,7 +3055,7 @@ func (x *FileGetResponse) String() string {
 func (*FileGetResponse) ProtoMessage() {}
 
 func (x *FileGetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[41]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2766,7 +3068,7 @@ func (x *FileGetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileGetResponse.ProtoReflect.Descriptor instead.
 func (*FileGetResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{41}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *FileGetResponse) GetContent() []byte {
@@ -2790,7 +3092,7 @@ type FilePutRequest struct {
 
 func (x *FilePutRequest) Reset() {
 	*x = FilePutRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[42]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2802,7 +3104,7 @@ func (x *FilePutRequest) String() string {
 func (*FilePutRequest) ProtoMessage() {}
 
 func (x *FilePutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[42]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2815,7 +3117,7 @@ func (x *FilePutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FilePutRequest.ProtoReflect.Descriptor instead.
 func (*FilePutRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{42}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *FilePutRequest) GetName() string {
@@ -2849,7 +3151,7 @@ type FilePutResponse struct {
 
 func (x *FilePutResponse) Reset() {
 	*x = FilePutResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[43]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2861,7 +3163,7 @@ func (x *FilePutResponse) String() string {
 func (*FilePutResponse) ProtoMessage() {}
 
 func (x *FilePutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[43]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2874,7 +3176,7 @@ func (x *FilePutResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FilePutResponse.ProtoReflect.Descriptor instead.
 func (*FilePutResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{43}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *FilePutResponse) GetAccepted() bool {
@@ -2901,7 +3203,7 @@ type FileDeleteRequest struct {
 
 func (x *FileDeleteRequest) Reset() {
 	*x = FileDeleteRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[44]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2913,7 +3215,7 @@ func (x *FileDeleteRequest) String() string {
 func (*FileDeleteRequest) ProtoMessage() {}
 
 func (x *FileDeleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[44]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2926,7 +3228,7 @@ func (x *FileDeleteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileDeleteRequest.ProtoReflect.Descriptor instead.
 func (*FileDeleteRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{44}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *FileDeleteRequest) GetName() string {
@@ -2953,7 +3255,7 @@ type FileDeleteResponse struct {
 
 func (x *FileDeleteResponse) Reset() {
 	*x = FileDeleteResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[45]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2965,7 +3267,7 @@ func (x *FileDeleteResponse) String() string {
 func (*FileDeleteResponse) ProtoMessage() {}
 
 func (x *FileDeleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[45]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2978,7 +3280,7 @@ func (x *FileDeleteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileDeleteResponse.ProtoReflect.Descriptor instead.
 func (*FileDeleteResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{45}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *FileDeleteResponse) GetAccepted() bool {
@@ -3005,7 +3307,7 @@ type PatternLookupRequest struct {
 
 func (x *PatternLookupRequest) Reset() {
 	*x = PatternLookupRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[46]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3017,7 +3319,7 @@ func (x *PatternLookupRequest) String() string {
 func (*PatternLookupRequest) ProtoMessage() {}
 
 func (x *PatternLookupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[46]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3030,7 +3332,7 @@ func (x *PatternLookupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PatternLookupRequest.ProtoReflect.Descriptor instead.
 func (*PatternLookupRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{46}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *PatternLookupRequest) GetName() string {
@@ -3060,7 +3362,7 @@ type PatternLookupResponse struct {
 
 func (x *PatternLookupResponse) Reset() {
 	*x = PatternLookupResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[47]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3072,7 +3374,7 @@ func (x *PatternLookupResponse) String() string {
 func (*PatternLookupResponse) ProtoMessage() {}
 
 func (x *PatternLookupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[47]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3085,7 +3387,7 @@ func (x *PatternLookupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PatternLookupResponse.ProtoReflect.Descriptor instead.
 func (*PatternLookupResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{47}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *PatternLookupResponse) GetFound() bool {
@@ -3135,7 +3437,7 @@ type StickTable struct {
 
 func (x *StickTable) Reset() {
 	*x = StickTable{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[48]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3147,7 +3449,7 @@ func (x *StickTable) String() string {
 func (*StickTable) ProtoMessage() {}
 
 func (x *StickTable) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[48]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3160,7 +3462,7 @@ func (x *StickTable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StickTable.ProtoReflect.Descriptor instead.
 func (*StickTable) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{48}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *StickTable) GetName() string {
@@ -3200,7 +3502,7 @@ type TableListResponse struct {
 
 func (x *TableListResponse) Reset() {
 	*x = TableListResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[49]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3212,7 +3514,7 @@ func (x *TableListResponse) String() string {
 func (*TableListResponse) ProtoMessage() {}
 
 func (x *TableListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[49]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3225,7 +3527,7 @@ func (x *TableListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableListResponse.ProtoReflect.Descriptor instead.
 func (*TableListResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{49}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *TableListResponse) GetTables() []*StickTable {
@@ -3248,7 +3550,7 @@ type TableFilter struct {
 
 func (x *TableFilter) Reset() {
 	*x = TableFilter{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[50]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3260,7 +3562,7 @@ func (x *TableFilter) String() string {
 func (*TableFilter) ProtoMessage() {}
 
 func (x *TableFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[50]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3273,7 +3575,7 @@ func (x *TableFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableFilter.ProtoReflect.Descriptor instead.
 func (*TableFilter) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{50}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *TableFilter) GetData() string {
@@ -3309,7 +3611,7 @@ type TableShowRequest struct {
 
 func (x *TableShowRequest) Reset() {
 	*x = TableShowRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[51]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3321,7 +3623,7 @@ func (x *TableShowRequest) String() string {
 func (*TableShowRequest) ProtoMessage() {}
 
 func (x *TableShowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[51]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3334,7 +3636,7 @@ func (x *TableShowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableShowRequest.ProtoReflect.Descriptor instead.
 func (*TableShowRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{51}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *TableShowRequest) GetTable() string {
@@ -3379,7 +3681,7 @@ type TableEntry struct {
 
 func (x *TableEntry) Reset() {
 	*x = TableEntry{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[52]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3391,7 +3693,7 @@ func (x *TableEntry) String() string {
 func (*TableEntry) ProtoMessage() {}
 
 func (x *TableEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[52]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3404,7 +3706,7 @@ func (x *TableEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableEntry.ProtoReflect.Descriptor instead.
 func (*TableEntry) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{52}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *TableEntry) GetKey() string {
@@ -3445,7 +3747,7 @@ type TableData struct {
 
 func (x *TableData) Reset() {
 	*x = TableData{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[53]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3457,7 +3759,7 @@ func (x *TableData) String() string {
 func (*TableData) ProtoMessage() {}
 
 func (x *TableData) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[53]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3470,7 +3772,7 @@ func (x *TableData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableData.ProtoReflect.Descriptor instead.
 func (*TableData) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{53}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *TableData) GetName() string {
@@ -3498,7 +3800,7 @@ type TableShowResponse struct {
 
 func (x *TableShowResponse) Reset() {
 	*x = TableShowResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[54]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3510,7 +3812,7 @@ func (x *TableShowResponse) String() string {
 func (*TableShowResponse) ProtoMessage() {}
 
 func (x *TableShowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[54]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3523,7 +3825,7 @@ func (x *TableShowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableShowResponse.ProtoReflect.Descriptor instead.
 func (*TableShowResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{54}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *TableShowResponse) GetTable() *StickTable {
@@ -3559,7 +3861,7 @@ type TableClearRequest struct {
 
 func (x *TableClearRequest) Reset() {
 	*x = TableClearRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[55]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3571,7 +3873,7 @@ func (x *TableClearRequest) String() string {
 func (*TableClearRequest) ProtoMessage() {}
 
 func (x *TableClearRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[55]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3584,7 +3886,7 @@ func (x *TableClearRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableClearRequest.ProtoReflect.Descriptor instead.
 func (*TableClearRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{55}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *TableClearRequest) GetTable() string {
@@ -3627,7 +3929,7 @@ type SessionListRequest struct {
 
 func (x *SessionListRequest) Reset() {
 	*x = SessionListRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[56]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3639,7 +3941,7 @@ func (x *SessionListRequest) String() string {
 func (*SessionListRequest) ProtoMessage() {}
 
 func (x *SessionListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[56]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3652,7 +3954,7 @@ func (x *SessionListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionListRequest.ProtoReflect.Descriptor instead.
 func (*SessionListRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{56}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *SessionListRequest) GetFrontend() string {
@@ -3702,7 +4004,7 @@ type Session struct {
 
 func (x *Session) Reset() {
 	*x = Session{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[57]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3714,7 +4016,7 @@ func (x *Session) String() string {
 func (*Session) ProtoMessage() {}
 
 func (x *Session) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[57]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3727,7 +4029,7 @@ func (x *Session) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Session.ProtoReflect.Descriptor instead.
 func (*Session) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{57}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *Session) GetId() string {
@@ -3817,7 +4119,7 @@ type SessionListResponse struct {
 
 func (x *SessionListResponse) Reset() {
 	*x = SessionListResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[58]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3829,7 +4131,7 @@ func (x *SessionListResponse) String() string {
 func (*SessionListResponse) ProtoMessage() {}
 
 func (x *SessionListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[58]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3842,7 +4144,7 @@ func (x *SessionListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionListResponse.ProtoReflect.Descriptor instead.
 func (*SessionListResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{58}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *SessionListResponse) GetSessions() []*Session {
@@ -3868,7 +4170,7 @@ type SessionShutdownRequest struct {
 
 func (x *SessionShutdownRequest) Reset() {
 	*x = SessionShutdownRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[59]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3880,7 +4182,7 @@ func (x *SessionShutdownRequest) String() string {
 func (*SessionShutdownRequest) ProtoMessage() {}
 
 func (x *SessionShutdownRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[59]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3893,7 +4195,7 @@ func (x *SessionShutdownRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionShutdownRequest.ProtoReflect.Descriptor instead.
 func (*SessionShutdownRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{59}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *SessionShutdownRequest) GetId() string {
@@ -3913,7 +4215,7 @@ type ErrorsShowRequest struct {
 
 func (x *ErrorsShowRequest) Reset() {
 	*x = ErrorsShowRequest{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[60]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3925,7 +4227,7 @@ func (x *ErrorsShowRequest) String() string {
 func (*ErrorsShowRequest) ProtoMessage() {}
 
 func (x *ErrorsShowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[60]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3938,7 +4240,7 @@ func (x *ErrorsShowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorsShowRequest.ProtoReflect.Descriptor instead.
 func (*ErrorsShowRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{60}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *ErrorsShowRequest) GetProxy() string {
@@ -3976,7 +4278,7 @@ type CapturedError struct {
 
 func (x *CapturedError) Reset() {
 	*x = CapturedError{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[61]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3988,7 +4290,7 @@ func (x *CapturedError) String() string {
 func (*CapturedError) ProtoMessage() {}
 
 func (x *CapturedError) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[61]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4001,7 +4303,7 @@ func (x *CapturedError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapturedError.ProtoReflect.Descriptor instead.
 func (*CapturedError) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{61}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *CapturedError) GetWhen() string {
@@ -4109,7 +4411,7 @@ type ErrorLine struct {
 
 func (x *ErrorLine) Reset() {
 	*x = ErrorLine{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[62]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4121,7 +4423,7 @@ func (x *ErrorLine) String() string {
 func (*ErrorLine) ProtoMessage() {}
 
 func (x *ErrorLine) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[62]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4134,7 +4436,7 @@ func (x *ErrorLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorLine.ProtoReflect.Descriptor instead.
 func (*ErrorLine) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{62}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *ErrorLine) GetOffset() int32 {
@@ -4175,7 +4477,7 @@ type ErrorsShowResponse struct {
 
 func (x *ErrorsShowResponse) Reset() {
 	*x = ErrorsShowResponse{}
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[63]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4187,7 +4489,7 @@ func (x *ErrorsShowResponse) String() string {
 func (*ErrorsShowResponse) ProtoMessage() {}
 
 func (x *ErrorsShowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[63]
+	mi := &file_janus_v1alpha1_haproxy_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4200,7 +4502,7 @@ func (x *ErrorsShowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorsShowResponse.ProtoReflect.Descriptor instead.
 func (*ErrorsShowResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{63}
+	return file_janus_v1alpha1_haproxy_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *ErrorsShowResponse) GetTotal() uint64 {
@@ -4334,12 +4636,30 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\x03sni\x18\x04 \x03(\tR\x03sni\"I\n" +
 	"\x18CertificateDeleteRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
-	"\bcrt_list\x18\x02 \x01(\tR\acrtList\"\xce\x01\n" +
+	"\bcrt_list\x18\x02 \x01(\tR\acrtList\"\xfc\x01\n" +
 	"\n" +
 	"ACMEConfig\x125\n" +
 	"\aaccount\x18\x01 \x01(\v2\x1b.janus.v1alpha1.ACMEAccountR\aaccount\x12C\n" +
 	"\fcertificates\x18\x02 \x03(\v2\x1f.janus.v1alpha1.ACMECertificateR\fcertificates\x12D\n" +
-	"\rdns_providers\x18\x03 \x03(\v2\x1f.janus.v1alpha1.ACMEDNSProviderR\fdnsProviders\"\xc7\x01\n" +
+	"\rdns_providers\x18\x03 \x03(\v2\x1f.janus.v1alpha1.ACMEDNSProviderR\fdnsProviders\x12,\n" +
+	"\x04path\x18\x04 \x01(\v2\x18.janus.v1alpha1.ACMEPathR\x04path\"\xc2\x01\n" +
+	"\bACMEPath\x120\n" +
+	"\x04mode\x18\x01 \x01(\x0e2\x1c.janus.v1alpha1.ACMEPathModeR\x04mode\x12\x1b\n" +
+	"\tproxy_url\x18\x02 \x01(\tR\bproxyUrl\x12%\n" +
+	"\x0eproxy_username\x18\x03 \x01(\tR\rproxyUsername\x12%\n" +
+	"\x0eproxy_password\x18\x04 \x01(\tR\rproxyPassword\x12\x19\n" +
+	"\bproxy_ca\x18\x05 \x01(\tR\aproxyCa\"\x85\x01\n" +
+	"\x14ACMECheckPathRequest\x12,\n" +
+	"\x04path\x18\x01 \x01(\v2\x18.janus.v1alpha1.ACMEPathR\x04path\x12\x1c\n" +
+	"\tdirectory\x18\x02 \x01(\tR\tdirectory\x12!\n" +
+	"\fdirectory_ca\x18\x03 \x01(\tR\vdirectoryCa\"\xae\x01\n" +
+	"\x15ACMECheckPathResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x1c\n" +
+	"\tdirectory\x18\x02 \x01(\tR\tdirectory\x12\x10\n" +
+	"\x03via\x18\x03 \x01(\tR\x03via\x12\x1b\n" +
+	"\tterms_url\x18\x04 \x01(\tR\btermsUrl\x12\x14\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\x12\"\n" +
+	"\fmilliseconds\x18\x06 \x01(\rR\fmilliseconds\"\xc7\x01\n" +
 	"\vACMEAccount\x12\x1c\n" +
 	"\tdirectory\x18\x01 \x01(\tR\tdirectory\x12!\n" +
 	"\fdirectory_ca\x18\x02 \x01(\tR\vdirectoryCa\x12\x14\n" +
@@ -4380,7 +4700,7 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\x10ACMERenewRequest\x12\x14\n" +
 	"\x05names\x18\x01 \x03(\tR\x05names\")\n" +
 	"\x11ACMERenewResponse\x12\x14\n" +
-	"\x05names\x18\x01 \x03(\tR\x05names\"\xae\x03\n" +
+	"\x05names\x18\x01 \x03(\tR\x05names\"\x86\x04\n" +
 	"\x12ACMEStatusResponse\x121\n" +
 	"\x05state\x18\x01 \x01(\x0e2\x1b.janus.v1alpha1.ModuleStateR\x05state\x12\x1e\n" +
 	"\n" +
@@ -4396,7 +4716,9 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"http01Rule\x12)\n" +
 	"\x10certificates_dir\x18\t \x01(\tR\x0fcertificatesDir\x12I\n" +
 	"\fcertificates\x18\n" +
-	" \x03(\v2%.janus.v1alpha1.ACMECertificateStatusR\fcertificates\"\x98\x04\n" +
+	" \x03(\v2%.janus.v1alpha1.ACMECertificateStatusR\fcertificates\x129\n" +
+	"\tpath_mode\x18\v \x01(\x0e2\x1c.janus.v1alpha1.ACMEPathModeR\bpathMode\x12\x1b\n" +
+	"\tproxy_url\x18\f \x01(\tR\bproxyUrl\"\x98\x04\n" +
 	"\x15ACMECertificateStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\adomains\x18\x02 \x03(\tR\adomains\x12\x12\n" +
@@ -4540,7 +4862,11 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\berror_at\x18\x04 \x01(\x05R\aerrorAt\"a\n" +
 	"\x12ErrorsShowResponse\x12\x14\n" +
 	"\x05total\x18\x01 \x01(\x04R\x05total\x125\n" +
-	"\x06errors\x18\x02 \x03(\v2\x1d.janus.v1alpha1.CapturedErrorR\x06errors2\xf2\x14\n" +
+	"\x06errors\x18\x02 \x03(\v2\x1d.janus.v1alpha1.CapturedErrorR\x06errors*c\n" +
+	"\fACMEPathMode\x12\x1e\n" +
+	"\x1aACME_PATH_MODE_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15ACME_PATH_MODE_DIRECT\x10\x01\x12\x18\n" +
+	"\x14ACME_PATH_MODE_PROXY\x10\x022\xd0\x15\n" +
 	"\x0eHAProxyService\x12F\n" +
 	"\tGetConfig\x12\x16.google.protobuf.Empty\x1a!.janus.v1alpha1.GetConfigResponse\x12X\n" +
 	"\vApplyConfig\x12\".janus.v1alpha1.ApplyConfigRequest\x1a#.janus.v1alpha1.ApplyConfigResponse0\x01\x12_\n" +
@@ -4570,7 +4896,8 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"ACMEStatus\x12\x16.google.protobuf.Empty\x1a\".janus.v1alpha1.ACMEStatusResponse\x12N\n" +
 	"\rACMEGetConfig\x12\x16.google.protobuf.Empty\x1a%.janus.v1alpha1.ACMEGetConfigResponse\x12b\n" +
 	"\x0fACMEApplyConfig\x12&.janus.v1alpha1.ACMEApplyConfigRequest\x1a'.janus.v1alpha1.ACMEApplyConfigResponse\x12P\n" +
-	"\tACMERenew\x12 .janus.v1alpha1.ACMERenewRequest\x1a!.janus.v1alpha1.ACMERenewResponse\x12F\n" +
+	"\tACMERenew\x12 .janus.v1alpha1.ACMERenewRequest\x1a!.janus.v1alpha1.ACMERenewResponse\x12\\\n" +
+	"\rACMECheckPath\x12$.janus.v1alpha1.ACMECheckPathRequest\x1a%.janus.v1alpha1.ACMECheckPathResponse\x12F\n" +
 	"\tTableList\x12\x16.google.protobuf.Empty\x1a!.janus.v1alpha1.TableListResponse\x12P\n" +
 	"\tTableShow\x12 .janus.v1alpha1.TableShowRequest\x1a!.janus.v1alpha1.TableShowResponse\x12G\n" +
 	"\n" +
@@ -4592,177 +4919,187 @@ func file_janus_v1alpha1_haproxy_proto_rawDescGZIP() []byte {
 	return file_janus_v1alpha1_haproxy_proto_rawDescData
 }
 
-var file_janus_v1alpha1_haproxy_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_janus_v1alpha1_haproxy_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
+var file_janus_v1alpha1_haproxy_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_janus_v1alpha1_haproxy_proto_msgTypes = make([]protoimpl.MessageInfo, 69)
 var file_janus_v1alpha1_haproxy_proto_goTypes = []any{
-	(ServerSetStateRequest_State)(0), // 0: janus.v1alpha1.ServerSetStateRequest.State
-	(*GetConfigResponse)(nil),        // 1: janus.v1alpha1.GetConfigResponse
-	(*ApplyConfigRequest)(nil),       // 2: janus.v1alpha1.ApplyConfigRequest
-	(*ApplyConfigResponse)(nil),      // 3: janus.v1alpha1.ApplyConfigResponse
-	(*ConfigHistoryRequest)(nil),     // 4: janus.v1alpha1.ConfigHistoryRequest
-	(*ConfigHistoryResponse)(nil),    // 5: janus.v1alpha1.ConfigHistoryResponse
-	(*ConfigVersionInfo)(nil),        // 6: janus.v1alpha1.ConfigVersionInfo
-	(*ConfigAuthor)(nil),             // 7: janus.v1alpha1.ConfigAuthor
-	(*ConfigVersionRequest)(nil),     // 8: janus.v1alpha1.ConfigVersionRequest
-	(*ConfigVersionResponse)(nil),    // 9: janus.v1alpha1.ConfigVersionResponse
-	(*ValidateConfigRequest)(nil),    // 10: janus.v1alpha1.ValidateConfigRequest
-	(*ValidateConfigResponse)(nil),   // 11: janus.v1alpha1.ValidateConfigResponse
-	(*ReloadResponse)(nil),           // 12: janus.v1alpha1.ReloadResponse
-	(*HAProxyStatsResponse)(nil),     // 13: janus.v1alpha1.HAProxyStatsResponse
-	(*ShowInfoResponse)(nil),         // 14: janus.v1alpha1.ShowInfoResponse
-	(*Backend)(nil),                  // 15: janus.v1alpha1.Backend
-	(*BackendServer)(nil),            // 16: janus.v1alpha1.BackendServer
-	(*BackendListResponse)(nil),      // 17: janus.v1alpha1.BackendListResponse
-	(*ServerSetStateRequest)(nil),    // 18: janus.v1alpha1.ServerSetStateRequest
-	(*MapListResponse)(nil),          // 19: janus.v1alpha1.MapListResponse
-	(*MapGetRequest)(nil),            // 20: janus.v1alpha1.MapGetRequest
-	(*MapGetResponse)(nil),           // 21: janus.v1alpha1.MapGetResponse
-	(*MapUpdateRequest)(nil),         // 22: janus.v1alpha1.MapUpdateRequest
-	(*ACLUpdateRequest)(nil),         // 23: janus.v1alpha1.ACLUpdateRequest
-	(*CertificateListResponse)(nil),  // 24: janus.v1alpha1.CertificateListResponse
-	(*CertificateInfo)(nil),          // 25: janus.v1alpha1.CertificateInfo
-	(*CertificateUploadRequest)(nil), // 26: janus.v1alpha1.CertificateUploadRequest
-	(*CertificateDeleteRequest)(nil), // 27: janus.v1alpha1.CertificateDeleteRequest
-	(*ACMEConfig)(nil),               // 28: janus.v1alpha1.ACMEConfig
-	(*ACMEAccount)(nil),              // 29: janus.v1alpha1.ACMEAccount
-	(*ACMECertificate)(nil),          // 30: janus.v1alpha1.ACMECertificate
-	(*ACMEDNSProvider)(nil),          // 31: janus.v1alpha1.ACMEDNSProvider
-	(*ACMEGetConfigResponse)(nil),    // 32: janus.v1alpha1.ACMEGetConfigResponse
-	(*ACMEApplyConfigRequest)(nil),   // 33: janus.v1alpha1.ACMEApplyConfigRequest
-	(*ACMEApplyConfigResponse)(nil),  // 34: janus.v1alpha1.ACMEApplyConfigResponse
-	(*ACMERenewRequest)(nil),         // 35: janus.v1alpha1.ACMERenewRequest
-	(*ACMERenewResponse)(nil),        // 36: janus.v1alpha1.ACMERenewResponse
-	(*ACMEStatusResponse)(nil),       // 37: janus.v1alpha1.ACMEStatusResponse
-	(*ACMECertificateStatus)(nil),    // 38: janus.v1alpha1.ACMECertificateStatus
-	(*HAProxyFile)(nil),              // 39: janus.v1alpha1.HAProxyFile
-	(*FileListResponse)(nil),         // 40: janus.v1alpha1.FileListResponse
-	(*FileGetRequest)(nil),           // 41: janus.v1alpha1.FileGetRequest
-	(*FileGetResponse)(nil),          // 42: janus.v1alpha1.FileGetResponse
-	(*FilePutRequest)(nil),           // 43: janus.v1alpha1.FilePutRequest
-	(*FilePutResponse)(nil),          // 44: janus.v1alpha1.FilePutResponse
-	(*FileDeleteRequest)(nil),        // 45: janus.v1alpha1.FileDeleteRequest
-	(*FileDeleteResponse)(nil),       // 46: janus.v1alpha1.FileDeleteResponse
-	(*PatternLookupRequest)(nil),     // 47: janus.v1alpha1.PatternLookupRequest
-	(*PatternLookupResponse)(nil),    // 48: janus.v1alpha1.PatternLookupResponse
-	(*StickTable)(nil),               // 49: janus.v1alpha1.StickTable
-	(*TableListResponse)(nil),        // 50: janus.v1alpha1.TableListResponse
-	(*TableFilter)(nil),              // 51: janus.v1alpha1.TableFilter
-	(*TableShowRequest)(nil),         // 52: janus.v1alpha1.TableShowRequest
-	(*TableEntry)(nil),               // 53: janus.v1alpha1.TableEntry
-	(*TableData)(nil),                // 54: janus.v1alpha1.TableData
-	(*TableShowResponse)(nil),        // 55: janus.v1alpha1.TableShowResponse
-	(*TableClearRequest)(nil),        // 56: janus.v1alpha1.TableClearRequest
-	(*SessionListRequest)(nil),       // 57: janus.v1alpha1.SessionListRequest
-	(*Session)(nil),                  // 58: janus.v1alpha1.Session
-	(*SessionListResponse)(nil),      // 59: janus.v1alpha1.SessionListResponse
-	(*SessionShutdownRequest)(nil),   // 60: janus.v1alpha1.SessionShutdownRequest
-	(*ErrorsShowRequest)(nil),        // 61: janus.v1alpha1.ErrorsShowRequest
-	(*CapturedError)(nil),            // 62: janus.v1alpha1.CapturedError
-	(*ErrorLine)(nil),                // 63: janus.v1alpha1.ErrorLine
-	(*ErrorsShowResponse)(nil),       // 64: janus.v1alpha1.ErrorsShowResponse
-	nil,                              // 65: janus.v1alpha1.MapGetResponse.EntriesEntry
-	nil,                              // 66: janus.v1alpha1.ACMEDNSProvider.SettingsEntry
-	(ModuleState)(0),                 // 67: janus.v1alpha1.ModuleState
-	(*emptypb.Empty)(nil),            // 68: google.protobuf.Empty
+	(ACMEPathMode)(0),                // 0: janus.v1alpha1.ACMEPathMode
+	(ServerSetStateRequest_State)(0), // 1: janus.v1alpha1.ServerSetStateRequest.State
+	(*GetConfigResponse)(nil),        // 2: janus.v1alpha1.GetConfigResponse
+	(*ApplyConfigRequest)(nil),       // 3: janus.v1alpha1.ApplyConfigRequest
+	(*ApplyConfigResponse)(nil),      // 4: janus.v1alpha1.ApplyConfigResponse
+	(*ConfigHistoryRequest)(nil),     // 5: janus.v1alpha1.ConfigHistoryRequest
+	(*ConfigHistoryResponse)(nil),    // 6: janus.v1alpha1.ConfigHistoryResponse
+	(*ConfigVersionInfo)(nil),        // 7: janus.v1alpha1.ConfigVersionInfo
+	(*ConfigAuthor)(nil),             // 8: janus.v1alpha1.ConfigAuthor
+	(*ConfigVersionRequest)(nil),     // 9: janus.v1alpha1.ConfigVersionRequest
+	(*ConfigVersionResponse)(nil),    // 10: janus.v1alpha1.ConfigVersionResponse
+	(*ValidateConfigRequest)(nil),    // 11: janus.v1alpha1.ValidateConfigRequest
+	(*ValidateConfigResponse)(nil),   // 12: janus.v1alpha1.ValidateConfigResponse
+	(*ReloadResponse)(nil),           // 13: janus.v1alpha1.ReloadResponse
+	(*HAProxyStatsResponse)(nil),     // 14: janus.v1alpha1.HAProxyStatsResponse
+	(*ShowInfoResponse)(nil),         // 15: janus.v1alpha1.ShowInfoResponse
+	(*Backend)(nil),                  // 16: janus.v1alpha1.Backend
+	(*BackendServer)(nil),            // 17: janus.v1alpha1.BackendServer
+	(*BackendListResponse)(nil),      // 18: janus.v1alpha1.BackendListResponse
+	(*ServerSetStateRequest)(nil),    // 19: janus.v1alpha1.ServerSetStateRequest
+	(*MapListResponse)(nil),          // 20: janus.v1alpha1.MapListResponse
+	(*MapGetRequest)(nil),            // 21: janus.v1alpha1.MapGetRequest
+	(*MapGetResponse)(nil),           // 22: janus.v1alpha1.MapGetResponse
+	(*MapUpdateRequest)(nil),         // 23: janus.v1alpha1.MapUpdateRequest
+	(*ACLUpdateRequest)(nil),         // 24: janus.v1alpha1.ACLUpdateRequest
+	(*CertificateListResponse)(nil),  // 25: janus.v1alpha1.CertificateListResponse
+	(*CertificateInfo)(nil),          // 26: janus.v1alpha1.CertificateInfo
+	(*CertificateUploadRequest)(nil), // 27: janus.v1alpha1.CertificateUploadRequest
+	(*CertificateDeleteRequest)(nil), // 28: janus.v1alpha1.CertificateDeleteRequest
+	(*ACMEConfig)(nil),               // 29: janus.v1alpha1.ACMEConfig
+	(*ACMEPath)(nil),                 // 30: janus.v1alpha1.ACMEPath
+	(*ACMECheckPathRequest)(nil),     // 31: janus.v1alpha1.ACMECheckPathRequest
+	(*ACMECheckPathResponse)(nil),    // 32: janus.v1alpha1.ACMECheckPathResponse
+	(*ACMEAccount)(nil),              // 33: janus.v1alpha1.ACMEAccount
+	(*ACMECertificate)(nil),          // 34: janus.v1alpha1.ACMECertificate
+	(*ACMEDNSProvider)(nil),          // 35: janus.v1alpha1.ACMEDNSProvider
+	(*ACMEGetConfigResponse)(nil),    // 36: janus.v1alpha1.ACMEGetConfigResponse
+	(*ACMEApplyConfigRequest)(nil),   // 37: janus.v1alpha1.ACMEApplyConfigRequest
+	(*ACMEApplyConfigResponse)(nil),  // 38: janus.v1alpha1.ACMEApplyConfigResponse
+	(*ACMERenewRequest)(nil),         // 39: janus.v1alpha1.ACMERenewRequest
+	(*ACMERenewResponse)(nil),        // 40: janus.v1alpha1.ACMERenewResponse
+	(*ACMEStatusResponse)(nil),       // 41: janus.v1alpha1.ACMEStatusResponse
+	(*ACMECertificateStatus)(nil),    // 42: janus.v1alpha1.ACMECertificateStatus
+	(*HAProxyFile)(nil),              // 43: janus.v1alpha1.HAProxyFile
+	(*FileListResponse)(nil),         // 44: janus.v1alpha1.FileListResponse
+	(*FileGetRequest)(nil),           // 45: janus.v1alpha1.FileGetRequest
+	(*FileGetResponse)(nil),          // 46: janus.v1alpha1.FileGetResponse
+	(*FilePutRequest)(nil),           // 47: janus.v1alpha1.FilePutRequest
+	(*FilePutResponse)(nil),          // 48: janus.v1alpha1.FilePutResponse
+	(*FileDeleteRequest)(nil),        // 49: janus.v1alpha1.FileDeleteRequest
+	(*FileDeleteResponse)(nil),       // 50: janus.v1alpha1.FileDeleteResponse
+	(*PatternLookupRequest)(nil),     // 51: janus.v1alpha1.PatternLookupRequest
+	(*PatternLookupResponse)(nil),    // 52: janus.v1alpha1.PatternLookupResponse
+	(*StickTable)(nil),               // 53: janus.v1alpha1.StickTable
+	(*TableListResponse)(nil),        // 54: janus.v1alpha1.TableListResponse
+	(*TableFilter)(nil),              // 55: janus.v1alpha1.TableFilter
+	(*TableShowRequest)(nil),         // 56: janus.v1alpha1.TableShowRequest
+	(*TableEntry)(nil),               // 57: janus.v1alpha1.TableEntry
+	(*TableData)(nil),                // 58: janus.v1alpha1.TableData
+	(*TableShowResponse)(nil),        // 59: janus.v1alpha1.TableShowResponse
+	(*TableClearRequest)(nil),        // 60: janus.v1alpha1.TableClearRequest
+	(*SessionListRequest)(nil),       // 61: janus.v1alpha1.SessionListRequest
+	(*Session)(nil),                  // 62: janus.v1alpha1.Session
+	(*SessionListResponse)(nil),      // 63: janus.v1alpha1.SessionListResponse
+	(*SessionShutdownRequest)(nil),   // 64: janus.v1alpha1.SessionShutdownRequest
+	(*ErrorsShowRequest)(nil),        // 65: janus.v1alpha1.ErrorsShowRequest
+	(*CapturedError)(nil),            // 66: janus.v1alpha1.CapturedError
+	(*ErrorLine)(nil),                // 67: janus.v1alpha1.ErrorLine
+	(*ErrorsShowResponse)(nil),       // 68: janus.v1alpha1.ErrorsShowResponse
+	nil,                              // 69: janus.v1alpha1.MapGetResponse.EntriesEntry
+	nil,                              // 70: janus.v1alpha1.ACMEDNSProvider.SettingsEntry
+	(ModuleState)(0),                 // 71: janus.v1alpha1.ModuleState
+	(*emptypb.Empty)(nil),            // 72: google.protobuf.Empty
 }
 var file_janus_v1alpha1_haproxy_proto_depIdxs = []int32{
-	6,  // 0: janus.v1alpha1.ConfigHistoryResponse.versions:type_name -> janus.v1alpha1.ConfigVersionInfo
-	7,  // 1: janus.v1alpha1.ConfigVersionInfo.author:type_name -> janus.v1alpha1.ConfigAuthor
-	6,  // 2: janus.v1alpha1.ConfigVersionResponse.version:type_name -> janus.v1alpha1.ConfigVersionInfo
-	16, // 3: janus.v1alpha1.Backend.servers:type_name -> janus.v1alpha1.BackendServer
-	15, // 4: janus.v1alpha1.BackendListResponse.backends:type_name -> janus.v1alpha1.Backend
-	0,  // 5: janus.v1alpha1.ServerSetStateRequest.state:type_name -> janus.v1alpha1.ServerSetStateRequest.State
-	65, // 6: janus.v1alpha1.MapGetResponse.entries:type_name -> janus.v1alpha1.MapGetResponse.EntriesEntry
-	25, // 7: janus.v1alpha1.CertificateListResponse.certificates:type_name -> janus.v1alpha1.CertificateInfo
-	29, // 8: janus.v1alpha1.ACMEConfig.account:type_name -> janus.v1alpha1.ACMEAccount
-	30, // 9: janus.v1alpha1.ACMEConfig.certificates:type_name -> janus.v1alpha1.ACMECertificate
-	31, // 10: janus.v1alpha1.ACMEConfig.dns_providers:type_name -> janus.v1alpha1.ACMEDNSProvider
-	66, // 11: janus.v1alpha1.ACMEDNSProvider.settings:type_name -> janus.v1alpha1.ACMEDNSProvider.SettingsEntry
-	28, // 12: janus.v1alpha1.ACMEGetConfigResponse.config:type_name -> janus.v1alpha1.ACMEConfig
-	28, // 13: janus.v1alpha1.ACMEApplyConfigRequest.config:type_name -> janus.v1alpha1.ACMEConfig
-	67, // 14: janus.v1alpha1.ACMEStatusResponse.state:type_name -> janus.v1alpha1.ModuleState
-	38, // 15: janus.v1alpha1.ACMEStatusResponse.certificates:type_name -> janus.v1alpha1.ACMECertificateStatus
-	39, // 16: janus.v1alpha1.FileListResponse.files:type_name -> janus.v1alpha1.HAProxyFile
-	49, // 17: janus.v1alpha1.TableListResponse.tables:type_name -> janus.v1alpha1.StickTable
-	51, // 18: janus.v1alpha1.TableShowRequest.filters:type_name -> janus.v1alpha1.TableFilter
-	54, // 19: janus.v1alpha1.TableEntry.data:type_name -> janus.v1alpha1.TableData
-	49, // 20: janus.v1alpha1.TableShowResponse.table:type_name -> janus.v1alpha1.StickTable
-	53, // 21: janus.v1alpha1.TableShowResponse.entries:type_name -> janus.v1alpha1.TableEntry
-	51, // 22: janus.v1alpha1.TableClearRequest.filters:type_name -> janus.v1alpha1.TableFilter
-	58, // 23: janus.v1alpha1.SessionListResponse.sessions:type_name -> janus.v1alpha1.Session
-	63, // 24: janus.v1alpha1.CapturedError.lines:type_name -> janus.v1alpha1.ErrorLine
-	62, // 25: janus.v1alpha1.ErrorsShowResponse.errors:type_name -> janus.v1alpha1.CapturedError
-	68, // 26: janus.v1alpha1.HAProxyService.GetConfig:input_type -> google.protobuf.Empty
-	2,  // 27: janus.v1alpha1.HAProxyService.ApplyConfig:input_type -> janus.v1alpha1.ApplyConfigRequest
-	10, // 28: janus.v1alpha1.HAProxyService.ValidateConfig:input_type -> janus.v1alpha1.ValidateConfigRequest
-	4,  // 29: janus.v1alpha1.HAProxyService.ConfigHistory:input_type -> janus.v1alpha1.ConfigHistoryRequest
-	8,  // 30: janus.v1alpha1.HAProxyService.ConfigVersion:input_type -> janus.v1alpha1.ConfigVersionRequest
-	68, // 31: janus.v1alpha1.HAProxyService.Reload:input_type -> google.protobuf.Empty
-	68, // 32: janus.v1alpha1.HAProxyService.Stats:input_type -> google.protobuf.Empty
-	68, // 33: janus.v1alpha1.HAProxyService.ShowInfo:input_type -> google.protobuf.Empty
-	68, // 34: janus.v1alpha1.HAProxyService.BackendList:input_type -> google.protobuf.Empty
-	18, // 35: janus.v1alpha1.HAProxyService.ServerSetState:input_type -> janus.v1alpha1.ServerSetStateRequest
-	68, // 36: janus.v1alpha1.HAProxyService.MapList:input_type -> google.protobuf.Empty
-	20, // 37: janus.v1alpha1.HAProxyService.MapGet:input_type -> janus.v1alpha1.MapGetRequest
-	22, // 38: janus.v1alpha1.HAProxyService.MapUpdate:input_type -> janus.v1alpha1.MapUpdateRequest
-	47, // 39: janus.v1alpha1.HAProxyService.MapLookup:input_type -> janus.v1alpha1.PatternLookupRequest
-	23, // 40: janus.v1alpha1.HAProxyService.ACLUpdate:input_type -> janus.v1alpha1.ACLUpdateRequest
-	47, // 41: janus.v1alpha1.HAProxyService.ACLLookup:input_type -> janus.v1alpha1.PatternLookupRequest
-	68, // 42: janus.v1alpha1.HAProxyService.CertificateList:input_type -> google.protobuf.Empty
-	26, // 43: janus.v1alpha1.HAProxyService.CertificateUpload:input_type -> janus.v1alpha1.CertificateUploadRequest
-	27, // 44: janus.v1alpha1.HAProxyService.CertificateDelete:input_type -> janus.v1alpha1.CertificateDeleteRequest
-	68, // 45: janus.v1alpha1.HAProxyService.FileList:input_type -> google.protobuf.Empty
-	41, // 46: janus.v1alpha1.HAProxyService.FileGet:input_type -> janus.v1alpha1.FileGetRequest
-	43, // 47: janus.v1alpha1.HAProxyService.FilePut:input_type -> janus.v1alpha1.FilePutRequest
-	45, // 48: janus.v1alpha1.HAProxyService.FileDelete:input_type -> janus.v1alpha1.FileDeleteRequest
-	68, // 49: janus.v1alpha1.HAProxyService.ACMEStatus:input_type -> google.protobuf.Empty
-	68, // 50: janus.v1alpha1.HAProxyService.ACMEGetConfig:input_type -> google.protobuf.Empty
-	33, // 51: janus.v1alpha1.HAProxyService.ACMEApplyConfig:input_type -> janus.v1alpha1.ACMEApplyConfigRequest
-	35, // 52: janus.v1alpha1.HAProxyService.ACMERenew:input_type -> janus.v1alpha1.ACMERenewRequest
-	68, // 53: janus.v1alpha1.HAProxyService.TableList:input_type -> google.protobuf.Empty
-	52, // 54: janus.v1alpha1.HAProxyService.TableShow:input_type -> janus.v1alpha1.TableShowRequest
-	56, // 55: janus.v1alpha1.HAProxyService.TableClear:input_type -> janus.v1alpha1.TableClearRequest
-	57, // 56: janus.v1alpha1.HAProxyService.SessionList:input_type -> janus.v1alpha1.SessionListRequest
-	60, // 57: janus.v1alpha1.HAProxyService.SessionShutdown:input_type -> janus.v1alpha1.SessionShutdownRequest
-	61, // 58: janus.v1alpha1.HAProxyService.ErrorsShow:input_type -> janus.v1alpha1.ErrorsShowRequest
-	1,  // 59: janus.v1alpha1.HAProxyService.GetConfig:output_type -> janus.v1alpha1.GetConfigResponse
-	3,  // 60: janus.v1alpha1.HAProxyService.ApplyConfig:output_type -> janus.v1alpha1.ApplyConfigResponse
-	11, // 61: janus.v1alpha1.HAProxyService.ValidateConfig:output_type -> janus.v1alpha1.ValidateConfigResponse
-	5,  // 62: janus.v1alpha1.HAProxyService.ConfigHistory:output_type -> janus.v1alpha1.ConfigHistoryResponse
-	9,  // 63: janus.v1alpha1.HAProxyService.ConfigVersion:output_type -> janus.v1alpha1.ConfigVersionResponse
-	12, // 64: janus.v1alpha1.HAProxyService.Reload:output_type -> janus.v1alpha1.ReloadResponse
-	13, // 65: janus.v1alpha1.HAProxyService.Stats:output_type -> janus.v1alpha1.HAProxyStatsResponse
-	14, // 66: janus.v1alpha1.HAProxyService.ShowInfo:output_type -> janus.v1alpha1.ShowInfoResponse
-	17, // 67: janus.v1alpha1.HAProxyService.BackendList:output_type -> janus.v1alpha1.BackendListResponse
-	68, // 68: janus.v1alpha1.HAProxyService.ServerSetState:output_type -> google.protobuf.Empty
-	19, // 69: janus.v1alpha1.HAProxyService.MapList:output_type -> janus.v1alpha1.MapListResponse
-	21, // 70: janus.v1alpha1.HAProxyService.MapGet:output_type -> janus.v1alpha1.MapGetResponse
-	68, // 71: janus.v1alpha1.HAProxyService.MapUpdate:output_type -> google.protobuf.Empty
-	48, // 72: janus.v1alpha1.HAProxyService.MapLookup:output_type -> janus.v1alpha1.PatternLookupResponse
-	68, // 73: janus.v1alpha1.HAProxyService.ACLUpdate:output_type -> google.protobuf.Empty
-	48, // 74: janus.v1alpha1.HAProxyService.ACLLookup:output_type -> janus.v1alpha1.PatternLookupResponse
-	24, // 75: janus.v1alpha1.HAProxyService.CertificateList:output_type -> janus.v1alpha1.CertificateListResponse
-	68, // 76: janus.v1alpha1.HAProxyService.CertificateUpload:output_type -> google.protobuf.Empty
-	68, // 77: janus.v1alpha1.HAProxyService.CertificateDelete:output_type -> google.protobuf.Empty
-	40, // 78: janus.v1alpha1.HAProxyService.FileList:output_type -> janus.v1alpha1.FileListResponse
-	42, // 79: janus.v1alpha1.HAProxyService.FileGet:output_type -> janus.v1alpha1.FileGetResponse
-	44, // 80: janus.v1alpha1.HAProxyService.FilePut:output_type -> janus.v1alpha1.FilePutResponse
-	46, // 81: janus.v1alpha1.HAProxyService.FileDelete:output_type -> janus.v1alpha1.FileDeleteResponse
-	37, // 82: janus.v1alpha1.HAProxyService.ACMEStatus:output_type -> janus.v1alpha1.ACMEStatusResponse
-	32, // 83: janus.v1alpha1.HAProxyService.ACMEGetConfig:output_type -> janus.v1alpha1.ACMEGetConfigResponse
-	34, // 84: janus.v1alpha1.HAProxyService.ACMEApplyConfig:output_type -> janus.v1alpha1.ACMEApplyConfigResponse
-	36, // 85: janus.v1alpha1.HAProxyService.ACMERenew:output_type -> janus.v1alpha1.ACMERenewResponse
-	50, // 86: janus.v1alpha1.HAProxyService.TableList:output_type -> janus.v1alpha1.TableListResponse
-	55, // 87: janus.v1alpha1.HAProxyService.TableShow:output_type -> janus.v1alpha1.TableShowResponse
-	68, // 88: janus.v1alpha1.HAProxyService.TableClear:output_type -> google.protobuf.Empty
-	59, // 89: janus.v1alpha1.HAProxyService.SessionList:output_type -> janus.v1alpha1.SessionListResponse
-	68, // 90: janus.v1alpha1.HAProxyService.SessionShutdown:output_type -> google.protobuf.Empty
-	64, // 91: janus.v1alpha1.HAProxyService.ErrorsShow:output_type -> janus.v1alpha1.ErrorsShowResponse
-	59, // [59:92] is the sub-list for method output_type
-	26, // [26:59] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	7,  // 0: janus.v1alpha1.ConfigHistoryResponse.versions:type_name -> janus.v1alpha1.ConfigVersionInfo
+	8,  // 1: janus.v1alpha1.ConfigVersionInfo.author:type_name -> janus.v1alpha1.ConfigAuthor
+	7,  // 2: janus.v1alpha1.ConfigVersionResponse.version:type_name -> janus.v1alpha1.ConfigVersionInfo
+	17, // 3: janus.v1alpha1.Backend.servers:type_name -> janus.v1alpha1.BackendServer
+	16, // 4: janus.v1alpha1.BackendListResponse.backends:type_name -> janus.v1alpha1.Backend
+	1,  // 5: janus.v1alpha1.ServerSetStateRequest.state:type_name -> janus.v1alpha1.ServerSetStateRequest.State
+	69, // 6: janus.v1alpha1.MapGetResponse.entries:type_name -> janus.v1alpha1.MapGetResponse.EntriesEntry
+	26, // 7: janus.v1alpha1.CertificateListResponse.certificates:type_name -> janus.v1alpha1.CertificateInfo
+	33, // 8: janus.v1alpha1.ACMEConfig.account:type_name -> janus.v1alpha1.ACMEAccount
+	34, // 9: janus.v1alpha1.ACMEConfig.certificates:type_name -> janus.v1alpha1.ACMECertificate
+	35, // 10: janus.v1alpha1.ACMEConfig.dns_providers:type_name -> janus.v1alpha1.ACMEDNSProvider
+	30, // 11: janus.v1alpha1.ACMEConfig.path:type_name -> janus.v1alpha1.ACMEPath
+	0,  // 12: janus.v1alpha1.ACMEPath.mode:type_name -> janus.v1alpha1.ACMEPathMode
+	30, // 13: janus.v1alpha1.ACMECheckPathRequest.path:type_name -> janus.v1alpha1.ACMEPath
+	70, // 14: janus.v1alpha1.ACMEDNSProvider.settings:type_name -> janus.v1alpha1.ACMEDNSProvider.SettingsEntry
+	29, // 15: janus.v1alpha1.ACMEGetConfigResponse.config:type_name -> janus.v1alpha1.ACMEConfig
+	29, // 16: janus.v1alpha1.ACMEApplyConfigRequest.config:type_name -> janus.v1alpha1.ACMEConfig
+	71, // 17: janus.v1alpha1.ACMEStatusResponse.state:type_name -> janus.v1alpha1.ModuleState
+	42, // 18: janus.v1alpha1.ACMEStatusResponse.certificates:type_name -> janus.v1alpha1.ACMECertificateStatus
+	0,  // 19: janus.v1alpha1.ACMEStatusResponse.path_mode:type_name -> janus.v1alpha1.ACMEPathMode
+	43, // 20: janus.v1alpha1.FileListResponse.files:type_name -> janus.v1alpha1.HAProxyFile
+	53, // 21: janus.v1alpha1.TableListResponse.tables:type_name -> janus.v1alpha1.StickTable
+	55, // 22: janus.v1alpha1.TableShowRequest.filters:type_name -> janus.v1alpha1.TableFilter
+	58, // 23: janus.v1alpha1.TableEntry.data:type_name -> janus.v1alpha1.TableData
+	53, // 24: janus.v1alpha1.TableShowResponse.table:type_name -> janus.v1alpha1.StickTable
+	57, // 25: janus.v1alpha1.TableShowResponse.entries:type_name -> janus.v1alpha1.TableEntry
+	55, // 26: janus.v1alpha1.TableClearRequest.filters:type_name -> janus.v1alpha1.TableFilter
+	62, // 27: janus.v1alpha1.SessionListResponse.sessions:type_name -> janus.v1alpha1.Session
+	67, // 28: janus.v1alpha1.CapturedError.lines:type_name -> janus.v1alpha1.ErrorLine
+	66, // 29: janus.v1alpha1.ErrorsShowResponse.errors:type_name -> janus.v1alpha1.CapturedError
+	72, // 30: janus.v1alpha1.HAProxyService.GetConfig:input_type -> google.protobuf.Empty
+	3,  // 31: janus.v1alpha1.HAProxyService.ApplyConfig:input_type -> janus.v1alpha1.ApplyConfigRequest
+	11, // 32: janus.v1alpha1.HAProxyService.ValidateConfig:input_type -> janus.v1alpha1.ValidateConfigRequest
+	5,  // 33: janus.v1alpha1.HAProxyService.ConfigHistory:input_type -> janus.v1alpha1.ConfigHistoryRequest
+	9,  // 34: janus.v1alpha1.HAProxyService.ConfigVersion:input_type -> janus.v1alpha1.ConfigVersionRequest
+	72, // 35: janus.v1alpha1.HAProxyService.Reload:input_type -> google.protobuf.Empty
+	72, // 36: janus.v1alpha1.HAProxyService.Stats:input_type -> google.protobuf.Empty
+	72, // 37: janus.v1alpha1.HAProxyService.ShowInfo:input_type -> google.protobuf.Empty
+	72, // 38: janus.v1alpha1.HAProxyService.BackendList:input_type -> google.protobuf.Empty
+	19, // 39: janus.v1alpha1.HAProxyService.ServerSetState:input_type -> janus.v1alpha1.ServerSetStateRequest
+	72, // 40: janus.v1alpha1.HAProxyService.MapList:input_type -> google.protobuf.Empty
+	21, // 41: janus.v1alpha1.HAProxyService.MapGet:input_type -> janus.v1alpha1.MapGetRequest
+	23, // 42: janus.v1alpha1.HAProxyService.MapUpdate:input_type -> janus.v1alpha1.MapUpdateRequest
+	51, // 43: janus.v1alpha1.HAProxyService.MapLookup:input_type -> janus.v1alpha1.PatternLookupRequest
+	24, // 44: janus.v1alpha1.HAProxyService.ACLUpdate:input_type -> janus.v1alpha1.ACLUpdateRequest
+	51, // 45: janus.v1alpha1.HAProxyService.ACLLookup:input_type -> janus.v1alpha1.PatternLookupRequest
+	72, // 46: janus.v1alpha1.HAProxyService.CertificateList:input_type -> google.protobuf.Empty
+	27, // 47: janus.v1alpha1.HAProxyService.CertificateUpload:input_type -> janus.v1alpha1.CertificateUploadRequest
+	28, // 48: janus.v1alpha1.HAProxyService.CertificateDelete:input_type -> janus.v1alpha1.CertificateDeleteRequest
+	72, // 49: janus.v1alpha1.HAProxyService.FileList:input_type -> google.protobuf.Empty
+	45, // 50: janus.v1alpha1.HAProxyService.FileGet:input_type -> janus.v1alpha1.FileGetRequest
+	47, // 51: janus.v1alpha1.HAProxyService.FilePut:input_type -> janus.v1alpha1.FilePutRequest
+	49, // 52: janus.v1alpha1.HAProxyService.FileDelete:input_type -> janus.v1alpha1.FileDeleteRequest
+	72, // 53: janus.v1alpha1.HAProxyService.ACMEStatus:input_type -> google.protobuf.Empty
+	72, // 54: janus.v1alpha1.HAProxyService.ACMEGetConfig:input_type -> google.protobuf.Empty
+	37, // 55: janus.v1alpha1.HAProxyService.ACMEApplyConfig:input_type -> janus.v1alpha1.ACMEApplyConfigRequest
+	39, // 56: janus.v1alpha1.HAProxyService.ACMERenew:input_type -> janus.v1alpha1.ACMERenewRequest
+	31, // 57: janus.v1alpha1.HAProxyService.ACMECheckPath:input_type -> janus.v1alpha1.ACMECheckPathRequest
+	72, // 58: janus.v1alpha1.HAProxyService.TableList:input_type -> google.protobuf.Empty
+	56, // 59: janus.v1alpha1.HAProxyService.TableShow:input_type -> janus.v1alpha1.TableShowRequest
+	60, // 60: janus.v1alpha1.HAProxyService.TableClear:input_type -> janus.v1alpha1.TableClearRequest
+	61, // 61: janus.v1alpha1.HAProxyService.SessionList:input_type -> janus.v1alpha1.SessionListRequest
+	64, // 62: janus.v1alpha1.HAProxyService.SessionShutdown:input_type -> janus.v1alpha1.SessionShutdownRequest
+	65, // 63: janus.v1alpha1.HAProxyService.ErrorsShow:input_type -> janus.v1alpha1.ErrorsShowRequest
+	2,  // 64: janus.v1alpha1.HAProxyService.GetConfig:output_type -> janus.v1alpha1.GetConfigResponse
+	4,  // 65: janus.v1alpha1.HAProxyService.ApplyConfig:output_type -> janus.v1alpha1.ApplyConfigResponse
+	12, // 66: janus.v1alpha1.HAProxyService.ValidateConfig:output_type -> janus.v1alpha1.ValidateConfigResponse
+	6,  // 67: janus.v1alpha1.HAProxyService.ConfigHistory:output_type -> janus.v1alpha1.ConfigHistoryResponse
+	10, // 68: janus.v1alpha1.HAProxyService.ConfigVersion:output_type -> janus.v1alpha1.ConfigVersionResponse
+	13, // 69: janus.v1alpha1.HAProxyService.Reload:output_type -> janus.v1alpha1.ReloadResponse
+	14, // 70: janus.v1alpha1.HAProxyService.Stats:output_type -> janus.v1alpha1.HAProxyStatsResponse
+	15, // 71: janus.v1alpha1.HAProxyService.ShowInfo:output_type -> janus.v1alpha1.ShowInfoResponse
+	18, // 72: janus.v1alpha1.HAProxyService.BackendList:output_type -> janus.v1alpha1.BackendListResponse
+	72, // 73: janus.v1alpha1.HAProxyService.ServerSetState:output_type -> google.protobuf.Empty
+	20, // 74: janus.v1alpha1.HAProxyService.MapList:output_type -> janus.v1alpha1.MapListResponse
+	22, // 75: janus.v1alpha1.HAProxyService.MapGet:output_type -> janus.v1alpha1.MapGetResponse
+	72, // 76: janus.v1alpha1.HAProxyService.MapUpdate:output_type -> google.protobuf.Empty
+	52, // 77: janus.v1alpha1.HAProxyService.MapLookup:output_type -> janus.v1alpha1.PatternLookupResponse
+	72, // 78: janus.v1alpha1.HAProxyService.ACLUpdate:output_type -> google.protobuf.Empty
+	52, // 79: janus.v1alpha1.HAProxyService.ACLLookup:output_type -> janus.v1alpha1.PatternLookupResponse
+	25, // 80: janus.v1alpha1.HAProxyService.CertificateList:output_type -> janus.v1alpha1.CertificateListResponse
+	72, // 81: janus.v1alpha1.HAProxyService.CertificateUpload:output_type -> google.protobuf.Empty
+	72, // 82: janus.v1alpha1.HAProxyService.CertificateDelete:output_type -> google.protobuf.Empty
+	44, // 83: janus.v1alpha1.HAProxyService.FileList:output_type -> janus.v1alpha1.FileListResponse
+	46, // 84: janus.v1alpha1.HAProxyService.FileGet:output_type -> janus.v1alpha1.FileGetResponse
+	48, // 85: janus.v1alpha1.HAProxyService.FilePut:output_type -> janus.v1alpha1.FilePutResponse
+	50, // 86: janus.v1alpha1.HAProxyService.FileDelete:output_type -> janus.v1alpha1.FileDeleteResponse
+	41, // 87: janus.v1alpha1.HAProxyService.ACMEStatus:output_type -> janus.v1alpha1.ACMEStatusResponse
+	36, // 88: janus.v1alpha1.HAProxyService.ACMEGetConfig:output_type -> janus.v1alpha1.ACMEGetConfigResponse
+	38, // 89: janus.v1alpha1.HAProxyService.ACMEApplyConfig:output_type -> janus.v1alpha1.ACMEApplyConfigResponse
+	40, // 90: janus.v1alpha1.HAProxyService.ACMERenew:output_type -> janus.v1alpha1.ACMERenewResponse
+	32, // 91: janus.v1alpha1.HAProxyService.ACMECheckPath:output_type -> janus.v1alpha1.ACMECheckPathResponse
+	54, // 92: janus.v1alpha1.HAProxyService.TableList:output_type -> janus.v1alpha1.TableListResponse
+	59, // 93: janus.v1alpha1.HAProxyService.TableShow:output_type -> janus.v1alpha1.TableShowResponse
+	72, // 94: janus.v1alpha1.HAProxyService.TableClear:output_type -> google.protobuf.Empty
+	63, // 95: janus.v1alpha1.HAProxyService.SessionList:output_type -> janus.v1alpha1.SessionListResponse
+	72, // 96: janus.v1alpha1.HAProxyService.SessionShutdown:output_type -> google.protobuf.Empty
+	68, // 97: janus.v1alpha1.HAProxyService.ErrorsShow:output_type -> janus.v1alpha1.ErrorsShowResponse
+	64, // [64:98] is the sub-list for method output_type
+	30, // [30:64] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_janus_v1alpha1_haproxy_proto_init() }
@@ -4776,8 +5113,8 @@ func file_janus_v1alpha1_haproxy_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_haproxy_proto_rawDesc), len(file_janus_v1alpha1_haproxy_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   66,
+			NumEnums:      2,
+			NumMessages:   69,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

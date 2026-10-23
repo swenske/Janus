@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
@@ -25,6 +26,7 @@ import (
 	stdlog "log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -114,7 +116,14 @@ func (u *user) GetRegistration() *registration.Resource { return u.reg }
 func (u *user) GetPrivateKey() crypto.PrivateKey        { return u.key }
 
 func run(req *acmewire.Request, res *acmewire.Result) error {
-	key, err := certcrypto.ParsePEMPrivateKey([]byte(req.AccountKey))
+	var key crypto.PrivateKey
+	var err error
+	if req.Action == acmewire.ActionDirectory {
+		// Only the directory: any key does, none is sent.
+		key, err = certcrypto.GeneratePrivateKey(certcrypto.EC256)
+	} else {
+		key, err = certcrypto.ParsePEMPrivateKey([]byte(req.AccountKey))
+	}
 	if err != nil {
 		return fmt.Errorf("account key: %w", err)
 	}
@@ -122,8 +131,18 @@ func run(req *acmewire.Request, res *acmewire.Result) error {
 	cfg := lego.NewConfig(u)
 	cfg.CADirURL = req.Directory
 	cfg.UserAgent = "janus-acme/" + version
-	if cfg.HTTPClient, err = httpClient(req.DirectoryCA); err != nil {
+	if cfg.HTTPClient, err = httpClient(req.DirectoryCA, req.Proxy, req.ProxyCA); err != nil {
 		return err
+	}
+	if req.Proxy != "" {
+		// The DNS providers' API clients - lego's, the AWS SDK's - take
+		// the proxy from the environment (this process's only: janusd
+		// starts it with none).
+		for _, k := range []string{"HTTPS_PROXY", "HTTP_PROXY"} {
+			if err := os.Setenv(k, req.Proxy); err != nil {
+				return err
+			}
+		}
 	}
 	if req.Action == acmewire.ActionIssue {
 		kt, ok := keyTypes[req.KeyType]
@@ -137,6 +156,9 @@ func run(req *acmewire.Request, res *acmewire.Result) error {
 		return fmt.Errorf("ACME directory %s: %w", req.Directory, err)
 	}
 	res.TermsURL = client.GetToSURL()
+	if req.Action == acmewire.ActionDirectory {
+		return nil
+	}
 	if u.reg, err = account(client, req); err != nil {
 		return err
 	}
@@ -283,8 +305,11 @@ func (stateless) Present(domain, token, keyAuth string) error { return nil }
 func (stateless) CleanUp(domain, token, keyAuth string) error { return nil }
 
 // httpClient is the client for the ACME server: the system's trust
-// store, or only directoryCA when it's set.
-func httpClient(directoryCA string) (*http.Client, error) {
+// store, or only directoryCA when it's set; through proxy when it's set.
+// An https:// proxy's own certificate is checked against proxyCA (else
+// the system's trust store) - not against directoryCA, which is the ACME
+// server's alone.
+func httpClient(directoryCA, proxy, proxyCA string) (*http.Client, error) {
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 	if directoryCA != "" {
 		pool := x509.NewCertPool()
@@ -293,15 +318,45 @@ func httpClient(directoryCA string) (*http.Client, error) {
 		}
 		tlsConfig.RootCAs = pool
 	}
-	return &http.Client{
-		Timeout: 2 * time.Minute,
-		Transport: &http.Transport{
-			DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-			TLSHandshakeTimeout:   15 * time.Second,
-			ResponseHeaderTimeout: time.Minute,
-			TLSClientConfig:       tlsConfig,
-		},
-	}, nil
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		DialContext:           dialer.DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: time.Minute,
+		TLSClientConfig:       tlsConfig,
+	}
+	if proxy != "" {
+		u, err := url.Parse(proxy)
+		if err != nil {
+			return nil, fmt.Errorf("proxy: %w", err)
+		}
+		transport.Proxy = http.ProxyURL(u)
+		if u.Scheme == "https" {
+			// With a proxy, DialTLSContext dials only the proxy: the ACME
+			// server's TLS runs inside the tunnel, on TLSClientConfig.
+			proxyTLS := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: u.Hostname()}
+			if proxyCA != "" {
+				pool := x509.NewCertPool()
+				if !pool.AppendCertsFromPEM([]byte(proxyCA)) {
+					return nil, errors.New("proxy_ca: no PEM certificate in it")
+				}
+				proxyTLS.RootCAs = pool
+			}
+			transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				conn, err := dialer.DialContext(ctx, network, addr)
+				if err != nil {
+					return nil, err
+				}
+				tc := tls.Client(conn, proxyTLS)
+				if err := tc.HandshakeContext(ctx); err != nil {
+					conn.Close()
+					return nil, fmt.Errorf("proxy %s: %w", u.Host, err)
+				}
+				return tc, nil
+			}
+		}
+	}
+	return &http.Client{Timeout: 2 * time.Minute, Transport: transport}, nil
 }
 
 func leafOf(chain string) (*x509.Certificate, error) {

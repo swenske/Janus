@@ -56,6 +56,14 @@ func (h *HAProxy) ACMEApplyConfig(_ context.Context, req *janusv1alpha1.ACMEAppl
 	return &janusv1alpha1.ACMEApplyConfigResponse{Accepted: true}, nil
 }
 
+func (h *HAProxy) ACMECheckPath(_ context.Context, req *janusv1alpha1.ACMECheckPathRequest) (*janusv1alpha1.ACMECheckPathResponse, error) {
+	m, err := h.acme()
+	if err != nil {
+		return nil, err
+	}
+	return m.CheckPath(req.GetPath(), req.GetDirectory(), req.GetDirectoryCa()), nil
+}
+
 func (h *HAProxy) ACMERenew(_ context.Context, req *janusv1alpha1.ACMERenewRequest) (*janusv1alpha1.ACMERenewResponse, error) {
 	m, err := h.acme()
 	if err != nil {

@@ -109,6 +109,7 @@ var Domain = map[string]string{
 	"HAProxyService/ACMEGetConfig":     DomainHAProxy,
 	"HAProxyService/ACMEApplyConfig":   DomainHAProxy,
 	"HAProxyService/ACMERenew":         DomainHAProxy,
+	"HAProxyService/ACMECheckPath":     DomainHAProxy,
 	"HAProxyService/MapLookup":         DomainHAProxy,
 	"HAProxyService/ACLLookup":         DomainHAProxy,
 	"HAProxyService/TableList":         DomainHAProxy,

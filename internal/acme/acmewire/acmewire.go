@@ -18,6 +18,9 @@ const (
 	// ActionRenewalInfo asks the server when Certificate should be renewed
 	// (ACME Renewal Information, RFC 9773).
 	ActionRenewalInfo = "renewal-info"
+	// ActionDirectory only fetches the server's directory - the path to it
+	// checked (ACMECheckPath); no account key needed.
+	ActionDirectory = "directory"
 )
 
 // Challenges.
@@ -35,6 +38,12 @@ type Request struct {
 	// DirectoryCA, if set, is the only CA (PEM) trusted for the ACME
 	// server's HTTPS certificate - a private ACME server's.
 	DirectoryCA string `json:"directory_ca,omitempty"`
+	// Proxy, if set, is the HTTP(S) proxy everything goes through - the
+	// ACME server and the DNS providers' APIs -, its credentials in it;
+	// ProxyCA (PEM) the CA of an https:// proxy's certificate (default:
+	// the system's trust store).
+	Proxy   string `json:"proxy,omitempty"`
+	ProxyCA string `json:"proxy_ca,omitempty"`
 
 	// AccountKey is the account's private key (PEM).
 	AccountKey  string `json:"account_key"`

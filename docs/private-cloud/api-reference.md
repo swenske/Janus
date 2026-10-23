@@ -64,6 +64,7 @@ ACME: the letsencrypt extension ([docs/letsencrypt.md](../letsencrypt.md)). The 
 | `ACMEGetConfig` | `Empty` → `ACMEGetConfigResponse` | `os:reader` | haproxy | ACMEGetConfig returns the configuration - never a secret (a DNS provider's settings, the EAB key): their values come back empty. |
 | `ACMEApplyConfig` | `ACMEApplyConfigRequest` → `ACMEApplyConfigResponse` | `os:operator` | haproxy | ACMEApplyConfig replaces the configuration; an empty secret keeps the saved one. |
 | `ACMERenew` | `ACMERenewRequest` → `ACMERenewResponse` | `os:operator` | haproxy | ACMERenew obtains the named certificates (every one if none is named) now, whether or not they're due, in the background: ACMEStatus says how it went. |
+| `ACMECheckPath` | `ACMECheckPathRequest` → `ACMECheckPathResponse` | `os:operator` | haproxy | ACMECheckPath fetches the CA's directory the way the node would reach it - the given path, or the saved one - and says how it went, without changing anything. |
 
 Runtime diagnostics (stats socket "show table", "show sess", "show errors"): what the running HAProxy holds in its stick tables, the streams it is processing, the last requests and responses it refused as invalid. Read from the process, never kept.
 

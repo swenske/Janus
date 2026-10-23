@@ -47,6 +47,7 @@ const (
 	HAProxyService_ACMEGetConfig_FullMethodName     = "/janus.v1alpha1.HAProxyService/ACMEGetConfig"
 	HAProxyService_ACMEApplyConfig_FullMethodName   = "/janus.v1alpha1.HAProxyService/ACMEApplyConfig"
 	HAProxyService_ACMERenew_FullMethodName         = "/janus.v1alpha1.HAProxyService/ACMERenew"
+	HAProxyService_ACMECheckPath_FullMethodName     = "/janus.v1alpha1.HAProxyService/ACMECheckPath"
 	HAProxyService_TableList_FullMethodName         = "/janus.v1alpha1.HAProxyService/TableList"
 	HAProxyService_TableShow_FullMethodName         = "/janus.v1alpha1.HAProxyService/TableShow"
 	HAProxyService_TableClear_FullMethodName        = "/janus.v1alpha1.HAProxyService/TableClear"
@@ -149,6 +150,10 @@ type HAProxyServiceClient interface {
 	// now, whether or not they're due, in the background: ACMEStatus says
 	// how it went.
 	ACMERenew(ctx context.Context, in *ACMERenewRequest, opts ...grpc.CallOption) (*ACMERenewResponse, error)
+	// ACMECheckPath fetches the CA's directory the way the node would reach
+	// it - the given path, or the saved one - and says how it went, without
+	// changing anything.
+	ACMECheckPath(ctx context.Context, in *ACMECheckPathRequest, opts ...grpc.CallOption) (*ACMECheckPathResponse, error)
 	// TableList lists the running configuration's stick tables: each one's
 	// key type, size and entries in use.
 	TableList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TableListResponse, error)
@@ -459,6 +464,16 @@ func (c *hAProxyServiceClient) ACMERenew(ctx context.Context, in *ACMERenewReque
 	return out, nil
 }
 
+func (c *hAProxyServiceClient) ACMECheckPath(ctx context.Context, in *ACMECheckPathRequest, opts ...grpc.CallOption) (*ACMECheckPathResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ACMECheckPathResponse)
+	err := c.cc.Invoke(ctx, HAProxyService_ACMECheckPath_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *hAProxyServiceClient) TableList(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TableListResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TableListResponse)
@@ -613,6 +628,10 @@ type HAProxyServiceServer interface {
 	// now, whether or not they're due, in the background: ACMEStatus says
 	// how it went.
 	ACMERenew(context.Context, *ACMERenewRequest) (*ACMERenewResponse, error)
+	// ACMECheckPath fetches the CA's directory the way the node would reach
+	// it - the given path, or the saved one - and says how it went, without
+	// changing anything.
+	ACMECheckPath(context.Context, *ACMECheckPathRequest) (*ACMECheckPathResponse, error)
 	// TableList lists the running configuration's stick tables: each one's
 	// key type, size and entries in use.
 	TableList(context.Context, *emptypb.Empty) (*TableListResponse, error)
@@ -724,6 +743,9 @@ func (UnimplementedHAProxyServiceServer) ACMEApplyConfig(context.Context, *ACMEA
 }
 func (UnimplementedHAProxyServiceServer) ACMERenew(context.Context, *ACMERenewRequest) (*ACMERenewResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ACMERenew not implemented")
+}
+func (UnimplementedHAProxyServiceServer) ACMECheckPath(context.Context, *ACMECheckPathRequest) (*ACMECheckPathResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ACMECheckPath not implemented")
 }
 func (UnimplementedHAProxyServiceServer) TableList(context.Context, *emptypb.Empty) (*TableListResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TableList not implemented")
@@ -1243,6 +1265,24 @@ func _HAProxyService_ACMERenew_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HAProxyService_ACMECheckPath_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ACMECheckPathRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HAProxyServiceServer).ACMECheckPath(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HAProxyService_ACMECheckPath_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HAProxyServiceServer).ACMECheckPath(ctx, req.(*ACMECheckPathRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _HAProxyService_TableList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -1461,6 +1501,10 @@ var HAProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ACMERenew",
 			Handler:    _HAProxyService_ACMERenew_Handler,
+		},
+		{
+			MethodName: "ACMECheckPath",
+			Handler:    _HAProxyService_ACMECheckPath_Handler,
 		},
 		{
 			MethodName: "TableList",

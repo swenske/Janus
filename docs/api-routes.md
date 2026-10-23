@@ -145,6 +145,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 | `ACMEGetConfig` | | ✅ | The configuration - secrets (DNS provider settings, EAB key) returned empty |
 | `ACMEApplyConfig` | | ✅ | Check (`validate_only`) or save it, optionally with an account key to import; certificates are obtained in the background. An empty secret keeps the saved one |
 | `ACMERenew` | | ✅ | Obtain the named certificates (or all) now, due or not |
+| `ACMECheckPath` | | ✅ | Fetch the CA's directory the way the node reaches it - directly or through a proxy, the saved way or the given one - and say how it went ([letsencrypt.md](letsencrypt.md#how-the-node-reaches-lets-encrypt)) |
 
 ## NetworkService
 

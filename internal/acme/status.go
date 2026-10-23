@@ -24,11 +24,13 @@ func (m *Manager) Status() *janusv1alpha1.ACMEStatusResponse {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out.AccountThumbprint = m.thumb
+	out.PathMode = pathMode(m.cfg.GetPath()) // set: a node older than paths leaves it unspecified
 	if m.cfg == nil {
 		out.Directory = ResolveDirectory("")
 		return out
 	}
 	out.Configured = true
+	out.ProxyUrl = m.cfg.Path.GetProxyUrl()
 	dir := ResolveDirectory(m.cfg.Account.GetDirectory())
 	out.Directory = dir
 	if a := m.st.Accounts[m.accountKey(dir, m.thumb)]; a != nil {

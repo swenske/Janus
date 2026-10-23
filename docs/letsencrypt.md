@@ -55,6 +55,86 @@ Change a certificate's domains, key type or profile, or the CA, and the
 node obtains it again. Adding a name to a certificate is a configuration
 change, nothing more.
 
+## How the node reaches Let's Encrypt
+
+Obtaining and renewing a certificate means talking to the CA - and, for
+DNS-01, to the DNS provider. What leaves the node:
+
+| Traffic | To | Protocol | Through a proxy? |
+|---|---|---|---|
+| The ACME API: the account, orders, the certificate, renewal information | the CA (`acme-v02.api.letsencrypt.org`) | HTTPS | yes |
+| DNS-01: the provider's API (every provider but `rfc2136`) | `api.cloudflare.com`, OVH, AWS... | HTTPS | yes |
+| DNS-01 with `rfc2136`: the record's update | the zone's name server | DNS, port 53 | no |
+| DNS-01: finding the zone, following a CNAME on `_acme-challenge`, seeing the record appear | the node's resolvers, then the zone's servers | DNS, port 53 | no |
+
+Each node chooses how it reaches the CA:
+
+| | Who talks to the CA | What must be open | The account key and DNS secrets |
+|---|---|---|---|
+| **Directly** (the default) | the node | the node reaches the CA over HTTPS, and the DNS provider's API for DNS-01 | on the node |
+| **Through a proxy** | the node, through an HTTP(S) proxy | the node reaches the proxy, the proxy reaches the CA and the providers' APIs | on the node |
+
+Whichever it is, an HTTP-01 challenge needs the CA to reach the node on
+port 80 from the internet ([HTTP-01: HAProxy answers](#http-01-haproxy-answers));
+DNS-01 doesn't. The Controller's **Apps › Let's Encrypt** page shows the
+choice first, with what this node's certificates need open, and a
+**Test** button that fetches the CA's directory that way and says how it
+went - before or after saving.
+
+### Directly
+
+Nothing to set: the node reaches the CA, and the DNS providers' APIs, on
+its own routes - its default gateway, an HTTPS egress your firewall lets
+through.
+
+### Through a proxy
+
+For a node whose only way out is an HTTP proxy (Squid, a company's
+proxy): the ACME API and the DNS providers' APIs go through it, in an
+HTTPS tunnel (`CONNECT`) - the proxy sees which host the node reaches,
+not what it says. On the page, **Through a proxy**: the proxy's URL, a
+username and password if it asks for them, and for an `https://` proxy
+whose certificate the node's trust store doesn't know, its CA. Or:
+
+```sh
+janusctl haproxy acme test-path proxy http://proxy.example.net:3128   # try it first
+janusctl haproxy acme path proxy http://proxy.example.net:3128 -user acme -password-file pw.txt
+janusctl haproxy acme path                                             # how the CA is reached now
+janusctl haproxy acme test-path                                        # try the saved way
+janusctl haproxy acme path direct                                      # back to directly
+```
+
+In the configuration's JSON, it's `path`:
+
+```json
+{
+  "path": {
+    "mode": "ACME_PATH_MODE_PROXY",
+    "proxy_url": "https://proxy.example.net:8443",
+    "proxy_username": "acme",
+    "proxy_password": "...",
+    "proxy_ca": "-----BEGIN CERTIFICATE-----..."
+  }
+}
+```
+
+- **proxy_url**: `http://` or `https://` with a host and a port - the
+  credentials go apart, not in the URL. **proxy_password** is a secret:
+  it never comes back (`haproxy acme get`, the page), and left empty it
+  keeps the saved one.
+- **proxy_ca** is the proxy's own CA, for its certificate only: the CA's
+  certificate is still checked against `directory_ca` or the node's
+  trust store, inside the tunnel.
+- **What a proxy can't carry**: DNS. DNS-01's lookups - finding the zone,
+  seeing the record appear - go from the node to its resolvers, which
+  must answer for public names; `propagation_wait_seconds` waits instead
+  of looking for the record. An `rfc2136` provider updates its name
+  server directly, on port 53.
+- The node keeps its path apart from the rest of the configuration
+  (`config/acme/path.json`, beside the account key): a node rolled back
+  to a version without it keeps its certificates' configuration, and
+  reaches the CA directly.
+
 ## HTTP-01: HAProxy answers
 
 An HTTP-01 challenge asks `http://<domain>/.well-known/acme-challenge/<token>`
@@ -148,7 +228,7 @@ the node can't query them, wait a fixed time instead
 
 ## Secrets
 
-The DNS providers' settings and the EAB key are secrets: the node keeps
+The DNS providers' settings, the EAB key and a proxy's password are secrets: the node keeps
 them (on STATE, mode 0600) and never gives them back. `janusctl haproxy
 acme get` and the Controller show them empty; an empty value in an
 applied configuration keeps the saved one. To change one, give the new
