@@ -49,27 +49,35 @@ could change at the provider to take another person's account.
 
 ## Adding a provider
 
-**Accounts** tab › **Single sign-on** › **Add a provider**. Pick the
-kind - Keycloak, a Synology SSO Server, another provider - which fills
-in the scopes and the claims it sends. The card shows the two addresses
-to register at the provider, for the Controller as you opened it:
-
-- the **redirect URI**: `https://<controller>/api/auth/sso/callback`;
-- the **post-logout URI**: `https://<controller>/`.
-
-Open the Controller by the name your users will use: the provider sends
-the browser back to exactly that address.
+**Accounts** tab › **Single sign-on** › **Add a provider** opens the
+provider's form. Open the Controller by the name your users will use
+first: the provider sends the browser back to exactly that address, and
+the form shows the addresses to register there for the Controller as
+you opened it.
 
 ![The Accounts tab's Single sign-on card: Keycloak, enabled, its issuer, three rules, the Controller's second factor, Edit and Remove](../assets/screenshots/controller-sso-light.webp)
 
-Then the provider's **issuer URL**, the **client ID** and its
-**secret** (sealed with the Controller's master key, never shown again),
-the **rules** (below), and **Test**: the Controller fetches the
-provider's discovery document and keys the way a sign-in will, and says
-what won't work - an issuer that isn't exactly the one the provider
-gives itself (copy the one it shows), a scope or a claim the provider
-doesn't list, no PKCE, no way to sign out at the provider. Tick **Offer
-it on the sign-in page** and save: the button is there.
+| Field | What it is | For example |
+|---|---|---|
+| **Kind** | Keycloak, a Synology SSO Server or another provider: fills in the scopes and the claims below for that kind of server | Synology SSO Server |
+| **ID** | A short name of your choosing for this provider, **on the Controller only**: never sent to the provider, nothing to do with its client ID. It names the provider in the Controller's URLs (`/api/auth/sso/<id>/start`), in every account the provider makes (their badge on the **Accounts** tab), in the log and the audit (`sso: <id>: …`, `via sso <id>`). Set once - changing it means removing the provider and adding it again, and the accounts it made lapse. 1 to 32 lowercase letters, digits and `-` | `synology`, `keycloak` |
+| **Name** | The sign-in button's: "Sign in with *Name*" | Synology |
+| **Redirect URI**, **Post-logout URI** | Shown by the Controller, to copy into the provider's settings: `https://<controller>/api/auth/sso/callback` and `https://<controller>/` - the same for every provider | |
+| **Issuer URL** | The provider's issuer, exactly as its discovery document says it | `https://nas.example.com/webman/sso` |
+| **Client ID**, **Client secret** | The client (application) registered at the provider. The secret is sealed with the Controller's master key and never shown again; none makes a public client, bound by PKCE alone | DSM's **Application ID** and **Application secret** |
+| **Scopes**, **Username claim**, **Groups claim** | Filled in by the kind: what to ask the provider for, the claim that names the account, the one that lists its groups | `openid email groups`, `username`, `groups` |
+| **Its certificate is trusted by** | How the Controller trusts the provider's certificate ([below](#its-certificate)) | the system's trust store |
+| **Rules**, **Anyone it signs in gets at least** | Who gets what ([below](#rules-who-gets-what)) | `janus-admins` gives admin; none for the others |
+| **Its accounts stop working after** | How long an account it made works without signing in through it again ([below](#accounts-a-provider-makes)) | 7 days |
+| **The second factor** | The Controller's own, or the provider's ([below](#the-second-factor)) | the Controller's |
+| **For a provider that needs it** | No PKCE, an ID token without the nonce accepted, signing out of the Controller only - only for a provider whose sign-in fails without them | |
+| **Offer it on the sign-in page** | The button on the sign-in page | ticked |
+
+Then **Test**: the Controller fetches the provider's discovery document
+and keys the way a sign-in will, and says what won't work - an issuer
+that isn't exactly the one the provider gives itself (copy the one it
+shows), a scope or a claim the provider doesn't list, no PKCE, no way to
+sign out at the provider. Save: the button is there.
 
 ### Keycloak
 
@@ -103,9 +111,11 @@ On the NAS (SSO Server 3, DSM 7.2):
 2. **Application** › **Add** › OIDC: a name and the redirect URI above;
    copy its **Application ID** (the client ID) and **Application
    secret**.
-3. On the Controller, the **Synology SSO Server** kind: scopes `openid
-   email groups` (the SSO Server has no `profile`), the name from the
-   `username` claim, the groups from `groups`.
+3. On the Controller, the **Synology SSO Server** kind, an ID of your
+   choosing (`synology`), the issuer, the Application ID and secret: the
+   kind fills in scopes `openid email groups` (the SSO Server has no
+   `profile`), the name from the `username` claim, the groups from
+   `groups`.
 
 What to know about the SSO Server:
 
