@@ -81,10 +81,12 @@ disk further: run 39392456979 (2026-10-20) lost three jobs on
 and 161 orphaned volumes on it.
 
 So `publish` ends by tidying the machine it ran on (the "Tidy this
-runner's Docker" step): the `<sha>` tags older than a week, the volumes
-no container uses, the dangling images - never the build cache nor an
-unused tagged image, which a job on a sibling instance may be about to
-use.
+runner's Docker" step): the Controller's images it tagged - a commit's
+`<sha>` and a release's `vYYYY.MM.DD[-N]` - once a week old, the
+volumes no container uses, the dangling images, and the build cache down
+to the machine's budget (below), least recently used first - never an
+unused tagged image of another kind, which a job on a sibling instance
+may be about to use.
 
 And Docker gets an explicit cache budget, `/etc/docker/daemon.json`:
 
@@ -93,14 +95,27 @@ And Docker gets an explicit cache budget, `/etc/docker/daemon.json`:
   "builder": {
     "gc": {
       "enabled": true,
-      "defaultKeepStorage": "20GB"
+      "defaultReservedSpace": "10GB",
+      "defaultMaxUsedSpace": "20GB",
+      "defaultMinFreeSpace": "10GB"
     }
   }
 }
 ```
 
-20 GB on the 64 GB containers (the kernel tracks, the HAProxy branches,
-the toolchains and the extensions fit), 100 GB on `janus-runner03`.
+At most 20 GiB on the 64-71 GB containers (the kernel tracks, the HAProxy
+branches, the toolchains and the extensions fit), and the collector
+also starts when less than 10 GiB of the disk is free - the guard that
+matters: BuildKit counts the cap on the cache's own records, not what
+they share, so `docker system df` can show a few GB more. At most
+100 GiB on `janus-runner03`, collected below 50 GiB free. **`defaultMaxUsedSpace`, not `defaultKeepStorage`**:
+Docker 29 reads the older `defaultKeepStorage` as space it always
+*keeps* (`docker buildx inspect` shows it as "Reserved Space"), never as
+a cap - with only that, the cache grew past it until the disk was full:
+v2026.10.22-2's publishing job died on `janus-runner01` with "No space
+left on device", the cache at 27 GB, twenty release tags of the
+Controller never removed (2026-10-22). `dockerd --validate
+--config-file FILE` checks a new file before it goes in.
 Applying it restarts Docker, which kills any job's containers: only
 while the machine is idle (`pgrep -x Runner.Worker || sudo systemctl
 restart docker`). The file is staged as `/etc/docker/daemon.json.janus`
