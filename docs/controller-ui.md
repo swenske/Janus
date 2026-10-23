@@ -125,8 +125,15 @@ and theme.css to the Janus blocks.
 **Gauges** (`Gauge.jsx`, `GaugeStat`): how full something is, a half
 circle of 28 segments lit from the left in a chart colour, amber past
 75 % and red past 90 % (Meter's thresholds), a `meter` to assistive
-technology - a node's CPU, memory and STATE on its Overview, each
+technology - a node's CPU, memory, STATE and LOGS on its Overview, each
 writable filesystem on Storage, a hypervisor's CPU, memory and pool.
+LOGS (`/api/log-boots`, every 30 s, SystemService/LogBoots: the raw
+partition 7, never mounted - Mounts doesn't list it) is a ring of 1 MiB
+segments, full by design once it went round: its gauge never turns
+amber or red (`thresholds={[100, 100]}`), its line says the boots it
+holds, its tooltip since when. With it, Overview's six tiles fill one
+row, then two of three, then three of two (`.overview-six`); without
+(a node installed before it, the ISO, local-dev), five as before.
 `Meter` stays for bars in tables and relative sizes.
 
 ## The main page
@@ -387,15 +394,20 @@ stays open pinned ("Keep it open", remembered per browser as
 read by assistive technology. A touch screen keeps it open, a narrow one
 has its drawer. Its groups:
 
-- **Monitoring** - overview, metrics, traffic flow, processes, network,
-  storage
+- **Monitoring** - overview, metrics, traffic flow, processes, network
+  (the interfaces; the sockets, filtered by protocol, IP version - from
+  the address: an IPv4 client of a `tcp6` socket is IPv4's - and
+  state), storage
 - **Logs** - service logs, events, kernel (dmesg)
 - **Apps** - HAProxy (with its own tabs) and the Janus exporter (built
   into janusd: its settings and a scrape example), then only what the
   node's image has: the extensions' apps (Node exporter - status and
   settings; QEMU guest agent - status, what the hypervisor may do) and
   the modules (bird, keepalived, nftables) - HAProxy's tabs include
-  Configuration (the editor, then the History panel - `views/haproxy/
+  Backends (a tile per backend, or a list - a row per server of every
+  backend, filtered and sorted; the choice remembered per browser as
+  `janus-backends-view`, the same `ViewToggle` and `useStoredView` as
+  the node list's Cards/List), Configuration (the editor, then the History panel - `views/haproxy/
   ConfigHistory.jsx`: the versions, a version's diff against the running
   configuration or the one before it, "Open in the editor", "Apply this
   version…" when `may` allows ApplyConfig - a POST naming the version),
@@ -625,7 +637,17 @@ selecting one shows its counters and rules in the side panel - a
 server's Ready/Drain/Maint (`ServerStateButtons`, shared with HAProxy ›
 Backends). Without `HAProxyService/GetConfig` (a grant narrowed to other
 domains) the configuration and maps aren't asked: the page says so, and
-links only servers to their backends. `janusctl tui` reads
+links only servers to their backends. A backend holding a stick table
+and no server (`backend st_abuse` + `stick-table`, which frontend rules
+track clients into) is the table's: drawn with the Stick tables tab's
+icon, neutral (`show stat` says such a backend is DOWN), never dashed
+as unlinked, its entries used of its size under it, its details saying
+what it is - known from `/api/haproxy/tables` (`show table`'s headers,
+every 30 s, only with `HAProxyService/TableList`: a table declared in a
+proxy is named after it), not from the configuration, so
+`internal/haproxyflow` doesn't change; a backend with servers names its
+table in its details. The legend adds the symbol when the map has one.
+`janusctl tui` reads
 configurations the same way in Go (`internal/haproxyflow`): both are
 held to `internal/haproxyflow/testdata/cases.json` - change one, run
 both tests.
@@ -684,9 +706,15 @@ both tests.
   stats`, every 5 s; HAProxyService/Stats): its frontends' responses by
   status class, their requests by HTTP version, their TLS handshakes -
   full, resumed (`ssl_sess` counts the new sessions only, the resumed
-  ones in `ssl_reused_sess`), failed -, the bytes each backend moved,
-  and how fast each backend answers (averages over its last 1024
-  requests). No counter says which TLS version or cipher a connection
+  ones in `ssl_reused_sess`), failed -, the bytes each backend and each
+  frontend moved, what went wrong (**Errors and refusals**: bad and
+  denied requests, denied connections and responses on the frontends'
+  side - HAProxy counts a denial in the backend too, the frontend's is
+  taken -, failed connections and responses, retries, redispatches on
+  the backends'), and how fast each backend answers (averages over its
+  last 1024 requests) in a sortable table (`DataTable`, slowest first),
+  with its bytes a second in and out now - the difference between the
+  last two answers (`useStatSamples`, shared with the Traffic flow). No counter says which TLS version or cipher a connection
   used: only the access log does (`%sslv`, `%sslc` - `option httpslog`
   ends its lines with them). So **TLS versions** and **Ciphers** come
   from HAProxy's last log lines (`/api/haproxy/tls-log`, every 30 s, for
@@ -699,7 +727,15 @@ both tests.
   doesn't read logs, no TLS handshake yet, no access log on the node
   (`access`: lines with HAProxy's date), or one without the version and
   cipher - the last two with a link to how to log them
-  (haproxy-config.md, "TLS versions and ciphers on Metrics"). A donut's figure shrinks to fit its
+  (haproxy-config.md, "TLS versions and ciphers on Metrics"). The same
+  lines say which IP version each client came over - an access line
+  starts with its address (`clientFamily`: HAProxy writes an IPv6 one
+  without brackets, an IPv4 client of an IPv6 listener as `::ffff:`) -:
+  **IP versions**, shown once the node has an IPv6 address beyond its
+  links' (`/api/network/status`, every 60 s) or a client came over IPv6.
+  However many cards there are, the last row is full (`.metrics-donuts`:
+  six tracks, two a card - two left take three each, one alone all six;
+  in two columns an odd last one both). A donut's figure shrinks to fit its
   ring (`fitSize`), a hovered part's name is cut (`clip`) - the legend
   has it whole.
 - **The node list's curves** (`NodeSparklines.jsx`, `nodeMetrics.js`):

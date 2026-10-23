@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 // DataTable: sortable columns, optional text filter across every column.
-// columns: [{key, label, get?(row), render?(row), num?, width?}]
+// columns: [{key, label, get?(row), render?(row), num?, width?, className?}]
 export default function DataTable({ columns, rows, filterable = true, initialSort, empty = 'Nothing to show', maxHeight, toolbar }) {
   const [sort, setSort] = useState(initialSort || { key: null, dir: 1 })
   const [q, setQ] = useState('')
@@ -52,7 +52,7 @@ export default function DataTable({ columns, rows, filterable = true, initialSor
               {columns.map((c) => (
                 <th
                   key={c.key}
-                  className={`sortable ${c.num ? 'num' : ''}`}
+                  className={`sortable ${c.num ? 'num' : ''} ${c.className || ''}`}
                   style={c.width ? { width: c.width } : undefined}
                   onClick={() => setSort((s) => ({ key: c.key, dir: s.key === c.key ? -s.dir : c.num ? -1 : 1 }))}
                 >
@@ -75,7 +75,7 @@ export default function DataTable({ columns, rows, filterable = true, initialSor
               shown.map((r, i) => (
                 <tr key={r.__key ?? i}>
                   {columns.map((c) => (
-                    <td key={c.key} className={c.num ? 'num' : ''}>
+                    <td key={c.key} className={`${c.num ? 'num' : ''} ${c.className || ''}`}>
                       {c.render ? c.render(r) : (c.get ? c.get(r) : r[c.key]) ?? ''}
                     </td>
                   ))}

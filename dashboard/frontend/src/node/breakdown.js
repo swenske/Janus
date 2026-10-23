@@ -2,7 +2,8 @@
 // show stat (/api/haproxy/stats: columns and rows), what its frontends
 // answered, in which HTTP version, their TLS handshakes; what each
 // backend moved and how fast it answers - counters since HAProxy
-// started. And from its last log lines, the TLS versions and ciphers.
+// started. And from its last log lines, the TLS versions and ciphers
+// and the clients' IP versions.
 
 function table(stats) {
   const idx = Object.fromEntries((stats?.columns || []).map((c, i) => [c, i]))
@@ -64,13 +65,41 @@ function biggest(all, top) {
   return out
 }
 
-// traffic: the bytes each backend moved, the biggest five and the rest.
+// traffic: the bytes each backend moved, the biggest five and the rest;
+// frontendTraffic: each frontend's.
 export function traffic(stats, top = 5) {
+  return moved(stats, 'BACKEND', top)
+}
+
+export function frontendTraffic(stats, top = 5) {
+  return moved(stats, 'FRONTEND', top)
+}
+
+function moved(stats, kind, top) {
   const t = table(stats)
   return biggest(
-    t.rows.filter((r) => t.str(r, 'svname') === 'BACKEND').map((r) => ({ label: t.str(r, 'pxname'), value: t.num(r, 'bin') + t.num(r, 'bout') })),
+    t.rows.filter((r) => t.str(r, 'svname') === kind).map((r) => ({ label: t.str(r, 'pxname'), value: t.num(r, 'bin') + t.num(r, 'bout') })),
     top,
   )
+}
+
+// refusals: what went wrong, by kind - on the frontends' side what
+// clients sent (bad requests, refused by a rule), on the backends' what
+// their servers did (failed connections and responses, retries,
+// redispatches). Each counted once: HAProxy counts a denial in the
+// frontend and in the backend both, the frontend's is taken.
+export function refusals(stats) {
+  const t = table(stats)
+  return slices([
+    { label: 'Bad requests', value: sum(t, 'FRONTEND', 'ereq'), color: 'var(--danger)' },
+    { label: 'Denied requests', value: sum(t, 'FRONTEND', 'dreq'), color: 'var(--warn)' },
+    { label: 'Denied connections', value: sum(t, 'FRONTEND', 'dcon') + sum(t, 'FRONTEND', 'dses'), color: 'var(--chart-3)' },
+    { label: 'Denied responses', value: sum(t, 'FRONTEND', 'dresp'), color: 'var(--chart-4)' },
+    { label: 'Connection errors', value: sum(t, 'BACKEND', 'econ'), color: 'var(--chart-1)' },
+    { label: 'Response errors', value: sum(t, 'BACKEND', 'eresp'), color: 'var(--chart-2)' },
+    { label: 'Retries', value: sum(t, 'BACKEND', 'wretr'), color: 'var(--info)' },
+    { label: 'Redispatches', value: sum(t, 'BACKEND', 'wredis'), color: 'var(--chart-5)' },
+  ])
 }
 
 // The TLS versions and ciphers in HAProxy's last log lines
@@ -87,6 +116,19 @@ export function tlsVersions(log) {
 
 export function ciphers(log, top = 5) {
   return biggest((log?.ciphers || []).map((c) => ({ label: c.name, value: c.count })), top)
+}
+
+// ipVersions: the IP version the clients of those log lines came over.
+const FAMILY_COLORS = { IPv4: 'var(--chart-1)', IPv6: 'var(--chart-2)' }
+
+export function ipVersions(log) {
+  return (log?.families || []).filter((f) => f.count > 0).map((f) => ({ label: f.name, value: f.count, color: FAMILY_COLORS[f.name] || 'var(--muted)' }))
+}
+
+// hasIPv6 says whether the node has an IPv6 address of its own beyond
+// its links' (/api/network/status): one clients can come to.
+export function hasIPv6(status) {
+  return (status?.interfaces || []).some((i) => i.kind !== 'loopback' && (i.addresses || []).some((a) => a.includes(':') && !/^fe80:/i.test(a) && !a.startsWith('::1/')))
 }
 
 // backends: each backend's answers - average response, connect and

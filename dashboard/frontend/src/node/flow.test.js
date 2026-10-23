@@ -24,6 +24,7 @@ import {
   risen,
   serverTone,
   statRows,
+  stickTables,
   tokenize,
   withRates,
 } from './flow.js'
@@ -261,6 +262,28 @@ test('the flow: counters joined to the configuration', () => {
   assert.equal(bare.backends[0].servers.length, 2)
   assert.equal(g.configKnown, true)
   assert.equal(bare.configKnown, false)
+})
+
+test('stick tables: a backend holding one and no server is the table', () => {
+  const rows = withRates(sample(3000), sample(1000), 2)
+  const extra = statRows({ columns: COLUMNS, rows: [row('st_abuse', 'BACKEND', 1, 'DOWN', 0, 0, 0)] })
+  const tables = stickTables({
+    tables: [
+      { name: 'st_abuse', type: 'ip', size: '100000', used: '12' },
+      { name: 'app', type: 'string', size: '1000', used: '3' },
+    ],
+  })
+  const g = buildFlow([...rows, ...extra], parseTopology(WEB), {}, tables)
+  const st = g.backends.find((b) => b.id === 'be:st_abuse')
+  assert.equal(st.stick, true)
+  assert.equal(st.tone, '') // not DOWN: no server by design
+  assert.deepEqual(st.table, { type: 'ip', size: 100000, used: 12 })
+  // A backend with servers and a table stays a backend, its table said.
+  const app = g.backends.find((b) => b.id === 'be:app')
+  assert.equal(app.stick, false)
+  assert.equal(app.table.used, 3)
+  // Without the tables (no right to read them): as before.
+  assert.equal(buildFlow([...rows, ...extra], parseTopology(WEB), {}).backends.find((b) => b.id === 'be:st_abuse').stick, false)
 })
 
 test('interfaces: the loopback left out, the state when known', () => {
