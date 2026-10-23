@@ -460,6 +460,12 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .traffic-figure.rx .chart-swatch { background: var(--chart-2); }
 .traffic-figure.tx .chart-swatch { background: var(--chart-4); }
 
+/* Overview's tiles with LOGS: six - one row, then two of three, then
+   three of two (without, grid-5's five fit as they come). */
+.overview-six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+@media (max-width: 1400px) { .overview-six { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .overview-six { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 /* Metrics' HAProxy breakdowns. */
 .metrics-h { display: flex; align-items: baseline; gap: 0.6rem; margin: 1.4rem 0 0.8rem; font-size: 1.05rem; }
 .metrics-backends { margin-top: 1rem; }
@@ -473,9 +479,26 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 
 /* Metrics' donuts: three a row as the charts above (then two, one),
    each ring larger and centred over a legend the card's width - a
-   cipher's name has room. */
-.metrics-donuts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+   cipher's name has room. However many there are (IP versions only
+   with IPv6), the last row is full: six tracks, two a card - two left
+   over take three each, one alone all six; in two columns an odd last
+   one takes both. */
+.metrics-donuts { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.metrics-donuts > * { grid-column: span 2; }
+.metrics-donuts > :nth-child(3n + 1):nth-last-child(2),
+.metrics-donuts > :nth-child(3n + 1):nth-last-child(2) + * { grid-column: span 3; }
+.metrics-donuts > :nth-child(3n + 1):last-child { grid-column: span 6; }
 .metrics-donuts .donut { flex-direction: column; align-items: stretch; }
 .metrics-donuts .donut > svg { width: 172px; height: 172px; align-self: center; }
-@media (max-width: 1250px) { .metrics-donuts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 760px) { .metrics-donuts { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1250px) {
+  .metrics-donuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics-donuts > *,
+  .metrics-donuts > :nth-child(3n + 1):nth-last-child(2),
+  .metrics-donuts > :nth-child(3n + 1):nth-last-child(2) + * { grid-column: span 1; }
+  .metrics-donuts > :nth-child(3n + 1):last-child { grid-column: span 1; }
+  .metrics-donuts > :nth-child(odd):last-child { grid-column: span 2; }
+}
+@media (max-width: 760px) {
+  .metrics-donuts { grid-template-columns: minmax(0, 1fr); }
+  .metrics-donuts > :nth-child(odd):last-child { grid-column: span 1; }
+}

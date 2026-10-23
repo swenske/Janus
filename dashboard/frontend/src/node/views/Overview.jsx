@@ -5,6 +5,7 @@ import { Badge, Card, PageHeader, Stat, stateTone } from '../../shared/ui.jsx'
 import { GaugeStat } from '../../shared/Gauge.jsx'
 import { bytes, compact, cpuModels, cpuShape, dateTime, duration, num, percent, rate } from '../format.js'
 import { useMetrics, useNodeStatus, usePoll, useSSE } from '../hooks.jsx'
+import { useMay } from '../may.js'
 import { UpdateBadge } from './UpdateBadge.jsx'
 import { useChartWindow } from '../chartWindow.js'
 import WindowPicker from '../WindowPicker.jsx'
@@ -56,12 +57,28 @@ function stateMount(mounts) {
   return m && size ? { name: m.mounted_on === '/' ? '/' : 'STATE', size, used: size - (Number(m.available_bytes) || 0) } : null
 }
 
+// The LOGS partition (/api/log-boots: Install's partition 7, raw - no
+// filesystem, never mounted): a ring of 1 MiB segments, a boot's each,
+// the oldest written over once full - full is its normal state. Its fill
+// is the segments its boots hold; null on a node without one.
+function logsVolume(resp) {
+  const size = Number(resp?.size_bytes) || 0
+  if (!resp?.available || !size) return null
+  const boots = resp.boots || []
+  const used = Math.min(size, boots.reduce((n, b) => n + (Number(b.mebibytes) || 0), 0) * 1024 * 1024)
+  const starts = boots.map((b) => Number(b.started_unix_ns)).filter((t) => t > 0)
+  return { size, used, boots: boots.length, oldest: starts.length ? Math.min(...starts) / 1e6 : null }
+}
+
 export default function Overview() {
   const { points, latest, clock } = useMetrics()
   const { overview, check } = useNodeStatus()
   const services = usePoll('/api/system/services')
   const mounts = usePoll('/api/system/mounts', { every: 30000 })
   const disk = stateMount(mounts.data)
+  const may = useMay()
+  const logBoots = usePoll('/api/log-boots', { every: 30000, enabled: may('SystemService/LogBoots') })
+  const logs = logsVolume(logBoots.data)
   const [windowMs, setWindowMs] = useChartWindow()
   const WINDOW = windowMs || undefined
   const rx = latest && netTotal(latest, 'rx')
@@ -107,7 +124,7 @@ export default function Overview() {
           ]}
         />
       </Card>
-      <div className="grid grid-5" style={{ marginBottom: '1rem' }}>
+      <div className={`grid ${logs ? 'overview-six' : 'grid-5'}`} style={{ marginBottom: '1rem' }}>
         <GaugeStat
           label="CPU"
           value={latest?.cpu}
@@ -127,6 +144,19 @@ export default function Overview() {
           value={disk ? (disk.used / disk.size) * 100 : undefined}
           sub={disk ? `${bytes(disk.used)} of ${bytes(disk.size)}` : mounts.data ? 'not mounted' : ''}
         />
+        {logs && (
+          <GaugeStat
+            label="LOGS"
+            color="var(--chart-3)"
+            value={(logs.used / logs.size) * 100}
+            thresholds={[100, 100]}
+            sub={
+              <span title={logs.oldest ? `A ring: the oldest boot's logs go first - kept since ${dateTime(logs.oldest)}` : 'A ring: the oldest boot\'s logs go first'}>
+                {bytes(logs.used)} of {bytes(logs.size)} · {logs.boots} {logs.boots === 1 ? 'boot' : 'boots'}
+              </span>
+            }
+          />
+        )}
         <Stat
           label="HAProxy connections"
           value={hap?.up ? num(hap.conns) : '–'}
