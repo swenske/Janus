@@ -55,6 +55,9 @@ func fakeACME() {
 			res.Error = "ACME directory " + req.Directory + ": proxyconnect tcp: connection refused"
 		} else {
 			res.TermsURL = "https://ca.test/terms?proxy=" + req.Proxy
+			if req.ProxyCert != "" {
+				res.TermsURL += "&client-cert=" + strings.SplitN(strings.TrimPrefix(req.ProxyCert, "-----BEGIN "), "-", 2)[0]
+			}
 		}
 	} else if req.Action == acmewire.ActionRenewalInfo {
 		res.RenewalStart = time.Now().Add(40 * 24 * time.Hour)

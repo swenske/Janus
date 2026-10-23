@@ -103,7 +103,7 @@ func runACME(conn *grpc.ClientConn, args []string) {
 		fs := flag.NewFlagSet("haproxy acme "+args[0], flag.ExitOnError)
 		user := fs.String("user", "", "proxy: its username")
 		passwordFile := fs.String("password-file", "", "proxy: a file holding its password (kept when not given)")
-		caFile := fs.String("ca", "", "proxy: the CA (PEM) of an https:// proxy's certificate")
+		caFile := fs.String("ca", "", "proxy: the CA (PEM) of an https:// proxy's certificate; controller: the Controller's identity")
 		parseAnywhere(fs, args[1:])
 		var path *janusv1alpha1.ACMEPath
 		switch fs.Arg(0) {
@@ -126,8 +126,16 @@ func runACME(conn *grpc.ClientConn, args []string) {
 				check("read", err)
 				path.ProxyCa = string(ca)
 			}
+		case "controller":
+			if fs.NArg() != 2 || *caFile == "" {
+				fmt.Fprintf(os.Stderr, "usage: janusctl haproxy acme %s controller URL -ca FILE (the relay's address and the Controller's identity: its Let's Encrypt tab shows both)\n", args[0])
+				os.Exit(2)
+			}
+			ca, err := os.ReadFile(*caFile)
+			check("read", err)
+			path = &janusv1alpha1.ACMEPath{Mode: janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY, ProxyUrl: fs.Arg(1), ProxyCa: string(ca)}
 		default:
-			fmt.Fprintf(os.Stderr, "janusctl haproxy acme %s: direct or proxy URL, not %q\n", args[0], fs.Arg(0))
+			fmt.Fprintf(os.Stderr, "janusctl haproxy acme %s: direct, proxy URL or controller URL, not %q\n", args[0], fs.Arg(0))
 			os.Exit(2)
 		}
 		if args[0] == "test-path" {
@@ -193,6 +201,9 @@ func or(s, def string) string {
 
 // describePath says how the node reaches the CA.
 func describePath(p *janusv1alpha1.ACMEPath) string {
+	if p.GetMode() == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY {
+		return "through the Controller's relay " + p.GetProxyUrl()
+	}
 	if p.GetMode() == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY {
 		out := "through the proxy " + p.GetProxyUrl()
 		if p.GetProxyUsername() != "" {

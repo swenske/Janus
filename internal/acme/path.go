@@ -15,10 +15,13 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/acme/acmewire"
 )
 
 // How the node reaches the CA (ACMEPath, docs/letsencrypt.md "How the
-// node reaches Let's Encrypt"): directly, or through an HTTP(S) proxy.
+// node reaches Let's Encrypt"): directly, through an HTTP(S) proxy, or
+// through the Controller's relay - an https:// proxy that knows the node
+// by a certificate of its own CA.
 // Saved apart from letsencrypt.json - acme/path.json, beside the account
 // key: the proxy's password is a secret - because a janusd older than it
 // refuses a letsencrypt.json with a field it doesn't know, and would lose
@@ -47,16 +50,30 @@ func normalizePath(p *janusv1alpha1.ACMEPath) *janusv1alpha1.ACMEPath {
 	return p
 }
 
+func isRelay(p *janusv1alpha1.ACMEPath) bool {
+	return pathMode(p) == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY
+}
+
 // validatePath checks p (normalized).
 func validatePath(p *janusv1alpha1.ACMEPath) []string {
 	switch pathMode(p) {
 	case janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_DIRECT:
 		return nil
-	case janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY:
+	case janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY, janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY:
 	default:
 		return []string{fmt.Sprintf("path: mode %s isn't one this node knows", p.Mode)}
 	}
 	var errs []string
+	if isRelay(p) {
+		switch {
+		case p.ProxyUsername != "" || p.ProxyPassword != "":
+			errs = append(errs, "path: the Controller's relay knows the node by its certificate - no username or password")
+		case p.ProxyCa == "":
+			errs = append(errs, "path: the Controller's relay needs proxy_ca, the Controller's identity")
+		case !strings.HasPrefix(p.ProxyUrl, "https://"):
+			errs = append(errs, fmt.Sprintf("path: the Controller's relay is https:// (%q)", p.ProxyUrl))
+		}
+	}
 	u, err := url.Parse(p.ProxyUrl)
 	switch {
 	case p.ProxyUrl == "":
@@ -89,7 +106,7 @@ func validatePath(p *janusv1alpha1.ACMEPath) []string {
 // mergePathSecret keeps the saved proxy password where p leaves it empty,
 // for the same proxy and username.
 func mergePathSecret(p, saved *janusv1alpha1.ACMEPath) {
-	if p == nil || saved == nil || p.ProxyPassword != "" {
+	if p == nil || saved == nil || p.ProxyPassword != "" || isRelay(p) || isRelay(saved) {
 		return
 	}
 	if p.ProxyUrl == saved.ProxyUrl && p.ProxyUsername == saved.ProxyUsername {
@@ -110,23 +127,32 @@ func redactPath(p *janusv1alpha1.ACMEPath) *janusv1alpha1.ACMEPath {
 // proxyURL is the proxy janus-acme goes through, its credentials in it;
 // "" when it reaches the CA directly.
 func proxyURL(p *janusv1alpha1.ACMEPath) string {
-	if pathMode(p) != janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY {
+	if pathMode(p) == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_DIRECT {
 		return ""
 	}
 	u, err := url.Parse(p.ProxyUrl)
 	if err != nil {
 		return ""
 	}
-	if p.ProxyUsername != "" {
+	if p.ProxyUsername != "" && !isRelay(p) {
 		u.User = url.UserPassword(p.ProxyUsername, p.ProxyPassword)
 	}
 	return u.String()
 }
 
-// via says the path in words: "directly", "through the proxy URL".
+// setPath has req go the way p says.
+func setPath(req *acmewire.Request, p *janusv1alpha1.ACMEPath) {
+	req.Proxy, req.ProxyCA, req.Relay = proxyURL(p), p.GetProxyCa(), isRelay(p)
+}
+
+// via says the path in words: "directly", "through the proxy URL",
+// "through the Controller's relay URL".
 func via(p *janusv1alpha1.ACMEPath) string {
-	if pathMode(p) == janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY {
+	switch pathMode(p) {
+	case janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY:
 		return "through the proxy " + p.ProxyUrl
+	case janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY:
+		return "through the Controller's relay " + p.ProxyUrl
 	}
 	return "directly"
 }

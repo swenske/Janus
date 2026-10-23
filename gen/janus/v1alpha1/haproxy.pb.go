@@ -29,6 +29,9 @@ const (
 	ACMEPathMode_ACME_PATH_MODE_UNSPECIFIED ACMEPathMode = 0 // directly
 	ACMEPathMode_ACME_PATH_MODE_DIRECT      ACMEPathMode = 1 // the node reaches the CA, and the DNS providers' APIs, itself
 	ACMEPathMode_ACME_PATH_MODE_PROXY       ACMEPathMode = 2 // through an HTTP(S) proxy
+	// Through the Controller's relay: an https:// proxy that knows the node
+	// by a certificate of the node's own CA, made for each request.
+	ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY ACMEPathMode = 3
 )
 
 // Enum value maps for ACMEPathMode.
@@ -37,11 +40,13 @@ var (
 		0: "ACME_PATH_MODE_UNSPECIFIED",
 		1: "ACME_PATH_MODE_DIRECT",
 		2: "ACME_PATH_MODE_PROXY",
+		3: "ACME_PATH_MODE_CONTROLLER_RELAY",
 	}
 	ACMEPathMode_value = map[string]int32{
-		"ACME_PATH_MODE_UNSPECIFIED": 0,
-		"ACME_PATH_MODE_DIRECT":      1,
-		"ACME_PATH_MODE_PROXY":       2,
+		"ACME_PATH_MODE_UNSPECIFIED":      0,
+		"ACME_PATH_MODE_DIRECT":           1,
+		"ACME_PATH_MODE_PROXY":            2,
+		"ACME_PATH_MODE_CONTROLLER_RELAY": 3,
 	}
 )
 
@@ -1813,11 +1818,13 @@ type ACMEPath struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Mode  ACMEPathMode           `protobuf:"varint,1,opt,name=mode,proto3,enum=janus.v1alpha1.ACMEPathMode" json:"mode,omitempty"`
 	// PROXY: the proxy's URL, http:// or https:// (no credentials in it).
+	// CONTROLLER_RELAY: the relay's, https://.
 	ProxyUrl      string `protobuf:"bytes,2,opt,name=proxy_url,json=proxyUrl,proto3" json:"proxy_url,omitempty"`
-	ProxyUsername string `protobuf:"bytes,3,opt,name=proxy_username,json=proxyUsername,proto3" json:"proxy_username,omitempty"` // optional
-	ProxyPassword string `protobuf:"bytes,4,opt,name=proxy_password,json=proxyPassword,proto3" json:"proxy_password,omitempty"` // secret; empty keeps the saved one
+	ProxyUsername string `protobuf:"bytes,3,opt,name=proxy_username,json=proxyUsername,proto3" json:"proxy_username,omitempty"` // PROXY, optional
+	ProxyPassword string `protobuf:"bytes,4,opt,name=proxy_password,json=proxyPassword,proto3" json:"proxy_password,omitempty"` // PROXY: secret; empty keeps the saved one
 	// PROXY: PEM, the CA of an https:// proxy's certificate (default: the
-	// node's trust store).
+	// node's trust store). CONTROLLER_RELAY: the Controller's identity -
+	// what it gives nodes to register against - required.
 	ProxyCa       string `protobuf:"bytes,5,opt,name=proxy_ca,json=proxyCa,proto3" json:"proxy_ca,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4862,11 +4869,12 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\berror_at\x18\x04 \x01(\x05R\aerrorAt\"a\n" +
 	"\x12ErrorsShowResponse\x12\x14\n" +
 	"\x05total\x18\x01 \x01(\x04R\x05total\x125\n" +
-	"\x06errors\x18\x02 \x03(\v2\x1d.janus.v1alpha1.CapturedErrorR\x06errors*c\n" +
+	"\x06errors\x18\x02 \x03(\v2\x1d.janus.v1alpha1.CapturedErrorR\x06errors*\x88\x01\n" +
 	"\fACMEPathMode\x12\x1e\n" +
 	"\x1aACME_PATH_MODE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15ACME_PATH_MODE_DIRECT\x10\x01\x12\x18\n" +
-	"\x14ACME_PATH_MODE_PROXY\x10\x022\xd0\x15\n" +
+	"\x14ACME_PATH_MODE_PROXY\x10\x02\x12#\n" +
+	"\x1fACME_PATH_MODE_CONTROLLER_RELAY\x10\x032\xd0\x15\n" +
 	"\x0eHAProxyService\x12F\n" +
 	"\tGetConfig\x12\x16.google.protobuf.Empty\x1a!.janus.v1alpha1.GetConfigResponse\x12X\n" +
 	"\vApplyConfig\x12\".janus.v1alpha1.ApplyConfigRequest\x1a#.janus.v1alpha1.ApplyConfigResponse0\x01\x12_\n" +

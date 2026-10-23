@@ -44,6 +44,14 @@ type Request struct {
 	// the system's trust store).
 	Proxy   string `json:"proxy,omitempty"`
 	ProxyCA string `json:"proxy_ca,omitempty"`
+	// ProxyCert and ProxyKey (PEM), if set, are the client certificate an
+	// https:// proxy asks for - the Controller's relay knows the node by
+	// it.
+	ProxyCert string `json:"proxy_cert,omitempty"`
+	ProxyKey  string `json:"proxy_key,omitempty"`
+	// Relay is janusd's own: fill ProxyCert/ProxyKey with a certificate
+	// of the node's CA before running janus-acme.
+	Relay bool `json:"-"`
 
 	// AccountKey is the account's private key (PEM).
 	AccountKey  string `json:"account_key"`

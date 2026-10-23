@@ -378,16 +378,21 @@ enum ACMEPathMode {
   ACME_PATH_MODE_UNSPECIFIED = 0; // directly
   ACME_PATH_MODE_DIRECT = 1; // the node reaches the CA, and the DNS providers' APIs, itself
   ACME_PATH_MODE_PROXY = 2; // through an HTTP(S) proxy
+  // Through the Controller's relay: an https:// proxy that knows the node
+  // by a certificate of the node's own CA, made for each request.
+  ACME_PATH_MODE_CONTROLLER_RELAY = 3;
 }
 
 message ACMEPath {
   ACMEPathMode mode = 1;
   // PROXY: the proxy's URL, http:// or https:// (no credentials in it).
+  // CONTROLLER_RELAY: the relay's, https://.
   string proxy_url = 2;
-  string proxy_username = 3; // optional
-  string proxy_password = 4; // secret; empty keeps the saved one
+  string proxy_username = 3; // PROXY, optional
+  string proxy_password = 4; // PROXY: secret; empty keeps the saved one
   // PROXY: PEM, the CA of an https:// proxy's certificate (default: the
-  // node's trust store).
+  // node's trust store). CONTROLLER_RELAY: the Controller's identity -
+  // what it gives nodes to register against - required.
   string proxy_ca = 5;
 }
 

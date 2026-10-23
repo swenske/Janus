@@ -126,6 +126,18 @@ type Manager struct {
 	inProgress string
 	forced     map[string]bool
 	waiting    bool // logged that HTTP-01 waits for HAProxy
+	// relayIdentity makes the certificate the Controller's relay knows
+	// the node by (SetRelayIdentity); nil until the node's CA is loaded.
+	relayIdentity func() (certPEM, keyPEM []byte, err error)
+}
+
+// SetRelayIdentity gives the Manager how to make the client certificate
+// the Controller's relay knows the node by: one of the node's own CA,
+// made for each request - janusd's PKI loads after the Manager starts.
+func (m *Manager) SetRelayIdentity(fn func() (certPEM, keyPEM []byte, err error)) {
+	m.mu.Lock()
+	m.relayIdentity = fn
+	m.mu.Unlock()
 }
 
 type state struct {
@@ -871,12 +883,13 @@ func (m *Manager) request(action string, cfg *janusv1alpha1.ACMEConfig, dir stri
 	keyPEM, _ := os.ReadFile(filepath.Join(Dir, keyFile))
 	m.mu.Unlock()
 	a := cfg.Account
-	return &acmewire.Request{
+	req := &acmewire.Request{
 		Action: action, Directory: dir, DirectoryCA: a.DirectoryCa,
 		AccountKey: string(keyPEM), Email: a.Email, AcceptTerms: a.AcceptTerms,
 		EABKeyID: a.EabKeyId, EABHMACKey: a.EabHmacKey,
-		Proxy: proxyURL(cfg.Path), ProxyCA: cfg.Path.GetProxyCa(),
 	}
+	setPath(req, cfg.Path)
+	return req
 }
 
 // checkTimeout bounds CheckPath: fetching a directory, not ordering.
@@ -908,10 +921,9 @@ func (m *Manager) CheckPath(path *janusv1alpha1.ACMEPath, directory, directoryCA
 		return out
 	}
 	start := time.Now()
-	res, err := m.run(&acmewire.Request{
-		Action: acmewire.ActionDirectory, Directory: out.Directory, DirectoryCA: strings.TrimSpace(directoryCA),
-		Proxy: proxyURL(path), ProxyCA: path.GetProxyCa(),
-	}, checkTimeout)
+	req := &acmewire.Request{Action: acmewire.ActionDirectory, Directory: out.Directory, DirectoryCA: strings.TrimSpace(directoryCA)}
+	setPath(req, path)
+	res, err := m.run(req, checkTimeout)
 	out.Milliseconds = uint32(time.Since(start).Milliseconds())
 	if err != nil {
 		out.Error = err.Error()
@@ -923,6 +935,19 @@ func (m *Manager) CheckPath(path *janusv1alpha1.ACMEPath, directory, directoryCA
 
 // run has janus-acme do req.
 func (m *Manager) run(req *acmewire.Request, timeout time.Duration) (*acmewire.Result, error) {
+	if req.Relay {
+		m.mu.Lock()
+		identity := m.relayIdentity
+		m.mu.Unlock()
+		if identity == nil {
+			return nil, errors.New("the Controller's relay knows the node by a certificate of its CA, not loaded yet")
+		}
+		cert, key, err := identity()
+		if err != nil {
+			return nil, fmt.Errorf("a certificate for the Controller's relay: %w", err)
+		}
+		req.ProxyCert, req.ProxyKey = string(cert), string(key)
+	}
 	in, err := json.Marshal(req)
 	if err != nil {
 		return nil, err

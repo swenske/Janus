@@ -4,6 +4,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,10 +12,15 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/acme/acmewire"
 )
 
 func proxyPath(url, user, password string) *janusv1alpha1.ACMEPath {
 	return &janusv1alpha1.ACMEPath{Mode: janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY, ProxyUrl: url, ProxyUsername: user, ProxyPassword: password}
+}
+
+func relayPath(url, ca string) *janusv1alpha1.ACMEPath {
+	return &janusv1alpha1.ACMEPath{Mode: janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY, ProxyUrl: url, ProxyCa: ca}
 }
 
 func TestValidatePath(t *testing.T) {
@@ -37,6 +43,10 @@ func TestValidatePath(t *testing.T) {
 		{"a CA that isn't one", &janusv1alpha1.ACMEPath{Mode: janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_PROXY, ProxyUrl: "https://proxy.example", ProxyCa: "nope"}, false},
 		{"a password without its user", proxyPath("http://proxy.example:3128", "", "s3cret"), false},
 		{"an unknown mode", &janusv1alpha1.ACMEPath{Mode: 99}, false},
+		{"the Controller's relay", relayPath("https://controller.example:8444", ca), true},
+		{"the relay without the Controller's identity", relayPath("https://controller.example:8444", ""), false},
+		{"the relay over plain http", relayPath("http://controller.example:8444", ca), false},
+		{"the relay with a username", &janusv1alpha1.ACMEPath{Mode: janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY, ProxyUrl: "https://controller.example:8444", ProxyCa: ca, ProxyUsername: "ops"}, false},
 	} {
 		if errs := validatePath(normalizePath(c.p)); (len(errs) == 0) != c.ok {
 			t.Errorf("%s: %v", c.name, errs)
@@ -172,5 +182,78 @@ func TestPathChangeRetries(t *testing.T) {
 	m.mu.Unlock()
 	if !next.IsZero() {
 		t.Errorf("still waiting until %s after the path changed", next)
+	}
+}
+
+// TestRelayPath: through the Controller's relay, each request carries a
+// certificate of the node's CA - none until janusd gives the Manager
+// how to make one; a proxy's saved password never follows into it.
+func TestRelayPath(t *testing.T) {
+	m, _ := setup(t)
+	ca := string(issueCAPEM())
+	cfg := testConfig()
+	cfg.Path = proxyPath("https://controller.example:8444", "ops", "s3cret")
+	if errs, err := m.Apply(cfg, "", false); err != nil {
+		t.Fatalf("apply: %v %v", errs, err)
+	}
+	relay := relayPath("https://controller.example:8444", ca)
+	if res := m.CheckPath(relay, "", ""); res.Ok || !strings.Contains(res.Error, "not loaded yet") {
+		t.Errorf("before the node's CA: %+v", res)
+	}
+	made := 0
+	m.SetRelayIdentity(func() ([]byte, []byte, error) {
+		made++
+		return []byte("-----BEGIN CERTIFICATE-----\n"), []byte("-----BEGIN EC PRIVATE KEY-----\n"), nil
+	})
+	res := m.CheckPath(relay, "", "")
+	if !res.Ok || !strings.Contains(res.TermsUrl, "proxy=https://controller.example:8444&client-cert=CERTIFICATE") || strings.Contains(res.TermsUrl, "s3cret") {
+		t.Errorf("through the relay: %+v", res)
+	}
+	if res.Via != "through the Controller's relay https://controller.example:8444" {
+		t.Errorf("via %q", res.Via)
+	}
+	if res := m.CheckPath(proxyPath("http://proxy.example:3128", "", ""), "", ""); strings.Contains(res.TermsUrl, "client-cert") {
+		t.Errorf("a plain proxy got the node's certificate: %+v", res)
+	}
+	if made != 1 {
+		t.Errorf("%d certificates made, want 1 - for the relay only", made)
+	}
+	cfg = proto.Clone(m.Config()).(*janusv1alpha1.ACMEConfig)
+	cfg.Path = relay
+	if errs, err := m.Apply(cfg, "", false); err != nil {
+		t.Fatalf("apply the relay: %v %v", errs, err)
+	}
+	if st := m.Status(); st.PathMode != janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_RELAY || st.ProxyUrl != "https://controller.example:8444" {
+		t.Errorf("status: %v %q", st.PathMode, st.ProxyUrl)
+	}
+	saved, _ := os.ReadFile(filepath.Join(Dir, pathFile))
+	if strings.Contains(string(saved), "s3cret") || strings.Contains(string(saved), "ops") {
+		t.Errorf("the proxy's credentials followed into the relay's path:\n%s", saved)
+	}
+}
+
+// TestDNSProviderAPIs: every DNS provider janus-acme has says where its
+// API is for the relay - or that its settings say, or that it can't go
+// through it.
+func TestDNSProviderAPIs(t *testing.T) {
+	for p := range acmewire.DNSProviders {
+		hosts, ok := DNSProviderAPIs[p]
+		if !ok {
+			t.Errorf("%s: no entry in DNSProviderAPIs", p)
+		}
+		if _, never := NotThroughRelay[p]; never && len(hosts) > 0 {
+			t.Errorf("%s: hosts listed for a provider the relay can't carry", p)
+		}
+	}
+	for p := range DNSProviderAPIs {
+		if _, ok := acmewire.DNSProviders[p]; !ok {
+			t.Errorf("%s: in DNSProviderAPIs, not a provider janus-acme has", p)
+		}
+	}
+	hosts := RelayHosts()
+	for _, want := range []string{"acme-v02.api.letsencrypt.org", "acme-staging-v02.api.letsencrypt.org", "api.cloudflare.com"} {
+		if !slices.Contains(hosts, want) {
+			t.Errorf("RelayHosts lacks %s: %v", want, hosts)
+		}
 	}
 }
