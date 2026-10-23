@@ -502,3 +502,7 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
   .metrics-donuts { grid-template-columns: minmax(0, 1fr); }
   .metrics-donuts > :nth-child(odd):last-child { grid-column: span 1; }
 }
+
+/* A table scrolling in its own box (DataTable's maxHeight) takes the
+   keyboard's focus: the inputs' ring around it. */
+.table-wrap:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px; }

@@ -108,6 +108,7 @@ export default function Network() {
           <DataTable
             rows={sockRows}
             maxHeight="60vh"
+            label="Sockets"
             initialSort={{ key: 'local_port', dir: 1 }}
             columns={[
               { key: 'protocol', label: 'Proto', width: '5rem' },

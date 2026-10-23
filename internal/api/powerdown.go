@@ -20,7 +20,9 @@ import (
 // drained, then reboot(2). Each step is timed, in one line logged just
 // before the console is drained: a reboot that takes long says whether
 // janusd took the time, or what came after it - the kernel's own
-// shutdown, the firmware, the hypervisor.
+// shutdown, the firmware, the hypervisor. The log shipper is then given
+// a moment (DrainLogs) to send that line and what came before it: a node
+// without LOGS loses whatever it hadn't sent.
 
 // stepTimer times consecutive steps.
 type stepTimer struct {
@@ -53,6 +55,13 @@ func powerVerb(cmd int) string {
 	return "rebooting"
 }
 
+// DrainLogs, when set (janusd: the log shipper's Drain), waits until the
+// log targets have sent what was logged, its argument at most.
+var DrainLogs func(time.Duration)
+
+// logsDrain bounds DrainLogs: a working target sends in milliseconds.
+const logsDrain = time.Second
+
 // powerDown takes the machine down with cmd, replyGrace after the call -
 // who names the caller in the log. It doesn't return when it works.
 func powerDown(who string, h *haproxy.Manager, cmd int) {
@@ -69,6 +78,9 @@ func powerDown(who string, h *haproxy.Manager, cmd int) {
 	syscall.Sync()
 	t.done("sync")
 	log.Printf("%s: %s now - %s; the console drained next (2s at most)", who, powerVerb(cmd), t)
+	if DrainLogs != nil {
+		DrainLogs(logsDrain)
+	}
 	consoledrain.Wait(os.Stderr, 2*time.Second)
 	if err := syscall.Reboot(cmd); err != nil {
 		log.Printf("%s: reboot(%#x): %v", who, cmd, err)

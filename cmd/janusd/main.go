@@ -240,6 +240,14 @@ func main() {
 		}
 	}
 	shutdown.Before(ship.Flush)
+	// The reboot line comes after the shutdown hooks: written to LOGS
+	// again (it was flushed by them), and sent while it can be.
+	api.DrainLogs = func(d time.Duration) {
+		if logVol != nil {
+			_ = logVol.Flush()
+		}
+		ship.Drain(d)
+	}
 	timeSvc = timesync.New(timesync.Options{
 		Manage: *manageHost,
 		Servers: func() ([]string, string) {

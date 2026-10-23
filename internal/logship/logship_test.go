@@ -526,6 +526,39 @@ func TestOfferedBeforeTheFirstApply(t *testing.T) {
 	}
 }
 
+// TestDrain: what was offered is sent before Drain returns; a target
+// that can't send isn't waited for.
+func TestDrain(t *testing.T) {
+	srv := newServer(t, "tcp", "octet-counting", nil)
+	down := newServer(t, "tcp", "octet-counting", nil)
+	downAddr := down.addr()
+	down.close() // nothing listens there any more
+	cfg := Config{Targets: []Target{
+		{Name: "up", Syslog: &SyslogTarget{Address: srv.addr(), Transport: "tcp"}},
+		{Name: "down", Syslog: &SyslogTarget{Address: downAddr, Transport: "tcp"}},
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	sh := New(Options{Meta: Meta{Hostname: func() string { return "lb1" }}})
+	defer sh.Close()
+	sh.Apply(cfg)
+	for i := range 200 {
+		sh.Offer(Record{Time: time.Now(), Source: SourceJanusd, Service: "janusd", Severity: SevInfo, Message: fmt.Sprintf("line %d", i)})
+	}
+	start := time.Now()
+	sh.Drain(5 * time.Second)
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("Drain took %s: it waited for the failing target", took)
+	}
+	for _, st := range sh.Status() {
+		if st.Name == "up" && st.QueuedRecords != 0 {
+			t.Errorf("Drain returned with %d records still queued for the working target", st.QueuedRecords)
+		}
+	}
+	srv.waitFor(t, "line 199", 1)
+}
+
 func TestFeedsAndTheirCursorFile(t *testing.T) {
 	srv := newServer(t, "tcp", "octet-counting", nil)
 	var mu sync.Mutex

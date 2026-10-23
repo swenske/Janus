@@ -3,7 +3,9 @@ import { useMemo, useState } from 'react'
 
 // DataTable: sortable columns, optional text filter across every column.
 // columns: [{key, label, get?(row), render?(row), num?, width?, className?}]
-export default function DataTable({ columns, rows, filterable = true, initialSort, empty = 'Nothing to show', maxHeight, toolbar }) {
+// With maxHeight the table scrolls in its own box, which then takes the
+// keyboard's focus (arrows scroll it) - a region named label.
+export default function DataTable({ columns, rows, filterable = true, initialSort, empty = 'Nothing to show', maxHeight, toolbar, label }) {
   const [sort, setSort] = useState(initialSort || { key: null, dir: 1 })
   const [q, setQ] = useState('')
 
@@ -45,7 +47,7 @@ export default function DataTable({ columns, rows, filterable = true, initialSor
           {toolbar}
         </div>
       )}
-      <div className="table-wrap" style={maxHeight ? { maxHeight } : undefined}>
+      <div className="table-wrap" style={maxHeight ? { maxHeight } : undefined} {...(maxHeight ? { tabIndex: 0, role: 'region', 'aria-label': label || 'Table' } : {})}>
         <table>
           <thead>
             <tr>
