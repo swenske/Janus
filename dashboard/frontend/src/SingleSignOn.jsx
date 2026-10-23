@@ -236,12 +236,26 @@ function ProviderForm({ initial, isNew, hasSecret, uris, presets, onClose, onSav
             </label>
             <label className="field">
               <span>ID</span>
-              <input className="mono" value={f.id} onChange={set('id')} required pattern="[a-z0-9][a-z0-9\-]{0,31}" disabled={!isNew} style={{ width: '9rem' }} />
+              <input
+                className="mono"
+                value={f.id}
+                onChange={set('id')}
+                required
+                pattern="[a-z0-9][a-z0-9\-]{0,31}"
+                disabled={!isNew}
+                placeholder={f.preset === 'generic' ? 'sso' : f.preset}
+                aria-describedby="sso-id-about"
+                style={{ width: '9rem' }}
+              />
             </label>
             <label className="field grow">
               <span>Name (the button: Sign in with …)</span>
               <input value={f.name} onChange={set('name')} required maxLength={40} />
             </label>
+          </div>
+          <div id="sso-id-about" className="muted small">
+            The ID is yours to choose: it names this provider on the Controller - in its URLs, the accounts it makes, the log - and is never sent to it (not its
+            client ID). Lowercase letters, digits and -; set once.
           </div>
           <div className="notice small">{HINTS[f.preset]}</div>
           <CopyLine label="Redirect URI" value={uris.redirect} />
