@@ -397,7 +397,9 @@ has its drawer. Its groups:
 - **Monitoring** - overview, metrics, traffic flow, processes, network
   (the interfaces; the sockets, filtered by protocol, IP version - from
   the address: an IPv4 client of a `tcp6` socket is IPv4's - and
-  state), storage
+  state, each TCP connection with its bytes a second received and sent -
+  Netstat's counters, `tcp_info`'s, between two answers: `sockets.js`),
+  storage
 - **Logs** - service logs, events, kernel (dmesg)
 - **Apps** - HAProxy (with its own tabs) and the Janus exporter (built
   into janusd: its settings and a scrape example), then only what the

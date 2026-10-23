@@ -678,6 +678,7 @@ expect_json /api/haproxy/files 'd["dir"] == "/etc/haproxy/files" and isinstance(
 expect_json /api/system/processes 'any(p["pid"] == 1 for p in d["processes"])' "processes"
 expect_json /api/system/mounts 'any(m["mounted_on"] == "/etc/.state" for m in d["mounts"])' "mounts"
 expect_json /api/system/netstat 'any(c["local_address"].endswith(":9505") and c["state"] == "LISTEN" for c in d["connections"])' "netstat"
+expect_json /api/system/netstat 'any(c["local_address"].endswith(":9505") and c["state"] == "ESTABLISHED" and int(c.get("tx_bytes", 0)) > 0 and int(c.get("rx_bytes", 0)) > 0 for c in d["connections"]) and not any(c["protocol"].startswith("udp") and "rx_bytes" in c for c in d["connections"])' "netstat: the Controller's connection with its bytes, none on UDP"
 expect_json /api/network/modules 'd["bgp"]["state"] == "not_enabled"' "network modules"
 expect_json '/api/files/list?path=/etc/haproxy' 'any(f["relative_name"] == "haproxy.cfg" for f in d)' "files list"
 expect_json '/api/files/du?path=/etc/haproxy' 'int(d[0]["size_bytes"]) > 0' "disk usage"

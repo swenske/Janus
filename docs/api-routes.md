@@ -86,7 +86,7 @@ certificate the root signed itself lets in too. Its own CA always does.
 | `DiskStats` | | ✅ | `/proc/diskstats` |
 | `DiskUsage` | server | ✅ | Apparent size of each path; `recursive` adds one entry per directory (deepest first). Doesn't descend into `/proc`, `/sys`, `/dev` |
 | `NetworkDeviceStats` | | ✅ | `/proc/net/dev`: bytes and errors per interface |
-| `Netstat` | | ✅ | `/proc/net/{tcp,tcp6,udp,udp6}` - IPv4-mapped addresses shown as IPv4 |
+| `Netstat` | | ✅ | TCP through sock_diag, each connection with its bytes received/sent (`tcp_info`; `/proc/net/tcp{,6}` without them if the kernel refuses), UDP from `/proc/net/udp{,6}` - IPv4-mapped addresses shown as IPv4 |
 | `ClientList` | | ✅ | The connections to the API open now: each one's certificate, the interface it comes by, its calls and bytes (TLS included); a Controller's, the users its calls were for in the last 2 minutes. Names and addresses of the others, and a Controller's users, for an admin only |
 | `Mounts` | | ✅ | `/proc/self/mounts` + `statfs` sizes |
 | `Processes` | | ✅ | Every process: pid, command line, CPU (lifetime average, and cumulative seconds for a rate between two samples), RSS |
