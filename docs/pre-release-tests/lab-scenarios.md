@@ -250,6 +250,13 @@ example:
   rolling update to the other slot and back under load, both nodes'
   serial consoles timestamped on the lab's host as they're written
   (`x-slow-reboot`).
+- v2026.10.23: where the exporters listen after the update - every
+  address kept, the `listen-default` marker - and on the main interface
+  once asked (`exporters`, then `-address auto` on node 02 and back);
+  each connection's byte counters under `wrk`, Netstat read twice
+  through the node's page (`netstat-load`); janusd's reboot lines in the
+  lab's log server (`reboot-steps`); and an A/B throughput run, node 01
+  on each slot minutes apart (`ab-bench`).
 
 ### HAProxy killed by the kernel
 
@@ -338,6 +345,10 @@ ran:
   and single sign-on through it in the browser (v2026.10.22-2);
 - `x-slow-reboot`: the rolling update there and back with the nodes'
   consoles timestamped (v2026.10.22-2);
+- `exporters`: where each node's exporters listen and the marker;
+  `netstat-load`: per-connection counters under load; `reboot-steps`:
+  janusd's reboot lines from Elasticsearch; `ab-bench`: the runners'
+  throughput run with node 01 on each slot (v2026.10.23);
 - `factory-ready`: a node's page asks for the pre-release's bundle until
   the image factory has it;
 - `new-machine`: a machine created by the Controller, its journal;
