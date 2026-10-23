@@ -148,11 +148,11 @@ ID="$(curl -sk -b "$JAR" -X POST "$API/api/nodes" -F "name=edge-relay" -F "addre
 NODE="$API/nodes/$ID/api"
 echo "  ok: the Controller runs, the node added"
 
-out="$(api "$NODE/haproxy/acme/relay")"
-check "the node page sees the relay off" '"enabled": ?false' "$out"
+out="$(api "$NODE/haproxy/acme/controller" | python3 -c 'import json,sys; print("relay enabled" if json.load(sys.stdin)["relay"]["enabled"] else "relay off")')"
+check "the node page sees the relay off" '^relay off$' "$out"
 api -X PUT "$API/api/acme-relay" -d "{\"enabled\": true, \"listen\": \"127.0.0.1:$P_RELAY\", \"address\": \"$RELAY_GUEST:8444\", \"allowed\": [\"127.0.0.1:$P_ACME\"]}" > "$WORKDIR/relay.json"
 check "the relay turned on" "\"listening\": ?\"127.0.0.1:$P_RELAY\"" "$(cat "$WORKDIR/relay.json")"
-api "$NODE/haproxy/acme/relay" > "$WORKDIR/info.json"
+api "$NODE/haproxy/acme/controller" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["relay"]))' > "$WORKDIR/info.json"
 check "the node page gets the relay's address" "\"url\": ?\"https://$RELAY_GUEST:8444\"" "$(cat "$WORKDIR/info.json")"
 echo "  ok: the relay is on; a node page gets its address and the Controller's identity"
 
