@@ -2,8 +2,9 @@
 // Janus knows - certificate expiry, boot slot and pending upgrades,
 // HAProxy as janusd manages it, extension services, time sync, SELinux -
 // and nothing node_exporter or HAProxy's own exporter already provide.
-// Plain HTTP on its own port (DefaultPort), on by default; enabling it
-// and the port are set through the API and persisted in Dir.
+// Plain HTTP on its own port (DefaultPort), on by default, on the node's
+// main interface (Auto); enabling it, the port and the address are set
+// through the API and persisted in Dir.
 //
 // The text format is written here rather than through
 // prometheus/client_golang: a handful of gauges and counters computed at
@@ -12,6 +13,7 @@ package exporter
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,12 +22,17 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // DefaultPort follows the last allocation in Prometheus's list of
@@ -41,28 +48,34 @@ var Dir = "/etc/janus/config"
 
 const configFile = "metrics.json"
 
+// Auto, as the address, is the node's main interface: the addresses
+// netmgr says (Server.Main) - the interface its IPv4 default route
+// leaves by -, followed as the network changes (Refresh).
+const Auto = "auto"
+
 // Config is the exporter's persisted configuration.
 type Config struct {
 	Enabled bool   `json:"enabled"`
 	Port    uint32 `json:"port"`
-	// Address to listen on - empty for every address. A management
-	// address keeps the metrics off the networks HAProxy serves.
+	// Address to listen on: Auto, empty for every address, or one IP. A
+	// management address keeps the metrics off the networks HAProxy
+	// serves.
 	Address string `json:"address,omitempty"`
 }
 
 // DefaultConfig is what a node runs with until it's changed: on, on
-// DefaultPort.
-func DefaultConfig() Config { return Config{Enabled: true, Port: DefaultPort} }
+// DefaultPort, on the main interface.
+func DefaultConfig() Config { return Config{Enabled: true, Port: DefaultPort, Address: Auto} }
 
 // Validate checks c. Port 0 means DefaultPort; the address, if any, is
-// an IP address of the node's.
+// Auto or an IP address of the node's.
 func (c *Config) Validate() error {
 	c.Port = cmp.Or(c.Port, DefaultPort)
 	if c.Port > 65535 {
 		return fmt.Errorf("port %d is out of range", c.Port)
 	}
-	if c.Address != "" && net.ParseIP(c.Address) == nil {
-		return fmt.Errorf("%q isn't an IP address", c.Address)
+	if c.Address != "" && c.Address != Auto && net.ParseIP(c.Address) == nil {
+		return fmt.Errorf("%q isn't an IP address (or %q)", c.Address, Auto)
 	}
 	return nil
 }
@@ -111,7 +124,15 @@ func Save(cfg Config) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(Dir, configFile))
+	if err := os.Rename(tmp, filepath.Join(Dir, configFile)); err != nil {
+		return err
+	}
+	d, err := os.Open(Dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // Metric types.
@@ -212,9 +233,14 @@ func formatValue(v float64) string {
 // Server serves the collectors' metrics per the current Config.
 type Server struct {
 	collectors []Collector
+	// Main returns the addresses Auto listens on - netmgr's
+	// MainAddresses; none (or no Main) is every address. Set before the
+	// first Apply.
+	Main func() []netip.Addr
 
 	mu      sync.Mutex
 	cfg     Config
+	hosts   []string // what cfg resolved to: an address each, "" for every one
 	srv     *http.Server
 	lastErr string
 }
@@ -224,19 +250,54 @@ func New(collectors ...Collector) *Server {
 	return &Server{collectors: collectors}
 }
 
-// Apply switches to cfg: stops the current listener and, if enabled,
-// listens on the new address and port. The new ones are bound before
-// the old listener closes, so if they can't be bound the previous one
-// keeps running and the error is returned - except when only the
-// address changes, on the same port: the old listener holds the port,
-// so it closes first, and comes back if the new address can't be bound.
+// Apply switches to cfg: stops the current listeners and, if enabled,
+// listens on the new addresses and port. The new ones are bound before
+// the old listeners close, so if they can't be bound the previous ones
+// keep running and the error is returned - except on the same port:
+// the old listeners hold it, so they close first, and come back if the
+// new addresses can't be bound.
 func (s *Server) Apply(cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if cfg == s.cfg && (s.srv != nil) == cfg.Enabled {
+	return s.applyLocked(cfg)
+}
+
+// Refresh listens again on the main interface's addresses when they
+// changed (netmgr's OnChange) - with Auto only, else nothing to do.
+func (s *Server) Refresh() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.cfg.Enabled || s.cfg.Address != Auto {
+		return nil
+	}
+	return s.applyLocked(s.cfg)
+}
+
+// resolve is the addresses cfg listens on: Auto's from Main.
+func (s *Server) resolve(cfg Config) []string {
+	if cfg.Address != Auto {
+		return []string{cfg.Address}
+	}
+	var main []netip.Addr
+	if s.Main != nil {
+		main = s.Main()
+	}
+	if len(main) == 0 {
+		return []string{""}
+	}
+	hosts := make([]string, len(main))
+	for i, a := range main {
+		hosts[i] = a.String()
+	}
+	return hosts
+}
+
+func (s *Server) applyLocked(cfg Config) error {
+	hosts := s.resolve(cfg)
+	if cfg == s.cfg && slices.Equal(hosts, s.hosts) && (s.srv != nil) == cfg.Enabled {
 		return nil
 	}
 	if !cfg.Enabled {
@@ -244,40 +305,85 @@ func (s *Server) Apply(cfg Config) error {
 			_ = s.srv.Close()
 			s.srv = nil
 		}
-		s.cfg, s.lastErr = cfg, ""
+		s.cfg, s.hosts, s.lastErr = cfg, nil, ""
 		log.Printf("exporter: disabled")
 		return nil
 	}
-	previous := s.cfg
+	previous, previousHosts := s.cfg, s.hosts
 	samePort := s.srv != nil && previous.Port == cfg.Port
 	if samePort {
 		_ = s.srv.Close()
 		s.srv = nil
 	}
-	listen := net.JoinHostPort(cfg.Address, strconv.Itoa(int(cfg.Port)))
-	lis, err := net.Listen("tcp", listen)
+	port := strconv.Itoa(int(cfg.Port))
+	lis, err := listen(hosts, port, cfg.Address == Auto)
 	if err != nil {
 		s.lastErr = err.Error()
 		if samePort {
-			if old, e := net.Listen("tcp", net.JoinHostPort(previous.Address, strconv.Itoa(int(previous.Port)))); e == nil {
+			if old, e := listen(previousHosts, port, previous.Address == Auto); e == nil {
 				s.serve(old)
 			} else {
 				log.Printf("exporter: the previous listener couldn't come back either: %v", e)
 			}
 		}
-		return fmt.Errorf("listen on %s: %w", listen, err)
+		return err
 	}
 	if s.srv != nil {
 		_ = s.srv.Close()
 	}
 	s.serve(lis)
-	s.cfg, s.lastErr = cfg, ""
-	log.Printf("exporter: metrics served on %s/metrics", listen)
+	s.cfg, s.hosts, s.lastErr = cfg, hosts, ""
+	log.Printf("exporter: metrics served on %s", where(hosts, port))
 	return nil
 }
 
+// where says the listeners' URLs, for the log.
+func where(hosts []string, port string) string {
+	urls := make([]string, len(hosts))
+	for i, h := range hosts {
+		urls[i] = net.JoinHostPort(h, port) + "/metrics"
+	}
+	return strings.Join(urls, ", ")
+}
+
+// listen binds every host on port, all or none. Auto's addresses are
+// bound with IP_FREEBIND: they come from the configuration netmgr
+// applied, and an IPv6 one is tentative for a second (duplicate address
+// detection) - net.ipv6.ip_nonlocal_bind, 1 on a node, may be set to 0.
+func listen(hosts []string, port string, freebind bool) ([]net.Listener, error) {
+	var lc net.ListenConfig
+	if freebind {
+		lc.Control = func(network, _ string, c syscall.RawConn) error {
+			var err error
+			if cerr := c.Control(func(fd uintptr) {
+				if network == "tcp6" {
+					err = unix.SetsockoptInt(int(fd), unix.SOL_IPV6, unix.IPV6_FREEBIND, 1)
+				} else {
+					err = unix.SetsockoptInt(int(fd), unix.SOL_IP, unix.IP_FREEBIND, 1)
+				}
+			}); cerr != nil {
+				return cerr
+			}
+			return err
+		}
+	}
+	var out []net.Listener
+	for _, h := range hosts {
+		addr := net.JoinHostPort(h, port)
+		l, err := lc.Listen(context.Background(), "tcp", addr)
+		if err != nil {
+			for _, o := range out {
+				_ = o.Close()
+			}
+			return nil, fmt.Errorf("listen on %s: %w", addr, err)
+		}
+		out = append(out, l)
+	}
+	return out, nil
+}
+
 // serve starts an HTTP server on lis as s.srv. Called with mu held.
-func (s *Server) serve(lis net.Listener) {
+func (s *Server) serve(lis []net.Listener) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /metrics", s.serveMetrics)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
@@ -286,11 +392,13 @@ func (s *Server) serve(lis net.Listener) {
 	})
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second}
 	s.srv = srv
-	go func() {
-		if err := srv.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("exporter: %v", err)
-		}
-	}()
+	for _, l := range lis {
+		go func() {
+			if err := srv.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("exporter: %v", err)
+			}
+		}()
+	}
 }
 
 // Status reports the running configuration and whether it's listening;
@@ -299,6 +407,23 @@ func (s *Server) Status() (cfg Config, listening bool, lastErr string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cfg, s.srv != nil, s.lastErr
+}
+
+// Addresses is what it listens on now, an address each - none for
+// every address (or not listening).
+func (s *Server) Addresses() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.srv == nil {
+		return nil
+	}
+	var out []string
+	for _, h := range s.hosts {
+		if h != "" {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // Stop closes the listener.

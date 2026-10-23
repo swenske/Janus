@@ -76,6 +76,8 @@ EOF
 sed -e 's|"lb-test"|"lb-test2"|' -e 's|192.168.77.10/24|192.168.77.20/24|' "$WORKDIR/net1.json" > "$WORKDIR/net2.json"
 sed -e 's|192.168.77.20/24|192.168.77.30/24|' "$WORKDIR/net2.json" > "$WORKDIR/net3.json"
 sed -e 's|"mac": "52:54:00:12:34:01", "mode": "ADDRESSING_MODE_DHCP"|"mac": "52:54:00:12:34:01", "mode": "ADDRESSING_MODE_DISABLED"|' "$WORKDIR/net2.json" > "$WORKDIR/net4.json"
+# eth1's default route ahead of the lease's: eth1 the main interface.
+sed -e 's|"addresses": \["192.168.77.20/24"\]|"addresses": ["192.168.77.20/24"], "gateway": "192.168.77.2", "route_metric": 10|' "$WORKDIR/net2.json" > "$WORKDIR/net5.json"
 
 "$CTL_BIN" image seed-network -config "$WORKDIR/net1.json" "$DISK" || fail "seed-network"
 echo "  ok: network configuration seeded offline"
@@ -225,6 +227,15 @@ check_not "the trial's address is gone" '192\.168\.77\.30/' "$st"
 check_not "no trial pending after the revert" '^TRIAL' "$st"
 check "revert logged" 'netmgr: network configuration not confirmed in time - reverted' "$(cat "$LOG")"
 
+# --- the exporter follows the main interface ---------------------------
+check "the exporter on the main interface (the lease's)" 'http://10\.0\.2\.15:10056/metrics \(main interface\)' "$(ctl system metrics)"
+out="$(ctl network apply -no-confirm -timeout 8s "$WORKDIR/net5.json" 2>&1)" || fail "apply net5: $out"
+check "eth1's default route first: the exporter moves to eth1" '192\.168\.77\.20:10056 +[^ ]+ +LISTEN' "$(ctl system netstat)"
+check_not "and leaves the lease's address" '10\.0\.2\.15:10056 +[^ ]+ +LISTEN' "$(ctl system netstat)"
+check "the exporter says its new address" 'http://192\.168\.77\.20:10056/metrics \(main interface\)' "$(ctl system metrics)"
+sleep 10
+check "the trial reverted: the exporter back on the lease's address" '10\.0\.2\.15:10056 +[^ ]+ +LISTEN' "$(ctl system netstat)"
+
 # --- a trial that cuts the caller off ---------------------------------
 if out="$(ctl network apply -timeout 10s "$WORKDIR/net4.json" 2>&1)"; then
   fail "a configuration disabling the only reachable interface was confirmed: $out"
@@ -260,6 +271,11 @@ if echo "$boot2" | grep -q '^2020/'; then fail "the second boot started in 2020 
 echo "  ok: the RTC was updated after the first sync: the second boot started on time"
 [ "$(grep -c 'pki: first boot' "$LOG")" -eq 1 ] || fail "PKI regenerated on the second boot"
 echo "  ok: PKI kept"
+# A node new since the exporters' main-interface default: its second
+# boot (PKI there now) doesn't take it for an older one - the marker.
+out="$(ctl system metrics)"
+check "after reboot: the exporter's settings still the defaults" '\(default settings\)' "$out"
+check "after reboot: the exporter on the main interface" 'http://10\.0\.2\.15:10056/metrics \(main interface\)' "$out"
 
 if grep -q "avc:.*denied" "$LOG"; then
   grep "avc:.*denied" "$LOG" >&2

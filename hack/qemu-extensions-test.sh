@@ -195,6 +195,26 @@ ctl system service start prometheus-node-exporter >/dev/null || fail "ServiceSta
 wait_metrics
 echo "  ok: extension service stopped and started through the API"
 
+# Where node_exporter listens: by default the main interface - the
+# address the default route leaves by (QEMU's lease on eth0) -, not
+# every address; every address with '*', the main interface with auto.
+wait_listen() { # wait_listen DESCRIPTION PATTERN: netstat matches within 30 s
+  local deadline=$((SECONDS + 30))
+  until grep -Eq "$2" <<<"$(ctl system netstat)"; do
+    [ "$SECONDS" -lt "$deadline" ] || fail "$1: /$2/ not in $(ctl system netstat)"
+    sleep 1
+  done
+  echo "  ok: $1"
+}
+check "node_exporter on the main interface by default" '^node_exporter: http://10\.0\.2\.15:9100/metrics \(main interface\)' "$(ctl system node-exporter)"
+wait_listen "node_exporter listens on 10.0.2.15:9100" '10\.0\.2\.15:9100 +[^ ]+ +LISTEN'
+if grep -Eq '(0\.0\.0\.0|\[::\]):9100 +[^ ]+ +LISTEN' <<<"$(ctl system netstat)"; then fail "node_exporter listens on every address by default"; fi
+check "node_exporter on every address" '^node_exporter: http://<node>:9100/metrics' "$(ctl system node-exporter -address '*')"
+wait_listen "node_exporter listens on every address" '\[::\]:9100 +[^ ]+ +LISTEN'
+check "node_exporter back on the main interface" '^node_exporter: http://10\.0\.2\.15:9100/metrics \(main interface\)' "$(ctl system node-exporter -address auto)"
+wait_listen "node_exporter listens on 10.0.2.15:9100 again" '10\.0\.2\.15:9100 +[^ ]+ +LISTEN'
+wait_metrics
+
 # --- node_exporter's settings (NodeExporterConfigSet) ------------------
 all="$(ctl system node-exporter | awk '$1 ~ /^[a-z_]+$/ {print $1}' | paste -sd, -)"
 check "the settings list the optional collectors" 'softnet' "$all"

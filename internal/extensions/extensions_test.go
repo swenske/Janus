@@ -243,6 +243,51 @@ func TestConfigure(t *testing.T) {
 	}
 }
 
+// TestSetArgs: new arguments restart a running service with them; a
+// service stopped on purpose stays stopped, and runs them once started.
+func TestSetArgs(t *testing.T) {
+	logs := &syncBuf{}
+	args := func(word string) []string { return []string{"-c", "echo run:$0; exec sleep 60", word} }
+	m := NewManagerWithTiming([]Manifest{
+		{Name: "ext", Version: "1", Services: []Service{{ID: "svc", Path: "/bin/sh", Args: args("first")}}},
+	}, func(string) io.Writer { return logs }, Timing{MinBackoff: 50 * time.Millisecond, MaxBackoff: 200 * time.Millisecond, StableAfter: time.Hour, StopTimeout: 2 * time.Second})
+	defer func() { _ = m.StopService("svc") }()
+	m.Start()
+	waitOutput(t, logs, "run:first")
+
+	if err := m.SetArgs("svc", args("second")); err != nil {
+		t.Fatal(err)
+	}
+	waitOutput(t, logs, "run:second")
+	// The same arguments: nothing happens.
+	if err := m.SetArgs("svc", args("second")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := strings.Count(logs.String(), "run:second"); n != 1 {
+		t.Errorf("the same arguments restarted it: %d runs", n)
+	}
+
+	if err := m.StopService("svc"); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, m, "svc", "stopped")
+	if err := m.SetArgs("svc", args("third")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if st, _ := m.State("svc"); st.State != "stopped" || strings.Contains(logs.String(), "run:third") {
+		t.Fatalf("a stopped service was started: %+v %q", st, logs.String())
+	}
+	if err := m.StartService("svc"); err != nil {
+		t.Fatal(err)
+	}
+	waitOutput(t, logs, "run:third")
+	if err := m.SetArgs("nope", nil); !IsNoService(err) {
+		t.Errorf("unknown service: %v", err)
+	}
+}
+
 func waitOutput(t *testing.T, b *syncBuf, want string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

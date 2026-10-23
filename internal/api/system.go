@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/x509"
 	"log"
+	"net/netip"
 	"os"
 	"regexp"
 	"runtime"
@@ -80,6 +81,9 @@ type System struct {
 
 	// Exporter serves the node's Prometheus metrics (MetricsConfig*).
 	Exporter *exporter.Server
+	// Main returns the main interface's addresses, where the exporters
+	// listen by default (netmgr's MainAddresses; nil: every address).
+	Main func() []netip.Addr
 
 	// Sysctl changes the whitelisted kernel parameters (Sysctl*).
 	Sysctl *sysctl.Manager

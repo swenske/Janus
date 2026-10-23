@@ -156,12 +156,21 @@ grep -q "^HAProxy: .*, the release's default)$" <<< "$VERSION_OUT" || fail "the 
 NEW_KERNEL="$(ctl system info | awk '/^kernel version:/ {print $3}')"
 grep -q "^Kernel track: $default_track (version $NEW_KERNEL, " <<< "$VERSION_OUT" || fail "running kernel $NEW_KERNEL isn't the $default_track track's"
 echo "  ok: updated to the $default_track track's kernel $NEW_KERNEL (was $OLD_KERNEL), STATE kept, confirmed healthy"
+# A node set up before the exporters listened on the main interface by
+# default keeps them on every address: saved at its first boot on this
+# tree, once (the listen-default marker).
+METRICS_OUT="$(ctl system metrics)"
+grep -q '^Exporter: http://<node>:10056/metrics$' <<< "$METRICS_OUT" || fail "the updated node's exporter isn't kept on every address: $METRICS_OUT"
+if grep -q '(default settings)' <<< "$METRICS_OUT"; then fail "the updated node's exporter settings weren't saved: $METRICS_OUT"; fi
+grep -q '^auto$' <<< "$(ctl system cat /etc/janus/config/listen-default)" || fail "no listen-default marker on the updated node"
+echo "  ok: the exporter kept on every address, as on $RELEASE"
 
 ctl lifecycle rollback | tail -2
 wait_boot 3 "$REBOOT_TIMEOUT_SECS"
 [ "$(ctl system info | awk '/^kernel version:/ {print $3}')" = "$OLD_KERNEL" ] || fail "the rollback didn't bring $RELEASE's kernel back"
 [ "$(ctl version | awk '/^Node:/ {print $2}')" = "$RUNNING" ] || fail "the rollback didn't bring $RELEASE back"
-echo "  ok: rolled back to $RELEASE (kernel $OLD_KERNEL)"
+grep -q '^Exporter: http://<node>:10056/metrics$' <<< "$(ctl system metrics)" || fail "$RELEASE's exporter doesn't read the saved settings back: $(ctl system metrics)"
+echo "  ok: rolled back to $RELEASE (kernel $OLD_KERNEL), its exporter on every address"
 
 if grep -aq "avc:.*denied" "$LOG"; then
   grep -a "avc:.*denied" "$LOG" >&2

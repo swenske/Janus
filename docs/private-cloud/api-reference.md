@@ -173,7 +173,7 @@ List, Read, Copy, PacketCapture and Probe are the deliberate, narrow replacement
 | `MetaDelete` | `MetaDeleteRequest` → `Empty` | `os:admin` | system | MetaDelete is not implemented - it answers Unimplemented, like MetaWrite. |
 | `GenerateClientConfiguration` | `GenerateClientConfigurationRequest` → `GenerateClientConfigurationResponse` | `os:admin` | system | GenerateClientConfiguration issues a client certificate signed by this node's CA (see internal/pki), for the given roles, named after who it's for and valid one year or less. |
 
-The node's Prometheus exporter ([docs/metrics.md](../metrics.md)): Janus's own metrics - certificate expiry, boot slot, HAProxy as janusd runs it, extension services, time sync, SELinux - over plain HTTP, on by default on port 10056, on every address unless one is set.
+The node's Prometheus exporter ([docs/metrics.md](../metrics.md)): Janus's own metrics - certificate expiry, boot slot, HAProxy as janusd runs it, extension services, time sync, SELinux - over plain HTTP, on by default on port 10056, on the node's main interface (the one its IPv4 default route leaves by) unless another address is set.
 
 | Call | Request → response | Role | Domain | What it does |
 |---|---|---|---|---|
@@ -195,7 +195,7 @@ The log shipper ([docs/guide/log-forwarding.md](../guide/log-forwarding.md)): th
 | `LogForwardingSet` | `LogForwardingConfig` → `LogForwardingResponse` | `os:admin` | system | LogForwardingSet replaces the configuration, at once and for good (STATE). A target left without a secret keeps the one saved under its name; a new target starts with what's logged from now on. |
 | `LogForwardingTest` | `LogTarget` → `LogForwardingTestResponse` | `os:admin` | system | LogForwardingTest sends one record to a target now - the target as given, a secret it lacks taken from the saved target of its name - and says what happened. |
 
-The prometheus-node-exporter extension's settings ([docs/metrics.md](../metrics.md)): whether node_exporter runs, the address and port it listens on, and its collectors, from a fixed list. FailedPrecondition when the image doesn't have the extension.
+The prometheus-node-exporter extension's settings ([docs/metrics.md](../metrics.md)): whether node_exporter runs, the address and port it listens on (the main interface by default, as the Janus exporter), and its collectors, from a fixed list. FailedPrecondition when the image doesn't have the extension.
 
 | Call | Request → response | Role | Domain | What it does |
 |---|---|---|---|---|

@@ -1861,10 +1861,13 @@ func (x *SysctlHistoryResponse) GetEntries() []*SysctlHistoryEntry {
 }
 
 type MetricsConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	Port          uint32                 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`      // 0 = the default, 10056
-	Address       string                 `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"` // to listen on - empty for every address
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Enabled bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Port    uint32                 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"` // 0 = the default, 10056
+	// To listen on: "auto" (the default) for the main interface's
+	// addresses - followed as the network changes -, empty for every
+	// address, else one IP.
+	Address       string `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1921,11 +1924,13 @@ func (x *MetricsConfig) GetAddress() string {
 }
 
 type NodeExporterConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`       // to listen on - empty for every address
-	Port          uint32                 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`            // 0 = the default, 9100
-	Collectors    []string               `protobuf:"bytes,4,rep,name=collectors,proto3" json:"collectors,omitempty"` // empty = the default ones
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Enabled bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// To listen on: "auto" (the default) for the main interface's
+	// addresses, empty for every address, else one IP.
+	Address       string   `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
+	Port          uint32   `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`            // 0 = the default, 9100
+	Collectors    []string `protobuf:"bytes,4,rep,name=collectors,proto3" json:"collectors,omitempty"` // empty = the default ones
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2055,8 +2060,11 @@ type NodeExporterConfigResponse struct {
 	AvailableCollectors []*NodeExporterCollector `protobuf:"bytes,3,rep,name=available_collectors,json=availableCollectors,proto3" json:"available_collectors,omitempty"`
 	State               string                   `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"` // the service's: "running", "disabled", "restarting"...
 	Error               string                   `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"` // its last error, when it isn't running as set
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The addresses it listens on, "auto"'s resolved; none for every
+	// address (or when it doesn't run).
+	EffectiveAddresses []string `protobuf:"bytes,6,rep,name=effective_addresses,json=effectiveAddresses,proto3" json:"effective_addresses,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *NodeExporterConfigResponse) Reset() {
@@ -2122,6 +2130,13 @@ func (x *NodeExporterConfigResponse) GetError() string {
 		return x.Error
 	}
 	return ""
+}
+
+func (x *NodeExporterConfigResponse) GetEffectiveAddresses() []string {
+	if x != nil {
+		return x.EffectiveAddresses
+	}
+	return nil
 }
 
 type ConsoleBudget struct {
@@ -2253,13 +2268,16 @@ func (x *ConsoleBudgetResponse) GetLinesLeftOutTotal() uint64 {
 }
 
 type MetricsConfigResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Config        *MetricsConfig         `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
-	IsDefault     bool                   `protobuf:"varint,2,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"` // nothing was ever set
-	Listening     bool                   `protobuf:"varint,3,opt,name=listening,proto3" json:"listening,omitempty"`
-	Error         string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"` // why the exporter isn't listening as configured, if it isn't
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Config    *MetricsConfig         `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	IsDefault bool                   `protobuf:"varint,2,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"` // nothing was ever set
+	Listening bool                   `protobuf:"varint,3,opt,name=listening,proto3" json:"listening,omitempty"`
+	Error     string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"` // why the exporter isn't listening as configured, if it isn't
+	// The addresses it listens on now, "auto"'s resolved; none for every
+	// address (or when it isn't listening).
+	EffectiveAddresses []string `protobuf:"bytes,5,rep,name=effective_addresses,json=effectiveAddresses,proto3" json:"effective_addresses,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *MetricsConfigResponse) Reset() {
@@ -2318,6 +2336,13 @@ func (x *MetricsConfigResponse) GetError() string {
 		return x.Error
 	}
 	return ""
+}
+
+func (x *MetricsConfigResponse) GetEffectiveAddresses() []string {
+	if x != nil {
+		return x.EffectiveAddresses
+	}
+	return nil
 }
 
 type VersionResponse struct {
@@ -7696,14 +7721,15 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\x15NodeExporterCollector\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x18\n" +
-	"\adefault\x18\x03 \x01(\bR\adefault\"\xfd\x01\n" +
+	"\adefault\x18\x03 \x01(\bR\adefault\"\xae\x02\n" +
 	"\x1aNodeExporterConfigResponse\x12:\n" +
 	"\x06config\x18\x01 \x01(\v2\".janus.v1alpha1.NodeExporterConfigR\x06config\x12\x1d\n" +
 	"\n" +
 	"is_default\x18\x02 \x01(\bR\tisDefault\x12X\n" +
 	"\x14available_collectors\x18\x03 \x03(\v2%.janus.v1alpha1.NodeExporterCollectorR\x13availableCollectors\x12\x14\n" +
 	"\x05state\x18\x04 \x01(\tR\x05state\x12\x14\n" +
-	"\x05error\x18\x05 \x01(\tR\x05error\"\x84\x01\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\x12/\n" +
+	"\x13effective_addresses\x18\x06 \x03(\tR\x12effectiveAddresses\"\x84\x01\n" +
 	"\rConsoleBudget\x121\n" +
 	"\x15rate_bytes_per_second\x18\x01 \x01(\rR\x12rateBytesPerSecond\x12\x1f\n" +
 	"\vburst_bytes\x18\x02 \x01(\rR\n" +
@@ -7715,13 +7741,14 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\n" +
 	"is_default\x18\x02 \x01(\bR\tisDefault\x127\n" +
 	"\adefault\x18\x03 \x01(\v2\x1d.janus.v1alpha1.ConsoleBudgetR\adefault\x12/\n" +
-	"\x14lines_left_out_total\x18\x04 \x01(\x04R\x11linesLeftOutTotal\"\xa1\x01\n" +
+	"\x14lines_left_out_total\x18\x04 \x01(\x04R\x11linesLeftOutTotal\"\xd2\x01\n" +
 	"\x15MetricsConfigResponse\x125\n" +
 	"\x06config\x18\x01 \x01(\v2\x1d.janus.v1alpha1.MetricsConfigR\x06config\x12\x1d\n" +
 	"\n" +
 	"is_default\x18\x02 \x01(\bR\tisDefault\x12\x1c\n" +
 	"\tlistening\x18\x03 \x01(\bR\tlistening\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error\"\x96\x04\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\x12/\n" +
+	"\x13effective_addresses\x18\x05 \x03(\tR\x12effectiveAddresses\"\x96\x04\n" +
 	"\x0fVersionResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x1d\n" +
 	"\n" +

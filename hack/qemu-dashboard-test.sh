@@ -620,7 +620,7 @@ elif [ "$code" = "502" ] && grep -q "image factory" <<<"$body"; then
 else
   echo "Dashboard test FAILED: extension catalog -> $code: $body" >&2; exit 1
 fi
-expect_json /api/system/metrics-config 'd["config"]["enabled"] and d["config"]["port"] == 10056 and d["listening"] and d["is_default"]' "exporter config"
+expect_json /api/system/metrics-config 'd["config"]["enabled"] and d["config"]["port"] == 10056 and d["listening"] and d["is_default"] and d["config"]["address"] == "auto" and d.get("effective_addresses") == ["10.0.2.15"]' "exporter config: the main interface by default"
 # The LOGS partition (nodeproxy: log-boots, logs?boot=): there, and a
 # boot it doesn't hold refused (below).
 expect_json /api/log-boots 'd["available"] and d["device"].endswith("7") and d["size_bytes"] > 500 << 20' "LOGS partition"

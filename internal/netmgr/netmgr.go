@@ -19,6 +19,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -78,6 +79,7 @@ type Manager struct {
 	lease     *BootLease
 	modes     map[string]janusv1alpha1.AddressingMode // by interface, from the last applied plan
 	dhcp      string                                  // interface holding the boot lease, when in DHCP mode
+	main      []netip.Addr                            // the main interface's addresses (mainAddresses), from the last applied plan
 	trial     *trial
 }
 
@@ -335,7 +337,17 @@ func (m *Manager) applyLocked(cfg *janusv1alpha1.NetworkConfig) error {
 		m.modes[l.name] = janusv1alpha1.AddressingMode_ADDRESSING_MODE_DISABLED
 	}
 	m.dhcp = p.dhcp
+	m.main = mainAddresses(p)
 	return m.applyHostAndDNSLocked(cfg, links)
+}
+
+// MainAddresses returns the addresses of the node's main interface in
+// the configuration in effect (mainAddresses) - what the exporters
+// listen on by default. None when not managing the host's network.
+func (m *Manager) MainAddresses() []netip.Addr {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.main)
 }
 
 // applyHostAndDNSLocked sets the hostname and writes resolv.conf: the

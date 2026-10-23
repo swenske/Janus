@@ -158,3 +158,50 @@ func TestPlanRefuses(t *testing.T) {
 func protojsonUnmarshal(doc string, cfg *janusv1alpha1.NetworkConfig) error {
 	return protojson.Unmarshal([]byte(doc), cfg)
 }
+
+func TestMainAddresses(t *testing.T) {
+	main := func(cfg *janusv1alpha1.NetworkConfig, lease *BootLease) string {
+		t.Helper()
+		p, err := buildPlan(cfg, testLinks(), lease)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, a := range mainAddresses(p) {
+			out = append(out, a.String())
+		}
+		return strings.Join(out, " ")
+	}
+	for _, c := range []struct {
+		name  string
+		cfg   string
+		lease *BootLease
+		want  string
+	}{
+		{"the boot lease", `{}`, testLease, "10.0.2.15"},
+		{"a lease without a router", `{}`, &BootLease{Interface: "eth0", MAC: "52:54:00:00:00:01", Address: "10.0.2.15/24"}, "10.0.2.15"},
+		{"an on-link /32 lease", `{}`, &BootLease{Interface: "eth0", MAC: "52:54:00:00:00:01", Address: "10.0.0.5/32", Router: "10.0.0.1"}, "10.0.0.5"},
+		{"nothing", `{}`, nil, ""},
+		// The gateway's prefix decides; an anycast /32 and a service /128
+		// aren't the node's address; a link-local IPv6 gateway holds none.
+		{"static, anycast beside", `{"interfaces": [{"name": "eth0", "mode": "ADDRESSING_MODE_STATIC",
+			"addresses": ["203.0.113.7/32", "192.0.2.10/24", "2001:db8::53/128", "2001:db8::10/64"], "gateway": "192.0.2.1", "gateway6": "fe80::1"}]}`, testLease, "192.0.2.10 2001:db8::10"},
+		// The default route leaves by the lowest metric.
+		{"two gateways", `{"interfaces": [
+			{"name": "eth0", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.0.2.10/24"], "gateway": "192.0.2.1", "route_metric": 200},
+			{"name": "eth1", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["198.51.100.10/24"], "gateway": "198.51.100.1", "route_metric": 100}]}`, testLease, "198.51.100.10"},
+		// Management without a gateway, the front with it: the front's
+		// (docs/metrics.md says to set the management address then).
+		{"management and front", `{"interfaces": [
+			{"name": "eth0", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["10.1.0.5/24"]},
+			{"name": "eth1", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["203.0.113.10/24"], "gateway": "203.0.113.1"}]}`, testLease, "203.0.113.10"},
+		{"a VLAN's gateway", `{"interfaces": [
+			{"name": "eth0", "mode": "ADDRESSING_MODE_DHCP"},
+			{"name": "eth1.20", "vlan": {"parent": "eth1", "id": 20}, "mode": "ADDRESSING_MODE_STATIC", "addresses": ["10.20.0.5/24"], "gateway": "10.20.0.1", "route_metric": 10}]}`, testLease, "10.20.0.5"},
+		{"IPv6 only", `{"interfaces": [{"name": "eth0", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["2001:db8::10/64"], "gateway6": "2001:db8::1"}]}`, testLease, "2001:db8::10"},
+	} {
+		if got := main(mustCfg(t, c.cfg), c.lease); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
