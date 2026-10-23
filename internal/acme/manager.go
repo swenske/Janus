@@ -439,7 +439,11 @@ func (m *Manager) Apply(cfg *janusv1alpha1.ACMEConfig, accountKey string, valida
 	}
 	pathChanged := !proto.Equal(cfg.Path, m.cfg.GetPath())
 	if !proto.Equal(redactPath(cfg.Path), redactPath(m.cfg.GetPath())) {
-		m.logger.Printf("the CA is reached %s from now on", via(cfg.Path))
+		if isOrdered(cfg.Path) {
+			m.logger.Printf("the Controller orders the certificates from now on - the node doesn't reach the CA")
+		} else {
+			m.logger.Printf("the CA is reached %s from now on", via(cfg.Path))
+		}
 	}
 	m.cfg = cfg
 	if pathChanged {
