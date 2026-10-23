@@ -333,11 +333,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not an approved node", http.StatusForbidden)
 		return
 	}
+	t := Tunnel{Node: node.Name, NodeID: node.ID, Target: strings.ToLower(r.Host), Start: time.Now()}
 	if r.Method != http.MethodConnect {
-		http.Error(w, "the relay only tunnels (CONNECT)", http.StatusMethodNotAllowed)
+		// A plain-HTTP request (a DNS provider's http:// API): journaled,
+		// so the tab says why it never went through.
+		if r.URL.Host != "" {
+			t.Target = strings.ToLower(r.URL.Host)
+		}
+		t.Refused = "the relay only tunnels HTTPS (CONNECT) - an http:// API can't go through it"
+		s.record(t)
+		http.Error(w, t.Refused, http.StatusMethodNotAllowed)
 		return
 	}
-	t := Tunnel{Node: node.Name, NodeID: node.ID, Target: strings.ToLower(r.Host), Start: time.Now()}
 	refuse := func(code int, why string) {
 		t.Refused = why
 		s.record(t)

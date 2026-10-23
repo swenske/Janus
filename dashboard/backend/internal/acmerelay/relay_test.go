@@ -171,6 +171,21 @@ func TestRefusals(t *testing.T) {
 	if !st.Config.Enabled || st.Listening == "" || st.BuiltIn["Let's Encrypt"] == nil {
 		t.Errorf("status %+v", st)
 	}
+	// A plain-HTTP request through the relay - an http:// DNS API: refused,
+	// and journaled.
+	plain := f.client(t, f.approved, ca)
+	resp, err := plain.Get("http://api.dns.test:8080/present")
+	if err != nil {
+		t.Fatalf("a plain-HTTP request: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("a plain-HTTP request: %d", resp.StatusCode)
+	}
+	st = f.relay.Status()
+	if len(st.Recent) != 2 || st.Recent[0].Target != "api.dns.test:8080" || !strings.Contains(st.Recent[0].Refused, "only tunnels HTTPS") {
+		t.Errorf("the plain-HTTP refusal isn't journaled: %+v", st.Recent)
+	}
 	if !f.relay.allowed("acme-v02.api.letsencrypt.org:443") || f.relay.allowed("acme-v02.api.letsencrypt.org:80") {
 		t.Error("the built-in destinations are port 443 only")
 	}

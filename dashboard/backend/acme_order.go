@@ -201,7 +201,11 @@ func (a *app) orderFor(ctx context.Context, n *store.Node, set acmeorder.Setting
 		o := a.ordering.store.Order(n.ID, cert.Name)
 		due := cs.GetState() != "valid" || cs.GetInProgress()
 		if due && set.AcceptTerms && !now.Before(o.NextAttempt) {
+			before := o.LastSuccess
 			o = a.orderOne(ctx, n, c, call, cfg, cert, set, o)
+			if o.LastSuccess.After(before) { // installed: what the node says now
+				oc.State, oc.Asked, oc.NotAfter = "valid", false, o.NotAfter.Unix()
+			}
 		}
 		oc.Order = o
 		node.Certificates = append(node.Certificates, oc)
