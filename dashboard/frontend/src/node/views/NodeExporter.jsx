@@ -4,6 +4,8 @@ import { postJSON } from '../api.js'
 import { Badge, Card, ErrorBox, Loading, PageHeader, useAction } from '../../shared/ui.jsx'
 import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
+import ListenAddress from '../components/ListenAddress.jsx'
+import { listenAddress, listenMode, scrapeHost } from '../listen.js'
 
 const DEFAULT_PORT = 9100
 // Its page on the docs site, by the file's permalink.
@@ -37,7 +39,8 @@ export default function NodeExporter() {
   if (!data) return <Loading />
 
   const cfg = data.config || {}
-  const saved = { enabled: !!cfg.enabled, address: cfg.address || '', port: String(cfg.port || DEFAULT_PORT), collectors: cfg.collectors || [] }
+  const savedMode = listenMode(cfg.address || '')
+  const saved = { enabled: !!cfg.enabled, mode: savedMode, ip: savedMode === 'one' ? cfg.address : '', port: String(cfg.port || DEFAULT_PORT), collectors: cfg.collectors || [] }
   const form = draft || saved
   const edit = (change) => setDraft({ ...form, ...change })
   const toggle = (name, on) => edit({ collectors: on ? [...form.collectors, name].sort() : form.collectors.filter((c) => c !== name) })
@@ -45,17 +48,16 @@ export default function NodeExporter() {
   const defaults = available.filter((c) => c.default).map((c) => c.name)
 
   const portValid = /^\d+$/.test(form.port) && Number(form.port) >= 1 && Number(form.port) <= 65535
-  const addressValid = form.address === '' || /^[0-9a-fA-F.:]+$/.test(form.address)
+  const addressValid = form.mode !== 'one' || /^[0-9a-fA-F.:]+$/.test(form.ip)
   const changed = JSON.stringify(form) !== JSON.stringify(saved)
   const save = () =>
     run(async () => {
-      await postJSON('/api/system/node-exporter', { enabled: form.enabled, address: form.address.trim(), port: Number(form.port), collectors: form.collectors })
+      await postJSON('/api/system/node-exporter', { enabled: form.enabled, address: listenAddress(form.mode, form.ip), port: Number(form.port), collectors: form.collectors })
       setDraft(null)
       reload()
     }, form.enabled ? 'node_exporter restarted with the new settings' : 'node_exporter stopped')
 
-  const host = cfg.address || (node.data?.address || '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '') || '<node>'
-  const url = `http://${host.includes(':') ? `[${host}]` : host}:${cfg.port || DEFAULT_PORT}/metrics`
+  const url = `http://${scrapeHost(cfg.address || '', data.effective_addresses, node.data?.address)}:${cfg.port || DEFAULT_PORT}/metrics`
   let badge = <Badge tone="warn">{data.state || 'unknown'}</Badge>
   if (data.state === 'running') badge = <Badge tone="ok" dot>Running</Badge>
   else if (data.state === 'disabled') badge = <Badge>Disabled</Badge>
@@ -120,16 +122,14 @@ export default function NodeExporter() {
               <input type="checkbox" checked={form.enabled} onChange={(e) => edit({ enabled: e.target.checked })} /> Run node_exporter
             </label>
             <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <label className="field" style={{ width: '16rem' }}>
-                <span>Listen address</span>
-                <input className="mono" value={form.address} placeholder="every address" onChange={(e) => edit({ address: e.target.value.trim() })} disabled={!form.enabled} />
-              </label>
+              <ListenAddress label="Listen on" mode={form.mode} ip={form.ip} onMode={(m) => edit({ mode: m })} onIP={(v) => edit({ ip: v })} disabled={!form.enabled} />
               <label className="field" style={{ width: '9rem' }}>
                 <span>Port</span>
                 <input className="mono" inputMode="numeric" value={form.port} onChange={(e) => edit({ port: e.target.value.trim() })} disabled={!form.enabled} />
               </label>
             </div>
-            {!addressValid && <div className="small">The address must be one of the node's IP addresses, or empty for every address.</div>}
+            {!addressValid && <div className="small">The address must be one of the node's IP addresses.</div>}
+            {form.mode === 'auto' && <div className="muted small">The main interface: the one the node&apos;s default route leaves by - followed when the network changes. When HAProxy serves that network, choose the management address.</div>}
             {group('Collected by default', defaults)}
             {group('More collectors', available.filter((c) => !c.default).map((c) => c.name))}
             <div className="row" hidden={!canSet}>
