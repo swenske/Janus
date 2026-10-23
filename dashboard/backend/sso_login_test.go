@@ -152,10 +152,11 @@ func (b *browser) back(u *url.URL) {
 }
 
 type finished struct {
-	Return string `json:"return"`
-	Error  string `json:"error"`
-	Code   string `json:"code"`
-	Ref    string `json:"ref"`
+	Return   string `json:"return"`
+	Error    string `json:"error"`
+	Code     string `json:"code"`
+	Ref      string `json:"ref"`
+	Provider string `json:"provider"`
 }
 
 // finish is the page finishing.
@@ -240,7 +241,7 @@ func TestSSOSignIn(t *testing.T) {
 		code   string
 	}{"carol": {http.StatusForbidden, "access"}, "root": {http.StatusConflict, "name_taken"}} {
 		nb := newBrowser(t, a)
-		if code, out := nb.signIn(idp, user); code != want.status || out.Code != want.code || out.Ref == "" || out.Error == "" {
+		if code, out := nb.signIn(idp, user); code != want.status || out.Code != want.code || out.Ref == "" || out.Error == "" || out.Provider != "kc" {
 			t.Errorf("%s: %d %+v", user, code, out)
 		}
 		if nb.session() != "" {
