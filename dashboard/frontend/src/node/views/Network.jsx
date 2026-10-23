@@ -1,11 +1,24 @@
 import { Cable, Network as NetworkIcon } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import DataTable from '../components/DataTable.jsx'
 import { Badge, Card, ErrorBox, PageHeader, stateTone } from '../../shared/ui.jsx'
 import { bytes, num, rate } from '../format.js'
 import { useMetrics, usePoll } from '../hooks.jsx'
+import { socketKey, socketRates } from '../sockets.js'
 
 const STATE_FILTERS = ['all', 'LISTEN', 'ESTABLISHED', 'TIME_WAIT', 'other']
+
+// useSocketRates keeps the last two answers of /api/system/netstat and
+// when each came: each TCP connection's bytes a second (sockets.js).
+function useSocketRates(data) {
+  const [s, setS] = useState({ cur: null, prev: null, seconds: 0 })
+  useEffect(() => {
+    if (!data) return
+    const now = Date.now()
+    setS((p) => ({ prev: p.cur, cur: { data, t: now }, seconds: p.cur ? (now - p.cur.t) / 1000 : 0 }))
+  }, [data])
+  return useMemo(() => socketRates(s.prev?.data, s.cur?.data, s.seconds), [s])
+}
 
 export default function Network() {
   const { latest } = useMetrics()
@@ -13,6 +26,7 @@ export default function Network() {
   const sockets = usePoll('/api/system/netstat')
   const [stateFilter, setStateFilter] = useState('all')
   const [proto, setProto] = useState('all')
+  const rates = useSocketRates(sockets.data)
 
   const ifRows = (devices.data?.devices || []).map((d) => ({
     ...d,
@@ -34,7 +48,7 @@ export default function Network() {
       if (stateFilter === 'other') return !['LISTEN', 'ESTABLISHED', 'TIME_WAIT'].includes(s.state)
       return s.state === stateFilter
     })
-    .map((s, i) => ({ ...s, __key: i, local_port: Number((s.local_address || '').split(':').pop()) }))
+    .map((s, i) => ({ ...s, __key: i, local_port: Number((s.local_address || '').split(':').pop()), rxRate: rates.get(socketKey(s))?.rx, txRate: rates.get(socketKey(s))?.tx }))
 
   return (
     <>
@@ -86,6 +100,8 @@ export default function Network() {
               { key: 'local_address', label: 'Local', render: (r) => <span className="mono">{r.local_address}</span> },
               { key: 'remote_address', label: 'Remote', render: (r) => <span className="mono">{r.remote_address}</span> },
               { key: 'state', label: 'State', render: (r) => <Badge tone={stateTone(r.state)}>{r.state}</Badge> },
+              { key: 'rxRate', label: 'Receiving', num: true, render: (r) => rate(r.rxRate) },
+              { key: 'txRate', label: 'Sending', num: true, render: (r) => rate(r.txRate) },
               { key: 'local_port', label: 'Port', num: true },
             ]}
           />

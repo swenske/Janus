@@ -387,8 +387,10 @@ stays open pinned ("Keep it open", remembered per browser as
 read by assistive technology. A touch screen keeps it open, a narrow one
 has its drawer. Its groups:
 
-- **Monitoring** - overview, metrics, traffic flow, processes, network,
-  storage
+- **Monitoring** - overview, metrics, traffic flow, processes, network
+  (the interfaces; the sockets, each TCP connection with its bytes a
+  second received and sent - Netstat's counters, `tcp_info`'s, between
+  two answers: `sockets.js`), storage
 - **Logs** - service logs, events, kernel (dmesg)
 - **Apps** - HAProxy (with its own tabs) and the Janus exporter (built
   into janusd: its settings and a scrape example), then only what the
