@@ -1,14 +1,18 @@
 import { Link2, LogIn, Trash2, Unlink } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
+import { SecondFactorForm } from './MFA.jsx'
 import { Badge, ErrorBox, useAction, useConfirm } from './shared/ui.jsx'
 
 // Single sign-on (dashboard/backend/sso_login.go): the page asks the
 // Controller to start, goes to the provider, comes back to #/sso-done and
 // finishes - signed in, or the identity linked to the account signed in.
 
-// SSO_DONE is the route the provider's sign-in comes back to.
+// SSO_DONE is the route the provider's sign-in comes back to; LINK the
+// one that opens the account's dialog on linking a provider's identity
+// (#/account?link=<id>), once signed in.
 export const SSO_DONE = '#/sso-done'
+export const LINK = '#/account?link='
 
 function when(t) {
   return t ? new Date(t).toLocaleString() : 'never'
@@ -75,7 +79,7 @@ export function SSODone({ onDone }) {
     started.current = true
     postJSON('/api/auth/sso/finish').then(
       (out) => leave(out?.return, onDone),
-      (err) => setFailure({ message: err.message, ref: err.data?.ref }),
+      (err) => setFailure({ message: err.message, ref: err.data?.ref, code: err.data?.code, provider: err.data?.provider }),
     )
   }, [onDone])
   if (!failure) return <div className="muted">Finishing the sign-in…</div>
@@ -87,19 +91,41 @@ export function SSODone({ onDone }) {
           Reference <code>{failure.ref}</code>: the Controller&apos;s log says more under it.
         </div>
       )}
-      <button className="primary" onClick={() => leave('#/', onDone)}>
-        Back
-      </button>
+      {failure.code === 'name_taken' && failure.provider ? (
+        <>
+          <button className="primary" onClick={() => leave(LINK + encodeURIComponent(failure.provider), onDone)}>
+            <Link2 size={15} /> Sign in with its password to link it
+          </button>
+          <button className="ghost small" onClick={() => leave('#/', onDone)}>
+            Back
+          </button>
+        </>
+      ) : (
+        <button className="primary" onClick={() => leave('#/', onDone)}>
+          Back
+        </button>
+      )}
     </div>
   )
 }
 
 // Identities is the account's own identities at single sign-on
 // providers, in its dialog: linking one (a password account, signed in
-// with its second factor), forgetting one.
-export function Identities({ me }) {
+// with its second factor - a trusted browser's sign-in gives it once
+// more first), forgetting one. link: a provider to start linking at once
+// (the dialog opened by #/account?link=<id>).
+export function Identities({ me, link }) {
   const [password, setPassword] = useState('')
-  const [linking, setLinking] = useState(null)
+  const [linking, setLinking] = useState(() => ((me.sso_providers || []).some((p) => p.id === link) && !me.sso ? link : null))
+  const here = useRef(null)
+  const field = useRef(null)
+  // Opened to link: there, and its password field focused (over the
+  // dialog's own first field).
+  useEffect(() => {
+    if (!link) return
+    here.current?.scrollIntoView({ block: 'center' })
+    field.current?.focus()
+  }, [link])
   const [error, setError] = useState(null)
   const [busy, run] = useAction()
   const confirm = useConfirm()
@@ -107,7 +133,7 @@ export function Identities({ me }) {
   const name = (id) => providers.find((p) => p.id === id)?.name || id
   if (me.sso) {
     return (
-      <div className="stack">
+      <div className="stack" ref={here}>
         <div className="muted small">
           {name(me.sso.provider)} made this account: you sign in through it, and your role is what its rules give your groups there.{' '}
           {me.sso.valid_until && <>It works until {when(me.sso.valid_until)} - each sign-in through {name(me.sso.provider)} extends that.</>}
@@ -119,7 +145,7 @@ export function Identities({ me }) {
     const ok = await confirm({ title: `Forget ${i.username} at ${name(i.provider)}?`, body: <p>Signing in through {name(i.provider)} no longer reaches this account.</p>, action: 'Forget', danger: true })
     if (ok && (await run(() => call(`/api/auth/identities/${encodeURIComponent(i.id)}`, { method: 'DELETE' }), 'Identity forgotten')) !== undefined) me.refresh()
   }
-  const link = async (e) => {
+  const startLink = async (e) => {
     e.preventDefault()
     setError(null)
     try {
@@ -128,8 +154,9 @@ export function Identities({ me }) {
       setError(err.message)
     }
   }
+  const hasFactor = me.mfa?.totp || me.mfa?.passkeys?.length > 0
   return (
-    <div className="stack">
+    <div className="stack" ref={here}>
       {me.identities?.length > 0 ? (
         <div className="factor-list">
           {me.identities.map((i) => (
@@ -147,11 +174,23 @@ export function Identities({ me }) {
       ) : (
         <div className="muted small">None: you sign in with your password{providers.length ? `, or link an identity to sign in through ${providers.map((p) => p.name).join(' or ')} too` : ''}.</div>
       )}
-      {linking ? (
-        <form className="stack" onSubmit={link}>
+      {linking && hasFactor && me.mfa?.trusted ? (
+        <div className="stack">
+          <div className="muted small">
+            This sign-in skipped your second factor (a trusted browser): give it once more to link an identity - it&apos;s one more way into your account.
+          </div>
+          <SecondFactorForm me={me} confirming onDone={me.refresh} />
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" onClick={() => setLinking(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : linking ? (
+        <form className="stack" onSubmit={startLink}>
           <label className="field">
             <span>Link an identity at {name(linking)}: your password</span>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus autoComplete="current-password" />
+            <input ref={field} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus autoComplete="current-password" />
           </label>
           <div className="muted small">{name(linking)} asks you to sign in there; its identity then signs you in here too, as you, with your role.</div>
           <ErrorBox error={error} />

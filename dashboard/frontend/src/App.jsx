@@ -37,7 +37,7 @@ import { useNodeMetrics } from './nodeMetrics.js'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
-import { Identities, SSO_DONE, SSOButtons, SSODone } from './SSO.jsx'
+import { Identities, LINK, SSO_DONE, SSOButtons, SSODone } from './SSO.jsx'
 import { backupAlert } from './backupAlert.js'
 import EnrollTokens from './Enroll.jsx'
 import HTTPSCertificate from './HTTPSCert.jsx'
@@ -987,14 +987,30 @@ function AuthGate({ children }) {
   return <MeContext.Provider value={{ ...status.user, sso_providers: status.sso, refresh: refreshStatus }}>{children}</MeContext.Provider>
 }
 
+// signedInThrough says how the session signed in: through a single
+// sign-on provider (by its name on the sign-in page), or a password.
+function signedInThrough(me) {
+  if (!me.provider) return 'signed in with your password'
+  const p = (me.sso_providers || []).find((x) => x.id === me.provider)
+  return `signed in through ${p?.name || me.provider}`
+}
+
 // AccountButton is who's signed in - opening their password change.
 function AccountButton() {
   const me = useMe()
-  const [open, setOpen] = useState(false)
+  const route = useHashRoute()
+  // #/account?link=<provider>: opened by itself, on linking that
+  // provider's identity (a sign-in refused for a name this account has).
+  const link = route.startsWith(LINK.slice(1)) ? decodeURIComponent(route.slice(LINK.length - 1)) : ''
+  const [open, setOpenState] = useState(!!link)
+  const setOpen = (v) => {
+    setOpenState(v)
+    if (!v && route.startsWith('/account')) navigate('/')
+  }
   const toast = useToast()
   return (
     <>
-      <button className="ghost" onClick={() => setOpen(true)} title="Your account">
+      <button className="ghost" onClick={() => setOpen(true)} title={`Your account - ${signedInThrough(me)}`}>
         <UserRound size={15} /> {me.name} <Badge tone={me.role === 'admin' ? 'accent' : me.role === 'operator' ? 'info' : undefined}>{me.role || 'scoped'}</Badge>
       </button>
       {open &&
@@ -1003,6 +1019,9 @@ function AccountButton() {
         createPortal(
           <div className="modal-backdrop" onClick={() => setOpen(false)}>
             <div className="modal card account-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <div className="muted small" style={{ marginBottom: '0.8rem' }}>
+                This session: {signedInThrough(me)}.
+              </div>
               <h2 style={{ marginBottom: '0.6rem' }}>Second factors</h2>
               <MFAPanel me={me} onChanged={me.refresh} />
               {(me.mfa?.totp || me.mfa?.passkeys?.length > 0) && (
@@ -1016,7 +1035,7 @@ function AccountButton() {
               {(me.sso || me.identities?.length > 0 || me.sso_providers?.length > 0) && (
                 <>
                   <h2 style={{ margin: '1.2rem 0 0.6rem' }}>Single sign-on</h2>
-                  <Identities me={me} />
+                  <Identities me={me} link={link} />
                 </>
               )}
               {me.has_password && (

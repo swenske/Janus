@@ -47,6 +47,11 @@ An identity is bound by its issuer and its subject - what the provider
 calls it for good - never by a name or an e-mail address, which someone
 could change at the provider to take another person's account.
 
+Once signed in, your account's dialog - your name, at the top right -
+says how: *This session: signed in through Synology*, or *with your
+password*; so does the button's tooltip, and the audit records the
+sign-in `via sso <id>`.
+
 ## Adding a provider
 
 **Accounts** tab › **Single sign-on** › **Add a provider** opens the
@@ -193,16 +198,24 @@ with a password to choose and its role kept - its identity stays linked.
 
 ## Linking an account that has a password
 
-An account with a password can sign in through a provider too: **Your
-account** › **Single sign-on** › **Link Keycloak**, your password again,
-then the provider asks you to sign in there - whoever was signed in
-there already isn't linked silently. The identity then signs you in as
-you, with your role (the rules don't change it, but one must still let
-the identity in). The same dialog forgets it; an admin can too
-(**Unlink** on the Accounts tab).
+An account with a password can sign in through a provider too. Signed
+in with the password, open your account's dialog - **your name**, at
+the top right of the page - and, under **Single sign-on**, **Link
+Keycloak** (the provider's name): your password again, then the provider
+asks you to sign in there - whoever was signed in there already isn't
+linked silently. The identity then signs you in as you, with your role
+(the rules don't change it, but one must still let the identity in).
+The same dialog forgets it; an admin can too (**Unlink** on the
+Accounts tab).
+
+**Your provider's name is your account's?** Signing in through the
+provider is refused - "An account of this name already exists" -, and
+that page offers **Sign in with its password to link it**: sign in with
+the account's password, and its dialog opens on the link above.
 
 Linking needs a sign-in that gave your second factor, if your account
-has one - a trusted browser's doesn't count -, like adding an SSH key.
+has one, like adding an SSH key: a sign-in a trusted browser let in
+without it gives it once more, in the dialog, first.
 
 ## The second factor
 
@@ -271,7 +284,7 @@ sso: ref 1c14706c: kc: access: sub "514fb839-886e-4f09-80ba-28067d2cc951", 0 gro
 | didn't check out | the ID token: another issuer, audience or nonce, expired (is the Controller's clock right?), a key it doesn't publish |
 | is over | the sign-in took more than ten minutes, was used already, or another one started in the same browser since |
 | no access | no rule matches the person's groups |
-| already exists | the name is another account's |
+| already exists | the name is an account's of the Controller: sign in with its password and link the identity - the button on that page ([above](#linking-an-account-that-has-a-password)) |
 
 The first sign-in after each change of a provider's settings logs the
 names of the claims its ID token carried - never their values: what to

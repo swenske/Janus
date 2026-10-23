@@ -66,7 +66,7 @@ var (
 	ErrNoAccess = errors.New("the provider's rules give you no access to this Controller")
 	// ErrNameTaken: the provider's name for the identity is another
 	// account's.
-	ErrNameTaken = errors.New("an account of this name already exists: its owner can link the identity to it (Your account), or an admin can rename one")
+	ErrNameTaken = errors.New("an account of this name already exists: its owner signs in with its password, then links the identity to it")
 	// ErrNameInvalid: the provider's name isn't a name an account may
 	// have.
 	ErrNameInvalid = errors.New("the provider's name for you isn't one an account can have (1 to 64 lowercase letters, digits and . _ @ -)")

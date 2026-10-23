@@ -96,7 +96,10 @@ async function signInThrough(page, user, start = '/') {
 
 async function keycloakForm(page, user) {
   await page.waitForURL((u) => u.href.startsWith(KEYCLOAK), { timeout: 20000 })
-  await page.locator('#username').fill(user)
+  await page.locator('#password').waitFor({ timeout: 20000 })
+  // Asked to sign in again (prompt=login) with a Keycloak session open,
+  // its page names the user and asks the password alone.
+  if (await page.locator('#username').isVisible()) await page.locator('#username').fill(user)
   await page.locator('#password').fill(PASSWORDS[user])
   await page.locator('#kc-login').click()
   await page.waitForURL((u) => u.href.startsWith(CONTROLLER), { timeout: 20000 })
@@ -238,33 +241,61 @@ try {
     check(text.includes(words) && text.includes('Reference'), `${user}: ${text}`)
     check(!(await status(ctx)).authenticated, `${user} signed in`)
     if (user === 'carol') await page.screenshot({ path: `${OUT}/refused.png` })
+    if (user === 'root') {
+      // The refusal offers linking: the password's sign-in, then the
+      // account's dialog opens on linking Keycloak.
+      await page.screenshot({ path: `${OUT}/name-taken.png` })
+      await page.getByRole('button', { name: 'Sign in with its password to link it' }).click()
+      await page.getByLabel('Name').fill('root')
+      await page.getByLabel('Password').fill(ROOT_PASSWORD)
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+      const pw = page.getByLabel(/Link an identity at Keycloak/)
+      await pw.waitFor({ timeout: 20000 })
+      check(new URL(page.url()).hash.startsWith('#/account?link=kc'), `the link route: ${page.url()}`)
+      check(await pw.evaluate((el) => el === document.activeElement), 'the link password field has no focus')
+      await page.screenshot({ path: `${OUT}/link-from-refusal.png` })
+      await pw.fill(ROOT_PASSWORD)
+      await page.getByRole('button', { name: 'Continue at Keycloak' }).click()
+      await keycloakForm(page, 'root')
+      const st = await status(ctx)
+      check(st.user?.name === 'root' && st.user.identities?.length === 1 && st.user.identities[0].username === 'root', `root linked: ${JSON.stringify(st.user)}`)
+      const kcRoot = await context()
+      await signInThrough(await kcRoot.newPage(), 'root')
+      check((await status(kcRoot)).user?.name === 'root', 'Keycloak root signs in as root')
+      await kcRoot.close()
+    }
     await ctx.close()
   }
   r = await api(admin, 'GET', '/api/users')
   check(!r.json.some((u) => u.name === 'carol') && r.json.find((u) => u.name === 'root').has_password, `accounts: ${r.text}`)
-  step('carol (no group) and root (a local name) refused, with a reference')
+  step("carol (no group) and root (a local name) refused, with a reference; root linked from the refusal, then signed in through Keycloak as root")
 
   // --- olga links her Keycloak identity from Your account, then signs in
   // through it: olga, an operator still ---
   const op = watch(await olga.newPage(), 'olga')
   await op.goto(CONTROLLER + '/')
   await settle(op)
-  await op.getByTitle('Your account').click()
+  await op.getByTitle(/Your account/).click()
+  check(await op.getByText('This session: signed in with your password.').isVisible(), "the dialog doesn't say the session came with a password")
   await op.getByRole('button', { name: 'Link Keycloak' }).click()
   await op.getByLabel(/Link an identity at Keycloak/).fill(OLGA_PASSWORD)
   await op.getByRole('button', { name: 'Continue at Keycloak' }).click()
   await keycloakForm(op, 'olga-kc')
   st = await status(olga)
   check(st.user?.name === 'olga' && st.user.identities?.length === 1 && st.user.identities[0].username === 'olga-kc', `olga: ${JSON.stringify(st.user)}`)
-  await op.getByTitle('Your account').click()
+  await op.getByTitle(/Your account/).click()
   await op.waitForTimeout(300)
   await axe(op, 'olga account dialog')
   await op.screenshot({ path: `${OUT}/account-linked.png` })
   await olga.close()
   const olgaKC = await context()
-  await signInThrough(watch(await olgaKC.newPage(), 'olga-kc'), 'olga-kc')
+  const okp = watch(await olgaKC.newPage(), 'olga-kc')
+  await signInThrough(okp, 'olga-kc')
   st = await status(olgaKC)
   check(st.user?.name === 'olga' && st.user.role === 'operator' && st.user.has_password, `olga through Keycloak: ${JSON.stringify(st.user)}`)
+  // Her account's dialog says how this session signed in.
+  await okp.getByTitle(/Your account/).click()
+  check(await okp.getByText('This session: signed in through Keycloak.').isVisible(), 'the dialog doesn\'t say the session came through Keycloak')
   await olgaKC.close()
   step('olga linked olga-kc, then signed in through it: olga, an operator')
 

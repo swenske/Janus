@@ -237,8 +237,14 @@ self-signed.
 marked, each forgotten), SSH keys (`SSHKeys` - from a trusted browser's
 sign-in, `SecondFactorForm confirming` first), **Single sign-on**
 (`Identities`, `SSO.jsx`: the identities linked, **Link <provider>**
-with the password again, each forgotten - or, for an account a provider
-made, how long it works), the password (only `has_password`). Giving the
+with the password again - a trusted browser's sign-in gives its second
+factor first (`SecondFactorForm confirming`) -, each forgotten - or, for
+an account a provider made, how long it works), the password (only
+`has_password`); its first line and the button's tooltip say how the
+session signed in (`me.provider`). `#/account?link=<id>` opens it on
+linking that provider, its password field focused: where a sign-in
+refused for a name the Controller has sends the browser (**Sign in with
+its password to link it**, `SSODone`). Giving the
 second factor offers "Trust this browser for N h" when the policy
 (Accounts › Sessions) allows it. Without a password, `MFAPanel`
 confirms a change with a code (app or recovery) or a passkey

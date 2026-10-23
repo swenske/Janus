@@ -88,7 +88,7 @@ var ssoMessages = map[string]string{
 	sso.CodeExpired:  "This sign-in is over, or another one started in this browser since: start again.",
 	"busy":           "Too many sign-ins are under way: try again in a few minutes.",
 	"access":         "The provider's rules give you no access to this Controller: ask an admin.",
-	"name_taken":     "An account of this name already exists: its owner can link this identity to it (Your account), or an admin can rename one.",
+	"name_taken":     "An account of this name already exists on this Controller: sign in with its password, then link this identity to it - your name at the top right, Single sign-on.",
 	"name_invalid":   "The provider's name for you isn't one an account can have (1 to 64 lowercase letters, digits and . _ @ -).",
 	"disabled":       "This account is disabled.",
 	"identity_taken": "This identity is linked to an account already.",
@@ -102,7 +102,8 @@ func newRef() string {
 }
 
 // ssoFail answers a failed sign-in: its code, the page's message and a
-// reference - the same in the log, with what went wrong.
+// reference - the same in the log, with what went wrong -, and the
+// provider (the page offers to link an identity whose name is taken).
 func ssoFail(w http.ResponseWriter, status int, provider, code string, err error) {
 	ref := newRef()
 	log.Printf("sso: ref %s: %s: %s: %v", ref, or(provider, "-"), code, err)
@@ -110,7 +111,11 @@ func ssoFail(w http.ResponseWriter, status int, provider, code string, err error
 	if msg == "" {
 		msg = ssoMessages[sso.CodeProvider]
 	}
-	writeJSON(w, status, map[string]string{"error": msg, "code": code, "ref": ref})
+	out := map[string]string{"error": msg, "code": code, "ref": ref}
+	if provider != "" {
+		out["provider"] = provider
+	}
+	writeJSON(w, status, out)
 }
 
 // ssoRedirectURI is where the provider sends the browser back: this
