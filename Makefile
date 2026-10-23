@@ -41,7 +41,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean rootfs-fit-test kernel-menuconfig janusctl-deb janusctl-deb-test apt-publish-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check ui-preview qemu-metrics-test qemu-console-flood-test qemu-logvol-test qemu-logforward-test qemu-logforward-nologs-test qemu-logforward-es-test qemu-logforward-fleet-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-acme-proxy-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check ui-preview qemu-metrics-test qemu-console-flood-test qemu-logvol-test qemu-logforward-test qemu-logforward-nologs-test qemu-logforward-es-test qemu-logforward-fleet-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-acme-proxy-test qemu-acme-relay-test qemu-consul-test \
 	kernel-build kernel-builds kernel-config-refresh rpi4-kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -1206,6 +1206,13 @@ qemu-acme-proxy-test: SCHEMATIC = hack/testdata/schematic-letsencrypt.json
 qemu-acme-proxy-test: build extension-letsencrypt-amd64 pebble
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
 	QEMU_ACME_VIA_PROXY=1 ./hack/qemu-acme-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl $(BUILD_DIR)/pebble
+
+# Through the Controller's relay: a native dashboardd, the node's only way
+# out its relay (docs/guide/letsencrypt-controller.md).
+qemu-acme-relay-test: SCHEMATIC = hack/testdata/schematic-letsencrypt.json
+qemu-acme-relay-test: build dashboard-bin extension-letsencrypt-amd64 pebble
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	./hack/qemu-acme-relay-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl $(BUILD_DIR)/pebble $(BIN_DIR)/dashboardd
 
 # The Consul agent (consul extension) on two real enforcing nodes: a
 # server and a client, HAProxy discovering a service through Consul's

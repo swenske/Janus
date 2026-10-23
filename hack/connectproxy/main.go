@@ -5,7 +5,9 @@
 // this host reaches it by. With -stdio it serves one connection on its
 // standard input and output - what a QEMU guestfwd's cmd: gives it, one
 // process per connection the guest opens (a guestfwd to a tcp: chardev
-// carries a single connection).
+// carries a single connection). With -stdio -forward ADDR it isn't a
+// proxy: it copies the connection to ADDR and back - a guestfwd to the
+// Controller's relay (hack/qemu-acme-relay-test.sh).
 //
 //	go run ./hack/connectproxy -listen 127.0.0.1:3128 -user acme -password s3cret -map 10.0.2.2=127.0.0.1
 //	guestfwd=tcp:10.0.2.100:3128-cmd:connectproxy -stdio -log proxy.log -user acme -password s3cret
@@ -32,6 +34,7 @@ func main() {
 	user := flag.String("user", "", "the username asked for (none: no credentials)")
 	password := flag.String("password", "", "its password")
 	mapping := flag.String("map", "", "FROM=TO: connect to TO when asked for FROM")
+	forward := flag.String("forward", "", "with -stdio: copy the connection to this address and back, no proxy")
 	flag.Parse()
 	log.SetFlags(log.Ltime)
 	if *logFile != "" {
@@ -43,6 +46,21 @@ func main() {
 	}
 	from, to, _ := strings.Cut(*mapping, "=")
 	p := &proxy{user: *user, password: *password, from: from, to: to}
+	if *stdio && *forward != "" {
+		up, err := net.DialTimeout("tcp", *forward, 10*time.Second)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("forward to %s", *forward)
+		go func() {
+			_, _ = io.Copy(up, os.Stdin)
+			if tc, ok := up.(*net.TCPConn); ok {
+				_ = tc.CloseWrite()
+			}
+		}()
+		_, _ = io.Copy(os.Stdout, up)
+		return
+	}
 	if *stdio {
 		p.serveOne(bufio.NewReader(os.Stdin), os.Stdout)
 		return

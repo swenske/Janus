@@ -895,6 +895,12 @@ jobs:
       - name: Let's Encrypt - through a proxy
         run: make qemu-acme-proxy-test
 
+      # Through the Controller's relay: a native Controller, the node's
+      # only way out its relay - only to allowed destinations, only as a
+      # node the Controller knows. See hack/qemu-acme-relay-test.sh.
+      - name: Let's Encrypt - through the Controller's relay
+        run: make qemu-acme-relay-test
+
       # The Consul agent (consul extension) on two real enforcing nodes: a
       # server and a client with gossip encryption and TLS from the files
       # given with their configuration, HAProxy finding a service through
