@@ -15,7 +15,6 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
-	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/shutdown"
 )
@@ -103,20 +102,7 @@ func (s *System) Reset(_ context.Context, req *janusv1alpha1.ResetRequest) (*jan
 }
 
 func (s *System) schedulePower(cmd int) {
-	go func() {
-		time.Sleep(replyGrace)
-		if s.HAProxy != nil {
-			if err := s.HAProxy.Stop(5 * time.Second); err != nil {
-				log.Printf("system: stop haproxy: %v", err)
-			}
-		}
-		shutdown.Run()
-		syscall.Sync()
-		consoledrain.Wait(os.Stderr, 2*time.Second)
-		if err := syscall.Reboot(cmd); err != nil {
-			log.Printf("system: reboot(%#x): %v", cmd, err)
-		}
-	}()
+	go powerDown("system", s.HAProxy, cmd)
 }
 
 // isMountpoint reports whether path is on a different filesystem than

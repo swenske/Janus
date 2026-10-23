@@ -22,13 +22,11 @@ import (
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootslot"
-	"github.com/swenske/Janus/internal/consoledrain"
 	"github.com/swenske/Janus/internal/espswitch"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/haproxy"
 	"github.com/swenske/Janus/internal/releasetrust"
 	"github.com/swenske/Janus/internal/schematic"
-	"github.com/swenske/Janus/internal/shutdown"
 	"github.com/swenske/Janus/internal/slotimage"
 )
 
@@ -278,22 +276,9 @@ func resolveBootContext() (*bootContext, error) {
 // scheduleReboot reboots shortly after the caller returns, not before -
 // an RPC that rebooted immediately would kill the connection before its
 // own response (or, for Upgrade, its last stream message) ever reached
-// the caller. HAProxy is drained and soft-stopped first.
+// the caller. HAProxy is drained and soft-stopped first (powerdown.go).
 func (l *Lifecycle) scheduleReboot(cmd int) {
-	go func() {
-		time.Sleep(replyGrace)
-		if l.HAProxy != nil {
-			if err := l.HAProxy.Stop(5 * time.Second); err != nil {
-				log.Printf("lifecycle: stop haproxy: %v", err)
-			}
-		}
-		shutdown.Run()
-		syscall.Sync()
-		consoledrain.Wait(os.Stderr, 2*time.Second)
-		if err := syscall.Reboot(cmd); err != nil {
-			log.Printf("lifecycle: reboot(%#x): %v", cmd, err)
-		}
-	}()
+	go powerDown("lifecycle", l.HAProxy, cmd)
 }
 
 // writePartitionFile writes data to a partition device path directly
