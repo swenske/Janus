@@ -50,6 +50,7 @@ topics:
               - { file: docs/haproxy-files.md, label: "Files, maps and certificates" }
               - { file: docs/guide/haproxy-runtime.md, label: "Stick tables, sessions, errors" }
               - { file: docs/letsencrypt.md, label: Let's Encrypt }
+              - { file: docs/guide/letsencrypt-controller.md, label: "Let's Encrypt through the Controller" }
               - { file: docs/guide/kernel-tuning.md, label: Kernel tuning }
           - label: Network
             pages:

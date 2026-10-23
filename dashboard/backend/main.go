@@ -52,6 +52,7 @@ import (
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/webstatic"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/acmerelay"
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
@@ -228,6 +229,7 @@ func main() {
 	if err := app.startLogForwarding(masterKey); err != nil {
 		log.Fatalf("log forwarding: %v", err)
 	}
+	app.startACMERelay()
 	// The node pages: a machine's lock, and its record read again after a
 	// change made there.
 	nodeproxy.LockedBy = func(n *store.Node) string {
@@ -324,6 +326,7 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	a.registerCLIBrowserRoutes(mux)
 	a.registerBackupRoutes(mux)
 	a.registerLogForwardingRoutes(mux)
+	a.registerACMERelayRoutes(mux)
 	a.registerRestoreRoutes(mux)
 	a.registerHypervisorRoutes(mux)
 	a.registerFleetRoutes(mux)
@@ -348,6 +351,9 @@ type app struct {
 	sso *singleSignOn
 	// masterKeyPath is the master key's file - a backup takes it.
 	masterKeyPath string
+	// relay is the nodes' way to Let's Encrypt through the Controller
+	// (acme_relay.go); nil in tests that don't use it.
+	relay *acmerelay.Server
 	// serverCert is the Controller's own identity: what nodes register
 	// against (-register-addr) and are provisioned with. ui is what the
 	// main port serves - that identity, or the page's own certificate.

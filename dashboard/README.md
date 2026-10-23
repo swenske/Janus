@@ -85,10 +85,11 @@ and commit the result before building the image.
 
 ## Run
 
-**Run the container with `--network host`.** It listens on two ports,
-and sees the host's own addresses that way: its TLS identity and the
-address it suggests for provisioning nodes come from them (with `-p`
-mappings instead, set `-advertise-address` - further down).
+**Run the container with `--network host`.** It listens on two ports
+(a third if you turn the relay on), and sees the host's own addresses
+that way: its TLS identity and the address it suggests for provisioning
+nodes come from them (with `-p` mappings instead, set
+`-advertise-address` - further down).
 
 - **`:8080`** (configurable via `-addr`) - the main UI, **HTTPS only**.
   Behind accounts - the first one, an admin, made on first visit (see
@@ -101,6 +102,10 @@ mappings instead, set `-advertise-address` - further down).
   (a refused node retries), and 200 waiting for approval - beyond
   that, announcements are refused until some are approved or rejected.
   A node admitted on a token never waits, so the cap doesn't stop it.
+- **`:8444`**, only once an admin turns it on (the **Let's Encrypt**
+  tab) - the relay for the nodes that reach Let's Encrypt through the
+  Controller ([The Controller and Let's Encrypt](../docs/guide/letsencrypt-controller.md)).
+  It only tunnels, and only for the nodes added to this Controller.
 
 ```sh
 docker run -d \

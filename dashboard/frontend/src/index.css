@@ -182,3 +182,14 @@
 .node-table .actions { width: 1%; }
 .node-table-labels { gap: 0.25rem; margin-top: 0.25rem; }
 .node-table-labels .badge { font-size: 0.7rem; padding: 0.05rem 0.4rem; }
+
+/* Let's Encrypt (LetsEncrypt.jsx): the relay for the nodes. */
+.acme-relay-card { display: grid; gap: 0.85rem; }
+.acme-relay-card > p { margin: 0; }
+.relay-form { display: grid; gap: 0.75rem; }
+.relay-form .field input, .relay-form .field textarea { width: 100%; }
+.relay-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 0.75rem; }
+@media (max-width: 760px) { .relay-fields { grid-template-columns: minmax(0, 1fr); } }
+.relay-builtin ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+.relay-give { display: grid; gap: 0.4rem; justify-items: start; }
+.relay-give pre { margin: 0; padding: 0.5rem 0.65rem; max-width: 100%; overflow-x: auto; background: var(--surface-2, var(--surface)); border: 1px solid var(--border); border-radius: var(--radius-sm); }

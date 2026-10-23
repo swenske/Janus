@@ -20,6 +20,24 @@ import (
 // the JSON janusctl haproxy acme get prints - secrets empty, kept when
 // applied empty) and renewals asked for.
 
+// RelayInfo is what a node page needs to send its node through the
+// Controller's relay for Let's Encrypt (the Controller's acme_relay.go).
+type RelayInfo struct {
+	Enabled   bool   `json:"enabled"`
+	Listening bool   `json:"listening"`
+	URL       string `json:"url,omitempty"`
+	CACertPEM string `json:"ca_cert_pem,omitempty"`
+	Error     string `json:"error,omitempty"`
+	// BuiltIn and Allowed are where it lets a node go: the built-in
+	// hosts (port 443) by what they're for, and an admin's host:port.
+	BuiltIn         map[string][]string `json:"built_in,omitempty"`
+	Allowed         []string            `json:"allowed,omitempty"`
+	NotThroughRelay map[string]string   `json:"not_through_relay,omitempty"`
+}
+
+// ACMERelay is the relay now; set by the Controller.
+var ACMERelay func() RelayInfo
+
 func registerACMERoutes(mux *http.ServeMux, node *store.Node) {
 	empty := &emptypb.Empty{}
 	hapWithin := func(timeout time.Duration, fn func(context.Context, janusv1alpha1.HAProxyServiceClient) (any, error)) http.HandlerFunc {
@@ -50,6 +68,14 @@ func registerACMERoutes(mux *http.ServeMux, node *store.Node) {
 		out["path_mode"] = strings.ToLower(strings.TrimPrefix(resp.GetPathMode().String(), "ACME_PATH_MODE_"))
 		return out, nil
 	}))
+	// The Controller's relay, for the page's "Through this Controller".
+	mux.HandleFunc("GET /api/haproxy/acme/relay", func(w http.ResponseWriter, r *http.Request) {
+		info := RelayInfo{}
+		if ACMERelay != nil {
+			info = ACMERelay()
+		}
+		writeJSONBody(w, http.StatusOK, info)
+	})
 	mux.HandleFunc("GET /api/haproxy/acme/config", hap(func(ctx context.Context, c janusv1alpha1.HAProxyServiceClient) (any, error) {
 		resp, err := c.ACMEGetConfig(ctx, empty)
 		if err != nil {

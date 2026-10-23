@@ -154,6 +154,8 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 		{"GET", "/api/log-forwarding", auth.Admin},
 		{"PUT", "/api/log-forwarding", auth.Admin},
 		{"POST", "/api/log-forwarding/test", auth.Admin},
+		{"GET", "/api/acme-relay", auth.Admin},
+		{"PUT", "/api/acme-relay", auth.Admin},
 		{"GET", "/api/sso/providers", auth.Admin},
 		{"PUT", "/api/sso/providers/kc", auth.Admin},
 		{"DELETE", "/api/sso/providers/kc", auth.Admin},

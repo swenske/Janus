@@ -822,8 +822,23 @@ const MODES = [
     who: 'The node talks to the CA through an HTTP(S) proxy.',
     needs: 'The node reaches the proxy; the proxy reaches the CA and the DNS providers’ APIs.',
   },
+  {
+    id: 'ACME_PATH_MODE_CONTROLLER_RELAY',
+    title: 'Through this Controller',
+    who: 'The node talks to the CA through the Controller’s relay - encrypted end to end, the relay sees host names only.',
+    needs: 'The node reaches the Controller; the Controller reaches the CA and the DNS providers’ APIs.',
+  },
 ]
-const modeOf = (path) => (path?.mode === 'ACME_PATH_MODE_PROXY' ? 'ACME_PATH_MODE_PROXY' : 'ACME_PATH_MODE_DIRECT')
+const RELAY = 'ACME_PATH_MODE_CONTROLLER_RELAY'
+const modeOf = (path) => (MODES.some((m) => m.id === path?.mode) ? path.mode : 'ACME_PATH_MODE_DIRECT')
+const pathToSend = (p) => {
+  const mode = modeOf(p)
+  if (mode === 'ACME_PATH_MODE_DIRECT') return { mode }
+  if (mode === RELAY) return { mode, proxy_url: p.proxy_url, proxy_ca: p.proxy_ca }
+  return { ...p, mode }
+}
+// The Controller's own page, its Let's Encrypt tab (admins).
+const CONTROLLER_TAB = '/#/letsencrypt'
 
 function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
   const saved = cfg.path || {}
@@ -832,11 +847,19 @@ function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
   const old = st.path_mode === 'unspecified' // a node older than the paths
   const path = draft || saved
   const mode = modeOf(path)
+  const relay = usePoll('/api/haproxy/acme/relay', { every: 60000, enabled: !old }).data
+  const relayReady = !!(relay?.enabled && relay?.listening && relay?.url)
   const edit = (change) => {
     setDraft({ ...path, ...change })
     setCheck(null)
   }
-  const pathToSend = (p) => (modeOf(p) === 'ACME_PATH_MODE_DIRECT' ? { mode: 'ACME_PATH_MODE_DIRECT' } : { ...p, mode: 'ACME_PATH_MODE_PROXY' })
+  // The relay's address and the Controller's identity come with the
+  // choice: nothing to type.
+  const choose = (id) =>
+    id === RELAY ? edit({ mode: id, proxy_url: relay?.url || '', proxy_ca: relay?.ca_cert_pem || '', proxy_username: '', proxy_password: '' }) : edit({ mode: id, ...(modeOf(saved) === RELAY ? { proxy_url: '', proxy_ca: '' } : {}) })
+  const moved = modeOf(saved) === RELAY && !draft && relayReady && saved.proxy_url !== relay.url
+  // A relay that's off or doesn't listen can't be tried nor chosen.
+  const incomplete = (mode === 'ACME_PATH_MODE_PROXY' && !path.proxy_url) || (mode === RELAY && (!path.proxy_url || !path.proxy_ca || !relayReady))
   const test = () =>
     run(async () => {
       setCheck(await postJSON('/api/haproxy/acme/check-path', { path: pathToSend(path) }))
@@ -845,7 +868,8 @@ function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
     const next = { ...cfg }
     if (modeOf(draft) === 'ACME_PATH_MODE_DIRECT') delete next.path
     else next.path = { ...pathToSend(draft) }
-    const note = `From now on the node reaches the CA ${modeOf(draft) === 'ACME_PATH_MODE_DIRECT' ? 'directly' : `through ${draft.proxy_url}`}. A password left empty keeps the saved one.`
+    const how = { ACME_PATH_MODE_DIRECT: 'directly', ACME_PATH_MODE_PROXY: `through the proxy ${draft.proxy_url}. A password left empty keeps the saved one`, [RELAY]: `through the Controller’s relay ${draft.proxy_url}` }
+    const note = `From now on the node reaches the CA ${how[modeOf(draft)]}.`
     if (await apply(next, { title: 'Change how the node reaches the CA?', note })) {
       setDraft(null)
       setCheck(null)
@@ -863,13 +887,13 @@ function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
       }
     >
       {old ? (
-        <div className="notice">This node’s image reaches the CA directly - choosing a proxy needs a newer one (System › Update).</div>
+        <div className="notice">This node’s image reaches the CA directly - choosing another way needs a newer one (System › Update).</div>
       ) : (
         <>
           <div className="acme-modes" role="radiogroup" aria-label="How the node reaches the CA">
             {MODES.map((m) => (
               <label key={m.id} className={`acme-mode ${mode === m.id ? 'active' : ''}`}>
-                <input type="radio" name="acme-path" value={m.id} checked={mode === m.id} disabled={!canApply} onChange={() => edit({ mode: m.id })} />
+                <input type="radio" name="acme-path" value={m.id} checked={mode === m.id} disabled={!canApply} onChange={() => choose(m.id)} />
                 <span className="acme-mode-title">
                   {m.title}
                   {modeOf(saved) === m.id && <Badge tone="ok">in use</Badge>}
@@ -899,15 +923,16 @@ function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
               </label>
             </fieldset>
           )}
+          {mode === RELAY && <RelaySettings relay={relay} path={path} moved={moved} canApply={canApply} onFollow={() => choose(RELAY)} />}
           <div className="row" style={{ marginTop: '0.75rem' }}>
             {canCheck && (
-              <button className="small" disabled={busy || (mode === 'ACME_PATH_MODE_PROXY' && !path.proxy_url)} onClick={test}>
+              <button className="small" disabled={busy || incomplete} onClick={test}>
                 <RefreshCw size={13} /> Test
               </button>
             )}
             {canApply && draft && (
               <>
-                <button className="small primary" disabled={busy} onClick={save}>
+                <button className="small primary" disabled={busy || incomplete} onClick={save}>
                   Save
                 </button>
                 <button className="small ghost" disabled={busy} onClick={() => (setDraft(null), setCheck(null))}>
@@ -924,14 +949,65 @@ function PathCard({ cfg, st, canApply, canCheck, busy, run, apply }) {
           </div>
         </>
       )}
-      <Needs cfg={cfg} st={st} mode={old ? 'ACME_PATH_MODE_DIRECT' : modeOf(path)} proxy={path.proxy_url} choosing={!!draft} />
+      <Needs cfg={cfg} st={st} mode={old ? 'ACME_PATH_MODE_DIRECT' : modeOf(path)} proxy={path.proxy_url} relay={relay} choosing={!!draft} />
     </Card>
   )
 }
 
+// RelaySettings: the Controller's relay as this node would use it - or
+// why it can't yet.
+function RelaySettings({ relay, path, moved, canApply, onFollow }) {
+  if (!relay) return <Loading />
+  if (!relay.enabled) {
+    return (
+      <div className="notice acme-relay">
+        <span>
+          The Controller’s relay is off. An admin turns it on on the <a href={CONTROLLER_TAB}>Controller’s Let’s Encrypt tab</a> - then this node can use it.
+        </span>
+      </div>
+    )
+  }
+  if (!relay.listening) {
+    return (
+      <div className="notice danger acme-relay">
+        <span>The Controller’s relay doesn’t listen: {relay.error || 'see the Controller’s Let’s Encrypt tab'}.</span>
+      </div>
+    )
+  }
+  return (
+    <div className="acme-relay small">
+      <div>
+        The node goes through the relay at <span className="mono">{path.proxy_url || relay.url}</span>, checking it with the Controller’s identity; the relay knows the node by a certificate of the node’s own CA, made for each request.
+      </div>
+      {moved && (
+        <div className="notice">
+          <span>
+            The relay is now at <span className="mono">{relay.url}</span>, not <span className="mono">{path.proxy_url}</span>.{' '}
+            {canApply && (
+              <button className="small" onClick={onFollow}>
+                Use the new address
+              </button>
+            )}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// hostPort is a URL's host:port, 443 by default; '' when it isn't one.
+function hostPort(u) {
+  try {
+    const url = new URL(u)
+    return `${url.hostname}:${url.port || (url.protocol === 'http:' ? 80 : 443)}`
+  } catch {
+    return ''
+  }
+}
+
 // Needs: what must be open for this node's certificates - the saved way,
 // or the one being chosen.
-function Needs({ cfg, st, mode, proxy, choosing }) {
+function Needs({ cfg, st, mode, proxy, relay, choosing }) {
   const certs = cfg.certificates || []
   const http = certs.filter((c) => (c.challenge || 'http-01') === 'http-01').map((c) => c.name)
   const dnsCerts = certs.filter((c) => c.challenge === 'dns-01')
@@ -942,15 +1018,29 @@ function Needs({ cfg, st, mode, proxy, choosing }) {
   } catch {
     // not a URL: shown as is
   }
-  const through = mode === 'ACME_PATH_MODE_PROXY' ? ` through the proxy ${proxy || '(its URL)'}` : ''
-  const lines = [`The node reaches the CA (${ca}) over HTTPS${through}.`]
-  if (http.length) lines.push(`The CA reaches this node on port 80 from the internet - HTTP-01, for ${http.join(', ')}: HAProxy answers on that port.`)
-  if (types.length) {
+  const lines = []
+  if (mode === RELAY) {
+    const builtIn = Object.values(relay?.built_in || {}).flat()
+    const reaches = (hp) => builtIn.some((h) => `${h}:443` === hp) || (relay?.allowed || []).includes(hp)
+    const caHP = hostPort(st.directory)
+    lines.push(`The node reaches the Controller’s relay (${hostPort(proxy) || 'its address'}) over HTTPS; the relay reaches the CA (${ca}).`)
+    if (relay && caHP && !reaches(caHP)) lines.push(`The relay doesn’t let nodes reach ${caHP} yet - an admin allows it on the Controller’s Let’s Encrypt tab.`)
+    if (http.length) lines.push(`The CA reaches this node on port 80 from the internet - HTTP-01, for ${http.join(', ')}: HAProxy answers on that port.`)
+    for (const t of types) {
+      const never = relay?.not_through_relay?.[t]
+      if (never) lines.push(`${t} can’t go through the relay: ${never}.`)
+      else if (relay?.built_in?.[t]) lines.push(`The relay reaches the ${t} API - DNS-01.`)
+      else lines.push(`The relay reaches the ${t} API only once an admin allows the host this node’s ${t} settings name, on the Controller’s Let’s Encrypt tab - DNS-01.`)
+    }
+  } else {
+    const through = mode === 'ACME_PATH_MODE_PROXY' ? ` through the proxy ${proxy || '(its URL)'}` : ''
+    lines.push(`The node reaches the CA (${ca}) over HTTPS${through}.`)
+    if (http.length) lines.push(`The CA reaches this node on port 80 from the internet - HTTP-01, for ${http.join(', ')}: HAProxy answers on that port.`)
     const api = types.filter((t) => t !== 'rfc2136')
     if (api.length) lines.push(`The node reaches the ${api.join(', ')} API over HTTPS${through} - DNS-01.`)
     if (types.includes('rfc2136')) lines.push('The node sends rfc2136 updates straight to the zone’s name server (port 53) - a proxy can’t carry them.')
-    lines.push('The node asks DNS (its resolvers, then the zone’s servers) to find the zone and see the record appear - propagation_wait_seconds waits instead of checking.')
   }
+  if (types.length) lines.push('The node asks DNS (its resolvers, then the zone’s servers) to find the zone and see the record appear - propagation_wait_seconds waits instead of checking.')
   return (
     <div className="acme-needs">
       <div className="small muted">{choosing ? 'What must be open for this node’s certificates with this choice:' : 'What must be open for this node’s certificates:'}</div>
