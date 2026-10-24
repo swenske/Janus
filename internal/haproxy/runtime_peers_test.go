@@ -1,6 +1,9 @@
 package haproxy
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // testdata/show-peers*.txt: this project's HAProxy 3.4 build, two peers
 // lb-1 and lb-2 over TLS seen from lb-1 (established, then just after
@@ -145,5 +148,39 @@ func TestPeersSettle(t *testing.T) {
 	settle(before, after)
 	if !after[1].Tables[0].Synced() {
 		t.Error("a peer that kept up across the wrap reads behind")
+	}
+}
+
+// A peer behind at the first read is read again until it has
+// acknowledged what the first read had - kept up -, or the window ends.
+func TestPeersSettled(t *testing.T) {
+	section := func(lb2, local uint64) *PeersSection {
+		return &PeersSection{Peers: []Peer{
+			{Name: "lb-1", Local: true, Tables: []PeerTable{{Name: "fe", TableLocalUpdate: local}}},
+			{Name: "lb-2", Tables: []PeerTable{{Name: "fe", Update: lb2, TableLocalUpdate: local}}},
+		}}
+	}
+	reads := func(s ...*PeersSection) (func() (*PeersSection, error), *int) {
+		n := 0
+		return func() (*PeersSection, error) {
+			r := s[min(n, len(s)-1)]
+			n++
+			return r, nil
+		}, &n
+	}
+	// In sync at once: one read.
+	read, n := reads(section(100, 100))
+	if got, _ := settled(read, time.Second, time.Millisecond); !got.Peers[1].Tables[0].Synced() || *n != 1 {
+		t.Errorf("in sync: %d reads, %+v", *n, got.Peers[1].Tables[0])
+	}
+	// Under traffic, slow: 100 acknowledged at the third read.
+	read, n = reads(section(90, 100), section(95, 110), section(100, 120), section(130, 140))
+	if got, _ := settled(read, time.Second, time.Millisecond); !got.Peers[1].Tables[0].Synced() || *n != 3 {
+		t.Errorf("kept up: %d reads, %+v", *n, got.Peers[1].Tables[0])
+	}
+	// Really behind: still so when the window ends.
+	read, n = reads(section(10, 100), section(12, 110))
+	if got, _ := settled(read, 20*time.Millisecond, time.Millisecond); got.Peers[1].Tables[0].Synced() || *n < 3 {
+		t.Errorf("behind: %d reads, %+v", *n, got.Peers[1].Tables[0])
 	}
 }
