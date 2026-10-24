@@ -694,18 +694,23 @@ func (x *ClusterPeer) GetTables() []*ClusterPeerTable {
 // update counters, and whether this node has taught the peer every
 // update made here.
 type ClusterPeerTable struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	LastAcked      uint64                 `protobuf:"varint,2,opt,name=last_acked,json=lastAcked,proto3" json:"last_acked,omitempty"`
-	LastPushed     uint64                 `protobuf:"varint,3,opt,name=last_pushed,json=lastPushed,proto3" json:"last_pushed,omitempty"`
-	LastGet        uint64                 `protobuf:"varint,4,opt,name=last_get,json=lastGet,proto3" json:"last_get,omitempty"`
-	TeachingOrigin uint64                 `protobuf:"varint,5,opt,name=teaching_origin,json=teachingOrigin,proto3" json:"teaching_origin,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// HAProxy's counters for this peer (src/peers.c): last_get is the
+	// peer's last update this node received, last_acked the last this
+	// node acknowledged to it, last_pushed this node's last update sent
+	// to it.
+	LastAcked      uint64 `protobuf:"varint,2,opt,name=last_acked,json=lastAcked,proto3" json:"last_acked,omitempty"`
+	LastPushed     uint64 `protobuf:"varint,3,opt,name=last_pushed,json=lastPushed,proto3" json:"last_pushed,omitempty"`
+	LastGet        uint64 `protobuf:"varint,4,opt,name=last_get,json=lastGet,proto3" json:"last_get,omitempty"`
+	TeachingOrigin uint64 `protobuf:"varint,5,opt,name=teaching_origin,json=teachingOrigin,proto3" json:"teaching_origin,omitempty"`
 	// The table's local update counter, and the last update id it knows
 	// (from anywhere).
 	LocalUpdate uint64 `protobuf:"varint,6,opt,name=local_update,json=localUpdate,proto3" json:"local_update,omitempty"`
 	Update      uint64 `protobuf:"varint,7,opt,name=update,proto3" json:"update,omitempty"`
 	// The peer acknowledged every local update: true for a remote peer
-	// when last_acked reaches local_update.
+	// once its acknowledgement of this node's updates (HAProxy's "update"
+	// for the peer - not last_acked, the other way) reaches local_update.
 	Synced        bool `protobuf:"varint,8,opt,name=synced,proto3" json:"synced,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -221,6 +221,11 @@ echo "  ok: the peers connected over mTLS"
 http 1 >/dev/null; http 1 >/dev/null
 has_entry() { grep -Eq '10\.0\.2\.2' <<<"$(table "$1")"; }
 for i in 2 3; do wait_for 20 "node $i learnt node 1's entry" has_entry "$i"; done
+# Node 1 made the updates: both peers acknowledged them, in sync (HAProxy's
+# "update" for the peer - its "last_acked" is node 1's of theirs, 0 here:
+# v2026.10.24's lab saw the VIP's master "catching up" for good).
+synced() { [ "$(ctl 1 cluster status 2>/dev/null | grep -cE '^lb-[23] +192\.168\.80\.[0-9]+:10057 +up +[^ ]+ +1 +1/1$')" = 2 ]; }
+wait_for 20 "node 1's peers acknowledged its updates" synced
 echo "  ok: the stick table replicates"
 
 # A reload on a member: the table comes back from a peer.

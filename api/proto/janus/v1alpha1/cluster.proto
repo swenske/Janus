@@ -189,6 +189,10 @@ message ClusterPeer {
 // update made here.
 message ClusterPeerTable {
   string name = 1;
+  // HAProxy's counters for this peer (src/peers.c): last_get is the
+  // peer's last update this node received, last_acked the last this
+  // node acknowledged to it, last_pushed this node's last update sent
+  // to it.
   uint64 last_acked = 2;
   uint64 last_pushed = 3;
   uint64 last_get = 4;
@@ -198,7 +202,8 @@ message ClusterPeerTable {
   uint64 local_update = 6;
   uint64 update = 7;
   // The peer acknowledged every local update: true for a remote peer
-  // when last_acked reaches local_update.
+  // once its acknowledgement of this node's updates (HAProxy's "update"
+  // for the peer - not last_acked, the other way) reaches local_update.
   bool synced = 8;
 }
 
