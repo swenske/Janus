@@ -155,6 +155,7 @@ var Domain = map[string]string{
 	"ClusterService/ClusterStatus":       DomainObserve,
 	"ClusterService/ClusterSet":          DomainSystem,
 	"ClusterService/ClusterLeave":        DomainSystem,
+	"ClusterService/ClusterRelease":      DomainSystem,
 	"ClusterService/ClusterDrain":        DomainSystem,
 	"ClusterService/ClusterUndrain":      DomainSystem,
 	"ClusterService/ClusterPull":         DomainSystem,

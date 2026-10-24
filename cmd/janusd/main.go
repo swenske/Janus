@@ -674,6 +674,7 @@ func main() {
 	api.FleetRoot = fleet.Root
 	api.LocalCA = func() *x509.Certificate { return local.CA().Cert }
 	api.ClusterMember = clusterStore.AcceptMember
+	api.ClusterLock = clusterStore.Lock
 	// What StateExport and StateImport carry: STATE, on a node only.
 	stateRoot := ""
 	if *manageHost {

@@ -62,6 +62,10 @@ type Caller struct {
 	// Member: another member of this node's cluster, by its member
 	// certificate (internal/cluster) - Name is its member name.
 	Member bool
+	// ClusterApply is the cluster a Controller's call applies for
+	// (pki.ClusterApplyKey): read from a Controller certificate's call
+	// only - what lets a write through a member's cluster lock.
+	ClusterApply string
 }
 
 func (c Caller) String() string {
@@ -110,6 +114,9 @@ func CallerFrom(ctx context.Context) (Caller, bool) {
 // the call in the audit (AuditLog).
 func UnaryAuthInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	caller, err := authorize(ctx, info.FullMethod)
+	if err == nil {
+		err = checkClusterLock(info.FullMethod, req, caller)
+	}
 	if err != nil {
 		recordCall(ctx, info.FullMethod, caller, true, err, 0)
 		return nil, err
@@ -125,6 +132,9 @@ func UnaryAuthInterceptor(ctx context.Context, req any, info *grpc.UnaryServerIn
 // keeps the call in the audit once it's done.
 func StreamAuthInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	caller, err := authorize(ss.Context(), info.FullMethod)
+	if err == nil {
+		err = checkClusterLock(info.FullMethod, nil, caller)
+	}
 	if err != nil {
 		recordCall(ss.Context(), info.FullMethod, caller, true, err, 0)
 		return err
@@ -201,6 +211,9 @@ func authorize(ctx context.Context, fullMethod string) (Caller, error) {
 			}
 		}
 		caller = Caller{Name: users[0], Roles: as, Via: leaf.Subject.CommonName}
+		if ids := md.Get(pki.ClusterApplyKey); len(ids) == 1 {
+			caller.ClusterApply = ids[0]
+		}
 		if d := md.Get(pki.AsDomainsKey); len(d) > 0 {
 			if len(d) != 1 {
 				return Caller{}, status.Errorf(codes.PermissionDenied, "%s: once at most", pki.AsDomainsKey)

@@ -267,3 +267,54 @@ func pkiReissue(ca *pki.CA, cur *x509.Certificate) ([]byte, error) {
 		ExtKeyUsage: cur.ExtKeyUsage, Validity: 30 * 24 * time.Hour,
 	})
 }
+
+func TestLockRelease(t *testing.T) {
+	s := newStore(t)
+	if _, err := s.Release(nil); err == nil {
+		t.Error("a node in no cluster released something")
+	}
+	if _, _, locked := s.Lock("haproxy"); locked {
+		t.Error("a node in no cluster is locked")
+	}
+	ca, _ := pki.NewCA("Janus cluster edge")
+	csr, _ := s.NewCSR()
+	m := membership("lb-1")
+	m.Managed = []string{"haproxy", "files", "vrrp"}
+	if _, _, err := s.Set(SetRequest{Membership: m, CAPEM: ca.CertPEM, MemberPEM: signMember(t, ca, csr, testID, "lb-1")}); err != nil {
+		t.Fatal(err)
+	}
+	if id, name, locked := s.Lock("haproxy"); !locked || id != testID || name != "edge" {
+		t.Errorf("haproxy: %q %q %v", id, name, locked)
+	}
+	if _, _, locked := s.Lock("bgp"); locked {
+		t.Error("bgp is locked, unmanaged")
+	}
+	if _, err := s.Release([]string{"dns"}); err == nil {
+		t.Error("an unknown domain released")
+	}
+	released, err := s.Release([]string{"haproxy"})
+	if err != nil || len(released) != 1 || released[0] != "haproxy" {
+		t.Fatalf("release haproxy: %v %v", released, err)
+	}
+	if _, _, locked := s.Lock("haproxy"); locked {
+		t.Error("haproxy still locked")
+	}
+	// Kept across a restart.
+	re, err := Open(s.Dir, s.Hostname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, locked := re.Lock("haproxy"); locked {
+		t.Error("haproxy locked again after a restart")
+	}
+	if _, _, locked := re.Lock("files"); !locked {
+		t.Error("files no longer locked after a restart")
+	}
+	// Nothing left to release of these: nothing done.
+	if released, err := s.Release([]string{"haproxy"}); err != nil || released != nil {
+		t.Errorf("again: %v %v", released, err)
+	}
+	if released, err := s.Release(nil); err != nil || len(released) != 2 {
+		t.Errorf("the rest: %v %v", released, err)
+	}
+}

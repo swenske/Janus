@@ -56,6 +56,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
+	"github.com/swenske/Janus/dashboard/backend/internal/clusters"
 	"github.com/swenske/Janus/dashboard/backend/internal/enroll"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
@@ -190,6 +191,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("open the single sign-on settings: %v", err)
 	}
+	clusterStore, err := clusters.Open(*dataDir, masterKey)
+	if err != nil {
+		log.Fatalf("open the clusters: %v", err)
+	}
 	nodeproxy.FleetIdentity = fleetStore.ClientCertificate
 	nodeproxy.NodeCA = func(n *store.Node, caPEM []byte) error { return st.SetCA(n.ID, caPEM) }
 
@@ -217,6 +222,7 @@ func main() {
 		sso:                   newSingleSignOn(ssoStore),
 	}
 	app.runner = newMachineRunner(app)
+	app.clusters = newClusterEngine(app, clusterStore)
 	app.nodeMetrics = newNodeMetrics(app)
 	if err := app.startRegistrationListener(*registerAddr); err != nil {
 		log.Fatalf("registration listener: %v", err)
@@ -226,6 +232,7 @@ func main() {
 	app.autoscaler = newAutoscaler(app)
 	go app.autoscaler.run(context.Background())
 	go app.trustLoop(context.Background())
+	go app.clusters.loop(context.Background())
 	go app.backupLoop(context.Background())
 	if err := app.startLogForwarding(masterKey); err != nil {
 		log.Fatalf("log forwarding: %v", err)
@@ -336,6 +343,7 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	a.registerHypervisorRoutes(mux)
 	a.registerFleetRoutes(mux)
 	a.registerMachineRoutes(mux)
+	a.registerClusterRoutes(mux)
 	mux.Handle("/", spa)
 	return mux
 }
@@ -389,6 +397,8 @@ type app struct {
 	// profiles (logforward.go).
 	logfwd *logForwarding
 	runner *machineRunner
+	// clusters: the clusters of the Controller's nodes (cluster*.go).
+	clusters *clusterEngine
 	// autoscaler resizes machines with an auto-scaling policy
 	autoscaler *autoscaler
 	consoles   consoleHub
@@ -617,6 +627,12 @@ func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A cluster's member leaves its cluster first: the others still name
+	// it as a peer, and its lock still holds.
+	if a.clusters != nil && a.clusters.store.ClusterOf(id) != "" {
+		http.Error(w, "this node is a member of a cluster: remove it from the cluster first", http.StatusConflict)
+		return
+	}
 	if err := a.removeNode(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return

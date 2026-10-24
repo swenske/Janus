@@ -691,6 +691,13 @@ jobs:
       - name: A node replaced by another (StateExport/StateImport)
         run: make qemu-state-migrate-test
 
+      # A cluster the Controller drives: created through its API, the
+      # members' locks, a VRRP template per member, a failover keeping the
+      # stick tables, drift, a certificate pulled. See
+      # hack/qemu-controller-cluster-test.sh.
+      - name: A cluster the Controller drives (keepalived image)
+        run: make qemu-controller-cluster-test
+
       # Point 2 suite, tranche 5: proves a node provisioned with a
       # Controller at Install time (controller_address/
       # controller_ca_cert, tranche 4) genuinely self-registers with a

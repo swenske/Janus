@@ -23,6 +23,7 @@ const (
 	ClusterService_ClusterGet_FullMethodName          = "/janus.v1alpha1.ClusterService/ClusterGet"
 	ClusterService_ClusterSet_FullMethodName          = "/janus.v1alpha1.ClusterService/ClusterSet"
 	ClusterService_ClusterLeave_FullMethodName        = "/janus.v1alpha1.ClusterService/ClusterLeave"
+	ClusterService_ClusterRelease_FullMethodName      = "/janus.v1alpha1.ClusterService/ClusterRelease"
 	ClusterService_ClusterStatus_FullMethodName       = "/janus.v1alpha1.ClusterService/ClusterStatus"
 	ClusterService_ClusterDrain_FullMethodName        = "/janus.v1alpha1.ClusterService/ClusterDrain"
 	ClusterService_ClusterUndrain_FullMethodName      = "/janus.v1alpha1.ClusterService/ClusterUndrain"
@@ -63,6 +64,12 @@ type ClusterServiceClient interface {
 	// the cluster's CA are deleted, the managed domains unlocked. It
 	// doesn't drain: ClusterDrain first, when the node serves.
 	ClusterLeave(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ClusterInfo, error)
+	// ClusterRelease lets this member's own configuration be changed again,
+	// by domain - haproxy, files, vrrp, bgp, firewall; none named: all -,
+	// for an emergency change on one node while its cluster manages it.
+	// The orchestrator then reports the member as drifted, and takes the
+	// domains back with its next apply.
+	ClusterRelease(ctx context.Context, in *ClusterReleaseRequest, opts ...grpc.CallOption) (*ClusterInfo, error)
 	// ClusterStatus reads HAProxy's "show peers": each peer connected or
 	// not, its last handshake, and for each table whether this node has
 	// taught the peer every local update. It carries this node's clock,
@@ -127,6 +134,16 @@ func (c *clusterServiceClient) ClusterLeave(ctx context.Context, in *emptypb.Emp
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ClusterInfo)
 	err := c.cc.Invoke(ctx, ClusterService_ClusterLeave_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *clusterServiceClient) ClusterRelease(ctx context.Context, in *ClusterReleaseRequest, opts ...grpc.CallOption) (*ClusterInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterInfo)
+	err := c.cc.Invoke(ctx, ClusterService_ClusterRelease_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +269,12 @@ type ClusterServiceServer interface {
 	// the cluster's CA are deleted, the managed domains unlocked. It
 	// doesn't drain: ClusterDrain first, when the node serves.
 	ClusterLeave(context.Context, *emptypb.Empty) (*ClusterInfo, error)
+	// ClusterRelease lets this member's own configuration be changed again,
+	// by domain - haproxy, files, vrrp, bgp, firewall; none named: all -,
+	// for an emergency change on one node while its cluster manages it.
+	// The orchestrator then reports the member as drifted, and takes the
+	// domains back with its next apply.
+	ClusterRelease(context.Context, *ClusterReleaseRequest) (*ClusterInfo, error)
 	// ClusterStatus reads HAProxy's "show peers": each peer connected or
 	// not, its last handshake, and for each table whether this node has
 	// taught the peer every local update. It carries this node's clock,
@@ -300,6 +323,9 @@ func (UnimplementedClusterServiceServer) ClusterSet(context.Context, *ClusterSet
 }
 func (UnimplementedClusterServiceServer) ClusterLeave(context.Context, *emptypb.Empty) (*ClusterInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClusterLeave not implemented")
+}
+func (UnimplementedClusterServiceServer) ClusterRelease(context.Context, *ClusterReleaseRequest) (*ClusterInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method ClusterRelease not implemented")
 }
 func (UnimplementedClusterServiceServer) ClusterStatus(context.Context, *emptypb.Empty) (*ClusterStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClusterStatus not implemented")
@@ -390,6 +416,24 @@ func _ClusterService_ClusterLeave_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ClusterServiceServer).ClusterLeave(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ClusterService_ClusterRelease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClusterReleaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterServiceServer).ClusterRelease(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterService_ClusterRelease_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterServiceServer).ClusterRelease(ctx, req.(*ClusterReleaseRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -499,6 +543,10 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClusterLeave",
 			Handler:    _ClusterService_ClusterLeave_Handler,
+		},
+		{
+			MethodName: "ClusterRelease",
+			Handler:    _ClusterService_ClusterRelease_Handler,
 		},
 		{
 			MethodName: "ClusterStatus",

@@ -61,12 +61,18 @@ func runCluster(conn *grpc.ClientConn, args []string) {
 		caFile := fs.String("ca", "", "the cluster's CA certificate (PEM) - the first time, or to replace it")
 		certFile := fs.String("cert", "", "the member certificate (PEM) for the last csr - the first time, or to renew it")
 		managedBy := fs.String("managed-by", "", "who sets the composition")
+		managed := fs.String("managed", "", "what the cluster manages on the node, comma-separated: haproxy, files, vrrp, bgp, firewall - locked to the orchestrator's calls")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() == 0 {
 			fmt.Fprintln(os.Stderr, "usage: janusctl cluster set -id UUID -name NAME [-member NAME] [-port N] [-ca FILE] [-cert FILE] MEMBER...  (MEMBER: name=address[,api=host:port])")
 			os.Exit(2)
 		}
 		req := &janusv1alpha1.ClusterSetRequest{Id: *id, Name: *name, MemberName: *member, PeersPort: uint32(*port), ManagedBy: *managedBy}
+		for _, d := range strings.Split(*managed, ",") {
+			if d = strings.TrimSpace(d); d != "" {
+				req.Managed = append(req.Managed, d)
+			}
+		}
 		for _, arg := range fs.Args() {
 			mb, err := parseMember(arg)
 			if err != nil {
@@ -91,6 +97,10 @@ func runCluster(conn *grpc.ClientConn, args []string) {
 	case "leave":
 		info, err := client.ClusterLeave(c, &emptypb.Empty{})
 		check("ClusterLeave", err)
+		printCluster(info)
+	case "release":
+		info, err := client.ClusterRelease(c, &janusv1alpha1.ClusterReleaseRequest{Domains: args[1:]})
+		check("ClusterRelease", err)
 		printCluster(info)
 	case "drain":
 		fs := flag.NewFlagSet("cluster drain", flag.ExitOnError)

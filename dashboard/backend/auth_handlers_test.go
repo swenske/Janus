@@ -164,6 +164,18 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 		{"DELETE", "/api/sso/providers/kc", auth.Admin},
 		{"POST", "/api/sso/test", auth.Admin},
 		{"DELETE", "/api/users/rita/identities/i1", auth.Admin},
+		{"POST", "/api/clusters", auth.Admin},
+		{"PATCH", "/api/clusters/c1", auth.Admin},
+		{"DELETE", "/api/clusters/c1", auth.Admin},
+		{"POST", "/api/clusters/c1/members", auth.Admin},
+		{"DELETE", "/api/clusters/c1/members/lb-1", auth.Admin},
+		{"POST", "/api/clusters/c1/members/lb-1/drain", auth.Admin},
+		{"POST", "/api/clusters/c1/members/lb-1/undrain", auth.Admin},
+		{"POST", "/api/clusters/c1/versions", auth.Admin},
+		{"POST", "/api/clusters/c1/apply", auth.Admin},
+		{"POST", "/api/clusters/c1/pull", auth.Admin},
+		{"POST", "/api/clusters/c1/certificates", auth.Admin},
+		{"POST", "/api/clusters/c1/check", auth.Admin},
 	} {
 		if code, _ := a.req(t, tc.method, tc.path, "", nil); code != http.StatusUnauthorized {
 			t.Errorf("%s %s with nothing: %d", tc.method, tc.path, code)

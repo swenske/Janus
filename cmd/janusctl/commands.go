@@ -360,8 +360,10 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("ca", "FILE", "the cluster's CA (PEM): the first time, or to replace it", argFile),
 			valFlag("cert", "FILE", "the member certificate (PEM) for the last csr: the first time, or to renew it", argFile),
 			valFlag("managed-by", "TEXT", "who sets the composition", argNone),
+			valFlag("managed", "LIST", "what the cluster manages here, locked to the orchestrator: haproxy,files,vrrp,bgp,firewall", argNone),
 		}, pos: []argKind{argNone}, required: 1, variadic: true},
 		{name: "leave", help: "forget the membership: the node on its own again"},
+		{name: "release", args: "[DOMAIN...]", help: "let this node's own users change what the cluster manages (all of it when none is named) - the cluster then sees it drifted", pos: []argKind{argNone}, variadic: true},
 		{name: "drain", help: "out of service without stopping: the virtual IPs and routes move to the peers", flags: []flagDef{valFlag("timeout", "SECONDS", "how long to wait for VRRP and BGP to show it (60)", argNone)}},
 		{name: "undrain", help: "back in service"},
 		{name: "pull", help: "fetch another member's secrets - certificates, files, ACME certificates, ticket keys - over mTLS", flags: []flagDef{

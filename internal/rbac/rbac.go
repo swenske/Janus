@@ -164,6 +164,7 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.ClusterService/ClusterGet":          readers,
 	"/janus.v1alpha1.ClusterService/ClusterSet":          adminOnly,
 	"/janus.v1alpha1.ClusterService/ClusterLeave":        adminOnly,
+	"/janus.v1alpha1.ClusterService/ClusterRelease":      adminOnly,
 	"/janus.v1alpha1.ClusterService/ClusterStatus":       readers,
 	"/janus.v1alpha1.ClusterService/ClusterDrain":        adminOnly,
 	"/janus.v1alpha1.ClusterService/ClusterUndrain":      adminOnly,
