@@ -170,7 +170,7 @@ func (c *Cluster) ClusterGet(ctx context.Context, _ *emptypb.Empty) (*janusv1alp
 func (c *Cluster) ClusterSet(ctx context.Context, req *janusv1alpha1.ClusterSetRequest) (*janusv1alpha1.ClusterInfo, error) {
 	caller, _ := CallerFrom(ctx)
 	m := cluster.Membership{ID: req.GetId(), Name: req.GetName(), Member: req.GetMemberName(), PeersPort: int(req.GetPeersPort()),
-		Managed: req.GetManaged(), ManagedBy: req.GetManagedBy()}
+		Managed: req.GetManaged(), ManagedBy: req.GetManagedBy(), Advisory: req.GetAdvisory()}
 	for _, mb := range req.GetMembers() {
 		m.Members = append(m.Members, cluster.Member{Name: mb.GetName(), Address: mb.GetAddress(), API: mb.GetApiAddress()})
 	}
@@ -294,11 +294,12 @@ func (c *Cluster) ClusterStatus(ctx context.Context, _ *emptypb.Empty) (*janusv1
 	if c.HAProxy == nil || c.PeersFile == "" {
 		return resp, nil
 	}
-	peers, err := c.HAProxy.ShowPeers(cluster.Section)
+	section, err := c.HAProxy.ShowPeersSection(cluster.Section)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, fmt.Sprintf("HAProxy's peers: %v", err))
 	}
-	for _, p := range peers {
+	resp.TablesLearnt = section.Learnt
+	for _, p := range section.Peers {
 		pp := &janusv1alpha1.ClusterPeer{Name: p.Name, Address: p.Address, Local: p.Local, Up: p.Up(), LastStatus: p.LastStatus,
 			AppState: p.AppState, LearnState: p.LearnState, LastHandshake: p.LastHandshake, NewConnections: p.NewConnections, ProtocolErrors: p.ProtocolErrors}
 		for _, t := range p.Tables {
@@ -319,6 +320,7 @@ func (c *Cluster) info() *janusv1alpha1.ClusterInfo {
 		return info
 	}
 	info.Member, info.Id, info.Name, info.Managed, info.ManagedBy, info.UpdatedUnix = true, m.ID, m.Name, m.Managed, m.ManagedBy, m.Updated.Unix()
+	info.Advisory = m.Advisory
 	info.Drained = c.Store.Drained()
 	info.CaCert = c.Store.CAPEM()
 	if cert := c.Store.MemberCertificate(); cert != nil {

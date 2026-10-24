@@ -31,9 +31,9 @@ func TestLockDomainsAreRPCs(t *testing.T) {
 // that sends the cluster's id itself.
 func TestClusterLock(t *testing.T) {
 	const id = "7f3c2a1e-5b6d-4c8e-9f01-23456789abcd"
-	defer func(prev func(string) (string, string, bool)) { ClusterLock = prev }(ClusterLock)
-	ClusterLock = func(domain string) (string, string, bool) {
-		return id, "edge", domain == "haproxy" || domain == "vrrp"
+	defer func(prev func(string) (string, string, bool, bool)) { ClusterLock = prev }(ClusterLock)
+	ClusterLock = func(domain string) (string, string, bool, bool) {
+		return id, "edge", domain == "haproxy" || domain == "vrrp", false
 	}
 	admin := peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "admin", Organization: []string{pki.RoleAdmin}}})
 	ctl := peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "janus-controller", Organization: []string{pki.RoleController}}})
@@ -78,5 +78,37 @@ func TestClusterLock(t *testing.T) {
 	caller, _ := authorize(admin, apply)
 	if err := checkClusterLock(apply, nil, caller); err != nil {
 		t.Errorf("no cluster, no lock: %v", err)
+	}
+}
+
+// A cluster without a Controller has advisory locks: an admin sending the
+// cluster's id writes through them - janusctl cluster -, nobody else.
+func TestClusterLockAdvisory(t *testing.T) {
+	const id = "7f3c2a1e-5b6d-4c8e-9f01-23456789abcd"
+	defer func(prev func(string) (string, string, bool, bool)) { ClusterLock = prev }(ClusterLock)
+	ClusterLock = func(domain string) (string, string, bool, bool) { return id, "edge", domain == "haproxy", true }
+	admin := peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "admin", Organization: []string{pki.RoleAdmin}}})
+	operator := peerWith(&x509.Certificate{Subject: pkix.Name{CommonName: "op", Organization: []string{pki.RoleOperator}}})
+	with := func(ctx context.Context, pairs ...string) context.Context {
+		return metadata.NewIncomingContext(ctx, metadata.Pairs(pairs...))
+	}
+	const apply = "/janus.v1alpha1.HAProxyService/ApplyConfig"
+	for _, c := range []struct {
+		name string
+		ctx  context.Context
+		want codes.Code
+	}{
+		{"an admin without the cluster's id", admin, codes.FailedPrecondition},
+		{"an admin for another cluster", with(admin, pki.ClusterApplyKey, "00000000-0000-4000-8000-000000000000"), codes.FailedPrecondition},
+		{"an admin for this cluster", with(admin, pki.ClusterApplyKey, id), codes.OK},
+		{"an operator for this cluster", with(operator, pki.ClusterApplyKey, id), codes.FailedPrecondition},
+	} {
+		caller, err := authorize(c.ctx, apply)
+		if err == nil {
+			err = checkClusterLock(apply, nil, caller)
+		}
+		if got := status.Code(err); got != c.want {
+			t.Errorf("%s: %v (%v), want %v", c.name, got, err, c.want)
+		}
 	}
 }

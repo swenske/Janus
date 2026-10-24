@@ -273,7 +273,7 @@ func TestLockRelease(t *testing.T) {
 	if _, err := s.Release(nil); err == nil {
 		t.Error("a node in no cluster released something")
 	}
-	if _, _, locked := s.Lock("haproxy"); locked {
+	if _, _, locked, _ := s.Lock("haproxy"); locked {
 		t.Error("a node in no cluster is locked")
 	}
 	ca, _ := pki.NewCA("Janus cluster edge")
@@ -283,10 +283,10 @@ func TestLockRelease(t *testing.T) {
 	if _, _, err := s.Set(SetRequest{Membership: m, CAPEM: ca.CertPEM, MemberPEM: signMember(t, ca, csr, testID, "lb-1")}); err != nil {
 		t.Fatal(err)
 	}
-	if id, name, locked := s.Lock("haproxy"); !locked || id != testID || name != "edge" {
+	if id, name, locked, _ := s.Lock("haproxy"); !locked || id != testID || name != "edge" {
 		t.Errorf("haproxy: %q %q %v", id, name, locked)
 	}
-	if _, _, locked := s.Lock("bgp"); locked {
+	if _, _, locked, _ := s.Lock("bgp"); locked {
 		t.Error("bgp is locked, unmanaged")
 	}
 	if _, err := s.Release([]string{"dns"}); err == nil {
@@ -296,7 +296,7 @@ func TestLockRelease(t *testing.T) {
 	if err != nil || len(released) != 1 || released[0] != "haproxy" {
 		t.Fatalf("release haproxy: %v %v", released, err)
 	}
-	if _, _, locked := s.Lock("haproxy"); locked {
+	if _, _, locked, _ := s.Lock("haproxy"); locked {
 		t.Error("haproxy still locked")
 	}
 	// Kept across a restart.
@@ -304,10 +304,10 @@ func TestLockRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, locked := re.Lock("haproxy"); locked {
+	if _, _, locked, _ := re.Lock("haproxy"); locked {
 		t.Error("haproxy locked again after a restart")
 	}
-	if _, _, locked := re.Lock("files"); !locked {
+	if _, _, locked, _ := re.Lock("files"); !locked {
 		t.Error("files no longer locked after a restart")
 	}
 	// Nothing left to release of these: nothing done.

@@ -77,14 +77,18 @@ type Member struct {
 
 // Membership is what this node knows of its cluster: cluster.json.
 type Membership struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Member    string    `json:"member"`
-	Members   []Member  `json:"members"`
-	PeersPort int       `json:"peers_port"`
-	Managed   []string  `json:"managed,omitempty"`
-	ManagedBy string    `json:"managed_by,omitempty"`
-	Updated   time.Time `json:"updated"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Member    string   `json:"member"`
+	Members   []Member `json:"members"`
+	PeersPort int      `json:"peers_port"`
+	Managed   []string `json:"managed,omitempty"`
+	ManagedBy string   `json:"managed_by,omitempty"`
+	// Advisory: an admin writes through the locks with the cluster's id
+	// (an orchestrator without a Controller); otherwise only the
+	// Controller does.
+	Advisory bool      `json:"advisory,omitempty"`
+	Updated  time.Time `json:"updated"`
 }
 
 // Self is this node's entry, nil when the membership doesn't name it.
@@ -343,14 +347,14 @@ func (s *Store) MemberCertificate() *x509.Certificate {
 }
 
 // Lock reports whether the node's cluster manages domain: the cluster's
-// id and name when it does.
-func (s *Store) Lock(domain string) (id, name string, locked bool) {
+// id and name when it does, and whether its locks are advisory.
+func (s *Store) Lock(domain string) (id, name string, locked, advisory bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.m == nil || !slices.Contains(s.m.Managed, domain) {
-		return "", "", false
+		return "", "", false, false
 	}
-	return s.m.ID, s.m.Name, true
+	return s.m.ID, s.m.Name, true, s.m.Advisory
 }
 
 // Release drops domains from what the cluster manages on this node -

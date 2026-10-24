@@ -1,8 +1,12 @@
 package api
 
 import (
+	"slices"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/swenske/Janus/internal/pki"
 )
 
 // Cluster locks (docs/cluster.md "Locks and drift"): on a cluster member,
@@ -10,7 +14,10 @@ import (
 // certificates, VRRP, BGP, the firewall - is changed through the cluster,
 // on every member alike. A write to a managed domain is refused unless
 // the Controller makes it for that very cluster: its certificate, and the
-// cluster's id in pki.ClusterApplyKey. The node's own users release a
+// cluster's id in pki.ClusterApplyKey. A cluster without a Controller
+// (janusctl cluster) has advisory locks: an admin's certificate sending
+// the cluster's id gets through too - what keeps the node's page and a
+// casual apply-config off, not an admin. The node's own users release a
 // domain first (ClusterRelease) for an emergency change; the cluster then
 // reports the member as drifted. What runs live - servers' state, maps
 // and ACLs, stick tables, sessions, the firewall's sets, ACME - stays
@@ -19,8 +26,8 @@ import (
 
 // ClusterLock is the node's cluster lock on a domain (janusd sets it,
 // internal/cluster.Store.Lock): the cluster's id and name when it manages
-// the domain. Nil: nothing is locked.
-var ClusterLock func(domain string) (id, name string, locked bool)
+// the domain, and whether its locks are advisory. Nil: nothing is locked.
+var ClusterLock func(domain string) (id, name string, locked, advisory bool)
 
 // lockDomains are the writes each managed domain covers.
 var lockDomains = map[string]string{
@@ -43,8 +50,9 @@ var domainWords = map[string]string{
 }
 
 // checkClusterLock refuses a write to a domain the node's cluster manages,
-// unless the Controller makes it for that cluster. req is the request,
-// nil for a stream: a validate-only call writes nothing.
+// unless the Controller makes it for that cluster - or, the locks
+// advisory, an admin does. req is the request, nil for a stream: a
+// validate-only call writes nothing.
 func checkClusterLock(fullMethod string, req any, c Caller) error {
 	domain, ok := lockDomains[fullMethod]
 	if !ok || ClusterLock == nil {
@@ -53,8 +61,11 @@ func checkClusterLock(fullMethod string, req any, c Caller) error {
 	if v, ok := req.(interface{ GetValidateOnly() bool }); ok && v.GetValidateOnly() {
 		return nil
 	}
-	id, name, locked := ClusterLock(domain)
-	if !locked || (c.Via != "" && c.ClusterApply == id) {
+	id, name, locked, advisory := ClusterLock(domain)
+	if !locked {
+		return nil
+	}
+	if c.ClusterApply == id && (c.Via != "" || (advisory && slices.Contains(c.Roles, pki.RoleAdmin))) {
 		return nil
 	}
 	return status.Errorf(codes.FailedPrecondition, "%s is managed by cluster %s: change it on the cluster, or release this node's lock first (janusctl cluster release %s) - the cluster then reports this node as drifted", domainWords[domain], name, domain)

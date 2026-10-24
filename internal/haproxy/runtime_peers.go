@@ -62,8 +62,26 @@ var (
 	peersHeadRE = regexp.MustCompile(`^0x[0-9a-f]+: \[[^\]]*\] (id=.*)$`)
 )
 
-// ShowPeers runs "show peers <section>": its peers.
-func (m *Manager) ShowPeers(section string) ([]Peer, error) {
+// PeersSection is a peers section as HAProxy reports it.
+type PeersSection struct {
+	Peers []Peer
+	// Learnt: this HAProxy process has learnt the section's stick tables
+	// since it started - from the process it replaced, or from a remote
+	// peer. Measured on 3.4.7: a process reloaded among remote peers has
+	// empty tables until its resync timeout (5 s) passes and a peer
+	// teaches it; the process it replaced is gone at once.
+	Learnt bool
+}
+
+// The section's resync flags (HAProxy's PEERS_F_RESYNC_*_FINISHED).
+const (
+	peersResyncLocalFinished  = 0x1
+	peersResyncRemoteFinished = 0x2
+)
+
+// ShowPeersSection runs "show peers <section>": its peers, and whether
+// the tables are learnt.
+func (m *Manager) ShowPeersSection(section string) (*PeersSection, error) {
 	arg, err := cliToken("peers section", section)
 	if err != nil {
 		return nil, err
@@ -72,7 +90,33 @@ func (m *Manager) ShowPeers(section string) ([]Peer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseShowPeers(string(out))
+	peers, err := parseShowPeers(string(out))
+	if err != nil {
+		return nil, err
+	}
+	return &PeersSection{Peers: peers, Learnt: peersLearnt(string(out))}, nil
+}
+
+// ShowPeers runs "show peers <section>": its peers.
+func (m *Manager) ShowPeers(section string) ([]Peer, error) {
+	s, err := m.ShowPeersSection(section)
+	if err != nil {
+		return nil, err
+	}
+	return s.Peers, nil
+}
+
+// peersLearnt reads the section's flags ("flags=0x28900001"): both
+// resyncs finished.
+func peersLearnt(out string) bool {
+	for _, raw := range strings.Split(out, "\n") {
+		if peersHeadRE.MatchString(raw) {
+			v, err := strconv.ParseUint(strings.TrimPrefix(keyValues(raw)["flags"], "0x"), 16, 64)
+			const both = peersResyncLocalFinished | peersResyncRemoteFinished
+			return err == nil && v&both == both
+		}
+	}
+	return false
 }
 
 // parseShowPeers reads one section's answer. Lines are nested by
