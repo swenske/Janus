@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -101,6 +102,32 @@ frontend tls
 	}
 	if cn := servedCN(t, tlsPort, "served.test"); cn != "served.test" {
 		t.Fatalf("before any reload, SNI served.test got %q", cn)
+	}
+	// The same certificate again - a cluster member pulling it once more -
+	// stays one entry (HAProxy itself takes it as another); with other
+	// names, its entry is replaced.
+	entries := func() int {
+		t.Helper()
+		out, err := m.statsCommand("show ssl crt-list -n " + crtList)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Count(string(out), "\nserved.pem:")
+	}
+	if err := m.CertificateUpload("served.pem", selfSignedBundle(t, "served.test"), crtList, []string{"served.test"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := entries(); n != 1 {
+		t.Errorf("uploaded twice, served.pem is in the crt-list %d times", n)
+	}
+	if err := m.CertificateUpload("served.pem", selfSignedBundle(t, "served.test"), crtList, []string{"other.test"}); err != nil {
+		t.Fatal(err)
+	}
+	if n, cn, was := entries(), servedCN(t, tlsPort, "other.test"), servedCN(t, tlsPort, "served.test"); n != 1 || cn != "served.test" || was != "default.test" {
+		t.Errorf("for other.test: %d entries, other.test got %q, served.test %q", n, cn, was)
+	}
+	if err := m.CertificateUpload("served.pem", selfSignedBundle(t, "served.test"), crtList, []string{"served.test"}); err != nil {
+		t.Fatal(err)
 	}
 	check := func(when string) {
 		t.Helper()

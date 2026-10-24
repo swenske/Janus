@@ -3,6 +3,7 @@ package haproxy
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -103,7 +104,7 @@ func (m *Manager) CertificateUpload(name string, pemBundle []byte, crtList strin
 		return err
 	}
 	if crtList != "" {
-		if err := m.addToCrtList(name, crtList, sni); err != nil {
+		if err := m.rebindCert(name, crtList, sni); err != nil {
 			return err
 		}
 	}
@@ -194,7 +195,57 @@ func (m *Manager) ReplaceCertFile(path string, pemBundle []byte) error {
 	return nil
 }
 
-// addToCrtList binds name into crtList, scoped to sni if given.
+// rebindCert binds name into crtList for sni, once: HAProxy takes the
+// same certificate again as one more entry (3.4, measured). An entry
+// already there for these filters stays - the same certificate uploaded
+// or pulled again changes nothing -, otherwise every entry of name goes,
+// from the last line on, and one is added.
+func (m *Manager) rebindCert(name, crtList string, sni []string) error {
+	listArg, err := cliToken("crt-list", crtList)
+	if err != nil {
+		return err
+	}
+	out, err := m.statsCommand("show ssl crt-list -n " + listArg)
+	if err != nil {
+		return fmt.Errorf("crt-list %s: %w", crtList, err)
+	}
+	// "# <list>", then "<certificate>:<line> [<options>] <filters>" per
+	// entry.
+	var entries []string
+	same := false
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 || strings.HasPrefix(f[0], "#") {
+			continue
+		}
+		if i := strings.LastIndexByte(f[0], ':'); i > 0 && f[0][:i] == name {
+			entries = append(entries, f[0])
+			same = slices.Equal(f[1:], sni)
+		}
+	}
+	if len(entries) == 1 && same {
+		return nil
+	}
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry, err := cliToken("crt-list entry", entries[i])
+		if err != nil {
+			return err
+		}
+		out, err := m.statsCommand("del ssl crt-list " + listArg + " " + entry)
+		if err != nil {
+			return fmt.Errorf("unbind certificate %s from crt-list %s: %w", name, crtList, err)
+		}
+		if !strings.Contains(string(out), "deleted") {
+			return fmt.Errorf("unbind certificate %s from crt-list %s: %s", name, crtList, strings.TrimSpace(string(out)))
+		}
+	}
+	return m.addToCrtList(name, crtList, sni)
+}
+
+// addToCrtList binds name into crtList, scoped to sni if given - as a
+// payload, a crt-list line: HAProxy 3.4 ignores the filters that follow
+// the certificate on the command line itself (measured: the certificate
+// was served for its own names only).
 func (m *Manager) addToCrtList(name, crtList string, sni []string) error {
 	certArg, err := cliToken("certificate name", name)
 	if err != nil {
@@ -204,15 +255,15 @@ func (m *Manager) addToCrtList(name, crtList string, sni []string) error {
 	if err != nil {
 		return err
 	}
-	addCmd := "add ssl crt-list " + listArg + " " + certArg
+	entry := certArg
 	for _, s := range sni {
 		a, err := cliToken("sni", s)
 		if err != nil {
 			return err
 		}
-		addCmd += " " + a
+		entry += " " + a
 	}
-	addOut, err := m.statsCommand(addCmd)
+	addOut, err := m.statsCommand("add ssl crt-list " + listArg + " <<\n" + entry + "\n")
 	if err != nil {
 		return fmt.Errorf("bind certificate %s to crt-list %s: %w", name, crtList, err)
 	}

@@ -155,18 +155,30 @@ ctl haproxy cert-upload "$WORKDIR/uploaded.pem" "$WORKDIR/rt-bundle.pem"
 ctl haproxy cert-list | grep -q "^$WORKDIR/uploaded.pem.*status=Unused" || fail "an unbound uploaded cert isn't listed Unused"
 ctl haproxy cert-delete "$WORKDIR/uploaded.pem"
 
-# The crt-list binding: upload+bind with an SNI filter, HAProxy serves it
-# only for that SNI (no SNI still gets the seeded default), then
+# The crt-list binding: upload+bind with an SNI filter - a name the
+# certificate doesn't carry, so the filter is what serves it -, HAProxy
+# serves it only for that SNI (its own name and no SNI still get the
+# seeded default); uploaded again, it stays one entry; then
 # unbind+delete.
 selfsigned uploaded.local "$WORKDIR/certs/uploaded.key" "$WORKDIR/certs/uploaded.crt"
 cat "$WORKDIR/certs/uploaded.crt" "$WORKDIR/certs/uploaded.key" > "$WORKDIR/certs/uploaded.pem"
-ctl haproxy cert-upload -crt-list "$WORKDIR/certs/crt-list.txt" -sni uploaded.local \
-    "$WORKDIR/certs/uploaded.pem" "$WORKDIR/certs/uploaded.pem"
+for _ in 1 2; do
+    ctl haproxy cert-upload -crt-list "$WORKDIR/certs/crt-list.txt" -sni uploaded.example \
+        "$WORKDIR/certs/uploaded.pem" "$WORKDIR/certs/uploaded.pem"
+done
 ctl haproxy cert-list | grep -q "^$WORKDIR/certs/uploaded.pem.*status=Used" || fail "the bound cert isn't listed Used"
+entries="$(python3 -c 'import socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.connect("/run/janus/haproxy-admin.sock")
+s.sendall(("show ssl crt-list " + sys.argv[1] + "\n").encode())
+print(s.makefile().read())' "$WORKDIR/certs/crt-list.txt" | grep -c "^$WORKDIR/certs/uploaded.pem" || true)"
+[ "$entries" = 1 ] || fail "uploaded twice, the certificate is in the crt-list $entries times"
 
 subject() { openssl s_client -connect 127.0.0.1:8443 "$@" </dev/null 2>/dev/null | grep subject= || true; }
-got="$(subject -servername uploaded.local)"
+got="$(subject -servername uploaded.example)"
 [ "$got" = "subject=CN=uploaded.local" ] || fail "expected the SNI-bound cert, got: $got"
+got="$(subject -servername uploaded.local)"
+[ "$got" = "subject=CN=default.local" ] || fail "expected the default cert for a name outside the filter, got: $got"
 got="$(subject)"
 [ "$got" = "subject=CN=default.local" ] || fail "expected the default cert with no SNI, got: $got"
 
@@ -174,7 +186,7 @@ got="$(subject)"
 # uploaded certificate and its crt-list binding back.
 ctl haproxy apply-config "$WORKDIR/haproxy.cfg"
 ctl haproxy cert-list | grep -q "^$WORKDIR/certs/uploaded.pem.*status=Used" || fail "the bound cert is gone after a reload"
-got="$(subject -servername uploaded.local)"
+got="$(subject -servername uploaded.example)"
 [ "$got" = "subject=CN=uploaded.local" ] || fail "expected the SNI-bound cert after a reload, got: $got"
 
 ctl haproxy cert-delete -crt-list "$WORKDIR/certs/crt-list.txt" "$WORKDIR/certs/uploaded.pem"
