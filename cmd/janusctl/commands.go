@@ -348,7 +348,43 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "trust-reset", help: "forget the fleet (the node's own CA only)"},
 		{name: "rotate-ca", args: "DIR", help: "replace the node's own CA", flags: []flagDef{boolFlag("console", "the node prints the admin key on its console")}, pos: []argKind{argDir}, required: 1},
 	}},
-	{name: "cluster", group: "🔗 Cluster", help: "the node's membership of a cluster: the primitives an orchestrator drives", subs: []*command{
+	{name: "cluster", group: "🔗 Cluster", help: "clusters of a fleet without a Controller (create, apply, check...), and a node's membership of one (-n NODE: get, status, release, drain...)", subs: []*command{
+		{name: "list", help: "the clusters this fleet context orchestrates"},
+		{name: "create", args: "NAME NODE...", help: "make a cluster of these nodes of the fleet context: checked, member certificates, the source's configuration as version 1 on each, its secrets pulled", flags: []flagDef{
+			valFlag("source", "NODE", "the node whose configuration becomes version 1, its certificates and keys every member's", argFleetNode),
+			valFlag("peers-port", "N", "HAProxy's peers port (10057)", argNone),
+			valFlag("address", "NODE=IP", "the address the other members reach NODE on (default: the context's), repeatable", argNone),
+			valFlag("dir", "DIR", "write version 1's files there, to edit and apply", argDir),
+		}, pos: []argKind{argNone, argFleetNode}, required: 2, variadic: true},
+		{name: "checkout", args: "NAME DIR", help: "write a version's files into DIR, to edit and apply", flags: []flagDef{
+			valFlag("version", "N", "this version (default: the cluster's)", argNone),
+		}, pos: []argKind{argNone, argDir}, required: 2},
+		{name: "apply", args: "NAME DIR", help: "DIR's haproxy.cfg, files/ and templates as the cluster's next version, applied member by member", flags: []flagDef{
+			valFlag("manage", "LIST", "what the cluster manages from now on: haproxy,files,vrrp,bgp,firewall (default: as before)", argNone),
+			boolFlag("dry-run", "say what would change, change nothing"),
+			valFlag("m", "TEXT", "what this version changes", argNone),
+		}, pos: []argKind{argNone, argDir}, required: 2},
+		{name: "check", args: "NAME", help: "each member as it is: version, peers, drift, certificates - renewed, the ticket ring rotated when due; exits 1 when one wants a look (cron)", pos: []argKind{argNone}, required: 1},
+		{name: "add", args: "NAME NODE", help: "a node of the fleet context joins the cluster: checked, its certificate, the secrets, the cluster's version", flags: []flagDef{
+			valFlag("address", "IP", "the address the other members reach it on (default: the context's)", argNone),
+			valFlag("var", "KEY=VALUE", "a variable the cluster's templates use for it, repeatable", argNone),
+		}, pos: []argKind{argNone, argFleetNode}, required: 2},
+		{name: "remove", args: "NAME NODE", help: "a member leaves: drained first, the others told", flags: []flagDef{
+			boolFlag("force", "even if it doesn't drain or answer - a node gone for good"),
+		}, pos: []argKind{argNone, argFleetNode}, required: 2},
+		{name: "delete", args: "NAME", help: "every member leaves; the cluster and its CA are gone", flags: []flagDef{
+			boolFlag("force", "even if a member doesn't answer"),
+		}, pos: []argKind{argNone}, required: 1},
+		{name: "vars", args: "NAME MEMBER [KEY=VALUE...]", help: "a member's template variables, set (KEY= unsets one) or shown", pos: []argKind{argNone, argFleetNode, argNone}, required: 2, variadic: true},
+		{name: "certificate", args: "NAME FILE", help: "a certificate and its key for every member: uploaded to the one the secrets come from, pulled by the others", flags: []flagDef{
+			valFlag("name", "NAME", "its name in HAProxy's store (default: the file's)", argNone),
+			valFlag("crt-list", "PATH", "a crt-list to bind it into", argNone),
+			valFlag("sni", "NAMES", "the names it's served for there, comma-separated", argNone),
+		}, pos: []argKind{argNone, argFile}, required: 2},
+		{name: "tickets", args: "NAME", help: "a new TLS ticket key on the member the secrets come from, pulled by the others (check does it daily)", pos: []argKind{argNone}, required: 1},
+		{name: "journal", args: "NAME", help: "what was done to the cluster, by whom", flags: []flagDef{
+			valFlag("n", "N", "the newest N entries (50)", argNone),
+		}, pos: []argKind{argNone}, required: 1},
 		{name: "get", help: "what the node knows of its cluster, and the peers section HAProxy runs with"},
 		{name: "status", help: "HAProxy's peers: connected, and in sync"},
 		{name: "csr", args: "[OUT]", help: "a signing request for the node's member certificate - its key stays on the node", pos: []argKind{argFile}},

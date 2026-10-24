@@ -164,7 +164,8 @@ type State struct {
 	TicketsRotated time.Time `json:"tickets_rotated,omitzero"`
 }
 
-// Sealer seals and opens the cluster CA's key (the master key).
+// Sealer seals and opens the cluster CA's key (the Controller's master
+// key). Nil: the key is kept as is, 0600 (janusctl's).
 type Sealer interface {
 	Seal(plaintext []byte, purpose string) ([]byte, error)
 	Open(sealed []byte, purpose string) ([]byte, error)

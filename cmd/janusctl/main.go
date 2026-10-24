@@ -129,6 +129,13 @@ func main() {
 		echo()
 		runFleet(*ctxFlag, args[1:])
 		return
+	case "cluster":
+		// The orchestrator's commands reach the fleet's nodes themselves.
+		if len(args) > 1 && clusterCtlVerbs[args[1]] {
+			echo()
+			runClusterCtl(*ctxFlag, args[1:])
+			return
+		}
 	case "tui":
 		if tuiThemesOnly(args[1:], os.Stdout) { // -theme list needs no node
 			return

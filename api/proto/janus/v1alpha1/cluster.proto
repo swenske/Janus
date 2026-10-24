@@ -120,6 +120,8 @@ message ClusterInfo {
   string peers_config = 13;
   // The TLS ticket key ring (TLSTicketKeysRotate).
   TLSTicketKeysState tls_ticket_keys = 14;
+  // The locks are advisory (ClusterSetRequest.advisory).
+  bool advisory = 15;
 }
 
 message ClusterSetRequest {
@@ -138,6 +140,11 @@ message ClusterSetRequest {
   bytes member_cert = 7;
   repeated string managed = 8;
   string managed_by = 9;
+  // The locks are advisory: an orchestrator without a Controller
+  // (janusctl cluster) writes through them with an admin certificate
+  // and the cluster's id in janus-cluster-apply. False: only the
+  // Controller's certificate gets through.
+  bool advisory = 10;
 }
 
 message ClusterReleaseRequest {
@@ -149,6 +156,12 @@ message ClusterStatusResponse {
   repeated ClusterPeer peers = 2;
   // This node's clock.
   int64 now_unix = 3;
+  // HAProxy has learnt the stick tables since it started - from the
+  // process it replaced, or from a peer (its resync flags). A process
+  // reloaded among remote peers learns from them once its resync
+  // timeout (5 s) passes, its tables empty until then: an orchestrator
+  // waits for it on each member before reloading the next.
+  bool tables_learnt = 4;
 }
 
 // ClusterPeer is one peer as HAProxy's "show peers" reports it.

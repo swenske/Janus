@@ -535,6 +535,7 @@ function AddMember({ cluster, nodes, onDone, reload }) {
   const free = nodes.filter((n) => !taken.has(n.id))
   const [nodeID, setNodeID] = useState('')
   const [member, setMember] = useState({ name: '', address: '' })
+  const [vars, setVars] = useState('')
   const [error, setError] = useState(null)
   const [busy, run] = useAction()
   const pick = (id) => {
@@ -545,9 +546,16 @@ function AddMember({ cluster, nodes, onDone, reload }) {
   const submit = (e) => {
     e.preventDefault()
     setError(null)
+    let parsed
+    try {
+      parsed = parseVars(vars)
+    } catch (err) {
+      setError(err)
+      return
+    }
     run(async () => {
       try {
-        await postJSON(`/api/clusters/${cluster.id}/members`, { node_id: nodeID, name: member.name, address: member.address.trim() })
+        await postJSON(`/api/clusters/${cluster.id}/members`, { node_id: nodeID, name: member.name, address: member.address.trim(), vars: parsed })
         reload()
         onDone()
       } catch (err) {
@@ -577,6 +585,10 @@ function AddMember({ cluster, nodes, onDone, reload }) {
           <span>Address the others reach it on</span>
           <input className="mono" value={member.address} placeholder="192.0.2.13" onChange={(e) => setMember({ ...member, address: e.target.value })} />
         </label>
+        <label className="field grow">
+          <span>Variables its templates use - key=value, one a line</span>
+          <textarea className="mono" rows={2} value={vars} placeholder="priority=50" onChange={(e) => setVars(e.target.value)} />
+        </label>
         <button className="primary" type="submit" disabled={busy || !!problem}>
           Add
         </button>
@@ -584,7 +596,10 @@ function AddMember({ cluster, nodes, onDone, reload }) {
           Cancel
         </button>
       </form>
-      <p className="small muted">It is checked, given its member certificate, told to the others; it pulls the secrets, then gets the cluster’s version.</p>
+      <p className="small muted">
+        It is checked - the cluster’s version must render for it, its variables given -, given its member certificate, told to the others; it pulls the secrets, then
+        gets the cluster’s version.
+      </p>
       <ErrorBox error={error} />
     </Card>
   )

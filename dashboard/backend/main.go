@@ -56,7 +56,6 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/backup"
-	"github.com/swenske/Janus/dashboard/backend/internal/clusters"
 	"github.com/swenske/Janus/dashboard/backend/internal/enroll"
 	"github.com/swenske/Janus/dashboard/backend/internal/fleet"
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
@@ -71,6 +70,7 @@ import (
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/dashboard/backend/internal/uitls"
 	"github.com/swenske/Janus/dashboard/updater/updaterapi"
+	"github.com/swenske/Janus/internal/clusters"
 )
 
 // staticFiles is dashboard/frontend's built React SPA - dashboard/
@@ -629,7 +629,7 @@ func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 
 	// A cluster's member leaves its cluster first: the others still name
 	// it as a peer, and its lock still holds.
-	if a.clusters != nil && a.clusters.store.ClusterOf(id) != "" {
+	if a.clusters != nil && a.clusters.Store.ClusterOf(id) != "" {
 		http.Error(w, "this node is a member of a cluster: remove it from the cluster first", http.StatusConflict)
 		return
 	}

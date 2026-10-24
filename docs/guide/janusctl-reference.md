@@ -1285,7 +1285,143 @@ janusctl access rotate-ca [-console] DIR
 
 ### janusctl cluster
 
-The node's membership of a cluster: the primitives an orchestrator drives.
+Clusters of a fleet without a Controller (create, apply, check...), and a node's membership of one (-n NODE: get, status, release, drain...).
+
+#### janusctl cluster list
+
+The clusters this fleet context orchestrates.
+
+```text
+janusctl cluster list
+```
+
+#### janusctl cluster create
+
+Make a cluster of these nodes of the fleet context: checked, member certificates, the source's configuration as version 1 on each, its secrets pulled.
+
+```text
+janusctl cluster create [-source NODE] [-peers-port N] [-address NODE=IP] [-dir DIR] NAME NODE...
+```
+
+| Flag | |
+|---|---|
+| `-source NODE` | the node whose configuration becomes version 1, its certificates and keys every member's |
+| `-peers-port N` | HAProxy's peers port (10057) |
+| `-address NODE=IP` | the address the other members reach NODE on (default: the context's), repeatable |
+| `-dir DIR` | write version 1's files there, to edit and apply |
+
+#### janusctl cluster checkout
+
+Write a version's files into DIR, to edit and apply.
+
+```text
+janusctl cluster checkout [-version N] NAME DIR
+```
+
+| Flag | |
+|---|---|
+| `-version N` | this version (default: the cluster's) |
+
+#### janusctl cluster apply
+
+DIR's haproxy.cfg, files/ and templates as the cluster's next version, applied member by member.
+
+```text
+janusctl cluster apply [-manage LIST] [-dry-run] [-m TEXT] NAME DIR
+```
+
+| Flag | |
+|---|---|
+| `-manage LIST` | what the cluster manages from now on: haproxy,files,vrrp,bgp,firewall (default: as before) |
+| `-dry-run` | say what would change, change nothing |
+| `-m TEXT` | what this version changes |
+
+#### janusctl cluster check
+
+Each member as it is: version, peers, drift, certificates - renewed, the ticket ring rotated when due; exits 1 when one wants a look (cron).
+
+```text
+janusctl cluster check NAME
+```
+
+#### janusctl cluster add
+
+A node of the fleet context joins the cluster: checked, its certificate, the secrets, the cluster's version.
+
+```text
+janusctl cluster add [-address IP] [-var KEY=VALUE] NAME NODE
+```
+
+| Flag | |
+|---|---|
+| `-address IP` | the address the other members reach it on (default: the context's) |
+| `-var KEY=VALUE` | a variable the cluster's templates use for it, repeatable |
+
+#### janusctl cluster remove
+
+A member leaves: drained first, the others told.
+
+```text
+janusctl cluster remove [-force] NAME NODE
+```
+
+| Flag | |
+|---|---|
+| `-force` | even if it doesn't drain or answer - a node gone for good |
+
+#### janusctl cluster delete
+
+Every member leaves; the cluster and its CA are gone.
+
+```text
+janusctl cluster delete [-force] NAME
+```
+
+| Flag | |
+|---|---|
+| `-force` | even if a member doesn't answer |
+
+#### janusctl cluster vars
+
+A member's template variables, set (KEY= unsets one) or shown.
+
+```text
+janusctl cluster vars NAME MEMBER [KEY=VALUE...]
+```
+
+#### janusctl cluster certificate
+
+A certificate and its key for every member: uploaded to the one the secrets come from, pulled by the others.
+
+```text
+janusctl cluster certificate [-name NAME] [-crt-list PATH] [-sni NAMES] NAME FILE
+```
+
+| Flag | |
+|---|---|
+| `-name NAME` | its name in HAProxy's store (default: the file's) |
+| `-crt-list PATH` | a crt-list to bind it into |
+| `-sni NAMES` | the names it's served for there, comma-separated |
+
+#### janusctl cluster tickets
+
+A new TLS ticket key on the member the secrets come from, pulled by the others (check does it daily).
+
+```text
+janusctl cluster tickets NAME
+```
+
+#### janusctl cluster journal
+
+What was done to the cluster, by whom.
+
+```text
+janusctl cluster journal [-n N] NAME
+```
+
+| Flag | |
+|---|---|
+| `-n N` | the newest N entries (50) |
 
 #### janusctl cluster get
 

@@ -14,8 +14,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
-	"github.com/swenske/Janus/dashboard/backend/internal/clusters"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/clusters"
 	"github.com/swenske/Janus/internal/pki"
 )
 
@@ -58,7 +58,7 @@ func (a *app) handleClusterCheck(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	a.clusters.reconcile(ctx, c)
-	if cur, ok := a.clusters.store.Get(c.ID); ok {
+	if cur, ok := a.clusters.Store.Get(c.ID); ok {
 		c = cur
 	}
 	writeJSON(w, http.StatusOK, a.clusterView(c))
@@ -91,11 +91,11 @@ type clusterView struct {
 }
 
 func (a *app) clusterView(c *clusters.Cluster) clusterView {
-	st := a.clusters.store.State(c.ID)
+	st := a.clusters.Store.State(c.ID)
 	v := clusterView{ID: c.ID, Name: c.Name, PeersPort: c.PeersPort, Managed: nonNil(c.Managed), SecretsFrom: c.SecretsFrom,
 		Desired: c.Desired, Created: c.Created, Updated: c.Updated, Phase: c.Phase, Error: c.Error, Busy: a.clusters.isBusy(c.ID),
 		TicketsRotated: st.TicketsRotated, Members: []clusterMemberView{}, Problems: []string{}}
-	if caPEM, err := a.clusters.store.CACertPEM(c.ID); err == nil {
+	if caPEM, err := a.clusters.Store.CACertPEM(c.ID); err == nil {
 		if fp, err := pemFingerprint(caPEM); err == nil {
 			v.CAFingerprint = fp
 		}
@@ -151,7 +151,7 @@ func pemFingerprint(p []byte) (string, error) {
 }
 
 func (a *app) clusterOr404(w http.ResponseWriter, r *http.Request) (*clusters.Cluster, bool) {
-	c, ok := a.clusters.store.Get(r.PathValue("id"))
+	c, ok := a.clusters.Store.Get(r.PathValue("id"))
 	if !ok {
 		writeError(w, http.StatusNotFound, "no such cluster")
 		return nil, false
@@ -166,7 +166,7 @@ func (a *app) runCluster(w http.ResponseWriter, c *clusters.Cluster, phase, acto
 		writeError(w, http.StatusConflict, "an operation already runs on cluster "+c.Name+": wait for it to end")
 		return
 	}
-	if cur, ok := a.clusters.store.Get(c.ID); ok {
+	if cur, ok := a.clusters.Store.Get(c.ID); ok {
 		c = cur
 	}
 	writeJSON(w, http.StatusAccepted, a.clusterView(c))
@@ -174,7 +174,7 @@ func (a *app) runCluster(w http.ResponseWriter, c *clusters.Cluster, phase, acto
 
 func (a *app) handleClusters(w http.ResponseWriter, _ *http.Request) {
 	out := []clusterView{}
-	for _, c := range a.clusters.store.List() {
+	for _, c := range a.clusters.Store.List() {
 		out = append(out, a.clusterView(c))
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -201,7 +201,7 @@ func (a *app) member(req clusterMemberRequest) (clusters.Member, error) {
 	if !ok {
 		return clusters.Member{}, fmt.Errorf("no node %s", req.NodeID)
 	}
-	if other := a.clusters.store.ClusterOf(n.ID); other != "" {
+	if other := a.clusters.Store.ClusterOf(n.ID); other != "" {
 		return clusters.Member{}, fmt.Errorf("%s is a member of a cluster already", n.Name)
 	}
 	m := clusters.Member{NodeID: n.ID, Name: req.Name, Address: req.Address, API: req.API, Vars: req.Vars, Joined: time.Now().UTC()}
@@ -262,22 +262,22 @@ func (a *app) handleClusterCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "source: one of the members - its configuration becomes the cluster's, its certificates and keys everyone's")
 		return
 	}
-	c, err := a.clusters.store.Create(req.Name, req.PeersPort, req.Managed)
+	c, err := a.clusters.Store.Create(req.Name, req.PeersPort, req.Managed)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if c, err = a.clusters.store.Update(c.ID, func(c *clusters.Cluster) error {
+	if c, err = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
 		c.Members, c.SecretsFrom = members, source
 		return nil
 	}); err != nil {
-		_ = a.clusters.store.Remove(c.ID)
+		_ = a.clusters.Store.Remove(c.ID)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	actor := requestPrincipal(r).User
-	a.clusters.journal(c.ID, actor, "create", "", 0, "cluster %s created with %d members, from %s", c.Name, len(members), source)
-	a.runCluster(w, c, "creating", actor, func(ctx context.Context) error { return a.clusters.create(ctx, c.ID, source, actor) })
+	a.clusters.Journal(c.ID, actor, "create", "", 0, "cluster %s created with %d members, from %s", c.Name, len(members), source)
+	a.runCluster(w, c, "creating", actor, func(ctx context.Context) error { return a.clusters.Create(ctx, c.ID, source, actor) })
 }
 
 func (a *app) handleClusterPatch(w http.ResponseWriter, r *http.Request) {
@@ -296,7 +296,7 @@ func (a *app) handleClusterPatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "an operation runs on cluster "+c.Name)
 		return
 	}
-	c, err := a.clusters.store.Update(c.ID, func(c *clusters.Cluster) error {
+	c, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
 		if req.SecretsFrom != nil {
 			c.SecretsFrom = *req.SecretsFrom
 		}
@@ -323,7 +323,7 @@ func (a *app) handleClusterDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	force := r.URL.Query().Get("force") == "true"
 	actor := requestPrincipal(r).User
-	a.runCluster(w, c, "deleting", actor, func(ctx context.Context) error { return a.clusters.remove(ctx, c.ID, force) })
+	a.runCluster(w, c, "deleting", actor, func(ctx context.Context) error { return a.clusters.Remove(ctx, c.ID, force) })
 }
 
 func (a *app) handleClusterMemberAdd(w http.ResponseWriter, r *http.Request) {
@@ -345,7 +345,7 @@ func (a *app) handleClusterMemberAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := requestPrincipal(r).User
-	a.runCluster(w, c, "adding "+m.Name, actor, func(ctx context.Context) error { return a.clusters.addMember(ctx, c.ID, m, actor) })
+	a.runCluster(w, c, "adding "+m.Name, actor, func(ctx context.Context) error { return a.clusters.AddMember(ctx, c.ID, m, actor) })
 }
 
 func (a *app) handleClusterMemberRemove(w http.ResponseWriter, r *http.Request) {
@@ -360,7 +360,7 @@ func (a *app) handleClusterMemberRemove(w http.ResponseWriter, r *http.Request) 
 	}
 	force := r.URL.Query().Get("force") == "true"
 	actor := requestPrincipal(r).User
-	a.runCluster(w, c, "removing "+name, actor, func(ctx context.Context) error { return a.clusters.removeMember(ctx, c.ID, name, force, actor) })
+	a.runCluster(w, c, "removing "+name, actor, func(ctx context.Context) error { return a.clusters.RemoveMember(ctx, c.ID, name, force, actor) })
 }
 
 func (a *app) handleClusterDrain(drain bool) http.HandlerFunc {
@@ -378,22 +378,18 @@ func (a *app) handleClusterDrain(drain bool) http.HandlerFunc {
 		actor := requestPrincipal(r).User
 		phase := map[bool]string{true: "draining ", false: "undraining "}[drain] + name
 		a.runCluster(w, c, phase, actor, func(ctx context.Context) error {
-			n, err := a.clusters.node(*m)
-			if err != nil {
-				return err
-			}
 			if !drain {
-				if err := clusterNodes.ClusterUndrain(ctx, n); err != nil {
+				if err := a.clusters.Nodes.ClusterUndrain(ctx, *m); err != nil {
 					return err
 				}
-				a.clusters.journal(c.ID, actor, "undrain", name, 0, "%s back in service", name)
+				a.clusters.Journal(c.ID, actor, "undrain", name, 0, "%s back in service", name)
 				return nil
 			}
-			msg, err := clusterNodes.ClusterDrain(ctx, n, time.Minute)
+			msg, err := a.clusters.Nodes.ClusterDrain(ctx, *m, time.Minute)
 			if err != nil {
 				return err
 			}
-			a.clusters.journal(c.ID, actor, "drain", name, 0, "%s drained: %s", name, msg)
+			a.clusters.Journal(c.ID, actor, "drain", name, 0, "%s drained: %s", name, msg)
 			return nil
 		})
 	}
@@ -404,7 +400,7 @@ func (a *app) handleClusterVersions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	vs, err := a.clusters.store.Versions(c.ID)
+	vs, err := a.clusters.Store.Versions(c.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -427,7 +423,7 @@ func (a *app) handleClusterVersion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "a version is a number")
 		return
 	}
-	v, err := a.clusters.store.Version(c.ID, n)
+	v, err := a.clusters.Store.Version(c.ID, n)
 	if errors.Is(err, clusters.ErrNoVersion) {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -472,7 +468,7 @@ func (a *app) handleClusterVersionNew(w http.ResponseWriter, r *http.Request) {
 		base = c.Desired
 	}
 	if base > 0 {
-		v, err := a.clusters.store.Version(c.ID, base)
+		v, err := a.clusters.Store.Version(c.ID, base)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("version %d: %v", base, err))
 			return
@@ -491,12 +487,12 @@ func (a *app) handleClusterVersionNew(w http.ResponseWriter, r *http.Request) {
 	for _, p := range req.Delete {
 		delete(files, p)
 	}
-	info, err := a.clusters.store.NewVersion(c.ID, requestPrincipal(r).User, req.Note, files)
+	info, err := a.clusters.Store.NewVersion(c.ID, requestPrincipal(r).User, req.Note, files)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a.clusters.journal(c.ID, requestPrincipal(r).User, "version", "", info.Version, "version %d made (%d files)", info.Version, len(info.Files))
+	a.clusters.Journal(c.ID, requestPrincipal(r).User, "version", "", info.Version, "version %d made (%d files)", info.Version, len(info.Files))
 	writeJSON(w, http.StatusCreated, info)
 }
 
@@ -512,7 +508,7 @@ func (a *app) handleClusterApply(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if _, err := a.clusters.store.Version(c.ID, req.Version); err != nil {
+	if _, err := a.clusters.Store.Version(c.ID, req.Version); err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("version %d: %v", req.Version, err))
 		return
 	}
@@ -527,7 +523,7 @@ func (a *app) handleClusterApply(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "an operation runs on cluster "+c.Name)
 			return
 		}
-		if _, err := a.clusters.store.Update(c.ID, func(c *clusters.Cluster) error {
+		if _, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
 			c.Managed = req.Managed
 			return nil
 		}); err != nil {
@@ -537,7 +533,7 @@ func (a *app) handleClusterApply(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := requestPrincipal(r).User
 	a.runCluster(w, c, fmt.Sprintf("applying version %d", req.Version), actor, func(ctx context.Context) error {
-		return a.clusters.apply(ctx, c.ID, req.Version, nil, actor)
+		return a.clusters.Apply(ctx, c.ID, req.Version, nil, actor)
 	})
 }
 
@@ -547,7 +543,7 @@ func (a *app) handleClusterPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := requestPrincipal(r).User
-	a.runCluster(w, c, "pulling the secrets", actor, func(ctx context.Context) error { return a.clusters.pull(ctx, c.ID, nil, nil, actor) })
+	a.runCluster(w, c, "pulling the secrets", actor, func(ctx context.Context) error { return a.clusters.Pull(ctx, c.ID, nil, nil, actor) })
 }
 
 func (a *app) handleClusterCertificate(w http.ResponseWriter, r *http.Request) {
@@ -567,7 +563,7 @@ func (a *app) handleClusterCertificate(w http.ResponseWriter, r *http.Request) {
 	up := &janusv1alpha1.CertificateUploadRequest{Name: req.Name, PemBundle: []byte(req.PEM), CrtList: req.CrtList, Sni: req.SNI}
 	actor := requestPrincipal(r).User
 	a.runCluster(w, c, "uploading certificate "+req.Name, actor, func(ctx context.Context) error {
-		return a.clusters.uploadCertificate(ctx, c.ID, up, actor)
+		return a.clusters.UploadCertificate(ctx, c.ID, up, actor)
 	})
 }
 
@@ -580,5 +576,5 @@ func (a *app) handleClusterJournal(w http.ResponseWriter, r *http.Request) {
 	if n <= 0 || n > 1000 {
 		n = 100
 	}
-	writeJSON(w, http.StatusOK, nonNil(a.clusters.store.Entries(c.ID, n)))
+	writeJSON(w, http.StatusOK, nonNil(a.clusters.Store.Entries(c.ID, n)))
 }

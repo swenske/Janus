@@ -58,3 +58,22 @@ func TestShowPeersUnsynced(t *testing.T) {
 		t.Error("behind, yet synced")
 	}
 }
+
+// A section's tables are learnt once both resyncs finished: not right
+// after a reload among remote peers, nor while a new member waits for a
+// peer to teach it (fixtures captured from 3.4.7).
+func TestPeersLearnt(t *testing.T) {
+	for file, want := range map[string]bool{
+		"show-peers-after-reload.txt":        false, // flags=0x0
+		"show-peers-established.txt":         false, // 0x28900001: local only
+		"show-peers-alone-bind.txt":          true,  // 0x300003
+		"show-peers-alone-bind-reloaded.txt": true,  // 0x11000003
+	} {
+		if got := peersLearnt(fixture(t, file)); got != want {
+			t.Errorf("%s: learnt %v, want %v", file, got, want)
+		}
+	}
+	if peersLearnt("No such peers section.\n") {
+		t.Error("no section, learnt")
+	}
+}

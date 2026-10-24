@@ -175,6 +175,8 @@ type ClusterInfo struct {
 	PeersConfig string `protobuf:"bytes,13,opt,name=peers_config,json=peersConfig,proto3" json:"peers_config,omitempty"`
 	// The TLS ticket key ring (TLSTicketKeysRotate).
 	TlsTicketKeys *TLSTicketKeysState `protobuf:"bytes,14,opt,name=tls_ticket_keys,json=tlsTicketKeys,proto3" json:"tls_ticket_keys,omitempty"`
+	// The locks are advisory (ClusterSetRequest.advisory).
+	Advisory      bool `protobuf:"varint,15,opt,name=advisory,proto3" json:"advisory,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -307,6 +309,13 @@ func (x *ClusterInfo) GetTlsTicketKeys() *TLSTicketKeysState {
 	return nil
 }
 
+func (x *ClusterInfo) GetAdvisory() bool {
+	if x != nil {
+		return x.Advisory
+	}
+	return false
+}
+
 type ClusterSetRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -321,9 +330,14 @@ type ClusterSetRequest struct {
 	// PEM, the member certificate and its chain, for the key of the last
 	// CertificateRequest(CLUSTER_MEMBER) - or of the current member
 	// certificate, when renewing. Empty: unchanged.
-	MemberCert    []byte   `protobuf:"bytes,7,opt,name=member_cert,json=memberCert,proto3" json:"member_cert,omitempty"`
-	Managed       []string `protobuf:"bytes,8,rep,name=managed,proto3" json:"managed,omitempty"`
-	ManagedBy     string   `protobuf:"bytes,9,opt,name=managed_by,json=managedBy,proto3" json:"managed_by,omitempty"`
+	MemberCert []byte   `protobuf:"bytes,7,opt,name=member_cert,json=memberCert,proto3" json:"member_cert,omitempty"`
+	Managed    []string `protobuf:"bytes,8,rep,name=managed,proto3" json:"managed,omitempty"`
+	ManagedBy  string   `protobuf:"bytes,9,opt,name=managed_by,json=managedBy,proto3" json:"managed_by,omitempty"`
+	// The locks are advisory: an orchestrator without a Controller
+	// (janusctl cluster) writes through them with an admin certificate
+	// and the cluster's id in janus-cluster-apply. False: only the
+	// Controller's certificate gets through.
+	Advisory      bool `protobuf:"varint,10,opt,name=advisory,proto3" json:"advisory,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -421,6 +435,13 @@ func (x *ClusterSetRequest) GetManagedBy() string {
 	return ""
 }
 
+func (x *ClusterSetRequest) GetAdvisory() bool {
+	if x != nil {
+		return x.Advisory
+	}
+	return false
+}
+
 type ClusterReleaseRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Domains       []string               `protobuf:"bytes,1,rep,name=domains,proto3" json:"domains,omitempty"`
@@ -470,7 +491,13 @@ type ClusterStatusResponse struct {
 	Info  *ClusterInfo           `protobuf:"bytes,1,opt,name=info,proto3" json:"info,omitempty"`
 	Peers []*ClusterPeer         `protobuf:"bytes,2,rep,name=peers,proto3" json:"peers,omitempty"`
 	// This node's clock.
-	NowUnix       int64 `protobuf:"varint,3,opt,name=now_unix,json=nowUnix,proto3" json:"now_unix,omitempty"`
+	NowUnix int64 `protobuf:"varint,3,opt,name=now_unix,json=nowUnix,proto3" json:"now_unix,omitempty"`
+	// HAProxy has learnt the stick tables since it started - from the
+	// process it replaced, or from a peer (its resync flags). A process
+	// reloaded among remote peers learns from them once its resync
+	// timeout (5 s) passes, its tables empty until then: an orchestrator
+	// waits for it on each member before reloading the next.
+	TablesLearnt  bool `protobuf:"varint,4,opt,name=tables_learnt,json=tablesLearnt,proto3" json:"tables_learnt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -524,6 +551,13 @@ func (x *ClusterStatusResponse) GetNowUnix() int64 {
 		return x.NowUnix
 	}
 	return 0
+}
+
+func (x *ClusterStatusResponse) GetTablesLearnt() bool {
+	if x != nil {
+		return x.TablesLearnt
+	}
+	return false
 }
 
 // ClusterPeer is one peer as HAProxy's "show peers" reports it.
@@ -1139,7 +1173,7 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
 	"\vapi_address\x18\x03 \x01(\tR\n" +
-	"apiAddress\"\xfc\x03\n" +
+	"apiAddress\"\x98\x04\n" +
 	"\vClusterInfo\x12\x16\n" +
 	"\x06member\x18\x01 \x01(\bR\x06member\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
@@ -1158,7 +1192,8 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x1amember_cert_not_after_unix\x18\v \x01(\x03R\x16memberCertNotAfterUnix\x12\x18\n" +
 	"\adrained\x18\f \x01(\bR\adrained\x12!\n" +
 	"\fpeers_config\x18\r \x01(\tR\vpeersConfig\x12J\n" +
-	"\x0ftls_ticket_keys\x18\x0e \x01(\v2\".janus.v1alpha1.TLSTicketKeysStateR\rtlsTicketKeys\"\xa3\x02\n" +
+	"\x0ftls_ticket_keys\x18\x0e \x01(\v2\".janus.v1alpha1.TLSTicketKeysStateR\rtlsTicketKeys\x12\x1a\n" +
+	"\badvisory\x18\x0f \x01(\bR\badvisory\"\xbf\x02\n" +
 	"\x11ClusterSetRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
@@ -1172,13 +1207,16 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"memberCert\x12\x18\n" +
 	"\amanaged\x18\b \x03(\tR\amanaged\x12\x1d\n" +
 	"\n" +
-	"managed_by\x18\t \x01(\tR\tmanagedBy\"1\n" +
+	"managed_by\x18\t \x01(\tR\tmanagedBy\x12\x1a\n" +
+	"\badvisory\x18\n" +
+	" \x01(\bR\badvisory\"1\n" +
 	"\x15ClusterReleaseRequest\x12\x18\n" +
-	"\adomains\x18\x01 \x03(\tR\adomains\"\x96\x01\n" +
+	"\adomains\x18\x01 \x03(\tR\adomains\"\xbb\x01\n" +
 	"\x15ClusterStatusResponse\x12/\n" +
 	"\x04info\x18\x01 \x01(\v2\x1b.janus.v1alpha1.ClusterInfoR\x04info\x121\n" +
 	"\x05peers\x18\x02 \x03(\v2\x1b.janus.v1alpha1.ClusterPeerR\x05peers\x12\x19\n" +
-	"\bnow_unix\x18\x03 \x01(\x03R\anowUnix\"\xf3\x02\n" +
+	"\bnow_unix\x18\x03 \x01(\x03R\anowUnix\x12#\n" +
+	"\rtables_learnt\x18\x04 \x01(\bR\ftablesLearnt\"\xf3\x02\n" +
 	"\vClusterPeer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x14\n" +

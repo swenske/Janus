@@ -199,6 +199,11 @@ func printCluster(info *janusv1alpha1.ClusterInfo) {
 		}
 		if len(info.GetManaged()) > 0 {
 			fmt.Printf("Managed:     %s (by %s)\n", strings.Join(info.GetManaged(), ", "), info.GetManagedBy())
+			if info.GetAdvisory() {
+				fmt.Println("Locks:       advisory - an admin's certificate with the cluster's id gets through (janusctl cluster)")
+			} else {
+				fmt.Println("Locks:       the Controller's certificate only")
+			}
 		}
 		if info.GetDrained() {
 			fmt.Println("Drained:     yes - out of service until cluster undrain")
