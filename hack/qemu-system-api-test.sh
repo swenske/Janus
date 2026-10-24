@@ -330,7 +330,7 @@ until ctl version >/dev/null 2>&1; do
   sleep 1
 done
 sleep 2
-grep -q "/usr/local/sbin/haproxy -f /etc/haproxy/haproxy.cfg -sf $old_haproxy" <<<"$(ctl system ps)" || fail "the restarted janusd didn't take over haproxy $old_haproxy with -sf: $(ctl system ps)"
+grep -qE "/usr/local/sbin/haproxy -f /etc/haproxy/haproxy.cfg -f /etc/haproxy/janus-peers.cfg -L [a-z0-9-]+ -sf $old_haproxy\$" <<<"$(ctl system ps)" || fail "the restarted janusd didn't take over haproxy $old_haproxy with -sf: $(ctl system ps)"
 [ "$(haproxy_count)" -eq 1 ] || fail "$(haproxy_count) haproxy processes after the janusd restart, want 1: $(ctl system ps)"
 [ "$(markers)" -eq 1 ] || fail "the machine rebooted during a janusd-only Restart"
 echo "  ok: Restart (HAProxy served every request, new janusd took haproxy over)"
