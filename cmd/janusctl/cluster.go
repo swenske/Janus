@@ -212,9 +212,9 @@ func printCluster(info *janusv1alpha1.ClusterInfo) {
 				fmt.Println("Locks:       the Controller's certificate only")
 			}
 		}
-		if info.GetDrained() {
-			fmt.Println("Drained:     yes - out of service until cluster undrain")
-		}
+	}
+	if info.GetDrained() {
+		fmt.Println("Drained:     yes - out of service (VRRP priority lowered, BGP routes withdrawn) until cluster undrain or a reboot")
 	}
 	fmt.Printf("Peers port:  %d\n", info.GetPeersPort())
 	if tk := info.GetTlsTicketKeys(); tk != nil {

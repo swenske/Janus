@@ -302,7 +302,15 @@ func (e *Engine) Create(ctx context.Context, id, source, actor string) error {
 	if err != nil {
 		return err
 	}
-	return e.SecretsAndVersion(ctx, id, n, nil, actor)
+	if err := e.SecretsAndVersion(ctx, id, n, nil, actor); err != nil {
+		return err
+	}
+	for _, m := range c.Members {
+		if err := e.inService(ctx, id, m, actor); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SecretsAndVersion brings only's members - nil: every one - the secrets
@@ -555,7 +563,29 @@ func (e *Engine) addMember(ctx context.Context, id string, m Member, actor strin
 		}
 		e.Journal(id, actor, "drain", m.Name, 0, "%s joins drained: %s", m.Name, msg)
 	}
-	return e.SecretsAndVersion(ctx, id, c.Desired, []string{m.Name}, actor)
+	if err := e.SecretsAndVersion(ctx, id, c.Desired, []string{m.Name}, actor); err != nil {
+		return err
+	}
+	if drained {
+		return nil
+	}
+	return e.inService(ctx, id, m, actor)
+}
+
+// inService undrains a member that joined drained - left so by an
+// earlier removal, or by hand: joining a cluster puts a node in service
+// (Replace's newcomer joins drained on purpose, undrained as it takes
+// over).
+func (e *Engine) inService(ctx context.Context, id string, m Member, actor string) error {
+	info, err := e.Nodes.ClusterGet(ctx, m)
+	if err != nil || !info.GetDrained() {
+		return err
+	}
+	if err := e.Nodes.ClusterUndrain(ctx, m); err != nil {
+		return fmt.Errorf("%s was drained, and undraining it failed: %v", m.Name, err)
+	}
+	e.Journal(id, actor, "undrain", m.Name, 0, "%s was drained - by an earlier removal, or by hand: in service as it joins", m.Name)
+	return nil
 }
 
 // ReplaceOptions are a replacement's choices.
@@ -671,6 +701,7 @@ func (e *Engine) RemoveMember(ctx context.Context, id, name string, force bool, 
 	dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	msg, err := e.Nodes.ClusterDrain(dctx, *m, time.Minute)
 	cancel()
+	leftDrained := err == nil
 	switch {
 	case err == nil:
 		e.Journal(id, actor, "drain", name, 0, "%s drained: %s", name, msg)
@@ -696,7 +727,13 @@ func (e *Engine) RemoveMember(ctx context.Context, id, name string, force bool, 
 			s.TicketsRenew = append(s.TicketsRenew, name)
 		}
 	})
-	e.Journal(id, actor, "leave", name, 0, "%s left the cluster", name)
+	if leftDrained {
+		// It may still run the cluster's VRRP or BGP configuration: out
+		// of service until someone decides otherwise.
+		e.Journal(id, actor, "leave", name, 0, "%s left the cluster, drained: out of service on its own until undrained (cluster undrain) or rebooted", name)
+	} else {
+		e.Journal(id, actor, "leave", name, 0, "%s left the cluster", name)
+	}
 	var failed []string
 	for _, o := range c.Members {
 		if _, err := e.Nodes.ClusterSet(ctx, o, e.SetRequest(c, o, nil, nil)); err != nil {

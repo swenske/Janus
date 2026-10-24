@@ -274,6 +274,9 @@ before="$(ring 1)"
 [ -n "$before" ] && [ "$(ring 2)" = "$before" ] && [ "$(ring 3)" = "$before" ] || fail "the members' rings differ before lb-3 leaves: $(ring 1) $(ring 2) $(ring 3)"
 out="$(alice cluster remove edge lb-3 2>&1)" || fail "remove lb-3: $out"
 check "lb-3 on its own" "Cluster: +none" "$(alice -n lb-3 cluster get)"
+# Removed, it stays drained - it may still run the cluster's VRRP - and
+# says so.
+check "lb-3 says it is drained" "Drained: +yes" "$(alice -n lb-3 cluster get)"
 for i in 1 2; do wait_for 60 "lb-$i with one peer" peers_up "$i" 1; done
 r1="$(ring 1)" r2="$(ring 2)" r3="$(ring 3)"
 [ "$r1" = "$r2" ] || fail "lb-1 and lb-2 don't share the renewed ring: $r1 $r2"
@@ -288,11 +291,14 @@ check "lb-3 still on its own" "Cluster: +none" "$(alice -n lb-3 cluster get)"
 out="$(alice cluster add edge lb-3 -address 192.168.87.3 -var priority=50 2>&1)" || fail "add lb-3: $out"
 check "lb-3's priority rendered" "priority 50" "$(alice -n lb-3 network vrrp get)"
 check "lb-3 a member again" "Cluster: +edge " "$(alice -n lb-3 cluster get)"
+# Joining again puts it back in service: its VRRP priority whole.
+if alice -n lb-3 cluster get | grep -q "Drained"; then fail "lb-3 joined again drained: $(alice -n lb-3 cluster get)"; fi
+check "lb-3's VRRP priority whole" " 50/50 " "$(alice -n lb-3 network vrrp status)"
 for i in $MEMBERS; do wait_for 60 "lb-$i's peers up again" peers_up "$i" 2; done
 out="$(alice cluster tickets edge 2>&1)" || fail "tickets: $out"
 check "the ring pulled" "pulled from lb-1" "$out"
 check "the journal" "version 3 applied on lb-3" "$(alice cluster journal edge -n 200)"
-echo "  ok: a member removed and added again - the ring it knew renewed on the others, its own made anew; refused first without its template's variable; the ticket ring rotated and pulled"
+echo "  ok: a member removed and added again - drained once out and saying so, in service again once back; the ring it knew renewed on the others, its own made anew; refused first without its template's variable; the ticket ring rotated and pulled"
 
 # lb-4 takes the VRRP master's place: it joins drained, learns the
 # table, comes into service as lb-1 is drained - the virtual IP moves
@@ -307,6 +313,7 @@ check "lb-4 joined drained" "lb-4 joins drained" "$out"
 check "lb-1 drained as lb-4 came in" "lb-1 drained, lb-4 in service" "$out"
 check "lb-4 a member" "Cluster: +edge " "$(alice -n lb-4 cluster get)"
 check "lb-1 on its own" "Cluster: +none" "$(alice -n lb-1 cluster get)"
+check "lb-1 says it is drained" "Drained: +yes" "$(alice -n lb-1 cluster get)"
 check "lb-4 has lb-1's priority" "priority 150" "$(alice -n lb-4 network vrrp get)"
 wait_for 30 "lb-4 holding the virtual IP" master 4
 has_entry 4 || fail "lb-4 hasn't the stick table"

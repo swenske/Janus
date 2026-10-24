@@ -212,7 +212,11 @@ and the member the secrets come from. Through the API:
   the cluster's version applied.
 - `DELETE /api/clusters/{id}/members/{name}`: drained first - its virtual
   IPs and routes move to the others -, out of the cluster, the others
-  told. `?force=true` for a node that doesn't answer any more.
+  told. `?force=true` for a node that doesn't answer any more. The node
+  **stays drained** - it may still run the cluster's VRRP or BGP
+  configuration - and says so (`janusctl -n NODE cluster get`):
+  `janusctl -n NODE cluster undrain` puts it back in service on its own;
+  added to a cluster again, it is back in service by itself.
 - `POST /api/clusters/{id}/members/{name}/drain` and `/undrain`: out of
   service and back, without leaving.
 - A node that is a member can't be removed from the Controller: it

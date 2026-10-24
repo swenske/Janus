@@ -32,8 +32,8 @@ type fakeMember struct {
 	secret    map[string]bool
 	modules   map[string][]byte
 	// learning: its HAProxy hasn't learnt its stick tables; alone: no
-	// peer up.
-	learning, alone bool
+	// peer up; drained: the node's own, member or not.
+	learning, alone, drained bool
 }
 
 // clusterFake answers the cluster engine for every node, and keeps what
@@ -111,10 +111,11 @@ func (f *clusterFake) ClusterGet(_ context.Context, m clusters.Member) (*janusv1
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if fm.info == nil {
-		return &janusv1alpha1.ClusterInfo{}, nil
+		return &janusv1alpha1.ClusterInfo{Drained: fm.drained}, nil
 	}
 	info := proto.Clone(fm.info).(*janusv1alpha1.ClusterInfo)
 	info.MemberCertNotAfterUnix = f.notAfter.Unix()
+	info.Drained = fm.drained
 	return info, nil
 }
 
@@ -165,14 +166,18 @@ func (f *clusterFake) ClusterDrain(_ context.Context, m clusters.Member, _ time.
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if m := f.nodes[m.Name]; m.info != nil {
-		m.info.Drained = true
-	}
+	f.nodes[m.Name].drained = true
 	return "out of service", nil
 }
 
 func (f *clusterFake) ClusterUndrain(_ context.Context, m clusters.Member) error {
-	return f.call(m, "ClusterUndrain", "")
+	if err := f.call(m, "ClusterUndrain", ""); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nodes[m.Name].drained = false
+	return nil
 }
 
 func (f *clusterFake) ClusterPull(_ context.Context, m clusters.Member, from string, items []janusv1alpha1.ClusterItem) ([]string, error) {
@@ -824,5 +829,38 @@ func TestClusterReplace(t *testing.T) {
 	}
 	if cur.SecretsFrom == "lb-1" {
 		t.Error("the secrets still come from lb-1")
+	}
+}
+
+// A member removed leaves drained - it may still run the cluster's VRRP
+// or BGP configuration - and the journal says so; added again, it comes
+// back in service (v2026.10.24-2's lab: a node removed sat drained, with
+// nothing on it saying so, and would have joined again drained).
+func TestClusterRejoinsInService(t *testing.T) {
+	a, f, nodes := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	c := newCluster(t, a, nodes, "lb-1", "lb-2", "lb-3")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.clusters.RemoveMember(ctx, c.ID, "lb-3", false, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	said := func(words string) bool {
+		return slices.ContainsFunc(a.clusters.Store.Entries(c.ID, 100), func(e clusters.Entry) bool { return strings.Contains(e.Message, words) })
+	}
+	if !f.nodes["lb-3"].drained || !said("lb-3 left the cluster, drained") {
+		t.Errorf("lb-3 after its removal: drained %v, journal %+v", f.nodes["lb-3"].drained, a.clusters.Store.Entries(c.ID, 5))
+	}
+	mark := f.mark()
+	if err := a.clusters.AddMember(ctx, c.ID, clusters.Member{NodeID: nodes["lb-3"].ID, Name: "lb-3", Address: "10.0.0.3"}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.callsOf("lb-3", mark); !inOrder(got, "HAProxyApply", "ClusterUndrain") || f.nodes["lb-3"].drained || !said("lb-3 was drained") {
+		t.Errorf("lb-3 joined again: %v, drained %v", got, f.nodes["lb-3"].drained)
+	}
+	// A node that wasn't drained isn't undrained.
+	if slices.Contains(f.callsOf("lb-1", 0), "ClusterUndrain") {
+		t.Errorf("lb-1 undrained: %v", f.callsOf("lb-1", 0))
 	}
 }
