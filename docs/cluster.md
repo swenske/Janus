@@ -405,11 +405,15 @@ every member's history, in `GetConfig`.
 
 ### Applying
 
-An apply is one version, pushed **one member at a time**, in this
-order on each: `ValidateConfig`/`validate_only` of everything first;
-then HAProxy (`ApplyConfig` keeps the previous configuration when the
-new process fails to start); the firewall, on trial, confirmed from a
-fresh connection once the member answers; VRRP; BGP. The first failure
+An apply is one version, pushed **one member at a time**:
+`ValidateConfig`/`validate_only` of everything on the first member
+first; then on each, the files (the new `haproxy.cfg` may name them),
+HAProxy (`ApplyConfig` keeps the previous configuration when the new
+process fails to start), the files the version no longer has (a node
+refuses to delete one its running configuration names), the firewall,
+on trial, confirmed from a fresh connection; VRRP; BGP. A cluster starts
+managing `haproxy` and `files`; it manages VRRP, BGP or the firewall
+from the apply of a version that carries their template. The first failure
 stops the apply: the members already done keep the new version, the
 others the old, the cluster shows **partially applied** with the
 member and the error, and the operator either fixes and re-applies or
@@ -429,7 +433,10 @@ write to a managed domain that doesn't come from the orchestrator -
 `ApplyConfig`, `FilePut`, `VRRPApplyConfig`... called with a user's
 certificate, or from the node's page - is refused with
 `FailedPrecondition: managed by cluster <name>`; the orchestrator's
-calls carry the metadata `janus-cluster-apply: <id>`. The lock can be
+calls carry the metadata `janus-cluster-apply: <id>` - honoured from the
+Controller's certificate only, so an administrator's certificate that
+sends it is refused all the same (a cluster without a Controller, phase
+3, gets an advisory lock). The lock can be
 **released** per member and per domain (the cluster's page, `janusctl
 cluster release`) for an emergency change on one node - an audited,
 journaled event - and the member is then in **drift**: the

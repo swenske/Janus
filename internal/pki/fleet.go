@@ -56,6 +56,10 @@ const FleetControllerName = "controller.fleet.janus"
 const (
 	AsUserKey  = "janus-as-user"
 	AsRolesKey = "janus-as-roles"
+	// ClusterApplyKey, optional: the cluster a Controller's write is
+	// for - what lets it through a member's cluster lock
+	// (internal/api/cluster_lock.go).
+	ClusterApplyKey = "janus-cluster-apply"
 	// AsDomainsKey, optional: the domains the user's permission is
 	// narrowed to on this node (internal/rbac.NodeDomains),
 	// comma-separated - absent, every domain.

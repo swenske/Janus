@@ -39,6 +39,7 @@ topics:
               - { file: docs/guide/sso.md, label: Single sign-on }
               - { file: docs/hypervisors.md, label: Hypervisors }
               - { file: docs/guide/auto-scaling.md, label: Auto-scaling }
+              - { file: docs/guide/clusters.md, label: Clusters }
           - label: janusctl
             pages:
               - { file: docs/janusctl.md, title: Using janusctl, label: Using janusctl }

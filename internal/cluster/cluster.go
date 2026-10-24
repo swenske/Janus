@@ -342,6 +342,55 @@ func (s *Store) MemberCertificate() *x509.Certificate {
 	return s.member
 }
 
+// Lock reports whether the node's cluster manages domain: the cluster's
+// id and name when it does.
+func (s *Store) Lock(domain string) (id, name string, locked bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.m == nil || !slices.Contains(s.m.Managed, domain) {
+		return "", "", false
+	}
+	return s.m.ID, s.m.Name, true
+}
+
+// Release drops domains from what the cluster manages on this node -
+// every one when none is named -, durably: the ones it released.
+func (s *Store) Release(domains []string) (released []string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.m == nil {
+		return nil, errors.New("this node is in no cluster")
+	}
+	for _, d := range domains {
+		if !slices.Contains(Domains, d) {
+			return nil, fmt.Errorf("unknown domain %q (%s)", d, strings.Join(Domains, ", "))
+		}
+	}
+	m := *s.m
+	m.Members = slices.Clone(s.m.Members)
+	m.Managed = nil
+	for _, d := range s.m.Managed {
+		if len(domains) == 0 || slices.Contains(domains, d) {
+			released = append(released, d)
+		} else {
+			m.Managed = append(m.Managed, d)
+		}
+	}
+	if len(released) == 0 {
+		return nil, nil
+	}
+	m.Updated = time.Now().UTC()
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := writeDurable(s.Dir, MembershipFile, append(data, '\n'), 0o600); err != nil {
+		return nil, err
+	}
+	s.m = &m
+	return released, nil
+}
+
 // ClusterID is the cluster's id, empty for no member.
 func (s *Store) ClusterID() string {
 	s.mu.RLock()

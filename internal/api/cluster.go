@@ -199,6 +199,21 @@ func (c *Cluster) ClusterSet(ctx context.Context, req *janusv1alpha1.ClusterSetR
 	return info, nil
 }
 
+// ClusterRelease lets domains of this member be changed again by its own
+// users: the cluster reports the member as drifted until its next apply.
+func (c *Cluster) ClusterRelease(ctx context.Context, req *janusv1alpha1.ClusterReleaseRequest) (*janusv1alpha1.ClusterInfo, error) {
+	caller, _ := CallerFrom(ctx)
+	released, err := c.Store.Release(req.GetDomains())
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if len(released) > 0 {
+		log.Printf("cluster: released %s - this node's own users may change them; the cluster reports it as drifted - by %s", strings.Join(released, ", "), caller)
+		events.Publish("cluster.released", map[string]any{"domains": released, "by": caller.String()})
+	}
+	return c.info(), nil
+}
+
 // ClusterLeave forgets the membership: HAProxy's peers section names the
 // node alone again.
 func (c *Cluster) ClusterLeave(ctx context.Context, _ *emptypb.Empty) (*janusv1alpha1.ClusterInfo, error) {

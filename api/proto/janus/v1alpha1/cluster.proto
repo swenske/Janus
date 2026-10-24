@@ -38,6 +38,13 @@ service ClusterService {
   // doesn't drain: ClusterDrain first, when the node serves.
   rpc ClusterLeave(google.protobuf.Empty) returns (ClusterInfo);
 
+  // ClusterRelease lets this member's own configuration be changed again,
+  // by domain - haproxy, files, vrrp, bgp, firewall; none named: all -,
+  // for an emergency change on one node while its cluster manages it.
+  // The orchestrator then reports the member as drifted, and takes the
+  // domains back with its next apply.
+  rpc ClusterRelease(ClusterReleaseRequest) returns (ClusterInfo);
+
   // ClusterStatus reads HAProxy's "show peers": each peer connected or
   // not, its last handshake, and for each table whether this node has
   // taught the peer every local update. It carries this node's clock,
@@ -131,6 +138,10 @@ message ClusterSetRequest {
   bytes member_cert = 7;
   repeated string managed = 8;
   string managed_by = 9;
+}
+
+message ClusterReleaseRequest {
+  repeated string domains = 1;
 }
 
 message ClusterStatusResponse {

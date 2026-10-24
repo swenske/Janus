@@ -1316,7 +1316,7 @@ janusctl cluster csr [OUT]
 Install or update the membership (MEMBER: name=address[,api=host:port]).
 
 ```text
-janusctl cluster set [-id UUID] [-name NAME] [-member NAME] [-port N] [-ca FILE] [-cert FILE] [-managed-by TEXT] MEMBER...
+janusctl cluster set [-id UUID] [-name NAME] [-member NAME] [-port N] [-ca FILE] [-cert FILE] [-managed-by TEXT] [-managed LIST] MEMBER...
 ```
 
 | Flag | |
@@ -1328,6 +1328,7 @@ janusctl cluster set [-id UUID] [-name NAME] [-member NAME] [-port N] [-ca FILE]
 | `-ca FILE` | the cluster's CA (PEM): the first time, or to replace it |
 | `-cert FILE` | the member certificate (PEM) for the last csr: the first time, or to renew it |
 | `-managed-by TEXT` | who sets the composition |
+| `-managed LIST` | what the cluster manages here, locked to the orchestrator: haproxy,files,vrrp,bgp,firewall |
 
 #### janusctl cluster leave
 
@@ -1335,6 +1336,14 @@ Forget the membership: the node on its own again.
 
 ```text
 janusctl cluster leave
+```
+
+#### janusctl cluster release
+
+Let this node's own users change what the cluster manages (all of it when none is named) - the cluster then sees it drifted.
+
+```text
+janusctl cluster release [DOMAIN...]
 ```
 
 #### janusctl cluster drain
