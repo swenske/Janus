@@ -163,6 +163,15 @@ Controller is gone and no backup restores it
 | the kit and its passphrase | the fleet: whoever has both can sign a bundle | `janusctl access trust-reset` on each node with its own CA's credential, then a new fleet |
 | a node's own admin credential | the way into that node | `janusctl access rotate-ca` (or the node page's Access) |
 
+## Clusters
+
+The fleet's nodes make clusters too - one HAProxy configuration on
+several nodes, their stick tables replicated, their secrets carried
+from one to another: `janusctl cluster create`, `apply`, `check` from
+the fleet's context ([clusters without a
+Controller](guide/clusters.md#without-a-controller)). The context's
+directory keeps them, each with its own CA.
+
 ## Files
 
 `~/.config/janus/janusctl.json` (`JANUSCONFIG` elsewhere) and, per fleet

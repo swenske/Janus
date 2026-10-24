@@ -698,6 +698,13 @@ jobs:
       - name: A cluster the Controller drives (keepalived image)
         run: make qemu-controller-cluster-test
 
+      # A cluster without a Controller: janusctl cluster from a fleet
+      # context - advisory locks, VRRP from a directory, a dry run, drift,
+      # a certificate, a member out and back with its tables kept. See
+      # hack/qemu-clusterctl-test.sh.
+      - name: A cluster janusctl drives, no Controller (keepalived image)
+        run: make qemu-clusterctl-test
+
       # Point 2 suite, tranche 5: proves a node provisioned with a
       # Controller at Install time (controller_address/
       # controller_ca_cert, tranche 4) genuinely self-registers with a

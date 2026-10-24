@@ -5,8 +5,10 @@ configuration on every member, their stick tables replicated between
 them, their certificates and keys carried from member to member, VRRP
 configured from one template, and each member locked against changes
 made behind the cluster's back. This page is how to run one through the
-Controller - its **Clusters** tab, or its API; how it works is [the
-cluster design](../cluster.md).
+Controller - its **Clusters** tab, or its API - or, for a fleet without
+a Controller, with `janusctl cluster` ([without a
+Controller](#without-a-controller)); how it works is [the cluster
+design](../cluster.md).
 
 ![The Clusters tab's page of cluster edge-par: in sync, version 1, managing HAProxy's configuration and files; its two members, edge-par-1 (where the secrets come from) and edge-par-2, each running version 1 with its peer up and the stick tables in sync](../assets/screenshots/controller-cluster-light.webp)
 
@@ -150,7 +152,10 @@ curl -X POST https://controller:8080/api/clusters/$CLUSTER/apply -H "Authorizati
 The version is rendered for every member first, checked on the first
 member (`haproxy -c`, each daemon's own check), then applied one member
 at a time: the files, HAProxy, the files the version no longer has, the
-firewall on trial and confirmed, VRRP, BGP. The first failure stops it:
+firewall on trial and confirmed, VRRP, BGP - and before the next member,
+the member's stick tables learnt back from its peers (a reloaded HAProxy
+gets them from a peer after about 5 seconds: members reloaded together
+would lose them). The first failure stops it:
 the members before run the new version, the others the one they ran,
 and the cluster says which. Going back is applying an older version.
 
@@ -222,6 +227,66 @@ member at once. Through the API:
 - On a node: `janusctl cluster status` shows its peers as HAProxy sees
   them; its exporter has `janus_cluster_info`, `janus_cluster_peer_up`
   and `janus_cluster_peer_table_synced` ([metrics](../metrics.md)).
+
+## Without a Controller
+
+A [fleet without a Controller](../fleet-without-controller.md) runs its
+clusters with `janusctl cluster`, from the fleet's context on an admin's
+machine: the same engine as the Controller's - the same checks, the
+same order, the secrets moving from member to member - and the cluster
+kept in the context's directory, next to its issuing CA: its versions,
+what each member runs, its journal, and its own CA, the key `0600` like
+`issuing.key`. The nodes are the context's (`janusctl fleet adopt`), the
+machine signs as `os:admin`.
+
+```sh
+# lb-1's configuration becomes version 1, its keys every member's;
+# -address: where the members reach each other, when the context
+# reaches them another way (a NAT, a port forward).
+janusctl cluster create edge -source lb-1 -dir edge/ \
+  -address lb-1=192.0.2.11 -address lb-2=192.0.2.12 lb-1 lb-2
+
+# The configuration is a directory - in git, say: haproxy.cfg, files/,
+# keepalived.conf, bird.conf, firewall.nft. Apply makes a version of it.
+janusctl cluster vars edge lb-1 priority=150
+janusctl cluster vars edge lb-2 priority=100
+$EDITOR edge/keepalived.conf
+janusctl cluster apply edge edge/ -dry-run
+janusctl cluster apply edge edge/ -manage haproxy,files,vrrp -m "VRRP"
+
+janusctl cluster check edge          # each member; exits 1 when one wants a look
+janusctl cluster certificate edge www.pem
+janusctl cluster add edge lb-3 -address 192.0.2.13
+janusctl cluster remove edge lb-3
+janusctl cluster journal edge
+janusctl cluster delete edge
+```
+
+| Command | What it does |
+|---|---|
+| `create NAME NODE... -source NODE` | Checks, member certificates, the source's configuration as version 1 on each, its secrets pulled; `-dir` writes version 1's files to edit |
+| `checkout NAME DIR` | A version's files into DIR (`-version N`) |
+| `apply NAME DIR` | DIR as the next version, applied member by member; `-dry-run` says what would change, `-manage` what the cluster manages from now on |
+| `check NAME` | Each member's version, peers, tables, certificate, drift; renews member certificates and rotates the ticket key ring when due - run it from cron |
+| `vars NAME MEMBER KEY=VALUE...` | A member's template variables (`KEY=` unsets one) |
+| `certificate NAME FILE` | A certificate and its key for every member (`-crt-list`, `-sni`) |
+| `add`, `remove NAME NODE` | A member in, out (drained first; `-force` for a node gone) |
+| `tickets NAME` | A new TLS ticket key, pulled by the members |
+| `list`, `journal NAME`, `delete NAME` | The clusters; what was done; every member leaves |
+
+The members' own primitives work on one node as before: `janusctl -n lb-1
+cluster drain`, `cluster status`, `cluster release haproxy`.
+
+The locks are **advisory** here: a write to what the cluster manages is
+refused on a member - its page, `haproxy apply-config` - except from an
+administrator's certificate that sends the cluster's id, which `janusctl
+cluster` does. They keep a member from drifting by accident, not an
+administrator out. A drift shows in `check`, and the next `apply` puts
+the member back.
+
+Where the cluster lives: one machine's context directory orchestrates
+it. Back that directory up with the fleet's; another admin machine
+takes the cluster over with a copy of `clusters/<id>/`.
 
 ## The API
 

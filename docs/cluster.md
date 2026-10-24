@@ -411,8 +411,16 @@ first; then on each, the files (the new `haproxy.cfg` may name them),
 HAProxy (`ApplyConfig` keeps the previous configuration when the new
 process fails to start), the files the version no longer has (a node
 refuses to delete one its running configuration names), the firewall,
-on trial, confirmed from a fresh connection; VRRP; BGP. A cluster starts
-managing `haproxy` and `files`; it manages VRRP, BGP or the firewall
+on trial, confirmed from a fresh connection; VRRP; BGP - and, before the
+next member, the member's stick tables learnt back: HAProxy reloaded
+among remote peers starts with empty tables and learns them from a peer
+once its resync timeout (5 s) passes, the process it replaced gone at
+once (measured on 3.4.7), so members reloaded inside that window would
+leave no one to teach the others. `ClusterStatus.tables_learnt` (the
+peers section's resync flags) says when; a member with no peer up has no
+one to learn from and the apply goes on, journaled. The same wait follows
+each member whose composition changes when one joins or leaves. A
+cluster starts managing `haproxy` and `files`; it manages VRRP, BGP or the firewall
 from the apply of a version that carries their template. The first failure
 stops the apply: the members already done keep the new version, the
 others the old, the cluster shows **partially applied** with the
@@ -435,8 +443,11 @@ certificate, or from the node's page - is refused with
 `FailedPrecondition: managed by cluster <name>`; the orchestrator's
 calls carry the metadata `janus-cluster-apply: <id>` - honoured from the
 Controller's certificate only, so an administrator's certificate that
-sends it is refused all the same (a cluster without a Controller, phase
-3, gets an advisory lock). The lock can be
+sends it is refused all the same. A cluster without a Controller
+(`janusctl cluster`, phase 3) has **advisory** locks (`ClusterSet`'s
+`advisory`): an administrator's certificate sending the id gets
+through - what `janusctl cluster` does -, everything else is refused as
+above. The lock can be
 **released** per member and per domain (the cluster's page, `janusctl
 cluster release`) for an emergency change on one node - an audited,
 journaled event - and the member is then in **drift**: the
@@ -925,7 +936,7 @@ In phases, each proven on real boots before the next:
 | **P0 - member primitives** | `ClusterService`, `cluster/` on STATE, the generated peers file and `-L`, the cluster CA chain in `AcceptChains`, ticket key ring, drain | `make qemu-cluster-test`: three enforcing nodes, peers over mTLS, tables replicated, a VRRP failover with full tables, a transparent reload, a full resync after a reboot, a ticket rotation, a drain |
 | **P1 - standalone replacement** | `StateExport`/`StateImport`/`StateImportFrom`, `CertificateRequest`, `janusctl system state` | `make qemu-state-migrate-test`: a node installed without LOGS (`logs_size_mb: -1`) replaced by one with it, identity reused, same certificates served |
 | **P2 - the cluster resource** | The Controller's cluster record, checks, desired configuration and templates, apply and reconcile, locks and drift, secrets pulls, the cluster's page | `make controller-cluster-test` on local-dev nodes, then `qemu-dashboard-test` |
-| **P3 - without a Controller** | `janusctl cluster` (init, adopt, apply, status, release, recycle), the cluster CA in janusctl's configuration | `make qemu-clusterctl-test` |
+| **P3 - without a Controller** | `janusctl cluster` (create, apply, check, add, remove, delete...) on the Controller's engine, shared (`internal/clusters`); the cluster CA in the fleet context's directory; advisory locks | `make qemu-clusterctl-test` |
 | **P4 - recycling** | The recycle operation with its checkpoints and rollback | `controller-libvirt-test` part, lab campaign (zero lost requests under load) |
 | **P5 - creation on hypervisors** | `HostID`, anti-affinity, observed placement | `controller-libvirt-test`, Proxmox `TestLive` |
 | **P6 - horizontal auto-scaling** | The engine in observe then on, `janus_cluster` in Terraform | `terraform-provider-test` part, lab campaign on BGP |
