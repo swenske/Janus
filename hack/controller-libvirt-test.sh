@@ -25,6 +25,11 @@
 #      vCPU added under load (onlined, HAProxy reloaded); the load gone,
 #      the vCPU, the memory and the parameters taken back; paused, then
 #      removed (restarted fixed);
+#   3e. recycling a cluster's member (docs/cluster.md section 5): the
+#      Controller's fleet set up, a cluster of node1 and a new machine,
+#      node3; node3 recycled - a new machine like it made, registered,
+#      trusting the fleet, joined drained and taking node3's place - and
+#      node3's machine destroyed;
 #   4. a record forged to point at a domain the Controller didn't create
 #      (one untagged, one tagged by another Controller) is refused, and
 #      the domain is left as it was;
@@ -483,6 +488,74 @@ done
 echo "Part 4d OK: resizing for real - memory added, the kernel parameters following it, a vCPU under load (onlined, HAProxy reloaded), all taken back once the load was gone; paused without a restart, removed with one"
 }
 
+recycle_cycle() {
+# =========================================================================
+# 3e. A cluster's member recycled into a new machine.
+# =========================================================================
+fleet="$(api -X POST "$API/api/fleet/setup")" || fail "fleet setup"
+kit="$(api "$API/api/fleet/recovery-kit")" || fail "recovery kit"
+python3 -c 'import json,sys; print(json.dumps({"kit": sys.argv[1], "passphrase": json.loads(sys.argv[2])["passphrase"]}))' "$kit" "$fleet" >"$WORKDIR/confirm.json"
+api -X POST "$API/api/fleet/confirm" -H 'Content-Type: application/json' -d @"$WORKDIR/confirm.json" >/dev/null || fail "fleet confirm"
+trusted() { [ "$(api "$API/api/fleet" | json "d.get('nodes',{}).get('$1',{}).get('state')")" = trusted ]; }
+for _ in $(seq 1 120); do trusted "$NODE" && break; sleep 1; done
+trusted "$NODE" || fail "node1 never trusted the fleet: $(api "$API/api/fleet")"
+api -X POST "$API/api/machines" -H 'Content-Type: application/json' -d "{
+  \"name\": \"node3\", \"hypervisor_id\": \"$HV\", \"vcpus\": 1, \"memory_mib\": 512,
+  \"image\": {\"url\": \"http://127.0.0.1:8000/janus-kvm.qcow2\", \"sha256\": \"$SUM\"},
+  \"nics\": [{\"network\": \"janus-test\", \"name\": \"lan\", \"mode\": \"dhcp\"}]}" >"$WORKDIR/m3.json"
+MID3="$(json "d['id']" <"$WORKDIR/m3.json")" || fail "create node3: $(cat "$WORKDIR/m3.json")"
+for _ in $(seq 1 120); do
+  [ "$(api "$API/api/machines/$MID3" | json "d['phase']")" = ready ] && break
+  sleep 2
+done
+NODE3="$(api "$API/api/machines/$MID3" | json "d.get('node_id','')")"
+[ -n "$NODE3" ] || fail "node3 never registered: $(api "$API/api/machines/$MID3")"
+for _ in $(seq 1 120); do trusted "$NODE3" && break; sleep 1; done
+trusted "$NODE3" || fail "node3 never trusted the fleet"
+api -X POST "$API/api/clusters" -H 'Content-Type: application/json' \
+  -d "{\"name\": \"edge\", \"source\": \"$NODE\", \"members\": [{\"node_id\": \"$NODE\"}, {\"node_id\": \"$NODE3\"}]}" >"$WORKDIR/c.json" \
+  || fail "create the cluster: $(cat "$WORKDIR/c.json")"
+CID="$(json "d['id']" <"$WORKDIR/c.json")"
+cluster_idle() { # $1: how long
+  for _ in $(seq 1 "$1"); do
+    [ "$(api "$API/api/clusters/$CID" | json "d['busy']")" = False ] && return 0
+    sleep 2
+  done
+  fail "cluster edge still busy: $(api "$API/api/clusters/$CID")"
+}
+cluster_idle 120
+err="$(api "$API/api/clusters/$CID" | json "d.get('error','')")"
+[ -z "$err" ] || fail "the cluster's creation: $err"
+api -X POST "$API/api/clusters/$CID/recycle" -H 'Content-Type: application/json' -d '{"members": ["node3"]}' >/dev/null || fail "recycle node3"
+cluster_idle 450
+api "$API/api/clusters/$CID" >"$WORKDIR/c.json"
+err="$(json "d.get('error','')" <"$WORKDIR/c.json")"
+[ -z "$err" ] || fail "recycling node3: $err"
+members="$(json "','.join(sorted(m['name'] for m in d['members']))" <"$WORKDIR/c.json")"
+[ "$members" = "edge-1,node1" ] || fail "the members after the recycle: $members"
+api "$API/api/clusters/$CID/journal" | grep -q "edge-1 joins drained" || fail "edge-1 didn't join drained: $(api "$API/api/clusters/$CID/journal")"
+for _ in $(seq 1 90); do
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID3")" = 404 ] && break
+  sleep 1
+done
+[ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID3")" = 404 ] || fail "node3's machine was never destroyed: $(api "$API/api/machines/$MID3")"
+if in_host virsh list --all --name | grep -q '^janus-node3$'; then fail "node3's virtual machine is still defined"; fi
+MIDE="$(api "$API/api/machines" | json "next(m['id'] for m in d if m['spec']['name']=='edge-1')")"
+echo "Part 4e OK: node3 recycled - edge-1 made like it, registered, trusting the fleet, joined drained and took its place; node3's machine destroyed"
+# Back as the parts after expect: the cluster gone, edge-1 destroyed.
+api -o /dev/null -X DELETE "$API/api/clusters/$CID" || fail "delete the cluster"
+for _ in $(seq 1 60); do
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/clusters/$CID")" = 404 ] && break
+  sleep 1
+done
+api -o /dev/null -X DELETE "$API/api/machines/$MIDE"
+for _ in $(seq 1 90); do
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MIDE")" = 404 ] && break
+  sleep 1
+done
+[ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MIDE")" = 404 ] || fail "edge-1 was never destroyed"
+}
+
 destroy_cycle() {
 # =========================================================================
 # 5. Destroy: nothing left but the base image.
@@ -506,6 +579,7 @@ echo "Part 6 OK: destroyed - node, virtual machine, NVRAM and volumes gone, the 
 if [ -c /dev/net/tun ]; then
   boot_cycle
   autoscale_cycle
+  recycle_cycle
 else
   failed_creation
 fi

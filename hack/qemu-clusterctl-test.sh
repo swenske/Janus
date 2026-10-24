@@ -15,7 +15,9 @@
 # holds the virtual IP, the stick table replicates; a dry run changes
 # nothing. A member released by hand drifts: check reports it and exits
 # 1, the next apply puts it back. A certificate for every member. A
-# member removed, added again; the ticket ring rotated; the cluster
+# member removed, added again; the ticket ring rotated. A fourth node
+# replaces the VRRP master (janusctl cluster replace): it joins drained,
+# learns the table, and the virtual IP moves once, to it. The cluster
 # deleted - and no AVC denial.
 #
 # Usage: hack/qemu-clusterctl-test.sh <disk.img> <janusctl-bin>
@@ -29,7 +31,8 @@ BASE="${QEMU_CLUSTERCTL_BASE_PORT:-$((19070 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 MCAST="${QEMU_CLUSTERCTL_MCAST:-230.0.0.$((RANDOM % 200 + 20)):$((20000 + RANDOM % 20000))}"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
-NODES="1 2 3"
+NODES="1 2 3 4"
+MEMBERS="1 2 3" # lb-4 waits to replace one
 
 WORKDIR="$(mktemp -d)"
 declare -A PID
@@ -157,12 +160,12 @@ check "a loopback address refused" "not where the other members reach it" "$out"
 DIR="$WORKDIR/edge"
 out="$(alice cluster create edge -source lb-1 -address lb-1=192.168.87.1 -address lb-2=192.168.87.2 -address lb-3=192.168.87.3 -dir "$DIR" lb-1 lb-2 lb-3 2>&1)" || fail "cluster create: $out"
 check "the journal says who joined" "lb-3 joined" "$out"
-for i in $NODES; do
+for i in $MEMBERS; do
   check "lb-$i is a member" "Cluster: +edge " "$(alice -n "lb-$i" cluster get)"
   check "lb-$i's locks are advisory" "advisory" "$(alice -n "lb-$i" cluster get)"
 done
 peers_up() { [ "$(alice -n "lb-$1" cluster status 2>/dev/null | grep -cE '^lb-[0-9]+ +192\.168\.87\.[0-9]+:10057 +up ')" = "$2" ]; }
-for i in $NODES; do wait_for 60 "lb-$i's peers up" peers_up "$i" 2; done
+for i in $MEMBERS; do wait_for 60 "lb-$i's peers up" peers_up "$i" 2; done
 for i in 2 3; do
   check "lb-$i runs lb-1's configuration" "track-sc0 src" "$(alice -n "lb-$i" haproxy get-config)"
   check "lb-$i has the map" "maps/hosts.map" "$(alice -n "lb-$i" haproxy files)"
@@ -183,7 +186,7 @@ check "the node's own admin refused" "managed by cluster edge" "$out"
 echo "  ok: the members' locks hold - for alice's certificate too"
 
 # Version 2 from the directory: VRRP, rendered per member.
-for i in $NODES; do
+for i in $MEMBERS; do
   alice cluster vars edge "lb-$i" "priority=$((200 - 50 * i))" >/dev/null || fail "lb-$i's variables"
 done
 cat > "$DIR/keepalived.conf" <<'EOF'
@@ -242,7 +245,7 @@ check "lb-3 drifted" "lb-3 .*drifted: haproxy" "$out"
 check "lb-3 released" "released: haproxy" "$out"
 check "lb-3 left as it is" "timeout client 11s" "$(alice -n lb-3 haproxy get-config)"
 out="$(alice cluster apply edge "$DIR" 2>&1)" || fail "apply version 3: $out"
-for i in $NODES; do check "lb-$i runs version 3" "timeout client 12s" "$(alice -n "lb-$i" haproxy get-config)"; done
+for i in $MEMBERS; do check "lb-$i runs version 3" "timeout client 12s" "$(alice -n "lb-$i" haproxy get-config)"; done
 out="$(alice -n lb-3 haproxy apply-config "$WORKDIR/hand.cfg" 2>&1 || true)"
 check "lb-3 locked again" "managed by cluster edge" "$out"
 clean() { alice cluster check edge >/dev/null 2>&1; }
@@ -251,7 +254,7 @@ echo "  ok: a dry run changed nothing; a drift reported (check exits 1), put bac
 
 # A certificate for every member.
 out="$(alice cluster certificate edge "$WORKDIR/lb.pem" -name www 2>&1)" || fail "certificate: $out"
-for i in $NODES; do check "lb-$i has the cluster's certificate" "www" "$(alice -n "lb-$i" haproxy cert-list)"; done
+for i in $MEMBERS; do check "lb-$i has the cluster's certificate" "www" "$(alice -n "lb-$i" haproxy cert-list)"; done
 echo "  ok: a certificate reached every member"
 
 # A drain moves the virtual IP, with the tables.
@@ -274,15 +277,35 @@ check "lb-3 still on its own" "Cluster: +none" "$(alice -n lb-3 cluster get)"
 out="$(alice cluster add edge lb-3 -address 192.168.87.3 -var priority=50 2>&1)" || fail "add lb-3: $out"
 check "lb-3's priority rendered" "priority 50" "$(alice -n lb-3 network vrrp get)"
 check "lb-3 a member again" "Cluster: +edge " "$(alice -n lb-3 cluster get)"
-for i in $NODES; do wait_for 60 "lb-$i's peers up again" peers_up "$i" 2; done
+for i in $MEMBERS; do wait_for 60 "lb-$i's peers up again" peers_up "$i" 2; done
 out="$(alice cluster tickets edge 2>&1)" || fail "tickets: $out"
 check "the ring pulled" "pulled from lb-1" "$out"
 check "the journal" "version 3 applied on lb-3" "$(alice cluster journal edge -n 200)"
 echo "  ok: a member removed and added again - refused first without its template's variable; the ticket ring rotated and pulled"
 
+# lb-4 takes the VRRP master's place: it joins drained, learns the
+# table, comes into service as lb-1 is drained - the virtual IP moves
+# once, to lb-4 (lb-1's priority, copied); lb-2 and lb-3 never take it.
+masters() { alice -n "lb-$1" system logs keepalived 2>/dev/null | grep -c "Entering MASTER STATE" || true; }
+wait_for 30 "lb-1 holding the virtual IP before the replacement" master 1
+curl -s --max-time 5 "http://127.0.0.1:$((BASE + 10))/" >/dev/null
+wait_for 20 "lb-2 learnt the entry" has_entry 2
+m2="$(masters 2)" m3="$(masters 3)"
+out="$(alice cluster replace edge lb-1 lb-4 -address 192.168.87.4 2>&1)" || fail "replace lb-1 with lb-4: $out"
+check "lb-4 joined drained" "lb-4 joins drained" "$out"
+check "lb-1 drained as lb-4 came in" "lb-1 drained, lb-4 in service" "$out"
+check "lb-4 a member" "Cluster: +edge " "$(alice -n lb-4 cluster get)"
+check "lb-1 on its own" "Cluster: +none" "$(alice -n lb-1 cluster get)"
+check "lb-4 has lb-1's priority" "priority 150" "$(alice -n lb-4 network vrrp get)"
+wait_for 30 "lb-4 holding the virtual IP" master 4
+has_entry 4 || fail "lb-4 hasn't the stick table"
+[ "$(masters 2)" = "$m2" ] && [ "$(masters 3)" = "$m3" ] || fail "the virtual IP went through lb-2 or lb-3: $(masters 2) $(masters 3) MASTER transitions, $m2 $m3 before"
+for i in 2 3 4; do wait_for 60 "lb-$i's peers up after the replacement" peers_up "$i" 2; done
+echo "  ok: lb-4 replaced lb-1, the VRRP master - joined drained, the table learnt, the virtual IP moved once"
+
 # The cluster goes: the nodes on their own, unlocked.
 out="$(alice cluster delete edge 2>&1)" || fail "delete: $out"
-for i in $NODES; do check "lb-$i on its own" "Cluster: +none" "$(alice -n "lb-$i" cluster get)"; done
+for i in 2 3 4; do check "lb-$i on its own" "Cluster: +none" "$(alice -n "lb-$i" cluster get)"; done
 out="$(alice -n lb-2 haproxy apply-config "$WORKDIR/v1.cfg" 2>&1)" || fail "lb-2 unlocked once the cluster went: $out"
 [ -z "$(alice cluster list | tail -n +2)" ] || fail "the cluster still listed: $(alice cluster list)"
 echo "  ok: the cluster deleted - the nodes on their own and unlocked"
@@ -290,4 +313,4 @@ echo "  ok: the cluster deleted - the nodes on their own and unlocked"
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on node $i"; fi
 done
-echo "Clusterctl test PASSED: a fleet's cluster made by janusctl - advisory locks, VRRP from a directory, a dry run, drift reported and put back, a certificate, a drain, a member out and back, tickets, deleted"
+echo "Clusterctl test PASSED: a fleet's cluster made by janusctl - advisory locks, VRRP from a directory, a dry run, drift reported and put back, a certificate, a drain, a member out and back, tickets, the master replaced with the virtual IP moving once, deleted"

@@ -39,6 +39,7 @@ func (a *app) registerClusterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/clusters/{id}/versions/{n}", a.gate(auth.Reader, auth.Admin, a.handleClusterVersion))
 	mux.HandleFunc("POST /api/clusters/{id}/apply", a.gate(auth.Reader, auth.Admin, a.handleClusterApply))
 	mux.HandleFunc("POST /api/clusters/{id}/pull", a.gate(auth.Reader, auth.Admin, a.handleClusterPull))
+	mux.HandleFunc("POST /api/clusters/{id}/recycle", a.gate(auth.Reader, auth.Admin, a.handleClusterRecycle))
 	mux.HandleFunc("POST /api/clusters/{id}/certificates", a.gate(auth.Reader, auth.Admin, a.handleClusterCertificate))
 	mux.HandleFunc("GET /api/clusters/{id}/journal", a.gate(auth.Reader, auth.Admin, a.handleClusterJournal))
 	// What the loop does every 10 minutes, now: it may renew a member's
@@ -66,8 +67,11 @@ func (a *app) handleClusterCheck(w http.ResponseWriter, r *http.Request) {
 
 type clusterMemberView struct {
 	clusters.Member
-	NodeName  string               `json:"node_name"`
-	NodeFound bool                 `json:"node_found"`
+	NodeName  string `json:"node_name"`
+	NodeFound bool   `json:"node_found"`
+	// MachineID: its node runs on one of this Controller's machines - a
+	// recycle can make it a new one.
+	MachineID string               `json:"machine_id,omitempty"`
 	State     clusters.MemberState `json:"state"`
 }
 
@@ -107,6 +111,9 @@ func (a *app) clusterView(c *clusters.Cluster) clusterView {
 		mv := clusterMemberView{Member: m, State: st.Members[m.Name]}
 		if n, ok := a.store.Get(m.NodeID); ok {
 			mv.NodeName, mv.NodeFound = n.Name, true
+		}
+		if mach := a.machineOf(m.NodeID); mach != nil {
+			mv.MachineID = mach.ID
 		}
 		v.Members = append(v.Members, mv)
 		v.Problems = append(v.Problems, memberProblems(c, mv)...)

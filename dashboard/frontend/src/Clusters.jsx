@@ -353,6 +353,7 @@ function Members({ cluster, nodes, act, busy, reload }) {
   const [, run] = useAction()
   const [adding, setAdding] = useState(false)
   const [vars, setVars] = useState(null) // member name being edited
+  const [recycling, setRecycling] = useState(null) // member name being recycled
   const disabled = busy || cluster.busy
   const removeMember = async (m) => {
     let force = false
@@ -440,6 +441,9 @@ function Members({ cluster, nodes, act, busy, reload }) {
                         <button className="small" disabled={disabled} onClick={() => setVars(vars === m.name ? null : m.name)} title="The variables its templates use">
                           <Pencil size={13} /> Variables
                         </button>
+                        <button className="small" disabled={disabled} onClick={() => setRecycling(recycling === m.name ? null : m.name)} title="Replace it by a new member, the traffic moving once">
+                          <RefreshCw size={13} /> Recycle
+                        </button>
                         <button className="small ghost icon" disabled={disabled || cluster.members.length === 1} aria-label={`Remove ${m.name}`} title="Remove from the cluster" onClick={() => removeMember(m)}>
                           <Trash2 size={14} />
                         </button>
@@ -453,6 +457,7 @@ function Members({ cluster, nodes, act, busy, reload }) {
         </table>
       </div>
       {vars && <Variables cluster={cluster} member={cluster.members.find((m) => m.name === vars)} onDone={() => setVars(null)} reload={reload} />}
+      {recycling && <Recycle cluster={cluster} member={cluster.members.find((m) => m.name === recycling)} nodes={nodes} onDone={() => setRecycling(null)} reload={reload} />}
       {can('admin') &&
         (adding ? (
           <AddMember cluster={cluster} nodes={nodes} onDone={() => setAdding(false)} reload={reload} />
@@ -601,6 +606,109 @@ function AddMember({ cluster, nodes, onDone, reload }) {
         gets the cluster’s version.
       </p>
       <ErrorBox error={error} />
+    </Card>
+  )
+}
+
+// Recycle replaces a member (docs/guide/clusters.md "Recycling"): by a
+// new machine like it when it is one of the Controller's, else by a node
+// the admin picks - the newcomer joins drained, learns the stick tables,
+// and comes into service as the member is drained and leaves.
+function Recycle({ cluster, member, nodes, onDone, reload }) {
+  const [clusters] = usePolled('/api/clusters', () => false)
+  const taken = new Set((clusters || []).flatMap((c) => c.members.map((m) => m.node_id)))
+  const free = nodes.filter((n) => !taken.has(n.id))
+  const [how, setHow] = useState(member.machine_id ? 'machine' : 'node')
+  const [version, setVersion] = useState('')
+  const [nodeID, setNodeID] = useState('')
+  const [repl, setRepl] = useState({ name: '', address: '' })
+  const [newImage, setNewImage] = useState(false)
+  const [error, setError] = useState(null)
+  const [busy, run] = useAction()
+  const pick = (id) => {
+    setNodeID(id)
+    setRepl(memberDefaults(nodes.find((n) => n.id === id)))
+  }
+  const problem = how === 'node' ? (nodeID ? '' : 'a node') || memberNameError(repl.name) || (repl.address ? '' : 'its address') : ''
+  const submit = (e) => {
+    e.preventDefault()
+    setError(null)
+    const body = { members: [member.name], new_image: newImage }
+    if (how === 'machine') {
+      if (version.trim()) body.version = version.trim()
+    } else {
+      body.with = { [member.name]: { node_id: nodeID, name: repl.name, address: repl.address.trim() } }
+    }
+    run(async () => {
+      try {
+        await postJSON(`/api/clusters/${cluster.id}/recycle`, body)
+        reload()
+        onDone()
+      } catch (err) {
+        setError(err)
+      }
+    })
+  }
+  return (
+    <Card title={`Recycle ${member.name}`} icon={RefreshCw} className="data-title">
+      <form className="stack" onSubmit={submit}>
+        <fieldset className="plain">
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <label className="check small">
+              <input type="radio" name="recycle-how" checked={how === 'machine'} disabled={!member.machine_id} onChange={() => setHow('machine')} /> A new machine like it
+              {!member.machine_id && <span className="muted"> - not one of this Controller’s machines</span>}
+            </label>
+            <label className="check small">
+              <input type="radio" name="recycle-how" checked={how === 'node'} onChange={() => setHow('node')} /> A node of this Controller’s
+            </label>
+          </div>
+        </fieldset>
+        {how === 'machine' ? (
+          <label className="field">
+            <span>Its release - empty: the same as {member.name}’s</span>
+            <input className="mono" value={version} placeholder="v2026.10.24" onChange={(e) => setVersion(e.target.value)} />
+          </label>
+        ) : (
+          <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label className="field">
+              <span>Node</span>
+              <select value={nodeID} onChange={(e) => pick(e.target.value)}>
+                <option value="">-</option>
+                {free.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Member name</span>
+              <input className="mono" value={repl.name} onChange={(e) => setRepl({ ...repl, name: e.target.value.trim() })} />
+            </label>
+            <label className="field">
+              <span>Address the others reach it on</span>
+              <input className="mono" value={repl.address} placeholder="192.0.2.14" onChange={(e) => setRepl({ ...repl, address: e.target.value })} />
+            </label>
+          </div>
+        )}
+        <label className="check small">
+          <input type="checkbox" checked={newImage} onChange={(e) => setNewImage(e.target.checked)} /> It may run another image (other extensions, HAProxy branch or kernel)
+        </label>
+        <p className="small muted">
+          The newcomer joins drained, gets the secrets and the cluster’s version, learns the stick tables, then comes into service as {member.name} is drained - the
+          traffic moves once - and {member.name} leaves{member.machine_id ? ', its machine destroyed' : ''}. Its variables are {member.name}’s. A failure before {member.name}’s
+          drain takes the newcomer out again.
+        </p>
+        <ErrorBox error={error} />
+        <div className="row">
+          <button className="primary" type="submit" disabled={busy || !!problem}>
+            <RefreshCw size={15} /> Recycle {member.name}
+          </button>
+          <button type="button" onClick={onDone}>
+            Cancel
+          </button>
+        </div>
+      </form>
     </Card>
   )
 }

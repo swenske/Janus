@@ -139,6 +139,12 @@ func ListOrNone(names []string) string {
 // other cluster, on c's image, and reaching the other members' API as
 // they reach its.
 func (e *Engine) Check(ctx context.Context, c *Cluster, joining []Member) error {
+	return e.check(ctx, c, joining, false)
+}
+
+// check is Check; newImage lets the joining members run another image
+// (a replacement, the cluster changing image member by member).
+func (e *Engine) check(ctx context.Context, c *Cluster, joining []Member, newImage bool) error {
 	schematic := ""
 	for _, m := range c.Members {
 		if slices.ContainsFunc(joining, func(j Member) bool { return j.Name == m.Name }) {
@@ -162,6 +168,7 @@ func (e *Engine) Check(ctx context.Context, c *Cluster, joining []Member) error 
 			return fmt.Errorf("%s: %v", m.Name, err)
 		}
 		switch {
+		case newImage:
 		case schematic == "":
 			schematic = v.GetSchematicId()
 		case v.GetSchematicId() != schematic:
@@ -499,6 +506,13 @@ func (e *Engine) Pull(ctx context.Context, id string, only []string, items []jan
 // AddMember brings m into cluster id: checks, certificate, composition
 // everywhere, the secrets and the desired version.
 func (e *Engine) AddMember(ctx context.Context, id string, m Member, actor string) error {
+	return e.addMember(ctx, id, m, actor, false, false)
+}
+
+// addMember is AddMember; drained: m is drained as soon as it's a member
+// (a replacement, out of service until the member it replaces leaves);
+// newImage: m may run another image.
+func (e *Engine) addMember(ctx context.Context, id string, m Member, actor string, drained, newImage bool) error {
 	c, ok := e.Store.Get(id)
 	if !ok {
 		return ErrNotFound
@@ -516,7 +530,7 @@ func (e *Engine) AddMember(ctx context.Context, id string, m Member, actor strin
 			return fmt.Errorf("%s can't run version %d: %v - give it the variables the version's templates use", m.Name, c.Desired, err)
 		}
 	}
-	if err := e.Check(ctx, &probe, []Member{m}); err != nil {
+	if err := e.check(ctx, &probe, []Member{m}, newImage); err != nil {
 		return err
 	}
 	c, err := e.Store.Update(id, func(c *Cluster) error {
@@ -530,7 +544,108 @@ func (e *Engine) AddMember(ctx context.Context, id string, m Member, actor strin
 	if err := e.Join(ctx, c, []string{m.Name}, actor); err != nil {
 		return err
 	}
+	if drained {
+		// Before its VRRP and BGP are configured: it starts BACKUP, its
+		// routes disabled.
+		dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		msg, err := e.Nodes.ClusterDrain(dctx, m, time.Minute)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("draining it before its configuration: %v", err)
+		}
+		e.Journal(id, actor, "drain", m.Name, 0, "%s joins drained: %s", m.Name, msg)
+	}
 	return e.SecretsAndVersion(ctx, id, c.Desired, []string{m.Name}, actor)
+}
+
+// ReplaceOptions are a replacement's choices.
+type ReplaceOptions struct {
+	// NewImage: the replacement may run another image than the members'
+	// - the cluster changing image member by member.
+	NewImage bool
+}
+
+// Replace puts repl in member old's place in cluster id
+// (docs/cluster.md "Recycling members"), the traffic moving once: repl
+// joins drained - checked, its certificate, the others told, the
+// secrets, the cluster's version, its stick tables learnt from its
+// peers -, comes into service as old is drained, and old leaves. A
+// failure before old's drain takes repl out again, the cluster as it
+// was; old not drained is put back in service first; a failed removal
+// leaves old drained and listed, to remove again. repl's variables: its
+// own, else old's.
+func (e *Engine) Replace(ctx context.Context, id, old string, repl Member, opts ReplaceOptions, actor string) error {
+	c, ok := e.Store.Get(id)
+	if !ok {
+		return ErrNotFound
+	}
+	om := c.Member(old)
+	if om == nil {
+		return fmt.Errorf("%s isn't a member", old)
+	}
+	if c.Member(repl.Name) != nil {
+		return fmt.Errorf("%s is a member already: a replacement is a new one", repl.Name)
+	}
+	if repl.Vars == nil && om.Vars != nil {
+		repl.Vars = map[string]string{}
+		for k, v := range om.Vars {
+			repl.Vars[k] = v
+		}
+	}
+	e.Journal(id, actor, "replace", old, 0, "%s to be replaced by %s, which joins drained", old, repl.Name)
+	if err := e.addMember(ctx, id, repl, actor, true, opts.NewImage); err != nil {
+		return e.undoJoin(ctx, id, repl.Name, actor, fmt.Errorf("%s joining: %v", repl.Name, err))
+	}
+	// Learnt (the apply waited for its tables): into service, and old out
+	// of it - the traffic moves once.
+	if err := e.Nodes.ClusterUndrain(ctx, repl); err != nil {
+		return e.undoJoin(ctx, id, repl.Name, actor, fmt.Errorf("%s back in service: %v", repl.Name, err))
+	}
+	dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	msg, err := e.Nodes.ClusterDrain(dctx, *om, time.Minute)
+	cancel()
+	if err != nil {
+		uerr := e.Nodes.ClusterUndrain(ctx, *om)
+		rctx, rcancel := context.WithTimeout(ctx, 90*time.Second)
+		_, _ = e.Nodes.ClusterDrain(rctx, repl, time.Minute)
+		rcancel()
+		cause := fmt.Errorf("%s didn't drain: %v", old, err)
+		if uerr != nil {
+			cause = fmt.Errorf("%v; and back in service: %v", cause, uerr)
+		}
+		return e.undoJoin(ctx, id, repl.Name, actor, cause)
+	}
+	e.Journal(id, actor, "drain", old, 0, "%s drained, %s in service: %s", old, repl.Name, msg)
+	if err := e.RemoveMember(ctx, id, old, false, actor); err != nil {
+		return &NotRemovedError{Old: old, New: repl.Name, Err: err}
+	}
+	e.Journal(id, actor, "replace", repl.Name, 0, "%s replaced %s", repl.Name, old)
+	return nil
+}
+
+// NotRemovedError: a replacement is in service, but the member it
+// replaces, drained, couldn't be removed - it stays listed, to remove
+// again; the replacement stays.
+type NotRemovedError struct {
+	Old, New string
+	Err      error
+}
+
+func (e *NotRemovedError) Error() string {
+	return fmt.Sprintf("%s is in service, but %s's removal failed: %v - %s stays drained: remove it again", e.New, e.Old, e.Err, e.Old)
+}
+
+func (e *NotRemovedError) Unwrap() error { return e.Err }
+
+// undoJoin takes a replacement that couldn't take over out of cluster
+// id again.
+func (e *Engine) undoJoin(ctx context.Context, id, name, actor string, cause error) error {
+	if c, ok := e.Store.Get(id); ok && c.Member(name) != nil {
+		if err := e.RemoveMember(ctx, id, name, true, actor); err != nil {
+			return fmt.Errorf("%v; taking %s out again failed too: %v", cause, name, err)
+		}
+	}
+	return fmt.Errorf("%v - %s taken out again, the cluster as it was", cause, name)
 }
 
 // RemoveMember takes member name out of cluster id: drained, out of the

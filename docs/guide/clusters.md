@@ -213,6 +213,37 @@ and the member the secrets come from. Through the API:
 - A node that is a member can't be removed from the Controller: it
   leaves its cluster first.
 
+## Recycling a member
+
+**Recycle** replaces a member by a new one - a newer release, another
+image, a VM on fresh disks - and the traffic moves once:
+
+1. The newcomer joins **drained**: checked, given its certificate, the
+   others told, the secrets and the cluster's version applied - its
+   VRRP stays BACKUP, its BGP routes unannounced - until its HAProxy
+   has learnt the stick tables from a peer.
+2. It comes into service as the member is drained: the virtual IP or
+   the routes move from the member to it (or a peer), whose tables are
+   full; the member's established connections finish.
+3. The member leaves. When it was one of the Controller's machines, the
+   machine is destroyed.
+
+When the member is one of the Controller's [machines](../hypervisors.md),
+the newcomer is a **new machine like it** - same hypervisor, size,
+networks (new MACs), extensions - named `<cluster>-<n>`, at the release
+you give or the member's. A member with a static address, or a node
+that isn't a machine, is recycled into a node you name: one of the
+Controller's, trusting the fleet, in no cluster.
+
+A failure while the newcomer joins takes it out again - and destroys
+it when the Controller made it -: the cluster is as it was. Its
+template variables are the member's. **It may run another image**
+lets the newcomer's schematic differ from the members': how a cluster
+changes extensions, HAProxy branch or kernel, member by member.
+
+The member left out stays drained until it reboots (`janusctl -n NODE
+cluster undrain` to use it again).
+
 ## Watching it
 
 The page shows what wants a look at the top of a cluster's page, and
@@ -258,6 +289,7 @@ janusctl cluster check edge          # each member; exits 1 when one wants a loo
 janusctl cluster certificate edge www.pem
 janusctl cluster add edge lb-3 -address 192.0.2.13
 janusctl cluster remove edge lb-3
+janusctl cluster replace edge lb-1 lb-4 -address 192.0.2.14
 janusctl cluster journal edge
 janusctl cluster delete edge
 ```
@@ -271,6 +303,7 @@ janusctl cluster delete edge
 | `vars NAME MEMBER KEY=VALUE...` | A member's template variables (`KEY=` unsets one) |
 | `certificate NAME FILE` | A certificate and its key for every member (`-crt-list`, `-sni`) |
 | `add`, `remove NAME NODE` | A member in, out (drained first; `-force` for a node gone) |
+| `replace NAME OLD NEW` | NEW, a node of the context, takes OLD's place: joins drained, learns the tables, comes into service as OLD is drained and leaves (`-var`, `-new-image`) |
 | `tickets NAME` | A new TLS ticket key, pulled by the members |
 | `list`, `journal NAME`, `delete NAME` | The clusters; what was done; every member leaves |
 
@@ -298,6 +331,7 @@ Readers see clusters, administrators change them.
 | `GET`, `PATCH`, `DELETE /api/clusters/{id}` | one; change `secrets_from` or members' `vars`; delete (every member leaves; `?force=true`: even those that don't answer) |
 | `POST /api/clusters/{id}/members`, `DELETE .../members/{name}` | add one; remove one (`?force=true`) |
 | `POST .../members/{name}/drain`, `.../undrain` | out of service, back |
+| `POST /api/clusters/{id}/recycle` | replace members one at a time (`{members, with: {member: {node_id, name, address}}, version, new_image}`; a member without `with` gets a new machine like its own) |
 | `GET`, `POST /api/clusters/{id}/versions`, `GET .../versions/{n}` | the versions; a new one (`{base, files, delete, note}`); one, with its files |
 | `POST /api/clusters/{id}/apply` | apply a version (`{version, managed}`) |
 | `POST /api/clusters/{id}/certificates` | a certificate for every member (`{name, pem, crt_list, sni}`) |

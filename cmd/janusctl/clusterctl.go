@@ -40,7 +40,7 @@ import (
 // clusterCtlVerbs are the cluster commands that orchestrate - no node to
 // reach first; the others are one node's primitives (runCluster).
 var clusterCtlVerbs = map[string]bool{
-	"create": true, "apply": true, "check": true, "add": true, "remove": true, "delete": true,
+	"create": true, "apply": true, "check": true, "add": true, "remove": true, "replace": true, "delete": true,
 	"vars": true, "certificate": true, "tickets": true, "list": true, "journal": true, "checkout": true,
 }
 
@@ -527,6 +527,33 @@ func runClusterCtl(globalCtx string, args []string) {
 		err := o.RemoveMember(ctx, c.ID, fs.Arg(1), *force, actor(o))
 		o.report(c.ID, since)
 		check("cluster remove", err)
+	case "replace":
+		fs := flag.NewFlagSet("cluster replace", flag.ExitOnError)
+		address := fs.String("address", "", "the address the other members reach the new node on (default: the context's)")
+		vars := memberVars{}
+		fs.Var(vars, "var", "KEY=VALUE: a variable the cluster's templates use for it, repeatable (default: the old member's)")
+		newImage := fs.Bool("new-image", false, "the new node may run another image - the cluster changing image member by member")
+		parseAnywhere(fs, args[1:])
+		if fs.NArg() != 3 {
+			clusterCtlUsage("replace")
+		}
+		o := openClusterCtl(globalCtx)
+		defer o.close()
+		c := o.cluster(fs.Arg(0))
+		old, node := fs.Arg(1), fs.Arg(2)
+		m := o.member(node, *address)
+		if len(vars) > 0 {
+			m.Vars = vars
+		}
+		defer o.exclusive(c.ID)()
+		since := time.Now()
+		ctx, cancel := forCluster(c.ID, 20*time.Minute)
+		defer cancel()
+		fmt.Printf("Cluster %s: %s joins drained, learns its stick tables, then takes %s's place\n", c.Name, node, old)
+		err := o.Replace(ctx, c.ID, old, m, clusters.ReplaceOptions{NewImage: *newImage}, actor(o))
+		o.report(c.ID, since)
+		check("cluster replace", err)
+		fmt.Printf("%s replaced %s. %s is on its own, still drained until it reboots (janusctl -n %s cluster undrain to use it again)\n", node, old, old, old)
 	case "delete":
 		fs := flag.NewFlagSet("cluster delete", flag.ExitOnError)
 		force := fs.Bool("force", false, "even if a member doesn't answer")
