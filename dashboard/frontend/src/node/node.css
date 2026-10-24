@@ -118,38 +118,6 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
   margin: 0;
 }
 
-.editor { display: flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--surface); }
-.editor-gutter {
-  font-family: var(--mono);
-  font-size: 0.84rem;
-  line-height: 1.5;
-  padding: 0.6rem 0.5rem;
-  text-align: right;
-  color: var(--muted);
-  background: var(--surface-2);
-  border-right: 1px solid var(--border);
-  user-select: none;
-  overflow: hidden;
-  min-width: 3.2rem;
-}
-.editor textarea {
-  border: none;
-  border-radius: 0;
-  font-size: 0.84rem;
-  line-height: 1.5;
-  padding: 0.6rem 0.8rem;
-  resize: vertical;
-  white-space: pre;
-  overflow: auto;
-  tab-size: 4;
-}
-.editor textarea:focus { outline: none; }
-
-.diff { font-family: var(--mono); font-size: 0.82rem; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: auto; max-height: 45vh; }
-.diff div { white-space: pre; padding: 0 0.7rem; }
-.diff .add { background: var(--ok-soft); color: var(--ok); }
-.diff .del { background: var(--danger-soft); color: var(--danger); }
-.diff .ctx { color: var(--muted); }
 
 
 /* --- toasts --- */
@@ -177,7 +145,6 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 /* A confirmation asked from inside a dialog (the account's SSH keys...) comes above it. */
 .modal-backdrop.confirm { z-index: 95; }
 .modal { width: min(520px, 100%); max-height: 90vh; overflow: auto; }
-.modal.wide { width: min(980px, 100%); }
 
 /* --- file browser --- */
 .crumbs { display: flex; align-items: center; gap: 0.15rem; flex-wrap: wrap; font-family: var(--mono); }

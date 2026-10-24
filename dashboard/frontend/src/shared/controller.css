@@ -231,3 +231,39 @@ button.active { background: var(--accent-soft); border-color: color-mix(in srgb,
 .segmented > button.active, .segmented > button:focus-visible { position: relative; z-index: 1; }
 .segmented > button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 .segmented > button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+/* The text editor and line diff (shared/Editor.jsx): the node page's
+   configurations and the Controller's clusters. */
+.editor { display: flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--surface); }
+.editor-gutter {
+  font-family: var(--mono);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  padding: 0.6rem 0.5rem;
+  text-align: right;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  overflow: hidden;
+  min-width: 3.2rem;
+}
+.editor textarea {
+  border: none;
+  border-radius: 0;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  padding: 0.6rem 0.8rem;
+  resize: vertical;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 4;
+}
+.editor textarea:focus { outline: none; }
+
+.diff { font-family: var(--mono); font-size: 0.82rem; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: auto; max-height: 45vh; }
+.diff div { white-space: pre; padding: 0 0.7rem; }
+.diff .add { background: var(--ok-soft); color: var(--ok); }
+.diff .del { background: var(--danger-soft); color: var(--danger); }
+.diff .ctx { color: var(--muted); }
+.modal.wide { width: min(980px, 100%); }

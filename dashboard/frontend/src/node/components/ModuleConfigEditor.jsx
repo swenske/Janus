@@ -2,9 +2,9 @@ import { CheckCircle2, Download, RotateCcw, Trash2, Upload } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { getJSON, postJSON } from '../api.js'
 import { Badge, Card, ErrorBox, Loading, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
-import { hunks, lineDiff } from '../diff.js'
+import { hunks, lineDiff } from '../../shared/diff.js'
 import { useMay } from '../may.js'
-import { DiffView, Editor } from './Editor.jsx'
+import { DiffView, Editor } from '../../shared/Editor.jsx'
 
 // ModuleConfigEditor edits an optional module daemon's configuration
 // (keepalived.conf, bird.conf): `${base}/config` loads it, `${base}/check`

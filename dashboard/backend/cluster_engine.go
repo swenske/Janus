@@ -297,7 +297,8 @@ func (e *clusterEngine) snapshot(ctx context.Context, c *clusters.Cluster, sourc
 }
 
 // create brings cluster id's members together: checks, certificates,
-// the composition, the first version from source, the secrets.
+// the composition, the first version from source, then the secrets and
+// that version on the others.
 func (e *clusterEngine) create(ctx context.Context, id, source, actor string) error {
 	c, ok := e.store.Get(id)
 	if !ok {
@@ -317,10 +318,25 @@ func (e *clusterEngine) create(ctx context.Context, id, source, actor string) er
 	if err != nil {
 		return err
 	}
-	if err := e.apply(ctx, id, n, nil, actor); err != nil {
+	return e.secretsAndVersion(ctx, id, n, nil, actor)
+}
+
+// secretsAndVersion brings only's members - nil: every one - the secrets
+// and version n, in the order they need them: the secrets first, as the
+// version may name a file holding a key that only a pull brings; then
+// the version; then the certificate store again, for a certificate
+// bound into a crt-list only the version brings (refused by the first
+// pull, journaled; one already bound stays as it is).
+func (e *clusterEngine) secretsAndVersion(ctx context.Context, id string, n int, only []string, actor string) error {
+	if err := e.pull(ctx, id, only, nil, actor); err != nil {
 		return err
 	}
-	return e.pull(ctx, id, nil, nil, actor)
+	if n > 0 {
+		if err := e.apply(ctx, id, n, only, actor); err != nil {
+			return err
+		}
+	}
+	return e.pull(ctx, id, only, []janusv1alpha1.ClusterItem{janusv1alpha1.ClusterItem_CLUSTER_ITEM_RUNTIME_CERTS}, actor)
 }
 
 // apply puts version n on cluster id's members - only's, or every
@@ -518,7 +534,7 @@ func (e *clusterEngine) pull(ctx context.Context, id string, only []string, item
 }
 
 // addMember brings m into cluster id: checks, certificate, composition
-// everywhere, the desired version, the secrets.
+// everywhere, the secrets and the desired version.
 func (e *clusterEngine) addMember(ctx context.Context, id string, m clusters.Member, actor string) error {
 	c, ok := e.store.Get(id)
 	if !ok {
@@ -540,12 +556,7 @@ func (e *clusterEngine) addMember(ctx context.Context, id string, m clusters.Mem
 	if err := e.join(ctx, c, []string{m.Name}, actor); err != nil {
 		return err
 	}
-	if c.Desired > 0 {
-		if err := e.apply(ctx, id, c.Desired, []string{m.Name}, actor); err != nil {
-			return err
-		}
-	}
-	return e.pull(ctx, id, []string{m.Name}, nil, actor)
+	return e.secretsAndVersion(ctx, id, c.Desired, []string{m.Name}, actor)
 }
 
 // removeMember takes member name out of cluster id: drained, out of the

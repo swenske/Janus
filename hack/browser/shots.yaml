@@ -8,6 +8,8 @@
 #   page     a route of the Controller's page ("#/accounts"), or of a
 #            node's page with node:
 #   node     the node whose page it is
+#   cluster  instead of page: the page of this cluster (shots.mjs makes
+#            edge-par, of edge-par-1 and edge-par-2)
 #   wait     a text the page shows once it has loaded
 #   samples  metrics samples the charts get first, 5 s of the page's
 #            clock apart
@@ -48,6 +50,10 @@ shots:
   - id: controller-tokens
     page: '#/tokens'
     wait: terraform
+
+  - id: controller-cluster
+    cluster: edge-par
+    wait: Secrets from
 
   - id: controller-sso
     page: '#/accounts'

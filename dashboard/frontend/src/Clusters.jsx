@@ -1,0 +1,908 @@
+import { ChevronLeft, ExternalLink, FileText, History, KeyRound, Loader2, Network, Pencil, Plus, RefreshCw, ScrollText, Trash2, Upload, Users } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { call, postJSON } from './call.js'
+import { DOMAINS, clusterNameError, domainsOf, health, memberDefaults, memberNameError, parseVars, pathError, varsText, versionChanges, when } from './clusters.js'
+import { useCan } from './me.jsx'
+import { DiffView, Editor } from './shared/Editor.jsx'
+import { navigate } from './shared/route.js'
+import { Badge, Card, ErrorBox, Loading, Tabs, useAction, useConfirm, useToast } from './shared/ui.jsx'
+
+// Clusters (docs/guide/clusters.md): groups of nodes the Controller keeps
+// alike - one configuration in versions applied member by member, stick
+// tables replicated between them, their secrets carried from member to
+// member, each member locked against changes made behind the cluster's
+// back (dashboard/backend: cluster*.go). Readers see them, admins change
+// them. #/clusters lists them, #/clusters/<id> is one.
+
+const DOCS = 'https://janus.sw-servers.net/docs/guide/clusters.md'
+const BUSY_EVERY = 2000
+const IDLE_EVERY = 15000
+
+// usePolled loads path now and again: often while busy says so.
+function usePolled(path, busyOf) {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
+  const load = useCallback(
+    (background) =>
+      call(path, { background, timeout: 10000 }).then(
+        (d) => {
+          setData(d)
+          setError(null)
+          return d
+        },
+        (err) => setError(err),
+      ),
+    [path],
+  )
+  const busy = data ? busyOf(data) : false
+  useEffect(() => {
+    load(false)
+  }, [load])
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (!document.hidden) load(true)
+    }, busy ? BUSY_EVERY : IDLE_EVERY)
+    return () => clearInterval(t)
+  }, [load, busy])
+  return [data, error, load]
+}
+
+export default function ClustersPage({ route, nodes }) {
+  const id = route.split('/')[2] || ''
+  return id ? <ClusterPage id={id} nodes={nodes || []} /> : <ClusterList nodes={nodes || []} />
+}
+
+function HealthBadge({ cluster }) {
+  const h = health(cluster)
+  return (
+    <Badge tone={h.tone} dot={!h.busy}>
+      {h.busy && <Loader2 size={12} className="spin" />} {h.label}
+    </Badge>
+  )
+}
+
+function Guide() {
+  return (
+    <a className="small" href={DOCS} target="_blank" rel="noreferrer">
+      Guide <ExternalLink size={11} />
+    </a>
+  )
+}
+
+// --- the list ---
+
+function ClusterList({ nodes }) {
+  const can = useCan()
+  const [clusters, error, load] = usePolled('/api/clusters', (cs) => cs.some((c) => c.busy))
+  const [creating, setCreating] = useState(false)
+  if (!clusters) return error ? <ErrorBox error={error} /> : <Loading />
+  const taken = new Set(clusters.flatMap((c) => c.members.map((m) => m.node_id)))
+  return (
+    <div className="stack">
+      <div className="spread">
+        <h1>Clusters</h1>
+        <div className="row">
+          <Guide />
+          {!creating && can('admin') && (
+            <button className="primary" onClick={() => setCreating(true)}>
+              <Plus size={15} /> New cluster
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="muted">
+        A cluster keeps its nodes alike: one configuration, applied member by member; stick tables replicated between them; certificates and keys carried from member to
+        member, never through this Controller - and each member locked against changes made behind the cluster’s back.
+      </p>
+      {error && <ErrorBox error={error} />}
+      {creating && (
+        <CreateCluster
+          nodes={nodes.filter((n) => !taken.has(n.id))}
+          onCancel={() => setCreating(false)}
+          onCreated={(c) => {
+            setCreating(false)
+            load(false)
+            navigate(`/clusters/${c.id}`)
+          }}
+        />
+      )}
+      {clusters.length === 0 && !creating && <div className="card empty">No cluster yet.{can('admin') ? ' Make one from nodes that trust the fleet and run the same image.' : ''}</div>}
+      <div className="node-grid">
+        {clusters.map((c) => (
+          <a key={c.id} className="card cluster-card" href={`#/clusters/${c.id}`}>
+            <div className="spread">
+              <strong className="cluster-name">
+                <Network size={15} /> {c.name}
+              </strong>
+              <HealthBadge cluster={c} />
+            </div>
+            <dl className="kv small">
+              <dt>Members</dt>
+              <dd>{c.members.map((m) => m.name).join(', ')}</dd>
+              <dt>Version</dt>
+              <dd>{c.desired ? `v${c.desired}` : '-'}</dd>
+              <dt>Manages</dt>
+              <dd>{c.managed.join(', ')}</dd>
+            </dl>
+            {c.problems.length > 0 && <div className="small muted cluster-problem">{c.problems[0]}</div>}
+          </a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CreateCluster({ nodes, onCancel, onCreated }) {
+  const [name, setName] = useState('')
+  const [picked, setPicked] = useState({}) // node id -> {name, address}
+  const [source, setSource] = useState('')
+  const [error, setError] = useState(null)
+  const [busy, run] = useAction()
+  const toggle = (n) => {
+    const next = { ...picked }
+    if (next[n.id]) {
+      delete next[n.id]
+      if (source === n.id) setSource('')
+    } else {
+      next[n.id] = memberDefaults(n)
+      if (!source) setSource(n.id)
+    }
+    setPicked(next)
+  }
+  const set = (id, change) => setPicked({ ...picked, [id]: { ...picked[id], ...change } })
+  const ids = Object.keys(picked)
+  const problem =
+    clusterNameError(name) ||
+    (ids.length === 0 ? 'its nodes' : '') ||
+    ids.map((id) => memberNameError(picked[id].name) || (picked[id].address ? '' : 'each member’s address')).find(Boolean) ||
+    (source ? '' : 'the source')
+  const submit = (e) => {
+    e.preventDefault()
+    setError(null)
+    run(async () => {
+      try {
+        const c = await postJSON('/api/clusters', {
+          name,
+          source,
+          members: ids.map((id) => ({ node_id: id, name: picked[id].name, address: picked[id].address.trim() })),
+        })
+        onCreated(c)
+      } catch (err) {
+        setError(err)
+      }
+    })
+  }
+  return (
+    <Card title="New cluster" icon={Plus}>
+      <form className="stack" onSubmit={submit}>
+        <label className="field">
+          <span>Name - lowercase letters, digits, dashes</span>
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value.trim())} placeholder="edge" />
+        </label>
+        {nodes.length === 0 ? (
+          <div className="notice warn">Every node is in a cluster already, or there is none.</div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Node</th>
+                  <th>Member name</th>
+                  <th>Address the others reach it on</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {nodes.map((n) => {
+                  const m = picked[n.id]
+                  return (
+                    <tr key={n.id}>
+                      <td>
+                        <input type="checkbox" aria-label={`${n.name} a member`} checked={!!m} onChange={() => toggle(n)} />
+                      </td>
+                      <td>
+                        {n.name} <span className="muted mono small">{n.address}</span>
+                      </td>
+                      <td>{m && <input className="mono" aria-label={`${n.name}'s member name`} value={m.name} onChange={(e) => set(n.id, { name: e.target.value.trim() })} />}</td>
+                      <td>
+                        {m && <input className="mono" aria-label={`${n.name}'s address`} value={m.address} placeholder="192.0.2.11" onChange={(e) => set(n.id, { address: e.target.value })} />}
+                      </td>
+                      <td>{m && <input type="radio" name="source" aria-label={`${n.name} the source`} checked={source === n.id} onChange={() => setSource(n.id)} />}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="small muted">
+          The source’s configuration becomes the cluster’s first version - its haproxy.cfg and files -, and its certificates and keys every member’s. The members trust this
+          Controller’s fleet, run the same image, and reach each other on TCP 9505 and 10057. The cluster then manages HAProxy’s configuration and files; VRRP, BGP and the
+          firewall come with a version carrying their template.
+        </p>
+        <ErrorBox error={error} />
+        <div className="row">
+          <button className="primary" type="submit" disabled={busy || !!problem} title={problem ? `Missing: ${problem}` : undefined}>
+            <Network size={15} /> Create
+          </button>
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          {problem && <span className="small muted">Still needed: {problem}</span>}
+        </div>
+      </form>
+    </Card>
+  )
+}
+
+// --- one cluster ---
+
+function ClusterPage({ id, nodes }) {
+  const can = useCan()
+  const confirm = useConfirm()
+  const [busyAction, run] = useAction()
+  const [cluster, error, load] = usePolled(`/api/clusters/${id}`, (c) => c.busy)
+  const [tab, setTab] = useState('members')
+  if (!cluster) {
+    return (
+      <div className="stack">
+        <BackLink />
+        {error ? <ErrorBox error={error} /> : <Loading />}
+      </div>
+    )
+  }
+  const act = (path, success, method = 'POST') => run(() => postJSON(`/api/clusters/${id}${path}`, {}, method).then(() => load(false)), success)
+  const remove = async () => {
+    if (
+      !(await confirm({
+        title: `Delete cluster ${cluster.name}?`,
+        body: <p>Every member leaves it: its peers section names it alone again, its locks go, its member certificate and the cluster’s CA are deleted. The members keep the configuration they run.</p>,
+        action: 'Delete',
+        danger: true,
+        typeToConfirm: cluster.name,
+      }))
+    )
+      return
+    run(async () => {
+      await call(`/api/clusters/${id}`, { method: 'DELETE' })
+      navigate('/clusters')
+    }, `Cluster ${cluster.name} is being deleted.`)
+  }
+  return (
+    <div className="stack">
+      <BackLink />
+      <div className="spread">
+        <div className="row">
+          <h1>{cluster.name}</h1>
+          <HealthBadge cluster={cluster} />
+        </div>
+        <div className="row">
+          <Guide />
+          {can('admin') && (
+            <>
+              <button className="small" disabled={busyAction || cluster.busy} onClick={() => run(() => postJSON(`/api/clusters/${id}/check`, {}).then(() => load(false)), 'Every member looked at.')}>
+                <RefreshCw size={14} /> Check now
+              </button>
+              <button className="small danger" disabled={busyAction || cluster.busy} onClick={remove}>
+                <Trash2 size={14} /> Delete
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      <dl className="kv small">
+        <dt>Members</dt>
+        <dd>{cluster.members.length}</dd>
+        <dt>Version</dt>
+        <dd>{cluster.desired ? `v${cluster.desired}` : '-'}</dd>
+        <dt>Manages</dt>
+        <dd>{cluster.managed.join(', ')}</dd>
+        <dt>Secrets from</dt>
+        <dd>{cluster.secrets_from}</dd>
+        <dt>Peers port</dt>
+        <dd className="mono">{cluster.peers_port}</dd>
+        <dt>CA</dt>
+        <dd className="mono">{cluster.ca_fingerprint ? `SHA-256 ${cluster.ca_fingerprint.slice(0, 16)}…` : '-'}</dd>
+      </dl>
+      {cluster.busy && (
+        <div className="notice">
+          <Loader2 size={14} className="spin" /> {cluster.phase}…
+        </div>
+      )}
+      {error && <ErrorBox error={error} />}
+      {cluster.problems.length > 0 && (
+        <div className="notice warn">
+          <ul className="plain-list">
+            {cluster.problems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <Tabs
+        tabs={[
+          { id: 'members', label: 'Members', icon: Users },
+          { id: 'configuration', label: 'Configuration', icon: FileText },
+          { id: 'certificates', label: 'Certificates', icon: KeyRound },
+          { id: 'journal', label: 'Journal', icon: ScrollText },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
+      {tab === 'members' && <Members cluster={cluster} nodes={nodes} act={act} busy={busyAction} reload={() => load(false)} />}
+      {tab === 'configuration' && <Configuration cluster={cluster} reload={() => load(false)} />}
+      {tab === 'certificates' && <Certificates cluster={cluster} act={act} busy={busyAction} reload={() => load(false)} />}
+      {tab === 'journal' && <Journal cluster={cluster} />}
+    </div>
+  )
+}
+
+function BackLink() {
+  return (
+    <a className="small" href="#/clusters">
+      <ChevronLeft size={13} /> Clusters
+    </a>
+  )
+}
+
+function Members({ cluster, nodes, act, busy, reload }) {
+  const can = useCan()
+  const confirm = useConfirm()
+  const toast = useToast()
+  const [, run] = useAction()
+  const [adding, setAdding] = useState(false)
+  const [vars, setVars] = useState(null) // member name being edited
+  const disabled = busy || cluster.busy
+  const removeMember = async (m) => {
+    let force = false
+    if (
+      !(await confirm({
+        title: `Remove ${m.name} from ${cluster.name}?`,
+        body: (
+          <>
+            <p>It is drained first - its virtual IPs and routes move to the other members -, then leaves the cluster: the others drop it as a peer, its locks go.</p>
+            <label className="check">
+              <input type="checkbox" onChange={(e) => (force = e.target.checked)} /> Even if it doesn’t answer or drain (a node gone for good)
+            </label>
+          </>
+        ),
+        action: 'Remove',
+        danger: true,
+      }))
+    )
+      return
+    run(async () => {
+      await call(`/api/clusters/${cluster.id}/members/${m.name}${force ? '?force=true' : ''}`, { method: 'DELETE' })
+      reload()
+    }, `${m.name} is being removed.`)
+  }
+  const drain = async (m) => {
+    if (m.state.drained) return act(`/members/${m.name}/undrain`, `${m.name} is going back in service.`)
+    if (
+      await confirm({
+        title: `Drain ${m.name}?`,
+        body: <p>It stays a member, HAProxy keeps serving, but keepalived and BIRD see it unhealthy: its virtual IPs move to a peer, its routes are withdrawn - until you undrain it.</p>,
+        action: 'Drain',
+        danger: true,
+      })
+    )
+      act(`/members/${m.name}/drain`, `${m.name} is draining.`)
+  }
+  return (
+    <div className="stack">
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Member</th>
+              <th>Node</th>
+              <th>Address</th>
+              <th>Version</th>
+              <th>Peers</th>
+              <th>Stick tables</th>
+              <th>Certificate</th>
+              <th>State</th>
+              {can('admin') && <th />}
+            </tr>
+          </thead>
+          <tbody>
+            {cluster.members.map((m) => {
+              const s = m.state
+              const checked = s.checked && !String(s.checked).startsWith('0001')
+              return (
+                <tr key={m.name}>
+                  <td>
+                    <strong>{m.name}</strong> {m.name === cluster.secrets_from && <Badge tone="info">secrets</Badge>}
+                  </td>
+                  <td>{m.node_found ? m.node_name : <Badge tone="danger">gone</Badge>}</td>
+                  <td className="mono small">{m.address}</td>
+                  <td>{s.applied ? <Badge tone={s.applied === cluster.desired ? 'ok' : 'warn'}>v{s.applied}</Badge> : '-'}</td>
+                  <td>{checked ? <Badge tone={s.peers_up < s.peers_total ? 'danger' : 'ok'}>{`${s.peers_up}/${s.peers_total}`}</Badge> : '-'}</td>
+                  <td>{checked && s.peers_total > 0 ? <Badge tone={s.tables_synced ? 'ok' : 'warn'}>{s.tables_synced ? 'in sync' : 'catching up'}</Badge> : '-'}</td>
+                  <td className="small">{when(s.cert_not_after)}</td>
+                  <td>
+                    <div className="row" style={{ flexWrap: 'wrap', gap: '0.3rem' }}>
+                      {s.drained && <Badge tone="warn">drained</Badge>}
+                      {s.drift?.length > 0 && <Badge tone="danger">drifted: {s.drift.join(', ')}</Badge>}
+                      {s.released?.length > 0 && <Badge tone="warn">released: {s.released.join(', ')}</Badge>}
+                      {s.error && <Badge tone="danger">error</Badge>}
+                      {!s.drained && !s.drift?.length && !s.released?.length && !s.error && checked && <Badge tone="ok">in sync</Badge>}
+                    </div>
+                    {s.error && <div className="small muted">{s.error}</div>}
+                  </td>
+                  {can('admin') && (
+                    <td>
+                      <div className="row">
+                        <button className="small" disabled={disabled} onClick={() => drain(m)}>
+                          {s.drained ? 'Undrain' : 'Drain'}
+                        </button>
+                        <button className="small" disabled={disabled} onClick={() => setVars(vars === m.name ? null : m.name)} title="The variables its templates use">
+                          <Pencil size={13} /> Variables
+                        </button>
+                        <button className="small ghost icon" disabled={disabled || cluster.members.length === 1} aria-label={`Remove ${m.name}`} title="Remove from the cluster" onClick={() => removeMember(m)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      {vars && <Variables cluster={cluster} member={cluster.members.find((m) => m.name === vars)} onDone={() => setVars(null)} reload={reload} />}
+      {can('admin') &&
+        (adding ? (
+          <AddMember cluster={cluster} nodes={nodes} onDone={() => setAdding(false)} reload={reload} />
+        ) : (
+          <div className="row">
+            <button disabled={disabled} onClick={() => setAdding(true)}>
+              <Plus size={15} /> Add a member
+            </button>
+            <SecretsFrom cluster={cluster} disabled={disabled} reload={reload} toast={toast} />
+          </div>
+        ))}
+    </div>
+  )
+}
+
+function SecretsFrom({ cluster, disabled, reload, toast }) {
+  const [, run] = useAction()
+  return (
+    <label className="row small secrets-from">
+      <span className="muted">Secrets come from</span>
+      <select
+        value={cluster.secrets_from}
+        disabled={disabled}
+        onChange={(e) =>
+          run(async () => {
+            await postJSON(`/api/clusters/${cluster.id}`, { secrets_from: e.target.value }, 'PATCH')
+            reload()
+            toast(`The members now pull from ${e.target.value}.`)
+          })
+        }
+      >
+        {cluster.members.map((m) => (
+          <option key={m.name}>{m.name}</option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function Variables({ cluster, member, onDone, reload }) {
+  const [text, setText] = useState(varsText(member.vars))
+  const [error, setError] = useState(null)
+  const [busy, run] = useAction()
+  const save = () => {
+    let vars
+    try {
+      vars = parseVars(text)
+    } catch (err) {
+      setError(err)
+      return
+    }
+    run(async () => {
+      await postJSON(`/api/clusters/${cluster.id}`, { vars: { [member.name]: vars } }, 'PATCH')
+      reload()
+      onDone()
+    }, `${member.name}’s variables saved: the next apply renders its templates with them.`)
+  }
+  return (
+    <Card title={`${member.name}’s variables`} icon={Pencil} className="data-title">
+      <p className="small muted">
+        What its templates use as <span className="mono">{'{{ .Member.Vars.key }}'}</span> - a VRRP priority, a BGP router ID. One <span className="mono">key=value</span> a line.
+      </p>
+      <textarea className="mono" rows={5} aria-label={`${member.name}’s variables`} value={text} onChange={(e) => setText(e.target.value)} placeholder="priority=150" />
+      <ErrorBox error={error} />
+      <div className="row">
+        <button className="small primary" disabled={busy} onClick={save}>
+          Save
+        </button>
+        <button className="small" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </Card>
+  )
+}
+
+function AddMember({ cluster, nodes, onDone, reload }) {
+  const [clusters] = usePolled('/api/clusters', () => false)
+  const taken = new Set((clusters || []).flatMap((c) => c.members.map((m) => m.node_id)))
+  const free = nodes.filter((n) => !taken.has(n.id))
+  const [nodeID, setNodeID] = useState('')
+  const [member, setMember] = useState({ name: '', address: '' })
+  const [error, setError] = useState(null)
+  const [busy, run] = useAction()
+  const pick = (id) => {
+    setNodeID(id)
+    setMember(memberDefaults(nodes.find((n) => n.id === id)))
+  }
+  const problem = (nodeID ? '' : 'a node') || memberNameError(member.name) || (member.address ? '' : 'its address')
+  const submit = (e) => {
+    e.preventDefault()
+    setError(null)
+    run(async () => {
+      try {
+        await postJSON(`/api/clusters/${cluster.id}/members`, { node_id: nodeID, name: member.name, address: member.address.trim() })
+        reload()
+        onDone()
+      } catch (err) {
+        setError(err)
+      }
+    })
+  }
+  return (
+    <Card title="Add a member" icon={Plus}>
+      <form className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }} onSubmit={submit}>
+        <label className="field">
+          <span>Node</span>
+          <select value={nodeID} onChange={(e) => pick(e.target.value)}>
+            <option value="">-</option>
+            {free.map((n) => (
+              <option key={n.id} value={n.id}>
+                {n.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Member name</span>
+          <input className="mono" value={member.name} onChange={(e) => setMember({ ...member, name: e.target.value.trim() })} />
+        </label>
+        <label className="field">
+          <span>Address the others reach it on</span>
+          <input className="mono" value={member.address} placeholder="192.0.2.13" onChange={(e) => setMember({ ...member, address: e.target.value })} />
+        </label>
+        <button className="primary" type="submit" disabled={busy || !!problem}>
+          Add
+        </button>
+        <button type="button" onClick={onDone}>
+          Cancel
+        </button>
+      </form>
+      <p className="small muted">It is checked, given its member certificate, told to the others; it pulls the secrets, then gets the cluster’s version.</p>
+      <ErrorBox error={error} />
+    </Card>
+  )
+}
+
+// --- the configuration ---
+
+function Configuration({ cluster, reload }) {
+  const can = useCan()
+  const confirm = useConfirm()
+  const toast = useToast()
+  const [busy, run] = useAction()
+  const [versions, , loadVersions] = usePolled(`/api/clusters/${cluster.id}/versions`, () => false)
+  const [selected, setSelected] = useState(0)
+  const [version, setVersion] = useState(null) // the selected version, with its files
+  const [desired, setDesired] = useState(null) // the cluster's, for diffs
+  const [file, setFile] = useState('haproxy.cfg')
+  const [draft, setDraft] = useState(null) // {files, note} while editing
+  const [newPath, setNewPath] = useState('')
+  const [error, setError] = useState(null)
+  const shown = selected || cluster.desired || versions?.[0]?.version || 0
+  useEffect(() => {
+    if (!shown) return
+    call(`/api/clusters/${cluster.id}/versions/${shown}`).then((v) => {
+      setVersion(v)
+      setFile((f) => (v.content[f] !== undefined ? f : v.files[0] || 'haproxy.cfg'))
+    }, setError)
+  }, [cluster.id, shown])
+  useEffect(() => {
+    if (!cluster.desired) return
+    call(`/api/clusters/${cluster.id}/versions/${cluster.desired}`).then(setDesired, setError)
+  }, [cluster.id, cluster.desired])
+  if (!versions) return <Loading />
+  const files = draft ? draft.files : version?.content || {}
+  const paths = Object.keys(files).sort()
+  const edit = () => setDraft({ files: { ...(version?.content || {}) }, note: '' })
+  const save = () =>
+    run(async () => {
+      try {
+        const base = version?.content || {}
+        const changed = Object.fromEntries(Object.entries(draft.files).filter(([p, c]) => base[p] !== c))
+        const removed = Object.keys(base).filter((p) => draft.files[p] === undefined)
+        const v = await postJSON(`/api/clusters/${cluster.id}/versions`, { base: version ? version.version : -1, files: changed, delete: removed, note: draft.note })
+        setDraft(null)
+        setSelected(v.version)
+        loadVersions(false)
+        setError(null)
+        toast(`Version ${v.version} made - apply it to put it on the members.`)
+      } catch (err) {
+        setError(err)
+      }
+    })
+  const apply = async () => {
+    const changes = versionChanges(desired?.content || {}, version.content)
+    let managed = [...new Set([...cluster.managed, ...domainsOf(version.files)])].filter((d) => DOMAINS.some((x) => x.id === d))
+    const ok = await confirm({
+      title: `Apply version ${version.version} to ${cluster.name}?`,
+      wide: true,
+      action: `Apply v${version.version}`,
+      body: (
+        <>
+          <p>
+            Checked on {cluster.members[0]?.name} first, then applied one member at a time: the files, HAProxy, the files it no longer has, the firewall (on trial, confirmed), VRRP, BGP.
+            The first failure stops it.
+          </p>
+          <fieldset className="plain">
+            <legend className="small muted">The cluster manages - locked on its members</legend>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              {DOMAINS.map((d) => (
+                <label key={d.id} className="check small">
+                  <input
+                    type="checkbox"
+                    defaultChecked={managed.includes(d.id)}
+                    onChange={(e) => (managed = e.target.checked ? [...managed, d.id] : managed.filter((x) => x !== d.id))}
+                  />{' '}
+                  {d.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {changes.length === 0 ? (
+            <p className="small muted">Its files are version {cluster.desired}’s.</p>
+          ) : (
+            changes.map((c) => (
+              <div key={c.path} className="stack" style={{ gap: '0.3rem' }}>
+                <div className="small">
+                  <span className="mono">{c.path}</span> <Badge tone={c.kind === 'removed' ? 'danger' : c.kind === 'added' ? 'ok' : 'info'}>{c.kind}</Badge>
+                </div>
+                <DiffView diff={c.diff} />
+              </div>
+            ))
+          )}
+        </>
+      ),
+    })
+    if (!ok) return
+    run(async () => {
+      await postJSON(`/api/clusters/${cluster.id}/apply`, { version: version.version, managed: DOMAINS.map((d) => d.id).filter((d) => managed.includes(d)) })
+      reload()
+    }, `Version ${version.version} is being applied.`)
+  }
+  return (
+    <div className="cluster-config">
+      <Card title="Versions" icon={History} className="cluster-versions">
+        {versions.length === 0 && <p className="small muted">None yet.</p>}
+        <ul className="plain-list version-list">
+          {versions.map((v) => (
+            <li key={v.version}>
+              <button className={v.version === shown ? 'ghost active' : 'ghost'} disabled={!!draft} onClick={() => setSelected(v.version)}>
+                <span className="mono">v{v.version}</span> {v.version === cluster.desired && <Badge tone="ok">desired</Badge>}
+                <span className="small muted version-meta">
+                  {v.author} · {when(v.created)}
+                </span>
+                {v.note && <span className="small version-note">{v.note}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <Card
+        title={draft ? `New version, from v${version?.version || '-'}` : version ? `Version ${version.version}` : 'Configuration'}
+        icon={FileText}
+        className="data-title"
+        actions={
+          can('admin') &&
+          (draft ? (
+            <>
+              <button className="small primary" disabled={busy} onClick={save}>
+                Save as a new version
+              </button>
+              <button className="small" onClick={() => setDraft(null)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="small" disabled={busy} onClick={edit}>
+                <Pencil size={13} /> Edit
+              </button>
+              {version && (
+                <button className="small primary" disabled={busy || cluster.busy} onClick={apply}>
+                  Apply v{version.version}…
+                </button>
+              )}
+            </>
+          ))
+        }
+      >
+        <ErrorBox error={error} />
+        <div className="row" style={{ flexWrap: 'wrap', gap: '0.3rem' }}>
+          {paths.map((p) => (
+            <button key={p} className={p === file ? 'small active' : 'small ghost'} onClick={() => setFile(p)}>
+              <span className="mono">{p}</span>
+            </button>
+          ))}
+        </div>
+        {draft && (
+          <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label className="field grow">
+              <span>Add a file - haproxy.cfg, files/NAME (no key), keepalived.conf, bird.conf, firewall.nft</span>
+              <input className="mono" value={newPath} onChange={(e) => setNewPath(e.target.value.trim())} placeholder="keepalived.conf" />
+            </label>
+            <button
+              className="small"
+              disabled={!newPath || !!pathError(newPath) || draft.files[newPath] !== undefined}
+              title={newPath && pathError(newPath) ? pathError(newPath) : undefined}
+              onClick={() => {
+                setDraft({ ...draft, files: { ...draft.files, [newPath]: '' } })
+                setFile(newPath)
+                setNewPath('')
+              }}
+            >
+              <Plus size={13} /> Add
+            </button>
+            {files[file] !== undefined && file !== 'haproxy.cfg' && (
+              <button
+                className="small danger"
+                onClick={() => {
+                  const next = { ...draft.files }
+                  delete next[file]
+                  setDraft({ ...draft, files: next })
+                  setFile(Object.keys(next).sort()[0] || '')
+                }}
+              >
+                <Trash2 size={13} /> Remove {file}
+              </button>
+            )}
+          </div>
+        )}
+        {files[file] === undefined ? (
+          <p className="small muted">No file.</p>
+        ) : draft ? (
+          <Editor label={file} value={files[file]} onChange={(v) => setDraft({ ...draft, files: { ...draft.files, [file]: v } })} />
+        ) : (
+          <pre className="logview config-view" tabIndex={0} aria-label={file}>
+            {files[file]}
+          </pre>
+        )}
+        {draft && (
+          <>
+            {['keepalived.conf', 'bird.conf', 'firewall.nft'].includes(file) && (
+              <p className="small muted">
+                A template, rendered for each member: <span className="mono">{'{{ .Member.Name }}'}</span>, <span className="mono">{'{{ .Member.Address }}'}</span>,{' '}
+                <span className="mono">{'{{ .Member.Vars.priority }}'}</span>, <span className="mono">{'{{ range .Peers }}{{ .Address }}{{ end }}'}</span>.
+              </p>
+            )}
+            <label className="field">
+              <span>Note</span>
+              <input value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} placeholder="what this version changes" />
+            </label>
+          </>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// --- certificates ---
+
+function Certificates({ cluster, act, busy, reload }) {
+  const can = useCan()
+  const [name, setName] = useState('')
+  const [pem, setPem] = useState('')
+  const [crtList, setCrtList] = useState('')
+  const [, run] = useAction()
+  const upload = (e) => {
+    e.preventDefault()
+    run(async () => {
+      await postJSON(`/api/clusters/${cluster.id}/certificates`, { name, pem, crt_list: crtList.trim() })
+      setName('')
+      setPem('')
+      reload()
+    }, `${name} is being uploaded to ${cluster.secrets_from}, then pulled by the others.`)
+  }
+  return (
+    <div className="stack">
+      <p className="muted">
+        Certificates, their keys, the Let’s Encrypt certificates and the TLS ticket key ring go from {cluster.secrets_from} to the other members, over their own mutual TLS -
+        never through this Controller. The ring rotates every day{cluster.tickets_rotated ? ` (last ${when(cluster.tickets_rotated)})` : ''}.
+      </p>
+      {can('admin') && (
+        <>
+          <Card title="Certificate for every member" icon={Upload}>
+            <form className="stack" onSubmit={upload}>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                <label className="field">
+                  <span>Name</span>
+                  <input className="mono" value={name} onChange={(e) => setName(e.target.value.trim())} placeholder="www" />
+                </label>
+                <label className="field grow">
+                  <span>crt-list to bind it into (optional)</span>
+                  <input className="mono" value={crtList} onChange={(e) => setCrtList(e.target.value)} placeholder="/etc/haproxy/files/certs.list" />
+                </label>
+              </div>
+              <label className="field">
+                <span>The certificate, its chain and its key (PEM)</span>
+                <textarea className="mono small" rows={6} value={pem} onChange={(e) => setPem(e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Or a file</span>
+                <input type="file" accept=".pem,.crt,.key" onChange={(e) => e.target.files?.[0]?.text().then(setPem)} />
+              </label>
+              <p className="small muted">Relayed to {cluster.secrets_from} as a node’s page relays one - never kept here -, then pulled by the others.</p>
+              <div className="row">
+                <button className="primary" type="submit" disabled={busy || cluster.busy || !name || !pem.includes('PRIVATE KEY')}>
+                  <Upload size={15} /> Upload
+                </button>
+              </div>
+            </form>
+          </Card>
+          <div className="row">
+            <button disabled={busy || cluster.busy} onClick={() => act('/pull', 'The members are pulling the secrets again.')}>
+              <RefreshCw size={15} /> Pull everything again from {cluster.secrets_from}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// --- journal ---
+
+function Journal({ cluster }) {
+  const [entries, error] = usePolled(`/api/clusters/${cluster.id}/journal?n=200`, () => false)
+  if (!entries) return error ? <ErrorBox error={error} /> : <Loading />
+  if (entries.length === 0) return <div className="card empty">Nothing yet.</div>
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Who</th>
+            <th>What</th>
+            <th>Member</th>
+            <th>Version</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e, i) => (
+            <tr key={i}>
+              <td className="small">{when(e.time)}</td>
+              <td>{e.actor}</td>
+              <td>
+                <Badge tone={e.error ? 'danger' : e.action === 'drift' ? 'warn' : ''}>{e.action}</Badge>
+              </td>
+              <td>{e.member || ''}</td>
+              <td className="mono">{e.version ? `v${e.version}` : ''}</td>
+              <td>
+                {e.message}
+                {e.error && <div className="small error-text">{e.error}</div>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}

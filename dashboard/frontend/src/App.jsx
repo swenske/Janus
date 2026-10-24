@@ -8,6 +8,7 @@ import {
   KeyRound,
   LockKeyhole,
   LogOut,
+  Network,
   Plus,
   Rocket,
   ScrollText,
@@ -54,6 +55,7 @@ import { useSplash, useSplashStep } from './shared/Splash.jsx'
 // chunks, fetched when first shown (shared/lazy.jsx).
 const AuditPage = lazyView(() => import('./Audit.jsx'))
 const BackupsPage = lazyView(() => import('./Backups.jsx'))
+const ClustersPage = lazyView(() => import('./Clusters.jsx'))
 const HypervisorsPage = lazyView(() => import('./Hypervisors.jsx'))
 const LogForwardingPage = lazyView(() => import('./LogForwarding.jsx'))
 const LetsEncryptPage = lazyView(() => import('./LetsEncrypt.jsx'))
@@ -1066,7 +1068,7 @@ const STATUS_EVERY = 15000
 function MainApp() {
   const route = useHashRoute()
   const can = useCan()
-  const tab = ['hypervisors', 'tokens', 'accounts', 'audit', 'log-forwarding', 'letsencrypt', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
+  const tab = ['clusters', 'hypervisors', 'tokens', 'accounts', 'audit', 'log-forwarding', 'letsencrypt', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
   const [nodes, setNodes] = useState(null)
   const [pending, setPending] = useState([])
   const [statuses, setStatuses] = useState({})
@@ -1255,6 +1257,7 @@ function MainApp() {
         <Tabs
           tabs={[
             { id: 'nodes', label: `Nodes${nodes ? ` (${nodes.length})` : ''}`, icon: Server },
+            ...(can('reader') ? [{ id: 'clusters', label: 'Clusters', icon: Network }] : []),
             ...(can('reader') ? [{ id: 'hypervisors', label: `Hypervisors${hypervisors.length ? ` (${hypervisors.length})` : ''}`, icon: Boxes }] : []),
             { id: 'tokens', label: 'API tokens', icon: KeyRound },
             ...(can('admin')
@@ -1292,6 +1295,8 @@ function MainApp() {
           <LetsEncryptPage />
         ) : tab === 'backups' && can('admin') ? (
           <BackupsPage />
+        ) : tab === 'clusters' && can('reader') ? (
+          <ClustersPage route={route} nodes={nodes} />
         ) : tab === 'hypervisors' ? (
           <HypervisorsPage hypervisors={hypervisors} machines={machines} hvStatus={hvStatus} onChanged={reload} onConsole={setConsoleOf} />
         ) : (

@@ -2,8 +2,8 @@ import { CheckCircle2, Download, FileCode2, RotateCcw, Upload } from 'lucide-rea
 import { useEffect, useMemo, useState } from 'react'
 import { getJSON, postJSON } from '../../api.js'
 import { Badge, Card, ErrorBox, Loading, useAction, useConfirm, useToast } from '../../../shared/ui.jsx'
-import { DiffView, Editor } from '../../components/Editor.jsx'
-import { hunks, lineDiff } from '../../diff.js'
+import { DiffView, Editor } from '../../../shared/Editor.jsx'
+import { hunks, lineDiff } from '../../../shared/diff.js'
 import { useMay } from '../../may.js'
 import ConfigHistory from './ConfigHistory.jsx'
 

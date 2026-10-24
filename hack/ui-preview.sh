@@ -24,6 +24,10 @@
 # (0.0.0.0: all of them), UI_PREVIEW_HOST=NAME the name it's opened by.
 # Both are read by up only: the port's mapping and the names in the
 # Controller's certificate are fixed then (reload and info reuse them).
+# A second preview beside another one (another checkout's) takes its own
+# names, networks and port: UI_PREVIEW_NAME=janus-preview2
+# UI_PREVIEW_NET=10.0.32 UI_PREVIEW_LOGNET=10.0.33 UI_PREVIEW_PORT=18444 -
+# read by up, kept for the other commands too.
 # reload: the binaries built again and the Controller and nodes
 # restarted - their state kept (the Controller's data, the nodes' PKI and
 # configuration): to see a change of the tree. reload ui: dashboardd
@@ -43,9 +47,9 @@ set -euo pipefail
 CMD="${1:-up}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIR="$ROOT/build/ui-preview"
-P=janus-preview
-NET=10.0.30    # the nodes, application servers, Controller, Elasticsearch
-LOGNET=10.0.31 # edge-1's second interface, rsyslog's
+P="${UI_PREVIEW_NAME:-janus-preview}"
+NET="${UI_PREVIEW_NET:-10.0.30}"       # the nodes, application servers, Controller, Elasticsearch
+LOGNET="${UI_PREVIEW_LOGNET:-10.0.31}" # edge-1's second interface, rsyslog's
 PORT="${UI_PREVIEW_PORT:-18443}"
 BIND="${UI_PREVIEW_BIND:-127.0.0.1}"
 HOST="${UI_PREVIEW_HOST:-}"
@@ -148,7 +152,7 @@ up() {
   down
   rm -rf "$DIR/controller" "$DIR/creds" "$DIR/token" "$DIR/janusctl.json" "$DIR"/janusctl
   mkdir -p "$DIR/preview" "$DIR/controller" "$DIR/rsyslog/out"
-  printf 'BIND=%q\nHOST=%q\n' "$BIND" "$HOST" >"$DIR/env"
+  printf 'BIND=%q\nHOST=%q\nP=%q\nNET=%q\nLOGNET=%q\nPORT=%q\n' "$BIND" "$HOST" "$P" "$NET" "$LOGNET" "$PORT" >"$DIR/env"
   echo "ui-preview: building dashboardd, janus-acme, janusd, janusctl"
   build
   docker build -q -t "$RSYSLOG_IMAGE" "$ROOT/hack/rsyslog" >/dev/null
