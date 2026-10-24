@@ -24,7 +24,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/events"
@@ -310,25 +309,52 @@ func (c *Cluster) pushTicketKeys(keys []string) (loaded bool, err error) {
 	return true, nil
 }
 
-// TLSTicketKeysRotate adds a key to the ring and hands it to HAProxy.
-func (c *Cluster) TLSTicketKeysRotate(ctx context.Context, _ *emptypb.Empty) (*janusv1alpha1.TLSTicketKeysState, error) {
+// TLSTicketKeysRotate adds a key to the ring - or replaces them all -
+// and hands it to HAProxy.
+func (c *Cluster) TLSTicketKeysRotate(ctx context.Context, req *janusv1alpha1.TLSTicketKeysRotateRequest) (*janusv1alpha1.TLSTicketKeysState, error) {
 	caller, _ := CallerFrom(ctx)
 	if _, err := c.Store.EnsureTicketKeys(); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	key, err := c.Store.RotateTicketKeys()
+	var keys []string
+	var err error
+	if req.GetRenew() {
+		keys, err = c.Store.RenewTicketKeys()
+	} else {
+		var key string
+		key, err = c.Store.RotateTicketKeys()
+		keys = []string{key}
+	}
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	loaded, err := c.pushTicketKeys([]string{key})
+	loaded, err := c.loadTicketKeys(keys)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "the ring is rotated, but HAProxy didn't take the key: %v", err)
+		return nil, status.Errorf(codes.Internal, "the ring changed, but HAProxy didn't take it: %v", err)
 	}
-	log.Printf("cluster: TLS ticket key ring rotated (HAProxy loaded it: %v) - by %s", loaded, caller)
-	events.Publish("cluster.tls_ticket_keys_rotated", map[string]any{"loaded": loaded, "by": caller.String()})
+	what := "rotated"
+	if req.GetRenew() {
+		what = "renewed - every key replaced"
+	}
+	log.Printf("cluster: TLS ticket key ring %s (HAProxy loaded it: %v) - by %s", what, loaded, caller)
+	events.Publish("cluster.tls_ticket_keys_rotated", map[string]any{"loaded": loaded, "renew": req.GetRenew(), "by": caller.String()})
 	st := c.ticketKeysState()
 	st.Loaded = loaded
 	return st, nil
+}
+
+// loadTicketKeys hands HAProxy the keys at runtime; a HAProxy that
+// doesn't take them reloads, reading the ring's file anew - never left
+// with keys the file no longer holds.
+func (c *Cluster) loadTicketKeys(keys []string) (loaded bool, err error) {
+	loaded, err = c.pushTicketKeys(keys)
+	if err == nil {
+		return loaded, nil
+	}
+	if rerr := c.HAProxy.Reload(); rerr != nil {
+		return false, fmt.Errorf("%v; reload HAProxy: %v", err, rerr)
+	}
+	return true, nil
 }
 
 func (c *Cluster) ticketKeysState() *janusv1alpha1.TLSTicketKeysState {

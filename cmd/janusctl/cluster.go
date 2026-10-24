@@ -165,9 +165,16 @@ func runCluster(conn *grpc.ClientConn, args []string) {
 			fmt.Printf("%-16s %-30s %s\n", strings.ReplaceAll(item, "_", "-"), p.GetName(), p.GetMessage())
 		}
 	case "rotate-tickets":
-		st, err := client.TLSTicketKeysRotate(c, &emptypb.Empty{})
+		fs := flag.NewFlagSet("cluster rotate-tickets", flag.ExitOnError)
+		renew := fs.Bool("renew", false, "replace every key of the ring at once - no key it held is used or accepted any more")
+		_ = fs.Parse(args[1:])
+		st, err := client.TLSTicketKeysRotate(c, &janusv1alpha1.TLSTicketKeysRotateRequest{Renew: *renew})
 		check("TLSTicketKeysRotate", err)
-		fmt.Printf("TLS ticket key ring rotated: %d keys, sha256 %s - HAProxy %s\n", st.GetKeys(), st.GetSha256(), map[bool]string{true: "took the new key", false: "doesn't use the ring yet"}[st.GetLoaded()])
+		what, took := "rotated", "took the new key"
+		if *renew {
+			what, took = "renewed", "took the new ring"
+		}
+		fmt.Printf("TLS ticket key ring %s: %d keys, sha256 %s - HAProxy %s\n", what, st.GetKeys(), st.GetSha256(), map[bool]string{true: took, false: "doesn't use the ring yet"}[st.GetLoaded()])
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl cluster: unknown subcommand %q\n", args[0])
 		usage()

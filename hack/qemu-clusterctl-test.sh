@@ -15,7 +15,8 @@
 # holds the virtual IP, the stick table replicates; a dry run changes
 # nothing. A member released by hand drifts: check reports it and exits
 # 1, the next apply puts it back. A certificate for every member. A
-# member removed, added again; the ticket ring rotated. A fourth node
+# member removed, added again - the ticket ring it knew renewed on the
+# others, its own made anew -; the ticket ring rotated. A fourth node
 # replaces the VRRP master (janusctl cluster replace): it joins drained,
 # learns the table, and the virtual IP moves once, to it. The cluster
 # deleted - and no AVC denial.
@@ -265,10 +266,20 @@ alice -n lb-1 cluster undrain >/dev/null || fail "undrain lb-1"
 wait_for 30 "lb-1 holding the virtual IP again" master 1
 echo "  ok: a drain moved the virtual IP to lb-2, which had the table"
 
-# lb-3 leaves, joins again; the ticket ring rotates.
+# lb-3 leaves, joins again; the ticket ring rotates. The ring lb-3 knew
+# is renewed on lb-1 and lb-2, and lb-3 makes its own: no node reads or
+# forges the others' tickets any more.
+ring() { alice -n "lb-$1" cluster get | sed -n 's/^Ticket keys: .*sha256 \([0-9a-f]*\)$/\1/p'; }
+before="$(ring 1)"
+[ -n "$before" ] && [ "$(ring 2)" = "$before" ] && [ "$(ring 3)" = "$before" ] || fail "the members' rings differ before lb-3 leaves: $(ring 1) $(ring 2) $(ring 3)"
 out="$(alice cluster remove edge lb-3 2>&1)" || fail "remove lb-3: $out"
 check "lb-3 on its own" "Cluster: +none" "$(alice -n lb-3 cluster get)"
 for i in 1 2; do wait_for 60 "lb-$i with one peer" peers_up "$i" 1; done
+r1="$(ring 1)" r2="$(ring 2)" r3="$(ring 3)"
+[ "$r1" = "$r2" ] || fail "lb-1 and lb-2 don't share the renewed ring: $r1 $r2"
+[ "$r1" != "$before" ] && [ "$r3" != "$before" ] && [ "$r3" != "$r1" ] || fail "a ring lb-3 knew is still in use: before $before, lb-1 $r1, lb-3 $r3"
+check "the renewal journaled" "renewed on lb-1 and pulled by the others: no key lb-3 knew" "$(alice cluster journal edge -n 50)"
+check "lb-3 logged its own ring" "cluster: left edge .*a new TLS ticket key ring" "$(alice -n lb-3 system logs janusd)"
 # Its variables went with it: the cluster's version can't render for it,
 # refused before anything is touched.
 if out="$(alice cluster add edge lb-3 -address 192.168.87.3 2>&1)"; then fail "lb-3 added without its template's variable: $out"; fi
@@ -281,7 +292,7 @@ for i in $MEMBERS; do wait_for 60 "lb-$i's peers up again" peers_up "$i" 2; done
 out="$(alice cluster tickets edge 2>&1)" || fail "tickets: $out"
 check "the ring pulled" "pulled from lb-1" "$out"
 check "the journal" "version 3 applied on lb-3" "$(alice cluster journal edge -n 200)"
-echo "  ok: a member removed and added again - refused first without its template's variable; the ticket ring rotated and pulled"
+echo "  ok: a member removed and added again - the ring it knew renewed on the others, its own made anew; refused first without its template's variable; the ticket ring rotated and pulled"
 
 # lb-4 takes the VRRP master's place: it joins drained, learns the
 # table, comes into service as lb-1 is drained - the virtual IP moves
@@ -313,4 +324,4 @@ echo "  ok: the cluster deleted - the nodes on their own and unlocked"
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on node $i"; fi
 done
-echo "Clusterctl test PASSED: a fleet's cluster made by janusctl - advisory locks, VRRP from a directory, a dry run, drift reported and put back, a certificate, a drain, a member out and back, tickets, the master replaced with the virtual IP moving once, deleted"
+echo "Clusterctl test PASSED: a fleet's cluster made by janusctl - advisory locks, VRRP from a directory, a dry run, drift reported and put back, a certificate, a drain, a member out and back with the ticket ring renewed, tickets, the master replaced with the virtual IP moving once, deleted"

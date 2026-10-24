@@ -76,10 +76,11 @@ service ClusterService {
   // role does.
   rpc ClusterExport(ClusterExportRequest) returns (stream Data);
 
-  // TLSTicketKeysRotate adds a key to the node's TLS ticket key ring and
-  // hands it to HAProxy without a reload. The other members pull the
-  // ring afterwards (ClusterPull), so a session resumes on any of them.
-  rpc TLSTicketKeysRotate(google.protobuf.Empty) returns (TLSTicketKeysState);
+  // TLSTicketKeysRotate adds a key to the node's TLS ticket key ring - or,
+  // with renew, replaces all of them - and hands it to HAProxy without a
+  // reload. The other members pull the ring afterwards (ClusterPull), so
+  // a session resumes on any of them.
+  rpc TLSTicketKeysRotate(TLSTicketKeysRotateRequest) returns (TLSTicketKeysState);
 }
 
 // ClusterMember is one node of the cluster, as every member knows it.
@@ -255,6 +256,14 @@ message ClusterPullProgress {
 message ClusterExportRequest {
   // Empty: every item.
   repeated ClusterItem items = 1;
+}
+
+message TLSTicketKeysRotateRequest {
+  // Replace every key of the ring at once instead of adding one: no key
+  // the ring held is used or accepted any more - what a member's
+  // departure takes, since it knew them all. Sessions resume no more
+  // once: each client makes one full handshake.
+  bool renew = 1;
 }
 
 message TLSTicketKeysState {

@@ -16,8 +16,8 @@ import (
 // runs is what the cluster applied. A difference is drift: reported,
 // never overwritten - the next apply does that. Member certificates are
 // renewed past two thirds of their life, the TLS ticket key ring rotated
-// every TicketsEvery. The Controller does it in a loop; janusctl cluster
-// check, when asked.
+// every TicketsEvery - renewed while a member that left still knows it.
+// The Controller does it in a loop; janusctl cluster check, when asked.
 
 // Reconcile looks at cluster c's members and records what it sees; again:
 // one is in error.
@@ -43,7 +43,12 @@ func (e *Engine) Reconcile(ctx context.Context, c *Cluster) (again bool) {
 	if every <= 0 {
 		every = 24 * time.Hour
 	}
-	if len(c.Members) > 1 && !again && time.Since(st.TicketsRotated) > every {
+	if len(e.Store.State(c.ID).TicketsRenew) > 0 {
+		if err := e.RenewTickets(ctx, c, Actor); err != nil {
+			log.Printf("cluster %s: TLS ticket keys: %v", c.Name, err)
+			again = true
+		}
+	} else if len(c.Members) > 1 && !again && time.Since(st.TicketsRotated) > every {
 		if err := e.RotateTickets(ctx, c); err != nil {
 			log.Printf("cluster %s: TLS ticket keys: %v", c.Name, err)
 			again = true
@@ -190,11 +195,39 @@ func (e *Engine) RotateTickets(ctx context.Context, c *Cluster) error {
 	if m == nil {
 		return fmt.Errorf("no member %s", c.SecretsFrom)
 	}
-	if err := e.Nodes.RotateTickets(ctx, *m); err != nil {
+	if err := e.Nodes.RotateTickets(ctx, *m, false); err != nil {
 		return err
 	}
 	e.Journal(c.ID, Actor, "tickets", m.Name, 0, "TLS ticket key ring rotated on %s", m.Name)
 	return e.Pull(ctx, c.ID, nil, []janusv1alpha1.ClusterItem{janusv1alpha1.ClusterItem_CLUSTER_ITEM_TLS_TICKET_KEYS}, Actor)
+}
+
+// RenewTickets replaces every key of the ring on the member the secrets
+// come from and has the others pull it: the members State.TicketsRenew
+// names left knowing the ring - they must neither read the tickets the
+// cluster issues from now on nor forge one it accepts. Each client makes
+// one full handshake. Done, the names go.
+func (e *Engine) RenewTickets(ctx context.Context, c *Cluster, actor string) error {
+	left := e.Store.State(c.ID).TicketsRenew
+	m := c.Member(c.SecretsFrom)
+	if m == nil {
+		return fmt.Errorf("no member %s", c.SecretsFrom)
+	}
+	if err := e.Nodes.RotateTickets(ctx, *m, true); err != nil {
+		return fmt.Errorf("renew the TLS ticket key ring on %s: %w", m.Name, err)
+	}
+	if err := e.Pull(ctx, c.ID, nil, []janusv1alpha1.ClusterItem{janusv1alpha1.ClusterItem_CLUSTER_ITEM_TLS_TICKET_KEYS}, actor); err != nil {
+		return fmt.Errorf("the TLS ticket key ring renewed on %s, not pulled by every member: %w", m.Name, err)
+	}
+	if len(left) > 0 {
+		e.Journal(c.ID, actor, "tickets", m.Name, 0, "TLS ticket key ring renewed on %s and pulled by the others: no key %s knew is used or accepted any more", m.Name, strings.Join(left, ", "))
+	} else {
+		e.Journal(c.ID, actor, "tickets", m.Name, 0, "TLS ticket key ring renewed on %s and pulled by the others: every key replaced", m.Name)
+	}
+	return e.Store.UpdateState(c.ID, func(s *State) {
+		s.TicketsRenew = slices.DeleteFunc(s.TicketsRenew, func(n string) bool { return slices.Contains(left, n) })
+		s.TicketsRotated = time.Now().UTC()
+	})
 }
 
 // newOnes are what's in now and wasn't in before.

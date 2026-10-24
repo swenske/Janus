@@ -33,7 +33,7 @@ type Nodes interface {
 	ClusterUndrain(ctx context.Context, m Member) error
 	// ClusterPull: what came, one line each.
 	ClusterPull(ctx context.Context, m Member, from string, items []janusv1alpha1.ClusterItem) ([]string, error)
-	RotateTickets(ctx context.Context, m Member) error
+	RotateTickets(ctx context.Context, m Member, renew bool) error
 	HAProxyConfig(ctx context.Context, m Member) ([]byte, error)
 	HAProxyValidate(ctx context.Context, m Member, cfg []byte) error
 	HAProxyApply(ctx context.Context, m Member, cfg []byte) error
@@ -261,12 +261,12 @@ func (g GRPC) ClusterPull(ctx context.Context, m Member, from string, items []ja
 	}
 }
 
-func (g GRPC) RotateTickets(ctx context.Context, m Member) error {
+func (g GRPC) RotateTickets(ctx context.Context, m Member, renew bool) error {
 	c, err := g.cluster(ctx, m)
 	if err != nil {
 		return err
 	}
-	_, err = c.TLSTicketKeysRotate(ctx, &emptypb.Empty{})
+	_, err = c.TLSTicketKeysRotate(ctx, &janusv1alpha1.TLSTicketKeysRotateRequest{Renew: renew})
 	return nodeError(err)
 }
 

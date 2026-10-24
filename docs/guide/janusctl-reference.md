@@ -1422,8 +1422,12 @@ janusctl cluster certificate [-name NAME] [-crt-list PATH] [-sni NAMES] NAME FIL
 A new TLS ticket key on the member the secrets come from, pulled by the others (check does it daily).
 
 ```text
-janusctl cluster tickets NAME
+janusctl cluster tickets [-renew] NAME
 ```
+
+| Flag | |
+|---|---|
+| `-renew` | replace every key of the ring at once - no key it held is used or accepted any more (a member's departure does it) |
 
 #### janusctl cluster journal
 
@@ -1534,8 +1538,12 @@ janusctl cluster pull [-from MEMBER] [-items LIST]
 Add a TLS ticket key to the ring, handed to HAProxy without a reload.
 
 ```text
-janusctl cluster rotate-tickets
+janusctl cluster rotate-tickets [-renew]
 ```
+
+| Flag | |
+|---|---|
+| `-renew` | replace every key of the ring at once - no key it held is used or accepted any more |
 
 ### janusctl pki
 

@@ -67,6 +67,24 @@ func (s *Store) RotateTicketKeys() (key string, err error) {
 	return key, s.writeTicketKeysLocked(keys)
 }
 
+// RenewTicketKeys replaces every key of the ring: the keys, for HAProxy
+// to take at runtime, oldest first. No key of the ring before is used
+// or accepted once HAProxy has them all - what a node leaving a cluster,
+// or a cluster a member left, does.
+func (s *Store) RenewTicketKeys() ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var keys []string
+	for range TicketKeys {
+		k, err := newTicketKey()
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, s.writeTicketKeysLocked(keys)
+}
+
 // TicketKeysRing is the ring's keys, oldest first.
 func (s *Store) TicketKeysRing() ([]string, error) {
 	s.mu.RLock()

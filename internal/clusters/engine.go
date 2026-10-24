@@ -617,6 +617,11 @@ func (e *Engine) Replace(ctx context.Context, id, old string, repl Member, opts 
 	}
 	e.Journal(id, actor, "drain", old, 0, "%s drained, %s in service: %s", old, repl.Name, msg)
 	if err := e.RemoveMember(ctx, id, old, false, actor); err != nil {
+		if cur, ok := e.Store.Get(id); ok && cur.Member(old) == nil {
+			// Out, but what follows its departure went wrong somewhere.
+			e.Journal(id, actor, "replace", repl.Name, 0, "%s replaced %s, but: %v", repl.Name, old, err)
+			return fmt.Errorf("%s replaced %s, but: %w", repl.Name, old, err)
+		}
 		return &NotRemovedError{Old: old, New: repl.Name, Err: err}
 	}
 	e.Journal(id, actor, "replace", repl.Name, 0, "%s replaced %s", repl.Name, old)
@@ -685,7 +690,12 @@ func (e *Engine) RemoveMember(ctx context.Context, id, name string, force bool, 
 	if err != nil {
 		return err
 	}
-	_ = e.Store.UpdateState(id, func(s *State) { delete(s.Members, name) })
+	_ = e.Store.UpdateState(id, func(s *State) {
+		delete(s.Members, name)
+		if !slices.Contains(s.TicketsRenew, name) {
+			s.TicketsRenew = append(s.TicketsRenew, name)
+		}
+	})
 	e.Journal(id, actor, "leave", name, 0, "%s left the cluster", name)
 	var failed []string
 	for _, o := range c.Members {
@@ -694,6 +704,11 @@ func (e *Engine) RemoveMember(ctx context.Context, id, name string, force bool, 
 		} else if err := e.waitLearnt(ctx, c, o, actor); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v", o.Name, err))
 		}
+	}
+	// It knew the ring: the cluster's is renewed (a failure, retried by
+	// the next check).
+	if err := e.RenewTickets(ctx, c, actor); err != nil {
+		failed = append(failed, err.Error()+" - the next check tries again")
 	}
 	if len(failed) > 0 {
 		return fmt.Errorf("the members without %s: %s", name, strings.Join(failed, "; "))

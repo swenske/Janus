@@ -282,7 +282,7 @@ cfg "
 frontend tls
     bind :8443 ssl crt /etc/haproxy/files/certs/public.pem tls-ticket-keys /etc/haproxy/cluster/tls-ticket-keys
     http-request return status 200 content-type text/plain lf-string \"%[var(proc.janus_member)]\n\"" > "$WORKDIR/haproxy-tls.cfg"
-for i in 1 2; do
+for i in $NODES; do
   # The shared public certificate first: the configuration loads it.
   out="$(ctl "$i" haproxy file-put certs/public.pem "$WORKDIR/public.pem" 2>&1)" || fail "file-put public cert on $i: $out"
   out="$(ctl "$i" haproxy apply-config "$WORKDIR/haproxy-tls.cfg" 2>&1)" || fail "apply-config (tls) on $i: $out"
@@ -329,9 +329,15 @@ out="$(ctl 2 cluster undrain 2>&1)" || fail "undrain on 2: $out"
 if grep -q "Drained" <<<"$out"; then fail "node 2 still drained: $out"; fi
 echo "  ok: drained and back"
 
-# A member leaves; the others drop it.
+# A member leaves; the others drop it. It had the cluster's ring: it
+# makes its own, and the cluster's sessions no longer resume on it.
+out="$(ctl 3 cluster pull -from lb-1 -items tls-ticket-keys 2>&1)" || fail "pull on 3: $out"
+session 1
+resumed 3 || fail "a session from node 1 doesn't resume on node 3 after its pull"
 out="$(ctl 3 cluster leave 2>&1)" || fail "leave on 3: $out"
 check "node 3 on its own again" "Cluster: +none" "$out"
+[ -n "$(ring 3)" ] && [ "$(ring 3)" != "$(ring 1)" ] || fail "node 3 kept the cluster's ring after leaving: $(ring 3)"
+if resumed 3; then fail "a session from the cluster still resumes on node 3 after it left"; fi
 for i in 1 2; do
   out="$(ctl "$i" cluster set -id "$ID" -name edge -member "lb-$i" lb-1=192.168.80.1 lb-2=192.168.80.2 2>&1)" || fail "cluster set on $i: $out"
   if grep -q "lb-3" <<<"$out"; then fail "node $i still names lb-3: $out"; fi
@@ -339,7 +345,14 @@ done
 one_peer() { [ "$(ctl "$1" cluster status 2>/dev/null | grep -cE '^lb-[0-9]+ +192\.168\.80\.[0-9]+:10057 +up ')" = 1 ]; }
 for i in 1 2; do wait_for 30 "node $i with one peer" one_peer "$i"; done
 wait_for 20 "node 3 answers on its own" test "$(http 3)" = "lb-3"
-echo "  ok: a member left"
+# The others renew theirs: every key replaced - a session made before
+# resumes no more.
+before="$(ring 1)"
+out="$(ctl 1 cluster rotate-tickets -renew 2>&1)" || fail "rotate-tickets -renew on 1: $out"
+check "the ring renewed" "ring renewed: 3 keys, .*took the new ring" "$out"
+[ "$(ring 1)" != "$before" ] || fail "the ring didn't change"
+if resumed 1; then fail "a session made before the renewal still resumes on node 1"; fi
+echo "  ok: a member left, with a ticket key ring of its own - the cluster's sessions no longer resume on it, nor after the others' renewal"
 
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on node $i"; fi

@@ -1095,6 +1095,54 @@ func (x *ClusterExportRequest) GetItems() []ClusterItem {
 	return nil
 }
 
+type TLSTicketKeysRotateRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Replace every key of the ring at once instead of adding one: no key
+	// the ring held is used or accepted any more - what a member's
+	// departure takes, since it knew them all. Sessions resume no more
+	// once: each client makes one full handshake.
+	Renew         bool `protobuf:"varint,1,opt,name=renew,proto3" json:"renew,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TLSTicketKeysRotateRequest) Reset() {
+	*x = TLSTicketKeysRotateRequest{}
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TLSTicketKeysRotateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TLSTicketKeysRotateRequest) ProtoMessage() {}
+
+func (x *TLSTicketKeysRotateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TLSTicketKeysRotateRequest.ProtoReflect.Descriptor instead.
+func (*TLSTicketKeysRotateRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *TLSTicketKeysRotateRequest) GetRenew() bool {
+	if x != nil {
+		return x.Renew
+	}
+	return false
+}
+
 type TLSTicketKeysState struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Keys in the ring.
@@ -1113,7 +1161,7 @@ type TLSTicketKeysState struct {
 
 func (x *TLSTicketKeysState) Reset() {
 	*x = TLSTicketKeysState{}
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[12]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1125,7 +1173,7 @@ func (x *TLSTicketKeysState) String() string {
 func (*TLSTicketKeysState) ProtoMessage() {}
 
 func (x *TLSTicketKeysState) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[12]
+	mi := &file_janus_v1alpha1_cluster_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1138,7 +1186,7 @@ func (x *TLSTicketKeysState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TLSTicketKeysState.ProtoReflect.Descriptor instead.
 func (*TLSTicketKeysState) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{12}
+	return file_janus_v1alpha1_cluster_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *TLSTicketKeysState) GetKeys() uint32 {
@@ -1265,7 +1313,9 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12\x12\n" +
 	"\x04done\x18\x04 \x01(\bR\x04done\"I\n" +
 	"\x14ClusterExportRequest\x121\n" +
-	"\x05items\x18\x01 \x03(\x0e2\x1b.janus.v1alpha1.ClusterItemR\x05items\"{\n" +
+	"\x05items\x18\x01 \x03(\x0e2\x1b.janus.v1alpha1.ClusterItemR\x05items\"2\n" +
+	"\x1aTLSTicketKeysRotateRequest\x12\x14\n" +
+	"\x05renew\x18\x01 \x01(\bR\x05renew\"{\n" +
 	"\x12TLSTicketKeysState\x12\x12\n" +
 	"\x04keys\x18\x01 \x01(\rR\x04keys\x12!\n" +
 	"\frotated_unix\x18\x02 \x01(\x03R\vrotatedUnix\x12\x16\n" +
@@ -1276,7 +1326,7 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x1aCLUSTER_ITEM_RUNTIME_CERTS\x10\x01\x12\x16\n" +
 	"\x12CLUSTER_ITEM_FILES\x10\x02\x12\x1b\n" +
 	"\x17CLUSTER_ITEM_ACME_CERTS\x10\x03\x12 \n" +
-	"\x1cCLUSTER_ITEM_TLS_TICKET_KEYS\x10\x042\xac\x06\n" +
+	"\x1cCLUSTER_ITEM_TLS_TICKET_KEYS\x10\x042\xc0\x06\n" +
 	"\x0eClusterService\x12A\n" +
 	"\n" +
 	"ClusterGet\x12\x16.google.protobuf.Empty\x1a\x1b.janus.v1alpha1.ClusterInfo\x12L\n" +
@@ -1288,8 +1338,8 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\fClusterDrain\x12#.janus.v1alpha1.ClusterDrainRequest\x1a$.janus.v1alpha1.ClusterDrainProgress0\x01\x12E\n" +
 	"\x0eClusterUndrain\x12\x16.google.protobuf.Empty\x1a\x1b.janus.v1alpha1.ClusterInfo\x12X\n" +
 	"\vClusterPull\x12\".janus.v1alpha1.ClusterPullRequest\x1a#.janus.v1alpha1.ClusterPullProgress0\x01\x12M\n" +
-	"\rClusterExport\x12$.janus.v1alpha1.ClusterExportRequest\x1a\x14.janus.v1alpha1.Data0\x01\x12Q\n" +
-	"\x13TLSTicketKeysRotate\x12\x16.google.protobuf.Empty\x1a\".janus.v1alpha1.TLSTicketKeysStateB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
+	"\rClusterExport\x12$.janus.v1alpha1.ClusterExportRequest\x1a\x14.janus.v1alpha1.Data0\x01\x12e\n" +
+	"\x13TLSTicketKeysRotate\x12*.janus.v1alpha1.TLSTicketKeysRotateRequest\x1a\".janus.v1alpha1.TLSTicketKeysStateB;Z9github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1b\x06proto3"
 
 var (
 	file_janus_v1alpha1_cluster_proto_rawDescOnce sync.Once
@@ -1304,28 +1354,29 @@ func file_janus_v1alpha1_cluster_proto_rawDescGZIP() []byte {
 }
 
 var file_janus_v1alpha1_cluster_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_janus_v1alpha1_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_janus_v1alpha1_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_janus_v1alpha1_cluster_proto_goTypes = []any{
-	(ClusterItem)(0),              // 0: janus.v1alpha1.ClusterItem
-	(*ClusterMember)(nil),         // 1: janus.v1alpha1.ClusterMember
-	(*ClusterInfo)(nil),           // 2: janus.v1alpha1.ClusterInfo
-	(*ClusterSetRequest)(nil),     // 3: janus.v1alpha1.ClusterSetRequest
-	(*ClusterReleaseRequest)(nil), // 4: janus.v1alpha1.ClusterReleaseRequest
-	(*ClusterStatusResponse)(nil), // 5: janus.v1alpha1.ClusterStatusResponse
-	(*ClusterPeer)(nil),           // 6: janus.v1alpha1.ClusterPeer
-	(*ClusterPeerTable)(nil),      // 7: janus.v1alpha1.ClusterPeerTable
-	(*ClusterDrainRequest)(nil),   // 8: janus.v1alpha1.ClusterDrainRequest
-	(*ClusterDrainProgress)(nil),  // 9: janus.v1alpha1.ClusterDrainProgress
-	(*ClusterPullRequest)(nil),    // 10: janus.v1alpha1.ClusterPullRequest
-	(*ClusterPullProgress)(nil),   // 11: janus.v1alpha1.ClusterPullProgress
-	(*ClusterExportRequest)(nil),  // 12: janus.v1alpha1.ClusterExportRequest
-	(*TLSTicketKeysState)(nil),    // 13: janus.v1alpha1.TLSTicketKeysState
-	(*emptypb.Empty)(nil),         // 14: google.protobuf.Empty
-	(*Data)(nil),                  // 15: janus.v1alpha1.Data
+	(ClusterItem)(0),                   // 0: janus.v1alpha1.ClusterItem
+	(*ClusterMember)(nil),              // 1: janus.v1alpha1.ClusterMember
+	(*ClusterInfo)(nil),                // 2: janus.v1alpha1.ClusterInfo
+	(*ClusterSetRequest)(nil),          // 3: janus.v1alpha1.ClusterSetRequest
+	(*ClusterReleaseRequest)(nil),      // 4: janus.v1alpha1.ClusterReleaseRequest
+	(*ClusterStatusResponse)(nil),      // 5: janus.v1alpha1.ClusterStatusResponse
+	(*ClusterPeer)(nil),                // 6: janus.v1alpha1.ClusterPeer
+	(*ClusterPeerTable)(nil),           // 7: janus.v1alpha1.ClusterPeerTable
+	(*ClusterDrainRequest)(nil),        // 8: janus.v1alpha1.ClusterDrainRequest
+	(*ClusterDrainProgress)(nil),       // 9: janus.v1alpha1.ClusterDrainProgress
+	(*ClusterPullRequest)(nil),         // 10: janus.v1alpha1.ClusterPullRequest
+	(*ClusterPullProgress)(nil),        // 11: janus.v1alpha1.ClusterPullProgress
+	(*ClusterExportRequest)(nil),       // 12: janus.v1alpha1.ClusterExportRequest
+	(*TLSTicketKeysRotateRequest)(nil), // 13: janus.v1alpha1.TLSTicketKeysRotateRequest
+	(*TLSTicketKeysState)(nil),         // 14: janus.v1alpha1.TLSTicketKeysState
+	(*emptypb.Empty)(nil),              // 15: google.protobuf.Empty
+	(*Data)(nil),                       // 16: janus.v1alpha1.Data
 }
 var file_janus_v1alpha1_cluster_proto_depIdxs = []int32{
 	1,  // 0: janus.v1alpha1.ClusterInfo.members:type_name -> janus.v1alpha1.ClusterMember
-	13, // 1: janus.v1alpha1.ClusterInfo.tls_ticket_keys:type_name -> janus.v1alpha1.TLSTicketKeysState
+	14, // 1: janus.v1alpha1.ClusterInfo.tls_ticket_keys:type_name -> janus.v1alpha1.TLSTicketKeysState
 	1,  // 2: janus.v1alpha1.ClusterSetRequest.members:type_name -> janus.v1alpha1.ClusterMember
 	2,  // 3: janus.v1alpha1.ClusterStatusResponse.info:type_name -> janus.v1alpha1.ClusterInfo
 	6,  // 4: janus.v1alpha1.ClusterStatusResponse.peers:type_name -> janus.v1alpha1.ClusterPeer
@@ -1333,16 +1384,16 @@ var file_janus_v1alpha1_cluster_proto_depIdxs = []int32{
 	0,  // 6: janus.v1alpha1.ClusterPullRequest.items:type_name -> janus.v1alpha1.ClusterItem
 	0,  // 7: janus.v1alpha1.ClusterPullProgress.item:type_name -> janus.v1alpha1.ClusterItem
 	0,  // 8: janus.v1alpha1.ClusterExportRequest.items:type_name -> janus.v1alpha1.ClusterItem
-	14, // 9: janus.v1alpha1.ClusterService.ClusterGet:input_type -> google.protobuf.Empty
+	15, // 9: janus.v1alpha1.ClusterService.ClusterGet:input_type -> google.protobuf.Empty
 	3,  // 10: janus.v1alpha1.ClusterService.ClusterSet:input_type -> janus.v1alpha1.ClusterSetRequest
-	14, // 11: janus.v1alpha1.ClusterService.ClusterLeave:input_type -> google.protobuf.Empty
+	15, // 11: janus.v1alpha1.ClusterService.ClusterLeave:input_type -> google.protobuf.Empty
 	4,  // 12: janus.v1alpha1.ClusterService.ClusterRelease:input_type -> janus.v1alpha1.ClusterReleaseRequest
-	14, // 13: janus.v1alpha1.ClusterService.ClusterStatus:input_type -> google.protobuf.Empty
+	15, // 13: janus.v1alpha1.ClusterService.ClusterStatus:input_type -> google.protobuf.Empty
 	8,  // 14: janus.v1alpha1.ClusterService.ClusterDrain:input_type -> janus.v1alpha1.ClusterDrainRequest
-	14, // 15: janus.v1alpha1.ClusterService.ClusterUndrain:input_type -> google.protobuf.Empty
+	15, // 15: janus.v1alpha1.ClusterService.ClusterUndrain:input_type -> google.protobuf.Empty
 	10, // 16: janus.v1alpha1.ClusterService.ClusterPull:input_type -> janus.v1alpha1.ClusterPullRequest
 	12, // 17: janus.v1alpha1.ClusterService.ClusterExport:input_type -> janus.v1alpha1.ClusterExportRequest
-	14, // 18: janus.v1alpha1.ClusterService.TLSTicketKeysRotate:input_type -> google.protobuf.Empty
+	13, // 18: janus.v1alpha1.ClusterService.TLSTicketKeysRotate:input_type -> janus.v1alpha1.TLSTicketKeysRotateRequest
 	2,  // 19: janus.v1alpha1.ClusterService.ClusterGet:output_type -> janus.v1alpha1.ClusterInfo
 	2,  // 20: janus.v1alpha1.ClusterService.ClusterSet:output_type -> janus.v1alpha1.ClusterInfo
 	2,  // 21: janus.v1alpha1.ClusterService.ClusterLeave:output_type -> janus.v1alpha1.ClusterInfo
@@ -1351,8 +1402,8 @@ var file_janus_v1alpha1_cluster_proto_depIdxs = []int32{
 	9,  // 24: janus.v1alpha1.ClusterService.ClusterDrain:output_type -> janus.v1alpha1.ClusterDrainProgress
 	2,  // 25: janus.v1alpha1.ClusterService.ClusterUndrain:output_type -> janus.v1alpha1.ClusterInfo
 	11, // 26: janus.v1alpha1.ClusterService.ClusterPull:output_type -> janus.v1alpha1.ClusterPullProgress
-	15, // 27: janus.v1alpha1.ClusterService.ClusterExport:output_type -> janus.v1alpha1.Data
-	13, // 28: janus.v1alpha1.ClusterService.TLSTicketKeysRotate:output_type -> janus.v1alpha1.TLSTicketKeysState
+	16, // 27: janus.v1alpha1.ClusterService.ClusterExport:output_type -> janus.v1alpha1.Data
+	14, // 28: janus.v1alpha1.ClusterService.TLSTicketKeysRotate:output_type -> janus.v1alpha1.TLSTicketKeysState
 	19, // [19:29] is the sub-list for method output_type
 	9,  // [9:19] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
@@ -1372,7 +1423,7 @@ func file_janus_v1alpha1_cluster_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_cluster_proto_rawDesc), len(file_janus_v1alpha1_cluster_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

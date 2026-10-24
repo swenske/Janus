@@ -186,7 +186,10 @@ func (f *clusterFake) ClusterPull(_ context.Context, m clusters.Member, from str
 	return []string{"pulled"}, nil
 }
 
-func (f *clusterFake) RotateTickets(_ context.Context, m clusters.Member) error {
+func (f *clusterFake) RotateTickets(_ context.Context, m clusters.Member, renew bool) error {
+	if renew {
+		return f.call(m, "RotateTickets", "renew")
+	}
 	return f.call(m, "RotateTickets", "")
 }
 
@@ -644,6 +647,58 @@ func TestClusterMembers(t *testing.T) {
 	}
 	if _, ok := a.clusters.Store.Get(c.ID); ok || f.nodes["lb-3"].info != nil {
 		t.Error("the cluster stayed")
+	}
+}
+
+// A member that leaves knew the TLS ticket key ring: the members that
+// stay get a new one - every key replaced on the member the secrets come
+// from, pulled by the others. A renewal that fails is retried by the
+// next check, and said meanwhile.
+func TestClusterTicketsRenewedWhenAMemberLeaves(t *testing.T) {
+	a, f, nodes := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	c := newCluster(t, a, nodes, "lb-1", "lb-2", "lb-3")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	mark := f.mark()
+	if err := a.clusters.RemoveMember(ctx, c.ID, "lb-3", false, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.callsOf("lb-1", mark); !inOrder(got, "ClusterSet lb-1,lb-2", "RotateTickets renew") {
+		t.Errorf("lb-1: %v", got)
+	}
+	if got := f.callsOf("lb-2", mark); !slices.ContainsFunc(got, func(c string) bool {
+		return strings.HasPrefix(c, "ClusterPull lb-1") && strings.Contains(c, "tls_ticket_keys")
+	}) {
+		t.Errorf("lb-2 didn't pull the ring: %v", got)
+	}
+	if st := a.clusters.Store.State(c.ID); len(st.TicketsRenew) > 0 || st.TicketsRotated.IsZero() {
+		t.Errorf("state after the renewal: %+v", st)
+	}
+
+	// lb-1 can't renew it: lb-2 is out all the same, the renewal waits for
+	// the next check and the page says so.
+	f.fail["lb-1 RotateTickets"] = errors.New("unavailable")
+	err := a.clusters.RemoveMember(ctx, c.ID, "lb-2", false, "admin")
+	if err == nil || !strings.Contains(err.Error(), "the next check tries again") {
+		t.Fatalf("got %v", err)
+	}
+	c, _ = a.clusters.Store.Get(c.ID)
+	if c.Member("lb-2") != nil || !slices.Equal(a.clusters.Store.State(c.ID).TicketsRenew, []string{"lb-2"}) {
+		t.Fatalf("after a failed renewal: members %v, state %+v", c.Members, a.clusters.Store.State(c.ID))
+	}
+	if v := a.clusterView(c); !slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "still the one lb-2 knew") }) {
+		t.Errorf("problems: %v", v.Problems)
+	}
+	delete(f.fail, "lb-1 RotateTickets")
+	mark = f.mark()
+	a.clusters.reconcile(ctx, c)
+	if got := f.callsOf("lb-1", mark); !slices.Contains(got, "RotateTickets renew") {
+		t.Errorf("the check didn't renew the ring: %v", got)
+	}
+	if st := a.clusters.Store.State(c.ID); len(st.TicketsRenew) > 0 {
+		t.Errorf("still to renew: %+v", st)
 	}
 }
 
