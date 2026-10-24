@@ -372,6 +372,11 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "remove", args: "NAME NODE", help: "a member leaves: drained first, the others told", flags: []flagDef{
 			boolFlag("force", "even if it doesn't drain or answer - a node gone for good"),
 		}, pos: []argKind{argNone, argFleetNode}, required: 2},
+		{name: "replace", args: "NAME OLD NEW", help: "a node of the fleet context takes a member's place, the traffic moving once: it joins drained, learns the stick tables, comes into service as OLD is drained, and OLD leaves", flags: []flagDef{
+			valFlag("address", "IP", "the address the other members reach NEW on (default: the context's)", argNone),
+			valFlag("var", "KEY=VALUE", "a variable the cluster's templates use for NEW, repeatable (default: OLD's)", argNone),
+			boolFlag("new-image", "NEW may run another image - the cluster changing image member by member"),
+		}, pos: []argKind{argNone, argFleetNode, argFleetNode}, required: 3},
 		{name: "delete", args: "NAME", help: "every member leaves; the cluster and its CA are gone", flags: []flagDef{
 			boolFlag("force", "even if a member doesn't answer"),
 		}, pos: []argKind{argNone}, required: 1},

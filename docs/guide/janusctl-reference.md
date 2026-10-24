@@ -1369,6 +1369,20 @@ janusctl cluster remove [-force] NAME NODE
 |---|---|
 | `-force` | even if it doesn't drain or answer - a node gone for good |
 
+#### janusctl cluster replace
+
+A node of the fleet context takes a member's place, the traffic moving once: it joins drained, learns the stick tables, comes into service as OLD is drained, and OLD leaves.
+
+```text
+janusctl cluster replace [-address IP] [-var KEY=VALUE] [-new-image] NAME OLD NEW
+```
+
+| Flag | |
+|---|---|
+| `-address IP` | the address the other members reach NEW on (default: the context's) |
+| `-var KEY=VALUE` | a variable the cluster's templates use for NEW, repeatable (default: OLD's) |
+| `-new-image` | NEW may run another image - the cluster changing image member by member |
+
 #### janusctl cluster delete
 
 Every member leaves; the cluster and its CA are gone.
