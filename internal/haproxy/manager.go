@@ -57,6 +57,15 @@ type Manager struct {
 	// whatever arrives before it has moved. Zero: no wait.
 	DrainDelay time.Duration
 
+	// StopWatch is called just before a stop for good: the function it
+	// returns, polled afterwards, reports whether HAProxy pid still has a
+	// client's connection (janusd's, cmd/janusd). Soft-stopped for good, a
+	// HAProxy with a peers section waits for a successor to teach its
+	// stick tables to - 6 s on 3.4.7, measured, and none comes: Stop ends
+	// it once its clients are served. Nil, or nil returned: Stop waits for
+	// the process as it is.
+	StopWatch func(pid int) (clientsLeft func() bool)
+
 	// Env, if set, adds to HAProxy's environment - for `haproxy -c` too:
 	// a configuration can use these variables. Read at each start and
 	// validation.
@@ -560,9 +569,10 @@ func (m *Manager) Running() bool {
 }
 
 // Stop soft-stops haproxy (SIGUSR1: stop accepting, finish in-flight
-// connections), escalating to SIGTERM if it hasn't exited after timeout.
-// It first declares HAProxy not serving and waits DrainDelay, for the
-// traffic to leave this node before the listeners close.
+// connections), escalating to SIGTERM if it hasn't exited after timeout
+// - or once StopWatch says its clients are served. It first
+// declares HAProxy not serving and waits DrainDelay, for the traffic to
+// leave this node before the listeners close.
 func (m *Manager) Stop(timeout time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -581,15 +591,32 @@ func (m *Manager) Stop(timeout time.Duration) error {
 	if m.DrainDelay > 0 {
 		time.Sleep(m.DrainDelay)
 	}
+	var clientsLeft func() bool
+	if m.StopWatch != nil {
+		clientsLeft = m.StopWatch(p.cmd.Process.Pid)
+	}
 	if err := p.cmd.Process.Signal(syscall.SIGUSR1); err != nil {
 		return fmt.Errorf("signal haproxy: %w", err)
 	}
-	select {
-	case <-p.done:
-	case <-time.After(timeout):
+	deadline := time.After(timeout)
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	stopped := false
+	for !stopped {
+		select {
+		case <-p.done:
+			stopped = true
+			continue
+		case <-tick.C:
+			if clientsLeft == nil || clientsLeft() {
+				continue
+			}
+		case <-deadline:
+		}
 		_ = p.cmd.Process.Signal(syscall.SIGTERM)
 		select {
 		case <-p.done:
+			stopped = true
 		case <-time.After(5 * time.Second):
 			return fmt.Errorf("haproxy (pid %d) didn't exit after SIGTERM", p.cmd.Process.Pid)
 		}
