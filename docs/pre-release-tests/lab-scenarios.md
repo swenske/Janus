@@ -258,6 +258,14 @@ example:
   through the node's page (`netstat-load`); janusd's reboot lines in the
   lab's log server (`reboot-steps`); and an A/B throughput run, node 01
   on each slot minutes apart (`ab-bench`).
+- v2026.10.24: clusters of the two nodes made by the Controller, below;
+  a node's state carried to a new machine - the longterm machine given a
+  configuration, a map and a kernel parameter for it, exported into a
+  machine the Controller made, compared, the machine destroyed; the
+  accept queues' memory suggestion's listeners; and HAProxy's reload
+  under load on a node on its own, four reloads twice, on the
+  pre-release and on the release (node 01 on each slot minutes apart,
+  `reloads`).
 
 ### HAProxy killed by the kernel
 
@@ -332,6 +340,31 @@ Two certificates: two names over HTTP-01, a wildcard over DNS-01.
 | Ordered by the Controller | its account and DNS provider on its tab, the path chosen on the page, a renewal asked for | time to both installed, new serials served; the node's and the Controller's logs; no tunnel through the relay |
 | The node and the pages | its health afterwards; both Let's Encrypt pages with the real data | AVC denials, the CIS audit; both themes, axe, console |
 
+### Clusters
+
+Since v2026.10.24. The lab's Controller makes a cluster of node 01 (the
+source, holding the VIP and the anycast route) and node 02 through its
+API, as its Clusters page does; under load, `wrk` on the VIP from one
+runner and the probes from another. Each member's stick table is read
+through `janusctl` along the way, its counts compared with the requests
+`wrk` and the probes made.
+
+| Step | How | Measured |
+|---|---|---|
+| Created | both nodes, their front addresses | time to made; the locks (a change straight to a member refused) |
+| A stick table | a version adding a table replicated over the peers (`peers janus`, `track-sc0 src`) | the backup's table against the master's |
+| Rolling apply under load | a version changing a timeout | its time; requests lost; `wrk`; the tables' counts carried on |
+| A member destroyed under load | the master destroyed, started again | outages; the backup counting on; when the master has the table back, against when it takes the VIP back; the final counts against `wrk`'s |
+| A member rebooted | the backup, through the firmware | HAProxy's stop (janusd's line), API back, the table learnt back |
+| Drained through the Controller | the master drained, then undrained, under load | time to drained, requests lost, the cluster's problems |
+| VRRP from a template | each member's priority as a variable, the master's `keepalived.conf` templated, applied managing VRRP | each member's rendered configuration against the one written by hand; the VIP; the lock |
+| Applies with and without VRRP | rolling applies of a `haproxy.cfg` change under load, VRRP managed then not | requests lost, `wrk`'s worst latency and errors |
+| Deleted | | time; the nodes on their own, the lab's configuration put back |
+| The page | the Clusters list and the cluster's tabs with these data | both themes, axe, console errors, failed requests |
+
+A `janusctl` fleet's cluster isn't run in the lab: its nodes trust the
+Controller's fleet (the report says why).
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -375,6 +408,14 @@ ran:
   `netstat-load`: per-connection counters under load; `reboot-steps`:
   janusd's reboot lines from Elasticsearch; `ab-bench`: the runners'
   throughput run with node 01 on each slot (v2026.10.23);
+- `cluster-lab`: a cluster of the two nodes through the Controller's API
+  - created, versions applied (`MANAGED=` what it manages from then on),
+  VRRP from a template, drained, its view, journal and the members'
+  tables, deleted; `cluster-failover`: a member destroyed and started
+  again under `runder-load`, the tables read along the way; `reloads`:
+  four HAProxy reloads on a node under `runder-load`; `ucheck.mjs`: the
+  Clusters pages in headless Chromium; `bin/peers-raw`: a node's
+  `ClusterStatus` with HAProxy's raw counters (v2026.10.24);
 - `factory-ready`: a node's page asks for the pre-release's bundle until
   the image factory has it;
 - `new-machine`: a machine created by the Controller, its journal;
