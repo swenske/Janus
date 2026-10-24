@@ -62,6 +62,7 @@ topics:
           - label: Operate
             pages:
               - { file: docs/guide/updates.md, label: Updating nodes }
+              - { file: docs/guide/replacing-a-node.md, label: Replacing a node }
               - { file: docs/metrics.md, label: Metrics }
               - { file: docs/guide/log-forwarding.md, label: Log forwarding }
               - { file: docs/packet-capture.md, label: Packet capture }

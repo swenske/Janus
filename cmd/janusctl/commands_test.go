@@ -240,6 +240,7 @@ func TestTreeCommandsMatchTheDispatch(t *testing.T) {
 		"":                 labels("main", arg0),
 		"system":           append(labels("runSystem", arg0), labels("runSystemCommand", arg0)...),
 		"system sysctl":    labels("runSysctl", arg0),
+		"system state":     labels("runState", arg0),
 		"haproxy":          append(append(labels("runHAProxy", arg0), labels("runHAProxyFiles", arg0)...), labels("runHAProxyRuntime", arg0)...),
 		"haproxy acme":     labels("runACME", arg0),
 		"network":          labels("runNetwork", arg0),

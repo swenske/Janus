@@ -222,6 +222,15 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("port", "PORT", "listen on this port", argNone),
 			valFlag("collectors", "A,B", "the collectors to run", argNone),
 		}},
+		{name: "state", help: "the node's state carried to its replacement (docs/guide/replacing-a-node.md)", subs: []*command{
+			{name: "export", args: "FILE|-", help: "the node's configuration, certificates and keys, network: a tar to import on its replacement", flags: []flagDef{boolFlag("identity", "the node's CA and keys too: the replacement is this node to its clients")}, pos: []argKind{argFile}, required: 1},
+			{name: "import", args: "FILE|-", help: "take another node's state, then restart into it - the node must be unused", flags: []flagDef{
+				boolFlag("identity", "take the exported node's identity: its credentials work here, this node's own stop"),
+				boolFlag("network", "the exported network configuration too: the node takes the other's addresses"),
+				valFlag("save-network", "FILE", "without -network: save the exported network configuration, for the takeover", argFile),
+				boolFlag("no-reboot", "don't reboot: the import waits for janusd's next start"),
+			}, pos: []argKind{argFile}, required: 1},
+		}},
 		{name: "sysctl", help: "kernel parameters: HAProxy's on trial, the CIS benchmark's read-only (docs/guide/kernel-tuning.md)", subs: []*command{
 			{name: "list", help: "the parameters, their values, defaults and suggested values, the CIS benchmark", flags: []flagDef{boolFlag("cis", "every CIS control too")}},
 			{name: "get", args: "NAME", help: "one parameter: value, default, bounds, effect on HAProxy, risk, a suggested value and why", pos: []argKind{argSysctl}, required: 1},

@@ -70,6 +70,8 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.SystemService/MetaDelete":                  adminOnly,
 	"/janus.v1alpha1.SystemService/GenerateClientConfiguration": adminOnly, // issuing credentials is itself a privileged operation
 	"/janus.v1alpha1.SystemService/CertificateRequest":          adminOnly, // a new key the node will present as its own
+	"/janus.v1alpha1.SystemService/StateExport":                 adminOnly, // serves the node's private keys - never through the Controller (system_state.go)
+	"/janus.v1alpha1.SystemService/StateImport":                 adminOnly, // replaces the node's configuration, its identity even
 	"/janus.v1alpha1.SystemService/MetricsConfigGet":            readers,
 	"/janus.v1alpha1.SystemService/MetricsConfigSet":            adminOnly,
 	"/janus.v1alpha1.SystemService/ConsoleBudgetGet":            readers,

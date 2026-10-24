@@ -48,7 +48,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-lifecycle-upgrade-from-release-test release-bundle qemu-orchestrator-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
 	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test local-dev-image ca-certificates seed-controller-test \
@@ -1291,6 +1291,12 @@ qemu-fleetctl-test: build disk-image
 # restart, member certificates renewed at runtime, a member leaving.
 qemu-cluster-test: build disk-image
 	./hack/qemu-cluster-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# A node replaced by another (StateExport/StateImport, docs/guide/
+# replacing-a-node.md): one without LOGS by one with it - identity,
+# configuration, certificates carried, the address taken over.
+qemu-state-migrate-test: build disk-image
+	./hack/qemu-state-migrate-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 
 # SystemService.PacketCapture on a real enforcing node: a filtered capture
 # of real HAProxy traffic over mTLS, the pcap parsed independently.
