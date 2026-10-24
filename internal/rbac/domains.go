@@ -61,6 +61,8 @@ var Domain = map[string]string{
 	"SystemService/MetaDelete":                  DomainSystem,
 	"SystemService/GenerateClientConfiguration": DomainSystem,
 	"SystemService/CertificateRequest":          DomainSystem,
+	"SystemService/StateExport":                 DomainSystem,
+	"SystemService/StateImport":                 DomainSystem,
 	"SystemService/MetricsConfigGet":            DomainObserve,
 	"SystemService/MetricsConfigSet":            DomainSystem,
 	"SystemService/ConsoleBudgetGet":            DomainObserve,

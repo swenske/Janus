@@ -64,6 +64,7 @@ import (
 	"github.com/swenske/Janus/internal/schematic"
 	"github.com/swenske/Janus/internal/selfregister"
 	"github.com/swenske/Janus/internal/shutdown"
+	"github.com/swenske/Janus/internal/statexfer"
 	"github.com/swenske/Janus/internal/sysctl"
 	"github.com/swenske/Janus/internal/timesync"
 	"github.com/swenske/Janus/internal/vrrp"
@@ -141,6 +142,22 @@ func main() {
 	logs := &logHub{vol: logVol, ship: ship}
 	captured := io.MultiWriter(os.Stderr, &ring.LineWriter{Ring: serviceLogs["janusd"], Tee: logs.tee("janusd")})
 	log.SetOutput(captured)
+	// Another node's state (SystemService.StateImport, internal/statexfer):
+	// staged on STATE by the import, put in place now - before anything
+	// here reads STATE, so nothing this run keeps in memory writes over it.
+	var imported *statexfer.Applied
+	if *manageHost {
+		var err error
+		if imported, err = statexfer.ApplyStaged(nodeStateRoot); err != nil {
+			log.Printf("state: %v", err)
+		} else if imported != nil {
+			from := "another node"
+			if imported.Manifest != nil {
+				from = imported.Manifest.Hostname
+			}
+			log.Printf("state: %s's state put in place (%d files)", from, len(imported.Files))
+		}
+	}
 	// What the services print is kept whole above; on the console they
 	// share a budget that never waits (internal/consolelimit).
 	consoleCfg := consolelimit.DefaultConfig()
@@ -190,6 +207,9 @@ func main() {
 	// First in each run's events: what follows is this run's - after a
 	// restart, a reboot or an update.
 	events.Publish("janusd.started", map[string]string{"version": version, "slot": api.CurrentActiveSlot(), "boot": bootID()})
+	if imported != nil && imported.Manifest != nil {
+		events.Publish("system.state_applied", map[string]any{"from": imported.Manifest.Hostname, "files": len(imported.Files), "identity": imported.Manifest.Identity})
+	}
 
 	// The firewall (the nftables extension) before anything listens: the
 	// window where the node is up without its saved ruleset is the boot
@@ -654,6 +674,11 @@ func main() {
 	api.FleetRoot = fleet.Root
 	api.LocalCA = func() *x509.Certificate { return local.CA().Cert }
 	api.ClusterMember = clusterStore.AcceptMember
+	// What StateExport and StateImport carry: STATE, on a node only.
+	stateRoot := ""
+	if *manageHost {
+		stateRoot = nodeStateRoot
+	}
 	clients := api.NewClients()
 	srv := grpc.NewServer(append(connectionOptions(keepaliveTime, keepaliveTimeout),
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
@@ -661,7 +686,7 @@ func main() {
 		grpc.ChainUnaryInterceptor(api.UnaryMetricsInterceptor, api.UnaryAuthInterceptor),
 		grpc.ChainStreamInterceptor(api.StreamMetricsInterceptor, api.StreamAuthInterceptor),
 	)...)
-	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, Cluster: clusterStore, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Main: netMgr.MainAddresses, Sysctl: sysctlMgr, Console: console})
+	janusv1alpha1.RegisterSystemServiceServer(srv, &api.System{BuildVersion: version, LocalCA: local.CA, Cluster: clusterStore, ServiceLogs: serviceLogs, LogVolume: logVol, LogDevice: logDev, LogShip: ship, LogShipDir: logshipDir, Clients: clients, HAProxy: haproxyMgr, Extensions: extMgr, Exporter: exp, Main: netMgr.MainAddresses, Sysctl: sysctlMgr, Console: console, StateRoot: stateRoot})
 	janusv1alpha1.RegisterLifecycleServiceServer(srv, &api.Lifecycle{HAProxy: haproxyMgr, Version: version})
 	// Every accepted configuration, next to haproxy.cfg - on STATE on a
 	// node, like the configuration itself.
@@ -1038,6 +1063,9 @@ func announce(cfg *selfregister.Config, ca *pki.CA, hostname, grpcAddr string) e
 // nodeEventsDir is where a node keeps its event log: on STATE, wiped
 // only by a Reset.
 const nodeEventsDir = "/etc/.state/events"
+
+// nodeStateRoot is where rootfs/init mounts STATE.
+const nodeStateRoot = "/etc/.state"
 
 // bootID tells this boot from the others (the kernel's random boot_id):
 // janusd.started carries it, so a reader sees where a reboot came, not

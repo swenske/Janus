@@ -801,37 +801,36 @@ old hardware), and LOGS, which isn't on STATE and wasn't there. The
 disks' layouts never enter it: the new node's partitions are whatever
 Install made, the import writes files.
 
-Two RPCs on `SystemService`, admin only, audited:
+Two RPCs on `SystemService`, admin only, audited, refused when the
+Controller relays them - the stream holds private keys
+([replacing a node](guide/replacing-a-node.md), `internal/statexfer`):
 
-```proto
-// StateExport streams this node's state as a tar: what the caller asked
-// for among haproxy, config, network, controller, pki. Secrets included
-// - this is the one RPC that serves them - over this connection only.
-rpc StateExport(StateExportRequest) returns (stream Data);
-// StateImport writes a state stream onto this node: the first message
-// carries the options (identity reuse|new, network apply|keep), the
-// rest the stream. Each file lands through a temporary file, fsync and
-// rename; janusd reloads what changed, and HAProxy with it. Refused on
-// a node that was already configured, unless `replace` is set.
-rpc StateImport(stream StateImportChunk) returns (StateImportResponse);
-// StateImportFrom makes this node pull the state itself from another
-// node, with a certificate the caller had signed for the key
-// CertificateRequest(STATE_TRANSFER) made here.
-rpc StateImportFrom(StateImportFromRequest) returns (stream StateImportProgress);
-```
+- `StateExport(StateExportRequest) returns (stream Data)` - the tar,
+  `MANIFEST.json` first; `include_identity` adds the CA and keys.
+- `StateImport(stream StateImportChunk) returns (StateImportResponse)` -
+  the options first (`reuse_identity`, `apply_network`, `no_reboot`),
+  then the stream. Only onto an unused node (no configuration applied,
+  no certificate or file uploaded); every file checked against the
+  manifest. The state is **staged** on STATE (`import/`, a `ready`
+  marker written last) and put in place by janusd as it next starts,
+  before anything reads STATE: nothing a running janusd keeps in memory
+  - the ACME manager's state, say - can write over it, and a power cut
+  while it's put in place leaves the rest for the next start. The node
+  reboots for that unless `no_reboot`. The network configuration, held
+  back by default, comes back in the answer for the takeover.
 
 ### Transport
 
 Two ways, by where the nodes stand:
 
-- **Node to node**, for a source in a fleet: the orchestrator asks the
-  new node for a signing request (`CertificateRequest(STATE_TRANSFER)`),
+- **Node to node**, for a source in a fleet - not built yet, for when
+  the Controller drives a replacement: the orchestrator asks the new
+  node for a signing request (`CertificateRequest(STATE_TRANSFER)`),
   signs it as a **scoped certificate** of one hour - the mechanism
-  janusctl's certificates use today (`janus:scoped`, the old node's
-  CA key as the scope, the admin role) - and calls `StateImportFrom`
-  with the old node's address and CA fingerprint. The new node pulls
-  over mTLS; the orchestrator saw a request and a certificate, never a
-  key.
+  janusctl's certificates use today (`janus:scoped`, the old node's CA
+  key as the scope, the admin role) - and a `StateImportFrom` has the
+  new node pull over mTLS; the orchestrator sees a request and a
+  certificate, never a key.
 - **A janusctl pipe**, for a node in no fleet, driven with the old
   node's own admin credential:
   `janusctl -n old system state export - | janusctl -n new system state import -`.

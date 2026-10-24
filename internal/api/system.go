@@ -58,6 +58,10 @@ type System struct {
 	// CertificateRequest makes its member key there.
 	Cluster *cluster.Store
 
+	// StateRoot is the STATE partition's mount point, for StateExport and
+	// StateImport (internal/statexfer); "" off a node.
+	StateRoot string
+
 	// Logs holds each managed service's captured output, by service id
 	// ("janusd", "haproxy") - see Logs.
 	ServiceLogs map[string]*ring.Ring[string]

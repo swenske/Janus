@@ -432,6 +432,37 @@ janusctl system node-exporter [-enable] [-disable] [-address IP|auto|*] [-port P
 | `-port PORT` | listen on this port |
 | `-collectors A,B` | the collectors to run |
 
+#### janusctl system state
+
+The node's state carried to its replacement (docs/guide/replacing-a-node.md).
+
+##### janusctl system state export
+
+The node's configuration, certificates and keys, network: a tar to import on its replacement.
+
+```text
+janusctl system state export [-identity] FILE|-
+```
+
+| Flag | |
+|---|---|
+| `-identity` | the node's CA and keys too: the replacement is this node to its clients |
+
+##### janusctl system state import
+
+Take another node's state, then restart into it - the node must be unused.
+
+```text
+janusctl system state import [-identity] [-network] [-save-network FILE] [-no-reboot] FILE|-
+```
+
+| Flag | |
+|---|---|
+| `-identity` | take the exported node's identity: its credentials work here, this node's own stop |
+| `-network` | the exported network configuration too: the node takes the other's addresses |
+| `-save-network FILE` | without -network: save the exported network configuration, for the takeover |
+| `-no-reboot` | don't reboot: the import waits for janusd's next start |
+
 #### janusctl system sysctl
 
 Kernel parameters: HAProxy's on trial, the CIS benchmark's read-only (docs/guide/kernel-tuning.md).

@@ -154,6 +154,25 @@ service SystemService {
   // A new request replaces the pending key of the same purpose.
   rpc CertificateRequest(CertificateRequestRequest) returns (CertificateRequestResponse);
 
+  // StateExport streams what a replacement needs to serve as this node
+  // (docs/guide/replacing-a-node.md): a tar, its MANIFEST.json first,
+  // then the files under their STATE paths - HAProxy's configuration and
+  // its history, files, uploaded and ACME certificates, the TLS ticket
+  // key ring, the modules' configurations, the network configuration,
+  // the Controller registration, the fleet trust; with include_identity,
+  // the node's CA and keys too. Private keys travel in it: refused
+  // through the Controller, so they never pass through one.
+  rpc StateExport(StateExportRequest) returns (stream Data);
+
+  // StateImport takes a StateExport stream onto this node: the first
+  // message carries the options, the others the stream. The node must be
+  // unused - no HAProxy configuration applied, no certificate or file
+  // uploaded: Reset it first otherwise. What arrives is checked against
+  // its manifest and staged on STATE; janusd puts it in place at its next
+  // start, before anything reads it - the node reboots for that, unless
+  // no_reboot. Refused through the Controller, like StateExport.
+  rpc StateImport(stream StateImportChunk) returns (StateImportResponse);
+
   // The node's Prometheus exporter (docs/metrics.md): Janus's own
   // metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
   // extension services, time sync, SELinux - over plain HTTP, on by
@@ -940,6 +959,49 @@ message CertificateRequestResponse {
   // The signing request, PEM: an ECDSA P-256 key, the node's hostname as
   // its common name - the signer decides the rest.
   bytes csr = 1;
+}
+
+message StateExportRequest {
+  // The node's CA and its keys (server, admin), the Controller
+  // registration marker, the Consul node ID: a replacement that imports
+  // them is this node to its clients - same CA, same credentials.
+  bool include_identity = 1;
+}
+
+message StateImportOptions {
+  // Take the exported node's identity: the export must carry it. This
+  // node's own CA, and the credentials it issued, stop working at the
+  // next start. Otherwise this node keeps its own.
+  bool reuse_identity = 1;
+  // Put the exported network configuration in place too. Otherwise it
+  // comes back in the response (held_network_config), for when this node
+  // takes the other's addresses over.
+  bool apply_network = 2;
+  // Don't reboot: the import waits for janusd's next start.
+  bool no_reboot = 3;
+}
+
+message StateImportChunk {
+  // The first message only.
+  StateImportOptions options = 1;
+  bytes data = 2;
+}
+
+message StateImportResponse {
+  // The exported node, as its manifest says.
+  string source_hostname = 1;
+  string source_version = 2;
+  string source_schematic = 3;
+  // Files staged, by STATE path.
+  repeated string files = 4;
+  // Files of the export left out, and why.
+  repeated string skipped = 5;
+  // The exported network configuration, when not applied.
+  bytes held_network_config = 6;
+  bool identity_reused = 7;
+  bool rebooting = 8;
+  // What may not work as it did: another image's schematic, say.
+  repeated string warnings = 9;
 }
 
 message LogForwardingConfig {

@@ -57,6 +57,8 @@ const (
 	SystemService_MetaDelete_FullMethodName                  = "/janus.v1alpha1.SystemService/MetaDelete"
 	SystemService_GenerateClientConfiguration_FullMethodName = "/janus.v1alpha1.SystemService/GenerateClientConfiguration"
 	SystemService_CertificateRequest_FullMethodName          = "/janus.v1alpha1.SystemService/CertificateRequest"
+	SystemService_StateExport_FullMethodName                 = "/janus.v1alpha1.SystemService/StateExport"
+	SystemService_StateImport_FullMethodName                 = "/janus.v1alpha1.SystemService/StateImport"
 	SystemService_MetricsConfigGet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigGet"
 	SystemService_MetricsConfigSet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigSet"
 	SystemService_ConsoleBudgetGet_FullMethodName            = "/janus.v1alpha1.SystemService/ConsoleBudgetGet"
@@ -209,6 +211,23 @@ type SystemServiceClient interface {
 	// certificate back - ClusterService.ClusterSet for a cluster member.
 	// A new request replaces the pending key of the same purpose.
 	CertificateRequest(ctx context.Context, in *CertificateRequestRequest, opts ...grpc.CallOption) (*CertificateRequestResponse, error)
+	// StateExport streams what a replacement needs to serve as this node
+	// (docs/guide/replacing-a-node.md): a tar, its MANIFEST.json first,
+	// then the files under their STATE paths - HAProxy's configuration and
+	// its history, files, uploaded and ACME certificates, the TLS ticket
+	// key ring, the modules' configurations, the network configuration,
+	// the Controller registration, the fleet trust; with include_identity,
+	// the node's CA and keys too. Private keys travel in it: refused
+	// through the Controller, so they never pass through one.
+	StateExport(ctx context.Context, in *StateExportRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
+	// StateImport takes a StateExport stream onto this node: the first
+	// message carries the options, the others the stream. The node must be
+	// unused - no HAProxy configuration applied, no certificate or file
+	// uploaded: Reset it first otherwise. What arrives is checked against
+	// its manifest and staged on STATE; janusd puts it in place at its next
+	// start, before anything reads it - the node reboots for that, unless
+	// no_reboot. Refused through the Controller, like StateExport.
+	StateImport(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[StateImportChunk, StateImportResponse], error)
 	// MetricsConfigGet reports the exporter's settings.
 	MetricsConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
 	// MetricsConfigSet changes the exporter's settings, at once and for
@@ -738,6 +757,38 @@ func (c *systemServiceClient) CertificateRequest(ctx context.Context, in *Certif
 	return out, nil
 }
 
+func (c *systemServiceClient) StateExport(ctx context.Context, in *StateExportRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[11], SystemService_StateExport_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StateExportRequest, Data]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SystemService_StateExportClient = grpc.ServerStreamingClient[Data]
+
+func (c *systemServiceClient) StateImport(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[StateImportChunk, StateImportResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[12], SystemService_StateImport_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StateImportChunk, StateImportResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SystemService_StateImportClient = grpc.ClientStreamingClient[StateImportChunk, StateImportResponse]
+
 func (c *systemServiceClient) MetricsConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MetricsConfigResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MetricsConfigResponse)
@@ -1014,6 +1065,23 @@ type SystemServiceServer interface {
 	// certificate back - ClusterService.ClusterSet for a cluster member.
 	// A new request replaces the pending key of the same purpose.
 	CertificateRequest(context.Context, *CertificateRequestRequest) (*CertificateRequestResponse, error)
+	// StateExport streams what a replacement needs to serve as this node
+	// (docs/guide/replacing-a-node.md): a tar, its MANIFEST.json first,
+	// then the files under their STATE paths - HAProxy's configuration and
+	// its history, files, uploaded and ACME certificates, the TLS ticket
+	// key ring, the modules' configurations, the network configuration,
+	// the Controller registration, the fleet trust; with include_identity,
+	// the node's CA and keys too. Private keys travel in it: refused
+	// through the Controller, so they never pass through one.
+	StateExport(*StateExportRequest, grpc.ServerStreamingServer[Data]) error
+	// StateImport takes a StateExport stream onto this node: the first
+	// message carries the options, the others the stream. The node must be
+	// unused - no HAProxy configuration applied, no certificate or file
+	// uploaded: Reset it first otherwise. What arrives is checked against
+	// its manifest and staged on STATE; janusd puts it in place at its next
+	// start, before anything reads it - the node reboots for that, unless
+	// no_reboot. Refused through the Controller, like StateExport.
+	StateImport(grpc.ClientStreamingServer[StateImportChunk, StateImportResponse]) error
 	// MetricsConfigGet reports the exporter's settings.
 	MetricsConfigGet(context.Context, *emptypb.Empty) (*MetricsConfigResponse, error)
 	// MetricsConfigSet changes the exporter's settings, at once and for
@@ -1184,6 +1252,12 @@ func (UnimplementedSystemServiceServer) GenerateClientConfiguration(context.Cont
 }
 func (UnimplementedSystemServiceServer) CertificateRequest(context.Context, *CertificateRequestRequest) (*CertificateRequestResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CertificateRequest not implemented")
+}
+func (UnimplementedSystemServiceServer) StateExport(*StateExportRequest, grpc.ServerStreamingServer[Data]) error {
+	return status.Error(codes.Unimplemented, "method StateExport not implemented")
+}
+func (UnimplementedSystemServiceServer) StateImport(grpc.ClientStreamingServer[StateImportChunk, StateImportResponse]) error {
+	return status.Error(codes.Unimplemented, "method StateImport not implemented")
 }
 func (UnimplementedSystemServiceServer) MetricsConfigGet(context.Context, *emptypb.Empty) (*MetricsConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MetricsConfigGet not implemented")
@@ -1837,6 +1911,24 @@ func _SystemService_CertificateRequest_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemService_StateExport_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StateExportRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SystemServiceServer).StateExport(m, &grpc.GenericServerStream[StateExportRequest, Data]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SystemService_StateExportServer = grpc.ServerStreamingServer[Data]
+
+func _SystemService_StateImport_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(SystemServiceServer).StateImport(&grpc.GenericServerStream[StateImportChunk, StateImportResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SystemService_StateImportServer = grpc.ClientStreamingServer[StateImportChunk, StateImportResponse]
+
 func _SystemService_MetricsConfigGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -2312,6 +2404,16 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Probe",
 			Handler:       _SystemService_Probe_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "StateExport",
+			Handler:       _SystemService_StateExport_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "StateImport",
+			Handler:       _SystemService_StateImport_Handler,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "janus/v1alpha1/system.proto",

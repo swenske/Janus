@@ -685,6 +685,12 @@ jobs:
       - name: A cluster of three nodes (ClusterService, HAProxy peers)
         run: make qemu-cluster-test
 
+      # A node replaced by another: one without LOGS by one with it, its
+      # identity, configuration and certificates carried, its address
+      # taken over. See hack/qemu-state-migrate-test.sh.
+      - name: A node replaced by another (StateExport/StateImport)
+        run: make qemu-state-migrate-test
+
       # Point 2 suite, tranche 5: proves a node provisioned with a
       # Controller at Install time (controller_address/
       # controller_ca_cert, tranche 4) genuinely self-registers with a
