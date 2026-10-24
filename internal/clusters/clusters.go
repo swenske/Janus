@@ -162,6 +162,10 @@ type State struct {
 	Members map[string]MemberState `json:"members"`
 	// TicketsRotated is when the TLS ticket key ring last rotated.
 	TicketsRotated time.Time `json:"tickets_rotated,omitzero"`
+	// TicketsRenew names the members that left while the ring they knew
+	// is still the cluster's: it is renewed - every key replaced - and
+	// the names go (RenewTickets). The reconcile retries a failed one.
+	TicketsRenew []string `json:"tickets_renew,omitempty"`
 }
 
 // Sealer seals and opens the cluster CA's key (the Controller's master

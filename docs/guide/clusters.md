@@ -194,7 +194,12 @@ holding a key, the Let's Encrypt certificates, the TLS ticket key ring.
 
 The ticket key ring rotates every day on that member, and the others
 pull it: a client resumes its TLS session on any member - as long as
-they serve it the same certificate.
+they serve it the same certificate. When a member leaves, it makes a
+ring of its own and the others' is **renewed** - every key replaced -
+so it can neither read the tickets the cluster issues nor forge one;
+clients make one full handshake. If the member the secrets come from
+can't renew it then, the cluster's page says so and the next check
+tries again.
 
 ## Members
 
@@ -304,7 +309,7 @@ janusctl cluster delete edge
 | `certificate NAME FILE` | A certificate and its key for every member (`-crt-list`, `-sni`) |
 | `add`, `remove NAME NODE` | A member in, out (drained first; `-force` for a node gone) |
 | `replace NAME OLD NEW` | NEW, a node of the context, takes OLD's place: joins drained, learns the tables, comes into service as OLD is drained and leaves (`-var`, `-new-image`) |
-| `tickets NAME` | A new TLS ticket key, pulled by the members |
+| `tickets NAME` | A new TLS ticket key, pulled by the members (`-renew`: every key replaced - what a member's departure does) |
 | `list`, `journal NAME`, `delete NAME` | The clusters; what was done; every member leaves |
 
 The members' own primitives work on one node as before: `janusctl -n lb-1

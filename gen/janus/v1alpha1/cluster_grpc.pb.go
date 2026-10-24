@@ -96,10 +96,11 @@ type ClusterServiceClient interface {
 	// a member certificate of this node's own cluster opens it - no user
 	// role does.
 	ClusterExport(ctx context.Context, in *ClusterExportRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
-	// TLSTicketKeysRotate adds a key to the node's TLS ticket key ring and
-	// hands it to HAProxy without a reload. The other members pull the
-	// ring afterwards (ClusterPull), so a session resumes on any of them.
-	TLSTicketKeysRotate(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TLSTicketKeysState, error)
+	// TLSTicketKeysRotate adds a key to the node's TLS ticket key ring - or,
+	// with renew, replaces all of them - and hands it to HAProxy without a
+	// reload. The other members pull the ring afterwards (ClusterPull), so
+	// a session resumes on any of them.
+	TLSTicketKeysRotate(ctx context.Context, in *TLSTicketKeysRotateRequest, opts ...grpc.CallOption) (*TLSTicketKeysState, error)
 }
 
 type clusterServiceClient struct {
@@ -227,7 +228,7 @@ func (c *clusterServiceClient) ClusterExport(ctx context.Context, in *ClusterExp
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ClusterService_ClusterExportClient = grpc.ServerStreamingClient[Data]
 
-func (c *clusterServiceClient) TLSTicketKeysRotate(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TLSTicketKeysState, error) {
+func (c *clusterServiceClient) TLSTicketKeysRotate(ctx context.Context, in *TLSTicketKeysRotateRequest, opts ...grpc.CallOption) (*TLSTicketKeysState, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TLSTicketKeysState)
 	err := c.cc.Invoke(ctx, ClusterService_TLSTicketKeysRotate_FullMethodName, in, out, cOpts...)
@@ -301,10 +302,11 @@ type ClusterServiceServer interface {
 	// a member certificate of this node's own cluster opens it - no user
 	// role does.
 	ClusterExport(*ClusterExportRequest, grpc.ServerStreamingServer[Data]) error
-	// TLSTicketKeysRotate adds a key to the node's TLS ticket key ring and
-	// hands it to HAProxy without a reload. The other members pull the
-	// ring afterwards (ClusterPull), so a session resumes on any of them.
-	TLSTicketKeysRotate(context.Context, *emptypb.Empty) (*TLSTicketKeysState, error)
+	// TLSTicketKeysRotate adds a key to the node's TLS ticket key ring - or,
+	// with renew, replaces all of them - and hands it to HAProxy without a
+	// reload. The other members pull the ring afterwards (ClusterPull), so
+	// a session resumes on any of them.
+	TLSTicketKeysRotate(context.Context, *TLSTicketKeysRotateRequest) (*TLSTicketKeysState, error)
 	mustEmbedUnimplementedClusterServiceServer()
 }
 
@@ -342,7 +344,7 @@ func (UnimplementedClusterServiceServer) ClusterPull(*ClusterPullRequest, grpc.S
 func (UnimplementedClusterServiceServer) ClusterExport(*ClusterExportRequest, grpc.ServerStreamingServer[Data]) error {
 	return status.Error(codes.Unimplemented, "method ClusterExport not implemented")
 }
-func (UnimplementedClusterServiceServer) TLSTicketKeysRotate(context.Context, *emptypb.Empty) (*TLSTicketKeysState, error) {
+func (UnimplementedClusterServiceServer) TLSTicketKeysRotate(context.Context, *TLSTicketKeysRotateRequest) (*TLSTicketKeysState, error) {
 	return nil, status.Error(codes.Unimplemented, "method TLSTicketKeysRotate not implemented")
 }
 func (UnimplementedClusterServiceServer) mustEmbedUnimplementedClusterServiceServer() {}
@@ -508,7 +510,7 @@ func _ClusterService_ClusterExport_Handler(srv interface{}, stream grpc.ServerSt
 type ClusterService_ClusterExportServer = grpc.ServerStreamingServer[Data]
 
 func _ClusterService_TLSTicketKeysRotate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(emptypb.Empty)
+	in := new(TLSTicketKeysRotateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -520,7 +522,7 @@ func _ClusterService_TLSTicketKeysRotate_Handler(srv interface{}, ctx context.Co
 		FullMethod: ClusterService_TLSTicketKeysRotate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClusterServiceServer).TLSTicketKeysRotate(ctx, req.(*emptypb.Empty))
+		return srv.(ClusterServiceServer).TLSTicketKeysRotate(ctx, req.(*TLSTicketKeysRotateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

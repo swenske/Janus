@@ -190,10 +190,17 @@ func (a *app) recycle(ctx context.Context, id string, req recycleRequest, actor 
 			}
 		}
 		if err := a.clusters.Replace(ctx, id, name, repl, clusters.ReplaceOptions{NewImage: req.NewImage}, actor); err != nil {
-			var notRemoved *clusters.NotRemovedError
-			if created != nil && !errors.As(err, &notRemoved) {
+			// What failed decides: a replacement in service stays, and
+			// the old member's machine goes once the member is out.
+			cur, ok := a.clusters.Store.Get(id)
+			inService := ok && cur.Member(repl.Name) != nil
+			switch {
+			case !inService && created != nil:
 				a.destroyMachine(created.ID)
 				err = fmt.Errorf("%v; %s destroyed", err, repl.Name)
+			case inService && cur.Member(name) == nil && oldMachine != nil:
+				a.destroyMachine(oldMachine.ID)
+				err = fmt.Errorf("%v; %s's machine destroyed", err, name)
 			}
 			return err
 		}

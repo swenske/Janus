@@ -386,7 +386,9 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("crt-list", "PATH", "a crt-list to bind it into", argNone),
 			valFlag("sni", "NAMES", "the names it's served for there, comma-separated", argNone),
 		}, pos: []argKind{argNone, argFile}, required: 2},
-		{name: "tickets", args: "NAME", help: "a new TLS ticket key on the member the secrets come from, pulled by the others (check does it daily)", pos: []argKind{argNone}, required: 1},
+		{name: "tickets", args: "NAME", help: "a new TLS ticket key on the member the secrets come from, pulled by the others (check does it daily)", flags: []flagDef{
+			boolFlag("renew", "replace every key of the ring at once - no key it held is used or accepted any more (a member's departure does it)"),
+		}, pos: []argKind{argNone}, required: 1},
 		{name: "journal", args: "NAME", help: "what was done to the cluster, by whom", flags: []flagDef{
 			valFlag("n", "N", "the newest N entries (50)", argNone),
 		}, pos: []argKind{argNone}, required: 1},
@@ -411,7 +413,9 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("from", "MEMBER", "the member to pull from", argNone),
 			valFlag("items", "LIST", "runtime-certs, files, acme-certs, tls-ticket-keys (default: all)", argNone),
 		}},
-		{name: "rotate-tickets", help: "add a TLS ticket key to the ring, handed to HAProxy without a reload"},
+		{name: "rotate-tickets", help: "add a TLS ticket key to the ring, handed to HAProxy without a reload", flags: []flagDef{
+			boolFlag("renew", "replace every key of the ring at once - no key it held is used or accepted any more"),
+		}},
 	}},
 	{name: "pki", help: "client certificates of the node's own CA", subs: []*command{
 		{name: "generate-client-config", args: "DIR", help: "issue a client certificate into DIR", flags: []flagDef{

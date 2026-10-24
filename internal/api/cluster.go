@@ -229,7 +229,16 @@ func (c *Cluster) ClusterLeave(ctx context.Context, _ *emptypb.Empty) (*janusv1a
 	if err := c.apply(true, false, was); err != nil {
 		return nil, err
 	}
-	log.Printf("cluster: left %s (%s) - by %s", m.Name, m.ID, caller)
+	// The ring was the cluster's: the members that stay must not be able
+	// to read or forge this node's tickets any more (they renew theirs
+	// too, the orchestrator sees to it).
+	ring := "a new TLS ticket key ring"
+	if keys, err := c.Store.RenewTicketKeys(); err != nil {
+		ring = "its TLS ticket key ring NOT renewed: " + err.Error()
+	} else if _, err := c.loadTicketKeys(keys); err != nil {
+		ring = "a new TLS ticket key ring, HAProxy didn't take it: " + err.Error()
+	}
+	log.Printf("cluster: left %s (%s), %s - by %s", m.Name, m.ID, ring, caller)
 	events.Publish("cluster.left", map[string]any{"id": m.ID, "name": m.Name, "member": m.Member, "by": caller.String()})
 	return c.info(), nil
 }

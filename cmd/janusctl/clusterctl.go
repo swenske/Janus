@@ -648,6 +648,7 @@ func runClusterCtl(globalCtx string, args []string) {
 		check("cluster certificate", err)
 	case "tickets":
 		fs := flag.NewFlagSet("cluster tickets", flag.ExitOnError)
+		renew := fs.Bool("renew", false, "replace every key of the ring at once")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() != 1 {
 			clusterCtlUsage("tickets")
@@ -659,7 +660,12 @@ func runClusterCtl(globalCtx string, args []string) {
 		since := time.Now()
 		ctx, cancel := forCluster(c.ID, 5*time.Minute)
 		defer cancel()
-		err := o.RotateTickets(ctx, c)
+		var err error
+		if *renew {
+			err = o.RenewTickets(ctx, c, actor(o))
+		} else {
+			err = o.RotateTickets(ctx, c)
+		}
 		if err == nil {
 			_ = o.Store.UpdateState(c.ID, func(s *clusters.State) { s.TicketsRotated = time.Now().UTC() })
 		}

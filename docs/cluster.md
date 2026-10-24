@@ -532,6 +532,21 @@ the ring for three rotations, so a member that missed one still
 decrypts. The operator opts in by naming the file on their `bind`
 lines; nothing changes for a configuration that doesn't.
 
+A member that leaves knew every key of the ring: with them it could
+read the tickets the cluster issues - and the resumption secrets in
+them - or forge one a member accepts, client certificate included. So
+both sides start again: the node that leaves makes a ring of its own
+(`ClusterLeave`), and the orchestrator has the members that stay
+**renew** theirs - `TLSTicketKeysRotate` with `renew` replaces all three
+keys on the member the secrets come from, the others pull it - so no
+key the departed member knew is used or accepted any more. Each client
+makes one full handshake. A renewal that fails (the member the secrets
+come from unreachable) is remembered and retried by the next check; the
+cluster's page says so meanwhile. A cluster deleted leaves every member
+with a ring of its own. A member removed by force, that couldn't be
+asked to leave, keeps the old ring until it is: it no longer matters to
+the cluster, renewed without it.
+
 The ring is necessary but not sufficient: HAProxy binds a session's
 ticket to the **certificate** that served it, so a session resumes on
 another member only when that member serves the same certificate on its

@@ -946,7 +946,8 @@ function Certificates({ cluster, act, busy, reload }) {
     <div className="stack">
       <p className="muted">
         Certificates, their keys, the Let’s Encrypt certificates and the TLS ticket key ring go from {cluster.secrets_from} to the other members, over their own mutual TLS -
-        never through this Controller. The ring rotates every day{cluster.tickets_rotated ? ` (last ${when(cluster.tickets_rotated)})` : ''}.
+        never through this Controller. The ring rotates every day{cluster.tickets_rotated ? ` (last ${when(cluster.tickets_rotated)})` : ''}, and is
+        renewed - every key replaced - when a member leaves: it can neither read nor forge the tickets of the members that stay.
       </p>
       {can('admin') && (
         <>

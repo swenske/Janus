@@ -76,20 +76,23 @@ type clusterMemberView struct {
 }
 
 type clusterView struct {
-	ID             string              `json:"id"`
-	Name           string              `json:"name"`
-	PeersPort      int                 `json:"peers_port"`
-	Managed        []string            `json:"managed"`
-	SecretsFrom    string              `json:"secrets_from"`
-	Desired        int                 `json:"desired"`
-	Created        time.Time           `json:"created"`
-	Updated        time.Time           `json:"updated"`
-	Phase          string              `json:"phase,omitempty"`
-	Error          string              `json:"error,omitempty"`
-	Busy           bool                `json:"busy"`
-	CAFingerprint  string              `json:"ca_fingerprint,omitempty"`
-	TicketsRotated time.Time           `json:"tickets_rotated,omitzero"`
-	Members        []clusterMemberView `json:"members"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	PeersPort      int       `json:"peers_port"`
+	Managed        []string  `json:"managed"`
+	SecretsFrom    string    `json:"secrets_from"`
+	Desired        int       `json:"desired"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+	Phase          string    `json:"phase,omitempty"`
+	Error          string    `json:"error,omitempty"`
+	Busy           bool      `json:"busy"`
+	CAFingerprint  string    `json:"ca_fingerprint,omitempty"`
+	TicketsRotated time.Time `json:"tickets_rotated,omitzero"`
+	// TicketsRenew: members that left while the ring is still the one
+	// they knew.
+	TicketsRenew []string            `json:"tickets_renew,omitempty"`
+	Members      []clusterMemberView `json:"members"`
 	// Problems are what an operator should look at, worded for one.
 	Problems []string `json:"problems"`
 }
@@ -98,7 +101,7 @@ func (a *app) clusterView(c *clusters.Cluster) clusterView {
 	st := a.clusters.Store.State(c.ID)
 	v := clusterView{ID: c.ID, Name: c.Name, PeersPort: c.PeersPort, Managed: nonNil(c.Managed), SecretsFrom: c.SecretsFrom,
 		Desired: c.Desired, Created: c.Created, Updated: c.Updated, Phase: c.Phase, Error: c.Error, Busy: a.clusters.isBusy(c.ID),
-		TicketsRotated: st.TicketsRotated, Members: []clusterMemberView{}, Problems: []string{}}
+		TicketsRotated: st.TicketsRotated, TicketsRenew: st.TicketsRenew, Members: []clusterMemberView{}, Problems: []string{}}
 	if caPEM, err := a.clusters.Store.CACertPEM(c.ID); err == nil {
 		if fp, err := pemFingerprint(caPEM); err == nil {
 			v.CAFingerprint = fp
@@ -106,6 +109,9 @@ func (a *app) clusterView(c *clusters.Cluster) clusterView {
 	}
 	if c.Error != "" {
 		v.Problems = append(v.Problems, c.Error)
+	}
+	if len(st.TicketsRenew) > 0 && !v.Busy {
+		v.Problems = append(v.Problems, fmt.Sprintf("the TLS ticket key ring is still the one %s knew: renewing it failed, the next check tries again", strings.Join(st.TicketsRenew, ", ")))
 	}
 	for _, m := range c.Members {
 		mv := clusterMemberView{Member: m, State: st.Members[m.Name]}
