@@ -128,7 +128,17 @@ for core in 1 2; do
     || fail "QEMU refused to plug vCPU $core"
 done
 waitFor "the plugged vCPUs weren't onlined: $(online)" onlineIs 0-2
-grep -aq "init: cpu1 online (plugged in)" "$LOG" || fail "init didn't say it onlined cpu1"
+# init's line and the kernel's share the serial console: a printk can
+# land in the middle of it ("init: cpu1 onlin" "ACPI: CPU2 has been
+# hot-added" "e (plugged in)", v2026.10.24's build) - read across.
+saidOnline() {
+  python3 - "$LOG" "$1" <<'PYEOF'
+import re, sys
+log = open(sys.argv[1], errors="replace").read()
+sys.exit(0 if re.search(r"init: cpu%s onl.{0,600}?\(plugged in\)" % sys.argv[2], log, re.S) else 1)
+PYEOF
+}
+saidOnline 1 || fail "init didn't say it onlined cpu1"
 waitFor "no system.cpus_changed event" eventCount system.cpus_changed 1
 ev="$(events system.cpus_changed)"
 [ "$(wc -l <<<"$ev")" = 1 ] || fail "two vCPUs plugged together gave several events: $ev"
