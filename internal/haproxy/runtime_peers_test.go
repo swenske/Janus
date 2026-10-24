@@ -120,3 +120,30 @@ func TestPeersLearnt(t *testing.T) {
 		t.Error("no section, learnt")
 	}
 }
+
+// Under a steady stream of updates a peer is never at the very last one:
+// read again, it is in sync if it acknowledged by then everything the
+// first read showed - and still behind if it didn't.
+func TestPeersSettle(t *testing.T) {
+	peers := func(lb2, lb3, local uint64) []Peer {
+		return []Peer{
+			{Name: "lb-1", Local: true, Tables: []PeerTable{{Name: "fe", TableLocalUpdate: local}}},
+			{Name: "lb-2", Tables: []PeerTable{{Name: "fe", Update: lb2, TableLocalUpdate: local}}},
+			{Name: "lb-3", Tables: []PeerTable{{Name: "fe", Update: lb3, TableLocalUpdate: local}}},
+		}
+	}
+	before, after := peers(90, 40, 100), peers(120, 60, 130)
+	if before[1].Tables[0].Synced() || after[1].Tables[0].Synced() {
+		t.Fatal("a peer behind the last update reads in sync before settling")
+	}
+	settle(before, after)
+	if !after[1].Tables[0].Synced() || after[2].Tables[0].Synced() || after[0].Tables[0].KeptUp {
+		t.Errorf("settled: lb-2 %+v, lb-3 %+v, local %+v", after[1].Tables[0], after[2].Tables[0], after[0].Tables[0])
+	}
+	// The 32-bit counters wrap.
+	before, after = peers(0xfffffff0, 0, 0xfffffff8), peers(0x10, 0, 0x20)
+	settle(before, after)
+	if !after[1].Tables[0].Synced() {
+		t.Error("a peer that kept up across the wrap reads behind")
+	}
+}

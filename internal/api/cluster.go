@@ -303,7 +303,7 @@ func (c *Cluster) ClusterStatus(ctx context.Context, _ *emptypb.Empty) (*janusv1
 	if c.HAProxy == nil || c.PeersFile == "" {
 		return resp, nil
 	}
-	section, err := c.HAProxy.ShowPeersSection(cluster.Section)
+	section, err := c.HAProxy.ShowPeersSettled(cluster.Section)
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, fmt.Sprintf("HAProxy's peers: %v", err))
 	}
