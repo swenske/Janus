@@ -200,6 +200,13 @@ for (const palette of PALETTES) {
   await settle(page)
   const members = await page.locator('tbody tr').count()
   if (members !== 2) problems.push(`cluster: ${members} members shown`)
+  // The preview's nodes are containers, no machines: recycled into a
+  // node picked, never a new machine.
+  await page.getByRole('button', { name: 'Recycle' }).first().click()
+  await page.waitForSelector('.card-title:has-text("Recycle")')
+  if (!(await page.getByRole('radio', { name: /A new machine like it/ }).isDisabled())) problems.push('cluster recycle: a new machine offered for a node that is no machine')
+  await look('cluster-recycle')
+  await page.getByRole('button', { name: 'Cancel' }).click()
   await page.getByRole('tab', { name: 'Configuration' }).click()
   await page.waitForSelector('.version-list button')
   const versions = await page.locator('.version-list button').count()

@@ -166,8 +166,10 @@ name and address unless that's a loopback -, one of them the source).
 now**, **Delete** (type the name), and four tabs - **Members** (version
 run, peers up, stick tables in sync, member certificate's end, drained /
 drifted / released; Drain/Undrain, the variables its templates use,
-remove - drained first, or forced; add a member; where the secrets come
-from), **Configuration** (the versions, newest first; a version's
+**Recycle** - a new machine like it when it is one of the Controller's
+(`machine_id` in the member's view), else a node picked, its release,
+"another image" -, remove - drained first, or forced; add a member;
+where the secrets come from), **Configuration** (the versions, newest first; a version's
 files; **Edit** makes a new version from it in `Editor`; **Apply** asks
 first, showing what the cluster will manage and each file's change from
 the desired version in `DiffView`), **Certificates** (upload one for

@@ -559,45 +559,46 @@ image or machine specification can change with it, which is how a
 cluster changes schematic. The in-place A/B update ([updates.md](guide/updates.md))
 stays the way to change release without a new VM.
 
-For each member, in order:
+For each member, in order (`clusters.Engine.Replace`, shared by both
+orchestrators; `janusctl cluster replace NAME OLD NEW` for one member
+of a fleet without a Controller):
 
-1. **Create the replacement**: a new machine from the cluster's
-   specification (anti-affinity included: the old member's host is
-   taken as long as the old member exists), a new member name.
-2. **Join it** (section 2): checks, membership, `ClusterPull`,
-   desired configuration. The new HAProxy, with no local process to
-   learn from, asks a remote peer for a **full resync** of every table
-   at start - this is HAProxy's own behaviour.
-3. **Checkpoint - learnt**: `ClusterStatus` on the new member shows
-   every table's learning finished and acknowledgements advancing. Its
-   VRRP instance is BACKUP with its configured priority; its BGP
-   protocols are established and enabled.
-4. **Drain the old member**: `ClusterDrain` writes `1` into
-   `/run/janus/keepalived/haproxy-health` (keepalived drops the
-   priority by the operator's `track_file` weight and a peer preempts
-   the virtual IP - the same path a reboot takes today, [vrrp.md](vrrp.md))
-   and `disable`s the `haproxy_*` BIRD protocols (the routes are
-   withdrawn, the same gate as an unhealthy HAProxy, [bgp.md](bgp.md));
-   it streams until `VRRPStatus` shows the instances in BACKUP and
-   `BGPStatus` shows the protocols down, then HAProxy is soft-stopped
-   with the usual drain delay: listeners stay open while the routers
-   converge, established connections finish.
-5. **Checkpoint - drained**: no virtual IP, no route, HAProxy stopped.
-   The old member's stick-table updates have reached the others all
-   along; nothing is lost with it.
-6. **Remove it**: `ClusterSet` on the remaining members without it -
-   their HAProxy reloads, and a reload is transparent for the tables
-   (the new process learns from the old one locally before taking
-   over); `ClusterLeave` on the old member; the machine destroyed, or
-   the node removed from the Controller when it wasn't a machine.
+1. **Create the replacement** (the Controller, when the member is one
+   of its machines and no replacement is named): a new machine with
+   the old one's specification - its hypervisor, size, networks with
+   new MACs, extensions - under a new name, `<cluster>-<n>`, at
+   `version` when given. A static address can't be cloned: such a
+   member is recycled into a node the operator names. The replacement
+   must register and trust the fleet within 20 minutes.
+2. **Join it drained**: the checks (section 3; with `new_image` its
+   schematic may differ - how a cluster changes image), its member
+   certificate, the others told of it (each waits for its tables,
+   section 7.1), then `ClusterDrain` on it at once - its VRRP instances
+   start BACKUP, its BGP protocols stay disabled: it must not take the
+   virtual IP while the old member holds it. Then the secrets and the
+   cluster's version; the apply waits until its HAProxy has **learnt
+   the stick tables** from a peer (`ClusterStatus.tables_learnt`). Its
+   template variables are the old member's unless given.
+3. **Swap**: `ClusterUndrain` on the replacement, then `ClusterDrain`
+   on the old member, which streams until `VRRPStatus` shows its
+   instances in BACKUP and `BGPStatus` its protocols down: the traffic
+   moves **once**, from the old member to the replacement or a peer,
+   whose tables are full. The old member's HAProxy keeps serving its
+   established connections.
+4. **Remove it**: `ClusterSet` on the remaining members without it
+   (each waits for its tables again), `ClusterLeave` on the old
+   member, which stays drained until it reboots. The Controller then
+   destroys its machine: a clean shutdown first, HAProxy's soft-stop
+   letting the last client connections finish.
 
-A failure before step 4 destroys the replacement and leaves the
-cluster as it was. After step 4, `ClusterUndrain` puts the old member
-back in service and the replacement is removed. A failure in step 6
-leaves the old member drained and listed, with the cluster in error:
-the operator retries the removal. The cluster never has fewer than one
-healthy member besides the one being replaced: a two-member cluster
-passes through three.
+A failure while the replacement joins takes it out again (a forced
+removal) and, when the Controller made it, destroys it: the cluster is
+as it was. A failure of the old member's drain undrains it, drains the
+replacement back and takes it out. A failure of the removal leaves the
+replacement in service and the old member drained and listed: the
+operator removes it again. Members are recycled one at a time and the
+first failure stops the rest. The cluster never has fewer members in
+service than before: a two-member cluster passes through three.
 
 ## 6. Horizontal auto-scaling
 
@@ -937,7 +938,7 @@ In phases, each proven on real boots before the next:
 | **P1 - standalone replacement** | `StateExport`/`StateImport`/`StateImportFrom`, `CertificateRequest`, `janusctl system state` | `make qemu-state-migrate-test`: a node installed without LOGS (`logs_size_mb: -1`) replaced by one with it, identity reused, same certificates served |
 | **P2 - the cluster resource** | The Controller's cluster record, checks, desired configuration and templates, apply and reconcile, locks and drift, secrets pulls, the cluster's page | `make controller-cluster-test` on local-dev nodes, then `qemu-dashboard-test` |
 | **P3 - without a Controller** | `janusctl cluster` (create, apply, check, add, remove, delete...) on the Controller's engine, shared (`internal/clusters`); the cluster CA in the fleet context's directory; advisory locks | `make qemu-clusterctl-test` |
-| **P4 - recycling** | The recycle operation with its checkpoints and rollback | `controller-libvirt-test` part, lab campaign (zero lost requests under load) |
+| **P4 - recycling** | `Engine.Replace` (joined drained, tables learnt, one swap, rollbacks), `janusctl cluster replace`, the Controller's `POST /api/clusters/{id}/recycle` with new machines like the old | `make qemu-clusterctl-test` (the VRRP master replaced, the virtual IP moving once), `controller-libvirt-test` part (a machine member recycled into a new machine), lab campaign (zero lost requests under load) |
 | **P5 - creation on hypervisors** | `HostID`, anti-affinity, observed placement | `controller-libvirt-test`, Proxmox `TestLive` |
 | **P6 - horizontal auto-scaling** | The engine in observe then on, `janus_cluster` in Terraform | `terraform-provider-test` part, lab campaign on BGP |
 
