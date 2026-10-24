@@ -169,7 +169,11 @@ func (f *clusterFake) ClusterUndrain(_ context.Context, n *store.Node) error {
 }
 
 func (f *clusterFake) ClusterPull(_ context.Context, n *store.Node, from string, items []janusv1alpha1.ClusterItem) ([]string, error) {
-	if err := f.call(n, "ClusterPull", from); err != nil {
+	detail := from // "lb-1", "lb-1 runtime_certs" for some items only
+	for _, it := range items {
+		detail += " " + strings.ToLower(strings.TrimPrefix(it.String(), "CLUSTER_ITEM_"))
+	}
+	if err := f.call(n, "ClusterPull", detail); err != nil {
 		return nil, err
 	}
 	return []string{"pulled"}, nil
@@ -361,6 +365,17 @@ func newCluster(t *testing.T, a *app, nodes map[string]*store.Node, names ...str
 	return c
 }
 
+// inOrder: calls has want, in this order (other calls between them).
+func inOrder(calls []string, want ...string) bool {
+	i := 0
+	for _, c := range calls {
+		if i < len(want) && c == want[i] {
+			i++
+		}
+	}
+	return i == len(want)
+}
+
 func TestClusterCreate(t *testing.T) {
 	a, f, nodes := clusterApp(t, "lb-1", "lb-2", "lb-3")
 	f.nodes["lb-1"].files["maps/hosts.map"] = []byte("example.test be\n")
@@ -396,6 +411,9 @@ func TestClusterCreate(t *testing.T) {
 		pulled := slices.Contains(calls, "ClusterPull lb-1")
 		if pulled != (name != "lb-1") {
 			t.Errorf("%s pulled: %v", name, pulled)
+		}
+		if pulled && !inOrder(calls, "ClusterPull lb-1", "HAProxyApply", "ClusterPull lb-1 runtime_certs") {
+			t.Errorf("%s: the secrets, the version, the certificates again - got %v", name, calls)
 		}
 		if st := a.clusters.store.State(c.ID).Members[name]; st.Applied != 1 || st.Hashes["haproxy"] == "" {
 			t.Errorf("%s's state: %+v", name, st)
@@ -557,7 +575,7 @@ func TestClusterReconcile(t *testing.T) {
 		t.Errorf("not renewed: %v", f.callsOf("lb-1", mark))
 	}
 	// The ticket ring: rotated on lb-1, pulled by lb-2, once a day.
-	if !slices.Contains(f.callsOf("lb-1", 0), "RotateTickets") || !slices.Contains(f.callsOf("lb-2", 0), "ClusterPull lb-1") {
+	if !slices.Contains(f.callsOf("lb-1", 0), "RotateTickets") || !slices.Contains(f.callsOf("lb-2", 0), "ClusterPull lb-1 tls_ticket_keys") {
 		t.Error("the ticket ring wasn't rotated")
 	}
 }
@@ -569,7 +587,9 @@ func TestClusterMembers(t *testing.T) {
 	if err := a.clusters.create(ctx, c.ID, "lb-1", "admin"); err != nil {
 		t.Fatal(err)
 	}
-	// lb-3 joins: checked, signed, the others told, the version, the pull.
+	// lb-3 joins: checked, signed, the others told, the secrets - the
+	// version may name a file holding a key -, the version, the
+	// certificates again.
 	mark := f.mark()
 	if err := a.clusters.addMember(ctx, c.ID, clusters.Member{NodeID: nodes["lb-3"].ID, Name: "lb-3", Address: "10.0.0.3"}, "admin"); err != nil {
 		t.Fatal(err)
@@ -578,10 +598,8 @@ func TestClusterMembers(t *testing.T) {
 		t.Errorf("lb-1 wasn't told of lb-3: %v", got)
 	}
 	got3 := f.callsOf("lb-3", mark)
-	for _, want := range []string{"CertificateRequest", "ClusterSet lb-1,lb-2,lb-3 +cert", "HAProxyApply", "ClusterPull lb-1"} {
-		if !slices.Contains(got3, want) {
-			t.Errorf("lb-3 lacks %q: %v", want, got3)
-		}
+	if !inOrder(got3, "CertificateRequest", "ClusterSet lb-1,lb-2,lb-3 +cert", "ClusterPull lb-1", "HAProxyApply", "ClusterPull lb-1 runtime_certs") {
+		t.Errorf("lb-3: %v", got3)
 	}
 	// lb-1 leaves: drained, out, the secrets from another, the others told.
 	mark = f.mark()
