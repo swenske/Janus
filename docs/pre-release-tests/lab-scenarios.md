@@ -266,6 +266,9 @@ example:
   under load on a node on its own, four reloads twice, on the
   pre-release and on the release (node 01 on each slot minutes apart,
   `reloads`).
+- v2026.10.24-2: the clusters' in-sync under load and a member removed
+  with the ticket keys checked by TLS resumption (below); a member of a
+  cluster of Controller machines recycled under load (Recycling).
 
 ### HAProxy killed by the kernel
 
@@ -359,11 +362,33 @@ through `janusctl` along the way, its counts compared with the requests
 | Drained through the Controller | the master drained, then undrained, under load | time to drained, requests lost, the cluster's problems |
 | VRRP from a template | each member's priority as a variable, the master's `keepalived.conf` templated, applied managing VRRP | each member's rendered configuration against the one written by hand; the VIP; the lock |
 | Applies with and without VRRP | rolling applies of a `haproxy.cfg` change under load, VRRP managed then not | requests lost, `wrk`'s worst latency and errors |
-| Deleted | | time; the nodes on their own, the lab's configuration put back |
+| In sync under load | `wrk` through the VIP, each request a stick-table update; each member's `cluster status`, its exporter's `janus_cluster_peer_table_synced` and the Controller's check, sampled during the load and after (since v2026.10.24-2) | in sync or "catching up", member by member, under load and idle |
+| A member removed under load | the backup removed through the API, with a TLS frontend naming the ticket key ring on both and a session saved from the master before (since v2026.10.24-2) | time, requests lost; the rings' SHA-256 after - the departed node's own, the master's renewed; the session resumed nowhere; the departed node's drain, as it reports it |
+| Deleted | | time; the nodes on their own - each with a ring of its own -, the lab's configuration put back |
 | The page | the Clusters list and the cluster's tabs with these data | both themes, axe, console errors, failed requests |
 
 A `janusctl` fleet's cluster isn't run in the lab: its nodes trust the
 Controller's fleet (the report says why).
+
+### Recycling
+
+Since v2026.10.24-2. The lab's Controller makes two machines from the
+pre-release, each with one interface by DHCP (a recycle clones a
+machine's interfaces; a static address can't be cloned), and a cluster
+of them: a stick table, a TLS frontend naming the ticket key ring, VRRP
+from a template with a VIP of their own on the management network.
+`wrk` on that VIP from a runner, the probes from another, then the
+master recycled through the API as the page does.
+
+| Measured | How |
+|---|---|
+| The recycle's time | from the call to the cluster idle |
+| Requests lost on the VIP | the probes; `wrk`'s errors |
+| The VIP moving once | who served each probe; each member's keepalived log, its MASTER transitions before and after |
+| The stick table on the newcomer | its count against the requests sent (`wrk` + the probes) |
+| The old machine | gone from the Controller and the hypervisor |
+| The ticket keys | the remaining members' rings shared and renewed; a session from before no longer resuming |
+| The journal, the page | each step journaled; the Members tab and its Recycle form in headless Chromium, both themes, axe |
 
 ## The scripts
 
@@ -416,6 +441,15 @@ ran:
   four HAProxy reloads on a node under `runder-load`; `ucheck.mjs`: the
   Clusters pages in headless Chromium; `bin/peers-raw`: a node's
   `ClusterStatus` with HAProxy's raw counters (v2026.10.24);
+- `insync`: the members' in-sync from every view (status, exporter, the
+  Controller's); `peers-lag`: node 01's raw peer counters a second
+  apart; `tls-resume`: a TLS 1.2 session saved from a node, then whether
+  it resumes on others; `rings`: the nodes' ticket key rings;
+  `remove-member`: a member removed through the API, timed;
+  `new-dhcp-machine`: a Controller machine with one interface by DHCP;
+  `rec-cluster`: the recycle cluster - created, its VRRP version, a
+  recycle, its view and journal, deleted; `runder-load-vip`:
+  `runder-load` on another VIP (`VIP=`, `URLS=`) (v2026.10.24-2);
 - `factory-ready`: a node's page asks for the pre-release's bundle until
   the image factory has it;
 - `new-machine`: a machine created by the Controller, its journal;
