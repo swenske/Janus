@@ -323,6 +323,9 @@ func (c *Cluster) ClusterStatus(ctx context.Context, _ *emptypb.Empty) (*janusv1
 // info is the membership as ClusterInfo.
 func (c *Cluster) info() *janusv1alpha1.ClusterInfo {
 	info := &janusv1alpha1.ClusterInfo{MemberName: c.Store.LocalPeer(), PeersPort: uint32(c.Store.BindPort()), PeersConfig: string(c.Store.PeersConfig()), TlsTicketKeys: c.ticketKeysState()}
+	// A node removed from its cluster stays drained, out of service on
+	// its own: it says so, member or not.
+	info.Drained = c.Store.Drained()
 	m := c.Store.Membership()
 	if m == nil {
 		info.Members = []*janusv1alpha1.ClusterMember{{Name: info.MemberName}}
@@ -330,7 +333,6 @@ func (c *Cluster) info() *janusv1alpha1.ClusterInfo {
 	}
 	info.Member, info.Id, info.Name, info.Managed, info.ManagedBy, info.UpdatedUnix = true, m.ID, m.Name, m.Managed, m.ManagedBy, m.Updated.Unix()
 	info.Advisory = m.Advisory
-	info.Drained = c.Store.Drained()
 	info.CaCert = c.Store.CAPEM()
 	if cert := c.Store.MemberCertificate(); cert != nil {
 		info.MemberCertNotAfterUnix = cert.NotAfter.Unix()
