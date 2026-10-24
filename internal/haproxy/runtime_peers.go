@@ -41,7 +41,11 @@ func (p Peer) Up() bool { return p.LastStatus == "ESTA" }
 // PeerTable is one stick table as seen from one peer.
 type PeerTable struct {
 	Name string `json:"name"`
-	// HAProxy's counters for the table on this peer.
+	// HAProxy's counters for the table on this peer (src/peers.c):
+	// LastGet is the peer's last update this node received, LastAcked
+	// the last this node acknowledged to it; LastPushed is this node's
+	// last update sent to the peer, Update the last the peer
+	// acknowledged.
 	LastAcked      uint64 `json:"last_acked"`
 	LastPushed     uint64 `json:"last_pushed"`
 	LastGet        uint64 `json:"last_get"`
@@ -54,8 +58,13 @@ type PeerTable struct {
 }
 
 // Synced reports whether the peer acknowledged every update made on
-// this node.
-func (t PeerTable) Synced() bool { return t.LastAcked >= t.TableLocalUpdate }
+// this node: its acknowledgement (Update) reached the table's last
+// local update. LastAcked goes the other way - on the member that
+// serves the traffic and the peer that only learns, it stays 0. The
+// counters are 32 bits and wrap: compared as HAProxy does.
+func (t PeerTable) Synced() bool {
+	return int32(uint32(t.TableLocalUpdate)-uint32(t.Update)) <= 0 //nolint:gosec // G115: HAProxy's unsigned 32-bit counters, compared modulo 2^32
+}
 
 var (
 	peerIDRE    = regexp.MustCompile(`^([^()]+)\((local|remote),(active|inactive)\)$`)
