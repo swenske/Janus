@@ -19,11 +19,13 @@ import (
 // The cluster's own CA (docs/cluster.md "Trust between members"): it signs
 // the members' certificates, which HAProxy's peers listeners verify - a
 // CA per cluster, since a listener checks a CA and not a name. Its key is
-// sealed with the master key.
+// sealed with the Controller's master key; janusctl's (no Sealer) is kept
+// as its fleet's issuing key is, 0600 in the context's directory.
 
 const (
-	caCertFile = "ca.crt"
-	caKeyFile  = "ca.key.sealed"
+	caCertFile     = "ca.crt"
+	caKeyFile      = "ca.key.sealed"
+	caKeyPlainFile = "ca.key"
 
 	// MemberValidity is a member certificate's lifetime; the reconcile
 	// loop renews it past two thirds.
@@ -42,11 +44,17 @@ func (s *Store) createCA(c *Cluster) error {
 	if err != nil {
 		return err
 	}
+	dir := s.clusterDir(c.ID)
+	if s.key == nil {
+		if err := writeDurable(filepath.Join(dir, caCertFile), ca.CertPEM); err != nil {
+			return err
+		}
+		return writeDurable(filepath.Join(dir, caKeyPlainFile), keyPEM)
+	}
 	sealed, err := s.key.Seal(keyPEM, caPurpose(c.ID))
 	if err != nil {
 		return fmt.Errorf("seal the cluster's CA key: %w", err)
 	}
-	dir := s.clusterDir(c.ID)
 	if err := writeDurable(filepath.Join(dir, caCertFile), ca.CertPEM); err != nil {
 		return err
 	}
@@ -59,6 +67,13 @@ func (s *Store) CA(id string) (*pki.CA, error) {
 	certPEM, err := os.ReadFile(filepath.Join(dir, caCertFile))
 	if err != nil {
 		return nil, err
+	}
+	if s.key == nil {
+		keyPEM, err := os.ReadFile(filepath.Join(dir, caKeyPlainFile))
+		if err != nil {
+			return nil, err
+		}
+		return pki.LoadCA(certPEM, keyPEM)
 	}
 	sealed, err := os.ReadFile(filepath.Join(dir, caKeyFile))
 	if err != nil {
