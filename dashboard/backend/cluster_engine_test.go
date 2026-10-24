@@ -703,3 +703,71 @@ func TestClusterApplyWaitsForTheTables(t *testing.T) {
 		t.Error("the journal doesn't say lb-2 had no peer to learn from")
 	}
 }
+
+// A member replaced (docs/cluster.md "Recycling members"): the newcomer
+// joins drained and learns before it comes into service, the old member
+// is drained then, and leaves last - the traffic moving once. A failure
+// takes the newcomer out again; one draining the old member puts it back
+// in service first.
+func TestClusterReplace(t *testing.T) {
+	a, f, nodes := clusterApp(t, "lb-1", "lb-2", "lb-3", "lb-4")
+	c := newCluster(t, a, nodes, "lb-1", "lb-2", "lb-3")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
+		c.Member("lb-1").Vars = map[string]string{"priority": "150"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lb4 := clusters.Member{NodeID: nodes["lb-4"].ID, Name: "lb-4", Address: "10.0.0.4"}
+
+	// lb-4 fails on its way in: out again, lb-1 never drained.
+	f.fail["lb-4 HAProxyApply"] = errors.New("haproxy -c: no")
+	mark := f.mark()
+	err := a.clusters.Replace(ctx, c.ID, "lb-1", lb4, clusters.ReplaceOptions{}, "admin")
+	if err == nil || !strings.Contains(err.Error(), "lb-4 taken out again") {
+		t.Errorf("lb-4 failing: %v", err)
+	}
+	if got := f.callsOf("lb-4", mark); !slices.Contains(got, "ClusterLeave") {
+		t.Errorf("lb-4 not taken out: %v", got)
+	}
+	if slices.Contains(f.callsOf("lb-1", mark), "ClusterDrain") {
+		t.Error("lb-1 drained although lb-4 never came in")
+	}
+	if cur, _ := a.clusters.Store.Get(c.ID); len(cur.Members) != 3 || cur.Member("lb-4") != nil {
+		t.Errorf("the cluster after: %+v", cur.Members)
+	}
+	delete(f.fail, "lb-4 HAProxyApply")
+
+	// lb-1 doesn't drain: back in service, lb-4 out.
+	f.fail["lb-1 ClusterDrain"] = errors.New("still MASTER of front")
+	mark = f.mark()
+	err = a.clusters.Replace(ctx, c.ID, "lb-1", lb4, clusters.ReplaceOptions{}, "admin")
+	if err == nil || !strings.Contains(err.Error(), "lb-1 didn't drain") {
+		t.Errorf("lb-1 not draining: %v", err)
+	}
+	if !slices.Contains(f.callsOf("lb-1", mark), "ClusterUndrain") || !slices.Contains(f.callsOf("lb-4", mark), "ClusterLeave") {
+		t.Errorf("lb-1 %v, lb-4 %v", f.callsOf("lb-1", mark), f.callsOf("lb-4", mark))
+	}
+	delete(f.fail, "lb-1 ClusterDrain")
+
+	// For real: the order, the variables, lb-1 gone.
+	mark = f.mark()
+	if err := a.clusters.Replace(ctx, c.ID, "lb-1", lb4, clusters.ReplaceOptions{}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if !inOrder(f.callsSince(mark), "lb-4 ClusterSet lb-1,lb-2,lb-3,lb-4 +cert", "lb-4 ClusterDrain", "lb-4 HAProxyApply", "lb-4 ClusterStatus",
+		"lb-4 ClusterUndrain", "lb-1 ClusterDrain", "lb-1 ClusterLeave", "lb-2 ClusterSet lb-2,lb-3,lb-4") {
+		t.Errorf("the replacement's order: %v", f.callsSince(mark))
+	}
+	cur, _ := a.clusters.Store.Get(c.ID)
+	if cur.Member("lb-1") != nil || cur.Member("lb-4") == nil || cur.Member("lb-4").Vars["priority"] != "150" {
+		t.Errorf("after: %+v", cur.Members)
+	}
+	if cur.SecretsFrom == "lb-1" {
+		t.Error("the secrets still come from lb-1")
+	}
+}
