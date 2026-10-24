@@ -78,8 +78,14 @@ func reached(ack, id uint64) bool {
 }
 
 // SyncWindow is how long ShowPeersSettled gives a peer to acknowledge
-// the updates it hadn't yet at a first read.
-const SyncWindow = 500 * time.Millisecond
+// every update made before its first read, read again each SyncStep: a
+// peer that keeps up is seen at once, a busy host (v2026.10.24-3's CI
+// runner: half a second wasn't always enough) gets the time it needs,
+// and a peer really behind is said so after the window.
+const (
+	SyncWindow = 2 * time.Second
+	SyncStep   = 200 * time.Millisecond
+)
 
 // settle marks, in after, the remote tables whose peer acknowledged by
 // then every update this node had made in before.
@@ -154,30 +160,47 @@ func (m *Manager) ShowPeers(section string) ([]Peer, error) {
 
 // ShowPeersSettled is ShowPeersSection whose Synced holds under traffic:
 // when a remote table is behind this node's last local update, the
-// section is read again after SyncWindow, and a peer that acknowledged
-// by then every update made before the first read is in sync (KeptUp).
-// A peer really behind stays so.
+// section is read again every SyncStep, and a peer that acknowledged
+// every update made before the first read is in sync (KeptUp). A peer
+// still behind after SyncWindow stays so.
 func (m *Manager) ShowPeersSettled(section string) (*PeersSection, error) {
-	first, err := m.ShowPeersSection(section)
+	return settled(func() (*PeersSection, error) { return m.ShowPeersSection(section) }, SyncWindow, SyncStep)
+}
+
+// settled reads the section until every remote table is in sync against
+// the first read, or window has passed: the last read, settled.
+func settled(read func() (*PeersSection, error), window, step time.Duration) (*PeersSection, error) {
+	first, err := read()
 	if err != nil {
 		return nil, err
 	}
-	behind := false
-	for _, p := range first.Peers {
-		for _, t := range p.Tables {
-			behind = behind || (!p.Local && !t.Synced())
-		}
-	}
-	if !behind {
+	if !behind(first.Peers) {
 		return first, nil
 	}
-	time.Sleep(SyncWindow)
-	second, err := m.ShowPeersSection(section)
-	if err != nil {
-		return nil, err
+	deadline := time.Now().Add(window)
+	for {
+		time.Sleep(step)
+		cur, err := read()
+		if err != nil {
+			return nil, err
+		}
+		settle(first.Peers, cur.Peers)
+		if !behind(cur.Peers) || !time.Now().Before(deadline) {
+			return cur, nil
+		}
 	}
-	settle(first.Peers, second.Peers)
-	return second, nil
+}
+
+// behind: a remote table isn't in sync.
+func behind(peers []Peer) bool {
+	for _, p := range peers {
+		for _, t := range p.Tables {
+			if !p.Local && !t.Synced() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // peersLearnt reads the section's flags ("flags=0x28900001"): both

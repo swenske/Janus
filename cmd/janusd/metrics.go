@@ -106,7 +106,7 @@ func (m *metricsSources) clusterMetrics() []exporter.Family {
 	}
 	return append(fams,
 		gauge("janus_cluster_peer_up", "1 while HAProxy's connection to the peer is established: the stick tables replicate.", up...),
-		gauge("janus_cluster_peer_table_synced", "1 while the peer keeps up with this node's updates to the stick table: all acknowledged, or under traffic, within half a second, every one made before.", synced...),
+		gauge("janus_cluster_peer_table_synced", "1 while the peer keeps up with this node's updates to the stick table: all acknowledged, or under traffic, within two seconds, every one made before.", synced...),
 	)
 }
 
