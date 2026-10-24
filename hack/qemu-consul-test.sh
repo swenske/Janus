@@ -215,10 +215,15 @@ done
 ctl b haproxy backends | grep -q "192.168.79.1" || fail "the backend's server isn't A: $(ctl b haproxy backends)"
 echo "  ok: B's HAProxy found web (A:8080) through Consul's DNS and proxies to it"
 
-# B reboots: the same node ID, back in the cluster.
+# B reboots: the same node ID, back in the cluster. Asked before its next
+# janusd listens, the one going down would answer for it.
+boots="$(grep -ac "listening on" "$WORKDIR/b.log")"
 ctl b system reboot >/dev/null 2>&1 || true
-sleep 5
 deadline=$((SECONDS + TIMEOUT + 60))
+until [ "$(grep -ac "listening on" "$WORKDIR/b.log")" -gt "$boots" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "B didn't boot again after its reboot"
+  sleep 1
+done
 until out="$(ctl b network consul status 2>&1)" && grep -Eq "^node-b +192.168.79.2:8301 +alive +client" <<<"$out"; do
   [ "$SECONDS" -lt "$deadline" ] || fail "B didn't rejoin after its reboot: $out"
   sleep 3
