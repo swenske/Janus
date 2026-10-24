@@ -22,6 +22,7 @@ import (
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/bootslot"
+	"github.com/swenske/Janus/internal/cluster"
 	"github.com/swenske/Janus/internal/consolelimit"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/extensions"
@@ -52,6 +53,10 @@ type System struct {
 	// bootstrapping the very first one (that comes from the admin
 	// certificate LoadOrBootstrap prints on first boot).
 	LocalCA func() *pki.CA
+
+	// Cluster is the node's cluster membership (internal/cluster):
+	// CertificateRequest makes its member key there.
+	Cluster *cluster.Store
 
 	// Logs holds each managed service's captured output, by service id
 	// ("janusd", "haproxy") - see Logs.
@@ -236,6 +241,26 @@ func CurrentActiveSlot() string {
 // clientNamePattern is what an issued client certificate's common name
 // may be (64 is X.509's upper bound for one).
 var clientNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._@:+-]{0,63}$`)
+
+// CertificateRequest makes a new key on the node for the given purpose
+// and returns a signing request for it: the caller brings the
+// certificate back.
+func (s *System) CertificateRequest(ctx context.Context, req *janusv1alpha1.CertificateRequestRequest) (*janusv1alpha1.CertificateRequestResponse, error) {
+	caller, _ := CallerFrom(ctx)
+	switch req.GetPurpose() {
+	case janusv1alpha1.CertificatePurpose_CERTIFICATE_PURPOSE_CLUSTER_MEMBER:
+		if s.Cluster == nil {
+			return nil, status.Error(codes.Unimplemented, "this janusd keeps no cluster membership")
+		}
+		csr, err := s.Cluster.NewCSR()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "the member key: %v", err)
+		}
+		log.Printf("cluster: a signing request made for the member certificate - by %s", caller)
+		return &janusv1alpha1.CertificateRequestResponse{Csr: csr}, nil
+	}
+	return nil, status.Errorf(codes.InvalidArgument, "purpose %s: unknown", req.GetPurpose())
+}
 
 func (s *System) GenerateClientConfiguration(_ context.Context, req *janusv1alpha1.GenerateClientConfigurationRequest) (*janusv1alpha1.GenerateClientConfigurationResponse, error) {
 	roles := req.GetRoles()

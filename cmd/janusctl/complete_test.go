@@ -53,7 +53,7 @@ func TestComplete(t *testing.T) {
 	for _, tc := range []struct {
 		line, want, dirs string
 	}{
-		{"", "login context nodes version tui system haproxy network access pki fleet lifecycle image completion help", ""},
+		{"", "login context nodes version tui system haproxy network access cluster pki fleet lifecycle image completion help", ""},
 		{"system lo", "info hostname services service logs events audit dmesg boots log-forwarding stats systemstat ps netdev netstat clients mounts du ls cat cp support pcap probe metrics console-budget node-exporter sysctl reboot shutdown restart reset", ""},
 		{"system logs ", "janusd haproxy", ""},
 		{"system logs -", "-f -n -boot", ""},

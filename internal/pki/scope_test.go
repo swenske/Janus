@@ -109,7 +109,7 @@ func TestScopedHandshake(t *testing.T) {
 	}
 	srvPEM, srvKey, _ := local.Issue(IssueOptions{CommonName: "localhost", DNSNames: []string{"localhost"}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
 	srv, _ := tls.X509KeyPair(srvPEM, srvKey)
-	cfg := NodeTLSConfig(func() *CA { return local }, NewServerCert(local, t.TempDir(), srv), fleet)
+	cfg := NodeTLSConfig(func() *CA { return local }, NewServerCert(local, t.TempDir(), srv), fleet, nil)
 	here := [][]byte{CAKey(local.Cert)}
 	for _, c := range []struct {
 		name string

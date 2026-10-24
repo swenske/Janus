@@ -41,7 +41,7 @@ func TestRotate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := NodeTLSConfig(local.CA, sc, fleet)
+	cfg := NodeTLSConfig(local.CA, sc, fleet, nil)
 	oldAdmin, err := tls.X509KeyPair(b.AdminCertPEM, b.AdminKeyPEM)
 	if err != nil {
 		t.Fatal(err)

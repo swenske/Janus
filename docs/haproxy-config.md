@@ -58,8 +58,21 @@ socket` (an administration socket on the network, say), and no `daemon`,
 `master-worker`, `external-check`, `insecure-fork-wanted`,
 `set-dumpable`, `setenv`/`presetenv`/`resetenv`/`unsetenv` or `program`
 section - HAProxy on a node runs no program and keeps janusd's
-environment. The rest of the global section is yours: `log`, `maxconn`,
+environment. Nor `localpeer`, a `peers janus` section, or a `bind` on
+port 10057: janusd generates that section from the node's cluster
+membership ([cluster.md](cluster.md)) and names HAProxy's local peer
+itself. The rest of the global section is yours: `log`, `maxconn`,
 `tune.*`, `ssl-default-*`, threads...
+
+Two things come with that section, cluster or not. A stick table whose
+line ends with `peers janus` is replicated between the cluster's members
+- and, on a node in no cluster, kept through a reload: the next HAProxy
+process learns it from the one it replaces. And a TLS ticket key ring,
+`/etc/haproxy/cluster/tls-ticket-keys`, is there from the first boot: a
+`bind` line that names it (`tls-ticket-keys /etc/haproxy/cluster/tls-ticket-keys`)
+resumes TLS sessions across reloads, and across members once they pull
+it from one another. Two reloads inside five seconds hand no table over:
+the first process is still learning when the second replaces it.
 
 With `log stdout`, janusd keeps every line HAProxy prints, access logs
 included, for `janusctl system logs haproxy` and the Controller's logs

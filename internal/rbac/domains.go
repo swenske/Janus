@@ -60,6 +60,7 @@ var Domain = map[string]string{
 	"SystemService/MetaWrite":                   DomainSystem,
 	"SystemService/MetaDelete":                  DomainSystem,
 	"SystemService/GenerateClientConfiguration": DomainSystem,
+	"SystemService/CertificateRequest":          DomainSystem,
 	"SystemService/MetricsConfigGet":            DomainObserve,
 	"SystemService/MetricsConfigSet":            DomainSystem,
 	"SystemService/ConsoleBudgetGet":            DomainObserve,
@@ -145,6 +146,18 @@ var Domain = map[string]string{
 	"NetworkService/NeighborList":         DomainNetwork,
 	"NetworkService/NetworkConfigApply":   DomainNetwork,
 	"NetworkService/NetworkConfigConfirm": DomainNetwork,
+
+	// A cluster's composition is how the node is set up: the system
+	// domain's, as the fleet trust is; seeing it is everyone's.
+	"ClusterService/ClusterGet":          DomainObserve,
+	"ClusterService/ClusterStatus":       DomainObserve,
+	"ClusterService/ClusterSet":          DomainSystem,
+	"ClusterService/ClusterLeave":        DomainSystem,
+	"ClusterService/ClusterDrain":        DomainSystem,
+	"ClusterService/ClusterUndrain":      DomainSystem,
+	"ClusterService/ClusterPull":         DomainSystem,
+	"ClusterService/ClusterExport":       DomainSystem,
+	"ClusterService/TLSTicketKeysRotate": DomainSystem,
 }
 
 // DomainOf is method's domain ("Service/Method" or its full name):

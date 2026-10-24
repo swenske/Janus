@@ -181,6 +181,28 @@ Optional modules:
 | `ConsulGetConfig` | | ✅ | The saved configuration and its files' names (admin only: it may hold the gossip key and ACL tokens) |
 | `ConsulApplyConfig` | | ✅ | Check (`validate_only`, by `consul validate`) or apply a configuration with its files - saved, the agent restarts; empty stops the agent |
 
+## ClusterService
+
+The node as a member of a cluster ([cluster.md](cluster.md),
+`internal/cluster`): the composition an orchestrator sets, the member
+certificate (for a key the node made: `SystemService.CertificateRequest`)
+and the cluster's CA on STATE under `haproxy/cluster/`, and the `peers
+janus` section janusd generates for HAProxy from it - a node in no
+cluster included, itself alone, so a reload keeps the stick tables either
+way. HAProxy runs with it as a second `-f` and `-L <member name>`.
+
+| Method | Streaming | Status | Purpose |
+|---|---|---|---|
+| `ClusterGet` | | ✅ | What the node knows: the cluster's id and name, its member name, the members and their addresses, the managed domains, the generated peers section, the TLS ticket key ring's state - readers |
+| `ClusterSet` | | ✅ | Install or update the membership (admin): the cluster's CA, the member certificate for the key `CertificateRequest` made (or the current one's, to renew it), the members. The section is regenerated and HAProxy reloaded; a certificate alone is swapped at runtime. A HAProxy that refuses the section gets the previous membership back. The member's own address must be one of the node's |
+| `ClusterLeave` | | ✅ | Forget the membership (admin): the section names the node alone again, the member certificate and CA are deleted |
+| `ClusterStatus` | | ✅ | HAProxy's `show peers`: each peer connected or not, its last handshake, and per stick table whether the peer acknowledged every local update - readers |
+| `ClusterDrain` | server | ✅ | Out of service without stopping (admin): HAProxy reads as unhealthy to keepalived and BIRD - the virtual IPs move, the `haproxy_*` routes are withdrawn - while it keeps serving; streams until VRRP shows BACKUP and BGP the routes gone, or the timeout. Holds until `ClusterUndrain`, not across a reboot |
+| `ClusterUndrain` | | ✅ | Back in service (admin) |
+| `ClusterPull` | server | ✅ | Fetch another member's secrets over mTLS - the member certificates on both ends, the cluster's CA vouching for each: HAProxy's uploaded certificates, its files, the letsencrypt extension's certificates, the TLS ticket key ring - and install them (admin). Names in the progress, never content |
+| `ClusterExport` | server | ✅ | Serves `ClusterPull`: a tar of the items. Only a member certificate of this node's own cluster opens it - no user role does |
+| `TLSTicketKeysRotate` | | ✅ | Add a key to the TLS ticket key ring (`haproxy/cluster/tls-ticket-keys`, three keys, made at first boot) and hand it to HAProxy without a reload (`set ssl tls-key`); the other members pull the ring afterwards, so a session resumes on any of them (admin) |
+
 ## Deliberately not present
 
 - `EtcdService` - Janus nodes don't form an etcd cluster.

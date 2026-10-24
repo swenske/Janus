@@ -1,0 +1,21 @@
+0x7fa9fe652070: [19/Feb/1970:18:02:27] id=janus disabled=0 flags=0x28900001 resync_timeout=2s task_calls=9
+  0x7fa9fe649030: id=lb-2(remote,active) addr=127.0.0.1:20058 app_state=RUNNING learn_state=NOTASSIGNED last_status=ESTA last_hdshk=2s
+        reconnect=3s heartbeat=0s confirm=0 tx_hbt=0 rx_hbt=0 no_hbt=0 new_conn=1 proto_err=0 coll=1
+        flags=0x100008 appctx:0x7fa9fe4ef650 st0=7 st1=0 task_calls=16 state=EST
+        xprt=SSL src=127.0.0.1:50114 addr=127.0.0.1:20057
+        remote_table:0x7fa9fe524320 id=fe local_id=1 remote_id=1
+        last_local_table:0x7fa9fe524320 id=fe local_id=1 remote_id=1
+        shared tables:
+          0x7fa9fe524320 local_id=1 remote_id=1 flags=0x0 remote_data=0x200
+              last_acked=2 last_pushed=2 last_get=2 teaching_origin=0 update=2
+              table:0x7fa9fe644270 id=fe update=3 localupdate=2 refcnt=1
+        Dictionary cache not dumped (use "show peers dict")
+  0x7fa9ffe72b10: id=lb-1(local,inactive) addr=127.0.0.1:20057 app_state=STOPPED learn_state=NOTASSIGNED last_status=NONE last_hdshk=<NEVER>
+        reconnect=<NEVER> heartbeat=<NEVER> confirm=0 tx_hbt=0 rx_hbt=0 no_hbt=0 new_conn=0 proto_err=0 coll=0
+        flags=0x0
+        shared tables:
+          0x7fa9fe5243e0 local_id=1 remote_id=0 flags=0x0 remote_data=0x0
+              last_acked=0 last_pushed=0 last_get=0 teaching_origin=0 update=0
+              table:0x7fa9fe644270 id=fe update=3 localupdate=2 refcnt=1
+        Dictionary cache not dumped (use "show peers dict")
+

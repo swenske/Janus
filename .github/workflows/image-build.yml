@@ -678,6 +678,13 @@ jobs:
       - name: A fleet without a Controller (janusctl fleet)
         run: make qemu-fleetctl-test
 
+      # A cluster of three nodes (ClusterService): the generated peers
+      # section, stick tables replicated over mTLS, kept through a reload,
+      # learnt back after a restart, a member renewed and one leaving. See
+      # hack/qemu-cluster-test.sh.
+      - name: A cluster of three nodes (ClusterService, HAProxy peers)
+        run: make qemu-cluster-test
+
       # Point 2 suite, tranche 5: proves a node provisioned with a
       # Controller at Install time (controller_address/
       # controller_ca_cert, tranche 4) genuinely self-registers with a

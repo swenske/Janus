@@ -137,6 +137,7 @@ A node:
 |---|---|---|
 | 9505/tcp | The Controller, admins (`janusctl`) | The node's API: gRPC with mutual TLS, every call's role checked |
 | 10056/tcp | Prometheus | The Janus exporter - plain HTTP, no authentication: restrict it |
+| 10057/tcp | The other members of its cluster | HAProxy's peers listener, mutual TLS on the member certificates ([cluster.md](../cluster.md)); on 127.0.0.1 alone for a node in no cluster |
 | 9100/tcp | Prometheus | node_exporter, with its extension - plain HTTP, no authentication |
 | 8080/tcp | - | The first boot's HAProxy answers there until your configuration replaces it |
 | Your frontends' | Clients | HAProxy |

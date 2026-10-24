@@ -2,6 +2,7 @@ package haproxy
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +22,13 @@ type GlobalPolicy struct {
 	// StatsSocket is the path of the only "stats socket" allowed, and
 	// required: janusd's, "mode 660 level admin".
 	StatsSocket string
+	// PeersSection, if set, is the name of the peers section janusd
+	// generates from the node's cluster membership (internal/cluster): a
+	// configuration may not define one of that name.
+	PeersSection string
+	// PeersPort, if set, is the port of the generated section's
+	// listener: no bind line may take it.
+	PeersPort func() int
 }
 
 // NodePolicy is the policy of a node whose janusd prepares chrootDir and
@@ -47,6 +55,7 @@ var forbiddenGlobal = map[string]string{
 	"external-check":       "HAProxy runs no programs on a node",
 	"insecure-fork-wanted": "HAProxy runs no programs on a node",
 	"set-dumpable":         "HAProxy's memory holds keys",
+	"localpeer":            "janusd names HAProxy's local peer itself (-L), after the node's cluster membership",
 	"setenv":               "HAProxy's environment is janusd's",
 	"presetenv":            "HAProxy's environment is janusd's",
 	"resetenv":             "HAProxy's environment is janusd's",
@@ -72,8 +81,16 @@ func (p *GlobalPolicy) Check(cfg []byte) error {
 			if fields[0] == "program" {
 				return fmt.Errorf("a program section isn't allowed on a node: HAProxy runs no programs here")
 			}
+			if fields[0] == "peers" && p.PeersSection != "" && len(fields) > 1 && fields[1] == p.PeersSection {
+				return fmt.Errorf("the peers section %q is janusd's: it generates it from the node's cluster membership (docs/cluster.md) - name a stick table's peers %q, don't define them", p.PeersSection, p.PeersSection)
+			}
 			inGlobal = fields[0] == "global"
 			continue
+		}
+		if fields[0] == "bind" && len(fields) > 1 && p.PeersPort != nil {
+			if port := p.PeersPort(); port > 0 && bindsPort(fields[1], port) {
+				return fmt.Errorf("%q: port %d is the peers listener's, janusd's (docs/cluster.md)", strings.Join(fields, " "), port)
+			}
 		}
 		if !inGlobal {
 			continue
@@ -133,6 +150,32 @@ func (p *GlobalPolicy) checkStatsSocket(args []string) error {
 		return fmt.Errorf("it must be %q", "stats socket "+p.StatsSocket+" mode 660 level admin")
 	}
 	return nil
+}
+
+// bindsPort reports whether a bind line's addresses (comma-separated,
+// each "address:port" or "address:first-last") take port.
+func bindsPort(addrs string, port int) bool {
+	for _, a := range strings.Split(addrs, ",") {
+		i := strings.LastIndexByte(a, ':')
+		if i < 0 {
+			continue // a unix socket, an abstract one
+		}
+		first, last, ok := strings.Cut(a[i+1:], "-")
+		lo, err := strconv.Atoi(first)
+		if err != nil {
+			continue
+		}
+		hi := lo
+		if ok {
+			if hi, err = strconv.Atoi(last); err != nil {
+				continue
+			}
+		}
+		if lo <= port && port <= hi {
+			return true
+		}
+	}
+	return false
 }
 
 // uncomment drops a line's comment: from the first "#" not escaped as

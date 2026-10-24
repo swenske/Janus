@@ -1,0 +1,9 @@
+0x7f5cb0ba9030: [19/Feb/1970:18:02:26] id=janus disabled=0 flags=0x11000003 resync_timeout=<PAST> task_calls=4
+  0x7f5cb23c8b10: id=lonely(local,inactive) addr=127.0.0.1:20077 app_state=STOPPED learn_state=NOTASSIGNED last_status=ESTA last_hdshk=9s
+        reconnect=<NEVER> heartbeat=<PAST> confirm=0 tx_hbt=0 rx_hbt=0 no_hbt=0 new_conn=0 proto_err=0 coll=0
+        flags=0x0
+        shared tables:
+          0x7f5cb0aa6ca0 local_id=1 remote_id=1 flags=0x0 remote_data=0x200
+              last_acked=0 last_pushed=0 last_get=0 teaching_origin=0 update=0
+              table:0x7f5cb0ba3160 id=fe update=3 localupdate=0 refcnt=1
+

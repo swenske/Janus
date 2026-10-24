@@ -1,0 +1,242 @@
+syntax = "proto3";
+
+package janus.v1alpha1;
+
+import "google/protobuf/empty.proto";
+import "janus/v1alpha1/common.proto";
+
+option go_package = "github.com/swenske/Janus/gen/janus/v1alpha1;janusv1alpha1";
+
+// ClusterService: the node as a member of a cluster (docs/cluster.md) -
+// several nodes serving the same traffic with one configuration, whose
+// HAProxy processes replicate their stick tables over a "peers" section
+// janusd generates from the composition, and which carry their secrets
+// to one another. The orchestrator - the Controller, or janusctl
+// cluster - sets the composition on every member and keeps the shared
+// configuration; members talk to each other only over HAProxy's peers
+// protocol and ClusterExport. A node that isn't a member still answers:
+// it is a cluster of one, its hostname the local peer name.
+service ClusterService {
+  // ClusterGet returns what this node knows of its cluster: its id and
+  // name, this node's member name, the members and their addresses, the
+  // domains the cluster manages here, the peers section janusd
+  // generated - nothing secret.
+  rpc ClusterGet(google.protobuf.Empty) returns (ClusterInfo);
+
+  // ClusterSet installs or updates the membership: the cluster's CA,
+  // this node's member certificate (for the key
+  // SystemService.CertificateRequest made here), the members. janusd
+  // writes it on STATE, regenerates the peers section and reloads
+  // HAProxy; a certificate alone is swapped at runtime, no reload. The
+  // first ClusterSet makes a standalone node a member; a later one must
+  // name the same cluster.
+  rpc ClusterSet(ClusterSetRequest) returns (ClusterInfo);
+
+  // ClusterLeave forgets the membership: the peers section goes back to
+  // the local peer alone (HAProxy reloads), the member certificate and
+  // the cluster's CA are deleted, the managed domains unlocked. It
+  // doesn't drain: ClusterDrain first, when the node serves.
+  rpc ClusterLeave(google.protobuf.Empty) returns (ClusterInfo);
+
+  // ClusterStatus reads HAProxy's "show peers": each peer connected or
+  // not, its last handshake, and for each table whether this node has
+  // taught the peer every local update. It carries this node's clock,
+  // for the orchestrator's skew check.
+  rpc ClusterStatus(google.protobuf.Empty) returns (ClusterStatusResponse);
+
+  // ClusterDrain takes this member out of service without stopping it:
+  // HAProxy is marked unhealthy for keepalived and BIRD - the virtual
+  // IPs move to a peer, the haproxy_* routes are withdrawn - while it
+  // keeps serving what still arrives. The stream reports each step and
+  // ends once VRRP shows BACKUP and BGP shows the routes gone, or the
+  // timeout. The drain holds until ClusterUndrain, across HAProxy
+  // reloads, not across a reboot.
+  rpc ClusterDrain(ClusterDrainRequest) returns (stream ClusterDrainProgress);
+
+  // ClusterUndrain puts the member back: HAProxy's health is its own
+  // again.
+  rpc ClusterUndrain(google.protobuf.Empty) returns (ClusterInfo);
+
+  // ClusterPull makes this node fetch secrets from another member, over
+  // mTLS with its member certificate: HAProxy's uploaded certificates,
+  // its files, the ACME certificates, the TLS ticket key ring. What
+  // arrives is written durably where it lives on this node and loaded
+  // into HAProxy. The stream says what was pulled, never its content.
+  rpc ClusterPull(ClusterPullRequest) returns (stream ClusterPullProgress);
+
+  // ClusterExport serves ClusterPull: a tar of the items asked for. Only
+  // a member certificate of this node's own cluster opens it - no user
+  // role does.
+  rpc ClusterExport(ClusterExportRequest) returns (stream Data);
+
+  // TLSTicketKeysRotate adds a key to the node's TLS ticket key ring and
+  // hands it to HAProxy without a reload. The other members pull the
+  // ring afterwards (ClusterPull), so a session resumes on any of them.
+  rpc TLSTicketKeysRotate(google.protobuf.Empty) returns (TLSTicketKeysState);
+}
+
+// ClusterMember is one node of the cluster, as every member knows it.
+message ClusterMember {
+  // A DNS label, unique in the cluster: HAProxy's peer name.
+  string name = 1;
+  // The IP address its peers listener binds and the others connect to.
+  string address = 2;
+  // Its API for ClusterPull, host:port; empty: the address, port 9505.
+  string api_address = 3;
+}
+
+message ClusterInfo {
+  // False: the node isn't a member. The other fields then say what it
+  // is on its own - member_name its hostname, members itself alone.
+  bool member = 1;
+  // The cluster's UUID.
+  string id = 2;
+  string name = 3;
+  // This node's member name: the local peer name HAProxy runs with.
+  string member_name = 4;
+  repeated ClusterMember members = 5;
+  // The TCP port of every member's peers listener.
+  uint32 peers_port = 6;
+  // The configuration domains the cluster manages on this node, locked
+  // to the orchestrator's calls: haproxy, files, vrrp, bgp, firewall.
+  repeated string managed = 7;
+  // Who set the composition last (free text the orchestrator writes).
+  string managed_by = 8;
+  int64 updated_unix = 9;
+  // The cluster's CA certificate(s) this node pins, PEM.
+  bytes ca_cert = 10;
+  // When this node's member certificate expires; 0 without one.
+  int64 member_cert_not_after_unix = 11;
+  // ClusterDrain is in effect.
+  bool drained = 12;
+  // The peers section as janusd generated it for HAProxy.
+  string peers_config = 13;
+  // The TLS ticket key ring (TLSTicketKeysRotate).
+  TLSTicketKeysState tls_ticket_keys = 14;
+}
+
+message ClusterSetRequest {
+  string id = 1;
+  string name = 2;
+  string member_name = 3;
+  repeated ClusterMember members = 4;
+  // 0: 10057.
+  uint32 peers_port = 5;
+  // PEM, one or two CA certificates (two while the cluster's CA is
+  // replaced). Empty: unchanged.
+  bytes ca_cert = 6;
+  // PEM, the member certificate and its chain, for the key of the last
+  // CertificateRequest(CLUSTER_MEMBER) - or of the current member
+  // certificate, when renewing. Empty: unchanged.
+  bytes member_cert = 7;
+  repeated string managed = 8;
+  string managed_by = 9;
+}
+
+message ClusterStatusResponse {
+  ClusterInfo info = 1;
+  repeated ClusterPeer peers = 2;
+  // This node's clock.
+  int64 now_unix = 3;
+}
+
+// ClusterPeer is one peer as HAProxy's "show peers" reports it.
+message ClusterPeer {
+  string name = 1;
+  string address = 2;
+  // This node itself.
+  bool local = 3;
+  // Connected: HAProxy's last status is ESTA.
+  bool up = 4;
+  // HAProxy's words: last_status (NONE, HSHK, ESTA, ERR...), app_state,
+  // learn_state.
+  string last_status = 5;
+  string app_state = 6;
+  string learn_state = 7;
+  // The last handshake, as HAProxy prints it ("3s", "<NEVER>").
+  string last_handshake = 8;
+  uint64 new_connections = 9;
+  uint64 protocol_errors = 10;
+  repeated ClusterPeerTable tables = 11;
+}
+
+// ClusterPeerTable is one stick table as seen from one peer: HAProxy's
+// update counters, and whether this node has taught the peer every
+// update made here.
+message ClusterPeerTable {
+  string name = 1;
+  uint64 last_acked = 2;
+  uint64 last_pushed = 3;
+  uint64 last_get = 4;
+  uint64 teaching_origin = 5;
+  // The table's local update counter, and the last update id it knows
+  // (from anywhere).
+  uint64 local_update = 6;
+  uint64 update = 7;
+  // The peer acknowledged every local update: true for a remote peer
+  // when last_acked reaches local_update.
+  bool synced = 8;
+}
+
+message ClusterDrainRequest {
+  // How long to wait for VRRP and BGP to show the node out of service;
+  // 0: 60 s. The drain stays in effect either way.
+  uint32 timeout_seconds = 1;
+}
+
+message ClusterDrainProgress {
+  // What happened: "marked", "vrrp", "bgp", "done", "timeout".
+  string stage = 1;
+  string message = 2;
+  // The VRRP instances all BACKUP (or no VRRP), the haproxy_* BGP
+  // protocols all down (or no BGP).
+  bool vrrp_released = 3;
+  bool bgp_withdrawn = 4;
+  bool done = 5;
+}
+
+// ClusterItem is one kind of secret members carry to one another.
+enum ClusterItem {
+  CLUSTER_ITEM_UNSPECIFIED = 0;
+  // HAProxy's certificates CertificateUpload loaded (runtime-certs).
+  CLUSTER_ITEM_RUNTIME_CERTS = 1;
+  // HAProxy's files (FilePut): error pages, maps, certificates.
+  CLUSTER_ITEM_FILES = 2;
+  // The certificates the letsencrypt extension obtained.
+  CLUSTER_ITEM_ACME_CERTS = 3;
+  // The TLS ticket key ring.
+  CLUSTER_ITEM_TLS_TICKET_KEYS = 4;
+}
+
+message ClusterPullRequest {
+  // The member to pull from, by name.
+  string from = 1;
+  // Empty: every item.
+  repeated ClusterItem items = 2;
+}
+
+message ClusterPullProgress {
+  ClusterItem item = 1;
+  // The file or certificate pulled, by name; empty for a whole item.
+  string name = 2;
+  string message = 3;
+  bool done = 4;
+}
+
+message ClusterExportRequest {
+  // Empty: every item.
+  repeated ClusterItem items = 1;
+}
+
+message TLSTicketKeysState {
+  // Keys in the ring.
+  uint32 keys = 1;
+  // When the ring last changed.
+  int64 rotated_unix = 2;
+  // HAProxy took the new key at runtime (the configuration names the
+  // ring on a bind line); false: nothing uses the ring yet.
+  bool loaded = 3;
+  // The ring's SHA-256, to compare members by: the same on every
+  // member once pulled.
+  string sha256 = 4;
+}

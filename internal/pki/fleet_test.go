@@ -177,7 +177,7 @@ func TestNodeTLSConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := NodeTLSConfig(func() *CA { return local }, NewServerCert(local, t.TempDir(), srv), fleet)
+	cfg := NodeTLSConfig(func() *CA { return local }, NewServerCert(local, t.TempDir(), srv), fleet, nil)
 	roots := local.CertPool()
 
 	stranger, err := NewCA("stranger")

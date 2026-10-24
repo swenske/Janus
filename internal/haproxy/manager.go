@@ -68,6 +68,16 @@ type Manager struct {
 	// STATE is what the node has.
 	Policy *GlobalPolicy
 
+	// ExtraConfigs, if set, are configuration files HAProxy reads after
+	// ConfigPath (-f each) - the peers section janusd generates
+	// (internal/cluster) -, for `haproxy -c` too: what ConfigPath says
+	// may refer to them.
+	ExtraConfigs func() []string
+	// LocalPeer, if set, names HAProxy's local peer (-L): the cluster
+	// member name, or the hostname of a node that is no member - what
+	// the generated peers section calls this node.
+	LocalPeer func() string
+
 	// txMu serializes runtime certificate transactions: HAProxy has one
 	// open at a time.
 	txMu sync.Mutex
@@ -210,7 +220,7 @@ func (m *Manager) Validate(cfg []byte) (bool, []string) {
 	}
 	tmp.Close()
 
-	check := exec.Command(m.BinaryPath, "-c", "-f", tmp.Name())
+	check := exec.Command(m.BinaryPath, append([]string{"-c"}, m.configArgs(tmp.Name())...)...)
 	check.Env = m.env()
 	var combined bytes.Buffer
 	check.Stdout, check.Stderr = &combined, &combined
@@ -312,7 +322,7 @@ func (m *Manager) startOrReload(wait bool) error {
 // startLocked is startOrReload with mu held - also how a restart after an
 // exit starts HAProxy again (restart.go), without counting as asked for.
 func (m *Manager) startLocked(wait bool) error {
-	args := []string{"-f", m.ConfigPath}
+	args := m.configArgs(m.ConfigPath)
 	prev := m.cur
 	old := m.previousPID()
 	reload := old > 0
@@ -418,6 +428,23 @@ func (m *Manager) startLocked(wait bool) error {
 	}
 	m.restoreCerts(p)
 	return nil
+}
+
+// configArgs are HAProxy's configuration arguments for cfg: it, the
+// extra files, the local peer name.
+func (m *Manager) configArgs(cfg string) []string {
+	args := []string{"-f", cfg}
+	if m.ExtraConfigs != nil {
+		for _, p := range m.ExtraConfigs() {
+			args = append(args, "-f", p)
+		}
+	}
+	if m.LocalPeer != nil {
+		if name := m.LocalPeer(); name != "" {
+			args = append(args, "-L", name)
+		}
+	}
+	return args
 }
 
 // env is HAProxy's environment: janusd's, plus Env's.

@@ -69,6 +69,7 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.SystemService/MetaWrite":                   adminOnly,
 	"/janus.v1alpha1.SystemService/MetaDelete":                  adminOnly,
 	"/janus.v1alpha1.SystemService/GenerateClientConfiguration": adminOnly, // issuing credentials is itself a privileged operation
+	"/janus.v1alpha1.SystemService/CertificateRequest":          adminOnly, // a new key the node will present as its own
 	"/janus.v1alpha1.SystemService/MetricsConfigGet":            readers,
 	"/janus.v1alpha1.SystemService/MetricsConfigSet":            adminOnly,
 	"/janus.v1alpha1.SystemService/ConsoleBudgetGet":            readers,
@@ -154,7 +155,25 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.NetworkService/NetworkConfigConfirm": adminOnly,
 	"/janus.v1alpha1.NetworkService/NetworkStatus":        readers,
 	"/janus.v1alpha1.NetworkService/NeighborList":         readers,
+
+	// ClusterService - the composition is the orchestrator's to set;
+	// ClusterExport takes no role at all: a member certificate of this
+	// node's cluster opens it (authz.go), nothing else does.
+	"/janus.v1alpha1.ClusterService/ClusterGet":          readers,
+	"/janus.v1alpha1.ClusterService/ClusterSet":          adminOnly,
+	"/janus.v1alpha1.ClusterService/ClusterLeave":        adminOnly,
+	"/janus.v1alpha1.ClusterService/ClusterStatus":       readers,
+	"/janus.v1alpha1.ClusterService/ClusterDrain":        adminOnly,
+	"/janus.v1alpha1.ClusterService/ClusterUndrain":      adminOnly,
+	"/janus.v1alpha1.ClusterService/ClusterPull":         adminOnly, // brings another member's secrets onto this node
+	"/janus.v1alpha1.ClusterService/ClusterExport":       clusterMembers,
+	"/janus.v1alpha1.ClusterService/TLSTicketKeysRotate": adminOnly,
 }
+
+// RoleClusterMember is the pseudo-role of a cluster member's certificate
+// (pki.RoleClusterMember): the only one ClusterExport takes - checked
+// against this node's own cluster by authz.go, never granted to a user.
+var clusterMembers = []string{pki.RoleClusterMember}
 
 // RolesFor is the roles that may call fullMethod - admin only for an RPC
 // nobody classified, never silently open to readers.
