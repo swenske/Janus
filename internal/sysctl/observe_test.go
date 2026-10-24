@@ -175,6 +175,14 @@ func TestObserverHours(t *testing.T) {
 	if !slices.Contains(m.Listeners, Listener{Addr: addr, Backlog: 7}) || !slices.Contains(m.ListeningPorts, int64(addr.Port())) {
 		t.Errorf("listeners %v, ports %v: want %s", m.Listeners, m.ListeningPorts, addr)
 	}
+	// An internal listener - janusd's peers one - isn't a listener that
+	// queues clients; its port is still one the node listens on.
+	internal := &Observer{Proc: proc, Now: func() time.Time { return now }, Logf: t.Logf, HAProxyPid: os.Getpid,
+		Internal: func(a netip.AddrPort) bool { return a.Port() == addr.Port() }}
+	internal.Sample()
+	if im := internal.Metrics(); slices.ContainsFunc(im.Listeners, func(l Listener) bool { return l.Addr == addr }) || !slices.Contains(im.ListeningPorts, int64(addr.Port())) {
+		t.Errorf("an internal listener: listeners %v, ports %v", im.Listeners, im.ListeningPorts)
+	}
 
 	// A restart: what's kept comes back, the hour in progress goes on.
 	o.save()

@@ -43,8 +43,13 @@ type Observer struct {
 	// listeners are told from the others by their inodes - root creates
 	// them, before HAProxy turns into uid 1000.
 	HAProxyPid func() int
-	Now        func() time.Time
-	Logf       Logf
+	// Internal: one of HAProxy's listeners that takes no client - janusd's
+	// peers listener (internal/cluster) -, left out of HAProxy's listeners:
+	// it never queues an overload, and counting it halved the accept
+	// queues' memory suggestion. Nil: none.
+	Internal func(netip.AddrPort) bool
+	Now      func() time.Time
+	Logf     Logf
 
 	mu      sync.Mutex
 	since   time.Time
@@ -395,7 +400,7 @@ func (o *Observer) readListeners() ([]Listener, []int64, error) {
 	var ports []int64
 	for _, s := range all {
 		ports = append(ports, int64(s.Src.Port()))
-		if inodes[s.Inode] {
+		if inodes[s.Inode] && (o.Internal == nil || !o.Internal(s.Src)) {
 			listeners = append(listeners, Listener{Addr: s.Src, Backlog: s.WQueue})
 		}
 	}
