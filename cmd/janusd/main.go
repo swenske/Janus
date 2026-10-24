@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -402,6 +403,7 @@ func main() {
 	if *manageHost {
 		obs := sysctl.NewObserver(haproxyMgr.Pid)
 		obs.Logf = log.Printf
+		obs.Internal = func(a netip.AddrPort) bool { return int(a.Port()) == clusterStore.BindPort() }
 		sysctlMgr.Observe(obs)
 		shutdown.Before(obs.Close)
 		go obs.Run(context.Background())
