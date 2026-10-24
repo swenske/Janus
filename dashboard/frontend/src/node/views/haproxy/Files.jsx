@@ -1,7 +1,7 @@
 import { Download, FileText, Lock, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import { useState } from 'react'
 import { download, getText, postJSON } from '../../api.js'
-import { Editor } from '../../components/Editor.jsx'
+import { Editor } from '../../../shared/Editor.jsx'
 import DataTable from '../../components/DataTable.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from '../../../shared/ui.jsx'
 import { bytes, dateTime } from '../../format.js'

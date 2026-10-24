@@ -4,7 +4,7 @@
 // to Elasticsearch, edge-2 to rsyslog over UDP, edge-3 to Elasticsearch
 // and to a server that doesn't answer, with one target disabled; a
 // second account, lea's (an operator), whose page of edge-1 load.mjs
-// opens now and then. Prints an API token for janusctl (the TUI, the
+// opens now and then; a cluster, edge, of edge-1 and edge-2. Prints an API token for janusctl (the TUI, the
 // janusctl client hack/ui-preview.sh runs). Run by hack/ui-preview.sh in
 // the browser image (Node), on the preview's network.
 import fs from 'node:fs'
@@ -70,8 +70,11 @@ await until('the nodes to trust the fleet', async () => {
   return Object.values(ids).every((id) => f.nodes?.[id]?.state === 'trusted')
 })
 
-const cfgs = { 'edge-3': fs.readFileSync('/preview/many.cfg', 'utf8') }
-const cfg = fs.readFileSync('/preview/node.cfg', 'utf8')
+// The configurations name the application servers at 10.0.30: this
+// preview's network (UI_PREVIEW_NET) instead.
+const ours = (file) => fs.readFileSync(file, 'utf8').replaceAll('10.0.30.', `${NET}.`)
+const cfgs = { 'edge-3': ours('/preview/many.cfg') }
+const cfg = ours('/preview/node.cfg')
 const es = (name, sources) => ({ name, sources, elasticsearch: { url: ES_URL, api_key: ES_KEY, gzip: true }, tls: { fingerprint: ES_FP, server_name: 'localhost' } })
 const logs = {
   'edge-1': [
@@ -98,10 +101,26 @@ for (const [name, id] of Object.entries(ids)) {
 await until('the application servers to be up', async () => {
   for (const id of Object.values(ids)) {
     const b = await call('GET', `/nodes/${id}/api/haproxy/backends`)
-    const servers = (b.backends || []).flatMap((x) => x.servers || []).filter((s) => /^10\.0\.30\.1[12]:/.test(s.address))
+    const servers = (b.backends || []).flatMap((x) => x.servers || []).filter((s) => s.address.startsWith(`${NET}.11:`) || s.address.startsWith(`${NET}.12:`))
     if (!servers.length || servers.some((s) => s.state.toLowerCase() !== 'up')) return false
   }
   return true
+})
+// A cluster, edge: edge-1 and edge-2, edge-1's configuration its
+// version 1 - and a version 2, not applied, for its page to show a
+// change (Clusters.jsx). edge-3 stays alone: its many backends.
+const member = (name) => ({ node_id: ids[name], name, address: NODES[name] })
+const cluster = await call('POST', '/api/clusters', { name: 'edge', source: ids['edge-1'], members: [member('edge-1'), member('edge-2')] })
+await until('the cluster edge to be made', async () => {
+  const c = await call('GET', `/api/clusters/${cluster.id}`)
+  if (!c.busy && c.error) throw new Error(`the cluster edge: ${c.error}`)
+  return !c.busy && c.desired === 1
+}, 180)
+const v1 = await call('GET', `/api/clusters/${cluster.id}/versions/1`)
+await call('POST', `/api/clusters/${cluster.id}/versions`, {
+  base: 1,
+  files: { 'haproxy.cfg': v1.content['haproxy.cfg'].replace(/^(\s*)timeout client\b.*$/m, '$1timeout client 45s') },
+  note: 'clients get 45 s',
 })
 const token = await call('POST', '/api/tokens', { name: 'ui-preview-janusctl', expires_in_days: 7, role: 'admin' })
 

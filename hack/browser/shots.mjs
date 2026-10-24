@@ -2,7 +2,7 @@
 // docs-screenshots - hack/docs-screenshots.sh starts the Controller and
 // the nodes). The Controller is set up through its own API: the nodes
 // added, labelled, in a fleet, running examples/haproxy/web.cfg, a few
-// accounts and tokens. Then each shot of shots.yaml is taken in both
+// accounts and tokens, a cluster of two of them. Then each shot of shots.yaml is taken in both
 // themes and kept as WebP - rewritten only when it changed.
 //
 // An image mustn't depend on the machine or the moment that took it, or
@@ -157,6 +157,22 @@ await call('PUT', '/api/sso/providers/keycloak', {
   ],
   sign_in_every_days: 7,
 })
+// A cluster, edge-par: edge-par-1 and edge-par-2, the first's
+// configuration its version 1 (docs/guide/clusters.md); edge-par-3 stays
+// alone - its TCP frontend, its log target. A shot's `cluster` is one's
+// page.
+const clusters = {}
+{
+  const member = (name) => ({ node_id: ids[name], name, address: NODES[name] })
+  const c = await call('POST', '/api/clusters', { name: 'edge-par', source: ids['edge-par-1'], members: [member('edge-par-1'), member('edge-par-2')] })
+  await until('the cluster edge-par to be made', async () => {
+    const got = await call('GET', `/api/clusters/${c.id}`)
+    if (!got.busy && got.error) throw new Error(`the cluster edge-par: ${got.error}`)
+    return !got.busy && got.desired === 1
+  })
+  await call('PATCH', `/api/clusters/${c.id}`, { vars: { 'edge-par-1': { priority: '150' }, 'edge-par-2': { priority: '100' } } })
+  clusters['edge-par'] = c.id
+}
 const session = await api.storageState()
 const cookie = session.cookies.map((c) => `${c.name}=${c.value}`).join('; ')
 console.log(`shots: the Controller is set up - ${Object.keys(ids).join(', ')} in its fleet, running web.cfg`)
@@ -177,6 +193,10 @@ function normalize(v, key = '') {
   if (v && typeof v === 'object') {
     for (const k of Object.keys(v)) v[k] = normalize(v[k], k)
     if (v.boot_time_unix) v.boot_time_unix = Math.round(T0 / 1000) - spec.node.uptime_seconds
+    // A cluster member: the containers' HAProxy runs with no peers
+    // section (janusd without -manage-host) - shown as a two-member
+    // cluster's on nodes, its one peer up and in sync.
+    if ('peers_total' in v && 'applied' in v) Object.assign(v, { peers_up: 1, peers_total: 1, tables_synced: true })
     if (v.kernel_version) v.kernel_version = KERNEL
     if (v.models && v.count) {
       v.count = spec.node.cpus
@@ -436,7 +456,7 @@ for (const shot of spec.shots) {
       await page.evaluate(() => document.fonts.ready)
     } else {
       const base = shot.node ? `/nodes/${ids[shot.node]}/` : '/'
-      await page.goto(CONTROLLER + base + shot.page)
+      await page.goto(CONTROLLER + base + (shot.cluster ? `#/clusters/${clusters[shot.cluster]}` : shot.page))
       // The splash (dashboard/frontend/src/shared/Splash.jsx) leaves on
       // the browser's own time - the page's clock stays where it is.
       await page.locator('.splash').waitFor({ state: 'detached', timeout: 15000 })

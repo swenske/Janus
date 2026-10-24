@@ -5,11 +5,10 @@ configuration on every member, their stick tables replicated between
 them, their certificates and keys carried from member to member, VRRP
 configured from one template, and each member locked against changes
 made behind the cluster's back. This page is how to run one through the
-Controller; how it works is [the cluster design](../cluster.md).
+Controller - its **Clusters** tab, or its API; how it works is [the
+cluster design](../cluster.md).
 
-> [!NOTE]
-> The Controller's cluster page comes next; this page shows the API it
-> will use, which you can use today.
+![The Clusters tab's page of cluster edge-par: in sync, version 1, managing HAProxy's configuration and files; its two members, edge-par-1 (where the secrets come from) and edge-par-2, each running version 1 with its peer up and the stick tables in sync](../assets/screenshots/controller-cluster-light.webp)
 
 ## What a cluster gives
 
@@ -53,7 +52,9 @@ frontend fe
 
 From nodes the Controller has, one of them the **source**: its
 configuration becomes the cluster's first version, its certificates and
-keys every member's.
+keys every member's. On the page: **Clusters**, **New cluster** - its
+name, then the nodes that join it, each with its member name and the
+address the others reach it on, and the source. Through the API:
 
 ```sh
 curl -X POST https://controller:8080/api/clusters -H "Authorization: Bearer $JANUS_TOKEN" -d '{
@@ -77,14 +78,20 @@ curl -X POST https://controller:8080/api/clusters -H "Authorization: Bearer $JAN
 The answer is `202`: the cluster is created in the background - checks
 (the fleet, the image, HAProxy healthy, each member reaching the others),
 a member certificate for each (its key made on the node), the first
-version taken from the source and applied, the secrets pulled. `GET
+version taken from the source, the secrets pulled - first, as the
+version may name a file holding a key - and the version applied. `GET
 /api/clusters/{id}` follows it: `busy` while it runs, `error` if it
 failed, `problems` for whatever wants a look.
 
 ## The configuration
 
-A new version starts from the cluster's current one (`base`: another),
-adds or replaces `files` and takes away `delete`:
+On the page, a cluster's **Configuration** tab: its versions, newest
+first, and each one's files; **Edit** makes a new version from the one
+shown, **Apply** shows what each file changes from the version the
+members run and what the cluster will manage, and asks first.
+
+Through the API, a new version starts from the cluster's current one
+(`base`: another), adds or replaces `files` and takes away `delete`:
 
 ```sh
 curl -X POST https://controller:8080/api/clusters/$CLUSTER/versions -H "Authorization: Bearer $JANUS_TOKEN" -d '{
@@ -166,7 +173,8 @@ entries, the firewall's sets - are each node's and never locked.
 
 ## Certificates and keys
 
-A certificate goes to the cluster, never to a member:
+A certificate goes to the cluster, never to a member - on the page, the
+cluster's **Certificates** tab; through the API:
 
 ```sh
 curl -X POST https://controller:8080/api/clusters/$CLUSTER/certificates -H "Authorization: Bearer $JANUS_TOKEN" \
@@ -185,9 +193,13 @@ they serve it the same certificate.
 
 ## Members
 
+On the page, the cluster's **Members** tab: each member's state, and
+for an admin **Drain**, its **Variables**, remove, **Add a member**,
+and the member the secrets come from. Through the API:
+
 - `POST /api/clusters/{id}/members` `{"node_id": ..., "name": ..., "address": ...}`:
-  checked, given its certificate, the others told, the cluster's version
-  applied, the secrets pulled.
+  checked, given its certificate, the others told, the secrets pulled,
+  the cluster's version applied.
 - `DELETE /api/clusters/{id}/members/{name}`: drained first - its virtual
   IPs and routes move to the others -, out of the cluster, the others
   told. `?force=true` for a node that doesn't answer any more.
@@ -197,6 +209,10 @@ they serve it the same certificate.
   leaves its cluster first.
 
 ## Watching it
+
+The page shows what wants a look at the top of a cluster's page, and
+what was done in its **Journal** tab; **Check now** looks at every
+member at once. Through the API:
 
 - `GET /api/clusters/{id}`: each member's applied version, drift, released
   domains, peers up, stick tables in sync, certificate expiry, drain -

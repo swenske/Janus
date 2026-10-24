@@ -1,7 +1,7 @@
 import { Clock, Code2, Globe, ListTree, Network, Plus, Save, Trash2, Undo2, Waypoints } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { getJSON, postJSON } from '../api.js'
-import { hunks, lineDiff } from '../diff.js'
+import { hunks, lineDiff } from '../../shared/diff.js'
 import { dateTime, duration } from '../format.js'
 import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'

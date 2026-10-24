@@ -1,11 +1,14 @@
 // hack/ui-preview's pages walked in a browser (hack/ui-preview.sh
 // check): every palette in both modes - the sign-in screen, the node
-// list (cards and rows), the hypervisors tab, and pages of edge-1 - with no page or
+// list (cards and rows), the hypervisors tab, the clusters and cluster
+// edge, and pages of edge-1 - with no page or
 // console error, no failed request, no CSP report, and nothing serious
 // for axe (WCAG 2 A/AA); a screenshot of each in $OUT. Then what the
 // appearance and the sidebar do: a palette chosen in one tab followed by
 // another, the T shortcut, no animation frame under "reduce motion", the
-// charts moving otherwise, the sidebar opening over the page and pinned. Run by
+// charts moving otherwise, the sidebar opening over the page and pinned;
+// cluster edge's configuration, the change an apply would make, its
+// editor and journal, and the new-cluster form. Run by
 // hack/ui-preview.sh in the browser image, on the preview's network.
 import AxeBuilder from '@axe-core/playwright'
 import { chromium } from 'playwright'
@@ -56,6 +59,7 @@ async function axe(page, where) {
 }
 
 let edge1
+let edge
 for (const palette of PALETTES) {
   for (const mode of MODES) {
     const ctx = await context({}, palette, mode)
@@ -69,9 +73,12 @@ for (const palette of PALETTES) {
     await page.screenshot({ path: `${OUT}/${palette}-${mode}-signin.png` })
     await signIn(ctx)
     if (!edge1) edge1 = (await (await ctx.request.get(`${CONTROLLER}/api/nodes`)).json()).find((n) => n.name === 'edge-1').id
+    if (!edge) edge = (await (await ctx.request.get(`${CONTROLLER}/api/clusters`)).json()).find((c) => c.name === 'edge').id
     for (const [name, url] of [
       ['nodes', '/'],
       ['hypervisors', '/#/hypervisors'],
+      ['clusters', '/#/clusters'],
+      ['cluster', `/#/clusters/${edge}`],
       ...NODE_PAGES.map((p) => [`node${p.replace(/\//g, '-') || '-'}`, `/nodes/${edge1}/#${p}`]),
     ]) {
       at = name
@@ -174,6 +181,55 @@ for (const palette of PALETTES) {
   await ctx.close()
 }
 
+// Cluster edge (setup.mjs): its two members; its configuration - version
+// 2, not applied, opens with the change an apply would make -, the
+// editor, the journal; and the new-cluster form, offering edge-3 alone.
+{
+  const ctx = await context()
+  const page = await ctx.newPage()
+  let at = 'cluster'
+  watch(page, () => at)
+  await signIn(ctx)
+  const look = async (name) => {
+    at = name
+    await page.waitForTimeout(400)
+    await axe(page, name)
+    await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true })
+  }
+  await page.goto(`${CONTROLLER}/#/clusters/${edge}`)
+  await settle(page)
+  const members = await page.locator('tbody tr').count()
+  if (members !== 2) problems.push(`cluster: ${members} members shown`)
+  await page.getByRole('tab', { name: 'Configuration' }).click()
+  await page.waitForSelector('.version-list button')
+  const versions = await page.locator('.version-list button').count()
+  await page.locator('.version-list button', { hasText: 'v2' }).click()
+  await page.waitForSelector('.config-view')
+  await look('cluster-configuration')
+  await page.getByRole('button', { name: 'Apply v2…' }).click()
+  const change = await page.waitForSelector('.modal .diff', { timeout: 10000 }).then((d) => d.textContent()).catch(() => '')
+  if (versions !== 2 || !change.includes('timeout client 45s')) problems.push(`cluster configuration: ${versions} versions, the change to apply: ${JSON.stringify(change.slice(0, 200))}`)
+  await look('cluster-apply')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await page.waitForSelector('.editor textarea')
+  await look('cluster-edit')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('tab', { name: 'Journal' }).click()
+  await page.waitForSelector('tbody tr')
+  const entries = await page.locator('tbody tr').count()
+  if (entries < 2) problems.push(`cluster journal: ${entries} entries`)
+  await look('cluster-journal')
+  await page.goto(`${CONTROLLER}/#/clusters`)
+  await settle(page)
+  await page.getByRole('button', { name: 'New cluster' }).click()
+  await page.waitForSelector('form tbody tr')
+  const offered = await page.locator('form tbody tr').allTextContents()
+  if (offered.length !== 1 || !offered[0].includes('edge-3')) problems.push(`new cluster: offered ${JSON.stringify(offered)}`)
+  await look('cluster-new')
+  await ctx.close()
+}
+
 // Motion: none under "reduce motion"; the charts' transform moving
 // otherwise.
 for (const reducedMotion of ['reduce', 'no-preference']) {
@@ -252,4 +308,4 @@ if (problems.length) {
   console.log(problems.join('\n'))
   process.exit(1)
 }
-console.log(`ui-preview check: ${PALETTES.length} palettes × 2 modes, ${NODE_PAGES.length + 5} pages each, the appearance, its shortcut, motion and the sidebar - no problem`)
+console.log(`ui-preview check: ${PALETTES.length} palettes × 2 modes, ${NODE_PAGES.length + 7} pages each, the appearance, its shortcut, motion, the sidebar and a cluster - no problem`)

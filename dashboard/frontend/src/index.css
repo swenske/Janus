@@ -195,3 +195,21 @@
 .relay-give pre { margin: 0; padding: 0.5rem 0.65rem; max-width: 100%; overflow-x: auto; background: var(--surface-2, var(--surface)); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .relay-providers { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 .relay-providers li { display: flex; align-items: center; gap: 0.3rem; }
+
+/* Clusters (Clusters.jsx). */
+a.card.cluster-card { display: flex; flex-direction: column; gap: 0.7rem; color: inherit; text-decoration: none; }
+a.card.cluster-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.cluster-name { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 1.05rem; overflow-wrap: anywhere; }
+.cluster-problem { overflow-wrap: anywhere; }
+.plain-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.error-text { color: var(--danger); overflow-wrap: anywhere; }
+.cluster-config { display: grid; gap: 1rem; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); align-items: start; }
+.cluster-config > .card { min-width: 0; }
+.version-list button { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; width: 100%; text-align: left; white-space: normal; height: auto; }
+.version-meta, .version-note { flex-basis: 100%; overflow-wrap: anywhere; }
+.secrets-from { margin-left: auto; gap: 0.5rem; }
+.secrets-from select { width: auto; }
+.config-view { max-height: 60vh; overflow: auto; white-space: pre; margin: 0; }
+@media (max-width: 760px) {
+  .cluster-config { grid-template-columns: minmax(0, 1fr); }
+}

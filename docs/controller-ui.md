@@ -50,6 +50,9 @@ else from `src/shared/`:
   `PageHeader`, `Meter`, `Loading`/`ErrorBox`/`Empty`, toasts
   (`useToast`), the confirmation dialog (`useConfirm`) and `useAction`
   (busy state + success/error toast around an async call).
+- `Editor.jsx` - `Editor` (a text editor with line numbers) and
+  `DiffView`, over `diff.js`'s line diff (`lineDiff`, `hunks`): the
+  node page's configurations and the Controller's clusters.
 - `route.js` - hash routing (`useHashRoute`, `navigate`); `sse.js` -
   `useSSE`. Both pages use them (the node page re-exports them from
   `src/node/hooks.jsx`).
@@ -138,7 +141,7 @@ row, then two of three, then three of two (`.overview-six`); without
 
 ## The main page
 
-Three tabs (hash routes `#/`, `#/hypervisors`, `#/tokens`), and four more for an admin (`#/accounts`, `#/audit`, `#/log-forwarding`, `#/backups`).
+Four tabs (hash routes `#/`, `#/clusters`, `#/hypervisors`, `#/tokens`), and five more for an admin (`#/accounts`, `#/audit`, `#/log-forwarding`, `#/letsencrypt`, `#/backups`).
 
 **Nodes**: until the fleet is set up, **Secure your fleet**
 (`Fleet.jsx`: create it, store the recovery kit and its passphrase,
@@ -152,6 +155,24 @@ virtual machine on its card (state, reset/force-off/start, console) and
 **Destroy** instead of Remove; a pending registration from a machine it
 created (an image too old to present its registration token) says so,
 and approving it links the node to the machine.
+
+**Clusters** (`Clusters.jsx`, its logic in `clusters.js` - `npm test`;
+[guide/clusters.md](guide/clusters.md)): the clusters as cards (health:
+busy with its phase, failed, so many problems, in sync), **New cluster**
+for an admin (name; the nodes in no cluster yet, each with its member
+name and the address the others reach it on - guessed from the node's
+name and address unless that's a loopback -, one of them the source).
+`#/clusters/<id>` is one cluster: its problems in a notice, **Check
+now**, **Delete** (type the name), and four tabs - **Members** (version
+run, peers up, stick tables in sync, member certificate's end, drained /
+drifted / released; Drain/Undrain, the variables its templates use,
+remove - drained first, or forced; add a member; where the secrets come
+from), **Configuration** (the versions, newest first; a version's
+files; **Edit** makes a new version from it in `Editor`; **Apply** asks
+first, showing what the cluster will manage and each file's change from
+the desired version in `DiffView`), **Certificates** (upload one for
+every member, pull everything again) and **Journal**. The page polls
+every 2 s while the cluster is busy, 15 s otherwise.
 
 **Hypervisors** ([hypervisors.md](hypervisors.md)): one card per host -
 libvirt or Proxmox VE (the form's **Kind**, fixed once added; a Proxmox
