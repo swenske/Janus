@@ -114,7 +114,7 @@ func runSysctl(conn *grpc.ClientConn, endpoint string, redial redialer, args []s
 		resp, err := client.SysctlCancel(c, &emptypb.Empty{})
 		check("SysctlCancel", err)
 		fmt.Println("cancelled - the values from before the trial are back")
-		printSysctlChanges(resp.GetTrial().GetChanges())
+		printSysctlChangesBack(resp.GetTrial().GetChanges())
 
 	case "history":
 		fs := flag.NewFlagSet("system sysctl history", flag.ExitOnError)
@@ -383,6 +383,14 @@ func printSysctlChanges(changes []*janusv1alpha1.SysctlChange) {
 			note = " (default)"
 		}
 		fmt.Printf("  %s: %s → %s%s\n", ch.GetName(), shown(ch.GetOldValue()), shown(ch.GetNewValue()), note)
+	}
+}
+
+// printSysctlChangesBack prints a cancelled trial's changes as they went:
+// from the trial's value back to the one before it.
+func printSysctlChangesBack(changes []*janusv1alpha1.SysctlChange) {
+	for _, ch := range changes {
+		fmt.Printf("  %s: %s → %s\n", ch.GetName(), shown(ch.GetNewValue()), shown(ch.GetOldValue()))
 	}
 }
 
