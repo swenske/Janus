@@ -228,6 +228,35 @@ synced() { [ "$(ctl 1 cluster status 2>/dev/null | grep -cE '^lb-[23] +192\.168\
 wait_for 20 "node 1's peers acknowledged its updates" synced
 echo "  ok: the stick table replicates"
 
+# Under a steady stream of updates the peers are never at node 1's very
+# last one, but they keep up: in sync all the same (v2026.10.24-2's lab
+# saw the member serving the traffic "catching up" for as long as
+# traffic flowed). Eight keep-alive clients, each request an update.
+cat > "$WORKDIR/load.py" <<'PY'
+import http.client, sys, threading, time
+port, secs = int(sys.argv[1]), float(sys.argv[2])
+end, counts = time.time() + secs, []
+def run():
+    n, c = 0, http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    while time.time() < end:
+        c.request("GET", "/"); c.getresponse().read(); n += 1
+    counts.append(n)
+ts = [threading.Thread(target=run) for _ in range(8)]
+for t in ts: t.start()
+for t in ts: t.join()
+print(sum(counts), "requests in", int(secs), "s")
+PY
+python3 "$WORKDIR/load.py" "$((BASE + 10))" 25 >"$WORKDIR/load.txt" 2>&1 &
+load=$!
+sleep 5
+for n in 1 2 3; do
+  synced || fail "node 1's peers not in sync under load (sample $n): $(ctl 1 cluster status 2>&1 | tail -4)"
+  check "janus_cluster_peer_table_synced under load" 'janus_cluster_peer_table_synced\{peer="lb-2",table="fe"\} 1' "$(curl -s --max-time 10 "http://127.0.0.1:$((BASE + 12))/metrics")"
+  sleep 4
+done
+wait "$load" || fail "the load: $(cat "$WORKDIR/load.txt")"
+echo "  ok: in sync under a steady stream of updates ($(cat "$WORKDIR/load.txt"))"
+
 # A reload on a member: the table comes back from a peer.
 ctl 1 haproxy apply-config "$WORKDIR/haproxy.cfg" >/dev/null
 wait_for 20 "node 1's table back after its reload" has_entry 1

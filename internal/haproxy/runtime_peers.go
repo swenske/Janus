@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Peer is one peer of a peers section as HAProxy reports it.
@@ -55,15 +56,51 @@ type PeerTable struct {
 	// its last local one.
 	TableUpdate      uint64 `json:"table_update"`
 	TableLocalUpdate uint64 `json:"table_local_update"`
+	// KeptUp: read twice (ShowPeersSettled), the peer had acknowledged
+	// by the second read every update this node had made at the first.
+	KeptUp bool `json:"kept_up,omitempty"`
 }
 
-// Synced reports whether the peer acknowledged every update made on
-// this node: its acknowledgement (Update) reached the table's last
-// local update. LastAcked goes the other way - on the member that
-// serves the traffic and the peer that only learns, it stays 0. The
-// counters are 32 bits and wrap: compared as HAProxy does.
+// Synced reports whether the peer is in step with this node: its
+// acknowledgement (Update) reached the table's last local update, or -
+// under a steady stream of updates the peer is never at the very last
+// one - it kept up (KeptUp). LastAcked goes the other way - on the
+// member that serves the traffic and the peer that only learns, it
+// stays 0.
 func (t PeerTable) Synced() bool {
-	return int32(uint32(t.TableLocalUpdate)-uint32(t.Update)) <= 0 //nolint:gosec // G115: HAProxy's unsigned 32-bit counters, compared modulo 2^32
+	return t.KeptUp || reached(t.Update, t.TableLocalUpdate)
+}
+
+// reached reports whether update id ack is at or past id: HAProxy's
+// counters are 32 bits and wrap, compared as HAProxy does.
+func reached(ack, id uint64) bool {
+	return int32(uint32(id)-uint32(ack)) <= 0 //nolint:gosec // G115: HAProxy's unsigned 32-bit counters, compared modulo 2^32
+}
+
+// SyncWindow is how long ShowPeersSettled gives a peer to acknowledge
+// the updates it hadn't yet at a first read.
+const SyncWindow = 500 * time.Millisecond
+
+// settle marks, in after, the remote tables whose peer acknowledged by
+// then every update this node had made in before.
+func settle(before, after []Peer) {
+	type key struct{ peer, table string }
+	first := map[key]PeerTable{}
+	for _, p := range before {
+		for _, t := range p.Tables {
+			first[key{p.Name, t.Name}] = t
+		}
+	}
+	for i, p := range after {
+		if p.Local {
+			continue
+		}
+		for j, t := range p.Tables {
+			if b, ok := first[key{p.Name, t.Name}]; ok && reached(t.Update, b.TableLocalUpdate) {
+				after[i].Tables[j].KeptUp = true
+			}
+		}
+	}
 }
 
 var (
@@ -113,6 +150,34 @@ func (m *Manager) ShowPeers(section string) ([]Peer, error) {
 		return nil, err
 	}
 	return s.Peers, nil
+}
+
+// ShowPeersSettled is ShowPeersSection whose Synced holds under traffic:
+// when a remote table is behind this node's last local update, the
+// section is read again after SyncWindow, and a peer that acknowledged
+// by then every update made before the first read is in sync (KeptUp).
+// A peer really behind stays so.
+func (m *Manager) ShowPeersSettled(section string) (*PeersSection, error) {
+	first, err := m.ShowPeersSection(section)
+	if err != nil {
+		return nil, err
+	}
+	behind := false
+	for _, p := range first.Peers {
+		for _, t := range p.Tables {
+			behind = behind || (!p.Local && !t.Synced())
+		}
+	}
+	if !behind {
+		return first, nil
+	}
+	time.Sleep(SyncWindow)
+	second, err := m.ShowPeersSection(section)
+	if err != nil {
+		return nil, err
+	}
+	settle(first.Peers, second.Peers)
+	return second, nil
 }
 
 // peersLearnt reads the section's flags ("flags=0x28900001"): both

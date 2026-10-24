@@ -89,10 +89,11 @@ func (m *metricsSources) clusterMetrics() []exporter.Family {
 		return nil
 	}
 	fams := []exporter.Family{gauge("janus_cluster_info", "Always 1: the cluster the node is a member of, and its member name.", sample(1, "cluster_id", mb.ID, "cluster_name", mb.Name, "member", mb.Member))}
-	peers, err := m.haproxy.ShowPeers(cluster.Section)
+	section, err := m.haproxy.ShowPeersSettled(cluster.Section)
 	if err != nil {
 		return fams
 	}
+	peers := section.Peers
 	var up, synced []exporter.Sample
 	for _, p := range peers {
 		if p.Local {
@@ -105,7 +106,7 @@ func (m *metricsSources) clusterMetrics() []exporter.Family {
 	}
 	return append(fams,
 		gauge("janus_cluster_peer_up", "1 while HAProxy's connection to the peer is established: the stick tables replicate.", up...),
-		gauge("janus_cluster_peer_table_synced", "1 while the peer acknowledged every update this node made to the stick table.", synced...),
+		gauge("janus_cluster_peer_table_synced", "1 while the peer keeps up with this node's updates to the stick table: all acknowledged, or under traffic, within half a second, every one made before.", synced...),
 	)
 }
 
