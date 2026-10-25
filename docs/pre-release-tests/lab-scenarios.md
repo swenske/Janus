@@ -454,6 +454,23 @@ host added between the two campaigns):
 | Placement by memory | since v2026.10.25: clusters of new machines on both hosts' records, the smaller host's listed first - anti-affinity off (three machines), preferred (three), a machine only the bigger host has room for, requests no host can take (required and off); a member recycled in each mode | where each machine went against each host's memory available; the refusals' words, nothing made; the recycle's host against the members' |
 | Terraform's `janus_cluster` | since v2026.10.25: OpenTofu at CI's pinned version, the provider from the pre-release's archive, a token made for it: two members required; three (refused on two hosts); the anti-affinity changed (a replacement); members 2 → 3 → 2; `autoscaling` set and removed; destroy | each apply's time and outcome, where the machines went, a plan with nothing to change after each step, the machines gone after destroy |
 | The policy's durations | since v2026.10.25: `PUT .../autoscale` with the `*_seconds` names, then with the nanosecond names older Controllers used | what `GET` gives back |
+| A balancer in front | since v2026.10.25-2: an HAProxy in a container beside the lab's Controller, its servers set only by the balancer hook through a receiver that checks each call's signature and applies it through HAProxy's runtime API; `wrk` (keep-alive, 25,000 requests a second) and a probe through it, from the machine that isn't a runner; a member drained and undrained, the members set to 3 then 2, a version applied (every member reloading); the receiver answering 503; the balancer with and without retries on empty responses | each call against the journal's drain and removal (told before, the drain delay); each member's share in the balancer's counters; `wrk`'s errors and the probes; the refusal, the cluster's problem, the next check calling again |
+| Terraform's balancer block | since v2026.10.25-2: `janus_cluster` with `balancer` (the receiver above, its secret a sensitive variable); the drain delay changed; the block removed | the receiver's calls; a plan with nothing to change after each step (the secret never read back) |
+| The Controller's metrics | since v2026.10.25-2: `GET /api/metrics` with a reader API token, under the load above with auto-scaling observing | the families; the load figures against the cluster's view and each member's own HAProxy idle on its page |
+
+### Replacing a node, node to node
+
+Since v2026.10.25-2, on three fresh Controller machines: one given a
+configuration of its own (a marker in `haproxy.cfg`, a file, a kernel
+parameter confirmed), its state pulled by another with `janusctl -n NEW
+system state import -from OLD`, then by a third with `-identity`.
+
+| Measured | How |
+|---|---|
+| What arrived | the new node's configuration, its answer, the file's SHA-256, the kernel parameter |
+| The identity | the CA the new node's API certificate is issued by, before and after - its own without `-identity`, the old node's with it |
+| The way it went | both nodes' logs: the grant (until when, the identity or not, by whom), the export by the transfer certificate, the import |
+| The refusals | a grant asked with a reader's certificate; a second import onto a node already in use |
 
 ## The scripts
 
@@ -536,3 +553,11 @@ ran:
   runners' load; `s-vrrp`: a VRRP version and the refusals;
   `u-check40` (+ `.mjs`): the cluster's page and the New machines form
   in headless Chromium (v2026.10.24-5).
+- `hb-up`, `hb-down`, `hb/receiver.py`: the balancer in front on the
+  Controller's machine and its hook receiver; `hload`: a command under
+  `wrk` and a probe through it; `cl`: a cluster's drain, scale, check,
+  view, journal and the receiver's log; `hbstat`: the balancer's servers;
+  `cv2`: a version with one comment more, applied; `m-sample`,
+  `m-members`: the Controller's metrics against the view and the
+  members' pages; `node-ca`: the CA a node's API certificate is issued
+  by; `tf/`: `janus_cluster` with its balancer block (v2026.10.25-2).
