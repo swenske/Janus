@@ -348,3 +348,56 @@ func TestClusterOnHypervisors(t *testing.T) {
 		t.Errorf("the replacement went to %s, not the replaced member's host (the other is taken)", repl.Spec.HypervisorID)
 	}
 }
+
+// Recycling a member alone on its host, anti-affinity preferred: the
+// replacement goes to that host - its own once the member leaves -
+// rather than beside another member (v2026.10.25's lab: recycled onto
+// the other member's host, the cluster on one host).
+func TestRecyclePreferredKeepsHostsApart(t *testing.T) {
+	x := newHVHarness(t)
+	a, h1, h2 := x.a, x.h1, x.h2
+	x.fakes[h2.ID].hostID = "libvirt:bbbb"
+	c := x.build("edgep", x.request(clusters.AntiAffinityPreferred))
+	alone := map[string]string{}
+	for _, m := range c.Members {
+		alone[a.machineOf(m.NodeID).Spec.HypervisorID] = m.Name
+	}
+	if len(alone) != 2 {
+		t.Fatalf("preferred on two hosts: %v", alone)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- a.recycle(context.Background(), c.ID, recycleRequest{Members: []string{alone[h1.ID]}}, "admin")
+	}()
+	repl := x.machine("edgep-3")
+	x.register(repl)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if repl, _ = a.machines.Get(repl.ID); repl.Spec.HypervisorID != h1.ID {
+		t.Errorf("the replacement went to %s, beside %s, not to the replaced member's host", repl.Spec.HypervisorID, alone[h2.ID])
+	}
+	c, _ = a.clusters.Store.Get(c.ID)
+	if v := a.clusterView(c); slices.ContainsFunc(v.Problems, func(p string) bool { return strings.Contains(p, "same host") }) {
+		t.Errorf("problems after: %q", v.Problems)
+	}
+	// Off: elsewhere first, as before - the replaced member's host frees
+	// its memory only once it leaves.
+	x.idle(c.ID)
+	_, _ = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Placement.AntiAffinity = clusters.AntiAffinityOff; return nil })
+	c, _ = a.clusters.Store.Get(c.ID)
+	var onH2 string
+	for _, m := range c.Members {
+		if a.machineOf(m.NodeID).Spec.HypervisorID == h2.ID {
+			onH2 = m.Name
+		}
+	}
+	spec, err := cloneSpec(a.machineOf(c.Member(onH2).NodeID).Spec, a.recycleName(c), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hv, _, err := a.recycleHypervisor(context.Background(), c, onH2, spec)
+	if err != nil || hv != h1.ID {
+		t.Errorf("off, recycling %s on kvm01-again: %s %v", onH2, hv, err)
+	}
+}
