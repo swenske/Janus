@@ -295,6 +295,43 @@ changes extensions, HAProxy branch or kernel, member by member.
 The member left out stays drained until it reboots (`janusctl -n NODE
 cluster undrain` to use it again).
 
+## Scaling
+
+A cluster made [on new machines](#on-new-machines) gains and loses
+members - the cluster's **Members** tab, **Scaling**:
+
+- **Members**, set by hand (`POST /api/clusters/{id}/scale
+  {"members": 3}`): a member more is a new machine like the newest
+  member's - its size, networks, extensions and template variables -,
+  placed with the cluster's anti-affinity, within the host's free
+  memory; a member less is the newest, drained, taken out, its machine
+  destroyed. One step at a time.
+- **Auto-scaling** (`PUT /api/clusters/{id}/autoscale`): `observe`
+  journals what it would do and the count it would have; `on` does it;
+  `off`. It reads every member's load every 15 seconds - HAProxy's idle
+  time and the CPUs' averaged, the connections' share of `maxconn` the
+  highest - and adds a member when, over 5 minutes, HAProxy idles below
+  30 %, the CPUs are busier than 75 % or the connections above 70 %; it
+  takes one out when one fewer would still stay quiet on every count
+  for 30 minutes. 10 minutes between a step out and the next, 30 after
+  a step in, 2 steps an hour at most, never below `min_members` (2) nor
+  above `max_members`, nor beyond `max_vcpus`/`max_memory_mib` in all;
+  no step out while the members' vCPUs wait for their hosts (steal above
+  10 %). Thresholds are the policy's (`out_idle_percent`,
+  `in_after`...), checked for hysteresis.
+- Members set by hand while auto-scaling is on **pause** it, journaled;
+  saving the policy again resumes it.
+
+```sh
+curl -X PUT https://controller:8080/api/clusters/$CLUSTER/autoscale -H "Authorization: Bearer $JANUS_TOKEN" \
+  -d '{"mode": "observe", "min_members": 2, "max_members": 5, "max_vcpus": 20}'
+```
+
+Not for a VRRP cluster: one member holds each virtual IP, a member more
+adds no capacity - grow its machines instead ([auto-scaling](auto-scaling.md)).
+Horizontal scaling suits BGP/ECMP clusters, or a balancer in front that
+sends to every member.
+
 ## Watching it
 
 The page shows what wants a look at the top of a cluster's page, and
@@ -382,6 +419,8 @@ Readers see clusters, administrators change them.
 | `GET`, `PATCH`, `DELETE /api/clusters/{id}` | one; change `secrets_from` or members' `vars`; delete (every member leaves; `?force=true`: even those that don't answer) |
 | `POST /api/clusters/{id}/members`, `DELETE .../members/{name}` | add one; remove one (`?force=true`) |
 | `POST .../members/{name}/drain`, `.../undrain` | out of service, back |
+| `POST /api/clusters/{id}/scale` | bring a cluster made on hypervisors to `{members}`, one step at a time |
+| `PUT /api/clusters/{id}/autoscale` | its auto-scaling: `{mode, min_members, max_members, max_vcpus, max_memory_mib, ...thresholds}` |
 | `POST /api/clusters/{id}/recycle` | replace members one at a time (`{members, with: {member: {node_id, name, address}}, version, new_image}`; a member without `with` gets a new machine like its own) |
 | `GET`, `POST /api/clusters/{id}/versions`, `GET .../versions/{n}` | the versions; a new one (`{base, files, delete, note}`); one, with its files |
 | `POST /api/clusters/{id}/apply` | apply a version (`{version, managed}`) |

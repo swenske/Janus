@@ -705,6 +705,18 @@ cooldown and steps-per-hour accounting, `Decision{Waiting, Reason,
 Warnings}`, the de-duplicated refusals - with a `Decide` that reasons
 over a member count instead of a VM size.
 
+What was built (P6a): the engine is `internal/clusters/scale.go`
+(pure; the Controller's loop in `cluster_scale.go`) - its own small
+`Decide`, not `internal/autoscale`'s, which a root package can't import;
+the same vocabulary. Projection is to the member count judged (observe:
+simulated), a step in judged at one fewer. `desired_members` is
+`POST /api/clusters/{id}/scale {members}`; a member more is a new
+machine like the newest member's, placed. The Controller has no
+Prometheus endpoint yet: the members' aggregate load is in
+`GET /api/clusters/{id}` (`load`), `janus_cluster_load_*` comes with
+that endpoint. A new policy starts over (no simulated count or step of
+the old).
+
 ### Guard rails
 
 - `max_members`, and a ceiling on the cluster's total vCPUs and memory;
@@ -967,7 +979,7 @@ In phases, each proven on real boots before the next:
 | **P3 - without a Controller** | `janusctl cluster` (create, apply, check, add, remove, delete...) on the Controller's engine, shared (`internal/clusters`); the cluster CA in the fleet context's directory; advisory locks | `make qemu-clusterctl-test` |
 | **P4 - recycling** | `Engine.Replace` (joined drained, tables learnt, one swap, rollbacks), `janusctl cluster replace`, the Controller's `POST /api/clusters/{id}/recycle` with new machines like the old | `make qemu-clusterctl-test` (the VRRP master replaced, the virtual IP moving once), `controller-libvirt-test` part (a machine member recycled into a new machine), lab campaign (zero lost requests under load) |
 | **P5 - creation on hypervisors** | `HostID`, anti-affinity (`required`/`preferred`/`off`), clusters made of new machines (`POST /api/clusters` with `machines`), observed placement, recycles placed | `controller-libvirt-test` part (two records on one libvirtd: required refused, preferred made and said), unit tests; Proxmox `TestLive` for its node identity, with a live PVE |
-| **P6 - horizontal auto-scaling** | The engine in observe then on, `janus_cluster` in Terraform | `terraform-provider-test` part, lab campaign on BGP |
+| **P6 - horizontal auto-scaling** | P6a: `POST .../scale`, the engine (observe/on/off) with its policy and pause; P6b: `janus_cluster` in Terraform | P6a: unit tests, `controller-libvirt-test` part (scaled 2 → 3 → 2, observing reads the real load); P6b: `terraform-provider-test` part; lab campaign on BGP |
 
 P1 comes early because its need is concrete and its transport is P0's.
 
