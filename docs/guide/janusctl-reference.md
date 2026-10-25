@@ -159,7 +159,7 @@ janusctl system events [-since ID]
 
 #### janusctl system audit
 
-Who changed what, from where, how it ended - and every call refused.
+Who changed what, from where, how it ended - and every call refused, live.
 
 ```text
 janusctl system audit [-since ID]
