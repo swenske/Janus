@@ -64,6 +64,8 @@ type fakeDriver struct {
 	// it stays open; consoles counts the consoles opened.
 	console  string
 	consoles int
+	// hostID, when set, is the physical host it says it reaches.
+	hostID string
 }
 
 func newFakeDriver() *fakeDriver {
@@ -77,7 +79,7 @@ func (f *fakeDriver) HostInfo(context.Context) (*hypervisor.HostInfo, error) {
 	if f.hostFree != 0 {
 		free = f.hostFree
 	}
-	return &hypervisor.HostInfo{Hostname: "fake", CPUs: 4, MemoryTotal: 64 << 30, MemoryFree: free}, nil
+	return &hypervisor.HostInfo{Hostname: "fake", HostID: f.hostID, CPUs: 4, MemoryTotal: 64 << 30, MemoryFree: free}, nil
 }
 
 func (f *fakeDriver) HasImage(_ context.Context, img hypervisor.Image) (bool, error) {
@@ -132,7 +134,7 @@ func (f *fakeDriver) MachineStatus(_ context.Context, ref hypervisor.MachineRef)
 	if _, ok := f.vms[ref.UUID]; !ok {
 		return &hypervisor.MachineStatus{Power: hypervisor.PowerOff}, nil
 	}
-	return &hypervisor.MachineStatus{Power: hypervisor.PowerRunning}, nil
+	return &hypervisor.MachineStatus{Power: hypervisor.PowerRunning, HostID: f.hostID}, nil
 }
 
 func (f *fakeDriver) Power(_ context.Context, _ hypervisor.MachineRef, action hypervisor.PowerAction) error {
