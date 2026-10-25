@@ -305,6 +305,10 @@ example:
 - v2026.10.24-5: the restart and the hypervisor's shutdown again, with
   the drain first (Failovers); `-h` on the power commands; clusters
   made on the hypervisor and scaled, and auto-scaling, below.
+- v2026.10.24-6: the hosts' identities after the update (their SSH host
+  keys) and the machines' views; the clusters' anti-affinity on the
+  lab's two KVM hosts, a VRRP version under auto-scaling, below; the
+  slow reboot chased with the serial console timestamped on the host.
 
 ### HAProxy killed by the kernel
 
@@ -428,17 +432,20 @@ master recycled through the API as the page does.
 
 ### Clusters on the hypervisor, and scaling
 
-Since v2026.10.24-5. The lab has one KVM host:
+Since v2026.10.24-5; on two KVM hosts since v2026.10.24-6 (the second
+host added between the two campaigns):
 
 | Step | How | Measured |
 |---|---|---|
-| Anti-affinity required | a cluster of two new machines asked on the host's record | refused before anything is made, the hosts named; no machine, no cluster |
-| Two records, one host | a second record to the same SSH server (another address), its key added to the Controller's account on the host and removed after | both records' host identity |
+| The hosts' identities | each record's `host_id` after the Controller's update, against each host's SSH host key (`ssh-keyscan`); the machines' views (`GET /api/machines`) and their events | the form, distinct per host; no move journaled |
+| Two records, one host | a second record to the first host's SSH server (another address), its key added to the Controller's account there and removed after | both records' host identity |
+| Anti-affinity required | three new machines asked on the records of both hosts (one host per machine: one too many); then two | three refused before anything is made, the hosts named; two placed one per host, the libvirt domains where the journal says |
+| A recycle, a member more | with required: a member recycled; three members asked for | where the new machine went; the refusal and its reason |
 | Anti-affinity preferred | the cluster made on both records | its time; the placement journaled; the page's same-host problem, each member's host |
 | A recycle | a member recycled | where its machine went, the journal |
 | Scaling | a version answering on port 80 with a stick table; the members set to 3 then 2 while two runners load one member each (`wrk`, as a balancer in front would), probes of both | the times; `wrk`'s errors, lost probes; the new member made like the newest; the removed one's machine destroyed |
 | Auto-scaling | the policy at its shortest windows (1 min out, 5 min in, 1 min cooldowns); `observe`, then `on`, under the runners' load on the members (one vCPU each); then the load stopped | the load as the engine reads it; its journal (would add, adding, taking out) and the times; the member added's share of the traffic |
-| A VRRP cluster | a version with a keepalived template applied, then auto-scaling asked; and a VRRP version applied with auto-scaling on | the refusals |
+| A VRRP cluster | a version with a keepalived template applied with auto-scaling observing, then on (409 since v2026.10.24-6), then off; then auto-scaling asked | the refusals; the VIP answering once applied |
 | The pages | the cluster's page and the New machines form, two palettes, both modes, axe | page and console errors, findings |
 
 ## The scripts
