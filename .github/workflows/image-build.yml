@@ -1083,6 +1083,14 @@ jobs:
       - name: Terraform provider against a real Controller and libvirt host
         run: make terraform-provider-test
 
+      # A cluster's RouterOS balancer on MikroTik's Cloud Hosted Router
+      # (pinned, checked): the engine keeping its ECMP routes - before a
+      # drain, after an undrain, put back when changed on the router, the
+      # router's own routes untouched. See hack/routeros-hook-test.sh and
+      # docs/guide/clusters.md.
+      - name: A cluster's RouterOS balancer on a real RouterOS
+        run: make routeros-hook-test
+
       # Single sign-on through a real Keycloak (pinned, hack/keycloak):
       # headless Chromium signs in through Keycloak's own pages - accounts
       # made by the rules, refusals, signing out of Keycloak too, linking,

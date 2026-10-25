@@ -394,10 +394,19 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "tickets", args: "NAME", help: "a new TLS ticket key on the member the secrets come from, pulled by the others (check does it daily)", flags: []flagDef{
 			boolFlag("renew", "replace every key of the ring at once - no key it held is used or accepted any more (a member's departure does it)"),
 		}, pos: []argKind{argNone}, required: 1},
-		{name: "balancer", args: "NAME", help: "the hook telling a balancer in front which members take the traffic - told before a member is drained or removed, after one comes into service; shown without a flag", flags: []flagDef{
-			valFlag("url", "URL", "the hook: an http(s) URL the members are POSTed to", argNone),
+		{name: "balancer", args: "NAME", help: "the hook telling a balancer in front which members take the traffic - told before a member is drained or removed, after one comes into service -, or a RouterOS router whose ECMP routes the cluster keeps itself; shown without a flag", flags: []flagDef{
+			valFlag("kind", "KIND", "webhook (the default) or routeros", argNone),
+			valFlag("url", "URL", "the hook: an http(s) URL the members are POSTed to; routeros: the router's own HTTPS address", argNone),
 			valFlag("ca", "FILE", "the only CA its certificate may chain to (PEM)", argFile),
+			valFlag("fingerprint", "SHA256", "its HTTPS certificate's SHA-256, pinned (a router's self-signed one)", argNone),
 			valFlag("secret-file", "FILE", "a file holding the secret the calls are signed with (X-Janus-Signature-256)", argFile),
+			valFlag("router-user", "USER", "routeros: the router's user the cluster signs in as", argNone),
+			valFlag("password-file", "FILE", "routeros: a file holding that user's password", argFile),
+			valFlag("prefix", "PREFIX", "routeros: a service prefix the members carry (203.0.113.10/32), repeatable", argNone),
+			valFlag("distance", "N", "routeros: the routes' distance (1)", argNone),
+			valFlag("routing-table", "TABLE", "routeros: the routes' routing table (main)", argNone),
+			boolFlag("allow-http", "routeros: a lab's router over plain HTTP"),
+			valFlag("check-gateway", "ping|none", "routeros: the router pings each member and leaves one out that doesn't answer (check-gateway=ping)", argNone),
 			boolFlag("no-secret", "calls unsigned from now on"),
 			valFlag("drain-delay", "SECONDS", "how long a member serves on once the balancer was told it goes (0)", argNone),
 			boolFlag("off", "no hook any more"),

@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -33,14 +34,40 @@ import (
 // a call it missed is made good by the next. Reconcile calls again when
 // the list differs from the last one delivered, or that call failed.
 // Signed with HMAC-SHA256 when a secret is set (X-Janus-Signature-256,
-// as GitHub's webhooks).
+// as GitHub's webhooks). Or a RouterOS router kept up to date by the
+// engine itself (routeros.go): ECMP routes to the members in service.
+
+// The balancer kinds.
+const (
+	BalancerWebhook  = "webhook"
+	BalancerRouterOS = "routeros"
+)
 
 // Balancer is a cluster's hook.
 type Balancer struct {
+	// Kind: BalancerWebhook ("" too) or BalancerRouterOS.
+	Kind string `json:"kind,omitempty"`
+	// URL: the webhook; a RouterOS router's own (https://router).
 	URL string `json:"url"`
 	// CACert, PEM: the only CA the hook's HTTPS certificate may chain
 	// to; empty: the system's.
 	CACert string `json:"ca_cert,omitempty"`
+	// Fingerprint pins the HTTPS certificate itself, its SHA-256 (hex,
+	// colons allowed) - a router's own self-signed one.
+	Fingerprint string `json:"fingerprint,omitempty"`
+	// RouterOS: the router's user the engine signs in as (its password
+	// is the secret), the service prefixes the members carry (a /32 each,
+	// as for BGP anycast), the routes' distance (1) and routing table
+	// (main); AllowHTTP lets a lab's router answer over plain HTTP.
+	User         string   `json:"user,omitempty"`
+	Prefixes     []string `json:"prefixes,omitempty"`
+	Distance     int      `json:"distance,omitempty"`
+	RoutingTable string   `json:"routing_table,omitempty"`
+	AllowHTTP    bool     `json:"allow_http,omitempty"`
+	// CheckGateway: the routes check their member with a ping
+	// (check-gateway=ping) - one that stops answering is left out by
+	// the router itself, before any drain or check.
+	CheckGateway bool `json:"check_gateway,omitempty"`
 	// DrainDelaySeconds: how long a member stays in service after the
 	// balancer was told it goes - its connections finishing - before it
 	// is drained or removed.
@@ -58,6 +85,17 @@ type BalancerState struct {
 	Error string `json:"error,omitempty"`
 }
 
+// IsRouterOS reports whether b is a RouterOS router the engine keeps.
+func (b *Balancer) IsRouterOS() bool { return b != nil && b.Kind == BalancerRouterOS }
+
+// noun is what b is, in the journal's words.
+func (b *Balancer) noun() string {
+	if b.IsRouterOS() {
+		return "router"
+	}
+	return "balancer"
+}
+
 // Validate checks b.
 func (b *Balancer) Validate() error {
 	u, err := url.Parse(b.URL)
@@ -66,6 +104,26 @@ func (b *Balancer) Validate() error {
 	}
 	if u.User != nil {
 		return errors.New("balancer url: no credentials in the URL - set a secret, the calls are signed with it")
+	}
+	switch b.Kind {
+	case "", BalancerWebhook:
+		if b.User != "" || len(b.Prefixes) > 0 || b.Distance != 0 || b.RoutingTable != "" || b.AllowHTTP || b.CheckGateway {
+			return errors.New("balancer user, prefixes, distance, routing_table, allow_http, check_gateway: for a routeros balancer")
+		}
+	case BalancerRouterOS:
+		if err := b.validateRouterOS(u); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("balancer kind %q: webhook or routeros", b.Kind)
+	}
+	if b.Fingerprint != "" {
+		if u.Scheme != "https" {
+			return errors.New("balancer fingerprint: for an https URL")
+		}
+		if len(normalFingerprint(b.Fingerprint)) != 64 {
+			return errors.New("balancer fingerprint: the certificate's SHA-256, 64 hexadecimal digits (colons allowed)")
+		}
 	}
 	if b.CACert != "" {
 		if u.Scheme != "https" {
@@ -147,7 +205,7 @@ func (e *Engine) announce(ctx context.Context, id, event, member, actor string, 
 		return nil
 	}
 	list := e.BalancerList(c, out...)
-	err := e.callBalancer(ctx, c, BalancerCall{ClusterID: c.ID, Cluster: c.Name, Event: event, Member: member, Members: list, At: time.Now().UTC()})
+	detail, err := e.callBalancer(ctx, c, BalancerCall{ClusterID: c.ID, Cluster: c.Name, Event: event, Member: member, Members: list, At: time.Now().UTC()})
 	_ = e.Store.UpdateState(id, func(s *State) {
 		if err != nil {
 			s.Balancer.Error = err.Error()
@@ -162,11 +220,12 @@ func (e *Engine) announce(ctx context.Context, id, event, member, actor string, 
 			in++
 		}
 	}
+	noun := c.Balancer.noun()
 	if err != nil {
-		e.Journal(id, actor, "balancer", member, 0, "the balancer wasn't told %s: %v", what, err)
-		return fmt.Errorf("the balancer wasn't told %s: %w", what, err)
+		e.Journal(id, actor, "balancer", member, 0, "the %s wasn't told %s: %v", noun, what, err)
+		return fmt.Errorf("the %s wasn't told %s: %w", noun, what, err)
 	}
-	e.Journal(id, actor, "balancer", member, 0, "the balancer was told %s - %d of %d member(s) in service", what, in, len(list))
+	e.Journal(id, actor, "balancer", member, 0, "the %s was told %s%s - %d of %d member(s) in service", noun, what, detail, in, len(list))
 	return nil
 }
 
@@ -182,7 +241,11 @@ func (e *Engine) leaving(ctx context.Context, id, member string, force bool, act
 		if force {
 			return nil
 		}
-		return fmt.Errorf("%v - %s left in service: fix the hook, or remove it with force", err, member)
+		fix := "the hook"
+		if c.Balancer.IsRouterOS() {
+			fix = "the router's access"
+		}
+		return fmt.Errorf("%v - %s left in service: fix %s, or remove it with force", err, member, fix)
 	}
 	if d := time.Duration(c.Balancer.DrainDelaySeconds) * time.Second; d > 0 {
 		select {
@@ -200,16 +263,30 @@ func (e *Engine) SyncBalancer(ctx context.Context, id, actor string) error {
 }
 
 // reconcileBalancer calls the balancer again when the list changed
-// since the last call delivered, or that call failed.
+// since the last call delivered, or that call failed - a router, every
+// time: its routes are read and put back if changed there.
 func (e *Engine) reconcileBalancer(ctx context.Context, c *Cluster) error {
 	if c.Balancer == nil {
 		return nil
+	}
+	if c.Balancer.IsRouterOS() {
+		return e.reconcileRouterOS(ctx, c)
 	}
 	st := e.Store.State(c.ID)
 	if st.Balancer.Error == "" && st.Balancer.Sent == listHash(e.BalancerList(c)) {
 		return nil
 	}
 	return e.announce(ctx, c.ID, "sync", "", Actor)
+}
+
+// normalFingerprint is a SHA-256 fingerprint as lowercase hex, its
+// colons and spaces gone.
+func normalFingerprint(s string) string {
+	s = strings.ToLower(strings.NewReplacer(":", "", " ", "").Replace(strings.TrimSpace(s)))
+	if _, err := hex.DecodeString(s); err != nil {
+		return ""
+	}
+	return s
 }
 
 // BalancerClient makes the hook's HTTP calls; tests replace it.
@@ -220,6 +297,24 @@ var BalancerClient = func(b *Balancer) (*http.Client, error) {
 		pool.AppendCertsFromPEM([]byte(b.CACert))
 		t.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	}
+	if want := normalFingerprint(b.Fingerprint); want != "" {
+		t.TLSClientConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			// The chain isn't checked: the certificate itself is, by its
+			// pinned fingerprint, below.
+			InsecureSkipVerify: true, //nolint:gosec // G402: VerifyConnection checks the pinned SHA-256
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				if len(cs.PeerCertificates) == 0 {
+					return errors.New("no certificate")
+				}
+				sum := sha256.Sum256(cs.PeerCertificates[0].Raw)
+				if got := hex.EncodeToString(sum[:]); got != want {
+					return fmt.Errorf("its certificate is SHA-256 %s, not the one pinned (%s)", got, want)
+				}
+				return nil
+			},
+		}
+	}
 	return &http.Client{Transport: t, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse // a hook answers, it doesn't send elsewhere
 	}}, nil
@@ -228,7 +323,20 @@ var BalancerClient = func(b *Balancer) (*http.Client, error) {
 // BalancerRetries are the waits between a failed call's attempts.
 var BalancerRetries = []time.Duration{time.Second, 3 * time.Second}
 
-func (e *Engine) callBalancer(ctx context.Context, c *Cluster, call BalancerCall) error {
+// callBalancer delivers call: a POST to the webhook, or the router's
+// routes made to match its members; detail says what changed there.
+func (e *Engine) callBalancer(ctx context.Context, c *Cluster, call BalancerCall) (string, error) {
+	if c.Balancer.IsRouterOS() {
+		added, removed, err := e.routerOSApply(ctx, c, call.Members)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(" (routes: %d added, %d removed)", added, removed), nil
+	}
+	return "", e.postBalancer(ctx, c, call)
+}
+
+func (e *Engine) postBalancer(ctx context.Context, c *Cluster, call BalancerCall) error {
 	body, err := json.Marshal(call)
 	if err != nil {
 		return err
@@ -373,6 +481,25 @@ func (e *Engine) SetBalancer(ctx context.Context, id string, b *Balancer, secret
 		empty := ""
 		secret = &empty
 	}
+	var prev *Balancer
+	if cur, ok := e.Store.Get(id); ok {
+		prev = cur.Balancer
+	}
+	// Another kind: the secret it had was the other's (a signing secret,
+	// a router's password) - given again, or gone.
+	if prev != nil && b != nil && prev.IsRouterOS() != b.IsRouterOS() && secret == nil {
+		empty := ""
+		secret = &empty
+	}
+	if b.IsRouterOS() {
+		has, err := e.Store.BalancerSecret(id)
+		if err != nil {
+			return err
+		}
+		if (secret != nil && *secret == "") || (secret == nil && len(has) == 0) {
+			return errors.New("a routeros balancer signs in with the router user's password: give it as the secret")
+		}
+	}
 	if secret != nil {
 		if err := e.Store.setBalancerSecret(id, []byte(*secret)); err != nil {
 			return err
@@ -395,11 +522,31 @@ func (e *Engine) SetBalancer(ctx context.Context, id string, b *Balancer, secret
 		return err
 	}
 	_ = e.Store.UpdateState(id, func(s *State) { s.Balancer = BalancerState{} })
+	if b.IsRouterOS() && prev.IsRouterOS() && prev.URL == b.URL {
+		// The same router: the families no prefix is in any more lose
+		// their routes now.
+		var gone []string
+		for _, f := range prev.families() {
+			if !slices.Contains(b.families(), f) {
+				gone = append(gone, f)
+			}
+		}
+		if len(gone) > 0 {
+			c, _ := e.Store.Get(id)
+			if _, _, err := e.routerOSApply(ctx, c, e.BalancerList(c), gone...); err != nil {
+				e.Journal(id, actor, "balancer", "", 0, "the router's routes of the prefixes taken out weren't removed: %v", err)
+			}
+		}
+	}
 	if b == nil {
 		e.Journal(id, actor, "balancer", "", 0, "no balancer hook any more")
 		return nil
 	}
-	e.Journal(id, actor, "balancer", "", 0, "balancer hook %s", b.URL)
+	if b.IsRouterOS() {
+		e.Journal(id, actor, "balancer", "", 0, "RouterOS router %s, as %s: routes to %s", b.URL, b.User, strings.Join(b.Prefixes, ", "))
+	} else {
+		e.Journal(id, actor, "balancer", "", 0, "balancer hook %s", b.URL)
+	}
 	return e.SyncBalancer(ctx, id, actor)
 }
 

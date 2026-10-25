@@ -1436,17 +1436,26 @@ janusctl cluster tickets [-renew] NAME
 
 #### janusctl cluster balancer
 
-The hook telling a balancer in front which members take the traffic - told before a member is drained or removed, after one comes into service; shown without a flag.
+The hook telling a balancer in front which members take the traffic - told before a member is drained or removed, after one comes into service -, or a RouterOS router whose ECMP routes the cluster keeps itself; shown without a flag.
 
 ```text
-janusctl cluster balancer [-url URL] [-ca FILE] [-secret-file FILE] [-no-secret] [-drain-delay SECONDS] [-off] [-sync] NAME
+janusctl cluster balancer [-kind KIND] [-url URL] [-ca FILE] [-fingerprint SHA256] [-secret-file FILE] [-router-user USER] [-password-file FILE] [-prefix PREFIX] [-distance N] [-routing-table TABLE] [-allow-http] [-check-gateway ping|none] [-no-secret] [-drain-delay SECONDS] [-off] [-sync] NAME
 ```
 
 | Flag | |
 |---|---|
-| `-url URL` | the hook: an http(s) URL the members are POSTed to |
+| `-kind KIND` | webhook (the default) or routeros |
+| `-url URL` | the hook: an http(s) URL the members are POSTed to; routeros: the router's own HTTPS address |
 | `-ca FILE` | the only CA its certificate may chain to (PEM) |
+| `-fingerprint SHA256` | its HTTPS certificate's SHA-256, pinned (a router's self-signed one) |
 | `-secret-file FILE` | a file holding the secret the calls are signed with (X-Janus-Signature-256) |
+| `-router-user USER` | routeros: the router's user the cluster signs in as |
+| `-password-file FILE` | routeros: a file holding that user's password |
+| `-prefix PREFIX` | routeros: a service prefix the members carry (203.0.113.10/32), repeatable |
+| `-distance N` | routeros: the routes' distance (1) |
+| `-routing-table TABLE` | routeros: the routes' routing table (main) |
+| `-allow-http` | routeros: a lab's router over plain HTTP |
+| `-check-gateway ping\|none` | routeros: the router pings each member and leaves one out that doesn't answer (check-gateway=ping) |
 | `-no-secret` | calls unsigned from now on |
 | `-drain-delay SECONDS` | how long a member serves on once the balancer was told it goes (0) |
 | `-off` | no hook any more |

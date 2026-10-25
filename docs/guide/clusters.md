@@ -502,6 +502,61 @@ class Hook(BaseHTTPRequestHandler):
 HTTPServer(("0.0.0.0", 8099), Hook).serve_forever()
 ```
 
+### RouterOS
+
+A MikroTik router in front (RouterOS 7) needs no receiver: the cluster
+keeps its routes itself, over its REST API. On the card, **Kind:
+RouterOS - ECMP routes** (`"kind": "routeros"` in the API, `-kind
+routeros` for `janusctl cluster balancer`, Terraform's `kind`).
+
+- **What it writes**: for each service prefix, a static route per
+  member in service - `dst-address` the prefix, `gateway` the member's
+  address (or its `balancer_gateway` variable, when the router reaches
+  it on another), the same distance (1) in the same routing table
+  (`main`) - each with the comment `janus-cluster:<cluster id>`. Routes
+  to one prefix at one distance are equal for RouterOS 7: it spreads
+  the flows over them (ECMP). A route without that comment is never
+  touched.
+- **When**: as for a hook. A member's route goes **before** it is
+  drained - the operation waits for the router's answer, then the drain
+  delay -, comes back once it serves again; every check reads the
+  routes and puts back a change made on the router (a route removed by
+  hand, another distance) - journaled "the router's routes put back".
+  A router that doesn't answer stops a drain or a removal, the member
+  serving on.
+- **The members carry the service address**: each has it on an
+  interface (a `/32`, as for [BGP anycast](../bgp.md)), and HAProxy
+  binds it. Not for a VRRP cluster's virtual IPs: one member holds each.
+- **check-gateway** (`check_gateway`): the router pings each member and
+  leaves out one that stops answering, without waiting for a drain or
+  the next check - a member down, not drained, stops getting flows
+  within seconds. Its members must answer ICMP echo.
+- **Its access**: REST over HTTPS (`www-ssl`), a user of its own in a
+  group with no more than it needs:
+
+  ```text
+  /user group add name=janus-hook policy=read,write,api,rest-api
+  /user add name=janus-hook group=janus-hook password=...
+  /certificate add name=www common-name=router.example.net
+  /certificate sign www
+  /ip service set www-ssl certificate=www disabled=no
+  /certificate print detail where name=www
+  ```
+
+  The last line gives the certificate's `fingerprint`: its SHA-256, the
+  one to pin (`fingerprint`) - or give its CA. The password is the
+  balancer's secret, write-only. Plain HTTP only for a lab's router
+  (`allow_http`): the password goes with every call.
+- **IPv6**: an IPv6 prefix gets its routes in `/ipv6/route`, to the
+  members' IPv6 addresses (`balancer_gateway`).
+- **Removed**: the cluster's balancer, or the cluster itself - the
+  routes stay, the traffic flowing as it was. Remove them on the router
+  when you mean to: `/ip route remove [find comment="janus-cluster:<cluster
+  id>"]`.
+
+`make routeros-hook-test` runs it against MikroTik's Cloud Hosted Router
+under QEMU, set up as above.
+
 ## Watching it
 
 The page shows what wants a look at the top of a cluster's page, and
@@ -591,7 +646,7 @@ Readers see clusters, administrators change them.
 | `POST .../members/{name}/drain`, `.../undrain` | out of service, back |
 | `POST /api/clusters/{id}/scale` | bring a cluster made on hypervisors to `{members}`, one step at a time |
 | `PUT /api/clusters/{id}/autoscale` | its auto-scaling: `{mode, min_members, max_members, max_vcpus, max_memory_mib, ...thresholds}` |
-| `PUT /api/clusters/{id}/balancer` | its [balancer hook](#a-balancer-in-front): `{url, ca_cert, drain_delay_seconds, secret}` - the secret write-only, left out to keep it, `""` to remove it; the hook is called at once |
+| `PUT /api/clusters/{id}/balancer` | its [balancer hook](#a-balancer-in-front): `{kind, url, ca_cert, fingerprint, drain_delay_seconds, secret}` - a [RouterOS](#routeros) router's also `{user, prefixes, distance, routing_table, check_gateway, allow_http}`; the secret write-only (a router's: its user's password), left out to keep it, `""` to remove it; the hook is called at once |
 | `DELETE /api/clusters/{id}/balancer` | no hook any more |
 | `POST /api/clusters/{id}/balancer/sync` | call the hook with the members now (502 with its failure) |
 | `POST /api/clusters/{id}/recycle` | replace members one at a time (`{members, with: {member: {node_id, name, address}}, version, new_image}`; a member without `with` gets a new machine like its own) |

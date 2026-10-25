@@ -490,11 +490,19 @@ type Cluster struct {
 // ClusterBalancer is a cluster's balancer hook: who to tell which
 // members take the traffic. The secret signing the calls is write-only.
 type ClusterBalancer struct {
-	URL               string  `json:"url"`
-	CACert            string  `json:"ca_cert,omitempty"`
-	DrainDelaySeconds int     `json:"drain_delay_seconds,omitempty"`
-	HasSecret         bool    `json:"has_secret,omitempty"`
-	Secret            *string `json:"secret,omitempty"` // sent only: nil keeps it, "" removes it
+	Kind              string   `json:"kind,omitempty"` // webhook (""), routeros
+	URL               string   `json:"url"`
+	CACert            string   `json:"ca_cert,omitempty"`
+	Fingerprint       string   `json:"fingerprint,omitempty"`
+	User              string   `json:"user,omitempty"`
+	Prefixes          []string `json:"prefixes,omitempty"`
+	Distance          int      `json:"distance,omitempty"`
+	RoutingTable      string   `json:"routing_table,omitempty"`
+	AllowHTTP         bool     `json:"allow_http,omitempty"`
+	CheckGateway      bool     `json:"check_gateway,omitempty"`
+	DrainDelaySeconds int      `json:"drain_delay_seconds,omitempty"`
+	HasSecret         bool     `json:"has_secret,omitempty"`
+	Secret            *string  `json:"secret,omitempty"` // sent only: nil keeps it, "" removes it
 }
 
 // ClusterMachines makes a cluster of count new machines of spec (its
