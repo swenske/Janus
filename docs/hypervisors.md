@@ -522,7 +522,11 @@ What happens then, followed on the machine's card:
      - the node's network: hostname, interfaces;
      - a one-time registration token.
    - **Firmware:** UEFI without Secure Boot. The VM images' boot entries
-     aren't signed; the release bundles are.
+     aren't signed; the release bundles are. On libvirt, the plain OVMF
+     code the host offers, read-only and without a UEFI variable store -
+     Janus uses none, and a store fills up and slows a reboot now and
+     then ([updates](guide/updates.md#with-janusctl)); a host offering
+     no such image gets libvirt's choice, with a store.
    - **Console:** a serial console on a pty. Never a log file on the
      host: a node's first boot prints its admin credential there.
    - **Autostart.**

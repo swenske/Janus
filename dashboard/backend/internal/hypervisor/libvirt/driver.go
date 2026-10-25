@@ -34,6 +34,20 @@ type Driver struct {
 	hostName string // read once (hostIdentity)
 }
 
+// loader is the UEFI firmware a new machine runs without a variable
+// store (statelessLoader), from the host's domain capabilities - "" when
+// it offers none, or its libvirt predates stateless loaders (8.6).
+func (d *Driver) loader(l *golibvirt.Libvirt) string {
+	if v, err := l.ConnectGetLibVersion(); err != nil || v < 8006000 {
+		return ""
+	}
+	caps, err := l.ConnectGetDomainCapabilities(nil, golibvirt.OptString{"x86_64"}, golibvirt.OptString{"q35"}, golibvirt.OptString{"kvm"}, 0)
+	if err != nil {
+		return ""
+	}
+	return statelessLoader(caps)
+}
+
 // New returns a Driver for h, a libvirt hypervisor whose host key is
 // already pinned.
 func New(h *hypervisor.Hypervisor, controllerID string) (*Driver, error) {
@@ -399,7 +413,7 @@ func (d *Driver) CreateMachine(ctx context.Context, spec hypervisor.MachineSpec)
 			undo()
 			return fmt.Errorf("volume %s: %w", ciName, err)
 		}
-		defined, err := l.DomainDefineXMLFlags(domainXML(spec, diskPath, ciPath, d.controllerID), golibvirt.DomainDefineValidate)
+		defined, err := l.DomainDefineXMLFlags(domainXML(spec, diskPath, ciPath, d.controllerID, d.loader(l)), golibvirt.DomainDefineValidate)
 		if err != nil {
 			undo()
 			return fmt.Errorf("define the virtual machine: %w", err)

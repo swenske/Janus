@@ -172,7 +172,12 @@ done
 [ "$reachable" = True ] || fail "the admitted node isn't reachable through the Controller: $(api "$API/api/nodes/status")"
 host="$(api "$API/api/nodes/status" | json "d['$NODE']['hostname']")"
 [ "$host" = node1 ] || fail "the node's hostname is $host, not the one its NoCloud volume set"
-echo "Part 3 OK: node1 created, admitted on its registration token (no approval), reachable through the relay as $host"
+# Its firmware: the OVMF code alone, without a variable store - no
+# compaction of a full store slowing a reboot (docs/guide/updates.md).
+xml="$(in_host virsh dumpxml janus-node1)"
+grep -Eq "<loader readonly='yes' type='pflash' stateless='yes'( format='raw')?>/usr/share/OVMF/OVMF_CODE_4M.fd</loader>" <<<"$xml" || fail "node1's firmware isn't the stateless OVMF code: $(grep -A3 '<os' <<<"$xml")"
+if grep -q '<nvram' <<<"$xml" || in_host sh -c 'ls /var/lib/libvirt/qemu/nvram/ 2>/dev/null' | grep -q node1; then fail "node1 has a UEFI variable store"; fi
+echo "Part 3 OK: node1 created - the OVMF code alone, no variable store -, admitted on its registration token (no approval), reachable through the relay as $host"
 
 # =========================================================================
 # 3. Console and hypervisor reset.

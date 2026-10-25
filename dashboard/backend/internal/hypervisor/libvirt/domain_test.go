@@ -22,7 +22,7 @@ func testSpec() hypervisor.MachineSpec {
 }
 
 func TestDomainXML(t *testing.T) {
-	x := domainXML(testSpec(), "/var/lib/libvirt/janus/disk.qcow2", "/var/lib/libvirt/janus/ci.iso", "ctl-1")
+	x := domainXML(testSpec(), "/var/lib/libvirt/janus/disk.qcow2", "/var/lib/libvirt/janus/ci.iso", "ctl-1", "")
 
 	// Well-formed, with the name escaped.
 	var d struct {
@@ -219,5 +219,44 @@ func TestHardwareXMLFixed(t *testing.T) {
 	}
 	if _, err := hardwareXML("<domain/>", hypervisor.Hardware{VCPUs: 1, MemoryMiB: 512}); err == nil {
 		t.Error("a definition without memory/vcpu accepted")
+	}
+}
+
+// The plain OVMF code, picked from what a host's libvirt offers - the
+// 4 MiB build first, never a Secure Boot or confidential-computing one,
+// nor a combined code+variables image.
+func TestStatelessLoader(t *testing.T) {
+	caps := func(paths ...string) string {
+		var b strings.Builder
+		b.WriteString("<domainCapabilities><os supported='yes'><loader supported='yes'>")
+		for _, p := range paths {
+			b.WriteString("<value>" + p + "</value>")
+		}
+		b.WriteString("<enum name='type'><value>rom</value><value>pflash</value></enum></loader></os></domainCapabilities>")
+		return b.String()
+	}
+	for _, tc := range []struct {
+		name, caps, want string
+	}{
+		{"Debian 13", caps("/usr/share/OVMF/OVMF_CODE_4M.ms.fd", "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd", "/usr/share/OVMF/OVMF_CODE_4M.fd"), "/usr/share/OVMF/OVMF_CODE_4M.fd"},
+		{"Fedora", caps("/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd", "/usr/share/edk2/ovmf/OVMF_CODE.fd", "/usr/share/edk2/ovmf/OVMF.amdsev.fd", "/usr/share/edk2/ovmf/OVMF.inteltdx.fd"), "/usr/share/edk2/ovmf/OVMF_CODE.fd"},
+		{"Arch, 2 and 4 MiB", caps("/usr/share/edk2/x64/OVMF_CODE.fd", "/usr/share/edk2/x64/OVMF_CODE.4m.fd", "/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd"), "/usr/share/edk2/x64/OVMF_CODE.4m.fd"},
+		{"only Secure Boot", caps("/usr/share/OVMF/OVMF_CODE_4M.secboot.fd", "/usr/share/OVMF/OVMF_CODE_4M.snakeoil.fd"), ""},
+		{"a combined image", caps("/usr/share/qemu/OVMF.fd"), ""},
+		{"no loader", "<domainCapabilities><os supported='yes'/></domainCapabilities>", ""},
+		{"not XML", "nope", ""},
+	} {
+		if got := statelessLoader(tc.caps); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	// The domain: the code alone, read-only, no store - else libvirt's
+	// choice, as before.
+	x := domainXML(testSpec(), "/disk.qcow2", "/ci.iso", "ctl-1", "/usr/share/OVMF/OVMF_CODE_4M.fd")
+	if !strings.Contains(x, "<loader readonly='yes' type='pflash' stateless='yes'>/usr/share/OVMF/OVMF_CODE_4M.fd</loader>") || strings.Contains(x, "firmware='efi'") || strings.Contains(x, "nvram") {
+		t.Errorf("stateless:\n%s", x)
+	}
+	if x := domainXML(testSpec(), "/disk.qcow2", "/ci.iso", "ctl-1", ""); !strings.Contains(x, "<os firmware='efi'>") || strings.Contains(x, "stateless") {
+		t.Errorf("no loader found:\n%s", x)
 	}
 }
