@@ -11,7 +11,7 @@ added.
 
 | Role | What |
 |---|---|
-| KVM host | Xeon E3-1220 v3 (4 cores), 16 GB, Debian 13, QEMU q35, Debian's OVMF 2025.02 |
+| KVM hosts | the first: Xeon E3-1220 v3 (4 cores), 16 GB, a RAID controller with its write cache; since v2026.10.24-6 a second: the same CPU, 32 GB, two plain SATA drives without a write cache (a synchronous write about 30 times slower). Both Debian 13, QEMU q35, Debian's OVMF 2025.02. Since v2026.10.25 the machines are spread over both: node 01, a backend and the Controller's own machines on the first; the Controller, node 02, the other backend and the screen-only node on the second |
 | Router | RouterOS 7: the lab's VLANs, BGP with BFD (200 ms × 3) to the nodes, no BGP ECMP (one node carries the anycast route at a time) |
 | Node 01 and node 02 | 2 vCPU (host CPU), 1 GiB, OVMF without Secure Boot; a schematic with the five extensions (BGP, VRRP, nftables, node_exporter, the QEMU agent); management, front and backend networks |
 | High availability | a VIP by VRRP (VRRPv3, 0.2 s adverts, HAProxy's health weighs -100) and an anycast /32 by BGP |
@@ -136,7 +136,11 @@ On node 02:
 - through kexec, chained, three times.
 
 Each is timed from the Reboot call to the API answering again. The
-kernel log is searched for an oops afterwards.
+kernel log is searched for an oops afterwards. Since v2026.10.25 the
+firmware reboots run on node 02 four times and on node 01 twice, each
+node's serial console timestamped on its host: the kernel's "Restarting
+system", the firmware's boot manager, the next kernel and the API, and
+any virtio-net failure in between - for the intermittent slow reboot.
 
 ### Rollback
 
@@ -447,6 +451,9 @@ host added between the two campaigns):
 | Auto-scaling | the policy at its shortest windows (1 min out, 5 min in, 1 min cooldowns); `observe`, then `on`, under the runners' load on the members (one vCPU each); then the load stopped | the load as the engine reads it; its journal (would add, adding, taking out) and the times; the member added's share of the traffic |
 | A VRRP cluster | a version with a keepalived template applied with auto-scaling observing, then on (409 since v2026.10.24-6), then off; then auto-scaling asked | the refusals; the VIP answering once applied |
 | The pages | the cluster's page and the New machines form, two palettes, both modes, axe | page and console errors, findings |
+| Placement by memory | since v2026.10.25: clusters of new machines on both hosts' records, the smaller host's listed first - anti-affinity off (three machines), preferred (three), a machine only the bigger host has room for, requests no host can take (required and off); a member recycled in each mode | where each machine went against each host's memory available; the refusals' words, nothing made; the recycle's host against the members' |
+| Terraform's `janus_cluster` | since v2026.10.25: OpenTofu at CI's pinned version, the provider from the pre-release's archive, a token made for it: two members required; three (refused on two hosts); the anti-affinity changed (a replacement); members 2 → 3 → 2; `autoscaling` set and removed; destroy | each apply's time and outcome, where the machines went, a plan with nothing to change after each step, the machines gone after destroy |
+| The policy's durations | since v2026.10.25: `PUT .../autoscale` with the `*_seconds` names, then with the nanosecond names older Controllers used | what `GET` gives back |
 
 ## The scripts
 
