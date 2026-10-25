@@ -135,6 +135,12 @@ counts as free, taken last. Each member shows the host it runs on, as
 its hypervisor last said: a Proxmox HA migration that brings two
 members together shows on the page.
 
+Deleting such a cluster - **Delete**, its name typed - leaves its
+machines running as nodes on their own; tick **Delete the members'
+virtual machines too** (`?machines=destroy`) and they are destroyed,
+disks included, once they left the cluster. A member that isn't one of
+the Controller's machines stays either way.
+
 ### From a node
 
 A load balancer already serving - one node, its configuration, files
@@ -641,7 +647,7 @@ Readers see clusters, administrators change them.
 | Call | What it does |
 |---|---|
 | `GET`, `POST /api/clusters` | list; create (`{name, source, members: [{node_id, name, address, api_address, vars}], managed, peers_port}`, or `{name, machines: {count, spec, hypervisors, anti_affinity, seed_from}}` - [from a node](#from-a-node)) |
-| `GET`, `PATCH`, `DELETE /api/clusters/{id}` | one; change `secrets_from` or members' `vars`; delete (every member leaves; `?force=true`: even those that don't answer) |
+| `GET`, `PATCH`, `DELETE /api/clusters/{id}` | one; change `secrets_from` or members' `vars`; delete (every member leaves; `?force=true`: even those that don't answer; `?machines=destroy`: the members that are the Controller's machines destroyed too, once they left) |
 | `POST /api/clusters/{id}/members`, `DELETE .../members/{name}` | add one; remove one (`?force=true`) |
 | `POST .../members/{name}/drain`, `.../undrain` | out of service, back |
 | `POST /api/clusters/{id}/scale` | bring a cluster made on hypervisors to `{members}`, one step at a time |

@@ -178,7 +178,8 @@ selects a webhook or a RouterOS router (ECMP routes): the router's
 user, service prefixes, distance, routing table and check-gateway, its
 password in the secret's field.
 `#/clusters/<id>` is one cluster: its problems in a notice, **Check
-now**, **Delete** (type the name), and four tabs - **Members** (version
+now**, **Delete** (type the name; a box to destroy the members' virtual
+machines too, when some are the Controller's), and four tabs - **Members** (version
 run, peers up, stick tables in sync, member certificate's end, drained /
 drifted / released; Drain/Undrain, the variables its templates use,
 **Recycle** - a new machine like it when it is one of the Controller's

@@ -680,20 +680,21 @@ api "$API/nodes/$s2/api/haproxy/config" | json "d['config']" | grep -q 'node1-ow
 api "$API/nodes/$NODE/api/haproxy/config" | json "d['config']" | grep -q 'node1-own-marker' || fail "node1's own configuration changed"
 [ "$(api "$API/api/clusters" | json "sum(1 for c in d for m in c['members'] if m['node_id']=='$NODE')")" = 0 ] || fail "node1 became a member"
 echo "Part 4g OK: a cluster seeded from node1 - seed-1 took its state node to node, the cluster made from it (version 1 node1's configuration, on seed-2 too), node1 left as it was"
-api -o /dev/null -X DELETE "$API/api/clusters/$CID" || fail "delete seed"
+# Deleted with its machines: the members leave, then their virtual
+# machines go; node1 - no member - stays.
+api -o /dev/null -X DELETE "$API/api/clusters/$CID?machines=destroy" || fail "delete seed with its machines"
 for _ in $(seq 1 60); do
   [ "$(api -o /dev/null -w '%{http_code}' "$API/api/clusters/$CID")" = 404 ] && break
   sleep 1
 done
-for name in seed-1 seed-2; do
-  mid="$(api "$API/api/machines" | json "next(m['id'] for m in d if m['spec']['name']=='$name')")"
-  api -o /dev/null -X DELETE "$API/api/machines/$mid"
-  for _ in $(seq 1 90); do
-    [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$mid")" = 404 ] && break
-    sleep 1
-  done
-  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$mid")" = 404 ] || fail "$name was never destroyed"
+for _ in $(seq 1 120); do
+  api "$API/api/machines" | json "' '.join(m['spec']['name'] for m in d)" | grep -Eqw 'seed-1|seed-2' || break
+  sleep 1
 done
+if api "$API/api/machines" | json "' '.join(m['spec']['name'] for m in d)" | grep -Eqw 'seed-1|seed-2'; then fail "the seed cluster's machines are still there"; fi
+if in_host virsh list --all --name | grep -Eq 'janus-seed-[12]$'; then fail "the seed cluster's virtual machines are still defined"; fi
+api "$API/api/machines" | json "' '.join(m['spec']['name'] for m in d)" | grep -qw node1 || fail "node1's machine went with the cluster"
+echo "Part 4g OK: the seed cluster deleted with its machines (?machines=destroy) - seed-1 and seed-2 gone, node1 kept"
 api -o /dev/null -X DELETE "$API/api/hypervisors/$HV2" || fail "remove the second record"
 }
 

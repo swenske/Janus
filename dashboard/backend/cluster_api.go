@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"slices"
@@ -373,14 +374,46 @@ func (a *app) handleClusterPatch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.clusterView(c))
 }
 
+// handleClusterDelete ends cluster id: every member leaves it (force:
+// even those that don't answer); machines=destroy also destroys the
+// members that are this Controller's machines, once they left - the
+// others stay as they are.
 func (a *app) handleClusterDelete(w http.ResponseWriter, r *http.Request) {
 	c, ok := a.clusterOr404(w, r)
 	if !ok {
 		return
 	}
 	force := r.URL.Query().Get("force") == "true"
+	destroy := false
+	switch r.URL.Query().Get("machines") {
+	case "":
+	case "destroy":
+		destroy = true
+	default:
+		writeError(w, http.StatusBadRequest, "machines: destroy, or nothing to keep them")
+		return
+	}
+	var vms []string // the members' machines, by ID
+	if destroy {
+		for _, m := range c.Members {
+			if mach := a.machineOf(m.NodeID); mach != nil {
+				vms = append(vms, mach.ID)
+			}
+		}
+	}
 	actor := requestPrincipal(r).User
-	a.runCluster(w, c, "deleting", actor, func(ctx context.Context) error { return a.clusters.Remove(ctx, c.ID, force) })
+	a.runCluster(w, c, "deleting", actor, func(ctx context.Context) error {
+		if err := a.clusters.Remove(ctx, c.ID, force); err != nil {
+			return err
+		}
+		for _, id := range vms {
+			a.destroyMachine(id)
+		}
+		if len(vms) > 0 {
+			log.Printf("clusters: cluster %s deleted by %s, its %d member machine(s) being destroyed", c.Name, actor, len(vms))
+		}
+		return nil
+	})
 }
 
 func (a *app) handleClusterMemberAdd(w http.ResponseWriter, r *http.Request) {

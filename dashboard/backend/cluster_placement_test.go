@@ -494,3 +494,79 @@ func TestClusterSeededFromANode(t *testing.T) {
 		t.Errorf("a refused grant: %q", c2.Error)
 	}
 }
+
+// Deleting a cluster made on hypervisors: its machines kept, or with
+// machines=destroy destroyed once their members left.
+func TestClusterDeleteMachines(t *testing.T) {
+	x := newHVHarness(t)
+	a := x.a
+	x.fakes[x.h2.ID].hostID = "libvirt:bbbb"
+	del := func(id, query string) int {
+		path := "/api/clusters/" + id + query
+		return call(t, a.handleClusterDelete, "DELETE", path, "DELETE /api/clusters/{id}", nil).Code
+	}
+	machinesOf := func(c *clusters.Cluster) []string {
+		var ids []string
+		for _, m := range c.Members {
+			if mach := a.machineOf(m.NodeID); mach != nil {
+				ids = append(ids, mach.ID)
+			}
+		}
+		return ids
+	}
+	gone := func(ids []string) bool {
+		for _, id := range ids {
+			if _, ok := a.machines.Get(id); ok {
+				return false
+			}
+		}
+		return true
+	}
+
+	c := x.build("keep", x.request(""))
+	kept := machinesOf(c)
+	if code := del(c.ID, "?machines=maybe"); code != http.StatusBadRequest {
+		t.Errorf("machines=maybe: %d", code)
+	}
+	if code := del(c.ID, ""); code != http.StatusAccepted {
+		t.Fatalf("delete: %d", code)
+	}
+	x.waitGone(c.ID)
+	time.Sleep(200 * time.Millisecond)
+	if len(kept) != 2 || gone(kept[:1]) || gone(kept[1:]) {
+		t.Errorf("a plain delete destroyed machines: %v", kept)
+	}
+
+	c = x.build("drop", x.request(""))
+	dropped := machinesOf(c)
+	if code := del(c.ID, "?machines=destroy"); code != http.StatusAccepted {
+		t.Fatalf("delete with the machines: %d", code)
+	}
+	x.waitGone(c.ID)
+	for deadline := time.Now().Add(10 * time.Second); !gone(dropped); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the members' machines never destroyed: %v", dropped)
+		}
+	}
+	if len(dropped) != 2 {
+		t.Errorf("the dropped cluster's machines: %v", dropped)
+	}
+	for _, id := range kept {
+		if _, ok := a.machines.Get(id); !ok {
+			t.Errorf("machine %s of the other cluster destroyed", id)
+		}
+	}
+}
+
+// waitGone waits until cluster id is deleted.
+func (x *hvHarness) waitGone(id string) {
+	x.t.Helper()
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, ok := x.a.clusters.Store.Get(id); !ok {
+			return
+		}
+		if time.Now().After(deadline) {
+			x.t.Fatalf("cluster %s never deleted", id)
+		}
+	}
+}
