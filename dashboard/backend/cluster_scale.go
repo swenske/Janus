@@ -290,15 +290,15 @@ func (s *clusterScaler) run(ctx context.Context) {
 	}
 }
 
-// tick reads every auto-scaled cluster's members and decides for each -
-// not one an operation runs on: its member count is changing.
+// tick reads every cluster's members - their load for the view and the
+// Controller's metrics - and decides for each auto-scaled one; not one
+// an operation runs on: its member count is changing.
 func (s *clusterScaler) tick(ctx context.Context, now time.Time) {
 	var wg sync.WaitGroup
+	seen := map[string]bool{}
 	for _, c := range s.a.clusters.Store.List() {
-		if c.Autoscale == nil || c.Autoscale.Mode == clusters.ScaleOff {
-			s.forget(c.ID)
-			continue
-		}
+		seen[c.ID] = true
+		off := c.Autoscale == nil || c.Autoscale.Mode == clusters.ScaleOff
 		if s.a.clusters.isBusy(c.ID) {
 			continue
 		}
@@ -322,10 +322,31 @@ func (s *clusterScaler) tick(ctx context.Context, now time.Time) {
 			}()
 			sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
+			if off {
+				s.measure(sctx, c, sc, now)
+				return
+			}
 			s.step(sctx, c, sc, now)
 		})
 	}
 	wg.Wait()
+	s.mu.Lock()
+	for id := range s.c {
+		if !seen[id] {
+			delete(s.c, id) // deleted
+		}
+	}
+	s.mu.Unlock()
+}
+
+// measure reads cluster c's members for their load alone - no policy,
+// no window kept, nothing decided.
+func (s *clusterScaler) measure(ctx context.Context, c *clusters.Cluster, sc *scaledCluster, now time.Time) {
+	sample := s.read(ctx, c, sc, now)
+	s.mu.Lock()
+	sc.samples, sc.said = nil, ""
+	sc.last = &sample
+	s.mu.Unlock()
 }
 
 // read is the members' aggregate now: HAProxy's idle and the CPUs'

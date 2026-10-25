@@ -316,3 +316,46 @@ frontend prometheus
   http-request use-service prometheus-exporter if { path /metrics }
   no log
 ```
+
+## The Controller's metrics
+
+The [Controller](../dashboard/README.md) serves its own, at
+`GET /api/metrics` on its main port: its clusters, their members' load
+- the figures [horizontal auto-scaling](guide/clusters.md#scaling)
+judges, for a scheduler or an alert of your own - and their
+auto-scaling. Any account or [API
+token](../dashboard/README.md#api-tokens-and-terraform) that reads may
+scrape it - a token for it alone, with the reader role:
+
+```yaml
+scrape_configs:
+  - job_name: janus-controller
+    scheme: https
+    metrics_path: /api/metrics
+    authorization:
+      credentials_file: /etc/prometheus/janus-controller.token
+    tls_config:
+      ca_file: /etc/prometheus/janus-controller-ca.pem # the certificate it serves, or its CA
+    static_configs:
+      - targets: ['controller.example.net:8080']
+```
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `janus_controller_build_info` | gauge | `version` | Always 1: the Controller's release |
+| `janus_cluster_members` | gauge | `cluster_id`, `cluster_name` | The cluster's members |
+| `janus_cluster_operation_running` | gauge | `cluster_id`, `cluster_name` | 1 while an operation runs on it - an apply, a scale, a recycle |
+| `janus_cluster_load_members` | gauge | `cluster_id`, `cluster_name` | Members that answered the last reading, every 15 s |
+| `janus_cluster_load_haproxy_idle_ratio` | gauge | `cluster_id`, `cluster_name` | HAProxy's idle time, 0 to 1, the mean over the members |
+| `janus_cluster_load_cpu_busy_ratio` | gauge | `cluster_id`, `cluster_name` | The CPUs' busy time without steal, the mean |
+| `janus_cluster_load_cpu_steal_ratio` | gauge | `cluster_id`, `cluster_name` | The CPUs' steal time, the mean - above 0.1, the hosts are saturated |
+| `janus_cluster_load_connections_ratio` | gauge | `cluster_id`, `cluster_name` | Connections over `maxconn`, the highest among the members |
+| `janus_cluster_load_timestamp_seconds` | gauge | `cluster_id`, `cluster_name` | When that reading was taken |
+| `janus_cluster_autoscale_mode` | gauge | `cluster_id`, `cluster_name`, `mode` | 1 for its auto-scaling's mode, `observe` or `on`; absent when off |
+| `janus_cluster_autoscale_paused` | gauge | `cluster_id`, `cluster_name` | 1 while it is paused: its members were set from outside |
+| `janus_cluster_autoscale_judged_members` | gauge | `cluster_id`, `cluster_name` | The member count auto-scaling judges - the one it simulates while observing |
+
+A load figure the members didn't give - HAProxy not answering, the
+first reading of the CPUs - is absent rather than 0. The load is read
+for every cluster, auto-scaled or not; it is also each cluster's
+`load` in `GET /api/clusters/{id}`.

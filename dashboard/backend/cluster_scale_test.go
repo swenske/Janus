@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
@@ -188,8 +189,41 @@ func TestClusterScaler(t *testing.T) {
 		}
 	}
 
+	// No policy: the load is read all the same - the view's and the
+	// Controller's metrics -, nothing judged, nothing journaled.
+	entries := len(a.clusters.Store.Entries(c.ID, 1000))
+	run(2)
+	if cur, _ := a.clusters.Store.Get(c.ID); a.clusterView(cur).Load == nil || a.clusterView(cur).Load.Members != 2 {
+		t.Errorf("no policy, the load: %+v", a.clusterView(cur).Load)
+	}
+	if len(a.clusters.Store.Entries(c.ID, 1000)) != entries || a.clusters.Store.State(c.ID).ScaleStatus != "" {
+		t.Error("no policy, yet something was judged")
+	}
+	m := scrapeMetrics(t, a)
+	for _, want := range []string{
+		`janus_cluster_members{cluster_id="` + c.ID + `",cluster_name="edge"} 2`,
+		`janus_cluster_load_members{cluster_id="` + c.ID + `",cluster_name="edge"} 2`,
+		`janus_cluster_load_haproxy_idle_ratio{cluster_id="` + c.ID + `",cluster_name="edge"} 0.1`,
+		`janus_cluster_load_cpu_busy_ratio{cluster_id="` + c.ID + `",cluster_name="edge"} 0.9`,
+		`janus_cluster_load_connections_ratio{cluster_id="` + c.ID + `",cluster_name="edge"} 0.01`,
+		`janus_cluster_operation_running{cluster_id="` + c.ID + `",cluster_name="edge"} 0`,
+		`janus_controller_build_info{version="dev"} 1`,
+	} {
+		if !strings.Contains(m, want+"\n") {
+			t.Errorf("metrics without %s:\n%s", want, m)
+		}
+	}
+	if strings.Contains(m, "janus_cluster_autoscale_mode{") {
+		t.Errorf("an auto-scaling mode without a policy:\n%s", m)
+	}
+
 	set(clusters.ScaleObserve)
 	run(25)
+	if m := scrapeMetrics(t, a); !strings.Contains(m, `janus_cluster_autoscale_mode{cluster_id="`+c.ID+`",cluster_name="edge",mode="observe"} 1`+"\n") ||
+		!strings.Contains(m, `janus_cluster_autoscale_judged_members{cluster_id="`+c.ID+`",cluster_name="edge"} 3`+"\n") ||
+		!strings.Contains(m, `janus_cluster_autoscale_paused{cluster_id="`+c.ID+`",cluster_name="edge"} 0`+"\n") {
+		t.Errorf("observing, the metrics:\n%s", m)
+	}
 	if st := a.clusters.Store.State(c.ID); st.Scale.Members != 3 || !strings.HasPrefix(st.ScaleStatus, "observing") {
 		t.Errorf("observing: %+v %q", st.Scale, st.ScaleStatus)
 	}
@@ -227,4 +261,15 @@ func TestClusterScaler(t *testing.T) {
 	if len(acted) != 1 || !journalSays(t, a, c.ID, "refused: a VRRP cluster can't scale") {
 		t.Errorf("VRRP: acted %v, status %q", acted, a.clusters.Store.State(c.ID).ScaleStatus)
 	}
+}
+
+// scrapeMetrics is GET /api/metrics's body.
+func scrapeMetrics(t *testing.T, a *app) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	a.handleMetrics(rec, httptest.NewRequest("GET", "/api/metrics", nil))
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain; version=0.0.4") {
+		t.Fatalf("GET /api/metrics: %d %s", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	return rec.Body.String()
 }
