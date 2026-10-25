@@ -85,6 +85,48 @@ version may name a file holding a key - and the version applied. `GET
 /api/clusters/{id}` follows it: `busy` while it runs, `error` if it
 failed, `problems` for whatever wants a look.
 
+### On new machines
+
+Or the Controller makes the members: **New cluster**, **New machines** -
+how many, the [hypervisors](../hypervisors.md) they may go to, their
+size, release, extensions and network (DHCP), and the **anti-affinity**:
+
+- **required** (the default): each machine on a physical host of its
+  own. With fewer hosts than machines, the cluster is refused before
+  anything is made, naming the hosts found;
+- **preferred**: hosts of their own first, then the least busy - the
+  cluster's page says which members share a host;
+- **off**: the hypervisors in turn.
+
+Two hypervisor records reaching the same host count as one: the
+Controller asks each which host it is (libvirt: the host's UUID; Proxmox:
+the node's name). The machines are named after the cluster -
+`edge-1`, `edge-2`... -, the Controller waits until they register and
+trust the fleet, then makes the cluster from them, the first one the
+source. A failure before that destroys the machines it made.
+
+```sh
+curl -X POST https://controller:8080/api/clusters -H "Authorization: Bearer $JANUS_TOKEN" -d '{
+  "name": "edge",
+  "machines": {
+    "count": 3,
+    "anti_affinity": "required",
+    "hypervisors": ["kvm01-id", "kvm02-id", "pve-c-id"],
+    "spec": {"vcpus": 2, "memory_mib": 2048, "version": "v2026.10.24",
+             "nics": [{"network": "lab-mgmt", "name": "eth0", "mode": "dhcp"}]}
+  }
+}'
+```
+
+`spec` is a machine's ([hypervisors](../hypervisors.md#the-api)) without
+its name and hypervisor, which are the Controller's to give; its
+networks must exist on every hypervisor given. The cluster keeps its
+placement: a member [recycled](#recycling-a-member) into a new machine
+goes where no other member runs - the host of the member it replaces
+counts as free, taken last. Each member shows the host it runs on, as
+its hypervisor last said: a Proxmox HA migration that brings two
+members together shows on the page.
+
 ## The configuration
 
 On the page, a cluster's **Configuration** tab: its versions, newest
@@ -336,7 +378,7 @@ Readers see clusters, administrators change them.
 
 | Call | What it does |
 |---|---|
-| `GET`, `POST /api/clusters` | list; create (`{name, source, members: [{node_id, name, address, api_address, vars}], managed, peers_port}`) |
+| `GET`, `POST /api/clusters` | list; create (`{name, source, members: [{node_id, name, address, api_address, vars}], managed, peers_port}`, or `{name, machines: {count, spec, hypervisors, anti_affinity}}`) |
 | `GET`, `PATCH`, `DELETE /api/clusters/{id}` | one; change `secrets_from` or members' `vars`; delete (every member leaves; `?force=true`: even those that don't answer) |
 | `POST /api/clusters/{id}/members`, `DELETE .../members/{name}` | add one; remove one (`?force=true`) |
 | `POST .../members/{name}/drain`, `.../undrain` | out of service, back |

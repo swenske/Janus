@@ -265,6 +265,18 @@ VM runs on, the machine sync loop records it, and the cluster's status
 warns when two members end up together - a Proxmox HA migration moves
 a VM without asking, and today the Controller wouldn't notice.
 
+What was built (P5): a libvirt `HostID` is `libvirt:` + the
+capabilities' `<host><uuid>` - SMBIOS, or libvirtd's own `host_uuid` -
+read with the `connect:read` right the generated rule already gives. A
+Proxmox `HostID` is the **node's name**: the PVE cluster's name needs
+`Sys.Audit` on `/`, which the token doesn't have - two separate Proxmox
+installations whose nodes share a name count as one host, a warning
+more, never two members placed together unseen. A VM's node comes from
+`/cluster/resources`, its status read there. The record keeps the host
+it reached last, the machine the host it runs on. A recycle places the
+new machine among the cluster's hypervisors that fit its specification;
+the replaced member's host counts as free - it leaves -, taken last.
+
 ### From existing nodes
 
 Nodes already deployed - installed by hand, by Terraform, by the
@@ -954,7 +966,7 @@ In phases, each proven on real boots before the next:
 | **P2 - the cluster resource** | The Controller's cluster record, checks, desired configuration and templates, apply and reconcile, locks and drift, secrets pulls, the cluster's page | `make controller-cluster-test` on local-dev nodes, then `qemu-dashboard-test` |
 | **P3 - without a Controller** | `janusctl cluster` (create, apply, check, add, remove, delete...) on the Controller's engine, shared (`internal/clusters`); the cluster CA in the fleet context's directory; advisory locks | `make qemu-clusterctl-test` |
 | **P4 - recycling** | `Engine.Replace` (joined drained, tables learnt, one swap, rollbacks), `janusctl cluster replace`, the Controller's `POST /api/clusters/{id}/recycle` with new machines like the old | `make qemu-clusterctl-test` (the VRRP master replaced, the virtual IP moving once), `controller-libvirt-test` part (a machine member recycled into a new machine), lab campaign (zero lost requests under load) |
-| **P5 - creation on hypervisors** | `HostID`, anti-affinity, observed placement | `controller-libvirt-test`, Proxmox `TestLive` |
+| **P5 - creation on hypervisors** | `HostID`, anti-affinity (`required`/`preferred`/`off`), clusters made of new machines (`POST /api/clusters` with `machines`), observed placement, recycles placed | `controller-libvirt-test` part (two records on one libvirtd: required refused, preferred made and said), unit tests; Proxmox `TestLive` for its node identity, with a live PVE |
 | **P6 - horizontal auto-scaling** | The engine in observe then on, `janus_cluster` in Terraform | `terraform-provider-test` part, lab campaign on BGP |
 
 P1 comes early because its need is concrete and its transport is P0's.

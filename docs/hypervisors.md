@@ -662,6 +662,16 @@ background: phase `updating`, then back to `ready`. If a step failed,
 the error is on the machine, and its record is read back from the node,
 so it says what was really done.
 
+## Which host a record is
+
+The Controller asks each hypervisor which physical host it is - libvirt:
+the host's UUID; Proxmox: the node's name - and keeps it on the record
+(`host_id`, `host_name`), and each machine the host it runs on, as its
+hypervisor last said (a Proxmox HA migration shows). A
+[cluster](guide/clusters.md#on-new-machines) uses it to keep its
+members on hosts of their own: two records reaching the same host count
+as one.
+
 ## The API
 
 Behind the Controller's login, like the rest of its API, or an API token

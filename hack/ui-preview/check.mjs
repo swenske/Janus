@@ -233,6 +233,8 @@ for (const palette of PALETTES) {
   await page.waitForSelector('form tbody tr')
   const offered = await page.locator('form tbody tr').allTextContents()
   if (offered.length !== 1 || !offered[0].includes('edge-3')) problems.push(`new cluster: offered ${JSON.stringify(offered)}`)
+  // No hypervisor in the preview: a cluster of new machines isn't offered.
+  if (!(await page.getByRole('radio', { name: /New machines/ }).isDisabled())) problems.push('new cluster: new machines offered without a hypervisor')
   await look('cluster-new')
   await ctx.close()
 }
