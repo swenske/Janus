@@ -246,14 +246,21 @@ for t in ts: t.start()
 for t in ts: t.join()
 print(sum(counts), "requests in", int(secs), "s")
 PY
-python3 "$WORKDIR/load.py" "$((BASE + 10))" 25 >"$WORKDIR/load.txt" 2>&1 &
+# What is checked is that the indicator comes back while the traffic
+# flows - the defect was "catching up" for as long as it did -, not that
+# every reading is: on a busy CI runner (three VMs and the load on a few
+# cores) a peer may lag more than janusd's 2 s window now and then
+# (v2026.10.24-3's and -5's first builds).
+metric_synced() { grep -Eq 'janus_cluster_peer_table_synced\{peer="lb-2",table="fe"\} 1' <<<"$(curl -s --max-time 10 "http://127.0.0.1:$((BASE + 12))/metrics")"; }
+python3 "$WORKDIR/load.py" "$((BASE + 10))" 60 >"$WORKDIR/load.txt" 2>&1 &
 load=$!
 sleep 5
 for n in 1 2 3; do
-  synced || fail "node 1's peers not in sync under load (sample $n): $(ctl 1 cluster status 2>&1 | tail -4)"
-  check "janus_cluster_peer_table_synced under load" 'janus_cluster_peer_table_synced\{peer="lb-2",table="fe"\} 1' "$(curl -s --max-time 10 "http://127.0.0.1:$((BASE + 12))/metrics")"
+  wait_for 12 "node 1's peers in sync under load (sample $n)" synced
+  wait_for 12 "janus_cluster_peer_table_synced under load (sample $n)" metric_synced
   sleep 4
 done
+kill -0 "$load" 2>/dev/null || fail "the load ended before the samples: $(cat "$WORKDIR/load.txt")"
 wait "$load" || fail "the load: $(cat "$WORKDIR/load.txt")"
 echo "  ok: in sync under a steady stream of updates ($(cat "$WORKDIR/load.txt"))"
 
