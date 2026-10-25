@@ -266,8 +266,12 @@ warns when two members end up together - a Proxmox HA migration moves
 a VM without asking, and today the Controller wouldn't notice.
 
 What was built (P5): a libvirt `HostID` is `libvirt:` + the
-capabilities' `<host><uuid>` - SMBIOS, or libvirtd's own `host_uuid` -
-read with the `connect:read` right the generated rule already gives. A
+fingerprint of the SSH host key pinned for the record - the same for two
+records reaching one sshd, stable across libvirtd restarts. Not the
+capabilities' `<host><uuid>`, tried first: a board without an SMBIOS
+UUID gets a random one at each libvirtd start (the lab's second host),
+and many share AMI's placeholder `03000200-0400-0500-0006-000700080009`
+(the first one). A
 Proxmox `HostID` is the **node's name**: the PVE cluster's name needs
 `Sys.Audit` on `/`, which the token doesn't have - two separate Proxmox
 installations whose nodes share a name count as one host, a warning

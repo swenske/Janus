@@ -665,7 +665,9 @@ so it says what was really done.
 ## Which host a record is
 
 The Controller asks each hypervisor which physical host it is - libvirt:
-the host's UUID; Proxmox: the node's name - and keeps it on the record
+the SSH host key it pinned for the record (libvirtd's own host UUID is
+random at each start on a board without an SMBIOS UUID, and a shared
+placeholder on many others); Proxmox: the node's name - and keeps it on the record
 (`host_id`, `host_name`), and each machine the host it runs on, as its
 hypervisor last said (a Proxmox HA migration shows). A
 [cluster](guide/clusters.md#on-new-machines) uses it to keep its

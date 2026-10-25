@@ -32,7 +32,7 @@
 #      node3's machine destroyed;
 #   3f. a cluster made of new machines (docs/cluster.md "On a
 #      hypervisor"): a second record reaching the same libvirtd is the
-#      same host (the capabilities' UUID); with anti-affinity required
+#      same host (its pinned SSH host key); with anti-affinity required
 #      two machines on it are refused before anything is made, with
 #      preferred they are made, the cluster created from them, and its
 #      page says both run on one host; scaled to three members - a third
