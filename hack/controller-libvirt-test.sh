@@ -625,7 +625,10 @@ done
 api "$API/api/clusters/$CID" >"$WORKDIR/c.json"
 [ "$(json "(d.get('load') or {}).get('members', 0)" <"$WORKDIR/c.json")" = 2 ] || fail "auto-scaling read no load: $(json "d.get('load')" <"$WORKDIR/c.json")"
 json "d.get('scale_status','')" <"$WORKDIR/c.json" | grep -q "^observing" || fail "auto-scaling's status: $(json "d.get('scale_status')" <"$WORKDIR/c.json")"
-echo "Part 4f OK: scaled to three - pref-3 made like the newest, joined - and back to two, pref-3 out and destroyed; auto-scaling observing read both members' load ($(json "'idle %.0f %%, busy %.0f %%' % (d['load']['idle_percent'], d['load']['busy_percent'])" <"$WORKDIR/c.json"))"
+# VRRP can't come in under auto-scaling (v2026.10.24-5's lab: it did).
+code="$(api -o "$WORKDIR/apply.json" -w '%{http_code}' -X POST "$API/api/clusters/$CID/apply" -H 'Content-Type: application/json' -d '{"version": 1, "managed": ["haproxy", "files", "vrrp"]}')"
+[ "$code" = 409 ] && grep -q "set it off first" "$WORKDIR/apply.json" || fail "VRRP brought in under auto-scaling: $code $(cat "$WORKDIR/apply.json")"
+echo "Part 4f OK: scaled to three - pref-3 made like the newest, joined - and back to two, pref-3 out and destroyed; VRRP refused under auto-scaling; auto-scaling observing read both members' load ($(json "'idle %.0f %%, busy %.0f %%' % (d['load']['idle_percent'], d['load']['busy_percent'])" <"$WORKDIR/c.json"))"
 api -o /dev/null -X DELETE "$API/api/clusters/$CID" || fail "delete pref"
 for _ in $(seq 1 60); do
   [ "$(api -o /dev/null -w '%{http_code}' "$API/api/clusters/$CID")" = 404 ] && break

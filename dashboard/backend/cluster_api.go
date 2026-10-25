@@ -561,6 +561,12 @@ func (a *app) handleClusterApply(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// Turning auto-scaling on is refused on a VRRP cluster; so is
+		// bringing VRRP in under auto-scaling (v2026.10.24-5's lab).
+		if as := c.Autoscale; as != nil && as.Mode != clusters.ScaleOff && slices.Contains(req.Managed, "vrrp") && !slices.Contains(c.Managed, "vrrp") {
+			writeError(w, http.StatusConflict, "auto-scaling is "+as.Mode+": a VRRP cluster can't scale (one member holds each virtual IP, a member more adds no capacity) - set it off first")
+			return
+		}
 		if a.clusters.isBusy(c.ID) {
 			writeError(w, http.StatusConflict, "an operation runs on cluster "+c.Name)
 			return

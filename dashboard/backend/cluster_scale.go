@@ -404,6 +404,16 @@ func (s *clusterScaler) step(ctx context.Context, c *clusters.Cluster, sc *scale
 	if p.Mode == clusters.ScaleOn || scale.Members == 0 {
 		scale.Members = len(c.Members) // on: judged at what it has; observing: simulated from there
 	}
+	if slices.Contains(c.Managed, "vrrp") {
+		// Refused on, refused brought in - a cluster managed before those
+		// refusals existed: say so, never step.
+		status := "refused: a VRRP cluster can't scale - set auto-scaling off"
+		if status != st.ScaleStatus {
+			s.a.clusters.Journal(c.ID, clusters.Actor, "autoscale", "", 0, "%s", status)
+			_ = s.a.clusters.Store.UpdateState(c.ID, func(st *clusters.State) { st.ScaleStatus = status })
+		}
+		return
+	}
 	d := clusters.Decide(p, scale, samples, now)
 	status, said := scaleStatus(p, d, scale.Members), ""
 	switch {
