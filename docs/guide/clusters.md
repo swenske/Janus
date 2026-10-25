@@ -313,7 +313,9 @@ members - the cluster's **Members** tab, **Scaling**:
   member's - its size, networks, extensions and template variables -,
   placed with the cluster's anti-affinity, within the host's free
   memory; a member less is the newest, drained, taken out, its machine
-  destroyed. One step at a time.
+  destroyed. One step at a time. A count the hosts, their memory or the
+  policy's ceilings can't give is refused at once (400), saying why,
+  before anything is made.
 - **Auto-scaling** (`PUT /api/clusters/{id}/autoscale`): `observe`
   journals what it would do and the count it would have; `on` does it;
   `off`. It reads every member's load every 15 seconds - HAProxy's idle
