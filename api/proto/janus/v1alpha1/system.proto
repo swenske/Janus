@@ -150,8 +150,9 @@ service SystemService {
   // CertificateRequest makes a new private key on the node for the given
   // purpose and returns a signing request for it (PEM). The key never
   // leaves the node: the caller signs the request and brings the
-  // certificate back - ClusterService.ClusterSet for a cluster member.
-  // A new request replaces the pending key of the same purpose.
+  // certificate back - ClusterService.ClusterSet for a cluster member,
+  // StateImportFrom for a state transfer. A new request replaces the
+  // pending key of the same purpose.
   rpc CertificateRequest(CertificateRequestRequest) returns (CertificateRequestResponse);
 
   // StateExport streams what a replacement needs to serve as this node
@@ -161,7 +162,8 @@ service SystemService {
   // key ring, the modules' configurations, the network configuration,
   // the Controller registration, the fleet trust; with include_identity,
   // the node's CA and keys too. Private keys travel in it: refused
-  // through the Controller, so they never pass through one.
+  // through the Controller, so they never pass through one. Besides an
+  // admin, a node this one granted it (StateExportGrant) pulls it, once.
   rpc StateExport(StateExportRequest) returns (stream Data);
 
   // StateImport takes a StateExport stream onto this node: the first
@@ -172,6 +174,23 @@ service SystemService {
   // start, before anything reads it - the node reboots for that, unless
   // no_reboot. Refused through the Controller, like StateExport.
   rpc StateImport(stream StateImportChunk) returns (StateImportResponse);
+
+  // StateExportGrant lets another node pull this node's state itself
+  // (StateImportFrom), so the export never sits on the operator's
+  // machine: this node signs the new node's request
+  // (CertificateRequest STATE_TRANSFER) with its own CA - a certificate
+  // valid ten minutes, for one StateExport, with the identity only when
+  // granted, and nothing else. The grant lives in janusd's memory: a
+  // restart ends it. Refused through the Controller, like StateExport.
+  rpc StateExportGrant(StateExportGrantRequest) returns (StateExportGrantResponse);
+
+  // StateImportFrom has this node pull another node's state itself and
+  // take it as StateImport does: it dials address with the key it made
+  // for the purpose (CertificateRequest STATE_TRANSFER) and the
+  // certificate the other node granted (StateExportGrant), checks the
+  // other node by its CA, then stages the state and reboots. The node
+  // must be unused. Refused through the Controller.
+  rpc StateImportFrom(StateImportFromRequest) returns (StateImportResponse);
 
   // The node's Prometheus exporter (docs/metrics.md): Janus's own
   // metrics - certificate expiry, boot slot, HAProxy as janusd runs it,
@@ -949,6 +968,11 @@ enum CertificatePurpose {
   // The node's certificate as a member of a cluster (docs/cluster.md):
   // ClusterService.ClusterSet installs it.
   CERTIFICATE_PURPOSE_CLUSTER_MEMBER = 1;
+  // The key a new node pulls another node's state with
+  // (StateImportFrom): kept in janusd's memory only, used once; the
+  // other node signs the request (StateExportGrant). Refused on a node in
+  // use, and through the Controller.
+  CERTIFICATE_PURPOSE_STATE_TRANSFER = 2;
 }
 
 message CertificateRequestRequest {
@@ -985,6 +1009,34 @@ message StateImportChunk {
   // The first message only.
   StateImportOptions options = 1;
   bytes data = 2;
+}
+
+message StateExportGrantRequest {
+  // The new node's signing request (CertificateRequest STATE_TRANSFER),
+  // PEM.
+  bytes csr = 1;
+  // The export may carry this node's identity (its CA and keys).
+  bool include_identity = 2;
+}
+
+message StateExportGrantResponse {
+  // The certificate, PEM: for StateImportFrom.
+  bytes certificate = 1;
+  // This node's CA, PEM: what the new node checks it by.
+  bytes ca = 2;
+  int64 expires_unix = 3;
+}
+
+message StateImportFromRequest {
+  // Where this node reaches the other node's API (host:port; port 9505
+  // when left out).
+  string address = 1;
+  // The other node's CA (StateExportGrantResponse.ca), PEM.
+  bytes ca = 2;
+  // The certificate it granted (StateExportGrantResponse.certificate).
+  bytes certificate = 3;
+  // As StateImport's; reuse_identity needs a grant with the identity.
+  StateImportOptions options = 4;
 }
 
 message StateImportResponse {

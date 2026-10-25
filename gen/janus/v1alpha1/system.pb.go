@@ -255,6 +255,11 @@ const (
 	// The node's certificate as a member of a cluster (docs/cluster.md):
 	// ClusterService.ClusterSet installs it.
 	CertificatePurpose_CERTIFICATE_PURPOSE_CLUSTER_MEMBER CertificatePurpose = 1
+	// The key a new node pulls another node's state with
+	// (StateImportFrom): kept in janusd's memory only, used once; the
+	// other node signs the request (StateExportGrant). Refused on a node in
+	// use, and through the Controller.
+	CertificatePurpose_CERTIFICATE_PURPOSE_STATE_TRANSFER CertificatePurpose = 2
 )
 
 // Enum value maps for CertificatePurpose.
@@ -262,10 +267,12 @@ var (
 	CertificatePurpose_name = map[int32]string{
 		0: "CERTIFICATE_PURPOSE_UNSPECIFIED",
 		1: "CERTIFICATE_PURPOSE_CLUSTER_MEMBER",
+		2: "CERTIFICATE_PURPOSE_STATE_TRANSFER",
 	}
 	CertificatePurpose_value = map[string]int32{
 		"CERTIFICATE_PURPOSE_UNSPECIFIED":    0,
 		"CERTIFICATE_PURPOSE_CLUSTER_MEMBER": 1,
+		"CERTIFICATE_PURPOSE_STATE_TRANSFER": 2,
 	}
 )
 
@@ -5780,6 +5787,196 @@ func (x *StateImportChunk) GetData() []byte {
 	return nil
 }
 
+type StateExportGrantRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The new node's signing request (CertificateRequest STATE_TRANSFER),
+	// PEM.
+	Csr []byte `protobuf:"bytes,1,opt,name=csr,proto3" json:"csr,omitempty"`
+	// The export may carry this node's identity (its CA and keys).
+	IncludeIdentity bool `protobuf:"varint,2,opt,name=include_identity,json=includeIdentity,proto3" json:"include_identity,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *StateExportGrantRequest) Reset() {
+	*x = StateExportGrantRequest{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[84]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StateExportGrantRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateExportGrantRequest) ProtoMessage() {}
+
+func (x *StateExportGrantRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[84]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateExportGrantRequest.ProtoReflect.Descriptor instead.
+func (*StateExportGrantRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{84}
+}
+
+func (x *StateExportGrantRequest) GetCsr() []byte {
+	if x != nil {
+		return x.Csr
+	}
+	return nil
+}
+
+func (x *StateExportGrantRequest) GetIncludeIdentity() bool {
+	if x != nil {
+		return x.IncludeIdentity
+	}
+	return false
+}
+
+type StateExportGrantResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The certificate, PEM: for StateImportFrom.
+	Certificate []byte `protobuf:"bytes,1,opt,name=certificate,proto3" json:"certificate,omitempty"`
+	// This node's CA, PEM: what the new node checks it by.
+	Ca            []byte `protobuf:"bytes,2,opt,name=ca,proto3" json:"ca,omitempty"`
+	ExpiresUnix   int64  `protobuf:"varint,3,opt,name=expires_unix,json=expiresUnix,proto3" json:"expires_unix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StateExportGrantResponse) Reset() {
+	*x = StateExportGrantResponse{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[85]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StateExportGrantResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateExportGrantResponse) ProtoMessage() {}
+
+func (x *StateExportGrantResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[85]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateExportGrantResponse.ProtoReflect.Descriptor instead.
+func (*StateExportGrantResponse) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{85}
+}
+
+func (x *StateExportGrantResponse) GetCertificate() []byte {
+	if x != nil {
+		return x.Certificate
+	}
+	return nil
+}
+
+func (x *StateExportGrantResponse) GetCa() []byte {
+	if x != nil {
+		return x.Ca
+	}
+	return nil
+}
+
+func (x *StateExportGrantResponse) GetExpiresUnix() int64 {
+	if x != nil {
+		return x.ExpiresUnix
+	}
+	return 0
+}
+
+type StateImportFromRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Where this node reaches the other node's API (host:port; port 9505
+	// when left out).
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// The other node's CA (StateExportGrantResponse.ca), PEM.
+	Ca []byte `protobuf:"bytes,2,opt,name=ca,proto3" json:"ca,omitempty"`
+	// The certificate it granted (StateExportGrantResponse.certificate).
+	Certificate []byte `protobuf:"bytes,3,opt,name=certificate,proto3" json:"certificate,omitempty"`
+	// As StateImport's; reuse_identity needs a grant with the identity.
+	Options       *StateImportOptions `protobuf:"bytes,4,opt,name=options,proto3" json:"options,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StateImportFromRequest) Reset() {
+	*x = StateImportFromRequest{}
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[86]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StateImportFromRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateImportFromRequest) ProtoMessage() {}
+
+func (x *StateImportFromRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[86]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateImportFromRequest.ProtoReflect.Descriptor instead.
+func (*StateImportFromRequest) Descriptor() ([]byte, []int) {
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{86}
+}
+
+func (x *StateImportFromRequest) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *StateImportFromRequest) GetCa() []byte {
+	if x != nil {
+		return x.Ca
+	}
+	return nil
+}
+
+func (x *StateImportFromRequest) GetCertificate() []byte {
+	if x != nil {
+		return x.Certificate
+	}
+	return nil
+}
+
+func (x *StateImportFromRequest) GetOptions() *StateImportOptions {
+	if x != nil {
+		return x.Options
+	}
+	return nil
+}
+
 type StateImportResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The exported node, as its manifest says.
@@ -5802,7 +5999,7 @@ type StateImportResponse struct {
 
 func (x *StateImportResponse) Reset() {
 	*x = StateImportResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[84]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5814,7 +6011,7 @@ func (x *StateImportResponse) String() string {
 func (*StateImportResponse) ProtoMessage() {}
 
 func (x *StateImportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[84]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5827,7 +6024,7 @@ func (x *StateImportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateImportResponse.ProtoReflect.Descriptor instead.
 func (*StateImportResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{84}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *StateImportResponse) GetSourceHostname() string {
@@ -5912,7 +6109,7 @@ type LogForwardingConfig struct {
 
 func (x *LogForwardingConfig) Reset() {
 	*x = LogForwardingConfig{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[85]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5924,7 +6121,7 @@ func (x *LogForwardingConfig) String() string {
 func (*LogForwardingConfig) ProtoMessage() {}
 
 func (x *LogForwardingConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[85]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5937,7 +6134,7 @@ func (x *LogForwardingConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogForwardingConfig.ProtoReflect.Descriptor instead.
 func (*LogForwardingConfig) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{85}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *LogForwardingConfig) GetTargets() []*LogTarget {
@@ -5988,7 +6185,7 @@ type LogTarget struct {
 
 func (x *LogTarget) Reset() {
 	*x = LogTarget{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[86]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6000,7 +6197,7 @@ func (x *LogTarget) String() string {
 func (*LogTarget) ProtoMessage() {}
 
 func (x *LogTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[86]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6013,7 +6210,7 @@ func (x *LogTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogTarget.ProtoReflect.Descriptor instead.
 func (*LogTarget) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{86}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *LogTarget) GetName() string {
@@ -6078,7 +6275,7 @@ type SyslogTarget struct {
 
 func (x *SyslogTarget) Reset() {
 	*x = SyslogTarget{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[87]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6090,7 +6287,7 @@ func (x *SyslogTarget) String() string {
 func (*SyslogTarget) ProtoMessage() {}
 
 func (x *SyslogTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[87]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6103,7 +6300,7 @@ func (x *SyslogTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyslogTarget.ProtoReflect.Descriptor instead.
 func (*SyslogTarget) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{87}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{90}
 }
 
 func (x *SyslogTarget) GetAddress() string {
@@ -6161,7 +6358,7 @@ type ElasticsearchTarget struct {
 
 func (x *ElasticsearchTarget) Reset() {
 	*x = ElasticsearchTarget{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[88]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6173,7 +6370,7 @@ func (x *ElasticsearchTarget) String() string {
 func (*ElasticsearchTarget) ProtoMessage() {}
 
 func (x *ElasticsearchTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[88]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6186,7 +6383,7 @@ func (x *ElasticsearchTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ElasticsearchTarget.ProtoReflect.Descriptor instead.
 func (*ElasticsearchTarget) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{88}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *ElasticsearchTarget) GetUrl() string {
@@ -6250,7 +6447,7 @@ type TLSTrust struct {
 
 func (x *TLSTrust) Reset() {
 	*x = TLSTrust{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[89]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6262,7 +6459,7 @@ func (x *TLSTrust) String() string {
 func (*TLSTrust) ProtoMessage() {}
 
 func (x *TLSTrust) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[89]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6275,7 +6472,7 @@ func (x *TLSTrust) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TLSTrust.ProtoReflect.Descriptor instead.
 func (*TLSTrust) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{89}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *TLSTrust) GetCaPem() string {
@@ -6323,7 +6520,7 @@ type LogForwardingResponse struct {
 
 func (x *LogForwardingResponse) Reset() {
 	*x = LogForwardingResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[90]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6335,7 +6532,7 @@ func (x *LogForwardingResponse) String() string {
 func (*LogForwardingResponse) ProtoMessage() {}
 
 func (x *LogForwardingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[90]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6348,7 +6545,7 @@ func (x *LogForwardingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogForwardingResponse.ProtoReflect.Descriptor instead.
 func (*LogForwardingResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{90}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *LogForwardingResponse) GetConfig() *LogForwardingConfig {
@@ -6404,7 +6601,7 @@ type LogTargetStatus struct {
 
 func (x *LogTargetStatus) Reset() {
 	*x = LogTargetStatus{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[91]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6416,7 +6613,7 @@ func (x *LogTargetStatus) String() string {
 func (*LogTargetStatus) ProtoMessage() {}
 
 func (x *LogTargetStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[91]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6429,7 +6626,7 @@ func (x *LogTargetStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogTargetStatus.ProtoReflect.Descriptor instead.
 func (*LogTargetStatus) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{91}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *LogTargetStatus) GetName() string {
@@ -6546,7 +6743,7 @@ type ClientListResponse struct {
 
 func (x *ClientListResponse) Reset() {
 	*x = ClientListResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[92]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6558,7 +6755,7 @@ func (x *ClientListResponse) String() string {
 func (*ClientListResponse) ProtoMessage() {}
 
 func (x *ClientListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[92]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6571,7 +6768,7 @@ func (x *ClientListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientListResponse.ProtoReflect.Descriptor instead.
 func (*ClientListResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{92}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *ClientListResponse) GetConnections() []*ClientConnection {
@@ -6626,7 +6823,7 @@ type ClientConnection struct {
 
 func (x *ClientConnection) Reset() {
 	*x = ClientConnection{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[93]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6638,7 +6835,7 @@ func (x *ClientConnection) String() string {
 func (*ClientConnection) ProtoMessage() {}
 
 func (x *ClientConnection) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[93]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6651,7 +6848,7 @@ func (x *ClientConnection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientConnection.ProtoReflect.Descriptor instead.
 func (*ClientConnection) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{93}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *ClientConnection) GetId() uint64 {
@@ -6790,7 +6987,7 @@ type ClientUser struct {
 
 func (x *ClientUser) Reset() {
 	*x = ClientUser{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[94]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6802,7 +6999,7 @@ func (x *ClientUser) String() string {
 func (*ClientUser) ProtoMessage() {}
 
 func (x *ClientUser) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[94]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6815,7 +7012,7 @@ func (x *ClientUser) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientUser.ProtoReflect.Descriptor instead.
 func (*ClientUser) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{94}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *ClientUser) GetName() string {
@@ -6871,7 +7068,7 @@ type LogForwardingTestResponse struct {
 
 func (x *LogForwardingTestResponse) Reset() {
 	*x = LogForwardingTestResponse{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[95]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6883,7 +7080,7 @@ func (x *LogForwardingTestResponse) String() string {
 func (*LogForwardingTestResponse) ProtoMessage() {}
 
 func (x *LogForwardingTestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[95]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6896,7 +7093,7 @@ func (x *LogForwardingTestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogForwardingTestResponse.ProtoReflect.Descriptor instead.
 func (*LogForwardingTestResponse) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{95}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *LogForwardingTestResponse) GetOk() bool {
@@ -6948,7 +7145,7 @@ type ProbeRequest struct {
 
 func (x *ProbeRequest) Reset() {
 	*x = ProbeRequest{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[96]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6960,7 +7157,7 @@ func (x *ProbeRequest) String() string {
 func (*ProbeRequest) ProtoMessage() {}
 
 func (x *ProbeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[96]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6973,7 +7170,7 @@ func (x *ProbeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeRequest.ProtoReflect.Descriptor instead.
 func (*ProbeRequest) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{96}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{99}
 }
 
 func (x *ProbeRequest) GetKind() string {
@@ -7105,7 +7302,7 @@ type ProbeHeader struct {
 
 func (x *ProbeHeader) Reset() {
 	*x = ProbeHeader{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[97]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7117,7 +7314,7 @@ func (x *ProbeHeader) String() string {
 func (*ProbeHeader) ProtoMessage() {}
 
 func (x *ProbeHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[97]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7130,7 +7327,7 @@ func (x *ProbeHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeHeader.ProtoReflect.Descriptor instead.
 func (*ProbeHeader) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{97}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *ProbeHeader) GetName() string {
@@ -7169,7 +7366,7 @@ type ProbeEvent struct {
 
 func (x *ProbeEvent) Reset() {
 	*x = ProbeEvent{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[98]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7181,7 +7378,7 @@ func (x *ProbeEvent) String() string {
 func (*ProbeEvent) ProtoMessage() {}
 
 func (x *ProbeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[98]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7194,7 +7391,7 @@ func (x *ProbeEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeEvent.ProtoReflect.Descriptor instead.
 func (*ProbeEvent) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{98}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *ProbeEvent) GetStage() string {
@@ -7353,7 +7550,7 @@ type ProbeDNS struct {
 
 func (x *ProbeDNS) Reset() {
 	*x = ProbeDNS{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[99]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7365,7 +7562,7 @@ func (x *ProbeDNS) String() string {
 func (*ProbeDNS) ProtoMessage() {}
 
 func (x *ProbeDNS) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[99]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7378,7 +7575,7 @@ func (x *ProbeDNS) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeDNS.ProtoReflect.Descriptor instead.
 func (*ProbeDNS) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{99}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *ProbeDNS) GetName() string {
@@ -7419,7 +7616,7 @@ type ProbeConnect struct {
 
 func (x *ProbeConnect) Reset() {
 	*x = ProbeConnect{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[100]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7431,7 +7628,7 @@ func (x *ProbeConnect) String() string {
 func (*ProbeConnect) ProtoMessage() {}
 
 func (x *ProbeConnect) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[100]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7444,7 +7641,7 @@ func (x *ProbeConnect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeConnect.ProtoReflect.Descriptor instead.
 func (*ProbeConnect) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{100}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *ProbeConnect) GetLocal() string {
@@ -7477,7 +7674,7 @@ type ProbeTLS struct {
 
 func (x *ProbeTLS) Reset() {
 	*x = ProbeTLS{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[101]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7489,7 +7686,7 @@ func (x *ProbeTLS) String() string {
 func (*ProbeTLS) ProtoMessage() {}
 
 func (x *ProbeTLS) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[101]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7502,7 +7699,7 @@ func (x *ProbeTLS) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeTLS.ProtoReflect.Descriptor instead.
 func (*ProbeTLS) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{101}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *ProbeTLS) GetServerName() string {
@@ -7576,7 +7773,7 @@ type ProbeCert struct {
 
 func (x *ProbeCert) Reset() {
 	*x = ProbeCert{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[102]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7588,7 +7785,7 @@ func (x *ProbeCert) String() string {
 func (*ProbeCert) ProtoMessage() {}
 
 func (x *ProbeCert) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[102]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7601,7 +7798,7 @@ func (x *ProbeCert) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeCert.ProtoReflect.Descriptor instead.
 func (*ProbeCert) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{102}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *ProbeCert) GetSubject() string {
@@ -7669,7 +7866,7 @@ type ProbeHTTP struct {
 
 func (x *ProbeHTTP) Reset() {
 	*x = ProbeHTTP{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[103]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7681,7 +7878,7 @@ func (x *ProbeHTTP) String() string {
 func (*ProbeHTTP) ProtoMessage() {}
 
 func (x *ProbeHTTP) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[103]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7694,7 +7891,7 @@ func (x *ProbeHTTP) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeHTTP.ProtoReflect.Descriptor instead.
 func (*ProbeHTTP) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{103}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{106}
 }
 
 func (x *ProbeHTTP) GetStatus() int32 {
@@ -7768,7 +7965,7 @@ type ProbeReply struct {
 
 func (x *ProbeReply) Reset() {
 	*x = ProbeReply{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[104]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7780,7 +7977,7 @@ func (x *ProbeReply) String() string {
 func (*ProbeReply) ProtoMessage() {}
 
 func (x *ProbeReply) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[104]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7793,7 +7990,7 @@ func (x *ProbeReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeReply.ProtoReflect.Descriptor instead.
 func (*ProbeReply) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{104}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *ProbeReply) GetSeq() int32 {
@@ -7858,7 +8055,7 @@ type ProbeHop struct {
 
 func (x *ProbeHop) Reset() {
 	*x = ProbeHop{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[105]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7870,7 +8067,7 @@ func (x *ProbeHop) String() string {
 func (*ProbeHop) ProtoMessage() {}
 
 func (x *ProbeHop) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[105]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7883,7 +8080,7 @@ func (x *ProbeHop) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeHop.ProtoReflect.Descriptor instead.
 func (*ProbeHop) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{105}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *ProbeHop) GetTtl() int32 {
@@ -7936,7 +8133,7 @@ type ProbeSummary struct {
 
 func (x *ProbeSummary) Reset() {
 	*x = ProbeSummary{}
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[106]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7948,7 +8145,7 @@ func (x *ProbeSummary) String() string {
 func (*ProbeSummary) ProtoMessage() {}
 
 func (x *ProbeSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_janus_v1alpha1_system_proto_msgTypes[106]
+	mi := &file_janus_v1alpha1_system_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7961,7 +8158,7 @@ func (x *ProbeSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeSummary.ProtoReflect.Descriptor instead.
 func (*ProbeSummary) Descriptor() ([]byte, []int) {
-	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{106}
+	return file_janus_v1alpha1_system_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *ProbeSummary) GetSent() int32 {
@@ -8435,7 +8632,19 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\tno_reboot\x18\x03 \x01(\bR\bnoReboot\"d\n" +
 	"\x10StateImportChunk\x12<\n" +
 	"\aoptions\x18\x01 \x01(\v2\".janus.v1alpha1.StateImportOptionsR\aoptions\x12\x12\n" +
-	"\x04data\x18\x02 \x01(\fR\x04data\"\xd3\x02\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"V\n" +
+	"\x17StateExportGrantRequest\x12\x10\n" +
+	"\x03csr\x18\x01 \x01(\fR\x03csr\x12)\n" +
+	"\x10include_identity\x18\x02 \x01(\bR\x0fincludeIdentity\"o\n" +
+	"\x18StateExportGrantResponse\x12 \n" +
+	"\vcertificate\x18\x01 \x01(\fR\vcertificate\x12\x0e\n" +
+	"\x02ca\x18\x02 \x01(\fR\x02ca\x12!\n" +
+	"\fexpires_unix\x18\x03 \x01(\x03R\vexpiresUnix\"\xa2\x01\n" +
+	"\x16StateImportFromRequest\x12\x18\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x0e\n" +
+	"\x02ca\x18\x02 \x01(\fR\x02ca\x12 \n" +
+	"\vcertificate\x18\x03 \x01(\fR\vcertificate\x12<\n" +
+	"\aoptions\x18\x04 \x01(\v2\".janus.v1alpha1.StateImportOptionsR\aoptions\"\xd3\x02\n" +
 	"\x13StateImportResponse\x12'\n" +
 	"\x0fsource_hostname\x18\x01 \x01(\tR\x0esourceHostname\x12%\n" +
 	"\x0esource_version\x18\x02 \x01(\tR\rsourceVersion\x12)\n" +
@@ -8666,10 +8875,11 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"RebootMode\x12\x17\n" +
 	"\x13REBOOT_MODE_DEFAULT\x10\x00\x12\x1a\n" +
 	"\x16REBOOT_MODE_POWERCYCLE\x10\x01\x12\x15\n" +
-	"\x11REBOOT_MODE_KEXEC\x10\x02*a\n" +
+	"\x11REBOOT_MODE_KEXEC\x10\x02*\x89\x01\n" +
 	"\x12CertificatePurpose\x12#\n" +
 	"\x1fCERTIFICATE_PURPOSE_UNSPECIFIED\x10\x00\x12&\n" +
-	"\"CERTIFICATE_PURPOSE_CLUSTER_MEMBER\x10\x012\xc5 \n" +
+	"\"CERTIFICATE_PURPOSE_CLUSTER_MEMBER\x10\x01\x12&\n" +
+	"\"CERTIFICATE_PURPOSE_STATE_TRANSFER\x10\x022\x8c\"\n" +
 	"\rSystemService\x12B\n" +
 	"\aVersion\x12\x16.google.protobuf.Empty\x1a\x1f.janus.v1alpha1.VersionResponse\x12D\n" +
 	"\bHostname\x12\x16.google.protobuf.Empty\x1a .janus.v1alpha1.HostnameResponse\x12G\n" +
@@ -8712,7 +8922,9 @@ const file_janus_v1alpha1_system_proto_rawDesc = "" +
 	"\x1bGenerateClientConfiguration\x122.janus.v1alpha1.GenerateClientConfigurationRequest\x1a3.janus.v1alpha1.GenerateClientConfigurationResponse\x12k\n" +
 	"\x12CertificateRequest\x12).janus.v1alpha1.CertificateRequestRequest\x1a*.janus.v1alpha1.CertificateRequestResponse\x12I\n" +
 	"\vStateExport\x12\".janus.v1alpha1.StateExportRequest\x1a\x14.janus.v1alpha1.Data0\x01\x12V\n" +
-	"\vStateImport\x12 .janus.v1alpha1.StateImportChunk\x1a#.janus.v1alpha1.StateImportResponse(\x01\x12Q\n" +
+	"\vStateImport\x12 .janus.v1alpha1.StateImportChunk\x1a#.janus.v1alpha1.StateImportResponse(\x01\x12e\n" +
+	"\x10StateExportGrant\x12'.janus.v1alpha1.StateExportGrantRequest\x1a(.janus.v1alpha1.StateExportGrantResponse\x12^\n" +
+	"\x0fStateImportFrom\x12&.janus.v1alpha1.StateImportFromRequest\x1a#.janus.v1alpha1.StateImportResponse\x12Q\n" +
 	"\x10MetricsConfigGet\x12\x16.google.protobuf.Empty\x1a%.janus.v1alpha1.MetricsConfigResponse\x12X\n" +
 	"\x10MetricsConfigSet\x12\x1d.janus.v1alpha1.MetricsConfig\x1a%.janus.v1alpha1.MetricsConfigResponse\x12Q\n" +
 	"\x10ConsoleBudgetGet\x12\x16.google.protobuf.Empty\x1a%.janus.v1alpha1.ConsoleBudgetResponse\x12X\n" +
@@ -8742,7 +8954,7 @@ func file_janus_v1alpha1_system_proto_rawDescGZIP() []byte {
 }
 
 var file_janus_v1alpha1_system_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_janus_v1alpha1_system_proto_msgTypes = make([]protoimpl.MessageInfo, 108)
+var file_janus_v1alpha1_system_proto_msgTypes = make([]protoimpl.MessageInfo, 111)
 var file_janus_v1alpha1_system_proto_goTypes = []any{
 	(SysctlClass)(0),                            // 0: janus.v1alpha1.SysctlClass
 	(SysctlKind)(0),                             // 1: janus.v1alpha1.SysctlKind
@@ -8834,32 +9046,35 @@ var file_janus_v1alpha1_system_proto_goTypes = []any{
 	(*StateExportRequest)(nil),                  // 87: janus.v1alpha1.StateExportRequest
 	(*StateImportOptions)(nil),                  // 88: janus.v1alpha1.StateImportOptions
 	(*StateImportChunk)(nil),                    // 89: janus.v1alpha1.StateImportChunk
-	(*StateImportResponse)(nil),                 // 90: janus.v1alpha1.StateImportResponse
-	(*LogForwardingConfig)(nil),                 // 91: janus.v1alpha1.LogForwardingConfig
-	(*LogTarget)(nil),                           // 92: janus.v1alpha1.LogTarget
-	(*SyslogTarget)(nil),                        // 93: janus.v1alpha1.SyslogTarget
-	(*ElasticsearchTarget)(nil),                 // 94: janus.v1alpha1.ElasticsearchTarget
-	(*TLSTrust)(nil),                            // 95: janus.v1alpha1.TLSTrust
-	(*LogForwardingResponse)(nil),               // 96: janus.v1alpha1.LogForwardingResponse
-	(*LogTargetStatus)(nil),                     // 97: janus.v1alpha1.LogTargetStatus
-	(*ClientListResponse)(nil),                  // 98: janus.v1alpha1.ClientListResponse
-	(*ClientConnection)(nil),                    // 99: janus.v1alpha1.ClientConnection
-	(*ClientUser)(nil),                          // 100: janus.v1alpha1.ClientUser
-	(*LogForwardingTestResponse)(nil),           // 101: janus.v1alpha1.LogForwardingTestResponse
-	(*ProbeRequest)(nil),                        // 102: janus.v1alpha1.ProbeRequest
-	(*ProbeHeader)(nil),                         // 103: janus.v1alpha1.ProbeHeader
-	(*ProbeEvent)(nil),                          // 104: janus.v1alpha1.ProbeEvent
-	(*ProbeDNS)(nil),                            // 105: janus.v1alpha1.ProbeDNS
-	(*ProbeConnect)(nil),                        // 106: janus.v1alpha1.ProbeConnect
-	(*ProbeTLS)(nil),                            // 107: janus.v1alpha1.ProbeTLS
-	(*ProbeCert)(nil),                           // 108: janus.v1alpha1.ProbeCert
-	(*ProbeHTTP)(nil),                           // 109: janus.v1alpha1.ProbeHTTP
-	(*ProbeReply)(nil),                          // 110: janus.v1alpha1.ProbeReply
-	(*ProbeHop)(nil),                            // 111: janus.v1alpha1.ProbeHop
-	(*ProbeSummary)(nil),                        // 112: janus.v1alpha1.ProbeSummary
-	nil,                                         // 113: janus.v1alpha1.LogForwardingConfig.LabelsEntry
-	(*emptypb.Empty)(nil),                       // 114: google.protobuf.Empty
-	(*Data)(nil),                                // 115: janus.v1alpha1.Data
+	(*StateExportGrantRequest)(nil),             // 90: janus.v1alpha1.StateExportGrantRequest
+	(*StateExportGrantResponse)(nil),            // 91: janus.v1alpha1.StateExportGrantResponse
+	(*StateImportFromRequest)(nil),              // 92: janus.v1alpha1.StateImportFromRequest
+	(*StateImportResponse)(nil),                 // 93: janus.v1alpha1.StateImportResponse
+	(*LogForwardingConfig)(nil),                 // 94: janus.v1alpha1.LogForwardingConfig
+	(*LogTarget)(nil),                           // 95: janus.v1alpha1.LogTarget
+	(*SyslogTarget)(nil),                        // 96: janus.v1alpha1.SyslogTarget
+	(*ElasticsearchTarget)(nil),                 // 97: janus.v1alpha1.ElasticsearchTarget
+	(*TLSTrust)(nil),                            // 98: janus.v1alpha1.TLSTrust
+	(*LogForwardingResponse)(nil),               // 99: janus.v1alpha1.LogForwardingResponse
+	(*LogTargetStatus)(nil),                     // 100: janus.v1alpha1.LogTargetStatus
+	(*ClientListResponse)(nil),                  // 101: janus.v1alpha1.ClientListResponse
+	(*ClientConnection)(nil),                    // 102: janus.v1alpha1.ClientConnection
+	(*ClientUser)(nil),                          // 103: janus.v1alpha1.ClientUser
+	(*LogForwardingTestResponse)(nil),           // 104: janus.v1alpha1.LogForwardingTestResponse
+	(*ProbeRequest)(nil),                        // 105: janus.v1alpha1.ProbeRequest
+	(*ProbeHeader)(nil),                         // 106: janus.v1alpha1.ProbeHeader
+	(*ProbeEvent)(nil),                          // 107: janus.v1alpha1.ProbeEvent
+	(*ProbeDNS)(nil),                            // 108: janus.v1alpha1.ProbeDNS
+	(*ProbeConnect)(nil),                        // 109: janus.v1alpha1.ProbeConnect
+	(*ProbeTLS)(nil),                            // 110: janus.v1alpha1.ProbeTLS
+	(*ProbeCert)(nil),                           // 111: janus.v1alpha1.ProbeCert
+	(*ProbeHTTP)(nil),                           // 112: janus.v1alpha1.ProbeHTTP
+	(*ProbeReply)(nil),                          // 113: janus.v1alpha1.ProbeReply
+	(*ProbeHop)(nil),                            // 114: janus.v1alpha1.ProbeHop
+	(*ProbeSummary)(nil),                        // 115: janus.v1alpha1.ProbeSummary
+	nil,                                         // 116: janus.v1alpha1.LogForwardingConfig.LabelsEntry
+	(*emptypb.Empty)(nil),                       // 117: google.protobuf.Empty
+	(*Data)(nil),                                // 118: janus.v1alpha1.Data
 }
 var file_janus_v1alpha1_system_proto_depIdxs = []int32{
 	0,   // 0: janus.v1alpha1.SysctlParameter.class:type_name -> janus.v1alpha1.SysctlClass
@@ -8911,136 +9126,141 @@ var file_janus_v1alpha1_system_proto_depIdxs = []int32{
 	72,  // 46: janus.v1alpha1.ServiceResponse.service:type_name -> janus.v1alpha1.ServiceInfo
 	4,   // 47: janus.v1alpha1.CertificateRequestRequest.purpose:type_name -> janus.v1alpha1.CertificatePurpose
 	88,  // 48: janus.v1alpha1.StateImportChunk.options:type_name -> janus.v1alpha1.StateImportOptions
-	92,  // 49: janus.v1alpha1.LogForwardingConfig.targets:type_name -> janus.v1alpha1.LogTarget
-	113, // 50: janus.v1alpha1.LogForwardingConfig.labels:type_name -> janus.v1alpha1.LogForwardingConfig.LabelsEntry
-	93,  // 51: janus.v1alpha1.LogTarget.syslog:type_name -> janus.v1alpha1.SyslogTarget
-	94,  // 52: janus.v1alpha1.LogTarget.elasticsearch:type_name -> janus.v1alpha1.ElasticsearchTarget
-	95,  // 53: janus.v1alpha1.LogTarget.tls:type_name -> janus.v1alpha1.TLSTrust
-	91,  // 54: janus.v1alpha1.LogForwardingResponse.config:type_name -> janus.v1alpha1.LogForwardingConfig
-	97,  // 55: janus.v1alpha1.LogForwardingResponse.targets:type_name -> janus.v1alpha1.LogTargetStatus
-	99,  // 56: janus.v1alpha1.ClientListResponse.connections:type_name -> janus.v1alpha1.ClientConnection
-	100, // 57: janus.v1alpha1.ClientConnection.users:type_name -> janus.v1alpha1.ClientUser
-	103, // 58: janus.v1alpha1.ProbeRequest.headers:type_name -> janus.v1alpha1.ProbeHeader
-	105, // 59: janus.v1alpha1.ProbeEvent.dns:type_name -> janus.v1alpha1.ProbeDNS
-	106, // 60: janus.v1alpha1.ProbeEvent.connect:type_name -> janus.v1alpha1.ProbeConnect
-	107, // 61: janus.v1alpha1.ProbeEvent.tls:type_name -> janus.v1alpha1.ProbeTLS
-	109, // 62: janus.v1alpha1.ProbeEvent.http:type_name -> janus.v1alpha1.ProbeHTTP
-	110, // 63: janus.v1alpha1.ProbeEvent.reply:type_name -> janus.v1alpha1.ProbeReply
-	111, // 64: janus.v1alpha1.ProbeEvent.hop:type_name -> janus.v1alpha1.ProbeHop
-	112, // 65: janus.v1alpha1.ProbeEvent.summary:type_name -> janus.v1alpha1.ProbeSummary
-	108, // 66: janus.v1alpha1.ProbeTLS.chain:type_name -> janus.v1alpha1.ProbeCert
-	103, // 67: janus.v1alpha1.ProbeHTTP.headers:type_name -> janus.v1alpha1.ProbeHeader
-	114, // 68: janus.v1alpha1.SystemService.Version:input_type -> google.protobuf.Empty
-	114, // 69: janus.v1alpha1.SystemService.Hostname:input_type -> google.protobuf.Empty
-	39,  // 70: janus.v1alpha1.SystemService.Reboot:input_type -> janus.v1alpha1.RebootRequest
-	114, // 71: janus.v1alpha1.SystemService.Shutdown:input_type -> google.protobuf.Empty
-	114, // 72: janus.v1alpha1.SystemService.Restart:input_type -> google.protobuf.Empty
-	43,  // 73: janus.v1alpha1.SystemService.Reset:input_type -> janus.v1alpha1.ResetRequest
-	45,  // 74: janus.v1alpha1.SystemService.ApplyConfiguration:input_type -> janus.v1alpha1.ApplyConfigurationRequest
-	47,  // 75: janus.v1alpha1.SystemService.Events:input_type -> janus.v1alpha1.EventsRequest
-	49,  // 76: janus.v1alpha1.SystemService.Dmesg:input_type -> janus.v1alpha1.DmesgRequest
-	50,  // 77: janus.v1alpha1.SystemService.Logs:input_type -> janus.v1alpha1.LogsRequest
-	114, // 78: janus.v1alpha1.SystemService.LogBoots:input_type -> google.protobuf.Empty
-	47,  // 79: janus.v1alpha1.SystemService.Audit:input_type -> janus.v1alpha1.EventsRequest
-	114, // 80: janus.v1alpha1.SystemService.Stats:input_type -> google.protobuf.Empty
-	114, // 81: janus.v1alpha1.SystemService.SystemStat:input_type -> google.protobuf.Empty
-	114, // 82: janus.v1alpha1.SystemService.Memory:input_type -> google.protobuf.Empty
-	114, // 83: janus.v1alpha1.SystemService.CPUInfo:input_type -> google.protobuf.Empty
-	114, // 84: janus.v1alpha1.SystemService.LoadAvg:input_type -> google.protobuf.Empty
-	114, // 85: janus.v1alpha1.SystemService.DiskStats:input_type -> google.protobuf.Empty
-	62,  // 86: janus.v1alpha1.SystemService.DiskUsage:input_type -> janus.v1alpha1.DiskUsageRequest
-	114, // 87: janus.v1alpha1.SystemService.NetworkDeviceStats:input_type -> google.protobuf.Empty
-	114, // 88: janus.v1alpha1.SystemService.Netstat:input_type -> google.protobuf.Empty
-	114, // 89: janus.v1alpha1.SystemService.ClientList:input_type -> google.protobuf.Empty
-	114, // 90: janus.v1alpha1.SystemService.Mounts:input_type -> google.protobuf.Empty
-	114, // 91: janus.v1alpha1.SystemService.Processes:input_type -> google.protobuf.Empty
-	114, // 92: janus.v1alpha1.SystemService.ServiceList:input_type -> google.protobuf.Empty
-	74,  // 93: janus.v1alpha1.SystemService.ServiceStart:input_type -> janus.v1alpha1.ServiceRequest
-	74,  // 94: janus.v1alpha1.SystemService.ServiceStop:input_type -> janus.v1alpha1.ServiceRequest
-	74,  // 95: janus.v1alpha1.SystemService.ServiceRestart:input_type -> janus.v1alpha1.ServiceRequest
-	76,  // 96: janus.v1alpha1.SystemService.List:input_type -> janus.v1alpha1.ListRequest
-	78,  // 97: janus.v1alpha1.SystemService.Read:input_type -> janus.v1alpha1.ReadRequest
-	79,  // 98: janus.v1alpha1.SystemService.Copy:input_type -> janus.v1alpha1.CopyRequest
-	80,  // 99: janus.v1alpha1.SystemService.PacketCapture:input_type -> janus.v1alpha1.PacketCaptureRequest
-	102, // 100: janus.v1alpha1.SystemService.Probe:input_type -> janus.v1alpha1.ProbeRequest
-	81,  // 101: janus.v1alpha1.SystemService.MetaWrite:input_type -> janus.v1alpha1.MetaWriteRequest
-	82,  // 102: janus.v1alpha1.SystemService.MetaDelete:input_type -> janus.v1alpha1.MetaDeleteRequest
-	83,  // 103: janus.v1alpha1.SystemService.GenerateClientConfiguration:input_type -> janus.v1alpha1.GenerateClientConfigurationRequest
-	85,  // 104: janus.v1alpha1.SystemService.CertificateRequest:input_type -> janus.v1alpha1.CertificateRequestRequest
-	87,  // 105: janus.v1alpha1.SystemService.StateExport:input_type -> janus.v1alpha1.StateExportRequest
-	89,  // 106: janus.v1alpha1.SystemService.StateImport:input_type -> janus.v1alpha1.StateImportChunk
-	114, // 107: janus.v1alpha1.SystemService.MetricsConfigGet:input_type -> google.protobuf.Empty
-	27,  // 108: janus.v1alpha1.SystemService.MetricsConfigSet:input_type -> janus.v1alpha1.MetricsConfig
-	114, // 109: janus.v1alpha1.SystemService.ConsoleBudgetGet:input_type -> google.protobuf.Empty
-	31,  // 110: janus.v1alpha1.SystemService.ConsoleBudgetSet:input_type -> janus.v1alpha1.ConsoleBudget
-	114, // 111: janus.v1alpha1.SystemService.LogForwardingGet:input_type -> google.protobuf.Empty
-	91,  // 112: janus.v1alpha1.SystemService.LogForwardingSet:input_type -> janus.v1alpha1.LogForwardingConfig
-	92,  // 113: janus.v1alpha1.SystemService.LogForwardingTest:input_type -> janus.v1alpha1.LogTarget
-	114, // 114: janus.v1alpha1.SystemService.NodeExporterConfigGet:input_type -> google.protobuf.Empty
-	28,  // 115: janus.v1alpha1.SystemService.NodeExporterConfigSet:input_type -> janus.v1alpha1.NodeExporterConfig
-	114, // 116: janus.v1alpha1.SystemService.SysctlList:input_type -> google.protobuf.Empty
-	20,  // 117: janus.v1alpha1.SystemService.SysctlApply:input_type -> janus.v1alpha1.SysctlApplyRequest
-	114, // 118: janus.v1alpha1.SystemService.SysctlConfirm:input_type -> google.protobuf.Empty
-	114, // 119: janus.v1alpha1.SystemService.SysctlCancel:input_type -> google.protobuf.Empty
-	24,  // 120: janus.v1alpha1.SystemService.SysctlHistory:input_type -> janus.v1alpha1.SysctlHistoryRequest
-	34,  // 121: janus.v1alpha1.SystemService.Version:output_type -> janus.v1alpha1.VersionResponse
-	38,  // 122: janus.v1alpha1.SystemService.Hostname:output_type -> janus.v1alpha1.HostnameResponse
-	40,  // 123: janus.v1alpha1.SystemService.Reboot:output_type -> janus.v1alpha1.RebootResponse
-	41,  // 124: janus.v1alpha1.SystemService.Shutdown:output_type -> janus.v1alpha1.ShutdownResponse
-	42,  // 125: janus.v1alpha1.SystemService.Restart:output_type -> janus.v1alpha1.RestartResponse
-	44,  // 126: janus.v1alpha1.SystemService.Reset:output_type -> janus.v1alpha1.ResetResponse
-	46,  // 127: janus.v1alpha1.SystemService.ApplyConfiguration:output_type -> janus.v1alpha1.ApplyConfigurationResponse
-	48,  // 128: janus.v1alpha1.SystemService.Events:output_type -> janus.v1alpha1.Event
-	115, // 129: janus.v1alpha1.SystemService.Dmesg:output_type -> janus.v1alpha1.Data
-	115, // 130: janus.v1alpha1.SystemService.Logs:output_type -> janus.v1alpha1.Data
-	51,  // 131: janus.v1alpha1.SystemService.LogBoots:output_type -> janus.v1alpha1.LogBootsResponse
-	48,  // 132: janus.v1alpha1.SystemService.Audit:output_type -> janus.v1alpha1.Event
-	53,  // 133: janus.v1alpha1.SystemService.Stats:output_type -> janus.v1alpha1.StatsResponse
-	55,  // 134: janus.v1alpha1.SystemService.SystemStat:output_type -> janus.v1alpha1.SystemStatResponse
-	56,  // 135: janus.v1alpha1.SystemService.Memory:output_type -> janus.v1alpha1.MemoryResponse
-	57,  // 136: janus.v1alpha1.SystemService.CPUInfo:output_type -> janus.v1alpha1.CPUInfoResponse
-	59,  // 137: janus.v1alpha1.SystemService.LoadAvg:output_type -> janus.v1alpha1.LoadAvgResponse
-	60,  // 138: janus.v1alpha1.SystemService.DiskStats:output_type -> janus.v1alpha1.DiskStatsResponse
-	63,  // 139: janus.v1alpha1.SystemService.DiskUsage:output_type -> janus.v1alpha1.DiskUsageInfo
-	64,  // 140: janus.v1alpha1.SystemService.NetworkDeviceStats:output_type -> janus.v1alpha1.NetworkDeviceStatsResponse
-	66,  // 141: janus.v1alpha1.SystemService.Netstat:output_type -> janus.v1alpha1.NetstatResponse
-	98,  // 142: janus.v1alpha1.SystemService.ClientList:output_type -> janus.v1alpha1.ClientListResponse
-	68,  // 143: janus.v1alpha1.SystemService.Mounts:output_type -> janus.v1alpha1.MountsResponse
-	70,  // 144: janus.v1alpha1.SystemService.Processes:output_type -> janus.v1alpha1.ProcessesResponse
-	73,  // 145: janus.v1alpha1.SystemService.ServiceList:output_type -> janus.v1alpha1.ServiceListResponse
-	75,  // 146: janus.v1alpha1.SystemService.ServiceStart:output_type -> janus.v1alpha1.ServiceResponse
-	75,  // 147: janus.v1alpha1.SystemService.ServiceStop:output_type -> janus.v1alpha1.ServiceResponse
-	75,  // 148: janus.v1alpha1.SystemService.ServiceRestart:output_type -> janus.v1alpha1.ServiceResponse
-	77,  // 149: janus.v1alpha1.SystemService.List:output_type -> janus.v1alpha1.FileInfo
-	115, // 150: janus.v1alpha1.SystemService.Read:output_type -> janus.v1alpha1.Data
-	115, // 151: janus.v1alpha1.SystemService.Copy:output_type -> janus.v1alpha1.Data
-	115, // 152: janus.v1alpha1.SystemService.PacketCapture:output_type -> janus.v1alpha1.Data
-	104, // 153: janus.v1alpha1.SystemService.Probe:output_type -> janus.v1alpha1.ProbeEvent
-	114, // 154: janus.v1alpha1.SystemService.MetaWrite:output_type -> google.protobuf.Empty
-	114, // 155: janus.v1alpha1.SystemService.MetaDelete:output_type -> google.protobuf.Empty
-	84,  // 156: janus.v1alpha1.SystemService.GenerateClientConfiguration:output_type -> janus.v1alpha1.GenerateClientConfigurationResponse
-	86,  // 157: janus.v1alpha1.SystemService.CertificateRequest:output_type -> janus.v1alpha1.CertificateRequestResponse
-	115, // 158: janus.v1alpha1.SystemService.StateExport:output_type -> janus.v1alpha1.Data
-	90,  // 159: janus.v1alpha1.SystemService.StateImport:output_type -> janus.v1alpha1.StateImportResponse
-	33,  // 160: janus.v1alpha1.SystemService.MetricsConfigGet:output_type -> janus.v1alpha1.MetricsConfigResponse
-	33,  // 161: janus.v1alpha1.SystemService.MetricsConfigSet:output_type -> janus.v1alpha1.MetricsConfigResponse
-	32,  // 162: janus.v1alpha1.SystemService.ConsoleBudgetGet:output_type -> janus.v1alpha1.ConsoleBudgetResponse
-	32,  // 163: janus.v1alpha1.SystemService.ConsoleBudgetSet:output_type -> janus.v1alpha1.ConsoleBudgetResponse
-	96,  // 164: janus.v1alpha1.SystemService.LogForwardingGet:output_type -> janus.v1alpha1.LogForwardingResponse
-	96,  // 165: janus.v1alpha1.SystemService.LogForwardingSet:output_type -> janus.v1alpha1.LogForwardingResponse
-	101, // 166: janus.v1alpha1.SystemService.LogForwardingTest:output_type -> janus.v1alpha1.LogForwardingTestResponse
-	30,  // 167: janus.v1alpha1.SystemService.NodeExporterConfigGet:output_type -> janus.v1alpha1.NodeExporterConfigResponse
-	30,  // 168: janus.v1alpha1.SystemService.NodeExporterConfigSet:output_type -> janus.v1alpha1.NodeExporterConfigResponse
-	16,  // 169: janus.v1alpha1.SystemService.SysctlList:output_type -> janus.v1alpha1.SysctlListResponse
-	22,  // 170: janus.v1alpha1.SystemService.SysctlApply:output_type -> janus.v1alpha1.SysctlApplyResponse
-	23,  // 171: janus.v1alpha1.SystemService.SysctlConfirm:output_type -> janus.v1alpha1.SysctlTrialResponse
-	23,  // 172: janus.v1alpha1.SystemService.SysctlCancel:output_type -> janus.v1alpha1.SysctlTrialResponse
-	26,  // 173: janus.v1alpha1.SystemService.SysctlHistory:output_type -> janus.v1alpha1.SysctlHistoryResponse
-	121, // [121:174] is the sub-list for method output_type
-	68,  // [68:121] is the sub-list for method input_type
-	68,  // [68:68] is the sub-list for extension type_name
-	68,  // [68:68] is the sub-list for extension extendee
-	0,   // [0:68] is the sub-list for field type_name
+	88,  // 49: janus.v1alpha1.StateImportFromRequest.options:type_name -> janus.v1alpha1.StateImportOptions
+	95,  // 50: janus.v1alpha1.LogForwardingConfig.targets:type_name -> janus.v1alpha1.LogTarget
+	116, // 51: janus.v1alpha1.LogForwardingConfig.labels:type_name -> janus.v1alpha1.LogForwardingConfig.LabelsEntry
+	96,  // 52: janus.v1alpha1.LogTarget.syslog:type_name -> janus.v1alpha1.SyslogTarget
+	97,  // 53: janus.v1alpha1.LogTarget.elasticsearch:type_name -> janus.v1alpha1.ElasticsearchTarget
+	98,  // 54: janus.v1alpha1.LogTarget.tls:type_name -> janus.v1alpha1.TLSTrust
+	94,  // 55: janus.v1alpha1.LogForwardingResponse.config:type_name -> janus.v1alpha1.LogForwardingConfig
+	100, // 56: janus.v1alpha1.LogForwardingResponse.targets:type_name -> janus.v1alpha1.LogTargetStatus
+	102, // 57: janus.v1alpha1.ClientListResponse.connections:type_name -> janus.v1alpha1.ClientConnection
+	103, // 58: janus.v1alpha1.ClientConnection.users:type_name -> janus.v1alpha1.ClientUser
+	106, // 59: janus.v1alpha1.ProbeRequest.headers:type_name -> janus.v1alpha1.ProbeHeader
+	108, // 60: janus.v1alpha1.ProbeEvent.dns:type_name -> janus.v1alpha1.ProbeDNS
+	109, // 61: janus.v1alpha1.ProbeEvent.connect:type_name -> janus.v1alpha1.ProbeConnect
+	110, // 62: janus.v1alpha1.ProbeEvent.tls:type_name -> janus.v1alpha1.ProbeTLS
+	112, // 63: janus.v1alpha1.ProbeEvent.http:type_name -> janus.v1alpha1.ProbeHTTP
+	113, // 64: janus.v1alpha1.ProbeEvent.reply:type_name -> janus.v1alpha1.ProbeReply
+	114, // 65: janus.v1alpha1.ProbeEvent.hop:type_name -> janus.v1alpha1.ProbeHop
+	115, // 66: janus.v1alpha1.ProbeEvent.summary:type_name -> janus.v1alpha1.ProbeSummary
+	111, // 67: janus.v1alpha1.ProbeTLS.chain:type_name -> janus.v1alpha1.ProbeCert
+	106, // 68: janus.v1alpha1.ProbeHTTP.headers:type_name -> janus.v1alpha1.ProbeHeader
+	117, // 69: janus.v1alpha1.SystemService.Version:input_type -> google.protobuf.Empty
+	117, // 70: janus.v1alpha1.SystemService.Hostname:input_type -> google.protobuf.Empty
+	39,  // 71: janus.v1alpha1.SystemService.Reboot:input_type -> janus.v1alpha1.RebootRequest
+	117, // 72: janus.v1alpha1.SystemService.Shutdown:input_type -> google.protobuf.Empty
+	117, // 73: janus.v1alpha1.SystemService.Restart:input_type -> google.protobuf.Empty
+	43,  // 74: janus.v1alpha1.SystemService.Reset:input_type -> janus.v1alpha1.ResetRequest
+	45,  // 75: janus.v1alpha1.SystemService.ApplyConfiguration:input_type -> janus.v1alpha1.ApplyConfigurationRequest
+	47,  // 76: janus.v1alpha1.SystemService.Events:input_type -> janus.v1alpha1.EventsRequest
+	49,  // 77: janus.v1alpha1.SystemService.Dmesg:input_type -> janus.v1alpha1.DmesgRequest
+	50,  // 78: janus.v1alpha1.SystemService.Logs:input_type -> janus.v1alpha1.LogsRequest
+	117, // 79: janus.v1alpha1.SystemService.LogBoots:input_type -> google.protobuf.Empty
+	47,  // 80: janus.v1alpha1.SystemService.Audit:input_type -> janus.v1alpha1.EventsRequest
+	117, // 81: janus.v1alpha1.SystemService.Stats:input_type -> google.protobuf.Empty
+	117, // 82: janus.v1alpha1.SystemService.SystemStat:input_type -> google.protobuf.Empty
+	117, // 83: janus.v1alpha1.SystemService.Memory:input_type -> google.protobuf.Empty
+	117, // 84: janus.v1alpha1.SystemService.CPUInfo:input_type -> google.protobuf.Empty
+	117, // 85: janus.v1alpha1.SystemService.LoadAvg:input_type -> google.protobuf.Empty
+	117, // 86: janus.v1alpha1.SystemService.DiskStats:input_type -> google.protobuf.Empty
+	62,  // 87: janus.v1alpha1.SystemService.DiskUsage:input_type -> janus.v1alpha1.DiskUsageRequest
+	117, // 88: janus.v1alpha1.SystemService.NetworkDeviceStats:input_type -> google.protobuf.Empty
+	117, // 89: janus.v1alpha1.SystemService.Netstat:input_type -> google.protobuf.Empty
+	117, // 90: janus.v1alpha1.SystemService.ClientList:input_type -> google.protobuf.Empty
+	117, // 91: janus.v1alpha1.SystemService.Mounts:input_type -> google.protobuf.Empty
+	117, // 92: janus.v1alpha1.SystemService.Processes:input_type -> google.protobuf.Empty
+	117, // 93: janus.v1alpha1.SystemService.ServiceList:input_type -> google.protobuf.Empty
+	74,  // 94: janus.v1alpha1.SystemService.ServiceStart:input_type -> janus.v1alpha1.ServiceRequest
+	74,  // 95: janus.v1alpha1.SystemService.ServiceStop:input_type -> janus.v1alpha1.ServiceRequest
+	74,  // 96: janus.v1alpha1.SystemService.ServiceRestart:input_type -> janus.v1alpha1.ServiceRequest
+	76,  // 97: janus.v1alpha1.SystemService.List:input_type -> janus.v1alpha1.ListRequest
+	78,  // 98: janus.v1alpha1.SystemService.Read:input_type -> janus.v1alpha1.ReadRequest
+	79,  // 99: janus.v1alpha1.SystemService.Copy:input_type -> janus.v1alpha1.CopyRequest
+	80,  // 100: janus.v1alpha1.SystemService.PacketCapture:input_type -> janus.v1alpha1.PacketCaptureRequest
+	105, // 101: janus.v1alpha1.SystemService.Probe:input_type -> janus.v1alpha1.ProbeRequest
+	81,  // 102: janus.v1alpha1.SystemService.MetaWrite:input_type -> janus.v1alpha1.MetaWriteRequest
+	82,  // 103: janus.v1alpha1.SystemService.MetaDelete:input_type -> janus.v1alpha1.MetaDeleteRequest
+	83,  // 104: janus.v1alpha1.SystemService.GenerateClientConfiguration:input_type -> janus.v1alpha1.GenerateClientConfigurationRequest
+	85,  // 105: janus.v1alpha1.SystemService.CertificateRequest:input_type -> janus.v1alpha1.CertificateRequestRequest
+	87,  // 106: janus.v1alpha1.SystemService.StateExport:input_type -> janus.v1alpha1.StateExportRequest
+	89,  // 107: janus.v1alpha1.SystemService.StateImport:input_type -> janus.v1alpha1.StateImportChunk
+	90,  // 108: janus.v1alpha1.SystemService.StateExportGrant:input_type -> janus.v1alpha1.StateExportGrantRequest
+	92,  // 109: janus.v1alpha1.SystemService.StateImportFrom:input_type -> janus.v1alpha1.StateImportFromRequest
+	117, // 110: janus.v1alpha1.SystemService.MetricsConfigGet:input_type -> google.protobuf.Empty
+	27,  // 111: janus.v1alpha1.SystemService.MetricsConfigSet:input_type -> janus.v1alpha1.MetricsConfig
+	117, // 112: janus.v1alpha1.SystemService.ConsoleBudgetGet:input_type -> google.protobuf.Empty
+	31,  // 113: janus.v1alpha1.SystemService.ConsoleBudgetSet:input_type -> janus.v1alpha1.ConsoleBudget
+	117, // 114: janus.v1alpha1.SystemService.LogForwardingGet:input_type -> google.protobuf.Empty
+	94,  // 115: janus.v1alpha1.SystemService.LogForwardingSet:input_type -> janus.v1alpha1.LogForwardingConfig
+	95,  // 116: janus.v1alpha1.SystemService.LogForwardingTest:input_type -> janus.v1alpha1.LogTarget
+	117, // 117: janus.v1alpha1.SystemService.NodeExporterConfigGet:input_type -> google.protobuf.Empty
+	28,  // 118: janus.v1alpha1.SystemService.NodeExporterConfigSet:input_type -> janus.v1alpha1.NodeExporterConfig
+	117, // 119: janus.v1alpha1.SystemService.SysctlList:input_type -> google.protobuf.Empty
+	20,  // 120: janus.v1alpha1.SystemService.SysctlApply:input_type -> janus.v1alpha1.SysctlApplyRequest
+	117, // 121: janus.v1alpha1.SystemService.SysctlConfirm:input_type -> google.protobuf.Empty
+	117, // 122: janus.v1alpha1.SystemService.SysctlCancel:input_type -> google.protobuf.Empty
+	24,  // 123: janus.v1alpha1.SystemService.SysctlHistory:input_type -> janus.v1alpha1.SysctlHistoryRequest
+	34,  // 124: janus.v1alpha1.SystemService.Version:output_type -> janus.v1alpha1.VersionResponse
+	38,  // 125: janus.v1alpha1.SystemService.Hostname:output_type -> janus.v1alpha1.HostnameResponse
+	40,  // 126: janus.v1alpha1.SystemService.Reboot:output_type -> janus.v1alpha1.RebootResponse
+	41,  // 127: janus.v1alpha1.SystemService.Shutdown:output_type -> janus.v1alpha1.ShutdownResponse
+	42,  // 128: janus.v1alpha1.SystemService.Restart:output_type -> janus.v1alpha1.RestartResponse
+	44,  // 129: janus.v1alpha1.SystemService.Reset:output_type -> janus.v1alpha1.ResetResponse
+	46,  // 130: janus.v1alpha1.SystemService.ApplyConfiguration:output_type -> janus.v1alpha1.ApplyConfigurationResponse
+	48,  // 131: janus.v1alpha1.SystemService.Events:output_type -> janus.v1alpha1.Event
+	118, // 132: janus.v1alpha1.SystemService.Dmesg:output_type -> janus.v1alpha1.Data
+	118, // 133: janus.v1alpha1.SystemService.Logs:output_type -> janus.v1alpha1.Data
+	51,  // 134: janus.v1alpha1.SystemService.LogBoots:output_type -> janus.v1alpha1.LogBootsResponse
+	48,  // 135: janus.v1alpha1.SystemService.Audit:output_type -> janus.v1alpha1.Event
+	53,  // 136: janus.v1alpha1.SystemService.Stats:output_type -> janus.v1alpha1.StatsResponse
+	55,  // 137: janus.v1alpha1.SystemService.SystemStat:output_type -> janus.v1alpha1.SystemStatResponse
+	56,  // 138: janus.v1alpha1.SystemService.Memory:output_type -> janus.v1alpha1.MemoryResponse
+	57,  // 139: janus.v1alpha1.SystemService.CPUInfo:output_type -> janus.v1alpha1.CPUInfoResponse
+	59,  // 140: janus.v1alpha1.SystemService.LoadAvg:output_type -> janus.v1alpha1.LoadAvgResponse
+	60,  // 141: janus.v1alpha1.SystemService.DiskStats:output_type -> janus.v1alpha1.DiskStatsResponse
+	63,  // 142: janus.v1alpha1.SystemService.DiskUsage:output_type -> janus.v1alpha1.DiskUsageInfo
+	64,  // 143: janus.v1alpha1.SystemService.NetworkDeviceStats:output_type -> janus.v1alpha1.NetworkDeviceStatsResponse
+	66,  // 144: janus.v1alpha1.SystemService.Netstat:output_type -> janus.v1alpha1.NetstatResponse
+	101, // 145: janus.v1alpha1.SystemService.ClientList:output_type -> janus.v1alpha1.ClientListResponse
+	68,  // 146: janus.v1alpha1.SystemService.Mounts:output_type -> janus.v1alpha1.MountsResponse
+	70,  // 147: janus.v1alpha1.SystemService.Processes:output_type -> janus.v1alpha1.ProcessesResponse
+	73,  // 148: janus.v1alpha1.SystemService.ServiceList:output_type -> janus.v1alpha1.ServiceListResponse
+	75,  // 149: janus.v1alpha1.SystemService.ServiceStart:output_type -> janus.v1alpha1.ServiceResponse
+	75,  // 150: janus.v1alpha1.SystemService.ServiceStop:output_type -> janus.v1alpha1.ServiceResponse
+	75,  // 151: janus.v1alpha1.SystemService.ServiceRestart:output_type -> janus.v1alpha1.ServiceResponse
+	77,  // 152: janus.v1alpha1.SystemService.List:output_type -> janus.v1alpha1.FileInfo
+	118, // 153: janus.v1alpha1.SystemService.Read:output_type -> janus.v1alpha1.Data
+	118, // 154: janus.v1alpha1.SystemService.Copy:output_type -> janus.v1alpha1.Data
+	118, // 155: janus.v1alpha1.SystemService.PacketCapture:output_type -> janus.v1alpha1.Data
+	107, // 156: janus.v1alpha1.SystemService.Probe:output_type -> janus.v1alpha1.ProbeEvent
+	117, // 157: janus.v1alpha1.SystemService.MetaWrite:output_type -> google.protobuf.Empty
+	117, // 158: janus.v1alpha1.SystemService.MetaDelete:output_type -> google.protobuf.Empty
+	84,  // 159: janus.v1alpha1.SystemService.GenerateClientConfiguration:output_type -> janus.v1alpha1.GenerateClientConfigurationResponse
+	86,  // 160: janus.v1alpha1.SystemService.CertificateRequest:output_type -> janus.v1alpha1.CertificateRequestResponse
+	118, // 161: janus.v1alpha1.SystemService.StateExport:output_type -> janus.v1alpha1.Data
+	93,  // 162: janus.v1alpha1.SystemService.StateImport:output_type -> janus.v1alpha1.StateImportResponse
+	91,  // 163: janus.v1alpha1.SystemService.StateExportGrant:output_type -> janus.v1alpha1.StateExportGrantResponse
+	93,  // 164: janus.v1alpha1.SystemService.StateImportFrom:output_type -> janus.v1alpha1.StateImportResponse
+	33,  // 165: janus.v1alpha1.SystemService.MetricsConfigGet:output_type -> janus.v1alpha1.MetricsConfigResponse
+	33,  // 166: janus.v1alpha1.SystemService.MetricsConfigSet:output_type -> janus.v1alpha1.MetricsConfigResponse
+	32,  // 167: janus.v1alpha1.SystemService.ConsoleBudgetGet:output_type -> janus.v1alpha1.ConsoleBudgetResponse
+	32,  // 168: janus.v1alpha1.SystemService.ConsoleBudgetSet:output_type -> janus.v1alpha1.ConsoleBudgetResponse
+	99,  // 169: janus.v1alpha1.SystemService.LogForwardingGet:output_type -> janus.v1alpha1.LogForwardingResponse
+	99,  // 170: janus.v1alpha1.SystemService.LogForwardingSet:output_type -> janus.v1alpha1.LogForwardingResponse
+	104, // 171: janus.v1alpha1.SystemService.LogForwardingTest:output_type -> janus.v1alpha1.LogForwardingTestResponse
+	30,  // 172: janus.v1alpha1.SystemService.NodeExporterConfigGet:output_type -> janus.v1alpha1.NodeExporterConfigResponse
+	30,  // 173: janus.v1alpha1.SystemService.NodeExporterConfigSet:output_type -> janus.v1alpha1.NodeExporterConfigResponse
+	16,  // 174: janus.v1alpha1.SystemService.SysctlList:output_type -> janus.v1alpha1.SysctlListResponse
+	22,  // 175: janus.v1alpha1.SystemService.SysctlApply:output_type -> janus.v1alpha1.SysctlApplyResponse
+	23,  // 176: janus.v1alpha1.SystemService.SysctlConfirm:output_type -> janus.v1alpha1.SysctlTrialResponse
+	23,  // 177: janus.v1alpha1.SystemService.SysctlCancel:output_type -> janus.v1alpha1.SysctlTrialResponse
+	26,  // 178: janus.v1alpha1.SystemService.SysctlHistory:output_type -> janus.v1alpha1.SysctlHistoryResponse
+	124, // [124:179] is the sub-list for method output_type
+	69,  // [69:124] is the sub-list for method input_type
+	69,  // [69:69] is the sub-list for extension type_name
+	69,  // [69:69] is the sub-list for extension extendee
+	0,   // [0:69] is the sub-list for field type_name
 }
 
 func init() { file_janus_v1alpha1_system_proto_init() }
@@ -9050,7 +9270,7 @@ func file_janus_v1alpha1_system_proto_init() {
 	}
 	file_janus_v1alpha1_common_proto_init()
 	file_janus_v1alpha1_system_proto_msgTypes[61].OneofWrappers = []any{}
-	file_janus_v1alpha1_system_proto_msgTypes[98].OneofWrappers = []any{
+	file_janus_v1alpha1_system_proto_msgTypes[101].OneofWrappers = []any{
 		(*ProbeEvent_Dns)(nil),
 		(*ProbeEvent_Connect)(nil),
 		(*ProbeEvent_Tls)(nil),
@@ -9065,7 +9285,7 @@ func file_janus_v1alpha1_system_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_janus_v1alpha1_system_proto_rawDesc), len(file_janus_v1alpha1_system_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   108,
+			NumMessages:   111,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

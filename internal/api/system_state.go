@@ -38,6 +38,9 @@ func (s *System) StateExport(req *janusv1alpha1.StateExportRequest, stream janus
 	if err := s.stateTransferAllowed(caller); err != nil {
 		return err
 	}
+	if err := transferExport(caller, req.GetIncludeIdentity()); err != nil {
+		return err
+	}
 	hostname, _ := os.Hostname()
 	w := &dataWriter{send: func(b []byte) error { return stream.Send(&janusv1alpha1.Data{Bytes: b}) }}
 	m, err := statexfer.Export(s.StateRoot, statexfer.ExportOptions{Identity: req.GetIncludeIdentity(), Hostname: hostname, Version: s.BuildVersion, Schematic: CurrentSchematic()}, w)
@@ -92,10 +95,26 @@ func (s *System) StateImport(stream janusv1alpha1.SystemService_StateImportServe
 			}
 		}
 	}()
-	st, err := statexfer.Stage(s.StateRoot, statexfer.ImportOptions{Identity: opts.GetReuseIdentity(), ApplyNetwork: opts.GetApplyNetwork()}, pr)
+	resp, err := s.stageState(caller, opts, pr, "")
 	pr.CloseWithError(errors.New("the import is over"))
 	if err != nil {
-		return status.Errorf(codes.InvalidArgument, "the state: %v", err)
+		return err
+	}
+	if err := stream.SendAndClose(resp); err != nil {
+		return err
+	}
+	if resp.Rebooting {
+		s.schedulePower(syscall.LINUX_REBOOT_CMD_RESTART)
+	}
+	return nil
+}
+
+// stageState stages the state r streams (StateImport, StateImportFrom -
+// from: how it came, for the log).
+func (s *System) stageState(caller Caller, opts *janusv1alpha1.StateImportOptions, r io.Reader, from string) (*janusv1alpha1.StateImportResponse, error) {
+	st, err := statexfer.Stage(s.StateRoot, statexfer.ImportOptions{Identity: opts.GetReuseIdentity(), ApplyNetwork: opts.GetApplyNetwork()}, r)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "the state: %v", err)
 	}
 	m := st.Manifest
 	resp := &janusv1alpha1.StateImportResponse{
@@ -109,13 +128,11 @@ func (s *System) StateImport(stream janusv1alpha1.SystemService_StateImportServe
 	if m.Version != s.BuildVersion {
 		resp.Warnings = append(resp.Warnings, "the exported node ran "+m.Version+", this one "+s.BuildVersion)
 	}
-	log.Printf("state: %s's state staged (%d files, identity %v) - in place at janusd's next start - by %s", m.Hostname, len(st.Files), opts.GetReuseIdentity(), caller)
-	events.Publish("system.state_imported", map[string]any{"from": m.Hostname, "files": len(st.Files), "identity": opts.GetReuseIdentity(), "by": caller.String()})
-	if err := stream.SendAndClose(resp); err != nil {
-		return err
+	how := ""
+	if from != "" {
+		how = ", " + from
 	}
-	if resp.Rebooting {
-		s.schedulePower(syscall.LINUX_REBOOT_CMD_RESTART)
-	}
-	return nil
+	log.Printf("state: %s's state staged (%d files, identity %v%s) - in place at janusd's next start - by %s", m.Hostname, len(st.Files), opts.GetReuseIdentity(), how, caller)
+	events.Publish("system.state_imported", map[string]any{"from": m.Hostname, "files": len(st.Files), "identity": opts.GetReuseIdentity(), "pulled": from != "", "by": caller.String()})
+	return resp, nil
 }

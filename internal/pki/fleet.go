@@ -43,6 +43,11 @@ const (
 	// no right of its own - it opens ClusterExport and HAProxy's peers
 	// listener of its own cluster, nothing else.
 	RoleClusterMember = "janus:cluster"
+	// RoleStateTransfer is a node's certificate for pulling another
+	// node's state (StateImportFrom): signed by that node's own CA for
+	// ten minutes and one StateExport - it opens nothing else
+	// (internal/api/state_grant.go).
+	RoleStateTransfer = "janus:state-transfer"
 )
 
 // FleetControllerName is the name a node asks the Controller's
