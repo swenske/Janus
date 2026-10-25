@@ -1,8 +1,10 @@
 import {
   ArrowRight,
+  ArrowRightLeft,
   BookOpen,
   Boxes,
   CirclePlay,
+  Combine,
   Download,
   Feather,
   Gauge,
@@ -103,6 +105,21 @@ const FEATURES = [
   },
   { icon: KeyRound, title: 'Provisioning', text: 'Nodes register with your Controller on first boot. Controller and network settings at install, offline on an image, or from a NoCloud volume.' },
   { icon: ServerCog, title: 'Your own VMs', text: 'The Controller creates, resizes and updates nodes on libvirt and Proxmox VE - and grows them under load, vCPUs and memory plugged in while they run; a Terraform provider drives it as code.' },
+  {
+    icon: Combine,
+    title: 'Clusters',
+    text: 'Nodes kept alike: one configuration in versions, applied member by member; stick tables and TLS sessions shared over mutual TLS; certificates carried from member to member; VRRP and BGP from templates. Members recycled one at a time, on hosts of their own, added and taken out with the load - from the Controller, janusctl or Terraform.',
+  },
+  {
+    icon: ArrowRightLeft,
+    title: 'Replacing a node',
+    text: 'A node’s state - its HAProxy configuration and history, files, certificates, Let’s Encrypt, settings - carried into a new one, checked file by file, never through the Controller: onto newer hardware, a bigger disk, another hypervisor.',
+  },
+  {
+    icon: Gauge,
+    title: 'Metrics',
+    text: 'A Prometheus exporter on every node - HAProxy serving, reloads and crashes, certificates, VRRP, BGP, the firewall, the clock, the logs shipped -, a Grafana dashboard and alert rules ready to load; node_exporter as an extension, and HAProxy’s own exporter.',
+  },
   { icon: Users, title: 'Accounts and access', text: 'Controller accounts with roles, MFA (TOTP or passkeys), single sign-on through OpenID Connect (Keycloak, a Synology, others), API tokens and access by node label; janusctl signs in with your SSH key.' },
 ]
 
