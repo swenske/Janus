@@ -96,6 +96,18 @@ janusctl -n lb1 version           # the release now running, and its slot
   at once and the firmware boots the node instead - slower, not lost.
   A newer edk2 (2026.08, what Proxmox VE 9.2 ships) is fine with the
   same machine. Bare metal is untried.
+- A firmware reboot of a virtual machine takes **30 to 40 s longer about
+  once every 40 boots**. The UEFI firmware (OVMF: Debian 13's 2025.02 and
+  Proxmox VE 9.2's 2026.08 alike) rewrites its console variables at every
+  boot - about 6 KB of its 256 KiB variable store - and compacts the store
+  once it is full, through QEMU's emulated flash, byte by byte: 30 s on an
+  idle host. The node takes no part in it (its kernel is down in 0.2 s). A
+  kexec reboot never goes through the firmware. A libvirt machine made by
+  hand can run without a variable store, which Janus never uses: the
+  firmware's code alone, `<loader readonly='yes' type='pflash'
+  stateless='yes'>/usr/share/OVMF/OVMF_CODE_4M.fd</loader>` and no
+  `<nvram>` (libvirt 8.6 or later; firmware auto-selection can't choose it
+  on Debian 13). The Controller's own machines still have a store.
 
 ## Pre-releases
 
