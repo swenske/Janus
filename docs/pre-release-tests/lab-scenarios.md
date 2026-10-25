@@ -114,7 +114,13 @@ On the node holding the VIP and the anycast route, probes for 60 s:
 
 - **node loss**: the VM destroyed (`virsh destroy`), started again 20 s
   later;
-- **HAProxy stopped** for 10 s through the API, then started.
+- **HAProxy stopped** for 10 s through the API, then started;
+- since v2026.10.24-4, under `wrk` on the VIP: **janusd restarted**
+  (`janusctl system restart` on the VRRP master, the node page's
+  Restart janusd on the backup) - the extension daemons listed before
+  and after, one of each expected; and the node **shut down by its
+  hypervisor through the guest agent** (`virsh shutdown --mode agent`,
+  Proxmox's Shutdown), started again once off.
 
 Measured: each address's outage, when the node goes and when it comes
 back.
@@ -286,6 +292,13 @@ example:
   backups to a bucket of their own, `janusctl`'s sign-ins; the clusters
   from creation to deletion, a member removed and joining again, and
   the recycle under load.
+- v2026.10.24-4: janusd restarted on a machine with every extension
+  (its own VRRP instance, no peer), on the VRRP master and on the
+  backup from its node page, and the master shut down by its
+  hypervisor through the guest agent (Failovers); the clusters' in-sync
+  under the three runners at once; the six node pages v2026.10.24-3's
+  axe run had findings on; a cancelled kernel parameter trial; a quick
+  clusters pass with the recycle under load.
 
 ### HAProxy killed by the kernel
 
