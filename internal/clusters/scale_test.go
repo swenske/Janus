@@ -119,3 +119,13 @@ func TestAutoscaleJSON(t *testing.T) {
 		t.Errorf("in a cluster: %s", b)
 	}
 }
+
+// The bounds are said in seconds, as the fields are (v2026.10.25's lab:
+// "1m0s to 1h0m0s").
+func TestAutoscaleBoundsInSeconds(t *testing.T) {
+	a := Autoscale{Mode: ScaleObserve, MinMembers: 2, MaxMembers: 4}
+	a.OutAfter = 30 * time.Second
+	if err := a.Validate(); err == nil || !strings.Contains(err.Error(), "out_after_seconds: 60 to 3600 (seconds)") {
+		t.Errorf("out_after 30 s: %v", err)
+	}
+}

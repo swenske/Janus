@@ -112,7 +112,7 @@ func (t ScaleThresholds) Validate() error {
 		{"in_cooldown_seconds", t.InCooldown, time.Minute, 24 * time.Hour},
 	} {
 		if d.v < d.min || d.v > d.max {
-			return fmt.Errorf("%s: %s to %s", d.name, d.min, d.max)
+			return fmt.Errorf("%s: %d to %d (seconds)", d.name, int(d.min/time.Second), int(d.max/time.Second))
 		}
 	}
 	if t.MaxStepsPerHour < 1 || t.MaxStepsPerHour > 12 {

@@ -191,7 +191,11 @@ func freeHosts(hosts []hostSlot, used map[string][]string) int {
 func noRoom(hosts []hostSlot, placed map[string]int, memMiB int) error {
 	var parts []string
 	for _, h := range hosts {
-		parts = append(parts, fmt.Sprintf("%s %d MiB free, %d kept", h.HostName, h.FreeMiB-placed[h.HostID], hostReserveMiB(h.TotalMiB)))
+		s := fmt.Sprintf("%s %d MiB free, %d kept", h.HostName, h.FreeMiB, hostReserveMiB(h.TotalMiB))
+		if p := placed[h.HostID]; p > 0 {
+			s += fmt.Sprintf(", %d for this request's machines before", p)
+		}
+		parts = append(parts, s)
 	}
 	return fmt.Errorf("no host has room for a machine of %d MiB: %s", memMiB, strings.Join(parts, "; "))
 }

@@ -110,6 +110,14 @@ func TestPlaceByMemory(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no host has room") {
 		t.Errorf("off, full: %v", err)
 	}
+	// Room for one: the refusal of the second says what the first took
+	// (v2026.10.25's lab: the free memory given without it).
+	one := k2
+	one.FreeMiB = 3000
+	_, _, err = place([]hostSlot{full, one}, nil, 2, 1024, clusters.AntiAffinityOff)
+	if err == nil || !strings.Contains(err.Error(), "kvm02 3000 MiB free, 1638 kept, 1024 for this request's machines before") {
+		t.Errorf("off, room for one: %v", err)
+	}
 }
 
 func TestPlacementProblems(t *testing.T) {
