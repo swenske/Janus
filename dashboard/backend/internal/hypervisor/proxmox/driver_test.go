@@ -89,3 +89,23 @@ func TestFingerprint(t *testing.T) {
 		t.Errorf("fingerprint %q", fp)
 	}
 }
+
+// The image storage: a file storage with import and iso content, else
+// why not - said before an upload Proxmox would refuse.
+func TestImageStorageProblem(t *testing.T) {
+	for _, tc := range []struct {
+		typ, content, want string
+	}{
+		{"dir", "import,iso", ""},
+		{"nfs", "iso,import,backup", ""},
+		{"lvmthin", "images,rootdir", "its type, lvmthin, takes no upload"},
+		{"zfspool", "images", "its type, zfspool, takes no upload"},
+		{"dir", "iso,vztmpl,backup", "it doesn't hold import content: pvesm set s --content iso,vztmpl,backup,import"},
+		{"dir", "", "it doesn't hold import nor iso content: pvesm set s --content import,iso"},
+	} {
+		got := imageStorageProblem("s", tc.typ, tc.content)
+		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
+			t.Errorf("%s %q: %q, want %q", tc.typ, tc.content, got, tc.want)
+		}
+	}
+}

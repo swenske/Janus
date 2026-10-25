@@ -729,6 +729,25 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
                 </>
               )}
             </dd>
+            {host.image_storage && (
+              <>
+                <dt>
+                  <HardDrive size={13} /> Images
+                </dt>
+                <dd>
+                  {host.image_storage.error ? (
+                    <span style={{ color: 'var(--danger)' }}>
+                      {host.image_storage.name}: {host.image_storage.error}
+                    </span>
+                  ) : (
+                    <>
+                      <span className="mono">{host.image_storage.name}</span> · {gib(host.image_storage.available)} free of {gib(host.image_storage.capacity)}
+                      {!host.image_storage.active && <Badge tone="danger">inactive</Badge>}
+                    </>
+                  )}
+                </dd>
+              </>
+            )}
             <dt>Networks</dt>
             <dd className="row" style={{ gap: '0.3rem', flexWrap: 'wrap' }}>
               {host.networks.map((n) => (

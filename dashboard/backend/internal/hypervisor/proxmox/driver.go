@@ -95,6 +95,8 @@ func (d *Driver) HostInfo(ctx context.Context) (*hypervisor.HostInfo, error) {
 		Storage:           d.storageInfo(ctx, d.cfg.Storage),
 		RunningMachines:   -1,
 	}
+	images := d.imageStorageInfo(ctx)
+	info.ImageStorage = &images
 	bridges := map[string]bool{}
 	var ifaces []struct {
 		Iface  string `json:"iface"`
@@ -161,6 +163,55 @@ func (d *Driver) storageInfo(ctx context.Context, storage string) hypervisor.Sto
 	return si
 }
 
+// blockStorages are Proxmox storage types without files: an upload is
+// refused there ("can't upload to storage type 'lvmthin'").
+var blockStorages = map[string]bool{"lvm": true, "lvmthin": true, "zfspool": true, "rbd": true, "iscsi": true, "iscsidirect": true}
+
+// imageStorageProblem is why storage name, of type typ holding content
+// (Proxmox's comma-separated list), can't keep the base images and the
+// NoCloud volumes - "" when it can: a file storage (an upload goes to a
+// file) with the import and iso content types.
+func imageStorageProblem(name, typ, content string) string {
+	if blockStorages[typ] {
+		return fmt.Sprintf("its type, %s, takes no upload: the image storage must be a directory (or NFS, CIFS...) storage with the import and iso content types - the host preparation makes one: pvesm add dir janus-images --path /var/lib/janus-images --content import,iso", typ)
+	}
+	have := map[string]bool{}
+	for _, c := range strings.Split(content, ",") {
+		have[strings.TrimSpace(c)] = true
+	}
+	var missing []string
+	for _, c := range []string{"import", "iso"} {
+		if !have[c] {
+			missing = append(missing, c)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Sprintf("it doesn't hold %s content: pvesm set %s --content %s", strings.Join(missing, " nor "), name, strings.Trim(content+","+strings.Join(missing, ","), ","))
+	}
+	return ""
+}
+
+// imageStorageInfo is the image storage as the base images see it: its
+// space, and why it can't take them.
+func (d *Driver) imageStorageInfo(ctx context.Context) hypervisor.StorageInfo {
+	si := hypervisor.StorageInfo{Name: d.cfg.ImageStorage}
+	var st struct {
+		Active  int    `json:"active"`
+		Total   uint64 `json:"total"`
+		Used    uint64 `json:"used"`
+		Avail   uint64 `json:"avail"`
+		Type    string `json:"type"`
+		Content string `json:"content"`
+	}
+	if err := d.api.do(ctx, http.MethodGet, d.nodePath("/storage/%s/status", url.PathEscape(d.cfg.ImageStorage)), nil, &st); err != nil {
+		si.Error = err.Error()
+		return si
+	}
+	si.Active, si.Capacity, si.Allocated, si.Available = st.Active == 1, st.Total, st.Used, st.Avail
+	si.Error = imageStorageProblem(d.cfg.ImageStorage, st.Type, st.Content)
+	return si
+}
+
 // --- images and NoCloud volumes, on the image storage ---
 
 func (d *Driver) volume(content, name string) string {
@@ -168,6 +219,10 @@ func (d *Driver) volume(content, name string) string {
 }
 
 func (d *Driver) HasImage(ctx context.Context, img hypervisor.Image) (bool, error) {
+	// Said before anything is downloaded, rather than by the upload.
+	if si := d.imageStorageInfo(ctx); si.Error != "" {
+		return false, fmt.Errorf("the image storage %s: %s", si.Name, si.Error)
+	}
 	var vols []struct {
 		VolID string `json:"volid"`
 	}
