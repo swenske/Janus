@@ -76,6 +76,9 @@ type Cluster struct {
 	Placement *Placement `json:"placement,omitempty"`
 	// Autoscale: its horizontal auto-scaling (scale.go); nil: none.
 	Autoscale *Autoscale `json:"autoscale,omitempty"`
+	// Balancer: the hook telling a balancer in front which members take
+	// the traffic (balancer.go); nil: none.
+	Balancer *Balancer `json:"balancer,omitempty"`
 }
 
 // Placement is a cluster's machines' placement (docs/cluster.md "On a
@@ -194,6 +197,8 @@ type State struct {
 	// last steps; ScaleStatus what it says now.
 	Scale       ScaleState `json:"scale,omitzero"`
 	ScaleStatus string     `json:"scale_status,omitempty"`
+	// Balancer: its hook's last call.
+	Balancer BalancerState `json:"balancer,omitzero"`
 }
 
 // Sealer seals and opens the cluster CA's key (the Controller's master
@@ -260,6 +265,10 @@ func clone(c *Cluster) *Cluster {
 	if c.Autoscale != nil {
 		as := *c.Autoscale
 		out.Autoscale = &as
+	}
+	if c.Balancer != nil {
+		b := *c.Balancer
+		out.Balancer = &b
 	}
 	return &out
 }

@@ -483,7 +483,18 @@ type Cluster struct {
 	Members   []ClusterMember   `json:"members"`
 	Placement *ClusterPlacement `json:"placement"`
 	Autoscale *ClusterAutoscale `json:"autoscale"`
+	Balancer  *ClusterBalancer  `json:"balancer"`
 	Problems  []string          `json:"problems"`
+}
+
+// ClusterBalancer is a cluster's balancer hook: who to tell which
+// members take the traffic. The secret signing the calls is write-only.
+type ClusterBalancer struct {
+	URL               string  `json:"url"`
+	CACert            string  `json:"ca_cert,omitempty"`
+	DrainDelaySeconds int     `json:"drain_delay_seconds,omitempty"`
+	HasSecret         bool    `json:"has_secret,omitempty"`
+	Secret            *string `json:"secret,omitempty"` // sent only: nil keeps it, "" removes it
 }
 
 // ClusterMachines makes a cluster of count new machines of spec (its
@@ -515,6 +526,19 @@ func (c *Client) ScaleCluster(ctx context.Context, id string, members int) error
 func (c *Client) SetClusterAutoscale(ctx context.Context, id string, p ClusterAutoscale) (*Cluster, error) {
 	var out Cluster
 	return &out, c.do(ctx, http.MethodPut, "/api/clusters/"+url.PathEscape(id)+"/autoscale", p, &out)
+}
+
+// SetClusterBalancer gives cluster id the hook b, called at once with
+// the members; its failure doesn't refuse the settings - the answer's
+// problems say it.
+func (c *Client) SetClusterBalancer(ctx context.Context, id string, b ClusterBalancer) (*Cluster, error) {
+	var out Cluster
+	return &out, c.do(ctx, http.MethodPut, "/api/clusters/"+url.PathEscape(id)+"/balancer", b, &out)
+}
+
+// DeleteClusterBalancer removes cluster id's hook.
+func (c *Client) DeleteClusterBalancer(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/api/clusters/"+url.PathEscape(id)+"/balancer", nil, nil)
 }
 
 // DeleteCluster starts ending cluster id - every member leaves it; their

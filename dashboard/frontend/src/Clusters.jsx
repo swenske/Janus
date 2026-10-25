@@ -1,4 +1,4 @@
-import { ChevronLeft, ExternalLink, FileText, History, KeyRound, Loader2, Network, Pencil, Plus, RefreshCw, ScrollText, Trash2, Upload, Users } from 'lucide-react'
+import { ChevronLeft, ExternalLink, FileText, History, KeyRound, Loader2, Network, Pencil, Plus, RefreshCw, ScrollText, Send, Split, Trash2, Upload, Users } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { DOMAINS, clusterNameError, domainsOf, health, memberDefaults, memberNameError, parseVars, pathError, varsText, versionChanges, when } from './clusters.js'
@@ -603,7 +603,128 @@ function Members({ cluster, nodes, act, busy, reload }) {
           </div>
         ))}
       {cluster.placement && <Scaling cluster={cluster} disabled={disabled} reload={reload} />}
+      <Balancer cluster={cluster} disabled={disabled} reload={reload} />
     </div>
+  )
+}
+
+// Balancer: the hook telling a balancer in front which members take the
+// traffic - before one is drained or removed, once one is in service
+// (docs/guide/clusters.md "A balancer in front").
+function Balancer({ cluster, disabled, reload }) {
+  const can = useCan()
+  const toast = useToast()
+  const confirm = useConfirm()
+  const [busy, run] = useAction()
+  const b = cluster.balancer
+  const st = cluster.balancer_state || {}
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({ url: b?.url || '', delay: b?.drain_delay_seconds || 0, secret: '', ca: b?.ca_cert || '' })
+  const [error, setError] = useState(null)
+  const send = (fn, done) =>
+    run(async () => {
+      setError(null)
+      try {
+        await fn()
+        reload()
+        setEditing(false)
+        toast(done)
+      } catch (err) {
+        setError(err)
+      }
+    })
+  const save = () =>
+    send(() => {
+      const body = { url: form.url.trim(), drain_delay_seconds: Number(form.delay) || 0, ca_cert: form.ca.trim() }
+      if (form.secret !== '') body.secret = form.secret
+      return postJSON(`/api/clusters/${cluster.id}/balancer`, body, 'PUT')
+    }, 'Balancer hook saved, and called with the members.')
+  const sync = () => send(() => postJSON(`/api/clusters/${cluster.id}/balancer/sync`), 'The balancer was told the members.')
+  const remove = async () => {
+    if (await confirm({ title: 'Remove the balancer hook?', body: <p>The balancer in front is no longer told which members take the traffic.</p>, action: 'Remove', danger: true })) {
+      send(() => postJSON(`/api/clusters/${cluster.id}/balancer`, undefined, 'DELETE'), 'Balancer hook removed.')
+    }
+  }
+  if (!b && !can('admin')) return null
+  return (
+    <Card title="Balancer in front" icon={Split}>
+      <div className="stack">
+        {b ? (
+          <dl className="kv small">
+            <dt>Hook</dt>
+            <dd className="mono">{b.url}</dd>
+            <dt>Calls</dt>
+            <dd>
+              {b.has_secret ? 'signed' : 'not signed'}
+              {b.ca_cert ? ', its own CA trusted' : ''}, the drain {b.drain_delay_seconds ? `${b.drain_delay_seconds} s after it is told` : 'once it answers'}
+            </dd>
+            <dt>Last told</dt>
+            <dd>
+              {when(st.sent_at)}
+              {st.error && (
+                <>
+                  {' '}
+                  <Badge tone="danger">not told</Badge> <span className="small">{st.error}</span>
+                </>
+              )}
+            </dd>
+          </dl>
+        ) : (
+          <p className="small muted">
+            A cloud load balancer, a router&apos;s ECMP routes - something in front that sends to the members: a hook tells it which ones take the traffic, before one is drained
+            or removed and once one is in service.
+          </p>
+        )}
+        {can('admin') &&
+          (editing ? (
+            <>
+              <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <label className="field" style={{ flex: '1 1 20rem' }}>
+                  <span>Hook URL</span>
+                  <input type="url" className="mono" value={form.url} placeholder="https://lb-api.example.net/janus" onChange={(e) => setForm({ ...form, url: e.target.value })} />
+                </label>
+                <label className="field">
+                  <span>Drain delay (s)</span>
+                  <input type="number" min="0" max="3600" value={form.delay} onChange={(e) => setForm({ ...form, delay: e.target.value })} />
+                </label>
+                <label className="field">
+                  <span>Secret</span>
+                  <input type="password" autoComplete="new-password" value={form.secret} placeholder={b?.has_secret ? 'unchanged' : 'none'} onChange={(e) => setForm({ ...form, secret: e.target.value })} />
+                </label>
+              </div>
+              <label className="field">
+                <span>Its CA (PEM, optional - else the system&apos;s)</span>
+                <textarea className="mono small" rows={3} value={form.ca} onChange={(e) => setForm({ ...form, ca: e.target.value })} />
+              </label>
+              <div className="row">
+                <button className="primary" disabled={disabled || busy || !form.url.trim()} onClick={save}>
+                  Save
+                </button>
+                <button className="ghost" disabled={busy} onClick={() => setEditing(false)}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="row">
+              <button disabled={disabled || busy} onClick={() => setEditing(true)}>
+                <Pencil size={15} /> {b ? 'Change' : 'Set a hook'}
+              </button>
+              {b && (
+                <>
+                  <button className="ghost" disabled={disabled || busy} onClick={sync}>
+                    <Send size={15} /> Tell it now
+                  </button>
+                  <button className="ghost danger" disabled={disabled || busy} onClick={remove}>
+                    <Trash2 size={15} /> Remove
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        <ErrorBox error={error} />
+      </div>
+    </Card>
   )
 }
 

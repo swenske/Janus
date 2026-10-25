@@ -389,6 +389,15 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "tickets", args: "NAME", help: "a new TLS ticket key on the member the secrets come from, pulled by the others (check does it daily)", flags: []flagDef{
 			boolFlag("renew", "replace every key of the ring at once - no key it held is used or accepted any more (a member's departure does it)"),
 		}, pos: []argKind{argNone}, required: 1},
+		{name: "balancer", args: "NAME", help: "the hook telling a balancer in front which members take the traffic - told before a member is drained or removed, after one comes into service; shown without a flag", flags: []flagDef{
+			valFlag("url", "URL", "the hook: an http(s) URL the members are POSTed to", argNone),
+			valFlag("ca", "FILE", "the only CA its certificate may chain to (PEM)", argFile),
+			valFlag("secret-file", "FILE", "a file holding the secret the calls are signed with (X-Janus-Signature-256)", argFile),
+			boolFlag("no-secret", "calls unsigned from now on"),
+			valFlag("drain-delay", "SECONDS", "how long a member serves on once the balancer was told it goes (0)", argNone),
+			boolFlag("off", "no hook any more"),
+			boolFlag("sync", "call it with the members now"),
+		}, pos: []argKind{argNone}, required: 1},
 		{name: "journal", args: "NAME", help: "what was done to the cluster, by whom", flags: []flagDef{
 			valFlag("n", "N", "the newest N entries (50)", argNone),
 		}, pos: []argKind{argNone}, required: 1},

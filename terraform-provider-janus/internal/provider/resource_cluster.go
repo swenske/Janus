@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -71,6 +72,61 @@ type clusterAutoscaleModel struct {
 	MaxStepsPerHour    types.Int64  `tfsdk:"max_steps_per_hour"`
 }
 
+// clusterBalancerModel is a cluster's balancer hook; Secret is never
+// read back.
+type clusterBalancerModel struct {
+	URL               types.String `tfsdk:"url"`
+	CACert            types.String `tfsdk:"ca_cert"`
+	DrainDelaySeconds types.Int64  `tfsdk:"drain_delay_seconds"`
+	Secret            types.String `tfsdk:"secret"`
+}
+
+// request is b as the API takes it, the secret sent when secret says.
+func (b *clusterBalancerModel) request(secret *string) client.ClusterBalancer {
+	return client.ClusterBalancer{URL: b.URL.ValueString(), CACert: b.CACert.ValueString(), DrainDelaySeconds: int(b.DrainDelaySeconds.ValueInt64()), Secret: secret}
+}
+
+// sameBalancer: a and b ask the Controller for the same hook, their
+// secrets aside.
+func sameBalancer(a, b *clusterBalancerModel) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.URL.ValueString() == b.URL.ValueString() && a.CACert.ValueString() == b.CACert.ValueString() &&
+		a.DrainDelaySeconds.ValueInt64() == b.DrainDelaySeconds.ValueInt64()
+}
+
+// clusterBalancerFrom is the Controller's hook as a model, prior's
+// secret kept when the Controller has one - nil when it has no hook.
+func clusterBalancerFrom(b *client.ClusterBalancer, prior *clusterBalancerModel) *clusterBalancerModel {
+	if b == nil {
+		return nil
+	}
+	m := &clusterBalancerModel{URL: types.StringValue(b.URL), CACert: types.StringNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringNull()}
+	if b.CACert != "" {
+		m.CACert = types.StringValue(b.CACert)
+	}
+	if b.DrainDelaySeconds != 0 {
+		m.DrainDelaySeconds = types.Int64Value(int64(b.DrainDelaySeconds))
+	}
+	if b.HasSecret {
+		m.Secret = types.StringValue("") // set elsewhere: a plan with a secret shows the change
+		if prior != nil && !prior.Secret.IsNull() {
+			m.Secret = prior.Secret
+		}
+	}
+	if prior != nil {
+		// What the configuration left unset stays unset.
+		if prior.CACert.IsNull() && b.CACert == "" {
+			m.CACert = prior.CACert
+		}
+		if prior.DrainDelaySeconds.IsNull() && b.DrainDelaySeconds == 0 {
+			m.DrainDelaySeconds = prior.DrainDelaySeconds
+		}
+	}
+	return m
+}
+
 type clusterModel struct {
 	ID             types.String           `tfsdk:"id"`
 	Name           types.String           `tfsdk:"name"`
@@ -79,6 +135,7 @@ type clusterModel struct {
 	Members        types.Int64            `tfsdk:"members"`
 	Machine        *clusterMachineModel   `tfsdk:"machine"`
 	Autoscaling    *clusterAutoscaleModel `tfsdk:"autoscaling"`
+	Balancer       *clusterBalancerModel  `tfsdk:"balancer"`
 	CurrentMembers types.Int64            `tfsdk:"current_members"`
 	MemberNames    types.List             `tfsdk:"member_names"`
 	MachineIDs     types.List             `tfsdk:"machine_ids"`
@@ -235,6 +292,16 @@ func (r *clusterResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 					"max_steps_per_hour":   schema.Int64Attribute{Optional: true, Description: "Steps an hour, at most (default 2)."},
 				},
 			},
+			"balancer": schema.SingleNestedAttribute{
+				Optional:    true,
+				Description: "A balancer in front - a cloud load balancer, a router's ECMP routes: the hook telling it which members take the traffic, before one is drained or removed and once one serves (docs/guide/clusters.md \"A balancer in front\"). Removing it removes the hook.",
+				Attributes: map[string]schema.Attribute{
+					"url":                 schema.StringAttribute{Required: true, Description: "The hook: an http(s) URL the members are POSTed to."},
+					"ca_cert":             schema.StringAttribute{Optional: true, Description: "The only CA its HTTPS certificate may chain to (PEM); unset: the system's."},
+					"drain_delay_seconds": schema.Int64Attribute{Optional: true, Description: "How long a member serves on once the balancer was told it goes (0 to 3600)."},
+					"secret":              schema.StringAttribute{Optional: true, Sensitive: true, Description: "Signs each call (X-Janus-Signature-256: HMAC-SHA256 of the body). Write-only: never read back."},
+				},
+			},
 			"current_members": schema.Int64Attribute{Computed: true, Description: "The members it has now - what auto-scaling made it."},
 			"member_names":    schema.ListAttribute{Computed: true, ElementType: types.StringType, Description: "Its members' names."},
 			"machine_ids":     schema.ListAttribute{Computed: true, ElementType: types.StringType, Description: "Its members' machines' IDs on the Controller."},
@@ -372,10 +439,32 @@ func (r *clusterResource) Create(ctx context.Context, req resource.CreateRequest
 			return
 		}
 	}
-	autoscaling := plan.Autoscaling
+	if b := plan.Balancer; b != nil {
+		var secret *string
+		if !b.Secret.IsNull() {
+			s := b.Secret.ValueString()
+			secret = &s
+		}
+		if cl, err = r.c.SetClusterBalancer(ctx, cl.ID, b.request(secret)); err != nil {
+			resp.Diagnostics.AddError("Setting the cluster's balancer hook", err.Error())
+			return
+		}
+		warnBalancer(cl, &resp.Diagnostics)
+	}
+	autoscaling, balancer := plan.Autoscaling, plan.Balancer
 	fromCluster(ctx, cl, &plan, &resp.Diagnostics)
-	plan.Autoscaling = autoscaling
+	plan.Autoscaling, plan.Balancer = autoscaling, balancer
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+// warnBalancer says when the hook, just set, wasn't reached: the
+// settings are kept, the Controller calls again.
+func warnBalancer(cl *client.Cluster, diags *diag.Diagnostics) {
+	for _, p := range cl.Problems {
+		if strings.Contains(p, "balancer in front wasn't told") {
+			diags.AddWarning("The balancer hook wasn't reached", p)
+		}
+	}
 }
 
 func (r *clusterResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -393,8 +482,9 @@ func (r *clusterResource) Read(ctx context.Context, req resource.ReadRequest, re
 		resp.Diagnostics.AddError("Reading the cluster", err.Error())
 		return
 	}
-	prior := state.Autoscaling
+	prior, priorBalancer := state.Autoscaling, state.Balancer
 	fromCluster(ctx, cl, &state, &resp.Diagnostics)
+	state.Balancer = clusterBalancerFrom(cl.Balancer, priorBalancer)
 	// Thresholds left unset stay unset: the Controller's 0 is its default.
 	if prior != nil && state.Autoscaling != nil && sameClusterPolicy(prior.policy(), state.Autoscaling.policy()) {
 		state.Autoscaling = prior
@@ -429,6 +519,25 @@ func (r *clusterResource) Update(ctx context.Context, req resource.UpdateRequest
 			return
 		}
 	}
+	switch b := plan.Balancer; {
+	case b == nil && state.Balancer != nil:
+		if err := r.c.DeleteClusterBalancer(ctx, id); err != nil {
+			resp.Diagnostics.AddError("Removing the cluster's balancer hook", err.Error())
+			return
+		}
+	case b != nil && (!sameBalancer(b, state.Balancer) || !b.Secret.Equal(state.Balancer.Secret)):
+		var secret *string
+		if state.Balancer == nil || !b.Secret.Equal(state.Balancer.Secret) {
+			s := b.Secret.ValueString() // null: "" - removed
+			secret = &s
+		}
+		cl, err := r.c.SetClusterBalancer(ctx, id, b.request(secret))
+		if err != nil {
+			resp.Diagnostics.AddError("Setting the cluster's balancer hook", err.Error())
+			return
+		}
+		warnBalancer(cl, &resp.Diagnostics)
+	}
 	if !plan.autoscaled() && plan.Members.ValueInt64() != state.CurrentMembers.ValueInt64() {
 		if err := r.c.ScaleCluster(ctx, id, int(plan.Members.ValueInt64())); err != nil {
 			resp.Diagnostics.AddError("Scaling the cluster", err.Error())
@@ -437,10 +546,10 @@ func (r *clusterResource) Update(ctx context.Context, req resource.UpdateRequest
 	}
 	cl, err := r.wait(ctx, id)
 	if cl != nil {
-		autoscaling, members := plan.Autoscaling, plan.Members
+		autoscaling, members, balancer := plan.Autoscaling, plan.Members, plan.Balancer
 		plan.Timeouts = state.Timeouts
 		fromCluster(ctx, cl, &plan, &resp.Diagnostics)
-		plan.Autoscaling, plan.Members = autoscaling, members
+		plan.Autoscaling, plan.Members, plan.Balancer = autoscaling, members, balancer
 		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	}
 	if err != nil {

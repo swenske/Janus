@@ -42,6 +42,7 @@ import (
 var clusterCtlVerbs = map[string]bool{
 	"create": true, "apply": true, "check": true, "add": true, "remove": true, "replace": true, "delete": true,
 	"vars": true, "certificate": true, "tickets": true, "list": true, "journal": true, "checkout": true,
+	"balancer": true,
 }
 
 // clusterCtl is the orchestrator for one fleet context.
@@ -671,6 +672,87 @@ func runClusterCtl(globalCtx string, args []string) {
 		}
 		o.report(c.ID, since)
 		check("cluster tickets", err)
+	case "balancer":
+		fs := flag.NewFlagSet("cluster balancer", flag.ExitOnError)
+		hook := fs.String("url", "", "the hook's URL")
+		caFile := fs.String("ca", "", "the only CA its certificate may chain to (PEM)")
+		secretFile := fs.String("secret-file", "", "a file holding the secret the calls are signed with")
+		noSecret := fs.Bool("no-secret", false, "calls unsigned from now on")
+		delay := fs.Int("drain-delay", -1, "seconds a member serves on once the balancer was told it goes")
+		off := fs.Bool("off", false, "no hook any more")
+		doSync := fs.Bool("sync", false, "call it with the members now")
+		parseAnywhere(fs, args[1:])
+		if fs.NArg() != 1 {
+			clusterCtlUsage("balancer")
+		}
+		o := openClusterCtl(globalCtx)
+		defer o.close()
+		c := o.cluster(fs.Arg(0))
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		since := time.Now()
+		switch {
+		case *off:
+			defer o.exclusive(c.ID)()
+			check("cluster balancer", o.SetBalancer(ctx, c.ID, nil, nil, actor(o)))
+		case *hook != "" || *caFile != "" || *secretFile != "" || *noSecret || *delay >= 0:
+			defer o.exclusive(c.ID)()
+			b := clusters.Balancer{}
+			if c.Balancer != nil {
+				b = *c.Balancer
+			}
+			if *hook != "" {
+				b.URL = *hook
+			}
+			if *caFile != "" {
+				pemBytes, err := os.ReadFile(*caFile)
+				check("cluster balancer", err)
+				b.CACert = string(pemBytes)
+			}
+			if *delay >= 0 {
+				b.DrainDelaySeconds = *delay
+			}
+			var secret *string
+			if *noSecret {
+				empty := ""
+				secret = &empty
+			} else if *secretFile != "" {
+				raw, err := os.ReadFile(*secretFile)
+				check("cluster balancer", err)
+				s := strings.TrimSpace(string(raw))
+				secret = &s
+			}
+			err := o.SetBalancer(ctx, c.ID, &b, secret, actor(o))
+			o.report(c.ID, since)
+			check("cluster balancer", err)
+		case *doSync:
+			err := o.SyncBalancer(ctx, c.ID, actor(o))
+			o.report(c.ID, since)
+			check("cluster balancer", err)
+		}
+		c = o.cluster(fs.Arg(0))
+		if c.Balancer == nil {
+			fmt.Printf("Cluster %s has no balancer hook.\n", c.Name)
+			return
+		}
+		st := o.Store.State(c.ID).Balancer
+		fmt.Printf("Hook:         %s\n", c.Balancer.URL)
+		fmt.Printf("Signed:       %s\n", map[bool]string{true: "yes", false: "no"}[c.Balancer.HasSecret])
+		if c.Balancer.CACert != "" {
+			fmt.Println("Trusts:       its own CA")
+		}
+		fmt.Printf("Drain delay:  %ds\n", c.Balancer.DrainDelaySeconds)
+		if !st.SentAt.IsZero() {
+			fmt.Printf("Last told:    %s\n", st.SentAt.Local().Format("2006-01-02 15:04:05"))
+		}
+		if st.Error != "" {
+			fmt.Printf("Last call:    %s\n", st.Error)
+		}
+		tw := table("MEMBER", "ADDRESS", "IN SERVICE")
+		for _, m := range o.BalancerList(c) {
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", m.Name, m.Address, map[bool]string{true: "yes", false: "no"}[m.InService])
+		}
+		_ = tw.Flush()
 	case "journal":
 		fs := flag.NewFlagSet("cluster journal", flag.ExitOnError)
 		n := fs.Int("n", 50, "the newest N entries")

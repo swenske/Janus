@@ -42,6 +42,9 @@ func (a *app) registerClusterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/clusters/{id}/recycle", a.gate(auth.Reader, auth.Admin, a.handleClusterRecycle))
 	mux.HandleFunc("POST /api/clusters/{id}/scale", a.gate(auth.Reader, auth.Admin, a.handleClusterScale))
 	mux.HandleFunc("PUT /api/clusters/{id}/autoscale", a.gate(auth.Reader, auth.Admin, a.handleClusterAutoscale))
+	mux.HandleFunc("PUT /api/clusters/{id}/balancer", a.gate(auth.Reader, auth.Admin, a.handleClusterBalancer))
+	mux.HandleFunc("DELETE /api/clusters/{id}/balancer", a.gate(auth.Reader, auth.Admin, a.handleClusterBalancerDelete))
+	mux.HandleFunc("POST /api/clusters/{id}/balancer/sync", a.gate(auth.Reader, auth.Admin, a.handleClusterBalancerSync))
 	mux.HandleFunc("POST /api/clusters/{id}/certificates", a.gate(auth.Reader, auth.Admin, a.handleClusterCertificate))
 	mux.HandleFunc("GET /api/clusters/{id}/journal", a.gate(auth.Reader, auth.Admin, a.handleClusterJournal))
 	// What the loop does every 10 minutes, now: it may renew a member's
@@ -105,7 +108,10 @@ type clusterView struct {
 	ScaleStatus string                `json:"scale_status,omitempty"`
 	ScaleJudged int                   `json:"scale_judged,omitempty"`
 	Load        *clusters.ScaleSample `json:"load,omitempty"`
-	Members     []clusterMemberView   `json:"members"`
+	// Balancer is its hook, BalancerState its last call.
+	Balancer      *clusters.Balancer      `json:"balancer,omitempty"`
+	BalancerState *clusters.BalancerState `json:"balancer_state,omitempty"`
+	Members       []clusterMemberView     `json:"members"`
 	// Problems are what an operator should look at, worded for one.
 	Problems []string `json:"problems"`
 }
@@ -143,6 +149,13 @@ func (a *app) clusterView(c *clusters.Cluster) clusterView {
 		v.Problems = append(v.Problems, memberProblems(c, mv)...)
 	}
 	v.Problems = append(v.Problems, placementProblems(c, v.Members)...)
+	if c.Balancer != nil {
+		bs := st.Balancer
+		v.Balancer, v.BalancerState = c.Balancer, &bs
+		if bs.Error != "" {
+			v.Problems = append(v.Problems, "the balancer in front wasn't told the members: "+bs.Error+" - the next check calls it again")
+		}
+	}
 	return v
 }
 
@@ -421,18 +434,9 @@ func (a *app) handleClusterDrain(drain bool) http.HandlerFunc {
 		phase := map[bool]string{true: "draining ", false: "undraining "}[drain] + name
 		a.runCluster(w, c, phase, actor, func(ctx context.Context) error {
 			if !drain {
-				if err := a.clusters.Nodes.ClusterUndrain(ctx, *m); err != nil {
-					return err
-				}
-				a.clusters.Journal(c.ID, actor, "undrain", name, 0, "%s back in service", name)
-				return nil
+				return a.clusters.Undrain(ctx, c.ID, name, actor)
 			}
-			msg, err := a.clusters.Nodes.ClusterDrain(ctx, *m, time.Minute)
-			if err != nil {
-				return err
-			}
-			a.clusters.Journal(c.ID, actor, "drain", name, 0, "%s drained: %s", name, msg)
-			return nil
+			return a.clusters.Drain(ctx, c.ID, name, actor)
 		})
 	}
 }
@@ -625,4 +629,70 @@ func (a *app) handleClusterJournal(w http.ResponseWriter, r *http.Request) {
 		n = 100
 	}
 	writeJSON(w, http.StatusOK, nonNil(a.clusters.Store.Entries(c.ID, n)))
+}
+
+// The balancer hook (internal/clusters/balancer.go): PUT sets it - the
+// secret write-only, absent to keep it, "" to remove it - and calls it
+// with the members at once; the settings are kept even when that call
+// fails, which the answer says (and the cluster's problems).
+func (a *app) handleClusterBalancer(w http.ResponseWriter, r *http.Request) {
+	c, ok := a.clusterOr404(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		clusters.Balancer
+		Secret *string `json:"secret"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	b := req.Balancer
+	if err := b.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	err := a.clusters.SetBalancer(ctx, c.ID, &b, req.Secret, requestPrincipal(r).User)
+	c, _ = a.clusters.Store.Get(c.ID)
+	if err != nil && (c == nil || c.Balancer == nil) {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, a.clusterView(c))
+}
+
+func (a *app) handleClusterBalancerDelete(w http.ResponseWriter, r *http.Request) {
+	c, ok := a.clusterOr404(w, r)
+	if !ok {
+		return
+	}
+	if err := a.clusters.SetBalancer(r.Context(), c.ID, nil, nil, requestPrincipal(r).User); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c, _ = a.clusters.Store.Get(c.ID)
+	writeJSON(w, http.StatusOK, a.clusterView(c))
+}
+
+// handleClusterBalancerSync calls the hook with the members now: 502
+// with its failure.
+func (a *app) handleClusterBalancerSync(w http.ResponseWriter, r *http.Request) {
+	c, ok := a.clusterOr404(w, r)
+	if !ok {
+		return
+	}
+	if c.Balancer == nil {
+		writeError(w, http.StatusBadRequest, "cluster "+c.Name+" has no balancer hook")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	if err := a.clusters.SyncBalancer(ctx, c.ID, requestPrincipal(r).User); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	c, _ = a.clusters.Store.Get(c.ID)
+	writeJSON(w, http.StatusOK, a.clusterView(c))
 }
