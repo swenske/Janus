@@ -318,7 +318,7 @@ members - the cluster's **Members** tab, **Scaling**:
   above `max_members`, nor beyond `max_vcpus`/`max_memory_mib` in all;
   no step out while the members' vCPUs wait for their hosts (steal above
   10 %). Thresholds are the policy's (`out_idle_percent`,
-  `in_after`...), checked for hysteresis.
+  `in_after_seconds`...), checked for hysteresis.
 - Members set by hand while auto-scaling is on **pause** it, journaled;
   saving the policy again resumes it.
 

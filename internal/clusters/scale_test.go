@@ -1,6 +1,7 @@
 package clusters
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -91,5 +92,30 @@ func TestAutoscaleValidate(t *testing.T) {
 		if err := c.a.Validate(); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%+v: %v, want %q", c.a, err, c.want)
 		}
+	}
+}
+
+// The policy's durations travel in seconds, as a machine's do; what
+// v2026.10.24-5 and -6 stored in nanoseconds is still read.
+func TestAutoscaleJSON(t *testing.T) {
+	a := Autoscale{Mode: ScaleOn, MinMembers: 2, MaxMembers: 4, ScaleThresholds: ScaleThresholds{OutAfter: 3 * time.Minute, InCooldown: time.Hour, OutIdlePercent: 25}}
+	b, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(b); !strings.Contains(s, `"out_after_seconds":180`) || !strings.Contains(s, `"in_cooldown_seconds":3600`) || strings.Contains(s, `"out_after":`) {
+		t.Errorf("marshalled: %s", s)
+	}
+	var back Autoscale
+	if err := json.Unmarshal(b, &back); err != nil || back != a {
+		t.Errorf("round trip: %+v %v", back, err)
+	}
+	var old Autoscale
+	if err := json.Unmarshal([]byte(`{"mode":"observe","min_members":2,"max_members":3,"out_after":120000000000}`), &old); err != nil || old.OutAfter != 2*time.Minute || old.Mode != ScaleObserve {
+		t.Errorf("nanoseconds of before: %+v %v", old, err)
+	}
+	c := Cluster{Autoscale: &a}
+	if b, _ := json.Marshal(c); !strings.Contains(string(b), `"autoscale":{"mode":"on"`) {
+		t.Errorf("in a cluster: %s", b)
 	}
 }
