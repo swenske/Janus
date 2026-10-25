@@ -404,6 +404,24 @@ before it stops. The cluster's **balancer hook** tells it: the cluster's
   for the balancer to be told first: `janusctl -n NODE cluster drain`
   drains the node alone, and the balancer hears of it only at the next
   check.
+- **Let the balancer send a request again when its answer comes back
+  empty.** Every member's HAProxy reloads when the cluster's members
+  change - its peers section names them - and when a version is
+  applied. The old process closes its idle keep-alive connections, and a
+  balancer that keeps connections to the members can send a request on
+  one at that very moment: it gets nothing back. For an HAProxy in
+  front:
+
+  ```haproxy
+  backend janus_members
+    retries 3
+    retry-on conn-failure empty-response response-timeout
+    option redispatch
+  ```
+
+  v2026.10.25-2's lab campaign, through an HAProxy in front under 25,000
+  requests a second: 5 to 11 requests in 5 million broke as a member
+  came in or went out without it, none with it.
 
 A receiver can be a few lines - this one keeps the members in service
 in a file another tool (a router's configuration, an HAProxy map) reads:
