@@ -602,7 +602,113 @@ function Members({ cluster, nodes, act, busy, reload }) {
             <SecretsFrom cluster={cluster} disabled={disabled} reload={reload} toast={toast} />
           </div>
         ))}
+      {cluster.placement && <Scaling cluster={cluster} disabled={disabled} reload={reload} />}
     </div>
+  )
+}
+
+// Scaling: a cluster made on hypervisors gains and loses members - set
+// by hand, or by its auto-scaling (docs/guide/clusters.md "Scaling").
+function Scaling({ cluster, disabled, reload }) {
+  const can = useCan()
+  const toast = useToast()
+  const [busy, run] = useAction()
+  const as = cluster.autoscale
+  const [members, setMembers] = useState(cluster.members.length)
+  const [policy, setPolicy] = useState({ mode: as?.mode || 'off', min: as?.min_members || 2, max: as?.max_members || Math.max(4, cluster.members.length) })
+  const [error, setError] = useState(null)
+  const load = cluster.load
+  const pct = (v) => (v == null || v < 0 ? '-' : `${Math.round(v)} %`)
+  const scale = () =>
+    run(async () => {
+      setError(null)
+      try {
+        await postJSON(`/api/clusters/${cluster.id}/scale`, { members: Number(members) })
+        reload()
+        toast(`Cluster ${cluster.name} is being brought to ${members} members.`)
+      } catch (err) {
+        setError(err)
+      }
+    })
+  const save = () =>
+    run(async () => {
+      setError(null)
+      try {
+        await postJSON(`/api/clusters/${cluster.id}/autoscale`, { ...(as || {}), mode: policy.mode, min_members: Number(policy.min), max_members: Number(policy.max), paused_by: '' }, 'PUT')
+        reload()
+        toast(`Auto-scaling ${policy.mode}.`)
+      } catch (err) {
+        setError(err)
+      }
+    })
+  return (
+    <Card title="Scaling" icon={Users}>
+      <div className="stack">
+        {as && as.mode !== 'off' && (
+          <dl className="kv small">
+            <dt>Auto-scaling</dt>
+            <dd>
+              {as.mode}, {as.min_members} to {as.max_members} members{as.paused_by && <Badge tone="warn">paused by {as.paused_by}</Badge>}
+            </dd>
+            {cluster.scale_status && (
+              <>
+                <dt>Now</dt>
+                <dd>{cluster.scale_status}</dd>
+              </>
+            )}
+            {load && (
+              <>
+                <dt>Load</dt>
+                <dd>
+                  {load.members} member{load.members === 1 ? '' : 's'} read: HAProxy idle {pct(load.idle_percent)}, CPUs {pct(load.busy_percent)} busy (steal {pct(load.steal_percent)}),
+                  connections at {pct(load.conn_percent)} of maxconn at most
+                </dd>
+              </>
+            )}
+          </dl>
+        )}
+        {can('admin') && (
+          <>
+            <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <label className="field">
+                <span>Members</span>
+                <input type="number" min="1" max="16" value={members} onChange={(e) => setMembers(e.target.value)} />
+              </label>
+              <button disabled={disabled || busy || Number(members) === cluster.members.length} onClick={scale}>
+                <Users size={15} /> Set
+              </button>
+              <span className="small muted">A member more is a new machine like the newest, placed; a member less the newest, drained and destroyed.</span>
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <label className="field">
+                <span>Auto-scaling</span>
+                <select value={policy.mode} onChange={(e) => setPolicy({ ...policy, mode: e.target.value })}>
+                  <option value="off">Off</option>
+                  <option value="observe">Observe - journal what it would do</option>
+                  <option value="on">On</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>From</span>
+                <input type="number" min="2" max="16" value={policy.min} onChange={(e) => setPolicy({ ...policy, min: e.target.value })} />
+              </label>
+              <label className="field">
+                <span>To</span>
+                <input type="number" min="2" max="16" value={policy.max} onChange={(e) => setPolicy({ ...policy, max: e.target.value })} />
+              </label>
+              <button disabled={disabled || busy} onClick={save}>
+                Save
+              </button>
+            </div>
+            <p className="small muted">
+              A member more when, over 5 minutes, HAProxy idles below 30 %, the CPUs are busier than 75 % or the connections above 70 % of maxconn; one less when one fewer would
+              stay quiet on every count for 30 minutes. Not for a VRRP cluster: one member holds each virtual IP. Thresholds: through the API.
+            </p>
+          </>
+        )}
+        <ErrorBox error={error} />
+      </div>
+    </Card>
   )
 }
 

@@ -1,0 +1,198 @@
+package main
+
+import (
+	"context"
+	"net/http"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/swenske/Janus/dashboard/backend/internal/nodeproxy"
+	"github.com/swenske/Janus/dashboard/backend/internal/store"
+	"github.com/swenske/Janus/internal/clusters"
+)
+
+// journalSays reports whether cluster id's journal has an entry with s.
+func journalSays(t *testing.T, a *app, id, s string) bool {
+	t.Helper()
+	return slices.ContainsFunc(a.clusters.Store.Entries(id, 500), func(e clusters.Entry) bool { return strings.Contains(e.Message, s) })
+}
+
+// The primitive: a member more is a new machine like the newest one's,
+// placed; a member less the newest, out, its machine destroyed.
+func TestClusterScale(t *testing.T) {
+	x := newHVHarness(t)
+	a := x.a
+	x.fakes[x.h2.ID].hostID = "libvirt:bbbb"
+	scale := func(id string, n int) *httpResult {
+		rec := call(t, a.handleClusterScale, "POST", "/api/clusters/"+id+"/scale", "POST /api/clusters/{id}/scale", map[string]int{"members": n})
+		return &httpResult{rec.Code, rec.Body.String()}
+	}
+
+	// Required, two hosts, two members: no host left for a third.
+	c := x.build("edge", x.request(""))
+	if r := scale(c.ID, 3); r.code != http.StatusAccepted {
+		t.Fatalf("scale: %d %s", r.code, r.body)
+	}
+	if c = x.idle(c.ID); !strings.Contains(c.Error, "anti-affinity") || len(c.Members) != 2 {
+		t.Errorf("a third on two hosts, required: %q, %d members", c.Error, len(c.Members))
+	}
+
+	// Preferred: the third shares a host; then back to two.
+	c = x.build("edgep", x.request(clusters.AntiAffinityPreferred))
+	c, _ = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
+		for i := range c.Members {
+			c.Members[i].Vars = map[string]string{"priority": "100"}
+		}
+		return nil
+	})
+	if r := scale(c.ID, 3); r.code != http.StatusAccepted {
+		t.Fatalf("scale: %d %s", r.code, r.body)
+	}
+	third := x.machine("edgep-3")
+	x.register(third)
+	c = x.idle(c.ID)
+	if c.Error != "" || len(c.Members) != 3 || c.Member("edgep-3") == nil || c.Member("edgep-3").Vars["priority"] != "100" {
+		t.Fatalf("scaled out: %q, %+v", c.Error, c.Members)
+	}
+	if r := scale(c.ID, 2); r.code != http.StatusAccepted {
+		t.Fatalf("scale: %d %s", r.code, r.body)
+	}
+	c = x.idle(c.ID)
+	if c.Error != "" || len(c.Members) != 2 || c.Member("edgep-3") != nil {
+		t.Fatalf("scaled in: %q, %+v", c.Error, c.Members)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, ok := a.machines.Get(third.ID); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("edgep-3's machine never destroyed")
+		}
+	}
+
+	// The policy: refused on a cluster made from nodes, or one with VRRP.
+	put := func(id string, p clusters.Autoscale) *httpResult {
+		rec := call(t, a.handleClusterAutoscale, "PUT", "/api/clusters/"+id+"/autoscale", "PUT /api/clusters/{id}/autoscale", p)
+		return &httpResult{rec.Code, rec.Body.String()}
+	}
+	plain, err := a.clusters.Store.Create("plain", 0, []string{"haproxy", "files"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := put(plain.ID, clusters.Autoscale{Mode: clusters.ScaleObserve, MinMembers: 2, MaxMembers: 4}); r.code != http.StatusBadRequest || !strings.Contains(r.body, "hypervisors only") {
+		t.Errorf("from nodes: %d %s", r.code, r.body)
+	}
+	if r := scale(plain.ID, 3); r.code != http.StatusBadRequest {
+		t.Errorf("scale from nodes: %d %s", r.code, r.body)
+	}
+	_, _ = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Managed = append(c.Managed, "vrrp"); return nil })
+	if r := put(c.ID, clusters.Autoscale{Mode: clusters.ScaleOn, MinMembers: 2, MaxMembers: 4}); r.code != http.StatusBadRequest || !strings.Contains(r.body, "VRRP") {
+		t.Errorf("VRRP: %d %s", r.code, r.body)
+	}
+	_, _ = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Managed = []string{"haproxy", "files"}; return nil })
+	if r := put(c.ID, clusters.Autoscale{Mode: clusters.ScaleOn, MinMembers: 2, MaxMembers: 4}); r.code != http.StatusOK {
+		t.Fatalf("on: %d %s", r.code, r.body)
+	}
+	// Members set from outside while on: the engine pauses, and says so.
+	if r := scale(c.ID, 2); r.code != http.StatusAccepted {
+		t.Fatalf("scale: %d %s", r.code, r.body)
+	}
+	c = x.idle(c.ID)
+	if c.Autoscale.PausedBy != "root" || !journalSays(t, a, c.ID, "auto-scaling paused: root set the members to 2") {
+		t.Errorf("paused: %+v", c.Autoscale)
+	}
+	if r := put(c.ID, clusters.Autoscale{Mode: clusters.ScaleOn, MinMembers: 2, MaxMembers: 4}); r.code != http.StatusOK {
+		t.Fatal(r.body)
+	} else if c, _ = a.clusters.Store.Get(c.ID); c.Autoscale.PausedBy != "" {
+		t.Error("setting the policy again doesn't resume it")
+	}
+}
+
+type httpResult struct {
+	code int
+	body string
+}
+
+// busyNodes answer every node's load as busy: HAProxy 10 % idle, the
+// CPUs 90 % busy.
+type busyNodes struct {
+	answeringNodes
+	mu    sync.Mutex
+	ticks map[string]uint64
+}
+
+func (b *busyNodes) Load(_ context.Context, node *store.Node) (*nodeproxy.Load, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ticks[node.ID] += 1000
+	t := b.ticks[node.ID]
+	return &nodeproxy.Load{CPUs: 2, CPUTotalTicks: t, CPUIdleTicks: t / 10, IdlePercent: 10, CurrConns: 10, MaxConn: 1000}, nil
+}
+
+// The engine: observing, it journals what it would do and simulates it;
+// on, it acts - once, then cools down; paused, it says so and waits.
+func TestClusterScaler(t *testing.T) {
+	x := newHVHarness(t)
+	a := x.a
+	x.fakes[x.h2.ID].hostID = "libvirt:bbbb"
+	c := x.build("edge", x.request(""))
+	prev := nodes
+	nodes = &busyNodes{ticks: map[string]uint64{}}
+	t.Cleanup(func() { nodes = prev })
+	s := newClusterScaler(a)
+	a.clusterScaler = s
+	var mu sync.Mutex
+	var acted []string
+	s.act = func(_ context.Context, _, action string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		acted = append(acted, action)
+		return nil
+	}
+	set := func(mode string) {
+		t.Helper()
+		rec := call(t, a.handleClusterAutoscale, "PUT", "/api/clusters/"+c.ID+"/autoscale", "PUT /api/clusters/{id}/autoscale", clusters.Autoscale{Mode: mode, MinMembers: 2, MaxMembers: 4})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("set %s: %d %s", mode, rec.Code, rec.Body)
+		}
+	}
+	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+	run := func(n int) {
+		for range n {
+			now = now.Add(clusters.ScaleSampleEvery)
+			s.tick(context.Background(), now)
+			x.idle(c.ID)
+		}
+	}
+
+	set(clusters.ScaleObserve)
+	run(25)
+	if st := a.clusters.Store.State(c.ID); st.Scale.Members != 3 || !strings.HasPrefix(st.ScaleStatus, "observing") {
+		t.Errorf("observing: %+v %q", st.Scale, st.ScaleStatus)
+	}
+	if !journalSays(t, a, c.ID, "would add a member (2 → 3)") || len(acted) != 0 {
+		t.Errorf("observing: acted %v", acted)
+	}
+	cur, _ := a.clusters.Store.Get(c.ID)
+	if v := a.clusterView(cur); v.Load == nil || v.Load.Members != 2 || v.Load.BusyPercent < 89 || v.Load.IdlePercent != 10 {
+		t.Errorf("the load shown: %+v", v.Load)
+	}
+
+	set(clusters.ScaleOn)
+	_, _ = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Autoscale.PausedBy = "root"; return nil }) // as POST .../scale does
+	run(25)
+	if len(acted) != 0 || !journalSays(t, a, c.ID, "paused since root set the members") {
+		t.Errorf("paused: acted %v", acted)
+	}
+
+	set(clusters.ScaleOn)
+	run(50)
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(acted, []string{clusters.ScaleOut}) || !journalSays(t, a, c.ID, "adding a member (2 → 3)") {
+		t.Errorf("on: acted %v", acted)
+	}
+}

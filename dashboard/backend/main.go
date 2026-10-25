@@ -231,6 +231,8 @@ func main() {
 	go app.runner.syncLoop(context.Background())
 	app.autoscaler = newAutoscaler(app)
 	go app.autoscaler.run(context.Background())
+	app.clusterScaler = newClusterScaler(app)
+	go app.clusterScaler.run(context.Background())
 	go app.trustLoop(context.Background())
 	go app.clusters.loop(context.Background())
 	go app.backupLoop(context.Background())
@@ -401,7 +403,9 @@ type app struct {
 	clusters *clusterEngine
 	// autoscaler resizes machines with an auto-scaling policy
 	autoscaler *autoscaler
-	consoles   consoleHub
+	// clusterScaler: clusters' horizontal auto-scaling (cluster_scale.go).
+	clusterScaler *clusterScaler
+	consoles      consoleHub
 
 	challenges challenges
 	// restored: a backup was restored - the process starts again.

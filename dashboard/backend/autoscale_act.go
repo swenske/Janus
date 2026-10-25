@@ -182,7 +182,13 @@ func abs(v int) int {
 // hostRoom says why the host can't give growMiB more to a machine: what
 // it has free, minus what it keeps free.
 func (s *autoscaler) hostRoom(ctx context.Context, h *hypervisor.Hypervisor, growMiB int) error {
-	st := s.a.hypervisorStatus(ctx, h)
+	return s.a.hostRoom(ctx, h, growMiB)
+}
+
+// hostRoom says why hypervisor h's host can't give growMiB more - to a
+// machine growing, or a new one (a cluster's member more).
+func (a *app) hostRoom(ctx context.Context, h *hypervisor.Hypervisor, growMiB int) error {
+	st := a.hypervisorStatus(ctx, h)
 	if st.Host == nil || st.Host.MemoryTotal == 0 {
 		return fmt.Errorf("the host's free memory isn't known (%s): no memory added", st.Error)
 	}

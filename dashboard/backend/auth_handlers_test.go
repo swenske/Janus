@@ -175,6 +175,8 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 		{"POST", "/api/clusters/c1/apply", auth.Admin},
 		{"POST", "/api/clusters/c1/pull", auth.Admin},
 		{"POST", "/api/clusters/c1/recycle", auth.Admin},
+		{"POST", "/api/clusters/c1/scale", auth.Admin},
+		{"PUT", "/api/clusters/c1/autoscale", auth.Admin},
 		{"POST", "/api/clusters/c1/certificates", auth.Admin},
 		{"POST", "/api/clusters/c1/check", auth.Admin},
 	} {

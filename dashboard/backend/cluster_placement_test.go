@@ -106,38 +106,145 @@ func addHypervisor(t *testing.T, a *app, name string) *hypervisor.Hypervisor {
 	return h
 }
 
-// A cluster made of new machines: placed by host - two records reaching
-// one host count once -, made, waited for, created from them.
-func TestClusterOnHypervisors(t *testing.T) {
+// hvHarness is an app with two fake hypervisor records, a cluster
+// engine on fake members, and what plays the machines' nodes.
+type hvHarness struct {
+	t      *testing.T
+	a      *app
+	h1, h2 *hypervisor.Hypervisor
+	fakes  map[string]*fakeDriver
+	f      *clusterFake
+	url    string
+	sum    string
+	addrs  int
+}
+
+func newHVHarness(t *testing.T) *hvHarness {
+	t.Helper()
 	a, _ := newTestApp(t)
-	h1, h2 := addHypervisor(t, a, "kvm01"), addHypervisor(t, a, "kvm01-again")
-	fakes := map[string]*fakeDriver{h1.ID: newFakeDriver(), h2.ID: newFakeDriver()}
-	fakes[h1.ID].hostID, fakes[h2.ID].hostID = "libvirt:aaaa", "libvirt:aaaa"
-	newDriver = func(h *hypervisor.Hypervisor, _ string) (hypervisor.Driver, error) { return fakes[h.ID], nil }
+	x := &hvHarness{t: t, a: a, h1: addHypervisor(t, a, "kvm01"), h2: addHypervisor(t, a, "kvm01-again")}
+	x.fakes = map[string]*fakeDriver{x.h1.ID: newFakeDriver(), x.h2.ID: newFakeDriver()}
+	x.fakes[x.h1.ID].hostID, x.fakes[x.h2.ID].hostID = "libvirt:aaaa", "libvirt:aaaa"
+	newDriver = func(h *hypervisor.Hypervisor, _ string) (hypervisor.Driver, error) { return x.fakes[h.ID], nil }
 	image := append([]byte("QFI\xfb\x00\x00\x00\x03"), make([]byte, 4096)...)
 	sum := sha256.Sum256(image)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(image) }))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
+	x.url, x.sum = srv.URL+"/janus-kvm.qcow2", hex.EncodeToString(sum[:])
 	st, err := clusters.Open(a.dataDir, testSealer{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	a.clusters = newClusterEngine(a, st)
-	f := &clusterFake{nodes: map[string]*fakeMember{}, fail: map[string]error{}, unreach: map[[2]string]bool{}, byAddr: map[string]string{}, notAfter: time.Now().Add(clusters.MemberValidity)}
-	a.clusters.Nodes = f
+	x.f = &clusterFake{nodes: map[string]*fakeMember{}, fail: map[string]error{}, unreach: map[[2]string]bool{}, byAddr: map[string]string{}, notAfter: time.Now().Add(clusters.MemberValidity)}
+	a.clusters.Nodes = x.f
 	t.Cleanup(a.clusters.wait)
-	request := func(name, mode string) clusterMachinesRequest {
-		return clusterMachinesRequest{Count: 2, AntiAffinity: mode, Hypervisors: []string{h1.ID, h2.ID}, Spec: machines.Spec{
-			Image: &machines.ImageSource{URL: srv.URL + "/janus-kvm.qcow2", SHA256: hex.EncodeToString(sum[:])},
-			NICs:  []machines.NIC{{Network: "lab-mgmt", Name: "mgmt", Mode: "dhcp"}},
-		}}
+	return x
+}
+
+func (x *hvHarness) request(mode string) clusterMachinesRequest {
+	return clusterMachinesRequest{Count: 2, AntiAffinity: mode, Hypervisors: []string{x.h1.ID, x.h2.ID}, Spec: machines.Spec{
+		Image: &machines.ImageSource{URL: x.url, SHA256: x.sum},
+		NICs:  []machines.NIC{{Network: "lab-mgmt", Name: "mgmt", Mode: "dhcp"}},
+	}}
+}
+
+func (x *hvHarness) create(name string, m clusterMachinesRequest) *httptest.ResponseRecorder {
+	return call(x.t, x.a.handleClusterCreate, "POST", "/api/clusters", "POST /api/clusters", map[string]any{"name": name, "machines": m})
+}
+
+// register answers machine m's registration as its node would, from an
+// address of its own, and gives it the fleet.
+func (x *hvHarness) register(m *machines.Machine) {
+	t := x.t
+	t.Helper()
+	x.addrs++
+	addr := fmt.Sprintf("10.0.0.%d:9505", x.addrs)
+	m = waitPhase(t, x.a, m.ID, machines.PhaseRegistering)
+	fk := x.fakes[m.Spec.HypervisorID]
+	fk.mu.Lock()
+	ci := fk.vms[m.Ref.UUID].CIData
+	fk.mu.Unlock()
+	path := filepath.Join(t.TempDir(), "cidata.iso")
+	if err := os.WriteFile(path, ci, 0o600); err != nil {
+		t.Fatal(err)
 	}
-	create := func(name string, m clusterMachinesRequest) *httptest.ResponseRecorder {
-		return call(t, a.handleClusterCreate, "POST", "/api/clusters", "POST /api/clusters", map[string]any{"name": name, "machines": m})
+	data, err := nocloud.Read(path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	x.f.mu.Lock()
+	x.f.byAddr[addr] = m.Spec.Name
+	x.f.nodes[m.Spec.Name] = &fakeMember{schematic: "s1", healthy: true, cfg: []byte("global # " + m.Spec.Name + "\n"), files: map[string][]byte{}, secret: map[string]bool{}, modules: map[string][]byte{}}
+	x.f.mu.Unlock()
+	req := registration(t, m.Spec.Name, data.RegistrationToken)
+	req.Address = addr
+	if rec := call(t, x.a.handleRegister, "POST", "/register", "/register", req); rec.Code != http.StatusCreated {
+		t.Fatalf("register %s: %d %s", m.Spec.Name, rec.Code, rec.Body)
+	}
+	m = waitPhase(t, x.a, m.ID, machines.PhaseReady)
+	if err := x.a.store.SetFleet(m.NodeID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// machine waits for the machine named name.
+func (x *hvHarness) machine(name string) *machines.Machine {
+	x.t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		for _, m := range x.a.machines.List() {
+			if m.Spec.Name == name {
+				return m
+			}
+		}
+	}
+	x.t.Fatalf("no machine %s", name)
+	return nil
+}
+
+// idle waits until no operation runs on cluster id, and returns it.
+func (x *hvHarness) idle(id string) *clusters.Cluster {
+	x.t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		c, _ := x.a.clusters.Store.Get(id)
+		if !x.a.clusters.isBusy(id) && c.Phase == "" {
+			return c
+		}
+		if time.Now().After(deadline) {
+			x.t.Fatalf("cluster %s still %s", c.Name, c.Phase)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// build creates cluster name and plays its machines' nodes.
+func (x *hvHarness) build(name string, m clusterMachinesRequest) *clusters.Cluster {
+	x.t.Helper()
+	rec := x.create(name, m)
+	if rec.Code != http.StatusAccepted {
+		x.t.Fatalf("create %s: %d %s", name, rec.Code, rec.Body)
+	}
+	var v clusterView
+	_ = json.Unmarshal(rec.Body.Bytes(), &v)
+	for i := range m.Count {
+		x.register(x.machine(fmt.Sprintf("%s-%d", name, i+1)))
+	}
+	c := x.idle(v.ID)
+	if c.Error != "" {
+		x.t.Fatalf("cluster %s: %s", name, c.Error)
+	}
+	return c
+}
+
+// A cluster made of new machines: placed by host - two records reaching
+// one host count once -, made, waited for, created from them.
+func TestClusterOnHypervisors(t *testing.T) {
+	x := newHVHarness(t)
+	a, h1, h2 := x.a, x.h1, x.h2
 
 	// Required, two records on one host: refused before anything is made.
-	rec := create("edge", request("edge", ""))
+	rec := x.create("edge", x.request(""))
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "kvm01 and kvm01-again: one host") {
 		t.Fatalf("required on one host: %d %s", rec.Code, rec.Body)
 	}
@@ -145,88 +252,14 @@ func TestClusterOnHypervisors(t *testing.T) {
 		t.Fatalf("%d machines made for a refused cluster", n)
 	}
 	// A static address can't go to every machine.
-	static := request("edge", clusters.AntiAffinityPreferred)
+	static := x.request(clusters.AntiAffinityPreferred)
 	static.Spec.NICs[0] = machines.NIC{Network: "lab-mgmt", Name: "mgmt", Mode: "static", Addresses: []string{"192.0.2.10/24"}}
-	if rec := create("edge", static); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "static address") {
+	if rec := x.create("edge", static); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "static address") {
 		t.Errorf("static: %d %s", rec.Code, rec.Body)
 	}
 
-	// register answers machine m's registration as its node would, from
-	// an address of its own, and gives it the fleet.
-	addrs := 0
-	register := func(m *machines.Machine) {
-		t.Helper()
-		addrs++
-		addr := fmt.Sprintf("10.0.0.%d:9505", addrs)
-		m = waitPhase(t, a, m.ID, machines.PhaseRegistering)
-		fk := fakes[m.Spec.HypervisorID]
-		fk.mu.Lock()
-		ci := fk.vms[m.Ref.UUID].CIData
-		fk.mu.Unlock()
-		path := filepath.Join(t.TempDir(), "cidata.iso")
-		if err := os.WriteFile(path, ci, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		data, err := nocloud.Read(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		f.mu.Lock()
-		f.byAddr[addr] = m.Spec.Name
-		f.nodes[m.Spec.Name] = &fakeMember{schematic: "s1", healthy: true, cfg: []byte("global # " + m.Spec.Name + "\n"), files: map[string][]byte{}, secret: map[string]bool{}, modules: map[string][]byte{}}
-		f.mu.Unlock()
-		req := registration(t, m.Spec.Name, data.RegistrationToken)
-		req.Address = addr
-		if rec := call(t, a.handleRegister, "POST", "/register", "/register", req); rec.Code != http.StatusCreated {
-			t.Fatalf("register %s: %d %s", m.Spec.Name, rec.Code, rec.Body)
-		}
-		m = waitPhase(t, a, m.ID, machines.PhaseReady)
-		if err := a.store.SetFleet(m.NodeID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// build creates cluster name and plays its machines' nodes.
-	build := func(name string, m clusterMachinesRequest) *clusters.Cluster {
-		t.Helper()
-		rec := create(name, m)
-		if rec.Code != http.StatusAccepted {
-			t.Fatalf("create %s: %d %s", name, rec.Code, rec.Body)
-		}
-		var v clusterView
-		_ = json.Unmarshal(rec.Body.Bytes(), &v)
-		for i := range m.Count {
-			mn := fmt.Sprintf("%s-%d", name, i+1)
-			var made *machines.Machine
-			for deadline := time.Now().Add(10 * time.Second); made == nil && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-				for _, x := range a.machines.List() {
-					if x.Spec.Name == mn {
-						made = x
-					}
-				}
-			}
-			if made == nil {
-				t.Fatalf("no machine %s", mn)
-			}
-			register(made)
-		}
-		deadline := time.Now().Add(20 * time.Second)
-		for {
-			c, _ := a.clusters.Store.Get(v.ID)
-			if !a.clusters.isBusy(v.ID) && c.Phase == "" {
-				if c.Error != "" {
-					t.Fatalf("cluster %s: %s", name, c.Error)
-				}
-				return c
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("cluster %s still %s", name, c.Phase)
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
-
 	// Preferred: made all the same, both on the one host, and said.
-	c := build("edgep", request("edgep", clusters.AntiAffinityPreferred))
+	c := x.build("edgep", x.request(clusters.AntiAffinityPreferred))
 	if len(c.Members) != 2 || c.SecretsFrom != "edgep-1" || c.Placement == nil || c.Placement.AntiAffinity != clusters.AntiAffinityPreferred {
 		t.Fatalf("preferred cluster: %+v", c)
 	}
@@ -236,9 +269,9 @@ func TestClusterOnHypervisors(t *testing.T) {
 	}
 
 	// Two hosts now: required places one machine on each.
-	fakes[h2.ID].hostID = "libvirt:bbbb"
+	x.fakes[h2.ID].hostID = "libvirt:bbbb"
 	a.hvStatus.forget(h2.ID)
-	c = build("edger", request("edger", ""))
+	c = x.build("edger", x.request(""))
 	var on []string
 	for _, m := range c.Members {
 		on = append(on, a.machineOf(m.NodeID).Spec.HypervisorID)
@@ -256,18 +289,8 @@ func TestClusterOnHypervisors(t *testing.T) {
 	old := c.Members[0]
 	done := make(chan error, 1)
 	go func() { done <- a.recycle(ctx, c.ID, recycleRequest{Members: []string{old.Name}}, "admin") }()
-	var repl *machines.Machine
-	for deadline := time.Now().Add(10 * time.Second); repl == nil && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		for _, m := range a.machines.List() {
-			if m.Spec.Name == "edger-3" {
-				repl = m
-			}
-		}
-	}
-	if repl == nil {
-		t.Fatal("no replacement made")
-	}
-	register(repl)
+	repl := x.machine("edger-3")
+	x.register(repl)
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}

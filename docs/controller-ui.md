@@ -166,8 +166,9 @@ loopback -, one of them the source - or **New machines**, offered when a
 hypervisor is trusted: how many, the anti-affinity, size, release, the
 hypervisors - each with the host it reaches -, a network common to them
 in a datalist, extensions). A cluster on hypervisors shows its
-**Placement** in the header, and each member the host it runs on under
-its node.
+**Placement** in the header, each member the host it runs on under its
+node, and a **Scaling** card under the members (the count to set; the
+auto-scaling's mode and bounds, what it says now, the members' load).
 `#/clusters/<id>` is one cluster: its problems in a notice, **Check
 now**, **Delete** (type the name), and four tabs - **Members** (version
 run, peers up, stick tables in sync, member certificate's end, drained /

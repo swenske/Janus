@@ -74,6 +74,8 @@ type Cluster struct {
 	// Placement: where the orchestrator puts the cluster's machines - a
 	// cluster it created on hypervisors; nil for one made from nodes.
 	Placement *Placement `json:"placement,omitempty"`
+	// Autoscale: its horizontal auto-scaling (scale.go); nil: none.
+	Autoscale *Autoscale `json:"autoscale,omitempty"`
 }
 
 // Placement is a cluster's machines' placement (docs/cluster.md "On a
@@ -188,6 +190,10 @@ type State struct {
 	// is still the cluster's: it is renewed - every key replaced - and
 	// the names go (RenewTickets). The reconcile retries a failed one.
 	TicketsRenew []string `json:"tickets_renew,omitempty"`
+	// Scale is the auto-scaling's state: the member count it judges, its
+	// last steps; ScaleStatus what it says now.
+	Scale       ScaleState `json:"scale,omitzero"`
+	ScaleStatus string     `json:"scale_status,omitempty"`
 }
 
 // Sealer seals and opens the cluster CA's key (the Controller's master
@@ -250,6 +256,10 @@ func clone(c *Cluster) *Cluster {
 		p := *c.Placement
 		p.Hypervisors = slices.Clone(c.Placement.Hypervisors)
 		out.Placement = &p
+	}
+	if c.Autoscale != nil {
+		as := *c.Autoscale
+		out.Autoscale = &as
 	}
 	return &out
 }

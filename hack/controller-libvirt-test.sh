@@ -35,7 +35,10 @@
 #      same host (the capabilities' UUID); with anti-affinity required
 #      two machines on it are refused before anything is made, with
 #      preferred they are made, the cluster created from them, and its
-#      page says both run on one host;
+#      page says both run on one host; scaled to three members - a third
+#      machine like the newest, joined - and back to two, the newest
+#      taken out and destroyed; auto-scaling observing reads the members'
+#      real load;
 #   4. a record forged to point at a domain the Controller didn't create
 #      (one untagged, one tagged by another Controller) is refused, and
 #      the domain is left as it was;
@@ -596,6 +599,33 @@ json "d['placement']['anti_affinity']" <"$WORKDIR/c.json" | grep -qx preferred |
 json "' '.join(m.get('host_name','') for m in d['members'])" <"$WORKDIR/c.json" | grep -Eq '^[^ ]+ [^ ]+$' || fail "its members' hosts: $(cat "$WORKDIR/c.json")"
 json "'\n'.join(d['problems'])" <"$WORKDIR/c.json" | grep -q "pref-1 and pref-2 run on the same host" || fail "the page doesn't say both run on one host: $(json "d['problems']" <"$WORKDIR/c.json")"
 echo "Part 4f OK: a second record on the same libvirtd is the same host ($id1) - two machines with anti-affinity required refused before anything was made; preferred made them, the cluster from them, and its page says both run on one host"
+
+api -X POST "$API/api/clusters/$CID/scale" -H 'Content-Type: application/json' -d '{"members": 3}' >/dev/null || fail "scale pref to 3"
+cluster_idle 600
+api "$API/api/clusters/$CID" >"$WORKDIR/c.json"
+[ -z "$(json "d.get('error','')" <"$WORKDIR/c.json")" ] || fail "scaling to 3: $(json "d['error']" <"$WORKDIR/c.json")"
+members="$(json "','.join(sorted(m['name'] for m in d['members']))" <"$WORKDIR/c.json")"
+[ "$members" = "pref-1,pref-2,pref-3" ] || fail "after scaling to 3: $members"
+api -X POST "$API/api/clusters/$CID/scale" -H 'Content-Type: application/json' -d '{"members": 2}' >/dev/null || fail "scale pref to 2"
+cluster_idle 300
+members="$(api "$API/api/clusters/$CID" | json "','.join(sorted(m['name'] for m in d['members']))")"
+[ "$members" = "pref-1,pref-2" ] || fail "after scaling back to 2: $members"
+for _ in $(seq 1 90); do
+  api "$API/api/machines" | json "' '.join(m['spec']['name'] for m in d)" | grep -qw pref-3 || break
+  sleep 1
+done
+if api "$API/api/machines" | json "' '.join(m['spec']['name'] for m in d)" | grep -qw pref-3; then fail "pref-3's machine is still there"; fi
+code="$(api -o "$WORKDIR/as.json" -w '%{http_code}' -X PUT "$API/api/clusters/$CID/autoscale" -H 'Content-Type: application/json' -d '{"mode":"observe","min_members":2,"max_members":3}')"
+[ "$code" = 200 ] || fail "auto-scaling observe: $code $(cat "$WORKDIR/as.json")"
+# Two readings at least: the CPUs' busy share is between two.
+for _ in $(seq 1 30); do
+  [ "$(api "$API/api/clusters/$CID" | json "(d.get('load') or {}).get('members', 0) == 2 and d['load']['busy_percent'] >= 0")" = True ] && break
+  sleep 2
+done
+api "$API/api/clusters/$CID" >"$WORKDIR/c.json"
+[ "$(json "(d.get('load') or {}).get('members', 0)" <"$WORKDIR/c.json")" = 2 ] || fail "auto-scaling read no load: $(json "d.get('load')" <"$WORKDIR/c.json")"
+json "d.get('scale_status','')" <"$WORKDIR/c.json" | grep -q "^observing" || fail "auto-scaling's status: $(json "d.get('scale_status')" <"$WORKDIR/c.json")"
+echo "Part 4f OK: scaled to three - pref-3 made like the newest, joined - and back to two, pref-3 out and destroyed; auto-scaling observing read both members' load ($(json "'idle %.0f %%, busy %.0f %%' % (d['load']['idle_percent'], d['load']['busy_percent'])" <"$WORKDIR/c.json"))"
 api -o /dev/null -X DELETE "$API/api/clusters/$CID" || fail "delete pref"
 for _ in $(seq 1 60); do
   [ "$(api -o /dev/null -w '%{http_code}' "$API/api/clusters/$CID")" = 404 ] && break
