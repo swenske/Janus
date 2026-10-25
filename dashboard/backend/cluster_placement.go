@@ -25,6 +25,19 @@ type hostSlot struct {
 	Name       string // the record's name
 	HostID     string
 	HostName   string
+	// FreeMiB and TotalMiB: the host's memory available and in all, as
+	// its hypervisor said; 0 when it didn't.
+	FreeMiB, TotalMiB int
+}
+
+// room is the memory host h can still give machines once placed MiB
+// went to it, keeping what a host keeps free (hostReserveMiB); -1: not
+// known.
+func (h hostSlot) room(placed int) int {
+	if h.TotalMiB == 0 {
+		return -1
+	}
+	return h.FreeMiB - placed - hostReserveMiB(h.TotalMiB)
 }
 
 // hostSlots are the records ids, each with the host it reaches - asked
@@ -49,7 +62,8 @@ func (a *app) hostSlots(ctx context.Context, ids []string) ([]hostSlot, error) {
 			}
 			return nil, fmt.Errorf("which host %s reaches can't be told: %s", h.Name, why)
 		}
-		out = append(out, hostSlot{Hypervisor: h.ID, Name: h.Name, HostID: st.Host.HostID, HostName: or(st.Host.Hostname, st.Host.HostID)})
+		out = append(out, hostSlot{Hypervisor: h.ID, Name: h.Name, HostID: st.Host.HostID, HostName: or(st.Host.Hostname, st.Host.HostID),
+			FreeMiB: int(st.Host.MemoryFree >> 20), TotalMiB: int(st.Host.MemoryTotal >> 20)})
 	}
 	return out, nil
 }
@@ -71,21 +85,17 @@ func (a *app) memberHost(m clusters.Member) (id, name string) {
 	return "", ""
 }
 
-// place picks a slot for each of n new machines among cands, in their
-// order, given the hosts members run on already (host ID: their names).
+// place picks a slot for each of n new machines of memMiB among cands,
+// given the hosts members run on already (host ID: their names). Among
+// the hosts a rule allows, the one with the most memory free goes first
+// - the load spread -, cands' order breaking ties; a host without room
+// for one more machine (what it keeps free aside) is never picked.
 // required: each on a host of its own, or refused naming the hosts
 // found; preferred: hosts of their own first, then the least busy -
-// warnings say which; off: the records in turn.
-func place(cands []hostSlot, used map[string][]string, n int, mode string) ([]hostSlot, []string, error) {
+// warnings say which; off: by memory alone.
+func place(cands []hostSlot, used map[string][]string, n, memMiB int, mode string) ([]hostSlot, []string, error) {
 	if len(cands) == 0 {
 		return nil, nil, fmt.Errorf("no hypervisor to place %d machine(s) on", n)
-	}
-	if mode == clusters.AntiAffinityOff {
-		var picks []hostSlot
-		for i := range n {
-			picks = append(picks, cands[i%len(cands)])
-		}
-		return picks, nil, nil
 	}
 	// One slot per host: the first record reaching it.
 	var hosts []hostSlot
@@ -96,42 +106,97 @@ func place(cands []hostSlot, used map[string][]string, n int, mode string) ([]ho
 		}
 		records[s.HostID] = append(records[s.HostID], s.Name)
 	}
-	var free []hostSlot
-	for _, h := range hosts {
-		if len(used[h.HostID]) == 0 {
-			free = append(free, h)
-		}
-	}
-	if len(free) >= n {
-		return free[:n], nil, nil
-	}
-	if mode == clusters.AntiAffinityRequired {
-		return nil, nil, fmt.Errorf("anti-affinity: %d new machine(s) need as many hosts no member runs on - the hypervisors given reach %s", n, describeHosts(hosts, records, used))
-	}
-	picks := slices.Clone(free)
-	count := map[string]int{}
+	placed := map[string]int{} // MiB this call put on each host
+	count := map[string]int{}  // members and machines placed, by host
 	for id, names := range used {
 		count[id] = len(names)
 	}
-	for _, p := range picks {
-		count[p.HostID]++
+	fits := func(h hostSlot) bool {
+		r := h.room(placed[h.HostID])
+		return r < 0 || r >= memMiB
 	}
-	var warnings []string
-	for len(picks) < n {
-		best := hosts[0]
-		for _, h := range hosts[1:] {
-			if count[h.HostID] < count[best.HostID] {
-				best = h
+	// best is the host of pool with the most room left that fits, ok
+	// false when none does.
+	best := func(pool []hostSlot, ok func(hostSlot) bool) (hostSlot, bool) {
+		var b hostSlot
+		found := false
+		for _, h := range pool {
+			if !ok(h) || !fits(h) {
+				continue
+			}
+			if !found || h.room(placed[h.HostID]) > b.room(placed[b.HostID]) {
+				b, found = h, true
 			}
 		}
-		warnings = append(warnings, fmt.Sprintf("a machine goes to host %s, which already has %d member(s) of the cluster - anti-affinity preferred, not enough hosts", best.HostName, count[best.HostID]))
-		count[best.HostID]++
-		picks = append(picks, best)
+		return b, found
+	}
+	take := func(h hostSlot) {
+		placed[h.HostID] += memMiB
+		count[h.HostID]++
+	}
+	var picks []hostSlot
+	var warnings []string
+	anyHost := func(hostSlot) bool { return true }
+	for len(picks) < n {
+		if mode == clusters.AntiAffinityOff {
+			h, ok := best(hosts, anyHost)
+			if !ok {
+				return nil, nil, noRoom(hosts, placed, memMiB)
+			}
+			take(h)
+			picks = append(picks, h)
+			continue
+		}
+		// A host of its own: no member there, nothing placed yet.
+		h, ok := best(hosts, func(h hostSlot) bool { return count[h.HostID] == 0 })
+		if !ok && mode == clusters.AntiAffinityRequired {
+			if freeHosts(hosts, used) >= n { // enough hosts, not enough memory
+				return nil, nil, noRoom(hosts, placed, memMiB)
+			}
+			return nil, nil, fmt.Errorf("anti-affinity: %d new machine(s) need as many hosts no member runs on - the hypervisors given reach %s", n, describeHosts(hosts, records, used, placed))
+		}
+		if !ok {
+			least := -1
+			for _, x := range hosts {
+				if fits(x) && (least < 0 || count[x.HostID] < least) {
+					least = count[x.HostID]
+				}
+			}
+			if least < 0 {
+				return nil, nil, noRoom(hosts, placed, memMiB)
+			}
+			h, _ = best(hosts, func(x hostSlot) bool { return count[x.HostID] == least })
+			if mode == clusters.AntiAffinityPreferred {
+				warnings = append(warnings, fmt.Sprintf("a machine goes to host %s, which already has %d member(s) of the cluster - anti-affinity preferred, not enough hosts", h.HostName, count[h.HostID]))
+			}
+		}
+		take(h)
+		picks = append(picks, h)
 	}
 	return picks, warnings, nil
 }
 
-func describeHosts(hosts []hostSlot, records, used map[string][]string) string {
+// freeHosts counts the hosts no member runs on.
+func freeHosts(hosts []hostSlot, used map[string][]string) int {
+	n := 0
+	for _, h := range hosts {
+		if len(used[h.HostID]) == 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// noRoom says no host can take a machine of memMiB more.
+func noRoom(hosts []hostSlot, placed map[string]int, memMiB int) error {
+	var parts []string
+	for _, h := range hosts {
+		parts = append(parts, fmt.Sprintf("%s %d MiB free, %d kept", h.HostName, h.FreeMiB-placed[h.HostID], hostReserveMiB(h.TotalMiB)))
+	}
+	return fmt.Errorf("no host has room for a machine of %d MiB: %s", memMiB, strings.Join(parts, "; "))
+}
+
+func describeHosts(hosts []hostSlot, records, used map[string][]string, placed map[string]int) string {
 	var parts []string
 	for _, h := range hosts {
 		s := h.HostName
@@ -140,6 +205,9 @@ func describeHosts(hosts []hostSlot, records, used map[string][]string) string {
 		}
 		if ms := used[h.HostID]; len(ms) > 0 {
 			s += ", where " + strings.Join(ms, ", ") + " run(s)"
+		}
+		if r := h.room(placed[h.HostID]); r >= 0 {
+			s += fmt.Sprintf(", %d MiB to give", r)
 		}
 		parts = append(parts, s)
 	}
@@ -261,7 +329,11 @@ func (a *app) clusterOnHypervisors(w http.ResponseWriter, r *http.Request, name 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	picks, warnings, err := place(slots, nil, req.Count, mode)
+	memMiB := req.Spec.MemoryMiB
+	if memMiB == 0 {
+		memMiB = 1024 // a machine's default (checkSpec)
+	}
+	picks, warnings, err := place(slots, nil, req.Count, memMiB, mode)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -389,7 +461,12 @@ func (a *app) recycleHypervisor(ctx context.Context, c *clusters.Cluster, name s
 			cands = append(cands, slots[0])
 		}
 	}
-	picks, warnings, err := place(append(cands, last...), used, 1, c.Placement.AntiAffinity)
+	// Elsewhere than the replaced member's host when a rule allows it:
+	// that one only frees its memory once the member is gone.
+	picks, warnings, err := place(cands, used, 1, spec.MemoryMiB, c.Placement.AntiAffinity)
+	if err != nil && len(last) > 0 {
+		picks, warnings, err = place(append(cands, last...), used, 1, spec.MemoryMiB, c.Placement.AntiAffinity)
+	}
 	if err != nil {
 		if len(skipped) > 0 {
 			err = fmt.Errorf("%v (left out: %s)", err, strings.Join(skipped, "; "))
