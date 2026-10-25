@@ -127,7 +127,7 @@ export default function Events() {
             <input placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />
           </label>
         </div>
-        <div className="stack events" style={{ gap: '0.35rem', maxHeight: '68vh', overflow: 'auto' }}>
+        <div className="stack events" style={{ gap: '0.35rem', maxHeight: '68vh', overflow: 'auto' }} tabIndex={0} role="log" aria-label="Events">
           {shown.length ? (
             shown.map((e) => (e.type === 'janusd.started' ? <BootRow key={`${e.id}-${e.time_ns}`} e={e} /> : <EventRow key={`${e.id}-${e.time_ns}`} e={e} />))
           ) : (
