@@ -61,6 +61,12 @@ vrrp_instance VI_1 {
   for `janusd -haproxy-drain` (2 seconds) before the soft stop: the
   traffic has moved to another node before any connection is refused. A
   rolling update therefore needs no manual step to keep the service up.
+  A janusd restart (the node page's **Restart janusd**, `janusctl system
+  restart`) and a shutdown by the hypervisor through the guest agent
+  (Proxmox's Shutdown) do the same: the node gives its virtual IPs up and
+  waits the drain delay before keepalived stops with janusd - last of the
+  extensions - and the restarted janusd starts it again: the IPs come
+  back to it by priority.
 - The interface needs an address of its own on the VRRP network - set it
   with the [network configuration](network-configuration.md).
 - HAProxy may bind the virtual IP itself (`bind 192.0.2.100:443`) on

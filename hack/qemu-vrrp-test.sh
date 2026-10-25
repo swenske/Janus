@@ -9,7 +9,8 @@
 # takes it; when it answers again, A takes it back; when A is gone, B
 # takes it again. A broken keepalived.conf is refused, so is use_vmac,
 # the exporter reports the instance, and no AVC denial appears on either
-# node - keepalived writes no kernel parameter.
+# node - keepalived writes no kernel parameter. A janusd restart and a
+# shutdown by the hypervisor (guest agent) hand the IP over first.
 #
 # Usage: hack/qemu-vrrp-test.sh <disk.img> <janusctl-bin>
 #   VRRP_DISCOVERY=1: don't fail on AVC denials - list them (for writing
@@ -29,10 +30,13 @@ OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
 
 WORKDIR="$(mktemp -d)"
-declare -A PID
+declare -A PID QGA
+# Each node's guest agent socket: a Unix socket path is 108 bytes at
+# most, not under WORKDIR (a long TMPDIR puts it past that).
+for n in a b; do QGA[$n]="$(mktemp -u /tmp/janus-qga-$n.XXXXXX)"; done
 cleanup() {
   for n in "${!PID[@]}"; do kill "${PID[$n]}" 2>/dev/null || true; done
-  rm -rf "$WORKDIR"
+  rm -rf "$WORKDIR" "${QGA[a]}" "${QGA[b]}"
 }
 trap cleanup EXIT
 fail() {
@@ -57,6 +61,9 @@ node() {
     -device "virtio-net-pci,netdev=net0,mac=52:54:00:aa:00:0$i" \
     -netdev "socket,id=lan,mcast=$MCAST,localaddr=127.0.0.1" \
     -device "virtio-net-pci,netdev=lan,mac=52:54:00:bb:00:0$i" \
+    -device virtio-serial \
+    -chardev "socket,path=${QGA[$n]},server=on,wait=off,id=qga0" \
+    -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
     -serial file:"$WORKDIR/$n.log" &
   PID[$n]=$!
 }
@@ -187,16 +194,58 @@ wait_state a MASTER
 wait_state b BACKUP
 echo "  ok: A's HAProxy back - A took the virtual IP back"
 
+# A's janusd restarted: the virtual IP goes to B first - A leaves MASTER
+# while its janusd still answers (the node drained for the HAProxy drain
+# delay) - and keepalived stops last; the next janusd starts it again and
+# A takes the IP back. Stopped at once, keepalived dropped the IP before
+# B had it (v2026.10.24-4's lab: 3 requests lost under load).
+ctl a system restart >/dev/null || fail "restart janusd on A"
+left=
+for _ in $(seq 60); do
+  s="$(state a || true)" # "" once A's janusd is gone
+  case "$s" in
+  FAULT | BACKUP) left=$s; break ;;
+  "") break ;;
+  esac
+  sleep 0.25
+done
+[ -n "$left" ] || fail "A's janusd went away with A still MASTER - the virtual IP wasn't handed over first"
+wait_state b MASTER
+wait_state a MASTER
+wait_state b BACKUP
+[ "$(ctl a system ps | grep -c '/usr/local/sbin/keepalived')" = 2 ] || fail "keepalived on A after the restart: $(ctl a system ps | grep keepalived)"
+echo "  ok: A's janusd restarted - A went $left with its janusd still up, B took the IP, A took it back (one keepalived)"
+
 m="$(curl -fsS -m 5 "http://127.0.0.1:$((BASE + 12))/metrics")" || fail "no metrics on A"
 grep -q '^janus_vrrp_instance_state{instance="VI_1",interface="eth1",state="MASTER"} 1$' <<<"$m" || fail "janus_vrrp_instance_state: $(grep vrrp <<<"$m")"
 echo "  ok: the exporter reports the instance"
 
-# A gone: B takes the IP.
-kill "${PID[a]}"
+# A shut down by its hypervisor through the guest agent (Proxmox's
+# Shutdown button): janusd's SIGTERM path soft-stops HAProxy first, whose
+# drain has A leave MASTER while keepalived still runs - B takes the IP
+# before A's keepalived stops. Extensions first, A dropped the IP at once
+# (v2026.10.24-4's lab: 2 requests lost to a hypervisor's shutdown).
+qga() { python3 "$(dirname "$0")/qga-client.py" "${QGA[$1]}" "${@:2}"; }
+deadline=$((SECONDS + 30))
+until qga a guest-ping >/dev/null 2>&1; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "A's guest agent never answered"
+  sleep 1
+done
+qga a guest-shutdown >/dev/null 2>&1 || true # no answer: it goes down
+for _ in $(seq 60); do kill -0 "${PID[a]}" 2>/dev/null || break; sleep 1; done
+if kill -0 "${PID[a]}" 2>/dev/null; then fail "A didn't power off after the guest agent's shutdown"; fi
+# Read on A's console - its API is busy stopping HAProxy meanwhile:
+# after janusd's SIGTERM, VI_1 left MASTER before keepalived stopped.
+left="$(tr -d '\r' <"$WORKDIR/a.log" | awk '
+  /janusd: SIGTERM/ { s = 1; next }
+  s && !l && /\(VI_1\) Entering (FAULT|BACKUP) STATE/ { l = NR; st = $0; sub(/.*Entering /, "", st); sub(/ STATE.*/, "", st) }
+  s && !k && /[0-9]: Stopping$/ { k = NR }
+  END { if (l && k && l < k) print st }')"
+[ -n "$left" ] || fail "A's keepalived stopped with A still MASTER - the virtual IP wasn't handed over first: $(tr -d '\r' <"$WORKDIR/a.log" | grep -a -A 12 'janusd: SIGTERM')"
 unset 'PID[a]'
 wait_state b MASTER
 got_vip b || fail "B is MASTER without the virtual IP after A went away"
-echo "  ok: A gone - B took the virtual IP"
+echo "  ok: A shut down by its hypervisor - A went $left first, B took the virtual IP, A powered off"
 
 # Removing the configuration stops keepalived.
 : > "$WORKDIR/empty.conf"

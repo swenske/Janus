@@ -298,3 +298,35 @@ func waitOutput(t *testing.T, b *syncBuf, want string) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// StopAll stops the services it is told to stop last once the others have
+// exited - keepalived and BIRD after a slow Consul leave.
+func TestStopAllLast(t *testing.T) {
+	dir := t.TempDir()
+	svc := func(id, onTerm string) Service {
+		return Service{ID: id, Path: "/bin/sh", Args: []string{"-c", "trap '" + onTerm + "; exit 0' TERM; while :; do sleep 0.05; done"}}
+	}
+	m := NewManagerWithTiming([]Manifest{
+		{Name: "vrrp", Version: "1", Services: []Service{svc("holder", "date +%s%N > "+dir+"/holder")}},
+		{Name: "consul", Version: "1", Services: []Service{svc("slow", "sleep 0.5; date +%s%N > "+dir+"/slow")}},
+	}, func(string) io.Writer { return io.Discard }, Timing{MinBackoff: 50 * time.Millisecond, MaxBackoff: 200 * time.Millisecond, StableAfter: time.Hour, StopTimeout: 5 * time.Second})
+	m.Start()
+	waitState(t, m, "holder", "running")
+	waitState(t, m, "slow", "running")
+	m.StopAll("holder")
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(b))
+	}
+	if holder, slow := read("holder"), read("slow"); holder < slow {
+		t.Errorf("holder stopped at %s, before slow was done at %s", holder, slow)
+	}
+	for _, id := range []string{"holder", "slow"} {
+		if st, _ := m.State(id); st.State != "stopped" {
+			t.Errorf("%s: %s", id, st.State)
+		}
+	}
+}
