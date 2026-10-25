@@ -269,6 +269,23 @@ example:
 - v2026.10.24-2: the clusters' in-sync under load and a member removed
   with the ticket keys checked by TLS resumption (below); a member of a
   cluster of Controller machines recycled under load (Recycling).
+- v2026.10.24-3: a **full campaign**, every scenario and every feature
+  at the user's request: the factory's every-extension, HAProxy 3.0 +
+  longterm and HAProxy 3.2 images on demand; on a machine with every
+  extension, network and firewall trials left to revert, VRRP, the BGP
+  gate, Consul's validation, kernel parameters (trial, cancel, timeout,
+  refusals, a reboot), LOGS and the audit, the exporters' addresses, the
+  HAProxy history, runtime maps/ACLs and SNI certificates, the console's
+  share, its state carried into a machine of another image; Let's
+  Encrypt's four paths (as v2026.10.23-2); auto-scaling and two OOM kills
+  on a plain machine; the Controller's 9 tabs and a full node's 36
+  pages in two palettes and both modes with axe on WCAG 2 A/AA,
+  accounts and roles, single sign-on (as v2026.10.22-2), scoped tokens,
+  enrollment tokens, a machine resized, re-addressed, moved to another
+  image and locked, the release's Terraform provider with OpenTofu,
+  backups to a bucket of their own, `janusctl`'s sign-ins; the clusters
+  from creation to deletion, a member removed and joining again, and
+  the recycle under load.
 
 ### HAProxy killed by the kernel
 
