@@ -141,6 +141,12 @@ firmware reboots run on node 02 four times and on node 01 twice, each
 node's serial console timestamped on its host: the kernel's "Restarting
 system", the firmware's boot manager, the next kernel and the API, and
 any virtio-net failure in between - for the intermittent slow reboot.
+Since v2026.10.25-3, a Controller machine without a variable store and
+one with a store, on the same host at the same time: 45 firmware
+reboots each through their node pages, each timed to HAProxy answering
+again, their consoles timestamped through the Controller's console
+stream ("Restarting system" to the firmware's boot manager); and the
+new machines' libvirt definitions read on both hosts.
 
 ### Rollback
 
@@ -471,6 +477,54 @@ system state import -from OLD`, then by a third with `-identity`.
 | The identity | the CA the new node's API certificate is issued by, before and after - its own without `-identity`, the old node's with it |
 | The way it went | both nodes' logs: the grant (until when, the identity or not, by whom), the export by the transfer certificate, the import |
 | The refusals | a grant asked with a reader's certificate; a second import onto a node already in use |
+
+### A cluster from a node
+
+Since v2026.10.25-3, as the migration of a load balancer already
+serving: node 01 given a map, an error page and an uploaded certificate,
+then **New cluster → New machines → Start from** node 01 on the
+Controller's page, in a browser (two machines, anti-affinity required,
+both hosts).
+
+| Measured | How |
+|---|---|
+| The time | the call to the cluster made, from its journal |
+| The node untouched | its `haproxy.cfg`'s SHA-256, files and certificates before and after; in no cluster |
+| The way it went | the node's log and audit: one grant (by whom, until when, the identity or not), one export by the machine's transfer certificate, from the machine's own address |
+| What the members got | their `haproxy.cfg` against the node's, the files' SHA-256, the certificate loaded; each one's CA, hostname and address its own |
+| A `bind` on the node's own address | the node given one, a one-machine cluster seeded from it: refused or made, what the member listens on; the node's configuration put back |
+
+### Let's Encrypt in a cluster
+
+Since v2026.10.25-3, on the cluster above: a private ACME CA (Pebble)
+behind the lab's proxy, its DNS answering every name with the member
+that **doesn't** order, so each HTTP-01 challenge is answered by it. Two
+certificates (HTTP-01 and DNS-01) configured on the secrets' source
+through its page; versions adding the HTTP-01 rule, then a TLS frontend.
+
+| Measured | How |
+|---|---|
+| Who orders | each member's Let's Encrypt status (ordered by, the account it answers challenges with), the journal |
+| A renewal asked of the member that doesn't order | refused, and how |
+| Pulling | a renewal forced on the orderer, **Check now**: the journal, the serial each member serves |
+| The handover | the secrets' source changed on the page, **Check now**: who orders, the CA's issued certificates, each member's challenge answer; the CA pointed at the old orderer and a renewal asked of the new one |
+
+### A RouterOS router in front
+
+Since v2026.10.25-3, on the lab's router, for the campaign only (taken
+back off after): the REST service with a self-signed certificate open to
+the Controller's address, a group and a user as the guide says, an input
+rule for the Controller. The members given a test /32 and a frontend
+answering their name.
+
+| Step | How | Measured |
+|---|---|---|
+| The routes | the balancer set (`routeros`, the fingerprint, `check_gateway`) | the routes and their flags on the router, the journal |
+| The spread | new connections from the four clients, the router's hash `l3`, then `l4`, then `l4` with the /32 out of FastTrack | each member's share per client; connections reset |
+| A drain | `wrk` (keep-alive) from a runner and new connections every 50 ms from another; a member drained then undrained; then each alone | the journal's order (told, then drained); lost probes; `wrk`'s errors against a run without a drain |
+| Drift | a route deleted by hand, another changed, **Check now**; a route of the router's own to the same prefix | the journal; the routes after |
+| A member lost | its machine forced off, not drained, probes running | how long its share failed; its route's flags; back once started |
+| Removed | the balancer removed | the routes left |
 
 ## The scripts
 
