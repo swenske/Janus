@@ -25,6 +25,12 @@ type Nodes interface {
 	// Probe: m reaches target (host:port) over TCP.
 	Probe(ctx context.Context, m Member, target string) error
 	CertificateRequest(ctx context.Context, m Member) ([]byte, error)
+	// A node-to-node state transfer's steps (Seed): a signing request
+	// for m's transfer key; m's grant of one export to it - never the
+	// identity; m pulling from addr with it.
+	StateTransferRequest(ctx context.Context, m Member) ([]byte, error)
+	StateExportGrant(ctx context.Context, m Member, csr []byte) (cert, ca []byte, err error)
+	StateImportFrom(ctx context.Context, m Member, addr string, ca, cert []byte) (*janusv1alpha1.StateImportResponse, error)
 	ClusterGet(ctx context.Context, m Member) (*janusv1alpha1.ClusterInfo, error)
 	ClusterSet(ctx context.Context, m Member, req *janusv1alpha1.ClusterSetRequest) (*janusv1alpha1.ClusterInfo, error)
 	ClusterLeave(ctx context.Context, m Member) error
@@ -159,6 +165,39 @@ func (g GRPC) CertificateRequest(ctx context.Context, m Member) ([]byte, error) 
 		return nil, nodeError(err)
 	}
 	return resp.GetCsr(), nil
+}
+
+func (g GRPC) StateTransferRequest(ctx context.Context, m Member) ([]byte, error) {
+	c, err := g.system(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.CertificateRequest(ctx, &janusv1alpha1.CertificateRequestRequest{Purpose: janusv1alpha1.CertificatePurpose_CERTIFICATE_PURPOSE_STATE_TRANSFER})
+	if err != nil {
+		return nil, nodeError(err)
+	}
+	return resp.GetCsr(), nil
+}
+
+func (g GRPC) StateExportGrant(ctx context.Context, m Member, csr []byte) ([]byte, []byte, error) {
+	c, err := g.system(ctx, m)
+	if err != nil {
+		return nil, nil, err
+	}
+	resp, err := c.StateExportGrant(ctx, &janusv1alpha1.StateExportGrantRequest{Csr: csr})
+	if err != nil {
+		return nil, nil, nodeError(err)
+	}
+	return resp.GetCertificate(), resp.GetCa(), nil
+}
+
+func (g GRPC) StateImportFrom(ctx context.Context, m Member, addr string, ca, cert []byte) (*janusv1alpha1.StateImportResponse, error) {
+	c, err := g.system(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.StateImportFrom(ctx, &janusv1alpha1.StateImportFromRequest{Address: addr, Ca: ca, Certificate: cert, Options: &janusv1alpha1.StateImportOptions{}})
+	return resp, nodeError(err)
 }
 
 func (g GRPC) ClusterGet(ctx context.Context, m Member) (*janusv1alpha1.ClusterInfo, error) {

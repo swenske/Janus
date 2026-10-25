@@ -134,7 +134,7 @@ function ClusterList({ nodes }) {
 
 // MACHINE_DEFAULTS are a new cluster's machines' - what a machine made
 // on its own gets.
-const MACHINE_DEFAULTS = { count: 2, vcpus: 2, memory: 1024, version: '', network: '', nic: 'eth0', anti: 'required' }
+const MACHINE_DEFAULTS = { count: 2, vcpus: 2, memory: 1024, version: '', network: '', nic: 'eth0', anti: 'required', seed: '' }
 
 // hvNetworks are the networks a hypervisor record offers its machines.
 const hvNetworks = (hv) => hv?.libvirt?.networks || hv?.proxmox?.networks || []
@@ -192,6 +192,7 @@ function CreateCluster({ nodes, onCancel, onCreated }) {
               count: Number(mach.count),
               anti_affinity: mach.anti,
               hypervisors: hvs,
+              ...(mach.seed ? { seed_from: mach.seed } : {}),
               spec: {
                 vcpus: Number(mach.vcpus),
                 memory_mib: Number(mach.memory),
@@ -293,10 +294,31 @@ function CreateCluster({ nodes, onCancel, onCreated }) {
                 </div>
               </div>
             )}
+            {nodes.length > 0 && (
+              <label className="field">
+                <span>Start from</span>
+                <select value={mach.seed} onChange={(e) => setMach({ ...mach, seed: e.target.value })}>
+                  <option value="">A new node’s own configuration</option>
+                  {nodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.name} - its configuration, files and certificates
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <p className="small muted">
               The Controller makes the machines - named after the cluster, {name || 'edge'}-1, {name || 'edge'}-2… - each on a host of its own unless anti-affinity says
               otherwise, waits until they register and trust the fleet, then makes the cluster from them: the first one’s configuration becomes its version 1. Refused before
               anything is made when the hosts don’t allow it.
+              {mach.seed && (
+                <>
+                  {' '}
+                  Starting from a node, the first machine takes that node’s state first - its HAProxy configuration and history, files, certificates, Let’s Encrypt and
+                  settings, not its identity nor its network - pulled from node to node, never through the Controller; the node itself stays as it is. Its extensions must
+                  be the machines’ for what it runs.
+                </>
+              )}
             </p>
           </div>
         ) : nodes.length === 0 ? (

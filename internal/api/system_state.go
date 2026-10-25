@@ -23,6 +23,23 @@ import (
 // stateTransferAllowed refuses what can't carry a node's state: a call
 // the Controller relays, a janusd without STATE.
 func (s *System) stateTransferAllowed(c Caller) error {
+	return s.transferAllowed(c, true)
+}
+
+// transferAllowed is stateTransferAllowed for a node-to-node transfer's
+// steps (the request, the grant, the pull): the state goes from node to
+// node, never through the caller, so the Controller may orchestrate it -
+// a cluster seeded from a node (docs/guide/clusters.md) - as long as the
+// node's identity doesn't go: identity says it would. The Controller
+// could have a fleet node's other secrets pulled already, by a cluster
+// member it makes; its own CA and keys never.
+func (s *System) transferAllowed(c Caller, identity bool) error {
+	if c.Via != "" && !identity {
+		if s.StateRoot == "" {
+			return status.Error(codes.FailedPrecondition, "this janusd keeps no STATE: it isn't a node")
+		}
+		return nil
+	}
 	if c.Via != "" {
 		return status.Errorf(codes.PermissionDenied, "a node's state carries its private keys: it never goes through %s - call the node itself (janusctl with its own or a fleet certificate)", c.Via)
 	}

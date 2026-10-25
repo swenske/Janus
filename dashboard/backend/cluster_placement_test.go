@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/hypervisor"
 	"github.com/swenske/Janus/dashboard/backend/internal/machines"
+	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/internal/clusters"
 	"github.com/swenske/Janus/internal/nocloud"
 )
@@ -407,5 +409,88 @@ func TestRecyclePreferredKeepsHostsApart(t *testing.T) {
 	hv, _, err := a.recycleHypervisor(context.Background(), c, onH2, spec)
 	if err != nil || hv != h1.ID {
 		t.Errorf("off, recycling %s on kvm01-again: %s %v", onH2, hv, err)
+	}
+}
+
+// A cluster of new machines seeded from a node: the first machine takes
+// the node's state - node to node, the node untouched but for its grant -
+// and the cluster is made from it, version 1 the node's configuration.
+func TestClusterSeededFromANode(t *testing.T) {
+	x := newHVHarness(t)
+	a := x.a
+	x.fakes[x.h2.ID].hostID = "libvirt:bbbb"
+	// lb-pub: a node of the Controller's, alone, trusting the fleet.
+	pub := &store.Node{Name: "lb-pub", Address: "10.0.0.99:9505"}
+	if err := a.store.Add(pub); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.store.SetFleet(pub.ID); err != nil {
+		t.Fatal(err)
+	}
+	pubCfg := []byte("global\nfrontend fe_https # lb-pub's\n")
+	x.f.mu.Lock()
+	x.f.byAddr["10.0.0.99:9505"] = "lb-pub"
+	x.f.nodes["lb-pub"] = &fakeMember{schematic: "s1", healthy: true, cfg: pubCfg, files: map[string][]byte{"maps/hosts.map": []byte("a.example be_a\n")}, secret: map[string]bool{}, modules: map[string][]byte{}}
+	x.f.mu.Unlock()
+
+	// Refused before anything is made: an unknown node, a member.
+	req := x.request("")
+	req.SeedFrom = "nope"
+	if rec := x.create("bad", req); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "seed_from: no node nope") {
+		t.Errorf("an unknown seed: %d %s", rec.Code, rec.Body)
+	}
+
+	req.SeedFrom = pub.ID
+	mark := x.f.mark()
+	c := x.build("edge", req)
+	calls := x.f.callsSince(mark)
+	if !inOrder(calls, "lb-pub HAProxyConfig", "edge-1 StateTransferRequest", "lb-pub StateExportGrant csr of edge-1", "edge-1 StateImportFrom 10.0.0.99:9505 grant of lb-pub", "edge-1 HAProxyConfig", "edge-1 Healthy", "edge-1 CertificateRequest") {
+		t.Errorf("the seeding's calls: %v", calls)
+	}
+	for _, cl := range calls {
+		if strings.HasPrefix(cl, "lb-pub ") && !strings.HasPrefix(cl, "lb-pub HAProxyConfig") && !strings.HasPrefix(cl, "lb-pub StateExportGrant") {
+			t.Errorf("lb-pub was touched: %s", cl)
+		}
+		if strings.HasPrefix(cl, "edge-2 StateImportFrom") {
+			t.Error("edge-2 seeded too: only the source is")
+		}
+	}
+	if c.SecretsFrom != "edge-1" || len(c.Members) != 2 {
+		t.Errorf("the cluster: from %s, %+v", c.SecretsFrom, c.Members)
+	}
+	v, err := a.clusters.Store.Version(c.ID, 1)
+	if err != nil || !strings.Contains(string(v.Content["haproxy.cfg"]), "lb-pub's") {
+		t.Errorf("version 1 isn't lb-pub's configuration: %v %q", err, v.Content["haproxy.cfg"])
+	}
+	if !journalSays(t, a, c.ID, "edge-1 took lb-pub's state, node to node") || !journalSays(t, a, c.ID, "edge-1 back, serving lb-pub's configuration") {
+		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 30))
+	}
+	// lb-pub is in no cluster.
+	if a.clusters.Store.ClusterOf(pub.ID) != "" {
+		t.Error("lb-pub became a member")
+	}
+
+	// Seeding from a member is refused; a grant refused destroys the
+	// machines made.
+	req.SeedFrom = c.Members[0].NodeID
+	if rec := x.create("again", req); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "a member of a cluster already") {
+		t.Errorf("a member as the seed: %d %s", rec.Code, rec.Body)
+	}
+	x.f.mu.Lock()
+	x.f.fail["lb-pub StateExportGrant"] = errors.New("update it first")
+	x.f.mu.Unlock()
+	req.SeedFrom = pub.ID
+	rec := x.create("edge2", req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("create edge2: %d %s", rec.Code, rec.Body)
+	}
+	var cv clusterView
+	_ = json.Unmarshal(rec.Body.Bytes(), &cv)
+	for i := range 2 {
+		x.register(x.machine(fmt.Sprintf("edge2-%d", i+1)))
+	}
+	c2 := x.idle(cv.ID)
+	if !strings.Contains(c2.Error, "lb-pub granting edge2-1 one export of its state: update it first") || !strings.Contains(c2.Error, "the machines made are destroyed") {
+		t.Errorf("a refused grant: %q", c2.Error)
 	}
 }

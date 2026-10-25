@@ -652,6 +652,43 @@ for name in pref-1 pref-2; do
   done
   [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$mid")" = 404 ] || fail "$name was never destroyed"
 done
+
+# A cluster seeded from node1: its first machine takes node1's state
+# (node to node, without its identity), the cluster made from it - node1
+# itself left as it is.
+api "$API/nodes/$NODE/api/haproxy/config" | json "d['config']" >"$WORKDIR/node1.cfg" || fail "node1's configuration"
+printf '# node1-own-marker\n' >>"$WORKDIR/node1.cfg"
+python3 -c 'import json,sys; print(json.dumps({"config": open(sys.argv[1]).read()}))' "$WORKDIR/node1.cfg" >"$WORKDIR/node1-apply.json"
+api -X POST -H 'Content-Type: application/json' -d @"$WORKDIR/node1-apply.json" "$API/nodes/$NODE/api/haproxy/config" >"$WORKDIR/node1-applied.json" || fail "mark node1's configuration: $(cat "$WORKDIR/node1-applied.json")"
+seed_body="$(cluster_body seed preferred | python3 -c 'import json,sys; d=json.load(sys.stdin); d["machines"]["seed_from"]=sys.argv[1]; print(json.dumps(d))' "$NODE")"
+api -X POST "$API/api/clusters" -H 'Content-Type: application/json' -d "$seed_body" >"$WORKDIR/c.json" || fail "create seed: $(cat "$WORKDIR/c.json")"
+CID="$(json "d['id']" <"$WORKDIR/c.json")"
+cluster_idle 900
+api "$API/api/clusters/$CID" >"$WORKDIR/c.json"
+err="$(json "d.get('error','')" <"$WORKDIR/c.json")"
+[ -z "$err" ] || fail "the cluster seeded from node1: $err"
+[ "$(json "','.join(sorted(m['name'] for m in d['members']))" <"$WORKDIR/c.json")" = "seed-1,seed-2" ] || fail "its members: $(json "d['members']" <"$WORKDIR/c.json")"
+api "$API/api/clusters/$CID/versions/1" | json "d['content']['haproxy.cfg']" | grep -q 'node1-own-marker' || fail "version 1 isn't node1's configuration"
+api "$API/api/clusters/$CID/journal" | grep -q "seed-1 took node1's state, node to node" || fail "the journal doesn't say seed-1 took node1's state: $(api "$API/api/clusters/$CID/journal")"
+s2="$(api "$API/api/clusters/$CID" | json "next(m['node_id'] for m in d['members'] if m['name']=='seed-2')")"
+api "$API/nodes/$s2/api/haproxy/config" | json "d['config']" | grep -q 'node1-own-marker' || fail "seed-2 doesn't run node1's configuration"
+api "$API/nodes/$NODE/api/haproxy/config" | json "d['config']" | grep -q 'node1-own-marker' || fail "node1's own configuration changed"
+[ "$(api "$API/api/clusters" | json "sum(1 for c in d for m in c['members'] if m['node_id']=='$NODE')")" = 0 ] || fail "node1 became a member"
+echo "Part 4g OK: a cluster seeded from node1 - seed-1 took its state node to node, the cluster made from it (version 1 node1's configuration, on seed-2 too), node1 left as it was"
+api -o /dev/null -X DELETE "$API/api/clusters/$CID" || fail "delete seed"
+for _ in $(seq 1 60); do
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/clusters/$CID")" = 404 ] && break
+  sleep 1
+done
+for name in seed-1 seed-2; do
+  mid="$(api "$API/api/machines" | json "next(m['id'] for m in d if m['spec']['name']=='$name')")"
+  api -o /dev/null -X DELETE "$API/api/machines/$mid"
+  for _ in $(seq 1 90); do
+    [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$mid")" = 404 ] && break
+    sleep 1
+  done
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$mid")" = 404 ] || fail "$name was never destroyed"
+done
 api -o /dev/null -X DELETE "$API/api/hypervisors/$HV2" || fail "remove the second record"
 }
 

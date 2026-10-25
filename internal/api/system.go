@@ -268,7 +268,7 @@ func (s *System) CertificateRequest(ctx context.Context, req *janusv1alpha1.Cert
 		log.Printf("cluster: a signing request made for the member certificate - by %s", caller)
 		return &janusv1alpha1.CertificateRequestResponse{Csr: csr}, nil
 	case janusv1alpha1.CertificatePurpose_CERTIFICATE_PURPOSE_STATE_TRANSFER:
-		if err := s.stateTransferAllowed(caller); err != nil {
+		if err := s.transferAllowed(caller, false); err != nil { // a signing request: its key stays here
 			return nil, err
 		}
 		if why := statexfer.InUse(s.StateRoot); why != "" {
