@@ -120,7 +120,10 @@ On the node holding the VIP and the anycast route, probes for 60 s:
   Restart janusd on the backup) - the extension daemons listed before
   and after, one of each expected; and the node **shut down by its
   hypervisor through the guest agent** (`virsh shutdown --mode agent`,
-  Proxmox's Shutdown), started again once off.
+  Proxmox's Shutdown), started again once off; since v2026.10.24-5 the
+  restart from the master's node page too, and a machine alone (its own
+  VRRP instance) restarted once its janusd has run over a minute -
+  init doubles its restart delay for a process that ran less.
 
 Measured: each address's outage, when the node goes and when it comes
 back.
@@ -299,6 +302,9 @@ example:
   under the three runners at once; the six node pages v2026.10.24-3's
   axe run had findings on; a cancelled kernel parameter trial; a quick
   clusters pass with the recycle under load.
+- v2026.10.24-5: the restart and the hypervisor's shutdown again, with
+  the drain first (Failovers); `-h` on the power commands; clusters
+  made on the hypervisor and scaled, and auto-scaling, below.
 
 ### HAProxy killed by the kernel
 
@@ -420,6 +426,21 @@ master recycled through the API as the page does.
 | The ticket keys | the remaining members' rings shared and renewed; a session from before no longer resuming |
 | The journal, the page | each step journaled; the Members tab and its Recycle form in headless Chromium, both themes, axe |
 
+### Clusters on the hypervisor, and scaling
+
+Since v2026.10.24-5. The lab has one KVM host:
+
+| Step | How | Measured |
+|---|---|---|
+| Anti-affinity required | a cluster of two new machines asked on the host's record | refused before anything is made, the hosts named; no machine, no cluster |
+| Two records, one host | a second record to the same SSH server (another address), its key added to the Controller's account on the host and removed after | both records' host identity |
+| Anti-affinity preferred | the cluster made on both records | its time; the placement journaled; the page's same-host problem, each member's host |
+| A recycle | a member recycled | where its machine went, the journal |
+| Scaling | a version answering on port 80 with a stick table; the members set to 3 then 2 while two runners load one member each (`wrk`, as a balancer in front would), probes of both | the times; `wrk`'s errors, lost probes; the new member made like the newest; the removed one's machine destroyed |
+| Auto-scaling | the policy at its shortest windows (1 min out, 5 min in, 1 min cooldowns); `observe`, then `on`, under the runners' load on the members (one vCPU each); then the load stopped | the load as the engine reads it; its journal (would add, adding, taking out) and the times; the member added's share of the traffic |
+| A VRRP cluster | a version with a keepalived template applied, then auto-scaling asked; and a VRRP version applied with auto-scaling on | the refusals |
+| The pages | the cluster's page and the New machines form, two palettes, both modes, axe | page and console errors, findings |
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -495,3 +516,9 @@ ran:
   `kernel-count`: each node's kernel messages in Elasticsearch, by host;
 - for auto-scaling, the policy, journal and load helpers and the HAProxy
   configurations.
+- `plc.sh`: helpers for a cluster made on the hypervisor (its view,
+  journal, `scale`); `s-scale`: the members set to 3 and 2 under load on
+  each member; `s-auto`: auto-scaling observe, on and quiet under the
+  runners' load; `s-vrrp`: a VRRP version and the refusals;
+  `u-check40` (+ `.mjs`): the cluster's page and the New machines form
+  in headless Chromium (v2026.10.24-5).
