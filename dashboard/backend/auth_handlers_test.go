@@ -377,6 +377,7 @@ func TestAudit(t *testing.T) {
 	a.req(t, "GET", "/api/version", rita, nil)
 	root := a.login(t, "root", "root-password")
 	a.req(t, "PUT", "/api/settings", root, map[string]int{"session_idle_minutes": 60, "session_max_hours": 8})
+	a.req(t, "DELETE", "/api/clusters/nope?machines=destroy", rita, nil)
 
 	entries, err := a.audit.Recent(100, nil)
 	if err != nil {
@@ -387,6 +388,7 @@ func TestAudit(t *testing.T) {
 		got = append(got, e.User+" "+e.Via+" "+e.Method+" "+e.Path+" "+http.StatusText(e.Status))
 	}
 	want := []string{
+		"rita session DELETE /api/clusters/nope?machines=destroy Forbidden",
 		"root session PUT /api/settings OK",
 		"root  POST /api/auth/login No Content",
 		"rita session POST /api/hypervisors Forbidden",
