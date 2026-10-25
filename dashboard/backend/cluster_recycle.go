@@ -38,6 +38,15 @@ type recycleRequest struct {
 // trust (a var: the tests shorten it).
 var awaitTimeout = 20 * time.Minute
 
+// hypervisorName is hypervisor record id's name, for the journal - its
+// id when it is gone.
+func (a *app) hypervisorName(id string) string {
+	if h, ok := a.hypervisors.Get(id); ok {
+		return h.Name
+	}
+	return id
+}
+
 // machineOf is the machine node id runs on, nil when it isn't one of
 // this Controller's machines.
 func (a *app) machineOf(nodeID string) *machines.Machine {
@@ -188,7 +197,7 @@ func (a *app) recycle(ctx context.Context, id string, req recycleRequest, actor 
 			if created, err = a.newMachine(spec, "replacing "+name+" in cluster "+c.Name); err != nil {
 				return fmt.Errorf("%s's replacement: %v", name, err)
 			}
-			a.clusters.Journal(id, actor, "recycle", name, 0, "%s: a new machine, %s, on %s", name, spec.Name, spec.HypervisorID)
+			a.clusters.Journal(id, actor, "recycle", name, 0, "%s: a new machine, %s, on %s", name, spec.Name, a.hypervisorName(spec.HypervisorID))
 			n, err := a.awaitMachine(ctx, created.ID)
 			if err != nil {
 				a.destroyMachine(created.ID)

@@ -86,7 +86,7 @@ func (a *app) scaleOut(ctx context.Context, id, actor string) error {
 	if err != nil {
 		return err
 	}
-	a.clusters.Journal(id, actor, "scale", spec.Name, 0, "a member more: %s, a new machine like %s, on %s", spec.Name, model.Name, spec.HypervisorID)
+	a.clusters.Journal(id, actor, "scale", spec.Name, 0, "a member more: %s, a new machine like %s, on %s", spec.Name, model.Name, a.hypervisorName(spec.HypervisorID))
 	node, err := a.awaitMachine(ctx, created.ID)
 	if err != nil {
 		a.destroyMachine(created.ID)

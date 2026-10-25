@@ -294,6 +294,9 @@ func TestClusterOnHypervisors(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+	if !journalSays(t, a, c.ID, "a new machine, edger-3, on kvm01") {
+		t.Errorf("the recycle's journal doesn't name the hypervisor: %v", a.clusters.Store.Entries(c.ID, 50))
+	}
 	if repl, _ = a.machines.Get(repl.ID); repl.Spec.HypervisorID != h1.ID {
 		t.Errorf("the replacement went to %s, not the replaced member's host (the other is taken)", repl.Spec.HypervisorID)
 	}
