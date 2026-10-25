@@ -62,6 +62,14 @@ func (s *System) Restart(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Re
 	events.Publish("system.restart", nil)
 	go func() {
 		time.Sleep(replyGrace)
+		// The extensions' daemons are janusd's children: left running, the
+		// next janusd started its own beside them - keepalived, consul,
+		// node_exporter refusing to start for good, the old ones orphaned
+		// and unmanaged (v2026.10.24-3's lab). HAProxy goes on serving: the
+		// next janusd takes it over.
+		if s.Extensions != nil {
+			s.Extensions.StopAll()
+		}
 		log.Printf("janusd: exiting for a restart requested over the API")
 		os.Exit(0)
 	}()

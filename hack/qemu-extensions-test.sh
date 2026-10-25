@@ -195,6 +195,33 @@ ctl system service start prometheus-node-exporter >/dev/null || fail "ServiceSta
 wait_metrics
 echo "  ok: extension service stopped and started through the API"
 
+# janusd restarted (SystemService/Restart): its extension daemons go with
+# it and the next janusd starts them again, each once - v2026.10.24-3's lab
+# saw the old ones orphaned and the new ones failing for good ("daemon is
+# already running", the port taken). HAProxy goes on serving, taken over
+# (and reloaded, seamlessly) by the new janusd: probed all along.
+daemons() { ctl system ps 2>/dev/null | grep -cE "/usr/local/sbin/($1)( |$)"; }
+( end=$((SECONDS + 30)); while [ "$SECONDS" -lt "$end" ]; do echo "$(http_code)"; sleep 0.2; done ) > "$WORKDIR/restart-probe.txt" &
+probe=$!
+janusd_pid() { ctl system ps 2>/dev/null | awk '/ \/sbin\/janusd / {print $1; exit}'; }
+old_janusd="$(janusd_pid)"
+ctl system restart >/dev/null || fail "Restart"
+deadline=$((SECONDS + 60))
+# The old janusd answers until it has stopped its extensions: wait for the
+# new one first.
+until [ -n "$(janusd_pid)" ] && [ "$(janusd_pid)" != "$old_janusd" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "janusd never restarted (pid $old_janusd)"
+  sleep 1
+done
+until [ "$(daemons node_exporter)" = 1 ] && [ "$(daemons qemu-ga)" = 1 ] && ctl system services 2>/dev/null | grep -Eq "^prometheus-node-exporter +running +healthy" && ctl system services 2>/dev/null | grep -Eq "^qemu-guest-agent +running +healthy"; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "after a janusd restart: node_exporter x$(daemons node_exporter), qemu-ga x$(daemons qemu-ga); $(ctl system services 2>&1)"
+  sleep 1
+done
+wait_metrics
+wait "$probe"
+[ "$(grep -vc '^200$' "$WORKDIR/restart-probe.txt")" = 0 ] || fail "HAProxy didn't answer all along the restart: $(sort "$WORKDIR/restart-probe.txt" | uniq -c | tr '\n' ' ')"
+echo "  ok: janusd restarted - its extension daemons went with it and came back once each; HAProxy answered all along ($(wc -l < "$WORKDIR/restart-probe.txt") probes)"
+
 # Where node_exporter listens: by default the main interface - the
 # address the default route leaves by (QEMU's lease on eth0) -, not
 # every address; every address with '*', the main interface with auto.

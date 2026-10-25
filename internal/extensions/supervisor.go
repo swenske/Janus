@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
 	"sync"
 	"syscall"
@@ -272,8 +273,12 @@ func (s *service) poke() {
 	}
 }
 
-// run supervises the service forever.
+// run supervises the service forever, on a thread of its own: its daemon
+// gets SIGTERM when that thread goes (Pdeathsig), which is when janusd
+// does - a janusd that dies leaves no daemon behind for the next one to
+// collide with.
 func (s *service) run() {
+	runtime.LockOSThread()
 	t := s.timing
 	backoff := t.MinBackoff
 	for {
@@ -297,6 +302,7 @@ func (s *service) run() {
 		s.mu.Unlock()
 		cmd := exec.Command(s.def.Path, args...)
 		cmd.Stdout, cmd.Stderr = s.logs, s.logs
+		cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 		started := time.Now()
 		if err := cmd.Start(); err != nil {
 			s.mu.Lock()
