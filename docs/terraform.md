@@ -332,6 +332,56 @@ curl ... -X POST /api/users -d '{"name":"web-dev","role":"none",
 **Import:** `terraform import janus_haproxy_config.web lb1` - the node's
 name or ID.
 
+### `janus_cluster`
+
+A [cluster](guide/clusters.md) the Controller makes of new machines on
+its hypervisors, each on a physical host of its own by default:
+
+```hcl
+resource "janus_cluster" "edge" {
+  name          = "edge"              # its machines: edge-1, edge-2...
+  hypervisors   = [janus_hypervisor.kvm01.id, janus_hypervisor.kvm02.id]
+  anti_affinity = "required"          # the default; "preferred", "off"
+  members       = 2
+  machine = {
+    vcpus      = 2
+    memory_mib = 2048
+    version    = "v2026.10.24-6"
+    extensions = ["bird"]
+    interfaces = [{ network = "lab-mgmt", name = "eth0" }] # DHCP
+  }
+  autoscaling = {
+    mode        = "observe"           # then "on"
+    min_members = 2
+    max_members = 4
+  }
+}
+```
+
+- **`members`** changes in place: a member more is a new machine like
+  the newest, placed with the anti-affinity; a member less is the
+  newest, drained, taken out, its machine destroyed. With `autoscaling`
+  `on`, it is the count the cluster starts with: the Controller decides
+  afterwards, `current_members` says what it has, and a change of
+  `members` does nothing.
+- **`autoscaling`** changes in place - its mode, bounds and thresholds
+  (`out_idle_percent`, `out_after_seconds`, `in_after_seconds`...,
+  [scaling](guide/clusters.md#scaling)); removed, it is turned off.
+  Not for a cluster managing VRRP.
+- **`name`, `hypervisors`, `anti_affinity` and `machine`** make a new
+  cluster. To move one to a new release member by member, recycle its
+  members from the Controller instead.
+- **Destroying** it ends the cluster - its members leave - and destroys
+  its machines, those auto-scaling made too.
+- The cluster's configuration - its versions, VRRP or BGP templates,
+  certificates - is the Controller's or `janusctl cluster`'s, not this
+  resource's.
+
+**Computed:** `id`, `current_members`, `member_names`, `machine_ids`.
+
+No import: the machine specification isn't read back from the
+Controller.
+
 ## Terragrunt
 
 Nothing specific: one Controller per environment through the provider
@@ -353,7 +403,9 @@ container of [hypervisors.md](hypervisors.md)'s test. It checks:
   terraforming its `haproxy.cfg` with a token narrowed the same way - a
   configuration HAProxy refuses failing, nothing changed - and refused
   a resize, a service restart, the hypervisors;
-- destroy.
+- `janus_cluster` made of two new machines, scaled to three and back to
+  two in place, its auto-scaling set;
+- destroy - the cluster's machines too.
 
 After each step it checks that a plan has nothing left to change.
 

@@ -327,6 +327,9 @@ curl -X PUT https://controller:8080/api/clusters/$CLUSTER/autoscale -H "Authoriz
   -d '{"mode": "observe", "min_members": 2, "max_members": 5, "max_vcpus": 20}'
 ```
 
+As code: Terraform's [`janus_cluster`](../terraform.md#janus_cluster)
+makes such a cluster, its `members` and `autoscaling` changed in place.
+
 Not for a VRRP cluster: one member holds each virtual IP, a member more
 adds no capacity - grow its machines instead ([auto-scaling](auto-scaling.md)).
 Horizontal scaling suits BGP/ECMP clusters, or a balancer in front that

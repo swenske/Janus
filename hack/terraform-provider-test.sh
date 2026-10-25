@@ -20,7 +20,9 @@
 #      operator on team=web over HAProxy only, terraforms the node's
 #      haproxy.cfg with a token narrowed the same way - HAProxy refusing
 #      a bad one -, and may change nothing else;
-#   9. destroy: nothing left;
+#  8b. janus_cluster: two new machines, scaled to three and back to two in
+#      place, its auto-scaling set;
+#   9. destroy: nothing left - the cluster's machines neither;
 #  10. the docs' example (examples/terraform/libvirt), applied as written:
 #      two nodes admitted and serving examples/haproxy/web.cfg.
 #
@@ -92,6 +94,8 @@ variable "labels" {
   type    = map(string)
   default = null
 }
+variable "cluster" { default = 0 }
+variable "cluster_autoscale" { default = false }
 
 resource "janus_hypervisor" "host" {
   name                 = "testhost"
@@ -133,6 +137,30 @@ resource "janus_node" "n" {
   }] : [])
 }
 
+resource "janus_cluster" "c" {
+  count         = var.cluster > 0 ? 1 : 0
+  name          = "tfc"
+  hypervisors   = [janus_hypervisor.host.id]
+  anti_affinity = "preferred" # one host here
+  members       = var.cluster
+  machine = {
+    vcpus      = 1
+    memory_mib = 512
+    image = {
+      url    = "http://127.0.0.1:8000/janus-kvm.qcow2"
+      sha256 = var.image_sha256
+    }
+    interfaces = [{ network = "janus-test", name = "lan" }]
+  }
+  autoscaling = var.cluster_autoscale ? {
+    mode        = "observe"
+    min_members = 2
+    max_members = 3
+  } : null
+}
+
+output "cluster_id" { value = try(janus_cluster.c[0].id, "") }
+output "cluster_members" { value = try(janus_cluster.c[0].current_members, 0) }
 output "authorized_key" { value = janus_hypervisor.host.authorized_key }
 output "node_address" { value = try(janus_node.n[0].node_address, "") }
 output "node_id" { value = try(janus_node.n[0].id, "") }
@@ -357,13 +385,48 @@ api "$API/nodes/$JNODE/api/haproxy/config" | json "d['config']" | grep -q '# ter
 echo "Part 9 OK: labels on janus_node; web-dev - operator on team=web over HAProxy only - terraformed its haproxy.cfg with a token narrowed the same way (a bad one refused by HAProxy, nothing changed), and may resize nothing, restart nothing, see no hypervisor"
 
 # =========================================================================
+# 8b. janus_cluster: made of new machines (anti-affinity preferred: one
+#     host here), scaled 2 -> 3 -> 2 in place, its auto-scaling set; Part
+#     10's destroy takes its machines with it.
+# =========================================================================
+L='labels={team="web"}'
+# shellcheck disable=SC2086
+apply $V -var "$L" -var cluster=2
+CID="$(tofu_out cluster_id)"
+cluster_members() { api "$API/api/clusters/$CID" | json "','.join(sorted(m['name'] for m in d['members']))"; }
+[ "$(cluster_members)" = "tfc-1,tfc-2" ] || fail "the cluster made: $(api "$API/api/clusters/$CID")"
+api "$API/api/clusters/$CID" | json "d['placement']['anti_affinity']" | grep -qx preferred || fail "its placement: $(api "$API/api/clusters/$CID")"
+# shellcheck disable=SC2086
+no_changes "making the cluster" $V -var "$L" -var cluster=2
+# shellcheck disable=SC2086
+apply $V -var "$L" -var cluster=3
+[ "$(cluster_members)" = "tfc-1,tfc-2,tfc-3" ] && [ "$(tofu_out cluster_members)" = 3 ] || fail "scaled to 3: $(cluster_members)"
+# shellcheck disable=SC2086
+no_changes "scaling to 3" $V -var "$L" -var cluster=3
+# shellcheck disable=SC2086
+apply $V -var "$L" -var cluster=2
+[ "$(cluster_members)" = "tfc-1,tfc-2" ] || fail "scaled back to 2: $(cluster_members)"
+for _ in $(seq 1 90); do
+  api "$API/api/machines" | json "' '.join(m['spec']['name'] for m in d)" | grep -qw tfc-3 || break
+  sleep 1
+done
+if api "$API/api/machines" | json "' '.join(m['spec']['name'] for m in d)" | grep -qw tfc-3; then fail "tfc-3's machine is still there"; fi
+# shellcheck disable=SC2086
+apply $V -var "$L" -var cluster=2 -var cluster_autoscale=true
+api "$API/api/clusters/$CID" | json "d['autoscale']['mode']" | grep -qx observe || fail "its auto-scaling: $(api "$API/api/clusters/$CID")"
+# shellcheck disable=SC2086
+no_changes "setting the cluster's auto-scaling" $V -var "$L" -var cluster=2 -var cluster_autoscale=true
+echo "Part 9b OK: janus_cluster made of two new machines, scaled to three and back to two in place (the third's machine destroyed), its auto-scaling set, nothing left to plan"
+
+# =========================================================================
 # 9. Destroy.
 # =========================================================================
-tofu destroy -auto-approve -var nodes=1 -var memory=1536 -var address=192.168.123.50/24 -var 'labels={team="web"}' >"$WORKDIR/destroy.log" || fail "destroy: $(tail -30 "$WORKDIR/destroy.log")"
+tofu destroy -auto-approve -var nodes=1 -var memory=1536 -var address=192.168.123.50/24 -var 'labels={team="web"}' -var cluster=2 -var cluster_autoscale=true >"$WORKDIR/destroy.log" || fail "destroy: $(tail -30 "$WORKDIR/destroy.log")"
+[ "$(api -o /dev/null -w '%{http_code}' "$API/api/clusters/$CID")" = 404 ] || fail "the cluster is still there"
 [ "$(api "$API/api/machines" | json "len(d)")" = 0 ] || fail "machines left: $(api "$API/api/machines")"
 [ "$(api "$API/api/hypervisors" | json "len(d)")" = 0 ] || fail "the hypervisor wasn't removed"
 if in_host virsh list --all --name | grep -q janus-tf; then fail "a virtual machine is left"; fi
-echo "Part 10 OK: destroyed - the node, its virtual machine and the hypervisor"
+echo "Part 10 OK: destroyed - the node, the cluster and its machines, their virtual machines and the hypervisor"
 
 # =========================================================================
 # 10. The docs' end-to-end example, examples/terraform/libvirt, applied as
