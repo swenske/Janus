@@ -169,8 +169,8 @@ func (a *app) orderFor(ctx context.Context, n *store.Node, set acmeorder.Setting
 		node.State, node.Error = "error", status.Convert(err).Message()
 		return node, false
 	}
-	if st.GetPathMode() != janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED {
-		return node, false
+	if st.GetPathMode() != janusv1alpha1.ACMEPathMode_ACME_PATH_MODE_CONTROLLER_ORDERED || st.GetOrderedBy() != "" {
+		return node, false // not ordered by the Controller; or a cluster member another member's certificates are pulled to
 	}
 	node.Directory = st.GetDirectory()
 	if st.GetAccountThumbprint() != thumb {

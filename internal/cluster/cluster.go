@@ -87,8 +87,22 @@ type Membership struct {
 	// Advisory: an admin writes through the locks with the cluster's id
 	// (an orchestrator without a Controller); otherwise only the
 	// Controller does.
-	Advisory bool      `json:"advisory,omitempty"`
-	Updated  time.Time `json:"updated"`
+	Advisory bool `json:"advisory,omitempty"`
+	// ACMEOrderer is the member that orders the cluster's Let's Encrypt
+	// certificates, ACMEThumbprint the answer to HTTP-01 challenges the
+	// others give (acme.Manager.Follow).
+	ACMEOrderer    string    `json:"acme_orderer,omitempty"`
+	ACMEThumbprint string    `json:"acme_thumbprint,omitempty"`
+	Updated        time.Time `json:"updated"`
+}
+
+// ACMEFollow is the member this node's Let's Encrypt certificates come
+// from and the HTTP-01 answer - "" when it orders its own.
+func (m *Membership) ACMEFollow() (orderer, thumb string) {
+	if m == nil || m.ACMEOrderer == "" || m.ACMEOrderer == m.Member {
+		return "", ""
+	}
+	return m.ACMEOrderer, m.ACMEThumbprint
 }
 
 // Self is this node's entry, nil when the membership doesn't name it.

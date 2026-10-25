@@ -384,6 +384,9 @@ func main() {
 		if err := acmeMgr.Boot(); err != nil {
 			log.Printf("letsencrypt: %v", err)
 		}
+		// A member another orders for: before HAProxy starts, whose
+		// environment has the HTTP-01 answer.
+		acmeMgr.Follow(clusterStore.Membership().ACMEFollow())
 		haproxyMgr.Env = acmeMgr.Env
 	} else {
 		delete(serviceLogs, acme.LogID)

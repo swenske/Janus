@@ -34,6 +34,10 @@ type fakeMember struct {
 	// learning: its HAProxy hasn't learnt its stick tables; alone: no
 	// peer up; drained: the node's own, member or not.
 	learning, alone, drained bool
+	// acme: its letsencrypt extension; nil: not in its image.
+	acme *janusv1alpha1.ACMEStatusResponse
+	// set: what the last ClusterSet said.
+	set *janusv1alpha1.ClusterSetRequest
 }
 
 // clusterFake answers the cluster engine for every node, and keeps what
@@ -172,6 +176,7 @@ func (f *clusterFake) ClusterSet(_ context.Context, m clusters.Member, req *janu
 	defer f.mu.Unlock()
 	drained := fm.info != nil && fm.info.GetDrained()
 	fm.info = &janusv1alpha1.ClusterInfo{Member: true, Id: req.GetId(), Name: req.GetName(), MemberName: req.GetMemberName(), Managed: slices.Clone(req.GetManaged()), Drained: drained}
+	fm.set = proto.Clone(req).(*janusv1alpha1.ClusterSetRequest)
 	return fm.info, nil
 }
 
@@ -224,7 +229,37 @@ func (f *clusterFake) ClusterPull(_ context.Context, m clusters.Member, from str
 	if err := f.call(m, "ClusterPull", detail); err != nil {
 		return nil, err
 	}
+	// The ACME certificates: the source's, as the pull would install them.
+	if slices.Contains(items, janusv1alpha1.ClusterItem_CLUSTER_ITEM_ACME_CERTS) || len(items) == 0 {
+		f.mu.Lock()
+		if src, to := f.nodes[from], f.nodes[m.Name]; src != nil && to != nil && src.acme != nil && to.acme != nil {
+			to.acme.Certificates = nil
+			for _, c := range src.acme.Certificates {
+				to.acme.Certificates = append(to.acme.Certificates, proto.Clone(c).(*janusv1alpha1.ACMECertificateStatus))
+			}
+		}
+		f.mu.Unlock()
+	}
 	return []string{"pulled"}, nil
+}
+
+func (f *clusterFake) ACMEStatus(_ context.Context, m clusters.Member) (*janusv1alpha1.ACMEStatusResponse, error) {
+	if err := f.call(m, "ACMEStatus", ""); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if a := f.nodes[m.Name].acme; a != nil {
+		out := proto.Clone(a).(*janusv1alpha1.ACMEStatusResponse)
+		if s := f.nodes[m.Name].set; s != nil && s.GetAcmeOrderer() != "" && s.GetAcmeOrderer() != m.Name {
+			out.OrderedBy = s.GetAcmeOrderer()
+			if s.GetAcmeThumbprint() != "" {
+				out.AccountThumbprint = s.GetAcmeThumbprint()
+			}
+		}
+		return out, nil
+	}
+	return &janusv1alpha1.ACMEStatusResponse{State: janusv1alpha1.ModuleState_MODULE_STATE_NOT_ENABLED}, nil
 }
 
 func (f *clusterFake) RotateTickets(_ context.Context, m clusters.Member, renew bool) error {
@@ -912,5 +947,76 @@ func TestClusterRejoinsInService(t *testing.T) {
 	// A node that wasn't drained isn't undrained.
 	if slices.Contains(f.callsOf("lb-1", 0), "ClusterUndrain") {
 		t.Errorf("lb-1 undrained: %v", f.callsOf("lb-1", 0))
+	}
+}
+
+// Let's Encrypt in a cluster: the secrets' source orders, the others
+// are told so with its thumbprint, and pull each renewal; a new source
+// takes over.
+func TestClusterLetsEncrypt(t *testing.T) {
+	a, f, nodes := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	cert := func(name, serial string) *janusv1alpha1.ACMECertificateStatus {
+		return &janusv1alpha1.ACMECertificateStatus{Name: name, State: "valid", Serial: serial}
+	}
+	running := janusv1alpha1.ModuleState_MODULE_STATE_RUNNING
+	f.mu.Lock()
+	f.nodes["lb-1"].acme = &janusv1alpha1.ACMEStatusResponse{State: running, Configured: true, AccountThumbprint: "thumb-1", Certificates: []*janusv1alpha1.ACMECertificateStatus{cert("site", "01"), cert("wild", "02")}}
+	f.nodes["lb-2"].acme = &janusv1alpha1.ACMEStatusResponse{State: running, AccountThumbprint: "thumb-2"}
+	f.mu.Unlock() // lb-3: no letsencrypt extension
+	c := newCluster(t, a, nodes, "lb-1", "lb-2", "lb-3")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	// Made: everyone told lb-1 orders, with its thumbprint.
+	for _, n := range []string{"lb-2", "lb-3"} {
+		if s := f.node(clusters.Member{Name: n}).set; s.GetAcmeOrderer() != "lb-1" || s.GetAcmeThumbprint() != "thumb-1" {
+			t.Errorf("%s told: %q %q", n, s.GetAcmeOrderer(), s.GetAcmeThumbprint())
+		}
+	}
+	if !journalSays(t, a, c.ID, "ordered by lb-1: the others order nothing") {
+		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 20))
+	}
+	// In step: a check pulls nothing.
+	mark := f.mark()
+	c, _ = a.clusters.Store.Get(c.ID)
+	if err := a.clusters.SyncACME(ctx, c, "cluster"); err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(f.callsSince(mark), func(s string) bool { return strings.Contains(s, "ClusterPull") }) {
+		t.Errorf("pulled with nothing renewed: %v", f.callsSince(mark))
+	}
+	// lb-1 renews "site": lb-2 pulls; lb-3, without the extension, doesn't.
+	f.mu.Lock()
+	f.nodes["lb-1"].acme.Certificates[0].Serial = "03"
+	f.mu.Unlock()
+	mark = f.mark()
+	if err := a.clusters.SyncACME(ctx, c, "cluster"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.callsSince(mark); !slices.Contains(got, "lb-2 ClusterPull lb-1 acme_config acme_certs") || slices.ContainsFunc(got, func(s string) bool { return strings.HasPrefix(s, "lb-3 ClusterPull") }) {
+		t.Errorf("after a renewal: %v", got)
+	}
+	if !journalSays(t, a, c.ID, "lb-2 pulled lb-1's renewed certificate(s): site") {
+		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 20))
+	}
+	// lb-2 becomes the source: told it orders, it does; its thumbprint
+	// then goes to the others.
+	if _, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.SecretsFrom = "lb-2"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.nodes["lb-2"].acme.Configured = true
+	f.mu.Unlock()
+	c, _ = a.clusters.Store.Get(c.ID)
+	_ = a.clusters.SyncACME(ctx, c, "cluster") // lb-2 still followed lb-1: everyone told
+	if s := f.node(clusters.Member{Name: "lb-2"}).set; s.GetAcmeOrderer() != "lb-2" {
+		t.Errorf("lb-2 not told it orders: %q", s.GetAcmeOrderer())
+	}
+	if err := a.clusters.SyncACME(ctx, c, "cluster"); err != nil {
+		t.Fatal(err)
+	}
+	if s := f.node(clusters.Member{Name: "lb-1"}).set; s.GetAcmeOrderer() != "lb-2" || s.GetAcmeThumbprint() != "thumb-2" {
+		t.Errorf("lb-1 after lb-2 took over: %q %q", s.GetAcmeOrderer(), s.GetAcmeThumbprint())
 	}
 }

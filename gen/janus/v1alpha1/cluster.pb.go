@@ -35,6 +35,11 @@ const (
 	ClusterItem_CLUSTER_ITEM_ACME_CERTS ClusterItem = 3
 	// The TLS ticket key ring.
 	ClusterItem_CLUSTER_ITEM_TLS_TICKET_KEYS ClusterItem = 4
+	// The letsencrypt extension's configuration: its certificates, the
+	// account's settings, the DNS providers with their credentials, how it
+	// reaches the CA - not the account key: a member that becomes the
+	// orderer orders with its own.
+	ClusterItem_CLUSTER_ITEM_ACME_CONFIG ClusterItem = 5
 )
 
 // Enum value maps for ClusterItem.
@@ -45,6 +50,7 @@ var (
 		2: "CLUSTER_ITEM_FILES",
 		3: "CLUSTER_ITEM_ACME_CERTS",
 		4: "CLUSTER_ITEM_TLS_TICKET_KEYS",
+		5: "CLUSTER_ITEM_ACME_CONFIG",
 	}
 	ClusterItem_value = map[string]int32{
 		"CLUSTER_ITEM_UNSPECIFIED":     0,
@@ -52,6 +58,7 @@ var (
 		"CLUSTER_ITEM_FILES":           2,
 		"CLUSTER_ITEM_ACME_CERTS":      3,
 		"CLUSTER_ITEM_TLS_TICKET_KEYS": 4,
+		"CLUSTER_ITEM_ACME_CONFIG":     5,
 	}
 )
 
@@ -176,9 +183,13 @@ type ClusterInfo struct {
 	// The TLS ticket key ring (TLSTicketKeysRotate).
 	TlsTicketKeys *TLSTicketKeysState `protobuf:"bytes,14,opt,name=tls_ticket_keys,json=tlsTicketKeys,proto3" json:"tls_ticket_keys,omitempty"`
 	// The locks are advisory (ClusterSetRequest.advisory).
-	Advisory      bool `protobuf:"varint,15,opt,name=advisory,proto3" json:"advisory,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Advisory bool `protobuf:"varint,15,opt,name=advisory,proto3" json:"advisory,omitempty"`
+	// ClusterSetRequest's: who orders the cluster's Let's Encrypt
+	// certificates, and the thumbprint the others answer HTTP-01 with.
+	AcmeOrderer    string `protobuf:"bytes,16,opt,name=acme_orderer,json=acmeOrderer,proto3" json:"acme_orderer,omitempty"`
+	AcmeThumbprint string `protobuf:"bytes,17,opt,name=acme_thumbprint,json=acmeThumbprint,proto3" json:"acme_thumbprint,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ClusterInfo) Reset() {
@@ -316,6 +327,20 @@ func (x *ClusterInfo) GetAdvisory() bool {
 	return false
 }
 
+func (x *ClusterInfo) GetAcmeOrderer() string {
+	if x != nil {
+		return x.AcmeOrderer
+	}
+	return ""
+}
+
+func (x *ClusterInfo) GetAcmeThumbprint() string {
+	if x != nil {
+		return x.AcmeThumbprint
+	}
+	return ""
+}
+
 type ClusterSetRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Id         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -337,9 +362,16 @@ type ClusterSetRequest struct {
 	// (janusctl cluster) writes through them with an admin certificate
 	// and the cluster's id in janus-cluster-apply. False: only the
 	// Controller's certificate gets through.
-	Advisory      bool `protobuf:"varint,10,opt,name=advisory,proto3" json:"advisory,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Advisory bool `protobuf:"varint,10,opt,name=advisory,proto3" json:"advisory,omitempty"`
+	// The member whose letsencrypt extension orders the cluster's
+	// certificates - the one the others pull their secrets from. The
+	// others order nothing: they serve what they pull and answer HTTP-01
+	// challenges with acme_thumbprint, the orderer's account's. Empty:
+	// each member orders its own (an orchestrator before v2026.10.26).
+	AcmeOrderer    string `protobuf:"bytes,11,opt,name=acme_orderer,json=acmeOrderer,proto3" json:"acme_orderer,omitempty"`
+	AcmeThumbprint string `protobuf:"bytes,12,opt,name=acme_thumbprint,json=acmeThumbprint,proto3" json:"acme_thumbprint,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ClusterSetRequest) Reset() {
@@ -440,6 +472,20 @@ func (x *ClusterSetRequest) GetAdvisory() bool {
 		return x.Advisory
 	}
 	return false
+}
+
+func (x *ClusterSetRequest) GetAcmeOrderer() string {
+	if x != nil {
+		return x.AcmeOrderer
+	}
+	return ""
+}
+
+func (x *ClusterSetRequest) GetAcmeThumbprint() string {
+	if x != nil {
+		return x.AcmeThumbprint
+	}
+	return ""
 }
 
 type ClusterReleaseRequest struct {
@@ -1226,7 +1272,7 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
 	"\vapi_address\x18\x03 \x01(\tR\n" +
-	"apiAddress\"\x98\x04\n" +
+	"apiAddress\"\xe4\x04\n" +
 	"\vClusterInfo\x12\x16\n" +
 	"\x06member\x18\x01 \x01(\bR\x06member\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
@@ -1246,7 +1292,9 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\adrained\x18\f \x01(\bR\adrained\x12!\n" +
 	"\fpeers_config\x18\r \x01(\tR\vpeersConfig\x12J\n" +
 	"\x0ftls_ticket_keys\x18\x0e \x01(\v2\".janus.v1alpha1.TLSTicketKeysStateR\rtlsTicketKeys\x12\x1a\n" +
-	"\badvisory\x18\x0f \x01(\bR\badvisory\"\xbf\x02\n" +
+	"\badvisory\x18\x0f \x01(\bR\badvisory\x12!\n" +
+	"\facme_orderer\x18\x10 \x01(\tR\vacmeOrderer\x12'\n" +
+	"\x0facme_thumbprint\x18\x11 \x01(\tR\x0eacmeThumbprint\"\x8b\x03\n" +
 	"\x11ClusterSetRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
@@ -1262,7 +1310,9 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\n" +
 	"managed_by\x18\t \x01(\tR\tmanagedBy\x12\x1a\n" +
 	"\badvisory\x18\n" +
-	" \x01(\bR\badvisory\"1\n" +
+	" \x01(\bR\badvisory\x12!\n" +
+	"\facme_orderer\x18\v \x01(\tR\vacmeOrderer\x12'\n" +
+	"\x0facme_thumbprint\x18\f \x01(\tR\x0eacmeThumbprint\"1\n" +
 	"\x15ClusterReleaseRequest\x12\x18\n" +
 	"\adomains\x18\x01 \x03(\tR\adomains\"\xbb\x01\n" +
 	"\x15ClusterStatusResponse\x12/\n" +
@@ -1320,13 +1370,14 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x04keys\x18\x01 \x01(\rR\x04keys\x12!\n" +
 	"\frotated_unix\x18\x02 \x01(\x03R\vrotatedUnix\x12\x16\n" +
 	"\x06loaded\x18\x03 \x01(\bR\x06loaded\x12\x16\n" +
-	"\x06sha256\x18\x04 \x01(\tR\x06sha256*\xa2\x01\n" +
+	"\x06sha256\x18\x04 \x01(\tR\x06sha256*\xc0\x01\n" +
 	"\vClusterItem\x12\x1c\n" +
 	"\x18CLUSTER_ITEM_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aCLUSTER_ITEM_RUNTIME_CERTS\x10\x01\x12\x16\n" +
 	"\x12CLUSTER_ITEM_FILES\x10\x02\x12\x1b\n" +
 	"\x17CLUSTER_ITEM_ACME_CERTS\x10\x03\x12 \n" +
-	"\x1cCLUSTER_ITEM_TLS_TICKET_KEYS\x10\x042\xc0\x06\n" +
+	"\x1cCLUSTER_ITEM_TLS_TICKET_KEYS\x10\x04\x12\x1c\n" +
+	"\x18CLUSTER_ITEM_ACME_CONFIG\x10\x052\xc0\x06\n" +
 	"\x0eClusterService\x12A\n" +
 	"\n" +
 	"ClusterGet\x12\x16.google.protobuf.Empty\x1a\x1b.janus.v1alpha1.ClusterInfo\x12L\n" +

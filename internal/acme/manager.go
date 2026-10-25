@@ -129,6 +129,40 @@ type Manager struct {
 	// relayIdentity makes the certificate the Controller's relay knows
 	// the node by (SetRelayIdentity); nil until the node's CA is loaded.
 	relayIdentity func() (certPEM, keyPEM []byte, err error)
+	// follow: a cluster member another member orders for (Follow) - its
+	// name, and the thumbprint HTTP-01 is answered with.
+	followOrderer, followThumb string
+}
+
+// Follow makes this node a cluster member another orders the
+// certificates for (docs/guide/clusters.md "Let's Encrypt"): orderer's
+// name, thumb the HTTP-01 answer's - "" ends it. The node orders and
+// renews nothing then: it serves what its cluster pulls (InstallPulled).
+// changed: the HTTP-01 answer changed - HAProxy's environment carries
+// it: the caller reloads HAProxy once it runs.
+func (m *Manager) Follow(orderer, thumb string) (changed bool) {
+	m.mu.Lock()
+	before := m.answerThumbLocked()
+	was := m.followOrderer
+	m.followOrderer, m.followThumb = orderer, thumb
+	changed = m.answerThumbLocked() != before
+	m.mu.Unlock()
+	switch {
+	case orderer != "" && was != orderer:
+		m.logger.Printf("certificates ordered by %s, this node's cluster member: it orders nothing, serves what it pulls, answers HTTP-01 with that member's account", orderer)
+	case orderer == "" && was != "":
+		m.logger.Printf("no longer ordered by %s: this node orders its own certificates again", was)
+	}
+	m.wake()
+	return changed
+}
+
+// OrderedBy is the member that orders this node's certificates (Follow),
+// "" when it orders its own.
+func (m *Manager) OrderedBy() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.followOrderer
 }
 
 // SetRelayIdentity gives the Manager how to make the client certificate
@@ -217,6 +251,9 @@ func (m *Manager) Env() []string {
 // with: the Controller's account's when it orders the certificates, the
 // node's own otherwise. Called with mu held.
 func (m *Manager) answerThumbLocked() string {
+	if m.followOrderer != "" && m.followThumb != "" {
+		return m.followThumb
+	}
 	if p := m.cfg.GetPath(); isOrdered(p) {
 		return p.AccountThumbprint
 	}
@@ -525,6 +562,9 @@ func (m *Manager) Renew(names []string) ([]string, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.followOrderer != "" {
+		return nil, fmt.Errorf("%s orders this cluster's certificates: renew them there - this node pulls them", m.followOrderer)
+	}
 	if m.cfg == nil || len(m.cfg.Certificates) == 0 {
 		return nil, errors.New("no certificate is configured")
 	}
@@ -659,6 +699,10 @@ func (m *Manager) pass() time.Time {
 	if isOrdered(m.cfg.Path) {
 		m.mu.Unlock()
 		return next // the Controller orders them (ordered.go)
+	}
+	if m.followOrderer != "" {
+		m.mu.Unlock()
+		return next // another cluster member does (Follow)
 	}
 	cfg := proto.Clone(m.cfg).(*janusv1alpha1.ACMEConfig)
 	dir := ResolveDirectory(cfg.Account.Directory)

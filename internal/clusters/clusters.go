@@ -199,6 +199,9 @@ type State struct {
 	ScaleStatus string     `json:"scale_status,omitempty"`
 	// Balancer: its hook's last call.
 	Balancer BalancerState `json:"balancer,omitzero"`
+	// ACME: who orders the cluster's Let's Encrypt certificates, and
+	// the thumbprint its account answers HTTP-01 with (acme.go).
+	ACME ACMEState `json:"acme,omitzero"`
 }
 
 // Sealer seals and opens the cluster CA's key (the Controller's master

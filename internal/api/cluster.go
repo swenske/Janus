@@ -170,7 +170,8 @@ func (c *Cluster) ClusterGet(ctx context.Context, _ *emptypb.Empty) (*janusv1alp
 func (c *Cluster) ClusterSet(ctx context.Context, req *janusv1alpha1.ClusterSetRequest) (*janusv1alpha1.ClusterInfo, error) {
 	caller, _ := CallerFrom(ctx)
 	m := cluster.Membership{ID: req.GetId(), Name: req.GetName(), Member: req.GetMemberName(), PeersPort: int(req.GetPeersPort()),
-		Managed: req.GetManaged(), ManagedBy: req.GetManagedBy(), Advisory: req.GetAdvisory()}
+		Managed: req.GetManaged(), ManagedBy: req.GetManagedBy(), Advisory: req.GetAdvisory(),
+		ACMEOrderer: req.GetAcmeOrderer(), ACMEThumbprint: req.GetAcmeThumbprint()}
 	for _, mb := range req.GetMembers() {
 		m.Members = append(m.Members, cluster.Member{Name: mb.GetName(), Address: mb.GetAddress(), API: mb.GetApiAddress()})
 	}
@@ -189,6 +190,7 @@ func (c *Cluster) ClusterSet(ctx context.Context, req *janusv1alpha1.ClusterSetR
 	if err := c.apply(section, cert, was); err != nil {
 		return nil, err
 	}
+	c.FollowACME()
 	what := "cluster.updated"
 	if !wasMember {
 		what = "cluster.joined"
@@ -229,6 +231,7 @@ func (c *Cluster) ClusterLeave(ctx context.Context, _ *emptypb.Empty) (*janusv1a
 	if err := c.apply(true, false, was); err != nil {
 		return nil, err
 	}
+	c.FollowACME()
 	// The ring was the cluster's: the members that stay must not be able
 	// to read or forge this node's tickets any more (they renew theirs
 	// too, the orchestrator sees to it).
@@ -333,6 +336,7 @@ func (c *Cluster) info() *janusv1alpha1.ClusterInfo {
 	}
 	info.Member, info.Id, info.Name, info.Managed, info.ManagedBy, info.UpdatedUnix = true, m.ID, m.Name, m.Managed, m.ManagedBy, m.Updated.Unix()
 	info.Advisory = m.Advisory
+	info.AcmeOrderer, info.AcmeThumbprint = m.ACMEOrderer, m.ACMEThumbprint
 	info.CaCert = c.Store.CAPEM()
 	if cert := c.Store.MemberCertificate(); cert != nil {
 		info.MemberCertNotAfterUnix = cert.NotAfter.Unix()
@@ -341,4 +345,20 @@ func (c *Cluster) info() *janusv1alpha1.ClusterInfo {
 		info.Members = append(info.Members, &janusv1alpha1.ClusterMember{Name: mb.Name, Address: mb.Address, ApiAddress: mb.API})
 	}
 	return info
+}
+
+// FollowACME has the letsencrypt extension follow the membership: a
+// member another orders for orders nothing and answers HTTP-01 with that
+// member's thumbprint - HAProxy reloaded when its answer changes (its
+// environment carries it).
+func (c *Cluster) FollowACME() {
+	if c.ACME == nil || !c.ACME.Available() {
+		return
+	}
+	orderer, thumb := c.Store.Membership().ACMEFollow()
+	if c.ACME.Follow(orderer, thumb) && c.HAProxy != nil && !c.HAProxy.StartedAt().IsZero() {
+		if err := c.HAProxy.Reload(); err != nil {
+			log.Printf("cluster: HAProxy with the HTTP-01 answer of %s: %v", orderer, err)
+		}
+	}
 }

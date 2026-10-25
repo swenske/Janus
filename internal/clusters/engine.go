@@ -115,6 +115,12 @@ func (e *Engine) SetRequest(c *Cluster, m Member, caPEM, certPEM []byte) *janusv
 	for _, o := range c.Members {
 		req.Members = append(req.Members, &janusv1alpha1.ClusterMember{Name: o.Name, Address: o.Address, ApiAddress: o.API})
 	}
+	// The secrets' source orders the Let's Encrypt certificates; the
+	// thumbprint once Reconcile read it from it (acme.go).
+	req.AcmeOrderer = c.SecretsFrom
+	if st := e.Store.State(c.ID).ACME; st.Orderer == c.SecretsFrom {
+		req.AcmeThumbprint = st.Thumbprint
+	}
 	return req
 }
 
@@ -308,6 +314,13 @@ func (e *Engine) Create(ctx context.Context, id, source, actor string) error {
 	for _, m := range c.Members {
 		if err := e.inService(ctx, id, m, actor); err != nil {
 			return err
+		}
+	}
+	// Who orders the Let's Encrypt certificates, and its thumbprint, at
+	// once rather than at the first check; journaled, not fatal.
+	if cur, ok := e.Store.Get(id); ok {
+		if err := e.SyncACME(ctx, cur, actor); err != nil {
+			e.Journal(id, actor, "letsencrypt", "", 0, "%v - the next check tries again", err)
 		}
 	}
 	return nil

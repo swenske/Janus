@@ -541,6 +541,11 @@ message ACMEStatusResponse {
   repeated ACMECertificateStatus certificates = 10;
   ACMEPathMode path_mode = 11; // how the node reaches the CA
   string proxy_url = 12; // PROXY
+  // A cluster member another member orders for (ClusterSetRequest.
+  // acme_orderer): that member's name. This node orders nothing; it
+  // serves the certificates its cluster pulls, and answers HTTP-01 with
+  // the orderer's thumbprint - account_thumbprint above.
+  string ordered_by = 13;
 }
 
 message ACMECertificateStatus {

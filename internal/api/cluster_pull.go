@@ -36,6 +36,7 @@ import (
 //
 //	runtime-certs/index.json, runtime-certs/<file>   the certificates CertificateUpload loaded
 //	files/<name>                                      HAProxy's files (FilePut)
+//	acme-config.json                                  the letsencrypt extension's configuration, its credentials included
 //	acme/<name>.pem                                   the letsencrypt extension's certificates, with their keys
 //	tls-ticket-keys                                   the TLS ticket key ring
 //
@@ -46,12 +47,14 @@ const (
 	exportRuntimeCerts = "runtime-certs/"
 	exportFiles        = "files/"
 	exportACME         = "acme/"
+	exportACMEConfig   = "acme-config.json"
 	exportTicketKeys   = "tls-ticket-keys"
 )
 
 var allItems = []janusv1alpha1.ClusterItem{
 	janusv1alpha1.ClusterItem_CLUSTER_ITEM_RUNTIME_CERTS, janusv1alpha1.ClusterItem_CLUSTER_ITEM_FILES,
-	janusv1alpha1.ClusterItem_CLUSTER_ITEM_ACME_CERTS, janusv1alpha1.ClusterItem_CLUSTER_ITEM_TLS_TICKET_KEYS,
+	janusv1alpha1.ClusterItem_CLUSTER_ITEM_ACME_CONFIG, janusv1alpha1.ClusterItem_CLUSTER_ITEM_ACME_CERTS,
+	janusv1alpha1.ClusterItem_CLUSTER_ITEM_TLS_TICKET_KEYS,
 }
 
 func itemsOf(req []janusv1alpha1.ClusterItem) ([]janusv1alpha1.ClusterItem, error) {
@@ -114,6 +117,13 @@ func (c *Cluster) ClusterExport(req *janusv1alpha1.ClusterExportRequest, stream 
 			err = addDir(exportRuntimeCerts, c.HAProxy.CertStoreDir, nil)
 		case janusv1alpha1.ClusterItem_CLUSTER_ITEM_FILES:
 			err = addDir(exportFiles, c.HAProxy.FilesDir, nil)
+		case janusv1alpha1.ClusterItem_CLUSTER_ITEM_ACME_CONFIG:
+			if c.ACME != nil && c.ACME.Available() {
+				var data []byte
+				if data, err = c.ACME.ExportConfig(); err == nil && data != nil {
+					err = add(exportACMEConfig, data)
+				}
+			}
 		case janusv1alpha1.ClusterItem_CLUSTER_ITEM_ACME_CERTS:
 			err = addDir(exportACME, c.ACMECertDir, func(rel string) bool { return strings.HasSuffix(rel, ".pem") && !strings.Contains(rel, "/") })
 		case janusv1alpha1.ClusterItem_CLUSTER_ITEM_TLS_TICKET_KEYS:
@@ -233,6 +243,16 @@ func (c *Cluster) ClusterPull(req *janusv1alpha1.ClusterPullRequest, stream janu
 					return err
 				}
 			} else if err := send(janusv1alpha1.ClusterItem_CLUSTER_ITEM_FILES, file, "written"); err != nil {
+				return err
+			}
+		case name == exportACMEConfig:
+			msg := "installed"
+			if c.ACME == nil || !c.ACME.Available() {
+				msg = "skipped: no letsencrypt extension on this node"
+			} else if err := c.ACME.InstallPulledConfig(data); err != nil {
+				msg = "refused: " + err.Error()
+			}
+			if err := send(janusv1alpha1.ClusterItem_CLUSTER_ITEM_ACME_CONFIG, "", msg); err != nil {
 				return err
 			}
 		case strings.HasPrefix(name, exportACME):

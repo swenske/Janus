@@ -365,11 +365,14 @@ its `JANUS_ACME_THUMBPRINT` to follow.
 
 ## Several nodes
 
-Behind VRRP or anycast, the challenge may reach any of the nodes. With
-HTTP-01, give them all the same account key: they then answer every
-challenge alike. Each node obtains its own certificates: mind the CA's
-limits (Let's Encrypt: 5 certificates for the exact same set of names per
-week) - or use DNS-01.
+Behind VRRP or anycast, the challenge may reach any of the nodes. In a
+[cluster](guide/clusters.md#lets-encrypt), one member orders and the
+others serve what it gets and answer its challenges - nothing to do.
+Nodes that aren't a cluster: with HTTP-01, give them all the same
+account key: they then answer every challenge alike. Each node obtains
+its own certificates: mind the CA's limits (Let's Encrypt: 5
+certificates for the exact same set of names per week) - or use
+DNS-01.
 
 ## Applying
 
