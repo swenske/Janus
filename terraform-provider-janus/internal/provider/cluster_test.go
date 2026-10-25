@@ -71,3 +71,34 @@ func TestClusterSpec(t *testing.T) {
 		t.Errorf("spec: %+v %v", spec, diags)
 	}
 }
+
+// The hook as read back: the secret kept (never read), what the
+// configuration left unset unset, a secret set elsewhere showing.
+func TestClusterBalancerFrom(t *testing.T) {
+	if clusterBalancerFrom(nil, nil) != nil {
+		t.Error("no hook: a model")
+	}
+	prior := &clusterBalancerModel{URL: types.StringValue("https://lb/h"), CACert: types.StringNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringValue("s3")}
+	got := clusterBalancerFrom(&client.ClusterBalancer{URL: "https://lb/h", HasSecret: true}, prior)
+	if !sameBalancer(got, prior) || got.Secret.ValueString() != "s3" || !got.CACert.IsNull() || !got.DrainDelaySeconds.IsNull() {
+		t.Errorf("read back: %+v", got)
+	}
+	// Changed on the Controller: the plan shows it.
+	got = clusterBalancerFrom(&client.ClusterBalancer{URL: "https://lb/other", DrainDelaySeconds: 5}, prior)
+	if sameBalancer(got, prior) || got.DrainDelaySeconds.ValueInt64() != 5 || !got.Secret.IsNull() {
+		t.Errorf("changed elsewhere: %+v", got)
+	}
+	// A secret set elsewhere, none in the configuration: "" - a change.
+	noSecret := &clusterBalancerModel{URL: types.StringValue("https://lb/h"), CACert: types.StringNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringNull()}
+	got = clusterBalancerFrom(&client.ClusterBalancer{URL: "https://lb/h", HasSecret: true}, noSecret)
+	if got.Secret.IsNull() || got.Secret.Equal(noSecret.Secret) {
+		t.Errorf("a secret set elsewhere: %+v", got)
+	}
+	if !sameBalancer(nil, nil) || sameBalancer(prior, nil) {
+		t.Error("sameBalancer with nil")
+	}
+	req := prior.request(nil)
+	if req.URL != "https://lb/h" || req.Secret != nil || req.DrainDelaySeconds != 0 {
+		t.Errorf("the request: %+v", req)
+	}
+}

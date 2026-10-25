@@ -1429,6 +1429,24 @@ janusctl cluster tickets [-renew] NAME
 |---|---|
 | `-renew` | replace every key of the ring at once - no key it held is used or accepted any more (a member's departure does it) |
 
+#### janusctl cluster balancer
+
+The hook telling a balancer in front which members take the traffic - told before a member is drained or removed, after one comes into service; shown without a flag.
+
+```text
+janusctl cluster balancer [-url URL] [-ca FILE] [-secret-file FILE] [-no-secret] [-drain-delay SECONDS] [-off] [-sync] NAME
+```
+
+| Flag | |
+|---|---|
+| `-url URL` | the hook: an http(s) URL the members are POSTed to |
+| `-ca FILE` | the only CA its certificate may chain to (PEM) |
+| `-secret-file FILE` | a file holding the secret the calls are signed with (X-Janus-Signature-256) |
+| `-no-secret` | calls unsigned from now on |
+| `-drain-delay SECONDS` | how long a member serves on once the balancer was told it goes (0) |
+| `-off` | no hook any more |
+| `-sync` | call it with the members now |
+
 #### janusctl cluster journal
 
 What was done to the cluster, by whom.

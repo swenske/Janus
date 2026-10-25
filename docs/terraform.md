@@ -355,6 +355,11 @@ resource "janus_cluster" "edge" {
     min_members = 2
     max_members = 4
   }
+  balancer = {                        # a balancer in front, told which members serve
+    url                 = "https://lb-api.example.net/janus"
+    secret              = var.hook_secret
+    drain_delay_seconds = 10
+  }
 }
 ```
 
@@ -368,6 +373,12 @@ resource "janus_cluster" "edge" {
   (`out_idle_percent`, `out_after_seconds`, `in_after_seconds`...,
   [scaling](guide/clusters.md#scaling)); removed, it is turned off.
   Not for a cluster managing VRRP.
+- **`balancer`** changes in place: the hook that tells [a balancer in
+  front](guide/clusters.md#a-balancer-in-front) which members take the
+  traffic - `url`, `ca_cert`, `drain_delay_seconds`, `secret`
+  (sensitive, never read back: a change of it in the configuration is
+  sent, one made elsewhere shows as a change). Saved even when the hook
+  doesn't answer then - a warning says so; removed, the hook goes.
 - **`name`, `hypervisors`, `anti_affinity` and `machine`** make a new
   cluster. To move one to a new release member by member, recycle its
   members from the Controller instead.
@@ -403,8 +414,10 @@ container of [hypervisors.md](hypervisors.md)'s test. It checks:
   terraforming its `haproxy.cfg` with a token narrowed the same way - a
   configuration HAProxy refuses failing, nothing changed - and refused
   a resize, a service restart, the hypervisors;
-- `janus_cluster` made of two new machines, scaled to three and back to
-  two in place, its auto-scaling set;
+- `janus_cluster` made of two new machines, its balancer hook set - a
+  receiver checking each call's signature -, scaled to three and back to
+  two in place, the hook told of the third coming in, and of it going
+  before it is drained; its auto-scaling set;
 - destroy - the cluster's machines too.
 
 After each step it checks that a plan has nothing left to change.

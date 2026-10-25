@@ -20,8 +20,10 @@
 #      operator on team=web over HAProxy only, terraforms the node's
 #      haproxy.cfg with a token narrowed the same way - HAProxy refusing
 #      a bad one -, and may change nothing else;
-#  8b. janus_cluster: two new machines, scaled to three and back to two in
-#      place, its auto-scaling set;
+#  8b. janus_cluster: two new machines, its balancer hook set (a receiver
+#      in the container: signed calls), scaled to three - the hook told the
+#      third is in - and back to two - told it goes before it is drained,
+#      then the list without it -, its auto-scaling set;
 #   9. destroy: nothing left - the cluster's machines neither;
 #  10. the docs' example (examples/terraform/libvirt), applied as written:
 #      two nodes admitted and serving examples/haproxy/web.cfg.
@@ -96,6 +98,7 @@ variable "labels" {
 }
 variable "cluster" { default = 0 }
 variable "cluster_autoscale" { default = false }
+variable "cluster_balancer" { default = false }
 
 resource "janus_hypervisor" "host" {
   name                 = "testhost"
@@ -156,6 +159,11 @@ resource "janus_cluster" "c" {
     mode        = "observe"
     min_members = 2
     max_members = 3
+  } : null
+  balancer = var.cluster_balancer ? {
+    url                 = "http://127.0.0.1:18099/janus"
+    secret              = "tf-hook-secret"
+    drain_delay_seconds = 1
   } : null
 }
 
@@ -398,30 +406,68 @@ cluster_members() { api "$API/api/clusters/$CID" | json "','.join(sorted(m['name
 api "$API/api/clusters/$CID" | json "d['placement']['anti_affinity']" | grep -qx preferred || fail "its placement: $(api "$API/api/clusters/$CID")"
 # shellcheck disable=SC2086
 no_changes "making the cluster" $V -var "$L" -var cluster=2
+# Its balancer hook: a receiver beside the Controller, checking each
+# call's signature - one line a call: EVENT MEMBER IN-SERVICE...
+in_host_i sh -c 'cat >/work/hook.py' <<'PY'
+import hashlib, hmac, json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+SECRET, LOG = sys.argv[2].encode(), sys.argv[3]
+class Hook(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        want = "sha256=" + hmac.new(SECRET, body, hashlib.sha256).hexdigest()
+        call = json.loads(body)
+        ok = hmac.compare_digest(want, self.headers.get("X-Janus-Signature-256", ""))
+        with open(LOG, "a") as f:
+            f.write("%s %s %s %s\n" % ("signed" if ok else "BADSIG", call["event"], call.get("member") or "-",
+                                      ",".join(m["name"] for m in call["members"] if m["in_service"]) or "-"))
+        self.send_response(204)
+        self.end_headers()
+    def log_message(self, *a):
+        pass
+HTTPServer(("127.0.0.1", int(sys.argv[1])), Hook).serve_forever()
+PY
+docker exec -d "$NAME" python3 /work/hook.py 18099 tf-hook-secret /work/hook.log
+hook_line() { in_host sed -n "${1}p" /work/hook.log 2>/dev/null; }
+B="-var cluster_balancer=true"
 # shellcheck disable=SC2086
-apply $V -var "$L" -var cluster=3
+apply $V -var "$L" -var cluster=2 $B
+[ "$(hook_line 1)" = "signed sync - tfc-1,tfc-2" ] || fail "the hook's first call: $(in_host cat /work/hook.log 2>&1)"
+api "$API/api/clusters/$CID" | json "d['balancer']['has_secret']" | grep -qx True || fail "the hook's secret: $(api "$API/api/clusters/$CID")"
+# shellcheck disable=SC2086
+no_changes "setting the balancer hook" $V -var "$L" -var cluster=2 $B
+# shellcheck disable=SC2086
+apply $V -var "$L" -var cluster=3 $B
 [ "$(cluster_members)" = "tfc-1,tfc-2,tfc-3" ] && [ "$(tofu_out cluster_members)" = 3 ] || fail "scaled to 3: $(cluster_members)"
+[ "$(hook_line 2)" = "signed in tfc-3 tfc-1,tfc-2,tfc-3" ] || fail "the hook told of tfc-3: $(in_host cat /work/hook.log 2>&1)"
 # shellcheck disable=SC2086
-no_changes "scaling to 3" $V -var "$L" -var cluster=3
+no_changes "scaling to 3" $V -var "$L" -var cluster=3 $B
 # shellcheck disable=SC2086
-apply $V -var "$L" -var cluster=2
+apply $V -var "$L" -var cluster=2 $B
 [ "$(cluster_members)" = "tfc-1,tfc-2" ] || fail "scaled back to 2: $(cluster_members)"
+[ "$(hook_line 3)" = "signed out tfc-3 tfc-1,tfc-2" ] && [ "$(hook_line 4)" = "signed sync - tfc-1,tfc-2" ] ||
+  fail "the hook told tfc-3 goes, then the list without it: $(in_host cat /work/hook.log 2>&1)"
+journal="$(api "$API/api/clusters/$CID/journal")"
+told="$(json "next(i for i, e in enumerate(d) if e['message'].startswith('the balancer was told tfc-3 going out'))" <<<"$journal")"
+drained="$(json "next(i for i, e in enumerate(d) if e['message'].startswith('tfc-3 drained'))" <<<"$journal")"
+[ "$told" -gt "$drained" ] || fail "tfc-3 drained before the balancer was told (journal, newest first: told $told, drained $drained)"
 for _ in $(seq 1 90); do
   api "$API/api/machines" | json "' '.join(m['spec']['name'] for m in d)" | grep -qw tfc-3 || break
   sleep 1
 done
 if api "$API/api/machines" | json "' '.join(m['spec']['name'] for m in d)" | grep -qw tfc-3; then fail "tfc-3's machine is still there"; fi
 # shellcheck disable=SC2086
-apply $V -var "$L" -var cluster=2 -var cluster_autoscale=true
+apply $V -var "$L" -var cluster=2 -var cluster_autoscale=true $B
 api "$API/api/clusters/$CID" | json "d['autoscale']['mode']" | grep -qx observe || fail "its auto-scaling: $(api "$API/api/clusters/$CID")"
 # shellcheck disable=SC2086
-no_changes "setting the cluster's auto-scaling" $V -var "$L" -var cluster=2 -var cluster_autoscale=true
-echo "Part 9b OK: janus_cluster made of two new machines, scaled to three and back to two in place (the third's machine destroyed), its auto-scaling set, nothing left to plan"
+no_changes "setting the cluster's auto-scaling" $V -var "$L" -var cluster=2 -var cluster_autoscale=true $B
+if in_host grep -q BADSIG /work/hook.log; then fail "a hook call badly signed: $(in_host cat /work/hook.log)"; fi
+echo "Part 9b OK: janus_cluster made of two new machines, its balancer hook set (signed calls), scaled to three - the hook told tfc-3 is in - and back to two - told it goes before its drain, the list without it after - in place (the third's machine destroyed), its auto-scaling set, nothing left to plan"
 
 # =========================================================================
 # 9. Destroy.
 # =========================================================================
-tofu destroy -auto-approve -var nodes=1 -var memory=1536 -var address=192.168.123.50/24 -var 'labels={team="web"}' -var cluster=2 -var cluster_autoscale=true >"$WORKDIR/destroy.log" || fail "destroy: $(tail -30 "$WORKDIR/destroy.log")"
+tofu destroy -auto-approve -var nodes=1 -var memory=1536 -var address=192.168.123.50/24 -var 'labels={team="web"}' -var cluster=2 -var cluster_autoscale=true -var cluster_balancer=true >"$WORKDIR/destroy.log" || fail "destroy: $(tail -30 "$WORKDIR/destroy.log")"
 [ "$(api -o /dev/null -w '%{http_code}' "$API/api/clusters/$CID")" = 404 ] || fail "the cluster is still there"
 [ "$(api "$API/api/machines" | json "len(d)")" = 0 ] || fail "machines left: $(api "$API/api/machines")"
 [ "$(api "$API/api/hypervisors" | json "len(d)")" = 0 ] || fail "the hypervisor wasn't removed"

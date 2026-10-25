@@ -561,6 +561,7 @@ func (e *Engine) addMember(ctx context.Context, id string, m Member, actor strin
 		if err != nil {
 			return fmt.Errorf("draining it before its configuration: %v", err)
 		}
+		e.setDrained(id, m.Name, true)
 		e.Journal(id, actor, "drain", m.Name, 0, "%s joins drained: %s", m.Name, msg)
 	}
 	if err := e.SecretsAndVersion(ctx, id, c.Desired, []string{m.Name}, actor); err != nil {
@@ -569,7 +570,12 @@ func (e *Engine) addMember(ctx context.Context, id string, m Member, actor strin
 	if drained {
 		return nil
 	}
-	return e.inService(ctx, id, m, actor)
+	if err := e.inService(ctx, id, m, actor); err != nil {
+		return err
+	}
+	e.setDrained(id, m.Name, false)
+	_ = e.announce(ctx, id, "in", m.Name, actor) // journaled; Reconcile calls again
+	return nil
 }
 
 // inService undrains a member that joined drained - left so by an
@@ -631,6 +637,16 @@ func (e *Engine) Replace(ctx context.Context, id, old string, repl Member, opts 
 	if err := e.Nodes.ClusterUndrain(ctx, repl); err != nil {
 		return e.undoJoin(ctx, id, repl.Name, actor, fmt.Errorf("%s back in service: %v", repl.Name, err))
 	}
+	e.setDrained(id, repl.Name, false)
+	_ = e.announce(ctx, id, "in", repl.Name, actor) // journaled; Reconcile calls again
+	// The balancer stops sending to old first, then old is drained.
+	if err := e.leaving(ctx, id, old, false, actor); err != nil {
+		rctx, rcancel := context.WithTimeout(ctx, 90*time.Second)
+		_, _ = e.Nodes.ClusterDrain(rctx, repl, time.Minute)
+		rcancel()
+		e.setDrained(id, repl.Name, true)
+		return e.undoJoin(ctx, id, repl.Name, actor, err)
+	}
 	dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	msg, err := e.Nodes.ClusterDrain(dctx, *om, time.Minute)
 	cancel()
@@ -639,12 +655,15 @@ func (e *Engine) Replace(ctx context.Context, id, old string, repl Member, opts 
 		rctx, rcancel := context.WithTimeout(ctx, 90*time.Second)
 		_, _ = e.Nodes.ClusterDrain(rctx, repl, time.Minute)
 		rcancel()
+		e.setDrained(id, repl.Name, true)
+		_ = e.announce(ctx, id, "in", old, actor) // old serves on
 		cause := fmt.Errorf("%s didn't drain: %v", old, err)
 		if uerr != nil {
 			cause = fmt.Errorf("%v; and back in service: %v", cause, uerr)
 		}
 		return e.undoJoin(ctx, id, repl.Name, actor, cause)
 	}
+	e.setDrained(id, old, true)
 	e.Journal(id, actor, "drain", old, 0, "%s drained, %s in service: %s", old, repl.Name, msg)
 	if err := e.removeMember(ctx, id, old, false, true, actor); err != nil {
 		if cur, ok := e.Store.Get(id); ok && cur.Member(old) == nil {
@@ -706,6 +725,9 @@ func (e *Engine) removeMember(ctx context.Context, id, name string, force, drain
 	}
 	leftDrained := drained
 	if !drained {
+		if err := e.leaving(ctx, id, name, force, actor); err != nil {
+			return err
+		}
 		dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		msg, err := e.Nodes.ClusterDrain(dctx, *m, time.Minute)
 		cancel()
@@ -714,6 +736,7 @@ func (e *Engine) removeMember(ctx context.Context, id, name string, force, drain
 		case err == nil:
 			e.Journal(id, actor, "drain", name, 0, "%s drained: %s", name, msg)
 		case !force:
+			_ = e.announce(ctx, id, "in", name, actor) // it serves on
 			return fmt.Errorf("%s didn't drain: %v - remove it with force to go on anyway", name, err)
 		}
 	}
@@ -743,6 +766,7 @@ func (e *Engine) removeMember(ctx context.Context, id, name string, force, drain
 	} else {
 		e.Journal(id, actor, "leave", name, 0, "%s left the cluster", name)
 	}
+	_ = e.announce(ctx, id, "sync", "", actor) // without it; journaled, Reconcile calls again
 	var failed []string
 	for _, o := range c.Members {
 		if _, err := e.Nodes.ClusterSet(ctx, o, e.SetRequest(c, o, nil, nil)); err != nil {

@@ -13,8 +13,10 @@
 # released by hand drifts: reported, not overwritten; the next apply puts
 # it back and locks it again. A certificate uploaded to the cluster
 # reaches every member. A drain through the Controller moves the virtual
-# IP to lb-2, which has the tables. A member removed, the cluster deleted
-# - and no AVC denial.
+# IP to lb-2, which has the tables - a balancer hook (a receiver on the
+# host) told lb-1 goes before it is drained, signed, and back after. A
+# member removed - the hook told before, then the list without it -, the
+# cluster deleted - and no AVC denial.
 #
 # Usage: hack/qemu-controller-cluster-test.sh <disk.img> <dashboardd-bin> <janusctl-bin>
 set -euo pipefail
@@ -257,8 +259,39 @@ master() { grep -Eq '^front +MASTER ' <<<"$(ctl "$1" network vrrp status 2>/dev/
 wait_for 30 "lb-1 holding the virtual IP" master 1
 echo "  ok: version 2's keepalived.conf rendered per member - lb-1 holds 192.168.86.100"
 
+# The balancer hook: a receiver on the host, checking each call's
+# signature, writing one line a call: EVENT MEMBER IN-SERVICE...
+cat > "$WORKDIR/hook.py" <<'PY'
+import hashlib, hmac, json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+SECRET, LOG = sys.argv[2].encode(), sys.argv[3]
+class Hook(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        want = "sha256=" + hmac.new(SECRET, body, hashlib.sha256).hexdigest()
+        call = json.loads(body)
+        ok = hmac.compare_digest(want, self.headers.get("X-Janus-Signature-256", "")) and self.headers.get("X-Janus-Event") == call["event"]
+        line = "%s %s %s %s\n" % ("signed" if ok else "BADSIG", call["event"], call.get("member") or "-", ",".join(m["name"] for m in call["members"] if m["in_service"]) or "-")
+        with open(LOG, "a") as f:
+            f.write(line)
+        self.send_response(204)
+        self.end_headers()
+    def log_message(self, *a):
+        pass
+HTTPServer(("127.0.0.1", int(sys.argv[1])), Hook).serve_forever()
+PY
+P_HOOK=$((BASE + 50))
+python3 "$WORKDIR/hook.py" "$P_HOOK" hook-secret "$WORKDIR/hook.log" &
+PID[hook]=$!
+hook_calls() { [ -s "$WORKDIR/hook.log" ] && [ "$(wc -l <"$WORKDIR/hook.log")" -ge "$1" ]; }
+view="$(api PUT "/api/clusters/$CID/balancer" "{\"url\": \"http://127.0.0.1:$P_HOOK/janus\", \"secret\": \"hook-secret\", \"drain_delay_seconds\": 2}")" || fail "set the balancer hook"
+check "the hook's secret not shown" '"has_secret":true' "$view"
+if grep -q hook-secret <<<"$view"; then fail "the hook's secret shown: $view"; fi
+wait_for 10 "the hook's first call" hook_calls 1
+check "the first call: every member in service, signed" "^signed sync - lb-1,lb-2,lb-3$" "$(cat "$WORKDIR/hook.log")"
+
 # Stick tables replicate; a drain through the Controller moves the
-# virtual IP to lb-2, which has them.
+# virtual IP to lb-2, which has them - the balancer told first.
 curl -s --max-time 5 "http://127.0.0.1:$((BASE + 10))/" >/dev/null
 curl -s --max-time 5 "http://127.0.0.1:$((BASE + 10))/" >/dev/null
 has_entry() { grep -Eq '10\.0\.2\.2' <<<"$(ctl "$1" haproxy table fe 2>/dev/null)"; }
@@ -270,10 +303,21 @@ err="$(cluster_error)"
 wait_for 20 "lb-2 holding the virtual IP" master 2
 master 1 && fail "lb-1 still MASTER after its drain"
 has_entry 2 || fail "lb-2 lost the table after the failover"
+check "the hook told lb-1 goes" "^signed out lb-1 lb-2,lb-3$" "$(sed -n 2p "$WORKDIR/hook.log")"
+# The journal, newest first: told, then drained.
+order="$(api GET "/api/clusters/$CID/journal" | python3 -c '
+import json, sys
+msgs = [e["message"] for e in json.load(sys.stdin)]
+told = next(i for i, m in enumerate(msgs) if m.startswith("the balancer was told lb-1 going out"))
+drained = next(i for i, m in enumerate(msgs) if m.startswith("lb-1 drained"))
+print("told first" if told > drained else "drained first")')"
+[ "$order" = "told first" ] || fail "the balancer and lb-1's drain: $order"
 api POST "/api/clusters/$CID/members/lb-1/undrain" >/dev/null || fail "undrain lb-1"
 wait_for 60 "the undrain" idle
 wait_for 30 "lb-1 holding the virtual IP again" master 1
-echo "  ok: a drain moved the virtual IP to lb-2, which had the stick table; undrained, lb-1 took it back"
+wait_for 10 "the hook told lb-1 is back" hook_calls 3
+check "the hook told lb-1 is back" "^signed in lb-1 lb-1,lb-2,lb-3$" "$(sed -n 3p "$WORKDIR/hook.log")"
+echo "  ok: a drain moved the virtual IP to lb-2, which had the stick table, the balancer hook told lb-1 goes first (signed); undrained, lb-1 took it back, the hook told"
 
 # A member released by hand drifts: reported, never overwritten.
 ctl 3 cluster release haproxy >/dev/null || fail "release on lb-3"
@@ -310,14 +354,18 @@ err="$(cluster_error)"
 [ -z "$err" ] || fail "remove lb-3: $err"
 check "lb-3 on its own" "Cluster: +none" "$(ctl 3 cluster get)"
 for i in 1 2; do wait_for 60 "lb-$i with one peer" peers_up "$i" 1; done
+wait_for 10 "the hook told lb-3 left" hook_calls 5
+check "the hook told lb-3 goes" "^signed out lb-3 lb-1,lb-2$" "$(sed -n 4p "$WORKDIR/hook.log")"
+check "then the list without lb-3" "^signed sync - lb-1,lb-2$" "$(sed -n 5p "$WORKDIR/hook.log")"
+if grep -q BADSIG "$WORKDIR/hook.log"; then fail "a hook call badly signed: $(cat "$WORKDIR/hook.log")"; fi
 api DELETE "/api/clusters/$CID" >/dev/null || fail "delete the cluster"
 gone() { ! api GET "/api/clusters/$CID" >/dev/null 2>&1; }
 wait_for 60 "the cluster gone" gone
 for i in 1 2; do check "lb-$i on its own" "Cluster: +none" "$(ctl "$i" cluster get)"; done
 out="$(ctl 2 haproxy apply-config "$WORKDIR/v1.cfg" 2>&1)" || fail "lb-2 unlocked once the cluster went: $out"
-echo "  ok: a member removed, the cluster deleted - the nodes on their own and unlocked"
+echo "  ok: a member removed - the balancer hook told before, then the list without it -, the cluster deleted - the nodes on their own and unlocked"
 
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on node $i"; fi
 done
-echo "Controller cluster test PASSED: created, locked, VRRP rendered, failover with tables, drift reported and put back, certificate pulled, member removed, cluster deleted"
+echo "Controller cluster test PASSED: created, locked, VRRP rendered, failover with tables, balancer hook told, drift reported and put back, certificate pulled, member removed, cluster deleted"

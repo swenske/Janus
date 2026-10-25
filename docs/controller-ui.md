@@ -169,6 +169,10 @@ in a datalist, extensions). A cluster on hypervisors shows its
 **Placement** in the header, each member the host it runs on under its
 node, and a **Scaling** card under the members (the count to set; the
 auto-scaling's mode and bounds, what it says now, the members' load).
+Every cluster has a **Balancer in front** card below (its hook's URL,
+how calls go, when it was last told and the failure if any; admins
+change it - the secret write-only, "unchanged" its placeholder -, call
+it now or remove it; readers see it only once set).
 `#/clusters/<id>` is one cluster: its problems in a notice, **Check
 now**, **Delete** (type the name), and four tabs - **Members** (version
 run, peers up, stick tables in sync, member certificate's end, drained /

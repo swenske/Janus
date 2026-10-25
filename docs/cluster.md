@@ -644,7 +644,7 @@ the members:
 | Failover mode | Does a member add capacity? | Auto-scaling |
 |---|---|---|
 | **BGP / ECMP** (anycast, every member announces) | Yes: the routers hash flows over all of them | **Horizontal**, this section |
-| **An external L4 balancer** in front (a cloud load balancer, a router's ECMP static routes) | Yes, once it knows the member | Horizontal, with a hook that updates the balancer's target list |
+| **An external L4 balancer** in front (a cloud load balancer, a router's ECMP static routes) | Yes, once it knows the member | Horizontal, with a hook that updates the balancer's target list ([the balancer hook](#the-balancer-hook)) |
 | **VRRP** | No: one member holds each virtual IP; a third node is a spare | **Refused**; the existing [vertical auto-scaling](guide/auto-scaling.md) grows the holder instead |
 | **DNS round-robin** | Slowly, and without health | Not offered |
 
@@ -723,6 +723,24 @@ Prometheus endpoint yet: the members' aggregate load is in
 `GET /api/clusters/{id}` (`load`), `janus_cluster_load_*` comes with
 that endpoint. A new policy starts over (no simulated count or step of
 the old).
+
+### The balancer hook
+
+Built after P6 ([a balancer in front](guide/clusters.md#a-balancer-in-front)):
+`internal/clusters/balancer.go`, in the engine both orchestrators
+share. A cluster's `Balancer` (URL, an optional CA, a drain delay; a
+secret kept apart, sealed as the CA key is) is called with **every
+member and whether it is in service** - idempotent, a missed call made
+good by the next: `in` once a member serves (a join, an undrain, a
+replacement's newcomer), `out` **before** one stops (a drain, a
+removal, a replaced member, a step in), the operation waiting for the
+answer and the drain delay - a hook that doesn't answer stops it, the
+member serving on, except a forced removal -; `sync` when the hook is
+saved, after a removal, and from Reconcile when the list differs from
+the last one delivered or that call failed. Signed with HMAC-SHA256
+(`X-Janus-Signature-256`). In service = not `Drained` in the cluster's
+state, which the engine now records itself as it drains and undrains,
+and Reconcile reads from the nodes.
 
 ### Guard rails
 
@@ -987,6 +1005,7 @@ In phases, each proven on real boots before the next:
 | **P4 - recycling** | `Engine.Replace` (joined drained, tables learnt, one swap, rollbacks), `janusctl cluster replace`, the Controller's `POST /api/clusters/{id}/recycle` with new machines like the old | `make qemu-clusterctl-test` (the VRRP master replaced, the virtual IP moving once), `controller-libvirt-test` part (a machine member recycled into a new machine), lab campaign (zero lost requests under load) |
 | **P5 - creation on hypervisors** | `HostID`, anti-affinity (`required`/`preferred`/`off`), clusters made of new machines (`POST /api/clusters` with `machines`), observed placement, recycles placed | `controller-libvirt-test` part (two records on one libvirtd: required refused, preferred made and said), unit tests; Proxmox `TestLive` for its node identity, with a live PVE |
 | **P6 - horizontal auto-scaling** | P6a: `POST .../scale`, the engine (observe/on/off) with its policy and pause; P6b: `janus_cluster` in Terraform (made of new machines, `members` and `autoscaling` in place, destroyed with its machines) | P6a: unit tests, `controller-libvirt-test` part (scaled 2 → 3 → 2, observing reads the real load); P6b: `terraform-provider-test` part 8b (made, scaled 2 → 3 → 2, auto-scaling set, destroyed); lab campaign on BGP |
+| **P6c - the balancer hook** | `Balancer` in the shared engine: `in` once a member serves, `out` before one stops (waited for, its drain delay too), `sync` from Reconcile; the Controller's page and API, `janusctl cluster balancer`, Terraform's `balancer` block | Unit tests (order, signature, retries, refusals, Reconcile); `qemu-controller-cluster-test` (a drain told first, signed, then the removal); `terraform-provider-test` part 8b (set, scaled 2 → 3 → 2 with the hook told in order) |
 
 P1 comes early because its need is concrete and its transport is P0's.
 

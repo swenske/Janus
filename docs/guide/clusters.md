@@ -342,8 +342,87 @@ makes such a cluster, its `members` and `autoscaling` changed in place.
 
 Not for a VRRP cluster: one member holds each virtual IP, a member more
 adds no capacity - grow its machines instead ([auto-scaling](auto-scaling.md)).
-Horizontal scaling suits BGP/ECMP clusters, or a balancer in front that
-sends to every member.
+Horizontal scaling suits BGP/ECMP clusters, or [a balancer in
+front](#a-balancer-in-front) that sends to every member.
+
+## A balancer in front
+
+When something in front spreads the traffic over the members - a cloud
+load balancer, a router's static ECMP routes, another HAProxy -, it
+must know which members take it: a new one once it serves, a leaving one
+before it stops. The cluster's **balancer hook** tells it: the cluster's
+**Members** tab, **Balancer in front**, **Set a hook** (or `PUT
+/api/clusters/{id}/balancer`, `janusctl cluster balancer`).
+
+- **When**: a member comes into service - it joined, was undrained,
+  took a recycled member's place - and **before** one goes out of it -
+  drained, removed, recycled, a step in. The operation waits for the
+  hook's answer (2xx), then the **drain delay** (its connections
+  finishing on the balancer's side), and only then drains the member.
+  A hook that doesn't answer stops that operation: the member serves on
+  ("the balancer wasn't told ..."), until the hook is fixed - or a
+  removal with *force*, for a node gone for good.
+- **What**: a `POST` of JSON, every member each time - the receiver
+  makes its targets the members `in_service`, and a call it missed is
+  made good by the next:
+
+  ```json
+  {
+    "cluster_id": "f48ca9b8-0742-4188-943f-88a8e37cd36f",
+    "cluster": "edge",
+    "event": "out",
+    "member": "edge-1",
+    "members": [
+      {"name": "edge-1", "address": "10.0.30.11", "in_service": false, "vars": {"priority": "150"}},
+      {"name": "edge-2", "address": "10.0.30.12", "in_service": true, "vars": {"priority": "100"}}
+    ],
+    "at": "2026-10-25T17:02:11Z"
+  }
+  ```
+
+  `event` is `in`, `out` (`member` names the one) or `sync` - the list
+  again: the hook saved, a member gone, a call that had failed.
+  `address` is the one the members reach each other on; a member's
+  template variables come along, for an address or a weight of your
+  own (`public_address=...`).
+- **Signed**, with a secret: `X-Janus-Signature-256: sha256=<hex>` is
+  the HMAC-SHA256 of the raw body, as GitHub signs its webhooks - check
+  it in constant time. `X-Janus-Event` repeats the event. HTTPS against
+  the system's CAs, or only the CA you give; plain HTTP is allowed for a
+  receiver beside the balancer, signed then.
+- A failed call is tried three times (a `4xx` once). The cluster shows
+  it among its problems, and the 10-minute check calls again until one
+  goes through - and whenever the list changed since the last call
+  delivered (a member drained on the node itself, say).
+- Drain a member through the cluster - its **Drain** button, the API -
+  for the balancer to be told first: `janusctl -n NODE cluster drain`
+  drains the node alone, and the balancer hears of it only at the next
+  check.
+
+A receiver can be a few lines - this one keeps the members in service
+in a file another tool (a router's configuration, an HAProxy map) reads:
+
+```python
+import hashlib, hmac, json, os
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+SECRET = open("/etc/janus-hook.secret", "rb").read().strip()
+
+class Hook(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        want = "sha256=" + hmac.new(SECRET, body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(want, self.headers.get("X-Janus-Signature-256", "")):
+            self.send_response(403); self.end_headers(); return
+        call = json.loads(body)
+        targets = [m["address"] for m in call["members"] if m["in_service"]]
+        with open("/run/edge-targets.tmp", "w") as f:
+            f.write("\n".join(targets) + "\n")
+        os.replace("/run/edge-targets.tmp", "/run/edge-targets")
+        self.send_response(204); self.end_headers()
+
+HTTPServer(("0.0.0.0", 8099), Hook).serve_forever()
+```
 
 ## Watching it
 
@@ -434,6 +513,9 @@ Readers see clusters, administrators change them.
 | `POST .../members/{name}/drain`, `.../undrain` | out of service, back |
 | `POST /api/clusters/{id}/scale` | bring a cluster made on hypervisors to `{members}`, one step at a time |
 | `PUT /api/clusters/{id}/autoscale` | its auto-scaling: `{mode, min_members, max_members, max_vcpus, max_memory_mib, ...thresholds}` |
+| `PUT /api/clusters/{id}/balancer` | its [balancer hook](#a-balancer-in-front): `{url, ca_cert, drain_delay_seconds, secret}` - the secret write-only, left out to keep it, `""` to remove it; the hook is called at once |
+| `DELETE /api/clusters/{id}/balancer` | no hook any more |
+| `POST /api/clusters/{id}/balancer/sync` | call the hook with the members now (502 with its failure) |
 | `POST /api/clusters/{id}/recycle` | replace members one at a time (`{members, with: {member: {node_id, name, address}}, version, new_image}`; a member without `with` gets a new machine like its own) |
 | `GET`, `POST /api/clusters/{id}/versions`, `GET .../versions/{n}` | the versions; a new one (`{base, files, delete, note}`); one, with its files |
 | `POST /api/clusters/{id}/apply` | apply a version (`{version, managed}`) |
