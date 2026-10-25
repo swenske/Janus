@@ -22,7 +22,7 @@ func testSpec() hypervisor.MachineSpec {
 }
 
 func TestDomainXML(t *testing.T) {
-	x := domainXML(testSpec(), "/var/lib/libvirt/janus/disk.qcow2", "/var/lib/libvirt/janus/ci.iso", "ctl-1", "")
+	x := domainXML(testSpec(), "/var/lib/libvirt/janus/disk.qcow2", "/var/lib/libvirt/janus/ci.iso", "ctl-1")
 
 	// Well-formed, with the name escaped.
 	var d struct {
@@ -222,41 +222,75 @@ func TestHardwareXMLFixed(t *testing.T) {
 	}
 }
 
-// The plain OVMF code, picked from what a host's libvirt offers - the
-// 4 MiB build first, never a Secure Boot or confidential-computing one,
-// nor a combined code+variables image.
-func TestStatelessLoader(t *testing.T) {
-	caps := func(paths ...string) string {
-		var b strings.Builder
-		b.WriteString("<domainCapabilities><os supported='yes'><loader supported='yes'>")
-		for _, p := range paths {
-			b.WriteString("<value>" + p + "</value>")
-		}
-		b.WriteString("<enum name='type'><value>rom</value><value>pflash</value></enum></loader></os></domainCapabilities>")
-		return b.String()
+// A machine just defined runs the firmware libvirt chose alone, without
+// its store - the plain OVMF code only, never a Secure Boot or
+// confidential-computing build, nor a combined code+variables image.
+func TestStatelessXML(t *testing.T) {
+	// What Debian 13's libvirt 11.3 makes of domainXML's <os> (a lab host).
+	defined := func(loader string) string {
+		return `<domain type='kvm'>
+  <name>janus-lb-1</name>
+  <uuid>0e9227af-dcdc-44b6-b920-b2da5f47acfc</uuid>
+  <os firmware='efi'>
+    <type arch='x86_64' machine='pc-q35-10.0'>hvm</type>
+    <firmware>
+      <feature enabled='no' name='enrolled-keys'/>
+      <feature enabled='no' name='secure-boot'/>
+    </firmware>
+    <loader readonly='yes' type='pflash' format='raw'>` + loader + `</loader>
+    <nvram template='/usr/share/OVMF/OVMF_VARS_4M.fd' templateFormat='raw' format='raw'>/var/lib/libvirt/qemu/nvram/janus-lb-1_VARS.fd</nvram>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+  </features>
+</domain>
+`
 	}
-	for _, tc := range []struct {
-		name, caps, want string
-	}{
-		{"Debian 13", caps("/usr/share/OVMF/OVMF_CODE_4M.ms.fd", "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd", "/usr/share/OVMF/OVMF_CODE_4M.fd"), "/usr/share/OVMF/OVMF_CODE_4M.fd"},
-		{"Fedora", caps("/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd", "/usr/share/edk2/ovmf/OVMF_CODE.fd", "/usr/share/edk2/ovmf/OVMF.amdsev.fd", "/usr/share/edk2/ovmf/OVMF.inteltdx.fd"), "/usr/share/edk2/ovmf/OVMF_CODE.fd"},
-		{"Arch, 2 and 4 MiB", caps("/usr/share/edk2/x64/OVMF_CODE.fd", "/usr/share/edk2/x64/OVMF_CODE.4m.fd", "/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd"), "/usr/share/edk2/x64/OVMF_CODE.4m.fd"},
-		{"only Secure Boot", caps("/usr/share/OVMF/OVMF_CODE_4M.secboot.fd", "/usr/share/OVMF/OVMF_CODE_4M.snakeoil.fd"), ""},
-		{"a combined image", caps("/usr/share/qemu/OVMF.fd"), ""},
-		{"no loader", "<domainCapabilities><os supported='yes'/></domainCapabilities>", ""},
-		{"not XML", "nope", ""},
+	got, ok := statelessXML(defined("/usr/share/OVMF/OVMF_CODE_4M.fd"))
+	want := `<domain type='kvm'>
+  <name>janus-lb-1</name>
+  <uuid>0e9227af-dcdc-44b6-b920-b2da5f47acfc</uuid>
+  <os>
+    <type arch='x86_64' machine='pc-q35-10.0'>hvm</type>
+    <loader readonly='yes' type='pflash' stateless='yes'>/usr/share/OVMF/OVMF_CODE_4M.fd</loader>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+  </features>
+</domain>
+`
+	if !ok || got != want {
+		t.Errorf("stateless (%v):\n%s", ok, got)
+	}
+	// An <nvram/> without a path, as some libvirt versions write it.
+	if got, ok := statelessXML(strings.Replace(defined("/usr/share/OVMF/OVMF_CODE_4M.fd"), "<nvram template='/usr/share/OVMF/OVMF_VARS_4M.fd' templateFormat='raw' format='raw'>/var/lib/libvirt/qemu/nvram/janus-lb-1_VARS.fd</nvram>", "<nvram template='/usr/share/OVMF/OVMF_VARS_4M.fd'/>", 1)); !ok || got != want {
+		t.Errorf("an empty <nvram/> (%v):\n%s", ok, got)
+	}
+	for _, loader := range []string{"/usr/share/OVMF/OVMF_CODE_4M.secboot.fd", "/usr/share/OVMF/OVMF_CODE_4M.ms.fd", "/usr/share/qemu/OVMF.fd", "/usr/share/edk2/ovmf/OVMF.amdsev.fd"} {
+		if _, ok := statelessXML(defined(loader)); ok {
+			t.Errorf("%s made stateless", loader)
+		}
+	}
+	if _, ok := statelessXML("<domain><os firmware='efi'><type>hvm</type></os></domain>"); ok {
+		t.Error("made stateless without a loader")
+	}
+	for path, want := range map[string]bool{
+		"/usr/share/OVMF/OVMF_CODE_4M.fd":             true,
+		"/usr/share/edk2/ovmf/OVMF_CODE.fd":           true,
+		"/usr/share/edk2/x64/OVMF_CODE.4m.fd":         true,
+		"/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd": false,
+		"/usr/share/OVMF/OVMF_CODE_4M.snakeoil.fd":    false,
+		"/usr/share/edk2/ovmf/OVMF.inteltdx.fd":       false,
+		"/usr/share/qemu/OVMF.fd":                     false,
 	} {
-		if got := statelessLoader(tc.caps); got != tc.want {
-			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		if plainCode(path) != want {
+			t.Errorf("plainCode(%s) = %v", path, !want)
 		}
 	}
-	// The domain: the code alone, read-only, no store - else libvirt's
-	// choice, as before.
-	x := domainXML(testSpec(), "/disk.qcow2", "/ci.iso", "ctl-1", "/usr/share/OVMF/OVMF_CODE_4M.fd")
-	if !strings.Contains(x, "<loader readonly='yes' type='pflash' stateless='yes'>/usr/share/OVMF/OVMF_CODE_4M.fd</loader>") || strings.Contains(x, "firmware='efi'") || strings.Contains(x, "nvram") {
-		t.Errorf("stateless:\n%s", x)
-	}
-	if x := domainXML(testSpec(), "/disk.qcow2", "/ci.iso", "ctl-1", ""); !strings.Contains(x, "<os firmware='efi'>") || strings.Contains(x, "stateless") {
-		t.Errorf("no loader found:\n%s", x)
+	// domainXML leaves the firmware to libvirt: Create makes it stateless.
+	if x := domainXML(testSpec(), "/disk.qcow2", "/ci.iso", "ctl-1"); !strings.Contains(x, "<os firmware='efi'>") || strings.Contains(x, "stateless") {
+		t.Errorf("domainXML's firmware:\n%s", x)
 	}
 }

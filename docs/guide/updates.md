@@ -107,9 +107,13 @@ janusctl -n lb1 version           # the release now running, and its slot
   firmware's code alone, `<loader readonly='yes' type='pflash'
   stateless='yes'>/usr/share/OVMF/OVMF_CODE_4M.fd</loader>` and no
   `<nvram>` (libvirt 8.6 or later; firmware auto-selection can't choose it
-  on Debian 13). The Controller's libvirt machines made since v2026.10.25-2
-  run that way - it picks the plain OVMF code its host's libvirt offers;
-  one made before keeps its store until it is recycled. A Proxmox VE
+  on Debian 13). The Controller's libvirt machines run that way: it lets
+  libvirt choose their firmware, then keeps its plain code alone before
+  their first start. One made before keeps its store until it is
+  recycled - so does one made by the Controllers of v2026.10.25-3 and -4
+  on a host prepared as [hypervisors](../hypervisors.md) says: they asked
+  the host for its firmware images, which that preparation doesn't let
+  them read. A Proxmox VE
   machine keeps its EFI disk.
 
 ## Pre-releases
