@@ -83,6 +83,7 @@ func (d *Driver) HostInfo(ctx context.Context) (*hypervisor.HostInfo, error) {
 	usage := st.CPU
 	info := &hypervisor.HostInfo{
 		Hostname:          d.cfg.Node,
+		HostID:            hostID(d.cfg.Node),
 		HypervisorVersion: "Proxmox VE " + pveVersion(st.PVEVersion),
 		LibraryVersion:    "Linux " + st.CurrentKernel.Release,
 		CPUModel:          st.CPUInfo.Model,
@@ -410,11 +411,12 @@ type vmConfig struct {
 	raw         map[string]any
 }
 
-func (d *Driver) config(ctx context.Context, vmid int) (*vmConfig, error) {
+// configOn is VM vmid's configuration, read on node - where it runs.
+func (d *Driver) configOn(ctx context.Context, node string, vmid int) (*vmConfig, error) {
 	var raw map[string]any
 	// current=1: what the machine has, not changes pending for its next
 	// start.
-	if err := d.api.do(ctx, http.MethodGet, d.nodePath("/qemu/%d/config", vmid), url.Values{"current": {"1"}}, &raw); err != nil {
+	if err := d.api.do(ctx, http.MethodGet, "/nodes/"+url.PathEscape(node)+fmt.Sprintf("/qemu/%d/config", vmid), url.Values{"current": {"1"}}, &raw); err != nil {
 		if isPermission(err) || isMissing(err) {
 			return nil, hypervisor.ErrNotFound
 		}
@@ -452,7 +454,12 @@ func (d *Driver) owned(ctx context.Context, ref hypervisor.MachineRef) (int, *vm
 	if err != nil {
 		return 0, nil, err
 	}
-	c, err := d.config(ctx, vmid)
+	return d.ownedOn(ctx, d.cfg.Node, vmid, ref)
+}
+
+// ownedOn checks VM vmid, on node, is ref's.
+func (d *Driver) ownedOn(ctx context.Context, node string, vmid int, ref hypervisor.MachineRef) (int, *vmConfig, error) {
+	c, err := d.configOn(ctx, node, vmid)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -485,8 +492,36 @@ func (d *Driver) find(ctx context.Context, ref hypervisor.MachineRef) (int, erro
 	return 0, hypervisor.ErrNotFound
 }
 
+// hostID is a Proxmox node's HostInfo.HostID: its name - two separate
+// Proxmox installations whose nodes share a name count as one host, a
+// warning more, never two members placed together unseen.
+func hostID(node string) string { return "proxmox:" + node }
+
+// nodeOf is the node VM vmid runs on now - an HA migration moves it -,
+// from the cluster's resources the token may see; the record's node
+// when it can't be told.
+func (d *Driver) nodeOf(ctx context.Context, vmid int) string {
+	var vms []struct {
+		VMID int    `json:"vmid"`
+		Node string `json:"node"`
+	}
+	if err := d.api.do(ctx, http.MethodGet, "/cluster/resources", url.Values{"type": {"vm"}}, &vms); err == nil {
+		for _, v := range vms {
+			if v.VMID == vmid && v.Node != "" {
+				return v.Node
+			}
+		}
+	}
+	return d.cfg.Node
+}
+
 func (d *Driver) MachineStatus(ctx context.Context, ref hypervisor.MachineRef) (*hypervisor.MachineStatus, error) {
-	vmid, c, err := d.owned(ctx, ref)
+	vmid, err := d.find(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	node := d.nodeOf(ctx, vmid)
+	vmid, c, err := d.ownedOn(ctx, node, vmid, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -496,13 +531,13 @@ func (d *Driver) MachineStatus(ctx context.Context, ref hypervisor.MachineRef) (
 		CPUs      int    `json:"cpus"`
 		MaxMem    uint64 `json:"maxmem"`
 	}
-	if err := d.api.do(ctx, http.MethodGet, d.nodePath("/qemu/%d/status/current", vmid), nil, &st); err != nil {
+	if err := d.api.do(ctx, http.MethodGet, "/nodes/"+url.PathEscape(node)+fmt.Sprintf("/qemu/%d/status/current", vmid), nil, &st); err != nil {
 		if isPermission(err) || isMissing(err) {
 			return nil, hypervisor.ErrNotFound
 		}
 		return nil, err
 	}
-	out := &hypervisor.MachineStatus{Power: powerState(st.Status, st.QMPStatus)}
+	out := &hypervisor.MachineStatus{Power: powerState(st.Status, st.QMPStatus), HostID: hostID(node), HostName: node}
 	out.VCPUs, out.MaxVCPUs, out.MemoryMiB, out.MaxMemoryMiB, out.MemoryStepMiB = statusOf(c)
 	return out, nil
 }

@@ -71,8 +71,11 @@ type clusterMemberView struct {
 	NodeFound bool   `json:"node_found"`
 	// MachineID: its node runs on one of this Controller's machines - a
 	// recycle can make it a new one.
-	MachineID string               `json:"machine_id,omitempty"`
-	State     clusters.MemberState `json:"state"`
+	MachineID string `json:"machine_id,omitempty"`
+	// HostID and HostName: the physical host its machine runs on.
+	HostID   string               `json:"host_id,omitempty"`
+	HostName string               `json:"host_name,omitempty"`
+	State    clusters.MemberState `json:"state"`
 }
 
 type clusterView struct {
@@ -92,6 +95,7 @@ type clusterView struct {
 	// TicketsRenew: members that left while the ring is still the one
 	// they knew.
 	TicketsRenew []string            `json:"tickets_renew,omitempty"`
+	Placement    *clusters.Placement `json:"placement,omitempty"`
 	Members      []clusterMemberView `json:"members"`
 	// Problems are what an operator should look at, worded for one.
 	Problems []string `json:"problems"`
@@ -101,7 +105,7 @@ func (a *app) clusterView(c *clusters.Cluster) clusterView {
 	st := a.clusters.Store.State(c.ID)
 	v := clusterView{ID: c.ID, Name: c.Name, PeersPort: c.PeersPort, Managed: nonNil(c.Managed), SecretsFrom: c.SecretsFrom,
 		Desired: c.Desired, Created: c.Created, Updated: c.Updated, Phase: c.Phase, Error: c.Error, Busy: a.clusters.isBusy(c.ID),
-		TicketsRotated: st.TicketsRotated, TicketsRenew: st.TicketsRenew, Members: []clusterMemberView{}, Problems: []string{}}
+		TicketsRotated: st.TicketsRotated, TicketsRenew: st.TicketsRenew, Placement: c.Placement, Members: []clusterMemberView{}, Problems: []string{}}
 	if caPEM, err := a.clusters.Store.CACertPEM(c.ID); err == nil {
 		if fp, err := pemFingerprint(caPEM); err == nil {
 			v.CAFingerprint = fp
@@ -121,9 +125,11 @@ func (a *app) clusterView(c *clusters.Cluster) clusterView {
 		if mach := a.machineOf(m.NodeID); mach != nil {
 			mv.MachineID = mach.ID
 		}
+		mv.HostID, mv.HostName = a.memberHost(m)
 		v.Members = append(v.Members, mv)
 		v.Problems = append(v.Problems, memberProblems(c, mv)...)
 	}
+	v.Problems = append(v.Problems, placementProblems(c, v.Members)...)
 	return v
 }
 
@@ -241,6 +247,8 @@ func (a *app) handleClusterCreate(w http.ResponseWriter, r *http.Request) {
 		Managed   []string               `json:"managed"`
 		Source    string                 `json:"source"` // a node id: its configuration is version 1, its secrets everyone's
 		Members   []clusterMemberRequest `json:"members"`
+		// Machines: the cluster made of new machines instead of nodes.
+		Machines *clusterMachinesRequest `json:"machines"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -253,6 +261,14 @@ func (a *app) handleClusterCreate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "a cluster starts managing HAProxy's configuration and files; VRRP, BGP and the firewall come with a version carrying their template (apply it with managed)")
 			return
 		}
+	}
+	if req.Machines != nil {
+		if len(req.Members) > 0 || req.Source != "" {
+			writeError(w, http.StatusBadRequest, "machines or members and source: new machines, or nodes already there")
+			return
+		}
+		a.clusterOnHypervisors(w, r, req.Name, req.PeersPort, req.Managed, *req.Machines)
+		return
 	}
 	if len(req.Members) == 0 {
 		writeError(w, http.StatusBadRequest, "a cluster has members")

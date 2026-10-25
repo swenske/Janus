@@ -78,7 +78,11 @@ type Driver interface {
 
 // HostInfo is a hypervisor host's state, as shown on its card.
 type HostInfo struct {
-	Hostname          string `json:"hostname"`
+	Hostname string `json:"hostname"`
+	// HostID is the physical host's identity, for anti-affinity: two
+	// hypervisor records reaching the same host share it (libvirt: the
+	// host's UUID; Proxmox: the node's name). Empty: unknown.
+	HostID            string `json:"host_id,omitempty"`
 	HypervisorVersion string `json:"hypervisor_version"` // e.g. "QEMU 9.2.0"
 	LibraryVersion    string `json:"library_version"`    // e.g. "libvirt 11.3.0"
 	CPUModel          string `json:"cpu_model"`
@@ -213,6 +217,10 @@ type MachineStatus struct {
 	MemoryStepMiB int `json:"memory_step_mib,omitempty"`
 	// CPUTimeNs is the machine's cumulative CPU time.
 	CPUTimeNs uint64 `json:"cpu_time_ns"`
+	// HostID and HostName are the host the machine runs on now - a
+	// Proxmox HA migration moves it without asking (HostInfo.HostID).
+	HostID   string `json:"host_id,omitempty"`
+	HostName string `json:"host_name,omitempty"`
 }
 
 // PowerAction is what Power does - the hypervisor-level actions, for

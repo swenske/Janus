@@ -132,7 +132,20 @@ function ClusterList({ nodes }) {
   )
 }
 
+// MACHINE_DEFAULTS are a new cluster's machines' - what a machine made
+// on its own gets.
+const MACHINE_DEFAULTS = { count: 2, vcpus: 2, memory: 1024, version: '', network: '', nic: 'eth0', anti: 'required' }
+
+// hvNetworks are the networks a hypervisor record offers its machines.
+const hvNetworks = (hv) => hv?.libvirt?.networks || hv?.proxmox?.networks || []
+
 function CreateCluster({ nodes, onCancel, onCreated }) {
+  const [from, setFrom] = useState('nodes') // or 'machines'
+  const [hypervisors, setHypervisors] = useState(null)
+  const [catalog, setCatalog] = useState(null)
+  const [mach, setMach] = useState(MACHINE_DEFAULTS)
+  const [hvs, setHvs] = useState([]) // the records picked, in order
+  const [exts, setExts] = useState([])
   const [name, setName] = useState('')
   const [picked, setPicked] = useState({}) // node id -> {name, address}
   const [source, setSource] = useState('')
@@ -151,22 +164,46 @@ function CreateCluster({ nodes, onCancel, onCreated }) {
   }
   const set = (id, change) => setPicked({ ...picked, [id]: { ...picked[id], ...change } })
   const ids = Object.keys(picked)
+  useEffect(() => {
+    call('/api/hypervisors').then(setHypervisors, () => setHypervisors([]))
+    call('/api/catalog').then(setCatalog, () => setCatalog({}))
+  }, [])
+  const usable = (hypervisors || []).filter((h) => h.trusted)
+  const toggleHv = (id) => setHvs(hvs.includes(id) ? hvs.filter((x) => x !== id) : [...hvs, id])
+  const toggleExt = (x) => setExts(exts.includes(x) ? exts.filter((y) => y !== x) : [...exts, x])
+  // The networks every hypervisor picked offers.
+  const networks = hvs.length ? hvNetworks(usable.find((h) => h.id === hvs[0])).filter((n) => hvs.every((id) => hvNetworks(usable.find((h) => h.id === id)).includes(n))) : []
   const problem =
     clusterNameError(name) ||
-    (ids.length === 0 ? 'its nodes' : '') ||
-    ids.map((id) => memberNameError(picked[id].name) || (picked[id].address ? '' : 'each member’s address')).find(Boolean) ||
-    (source ? '' : 'the source')
+    (from === 'nodes'
+      ? (ids.length === 0 ? 'its nodes' : '') ||
+        ids.map((id) => memberNameError(picked[id].name) || (picked[id].address ? '' : 'each member’s address')).find(Boolean) ||
+        (source ? '' : 'the source')
+      : (hvs.length === 0 ? 'a hypervisor' : '') || (mach.network.trim() ? '' : 'the network') || (Number(mach.count) >= 1 && Number(mach.count) <= 16 ? '' : 'how many machines, 1 to 16'))
   const submit = (e) => {
     e.preventDefault()
     setError(null)
+    const body =
+      from === 'nodes'
+        ? { name, source, members: ids.map((id) => ({ node_id: id, name: picked[id].name, address: picked[id].address.trim() })) }
+        : {
+            name,
+            machines: {
+              count: Number(mach.count),
+              anti_affinity: mach.anti,
+              hypervisors: hvs,
+              spec: {
+                vcpus: Number(mach.vcpus),
+                memory_mib: Number(mach.memory),
+                ...(mach.version.trim() ? { version: mach.version.trim() } : {}),
+                ...(exts.length ? { extensions: exts } : {}),
+                nics: [{ network: mach.network.trim(), name: mach.nic.trim() || 'eth0', mode: 'dhcp' }],
+              },
+            },
+          }
     run(async () => {
       try {
-        const c = await postJSON('/api/clusters', {
-          name,
-          source,
-          members: ids.map((id) => ({ node_id: id, name: picked[id].name, address: picked[id].address.trim() })),
-        })
-        onCreated(c)
+        onCreated(await postJSON('/api/clusters', body))
       } catch (err) {
         setError(err)
       }
@@ -179,7 +216,90 @@ function CreateCluster({ nodes, onCancel, onCreated }) {
           <span>Name - lowercase letters, digits, dashes</span>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value.trim())} placeholder="edge" />
         </label>
-        {nodes.length === 0 ? (
+        <fieldset className="plain">
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <label className="check small">
+              <input type="radio" name="cluster-from" checked={from === 'nodes'} onChange={() => setFrom('nodes')} /> Nodes already there
+            </label>
+            <label className="check small">
+              <input type="radio" name="cluster-from" checked={from === 'machines'} disabled={usable.length === 0} onChange={() => setFrom('machines')} /> New machines
+              {hypervisors && usable.length === 0 && <span className="muted"> - no trusted hypervisor</span>}
+            </label>
+          </div>
+        </fieldset>
+        {from === 'machines' ? (
+          <div className="stack">
+            <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <label className="field">
+                <span>Machines</span>
+                <input type="number" min="1" max="16" value={mach.count} onChange={(e) => setMach({ ...mach, count: e.target.value })} />
+              </label>
+              <label className="field">
+                <span>Anti-affinity</span>
+                <select value={mach.anti} onChange={(e) => setMach({ ...mach, anti: e.target.value })}>
+                  <option value="required">Required - a host of its own each</option>
+                  <option value="preferred">Preferred - as few together as can be</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>vCPUs</span>
+                <input type="number" min="1" max="64" value={mach.vcpus} onChange={(e) => setMach({ ...mach, vcpus: e.target.value })} />
+              </label>
+              <label className="field">
+                <span>Memory, MiB</span>
+                <input type="number" min="512" step="256" value={mach.memory} onChange={(e) => setMach({ ...mach, memory: e.target.value })} />
+              </label>
+              <label className="field">
+                <span>Release - empty: the latest</span>
+                <input className="mono" value={mach.version} placeholder="v2026.10.24" onChange={(e) => setMach({ ...mach, version: e.target.value })} />
+              </label>
+            </div>
+            <div>
+              <div className="small muted">Hypervisors - two records reaching one host count as one</div>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                {usable.map((h) => (
+                  <label key={h.id} className="check small">
+                    <input type="checkbox" checked={hvs.includes(h.id)} onChange={() => toggleHv(h.id)} /> {h.name}
+                    {h.host_name && <span className="muted"> ({h.host_name})</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <label className="field">
+                <span>Network - DHCP</span>
+                <input className="mono" list="cluster-networks" value={mach.network} onChange={(e) => setMach({ ...mach, network: e.target.value })} />
+                <datalist id="cluster-networks">
+                  {networks.map((n) => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
+              </label>
+              <label className="field">
+                <span>Interface name</span>
+                <input className="mono" value={mach.nic} onChange={(e) => setMach({ ...mach, nic: e.target.value })} />
+              </label>
+            </div>
+            {catalog?.extensions?.length > 0 && (
+              <div>
+                <div className="small muted">Extensions</div>
+                <div className="row" style={{ flexWrap: 'wrap' }}>
+                  {catalog.extensions.map((x) => (
+                    <label key={x.name} className="check small">
+                      <input type="checkbox" checked={exts.includes(x.name)} onChange={() => toggleExt(x.name)} /> {x.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className="small muted">
+              The Controller makes the machines - named after the cluster, {name || 'edge'}-1, {name || 'edge'}-2… - each on a host of its own unless anti-affinity says
+              otherwise, waits until they register and trust the fleet, then makes the cluster from them: the first one’s configuration becomes its version 1. Refused before
+              anything is made when the hosts don’t allow it.
+            </p>
+          </div>
+        ) : nodes.length === 0 ? (
           <div className="notice warn">Every node is in a cluster already, or there is none.</div>
         ) : (
           <div className="table-wrap">
@@ -216,11 +336,13 @@ function CreateCluster({ nodes, onCancel, onCreated }) {
             </table>
           </div>
         )}
-        <p className="small muted">
-          The source’s configuration becomes the cluster’s first version - its haproxy.cfg and files -, and its certificates and keys every member’s. The members trust this
-          Controller’s fleet, run the same image, and reach each other on TCP 9505 and 10057. The cluster then manages HAProxy’s configuration and files; VRRP, BGP and the
-          firewall come with a version carrying their template.
-        </p>
+        {from === 'nodes' && (
+          <p className="small muted">
+            The source’s configuration becomes the cluster’s first version - its haproxy.cfg and files -, and its certificates and keys every member’s. The members trust this
+            Controller’s fleet, run the same image, and reach each other on TCP 9505 and 10057. The cluster then manages HAProxy’s configuration and files; VRRP, BGP and the
+            firewall come with a version carrying their template.
+          </p>
+        )}
         <ErrorBox error={error} />
         <div className="row">
           <button className="primary" type="submit" disabled={busy || !!problem} title={problem ? `Missing: ${problem}` : undefined}>
@@ -300,6 +422,14 @@ function ClusterPage({ id, nodes }) {
         <dd>{cluster.managed.join(', ')}</dd>
         <dt>Secrets from</dt>
         <dd>{cluster.secrets_from}</dd>
+        {cluster.placement && (
+          <>
+            <dt>Placement</dt>
+            <dd>
+              anti-affinity {cluster.placement.anti_affinity}, {cluster.placement.hypervisors.length} hypervisor{cluster.placement.hypervisors.length === 1 ? '' : 's'}
+            </dd>
+          </>
+        )}
         <dt>Peers port</dt>
         <dd className="mono">{cluster.peers_port}</dd>
         <dt>CA</dt>
@@ -416,7 +546,10 @@ function Members({ cluster, nodes, act, busy, reload }) {
                   <td>
                     <strong>{m.name}</strong> {m.name === cluster.secrets_from && <Badge tone="info">secrets</Badge>}
                   </td>
-                  <td>{m.node_found ? m.node_name : <Badge tone="danger">gone</Badge>}</td>
+                  <td>
+                    {m.node_found ? m.node_name : <Badge tone="danger">gone</Badge>}
+                    {m.host_name && <div className="small muted">on {m.host_name}</div>}
+                  </td>
                   <td className="mono small">{m.address}</td>
                   <td>{s.applied ? <Badge tone={s.applied === cluster.desired ? 'ok' : 'warn'}>v{s.applied}</Badge> : '-'}</td>
                   <td>{checked ? <Badge tone={s.peers_up < s.peers_total ? 'danger' : 'ok'}>{`${s.peers_up}/${s.peers_total}`}</Badge> : '-'}</td>

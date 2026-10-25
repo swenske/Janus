@@ -30,6 +30,12 @@
 #      node3; node3 recycled - a new machine like it made, registered,
 #      trusting the fleet, joined drained and taking node3's place - and
 #      node3's machine destroyed;
+#   3f. a cluster made of new machines (docs/cluster.md "On a
+#      hypervisor"): a second record reaching the same libvirtd is the
+#      same host (the capabilities' UUID); with anti-affinity required
+#      two machines on it are refused before anything is made, with
+#      preferred they are made, the cluster created from them, and its
+#      page says both run on one host;
 #   4. a record forged to point at a domain the Controller didn't create
 #      (one untagged, one tagged by another Controller) is refused, and
 #      the domain is left as it was;
@@ -556,6 +562,57 @@ done
 [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MIDE")" = 404 ] || fail "edge-1 was never destroyed"
 }
 
+placement_cycle() {
+# =========================================================================
+# 3f. A cluster made of new machines, placed by host.
+# =========================================================================
+api -X POST "$API/api/hypervisors" -H 'Content-Type: application/json' \
+  -d '{"name":"testhost-again","kind":"libvirt","libvirt":{"host":"localhost","user":"janus-ctl","pool":"janus","networks":["janus-test"]}}' >"$WORKDIR/hv2.json"
+HV2="$(json "d['id']" <"$WORKDIR/hv2.json")" || fail "a second record: $(cat "$WORKDIR/hv2.json")"
+json "d['authorized_key']" <"$WORKDIR/hv2.json" | in_host_i sh -c 'cat >> /home/janus-ctl/.ssh/authorized_keys'
+probed2="$(api -X POST "$API/api/hypervisors/$HV2/probe" | json "d['fingerprint']")"
+api -X POST "$API/api/hypervisors/$HV2/trust" -H 'Content-Type: application/json' -d "{\"fingerprint\":\"$probed2\"}" | json "d['trusted']" | grep -q True || fail "trust the second record"
+id1="$(api "$API/api/hypervisors/$HV/status" | json "d['host'].get('host_id','')")"
+id2="$(api "$API/api/hypervisors/$HV2/status" | json "d['host'].get('host_id','')")"
+case "$id1" in libvirt:?*) ;; *) fail "the host's identity: '$id1'" ;; esac
+[ "$id1" = "$id2" ] || fail "two records reaching one libvirtd name two hosts: $id1, $id2"
+cluster_body() { # $1: name, $2: anti-affinity
+  printf '{"name":"%s","machines":{"count":2,"anti_affinity":"%s","hypervisors":["%s","%s"],"spec":{"vcpus":1,"memory_mib":512,"image":{"url":"http://127.0.0.1:8000/janus-kvm.qcow2","sha256":"%s"},"nics":[{"network":"janus-test","name":"lan","mode":"dhcp"}]}}}' "$1" "$2" "$HV" "$HV2" "$SUM"
+}
+before="$(api "$API/api/machines" | json "len(d)")"
+code="$(api -o "$WORKDIR/p.json" -w '%{http_code}' -X POST "$API/api/clusters" -H 'Content-Type: application/json' -d "$(cluster_body pinned required)")"
+[ "$code" = 400 ] || fail "two machines required on hosts of their own, one host: $code $(cat "$WORKDIR/p.json")"
+grep -q "testhost and testhost-again: one host" "$WORKDIR/p.json" || fail "the refusal doesn't name the host: $(cat "$WORKDIR/p.json")"
+[ "$(api "$API/api/machines" | json "len(d)")" = "$before" ] || fail "a refused cluster made machines"
+api -X POST "$API/api/clusters" -H 'Content-Type: application/json' -d "$(cluster_body pref preferred)" >"$WORKDIR/c.json" || fail "create pref: $(cat "$WORKDIR/c.json")"
+CID="$(json "d['id']" <"$WORKDIR/c.json")"
+cluster_idle 600
+api "$API/api/clusters/$CID" >"$WORKDIR/c.json"
+err="$(json "d.get('error','')" <"$WORKDIR/c.json")"
+[ -z "$err" ] || fail "the cluster made of new machines: $err"
+members="$(json "','.join(sorted(m['name'] for m in d['members']))" <"$WORKDIR/c.json")"
+[ "$members" = "pref-1,pref-2" ] || fail "its members: $members"
+json "d['placement']['anti_affinity']" <"$WORKDIR/c.json" | grep -qx preferred || fail "its placement: $(cat "$WORKDIR/c.json")"
+json "' '.join(m.get('host_name','') for m in d['members'])" <"$WORKDIR/c.json" | grep -Eq '^[^ ]+ [^ ]+$' || fail "its members' hosts: $(cat "$WORKDIR/c.json")"
+json "'\n'.join(d['problems'])" <"$WORKDIR/c.json" | grep -q "pref-1 and pref-2 run on the same host" || fail "the page doesn't say both run on one host: $(json "d['problems']" <"$WORKDIR/c.json")"
+echo "Part 4f OK: a second record on the same libvirtd is the same host ($id1) - two machines with anti-affinity required refused before anything was made; preferred made them, the cluster from them, and its page says both run on one host"
+api -o /dev/null -X DELETE "$API/api/clusters/$CID" || fail "delete pref"
+for _ in $(seq 1 60); do
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/clusters/$CID")" = 404 ] && break
+  sleep 1
+done
+for name in pref-1 pref-2; do
+  mid="$(api "$API/api/machines" | json "next(m['id'] for m in d if m['spec']['name']=='$name')")"
+  api -o /dev/null -X DELETE "$API/api/machines/$mid"
+  for _ in $(seq 1 90); do
+    [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$mid")" = 404 ] && break
+    sleep 1
+  done
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$mid")" = 404 ] || fail "$name was never destroyed"
+done
+api -o /dev/null -X DELETE "$API/api/hypervisors/$HV2" || fail "remove the second record"
+}
+
 destroy_cycle() {
 # =========================================================================
 # 5. Destroy: nothing left but the base image.
@@ -580,6 +637,7 @@ if [ -c /dev/net/tun ]; then
   boot_cycle
   autoscale_cycle
   recycle_cycle
+  placement_cycle
 else
   failed_creation
 fi

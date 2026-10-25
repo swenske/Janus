@@ -175,6 +175,16 @@ func (a *app) recycle(ctx context.Context, id string, req recycleRequest, actor 
 			if err != nil {
 				return fmt.Errorf("%s: %v", name, err)
 			}
+			if c.Placement != nil {
+				hv, warnings, err := a.recycleHypervisor(ctx, c, name, spec)
+				if err != nil {
+					return fmt.Errorf("%s's replacement: %v", name, err)
+				}
+				spec.HypervisorID = hv
+				for _, wn := range warnings {
+					a.clusters.Journal(id, actor, "placement", name, 0, "%s", wn)
+				}
+			}
 			if created, err = a.newMachine(spec, "replacing "+name+" in cluster "+c.Name); err != nil {
 				return fmt.Errorf("%s's replacement: %v", name, err)
 			}

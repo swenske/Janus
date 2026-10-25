@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -79,15 +80,19 @@ type hypervisorView struct {
 	HostKeyFingerprint string `json:"host_key_fingerprint,omitempty"`
 	CASubject          string `json:"ca_subject,omitempty"`
 	// HasTokenSecret: a Proxmox token's secret is kept (never shown).
-	HasTokenSecret bool      `json:"has_token_secret,omitempty"`
-	Machines       int       `json:"machines"`
-	CreatedAt      time.Time `json:"created_at"`
+	HasTokenSecret bool `json:"has_token_secret,omitempty"`
+	// HostID and HostName: the physical host it reached last - two
+	// records with the same count as one host for anti-affinity.
+	HostID    string    `json:"host_id,omitempty"`
+	HostName  string    `json:"host_name,omitempty"`
+	Machines  int       `json:"machines"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func (a *app) hypervisorView(h *hypervisor.Hypervisor) hypervisorView {
 	v := hypervisorView{
 		ID: h.ID, Name: h.Name, Kind: h.Kind, ControllerAddress: h.ControllerAddress, Libvirt: h.Libvirt, Proxmox: h.Proxmox,
-		CreatedAt: h.CreatedAt, Trusted: h.Trusted(),
+		CreatedAt: h.CreatedAt, Trusted: h.Trusted(), HostID: h.HostID, HostName: h.HostName,
 	}
 	if h.Libvirt != nil {
 		v.AuthorizedKey = h.AuthorizedKey()
@@ -476,6 +481,11 @@ func (a *app) hypervisorStatus(ctx context.Context, h *hypervisor.Hypervisor) *h
 		return st
 	}
 	st.Host = host
+	if host.HostID != "" {
+		if err := a.hypervisors.SetHost(h.ID, host.HostID, host.Hostname); err != nil {
+			log.Printf("hypervisor %s: record its host: %v", h.Name, err)
+		}
+	}
 	if host.CPUUsage != nil {
 		st.CPUPercent = 100 * *host.CPUUsage
 	} else if e.total > 0 && host.CPUTotalNs > e.total && host.CPUBusyNs >= e.busy {

@@ -71,7 +71,29 @@ type Cluster struct {
 	// one's failure.
 	Phase string `json:"phase,omitempty"`
 	Error string `json:"error,omitempty"`
+	// Placement: where the orchestrator puts the cluster's machines - a
+	// cluster it created on hypervisors; nil for one made from nodes.
+	Placement *Placement `json:"placement,omitempty"`
 }
+
+// Placement is a cluster's machines' placement (docs/cluster.md "On a
+// hypervisor").
+type Placement struct {
+	// AntiAffinity: AntiAffinityRequired (never two members on one
+	// physical host), AntiAffinityPreferred (as few as possible, said)
+	// or AntiAffinityOff.
+	AntiAffinity string `json:"anti_affinity"`
+	// Hypervisors are the records new machines may go to, in order of
+	// preference.
+	Hypervisors []string `json:"hypervisors"`
+}
+
+// The anti-affinity modes.
+const (
+	AntiAffinityRequired  = "required"
+	AntiAffinityPreferred = "preferred"
+	AntiAffinityOff       = "off"
+)
 
 // Member is the member named name, nil when none is.
 func (c *Cluster) Member(name string) *Member {
@@ -223,6 +245,11 @@ func clone(c *Cluster) *Cluster {
 	for i, m := range c.Members {
 		m.Vars = cloneVars(m.Vars)
 		out.Members[i] = m
+	}
+	if c.Placement != nil {
+		p := *c.Placement
+		p.Hypervisors = slices.Clone(c.Placement.Hypervisors)
+		out.Placement = &p
 	}
 	return &out
 }

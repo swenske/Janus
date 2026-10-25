@@ -159,9 +159,15 @@ and approving it links the node to the machine.
 **Clusters** (`Clusters.jsx`, its logic in `clusters.js` - `npm test`;
 [guide/clusters.md](guide/clusters.md)): the clusters as cards (health:
 busy with its phase, failed, so many problems, in sync), **New cluster**
-for an admin (name; the nodes in no cluster yet, each with its member
-name and the address the others reach it on - guessed from the node's
-name and address unless that's a loopback -, one of them the source).
+for an admin (name; then **Nodes already there** - the nodes in no
+cluster yet, each with its member name and the address the others reach
+it on - guessed from the node's name and address unless that's a
+loopback -, one of them the source - or **New machines**, offered when a
+hypervisor is trusted: how many, the anti-affinity, size, release, the
+hypervisors - each with the host it reaches -, a network common to them
+in a datalist, extensions). A cluster on hypervisors shows its
+**Placement** in the header, and each member the host it runs on under
+its node.
 `#/clusters/<id>` is one cluster: its problems in a notice, **Check
 now**, **Delete** (type the name), and four tabs - **Members** (version
 run, peers up, stick tables in sync, member certificate's end, drained /
