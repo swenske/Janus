@@ -1,1 +1,1 @@
-{"customization":{"extensions":["keepalived","qemu-guest-agent"]}}
+{"customization":{"extensions":["keepalived"]}}
