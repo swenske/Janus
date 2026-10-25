@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -650,5 +651,30 @@ func TestMachineSync(t *testing.T) {
 	}
 	if ev := eventsOf(got); !strings.Contains(ev, "changed outside the Controller") || !strings.Contains(ev, "10.0.0.9/24") || !strings.Contains(ev, "4096 MiB") {
 		t.Errorf("history:\n%s", ev)
+	}
+	// The host it runs on, in its view (v2026.10.24-5's lab: missing);
+	// the same host named another way isn't journaled as a move, another
+	// host is.
+	host := func(id, name string) string {
+		t.Helper()
+		fake.mu.Lock()
+		fake.hw.HostID, fake.hw.HostName = id, name
+		fake.mu.Unlock()
+		a.hvStatus.forget(m.Spec.HypervisorID)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/machines/"+m.ID+"?refresh=true", nil))
+		var v machineView
+		if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil || v.HostID != id || v.HostName != name {
+			t.Errorf("the view's host: %q %q (%v) - want %q %q", v.HostID, v.HostName, err, id, name)
+		}
+		got, _ := a.machines.Get(m.ID)
+		return eventsOf(got)
+	}
+	host("libvirt:aaaa", "kvm01")
+	if ev := host("libvirt:fp-of-kvm01", "kvm01"); strings.Contains(ev, "host kvm01") {
+		t.Errorf("the same host named another way, journaled as a move:\n%s", ev)
+	}
+	if ev := host("pve:pve-b", "pve-b"); !strings.Contains(ev, "host kvm01 → pve-b") {
+		t.Errorf("a move not journaled:\n%s", ev)
 	}
 }
