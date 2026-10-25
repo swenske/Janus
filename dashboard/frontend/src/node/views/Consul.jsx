@@ -136,7 +136,7 @@ export default function Consul() {
           <p className="small" style={{ marginTop: 0 }}>
             The agent answers DNS on <span className="mono">127.0.0.1:8600</span>: a backend can take its servers from a Consul service's SRV records.
           </p>
-          <pre className="code small">{RESOLVERS}</pre>
+          <pre className="code small" tabIndex={0} aria-label="HAProxy resolvers section">{RESOLVERS}</pre>
         </Card>
       </div>
 

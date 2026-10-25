@@ -31,7 +31,7 @@ export default function Logs({ route = '' }) {
         actions={
           <>
             <BootSelect value={boot} onChange={setBoot} />
-            <select value={tail} onChange={(e) => setTail(Number(e.target.value))}>
+            <select value={tail} onChange={(e) => setTail(Number(e.target.value))} aria-label="How many lines">
               {TAILS.map((t) => (
                 <option key={t.n} value={t.n}>
                   {boot === 0 ? 'Start from' : 'Show'} {t.label}

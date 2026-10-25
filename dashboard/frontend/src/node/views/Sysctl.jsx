@@ -718,7 +718,7 @@ function HistoryCard() {
       {!h.data && !h.error && <Loading />}
       {h.data && h.data.entries.length === 0 && <Empty>No change yet: every parameter is as Janus ships it.</Empty>}
       {h.data && h.data.entries.length > 0 && (
-        <div className="table-wrap" style={{ maxHeight: '28rem' }}>
+        <div className="table-wrap" style={{ maxHeight: '28rem' }} tabIndex={0} role="region" aria-label="History">
           <table>
             <thead>
               <tr>

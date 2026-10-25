@@ -115,7 +115,7 @@ export default function LogViewer({ url, text = null, name = 'log', height = '65
         </button>
       </div>
       {failure && <div className="error-box">{failure}</div>}
-      <div ref={box} className={`logview ${wrap ? 'wrap' : ''}`} style={{ height }}>
+      <div ref={box} className={`logview ${wrap ? 'wrap' : ''}`} style={{ height }} tabIndex={0} role="log" aria-label={`${name} output`}>
         {shown.length === 0 ? (
           <div className="muted">{emptyText}</div>
         ) : (

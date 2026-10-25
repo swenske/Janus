@@ -108,7 +108,7 @@ export default function Files() {
               go(jump)
             }}
           >
-            <input className="mono" style={{ width: '20rem' }} value={jump} onChange={(e) => setJump(e.target.value)} />
+            <input className="mono" style={{ width: '20rem' }} value={jump} onChange={(e) => setJump(e.target.value)} aria-label="Path" />
             <button>Go</button>
           </form>
         }
@@ -127,7 +127,7 @@ export default function Files() {
           {!entries && !error ? (
             <Loading />
           ) : (
-            <div className="table-wrap" style={{ maxHeight: '65vh' }}>
+            <div className="table-wrap" style={{ maxHeight: '65vh' }} tabIndex={0} role="region" aria-label="Directory listing">
               <table>
                 <thead>
                   <tr>
