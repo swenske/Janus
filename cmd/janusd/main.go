@@ -505,8 +505,12 @@ func main() {
 
 	// SIGTERM is rootfs/init asking janusd to stop before a power-off or
 	// reboot (/sbin/shutdown, e.g. from the QEMU guest agent): HAProxy is
-	// soft-stopped like the Shutdown RPC does, the extension services
-	// stopped, then janusd exits and init takes the machine down.
+	// soft-stopped like the Shutdown RPC does - its drain has keepalived
+	// and BIRD send the traffic elsewhere first, they still run -, then
+	// the extension services stop, keepalived and BIRD last; then janusd
+	// exits and init takes the machine down. Extensions first, keepalived
+	// dropped the virtual IP before a peer had it (v2026.10.24-4's lab: 2
+	// requests lost to a hypervisor's shutdown).
 	stopSignals := make(chan os.Signal, 1)
 	signal.Notify(stopSignals, syscall.SIGTERM)
 	go func() {
@@ -516,16 +520,16 @@ func main() {
 		// (internal/api/powerdown.go).
 		ms := func(d time.Duration) time.Duration { return d.Round(time.Millisecond) }
 		t0 := time.Now()
-		extMgr.StopAll()
-		t1 := time.Now()
 		if err := haproxyMgr.Stop(5 * time.Second); err != nil {
 			log.Printf("haproxy: stop: %v", err)
 		}
+		t1 := time.Now()
+		extMgr.StopAll(vrrp.ServiceID, bgp.ServiceID)
 		t2 := time.Now()
 		shutdown.Run()
 		t3 := time.Now()
 		syscall.Sync()
-		log.Printf("janusd: stopped - extension services %s, haproxy %s, shutdown hooks %s, sync %s; init takes the machine down",
+		log.Printf("janusd: stopped - haproxy %s, extension services %s, shutdown hooks %s, sync %s; init takes the machine down",
 			ms(t1.Sub(t0)), ms(t2.Sub(t1)), ms(t3.Sub(t2)), ms(time.Since(t3)))
 		os.Exit(0)
 	}()

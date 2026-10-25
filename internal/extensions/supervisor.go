@@ -151,17 +151,31 @@ func (m *Manager) StopService(id string) error {
 	return nil
 }
 
-// StopAll stops every service, concurrently.
-func (m *Manager) StopAll() {
-	var wg sync.WaitGroup
-	for _, id := range m.order {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = m.StopService(id)
-		}()
+// StopAll stops every service, concurrently - those named last once the
+// others have exited: the ones holding the node's traffic (keepalived,
+// BIRD) aren't let go of while a slow one (Consul's leave) takes its time.
+func (m *Manager) StopAll(last ...string) {
+	stop := func(ids []string) {
+		var wg sync.WaitGroup
+		for _, id := range ids {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = m.StopService(id)
+			}()
+		}
+		wg.Wait()
 	}
-	wg.Wait()
+	var first, then []string
+	for _, id := range m.order {
+		if slices.Contains(last, id) {
+			then = append(then, id)
+		} else {
+			first = append(first, id)
+		}
+	}
+	stop(first)
+	stop(then)
 }
 
 // Configure sets the arguments a service runs with and whether it runs

@@ -1177,7 +1177,7 @@ qemu-firewall-test: build extension-nftables-amd64
 # LAN: master/backup, failover on HAProxy health and on a node going
 # away - see the script's header.
 qemu-vrrp-test: SCHEMATIC = hack/testdata/schematic-vrrp.json
-qemu-vrrp-test: build extension-keepalived-amd64
+qemu-vrrp-test: build extension-keepalived-amd64 extension-qemu-guest-agent-amd64
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
 	./hack/qemu-vrrp-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
 

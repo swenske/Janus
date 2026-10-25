@@ -15,8 +15,10 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/events"
 	"github.com/swenske/Janus/internal/shutdown"
+	"github.com/swenske/Janus/internal/vrrp"
 )
 
 // stateMountpoint is where rootfs/init mounts the persistent STATE
@@ -54,7 +56,8 @@ func (s *System) Shutdown(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.S
 
 // Restart exits janusd so rootfs/init's supervisor starts it again. HAProxy
 // isn't interrupted: it keeps running meanwhile, and the new janusd takes
-// it over with a seamless reload (-sf) on startup.
+// it over with a seamless reload (-sf) on startup. keepalived and BIRD
+// stop with janusd: the traffic they draw leaves first (leave).
 func (s *System) Restart(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.RestartResponse, error) {
 	if os.Getpid() == 1 {
 		return nil, status.Error(codes.FailedPrecondition, "janusd is PID 1 here (e.g. a container): nothing would start it again")
@@ -68,12 +71,30 @@ func (s *System) Restart(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Re
 		// and unmanaged (v2026.10.24-3's lab). HAProxy goes on serving: the
 		// next janusd takes it over.
 		if s.Extensions != nil {
-			s.Extensions.StopAll()
+			s.leave()
+			s.Extensions.StopAll(vrrp.ServiceID, bgp.ServiceID)
 		}
 		log.Printf("janusd: exiting for a restart requested over the API")
 		os.Exit(0)
 	}()
 	return &janusv1alpha1.RestartResponse{}, nil
+}
+
+// leave has the traffic keepalived and BIRD draw go elsewhere before they
+// stop, the way a reboot's HAProxy stop has it go (haproxy.Manager.Stop):
+// the node reads as drained to them - the virtual IPs go to a peer by
+// priority, the anycast routes are withdrawn - and HAProxy's drain delay
+// lets the routers converge. Stopped at once instead, keepalived gave its
+// virtual IP up before a peer had it (3 requests lost under load, and ~5 s
+// without one on a node alone while Consul left - v2026.10.24-4's lab).
+// The next janusd starts undrained: the drain lives in memory only.
+// Nothing to wait for without keepalived or BIRD (no drain delay then).
+func (s *System) leave() {
+	if s.Cluster == nil || s.HAProxy == nil || s.HAProxy.DrainDelay <= 0 {
+		return
+	}
+	s.Cluster.SetDrained(true)
+	time.Sleep(s.HAProxy.DrainDelay)
 }
 
 // Reset returns the node to its just-installed state: wipe_state empties
