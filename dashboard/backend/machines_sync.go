@@ -164,6 +164,12 @@ func (r *machineRunner) syncAs(ctx context.Context, id, label string) error {
 		if hw != nil && hw.Power == hypervisor.PowerRunning {
 			syncHardware(m, hw, note, a.autoscaler.resizing(id))
 		}
+		if hw != nil && hw.HostID != "" && hw.HostID != m.HostID {
+			if m.HostID != "" {
+				note("host %s → %s", or(m.HostName, m.HostID), or(hw.HostName, hw.HostID))
+			}
+			m.HostID, m.HostName = hw.HostID, hw.HostName
+		}
 		if len(seen) > 0 {
 			m.Log("%s: %s", label, strings.Join(seen, "; "))
 		}

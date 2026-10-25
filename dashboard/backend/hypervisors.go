@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -476,6 +477,11 @@ func (a *app) hypervisorStatus(ctx context.Context, h *hypervisor.Hypervisor) *h
 		return st
 	}
 	st.Host = host
+	if host.HostID != "" {
+		if err := a.hypervisors.SetHost(h.ID, host.HostID, host.Hostname); err != nil {
+			log.Printf("hypervisor %s: record its host: %v", h.Name, err)
+		}
+	}
 	if host.CPUUsage != nil {
 		st.CPUPercent = 100 * *host.CPUUsage
 	} else if e.total > 0 && host.CPUTotalNs > e.total && host.CPUBusyNs >= e.busy {

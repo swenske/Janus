@@ -58,6 +58,22 @@ func TestStoreAddReloadUpdateRemove(t *testing.T) {
 		t.Error("Update lost the host key or changed the SSH key")
 	}
 
+	// The host it reaches is the status's to record, kept across an
+	// Update made from a form that doesn't carry it, and a reload.
+	if err := s2.SetHost(h.ID, "libvirt:4c4c4544-0042", "kvm01"); err != nil {
+		t.Fatal(err)
+	}
+	form, _ := s2.Get(h.ID)
+	form.HostID, form.HostName = "", ""
+	if err := s2.Update(form); err != nil {
+		t.Fatal(err)
+	}
+	if s3, err := Open(dir); err != nil {
+		t.Fatal(err)
+	} else if again, _ := s3.Get(h.ID); again.HostID != "libvirt:4c4c4544-0042" || again.HostName != "kvm01" {
+		t.Errorf("the host after an Update and a reload: %q %q", again.HostID, again.HostName)
+	}
+
 	// Get returns copies: changing one changes nothing stored.
 	c, _ := s2.Get(h.ID)
 	c.Libvirt.Networks[0] = "changed"

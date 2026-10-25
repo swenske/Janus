@@ -155,6 +155,10 @@ type Machine struct {
 	SyncedAt     time.Time `json:"synced_at,omitempty"`
 	SyncError    string    `json:"sync_error,omitempty"`
 	NodeHostname string    `json:"node_hostname,omitempty"`
+	// HostID and HostName: the physical host the machine runs on, as its
+	// hypervisor last said (MachineStatus) - a cluster's anti-affinity.
+	HostID   string `json:"host_id,omitempty"`
+	HostName string `json:"host_name,omitempty"`
 	// Warning is why its node can't register, read from the node's
 	// console while the machine waits for it (dashboard/backend:
 	// machines_watch.go).

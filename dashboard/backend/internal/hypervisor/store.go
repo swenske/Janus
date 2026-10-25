@@ -34,6 +34,11 @@ type Hypervisor struct {
 	Libvirt           *LibvirtConfig `json:"libvirt,omitempty"`
 	Proxmox           *ProxmoxConfig `json:"proxmox,omitempty"`
 	CreatedAt         time.Time      `json:"created_at"`
+	// HostID and HostName are the physical host it reached last
+	// (HostInfo.HostID), kept by SetHost: a cluster's anti-affinity
+	// counts two records with the same HostID as one host.
+	HostID   string `json:"host_id,omitempty"`
+	HostName string `json:"host_name,omitempty"`
 
 	SSHKey ed25519.PrivateKey `json:"-"`
 	// TokenSecret is a Proxmox API token's secret - kept in its own
@@ -343,6 +348,7 @@ func (s *Store) Update(h *Hypervisor) error {
 	}
 	next := h.clone()
 	next.Kind, next.SSHKey, next.CreatedAt = cur.Kind, cur.SSHKey, cur.CreatedAt
+	next.HostID, next.HostName = cur.HostID, cur.HostName // SetHost's
 	if next.TokenSecret = strings.TrimSpace(next.TokenSecret); next.TokenSecret == "" {
 		next.TokenSecret = cur.TokenSecret
 	} else if next.TokenSecret != cur.TokenSecret {
@@ -354,6 +360,27 @@ func (s *Store) Update(h *Hypervisor) error {
 		return err
 	}
 	s.hvs[h.ID] = next
+	return nil
+}
+
+// SetHost records the host hypervisor id reached (HostInfo), when it
+// changed.
+func (s *Store) SetHost(id, hostID, hostName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, ok := s.hvs[id]
+	if !ok {
+		return fmt.Errorf("no such hypervisor %q", id)
+	}
+	if cur.HostID == hostID && cur.HostName == hostName {
+		return nil
+	}
+	next := cur.clone()
+	next.HostID, next.HostName = hostID, hostName
+	if err := s.writeMeta(next); err != nil {
+		return err
+	}
+	s.hvs[id] = next
 	return nil
 }
 
