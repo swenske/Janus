@@ -1009,14 +1009,62 @@ func TestClusterLetsEncrypt(t *testing.T) {
 	f.nodes["lb-2"].acme.Configured = true
 	f.mu.Unlock()
 	c, _ = a.clusters.Store.Get(c.ID)
-	_ = a.clusters.SyncACME(ctx, c, "cluster") // lb-2 still followed lb-1: everyone told
-	if s := f.node(clusters.Member{Name: "lb-2"}).set; s.GetAcmeOrderer() != "lb-2" {
-		t.Errorf("lb-2 not told it orders: %q", s.GetAcmeOrderer())
-	}
+	// One check: lb-2, still following lb-1, told first, alone; its
+	// thumbprint then goes to the others, each told once - never "lb-2
+	// orders" without it (they'd answer HTTP-01 with their own account
+	// until the next check: v2026.10.25-3's lab).
+	mark = f.mark()
 	if err := a.clusters.SyncACME(ctx, c, "cluster"); err != nil {
 		t.Fatal(err)
 	}
-	if s := f.node(clusters.Member{Name: "lb-1"}).set; s.GetAcmeOrderer() != "lb-2" || s.GetAcmeThumbprint() != "thumb-2" {
-		t.Errorf("lb-1 after lb-2 took over: %q %q", s.GetAcmeOrderer(), s.GetAcmeThumbprint())
+	if s := f.node(clusters.Member{Name: "lb-2"}).set; s.GetAcmeOrderer() != "lb-2" {
+		t.Errorf("lb-2 not told it orders: %q", s.GetAcmeOrderer())
+	}
+	for _, n := range []string{"lb-1", "lb-3"} {
+		if s := f.node(clusters.Member{Name: n}).set; s.GetAcmeOrderer() != "lb-2" || s.GetAcmeThumbprint() != "thumb-2" {
+			t.Errorf("%s after lb-2 took over: %q %q", n, s.GetAcmeOrderer(), s.GetAcmeThumbprint())
+		}
+	}
+	got := f.callsSince(mark)
+	if first := slices.IndexFunc(got, func(s string) bool { return strings.Contains(s, "ClusterSet") }); first < 0 || !strings.HasPrefix(got[first], "lb-2 ClusterSet") {
+		t.Errorf("lb-2 not told first: %v", got)
+	}
+	for _, n := range []string{"lb-1", "lb-3"} {
+		if k := len(slices.DeleteFunc(slices.Clone(got), func(s string) bool { return !strings.HasPrefix(s, n+" ClusterSet") })); k != 1 {
+			t.Errorf("%s told %d times in the check, want once: %v", n, k, got)
+		}
+	}
+	if !journalSays(t, a, c.ID, "ordered by lb-2: the others order nothing") {
+		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 20))
+	}
+	// Each one told reloads HAProxy when its HTTP-01 answer changes: its
+	// stick tables learnt back before the next one is told - members
+	// reloading together lose them.
+	var order []string
+	for _, call := range got {
+		if strings.Contains(call, " ClusterSet ") || strings.HasSuffix(call, " ClusterStatus") {
+			order = append(order, strings.SplitN(call, " ", 3)[0]+" "+strings.SplitN(call, " ", 3)[1])
+		}
+	}
+	if !inOrder(order, "lb-2 ClusterSet", "lb-2 ClusterStatus", "lb-1 ClusterSet", "lb-1 ClusterStatus", "lb-2 ClusterSet", "lb-2 ClusterStatus", "lb-3 ClusterSet", "lb-3 ClusterStatus") {
+		t.Errorf("each member's tables before the next one is told: %v", order)
+	}
+	// One that doesn't learn them, a peer up: the others aren't told.
+	a.clusters.LearnTimeout = 1500 * time.Millisecond
+	if _, err := a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.SecretsFrom = "lb-1"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	c, _ = a.clusters.Store.Get(c.ID)
+	f.mu.Lock()
+	f.nodes["lb-1"].learning = true
+	f.mu.Unlock()
+	mark = f.mark()
+	if err := a.clusters.SyncACME(ctx, c, "cluster"); err == nil || !strings.Contains(err.Error(), "not learnt") {
+		t.Errorf("lb-1 not learning its tables: %v", err)
+	}
+	if calls := f.callsSince(mark); slices.ContainsFunc(calls, func(s string) bool {
+		return strings.HasPrefix(s, "lb-2 ClusterSet") || strings.HasPrefix(s, "lb-3 ClusterSet")
+	}) {
+		t.Errorf("told the others while lb-1 hadn't its tables: %v", calls)
 	}
 }

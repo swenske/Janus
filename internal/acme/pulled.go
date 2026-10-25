@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -27,7 +28,23 @@ func (m *Manager) InstallPulled(name string, data []byte) error {
 		m.mu.Unlock()
 		return err
 	}
-	created := m.certState(name).Created
+	// Obtained by the orderer from the CA of the configuration pulled
+	// with it (CLUSTER_ITEM_ACME_CONFIG comes first), for its account:
+	// recorded so, a certificate still good reads valid here and isn't
+	// ordered again for "the CA changed" the day this node orders - the
+	// cluster's secrets come from it then (v2026.10.25-3's lab: a change
+	// of the secrets' source re-issued every certificate).
+	cs := m.certState(name)
+	if c := m.certificate(name); c != nil {
+		cs.Directory, cs.Thumbprint, cs.Profile = ResolveDirectory(m.cfg.GetAccount().GetDirectory()), m.followThumb, c.Profile
+	}
+	cs.LastError, cs.Failures, cs.NextAttempt = "", 0, time.Time{}
+	cs.ARISerial, cs.ARIRenewAt, cs.ARICheck = "", time.Time{}, time.Time{}
+	if err := m.saveState(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	created := cs.Created
 	m.mu.Unlock()
 	m.logger.Printf("certificate %s pulled from a cluster member", name)
 	m.deploy(name, data, created)
