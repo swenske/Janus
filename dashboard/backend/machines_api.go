@@ -49,9 +49,13 @@ type machineView struct {
 	NodeID         string         `json:"node_id,omitempty"`
 	NodeAddress    string         `json:"node_address,omitempty"`
 	NodeHostname   string         `json:"node_hostname,omitempty"`
-	SyncedAt       time.Time      `json:"synced_at,omitzero"`
-	SyncError      string         `json:"sync_error,omitempty"`
-	Warning        string         `json:"warning,omitempty"`
+	// HostID and HostName: the physical host it runs on, as its
+	// hypervisor last said.
+	HostID    string    `json:"host_id,omitempty"`
+	HostName  string    `json:"host_name,omitempty"`
+	SyncedAt  time.Time `json:"synced_at,omitzero"`
+	SyncError string    `json:"sync_error,omitempty"`
+	Warning   string    `json:"warning,omitempty"`
 	// Size is what the virtual machine has now; AutoscaleState what its
 	// auto-scaling remembers and says.
 	Size           *machines.Size           `json:"size,omitempty"`
@@ -65,7 +69,7 @@ func (a *app) machineView(m *machines.Machine) machineView {
 	v := machineView{
 		ID: m.ID, Spec: m.Spec, Phase: m.Phase, Error: m.Error, Version: m.Version, Schematic: m.Schematic,
 		NodeID: m.NodeID, Events: m.Events, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
-		NodeHostname: m.NodeHostname, SyncedAt: m.SyncedAt, SyncError: m.SyncError, Warning: m.Warning,
+		NodeHostname: m.NodeHostname, SyncedAt: m.SyncedAt, SyncError: m.SyncError, Warning: m.Warning, HostID: m.HostID, HostName: m.HostName,
 		Size: m.Size, AutoscaleState: m.AutoscaleState,
 	}
 	if h, ok := a.hypervisors.Get(m.Spec.HypervisorID); ok {

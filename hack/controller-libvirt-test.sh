@@ -598,6 +598,13 @@ members="$(json "','.join(sorted(m['name'] for m in d['members']))" <"$WORKDIR/c
 json "d['placement']['anti_affinity']" <"$WORKDIR/c.json" | grep -qx preferred || fail "its placement: $(cat "$WORKDIR/c.json")"
 json "' '.join(m.get('host_name','') for m in d['members'])" <"$WORKDIR/c.json" | grep -Eq '^[^ ]+ [^ ]+$' || fail "its members' hosts: $(cat "$WORKDIR/c.json")"
 json "'\n'.join(d['problems'])" <"$WORKDIR/c.json" | grep -q "pref-1 and pref-2 run on the same host" || fail "the page doesn't say both run on one host: $(json "d['problems']" <"$WORKDIR/c.json")"
+# Each machine shows the host it runs on, once synced.
+mid="$(api "$API/api/machines" | json "next(m['id'] for m in d if m['spec']['name']=='pref-1')")"
+for _ in $(seq 1 45); do
+  [ "$(api "$API/api/machines/$mid?refresh=true" | json "d.get('host_id','')")" = "$id1" ] && break
+  sleep 2
+done
+[ "$(api "$API/api/machines/$mid" | json "d.get('host_id','')")" = "$id1" ] || fail "pref-1's machine doesn't show its host: $(api "$API/api/machines/$mid" | json "(d.get('host_id'), d.get('host_name'))")"
 echo "Part 4f OK: a second record on the same libvirtd is the same host ($id1) - two machines with anti-affinity required refused before anything was made; preferred made them, the cluster from them, and its page says both run on one host"
 
 api -X POST "$API/api/clusters/$CID/scale" -H 'Content-Type: application/json' -d '{"members": 3}' >/dev/null || fail "scale pref to 3"

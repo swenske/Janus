@@ -165,7 +165,9 @@ func (r *machineRunner) syncAs(ctx context.Context, id, label string) error {
 			syncHardware(m, hw, note, a.autoscaler.resizing(id))
 		}
 		if hw != nil && hw.HostID != "" && hw.HostID != m.HostID {
-			if m.HostID != "" {
+			// A move, when the host's name changed too - not the same host
+			// named another way (a Controller whose identities changed form).
+			if m.HostID != "" && m.HostName != hw.HostName {
 				note("host %s → %s", or(m.HostName, m.HostID), or(hw.HostName, hw.HostID))
 			}
 			m.HostID, m.HostName = hw.HostID, hw.HostName
