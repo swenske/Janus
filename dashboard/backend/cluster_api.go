@@ -40,6 +40,8 @@ func (a *app) registerClusterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/clusters/{id}/apply", a.gate(auth.Reader, auth.Admin, a.handleClusterApply))
 	mux.HandleFunc("POST /api/clusters/{id}/pull", a.gate(auth.Reader, auth.Admin, a.handleClusterPull))
 	mux.HandleFunc("POST /api/clusters/{id}/recycle", a.gate(auth.Reader, auth.Admin, a.handleClusterRecycle))
+	mux.HandleFunc("POST /api/clusters/{id}/scale", a.gate(auth.Reader, auth.Admin, a.handleClusterScale))
+	mux.HandleFunc("PUT /api/clusters/{id}/autoscale", a.gate(auth.Reader, auth.Admin, a.handleClusterAutoscale))
 	mux.HandleFunc("POST /api/clusters/{id}/certificates", a.gate(auth.Reader, auth.Admin, a.handleClusterCertificate))
 	mux.HandleFunc("GET /api/clusters/{id}/journal", a.gate(auth.Reader, auth.Admin, a.handleClusterJournal))
 	// What the loop does every 10 minutes, now: it may renew a member's
@@ -96,7 +98,14 @@ type clusterView struct {
 	// they knew.
 	TicketsRenew []string            `json:"tickets_renew,omitempty"`
 	Placement    *clusters.Placement `json:"placement,omitempty"`
-	Members      []clusterMemberView `json:"members"`
+	// Autoscale is the horizontal auto-scaling's policy; ScaleStatus what
+	// it says now, ScaleJudged the member count it judges (observing: the
+	// one it simulates), Load the members' last reading.
+	Autoscale   *clusters.Autoscale   `json:"autoscale,omitempty"`
+	ScaleStatus string                `json:"scale_status,omitempty"`
+	ScaleJudged int                   `json:"scale_judged,omitempty"`
+	Load        *clusters.ScaleSample `json:"load,omitempty"`
+	Members     []clusterMemberView   `json:"members"`
 	// Problems are what an operator should look at, worded for one.
 	Problems []string `json:"problems"`
 }
@@ -105,7 +114,11 @@ func (a *app) clusterView(c *clusters.Cluster) clusterView {
 	st := a.clusters.Store.State(c.ID)
 	v := clusterView{ID: c.ID, Name: c.Name, PeersPort: c.PeersPort, Managed: nonNil(c.Managed), SecretsFrom: c.SecretsFrom,
 		Desired: c.Desired, Created: c.Created, Updated: c.Updated, Phase: c.Phase, Error: c.Error, Busy: a.clusters.isBusy(c.ID),
-		TicketsRotated: st.TicketsRotated, TicketsRenew: st.TicketsRenew, Placement: c.Placement, Members: []clusterMemberView{}, Problems: []string{}}
+		TicketsRotated: st.TicketsRotated, TicketsRenew: st.TicketsRenew, Placement: c.Placement, Members: []clusterMemberView{}, Problems: []string{},
+		Autoscale: c.Autoscale}
+	if c.Autoscale != nil && c.Autoscale.Mode != clusters.ScaleOff {
+		v.ScaleStatus, v.ScaleJudged, v.Load = st.ScaleStatus, st.Scale.Members, a.clusterScaler.load(c.ID)
+	}
 	if caPEM, err := a.clusters.Store.CACertPEM(c.ID); err == nil {
 		if fp, err := pemFingerprint(caPEM); err == nil {
 			v.CAFingerprint = fp
