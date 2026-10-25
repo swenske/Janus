@@ -17,6 +17,14 @@
 # configuration applied on B, HAProxy then binds A's address and serves
 # A's certificate - and no AVC denial on either.
 #
+# Node to node (StateImportFrom): node C, another fresh disk, pulls A's
+# state from A itself - janusctl only carries C's signing request to A
+# and A's certificate back. C reaches A through QEMU's gateway, at an
+# address A's server certificate doesn't name: C checks A by its CA.
+# Checked: a reader of A can't grant, B's credentials don't reach A, a
+# node in use takes no pull; C restarts into A's state with A's
+# identity, A's console logged the grant.
+#
 # Usage: hack/qemu-state-migrate-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
 export PATH="$PATH:/usr/sbin:/sbin"
@@ -39,7 +47,7 @@ trap cleanup EXIT
 
 fail() {
   echo "state migration test FAILED: $*" >&2
-  for n in a b; do
+  for n in a b c; do
     [ -f "$WORKDIR/$n.log" ] && { echo "--- console $n ---" >&2; tail -80 "$WORKDIR/$n.log" >&2; }
   done
   exit 1
@@ -60,7 +68,7 @@ check() { # check DESCRIPTION PATTERN TEXT
   grep -Eq -- "$2" <<<"$3" || fail "$1 (no match for $2 in: $3)"
 }
 
-idx() { [ "$1" = a ] && echo 1 || echo 2; }
+idx() { case $1 in a) echo 1 ;; b) echo 2 ;; c) echo 3 ;; esac; }
 
 # node NAME: boot it - http on BASE+10*i, API on +1.
 node() {
@@ -84,16 +92,18 @@ node() {
 cp --sparse=always "$SRC_DISK" "$WORKDIR/a.img"
 sgdisk -d 7 "$WORKDIR/a.img" >/dev/null
 cp --sparse=always "$SRC_DISK" "$WORKDIR/b.img"
+cp --sparse=always "$SRC_DISK" "$WORKDIR/c.img"
 node a
 node b
+node c
 
 listening() { [ "$(grep -ac "listening on .* (mTLS required)" "$WORKDIR/$1.log" 2>/dev/null)" -ge "$2" ]; }
-for n in a b; do wait_for "$TIMEOUT" "node $n's janusd listening" listening "$n" 1; done
+for n in a b c; do wait_for "$TIMEOUT" "node $n's janusd listening" listening "$n" 1; done
 sleep 2
 python3 - "$WORKDIR" <<'PY'
 import re, sys
 w = sys.argv[1]
-for n in "ab":
+for n in "abc":
     log = open(f"{w}/{n}.log", errors="replace").read().replace("\r", "")
     pems = re.findall(r"(-----BEGIN ([A-Z ]+)-----.*?-----END \2-----)", log, re.S)
     for (pem, _), name in zip(pems, ["ca.crt", "admin.crt", "admin.key"]):
@@ -104,10 +114,10 @@ ctl() { # ctl ENDPOINT-NODE CREDENTIALS-NODE args...
   shift 2
   "$CTL_BIN" -endpoint "127.0.0.1:$((BASE + 10 * i + 1))" -ca "$WORKDIR/$c-ca.crt" -cert "$WORKDIR/$c-admin.crt" -key "$WORKDIR/$c-admin.key" "$@"
 }
-for n in a b; do ctl "$n" "$n" version >/dev/null || fail "no API on node $n"; done
+for n in a b c; do ctl "$n" "$n" version >/dev/null || fail "no API on node $n"; done
 out="$(ctl a a system boots 2>&1 || true)"
 check "node A has no LOGS partition" "no LOGS partition" "$out"
-echo "  ok: two nodes up, A without LOGS"
+echo "  ok: three nodes up, A without LOGS"
 
 # A's setup: a hostname and an address on the LAN, name-matched (the
 # replacement's NICs have other MACs), an HAProxy configuration binding
@@ -204,6 +214,44 @@ check "B keeps its LOGS" "LOGS partition /dev/vda7" "$(ctl b a system boots 2>&1
 if grep -q "old-lb" <<<"$(ctl b a system hostname)"; then fail "B took A's hostname before the takeover"; fi
 echo "  ok: configuration, map, kernel parameter on B; its LOGS kept; its network its own"
 
+# Node to node: C pulls A's state from A itself. janusctl reaches A on
+# its forwarded port; C reaches A through QEMU's gateway (10.0.2.2), an
+# address A's certificate doesn't name.
+A_API="127.0.0.1:$((BASE + 11))" A_FROM_C="10.0.2.2:$((BASE + 11))"
+pull() { # pull CREDENTIALS-NODE-FOR-C FROM-CA FROM-CERT FROM-KEY args...
+  local c=$1 ca=$2 crt=$3 key=$4
+  shift 4
+  ctl c "$c" system state import -from "$A_API" -from-ca "$ca" -from-cert "$crt" -from-key "$key" -from-address "$A_FROM_C" "$@"
+}
+ctl a a pki generate-client-config -role os:reader -name a-reader "$WORKDIR/a-reader" >/dev/null || fail "a reader certificate on A"
+out="$(pull c "$WORKDIR/a-ca.crt" "$WORKDIR/a-reader/client.crt" "$WORKDIR/a-reader/client.key" -identity 2>&1 || true)"
+check "a reader of A can't grant its state" "StateExportGrant.*requires role" "$out"
+out="$(pull c "$WORKDIR/a-ca.crt" "$WORKDIR/b-admin.crt" "$WORKDIR/b-admin.key" -identity 2>&1 || true)"
+check "B's credentials don't reach A" "StateExportGrant|certificate" "$out"
+if grep -q "Imported:" <<<"$out"; then fail "a pull with B's credentials went through: $out"; fi
+out="$(ctl b a system state import -from "$A_API" -from-ca "$WORKDIR/a-ca.crt" -from-cert "$WORKDIR/a-admin.crt" -from-key "$WORKDIR/a-admin.key" -from-address "$A_FROM_C" 2>&1 || true)"
+check "a node in use takes no pull" "in use" "$out"
+echo "  ok: refused - a reader of A, B's credentials on A, B in use"
+
+out="$(pull c "$WORKDIR/a-ca.crt" "$WORKDIR/a-admin.crt" "$WORKDIR/a-admin.key" -identity -save-network "$WORKDIR/c-held-net.json" 2>&1)" || fail "C pulling from A: $out"
+check "C names A" "Imported: +old-lb's state" "$out"
+check "C took A's identity" "Identity: +old-lb's" "$out"
+check "C restarts into it" "Rebooting:" "$out"
+check "A logged the grant" "state: .* may pull this node's state once, until .* \(identity true\)" "$(cat "$WORKDIR/a.log")"
+check "A's export went to C's transfer certificate" "state: exported .* - by .*state transfer" "$(cat "$WORKDIR/a.log")"
+wait_for "$TIMEOUT" "node C restarted" listening c 2
+sleep 2
+check "C staged what it pulled" "state: old-lb's state staged .*pulled from $A_FROM_C" "$(cat "$WORKDIR/c.log")"
+check "C put the state in place" "state: old-lb's state put in place" "$(cat "$WORKDIR/c.log")"
+ctl c a version >/dev/null || fail "A's credentials don't work on C"
+if ctl c c version >/dev/null 2>&1; then fail "C's own credentials still work"; fi
+[ "$(cfg_sum c a)" = "$A_CFG" ] || fail "C's haproxy.cfg isn't A's"
+check "the map came over to C" "maps/hosts.map" "$(ctl c a haproxy files)"
+check "the kernel parameter came over to C" "8192" "$(ctl c a system sysctl get net.core.somaxconn)"
+check "C's held network is A's" '"old-lb"' "$(cat "$WORKDIR/c-held-net.json")"
+ctl c a system shutdown >/dev/null || fail "shutdown on C"
+echo "  ok: C pulled A's state from A itself - identity, configuration, map, kernel parameter"
+
 # The takeover: A down, A's network on B, HAProxy on A's address.
 ctl a a system shutdown >/dev/null || fail "shutdown on A"
 deadline=$((SECONDS + 60))
@@ -221,7 +269,7 @@ check "A's certificate served by B" "www" "$(ctl b a haproxy cert-list)"
 check "B serves" "served" "$(curl -s --max-time 5 "http://127.0.0.1:$((BASE + 20))/")"
 echo "  ok: B took A's address over and serves A's configuration and certificate"
 
-for n in a b; do
+for n in a b c; do
   if grep -a "avc:.*denied" "$WORKDIR/$n.log"; then fail "AVC denials on node $n"; fi
 done
-echo "state migration test PASSED: A (no LOGS) replaced by B (LOGS) - identity, configuration, certificate, kernel parameter carried, address taken over"
+echo "state migration test PASSED: A (no LOGS) replaced by B (LOGS) - identity, configuration, certificate, kernel parameter carried, address taken over; C pulled A's state node to node"

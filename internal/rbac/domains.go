@@ -63,6 +63,8 @@ var Domain = map[string]string{
 	"SystemService/CertificateRequest":          DomainSystem,
 	"SystemService/StateExport":                 DomainSystem,
 	"SystemService/StateImport":                 DomainSystem,
+	"SystemService/StateExportGrant":            DomainSystem,
+	"SystemService/StateImportFrom":             DomainSystem,
 	"SystemService/MetricsConfigGet":            DomainObserve,
 	"SystemService/MetricsConfigSet":            DomainSystem,
 	"SystemService/ConsoleBudgetGet":            DomainObserve,

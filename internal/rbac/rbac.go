@@ -68,10 +68,12 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.SystemService/Probe":                       operators, // connects where it's told - as a backend an operator configures does
 	"/janus.v1alpha1.SystemService/MetaWrite":                   adminOnly,
 	"/janus.v1alpha1.SystemService/MetaDelete":                  adminOnly,
-	"/janus.v1alpha1.SystemService/GenerateClientConfiguration": adminOnly, // issuing credentials is itself a privileged operation
-	"/janus.v1alpha1.SystemService/CertificateRequest":          adminOnly, // a new key the node will present as its own
-	"/janus.v1alpha1.SystemService/StateExport":                 adminOnly, // serves the node's private keys - never through the Controller (system_state.go)
-	"/janus.v1alpha1.SystemService/StateImport":                 adminOnly, // replaces the node's configuration, its identity even
+	"/janus.v1alpha1.SystemService/GenerateClientConfiguration": adminOnly,      // issuing credentials is itself a privileged operation
+	"/janus.v1alpha1.SystemService/CertificateRequest":          adminOnly,      // a new key the node will present as its own
+	"/janus.v1alpha1.SystemService/StateExport":                 stateExporters, // serves the node's private keys - never through the Controller (system_state.go)
+	"/janus.v1alpha1.SystemService/StateImport":                 adminOnly,      // replaces the node's configuration, its identity even
+	"/janus.v1alpha1.SystemService/StateExportGrant":            adminOnly,      // lets another node pull the state, keys included
+	"/janus.v1alpha1.SystemService/StateImportFrom":             adminOnly,      // as StateImport
 	"/janus.v1alpha1.SystemService/MetricsConfigGet":            readers,
 	"/janus.v1alpha1.SystemService/MetricsConfigSet":            adminOnly,
 	"/janus.v1alpha1.SystemService/ConsoleBudgetGet":            readers,
@@ -177,6 +179,11 @@ var Required = map[string][]string{
 // (pki.RoleClusterMember): the only one ClusterExport takes - checked
 // against this node's own cluster by authz.go, never granted to a user.
 var clusterMembers = []string{pki.RoleClusterMember}
+
+// stateExporters: an admin, or a new node's state transfer certificate
+// (pki.RoleStateTransfer) - which this node's own CA signed, for one
+// export, and which opens nothing else (checked by authz.go).
+var stateExporters = []string{pki.RoleAdmin, pki.RoleStateTransfer}
 
 // RolesFor is the roles that may call fullMethod - admin only for an RPC
 // nobody classified, never silently open to readers.

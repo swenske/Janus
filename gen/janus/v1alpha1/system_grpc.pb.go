@@ -59,6 +59,8 @@ const (
 	SystemService_CertificateRequest_FullMethodName          = "/janus.v1alpha1.SystemService/CertificateRequest"
 	SystemService_StateExport_FullMethodName                 = "/janus.v1alpha1.SystemService/StateExport"
 	SystemService_StateImport_FullMethodName                 = "/janus.v1alpha1.SystemService/StateImport"
+	SystemService_StateExportGrant_FullMethodName            = "/janus.v1alpha1.SystemService/StateExportGrant"
+	SystemService_StateImportFrom_FullMethodName             = "/janus.v1alpha1.SystemService/StateImportFrom"
 	SystemService_MetricsConfigGet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigGet"
 	SystemService_MetricsConfigSet_FullMethodName            = "/janus.v1alpha1.SystemService/MetricsConfigSet"
 	SystemService_ConsoleBudgetGet_FullMethodName            = "/janus.v1alpha1.SystemService/ConsoleBudgetGet"
@@ -208,8 +210,9 @@ type SystemServiceClient interface {
 	// CertificateRequest makes a new private key on the node for the given
 	// purpose and returns a signing request for it (PEM). The key never
 	// leaves the node: the caller signs the request and brings the
-	// certificate back - ClusterService.ClusterSet for a cluster member.
-	// A new request replaces the pending key of the same purpose.
+	// certificate back - ClusterService.ClusterSet for a cluster member,
+	// StateImportFrom for a state transfer. A new request replaces the
+	// pending key of the same purpose.
 	CertificateRequest(ctx context.Context, in *CertificateRequestRequest, opts ...grpc.CallOption) (*CertificateRequestResponse, error)
 	// StateExport streams what a replacement needs to serve as this node
 	// (docs/guide/replacing-a-node.md): a tar, its MANIFEST.json first,
@@ -218,7 +221,8 @@ type SystemServiceClient interface {
 	// key ring, the modules' configurations, the network configuration,
 	// the Controller registration, the fleet trust; with include_identity,
 	// the node's CA and keys too. Private keys travel in it: refused
-	// through the Controller, so they never pass through one.
+	// through the Controller, so they never pass through one. Besides an
+	// admin, a node this one granted it (StateExportGrant) pulls it, once.
 	StateExport(ctx context.Context, in *StateExportRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Data], error)
 	// StateImport takes a StateExport stream onto this node: the first
 	// message carries the options, the others the stream. The node must be
@@ -228,6 +232,21 @@ type SystemServiceClient interface {
 	// start, before anything reads it - the node reboots for that, unless
 	// no_reboot. Refused through the Controller, like StateExport.
 	StateImport(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[StateImportChunk, StateImportResponse], error)
+	// StateExportGrant lets another node pull this node's state itself
+	// (StateImportFrom), so the export never sits on the operator's
+	// machine: this node signs the new node's request
+	// (CertificateRequest STATE_TRANSFER) with its own CA - a certificate
+	// valid ten minutes, for one StateExport, with the identity only when
+	// granted, and nothing else. The grant lives in janusd's memory: a
+	// restart ends it. Refused through the Controller, like StateExport.
+	StateExportGrant(ctx context.Context, in *StateExportGrantRequest, opts ...grpc.CallOption) (*StateExportGrantResponse, error)
+	// StateImportFrom has this node pull another node's state itself and
+	// take it as StateImport does: it dials address with the key it made
+	// for the purpose (CertificateRequest STATE_TRANSFER) and the
+	// certificate the other node granted (StateExportGrant), checks the
+	// other node by its CA, then stages the state and reboots. The node
+	// must be unused. Refused through the Controller.
+	StateImportFrom(ctx context.Context, in *StateImportFromRequest, opts ...grpc.CallOption) (*StateImportResponse, error)
 	// MetricsConfigGet reports the exporter's settings.
 	MetricsConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MetricsConfigResponse, error)
 	// MetricsConfigSet changes the exporter's settings, at once and for
@@ -789,6 +808,26 @@ func (c *systemServiceClient) StateImport(ctx context.Context, opts ...grpc.Call
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SystemService_StateImportClient = grpc.ClientStreamingClient[StateImportChunk, StateImportResponse]
 
+func (c *systemServiceClient) StateExportGrant(ctx context.Context, in *StateExportGrantRequest, opts ...grpc.CallOption) (*StateExportGrantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StateExportGrantResponse)
+	err := c.cc.Invoke(ctx, SystemService_StateExportGrant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) StateImportFrom(ctx context.Context, in *StateImportFromRequest, opts ...grpc.CallOption) (*StateImportResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StateImportResponse)
+	err := c.cc.Invoke(ctx, SystemService_StateImportFrom_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *systemServiceClient) MetricsConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*MetricsConfigResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MetricsConfigResponse)
@@ -1062,8 +1101,9 @@ type SystemServiceServer interface {
 	// CertificateRequest makes a new private key on the node for the given
 	// purpose and returns a signing request for it (PEM). The key never
 	// leaves the node: the caller signs the request and brings the
-	// certificate back - ClusterService.ClusterSet for a cluster member.
-	// A new request replaces the pending key of the same purpose.
+	// certificate back - ClusterService.ClusterSet for a cluster member,
+	// StateImportFrom for a state transfer. A new request replaces the
+	// pending key of the same purpose.
 	CertificateRequest(context.Context, *CertificateRequestRequest) (*CertificateRequestResponse, error)
 	// StateExport streams what a replacement needs to serve as this node
 	// (docs/guide/replacing-a-node.md): a tar, its MANIFEST.json first,
@@ -1072,7 +1112,8 @@ type SystemServiceServer interface {
 	// key ring, the modules' configurations, the network configuration,
 	// the Controller registration, the fleet trust; with include_identity,
 	// the node's CA and keys too. Private keys travel in it: refused
-	// through the Controller, so they never pass through one.
+	// through the Controller, so they never pass through one. Besides an
+	// admin, a node this one granted it (StateExportGrant) pulls it, once.
 	StateExport(*StateExportRequest, grpc.ServerStreamingServer[Data]) error
 	// StateImport takes a StateExport stream onto this node: the first
 	// message carries the options, the others the stream. The node must be
@@ -1082,6 +1123,21 @@ type SystemServiceServer interface {
 	// start, before anything reads it - the node reboots for that, unless
 	// no_reboot. Refused through the Controller, like StateExport.
 	StateImport(grpc.ClientStreamingServer[StateImportChunk, StateImportResponse]) error
+	// StateExportGrant lets another node pull this node's state itself
+	// (StateImportFrom), so the export never sits on the operator's
+	// machine: this node signs the new node's request
+	// (CertificateRequest STATE_TRANSFER) with its own CA - a certificate
+	// valid ten minutes, for one StateExport, with the identity only when
+	// granted, and nothing else. The grant lives in janusd's memory: a
+	// restart ends it. Refused through the Controller, like StateExport.
+	StateExportGrant(context.Context, *StateExportGrantRequest) (*StateExportGrantResponse, error)
+	// StateImportFrom has this node pull another node's state itself and
+	// take it as StateImport does: it dials address with the key it made
+	// for the purpose (CertificateRequest STATE_TRANSFER) and the
+	// certificate the other node granted (StateExportGrant), checks the
+	// other node by its CA, then stages the state and reboots. The node
+	// must be unused. Refused through the Controller.
+	StateImportFrom(context.Context, *StateImportFromRequest) (*StateImportResponse, error)
 	// MetricsConfigGet reports the exporter's settings.
 	MetricsConfigGet(context.Context, *emptypb.Empty) (*MetricsConfigResponse, error)
 	// MetricsConfigSet changes the exporter's settings, at once and for
@@ -1258,6 +1314,12 @@ func (UnimplementedSystemServiceServer) StateExport(*StateExportRequest, grpc.Se
 }
 func (UnimplementedSystemServiceServer) StateImport(grpc.ClientStreamingServer[StateImportChunk, StateImportResponse]) error {
 	return status.Error(codes.Unimplemented, "method StateImport not implemented")
+}
+func (UnimplementedSystemServiceServer) StateExportGrant(context.Context, *StateExportGrantRequest) (*StateExportGrantResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StateExportGrant not implemented")
+}
+func (UnimplementedSystemServiceServer) StateImportFrom(context.Context, *StateImportFromRequest) (*StateImportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StateImportFrom not implemented")
 }
 func (UnimplementedSystemServiceServer) MetricsConfigGet(context.Context, *emptypb.Empty) (*MetricsConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MetricsConfigGet not implemented")
@@ -1929,6 +1991,42 @@ func _SystemService_StateImport_Handler(srv interface{}, stream grpc.ServerStrea
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SystemService_StateImportServer = grpc.ClientStreamingServer[StateImportChunk, StateImportResponse]
 
+func _SystemService_StateExportGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StateExportGrantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).StateExportGrant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_StateExportGrant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).StateExportGrant(ctx, req.(*StateExportGrantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_StateImportFrom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StateImportFromRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).StateImportFrom(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_StateImportFrom_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).StateImportFrom(ctx, req.(*StateImportFromRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SystemService_MetricsConfigGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -2291,6 +2389,14 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CertificateRequest",
 			Handler:    _SystemService_CertificateRequest_Handler,
+		},
+		{
+			MethodName: "StateExportGrant",
+			Handler:    _SystemService_StateExportGrant_Handler,
+		},
+		{
+			MethodName: "StateImportFrom",
+			Handler:    _SystemService_StateImportFrom_Handler,
 		},
 		{
 			MethodName: "MetricsConfigGet",

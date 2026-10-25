@@ -67,6 +67,9 @@ type Caller struct {
 	// cluster lock: a Controller's, or an admin's when the locks are
 	// advisory (checkClusterLock).
 	ClusterApply string
+	// Transfer: a new node's state transfer certificate, by its SHA-256
+	// - one StateExport while its grant lives (state_grant.go).
+	Transfer string
 }
 
 func (c Caller) String() string {
@@ -79,6 +82,9 @@ func (c Caller) String() string {
 	}
 	if c.Member {
 		s += ", member"
+	}
+	if c.Transfer != "" {
+		s += ", state transfer"
 	}
 	if len(c.Domains) > 0 {
 		s += "; " + strings.Join(c.Domains, ", ")
@@ -191,6 +197,9 @@ func authorize(ctx context.Context, fullMethod string) (Caller, error) {
 	leaf := tlsInfo.State.PeerCertificates[0]
 	if slices.Contains(leaf.Subject.Organization, pki.RoleClusterMember) {
 		return authorizeMember(tlsInfo.State.VerifiedChains, fullMethod)
+	}
+	if slices.Contains(leaf.Subject.Organization, pki.RoleStateTransfer) {
+		return authorizeTransfer(leaf, tlsInfo.State.VerifiedChains, fullMethod)
 	}
 	caller := Caller{Name: leaf.Subject.CommonName, Roles: leaf.Subject.Organization}
 	md, _ := metadata.FromIncomingContext(ctx)

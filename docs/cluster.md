@@ -888,14 +888,18 @@ Controller relays them - the stream holds private keys
 
 Two ways, by where the nodes stand:
 
-- **Node to node**, for a source in a fleet - not built yet, for when
-  the Controller drives a replacement: the orchestrator asks the new
-  node for a signing request (`CertificateRequest(STATE_TRANSFER)`),
-  signs it as a **scoped certificate** of one hour - the mechanism
-  janusctl's certificates use today (`janus:scoped`, the old node's CA
-  key as the scope, the admin role) - and a `StateImportFrom` has the
-  new node pull over mTLS; the orchestrator sees a request and a
-  certificate, never a key.
+- **Node to node**: the new node makes a key for the purpose
+  (`CertificateRequest(STATE_TRANSFER)`, kept in its memory, used
+  once), the **old node signs its request** with its own CA
+  (`StateExportGrant`: `janus:state-transfer`, ten minutes, one
+  `StateExport`, the identity only when granted, no other RPC - the
+  grant in janusd's memory), and `StateImportFrom` has the new node
+  pull over mTLS, checking the old node by its CA. Whoever drives it -
+  `janusctl system state import -from` - sees a request and a
+  certificate, never a key. The design first had the fleet sign a
+  scoped admin certificate of one hour; the old node signing works for
+  a node in no fleet too, and its certificate opens one export rather
+  than the whole node for an hour.
 - **A janusctl pipe**, for a node in no fleet, driven with the old
   node's own admin credential:
   `janusctl -n old system state export - | janusctl -n new system state import -`.

@@ -450,10 +450,10 @@ janusctl system state export [-identity] FILE|-
 
 ##### janusctl system state import
 
-Take another node's state, then restart into it - the node must be unused.
+Take another node's state - from a file, a pipe, or pulled from the node itself -, then restart into it; the node must be unused.
 
 ```text
-janusctl system state import [-identity] [-network] [-save-network FILE] [-no-reboot] FILE|-
+janusctl system state import [-identity] [-network] [-save-network FILE] [-no-reboot] [-from NODE|HOST:PORT] [-from-address HOST:PORT] [-from-ca FILE] [-from-cert FILE] [-from-key FILE] FILE|- | -from NODE
 ```
 
 | Flag | |
@@ -462,6 +462,11 @@ janusctl system state import [-identity] [-network] [-save-network FILE] [-no-re
 | `-network` | the exported network configuration too: the node takes the other's addresses |
 | `-save-network FILE` | without -network: save the exported network configuration, for the takeover |
 | `-no-reboot` | don't reboot: the import waits for janusd's next start |
+| `-from NODE\|HOST:PORT` | pull the state from that node itself, node to node: it signs this node's request for one export |
+| `-from-address HOST:PORT` | with -from: where this node reaches the other (default: where janusctl does) |
+| `-from-ca FILE` | with -from HOST:PORT: the other node's CA (default: -ca) |
+| `-from-cert FILE` | with -from HOST:PORT: an admin certificate of the other node (default: -cert) |
+| `-from-key FILE` | with -from HOST:PORT: its key (default: -key) |
 
 #### janusctl system sysctl
 

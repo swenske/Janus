@@ -224,12 +224,17 @@ var commands = &command{name: "janusctl", subs: []*command{
 		}},
 		{name: "state", help: "the node's state carried to its replacement (docs/guide/replacing-a-node.md)", subs: []*command{
 			{name: "export", args: "FILE|-", help: "the node's configuration, certificates and keys, network: a tar to import on its replacement", flags: []flagDef{boolFlag("identity", "the node's CA and keys too: the replacement is this node to its clients")}, pos: []argKind{argFile}, required: 1},
-			{name: "import", args: "FILE|-", help: "take another node's state, then restart into it - the node must be unused", flags: []flagDef{
+			{name: "import", args: "FILE|- | -from NODE", help: "take another node's state - from a file, a pipe, or pulled from the node itself -, then restart into it; the node must be unused", flags: []flagDef{
 				boolFlag("identity", "take the exported node's identity: its credentials work here, this node's own stop"),
 				boolFlag("network", "the exported network configuration too: the node takes the other's addresses"),
 				valFlag("save-network", "FILE", "without -network: save the exported network configuration, for the takeover", argFile),
 				boolFlag("no-reboot", "don't reboot: the import waits for janusd's next start"),
-			}, pos: []argKind{argFile}, required: 1},
+				valFlag("from", "NODE|HOST:PORT", "pull the state from that node itself, node to node: it signs this node's request for one export", argFleetNode),
+				valFlag("from-address", "HOST:PORT", "with -from: where this node reaches the other (default: where janusctl does)", argNone),
+				valFlag("from-ca", "FILE", "with -from HOST:PORT: the other node's CA (default: -ca)", argFile),
+				valFlag("from-cert", "FILE", "with -from HOST:PORT: an admin certificate of the other node (default: -cert)", argFile),
+				valFlag("from-key", "FILE", "with -from HOST:PORT: its key (default: -key)", argFile),
+			}, pos: []argKind{argFile}},
 		}},
 		{name: "sysctl", help: "kernel parameters: HAProxy's on trial, the CIS benchmark's read-only (docs/guide/kernel-tuning.md)", subs: []*command{
 			{name: "list", help: "the parameters, their values, defaults and suggested values, the CIS benchmark", flags: []flagDef{boolFlag("cis", "every CIS control too")}},

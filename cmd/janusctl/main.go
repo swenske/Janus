@@ -169,6 +169,7 @@ func main() {
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	redial := func(ep string) (*grpc.ClientConn, error) { return dial(ep, *caFile, *certFile, *keyFile) }
+	stateFrom.ca, stateFrom.cert, stateFrom.key = *caFile, *certFile, *keyFile
 	tuiOpts := tuiOptions{role: roleFromAsRoles(*asRoles)}
 	if !explicit["endpoint"] && !explicit["ca"] && !explicit["cert"] && !explicit["key"] {
 		cfg, err := loadConfig()
@@ -216,6 +217,7 @@ func main() {
 				return
 			}
 			node := nodes[0]
+			stateFrom.ctxName, stateFrom.ctx = name, ctx
 			tlsConfig, err := nodeTLS(name, ctx, node)
 			if err != nil {
 				log.Fatalf("janusctl: %v", err)

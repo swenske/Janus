@@ -32,6 +32,7 @@ import (
 	"github.com/swenske/Janus/internal/pki"
 	"github.com/swenske/Janus/internal/ring"
 	"github.com/swenske/Janus/internal/schematic"
+	"github.com/swenske/Janus/internal/statexfer"
 	"github.com/swenske/Janus/internal/sysctl"
 )
 
@@ -99,6 +100,10 @@ type System struct {
 	// Console is the services' share of the console (nil: not managed
 	// by this janusd - the budget can't be read or set).
 	Console *consolelimit.Budget
+
+	// transfer is the key this node pulls another's state with
+	// (state_grant.go).
+	transfer transferKey
 }
 
 func (s *System) Version(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.VersionResponse, error) {
@@ -261,6 +266,19 @@ func (s *System) CertificateRequest(ctx context.Context, req *janusv1alpha1.Cert
 			return nil, status.Errorf(codes.Internal, "the member key: %v", err)
 		}
 		log.Printf("cluster: a signing request made for the member certificate - by %s", caller)
+		return &janusv1alpha1.CertificateRequestResponse{Csr: csr}, nil
+	case janusv1alpha1.CertificatePurpose_CERTIFICATE_PURPOSE_STATE_TRANSFER:
+		if err := s.stateTransferAllowed(caller); err != nil {
+			return nil, err
+		}
+		if why := statexfer.InUse(s.StateRoot); why != "" {
+			return nil, status.Errorf(codes.FailedPrecondition, "this node is in use (%s): Reset it first (janusctl system reset -state), then import", why)
+		}
+		csr, err := s.transfer.newCSR()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "the state transfer key: %v", err)
+		}
+		log.Printf("state: a signing request made to pull another node's state - by %s", caller)
 		return &janusv1alpha1.CertificateRequestResponse{Csr: csr}, nil
 	}
 	return nil, status.Errorf(codes.InvalidArgument, "purpose %s: unknown", req.GetPurpose())
