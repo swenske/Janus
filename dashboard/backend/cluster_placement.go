@@ -472,11 +472,17 @@ func (a *app) placeMore(ctx context.Context, c *clusters.Cluster, name string, s
 			cands = append(cands, slots[0])
 		}
 	}
-	// Elsewhere than the replaced member's host when a rule allows it:
-	// that one only frees its memory once the member is gone.
+	// Elsewhere than the replaced member's host when a rule allows it
+	// without sharing a host: that one only frees its memory once the
+	// member is gone. Its host when the others would mean a host shared
+	// (preferred) or none (required) - the replacement has it to itself
+	// once the member leaves (v2026.10.25's lab: preferred put it beside
+	// another member, the replaced one's host left empty).
 	picks, warnings, err := place(cands, used, n, spec.MemoryMiB, c.Placement.AntiAffinity)
-	if err != nil && len(last) > 0 {
-		picks, warnings, err = place(append(cands, last...), used, n, spec.MemoryMiB, c.Placement.AntiAffinity)
+	if (err != nil || len(warnings) > 0) && len(last) > 0 {
+		if p, w, err2 := place(append(cands, last...), used, n, spec.MemoryMiB, c.Placement.AntiAffinity); err2 == nil && (err != nil || len(w) < len(warnings)) {
+			picks, warnings, err = p, w, nil
+		}
 	}
 	if err != nil {
 		if len(skipped) > 0 {
