@@ -36,32 +36,79 @@ func TestPlace(t *testing.T) {
 		return out
 	}
 	// Required: one host each, two records on one host counted once.
-	got, _, err := place([]hostSlot{a1, a2, b, c}, nil, 3, clusters.AntiAffinityRequired)
+	got, _, err := place([]hostSlot{a1, a2, b, c}, nil, 3, 1024, clusters.AntiAffinityRequired)
 	if err != nil || !slices.Equal(hvs(got), []string{"h1", "h3", "h4"}) {
 		t.Errorf("required, 3 hosts: %v %v", hvs(got), err)
 	}
-	_, _, err = place([]hostSlot{a1, a2, b}, nil, 3, clusters.AntiAffinityRequired)
+	_, _, err = place([]hostSlot{a1, a2, b}, nil, 3, 1024, clusters.AntiAffinityRequired)
 	if err == nil || !strings.Contains(err.Error(), "kvm01 (kvm01 and kvm01-again: one host)") || !strings.Contains(err.Error(), "2 host(s)") {
 		t.Errorf("required, 2 hosts for 3: %v", err)
 	}
 	// A host a member runs on isn't free.
-	got, _, err = place([]hostSlot{a1, b}, map[string][]string{"A": {"lb-1"}}, 1, clusters.AntiAffinityRequired)
+	got, _, err = place([]hostSlot{a1, b}, map[string][]string{"A": {"lb-1"}}, 1, 1024, clusters.AntiAffinityRequired)
 	if err != nil || !slices.Equal(hvs(got), []string{"h3"}) {
 		t.Errorf("required, A taken: %v %v", hvs(got), err)
 	}
-	_, _, err = place([]hostSlot{a1}, map[string][]string{"A": {"lb-1"}}, 1, clusters.AntiAffinityRequired)
+	_, _, err = place([]hostSlot{a1}, map[string][]string{"A": {"lb-1"}}, 1, 1024, clusters.AntiAffinityRequired)
 	if err == nil || !strings.Contains(err.Error(), "where lb-1 run(s)") {
 		t.Errorf("required, the only host taken: %v", err)
 	}
 	// Preferred: hosts of their own first, then the least busy, said.
-	got, warnings, err := place([]hostSlot{a1, a2, b}, nil, 3, clusters.AntiAffinityPreferred)
+	got, warnings, err := place([]hostSlot{a1, a2, b}, nil, 3, 1024, clusters.AntiAffinityPreferred)
 	if err != nil || !slices.Equal(hvs(got), []string{"h1", "h3", "h1"}) || len(warnings) != 1 {
 		t.Errorf("preferred, 2 hosts for 3: %v %v %v", hvs(got), warnings, err)
 	}
-	// Off: the records in turn.
-	got, warnings, _ = place([]hostSlot{a1, a2}, nil, 3, clusters.AntiAffinityOff)
-	if !slices.Equal(hvs(got), []string{"h1", "h2", "h1"}) || warnings != nil {
+	// Off: by memory alone - one host here, its first record.
+	got, warnings, _ = place([]hostSlot{a1, a2}, nil, 3, 1024, clusters.AntiAffinityOff)
+	if !slices.Equal(hvs(got), []string{"h1", "h1", "h1"}) || warnings != nil {
 		t.Errorf("off: %v %v", hvs(got), warnings)
+	}
+}
+
+// Among the hosts a rule allows, the one with the most memory to give
+// goes first - what a host keeps free (1/20) aside -, and one without
+// room for the machine is never picked.
+func TestPlaceByMemory(t *testing.T) {
+	k1 := hostSlot{Hypervisor: "h1", Name: "kvm01", HostID: "A", HostName: "kvm01", FreeMiB: 8192, TotalMiB: 32768}
+	k2 := hostSlot{Hypervisor: "h2", Name: "kvm02", HostID: "B", HostName: "kvm02", FreeMiB: 30000, TotalMiB: 32768}
+	hvs := func(s []hostSlot) []string {
+		var out []string
+		for _, x := range s {
+			out = append(out, x.Hypervisor)
+		}
+		return out
+	}
+	// Off: the emptier host until it isn't.
+	got, _, err := place([]hostSlot{k1, k2}, nil, 3, 2048, clusters.AntiAffinityOff)
+	if err != nil || !slices.Equal(hvs(got), []string{"h2", "h2", "h2"}) {
+		t.Errorf("off: %v %v", hvs(got), err)
+	}
+	small := k2
+	small.FreeMiB = 9000
+	got, _, _ = place([]hostSlot{k1, small}, nil, 3, 2048, clusters.AntiAffinityOff)
+	if !slices.Equal(hvs(got), []string{"h2", "h1", "h2"}) {
+		t.Errorf("off, close: %v", hvs(got))
+	}
+	// Preferred: hosts of their own first - the emptier first -, then the
+	// least busy, the emptier of them.
+	got, warnings, _ := place([]hostSlot{k1, k2}, nil, 3, 2048, clusters.AntiAffinityPreferred)
+	if !slices.Equal(hvs(got), []string{"h2", "h1", "h2"}) || len(warnings) != 1 {
+		t.Errorf("preferred: %v %v", hvs(got), warnings)
+	}
+	// Required: a host without room is no host of its own.
+	full := k1
+	full.FreeMiB = 2000 // 1638 kept: 362 to give
+	got, _, err = place([]hostSlot{full, k2}, nil, 1, 1024, clusters.AntiAffinityRequired)
+	if err != nil || !slices.Equal(hvs(got), []string{"h2"}) {
+		t.Errorf("required, kvm01 full: %v %v", hvs(got), err)
+	}
+	_, _, err = place([]hostSlot{full, k2}, nil, 2, 1024, clusters.AntiAffinityRequired)
+	if err == nil || !strings.Contains(err.Error(), "no host has room for a machine of 1024 MiB") || !strings.Contains(err.Error(), "kvm01 2000 MiB free, 1638 kept") {
+		t.Errorf("required, two hosts, one full: %v", err)
+	}
+	_, _, err = place([]hostSlot{full}, nil, 1, 1024, clusters.AntiAffinityOff)
+	if err == nil || !strings.Contains(err.Error(), "no host has room") {
+		t.Errorf("off, full: %v", err)
 	}
 }
 

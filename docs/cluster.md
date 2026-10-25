@@ -280,6 +280,9 @@ more, never two members placed together unseen. A VM's node comes from
 it reached last, the machine the host it runs on. A recycle places the
 new machine among the cluster's hypervisors that fit its specification;
 the replaced member's host counts as free - it leaves -, taken last.
+Among the hosts a rule allows, the one with the most memory free goes
+first, and a host without room for the machine (what it keeps free
+aside) is never picked - the load spreads over the hosts.
 
 ### From existing nodes
 

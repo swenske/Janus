@@ -96,7 +96,15 @@ size, release, extensions and network (DHCP), and the **anti-affinity**:
   anything is made, naming the hosts found;
 - **preferred**: hosts of their own first, then the least busy - the
   cluster's page says which members share a host;
-- **off**: the hypervisors in turn.
+- **off**: wherever there is the most memory.
+
+Among the hosts the rule allows, the one with the most memory free
+goes first, so the load spreads; the order of the hypervisors given
+only breaks ties. A host without room for one more machine - what it
+keeps free (a twentieth, 512 MiB at least) aside - is never picked: too
+little memory anywhere refuses the cluster before anything is made,
+saying what each host has. A recycle or a member more is placed the
+same way.
 
 Two hypervisor records reaching the same host count as one: the
 Controller asks each which host it is (libvirt: the SSH host key it
