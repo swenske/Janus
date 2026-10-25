@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -31,8 +30,8 @@ type Driver struct {
 	hostKey      ssh.PublicKey
 	controllerID string
 
-	mu               sync.Mutex
-	hostID, hostName string // read once (hostIdentity)
+	mu       sync.Mutex
+	hostName string // read once (hostIdentity)
 }
 
 // New returns a Driver for h, a libvirt hypervisor whose host key is
@@ -140,34 +139,22 @@ func version(v uint64) string {
 	return fmt.Sprintf("%d.%d.%d", v/1000000, v/1000%1000, v%1000)
 }
 
-// hostIdentity is the host this libvirtd runs on: its UUID - the
-// capabilities' <host><uuid>, the SMBIOS one or libvirtd's host_uuid -
-// and its hostname. Two records reaching the same libvirtd share it.
+// HostID is the host this record reaches: the fingerprint of the SSH
+// host key pinned for it - the same for two records reaching one sshd,
+// stable across libvirtd restarts and reboots. libvirtd's own
+// <host><uuid> isn't one: a board without an SMBIOS UUID gets a random
+// one at every libvirtd start, and many boards share a placeholder (AMI's
+// 03000200-0400-0500-0006-000700080009).
+func (d *Driver) HostID() string { return "libvirt:" + ssh.FingerprintSHA256(d.hostKey) }
+
+// hostIdentity is HostID and the host's name, read once.
 func (d *Driver) hostIdentity(l *golibvirt.Libvirt) (id, name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.hostID == "" {
-		if caps, err := l.ConnectGetCapabilities(); err == nil {
-			if u := capsHostUUID(caps); u != "" {
-				d.hostID = "libvirt:" + u
-			}
-		}
+	if d.hostName == "" {
 		d.hostName, _ = l.ConnectGetHostname()
 	}
-	return d.hostID, d.hostName
-}
-
-// capsHostUUID reads <capabilities><host><uuid>.
-func capsHostUUID(caps string) string {
-	var c struct {
-		Host struct {
-			UUID string `xml:"uuid"`
-		} `xml:"host"`
-	}
-	if xml.Unmarshal([]byte(caps), &c) != nil {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(c.Host.UUID))
+	return d.HostID(), d.hostName
 }
 
 func (d *Driver) HostInfo(ctx context.Context) (*hypervisor.HostInfo, error) {

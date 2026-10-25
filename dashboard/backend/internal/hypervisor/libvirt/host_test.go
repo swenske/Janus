@@ -1,25 +1,38 @@
 package libvirt
 
-import "testing"
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"strings"
+	"testing"
 
-// The host's identity is the capabilities' <host><uuid> - not a guest's
-// or a NUMA cell's.
-func TestCapsHostUUID(t *testing.T) {
-	caps := `<capabilities>
-  <host>
-    <uuid>4C4C4544-0042-3510-8051-B7C04F4B4E32</uuid>
-    <cpu><arch>x86_64</arch></cpu>
-    <topology><cells num='1'><cell id='0'><memory unit='KiB'>32768000</memory></cell></cells></topology>
-  </host>
-  <guest><os_type>hvm</os_type></guest>
-</capabilities>`
-	if got := capsHostUUID(caps); got != "4c4c4544-0042-3510-8051-b7c04f4b4e32" {
-		t.Errorf("got %q", got)
+	"golang.org/x/crypto/ssh"
+)
+
+// A host is its pinned SSH host key: two records reaching one sshd are
+// one host, another key another host - whatever libvirtd says its UUID
+// is (random on a board without one, a placeholder on many).
+func TestHostID(t *testing.T) {
+	key := func() ssh.PublicKey {
+		t.Helper()
+		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		k, err := ssh.NewPublicKey(pub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
 	}
-	if got := capsHostUUID("<capabilities><host></host></capabilities>"); got != "" {
-		t.Errorf("no uuid: %q", got)
+	kvm01, kvm02 := key(), key()
+	a := &Driver{hostKey: kvm01}
+	b := &Driver{hostKey: kvm01} // another record, "localhost" for "127.0.0.1"
+	c := &Driver{hostKey: kvm02}
+	if a.HostID() != b.HostID() || !strings.HasPrefix(a.HostID(), "libvirt:SHA256:") {
+		t.Errorf("one sshd, two IDs: %q %q", a.HostID(), b.HostID())
 	}
-	if got := capsHostUUID("not xml"); got != "" {
-		t.Errorf("not XML: %q", got)
+	if a.HostID() == c.HostID() {
+		t.Errorf("two hosts, one ID: %q", a.HostID())
 	}
 }

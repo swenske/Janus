@@ -99,8 +99,8 @@ size, release, extensions and network (DHCP), and the **anti-affinity**:
 - **off**: the hypervisors in turn.
 
 Two hypervisor records reaching the same host count as one: the
-Controller asks each which host it is (libvirt: the host's UUID; Proxmox:
-the node's name). The machines are named after the cluster -
+Controller asks each which host it is (libvirt: the SSH host key it
+pinned for the record; Proxmox: the node's name). The machines are named after the cluster -
 `edge-1`, `edge-2`... -, the Controller waits until they register and
 trust the fleet, then makes the cluster from them, the first one the
 source. A failure before that destroys the machines it made.
