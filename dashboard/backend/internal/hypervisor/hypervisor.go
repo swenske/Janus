@@ -99,6 +99,9 @@ type HostInfo struct {
 	MemoryFree  uint64   `json:"memory_free"`  // bytes
 	// Storage is the pool new machines' disks go to.
 	Storage StorageInfo `json:"storage"`
+	// ImageStorage, when the hypervisor keeps the base images apart
+	// (Proxmox), is where they go - its Error says why it can't take them.
+	ImageStorage *StorageInfo `json:"image_storage,omitempty"`
 	// Networks are the ones machines may be attached to, as configured.
 	Networks []NetworkInfo `json:"networks"`
 	// RunningMachines counts the running virtual machines the

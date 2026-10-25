@@ -355,6 +355,13 @@ fi
 pvesh get /storage/local-lvm >/dev/null 2>&1 || echo "warning: there's no storage local-lvm for the machines' disks" >&2
 ```
 
+The image storage receives the base images and the machines' NoCloud
+volumes as uploads, and Proxmox takes an upload only on a file storage -
+a directory, NFS, CIFS... -, with the `import` and `iso` content types:
+not LVM, LVM-thin, ZFS or Ceph RBD, which suit the disks. The
+hypervisor's card says when it can't take them, and a machine is then
+refused before anything is downloaded, saying what to change.
+
 ### 2. Roles: what the Controller may do
 
 One role per kind of object, each with only what the Controller uses -
