@@ -73,6 +73,27 @@ type machineRunner struct {
 	watchers sync.WaitGroup
 	quit     chan struct{}
 	stopOnce sync.Once
+	// images: one base image per hypervisor at a time - machines made at
+	// once (a cluster's) wait for the first to upload it, then find it
+	// there.
+	images map[string]*sync.Mutex
+}
+
+// imageLock locks image name on hypervisor hv.
+func (r *machineRunner) imageLock(hv, name string) func() {
+	r.mu.Lock()
+	if r.images == nil {
+		r.images = map[string]*sync.Mutex{}
+	}
+	key := hv + "/" + name
+	l := r.images[key]
+	if l == nil {
+		l = &sync.Mutex{}
+		r.images[key] = l
+	}
+	r.mu.Unlock()
+	l.Lock()
+	return l.Unlock
 }
 
 type machineJob struct {
@@ -310,13 +331,19 @@ func (r *machineRunner) create(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	unlock := r.imageLock(h.ID, img.Name)
 	have, err := drv.HasImage(ctx, img)
 	if err != nil {
+		unlock()
 		return fmt.Errorf("check the hypervisor's images: %w", err)
 	}
 	if have {
 		r.logEvent(id, "image %s is already on %s", img.Name, h.Name)
-	} else if err := r.upload(ctx, id, drv, img, src); err != nil {
+	} else {
+		err = r.upload(ctx, id, drv, img, src)
+	}
+	unlock()
+	if err != nil {
 		return err
 	}
 
@@ -502,7 +529,12 @@ func (r *machineRunner) upload(ctx context.Context, id string, drv hypervisor.Dr
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, img.Name+".download")
+	tmp, err := os.CreateTemp(dir, img.Name+"-*.download") // its own: another hypervisor may download the same image now
+	if err != nil {
+		return err
+	}
+	path := tmp.Name()
+	_ = tmp.Close()
 	defer os.Remove(path)
 
 	r.logEvent(id, "downloading %s", src.URL)
