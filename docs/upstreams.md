@@ -56,6 +56,7 @@ no component follows.
 | `opentofu` (tests only) | its major | OpenTofu's signed SHA256SUMS | - |
 | `pebble` (tests only) | its major | Go's checksum database (`go install`) | - |
 | `versitygw` (tests only) | its major | Go's checksum database (`go install`) | - |
+| `routeros-chr` (tests only) | MikroTik's newest stable RouterOS 7 (`NEWESTa7.stable` on its upgrade server) | the sha256 MikroTik publishes beside the image (`.sha256`, HTTPS) - nothing signed | - |
 | `consul` | its major | HashiCorp's signed SHA256SUMS | govulncheck on the binary |
 
 "Follows" is what gets proposed on its own: a patch release of a pinned

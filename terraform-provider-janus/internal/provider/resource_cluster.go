@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -72,18 +73,49 @@ type clusterAutoscaleModel struct {
 	MaxStepsPerHour    types.Int64  `tfsdk:"max_steps_per_hour"`
 }
 
-// clusterBalancerModel is a cluster's balancer hook; Secret is never
-// read back.
+// clusterBalancerModel is a cluster's balancer hook - or a RouterOS
+// router whose routes the Controller keeps; Secret (the router user's
+// password for one) is never read back.
 type clusterBalancerModel struct {
+	Kind              types.String `tfsdk:"kind"`
 	URL               types.String `tfsdk:"url"`
 	CACert            types.String `tfsdk:"ca_cert"`
+	Fingerprint       types.String `tfsdk:"fingerprint"`
+	RouterUser        types.String `tfsdk:"router_user"`
+	Prefixes          types.List   `tfsdk:"prefixes"`
+	Distance          types.Int64  `tfsdk:"distance"`
+	RoutingTable      types.String `tfsdk:"routing_table"`
+	AllowHTTP         types.Bool   `tfsdk:"allow_http"`
+	CheckGateway      types.Bool   `tfsdk:"check_gateway"`
 	DrainDelaySeconds types.Int64  `tfsdk:"drain_delay_seconds"`
 	Secret            types.String `tfsdk:"secret"`
 }
 
+// kind is b's kind, the API's way: "" for a webhook.
+func (b *clusterBalancerModel) kind() string {
+	if k := b.Kind.ValueString(); k != "webhook" {
+		return k
+	}
+	return ""
+}
+
+func (b *clusterBalancerModel) prefixes() []string {
+	var out []string
+	for _, e := range b.Prefixes.Elements() {
+		if s, ok := e.(types.String); ok {
+			out = append(out, s.ValueString())
+		}
+	}
+	return out
+}
+
 // request is b as the API takes it, the secret sent when secret says.
 func (b *clusterBalancerModel) request(secret *string) client.ClusterBalancer {
-	return client.ClusterBalancer{URL: b.URL.ValueString(), CACert: b.CACert.ValueString(), DrainDelaySeconds: int(b.DrainDelaySeconds.ValueInt64()), Secret: secret}
+	return client.ClusterBalancer{
+		Kind: b.kind(), URL: b.URL.ValueString(), CACert: b.CACert.ValueString(), Fingerprint: b.Fingerprint.ValueString(),
+		User: b.RouterUser.ValueString(), Prefixes: b.prefixes(), Distance: int(b.Distance.ValueInt64()), RoutingTable: b.RoutingTable.ValueString(),
+		AllowHTTP: b.AllowHTTP.ValueBool(), CheckGateway: b.CheckGateway.ValueBool(), DrainDelaySeconds: int(b.DrainDelaySeconds.ValueInt64()), Secret: secret,
+	}
 }
 
 // sameBalancer: a and b ask the Controller for the same hook, their
@@ -92,36 +124,66 @@ func sameBalancer(a, b *clusterBalancerModel) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
-	return a.URL.ValueString() == b.URL.ValueString() && a.CACert.ValueString() == b.CACert.ValueString() &&
-		a.DrainDelaySeconds.ValueInt64() == b.DrainDelaySeconds.ValueInt64()
+	x, y := a.request(nil), b.request(nil)
+	return x.Kind == y.Kind && x.URL == y.URL && x.CACert == y.CACert && strings.EqualFold(x.Fingerprint, y.Fingerprint) && x.User == y.User &&
+		slices.Equal(x.Prefixes, y.Prefixes) && x.Distance == y.Distance && x.RoutingTable == y.RoutingTable && x.AllowHTTP == y.AllowHTTP && x.CheckGateway == y.CheckGateway &&
+		x.DrainDelaySeconds == y.DrainDelaySeconds
+}
+
+// optString is v as a model value: null when empty and prior left it
+// unset.
+func optString(v string, prior types.String) types.String {
+	if v == "" && prior.IsNull() {
+		return types.StringNull()
+	}
+	return types.StringValue(v)
 }
 
 // clusterBalancerFrom is the Controller's hook as a model, prior's
-// secret kept when the Controller has one - nil when it has no hook.
-func clusterBalancerFrom(b *client.ClusterBalancer, prior *clusterBalancerModel) *clusterBalancerModel {
+// secret kept when the Controller has one - nil when it has no hook;
+// what the configuration left unset stays unset.
+func clusterBalancerFrom(ctx context.Context, b *client.ClusterBalancer, prior *clusterBalancerModel, diags *diag.Diagnostics) *clusterBalancerModel {
 	if b == nil {
 		return nil
 	}
-	m := &clusterBalancerModel{URL: types.StringValue(b.URL), CACert: types.StringNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringNull()}
-	if b.CACert != "" {
-		m.CACert = types.StringValue(b.CACert)
+	if prior == nil {
+		prior = &clusterBalancerModel{Kind: types.StringNull(), CACert: types.StringNull(), Fingerprint: types.StringNull(), RouterUser: types.StringNull(),
+			Prefixes: types.ListNull(types.StringType), Distance: types.Int64Null(), RoutingTable: types.StringNull(), AllowHTTP: types.BoolNull(),
+			CheckGateway: types.BoolNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringNull()}
 	}
-	if b.DrainDelaySeconds != 0 {
+	m := &clusterBalancerModel{
+		Kind: optString(b.Kind, prior.Kind), URL: types.StringValue(b.URL), CACert: optString(b.CACert, prior.CACert),
+		Fingerprint: optString(b.Fingerprint, prior.Fingerprint), RouterUser: optString(b.User, prior.RouterUser),
+		RoutingTable: optString(b.RoutingTable, prior.RoutingTable), Prefixes: prior.Prefixes, Distance: prior.Distance,
+		AllowHTTP: prior.AllowHTTP, CheckGateway: prior.CheckGateway, DrainDelaySeconds: prior.DrainDelaySeconds, Secret: types.StringNull(),
+	}
+	if b.Kind == "" && prior.Kind.ValueString() == "webhook" {
+		m.Kind = prior.Kind
+	}
+	if prior.Fingerprint.ValueString() != "" && strings.EqualFold(prior.Fingerprint.ValueString(), b.Fingerprint) {
+		m.Fingerprint = prior.Fingerprint // its case, colons as written
+	}
+	if len(b.Prefixes) > 0 || !prior.Prefixes.IsNull() {
+		l, d := types.ListValueFrom(ctx, types.StringType, b.Prefixes)
+		diags.Append(d...)
+		m.Prefixes = l
+	}
+	if b.Distance != 0 || !prior.Distance.IsNull() {
+		m.Distance = types.Int64Value(int64(b.Distance))
+	}
+	if b.AllowHTTP || !prior.AllowHTTP.IsNull() {
+		m.AllowHTTP = types.BoolValue(b.AllowHTTP)
+	}
+	if b.CheckGateway || !prior.CheckGateway.IsNull() {
+		m.CheckGateway = types.BoolValue(b.CheckGateway)
+	}
+	if b.DrainDelaySeconds != 0 || !prior.DrainDelaySeconds.IsNull() {
 		m.DrainDelaySeconds = types.Int64Value(int64(b.DrainDelaySeconds))
 	}
 	if b.HasSecret {
 		m.Secret = types.StringValue("") // set elsewhere: a plan with a secret shows the change
-		if prior != nil && !prior.Secret.IsNull() {
+		if !prior.Secret.IsNull() {
 			m.Secret = prior.Secret
-		}
-	}
-	if prior != nil {
-		// What the configuration left unset stays unset.
-		if prior.CACert.IsNull() && b.CACert == "" {
-			m.CACert = prior.CACert
-		}
-		if prior.DrainDelaySeconds.IsNull() && b.DrainDelaySeconds == 0 {
-			m.DrainDelaySeconds = prior.DrainDelaySeconds
 		}
 	}
 	return m
@@ -294,12 +356,23 @@ func (r *clusterResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 			},
 			"balancer": schema.SingleNestedAttribute{
 				Optional:    true,
-				Description: "A balancer in front - a cloud load balancer, a router's ECMP routes: the hook telling it which members take the traffic, before one is drained or removed and once one serves (docs/guide/clusters.md \"A balancer in front\"). Removing it removes the hook.",
+				Description: "A balancer in front - a cloud load balancer, a router's ECMP routes: the hook telling it which members take the traffic, before one is drained or removed and once one serves; or a RouterOS router whose ECMP routes the Controller keeps itself (docs/guide/clusters.md \"A balancer in front\", \"RouterOS\"). Removing it removes the hook - a router's routes stay.",
 				Attributes: map[string]schema.Attribute{
-					"url":                 schema.StringAttribute{Required: true, Description: "The hook: an http(s) URL the members are POSTed to."},
+					"kind": schema.StringAttribute{
+						Optional: true, Validators: []validator.String{oneOf{"webhook", "routeros"}},
+						Description: "\"webhook\" (unset: one) or \"routeros\".",
+					},
+					"url":                 schema.StringAttribute{Required: true, Description: "The hook: an http(s) URL the members are POSTed to; routeros: the router's (https://router)."},
 					"ca_cert":             schema.StringAttribute{Optional: true, Description: "The only CA its HTTPS certificate may chain to (PEM); unset: the system's."},
+					"fingerprint":         schema.StringAttribute{Optional: true, Description: "Its HTTPS certificate's SHA-256, pinned - a router's self-signed one (RouterOS: /certificate print detail, fingerprint)."},
+					"router_user":         schema.StringAttribute{Optional: true, Description: "routeros: the router's user the Controller signs in as - its password is secret."},
+					"prefixes":            schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "routeros: the service prefixes the members carry (203.0.113.10/32): a route each per member in service."},
+					"distance":            schema.Int64Attribute{Optional: true, Description: "routeros: the routes' distance (1)."},
+					"routing_table":       schema.StringAttribute{Optional: true, Description: "routeros: the routes' routing table (main)."},
+					"allow_http":          schema.BoolAttribute{Optional: true, Description: "routeros: a lab's router over plain HTTP - its password goes with each call."},
+					"check_gateway":       schema.BoolAttribute{Optional: true, Description: "routeros: the router pings each member (check-gateway=ping) and leaves out one that doesn't answer, before any drain or check."},
 					"drain_delay_seconds": schema.Int64Attribute{Optional: true, Description: "How long a member serves on once the balancer was told it goes (0 to 3600)."},
-					"secret":              schema.StringAttribute{Optional: true, Sensitive: true, Description: "Signs each call (X-Janus-Signature-256: HMAC-SHA256 of the body). Write-only: never read back."},
+					"secret":              schema.StringAttribute{Optional: true, Sensitive: true, Description: "Signs each call (X-Janus-Signature-256: HMAC-SHA256 of the body); routeros: the router user's password. Write-only: never read back."},
 				},
 			},
 			"current_members": schema.Int64Attribute{Computed: true, Description: "The members it has now - what auto-scaling made it."},
@@ -484,7 +557,7 @@ func (r *clusterResource) Read(ctx context.Context, req resource.ReadRequest, re
 	}
 	prior, priorBalancer := state.Autoscaling, state.Balancer
 	fromCluster(ctx, cl, &state, &resp.Diagnostics)
-	state.Balancer = clusterBalancerFrom(cl.Balancer, priorBalancer)
+	state.Balancer = clusterBalancerFrom(ctx, cl.Balancer, priorBalancer, &resp.Diagnostics)
 	// Thresholds left unset stay unset: the Controller's 0 is its default.
 	if prior != nil && state.Autoscaling != nil && sameClusterPolicy(prior.policy(), state.Autoscaling.policy()) {
 		state.Autoscaling = prior

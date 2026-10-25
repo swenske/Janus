@@ -185,6 +185,14 @@ func TestNewestVersions(t *testing.T) {
 	if l, n := newestVersions(tofu, "1.13.1", []string{"v1.14.0-rc1", "v1.13.1", "v1.12.7", "v2.0.0"}); l != "" || n != "v2.0.0" {
 		t.Errorf("opentofu: %q, %q", l, n)
 	}
+	ros := findComponent("routeros-chr")
+	if l, n := newestVersions(ros, "7.25", []string{"7.26"}); l != "7.26" || n != "" {
+		t.Errorf("routeros-chr: %q, %q", l, n)
+	}
+	got, err := routerosFeed{channel: "stable"}.versions(context.Background(), fakeFetcher{"https://upgrade.mikrotik.com/routeros/NEWESTa7.stable": "=7.25 1792678320"}, "")
+	if err != nil || !slices.Equal(got, []string{"7.25"}) {
+		t.Errorf("the RouterOS feed: %v %v", got, err)
+	}
 	mcm := findComponent("musl-cross-make")
 	if l, _ := newestVersions(mcm, "227df8b9", []string{"9f0f0d6a"}); l != "9f0f0d6a" {
 		t.Errorf("commit: %q", l)

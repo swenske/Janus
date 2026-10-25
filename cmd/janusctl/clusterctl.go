@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -246,6 +247,19 @@ func (a addresses) Set(v string) error {
 		return fmt.Errorf("%q: NODE=IP", v)
 	}
 	a[node] = ip
+	return nil
+}
+
+// stringList parses a repeatable flag, commas splitting a value too.
+type stringList []string
+
+func (l *stringList) String() string { return strings.Join(*l, ",") }
+func (l *stringList) Set(s string) error {
+	for _, v := range strings.Split(s, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			*l = append(*l, v)
+		}
+	}
 	return nil
 }
 
@@ -681,9 +695,25 @@ func runClusterCtl(globalCtx string, args []string) {
 		delay := fs.Int("drain-delay", -1, "seconds a member serves on once the balancer was told it goes")
 		off := fs.Bool("off", false, "no hook any more")
 		doSync := fs.Bool("sync", false, "call it with the members now")
+		kind := fs.String("kind", "", "webhook or routeros")
+		fingerprint := fs.String("fingerprint", "", "the SHA-256 of its HTTPS certificate, pinned")
+		user := fs.String("router-user", "", "routeros: the router's user")
+		passwordFile := fs.String("password-file", "", "routeros: a file holding the router user's password")
+		var prefixes stringList
+		fs.Var(&prefixes, "prefix", "routeros: a service prefix the members carry (203.0.113.10/32), repeatable")
+		distance := fs.Int("distance", -1, "routeros: the routes' distance (1)")
+		routingTable := fs.String("routing-table", "", "routeros: the routes' routing table (main)")
+		allowHTTP := fs.Bool("allow-http", false, "routeros: a lab's router over plain HTTP")
+		checkGateway := fs.String("check-gateway", "", "routeros: ping (the router checks each member) or none")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() != 1 {
 			clusterCtlUsage("balancer")
+		}
+		if *passwordFile != "" && *secretFile != "" {
+			log.Fatal("janusctl cluster balancer: -password-file or -secret-file, not both")
+		}
+		if *passwordFile != "" {
+			*secretFile = *passwordFile
 		}
 		o := openClusterCtl(globalCtx)
 		defer o.close()
@@ -695,14 +725,43 @@ func runClusterCtl(globalCtx string, args []string) {
 		case *off:
 			defer o.exclusive(c.ID)()
 			check("cluster balancer", o.SetBalancer(ctx, c.ID, nil, nil, actor(o)))
-		case *hook != "" || *caFile != "" || *secretFile != "" || *noSecret || *delay >= 0:
+		case *hook != "" || *caFile != "" || *secretFile != "" || *noSecret || *delay >= 0 || *kind != "" || *fingerprint != "" ||
+			*user != "" || len(prefixes) > 0 || *distance >= 0 || *routingTable != "" || *allowHTTP || *checkGateway != "":
 			defer o.exclusive(c.ID)()
 			b := clusters.Balancer{}
 			if c.Balancer != nil {
 				b = *c.Balancer
 			}
+			if *kind != "" {
+				b.Kind = *kind
+			}
 			if *hook != "" {
 				b.URL = *hook
+			}
+			if *fingerprint != "" {
+				b.Fingerprint = *fingerprint
+			}
+			if *user != "" {
+				b.User = *user
+			}
+			if len(prefixes) > 0 {
+				b.Prefixes = prefixes
+			}
+			if *distance >= 0 {
+				b.Distance = *distance
+			}
+			if *routingTable != "" {
+				b.RoutingTable = *routingTable
+			}
+			if *allowHTTP {
+				b.AllowHTTP = true
+			}
+			switch *checkGateway {
+			case "":
+			case "ping", "none":
+				b.CheckGateway = *checkGateway == "ping"
+			default:
+				log.Fatal("janusctl cluster balancer: -check-gateway ping or none")
 			}
 			if *caFile != "" {
 				pemBytes, err := os.ReadFile(*caFile)
@@ -736,9 +795,18 @@ func runClusterCtl(globalCtx string, args []string) {
 			return
 		}
 		st := o.Store.State(c.ID).Balancer
-		fmt.Printf("Hook:         %s\n", c.Balancer.URL)
-		fmt.Printf("Signed:       %s\n", map[bool]string{true: "yes", false: "no"}[c.Balancer.HasSecret])
-		if c.Balancer.CACert != "" {
+		if b := c.Balancer; b.IsRouterOS() {
+			fmt.Printf("Router:       %s, as %s%s\n", b.URL, b.User, map[bool]string{true: "", false: " (no password)"}[b.HasSecret])
+			fmt.Printf("Routes:       to %s - one per member in service, distance %d, table %s, comment %s%s\n", strings.Join(b.Prefixes, ", "),
+				max(b.Distance, 1), cmp.Or(b.RoutingTable, "main"), clusters.RouterOSComment(c.ID), map[bool]string{true: ", check-gateway=ping", false: ""}[b.CheckGateway])
+		} else {
+			fmt.Printf("Hook:         %s\n", b.URL)
+			fmt.Printf("Signed:       %s\n", map[bool]string{true: "yes", false: "no"}[b.HasSecret])
+		}
+		switch {
+		case c.Balancer.Fingerprint != "":
+			fmt.Printf("Trusts:       its certificate, SHA-256 %s\n", c.Balancer.Fingerprint)
+		case c.Balancer.CACert != "":
 			fmt.Println("Trusts:       its own CA")
 		}
 		fmt.Printf("Drain delay:  %ds\n", c.Balancer.DrainDelaySeconds)

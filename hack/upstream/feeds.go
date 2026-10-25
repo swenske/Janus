@@ -208,3 +208,21 @@ func (g githubCommit) versions(ctx context.Context, f fetcher, _ string) ([]stri
 	}
 	return []string{c.SHA}, nil
 }
+
+// routerosFeed is MikroTik's upgrade server's newest RouterOS 7 of a
+// channel ("stable"): it answers "7.25 1792678320", the version and when.
+type routerosFeed struct{ channel string }
+
+func (r routerosFeed) describe() string { return "upgrade.mikrotik.com/routeros/NEWESTa7." + r.channel }
+
+func (r routerosFeed) versions(ctx context.Context, f fetcher, _ string) ([]string, error) {
+	data, err := f.get(ctx, "https://upgrade.mikrotik.com/routeros/NEWESTa7."+r.channel)
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("%s: an empty answer", r.describe())
+	}
+	return fields[:1], nil
+}

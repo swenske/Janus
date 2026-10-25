@@ -3,11 +3,16 @@ package main
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -237,4 +242,438 @@ func TestClusterBalancer(t *testing.T) {
 	if err := a.clusters.Drain(ctx, c.ID, "lb-2", "admin"); err != nil || hook.count() != n {
 		t.Errorf("without a hook: %v, %d calls", err, hook.count()-n)
 	}
+}
+
+// fakeRouterOS is a RouterOS router's REST API for IPv4 routes: the
+// routes it holds, and every call it got with the node calls made by
+// then.
+type fakeRouterOS struct {
+	mu     sync.Mutex
+	routes map[string]map[string]string // .id: the route
+	next   int
+	calls  []string
+	answer int // a status to answer every call with; 0: as RouterOS would
+	f      *clusterFake
+	mark   int
+}
+
+func (r *fakeRouterOS) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	user, pass, ok := req.BasicAuth()
+	if !ok || user != "janus-hook" || pass != "router-pw" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":401,"message":"Unauthorized"}`))
+		return
+	}
+	r.calls = append(r.calls, req.Method+" "+req.URL.Path+" nodes:"+strings.Join(r.f.callsSince(r.mark), ","))
+	if r.answer != 0 {
+		w.WriteHeader(r.answer)
+		_, _ = w.Write([]byte(`{"error":503,"message":"Service Unavailable","detail":"busy"}`))
+		return
+	}
+	switch {
+	case req.Method == "GET" && req.URL.Path == "/rest/ip/route":
+		out := []map[string]string{}
+		for _, rt := range r.routes {
+			if c := req.URL.Query().Get("comment"); c == "" || rt["comment"] == c {
+				out = append(out, rt)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	case req.Method == "PUT" && req.URL.Path == "/rest/ip/route":
+		var rt map[string]string
+		if json.NewDecoder(req.Body).Decode(&rt) != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		r.next++
+		rt[".id"] = fmt.Sprintf("*%X", r.next)
+		r.routes[rt[".id"]] = rt
+		_ = json.NewEncoder(w).Encode(rt)
+	case req.Method == "DELETE" && strings.HasPrefix(req.URL.Path, "/rest/ip/route/"):
+		id := strings.TrimPrefix(req.URL.Path, "/rest/ip/route/")
+		if _, ok := r.routes[id]; !ok {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":404,"message":"Not Found"}`))
+			return
+		}
+		delete(r.routes, id)
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusBadRequest)
+	}
+}
+
+// gateways are the gateways of the routes to dst with comment, sorted.
+func (r *fakeRouterOS) gateways(dst, comment string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, rt := range r.routes {
+		if rt["dst-address"] == dst && rt["comment"] == comment {
+			out = append(out, rt["gateway"])
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+func (r *fakeRouterOS) since(n int) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.calls[n:])
+}
+
+func (r *fakeRouterOS) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.calls)
+}
+
+// A RouterOS router as the balancer: a route to the service prefix per
+// member in service, kept by the engine - removed before a drain, put
+// back after an undrain and when changed on the router; another route
+// never touched.
+func TestClusterBalancerRouterOS(t *testing.T) {
+	a, f, nodes := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	c := newCluster(t, a, nodes, "lb-1", "lb-2", "lb-3")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	prevRetries := clusters.BalancerRetries
+	clusters.BalancerRetries = []time.Duration{time.Millisecond, time.Millisecond}
+	t.Cleanup(func() { clusters.BalancerRetries = prevRetries })
+	router := &fakeRouterOS{f: f, routes: map[string]map[string]string{
+		"*99": {".id": "*99", "dst-address": "0.0.0.0/0", "gateway": "192.0.2.1", "distance": "1", "routing-table": "main", "comment": "uplink"},
+	}}
+	srv := httptest.NewTLSServer(router)
+	t.Cleanup(srv.Close)
+	sum := sha256.Sum256(srv.Certificate().Raw)
+	fp := strings.ToUpper(hex.EncodeToString(sum[:]))
+	comment := clusters.RouterOSComment(c.ID)
+	put := func(body map[string]any) *httpResult {
+		rec := call(t, a.handleClusterBalancer, "PUT", "/api/clusters/"+c.ID+"/balancer", "PUT /api/clusters/{id}/balancer", body)
+		return &httpResult{rec.Code, rec.Body.String()}
+	}
+	ros := func(extra map[string]any) map[string]any {
+		b := map[string]any{"kind": "routeros", "url": srv.URL, "fingerprint": fp, "user": "janus-hook", "prefixes": []string{"203.0.113.10/32"}}
+		for k, v := range extra {
+			b[k] = v
+		}
+		return b
+	}
+
+	// Refused as it stands.
+	for _, tc := range []struct {
+		body map[string]any
+		want string
+	}{
+		{ros(map[string]any{"url": strings.Replace(srv.URL, "https", "http", 1), "fingerprint": ""}), "over https"},
+		{ros(map[string]any{"prefixes": []string{"203.0.113.10/24"}}), "no host bits"},
+		{ros(map[string]any{"user": ""}), "balancer user"},
+		{ros(map[string]any{"kind": "bgp"}), "webhook or routeros"},
+		{map[string]any{"url": "https://hook.example.net", "prefixes": []string{"203.0.113.10/32"}}, "for a routeros balancer"},
+		{ros(nil), "the router user's password"},
+	} {
+		if r := put(tc.body); r.code == http.StatusOK || !strings.Contains(r.body, tc.want) {
+			t.Errorf("%v: %d %s", tc.body, r.code, r.body)
+		}
+	}
+
+	// Set: a route per member, nothing else touched.
+	if r := put(ros(map[string]any{"secret": "router-pw"})); r.code != http.StatusOK || strings.Contains(r.body, "router-pw") || !strings.Contains(r.body, `"has_secret":true`) {
+		t.Fatalf("set: %d %s", r.code, r.body)
+	}
+	if got := router.gateways("203.0.113.10/32", comment); !slices.Equal(got, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}) {
+		t.Fatalf("the routes: %v", got)
+	}
+	if !journalSays(t, a, c.ID, "the router was told the members (routes: 3 added, 0 removed)") {
+		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 5))
+	}
+
+	// Drain: lb-1's route gone before the drain; undrain: back after.
+	n, mark := router.count(), f.mark()
+	router.mu.Lock()
+	router.mark = mark
+	router.mu.Unlock()
+	if err := a.clusters.Drain(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := router.gateways("203.0.113.10/32", comment); !slices.Equal(got, []string{"10.0.0.2", "10.0.0.3"}) {
+		t.Errorf("after lb-1's drain: %v", got)
+	}
+	calls := router.since(n)
+	del := slices.IndexFunc(calls, func(s string) bool { return strings.HasPrefix(s, "DELETE ") })
+	if del < 0 || strings.Contains(calls[del], "lb-1 ClusterDrain") || !slices.Contains(f.callsOf("lb-1", mark), "ClusterDrain") {
+		t.Errorf("lb-1's route removed before its drain: %v", calls)
+	}
+	if err := a.clusters.Undrain(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := router.gateways("203.0.113.10/32", comment); !slices.Equal(got, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}) {
+		t.Errorf("after lb-1's undrain: %v", got)
+	}
+
+	// Changed on the router: a route deleted, another's distance changed -
+	// the next check puts them back, the foreign route untouched.
+	router.mu.Lock()
+	for id, rt := range router.routes {
+		switch rt["gateway"] {
+		case "10.0.0.2":
+			delete(router.routes, id)
+		case "10.0.0.3":
+			rt["distance"] = "5"
+		}
+	}
+	router.mu.Unlock()
+	cur, _ := a.clusters.Store.Get(c.ID)
+	a.clusters.Reconcile(ctx, cur)
+	if got := router.gateways("203.0.113.10/32", comment); !slices.Equal(got, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}) {
+		t.Errorf("after the check: %v", got)
+	}
+	if !journalSays(t, a, c.ID, "the router's routes put back (2 added, 1 removed)") {
+		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 5))
+	}
+	n = router.count()
+	cur, _ = a.clusters.Store.Get(c.ID)
+	a.clusters.Reconcile(ctx, cur)
+	if calls := router.since(n); len(calls) != 1 || !strings.HasPrefix(calls[0], "GET ") {
+		t.Errorf("a check with nothing changed: %v", calls)
+	}
+	if got := router.gateways("0.0.0.0/0", "uplink"); !slices.Equal(got, []string{"192.0.2.1"}) {
+		t.Errorf("the foreign route: %v", got)
+	}
+
+	// check_gateway: the routes made again with check-gateway=ping.
+	if r := put(ros(map[string]any{"check_gateway": true})); r.code != http.StatusOK || strings.Contains(r.body, "wasn't told") {
+		t.Fatalf("check_gateway: %d %s", r.code, r.body)
+	}
+	router.mu.Lock()
+	pinged := 0
+	for _, rt := range router.routes {
+		if rt["comment"] == comment && rt["check-gateway"] == "ping" {
+			pinged++
+		}
+	}
+	router.mu.Unlock()
+	if pinged != 3 || !journalSays(t, a, c.ID, "(routes: 3 added, 3 removed)") {
+		t.Errorf("check_gateway: %d routes pinging", pinged)
+	}
+
+	// The router busy: retried, then the drain refused, lb-1 serving on.
+	router.mu.Lock()
+	router.answer = http.StatusServiceUnavailable
+	router.mu.Unlock()
+	n, mark = router.count(), f.mark()
+	err := a.clusters.Drain(ctx, c.ID, "lb-1", "admin")
+	if err == nil || !strings.Contains(err.Error(), "the router wasn't told lb-1 going out of service") || !strings.Contains(err.Error(), "fix the router's access") {
+		t.Errorf("a router answering 503: %v", err)
+	}
+	if router.count()-n != 3 || slices.Contains(f.callsOf("lb-1", mark), "ClusterDrain") {
+		t.Errorf("tried %d times, lb-1's calls %v", router.count()-n, f.callsOf("lb-1", mark))
+	}
+	router.mu.Lock()
+	router.answer = 0
+	router.mu.Unlock()
+
+	// A wrong password: once, no retry; a wrong certificate: refused.
+	if r := put(ros(map[string]any{"secret": "wrong"})); r.code != http.StatusOK || !strings.Contains(r.body, "401") {
+		t.Errorf("a wrong password: %d %s", r.code, r.body)
+	}
+	if r := put(ros(map[string]any{"secret": "router-pw", "fingerprint": strings.Repeat("ab", 32)})); r.code != http.StatusOK || !strings.Contains(r.body, "not the one pinned") {
+		t.Errorf("a wrong fingerprint: %d %s", r.code, r.body)
+	}
+	// Back to a webhook: the router's password isn't kept as its secret.
+	if r := put(map[string]any{"url": "https://hook.example.net/janus"}); r.code != http.StatusOK || strings.Contains(r.body, `"has_secret":true`) {
+		t.Errorf("a webhook again: %d %s", r.code, r.body)
+	}
+}
+
+// TestRouterOSLive keeps a real RouterOS router's routes - run by
+// hack/routeros-hook-test.sh against a CHR under QEMU, skipped
+// otherwise: JANUS_ROUTEROS_URL (https), _FINGERPRINT, _USER, _PASSWORD
+// for the engine; JANUS_ROUTEROS_CHECK_URL, an administrator's REST
+// over HTTP, to read what the router holds; _GATEWAY_NET, the first
+// three octets of a network the router is on, for the members' routes.
+func TestRouterOSLive(t *testing.T) {
+	u := os.Getenv("JANUS_ROUTEROS_URL")
+	if u == "" {
+		t.Skip("no RouterOS router (hack/routeros-hook-test.sh)")
+	}
+	check, gwNet := os.Getenv("JANUS_ROUTEROS_CHECK_URL"), os.Getenv("JANUS_ROUTEROS_GATEWAY_NET")
+	a, _, nodes := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	c := newCluster(t, a, nodes, "lb-1", "lb-2", "lb-3")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	// The members' routes go to addresses on the router's network: the
+	// balancer_gateway variable.
+	c, _ = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
+		for i := range c.Members {
+			c.Members[i].Vars = map[string]string{"balancer_gateway": fmt.Sprintf("%s.%d", gwNet, 21+i)}
+		}
+		return nil
+	})
+	comment := clusters.RouterOSComment(c.ID)
+	type route struct {
+		ID, Dst, Gateway, Distance, Comment, Active, ECMP string
+	}
+	routes := func() []route {
+		t.Helper()
+		resp, err := http.Get(check + "/rest/ip/route")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var raw []map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var out []route
+		for _, r := range raw {
+			out = append(out, route{r[".id"], r["dst-address"], r["gateway"], r["distance"], r["comment"], r["active"], r["ecmp"]})
+		}
+		return out
+	}
+	// ours are the gateways of the cluster's routes - each active, and
+	// in ECMP with the others when there are several.
+	ours := func() []string {
+		t.Helper()
+		var mine []route
+		for _, r := range routes() {
+			if r.Comment == comment {
+				mine = append(mine, r)
+			}
+		}
+		var out []string
+		for _, r := range mine {
+			if r.Dst != "203.0.113.10/32" || r.Distance != "1" || r.Active != "true" || (len(mine) > 1 && r.ECMP != "true") {
+				t.Errorf("a route: %+v", r)
+			}
+			out = append(out, r.Gateway)
+		}
+		slices.Sort(out)
+		return out
+	}
+	gw := func(i ...int) []string {
+		var out []string
+		for _, n := range i {
+			out = append(out, fmt.Sprintf("%s.%d", gwNet, 20+n))
+		}
+		return out
+	}
+	foreign := func() int {
+		n := 0
+		for _, r := range routes() {
+			if r.Comment == "foreign" {
+				n++
+			}
+		}
+		return n
+	}
+	put := func(body map[string]any) *httpResult {
+		rec := call(t, a.handleClusterBalancer, "PUT", "/api/clusters/"+c.ID+"/balancer", "PUT /api/clusters/{id}/balancer", body)
+		return &httpResult{rec.Code, rec.Body.String()}
+	}
+	body := func(fp string) map[string]any {
+		return map[string]any{"kind": "routeros", "url": u, "fingerprint": fp, "user": os.Getenv("JANUS_ROUTEROS_USER"),
+			"secret": os.Getenv("JANUS_ROUTEROS_PASSWORD"), "prefixes": []string{"203.0.113.10/32"}}
+	}
+	before := foreign()
+
+	// A wrong certificate: nothing written.
+	if r := put(body(strings.Repeat("0", 64))); r.code != http.StatusOK || !strings.Contains(r.body, "not the one pinned") || len(ours()) != 0 {
+		t.Fatalf("a wrong fingerprint: %d %s", r.code, r.body)
+	}
+	// Set: a route per member, active - the router spreads over them.
+	if r := put(body(os.Getenv("JANUS_ROUTEROS_FINGERPRINT"))); r.code != http.StatusOK || strings.Contains(r.body, "wasn't told") {
+		t.Fatalf("set: %d %s", r.code, r.body)
+	}
+	if got := ours(); !slices.Equal(got, gw(1, 2, 3)) {
+		t.Fatalf("the routes: %v", got)
+	}
+	t.Logf("set: three routes to 203.0.113.10/32, active, in ECMP")
+
+	// Drain: lb-1's route goes first; undrain: back.
+	if err := a.clusters.Drain(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ours(); !slices.Equal(got, gw(2, 3)) {
+		t.Errorf("lb-1 drained: %v", got)
+	}
+	entries := a.clusters.Store.Entries(c.ID, 20)
+	told := slices.IndexFunc(entries, func(e clusters.Entry) bool {
+		return strings.HasPrefix(e.Message, "the router was told lb-1 going out of service (routes: 0 added, 1 removed)")
+	})
+	drained := slices.IndexFunc(entries, func(e clusters.Entry) bool { return strings.HasPrefix(e.Message, "lb-1 drained") })
+	if told < 0 || drained < 0 || told < drained {
+		t.Errorf("the router told before the drain (journal newest first: told %d, drained %d)", told, drained)
+	}
+	if err := a.clusters.Undrain(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ours(); !slices.Equal(got, gw(1, 2, 3)) {
+		t.Errorf("lb-1 undrained: %v", got)
+	}
+	t.Logf("drain: lb-1's route removed before the drain; undrain: back")
+
+	// lb-2's route removed on the router by hand: the check puts it back.
+	for _, r := range routes() {
+		if r.Comment == comment && r.Gateway == gw(2)[0] {
+			req, _ := http.NewRequest(http.MethodDelete, check+"/rest/ip/route/"+r.ID, nil)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+		}
+	}
+	if got := ours(); !slices.Equal(got, gw(1, 3)) {
+		t.Fatalf("lb-2's route deleted by hand: %v", got)
+	}
+	cur, _ := a.clusters.Store.Get(c.ID)
+	a.clusters.Reconcile(ctx, cur)
+	if got := ours(); !slices.Equal(got, gw(1, 2, 3)) || !journalSays(t, a, c.ID, "the router's routes put back (1 added, 0 removed)") {
+		t.Errorf("after the check: %v", got)
+	}
+	t.Logf("a route deleted on the router: put back by the check")
+
+	// lb-3 removed from the cluster: its route goes.
+	if err := a.clusters.RemoveMember(ctx, c.ID, "lb-3", false, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ours(); !slices.Equal(got, gw(1, 2)) {
+		t.Errorf("lb-3 removed: %v", got)
+	}
+	if foreign() != before || before == 0 {
+		t.Errorf("the foreign routes: %d, were %d", foreign(), before)
+	}
+	t.Logf("lb-3 removed: its route gone; the router's other routes untouched")
+
+	// check_gateway: the routes made again with check-gateway=ping.
+	b := body(os.Getenv("JANUS_ROUTEROS_FINGERPRINT"))
+	b["check_gateway"] = true
+	delete(b, "secret")
+	if r := put(b); r.code != http.StatusOK || strings.Contains(r.body, "wasn't told") {
+		t.Fatalf("check_gateway: %d %s", r.code, r.body)
+	}
+	resp, err := http.Get(check + "/rest/ip/route?comment=" + url.QueryEscape(comment))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&raw)
+	_ = resp.Body.Close()
+	for _, r := range raw {
+		if r["check-gateway"] != "ping" {
+			t.Errorf("a route without check-gateway=ping: %v", r)
+		}
+	}
+	if len(raw) != 2 {
+		t.Errorf("check_gateway: %d routes", len(raw))
+	}
+	t.Logf("check_gateway: the routes made again with check-gateway=ping")
 }
