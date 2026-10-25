@@ -718,10 +718,11 @@ What was built (P6a): the engine is `internal/clusters/scale.go`
 the same vocabulary. Projection is to the member count judged (observe:
 simulated), a step in judged at one fewer. `desired_members` is
 `POST /api/clusters/{id}/scale {members}`; a member more is a new
-machine like the newest member's, placed. The Controller has no
-Prometheus endpoint yet: the members' aggregate load is in
-`GET /api/clusters/{id}` (`load`), `janus_cluster_load_*` comes with
-that endpoint. A new policy starts over (no simulated count or step of
+machine like the newest member's, placed. The members' aggregate load
+is read for every cluster, auto-scaled or not: in `GET
+/api/clusters/{id}` (`load`) and as `janus_cluster_load_*` on the
+Controller's Prometheus endpoint, `GET /api/metrics`
+([metrics.md](metrics.md#the-controllers-metrics)). A new policy starts over (no simulated count or step of
 the old).
 
 ### The balancer hook

@@ -207,6 +207,13 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 			t.Errorf("GET %s as a reader: %d", path, code)
 		}
 	}
+	// The Controller's Prometheus endpoint: a reader's, a token's.
+	if code, _ := a.req(t, "GET", "/api/metrics", "", nil); code != http.StatusUnauthorized {
+		t.Errorf("GET /api/metrics with nothing: %d", code)
+	}
+	if code, body := a.req(t, "GET", "/api/metrics", rita, nil); code != http.StatusOK || !strings.Contains(body, "janus_controller_build_info") {
+		t.Errorf("GET /api/metrics as a reader: %d %s", code, body)
+	}
 }
 
 // TestAuthStatus: who the page is signed in as.

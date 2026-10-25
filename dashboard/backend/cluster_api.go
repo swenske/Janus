@@ -26,6 +26,7 @@ import (
 
 func (a *app) registerClusterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/clusters", a.gate(auth.Reader, auth.Admin, a.handleClusters))
+	mux.HandleFunc("GET /api/metrics", a.gate(auth.Reader, auth.Admin, a.handleMetrics))
 	mux.HandleFunc("POST /api/clusters", a.gate(auth.Reader, auth.Admin, a.handleClusterCreate))
 	mux.HandleFunc("GET /api/clusters/{id}", a.gate(auth.Reader, auth.Admin, a.handleCluster))
 	mux.HandleFunc("PATCH /api/clusters/{id}", a.gate(auth.Reader, auth.Admin, a.handleClusterPatch))
@@ -123,8 +124,9 @@ func (a *app) clusterView(c *clusters.Cluster) clusterView {
 		TicketsRotated: st.TicketsRotated, TicketsRenew: st.TicketsRenew, Placement: c.Placement, Members: []clusterMemberView{}, Problems: []string{},
 		Autoscale: c.Autoscale}
 	if c.Autoscale != nil && c.Autoscale.Mode != clusters.ScaleOff {
-		v.ScaleStatus, v.ScaleJudged, v.Load = st.ScaleStatus, st.Scale.Members, a.clusterScaler.load(c.ID)
+		v.ScaleStatus, v.ScaleJudged = st.ScaleStatus, st.Scale.Members
 	}
+	v.Load = a.clusterScaler.load(c.ID)
 	if caPEM, err := a.clusters.Store.CACertPEM(c.ID); err == nil {
 		if fp, err := pemFingerprint(caPEM); err == nil {
 			v.CAFingerprint = fp
