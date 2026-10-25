@@ -398,20 +398,36 @@ function ClusterPage({ id, nodes }) {
   }
   const act = (path, success, method = 'POST') => run(() => postJSON(`/api/clusters/${id}${path}`, {}, method).then(() => load(false)), success)
   const remove = async () => {
+    const vms = cluster.members.filter((m) => m.machine_id)
+    const choice = { destroy: false }
     if (
       !(await confirm({
         title: `Delete cluster ${cluster.name}?`,
-        body: <p>Every member leaves it: its peers section names it alone again, its locks go, its member certificate and the cluster’s CA are deleted. The members keep the configuration they run.</p>,
+        body: (
+          <>
+            <p>Every member leaves it: its peers section names it alone again, its locks go, its member certificate and the cluster’s CA are deleted. The members keep the configuration they run.</p>
+            {vms.length > 0 && (
+              <label className="check">
+                <input type="checkbox" onChange={(e) => (choice.destroy = e.target.checked)} /> Delete the members’ virtual machines too ({vms.map((m) => m.name).join(', ')}) - destroyed once
+                they left, their disks with them
+                {vms.length < cluster.members.length ? '; the other members aren’t this Controller’s machines and stay' : ''}
+              </label>
+            )}
+          </>
+        ),
         action: 'Delete',
         danger: true,
         typeToConfirm: cluster.name,
       }))
     )
       return
-    run(async () => {
-      await call(`/api/clusters/${id}`, { method: 'DELETE' })
-      navigate('/clusters')
-    }, `Cluster ${cluster.name} is being deleted.`)
+    run(
+      async () => {
+        await call(`/api/clusters/${id}${choice.destroy ? '?machines=destroy' : ''}`, { method: 'DELETE' })
+        navigate('/clusters')
+      },
+      choice.destroy ? `Cluster ${cluster.name} is being deleted, its members’ virtual machines destroyed.` : `Cluster ${cluster.name} is being deleted.`,
+    )
   }
   return (
     <div className="stack">

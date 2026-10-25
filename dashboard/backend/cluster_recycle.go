@@ -149,7 +149,7 @@ func (a *app) awaitMachine(ctx context.Context, id string) (*store.Node, error) 
 // API's deletion does.
 func (a *app) destroyMachine(id string) {
 	a.runner.stop(id)
-	if err := a.runner.phase(id, machines.PhaseDestroying, "destroying: recycled out of its cluster"); err != nil {
+	if err := a.runner.phase(id, machines.PhaseDestroying, "destroying: out of its cluster"); err != nil {
 		return
 	}
 	a.runner.start(id, func(ctx context.Context) error { return a.runner.destroy(ctx, id) })
