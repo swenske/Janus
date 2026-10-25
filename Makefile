@@ -51,7 +51,7 @@ GEN_DIR := gen
 	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
-	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test local-dev-image ca-certificates seed-controller-test \
+	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test routeros-hook-test local-dev-image ca-certificates seed-controller-test \
 	nocloud-seed-test kvm-image vmware-image iso-image qemu-iso-boot-test \
 	qemu-iso-install-test iso-image-with-bundle qemu-pxe-fetch-test \
 	rpi4-kernel-build rpi4-init rpi4-initramfs qemu-raspi4-boot-test \
@@ -1040,6 +1040,22 @@ $(TOFU_BIN):
 	tar -xzf $(BUILD_DIR)/tools/tofu.tar.gz -C $(BUILD_DIR)/tools tofu
 	mv $(BUILD_DIR)/tools/tofu $@
 	rm $(BUILD_DIR)/tools/tofu.tar.gz
+
+# MikroTik's Cloud Hosted Router, for routeros-hook-test (versions.mk).
+CHR_IMG := $(BUILD_DIR)/tools/chr-$(ROUTEROS_CHR_VERSION).img
+$(CHR_IMG):
+	mkdir -p $(BUILD_DIR)/tools
+	curl -fsSL -o $(BUILD_DIR)/tools/chr.img.zip https://download.mikrotik.com/routeros/$(ROUTEROS_CHR_VERSION)/chr-$(ROUTEROS_CHR_VERSION).img.zip
+	echo "$(ROUTEROS_CHR_SHA256)  $(BUILD_DIR)/tools/chr.img.zip" | sha256sum -c -
+	unzip -o -q -d $(BUILD_DIR)/tools $(BUILD_DIR)/tools/chr.img.zip chr-$(ROUTEROS_CHR_VERSION).img
+	rm $(BUILD_DIR)/tools/chr.img.zip
+
+# A cluster's RouterOS balancer (docs/guide/clusters.md "RouterOS") on a
+# real RouterOS: the CHR under QEMU, a user and a self-signed certificate
+# of its own, then the engine keeping its ECMP routes - see
+# hack/routeros-hook-test.sh.
+routeros-hook-test: $(CHR_IMG)
+	./hack/routeros-hook-test.sh $(CHR_IMG)
 
 # The provider driven by OpenTofu against a real Controller and libvirt
 # host (the same container as controller-libvirt-test): hypervisor,

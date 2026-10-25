@@ -379,6 +379,24 @@ resource "janus_cluster" "edge" {
   (sensitive, never read back: a change of it in the configuration is
   sent, one made elsewhere shows as a change). Saved even when the hook
   doesn't answer then - a warning says so; removed, the hook goes.
+  `fingerprint` pins its HTTPS certificate. `kind = "routeros"` makes it
+  a [RouterOS router](guide/clusters.md#routeros) whose ECMP routes the
+  Controller keeps: `url` the router's, `router_user` and its password
+  as `secret`, `prefixes` (the service addresses the members carry),
+  `distance`, `routing_table`, `check_gateway`, `allow_http` (a lab's):
+
+  ```hcl
+  balancer = {
+    kind          = "routeros"
+    url           = "https://router.example.net"
+    fingerprint   = "6e1bb523ccffec53a77d5a8a7f6b25d1624873aea90d39da0eebfd6caa42700b"
+    router_user   = "janus-hook"
+    secret        = var.router_password
+    prefixes      = ["203.0.113.10/32"]
+    check_gateway = true
+  }
+  ```
+
 - **`name`, `hypervisors`, `anti_affinity` and `machine`** make a new
   cluster. To move one to a new release member by member, recycle its
   members from the Controller instead.

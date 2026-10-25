@@ -609,8 +609,9 @@ function Members({ cluster, nodes, act, busy, reload }) {
 }
 
 // Balancer: the hook telling a balancer in front which members take the
-// traffic - before one is drained or removed, once one is in service
-// (docs/guide/clusters.md "A balancer in front").
+// traffic - before one is drained or removed, once one is in service -,
+// or a RouterOS router whose ECMP routes the Controller keeps itself
+// (docs/guide/clusters.md "A balancer in front", "RouterOS").
 function Balancer({ cluster, disabled, reload }) {
   const can = useCan()
   const toast = useToast()
@@ -618,9 +619,24 @@ function Balancer({ cluster, disabled, reload }) {
   const [busy, run] = useAction()
   const b = cluster.balancer
   const st = cluster.balancer_state || {}
+  const ros = b?.kind === 'routeros'
   const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({ url: b?.url || '', delay: b?.drain_delay_seconds || 0, secret: '', ca: b?.ca_cert || '' })
+  const [form, setForm] = useState({
+    kind: b?.kind || 'webhook',
+    url: b?.url || '',
+    delay: b?.drain_delay_seconds || 0,
+    secret: '',
+    ca: b?.ca_cert || '',
+    fingerprint: b?.fingerprint || '',
+    user: b?.user || '',
+    prefixes: (b?.prefixes || []).join(', '),
+    distance: b?.distance || 1,
+    table: b?.routing_table || 'main',
+    check: !!b?.check_gateway,
+  })
   const [error, setError] = useState(null)
+  const formROS = form.kind === 'routeros'
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
   const send = (fn, done) =>
     run(async () => {
       setError(null)
@@ -634,30 +650,66 @@ function Balancer({ cluster, disabled, reload }) {
       }
     })
   const save = () =>
-    send(() => {
-      const body = { url: form.url.trim(), drain_delay_seconds: Number(form.delay) || 0, ca_cert: form.ca.trim() }
-      if (form.secret !== '') body.secret = form.secret
-      return postJSON(`/api/clusters/${cluster.id}/balancer`, body, 'PUT')
-    }, 'Balancer hook saved, and called with the members.')
-  const sync = () => send(() => postJSON(`/api/clusters/${cluster.id}/balancer/sync`), 'The balancer was told the members.')
+    send(
+      () => {
+        const body = { kind: form.kind, url: form.url.trim(), drain_delay_seconds: Number(form.delay) || 0, ca_cert: form.ca.trim(), fingerprint: form.fingerprint.trim() }
+        if (formROS) {
+          Object.assign(body, {
+            user: form.user.trim(),
+            prefixes: form.prefixes.split(/[\s,]+/).filter(Boolean),
+            distance: Number(form.distance) || 0,
+            routing_table: form.table.trim() === 'main' ? '' : form.table.trim(),
+            check_gateway: form.check,
+          })
+        }
+        if (form.secret !== '') body.secret = form.secret
+        return postJSON(`/api/clusters/${cluster.id}/balancer`, body, 'PUT')
+      },
+      formROS ? 'RouterOS settings saved, and its routes made to match the members.' : 'Balancer hook saved, and called with the members.',
+    )
+  const sync = () => send(() => postJSON(`/api/clusters/${cluster.id}/balancer/sync`), ros ? 'The router’s routes match the members.' : 'The balancer was told the members.')
   const remove = async () => {
-    if (await confirm({ title: 'Remove the balancer hook?', body: <p>The balancer in front is no longer told which members take the traffic.</p>, action: 'Remove', danger: true })) {
-      send(() => postJSON(`/api/clusters/${cluster.id}/balancer`, undefined, 'DELETE'), 'Balancer hook removed.')
+    const body = ros ? (
+      <p>
+        The router&apos;s routes are no longer kept. Those it has stay - remove them on the router (comment <span className="mono">janus-cluster:{cluster.id}</span>).
+      </p>
+    ) : (
+      <p>The balancer in front is no longer told which members take the traffic.</p>
+    )
+    if (await confirm({ title: ros ? 'Stop keeping the router’s routes?' : 'Remove the balancer hook?', body, action: 'Remove', danger: true })) {
+      send(() => postJSON(`/api/clusters/${cluster.id}/balancer`, undefined, 'DELETE'), ros ? 'The router is no longer kept.' : 'Balancer hook removed.')
     }
   }
+  const trust = b?.fingerprint ? 'its certificate pinned' : b?.ca_cert ? 'its own CA trusted' : 'the system’s CAs trusted'
   if (!b && !can('admin')) return null
   return (
     <Card title="Balancer in front" icon={Split}>
       <div className="stack">
         {b ? (
           <dl className="kv small">
-            <dt>Hook</dt>
+            <dt>{ros ? 'Router' : 'Hook'}</dt>
             <dd className="mono">{b.url}</dd>
-            <dt>Calls</dt>
-            <dd>
-              {b.has_secret ? 'signed' : 'not signed'}
-              {b.ca_cert ? ', its own CA trusted' : ''}, the drain {b.drain_delay_seconds ? `${b.drain_delay_seconds} s after it is told` : 'once it answers'}
-            </dd>
+            {ros ? (
+              <>
+                <dt>Routes</dt>
+                <dd>
+                  to <span className="mono">{(b.prefixes || []).join(', ')}</span>, one per member in service (ECMP) - distance {b.distance || 1}, table {b.routing_table || 'main'}
+                  {b.check_gateway ? ', each member pinged by the router' : ''}
+                </dd>
+                <dt>Signs in</dt>
+                <dd>
+                  as <span className="mono">{b.user}</span>
+                  {b.has_secret ? '' : ', no password'}, {trust}; the drain {b.drain_delay_seconds ? `${b.drain_delay_seconds} s after its route goes` : 'once its route is gone'}
+                </dd>
+              </>
+            ) : (
+              <>
+                <dt>Calls</dt>
+                <dd>
+                  {b.has_secret ? 'signed' : 'not signed'}, {trust}, the drain {b.drain_delay_seconds ? `${b.drain_delay_seconds} s after it is told` : 'once it answers'}
+                </dd>
+              </>
+            )}
             <dt>Last told</dt>
             <dd>
               {when(st.sent_at)}
@@ -672,29 +724,72 @@ function Balancer({ cluster, disabled, reload }) {
         ) : (
           <p className="small muted">
             A cloud load balancer, a router&apos;s ECMP routes - something in front that sends to the members: a hook tells it which ones take the traffic, before one is drained
-            or removed and once one is in service.
+            or removed and once one is in service. Or a RouterOS router, its routes kept by the Controller itself.
           </p>
         )}
         {can('admin') &&
           (editing ? (
             <>
               <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <label className="field">
+                  <span>Kind</span>
+                  <select value={form.kind} onChange={set('kind')}>
+                    <option value="webhook">Webhook</option>
+                    <option value="routeros">RouterOS - ECMP routes</option>
+                  </select>
+                </label>
                 <label className="field" style={{ flex: '1 1 20rem' }}>
-                  <span>Hook URL</span>
-                  <input type="url" className="mono" value={form.url} placeholder="https://lb-api.example.net/janus" onChange={(e) => setForm({ ...form, url: e.target.value })} />
+                  <span>{formROS ? 'Router' : 'Hook URL'}</span>
+                  <input
+                    type="url"
+                    className="mono"
+                    value={form.url}
+                    placeholder={formROS ? 'https://router.example.net' : 'https://lb-api.example.net/janus'}
+                    onChange={set('url')}
+                  />
                 </label>
                 <label className="field">
                   <span>Drain delay (s)</span>
-                  <input type="number" min="0" max="3600" value={form.delay} onChange={(e) => setForm({ ...form, delay: e.target.value })} />
+                  <input type="number" min="0" max="3600" value={form.delay} onChange={set('delay')} />
                 </label>
+              </div>
+              {formROS && (
+                <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <label className="field">
+                    <span>User</span>
+                    <input value={form.user} autoComplete="off" placeholder="janus-hook" onChange={set('user')} />
+                  </label>
+                  <label className="field" style={{ flex: '1 1 14rem' }}>
+                    <span>Service prefixes</span>
+                    <input className="mono" value={form.prefixes} placeholder="203.0.113.10/32" onChange={set('prefixes')} />
+                  </label>
+                  <label className="field">
+                    <span>Distance</span>
+                    <input type="number" min="1" max="255" value={form.distance} onChange={set('distance')} />
+                  </label>
+                  <label className="field">
+                    <span>Routing table</span>
+                    <input value={form.table} onChange={set('table')} />
+                  </label>
+                  <label className="row small">
+                    <input type="checkbox" checked={form.check} onChange={(e) => setForm({ ...form, check: e.target.checked })} />
+                    The router pings each member (check-gateway=ping)
+                  </label>
+                </div>
+              )}
+              <div className="row" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <label className="field">
-                  <span>Secret</span>
-                  <input type="password" autoComplete="new-password" value={form.secret} placeholder={b?.has_secret ? 'unchanged' : 'none'} onChange={(e) => setForm({ ...form, secret: e.target.value })} />
+                  <span>{formROS ? 'Password' : 'Secret'}</span>
+                  <input type="password" autoComplete="new-password" value={form.secret} placeholder={b?.has_secret && b?.kind === form.kind ? 'unchanged' : 'none'} onChange={set('secret')} />
+                </label>
+                <label className="field" style={{ flex: '1 1 24rem' }}>
+                  <span>Its certificate&apos;s SHA-256 (optional - pins it)</span>
+                  <input className="mono" value={form.fingerprint} onChange={set('fingerprint')} />
                 </label>
               </div>
               <label className="field">
                 <span>Its CA (PEM, optional - else the system&apos;s)</span>
-                <textarea className="mono small" rows={3} value={form.ca} onChange={(e) => setForm({ ...form, ca: e.target.value })} />
+                <textarea className="mono small" rows={3} value={form.ca} onChange={set('ca')} />
               </label>
               <div className="row">
                 <button className="primary" disabled={disabled || busy || !form.url.trim()} onClick={save}>

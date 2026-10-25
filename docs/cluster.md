@@ -743,6 +743,17 @@ the last one delivered or that call failed. Signed with HMAC-SHA256
 state, which the engine now records itself as it drains and undrains,
 and Reconcile reads from the nodes.
 
+A balancer of kind `routeros` (`internal/clusters/routeros.go`,
+[RouterOS](guide/clusters.md#routeros)) is a RouterOS 7 router the
+engine keeps itself, over its REST API with a user of its own (the
+secret is its password): each announce makes its routes - a static
+route per member in service and service prefix, the same distance,
+tagged `janus-cluster:<id>` - match the list, removals first; an `out`
+removes the member's route before its drain. Reconcile reads them
+every time (not only when the list changed) and puts back a change made
+on the router. Routes without the tag are never touched; removing the
+balancer or the cluster leaves them in place.
+
 ### Guard rails
 
 - `max_members`, and a ceiling on the cluster's total vCPUs and memory;
@@ -1011,6 +1022,7 @@ In phases, each proven on real boots before the next:
 | **P5 - creation on hypervisors** | `HostID`, anti-affinity (`required`/`preferred`/`off`), clusters made of new machines (`POST /api/clusters` with `machines`), observed placement, recycles placed | `controller-libvirt-test` part (two records on one libvirtd: required refused, preferred made and said), unit tests; Proxmox `TestLive` for its node identity, with a live PVE |
 | **P6 - horizontal auto-scaling** | P6a: `POST .../scale`, the engine (observe/on/off) with its policy and pause; P6b: `janus_cluster` in Terraform (made of new machines, `members` and `autoscaling` in place, destroyed with its machines) | P6a: unit tests, `controller-libvirt-test` part (scaled 2 → 3 → 2, observing reads the real load); P6b: `terraform-provider-test` part 8b (made, scaled 2 → 3 → 2, auto-scaling set, destroyed); lab campaign on BGP |
 | **P6c - the balancer hook** | `Balancer` in the shared engine: `in` once a member serves, `out` before one stops (waited for, its drain delay too), `sync` from Reconcile; the Controller's page and API, `janusctl cluster balancer`, Terraform's `balancer` block | Unit tests (order, signature, retries, refusals, Reconcile); `qemu-controller-cluster-test` (a drain told first, signed, then the removal); `terraform-provider-test` part 8b (set, scaled 2 → 3 → 2 with the hook told in order) |
+| **P6d - RouterOS** | The balancer's `routeros` kind: the engine keeps a RouterOS 7 router's ECMP routes over its REST API (a route per member in service and service prefix, tagged `janus-cluster:<id>`), a member's route removed before its drain, put back by Reconcile; check-gateway, a pinned certificate | Unit tests against a fake router; `make routeros-hook-test` (MikroTik CHR under QEMU, pinned in versions.mk) |
 
 P1 comes early because its need is concrete and its transport is P0's.
 

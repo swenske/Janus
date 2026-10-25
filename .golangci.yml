@@ -13,6 +13,10 @@ linters:
     - misspell    # comment/string typos
     - gosec       # security: weak crypto, TLS settings, Slowloris, secrets in logs...
   settings:
+    misspell:
+      # MikroTik's RouterOS, the balancer kind - not "routers".
+      ignore-rules:
+        - routeros
     gosec:
       excludes:
         # What this code is about, each call site bounded by its own

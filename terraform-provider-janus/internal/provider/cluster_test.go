@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -73,32 +74,62 @@ func TestClusterSpec(t *testing.T) {
 }
 
 // The hook as read back: the secret kept (never read), what the
-// configuration left unset unset, a secret set elsewhere showing.
+// configuration left unset unset, a secret set elsewhere showing; a
+// RouterOS router's settings.
 func TestClusterBalancerFrom(t *testing.T) {
-	if clusterBalancerFrom(nil, nil) != nil {
+	ctx := context.Background()
+	var diags diag.Diagnostics
+	if clusterBalancerFrom(ctx, nil, nil, &diags) != nil {
 		t.Error("no hook: a model")
 	}
-	prior := &clusterBalancerModel{URL: types.StringValue("https://lb/h"), CACert: types.StringNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringValue("s3")}
-	got := clusterBalancerFrom(&client.ClusterBalancer{URL: "https://lb/h", HasSecret: true}, prior)
-	if !sameBalancer(got, prior) || got.Secret.ValueString() != "s3" || !got.CACert.IsNull() || !got.DrainDelaySeconds.IsNull() {
+	null := func() *clusterBalancerModel {
+		return &clusterBalancerModel{Kind: types.StringNull(), URL: types.StringValue("https://lb/h"), CACert: types.StringNull(), Fingerprint: types.StringNull(),
+			RouterUser: types.StringNull(), Prefixes: types.ListNull(types.StringType), Distance: types.Int64Null(), RoutingTable: types.StringNull(),
+			AllowHTTP: types.BoolNull(), CheckGateway: types.BoolNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringNull()}
+	}
+	prior := null()
+	prior.Secret = types.StringValue("s3")
+	got := clusterBalancerFrom(ctx, &client.ClusterBalancer{URL: "https://lb/h", HasSecret: true}, prior, &diags)
+	if !sameBalancer(got, prior) || got.Secret.ValueString() != "s3" || !got.CACert.IsNull() || !got.DrainDelaySeconds.IsNull() || !got.Prefixes.IsNull() || !got.Kind.IsNull() {
 		t.Errorf("read back: %+v", got)
 	}
 	// Changed on the Controller: the plan shows it.
-	got = clusterBalancerFrom(&client.ClusterBalancer{URL: "https://lb/other", DrainDelaySeconds: 5}, prior)
+	got = clusterBalancerFrom(ctx, &client.ClusterBalancer{URL: "https://lb/other", DrainDelaySeconds: 5}, prior, &diags)
 	if sameBalancer(got, prior) || got.DrainDelaySeconds.ValueInt64() != 5 || !got.Secret.IsNull() {
 		t.Errorf("changed elsewhere: %+v", got)
 	}
 	// A secret set elsewhere, none in the configuration: "" - a change.
-	noSecret := &clusterBalancerModel{URL: types.StringValue("https://lb/h"), CACert: types.StringNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringNull()}
-	got = clusterBalancerFrom(&client.ClusterBalancer{URL: "https://lb/h", HasSecret: true}, noSecret)
-	if got.Secret.IsNull() || got.Secret.Equal(noSecret.Secret) {
+	got = clusterBalancerFrom(ctx, &client.ClusterBalancer{URL: "https://lb/h", HasSecret: true}, null(), &diags)
+	if got.Secret.IsNull() || got.Secret.Equal(null().Secret) {
 		t.Errorf("a secret set elsewhere: %+v", got)
 	}
 	if !sameBalancer(nil, nil) || sameBalancer(prior, nil) {
 		t.Error("sameBalancer with nil")
 	}
-	req := prior.request(nil)
-	if req.URL != "https://lb/h" || req.Secret != nil || req.DrainDelaySeconds != 0 {
-		t.Errorf("the request: %+v", req)
+	// "webhook" written: the Controller's "" is the same.
+	hook := null()
+	hook.Kind = types.StringValue("webhook")
+	if got := clusterBalancerFrom(ctx, &client.ClusterBalancer{URL: "https://lb/h"}, hook, &diags); got.Kind.ValueString() != "webhook" || !sameBalancer(got, hook) {
+		t.Errorf("kind webhook: %+v", got)
+	}
+	// A router: its settings as written, the fingerprint's case kept.
+	ros := null()
+	ros.Kind, ros.URL, ros.RouterUser = types.StringValue("routeros"), types.StringValue("https://rtr"), types.StringValue("janus-hook")
+	ros.Fingerprint = types.StringValue("AB:CD")
+	ros.Prefixes, _ = types.ListValueFrom(ctx, types.StringType, []string{"203.0.113.10/32"})
+	ros.Secret = types.StringValue("pw")
+	got = clusterBalancerFrom(ctx, &client.ClusterBalancer{Kind: "routeros", URL: "https://rtr", User: "janus-hook", Fingerprint: "ab:cd", Prefixes: []string{"203.0.113.10/32"}, HasSecret: true}, ros, &diags)
+	if !sameBalancer(got, ros) || got.Fingerprint.ValueString() != "AB:CD" || !got.Distance.IsNull() || !got.RoutingTable.IsNull() || got.Secret.ValueString() != "pw" {
+		t.Errorf("a router: %+v", got)
+	}
+	req := got.request(nil)
+	if req.Kind != "routeros" || req.User != "janus-hook" || !slices.Equal(req.Prefixes, []string{"203.0.113.10/32"}) || req.Secret != nil {
+		t.Errorf("its request: %+v", req)
+	}
+	if hook.request(nil).Kind != "" {
+		t.Error(`"webhook" sent as itself, not ""`)
+	}
+	if diags.HasError() {
+		t.Error(diags)
 	}
 }

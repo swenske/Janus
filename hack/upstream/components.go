@@ -375,6 +375,15 @@ var components = []*component{
 		note: "go install'ed: Go's checksum database checks it",
 	},
 	{
+		name: "routeros-chr", title: "MikroTik RouterOS CHR (RouterOS balancer tests)", kind: kindTest,
+		versionVar: "ROUTEROS_CHR_VERSION", sumVars: map[string]string{"": "ROUTEROS_CHR_SHA256"},
+		feed: routerosFeed{channel: "stable"}, track: trackMajor,
+		url: func(v, _ string) string {
+			return "https://download.mikrotik.com/routeros/" + v + "/chr-" + v + ".img.zip"
+		},
+		checks: []check{publishedSum{sumURL: sameURL(".sha256")}},
+	},
+	{
 		name: "versitygw", title: "versitygw (Controller backup tests)", kind: kindTest,
 		versionVar: "VERSITYGW_VERSION",
 		feed:       githubReleases{repo: "versity/versitygw"}, track: trackMajor,

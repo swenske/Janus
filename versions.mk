@@ -160,6 +160,14 @@ OPENTOFU_SHA256_AMD64 := ac05d9952662c7db28dd57e93f0a68018837bfdf9342384ec098797
 # this tag - never shipped in an image).
 PEBBLE_VERSION := v2.10.1
 
+# MikroTik RouterOS, its Cloud Hosted Router image: the router
+# hack/routeros-hook-test.sh boots under QEMU for a cluster's RouterOS
+# balancer to keep its routes on (never shipped). Checked against the
+# sha256 MikroTik publishes beside it (chr-<version>.img.zip.sha256, over
+# HTTPS); the newest stable is upgrade.mikrotik.com's NEWESTa7.stable.
+ROUTEROS_CHR_VERSION := 7.25
+ROUTEROS_CHR_SHA256  := 6b981288350de2a2c7a3218bd820ab702633b8cd6cd339f2bb34dda1f1a2550e
+
 # versitygw, Versity's S3 gateway: the bucket hack/qemu-dashboard-test.sh
 # backs the Controller up to and restores it from - it checks S3's
 # signatures for real (go install'ed at this tag - never shipped).

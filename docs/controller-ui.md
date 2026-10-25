@@ -172,7 +172,10 @@ auto-scaling's mode and bounds, what it says now, the members' load).
 Every cluster has a **Balancer in front** card below (its hook's URL,
 how calls go, when it was last told and the failure if any; admins
 change it - the secret write-only, "unchanged" its placeholder -, call
-it now or remove it; readers see it only once set).
+it now or remove it; readers see it only once set). Its **Kind**
+selects a webhook or a RouterOS router (ECMP routes): the router's
+user, service prefixes, distance, routing table and check-gateway, its
+password in the secret's field.
 `#/clusters/<id>` is one cluster: its problems in a notice, **Check
 now**, **Delete** (type the name), and four tabs - **Members** (version
 run, peers up, stick tables in sync, member certificate's end, drained /
