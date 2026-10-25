@@ -173,3 +173,67 @@ func TestNodesAndHAProxy(t *testing.T) {
 		t.Errorf("a refused configuration: %v", err)
 	}
 }
+
+// A cluster made of machines, waited for, scaled, its policy set, ended.
+func TestClusters(t *testing.T) {
+	busy := 2
+	var created map[string]any
+	var calls []string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/api/clusters":
+			_ = json.NewDecoder(r.Body).Decode(&created)
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(Cluster{ID: "c1", Name: "edge", Busy: true, Phase: "creating machines"})
+		case r.Method == "GET" && r.URL.Path == "/api/clusters/c1":
+			cl := Cluster{ID: "c1", Name: "edge", Members: []ClusterMember{{Name: "edge-1", MachineID: "m1"}}}
+			if busy > 0 {
+				busy--
+				cl.Busy, cl.Phase = true, "creating machines"
+			}
+			_ = json.NewEncoder(w).Encode(cl)
+		case r.Method == "POST" && r.URL.Path == "/api/clusters/c1/scale":
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == "PUT" && r.URL.Path == "/api/clusters/c1/autoscale":
+			var p ClusterAutoscale
+			_ = json.NewDecoder(r.Body).Decode(&p)
+			_ = json.NewEncoder(w).Encode(Cluster{ID: "c1", Autoscale: &p})
+		case r.Method == "DELETE" && r.URL.Path == "/api/clusters/c1":
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"no such cluster"}`))
+		}
+	}))
+	defer srv.Close()
+	caPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}))
+	c, err := New(srv.URL, "janus_x_y", caPEM, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := PollInterval
+	PollInterval = time.Millisecond
+	defer func() { PollInterval = prev }()
+	ctx := context.Background()
+
+	cl, err := c.CreateCluster(ctx, "edge", ClusterMachines{Count: 2, AntiAffinity: "required", Hypervisors: []string{"h1"}, Spec: MachineSpec{VCPUs: 1, NICs: []NIC{{Network: "n", Name: "eth0", Mode: "dhcp"}}}})
+	if err != nil || cl.ID != "c1" || created["name"] != "edge" || created["machines"].(map[string]any)["count"] != float64(2) {
+		t.Fatalf("create: %+v %v %v", cl, err, created)
+	}
+	if cl, err = c.WaitCluster(ctx, "c1", (*Cluster).Idle); err != nil || !cl.Idle() || cl.Members[0].MachineID != "m1" {
+		t.Fatalf("wait: %+v %v", cl, err)
+	}
+	if err := c.ScaleCluster(ctx, "c1", 3); err != nil {
+		t.Fatal(err)
+	}
+	if cl, err = c.SetClusterAutoscale(ctx, "c1", ClusterAutoscale{Mode: "observe", MinMembers: 2, MaxMembers: 3, OutAfterSeconds: 120}); err != nil || cl.Autoscale.OutAfterSeconds != 120 {
+		t.Fatalf("autoscale: %+v %v", cl, err)
+	}
+	if err := c.DeleteCluster(ctx, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if cl, err := c.WaitCluster(ctx, "gone", func(*Cluster) bool { return false }); cl != nil || err != nil {
+		t.Errorf("gone: %+v %v", cl, err)
+	}
+}

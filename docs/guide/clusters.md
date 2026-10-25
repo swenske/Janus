@@ -318,7 +318,7 @@ members - the cluster's **Members** tab, **Scaling**:
   above `max_members`, nor beyond `max_vcpus`/`max_memory_mib` in all;
   no step out while the members' vCPUs wait for their hosts (steal above
   10 %). Thresholds are the policy's (`out_idle_percent`,
-  `in_after`...), checked for hysteresis.
+  `in_after_seconds`...), checked for hysteresis.
 - Members set by hand while auto-scaling is on **pause** it, journaled;
   saving the policy again resumes it.
 
@@ -326,6 +326,9 @@ members - the cluster's **Members** tab, **Scaling**:
 curl -X PUT https://controller:8080/api/clusters/$CLUSTER/autoscale -H "Authorization: Bearer $JANUS_TOKEN" \
   -d '{"mode": "observe", "min_members": 2, "max_members": 5, "max_vcpus": 20}'
 ```
+
+As code: Terraform's [`janus_cluster`](../terraform.md#janus_cluster)
+makes such a cluster, its `members` and `autoscaling` changed in place.
 
 Not for a VRRP cluster: one member holds each virtual IP, a member more
 adds no capacity - grow its machines instead ([auto-scaling](auto-scaling.md)).

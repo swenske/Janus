@@ -432,3 +432,118 @@ func (c *Client) ApplyHAProxyConfig(ctx context.Context, nodeID, config string) 
 	}
 	return nil
 }
+
+// --- clusters (docs/guide/clusters.md) ---
+
+// ClusterMember is one of a cluster's members, as the Controller shows it.
+type ClusterMember struct {
+	Name      string `json:"name"`
+	NodeID    string `json:"node_id"`
+	Address   string `json:"address"`
+	MachineID string `json:"machine_id"`
+	HostName  string `json:"host_name"`
+}
+
+// ClusterPlacement is where a cluster made on hypervisors puts its
+// machines.
+type ClusterPlacement struct {
+	AntiAffinity string   `json:"anti_affinity"`
+	Hypervisors  []string `json:"hypervisors"`
+}
+
+// ClusterAutoscale is a cluster's horizontal auto-scaling policy: a
+// threshold 0 is the Controller's default.
+type ClusterAutoscale struct {
+	Mode               string `json:"mode"`
+	MinMembers         int    `json:"min_members"`
+	MaxMembers         int    `json:"max_members"`
+	MaxVCPUs           int    `json:"max_vcpus,omitempty"`
+	MaxMemoryMiB       int    `json:"max_memory_mib,omitempty"`
+	OutIdlePercent     int    `json:"out_idle_percent,omitempty"`
+	OutBusyPercent     int    `json:"out_busy_percent,omitempty"`
+	OutConnPercent     int    `json:"out_conn_percent,omitempty"`
+	OutAfterSeconds    int    `json:"out_after_seconds,omitempty"`
+	InIdlePercent      int    `json:"in_idle_percent,omitempty"`
+	InBusyPercent      int    `json:"in_busy_percent,omitempty"`
+	InConnPercent      int    `json:"in_conn_percent,omitempty"`
+	InAfterSeconds     int    `json:"in_after_seconds,omitempty"`
+	OutCooldownSeconds int    `json:"out_cooldown_seconds,omitempty"`
+	InCooldownSeconds  int    `json:"in_cooldown_seconds,omitempty"`
+	MaxStepsPerHour    int    `json:"max_steps_per_hour,omitempty"`
+	PausedBy           string `json:"paused_by,omitempty"`
+}
+
+type Cluster struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Busy      bool              `json:"busy"`
+	Phase     string            `json:"phase"`
+	Error     string            `json:"error"`
+	Desired   int               `json:"desired"`
+	Members   []ClusterMember   `json:"members"`
+	Placement *ClusterPlacement `json:"placement"`
+	Autoscale *ClusterAutoscale `json:"autoscale"`
+	Problems  []string          `json:"problems"`
+}
+
+// ClusterMachines makes a cluster of count new machines of spec (its
+// name and hypervisor the Controller's), placed on hypervisors.
+type ClusterMachines struct {
+	Count        int         `json:"count"`
+	Spec         MachineSpec `json:"spec"`
+	Hypervisors  []string    `json:"hypervisors"`
+	AntiAffinity string      `json:"anti_affinity"`
+}
+
+func (c *Client) Cluster(ctx context.Context, id string) (*Cluster, error) {
+	var out Cluster
+	return &out, c.do(ctx, http.MethodGet, "/api/clusters/"+url.PathEscape(id), nil, &out)
+}
+
+// CreateCluster starts making cluster name of new machines: it runs in
+// the background (WaitCluster).
+func (c *Client) CreateCluster(ctx context.Context, name string, m ClusterMachines) (*Cluster, error) {
+	var out Cluster
+	return &out, c.do(ctx, http.MethodPost, "/api/clusters", map[string]any{"name": name, "machines": m}, &out)
+}
+
+// ScaleCluster starts bringing cluster id to members (WaitCluster).
+func (c *Client) ScaleCluster(ctx context.Context, id string, members int) error {
+	return c.do(ctx, http.MethodPost, "/api/clusters/"+url.PathEscape(id)+"/scale", map[string]int{"members": members}, nil)
+}
+
+func (c *Client) SetClusterAutoscale(ctx context.Context, id string, p ClusterAutoscale) (*Cluster, error) {
+	var out Cluster
+	return &out, c.do(ctx, http.MethodPut, "/api/clusters/"+url.PathEscape(id)+"/autoscale", p, &out)
+}
+
+// DeleteCluster starts ending cluster id - every member leaves it; their
+// machines stay (DeleteMachine).
+func (c *Client) DeleteCluster(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/api/clusters/"+url.PathEscape(id), nil, nil)
+}
+
+// WaitCluster polls a cluster until done says so, ctx ends, or it's gone
+// (nil, nil when gone is what was waited for).
+func (c *Client) WaitCluster(ctx context.Context, id string, done func(*Cluster) bool) (*Cluster, error) {
+	for {
+		cl, err := c.Cluster(ctx, id)
+		if IsNotFound(err) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if done(cl) {
+			return cl, nil
+		}
+		select {
+		case <-ctx.Done():
+			return cl, fmt.Errorf("still %s: %w", cl.Phase, ctx.Err())
+		case <-time.After(PollInterval):
+		}
+	}
+}
+
+// Idle reports whether no operation runs on the cluster.
+func (cl *Cluster) Idle() bool { return !cl.Busy && cl.Phase == "" }

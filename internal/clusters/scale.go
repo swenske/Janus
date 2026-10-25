@@ -1,6 +1,7 @@
 package clusters
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"time"
@@ -105,10 +106,10 @@ func (t ScaleThresholds) Validate() error {
 		v        time.Duration
 		min, max time.Duration
 	}{
-		{"out_after", t.OutAfter, time.Minute, time.Hour},
-		{"in_after", t.InAfter, 5 * time.Minute, 24 * time.Hour},
-		{"out_cooldown", t.OutCooldown, time.Minute, 6 * time.Hour},
-		{"in_cooldown", t.InCooldown, time.Minute, 24 * time.Hour},
+		{"out_after_seconds", t.OutAfter, time.Minute, time.Hour},
+		{"in_after_seconds", t.InAfter, 5 * time.Minute, 24 * time.Hour},
+		{"out_cooldown_seconds", t.OutCooldown, time.Minute, 6 * time.Hour},
+		{"in_cooldown_seconds", t.InCooldown, time.Minute, 24 * time.Hour},
 	} {
 		if d.v < d.min || d.v > d.max {
 			return fmt.Errorf("%s: %s to %s", d.name, d.min, d.max)
@@ -139,6 +140,67 @@ type Autoscale struct {
 	// PausedBy: the members were set from outside while on - by whom;
 	// the engine decides but doesn't act until the policy is set again.
 	PausedBy string `json:"paused_by,omitempty"`
+}
+
+// autoscaleJSON is Autoscale as the API and the store write it: its
+// durations in seconds, as a machine's policy has them.
+type autoscaleJSON struct {
+	Mode               string `json:"mode"`
+	MinMembers         int    `json:"min_members"`
+	MaxMembers         int    `json:"max_members"`
+	MaxVCPUs           int    `json:"max_vcpus,omitempty"`
+	MaxMemoryMiB       int    `json:"max_memory_mib,omitempty"`
+	OutIdlePercent     int    `json:"out_idle_percent,omitempty"`
+	OutBusyPercent     int    `json:"out_busy_percent,omitempty"`
+	OutConnPercent     int    `json:"out_conn_percent,omitempty"`
+	OutAfterSeconds    int    `json:"out_after_seconds,omitempty"`
+	InIdlePercent      int    `json:"in_idle_percent,omitempty"`
+	InBusyPercent      int    `json:"in_busy_percent,omitempty"`
+	InConnPercent      int    `json:"in_conn_percent,omitempty"`
+	InAfterSeconds     int    `json:"in_after_seconds,omitempty"`
+	OutCooldownSeconds int    `json:"out_cooldown_seconds,omitempty"`
+	InCooldownSeconds  int    `json:"in_cooldown_seconds,omitempty"`
+	MaxStepsPerHour    int    `json:"max_steps_per_hour,omitempty"`
+	PausedBy           string `json:"paused_by,omitempty"`
+	// v2026.10.24-5 and -6 wrote the durations in nanoseconds under
+	// these names: still read.
+	OutAfter    time.Duration `json:"out_after,omitempty"`
+	InAfter     time.Duration `json:"in_after,omitempty"`
+	OutCooldown time.Duration `json:"out_cooldown,omitempty"`
+	InCooldown  time.Duration `json:"in_cooldown,omitempty"`
+}
+
+func (a Autoscale) MarshalJSON() ([]byte, error) {
+	sec := func(d time.Duration) int { return int(d / time.Second) }
+	t := a.ScaleThresholds
+	return json.Marshal(autoscaleJSON{
+		Mode: a.Mode, MinMembers: a.MinMembers, MaxMembers: a.MaxMembers, MaxVCPUs: a.MaxVCPUs, MaxMemoryMiB: a.MaxMemoryMiB,
+		OutIdlePercent: t.OutIdlePercent, OutBusyPercent: t.OutBusyPercent, OutConnPercent: t.OutConnPercent, OutAfterSeconds: sec(t.OutAfter),
+		InIdlePercent: t.InIdlePercent, InBusyPercent: t.InBusyPercent, InConnPercent: t.InConnPercent, InAfterSeconds: sec(t.InAfter),
+		OutCooldownSeconds: sec(t.OutCooldown), InCooldownSeconds: sec(t.InCooldown), MaxStepsPerHour: t.MaxStepsPerHour, PausedBy: a.PausedBy,
+	})
+}
+
+func (a *Autoscale) UnmarshalJSON(b []byte) error {
+	var j autoscaleJSON
+	if err := json.Unmarshal(b, &j); err != nil {
+		return err
+	}
+	dur := func(seconds int, old time.Duration) time.Duration {
+		if seconds != 0 {
+			return time.Duration(seconds) * time.Second
+		}
+		return old
+	}
+	*a = Autoscale{
+		Mode: j.Mode, MinMembers: j.MinMembers, MaxMembers: j.MaxMembers, MaxVCPUs: j.MaxVCPUs, MaxMemoryMiB: j.MaxMemoryMiB, PausedBy: j.PausedBy,
+		ScaleThresholds: ScaleThresholds{
+			OutIdlePercent: j.OutIdlePercent, OutBusyPercent: j.OutBusyPercent, OutConnPercent: j.OutConnPercent, OutAfter: dur(j.OutAfterSeconds, j.OutAfter),
+			InIdlePercent: j.InIdlePercent, InBusyPercent: j.InBusyPercent, InConnPercent: j.InConnPercent, InAfter: dur(j.InAfterSeconds, j.InAfter),
+			OutCooldown: dur(j.OutCooldownSeconds, j.OutCooldown), InCooldown: dur(j.InCooldownSeconds, j.InCooldown), MaxStepsPerHour: j.MaxStepsPerHour,
+		},
+	}
+	return nil
 }
 
 // Validate says what's wrong with a.
