@@ -135,6 +135,34 @@ counts as free, taken last. Each member shows the host it runs on, as
 its hypervisor last said: a Proxmox HA migration that brings two
 members together shows on the page.
 
+### From a node
+
+A load balancer already serving - one node, its configuration, files
+and certificates built over time - becomes a cluster of new machines
+without being touched: in the same form, **Start from** that node
+(`"seed_from": "<node id>"` in `machines`).
+
+- The first machine takes the node's state before the cluster is made:
+  its HAProxy configuration and history, its files, uploaded and Let's
+  Encrypt certificates, its settings and kernel tuning - **not** its
+  identity (its CA and keys) nor its network ([replacing a
+  node](replacing-a-node.md#what-goes-over-and-what-doesnt)).
+- The state goes from node to node over their own mutual TLS: the
+  Controller only carries the new machine's signing request and the
+  node's ten-minute certificate for one export - the node grants it, and
+  says so in its log. Then the machine restarts into the state, and the
+  cluster is made from it: its version 1 is the node's configuration,
+  the other machines get it and pull the keys from it.
+- The node itself stays as it is, serving, in no cluster. Move its
+  traffic over when you are ready - its address to the cluster's virtual
+  IP, or your routers to the members -, then remove it.
+- The node must trust the Controller's fleet and run a version that
+  knows it (v2026.10.26 or later); its extensions are what its
+  configuration needs, so give the machines those - and, for a virtual
+  IP, `keepalived`. A `bind` on an address only that node has makes the
+  machines' HAProxy refuse to start: bind the cluster's virtual IP with
+  `net.ipv4.ip_nonlocal_bind` set ([VRRP](../vrrp.md)), or `*`, first.
+
 ## The configuration
 
 On the page, a cluster's **Configuration** tab: its versions, newest
@@ -531,7 +559,7 @@ Readers see clusters, administrators change them.
 
 | Call | What it does |
 |---|---|
-| `GET`, `POST /api/clusters` | list; create (`{name, source, members: [{node_id, name, address, api_address, vars}], managed, peers_port}`, or `{name, machines: {count, spec, hypervisors, anti_affinity}}`) |
+| `GET`, `POST /api/clusters` | list; create (`{name, source, members: [{node_id, name, address, api_address, vars}], managed, peers_port}`, or `{name, machines: {count, spec, hypervisors, anti_affinity, seed_from}}` - [from a node](#from-a-node)) |
 | `GET`, `PATCH`, `DELETE /api/clusters/{id}` | one; change `secrets_from` or members' `vars`; delete (every member leaves; `?force=true`: even those that don't answer) |
 | `POST /api/clusters/{id}/members`, `DELETE .../members/{name}` | add one; remove one (`?force=true`) |
 | `POST .../members/{name}/drain`, `.../undrain` | out of service, back |

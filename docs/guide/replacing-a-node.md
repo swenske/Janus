@@ -99,6 +99,14 @@ new node reaches the old one where janusctl does, unless
 a NAT the nodes don't. The new node must reach the old one's API, TCP
 9505.
 
+The Controller does the same when it makes a [cluster from a
+node](clusters.md#from-a-node) - without the identity, always: through
+the Controller, a node grants an export of its state but never of its
+CA and keys, and `StateExport` and `StateImport` themselves stay
+refused. It gives the Controller nothing a cluster didn't already: a
+cluster's member certificates come from a CA the Controller holds, and
+a member pulls another's secrets with one.
+
 ## Taking the address over
 
 By default the network configuration is held back - `-save-network`

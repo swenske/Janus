@@ -160,7 +160,7 @@ func (t *transferKey) take() *ecdsa.PrivateKey {
 // node's state.
 func (s *System) StateExportGrant(ctx context.Context, req *janusv1alpha1.StateExportGrantRequest) (*janusv1alpha1.StateExportGrantResponse, error) {
 	caller, _ := CallerFrom(ctx)
-	if err := s.stateTransferAllowed(caller); err != nil {
+	if err := s.transferAllowed(caller, req.GetIncludeIdentity()); err != nil {
 		return nil, err
 	}
 	block, _ := pem.Decode(req.GetCsr())
@@ -205,7 +205,7 @@ func (s *System) StateExportGrant(ctx context.Context, req *janusv1alpha1.StateE
 // StateImportFrom pulls another node's state and stages it.
 func (s *System) StateImportFrom(ctx context.Context, req *janusv1alpha1.StateImportFromRequest) (*janusv1alpha1.StateImportResponse, error) {
 	caller, _ := CallerFrom(ctx)
-	if err := s.stateTransferAllowed(caller); err != nil {
+	if err := s.transferAllowed(caller, req.GetOptions().GetReuseIdentity()); err != nil {
 		return nil, err
 	}
 	opts := req.GetOptions()

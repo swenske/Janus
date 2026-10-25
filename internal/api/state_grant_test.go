@@ -98,13 +98,25 @@ func TestStateImportFrom(t *testing.T) {
 	admin := context.WithValue(ctx, callerKey{}, Caller{Name: "alice", Roles: []string{pki.RoleAdmin}})
 	purpose := &janusv1alpha1.CertificateRequestRequest{Purpose: janusv1alpha1.CertificatePurpose_CERTIFICATE_PURPOSE_STATE_TRANSFER}
 
-	// Never through the Controller: no key, no grant, no pull.
+	// Through the Controller - a cluster seeded from a node -: the steps,
+	// but never the identity; the state itself never (StateExport and
+	// StateImport stay refused).
 	viaCtl := context.WithValue(ctx, callerKey{}, Caller{Name: "alice", Roles: []string{pki.RoleAdmin}, Via: "janus-controller"})
-	if _, err := sysB.CertificateRequest(viaCtl, purpose); status.Code(err) != codes.PermissionDenied {
-		t.Errorf("a transfer key through the Controller: %v", err)
+	if _, err := sysA.StateExportGrant(viaCtl, &janusv1alpha1.StateExportGrantRequest{IncludeIdentity: true}); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("a grant with the identity through the Controller: %v", err)
 	}
-	if _, err := sysA.StateExportGrant(viaCtl, &janusv1alpha1.StateExportGrantRequest{}); status.Code(err) != codes.PermissionDenied {
-		t.Errorf("a grant through the Controller: %v", err)
+	if _, err := sysB.StateImportFrom(viaCtl, &janusv1alpha1.StateImportFromRequest{Options: &janusv1alpha1.StateImportOptions{ReuseIdentity: true}}); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("a pull of the identity through the Controller: %v", err)
+	}
+	if err := sysA.StateExport(&janusv1alpha1.StateExportRequest{}, &discardExport{ctx: viaCtl}); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("an export through the Controller: %v", err)
+	}
+	if _, err := sysB.CertificateRequest(viaCtl, purpose); err != nil {
+		t.Errorf("a transfer key's request through the Controller: %v", err)
+	}
+	sysB.transfer.take() // that key: not the one the steps below make
+	if _, err := sysA.StateExportGrant(viaCtl, &janusv1alpha1.StateExportGrantRequest{}); status.Code(err) != codes.InvalidArgument {
+		t.Errorf("a grant without the identity through the Controller (an empty request): %v", err)
 	}
 	// No key made: nothing to pull with.
 	if _, err := sysB.StateImportFrom(admin, &janusv1alpha1.StateImportFromRequest{Address: addrA, Ca: caA.CertPEM, Certificate: caA.CertPEM}); status.Code(err) != codes.FailedPrecondition {
@@ -270,3 +282,12 @@ func TestStateTransferRole(t *testing.T) {
 		t.Errorf("an ended grant: %v", got)
 	}
 }
+
+// discardExport is a StateExport stream that keeps nothing.
+type discardExport struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (d *discardExport) Context() context.Context       { return d.ctx }
+func (d *discardExport) Send(*janusv1alpha1.Data) error { return nil }

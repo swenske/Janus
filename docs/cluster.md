@@ -988,6 +988,14 @@ whose new member learns them before the old one drains.
 - No key crosses the Controller, in a cluster or in a replacement: the
   pull paths and the janusctl pipe are the only transports, and both
   are node-to-node or operator-to-node over mTLS.
+- A cluster seeded from a node ([from a node](guide/clusters.md#from-a-node))
+  has the Controller orchestrate a node-to-node transfer: it carries a
+  signing request and a ten-minute certificate the node grants, the
+  state goes node to node. Through the Controller a node grants and
+  pulls an export **without its identity** only - its CA and keys never
+  move that way, and `StateExport`/`StateImport` stay refused. The
+  Controller gains nothing it didn't have: it holds each cluster's CA,
+  and a member certificate it signs pulls a member's secrets.
 - No key reaches a log, an event, a journal, a progress stream or an
   audit line; `SecretPaths` grows the new paths, and the PEM content
   check still covers the rest.
@@ -1011,6 +1019,7 @@ In phases, each proven on real boots before the next:
 | **P5 - creation on hypervisors** | `HostID`, anti-affinity (`required`/`preferred`/`off`), clusters made of new machines (`POST /api/clusters` with `machines`), observed placement, recycles placed | `controller-libvirt-test` part (two records on one libvirtd: required refused, preferred made and said), unit tests; Proxmox `TestLive` for its node identity, with a live PVE |
 | **P6 - horizontal auto-scaling** | P6a: `POST .../scale`, the engine (observe/on/off) with its policy and pause; P6b: `janus_cluster` in Terraform (made of new machines, `members` and `autoscaling` in place, destroyed with its machines) | P6a: unit tests, `controller-libvirt-test` part (scaled 2 → 3 → 2, observing reads the real load); P6b: `terraform-provider-test` part 8b (made, scaled 2 → 3 → 2, auto-scaling set, destroyed); lab campaign on BGP |
 | **P6c - the balancer hook** | `Balancer` in the shared engine: `in` once a member serves, `out` before one stops (waited for, its drain delay too), `sync` from Reconcile; the Controller's page and API, `janusctl cluster balancer`, Terraform's `balancer` block | Unit tests (order, signature, retries, refusals, Reconcile); `qemu-controller-cluster-test` (a drain told first, signed, then the removal); `terraform-provider-test` part 8b (set, scaled 2 → 3 → 2 with the hook told in order) |
+| **P7a - a cluster from a node** | New machines `seed_from` a node: the first takes its state node to node (`StateImportFrom`, orchestrated by the Controller, never the identity), the cluster made from it; the node untouched | Unit tests (the calls in order, the node touched only by its grant, refusals, a refused grant destroying the machines); `controller-libvirt-test` part 4g (a cluster seeded from node1 on real machines) |
 
 P1 comes early because its need is concrete and its transport is P0's.
 

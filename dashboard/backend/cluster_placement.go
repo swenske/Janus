@@ -272,6 +272,11 @@ type clusterMachinesRequest struct {
 	Spec         machines.Spec `json:"spec"`
 	Hypervisors  []string      `json:"hypervisors"`
 	AntiAffinity string        `json:"anti_affinity"`
+	// SeedFrom: a node of the Controller's whose state - configuration,
+	// files, certificates, Let's Encrypt, settings, not its identity nor
+	// its network - the first machine takes before the cluster is made
+	// from it (clusters.Engine.Seed); the node itself left as it is.
+	SeedFrom string `json:"seed_from,omitempty"`
 }
 
 // freeNames are n machine names in cluster name: <name>-<i>, the first
@@ -328,6 +333,15 @@ func (a *app) clusterOnHypervisors(w http.ResponseWriter, r *http.Request, name 
 		writeError(w, http.StatusBadRequest, "machines.count: 1 to 16")
 		return
 	}
+	var seed *clusters.Member
+	if req.SeedFrom != "" {
+		m, err := a.seedSource(r.Context(), req.SeedFrom)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		seed = &m
+	}
 	slots, err := a.hostSlots(r.Context(), req.Hypervisors)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -370,17 +384,41 @@ func (a *app) clusterOnHypervisors(w http.ResponseWriter, r *http.Request, name 
 		where = append(where, s.Name+" on "+picks[i].Name+" ("+picks[i].HostName+")")
 	}
 	a.clusters.Journal(c.ID, actor, "create", "", 0, "cluster %s to be made of %d new machine(s), anti-affinity %s: %s", c.Name, len(specs), mode, strings.Join(where, ", "))
+	if seed != nil {
+		a.clusters.Journal(c.ID, actor, "create", "", 0, "%s to take %s's state first: the cluster starts from it", specs[0].Name, seed.Name)
+	}
 	for _, wn := range warnings {
 		a.clusters.Journal(c.ID, actor, "placement", "", 0, "%s", wn)
 	}
-	a.runCluster(w, c, "creating machines", actor, func(ctx context.Context) error { return a.buildOnHypervisors(ctx, c.ID, specs, actor) })
+	a.runCluster(w, c, "creating machines", actor, func(ctx context.Context) error { return a.buildOnHypervisors(ctx, c.ID, specs, seed, actor) })
+}
+
+// seedSource is node id as a cluster's seed: one of the Controller's
+// nodes, trusting its fleet, a member of no cluster - its state is
+// copied, it stays as it is.
+func (a *app) seedSource(ctx context.Context, id string) (clusters.Member, error) {
+	n, ok := a.store.Get(id)
+	if !ok {
+		return clusters.Member{}, fmt.Errorf("seed_from: no node %s", id)
+	}
+	if cid := a.clusters.Store.ClusterOf(id); cid != "" {
+		return clusters.Member{}, fmt.Errorf("seed_from: %s is a member of a cluster already - recycle or add members there instead", n.Name)
+	}
+	m, err := a.member(clusterMemberRequest{NodeID: id, Name: n.Name})
+	if err != nil {
+		return clusters.Member{}, fmt.Errorf("seed_from: %v", err)
+	}
+	if err := a.clusterReady(ctx, m); err != nil {
+		return clusters.Member{}, fmt.Errorf("seed_from: %v", err)
+	}
+	return m, nil
 }
 
 // buildOnHypervisors makes cluster id's machines, waits until each node
 // is registered and trusts the fleet, then creates the cluster from them
 // - the first its source. A failure before the cluster exists destroys
 // the machines made.
-func (a *app) buildOnHypervisors(ctx context.Context, id string, specs []machines.Spec, actor string) error {
+func (a *app) buildOnHypervisors(ctx context.Context, id string, specs []machines.Spec, seed *clusters.Member, actor string) error {
 	c, ok := a.clusters.Store.Get(id)
 	if !ok {
 		return clusters.ErrNotFound
@@ -416,6 +454,11 @@ func (a *app) buildOnHypervisors(ctx context.Context, id string, specs []machine
 	wg.Wait()
 	for _, err := range errs {
 		if err != nil {
+			return fail(err)
+		}
+	}
+	if seed != nil {
+		if err := a.clusters.Seed(ctx, id, *seed, members[0], actor); err != nil {
 			return fail(err)
 		}
 	}

@@ -103,6 +103,42 @@ func (f *clusterFake) CertificateRequest(_ context.Context, m clusters.Member) (
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}), nil
 }
 
+func (f *clusterFake) StateTransferRequest(_ context.Context, m clusters.Member) ([]byte, error) {
+	if err := f.call(m, "StateTransferRequest", ""); err != nil {
+		return nil, err
+	}
+	return []byte("csr of " + m.Name), nil
+}
+
+func (f *clusterFake) StateExportGrant(_ context.Context, m clusters.Member, csr []byte) ([]byte, []byte, error) {
+	if err := f.call(m, "StateExportGrant", string(csr)); err != nil {
+		return nil, nil, err
+	}
+	return []byte("grant of " + m.Name), []byte("ca of " + m.Name), nil
+}
+
+// StateImportFrom copies the node at addr's configuration and files onto
+// m, as the pull and the restart into it would.
+func (f *clusterFake) StateImportFrom(_ context.Context, m clusters.Member, addr string, ca, cert []byte) (*janusv1alpha1.StateImportResponse, error) {
+	if err := f.call(m, "StateImportFrom", addr+" "+string(cert)); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	from, ok := f.nodes[f.byAddr[addr]]
+	if !ok {
+		return nil, fmt.Errorf("nothing answers on %s", addr)
+	}
+	to := f.nodes[m.Name]
+	to.cfg = slices.Clone(from.cfg)
+	var names []string
+	for k, v := range from.files {
+		to.files[k] = slices.Clone(v)
+		names = append(names, "haproxy/files/"+k)
+	}
+	return &janusv1alpha1.StateImportResponse{Files: append(names, "haproxy/haproxy.cfg"), Rebooting: true}, nil
+}
+
 func (f *clusterFake) ClusterGet(_ context.Context, m clusters.Member) (*janusv1alpha1.ClusterInfo, error) {
 	if err := f.call(m, "ClusterGet", ""); err != nil {
 		return nil, err
