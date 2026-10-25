@@ -646,7 +646,7 @@ func (e *Engine) Replace(ctx context.Context, id, old string, repl Member, opts 
 		return e.undoJoin(ctx, id, repl.Name, actor, cause)
 	}
 	e.Journal(id, actor, "drain", old, 0, "%s drained, %s in service: %s", old, repl.Name, msg)
-	if err := e.RemoveMember(ctx, id, old, false, actor); err != nil {
+	if err := e.removeMember(ctx, id, old, false, true, actor); err != nil {
 		if cur, ok := e.Store.Get(id); ok && cur.Member(old) == nil {
 			// Out, but what follows its departure went wrong somewhere.
 			e.Journal(id, actor, "replace", repl.Name, 0, "%s replaced %s, but: %v", repl.Name, old, err)
@@ -687,6 +687,12 @@ func (e *Engine) undoJoin(ctx context.Context, id, name, actor string, cause err
 // cluster, the others' composition without it. force: even when it
 // doesn't answer - a node gone for good.
 func (e *Engine) RemoveMember(ctx context.Context, id, name string, force bool, actor string) error {
+	return e.removeMember(ctx, id, name, force, false, actor)
+}
+
+// removeMember is RemoveMember; drained: the member was drained just
+// before (Replace) - not drained, nor journaled, again.
+func (e *Engine) removeMember(ctx context.Context, id, name string, force, drained bool, actor string) error {
 	c, ok := e.Store.Get(id)
 	if !ok {
 		return ErrNotFound
@@ -698,20 +704,23 @@ func (e *Engine) RemoveMember(ctx context.Context, id, name string, force bool, 
 	if len(c.Members) == 1 {
 		return errors.New("the cluster's last member: delete the cluster instead")
 	}
-	dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
-	msg, err := e.Nodes.ClusterDrain(dctx, *m, time.Minute)
-	cancel()
-	leftDrained := err == nil
-	switch {
-	case err == nil:
-		e.Journal(id, actor, "drain", name, 0, "%s drained: %s", name, msg)
-	case !force:
-		return fmt.Errorf("%s didn't drain: %v - remove it with force to go on anyway", name, err)
+	leftDrained := drained
+	if !drained {
+		dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		msg, err := e.Nodes.ClusterDrain(dctx, *m, time.Minute)
+		cancel()
+		leftDrained = err == nil
+		switch {
+		case err == nil:
+			e.Journal(id, actor, "drain", name, 0, "%s drained: %s", name, msg)
+		case !force:
+			return fmt.Errorf("%s didn't drain: %v - remove it with force to go on anyway", name, err)
+		}
 	}
 	if err := e.Nodes.ClusterLeave(ctx, *m); err != nil && !force {
 		return fmt.Errorf("%s didn't leave: %v - remove it with force to go on anyway", name, err)
 	}
-	c, err = e.Store.Update(id, func(c *Cluster) error {
+	c, err := e.Store.Update(id, func(c *Cluster) error {
 		c.Members = slices.DeleteFunc(c.Members, func(x Member) bool { return x.Name == name })
 		if c.SecretsFrom == name {
 			c.SecretsFrom = c.Members[0].Name

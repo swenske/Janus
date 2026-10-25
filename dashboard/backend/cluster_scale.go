@@ -63,16 +63,8 @@ func (a *app) scaleOut(ctx context.Context, id, actor string) error {
 		return err
 	}
 	spec.HypervisorID = hv
-	if as := c.Autoscale; as != nil && (as.MaxVCPUs > 0 || as.MaxMemoryMiB > 0) {
-		vcpus, mem := spec.VCPUs, spec.MemoryMiB
-		for _, m := range c.Members {
-			if x := a.machineOf(m.NodeID); x != nil {
-				vcpus, mem = vcpus+x.Spec.VCPUs, mem+x.Spec.MemoryMiB
-			}
-		}
-		if (as.MaxVCPUs > 0 && vcpus > as.MaxVCPUs) || (as.MaxMemoryMiB > 0 && mem > as.MaxMemoryMiB) {
-			return fmt.Errorf("a member more would make %d vCPUs and %d MiB in all - above the policy's ceiling (%d vCPUs, %d MiB)", vcpus, mem, as.MaxVCPUs, as.MaxMemoryMiB)
-		}
+	if err := a.underCeiling(c, spec, 1); err != nil {
+		return err
 	}
 	if h, ok := a.hypervisors.Get(hv); ok {
 		if err := a.hostRoom(ctx, h, spec.MemoryMiB); err != nil {
@@ -102,6 +94,69 @@ func (a *app) scaleOut(ctx context.Context, id, actor string) error {
 		}
 		a.destroyMachine(created.ID)
 		return fmt.Errorf("%s: %v - taken out and destroyed", spec.Name, err)
+	}
+	return nil
+}
+
+// underCeiling checks that n members more like spec keep cluster c
+// within its auto-scaling policy's ceilings on vCPUs and memory.
+func (a *app) underCeiling(c *clusters.Cluster, spec machines.Spec, n int) error {
+	as := c.Autoscale
+	if as == nil || (as.MaxVCPUs == 0 && as.MaxMemoryMiB == 0) {
+		return nil
+	}
+	vcpus, mem := n*spec.VCPUs, n*spec.MemoryMiB
+	for _, m := range c.Members {
+		if x := a.machineOf(m.NodeID); x != nil {
+			vcpus, mem = vcpus+x.Spec.VCPUs, mem+x.Spec.MemoryMiB
+		}
+	}
+	if (as.MaxVCPUs > 0 && vcpus > as.MaxVCPUs) || (as.MaxMemoryMiB > 0 && mem > as.MaxMemoryMiB) {
+		what := "a member more"
+		if n > 1 {
+			what = fmt.Sprintf("%d members more", n)
+		}
+		return fmt.Errorf("%s would make %d vCPUs and %d MiB in all - above the policy's ceiling (%d vCPUs, %d MiB)", what, vcpus, mem, as.MaxVCPUs, as.MaxMemoryMiB)
+	}
+	return nil
+}
+
+// scaleCheck is what refuses cluster c going to members before
+// anything is made or taken out - the request answered with it, not a
+// job failing a moment later: members more need a machine to make them
+// like, the hosts and the memory the placement asks, and room under the
+// policy's ceilings; members fewer need as many of the Controller's
+// machines to take out.
+func (a *app) scaleCheck(ctx context.Context, c *clusters.Cluster, members int) error {
+	n := members - len(c.Members)
+	if n < 0 {
+		have := 0
+		for _, m := range c.Members {
+			if a.machineOf(m.NodeID) != nil {
+				have++
+			}
+		}
+		if have < -n {
+			return fmt.Errorf("%d member(s) fewer, but %d of the members are this Controller's machines - the others aren't taken out by scaling", -n, have)
+		}
+		return nil
+	}
+	if n == 0 {
+		return nil
+	}
+	model, mach := a.newestMachine(c)
+	if mach == nil {
+		return errors.New("no member is one of this Controller's machines to make another like")
+	}
+	spec, err := cloneSpec(mach.Spec, a.recycleName(c), "")
+	if err != nil {
+		return fmt.Errorf("a machine like %s: %v", model.Name, err)
+	}
+	if err := a.underCeiling(c, spec, n); err != nil {
+		return err
+	}
+	if _, _, err := a.placeMore(ctx, c, "", spec, n); err != nil {
+		return err
 	}
 	return nil
 }
@@ -168,6 +223,10 @@ func (a *app) handleClusterScale(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Members < 1 || req.Members > 16 {
 		writeError(w, http.StatusBadRequest, "members: 1 to 16")
+		return
+	}
+	if err := a.scaleCheck(r.Context(), c, req.Members); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	actor := requestPrincipal(r).User

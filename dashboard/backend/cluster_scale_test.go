@@ -31,13 +31,33 @@ func TestClusterScale(t *testing.T) {
 		return &httpResult{rec.Code, rec.Body.String()}
 	}
 
-	// Required, two hosts, two members: no host left for a third.
+	// Required, two hosts, two members: no host left for a third - refused
+	// at once, nothing made (campaigns 40, 41: 202, then the job failed).
 	c := x.build("edge", x.request(""))
-	if r := scale(c.ID, 3); r.code != http.StatusAccepted {
-		t.Fatalf("scale: %d %s", r.code, r.body)
+	machinesBefore := len(a.machines.List())
+	if r := scale(c.ID, 3); r.code != http.StatusBadRequest || !strings.Contains(r.body, "anti-affinity") {
+		t.Errorf("a third on two hosts, required: %d %s", r.code, r.body)
 	}
-	if c = x.idle(c.ID); !strings.Contains(c.Error, "anti-affinity") || len(c.Members) != 2 {
-		t.Errorf("a third on two hosts, required: %q, %d members", c.Error, len(c.Members))
+	if c = x.idle(c.ID); c.Error != "" || len(c.Members) != 2 || len(a.machines.List()) != machinesBefore {
+		t.Errorf("after the refusal: %q, %d members, %d machines", c.Error, len(c.Members), len(a.machines.List()))
+	}
+	// Nor above the policy's ceiling, nor taking out members that aren't
+	// machines.
+	_, _ = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error {
+		c.Autoscale = &clusters.Autoscale{Mode: clusters.ScaleOff, MaxVCPUs: 1}
+		return nil
+	})
+	c, _ = a.clusters.Store.Get(c.ID)
+	if err := a.scaleCheck(context.Background(), c, 3); err == nil || !strings.Contains(err.Error(), "ceiling") {
+		t.Errorf("above the ceiling: %v", err)
+	}
+	_, _ = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Autoscale = nil; return nil })
+	c, _ = a.clusters.Store.Get(c.ID)
+	notMachines := *c
+	notMachines.Members = append([]clusters.Member(nil), c.Members...)
+	notMachines.Members[1].NodeID = "not-a-machine"
+	if err := a.scaleCheck(context.Background(), &notMachines, 0); err == nil || !strings.Contains(err.Error(), "1 of the members") {
+		t.Errorf("two fewer, one machine: %v", err)
 	}
 
 	// Preferred: the third shares a host; then back to two.

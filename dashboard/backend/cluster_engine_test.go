@@ -827,6 +827,20 @@ func TestClusterReplace(t *testing.T) {
 	if cur.Member("lb-1") != nil || cur.Member("lb-4") == nil || cur.Member("lb-4").Vars["priority"] != "150" {
 		t.Errorf("after: %+v", cur.Members)
 	}
+	// lb-1 drained once, journaled once (campaigns 40, 41: twice - its
+	// removal drained it again).
+	if n := strings.Count(strings.Join(f.callsOf("lb-1", mark), " "), "ClusterDrain"); n != 1 {
+		t.Errorf("lb-1 drained %d times: %v", n, f.callsOf("lb-1", mark))
+	}
+	drains := 0
+	for _, e := range a.clusters.Store.Entries(c.ID, 100) {
+		if e.Action == "drain" && e.Member == "lb-1" {
+			drains++
+		}
+	}
+	if drains != 1 {
+		t.Errorf("lb-1's drain journaled %d times", drains)
+	}
 	if cur.SecretsFrom == "lb-1" {
 		t.Error("the secrets still come from lb-1")
 	}

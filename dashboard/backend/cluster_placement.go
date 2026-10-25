@@ -191,7 +191,11 @@ func freeHosts(hosts []hostSlot, used map[string][]string) int {
 func noRoom(hosts []hostSlot, placed map[string]int, memMiB int) error {
 	var parts []string
 	for _, h := range hosts {
-		parts = append(parts, fmt.Sprintf("%s %d MiB free, %d kept", h.HostName, h.FreeMiB-placed[h.HostID], hostReserveMiB(h.TotalMiB)))
+		s := fmt.Sprintf("%s %d MiB free, %d kept", h.HostName, h.FreeMiB, hostReserveMiB(h.TotalMiB))
+		if p := placed[h.HostID]; p > 0 {
+			s += fmt.Sprintf(", %d for this request's machines before", p)
+		}
+		parts = append(parts, s)
 	}
 	return fmt.Errorf("no host has room for a machine of %d MiB: %s", memMiB, strings.Join(parts, "; "))
 }
@@ -432,6 +436,17 @@ func (a *app) buildOnHypervisors(ctx context.Context, id string, specs []machine
 // placed against the other members' hosts - the replaced member's host
 // is free (it leaves), taken last. Unreachable records are skipped.
 func (a *app) recycleHypervisor(ctx context.Context, c *clusters.Cluster, name string, spec machines.Spec) (string, []string, error) {
+	picks, warnings, err := a.placeMore(ctx, c, name, spec, 1)
+	if err != nil {
+		return "", nil, err
+	}
+	return picks[0], warnings, nil
+}
+
+// placeMore places n new machines of spec in cluster c, as
+// recycleHypervisor places one (name: the member replaced, "" for
+// none): the hypervisors they go to, in order.
+func (a *app) placeMore(ctx context.Context, c *clusters.Cluster, name string, spec machines.Spec, n int) ([]string, []string, error) {
 	used := map[string][]string{}
 	oldHost := ""
 	for _, m := range c.Members {
@@ -461,17 +476,27 @@ func (a *app) recycleHypervisor(ctx context.Context, c *clusters.Cluster, name s
 			cands = append(cands, slots[0])
 		}
 	}
-	// Elsewhere than the replaced member's host when a rule allows it:
-	// that one only frees its memory once the member is gone.
-	picks, warnings, err := place(cands, used, 1, spec.MemoryMiB, c.Placement.AntiAffinity)
-	if err != nil && len(last) > 0 {
-		picks, warnings, err = place(append(cands, last...), used, 1, spec.MemoryMiB, c.Placement.AntiAffinity)
+	// Elsewhere than the replaced member's host when a rule allows it
+	// without sharing a host: that one only frees its memory once the
+	// member is gone. Its host when the others would mean a host shared
+	// (preferred) or none (required) - the replacement has it to itself
+	// once the member leaves (v2026.10.25's lab: preferred put it beside
+	// another member, the replaced one's host left empty).
+	picks, warnings, err := place(cands, used, n, spec.MemoryMiB, c.Placement.AntiAffinity)
+	if (err != nil || len(warnings) > 0) && len(last) > 0 {
+		if p, w, err2 := place(append(cands, last...), used, n, spec.MemoryMiB, c.Placement.AntiAffinity); err2 == nil && (err != nil || len(w) < len(warnings)) {
+			picks, warnings, err = p, w, nil
+		}
 	}
 	if err != nil {
 		if len(skipped) > 0 {
 			err = fmt.Errorf("%v (left out: %s)", err, strings.Join(skipped, "; "))
 		}
-		return "", nil, err
+		return nil, nil, err
 	}
-	return picks[0].Hypervisor, warnings, nil
+	var hvs []string
+	for _, p := range picks {
+		hvs = append(hvs, p.Hypervisor)
+	}
+	return hvs, warnings, nil
 }
