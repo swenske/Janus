@@ -54,6 +54,10 @@ func TestClusterScale(t *testing.T) {
 	third := x.machine("edgep-3")
 	x.register(third)
 	c = x.idle(c.ID)
+	// The journal names the hypervisor, not its record's id.
+	if !journalSays(t, a, c.ID, "a member more: edgep-3, a new machine like") || !journalSays(t, a, c.ID, ", on kvm01") {
+		t.Errorf("the scale-out's journal: %v", a.clusters.Store.Entries(c.ID, 50))
+	}
 	if c.Error != "" || len(c.Members) != 3 || c.Member("edgep-3") == nil || c.Member("edgep-3").Vars["priority"] != "100" {
 		t.Fatalf("scaled out: %q, %+v", c.Error, c.Members)
 	}

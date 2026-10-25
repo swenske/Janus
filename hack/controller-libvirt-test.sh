@@ -543,6 +543,7 @@ err="$(json "d.get('error','')" <"$WORKDIR/c.json")"
 members="$(json "','.join(sorted(m['name'] for m in d['members']))" <"$WORKDIR/c.json")"
 [ "$members" = "edge-1,node1" ] || fail "the members after the recycle: $members"
 api "$API/api/clusters/$CID/journal" | grep -q "edge-1 joins drained" || fail "edge-1 didn't join drained: $(api "$API/api/clusters/$CID/journal")"
+api "$API/api/clusters/$CID/journal" | grep -q "a new machine, edge-1, on testhost" || fail "the recycle's journal doesn't name the hypervisor: $(api "$API/api/clusters/$CID/journal")"
 for _ in $(seq 1 90); do
   [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$MID3")" = 404 ] && break
   sleep 1
@@ -613,6 +614,7 @@ api "$API/api/clusters/$CID" >"$WORKDIR/c.json"
 [ -z "$(json "d.get('error','')" <"$WORKDIR/c.json")" ] || fail "scaling to 3: $(json "d['error']" <"$WORKDIR/c.json")"
 members="$(json "','.join(sorted(m['name'] for m in d['members']))" <"$WORKDIR/c.json")"
 [ "$members" = "pref-1,pref-2,pref-3" ] || fail "after scaling to 3: $members"
+api "$API/api/clusters/$CID/journal" | grep -q "a member more: pref-3, a new machine like pref-[12], on testhost" || fail "the scale-out's journal doesn't name the hypervisor: $(api "$API/api/clusters/$CID/journal")"
 api -X POST "$API/api/clusters/$CID/scale" -H 'Content-Type: application/json' -d '{"members": 2}' >/dev/null || fail "scale pref to 2"
 cluster_idle 300
 members="$(api "$API/api/clusters/$CID" | json "','.join(sorted(m['name'] for m in d['members']))")"
