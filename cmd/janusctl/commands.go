@@ -701,6 +701,28 @@ func commandWords(args []string) []string {
 	return args
 }
 
+// helpAsked: args name a command and ask for its help (-h, -help or
+// --help, before a "--"): the command and its path, for its help to be
+// shown instead of anything run. Without it a command that takes no
+// flag ran whatever followed it - "janusctl system restart -h" restarted
+// janusd, "system shutdown -h" would have powered the node off
+// (v2026.10.24-4's lab).
+func helpAsked(args []string) (*command, []string, bool) {
+	c, rest := commands.find(args)
+	if c == commands || c.hidden {
+		return nil, nil, false
+	}
+	for _, a := range rest {
+		switch a {
+		case "--":
+			return nil, nil, false
+		case "-h", "-help", "--help":
+			return c, args[:len(args)-len(rest)], true
+		}
+	}
+	return nil, nil, false
+}
+
 // runHelp is janusctl help [COMMAND...].
 func runHelp(args []string) {
 	c, rest := commands.find(args)

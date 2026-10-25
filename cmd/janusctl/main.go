@@ -93,6 +93,13 @@ func main() {
 		picked = picked || asked
 	}
 
+	// A command's help asked for: shown, nothing run (before any node is
+	// reached - some commands take no flag at all).
+	if c, path, ok := helpAsked(args); ok {
+		printHelp(os.Stdout, c, path)
+		return
+	}
+
 	// "image" subcommands operate directly on a disk file offline -
 	// unlike every other command here, they need no running janusd/gRPC
 	// connection at all (that's the entire point, see internal/diskseed's
