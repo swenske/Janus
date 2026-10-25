@@ -24,6 +24,7 @@ func (m *Manager) Status() *janusv1alpha1.ACMEStatusResponse {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out.AccountThumbprint = m.answerThumbLocked()
+	out.OrderedBy = m.followOrderer
 	out.PathMode = pathMode(m.cfg.GetPath()) // set: a node older than paths leaves it unspecified
 	if m.cfg == nil {
 		out.Directory = ResolveDirectory("")

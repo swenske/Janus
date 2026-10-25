@@ -25,6 +25,9 @@ type Nodes interface {
 	// Probe: m reaches target (host:port) over TCP.
 	Probe(ctx context.Context, m Member, target string) error
 	CertificateRequest(ctx context.Context, m Member) ([]byte, error)
+	// ACMEStatus: m's letsencrypt extension - its certificates, the
+	// thumbprint it answers HTTP-01 with.
+	ACMEStatus(ctx context.Context, m Member) (*janusv1alpha1.ACMEStatusResponse, error)
 	// A node-to-node state transfer's steps (Seed): a signing request
 	// for m's transfer key; m's grant of one export to it - never the
 	// identity; m pulling from addr with it.
@@ -165,6 +168,15 @@ func (g GRPC) CertificateRequest(ctx context.Context, m Member) ([]byte, error) 
 		return nil, nodeError(err)
 	}
 	return resp.GetCsr(), nil
+}
+
+func (g GRPC) ACMEStatus(ctx context.Context, m Member) (*janusv1alpha1.ACMEStatusResponse, error) {
+	c, err := g.haproxy(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	st, err := c.ACMEStatus(ctx, &emptypb.Empty{})
+	return st, nodeError(err)
 }
 
 func (g GRPC) StateTransferRequest(ctx context.Context, m Member) ([]byte, error) {

@@ -2776,8 +2776,13 @@ type ACMEStatusResponse struct {
 	Certificates    []*ACMECertificateStatus `protobuf:"bytes,10,rep,name=certificates,proto3" json:"certificates,omitempty"`
 	PathMode        ACMEPathMode             `protobuf:"varint,11,opt,name=path_mode,json=pathMode,proto3,enum=janus.v1alpha1.ACMEPathMode" json:"path_mode,omitempty"` // how the node reaches the CA
 	ProxyUrl        string                   `protobuf:"bytes,12,opt,name=proxy_url,json=proxyUrl,proto3" json:"proxy_url,omitempty"`                                   // PROXY
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// A cluster member another member orders for (ClusterSetRequest.
+	// acme_orderer): that member's name. This node orders nothing; it
+	// serves the certificates its cluster pulls, and answers HTTP-01 with
+	// the orderer's thumbprint - account_thumbprint above.
+	OrderedBy     string `protobuf:"bytes,13,opt,name=ordered_by,json=orderedBy,proto3" json:"ordered_by,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ACMEStatusResponse) Reset() {
@@ -2890,6 +2895,13 @@ func (x *ACMEStatusResponse) GetPathMode() ACMEPathMode {
 func (x *ACMEStatusResponse) GetProxyUrl() string {
 	if x != nil {
 		return x.ProxyUrl
+	}
+	return ""
+}
+
+func (x *ACMEStatusResponse) GetOrderedBy() string {
+	if x != nil {
+		return x.OrderedBy
 	}
 	return ""
 }
@@ -4919,7 +4931,7 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\x10ACMERenewRequest\x12\x14\n" +
 	"\x05names\x18\x01 \x03(\tR\x05names\")\n" +
 	"\x11ACMERenewResponse\x12\x14\n" +
-	"\x05names\x18\x01 \x03(\tR\x05names\"\x86\x04\n" +
+	"\x05names\x18\x01 \x03(\tR\x05names\"\xa5\x04\n" +
 	"\x12ACMEStatusResponse\x121\n" +
 	"\x05state\x18\x01 \x01(\x0e2\x1b.janus.v1alpha1.ModuleStateR\x05state\x12\x1e\n" +
 	"\n" +
@@ -4937,7 +4949,9 @@ const file_janus_v1alpha1_haproxy_proto_rawDesc = "" +
 	"\fcertificates\x18\n" +
 	" \x03(\v2%.janus.v1alpha1.ACMECertificateStatusR\fcertificates\x129\n" +
 	"\tpath_mode\x18\v \x01(\x0e2\x1c.janus.v1alpha1.ACMEPathModeR\bpathMode\x12\x1b\n" +
-	"\tproxy_url\x18\f \x01(\tR\bproxyUrl\"\x98\x04\n" +
+	"\tproxy_url\x18\f \x01(\tR\bproxyUrl\x12\x1d\n" +
+	"\n" +
+	"ordered_by\x18\r \x01(\tR\torderedBy\"\x98\x04\n" +
 	"\x15ACMECertificateStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\adomains\x18\x02 \x03(\tR\adomains\x12\x12\n" +

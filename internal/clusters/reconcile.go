@@ -39,6 +39,12 @@ func (e *Engine) Reconcile(ctx context.Context, c *Cluster) (again bool) {
 		}
 		_ = e.Store.UpdateState(c.ID, func(s *State) { s.Members[m.Name] = ms })
 	}
+	if cur, ok := e.Store.Get(c.ID); ok {
+		if err := e.SyncACME(ctx, cur, Actor); err != nil {
+			log.Printf("cluster %s: %v", c.Name, err)
+			again = true
+		}
+	}
 	if c.Balancer != nil {
 		if cur, ok := e.Store.Get(c.ID); ok {
 			if err := e.reconcileBalancer(ctx, cur); err != nil {

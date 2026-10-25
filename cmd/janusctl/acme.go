@@ -34,6 +34,9 @@ func runACME(conn *grpc.ClientConn, args []string) {
 		}
 		fmt.Println("CA:         ", resp.GetDirectory())
 		fmt.Println("Thumbprint: ", resp.GetAccountThumbprint())
+		if resp.GetOrderedBy() != "" {
+			fmt.Println("Ordered by: ", resp.GetOrderedBy(), "(its cluster member: this node orders nothing, serves what it pulls)")
+		}
 		if resp.GetAccountUri() != "" {
 			fmt.Println("Account:    ", resp.GetAccountUri())
 		}

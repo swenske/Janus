@@ -123,6 +123,10 @@ message ClusterInfo {
   TLSTicketKeysState tls_ticket_keys = 14;
   // The locks are advisory (ClusterSetRequest.advisory).
   bool advisory = 15;
+  // ClusterSetRequest's: who orders the cluster's Let's Encrypt
+  // certificates, and the thumbprint the others answer HTTP-01 with.
+  string acme_orderer = 16;
+  string acme_thumbprint = 17;
 }
 
 message ClusterSetRequest {
@@ -146,6 +150,13 @@ message ClusterSetRequest {
   // and the cluster's id in janus-cluster-apply. False: only the
   // Controller's certificate gets through.
   bool advisory = 10;
+  // The member whose letsencrypt extension orders the cluster's
+  // certificates - the one the others pull their secrets from. The
+  // others order nothing: they serve what they pull and answer HTTP-01
+  // challenges with acme_thumbprint, the orderer's account's. Empty:
+  // each member orders its own (an orchestrator before v2026.10.26).
+  string acme_orderer = 11;
+  string acme_thumbprint = 12;
 }
 
 message ClusterReleaseRequest {
@@ -236,6 +247,11 @@ enum ClusterItem {
   CLUSTER_ITEM_ACME_CERTS = 3;
   // The TLS ticket key ring.
   CLUSTER_ITEM_TLS_TICKET_KEYS = 4;
+  // The letsencrypt extension's configuration: its certificates, the
+  // account's settings, the DNS providers with their credentials, how it
+  // reaches the CA - not the account key: a member that becomes the
+  // orderer orders with its own.
+  CLUSTER_ITEM_ACME_CONFIG = 5;
 }
 
 message ClusterPullRequest {

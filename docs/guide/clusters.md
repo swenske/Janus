@@ -279,6 +279,32 @@ clients make one full handshake. If the member the secrets come from
 can't renew it then, the cluster's page says so and the next check
 tries again.
 
+### Let's Encrypt
+
+One member orders the cluster's Let's Encrypt certificates - the one
+the secrets come from -, the others order nothing:
+
+- They hold its configuration - the certificates, the account's
+  settings, the DNS providers and their credentials, how it reaches the
+  CA -, pulled from it over their mutual TLS, never through the
+  Controller; not its account key: each member keeps its own.
+- They serve its certificates, pulled the same way. Every check - every
+  10 minutes on the Controller, `janusctl cluster check` without it -
+  compares each member's certificates with the orderer's: a renewal, a
+  certificate added or removed, and the member pulls them again, the
+  journal saying so ("lb-2 pulled lb-1's renewed certificate(s): site").
+- They answer HTTP-01 challenges with the orderer's account: behind a
+  virtual IP or a balancer, a challenge may reach any member.
+- A renewal asked of another member is refused, naming the orderer;
+  the node's page and `janusctl haproxy acme status` say "Ordered by".
+- When the secrets' source changes - chosen on the page, or the orderer
+  removed or recycled -, the new one orders with the configuration it
+  already holds, under its own account; the others answer with that
+  account from the next check.
+
+Configure Let's Encrypt on the member the secrets come from - or on a
+node before the cluster is [made from it](#from-a-node).
+
 ## Members
 
 On the page, the cluster's **Members** tab: each member's state, and

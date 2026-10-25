@@ -934,6 +934,13 @@ jobs:
       - name: Let's Encrypt - ordered by the Controller
         run: make qemu-acme-ordered-test
 
+      # In a cluster: one member orders - its HTTP-01 challenge validated on
+      # another, which answers with its account -, the other pulls the
+      # certificate and its renewal, orders nothing, and takes over when
+      # the orderer leaves. See hack/qemu-cluster-acme-test.sh.
+      - name: Let's Encrypt - in a cluster
+        run: make qemu-cluster-acme-test
+
       # The Consul agent (consul extension) on two real enforcing nodes: a
       # server and a client with gossip encryption and TLS from the files
       # given with their configuration, HAProxy finding a service through

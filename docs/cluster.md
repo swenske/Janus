@@ -532,6 +532,15 @@ today - at the cost of the CA's duplicate-certificate limit (five a
 week for the same names at Let's Encrypt) and of a different
 certificate on each member; the page says which it is.
 
+What was built (P7b): the orderer is the member the secrets come from
+(`ClusterSetRequest.acme_orderer`); the others hold its configuration
+(`CLUSTER_ITEM_ACME_CONFIG`, pulled member to member - not its account
+key: a member that becomes the orderer orders under its own account),
+order nothing, and answer HTTP-01 with the orderer's thumbprint
+(`acme_thumbprint`) rather than sharing an account key. `Engine.SyncACME`,
+from every check, tells the members who orders and pulls a member's
+certificates again when they differ from the orderer's (by serial).
+
 ### TLS ticket keys
 
 A TLS session resumes with a ticket the server encrypted; a client that
@@ -1020,6 +1029,7 @@ In phases, each proven on real boots before the next:
 | **P6 - horizontal auto-scaling** | P6a: `POST .../scale`, the engine (observe/on/off) with its policy and pause; P6b: `janus_cluster` in Terraform (made of new machines, `members` and `autoscaling` in place, destroyed with its machines) | P6a: unit tests, `controller-libvirt-test` part (scaled 2 → 3 → 2, observing reads the real load); P6b: `terraform-provider-test` part 8b (made, scaled 2 → 3 → 2, auto-scaling set, destroyed); lab campaign on BGP |
 | **P6c - the balancer hook** | `Balancer` in the shared engine: `in` once a member serves, `out` before one stops (waited for, its drain delay too), `sync` from Reconcile; the Controller's page and API, `janusctl cluster balancer`, Terraform's `balancer` block | Unit tests (order, signature, retries, refusals, Reconcile); `qemu-controller-cluster-test` (a drain told first, signed, then the removal); `terraform-provider-test` part 8b (set, scaled 2 → 3 → 2 with the hook told in order) |
 | **P7a - a cluster from a node** | New machines `seed_from` a node: the first takes its state node to node (`StateImportFrom`, orchestrated by the Controller, never the identity), the cluster made from it; the node untouched | Unit tests (the calls in order, the node touched only by its grant, refusals, a refused grant destroying the machines); `controller-libvirt-test` part 4g (a cluster seeded from node1 on real machines) |
+| **P7b - Let's Encrypt in a cluster** | The secrets' source orders (`ClusterSetRequest.acme_orderer`); the others hold its configuration (`CLUSTER_ITEM_ACME_CONFIG`), order nothing, answer HTTP-01 with its thumbprint, and pull each renewal (`Engine.SyncACME` in Reconcile); a new source takes over | Unit tests (who is told, a renewal pulled, the take-over); `qemu-cluster-acme-test` (Pebble validating on the follower, its pull and a renewal's, the take-over) |
 
 P1 comes early because its need is concrete and its transport is P0's.
 
