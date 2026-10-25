@@ -331,3 +331,34 @@ func TestTreeIsSound(t *testing.T) {
 		}
 	})
 }
+
+// A command given -h, -help or --help shows its help and runs nothing -
+// those without flags too (system restart -h restarted janusd).
+func TestHelpAsked(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		path string // "" = not asked
+	}{
+		{[]string{"system", "restart", "-h"}, "system restart"},
+		{[]string{"system", "shutdown", "--help"}, "system shutdown"},
+		{[]string{"system", "reboot", "-kexec", "-help"}, "system reboot"},
+		{[]string{"haproxy", "apply-config", "haproxy.cfg", "-h"}, "haproxy apply-config"},
+		{[]string{"system", "-h"}, "system"},
+		{[]string{"system", "reboot", "-kexec"}, ""},
+		{[]string{"system", "cat", "--", "-h"}, ""},
+		{[]string{"nosuch", "-h"}, ""},
+		{[]string{"__complete", "bash", "--", "-h"}, ""},
+	} {
+		c, path, ok := helpAsked(tc.args)
+		got := ""
+		if ok {
+			got = strings.Join(path, " ")
+			if c == nil || c.name != path[len(path)-1] {
+				t.Errorf("%v: command %+v for path %v", tc.args, c, path)
+			}
+		}
+		if got != tc.path {
+			t.Errorf("%v: help for %q, want %q", tc.args, got, tc.path)
+		}
+	}
+}
