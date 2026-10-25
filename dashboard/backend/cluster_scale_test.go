@@ -96,6 +96,22 @@ func TestClusterScale(t *testing.T) {
 	if r := put(c.ID, clusters.Autoscale{Mode: clusters.ScaleOn, MinMembers: 2, MaxMembers: 4}); r.code != http.StatusOK {
 		t.Fatalf("on: %d %s", r.code, r.body)
 	}
+	// Nor is VRRP brought in under auto-scaling (v2026.10.24-5's lab: it
+	// went through, auto-scaling on over a VRRP cluster).
+	apply := func(managed []string) *httpResult {
+		rec := call(t, a.handleClusterApply, "POST", "/api/clusters/"+c.ID+"/apply", "POST /api/clusters/{id}/apply", map[string]any{"version": 1, "managed": managed})
+		return &httpResult{rec.Code, rec.Body.String()}
+	}
+	if r := apply([]string{"haproxy", "files", "vrrp"}); r.code != http.StatusConflict || !strings.Contains(r.body, "set it off first") {
+		t.Errorf("VRRP under auto-scaling: %d %s", r.code, r.body)
+	}
+	if cur, _ := a.clusters.Store.Get(c.ID); slices.Contains(cur.Managed, "vrrp") {
+		t.Error("the refused apply changed what the cluster manages")
+	}
+	if r := apply([]string{"haproxy", "files"}); r.code != http.StatusAccepted {
+		t.Errorf("an apply without VRRP: %d %s", r.code, r.body)
+	}
+	x.idle(c.ID)
 	// Members set from outside while on: the engine pauses, and says so.
 	if r := scale(c.ID, 2); r.code != http.StatusAccepted {
 		t.Fatalf("scale: %d %s", r.code, r.body)
@@ -194,5 +210,17 @@ func TestClusterScaler(t *testing.T) {
 	defer mu.Unlock()
 	if !slices.Equal(acted, []string{clusters.ScaleOut}) || !journalSays(t, a, c.ID, "adding a member (2 → 3)") {
 		t.Errorf("on: acted %v", acted)
+	}
+	mu.Unlock()
+
+	// A cluster managing VRRP with auto-scaling on (made before the
+	// refusals): the engine says so and never steps.
+	_, _ = a.clusters.Store.Update(c.ID, func(c *clusters.Cluster) error { c.Managed = append(c.Managed, "vrrp"); return nil })
+	s.forget(c.ID)
+	_ = a.clusters.Store.UpdateState(c.ID, func(st *clusters.State) { st.Scale = clusters.ScaleState{} })
+	run(60)
+	mu.Lock()
+	if len(acted) != 1 || !journalSays(t, a, c.ID, "refused: a VRRP cluster can't scale") {
+		t.Errorf("VRRP: acted %v, status %q", acted, a.clusters.Store.State(c.ID).ScaleStatus)
 	}
 }
