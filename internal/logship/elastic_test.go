@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -450,7 +451,7 @@ func TestElasticDocumentsAsBefore(t *testing.T) {
 				}
 				return b.String()
 			}
-			got := encode(sk.document(r, "lb1", c.nodeID, c.labels))
+			got := encode(sk.document(r, "lb1", c.nodeID, c.labels, Cluster{}))
 			want := encode(sk.legacyDocument(r, "lb1", c.nodeID, c.labels))
 			if r.Source == SourceAccess && strings.HasPrefix(r.Message, "{") && json.Valid([]byte(r.Message)) {
 				var g, w map[string]any
@@ -462,6 +463,161 @@ func TestElasticDocumentsAsBefore(t *testing.T) {
 			if got != want {
 				t.Errorf("%s, record %d: the document changed\n got %s\nwant %s", c.name, i, got, want)
 			}
+		}
+	}
+}
+
+// docField is the value at a dotted path of a stored document, nil when
+// there's none.
+func docField(doc map[string]any, path string) any {
+	var v any = doc
+	for _, k := range strings.Split(path, ".") {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil
+		}
+		if v, ok = m[k]; !ok {
+			return nil
+		}
+	}
+	return v
+}
+
+// clusterVar is a membership that changes while targets send: what
+// SetCluster gets on a node, the cluster store behind it.
+type clusterVar struct{ p atomic.Pointer[Cluster] }
+
+func (c *clusterVar) set(cl Cluster) { c.p.Store(&cl) }
+
+func (c *clusterVar) get() Cluster {
+	if p := c.p.Load(); p != nil {
+		return *p
+	}
+	return Cluster{}
+}
+
+var testCluster = Cluster{ID: "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b", Name: "edge", Member: "edge-1"}
+
+// checkClusterDocument says what's wrong with doc's cluster fields: the
+// test cluster's in ECS's orchestrator and janus.cluster.member when in
+// is true, none at all otherwise.
+func checkClusterDocument(doc map[string]any, in bool) error {
+	if !in {
+		if doc["orchestrator"] != nil || docField(doc, "janus.cluster") != nil {
+			return fmt.Errorf("cluster fields on a node in none: %v", doc)
+		}
+		return nil
+	}
+	for path, want := range map[string]any{
+		"orchestrator.type": "janus", "orchestrator.cluster.id": testCluster.ID, "orchestrator.cluster.name": testCluster.Name,
+		"janus.cluster.member": testCluster.Member,
+	} {
+		if got := docField(doc, path); got != want {
+			return fmt.Errorf("%s = %v, want %v: %v", path, got, want, doc)
+		}
+	}
+	return nil
+}
+
+// A member's documents carry its cluster - ECS's orchestrator.cluster.id
+// and .name, its member name in janus.cluster.member - as it is at each
+// send: none, joined, left. The document's _id doesn't depend on it: a
+// record sent again once the node joined is the same document.
+func TestElasticCluster(t *testing.T) {
+	srv := &bulkServer{t: t}
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	sk := newESSink(t, esTarget(ts.URL, ElasticsearchTarget{}), nil)
+	var cl clusterVar
+	sk.env.cluster = cl.get
+	at := time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC)
+	rec := func(id string) Record {
+		return Record{Time: at, Source: SourceJanusd, Service: "janusd", Severity: SevInfo, Message: "line " + id, ID: id}
+	}
+	send := func(recs ...Record) {
+		t.Helper()
+		if _, err := sk.Send(context.Background(), recs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(rec("1"))
+	cl.set(testCluster)
+	send(rec("2"), rec("1"))
+	cl.set(Cluster{}) // left
+	send(rec("3"))
+	if len(srv.docs) != 4 {
+		t.Fatalf("%d documents", len(srv.docs))
+	}
+	for i, in := range []bool{false, true, true, false} {
+		if err := checkClusterDocument(srv.docs[i], in); err != nil {
+			t.Errorf("document %d (%s): %v", i, srv.docs[i]["message"], err)
+		}
+	}
+	if srv.ids[0] == "" || srv.ids[0] != srv.ids[2] {
+		t.Errorf("the record's _id changed once in a cluster: %q then %q", srv.ids[0], srv.ids[2])
+	}
+}
+
+// Through the shipper, to both kinds of targets at once: what's sent
+// says the membership as it is when it goes - SetCluster's function is
+// asked for each batch, while the node joins and leaves.
+func TestShipperFollowsTheCluster(t *testing.T) {
+	es := &bulkServer{t: t}
+	ts := httptest.NewServer(es)
+	defer ts.Close()
+	sl := newServer(t, "tcp", "octet-counting", nil)
+	cfg := Config{Targets: []Target{
+		esTarget(ts.URL, ElasticsearchTarget{}),
+		{Name: "syslog", Syslog: &SyslogTarget{Address: sl.addr(), Transport: "tcp"}},
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	sh := New(Options{Meta: Meta{Agent: "janusd", Hostname: func() string { return "lb1" }}})
+	defer sh.Close()
+	var cl clusterVar
+	sh.SetCluster(cl.get)
+	sh.Apply(cfg)
+	esDoc := func(msg string) map[string]any {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			es.mu.Lock()
+			for _, d := range es.docs {
+				if d["message"] == msg {
+					es.mu.Unlock()
+					return d
+				}
+			}
+			es.mu.Unlock()
+			if time.Now().After(deadline) {
+				t.Fatalf("elasticsearch never got %q", msg)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	sd := `[janus@32473 cluster_id="` + testCluster.ID + `" cluster_name="edge" member="edge-1"]`
+	for _, step := range []struct {
+		msg string
+		cl  Cluster
+	}{
+		{"before joining", Cluster{}},
+		{"a member", testCluster},
+		{"left", Cluster{}},
+		{"back", testCluster},
+	} {
+		cl.set(step.cl)
+		sh.Offer(Record{Time: time.Now(), Source: SourceJanusd, Service: "janusd", Severity: SevInfo, Message: step.msg})
+		in := step.cl != Cluster{}
+		if err := checkClusterDocument(esDoc(step.msg), in); err != nil {
+			t.Errorf("%s: %v", step.msg, err)
+		}
+		want := " janusd - janusd - " + step.msg
+		if in {
+			want = " janusd - janusd " + sd + " " + step.msg
+		}
+		if got := sl.waitFor(t, " "+step.msg, 1)[0]; !strings.HasSuffix(got, want) {
+			t.Errorf("%s: syslog %q, want ...%q", step.msg, got, want)
 		}
 	}
 }

@@ -618,6 +618,10 @@ member at once. Through the API:
   peers, drift and failed operations; the Grafana dashboard **Janus ·
   Clusters** ([the clusters' dashboard](../metrics.md#the-clusters-dashboard))
   shows it all, member by member.
+- In your logs: what a member sends by [log
+  forwarding](log-forwarding.md) says its cluster and member name -
+  `orchestrator.cluster.name` in Elasticsearch, RFC 5424 structured data
+  in syslog - so one filter shows the whole cluster.
 
 ## Without a Controller
 
