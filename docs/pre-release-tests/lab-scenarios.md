@@ -502,6 +502,9 @@ behind the lab's proxy, its DNS answering every name with the member
 that **doesn't** order, so each HTTP-01 challenge is answered by it. Two
 certificates (HTTP-01 and DNS-01) configured on the secrets' source
 through its page; versions adding the HTTP-01 rule, then a TLS frontend.
+Since v2026.10.25-5, the CA is pointed at another member through the
+DNS server's management API, without restarting it: the count of
+certificates it issued then covers the whole test.
 
 | Measured | How |
 |---|---|
@@ -509,6 +512,7 @@ through its page; versions adding the HTTP-01 rule, then a TLS frontend.
 | A renewal asked of the member that doesn't order | refused, and how |
 | Pulling | a renewal forced on the orderer, **Check now**: the journal, the serial each member serves |
 | The handover | the secrets' source changed on the page, **Check now**: who orders, the CA's issued certificates, each member's challenge answer; the CA pointed at the old orderer and a renewal asked of the new one |
+| The stick tables across it | since v2026.10.25-5: a version with a stick table replicated over the cluster's peers (a string key from the query, `http_req_cnt`), a few hundred keys sent; each member's count before and after the handover, and each HAProxy's restart time |
 
 ### A RouterOS router in front
 
