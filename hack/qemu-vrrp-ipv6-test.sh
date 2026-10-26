@@ -102,7 +102,7 @@ ctl() { # ctl NODE args...
   "$CTL_BIN" -endpoint "127.0.0.1:$((BASE + 10 * $(idx "$n") + 1))" -ca "$WORKDIR/$n-ca.crt" -cert "$WORKDIR/$n-admin.crt" -key "$WORKDIR/$n-admin.key" "$@"
 }
 for n in a b c; do ctl $n version >/dev/null || fail "no API on node $n"; done
-ctl a version | grep -q "Extension: keepalived" || fail "the image has no keepalived: $(ctl a version)"
+grep -q "Extension: keepalived" <<<"$(ctl a version)" || fail "the image has no keepalived: $(ctl a version)"
 
 # The shared LAN: eth1, static, IPv4 and IPv6 - as the production members.
 for n in a b c; do
@@ -159,7 +159,10 @@ EOF
 done
 
 state() { ctl "$1" network vrrp status 2>/dev/null | awk '$1 == "lb_pub" {print $2}'; }
-has() { ctl "$1" network status 2>/dev/null | grep -qF "$2"; } # has NODE ADDR/PREFIX
+# has NODE ADDR/PREFIX. The status read whole first: piped into grep -q
+# under pipefail, janusctl still writing when grep matched got SIGPIPE
+# and a present address read as missing (v2026.10.26-2's build).
+has() { local s; s="$(ctl "$1" network status 2>/dev/null)" || return 1; grep -qF "$2" <<<"$s"; }
 wait_state() { # wait_state NODE STATE
   local deadline=$((SECONDS + 30))
   until [ "$(state "$1")" = "$2" ]; do
