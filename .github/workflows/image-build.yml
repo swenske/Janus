@@ -891,6 +891,12 @@ jobs:
       - name: VRRP - keepalived failover between two nodes
         run: make qemu-vrrp-test
 
+      # An IPv6 virtual IP carried by an IPv4 VRRP instance, unicast
+      # adverts: it moves with the instance, announced by unsolicited
+      # neighbour advertisements. See hack/qemu-vrrp-ipv6-test.sh.
+      - name: VRRP - an IPv6 virtual IP with the IPv4 instance
+        run: make qemu-vrrp-ipv6-test
+
       # BGP (bird extension) between two real enforcing nodes: sessions
       # with TCP MD5 and BFD next to OSPF, routes into the kernel, the
       # anycast route withdrawn while HAProxy doesn't answer. See
