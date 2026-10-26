@@ -372,6 +372,7 @@ a Docker host of the home network, behind its reverse proxy.
 | The updated nodes' reboots | the firmware and kexec reboots below, forwarding on | each boot's kernel messages in Elasticsearch and the host they're under |
 | Throughput | the benchmark below with forwarding on (a profile's default sources) | against the release, measured the same morning |
 | The cost | on a node of the branch with LOGS, HAProxy answering every request itself, four clients for a minute: no log, `log stdout` sent nowhere, to syslog, to Elasticsearch, with the access logs on LOGS, HAProxy's own `log` over UDP and through a TLS ring | requests/s, janusd's and HAProxy's CPU, the lines HAProxy dropped (`DroppedLogs`), what the target sent and dropped, what the server kept, LOGS's write rate; then the queue drained |
+| A cluster's records | since v2026.10.26: a cluster's members (given a gateway on the management network to reach the targets) and the nodes in none; a Debian rsyslog (`hack/rsyslog`) beside the Controller added to the profile for the test | the cluster's fields in Elasticsearch, by host; the RFC 5424 structured data as rsyslog parsed it; the profile put back |
 
 ### Let's Encrypt without the internet
 
@@ -530,6 +531,54 @@ answering their name.
 | Drift | a route deleted by hand, another changed, **Check now**; a route of the router's own to the same prefix | the journal; the routes after |
 | A member lost | its machine forced off, not drained, probes running | how long its share failed; its route's flags; back once started |
 | Removed | the balancer removed | the routes left |
+
+### A cluster's members on the pages
+
+Since v2026.10.26: a cluster of new machines on both hosts with
+keepalived, a version with a virtual IP (the members' priorities as
+template variables) and a stick table, managing HAProxy, its files and
+VRRP. In a browser, as an admin:
+
+| Step | Measured |
+|---|---|
+| A member's top bar | the badge's words, its link followed, the VRRP role |
+| The pages of what the cluster manages | the lock notice, the buttons offered |
+| A write through a member's page API | the node's refusal, the Controller's answer |
+| An admin's release from the page, a change, **Check now** | the cluster's problems and journal; `janus_cluster_member_drift` and `_released` |
+| The version applied again | the drift gone, the lock and the notice back |
+| The master's HAProxy stopped, then started | the address's move, each badge's role after |
+| The Nodes page | the cluster's frame in cards and in the list |
+
+### The Controller's metrics and the alerts
+
+Since v2026.10.26: a Prometheus on the build box (the image the
+repository's `promtool` checks use) scraping the cluster's members'
+Janus exporters and the Controller's `/api/metrics` with a reader API
+token, `examples/prometheus/janus-rules.yml` loaded, every 5 s.
+
+| State | Measured |
+|---|---|
+| A member released and drifted | each `janus-clusters` alert's state |
+| A member's HAProxy stopped | when JanusClusterPeerDown goes pending and fires; the others; the Controller's peers figures after a check |
+| A member's HAProxy stopped, a check | `janus_cluster_member_error` and the figures it can't read |
+| Back in step | all inactive |
+
+### Settings
+
+Since v2026.10.26, in a browser, each choice made on the Settings page:
+the Nodes page's requests counted over 30 to 65 s (the refresh, an
+admin's floor, the figures off and on), its units (bits), a node page's
+times (UTC); reset to the defaults. The Hypervisors tab's lists with the
+lab's two hosts.
+
+### The Traffic flow's rates
+
+Since v2026.10.26, on a cluster's member: a TCP frontend relaying a
+100 MB file served beside the Controller, downloaded at 2 MiB/s from
+outside, the frontend without then with `option contstats`; the page
+read every 2 s in a browser - the frontend's, its backend's and the
+interface's rates, the hourglass and its tooltip; the dots' animations
+tagged, then counted again after 12 s of refreshes; reduced motion.
 
 ## The scripts
 
