@@ -7,6 +7,7 @@ import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from '../../..
 import { bytes, dateTime } from '../../format.js'
 import { usePoll } from '../../hooks.jsx'
 import { useMay } from '../../may.js'
+import { ClusterLockNotice } from '../../components/ClusterLock.jsx'
 
 const NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99})?$/
 
@@ -129,6 +130,7 @@ export default function Files() {
 
   return (
     <div className="stack">
+      <ClusterLockNotice domain="files" />
       <Card
         title="Files"
         icon={FileText}
