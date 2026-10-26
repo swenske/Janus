@@ -181,6 +181,20 @@ keeps its own `instance` label, the target's, and stores the node's as
 
 ## Alerts
 
+`janus-rules.yml` has two groups. `janus`: each node on its own.
+`janus-clusters`: the [clusters](guide/clusters.md) - from the nodes'
+metrics, a VRRP instance no member is MASTER of, or several
+(split brain), a peer down, a stick table a connected peer doesn't keep
+up with; from [the Controller's](#the-controllers-metrics), a member
+whose configuration changed on the node (drift), one left on another
+version than the cluster's, one the Controller's applies or checks
+fail on, an operation that failed or runs for 30 minutes. A node's
+metric names no cluster: the rules join it to `janus_cluster_info` on
+the target's `instance`, and say the cluster and the member. The
+Controller's alerts need its scrape job (below); the cluster ones are
+tested by `promtool test rules` (`hack/promtool/janus-rules.test.yml`,
+in `make examples-check`).
+
 ```yaml title="examples/prometheus/janus-rules.yml"
 groups:
   - name: janus
@@ -276,6 +290,81 @@ groups:
         annotations:
           summary: "Janus Let's Encrypt certificate not obtained (instance {{ $labels.instance }})"
           description: '{{ $labels.name }} on {{ $labels.instance }} is {{ $labels.state }}: HAProxy serves a stand-in.'
+  # Clusters (docs/cluster.md). A node's metrics name no cluster:
+  # janus_cluster_info does, joined on the target's instance. The
+  # janus_cluster_member_* and janus_cluster_operation_* metrics are the
+  # Controller's (GET /api/metrics, its own scrape job).
+  - name: janus-clusters
+    rules:
+      - alert: JanusClusterVRRPNoMaster
+        expr: |
+          (janus_vrrp_instance_state == 1) * on (instance) group_left (cluster_name, member) janus_cluster_info
+            and on (cluster_name, exported_instance)
+          sum by (cluster_name, exported_instance) (janus_vrrp_instance_state{state="MASTER"} * on (instance) group_left (cluster_name) janus_cluster_info) == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: 'Janus cluster without a VRRP master (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: 'No member of cluster {{ $labels.cluster_name }} has been MASTER of VRRP instance {{ $labels.exported_instance }} for a minute: nothing answers for its virtual address. {{ $labels.member }} ({{ $labels.instance }}) is {{ $labels.state }}.'
+      - alert: JanusClusterVRRPSplitBrain
+        expr: |
+          (janus_vrrp_instance_state{state="MASTER"} == 1) * on (instance) group_left (cluster_name, member) janus_cluster_info
+            and on (cluster_name, exported_instance)
+          sum by (cluster_name, exported_instance) (janus_vrrp_instance_state{state="MASTER"} * on (instance) group_left (cluster_name) janus_cluster_info) > 1
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: 'Janus cluster VRRP split brain (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: '{{ $labels.member }} ({{ $labels.instance }}) has been MASTER of VRRP instance {{ $labels.exported_instance }} of cluster {{ $labels.cluster_name }} for a minute, and so has another member: both answer for its virtual address - they do not hear each other.'
+      - alert: JanusClusterPeerDown
+        expr: janus_cluster_peer_up * on (instance) group_left (cluster_name, member) janus_cluster_info == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster peer down (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: '{{ $labels.member }} ({{ $labels.instance }}) of cluster {{ $labels.cluster_name }} has had no connection to its peer {{ $labels.peer }} for 2 minutes: their stick tables do not replicate.'
+      - alert: JanusClusterStickTableNotSynced
+        expr: |
+          janus_cluster_peer_table_synced * on (instance) group_left (cluster_name, member) janus_cluster_info == 0
+            unless on (instance, peer) janus_cluster_peer_up == 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster stick table not synced (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: 'The peer {{ $labels.peer }} has not kept up with the updates {{ $labels.member }} ({{ $labels.instance }}) of cluster {{ $labels.cluster_name }} makes to its stick table {{ $labels.table }} for 10 minutes, though connected.'
+      - alert: JanusClusterMemberDrifted
+        expr: janus_cluster_member_drift == 1
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster member drifted (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: 'The {{ $labels.domain }} configuration of {{ $labels.member }}, member of cluster {{ $labels.cluster_name }}, is no longer what the cluster applied: it was changed on the node. The next apply puts it back.'
+      - alert: JanusClusterMemberNotOnDesiredVersion
+        expr: janus_cluster_member_on_desired_version == 0 unless on (cluster_id) janus_cluster_operation_running == 1
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster member on another version (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: '{{ $labels.member }} has not run the desired version of cluster {{ $labels.cluster_name }} for 15 minutes, and no operation is running: an apply stopped part way - apply the version again.'
+      - alert: JanusClusterMemberFailing
+        expr: janus_cluster_member_error == 1
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster member failing (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: 'The Controller''s applies or checks on {{ $labels.member }}, member of cluster {{ $labels.cluster_name }}, have failed for 5 minutes: the cluster''s page says why.'
+      - alert: JanusClusterOperationFailed
+        expr: janus_cluster_operation_failed == 1
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster operation failed (cluster {{ $labels.cluster_name }})'
+          description: 'The last operation on cluster {{ $labels.cluster_name }} failed: its page and its journal say why, and on which member - JanusClusterMemberFailing names the members still failing.'
+      - alert: JanusClusterOperationStuck
+        expr: janus_cluster_operation_running == 1
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster operation running for long (cluster {{ $labels.cluster_name }})'
+          description: 'An operation has been running on cluster {{ $labels.cluster_name }} for 30 minutes - an apply, a member added, a scale or a recycle waits for a member: its journal says which.'
 ```
 
 ## Grafana dashboard
@@ -304,6 +393,46 @@ it with your other dashboards from a [file
 provider](https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards).
 A node's name shows without its port and domain: `lb1.example.net:10056`
 is `lb1`.
+
+## The clusters' dashboard
+
+[`grafana/janus-clusters.json`](../grafana/janus-clusters.json), **Janus
+· Clusters**, shows one [cluster](guide/clusters.md) at a time, by its
+members' names:
+
+- **At the top**: members answering (and those that stopped, and the
+  Controller's count), the member holding each VRRP instance's virtual
+  address, how many hold it - one; none or split brain in red -, peers
+  up and down, stick tables synced, and the Controller's view: the
+  version the cluster wants, members on another one, drifted, failing.
+- **Members**: a line per member - its node, release, exporter, HAProxy,
+  VRRP state and priority, peers up and down, stick tables -, then a
+  line per member as the Controller sees it: the version it applied
+  and whether it is the cluster's, drifted and released domains, its
+  last apply or check, drained, peers, when it was checked.
+- **Virtual address**: who holds it over time, how many masters, the
+  failovers (a member becoming MASTER), the VRRP priorities.
+- **Peers and stick tables** over time, member by member.
+- **Traffic and load**: each member's sessions and HTTP requests per
+  second, connections, HAProxy's busy time - from [HAProxy's own
+  exporter](#haproxys-own-metrics) - and its CPUs and memory - from [the
+  node exporter](#the-node-exporter).
+- **Controller**: the desired and applied versions over time, the
+  members' health (failed applies or checks, drift by domain, drained),
+  the operations, the member count, the load auto-scaling judges.
+- VRRP failovers, configurations applied and janusd starting mark every
+  graph.
+
+Its variables choose the data source, the Janus exporter's job and
+the cluster (from `janus_cluster_info`), and the jobs that scrape [the
+Controller](#the-controllers-metrics) (`janus-controller`), HAProxy's
+exporter (`haproxy`) and node_exporter (`node`). A member's HAProxy and
+node_exporter are found on the host its Janus exporter is scraped at -
+`lb1.example.net:8405` and `lb1.example.net:9100` with
+`lb1.example.net:10056`, as in [the scrape
+configuration](private-cloud/observability.md#metrics). An exporter not
+scraped leaves its panels empty; the Controller's say so. Import it like
+the nodes' dashboard; each links to the other (**Janus dashboards**).
 
 ## HAProxy's own metrics
 
@@ -345,6 +474,8 @@ scrape_configs:
 | `janus_controller_build_info` | gauge | `version` | Always 1: the Controller's release |
 | `janus_cluster_members` | gauge | `cluster_id`, `cluster_name` | The cluster's members |
 | `janus_cluster_operation_running` | gauge | `cluster_id`, `cluster_name` | 1 while an operation runs on it - an apply, a scale, a recycle |
+| `janus_cluster_operation_failed` | gauge | `cluster_id`, `cluster_name` | 1 when its last operation failed - the cluster's page and journal say why -, until the next one starts |
+| `janus_cluster_desired_version` | gauge | `cluster_id`, `cluster_name` | The version of its configuration the members should run; 0 before the first |
 | `janus_cluster_load_members` | gauge | `cluster_id`, `cluster_name` | Members that answered the last reading, every 15 s |
 | `janus_cluster_load_haproxy_idle_ratio` | gauge | `cluster_id`, `cluster_name` | HAProxy's idle time, 0 to 1, the mean over the members |
 | `janus_cluster_load_cpu_busy_ratio` | gauge | `cluster_id`, `cluster_name` | The CPUs' busy time without steal, the mean |
@@ -354,8 +485,25 @@ scrape_configs:
 | `janus_cluster_autoscale_mode` | gauge | `cluster_id`, `cluster_name`, `mode` | 1 for its auto-scaling's mode, `observe` or `on`; absent when off |
 | `janus_cluster_autoscale_paused` | gauge | `cluster_id`, `cluster_name` | 1 while it is paused: its members were set from outside |
 | `janus_cluster_autoscale_judged_members` | gauge | `cluster_id`, `cluster_name` | The member count auto-scaling judges - the one it simulates while observing |
+| `janus_cluster_member_applied_version` | gauge | `cluster_id`, `cluster_name`, `member` | The version the member last took whole; 0: none |
+| `janus_cluster_member_on_desired_version` | gauge | `cluster_id`, `cluster_name`, `member` | 1 when it runs the cluster's desired version - after an apply that stopped part way, the members it reached run one the cluster doesn't want yet |
+| `janus_cluster_member_drift` | gauge | `cluster_id`, `cluster_name`, `member`, `domain` | 1 for each managed domain (`haproxy`, `files`, `firewall`, `vrrp`, `bgp`) whose content on the member is no longer what was applied: changed on the node - the next apply puts it back |
+| `janus_cluster_member_released` | gauge | `cluster_id`, `cluster_name`, `member`, `domain` | 1 for each managed domain the member's own users took back (`janusctl cluster release`) |
+| `janus_cluster_member_error` | gauge | `cluster_id`, `cluster_name`, `member` | 1 when the Controller's last apply or check on the member failed |
+| `janus_cluster_member_drained` | gauge | `cluster_id`, `cluster_name`, `member` | 1 while it is drained: out of service |
+| `janus_cluster_member_peers` | gauge | `cluster_id`, `cluster_name`, `member` | Its HAProxy peers, as the Controller last saw them |
+| `janus_cluster_member_peers_up` | gauge | `cluster_id`, `cluster_name`, `member` | Those it was connected to |
+| `janus_cluster_member_tables_synced` | gauge | `cluster_id`, `cluster_name`, `member` | 1 when every peer had acknowledged every stick table |
+| `janus_cluster_member_checked_timestamp_seconds` | gauge | `cluster_id`, `cluster_name`, `member` | When the Controller last checked it |
 
 A load figure the members didn't give - HAProxy not answering, the
 first reading of the CPUs - is absent rather than 0. The load is read
 for every cluster, auto-scaled or not; it is also each cluster's
 `load` in `GET /api/clusters/{id}`.
+
+The `janus_cluster_member_*` metrics are each member as the Controller
+last checked it - every 10 minutes, every minute while one fails, after
+each operation: what `GET /api/clusters/{id}` shows of its members. A
+member's peers and stick tables are absent until its first check. Their
+`member` label is the member name, as in the nodes'
+`janus_cluster_info`.

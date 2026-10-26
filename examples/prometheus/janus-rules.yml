@@ -92,3 +92,78 @@ groups:
         annotations:
           summary: "Janus Let's Encrypt certificate not obtained (instance {{ $labels.instance }})"
           description: '{{ $labels.name }} on {{ $labels.instance }} is {{ $labels.state }}: HAProxy serves a stand-in.'
+  # Clusters (docs/cluster.md). A node's metrics name no cluster:
+  # janus_cluster_info does, joined on the target's instance. The
+  # janus_cluster_member_* and janus_cluster_operation_* metrics are the
+  # Controller's (GET /api/metrics, its own scrape job).
+  - name: janus-clusters
+    rules:
+      - alert: JanusClusterVRRPNoMaster
+        expr: |
+          (janus_vrrp_instance_state == 1) * on (instance) group_left (cluster_name, member) janus_cluster_info
+            and on (cluster_name, exported_instance)
+          sum by (cluster_name, exported_instance) (janus_vrrp_instance_state{state="MASTER"} * on (instance) group_left (cluster_name) janus_cluster_info) == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: 'Janus cluster without a VRRP master (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: 'No member of cluster {{ $labels.cluster_name }} has been MASTER of VRRP instance {{ $labels.exported_instance }} for a minute: nothing answers for its virtual address. {{ $labels.member }} ({{ $labels.instance }}) is {{ $labels.state }}.'
+      - alert: JanusClusterVRRPSplitBrain
+        expr: |
+          (janus_vrrp_instance_state{state="MASTER"} == 1) * on (instance) group_left (cluster_name, member) janus_cluster_info
+            and on (cluster_name, exported_instance)
+          sum by (cluster_name, exported_instance) (janus_vrrp_instance_state{state="MASTER"} * on (instance) group_left (cluster_name) janus_cluster_info) > 1
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: 'Janus cluster VRRP split brain (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: '{{ $labels.member }} ({{ $labels.instance }}) has been MASTER of VRRP instance {{ $labels.exported_instance }} of cluster {{ $labels.cluster_name }} for a minute, and so has another member: both answer for its virtual address - they do not hear each other.'
+      - alert: JanusClusterPeerDown
+        expr: janus_cluster_peer_up * on (instance) group_left (cluster_name, member) janus_cluster_info == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster peer down (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: '{{ $labels.member }} ({{ $labels.instance }}) of cluster {{ $labels.cluster_name }} has had no connection to its peer {{ $labels.peer }} for 2 minutes: their stick tables do not replicate.'
+      - alert: JanusClusterStickTableNotSynced
+        expr: |
+          janus_cluster_peer_table_synced * on (instance) group_left (cluster_name, member) janus_cluster_info == 0
+            unless on (instance, peer) janus_cluster_peer_up == 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster stick table not synced (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: 'The peer {{ $labels.peer }} has not kept up with the updates {{ $labels.member }} ({{ $labels.instance }}) of cluster {{ $labels.cluster_name }} makes to its stick table {{ $labels.table }} for 10 minutes, though connected.'
+      - alert: JanusClusterMemberDrifted
+        expr: janus_cluster_member_drift == 1
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster member drifted (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: 'The {{ $labels.domain }} configuration of {{ $labels.member }}, member of cluster {{ $labels.cluster_name }}, is no longer what the cluster applied: it was changed on the node. The next apply puts it back.'
+      - alert: JanusClusterMemberNotOnDesiredVersion
+        expr: janus_cluster_member_on_desired_version == 0 unless on (cluster_id) janus_cluster_operation_running == 1
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster member on another version (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: '{{ $labels.member }} has not run the desired version of cluster {{ $labels.cluster_name }} for 15 minutes, and no operation is running: an apply stopped part way - apply the version again.'
+      - alert: JanusClusterMemberFailing
+        expr: janus_cluster_member_error == 1
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster member failing (cluster {{ $labels.cluster_name }}, member {{ $labels.member }})'
+          description: 'The Controller''s applies or checks on {{ $labels.member }}, member of cluster {{ $labels.cluster_name }}, have failed for 5 minutes: the cluster''s page says why.'
+      - alert: JanusClusterOperationFailed
+        expr: janus_cluster_operation_failed == 1
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster operation failed (cluster {{ $labels.cluster_name }})'
+          description: 'The last operation on cluster {{ $labels.cluster_name }} failed: its page and its journal say why, and on which member - JanusClusterMemberFailing names the members still failing.'
+      - alert: JanusClusterOperationStuck
+        expr: janus_cluster_operation_running == 1
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus cluster operation running for long (cluster {{ $labels.cluster_name }})'
+          description: 'An operation has been running on cluster {{ $labels.cluster_name }} for 30 minutes - an apply, a member added, a scale or a recycle waits for a member: its journal says which.'

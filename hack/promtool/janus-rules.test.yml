@@ -1,0 +1,155 @@
+# promtool test rules: the cluster alerts of examples/prometheus/janus-rules.yml
+# on made-up series - hack/examples-check.sh mounts that directory at
+# /prometheus. Cluster edge (lb-1, lb-2) loses its VRRP master, then a
+# peer; cluster web (web-1, web-2) splits its brain; the Controller sees
+# edge drift, fail and stop part way, and web's operation never end.
+rule_files:
+  - /prometheus/janus-rules.yml
+
+evaluation_interval: 15s
+
+tests:
+  - interval: 15s
+    input_series:
+      - series: 'janus_cluster_info{job="janus", instance="lb1:10056", cluster_id="c1", cluster_name="edge", member="lb-1"}'
+        values: '1x100'
+      - series: 'janus_cluster_info{job="janus", instance="lb2:10056", cluster_id="c1", cluster_name="edge", member="lb-2"}'
+        values: '1x100'
+      - series: 'janus_cluster_info{job="janus", instance="web1:10056", cluster_id="c2", cluster_name="web", member="web-1"}'
+        values: '1x100'
+      - series: 'janus_cluster_info{job="janus", instance="web2:10056", cluster_id="c2", cluster_name="web", member="web-2"}'
+        values: '1x100'
+      # edge: lb-1 MASTER of front for a minute, then BACKUP like lb-2.
+      - series: 'janus_vrrp_instance_state{job="janus", instance="lb1:10056", exported_instance="front", interface="eth0", state="MASTER"}'
+        values: '1x3 0x96'
+      - series: 'janus_vrrp_instance_state{job="janus", instance="lb1:10056", exported_instance="front", interface="eth0", state="BACKUP"}'
+        values: '0x3 1x96'
+      - series: 'janus_vrrp_instance_state{job="janus", instance="lb2:10056", exported_instance="front", interface="eth0", state="MASTER"}'
+        values: '0x100'
+      - series: 'janus_vrrp_instance_state{job="janus", instance="lb2:10056", exported_instance="front", interface="eth0", state="BACKUP"}'
+        values: '1x100'
+      # web: both MASTER of vip.
+      - series: 'janus_vrrp_instance_state{job="janus", instance="web1:10056", exported_instance="vip", interface="eth1", state="MASTER"}'
+        values: '1x100'
+      - series: 'janus_vrrp_instance_state{job="janus", instance="web2:10056", exported_instance="vip", interface="eth1", state="MASTER"}'
+        values: '0x3 1x96'
+      # edge: lb-1 loses lb-2 after a minute; its tables to lb-2 unsynced
+      # with it. lb-2 sees lb-1, its table sessions not acknowledged.
+      - series: 'janus_cluster_peer_up{job="janus", instance="lb1:10056", peer="lb-2"}'
+        values: '1x3 0x96'
+      - series: 'janus_cluster_peer_table_synced{job="janus", instance="lb1:10056", peer="lb-2", table="sessions"}'
+        values: '1x3 0x96'
+      - series: 'janus_cluster_peer_up{job="janus", instance="lb2:10056", peer="lb-1"}'
+        values: '1x100'
+      - series: 'janus_cluster_peer_table_synced{job="janus", instance="lb2:10056", peer="lb-1", table="sessions"}'
+        values: '1x3 0x96'
+      # The Controller: lb-2's haproxy drifted; lb-1 failing, on another
+      # version once the operation on edge ended (after 5 minutes), and
+      # that operation failed; web's runs on.
+      - series: 'janus_cluster_member_drift{job="janus-controller", instance="ctl:8080", cluster_id="c1", cluster_name="edge", member="lb-2", domain="haproxy"}'
+        values: '1x100'
+      - series: 'janus_cluster_member_drift{job="janus-controller", instance="ctl:8080", cluster_id="c1", cluster_name="edge", member="lb-2", domain="files"}'
+        values: '0x100'
+      - series: 'janus_cluster_member_error{job="janus-controller", instance="ctl:8080", cluster_id="c1", cluster_name="edge", member="lb-1"}'
+        values: '1x100'
+      - series: 'janus_cluster_member_on_desired_version{job="janus-controller", instance="ctl:8080", cluster_id="c1", cluster_name="edge", member="lb-1"}'
+        values: '0x100'
+      - series: 'janus_cluster_member_on_desired_version{job="janus-controller", instance="ctl:8080", cluster_id="c1", cluster_name="edge", member="lb-2"}'
+        values: '1x100'
+      - series: 'janus_cluster_operation_running{job="janus-controller", instance="ctl:8080", cluster_id="c1", cluster_name="edge"}'
+        values: '1x19 0x80'
+      - series: 'janus_cluster_operation_failed{job="janus-controller", instance="ctl:8080", cluster_id="c1", cluster_name="edge"}'
+        values: '0x19 1x80'
+      - series: 'janus_cluster_operation_running{job="janus-controller", instance="ctl:8080", cluster_id="c2", cluster_name="web"}'
+        values: '1x200'
+
+    alert_rule_test:
+      - eval_time: 1m30s
+        alertname: JanusClusterVRRPNoMaster
+      - eval_time: 3m
+        alertname: JanusClusterVRRPNoMaster
+        exp_alerts:
+          - exp_labels: {severity: critical, job: janus, instance: 'lb1:10056', exported_instance: front, interface: eth0, state: BACKUP, cluster_name: edge, member: lb-1}
+            exp_annotations:
+              summary: 'Janus cluster without a VRRP master (cluster edge, member lb-1)'
+              description: 'No member of cluster edge has been MASTER of VRRP instance front for a minute: nothing answers for its virtual address. lb-1 (lb1:10056) is BACKUP.'
+          - exp_labels: {severity: critical, job: janus, instance: 'lb2:10056', exported_instance: front, interface: eth0, state: BACKUP, cluster_name: edge, member: lb-2}
+            exp_annotations:
+              summary: 'Janus cluster without a VRRP master (cluster edge, member lb-2)'
+              description: 'No member of cluster edge has been MASTER of VRRP instance front for a minute: nothing answers for its virtual address. lb-2 (lb2:10056) is BACKUP.'
+      - eval_time: 1m30s
+        alertname: JanusClusterVRRPSplitBrain
+      - eval_time: 3m
+        alertname: JanusClusterVRRPSplitBrain
+        exp_alerts:
+          - exp_labels: {severity: critical, job: janus, instance: 'web1:10056', exported_instance: vip, interface: eth1, state: MASTER, cluster_name: web, member: web-1}
+            exp_annotations:
+              summary: 'Janus cluster VRRP split brain (cluster web, member web-1)'
+              description: 'web-1 (web1:10056) has been MASTER of VRRP instance vip of cluster web for a minute, and so has another member: both answer for its virtual address - they do not hear each other.'
+          - exp_labels: {severity: critical, job: janus, instance: 'web2:10056', exported_instance: vip, interface: eth1, state: MASTER, cluster_name: web, member: web-2}
+            exp_annotations:
+              summary: 'Janus cluster VRRP split brain (cluster web, member web-2)'
+              description: 'web-2 (web2:10056) has been MASTER of VRRP instance vip of cluster web for a minute, and so has another member: both answer for its virtual address - they do not hear each other.'
+      - eval_time: 2m30s
+        alertname: JanusClusterPeerDown
+      - eval_time: 4m
+        alertname: JanusClusterPeerDown
+        exp_alerts:
+          - exp_labels: {severity: warning, job: janus, instance: 'lb1:10056', peer: lb-2, cluster_name: edge, member: lb-1}
+            exp_annotations:
+              summary: 'Janus cluster peer down (cluster edge, member lb-1)'
+              description: 'lb-1 (lb1:10056) of cluster edge has had no connection to its peer lb-2 for 2 minutes: their stick tables do not replicate.'
+      # lb-1's table to lb-2 too, but lb-2 is down: JanusClusterPeerDown says it.
+      - eval_time: 10m
+        alertname: JanusClusterStickTableNotSynced
+      - eval_time: 12m
+        alertname: JanusClusterStickTableNotSynced
+        exp_alerts:
+          - exp_labels: {severity: warning, job: janus, instance: 'lb2:10056', peer: lb-1, table: sessions, cluster_name: edge, member: lb-2}
+            exp_annotations:
+              summary: 'Janus cluster stick table not synced (cluster edge, member lb-2)'
+              description: 'The peer lb-1 has not kept up with the updates lb-2 (lb2:10056) of cluster edge makes to its stick table sessions for 10 minutes, though connected.'
+      - eval_time: 1m
+        alertname: JanusClusterMemberDrifted
+        exp_alerts:
+          - exp_labels: {severity: warning, job: janus-controller, instance: 'ctl:8080', cluster_id: c1, cluster_name: edge, member: lb-2, domain: haproxy}
+            exp_annotations:
+              summary: 'Janus cluster member drifted (cluster edge, member lb-2)'
+              description: 'The haproxy configuration of lb-2, member of cluster edge, is no longer what the cluster applied: it was changed on the node. The next apply puts it back.'
+      # Not while the operation runs, nor 15 minutes after it ended.
+      - eval_time: 19m
+        alertname: JanusClusterMemberNotOnDesiredVersion
+      - eval_time: 21m
+        alertname: JanusClusterMemberNotOnDesiredVersion
+        exp_alerts:
+          - exp_labels: {severity: warning, job: janus-controller, instance: 'ctl:8080', cluster_id: c1, cluster_name: edge, member: lb-1}
+            exp_annotations:
+              summary: 'Janus cluster member on another version (cluster edge, member lb-1)'
+              description: 'lb-1 has not run the desired version of cluster edge for 15 minutes, and no operation is running: an apply stopped part way - apply the version again.'
+      - eval_time: 4m
+        alertname: JanusClusterMemberFailing
+      - eval_time: 6m
+        alertname: JanusClusterMemberFailing
+        exp_alerts:
+          - exp_labels: {severity: warning, job: janus-controller, instance: 'ctl:8080', cluster_id: c1, cluster_name: edge, member: lb-1}
+            exp_annotations:
+              summary: 'Janus cluster member failing (cluster edge, member lb-1)'
+              description: 'The Controller''s applies or checks on lb-1, member of cluster edge, have failed for 5 minutes: the cluster''s page says why.'
+      - eval_time: 4m
+        alertname: JanusClusterOperationFailed
+      - eval_time: 6m
+        alertname: JanusClusterOperationFailed
+        exp_alerts:
+          - exp_labels: {severity: warning, job: janus-controller, instance: 'ctl:8080', cluster_id: c1, cluster_name: edge}
+            exp_annotations:
+              summary: 'Janus cluster operation failed (cluster edge)'
+              description: 'The last operation on cluster edge failed: its page and its journal say why, and on which member - JanusClusterMemberFailing names the members still failing.'
+      - eval_time: 29m
+        alertname: JanusClusterOperationStuck
+      - eval_time: 31m
+        alertname: JanusClusterOperationStuck
+        exp_alerts:
+          - exp_labels: {severity: warning, job: janus-controller, instance: 'ctl:8080', cluster_id: c2, cluster_name: web}
+            exp_annotations:
+              summary: 'Janus cluster operation running for long (cluster web)'
+              description: 'An operation has been running on cluster web for 30 minutes - an apply, a member added, a scale or a recycle waits for a member: its journal says which.'
