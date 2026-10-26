@@ -68,7 +68,8 @@ vrrp_instance VI_1 {
   extensions - and the restarted janusd starts it again: the IPs come
   back to it by priority.
 - The interface needs an address of its own on the VRRP network - set it
-  with the [network configuration](network-configuration.md).
+  with the [network configuration](network-configuration.md). Applying a
+  network configuration leaves the virtual IPs where keepalived put them.
 - HAProxy may bind the virtual IP itself (`bind 192.0.2.100:443`) on
   every node, the one holding it or not: `net.ipv4.ip_nonlocal_bind` and
   its IPv6 twin are on by default, as HAProxy advises

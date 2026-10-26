@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 	"golang.org/x/sys/unix"
 
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
@@ -446,7 +447,7 @@ func execute(p *plan) error {
 		if err != nil {
 			continue // gone meanwhile
 		}
-		if err := flush(link); err != nil {
+		if err := flush(link, p.lease); err != nil {
 			return fmt.Errorf("%s: %w", l.name, err)
 		}
 		if err := netlink.LinkSetDown(link); err != nil {
@@ -455,14 +456,14 @@ func execute(p *plan) error {
 	}
 
 	for _, ip := range p.ifaces {
-		if err := executeIface(ip); err != nil {
+		if err := executeIface(ip, p.lease); err != nil {
 			return fmt.Errorf("%s: %w", ip.name, err)
 		}
 	}
 	return nil
 }
 
-func executeIface(ip ifPlan) error {
+func executeIface(ip ifPlan, lease netip.Prefix) error {
 	var link netlink.Link
 	var err error
 	if ip.existing == nil { // a VLAN to create
@@ -487,7 +488,7 @@ func executeIface(ip ifPlan) error {
 		}
 	}
 	if ip.mode == janusv1alpha1.AddressingMode_ADDRESSING_MODE_DISABLED {
-		if err := flush(link); err != nil {
+		if err := flush(link, lease); err != nil {
 			return err
 		}
 		return netlink.LinkSetDown(link)
@@ -495,7 +496,7 @@ func executeIface(ip ifPlan) error {
 	if err := netlink.LinkSetUp(link); err != nil {
 		return fmt.Errorf("set up: %w", err)
 	}
-	if err := syncAddrs(link, ip.addrs); err != nil {
+	if err := syncAddrs(link, ip.addrs, lease); err != nil {
 		return err
 	}
 	proto := netlink.RouteProtocol(unix.RTPROT_STATIC)
@@ -516,31 +517,46 @@ func executeIface(ip ifPlan) error {
 	return syncRoutes(link, want)
 }
 
-// managed reports whether an address is janusd's to add and remove:
-// every global IPv4 address, and permanent (not SLAAC) global IPv6 ones.
+// ownProto is the IFA_PROTO value netmgr gives the addresses it adds
+// (Linux 6.3+): only those - and the kernel's boot DHCP address - are its
+// to take away. Another daemon's addresses on the same interface stay:
+// keepalived's virtual ones were removed by every apply, the VIP gone
+// from the master until keepalived noticed and took it back.
+const ownProto = 0x4a
+
+// ifaProto is IFA_PROTO, which golang.org/x/sys doesn't name (IFA_MAX).
+const ifaProto = 0xb
+
+// addr is an address on a link, with what syncAddrs needs of it.
+type addr struct {
+	prefix netip.Prefix
+	flags  uint32
+	proto  uint8
+}
+
+// managed reports whether an address is one janusd adds and removes:
+// global IPv4 addresses, and permanent (not SLAAC) global IPv6 ones.
 // Link-local and kernel-autoconfigured addresses are left alone.
-func managed(a netlink.Addr) (netip.Prefix, bool) {
-	p, ok := prefixOf(a.IPNet)
-	if !ok || !p.Addr().IsGlobalUnicast() {
-		return netip.Prefix{}, false
+func managed(a addr) bool {
+	if !a.prefix.Addr().IsGlobalUnicast() {
+		return false
 	}
-	if p.Addr().Is6() && a.Flags&unix.IFA_F_PERMANENT == 0 {
-		return netip.Prefix{}, false
-	}
-	return p, true
+	return a.prefix.Addr().Is4() || a.flags&unix.IFA_F_PERMANENT != 0
 }
 
 // syncAddrs adds what's missing before removing what's no longer wanted,
-// so an address change doesn't drop connectivity in between.
-func syncAddrs(link netlink.Link, want []netip.Prefix) error {
-	have, err := netlink.AddrList(link, netlink.FAMILY_ALL)
+// so an address change doesn't drop connectivity in between. It removes
+// only its own addresses (ownProto) and lease, the boot DHCP address.
+func syncAddrs(link netlink.Link, want []netip.Prefix, lease netip.Prefix) error {
+	index := link.Attrs().Index
+	have, err := listAddrs(index)
 	if err != nil {
-		return fmt.Errorf("list addresses: %w", err)
+		return err
 	}
 	present := map[netip.Prefix]bool{}
 	for _, a := range have {
-		if p, ok := managed(a); ok {
-			present[p] = true
+		if managed(a) {
+			present[a.prefix] = true
 		}
 	}
 	wanted := map[netip.Prefix]bool{}
@@ -549,19 +565,20 @@ func syncAddrs(link netlink.Link, want []netip.Prefix) error {
 		if present[p] {
 			continue
 		}
-		addr := &netlink.Addr{IPNet: &net.IPNet{IP: net.IP(p.Addr().AsSlice()), Mask: net.CIDRMask(p.Bits(), p.Addr().BitLen())}}
-		if err := netlink.AddrAdd(link, addr); err != nil && !errors.Is(err, unix.EEXIST) {
+		if err := addAddr(index, p); err != nil && !errors.Is(err, unix.EEXIST) {
 			return fmt.Errorf("add address %s: %w", p, err)
 		}
 	}
 	removed := false
 	for _, a := range have {
-		if p, ok := managed(a); ok && !wanted[p] {
-			if err := netlink.AddrDel(link, &a); err != nil && !errors.Is(err, unix.EADDRNOTAVAIL) {
-				return fmt.Errorf("remove address %s: %w", p, err)
-			}
-			removed = true
+		if !managed(a) || wanted[a.prefix] || (a.proto != ownProto && a.prefix != lease) {
+			continue
 		}
+		del := &netlink.Addr{IPNet: &net.IPNet{IP: net.IP(a.prefix.Addr().AsSlice()), Mask: net.CIDRMask(a.prefix.Bits(), a.prefix.Addr().BitLen())}}
+		if err := netlink.AddrDel(link, del); err != nil && !errors.Is(err, unix.EADDRNOTAVAIL) {
+			return fmt.Errorf("remove address %s: %w", a.prefix, err)
+		}
+		removed = true
 	}
 	if !removed {
 		return nil
@@ -570,26 +587,116 @@ func syncAddrs(link netlink.Link, want []netip.Prefix) error {
 	// ones of its subnet along with it, unless promote_secondaries is on
 	// (rootfs/init turns it on): a new address in the old one's subnet
 	// would be gone. Put back whatever is missing.
-	have, err = netlink.AddrList(link, netlink.FAMILY_ALL)
-	if err != nil {
-		return fmt.Errorf("list addresses: %w", err)
+	if have, err = listAddrs(index); err != nil {
+		return err
 	}
 	present = map[netip.Prefix]bool{}
 	for _, a := range have {
-		if p, ok := managed(a); ok {
-			present[p] = true
+		if managed(a) {
+			present[a.prefix] = true
 		}
 	}
 	for _, p := range want {
 		if present[p] {
 			continue
 		}
-		addr := &netlink.Addr{IPNet: &net.IPNet{IP: net.IP(p.Addr().AsSlice()), Mask: net.CIDRMask(p.Bits(), p.Addr().BitLen())}}
-		if err := netlink.AddrAdd(link, addr); err != nil && !errors.Is(err, unix.EEXIST) {
+		if err := addAddr(index, p); err != nil && !errors.Is(err, unix.EEXIST) {
 			return fmt.Errorf("add address %s: %w", p, err)
 		}
 	}
 	return nil
+}
+
+// addAddr adds p to link index as netmgr's (ownProto). A single IPv6
+// address (a /128) skips duplicate address detection: it's an anycast or
+// service address several nodes hold at once - with DAD, every node but
+// the first to add it on a segment had it "dadfailed", unusable.
+func addAddr(index int, p netip.Prefix) error {
+	family := unix.AF_INET
+	if p.Addr().Is6() {
+		family = unix.AF_INET6
+	}
+	req := nl.NewNetlinkRequest(unix.RTM_NEWADDR, unix.NLM_F_CREATE|unix.NLM_F_EXCL|unix.NLM_F_ACK)
+	msg := nl.NewIfAddrmsg(family)
+	msg.Index = uint32(index)
+	msg.Prefixlen = uint8(p.Bits())
+	req.AddData(msg)
+	ip := p.Addr().AsSlice()
+	req.AddData(nl.NewRtAttr(unix.IFA_LOCAL, ip))
+	req.AddData(nl.NewRtAttr(unix.IFA_ADDRESS, ip))
+	if p.Addr().Is4() && p.Bits() < 31 {
+		// The broadcast address, as netlink.AddrAdd sets it (RFC 3021).
+		mask := net.CIDRMask(p.Bits(), 32)
+		bcast := make(net.IP, 4)
+		for i := range bcast {
+			bcast[i] = ip[i] | ^mask[i]
+		}
+		req.AddData(nl.NewRtAttr(unix.IFA_BROADCAST, bcast))
+	}
+	if p.Addr().Is6() && p.IsSingleIP() {
+		flags := make([]byte, 4)
+		nl.NativeEndian().PutUint32(flags, unix.IFA_F_NODAD)
+		req.AddData(nl.NewRtAttr(unix.IFA_FLAGS, flags))
+	}
+	req.AddData(nl.NewRtAttr(ifaProto, []byte{ownProto}))
+	_, err := req.Execute(unix.NETLINK_ROUTE, 0)
+	return err
+}
+
+// listAddrs lists link index's addresses with their flags and protocol -
+// which netlink.AddrList doesn't read.
+func listAddrs(index int) ([]addr, error) {
+	var msgs [][]byte
+	var err error
+	for range 3 { // a dump interrupted by a change meanwhile is redone
+		req := nl.NewNetlinkRequest(unix.RTM_GETADDR, unix.NLM_F_DUMP)
+		req.AddData(nl.NewIfAddrmsg(unix.AF_UNSPEC))
+		if msgs, err = req.Execute(unix.NETLINK_ROUTE, unix.RTM_NEWADDR); !errors.Is(err, nl.ErrDumpInterrupted) {
+			break
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list addresses: %w", err)
+	}
+	var out []addr
+	for _, m := range msgs {
+		msg := nl.DeserializeIfAddrmsg(m)
+		if int(msg.Index) != index {
+			continue
+		}
+		attrs, err := nl.ParseRouteAttr(m[msg.Len():])
+		if err != nil {
+			return nil, fmt.Errorf("list addresses: %w", err)
+		}
+		a := addr{flags: uint32(msg.Flags)}
+		var local, address []byte
+		for _, at := range attrs {
+			switch at.Attr.Type {
+			case unix.IFA_LOCAL:
+				local = at.Value
+			case unix.IFA_ADDRESS:
+				address = at.Value
+			case unix.IFA_FLAGS:
+				if len(at.Value) == 4 {
+					a.flags = nl.NativeEndian().Uint32(at.Value)
+				}
+			case ifaProto:
+				if len(at.Value) > 0 {
+					a.proto = at.Value[0]
+				}
+			}
+		}
+		if local == nil { // IPv6 sends the address as IFA_ADDRESS alone
+			local = address
+		}
+		ip, ok := netip.AddrFromSlice(local)
+		if !ok {
+			continue
+		}
+		a.prefix = netip.PrefixFrom(ip.Unmap(), int(msg.Prefixlen))
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 // managedRoutes are a link's default routes installed by janusd or the
@@ -639,11 +746,11 @@ func syncRoutes(link netlink.Link, want []netlink.Route) error {
 	return nil
 }
 
-func flush(link netlink.Link) error {
+func flush(link netlink.Link, lease netip.Prefix) error {
 	if err := syncRoutes(link, nil); err != nil {
 		return err
 	}
-	return syncAddrs(link, nil)
+	return syncAddrs(link, nil, lease)
 }
 
 // --- reading the system ---

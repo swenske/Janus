@@ -70,6 +70,15 @@ advertisement (the CIS benchmark's 3.3.2.7 - see
 SLAAC address and no route from a router - give its `addresses` and its
 `gateway6`.
 
+Applying a configuration adds and removes only the addresses Janus
+itself put on the interfaces (and the boot DHCP lease's, once its
+interface isn't in DHCP mode): another daemon's addresses stay - the
+[VRRP](vrrp.md) virtual IPs keepalived holds, on the node holding them.
+A single IPv6 address - a `/128`, an anycast address several nodes
+announce with [BGP](bgp.md) - is added without duplicate address
+detection: every node of the segment keeps it, none marks it as a
+duplicate and leaves it unused.
+
 ### DHCP is the kernel's, for now
 
 DHCP is done once, at boot, by the kernel itself (`ip=dhcp`). That means:

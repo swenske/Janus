@@ -50,8 +50,10 @@ protocol bgp upstream {
   stop - the routers have moved the traffic before any connection is
   refused.
 - The anycast address must also be an address of the node, for HAProxy to
-  receive its traffic: add it to an interface (as a `/32`) with the
-  [network configuration](network-configuration.md), and bind HAProxy to it.
+  receive its traffic: add it to an interface (as a `/32`, or a `/128` -
+  added without duplicate address detection, so every node keeps it) with
+  the [network configuration](network-configuration.md), and bind HAProxy
+  to it.
 - Without a `log` statement, janusd adds `log stderr all;` to the file
   BIRD reads (not to the one it saves), so BIRD's messages are its
   service's log: `janusctl system logs bird`.
