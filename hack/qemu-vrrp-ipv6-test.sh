@@ -10,7 +10,9 @@
 # entry for the IPv6 address moves to B's MAC from B's unsolicited
 # neighbour advertisement - before C sends anything to it -, its ARP entry
 # for the IPv4 one the same; C reaches B. A's HAProxy back: A takes them
-# back. No AVC denial on any node.
+# back. A network configuration applied on the master - the same anycast
+# /32 and /128 on A and B - leaves its virtual IPs, and neither /128 ends
+# "dadfailed". No AVC denial on any node.
 #
 # Usage: hack/qemu-vrrp-ipv6-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -225,6 +227,43 @@ wait_neigh "$VIP6" "$(lanmac a)"
 h="$(holder "[$VIP6]:9505")"
 [ "$h" = node-a ] || fail "C reaches '$h' on [$VIP6]:9505 after A took it back, want node-a"
 echo "  ok: A's HAProxy back - A took both virtual IPs back, C follows"
+
+# A network configuration applied on the master leaves keepalived's
+# addresses alone - netmgr takes away only those it added itself (and the
+# boot lease's): each apply took the virtual IP off the master for a
+# moment (kluster-prod, 2026-10-26). The same anycast addresses on A and
+# B - a /32 and a /128, as BGP announces them -, and neither /128 ends
+# "dadfailed": added without duplicate address detection.
+ANY4=192.168.79.10
+ANY6=fd00:79::10
+# keepalived's line when an address of its goes away under it.
+removed() { ctl "$1" system logs keepalived 2>/dev/null | grep -cE 'reports IP .* removed' || true; }
+before="$(removed a)"
+for n in a b; do
+  i=$(idx "$n")
+  sed "s|\"fd00:78::$i/64\"\]|\"fd00:78::$i/64\", \"$ANY4/32\", \"$ANY6/128\"]|" "$WORKDIR/$n-net.json" >"$WORKDIR/$n-anycast.json"
+  grep -qF "\"$ANY6/128\"" "$WORKDIR/$n-anycast.json" || fail "no anycast addresses in $(cat "$WORKDIR/$n-anycast.json")"
+  out="$(ctl $n network apply "$WORKDIR/$n-anycast.json" 2>&1)" || fail "network apply with the anycast addresses on $n: $out"
+done
+sleep 3 # duplicate address detection: one probe, a second's wait
+[ "$(removed a)" = "$before" ] || fail "the network apply took A's virtual IP away: $(ctl a system logs keepalived 2>&1 | grep -E 'reports IP .* removed')"
+[ "$(state a)" = MASTER ] || fail "A isn't master after the network apply: $(ctl a network vrrp status 2>&1)"
+[ "$(state b)" = BACKUP ] || fail "B isn't backup after the network apply: $(ctl b network vrrp status 2>&1)"
+for addr in "$VIP4/24" "$VIP6/64" "$ANY4/32" "$ANY6/128"; do has a "$addr" || fail "A lost $addr: $(ctl a network status 2>&1)"; done
+hex="$(python3 -c 'import ipaddress, sys; print(ipaddress.ip_address(sys.argv[1]).exploded.replace(":", ""))' "$ANY6")"
+for n in a b; do
+  line="$(ctl $n system cat /proc/net/if_inet6 | awk -v h="$hex" '$1 == h')"
+  [ -n "$line" ] || fail "$n has no $ANY6: $(ctl $n system cat /proc/net/if_inet6)"
+  flags=$((16#$(awk '{print $5}' <<<"$line")))
+  # IFA_F_NODAD 0x02 set; IFA_F_DADFAILED 0x08, IFA_F_TENTATIVE 0x40 clear.
+  [ $((flags & 0x4a)) = 2 ] || fail "$ANY6 on $n has flags $(printf '%#x' "$flags") (0x08 dadfailed, 0x40 tentative, 0x02 nodad): $line"
+done
+echo "  ok: a network apply on the master left its virtual IPs - same anycast /32 and /128 on A and B, neither dadfailed"
+out="$(ctl a network apply "$WORKDIR/a-net.json" 2>&1)" || fail "network apply without the anycast addresses on A: $out"
+if has a "$ANY4/32" || has a "$ANY6/128"; then fail "A kept its former anycast addresses: $(ctl a network status 2>&1)"; fi
+for addr in "$VIP4/24" "$VIP6/64"; do has a "$addr" || fail "A lost $addr taking its anycast addresses away"; done
+[ "$(removed a)" = "$before" ] && [ "$(state a)" = MASTER ] || fail "taking A's anycast addresses away disturbed VRRP: $(ctl a system logs keepalived 2>&1 | grep -E 'reports IP .* removed') $(ctl a network vrrp status 2>&1)"
+echo "  ok: A's own former addresses gone, its virtual IPs still there"
 
 # keepalived said nothing wrong about the IPv6 address - its log read,
 # not empty, and B's announcing the addresses when it took them.

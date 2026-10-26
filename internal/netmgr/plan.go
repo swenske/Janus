@@ -56,6 +56,9 @@ type plan struct {
 	// interface is in effect: DNS, domain, NTP and hostname from the
 	// lease apply only then.
 	dhcp string
+	// lease is the boot lease's address, whatever the mode: the kernel
+	// added it, and it goes like netmgr's own once no longer wanted.
+	lease netip.Prefix
 }
 
 // autoMetric is the default-route metric of the interface at position i.
@@ -85,6 +88,7 @@ func buildPlan(cfg *janusv1alpha1.NetworkConfig, links []linkInfo, lease *BootLe
 	p := &plan{}
 	var leaseLink *linkInfo
 	if lease != nil {
+		p.lease, _ = netip.ParsePrefix(lease.Address)
 		leaseLink = byMAC[lease.MAC]
 		if leaseLink == nil {
 			leaseLink = byName[lease.Interface]

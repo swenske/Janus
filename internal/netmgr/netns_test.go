@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -152,6 +153,81 @@ func TestInNetns(t *testing.T) {
 	checkAddrs(t, "eth0", "192.0.2.10/24", "2001:db8::10/64")
 	checkDefaultRoutes(t, "eth0", "192.0.2.1@1024", "2001:db8::1@1024")
 
+	// Another daemon's addresses - keepalived's virtual ones, added without
+	// netmgr's protocol - stay through applies that change the interface,
+	// while netmgr's own go once no longer wanted. And a single IPv6
+	// address (an anycast /128) skips DAD: peer0 - eth0's other end,
+	// standing for another node on the segment - holds it already, which
+	// had eth0's copy "dadfailed".
+	withPeer := strings.Replace(mustMarshal(t, cfg), `"interfaces": [`, `"interfaces": [
+		{"name": "peer0", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["198.51.100.99/24"]},`, 1)
+	if _, _, err := m.ApplyTrial(mustParse(t, withPeer), 5*time.Second); err != nil {
+		t.Fatalf("peer0 up: %v", err)
+	}
+	if _, err := m.Confirm(netip.MustParseAddr("192.0.2.10")); err != nil {
+		t.Fatalf("confirm peer0 up: %v", err)
+	}
+	eth0, _ := netlink.LinkByName("eth0")
+	peer0, _ := netlink.LinkByName("peer0")
+	foreign := []struct {
+		link netlink.Link
+		addr *netlink.Addr
+	}{
+		{eth0, &netlink.Addr{IPNet: mustCIDR(t, "192.0.2.100/24")}},
+		{eth0, &netlink.Addr{IPNet: mustCIDR(t, "2001:db8::100/64"), Flags: unix.IFA_F_NODAD}},
+		{peer0, &netlink.Addr{IPNet: mustCIDR(t, "2001:db8:7::7/128")}},
+	}
+	for _, f := range foreign {
+		must(t, netlink.AddrAdd(f.link, f.addr))
+	}
+	waitAddrFlags(t, "peer0", "2001:db8:7::7/128", 0, unix.IFA_F_TENTATIVE|unix.IFA_F_DADFAILED)
+	anycast := strings.Replace(withPeer, `"2001:db8::10/64"`, `"2001:db8::10/64", "203.0.113.7/32", "2001:db8:7::7/128"`, 1)
+	if _, _, err := m.ApplyTrial(mustParse(t, anycast), 30*time.Second); err != nil {
+		t.Fatalf("anycast addresses: %v", err)
+	}
+	checkAddrs(t, "eth0", "192.0.2.10/24", "192.0.2.100/24", "203.0.113.7/32", "2001:db8::10/64", "2001:db8::100/64", "2001:db8:7::7/128")
+	// Tentative while DAD runs, so not passed before DAD would fail.
+	waitAddrFlags(t, "eth0", "2001:db8:7::7/128", unix.IFA_F_NODAD, unix.IFA_F_TENTATIVE|unix.IFA_F_DADFAILED)
+	waitAddrFlags(t, "eth0", "2001:db8::10/64", 0, unix.IFA_F_NODAD|unix.IFA_F_TENTATIVE|unix.IFA_F_DADFAILED)
+	checkAddrs(t, "peer0", "198.51.100.99/24", "2001:db8:7::7/128")
+	if _, err := m.Confirm(netip.MustParseAddr("192.0.2.10")); err != nil {
+		t.Fatalf("confirm the anycast addresses: %v", err)
+	}
+	if _, _, err := m.ApplyTrial(cfg, 5*time.Second); err != nil {
+		t.Fatalf("anycast addresses away: %v", err)
+	}
+	checkAddrs(t, "eth0", "192.0.2.10/24", "192.0.2.100/24", "2001:db8::10/64", "2001:db8::100/64")
+	checkAddrs(t, "peer0") // down: no IPv6 address outlives that (keep_addr_on_down)
+	if _, err := m.Confirm(netip.MustParseAddr("192.0.2.10")); err != nil {
+		t.Fatalf("confirm the anycast addresses away: %v", err)
+	}
+	for _, f := range foreign[:2] {
+		must(t, netlink.AddrDel(f.link, f.addr))
+	}
+
+	// The kernel's boot DHCP address isn't netmgr's either, but it goes
+	// once the interface isn't in DHCP mode.
+	m.lease = &BootLease{Interface: "eth1", MAC: "52:54:00:00:00:02", Address: "10.200.0.9/24"}
+	eth1, _ := netlink.LinkByName("eth1")
+	must(t, netlink.AddrAdd(eth1, &netlink.Addr{IPNet: mustCIDR(t, "10.200.0.9/24")}))
+	dhcp := strings.Replace(mustMarshal(t, cfg), `"interfaces": [`, `"interfaces": [
+		{"name": "eth1", "mode": "ADDRESSING_MODE_DHCP"},`, 1)
+	if _, _, err := m.ApplyTrial(mustParse(t, dhcp), 5*time.Second); err != nil {
+		t.Fatalf("eth1 in DHCP mode: %v", err)
+	}
+	checkAddrs(t, "eth1", "10.200.0.9/24")
+	if _, err := m.Confirm(netip.MustParseAddr("192.0.2.10")); err != nil {
+		t.Fatalf("confirm DHCP on eth1: %v", err)
+	}
+	if _, _, err := m.ApplyTrial(cfg, 5*time.Second); err != nil {
+		t.Fatalf("eth1 out of DHCP mode: %v", err)
+	}
+	checkAddrs(t, "eth1")
+	if _, err := m.Confirm(netip.MustParseAddr("192.0.2.10")); err != nil {
+		t.Fatalf("confirm eth1 out of DHCP mode: %v", err)
+	}
+	m.lease = nil
+
 	// A new trial that renames eth1 by MAC, drops the VLAN and moves eth0:
 	// not confirmed, so it must revert by itself.
 	next := mustParse(t, `{"interfaces": [
@@ -231,16 +307,61 @@ func checkAddrs(t *testing.T, name string, want ...string) {
 		t.Errorf("%s: %v", name, err)
 		return
 	}
-	addrs, _ := netlink.AddrList(l, netlink.FAMILY_ALL)
+	addrs, err := listAddrs(l.Attrs().Index)
+	if err != nil {
+		t.Errorf("%s: %v", name, err)
+		return
+	}
 	var got []string
 	for _, a := range addrs {
-		if p, ok := managed(a); ok {
-			got = append(got, p.String())
+		if managed(a) {
+			got = append(got, a.prefix.String())
 		}
 	}
+	slices.Sort(got)
+	want = slices.Sorted(slices.Values(want))
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("%s addresses = %v, want %v", name, got, want)
 	}
+}
+
+// waitAddrFlags waits up to 5 s for link name's address prefix to have
+// every flag in set and none in clear.
+func waitAddrFlags(t *testing.T, name, prefix string, set, clear uint32) {
+	t.Helper()
+	l, err := netlink.LinkByName(name)
+	if err != nil {
+		t.Errorf("%s: %v", name, err)
+		return
+	}
+	want := netip.MustParsePrefix(prefix)
+	var flags uint32
+	found := false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		addrs, err := listAddrs(l.Attrs().Index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found = false
+		for _, a := range addrs {
+			if a.prefix == want {
+				found, flags = true, a.flags
+			}
+		}
+		if found && flags&set == set && flags&clear == 0 {
+			return
+		}
+	}
+	t.Errorf("%s %s: found %v, flags %#x - want %#x set, %#x clear", name, prefix, found, flags, set, clear)
+}
+
+func mustCIDR(t *testing.T, s string) *net.IPNet {
+	t.Helper()
+	n, err := netlink.ParseIPNet(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 func checkDefaultRoutes(t *testing.T, name string, want ...string) {
