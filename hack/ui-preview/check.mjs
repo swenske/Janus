@@ -374,6 +374,28 @@ for (const reducedMotion of ['reduce', 'no-preference']) {
   await page.waitForTimeout(11500)
   const slow = stop()
   if (fast < 2 || slow > 0) problems.push(`nodes refreshed: ${fast} status requests in 11.5 s at 5 s, ${slow} at 60 s`)
+  // Traffic in bits, times in UTC: the Nodes page's traffic, a node
+  // page's events.
+  await prefs({ rate_unit: 'bits', time_zone: 'utc' })
+  await page.reload()
+  await settle(page)
+  await page.waitForTimeout(3000)
+  const traffic = await page.locator('.sparks .spark-value').nth(2).textContent()
+  await page.goto(`${CONTROLLER}/nodes/${edge1}/#/events`)
+  await settle(page)
+  const eventTimes = (await page.locator('main').textContent()).match(/\d{1,2}:\d{2}(:\d{2})?\s?(AM|PM)? UTC/g) || []
+  if (!/bit\/s$/.test(traffic || '') || !eventTimes.length) problems.push(`bits and UTC: the traffic reads '${traffic}', ${eventTimes.length} times in UTC on edge-1's events`)
+  // An admin's floor: 30 s at least - the choices start there, an
+  // account at 5 s follows it.
+  await prefs({ nodes_refresh_seconds: 5 })
+  await ctx.request.put(`${CONTROLLER}/api/settings`, { data: { nodes_refresh_floor_seconds: 30 } })
+  const floored = await (await ctx.request.get(`${CONTROLLER}/api/me/preferences`)).json()
+  await page.goto(`${CONTROLLER}/#/settings`)
+  await settle(page)
+  const first = await page.getByLabel('Nodes refreshed every').locator('option').first().textContent()
+  if (floored.nodes_refresh_seconds !== 30 || !first.startsWith('30 s')) problems.push(`a 30 s floor: the account at ${floored.nodes_refresh_seconds} s, the first choice '${first}'`)
+  await page.screenshot({ path: `${OUT}/settings-floor.png`, fullPage: true })
+  await ctx.request.put(`${CONTROLLER}/api/settings`, { data: { nodes_refresh_floor_seconds: 0 } })
   await prefs({})
 
   // A node whose fleet trust failed with a long error, on a phone: the

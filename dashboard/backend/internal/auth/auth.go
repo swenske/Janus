@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -131,6 +132,12 @@ type Settings struct {
 	// skips the second factor (trust.go): absent = the default
 	// (DefaultTrustBrowserHours), 0 = never.
 	TrustBrowserHours *int `json:"trust_browser_hours,omitempty"`
+	// NodesRefreshFloorSeconds and HypervisorsRefreshFloorSeconds are
+	// the shortest refresh any account may choose (preferences.go) - so
+	// many pages open at 5 s don't keep every node busy: 0, the shortest
+	// offered.
+	NodesRefreshFloorSeconds       int `json:"nodes_refresh_floor_seconds,omitempty"`
+	HypervisorsRefreshFloorSeconds int `json:"hypervisors_refresh_floor_seconds,omitempty"`
 }
 
 // DefaultSettings: half an hour away ends a session, and none outlives a
@@ -156,6 +163,12 @@ func (s Settings) Check() error {
 	}
 	if h := s.TrustBrowserHours; h != nil && (*h < 0 || *h > 30*24) {
 		return errors.New("trust_browser_hours: 0 (never) to 720")
+	}
+	if f := s.NodesRefreshFloorSeconds; f != 0 && !slices.Contains(RefreshChoices["nodes"], f) {
+		return fmt.Errorf("nodes_refresh_floor_seconds: 0 or one of %v", RefreshChoices["nodes"])
+	}
+	if f := s.HypervisorsRefreshFloorSeconds; f != 0 && !slices.Contains(RefreshChoices["hypervisors"], f) {
+		return fmt.Errorf("hypervisors_refresh_floor_seconds: 0 or one of %v", RefreshChoices["hypervisors"])
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ import { RefreshCw, ScrollText } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call } from './call.js'
 import { Badge, Card, ErrorBox } from './shared/ui.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // The audit (admin): every change made on this Controller and every
 // sign-in, newest first - dashboard/backend/internal/audit.
@@ -72,7 +73,7 @@ export default function AuditPage() {
               <tbody>
                 {entries.map((e, i) => (
                   <tr key={i}>
-                    <td style={{ whiteSpace: 'nowrap' }}>{new Date(e.time).toLocaleString()}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(e.time)}</td>
                     <td>
                       {e.user ? <strong>{e.user}</strong> : <span className="muted">–</span>} {e.via && e.via !== 'session' && <span className="muted small mono">{e.via}</span>}
                     </td>

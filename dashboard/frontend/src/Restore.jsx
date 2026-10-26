@@ -2,6 +2,7 @@ import { ArchiveRestore, List } from 'lucide-react'
 import { useState } from 'react'
 import { postJSON } from './call.js'
 import { ErrorBox } from './shared/ui.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // RestoreForm is a new Controller's other first step: a backup - uploaded
 // or from its bucket - with the backup kit and its passphrase. The
@@ -82,7 +83,7 @@ export function RestoreForm({ onCancel }) {
     return (
       <div className="stack">
         <div className="notice">
-          Restored the backup of {new Date(done.created).toLocaleString()} ({done.files} files). The Controller starts again - sign in with its accounts.
+          Restored the backup of {fmtDateTime(done.created)} ({done.files} files). The Controller starts again - sign in with its accounts.
         </div>
       </div>
     )

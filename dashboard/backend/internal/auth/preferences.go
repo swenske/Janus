@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 )
@@ -24,6 +25,12 @@ type Preferences struct {
 	NodeStats *bool `json:"node_stats,omitempty"`
 	// NodeCharts: their curves - off, the figures alone.
 	NodeCharts *bool `json:"node_charts,omitempty"`
+	// TimeZone: the pages' times in the browser's zone ("local") or in
+	// "utc" - as Elasticsearch and Prometheus keep them.
+	TimeZone string `json:"time_zone,omitempty"`
+	// RateUnit: traffic in "bytes" a second (KiB/s, HAProxy's counters) or
+	// "bits" (Mbit/s, a link's or a router's).
+	RateUnit string `json:"rate_unit,omitempty"`
 }
 
 // RefreshChoices are the intervals offered, in seconds: a node's status
@@ -36,7 +43,7 @@ var RefreshChoices = map[string][]int{
 
 // DefaultPreferences are what an account that chose nothing gets: the
 // pages as they were.
-var DefaultPreferences = Preferences{NodesRefreshSeconds: 15, HypervisorsRefreshSeconds: 15, NodeStats: boolPtr(true), NodeCharts: boolPtr(true)}
+var DefaultPreferences = Preferences{NodesRefreshSeconds: 15, HypervisorsRefreshSeconds: 15, NodeStats: boolPtr(true), NodeCharts: boolPtr(true), TimeZone: "local", RateUnit: "bytes"}
 
 func boolPtr(v bool) *bool { return &v }
 
@@ -55,7 +62,48 @@ func (p Preferences) Effective() Preferences {
 	if p.NodeCharts == nil {
 		p.NodeCharts = boolPtr(*d.NodeCharts)
 	}
+	if p.TimeZone == "" {
+		p.TimeZone = d.TimeZone
+	}
+	if p.RateUnit == "" {
+		p.RateUnit = d.RateUnit
+	}
 	return p
+}
+
+// Floored is p (effective) with its refreshes raised to the Controller's
+// floors (Settings): an account's choice made before an admin raised
+// them follows them.
+func (p Preferences) Floored(s Settings) Preferences {
+	p.NodesRefreshSeconds = max(p.NodesRefreshSeconds, s.NodesRefreshFloorSeconds)
+	p.HypervisorsRefreshSeconds = max(p.HypervisorsRefreshSeconds, s.HypervisorsRefreshFloorSeconds)
+	return p
+}
+
+// Choices are the refreshes an account may choose under s's floors.
+func Choices(s Settings) map[string][]int {
+	floors := map[string]int{"nodes": s.NodesRefreshFloorSeconds, "hypervisors": s.HypervisorsRefreshFloorSeconds}
+	out := map[string][]int{}
+	for k, all := range RefreshChoices {
+		out[k] = []int{}
+		for _, v := range all {
+			if v >= floors[k] {
+				out[k] = append(out[k], v)
+			}
+		}
+	}
+	return out
+}
+
+// CheckFloors refuses a refresh shorter than the Controller's floors.
+func (p Preferences) CheckFloors(s Settings) error {
+	if p.NodesRefreshSeconds != 0 && p.NodesRefreshSeconds < s.NodesRefreshFloorSeconds {
+		return fmt.Errorf("nodes_refresh_seconds: this Controller's admins ask for %d s at least", s.NodesRefreshFloorSeconds)
+	}
+	if p.HypervisorsRefreshSeconds != 0 && p.HypervisorsRefreshSeconds < s.HypervisorsRefreshFloorSeconds {
+		return fmt.Errorf("hypervisors_refresh_seconds: this Controller's admins ask for %d s at least", s.HypervisorsRefreshFloorSeconds)
+	}
+	return nil
 }
 
 func (p Preferences) clone() Preferences {
@@ -75,6 +123,16 @@ func (p Preferences) Check() error {
 	}
 	if p.HypervisorsRefreshSeconds != 0 && !slices.Contains(RefreshChoices["hypervisors"], p.HypervisorsRefreshSeconds) {
 		return fmt.Errorf("hypervisors_refresh_seconds: one of %v", RefreshChoices["hypervisors"])
+	}
+	switch p.TimeZone {
+	case "", "local", "utc":
+	default:
+		return errors.New(`time_zone: "local" or "utc"`)
+	}
+	switch p.RateUnit {
+	case "", "bytes", "bits":
+	default:
+		return errors.New(`rate_unit: "bytes" or "bits"`)
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { labelString, parseLabels } from './me.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // Enrollment tokens (admins, dashboard/backend/enroll_api.go): each admits
 // a batch of nodes - bare metal, a rack - without the approval step, and
@@ -11,7 +12,7 @@ import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared
 const DAYS = [1, 7, 30, 90, 365]
 
 function when(t) {
-  return t ? new Date(t).toLocaleString() : '–'
+  return t ? fmtDateTime(t) : '–'
 }
 
 // Created shows a new token, once, and where it goes.

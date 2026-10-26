@@ -10,12 +10,15 @@ export const DEFAULT_PREFERENCES = {
   hypervisors_refresh_seconds: 15,
   node_stats: true,
   node_charts: true,
+  time_zone: 'local',
+  rate_unit: 'bytes',
   chosen: {},
+  floors: { nodes: 0, hypervisors: 0 },
   choices: { nodes: [5, 10, 15, 30, 60], hypervisors: [10, 15, 30, 60, 120] },
 }
 
-// PreferencesContext: { prefs, save(partial), reset(), loaded }.
-export const PreferencesContext = createContext({ prefs: DEFAULT_PREFERENCES, save: async () => {}, reset: async () => {}, loaded: false })
+// PreferencesContext: { prefs, save(key, value), reset(), reload(), loaded }.
+export const PreferencesContext = createContext({ prefs: DEFAULT_PREFERENCES, save: async () => {}, reset: async () => {}, reload: async () => {}, loaded: false })
 
 export function usePreferences() {
   return useContext(PreferencesContext)

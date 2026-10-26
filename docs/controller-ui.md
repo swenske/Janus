@@ -291,14 +291,23 @@ while a machine moves), the **Node figures** (off: no
 `/api/nodes/metrics` - the Controller stops sampling the nodes for the
 page ten minutes later) and their **Node charts** (off: the figures
 alone - and a node's Traffic flow without particles; greyed while the
-figures are off), **Reset to the defaults**. They're the account's,
-kept on the Controller (`GET`/`PUT /api/me/preferences`, a session's,
-`internal/auth/preferences.go`; `preferences.js` +
-`PreferencesProvider.jsx`), so they follow it to any browser; the node
-pages read the same. Then, for an admin, **This Controller**: the
-**HTTPS certificate** (`HTTPSCert.jsx`, folded): what the page is served
-with (self-signed, uploaded, or from `-tls-cert`), a bundle checked
-before it's served, and back to self-signed.
+figures are off), **Times** in the browser's zone or in UTC, **Traffic**
+in bytes (KiB/s) or bits (Mbit/s) a second, **Reset to the defaults**.
+They're the account's, kept on the Controller (`GET`/`PUT
+/api/me/preferences`, a session's, `internal/auth/preferences.go`;
+`preferences.js` + `PreferencesProvider.jsx`), so they follow it to any
+browser; the node pages read the same (`node/display.js`, before the
+page renders). Every time and rate shown goes through `shared/units.js`
+(`fmtDateTime`/`fmtTime`/`fmtDate`, `fmtRate` - `node/format.js`'s
+`dateTime`/`time`/`rate` call them; a time in UTC says "UTC", a chart's
+ticks don't): no `toLocale*String` of a date anywhere else. Then, for an
+admin, **This Controller**: the **Refresh floors** (`/api/settings`'s
+`nodes_refresh_floor_seconds`, `hypervisors_refresh_floor_seconds`: the
+shortest refresh any account may choose - the choices start there, an
+account that chose faster follows it) and the **HTTPS certificate**
+(`HTTPSCert.jsx`, folded): what the page is served with (self-signed,
+uploaded, or from `-tls-cert`), a bundle checked before it's served,
+and back to self-signed.
 
 **Your account** (`AccountButton`, a dialog): second factors
 (`MFAPanel`), **Trusted browsers** (`TrustedBrowsers`: "this browser"

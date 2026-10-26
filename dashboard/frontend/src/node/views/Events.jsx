@@ -2,6 +2,7 @@ import { Activity, ChevronDown, ChevronRight, Search, Trash2 } from 'lucide-reac
 import { useMemo, useState } from 'react'
 import { Badge, Card, PageHeader, stateTone } from '../../shared/ui.jsx'
 import { useSSE } from '../hooks.jsx'
+import { fmtDateTime, fmtTime, sameDay } from '../../shared/units.js'
 
 const MAX = 2000
 
@@ -16,10 +17,11 @@ function tone(e) {
   return 'info'
 }
 
-// when is an event's time: the clock alone today, the date too before.
+// when is an event's time: the clock alone today, the date too before -
+// in the account's zone.
 function when(ns) {
-  const d = new Date(ns / 1e6)
-  return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString() : d.toLocaleString()
+  const t = ns / 1e6
+  return sameDay(t) ? fmtTime(t) : fmtDateTime(t)
 }
 
 // BootRow marks where janusd started - with a new boot, a reboot or an

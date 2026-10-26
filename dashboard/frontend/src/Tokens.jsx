@@ -4,6 +4,7 @@ import { call, postJSON } from './call.js'
 import { atLeast, DOMAINS, labelString, parseLabels, ROLES, useCan, useMe } from './me.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 import { roleTone } from './Users.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // API tokens: what a program - the Terraform provider, a script - calls
 // the Controller's API with (Authorization: Bearer). Shown once, when
@@ -18,7 +19,7 @@ const VALIDITY = [
 ]
 
 function when(t) {
-  return t ? new Date(t).toLocaleString() : '–'
+  return t ? fmtDateTime(t) : '–'
 }
 
 function NewToken({ token, onClose }) {

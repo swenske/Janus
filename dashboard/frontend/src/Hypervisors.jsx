@@ -27,6 +27,7 @@ import { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMach
 import Gauge from './shared/Gauge.jsx'
 import ViewToggle from './shared/ViewToggle.jsx'
 import { useStoredView } from './shared/storedView.js'
+import { fmtDateTime, fmtTime } from './shared/units.js'
 
 // The hypervisors this Controller creates its own nodes on, and those
 // machines (dashboard/backend/hypervisors.go, machines.go,
@@ -1079,7 +1080,7 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
 function ago(t) {
   if (!t || t.startsWith('0001')) return null
   const s = Math.max(0, Math.round((Date.now() - new Date(t).getTime()) / 1000))
-  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(t).toLocaleString()
+  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : fmtDateTime(t)
 }
 
 // --- changing a machine: its hardware ---
@@ -1311,10 +1312,10 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
       <AutoscaleSummary m={m} />
       {last && !history && (
         <div className="muted small">
-          {new Date(last.time).toLocaleTimeString()} · {last.message}
+          {fmtTime(last.time)} · {last.message}
         </div>
       )}
-      {history && <pre className="logview machine-events">{m.events.map((e) => `${new Date(e.time).toLocaleTimeString()}  ${e.message}`).join('\n')}</pre>}
+      {history && <pre className="logview machine-events">{m.events.map((e) => `${fmtTime(e.time)}  ${e.message}`).join('\n')}</pre>}
       {m.node_id && (synced || m.sync_error) && (
         <div className={`small ${m.sync_error ? '' : 'muted'}`} style={m.sync_error ? { color: 'var(--warn)' } : undefined}>
           {m.sync_error ? `Couldn't read it from its node: ${m.sync_error}` : `Read from its node and hypervisor ${synced}`}
@@ -1563,10 +1564,10 @@ function MachineRow({ m, vm, vmError, actions, onEdit }) {
             </div>
           )}
         </td>
-        <td className="small machine-last-event" title={last ? `${new Date(last.time).toLocaleString()} · ${last.message}` : ''}>
+        <td className="small machine-last-event" title={last ? `${fmtDateTime(last.time)} · ${last.message}` : ''}>
           {last ? (
             <>
-              <span className="muted">{new Date(last.time).toLocaleTimeString()}</span> {last.message}
+              <span className="muted">{fmtTime(last.time)}</span> {last.message}
             </>
           ) : (
             <span className="muted">–</span>
@@ -1611,7 +1612,7 @@ function MachineRow({ m, vm, vmError, actions, onEdit }) {
               <div className="notice warn small">The node calls itself {m.node_hostname}: its hostname was changed on its page.</div>
             )}
             <AutoscaleSummary m={m} />
-            {history && <pre className="logview machine-events">{m.events.map((e) => `${new Date(e.time).toLocaleTimeString()}  ${e.message}`).join('\n')}</pre>}
+            {history && <pre className="logview machine-events">{m.events.map((e) => `${fmtTime(e.time)}  ${e.message}`).join('\n')}</pre>}
           </td>
         </tr>
       )}

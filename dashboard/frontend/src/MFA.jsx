@@ -3,13 +3,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { Badge, ErrorBox, useAction, useToast } from './shared/ui.jsx'
 import { createPasskey, passkeysSupported, signWithPasskey } from './webauthn.js'
+import { fmtDateTime } from './shared/units.js'
 
 // Second factors (dashboard/backend/mfa_handlers.go): the step that
 // finishes a sign-in, setting one up - forced when the account's role
 // needs one -, and the account's own list.
 
 function when(t) {
-  return t ? new Date(t).toLocaleString() : 'never'
+  return t ? fmtDateTime(t) : 'never'
 }
 
 // RecoveryCodes shows an account's recovery codes, this once.

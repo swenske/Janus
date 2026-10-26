@@ -2,6 +2,7 @@ import { CheckCircle2, Copy, Download, KeyRound, ShieldCheck, Upload } from 'luc
 import { useState } from 'react'
 import { postJSON } from './call.js'
 import { Badge, Card, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import { fmtDate } from './shared/units.js'
 
 // The fleet's setup (dashboard/backend/fleet.go): create it, store the
 // recovery kit and its passphrase, give both back - only then does the
@@ -177,7 +178,7 @@ export function FleetSetup({ fleet, onChanged }) {
   )
 }
 
-const day = (s) => (s ? new Date(s).toLocaleDateString() : '–')
+const day = (s) => (s ? fmtDate(s) : '–')
 
 // FleetCard is the fleet once ready.
 export function FleetCard({ fleet, nodes }) {

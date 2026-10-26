@@ -51,6 +51,7 @@ import { worstSeverity } from './severity.js'
 import { Badge, Card, ErrorBox, Loading, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
 import { lazyView } from './shared/lazy.jsx'
 import { useSplash, useSplashStep } from './shared/Splash.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // The nodes page comes with the page; the other tabs, the machines'
 // console, the CLI sign-in pages and the restore form in their own
@@ -416,7 +417,7 @@ function PendingList({ pending, onApprove, onReject, busy, machines }) {
                   <Boxes size={11} /> a machine created on {waiting(p.name).hypervisor_name}
                 </Badge>
               )}
-              <div className="muted small">announced {new Date(p.announced_at).toLocaleString()}</div>
+              <div className="muted small">announced {fmtDateTime(p.announced_at)}</div>
               {p.ca_fingerprint && (
                 <div className="muted small" title="The node's CA, as its console shows it when it announces itself: compare before approving">
                   CA <span className="mono">{p.ca_fingerprint.slice(0, 16)}…</span>

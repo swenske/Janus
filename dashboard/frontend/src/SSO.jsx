@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { SecondFactorForm } from './MFA.jsx'
 import { Badge, ErrorBox, useAction, useConfirm } from './shared/ui.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // Single sign-on (dashboard/backend/sso_login.go): the page asks the
 // Controller to start, goes to the provider, comes back to #/sso-done and
@@ -15,7 +16,7 @@ export const SSO_DONE = '#/sso-done'
 export const LINK = '#/account?link='
 
 function when(t) {
-  return t ? new Date(t).toLocaleString() : 'never'
+  return t ? fmtDateTime(t) : 'never'
 }
 
 // returnRoute is the page's route to come back to - the janusctl sign-in
