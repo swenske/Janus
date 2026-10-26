@@ -236,7 +236,8 @@ echo "  ok: A's HAProxy back - A took both virtual IPs back, C follows"
 # boot lease's): each apply took the virtual IP off the master for a
 # moment (kluster-prod, 2026-10-26). The same anycast addresses on A and
 # B - a /32 and a /128, as BGP announces them -, and neither /128 ends
-# "dadfailed": added without duplicate address detection.
+# "dadfailed": added without duplicate address detection, and deprecated
+# - never the source of A's own connections.
 ANY4=192.168.79.10
 ANY6=fd00:79::10
 # keepalived's line when an address of its goes away under it.
@@ -258,10 +259,22 @@ for n in a b; do
   line="$(ctl $n system cat /proc/net/if_inet6 | awk -v h="$hex" '$1 == h')"
   [ -n "$line" ] || fail "$n has no $ANY6: $(ctl $n system cat /proc/net/if_inet6)"
   flags=$((16#$(awk '{print $5}' <<<"$line")))
-  # IFA_F_NODAD 0x02 set; IFA_F_DADFAILED 0x08, IFA_F_TENTATIVE 0x40 clear.
-  [ $((flags & 0x4a)) = 2 ] || fail "$ANY6 on $n has flags $(printf '%#x' "$flags") (0x08 dadfailed, 0x40 tentative, 0x02 nodad): $line"
+  # IFA_F_NODAD 0x02 and IFA_F_DEPRECATED 0x20 set (never a source);
+  # IFA_F_DADFAILED 0x08, IFA_F_TENTATIVE 0x40 clear.
+  [ $((flags & 0x6a)) = $((0x22)) ] || fail "$ANY6 on $n has flags $(printf '%#x' "$flags") (0x02 nodad, 0x20 deprecated, 0x08 dadfailed, 0x40 tentative): $line"
 done
 echo "  ok: a network apply on the master left its virtual IPs - same anycast /32 and /128 on A and B, neither dadfailed"
+# A's own connections never leave from an anycast address: as the
+# source, the /128 got every outgoing IPv6 connection, whose replies went
+# to whichever node the router chose. (Keepalived's IPv6 VIP may be the
+# source: it comes back to the master.)
+for target in "[fd00:78::3]:9505" "192.168.78.3:9505"; do
+  out="$(ctl a system probe -timeout 3s tcp "$target" 2>&1)" || fail "A can't reach C on $target: $out"
+  grep -qE " from [^ ]+:[0-9]+" <<<"$out" || fail "no source address in A's probe of $target: $out"
+  if grep -qE " from (\[$ANY6\]|$ANY4):" <<<"$out"; then fail "A reached C on $target from an anycast address: $out"; fi
+  echo "    $target$(grep -oE " from [^ ]+" <<<"$out")"
+done
+echo "  ok: A's own IPv6 and IPv4 connections don't leave from the anycast addresses"
 out="$(ctl a network apply "$WORKDIR/a-net.json" 2>&1)" || fail "network apply without the anycast addresses on A: $out"
 if has a "$ANY4/32" || has a "$ANY6/128"; then fail "A kept its former anycast addresses: $(ctl a network status 2>&1)"; fi
 for addr in "$VIP4/24" "$VIP6/64"; do has a "$addr" || fail "A lost $addr taking its anycast addresses away"; done

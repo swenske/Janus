@@ -527,6 +527,10 @@ const ownProto = 0x4a
 // ifaProto is IFA_PROTO, which golang.org/x/sys doesn't name (IFA_MAX).
 const ifaProto = 0xb
 
+// infinite is an address lifetime that never ends (INFINITY_LIFE_TIME):
+// the address stays permanent.
+const infinite = 0xffffffff
+
 // addr is an address on a link, with what syncAddrs needs of it.
 type addr struct {
 	prefix netip.Prefix
@@ -608,9 +612,16 @@ func syncAddrs(link netlink.Link, want []netip.Prefix, lease netip.Prefix) error
 }
 
 // addAddr adds p to link index as netmgr's (ownProto). A single IPv6
-// address (a /128) skips duplicate address detection: it's an anycast or
-// service address several nodes hold at once - with DAD, every node but
-// the first to add it on a segment had it "dadfailed", unusable.
+// address (a /128) is an anycast or service address several nodes hold
+// at once: it skips duplicate address detection - with DAD, every node
+// but the first to add it on a segment had it "dadfailed", unusable -,
+// and it's deprecated from the start (preferred lifetime 0, valid
+// forever): still answered on, never picked as the source of the node's
+// own connections. As a preferred address, Linux took it as the source
+// of every outgoing IPv6 connection: replies came back to whichever node
+// the router's ECMP chose, or nowhere before the route was announced. An
+// IPv4 /32 needs neither - Linux picks the address on the gateway's
+// subnet.
 func addAddr(index int, p netip.Prefix) error {
 	family := unix.AF_INET
 	if p.Addr().Is6() {
@@ -637,6 +648,8 @@ func addAddr(index int, p netip.Prefix) error {
 		flags := make([]byte, 4)
 		nl.NativeEndian().PutUint32(flags, unix.IFA_F_NODAD)
 		req.AddData(nl.NewRtAttr(unix.IFA_FLAGS, flags))
+		life := nl.IfaCacheInfo{IfaCacheinfo: unix.IfaCacheinfo{Valid: infinite}} // preferred: 0
+		req.AddData(nl.NewRtAttr(unix.IFA_CACHEINFO, life.Serialize()))
 	}
 	req.AddData(nl.NewRtAttr(ifaProto, []byte{ownProto}))
 	_, err := req.Execute(unix.NETLINK_ROUTE, 0)
