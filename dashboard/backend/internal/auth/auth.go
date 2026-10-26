@@ -113,6 +113,8 @@ type User struct {
 	// HasPassword is set on the store's copies (view), which have no
 	// password hash: the account signs in with a password.
 	HasPassword bool `json:"-"`
+	// Preferences are how the account's pages behave (preferences.go).
+	Preferences Preferences `json:"preferences,omitzero"`
 }
 
 // Settings is the session policy.
@@ -412,6 +414,7 @@ func view(u *User) User {
 	c.MFA.Passkeys = append([]Passkey{}, u.MFA.Passkeys...)
 	c.SSHKeys = append([]SSHKey{}, u.SSHKeys...)
 	c.Identities = append([]Identity{}, u.Identities...)
+	c.Preferences = u.Preferences.clone()
 	if u.SSO != nil {
 		sso := *u.SSO
 		sso.Groups = append([]string{}, u.SSO.Groups...)

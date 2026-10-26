@@ -141,7 +141,7 @@ row, then two of three, then three of two (`.overview-six`); without
 
 ## The main page
 
-Four tabs (hash routes `#/`, `#/clusters`, `#/hypervisors`, `#/tokens`), and five more for an admin (`#/accounts`, `#/audit`, `#/log-forwarding`, `#/letsencrypt`, `#/backups`).
+Five tabs (hash routes `#/`, `#/clusters`, `#/hypervisors`, `#/tokens`, `#/settings`), and five more for an admin (`#/accounts`, `#/audit`, `#/log-forwarding`, `#/letsencrypt`, `#/backups`).
 
 **Nodes**: until the fleet is set up, **Secure your fleet**
 (`Fleet.jsx`: create it, store the recovery kit and its passphrase,
@@ -192,7 +192,10 @@ the desired version in `DiffView`), **Certificates** (upload one for
 every member, pull everything again) and **Journal**. The page polls
 every 2 s while the cluster is busy, 15 s otherwise.
 
-**Hypervisors** ([hypervisors.md](hypervisors.md)): one card per host -
+**Hypervisors** ([hypervisors.md](hypervisors.md)) - the hosts, then
+the machines, each as cards or a list (`ViewToggle`, remembered per
+browser as `janus-hypervisors-view` and `janus-machines-view`; a row's
+set-up steps, errors, notices and history on a row below it): one card per host -
 libvirt or Proxmox VE (the form's **Kind**, fixed once added; a Proxmox
 token's secret is write-only: `has_token_secret`) - added in steps (for
 libvirt the command that authorizes the Controller's key; then the SSH
@@ -271,12 +274,31 @@ shows its labels (`NodeLabels`), edited in place by an admin. Under the
 Provision panel (which takes an enrollment token into its commands),
 **Enrollment tokens** (`Enroll.jsx`, admins): made with a name, a
 number of nodes, a validity and labels, shown once with where it goes;
-listed with their uses, revoked. The API
-tokens page takes a scope - labels and domains - and lists it. Last,
-**HTTPS certificate** (`HTTPSCert.jsx`, admins, folded like the
-Provision panel): what the page is served with (self-signed, uploaded,
-or from `-tls-cert`), a bundle checked before it's served, and back to
-self-signed.
+listed with their uses, revoked. They stay with the nodes' provisioning
+- an admin's, presented once by a node when it registers, opening
+nothing of the API - linked both ways: **Add a node** and the API tokens
+page point to `#/enrollment-tokens` (the Nodes page, scrolled to the
+card). The API tokens page takes a scope - labels and domains - and
+lists it. A node's trust error (`TrustBadge`) is a short badge with the
+message below it, wrapped anywhere and three lines at most, the whole
+of it in the tooltip; a card's details and labels wrap rather than run
+out of it.
+
+**Settings** (`Settings.jsx`, `#/settings`, every account): **Your
+pages** - how often the Nodes page asks the nodes' status and the
+Hypervisors page each hypervisor's (5 s to 60 s, 10 s to 2 min; 3 s
+while a machine moves), the **Node figures** (off: no
+`/api/nodes/metrics` - the Controller stops sampling the nodes for the
+page ten minutes later) and their **Node charts** (off: the figures
+alone - and a node's Traffic flow without particles; greyed while the
+figures are off), **Reset to the defaults**. They're the account's,
+kept on the Controller (`GET`/`PUT /api/me/preferences`, a session's,
+`internal/auth/preferences.go`; `preferences.js` +
+`PreferencesProvider.jsx`), so they follow it to any browser; the node
+pages read the same. Then, for an admin, **This Controller**: the
+**HTTPS certificate** (`HTTPSCert.jsx`, folded): what the page is served
+with (self-signed, uploaded, or from `-tls-cert`), a bundle checked
+before it's served, and back to self-signed.
 
 **Your account** (`AccountButton`, a dialog): second factors
 (`MFAPanel`), **Trusted browsers** (`TrustedBrowsers`: "this browser"

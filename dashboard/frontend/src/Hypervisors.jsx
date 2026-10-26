@@ -17,7 +17,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { call, gib, postJSON } from './call.js'
 import { useCan } from './me.jsx'
 import { AutoscaleFields, AutoscaleSummary } from './Autoscale.jsx'
@@ -25,6 +25,8 @@ import { autoscalePolicy, initialAutoscale, samePolicy, sizeText, useAutoscale }
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 import { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './machines.jsx'
 import Gauge from './shared/Gauge.jsx'
+import ViewToggle from './shared/ViewToggle.jsx'
+import { useStoredView } from './shared/storedView.js'
 
 // The hypervisors this Controller creates its own nodes on, and those
 // machines (dashboard/backend/hypervisors.go, machines.go,
@@ -637,46 +639,60 @@ function pct(used, total) {
   return total > 0 ? `${Math.round((100 * used) / total)}%` : '–'
 }
 
-function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
-  const can = useCan()
-  const host = status?.host
-  const authError = status?.error && /unable to authenticate|permission denied \(publickey|401|authentication failure|invalid token/i.test(status.error)
-  let badge = <Badge>checking…</Badge>
-  if (!hv.trusted) badge = <Badge tone="warn">to set up</Badge>
-  else if (status?.error)
-    badge = (
+// hvBadge is a hypervisor's state: to set up, unreachable, connected,
+// or checking while its first status is on its way.
+function hvBadge(hv, status) {
+  if (!hv.trusted) return <Badge tone="warn">to set up</Badge>
+  if (status?.error)
+    return (
       <Badge tone="danger" dot>
         unreachable
       </Badge>
     )
-  else if (host)
-    badge = (
+  if (status?.host)
+    return (
       <Badge tone="ok" dot>
         connected
       </Badge>
     )
+  return <Badge>checking…</Badge>
+}
+
+function hvWhere(hv) {
+  return hv.kind === 'proxmox' ? `${hv.proxmox?.node} · ${hv.proxmox?.token_id?.split('!')[0]} · Proxmox VE` : `${hv.libvirt?.user}@${hv.libvirt?.host} · libvirt`
+}
+
+// HVError is a hypervisor's error, and what to check when it's about
+// its credentials.
+function HVError({ hv, error }) {
+  const authError = /unable to authenticate|permission denied \(publickey|401|authentication failure|invalid token/i.test(error)
+  return (
+    <div className="error-box small">
+      {error}
+      {authError && (
+        <div style={{ marginTop: '0.4rem' }}>
+          {hv.kind === 'proxmox' ? "Check the API token's ID and secret (Edit)." : "Add the Controller's public key to the user's authorized_keys (Edit shows it)."}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
+  const can = useCan()
+  const host = status?.host
+  const badge = hvBadge(hv, status)
   return (
     <section className="card node-card">
       <div className="spread" style={{ alignItems: 'flex-start' }}>
         <div style={{ minWidth: 0 }}>
           <div className="node-card-name">{hv.name}</div>
-          <div className="muted small mono">
-            {hv.kind === 'proxmox' ? `${hv.proxmox?.node} · ${hv.proxmox?.token_id?.split('!')[0]} · Proxmox VE` : `${hv.libvirt?.user}@${hv.libvirt?.host} · libvirt`}
-          </div>
+          <div className="muted small mono">{hvWhere(hv)}</div>
         </div>
         {badge}
       </div>
       {!hv.trusted && (can('admin') ? <TrustSteps hv={hv} onTrusted={onTrusted} /> : <div className="notice warn small">Not trusted yet: an admin checks its key.</div>)}
-      {hv.trusted && status?.error && (
-        <div className="error-box small">
-          {status.error}
-          {authError && (
-            <div style={{ marginTop: '0.4rem' }}>
-              {hv.kind === 'proxmox' ? "Check the API token's ID and secret (Edit)." : "Add the Controller's public key to the user's authorized_keys (Edit shows it)."}
-            </div>
-          )}
-        </div>
-      )}
+      {hv.trusted && status?.error && <HVError hv={hv} error={status.error} />}
       {host && (
         <>
           <div className="gauges hv-gauges">
@@ -1330,6 +1346,279 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
   )
 }
 
+// --- as lists: the same data as the cards, a row each ---
+
+// HypervisorTable lists the hypervisors as rows: what a card shows, its
+// set-up steps and errors on a row of their own below.
+function HypervisorTable({ hypervisors, hvStatus, onEdit, onRemove, onTrusted }) {
+  const can = useCan()
+  const columns = can('admin') ? 8 : 7
+  return (
+    <div className="card node-table-card">
+      <div className="table-wrap">
+        <table className="node-table">
+          <thead>
+            <tr>
+              <th>Hypervisor</th>
+              <th>State</th>
+              <th>Host</th>
+              <th>CPU</th>
+              <th>Memory</th>
+              <th>Storage</th>
+              <th>Machines</th>
+              {can('admin') && <th aria-label="Actions" />}
+            </tr>
+          </thead>
+          <tbody>
+            {hypervisors.map((hv) => {
+              const status = hvStatus[hv.id]
+              const host = status?.host
+              return (
+                <Fragment key={hv.id}>
+                  <tr>
+                    <td>
+                      <div className="node-card-name">{hv.name}</div>
+                      <div className="muted small mono">{hvWhere(hv)}</div>
+                    </td>
+                    <td>{hvBadge(hv, status)}</td>
+                    <td className="small">
+                      {host ? (
+                        <>
+                          <div className="mono">{host.hostname}</div>
+                          <div className="muted">
+                            {host.hypervisor_version} · {host.library_version}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="muted">–</span>
+                      )}
+                    </td>
+                    <td className="small">
+                      {host ? (
+                        <>
+                          {host.cpus} × {host.cpu_mhz} MHz
+                          {status.cpu_percent >= 0 && <div className="muted">{status.cpu_percent.toFixed(0)}% busy</div>}
+                        </>
+                      ) : (
+                        <span className="muted">–</span>
+                      )}
+                    </td>
+                    <td className="small">
+                      {host ? (
+                        <>
+                          {gib(host.memory_total - host.memory_free)} of {gib(host.memory_total)}
+                          <div className="muted">{pct(host.memory_total - host.memory_free, host.memory_total)} used</div>
+                        </>
+                      ) : (
+                        <span className="muted">–</span>
+                      )}
+                    </td>
+                    <td className="small">
+                      {host ? (
+                        <>
+                          <StorageText s={host.storage} />
+                          {host.image_storage && (
+                            <div>
+                              <span className="muted">images </span>
+                              <StorageText s={host.image_storage} />
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="muted">–</span>
+                      )}
+                    </td>
+                    <td className="small">
+                      {hv.machines}
+                      {host?.running_machines >= 0 && <div className="muted">{host.running_machines} running</div>}
+                    </td>
+                    {can('admin') && (
+                      <td className="actions">
+                        <div className="row" style={{ gap: '0.3rem', flexWrap: 'nowrap' }}>
+                          <button className="small" onClick={() => onEdit(hv)}>
+                            <Pencil size={14} /> Edit
+                          </button>
+                          <button
+                            className="ghost icon danger"
+                            onClick={() => onRemove(hv)}
+                            disabled={hv.machines > 0}
+                            title={hv.machines > 0 ? 'Destroy its machines first' : 'Forget this hypervisor'}
+                            aria-label={`Remove ${hv.name}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                  {(!hv.trusted || status?.error) && (
+                    <tr className="table-detail">
+                      <td colSpan={columns}>
+                        {!hv.trusted &&
+                          (can('admin') ? <TrustSteps hv={hv} onTrusted={onTrusted} /> : <div className="notice warn small">Not trusted yet: an admin checks its key.</div>)}
+                        {hv.trusted && status?.error && <HVError hv={hv} error={status.error} />}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// StorageText is a storage pool's name and room, or its error.
+function StorageText({ s }) {
+  if (s.error)
+    return (
+      <span style={{ color: 'var(--danger)' }} className="wrap-anywhere">
+        {s.name}: {s.error}
+      </span>
+    )
+  return (
+    <>
+      <span className="mono">{s.name}</span> · {gib(s.available)} free of {gib(s.capacity)}
+      {!s.active && <Badge tone="danger">inactive</Badge>}
+    </>
+  )
+}
+
+// MachineTable lists the machines as rows: what a card shows, its
+// notices and errors - and its history when asked - on a row below.
+function MachineTable({ machines, vmOf, vmErrorOf, actions, onEdit }) {
+  return (
+    <div className="card node-table-card">
+      <div className="table-wrap">
+        <table className="node-table">
+          <thead>
+            <tr>
+              <th>Machine</th>
+              <th>State</th>
+              <th>Size</th>
+              <th>Image</th>
+              <th>Network</th>
+              <th>Node</th>
+              <th>Last event</th>
+              <th aria-label="Actions" />
+            </tr>
+          </thead>
+          <tbody>
+            {machines.map((m) => (
+              <MachineRow key={m.id} m={m} vm={vmOf(m)} vmError={vmErrorOf(m)} actions={actions} onEdit={onEdit} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function MachineRow({ m, vm, vmError, actions, onEdit }) {
+  const can = useCan()
+  const [history, setHistory] = useState(false)
+  const last = m.events[m.events.length - 1]
+  const synced = ago(m.synced_at)
+  const notices =
+    m.error || vmError || (m.warning && !m.node_id) || (m.node_hostname && m.node_hostname !== m.spec.name) || m.spec.managed_by || history || m.spec.autoscale
+  return (
+    <>
+      <tr>
+        <td>
+          <div className="node-card-name">{m.spec.name}</div>
+          <div className="muted small mono">
+            {m.vm_name || '…'} · {m.hypervisor_name}
+          </div>
+        </td>
+        <td>
+          <div className="row" style={{ gap: '0.3rem', flexWrap: 'wrap' }}>
+            <ManagedBadge m={m} />
+            <PowerBadge power={vm?.power} />
+            <PhaseBadge phase={m.phase} />
+          </div>
+        </td>
+        <td className="small">{sizeText(m)}</td>
+        <td className="small mono">
+          {m.version ? `${m.version}${m.schematic ? ` · ${m.schematic.slice(0, 8)}` : ''}` : m.spec.image ? 'custom image' : m.spec.version || 'newest release'}
+          {(m.spec.haproxy || m.spec.kernel) && (
+            <div className="muted">
+              {[m.spec.haproxy && `HAProxy ${m.spec.haproxy}`, m.spec.kernel && `${m.spec.kernel} kernel`].filter(Boolean).join(' · ')}
+            </div>
+          )}
+        </td>
+        <td className="small mono">
+          {m.spec.nics.map((n) => (
+            <div key={n.mac}>
+              {n.name} · {n.network} · {n.mode === 'static' ? (n.addresses || []).join(' ') : n.mode}
+            </div>
+          ))}
+        </td>
+        <td className="small">
+          <span className="mono">{m.node_address || <span className="muted">not registered yet</span>}</span>
+          {m.node_id && (synced || m.sync_error) && (
+            <div className={m.sync_error ? 'wrap-anywhere' : 'muted'} style={m.sync_error ? { color: 'var(--warn)' } : undefined} title={m.sync_error || ''}>
+              {m.sync_error ? "couldn't read it from its node" : `read ${synced}`}
+            </div>
+          )}
+        </td>
+        <td className="small machine-last-event" title={last ? `${new Date(last.time).toLocaleString()} · ${last.message}` : ''}>
+          {last ? (
+            <>
+              <span className="muted">{new Date(last.time).toLocaleTimeString()}</span> {last.message}
+            </>
+          ) : (
+            <span className="muted">–</span>
+          )}
+        </td>
+        <td className="actions">
+          <div className="row" style={{ gap: '0.3rem', flexWrap: 'nowrap' }}>
+            <PowerButtons machine={m} vm={vm} actions={actions} />
+            <button className="small ghost" onClick={() => setHistory(!history)} title="History" aria-pressed={history}>
+              <History size={14} />
+            </button>
+            {can('admin') && m.phase === 'ready' && m.node_id && !m.spec.locked && (
+              <button className="small" onClick={() => onEdit(m)} disabled={actions.busy} title="vCPUs, memory, network interfaces, auto-scaling">
+                <Pencil size={14} /> Edit
+              </button>
+            )}
+            {can('admin') && m.phase === 'failed' && !m.node_id && (
+              <button className="small" onClick={() => actions.retry(m)} disabled={actions.busy}>
+                <RotateCcw size={14} /> Retry
+              </button>
+            )}
+            {can('admin') && m.phase !== 'destroying' && !m.spec.locked && (
+              <button className="ghost icon danger" onClick={() => actions.destroy(m)} disabled={actions.busy} title="Destroy" aria-label={`Destroy ${m.spec.name}`}>
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+      {notices && (
+        <tr className="table-detail">
+          <td colSpan={8}>
+            <LockNotice m={m} actions={actions} />
+            {m.error && <div className="error-box small">{m.error}</div>}
+            {m.warning && !m.node_id && (
+              <div className="notice warn small">
+                {m.warning} <span className="muted">Its console shows the rest.</span>
+              </div>
+            )}
+            {vmError && <div className="error-box small">{vmError}</div>}
+            {m.node_hostname && m.node_hostname !== m.spec.name && (
+              <div className="notice warn small">The node calls itself {m.node_hostname}: its hostname was changed on its page.</div>
+            )}
+            <AutoscaleSummary m={m} />
+            {history && <pre className="logview machine-events">{m.events.map((e) => `${new Date(e.time).toLocaleTimeString()}  ${e.message}`).join('\n')}</pre>}
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
 // --- the page ---
 
 export default function HypervisorsPage({ hypervisors, machines, hvStatus, onChanged, onConsole }) {
@@ -1356,6 +1645,9 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
   const editingHV = editing && hypervisors.find((h) => h.id === editing.spec.hypervisor_id)
   const vmOf = (m) => hvStatus[m.spec.hypervisor_id]?.machines?.[m.id]
   const vmErrorOf = (m) => hvStatus[m.spec.hypervisor_id]?.machine_errors?.[m.id]
+  // Cards or a list, each list its own choice, remembered per browser.
+  const [hvView, setHvView] = useStoredView('janus-hypervisors-view')
+  const [machinesView, setMachinesView] = useStoredView('janus-machines-view')
 
   return (
     <div className="stack">
@@ -1372,11 +1664,14 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
       )}
       <div className="spread">
         <h1>Hypervisors</h1>
-        {!form && can('admin') && (
-          <button className="primary" onClick={() => setForm('add')}>
-            <Plus size={15} /> Add hypervisor
-          </button>
-        )}
+        <div className="row">
+          {hypervisors.length > 0 && <ViewToggle value={hvView} onChange={setHvView} label="Show the hypervisors as" />}
+          {!form && can('admin') && (
+            <button className="primary" onClick={() => setForm('add')}>
+              <Plus size={15} /> Add hypervisor
+            </button>
+          )}
+        </div>
       </div>
       {form && (
         <HypervisorForm
@@ -1404,19 +1699,26 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
           )}
         </div>
       )}
-      <div className="node-grid">
-        {hypervisors.map((hv) => (
-          <HypervisorCard key={hv.id} hv={hv} status={hvStatus[hv.id]} onEdit={setForm} onRemove={remove} onTrusted={onChanged} />
-        ))}
-      </div>
+      {hvView === 'list' && hypervisors.length > 0 ? (
+        <HypervisorTable hypervisors={hypervisors} hvStatus={hvStatus} onEdit={setForm} onRemove={remove} onTrusted={onChanged} />
+      ) : (
+        <div className="node-grid">
+          {hypervisors.map((hv) => (
+            <HypervisorCard key={hv.id} hv={hv} status={hvStatus[hv.id]} onEdit={setForm} onRemove={remove} onTrusted={onChanged} />
+          ))}
+        </div>
+      )}
 
       <div className="spread" style={{ marginTop: '0.6rem' }}>
         <h1>Machines</h1>
-        {!creating && can('admin') && (
-          <button className="primary" onClick={() => setCreating(true)} disabled={trusted.length === 0} title={trusted.length ? '' : 'Add and trust a hypervisor first'}>
-            <Plus size={15} /> Create node
-          </button>
-        )}
+        <div className="row">
+          {machines.length > 0 && <ViewToggle value={machinesView} onChange={setMachinesView} label="Show the machines as" />}
+          {!creating && can('admin') && (
+            <button className="primary" onClick={() => setCreating(true)} disabled={trusted.length === 0} title={trusted.length ? '' : 'Add and trust a hypervisor first'}>
+              <Plus size={15} /> Create node
+            </button>
+          )}
+        </div>
       </div>
       {creating && (
         <CreateMachineForm
@@ -1429,11 +1731,15 @@ export default function HypervisorsPage({ hypervisors, machines, hvStatus, onCha
         />
       )}
       {machines.length === 0 && !creating && <div className="card empty">No machine yet: the nodes this Controller creates appear here.</div>}
-      <div className="node-grid">
-        {machines.map((m) => (
-          <MachineCard key={m.id} m={m} vm={vmOf(m)} vmError={vmErrorOf(m)} actions={actions} onEdit={setEditing} />
-        ))}
-      </div>
+      {machinesView === 'list' && machines.length > 0 ? (
+        <MachineTable machines={machines} vmOf={vmOf} vmErrorOf={vmErrorOf} actions={actions} onEdit={setEditing} />
+      ) : (
+        <div className="node-grid">
+          {machines.map((m) => (
+            <MachineCard key={m.id} m={m} vm={vmOf(m)} vmError={vmErrorOf(m)} actions={actions} onEdit={setEditing} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -237,9 +237,13 @@ export function TrustBadge({ fleet, nodeID }) {
         </span>
       )
     case 'error':
+      // The error in full below the badge - wrapped anywhere (a URL, a
+      // certificate's chain), three lines at most, all of it in the
+      // tooltip: a badge's text doesn't wrap and ran out of the card.
       return (
-        <span title={t.error}>
-          <Badge tone="danger">fleet: {t.error?.slice(0, 40) || 'error'}</Badge>
+        <span className="trust-error" title={t.error || ''}>
+          <Badge tone="danger">fleet error</Badge>
+          {t.error && <span className="trust-error-text">{t.error}</span>}
         </span>
       )
     default:

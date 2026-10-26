@@ -1,7 +1,7 @@
 import { Copy, KeyRound, Plus, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
-import { atLeast, DOMAINS, labelString, parseLabels, ROLES, useMe } from './me.jsx'
+import { atLeast, DOMAINS, labelString, parseLabels, ROLES, useCan, useMe } from './me.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 import { roleTone } from './Users.jsx'
 
@@ -56,6 +56,7 @@ function NewToken({ token, onClose }) {
 
 export default function TokensPage() {
   const me = useMe()
+  const can = useCan()
   const [role, setRole] = useState(me.max_role || me.role)
   const [labels, setLabels] = useState('')
   const [domains, setDomains] = useState([])
@@ -110,6 +111,12 @@ export default function TokensPage() {
         A token lets a program use this Controller&apos;s API - the Terraform provider creating and changing nodes, a script - as you, with your role or a lower one, except
         managing accounts and tokens. It follows your account: lowered with it, stopped with it. Only its fingerprint is kept: it&apos;s shown once.
       </p>
+      {can('admin') && (
+        <p className="muted small" style={{ margin: 0 }}>
+          Letting new nodes register by themselves isn&apos;t an API token&apos;s job: that&apos;s an{' '}
+          <a href="#/enrollment-tokens">enrollment token</a>, on the Nodes tab - a node presents it once, it opens nothing of the API.
+        </p>
+      )}
       {created && <NewToken token={created} onClose={() => setCreated(null)} />}
       <Card title="New token" icon={Plus}>
         <form className="row" onSubmit={create} style={{ flexWrap: 'wrap' }}>

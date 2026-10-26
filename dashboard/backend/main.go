@@ -310,6 +310,7 @@ func (a *app) routes(spa http.Handler) *http.ServeMux {
 	mux.HandleFunc("POST /api/auth/logout", a.handleAuthLogout)
 	mux.HandleFunc("POST /api/auth/password", a.handleAuthPassword)
 	a.registerMFARoutes(mux)
+	a.registerPreferenceRoutes(mux)
 	a.registerTrustRoutes(mux)
 	a.registerSSORoutes(mux)
 	// The nodes an account reaches - its role over everything, or its
