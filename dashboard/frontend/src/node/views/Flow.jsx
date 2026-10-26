@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, LayoutDashboard, Layers, Route, Scaling, ScrollText, Server, SquareTerminal, Table2, Users, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { ArrowDown, ArrowRight, Database, Ellipsis, EthernetPort, Globe, Hourglass, LayoutDashboard, Layers, Route, Scaling, ScrollText, Server, SquareTerminal, Table2, Users, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getJSON } from '../api.js'
 import ServerStateButtons from '../components/ServerStateButtons.jsx'
@@ -10,24 +10,32 @@ import {
   apiPeers,
   arrange,
   buildFlow,
+  dotsShown,
   figures,
+  inWindow,
+  interfaceRates,
   interfaces,
   layout,
   lineChars,
+  lingerFor,
   logTargets,
+  maxDots,
+  motionFrames,
   parseTopology,
   particles,
-  pathLength,
   protocol,
   pulse,
   reach,
   related,
   risen,
+  speedAt,
+  statRows,
   stickTables,
-  withRates,
+  windowRates,
 } from '../flow.js'
-import { useMetrics, usePoll, useStatSamples } from '../hooks.jsx'
+import { useMetrics, usePoll, useRefresh } from '../hooks.jsx'
 import { useMay } from '../may.js'
+import { useNodeCharts } from '../nodeCharts.js'
 import { useReducedMotion } from '../../shared/chart/motion.js'
 import BrandMark from '../../shared/BrandMark.jsx'
 
@@ -100,17 +108,49 @@ function short(s, n = 22) {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s
 }
 
-// usePeerSamples is useStatSamples (hooks.jsx) for the peers' answers -
-// /api/log-forwarding read by logTargets, /api/system/clients by
-// apiPeers: the peers, their numbers a second.
-function usePeerSamples(data, peers) {
-  const [s, setS] = useState({ cur: null, prev: null, seconds: 0 })
+// useSampleWindow keeps a poll's answers over the rate window (flow.js
+// inWindow), oldest first, each parsed once (parse, when given: a
+// function that never changes) with when it came (usePoll's at - not
+// when this effect ran, which can be later): what the numbers a second
+// are averaged over.
+function useSampleWindow({ data, at }, parse) {
+  const [samples, setSamples] = useState([])
   useEffect(() => {
     if (!data) return
-    const now = Date.now()
-    setS((p) => ({ prev: p.cur, cur: { data, t: now }, seconds: p.cur ? (now - p.cur.t) / 1000 : 0 }))
-  }, [data])
-  return useMemo(() => (s.cur ? peers(s.cur.data, s.prev?.data, s.seconds) : []), [s, peers])
+    const t = at ?? Date.now()
+    const value = parse ? parse(data) : data
+    setSamples((s) => (s.at(-1)?.t === t ? s : inWindow([...s, { t, data: value }])))
+  }, [data, at, parse])
+  return samples
+}
+
+// usePeerSamples is the peers of a poll's answers over the rate window
+// - /api/log-forwarding read by logTargets, /api/system/clients by
+// apiPeers -, their numbers a second from the window's first answer to
+// its last.
+function usePeerSamples(poll, peers) {
+  const win = useSampleWindow(poll.error ? NO_ANSWER : poll)
+  return useMemo(() => {
+    const cur = win.at(-1)
+    if (!cur) return []
+    const base = win.length > 1 ? win[0] : null
+    return peers(cur.data, base?.data, base ? (cur.t - base.t) / 1000 : 0)
+  }, [win, peers])
+}
+
+// useLinger is active, kept true for ms after it last was: a link whose
+// traffic touches 0 between two samples doesn't blink.
+function useLinger(active, ms) {
+  const [kept, setKept] = useState(active)
+  useEffect(() => {
+    if (active) {
+      setKept(true)
+      return undefined
+    }
+    const t = setTimeout(() => setKept(false), ms)
+    return () => clearTimeout(t)
+  }, [active, ms])
+  return active || kept
 }
 
 // useFlashes is, by node or link id, how many times one of its numbers
@@ -163,6 +203,7 @@ function useMaps(paths, enabled, reloadKey) {
 }
 
 const NO_MAPS = { key: '', maps: {}, failed: {} }
+const NO_ANSWER = { data: null }
 
 function activity(row) {
   if (!row) return 0
@@ -241,7 +282,11 @@ function FlowNode({ n, hap, configKnown, shape, state, flash, onSelect, onHover 
   const proto = (n.kind === 'fe' || (n.kind === 'be' && !n.stick)) && PROTO[n.mode]
   const count = n.kind === 'api' ? apiCount(n) : 0
   const who = n.kind === 'api' ? ` (${count} ${n.controller ? (count === 1 ? 'user' : 'users') : count === 1 ? 'client' : 'clients'})` : ''
-  const label = `${n.kind === 'api' ? '' : `${kindName(n)} `}${n.name}${proto ? ` (${proto})` : ''}${who}${text ? `: ${text}` : ''}${unlinked ? (peer ? ' - not known through which interface' : ' - no frontend rule names it') : ''}`
+  // A TCP frontend HAProxy counts only as its connections end (no
+  // option contstats): a long one - a tunnel, a relay - shows nothing
+  // until then.
+  const late = lateCounted(n)
+  const label = `${n.kind === 'api' ? '' : `${kindName(n)} `}${n.name}${proto ? ` (${proto})` : ''}${who}${text ? `: ${text}` : ''}${unlinked ? (peer ? ' - not known through which interface' : ' - no frontend rule names it') : ''}${COUNTS[n.kind] || ''}${late ? ` - ${lateWords(n)}` : ''}`
   // A number that started from nothing flashes: its key replays it.
   const sub = (extra = '') => `flow-sub ${v.tone || ''} ${flash ? 'flash' : ''} ${extra}`
   // A label beside its node is part of it: hovering or clicking it too.
@@ -338,6 +383,7 @@ function FlowNode({ n, hap, configKnown, shape, state, flash, onSelect, onHover 
       <Icon className="flow-icon" size={s} x={-s / 2} y={-s / 2} aria-hidden="true" />
       {proto && <ProtoBadge proto={n.mode} r={n.r} />}
       {count > 0 && <CountBadge count={count} r={n.r} />}
+      {late && <LateBadge r={n.r} />}
       {labels}
       <title>{label}</title>
     </g>
@@ -375,6 +421,38 @@ function CountBadge({ count, r }) {
       </text>
     </g>
   )
+}
+
+// lateCounted: a TCP frontend without option contstats, whose bytes
+// HAProxy adds to its counters only as each connection ends - a stream
+// is the whole connection in TCP, often a long one (a database's, a
+// tunnel, a relay), where in HTTP it's a request (lateWords).
+function lateCounted(n) {
+  return n.kind === 'fe' && n.contstats === false && n.mode === 'tcp'
+}
+
+// LateBadge marks a frontend lateCounted - at its ring's bottom left,
+// where no link comes in nor label goes.
+function LateBadge({ r }) {
+  return (
+    <g className="flow-late" transform={`translate(${-r * 0.78} ${r * 0.78})`} aria-hidden="true">
+      <circle r={6.5} />
+      <Hourglass size={8} x={-4} y={-4} />
+    </g>
+  )
+}
+
+// lateWords says what a frontend without option contstats counts: a
+// stream is a connection in TCP, a request in HTTP.
+function lateWords(n) {
+  return `HAProxy counts its bytes when each ${n.mode === 'tcp' ? 'connection' : 'request'} ends (no option contstats)`
+}
+
+// What a node's traffic counts, said after its numbers - the averages
+// of the rate window (flow.js RATE_WINDOW_MS).
+const COUNTS = {
+  iface: ' - over the last 10 s, everything the interface carries both ways: what HAProxy forwards crosses it twice when its clients and servers are both on it',
+  fe: ' - over the last 10 s, the bytes HAProxy forwarded',
 }
 
 // linkLook is how a link shows: its pulse when traffic goes through, or
@@ -418,51 +496,244 @@ function linkLook(l, map, incoming) {
   return { cls, proto, traffic: cls ? 0 : traffic, pulse: cls ? null : pulse(traffic) }
 }
 
-// Particles run along a link while traffic goes through: glowing dots,
-// closer together and faster the more bytes (flow.js particles), spread
-// along it from the start - a log target's from it, out of the node. An
-// SVG animation each: no script runs a frame. None under "reduce motion",
-// where the link is only lit.
-function Particles({ l, look }) {
-  const len = useMemo(() => pathLength(l.d), [l.d])
-  const p = particles(look.traffic, len)
-  if (!p) return null
-  const r = Math.max(2, look.pulse.width * 0.6)
-  const back = l.kind === 'log'
-  // A comet: the dot in its glow, two fainter ones trailing it.
-  const parts = [
-    { lag: 0, r: r * 3, cls: 'flow-particle-halo' },
-    { lag: 0.05, r: r * 0.55, cls: 'flow-particle-tail far2' },
-    { lag: 0.025, r: r * 0.75, cls: 'flow-particle-tail' },
-    { lag: 0, r, cls: 'flow-particle-core' },
-  ]
-  return Array.from({ length: p.count }, (_, i) => (
-    <g key={i} className="flow-particle">
-      {parts.map((part, j) => (
-        <circle key={j} r={part.r} className={part.cls}>
-          <animateMotion
-            dur={`${p.seconds}s`}
-            begin={`${(-(i * p.seconds) / p.count + part.lag * p.seconds).toFixed(2)}s`}
-            repeatCount="indefinite"
-            path={l.d}
-            keyPoints={back ? '1;0' : '0;1'}
-            keyTimes="0;1"
-            calcMode="linear"
-          />
-        </circle>
-      ))}
-    </g>
-  ))
+// --- the particles' motion ---
+
+// A dot's animation lasts CYCLE_MS a crossing: its playbackRate is the
+// crossings it makes a second.
+const CYCLE_MS = 1000
+// node.css' fades: a link's dots going or coming back, a set of them
+// giving way to another.
+const FADE_MS = 300
+
+// The speed changes under way, one loop for every link: a frame sets the
+// changing links' playbackRate - which keeps each dot where it is - and
+// the loop stops when none changes.
+const changing = new Set()
+let frame = 0
+function stepSpeeds(now) {
+  for (const m of changing) if (m.step(now)) changing.delete(m)
+  frame = changing.size ? requestAnimationFrame(stepSpeeds) : 0
 }
 
-function FlowLink({ l, look, state, flash, onSelect, onHover, moving }) {
+// LinkMotion is a link's dots: a Web Animation each along the link,
+// made once and kept from one refresh to the next - their speed eased
+// to a new one (speedAt), never restarted; paused while they're hidden.
+class LinkMotion {
+  sets = new Map() // a set of dots' id: their animations
+  rate = 0 // crossings a second now
+  from = 0
+  to = 0
+  start = 0
+  paused = false
+
+  all() {
+    return [...this.sets.values()].flat()
+  }
+
+  // phase is where the newest set's first dot is along the link, 0 to 1.
+  phase() {
+    const t = [...this.sets.values()].at(-1)?.[0]?.currentTime
+    return typeof t === 'number' ? (t % CYCLE_MS) / CYCLE_MS : 0
+  }
+
+  add(id, anims) {
+    for (const a of anims) {
+      a.playbackRate = this.rate
+      if (this.paused) a.pause()
+    }
+    this.sets.set(id, anims)
+  }
+
+  remove(id) {
+    for (const a of this.sets.get(id) || []) a.cancel()
+    this.sets.delete(id)
+  }
+
+  // speed eases the dots to crossings a second.
+  speed(to) {
+    if (!(to > 0)) return
+    if (!this.rate) {
+      this.rate = this.to = to
+      for (const a of this.all()) a.playbackRate = to
+      return
+    }
+    if (to === this.to) return
+    this.from = this.rate
+    this.to = to
+    this.start = performance.now()
+    changing.add(this)
+    if (!frame) frame = requestAnimationFrame(stepSpeeds)
+  }
+
+  step(now) {
+    this.rate = speedAt(this.from, this.to, now - this.start)
+    for (const a of this.all()) a.playbackRate = this.rate
+    return this.rate === this.to
+  }
+
+  pause(paused) {
+    if (this.paused === paused) return
+    this.paused = paused
+    for (const a of this.all()) {
+      if (paused) a.pause()
+      else a.play()
+    }
+  }
+
+  stop() {
+    changing.delete(this)
+    for (const id of [...this.sets.keys()]) this.remove(id)
+  }
+}
+
+// A dot's trail, behind it on its own x axis (motionFrames turns it the
+// way it goes): the dot in its glow, two fainter ones following.
+function dotParts(r) {
+  const gap = r * 2.6
+  return [
+    { x: 0, r: r * 3, cls: 'flow-particle-halo' },
+    { x: -2 * gap, r: r * 0.55, cls: 'flow-particle-tail far2' },
+    { x: -gap, r: r * 0.75, cls: 'flow-particle-tail' },
+    { x: 0, r, cls: 'flow-particle-core' },
+  ]
+}
+
+// ParticleSet is a link's dots, spread evenly along it - the first
+// where the set before it had its own (motion.phase), when the link's
+// length asked for another number of them -, those shown lit (shown):
+// more traffic lights more of the same dots, fading in where they are.
+function ParticleSet({ id, shown, r, frames, motion, leaving, onGone }) {
+  const dots = useRef([])
+  const shape = useRef(frames)
+  const total = shown.length
+  useLayoutEffect(() => {
+    const phase = motion.phase()
+    const anims = []
+    for (let i = 0; i < total; i++) {
+      const el = dots.current[i]
+      if (!el?.animate) continue
+      const a = el.animate(shape.current, { duration: CYCLE_MS, iterations: Infinity, easing: 'linear' })
+      a.currentTime = ((phase + i / total) % 1) * CYCLE_MS
+      anims.push(a)
+    }
+    motion.add(id, anims)
+    return () => motion.remove(id)
+  }, [id, total, motion])
+  // The path changed (the map laid out again): the same dots follow it.
+  useEffect(() => {
+    if (shape.current === frames) return
+    shape.current = frames
+    for (const a of motion.sets.get(id) || []) a.effect?.setKeyframes(frames)
+  }, [frames, id, motion])
+  useEffect(() => {
+    if (!leaving) return undefined
+    const t = setTimeout(() => onGone(id), FADE_MS + 50)
+    return () => clearTimeout(t)
+  }, [leaving, id, onGone])
+  const parts = dotParts(r)
+  return (
+    <g className={`flow-particle-set ${leaving ? 'leaving' : ''}`}>
+      {shown.map((lit, i) => (
+        <g key={i} className={`flow-particle ${lit ? '' : 'unlit'}`} ref={(el) => (dots.current[i] = el)}>
+          {parts.map((part, j) => (
+            <circle key={j} cx={part.x} r={part.r} className={part.cls} />
+          ))}
+        </g>
+      ))}
+    </g>
+  )
+}
+
+// Particles run along a link while traffic goes through: glowing dots,
+// closer together and faster the more bytes (flow.js particles), spread
+// along it from the start - a log target's from it, out of the node. A
+// Web Animation each, made once: a refresh changes their speed, eased,
+// and how many of them are lit, faded - never restarts them; when the
+// traffic stops they fade out (on: false, after useLinger's grace),
+// paused, and fade in again where they were when it's back. None under
+// "reduce motion" or with the account's node charts off: the link is
+// only lit.
+function Particles({ l, traffic, width, on, track }) {
+  const motion = useRef(null)
+  if (!motion.current) motion.current = new LinkMotion()
+  const back = l.kind === 'log'
+  // The path as the page draws it: its length, the keyframes along it.
+  const [geom, setGeom] = useState(null)
+  useLayoutEffect(() => {
+    const el = track.current
+    if (!el?.getTotalLength) return
+    const len = el.getTotalLength()
+    const k = Math.max(8, Math.min(64, Math.ceil(len / 12)))
+    const pts = []
+    for (let i = 0; i <= k; i++) {
+      const q = el.getPointAtLength((len * i) / k)
+      pts.push({ x: q.x, y: q.y })
+    }
+    if (back) pts.reverse()
+    setGeom({ len, frames: motionFrames(pts) })
+  }, [l.d, back, track])
+  const p = geom ? particles(traffic, geom.len) : null
+  const total = geom ? maxDots(geom.len) : 0
+  const crossings = p ? 1 / p.seconds : 0
+  useEffect(() => {
+    motion.current.speed(crossings)
+  }, [crossings])
+  // Hidden: paused once faded out; back: moving again as it fades in.
+  useEffect(() => {
+    const m = motion.current
+    if (on) {
+      m.pause(false)
+      return undefined
+    }
+    const t = setTimeout(() => m.pause(true), FADE_MS + 50)
+    return () => clearTimeout(t)
+  }, [on])
+  useEffect(() => () => motion.current.stop(), [])
+  // The sets of dots: the one moving, and one fading away a moment when
+  // the path's length changed their number (the map laid out again).
+  const [sets, setSets] = useState([])
+  useEffect(() => {
+    if (!total) return
+    setSets((s) => {
+      const cur = s.find((x) => !x.leaving)
+      if (cur?.total === total) return s
+      return [...s.map((x) => (x.leaving ? x : { ...x, leaving: true })), { id: (s.at(-1)?.id || 0) + 1, total, leaving: false }]
+    })
+  }, [total])
+  const gone = useCallback((id) => setSets((s) => s.filter((x) => x.id !== id)), [])
+  if (!geom || !sets.length) return null
+  const r = Math.max(2, width * 0.6)
+  return (
+    <g className={`flow-particles ${on ? 'on' : ''}`}>
+      {sets.map((s) => (
+        <ParticleSet key={s.id} id={s.id} shown={dotsShown(Math.min(p?.count || 0, s.total), s.total)} r={r} frames={geom.frames} motion={motion.current} leaving={s.leaving} onGone={gone} />
+      ))}
+    </g>
+  )
+}
+
+function FlowLink({ l, look, state, flash, onSelect, onHover, moving, linger }) {
   const clickable = l.kind === 'be'
+  const track = useRef(null)
+  // Lit while traffic goes through, and a moment after (linger): then
+  // the light and the dots fade out; a server down, a target disabled
+  // at once.
+  const active = !look.cls && look.traffic > 0
+  const on = useLinger(active, linger) && !look.cls
+  // The traffic last seen: what the light and dots keep as they fade.
+  const last = useRef(0)
+  if (active) last.current = look.traffic
+  const lit = pulse(last.current)
+  // The dots come once there's been traffic, and stay - hidden, paused -
+  // while there isn't.
+  const seen = useRef(false)
+  if (active) seen.current = true
   return (
     <g className={`flow-link kind-${l.kind} ${look.proto ? `proto-${look.proto}` : ''} ${look.cls} ${state}`} data-id={l.id}>
-      <path className="flow-track" d={l.d} />
-      {flash > 0 && look.pulse && <path key={flash} className="flow-flash-link" d={l.d} />}
-      {look.pulse && <path className="flow-pulse" d={l.d} style={{ strokeWidth: look.pulse.width }} />}
-      {look.pulse && moving && <Particles l={l} look={look} />}
+      <path className="flow-track" d={l.d} ref={track} />
+      {flash > 0 && active && <path key={flash} className="flow-flash-link" d={l.d} />}
+      {lit && !look.cls && <path className={`flow-pulse ${on ? 'on' : ''}`} d={l.d} style={{ strokeWidth: lit.width }} />}
+      {moving && seen.current && lit && <Particles l={l} traffic={last.current} width={lit.width} on={on} track={track} />}
       {clickable && (
         <path
           className="flow-hit"
@@ -492,7 +763,28 @@ function Row({ k, children }) {
 }
 
 function traffic(r) {
-  return r.inRate == null ? `in ${bytes(r.bin)} · out ${bytes(r.bout)} in total` : `${rate(r.inRate)} in · ${rate(r.outRate)} out`
+  return r.inRate == null ? `in ${bytes(r.bin)} · out ${bytes(r.bout)} in total` : `${rate(r.inRate)} in · ${rate(r.outRate)} out (last 10 s)`
+}
+
+// counted is when HAProxy adds a frontend's bytes to its counters - what
+// its traffic can say; null without the configuration.
+function counted(n) {
+  if (n.contstats == null) return null
+  const tcp = n.mode === 'tcp'
+  if (n.contstats) return `along each ${tcp ? 'connection' : 'request'}, every 5 s (option contstats)`
+  if (!tcp) {
+    return (
+      <>
+        when each request ends (no <code>option contstats</code>): a long one - a big download, a WebSocket - shows nothing until it ends, then all at once
+      </>
+    )
+  }
+  return (
+    <>
+      <Hourglass size={12} aria-hidden="true" className="flow-late-icon" /> when each connection ends (no <code>option contstats</code>): one open long - a tunnel, a relay, a
+      database&apos;s - shows nothing until it closes, then all at once
+    </>
+  )
 }
 
 function sessions(r) {
@@ -594,7 +886,11 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
           <Row k="Receiving">{rate(n.rx)}</Row>
           <Row k="Sending">{rate(n.tx)}</Row>
         </dl>
-        <p className="muted small">All of the interface&apos;s traffic, not only HAProxy&apos;s.</p>
+        <p className="muted small">
+          Everything the interface carries, both ways, over the last 10 s - the kernel&apos;s count, each packet as it goes: what HAProxy forwards crosses it twice when its
+          clients and its servers are both on it (in from one side, out to the other), with the API, the logs, health checks, packet headers, TLS and retransmissions.
+          HAProxy&apos;s figures are the bytes it forwarded, once, as it counted them.
+        </p>
       </Card>
     )
   }
@@ -611,6 +907,7 @@ function Details({ id, map, graph, hap, onSelect, onChanged }) {
           <Row k="Sessions/s">{`${num(r.rate)} · max ${num(r.rate_max)}`}</Row>
           <Row k="Requests/s">{r.req_rate != null ? num(r.req_rate) : null}</Row>
           <Row k="Traffic">{traffic(r)}</Row>
+          <Row k="Counted">{counted(n)}</Row>
           <Row k="Responses">{responses(r)}</Row>
           <Row k="Errors">{r.ereq ? num(r.ereq) : null}</Row>
           <Row k="Denied">{r.dreq ? num(r.dreq) : null}</Row>
@@ -867,7 +1164,7 @@ function ApiDetails({ n }) {
   )
 }
 
-function Legend({ stick }) {
+function Legend({ stick, late }) {
   return (
     <div className="flow-legend">
       <div className="flow-legend-row">
@@ -884,6 +1181,11 @@ function Legend({ stick }) {
         {stick && (
           <span className="flow-legend-item">
             <Table2 size={12} aria-hidden="true" /> Stick table: a backend holding one and no server
+          </span>
+        )}
+        {late && (
+          <span className="flow-legend-item wraps">
+            <Hourglass size={12} aria-hidden="true" className="flow-late-icon" /> Counted as connections close: TCP without <code>option contstats</code>
           </span>
         )}
       </div>
@@ -917,9 +1219,11 @@ function Legend({ stick }) {
         ))}
       </div>
       <p className="muted small">
-        Links come from the configuration - <code>default_backend</code>, <code>use_backend</code>, a map&apos;s values when <code>use_backend</code> reads one. The numbers are
-        HAProxy&apos;s counters at each refresh: it doesn&apos;t count how a backend&apos;s traffic splits between the frontends that send to it. A number that starts from
-        zero flashes. Ctrl + scroll zooms; drag to move a zoomed map.
+        Links come from the configuration - <code>default_backend</code>, <code>use_backend</code>, a map&apos;s values when <code>use_backend</code> reads one. Traffic is a
+        second&apos;s average over the last 10 s. An interface&apos;s is everything it carries, both ways: what HAProxy forwards crosses it twice when the clients and the
+        servers are both on it. HAProxy&apos;s are its counters, which add a stream&apos;s bytes as it handles it - every 5 s with <code>option contstats</code>, else when it
+        ends - and don&apos;t say how a backend&apos;s traffic splits between the frontends that send to it. A number that starts from zero flashes. Ctrl + scroll zooms; drag
+        to move a zoomed map.
       </p>
     </div>
   )
@@ -927,9 +1231,14 @@ function Legend({ stick }) {
 
 export default function Flow() {
   const may = useMay()
-  const moving = !useReducedMotion()
+  // Particles: not under "reduce motion", nor with the account's node
+  // charts off (the Controller's preferences).
+  const nodeCharts = useNodeCharts()
+  const moving = !useReducedMotion() && nodeCharts
   const mayConfig = may('HAProxyService/GetConfig')
-  const { latest } = useMetrics()
+  const { latest, points } = useMetrics()
+  const { interval } = useRefresh()
+  const linger = lingerFor(interval)
   const hap = latest?.hap
   const stats = usePoll('/api/haproxy/stats')
   const config = usePoll('/api/haproxy/config', { every: SLOW, enabled: mayConfig })
@@ -968,17 +1277,20 @@ export default function Flow() {
     lastUptime.current = uptime
   }, [uptime, reloadConfig])
 
-  const samples = useStatSamples(stats.data)
+  // HAProxy's counters over the rate window: their traffic, a second's
+  // average over it (flow.js windowRates).
+  const statWindow = useSampleWindow(stats, statRows)
   const configText = config.data?.config
   // A string: parsed again only when the configuration changed.
   const topology = useMemo(() => (configText != null ? parseTopology(configText) : null), [configText])
   const mapPaths = topology?.maps || []
   const maps = useMaps(mapPaths, mayConfig && may('HAProxyService/MapGet'), generation)
-  const rows = useMemo(() => (samples.cur ? withRates(samples.cur.rows, samples.prev?.rows, samples.seconds) : []), [samples])
+  const rows = useMemo(() => windowRates(statWindow.map((s) => ({ t: s.t, rows: s.data }))), [statWindow])
   const graph = useMemo(() => buildFlow(rows, topology, maps.maps, tables), [rows, topology, maps.maps, tables])
-  const ifaces = useMemo(() => interfaces(latest?.net, net.data), [latest?.net, net.data])
-  const logs = usePeerSamples(logPoll.error ? null : logPoll.data, logTargets)
-  const apis = usePeerSamples(clientPoll.error ? null : clientPoll.data, apiPeers)
+  // The interfaces' over the same window, from the metrics' samples.
+  const ifaces = useMemo(() => interfaces(interfaceRates(points), net.data), [points, net.data])
+  const logs = usePeerSamples(logPoll, logTargets)
+  const apis = usePeerSamples(clientPoll, apiPeers)
   const peers = useMemo(() => [...apis, ...logs], [apis, logs])
   // The layouts the orientation may take, then the one that shows.
   const across = useMemo(() => (orientation !== 'vertical' ? layout(graph, ifaces, { servers, shape: 'across', peers }) : null), [graph, ifaces, servers, orientation, peers])
@@ -1187,7 +1499,7 @@ export default function Flow() {
       </>
     )
   }
-  const empty = samples.cur && !graph.frontends.length && !graph.backends.length
+  const empty = statWindow.length > 0 && !graph.frontends.length && !graph.backends.length
   const picked = selected && (map.byId[selected] || map.links.some((l) => l.id === selected))
   const summary = `Traffic flow: ${graph.frontends.length} frontends, ${graph.backends.length} backends, ${graph.backends.reduce((t, b) => t + b.servers.length, 0)} servers${apis.length ? `, ${apis.map((a) => a.name.toLowerCase()).join(', ')}` : ''}${logs.length ? `, ${logs.length} log targets` : ''}`
 
@@ -1223,7 +1535,7 @@ export default function Flow() {
                 }}
               >
                 <svg
-                  className={`flow-map ${vertical ? 'vertical' : ''} ${shown.shape} ${near ? 'focused' : ''}`}
+                  className={`flow-map ${vertical ? 'vertical' : ''} ${shown.shape} ${near ? 'focused' : ''} ${nodeCharts ? '' : 'still'}`}
                   viewBox={`0 0 ${map.width} ${map.height}`}
                   style={{ width: Math.round(map.width * scale) }}
                   role="group"
@@ -1231,7 +1543,7 @@ export default function Flow() {
                 >
                   <g>
                     {map.links.map((l) => (
-                      <FlowLink key={l.id} l={l} look={looks[l.id]} state={stateOf(l.id)} flash={flash[l.id]} onSelect={select} onHover={setHover} moving={moving} />
+                      <FlowLink key={l.id} l={l} look={looks[l.id]} state={stateOf(l.id)} flash={flash[l.id]} onSelect={select} onHover={setHover} moving={moving} linger={linger} />
                     ))}
                   </g>
                   <g>
@@ -1263,7 +1575,7 @@ export default function Flow() {
               ) : (
                 <Card>
                   <p className="muted">Select a node, or a link between a frontend and a backend, to see its counters and rules.</p>
-                  <Legend stick={graph.backends.some((b) => b.stick)} />
+                  <Legend stick={graph.backends.some((b) => b.stick)} late={graph.frontends.some(lateCounted)} />
                 </Card>
               )}
             </div>

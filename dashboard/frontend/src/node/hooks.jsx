@@ -72,7 +72,9 @@ function pollTimeout(period, min) {
 }
 
 // usePoll fetches path now, then again at the global refresh interval
-// (or `every`, if given; 0 = once). Pauses while the tab is hidden.
+// (or `every`, if given; 0 = once). Pauses while the tab is hidden. at is
+// when the data arrived (Date.now()): a rate between two answers is over
+// that time - not when a render got to them.
 export function usePoll(path, { every, enabled = true } = {}) {
   const { interval } = useRefresh()
   const period = every ?? interval
@@ -89,7 +91,7 @@ export function usePoll(path, { every, enabled = true } = {}) {
       let failed = false
       try {
         const data = await getJSON(path, { timeout: pollTimeout(period, 30000) })
-        if (!cancelled) setState({ data, error: null, loading: false })
+        if (!cancelled) setState({ data, error: null, loading: false, at: Date.now() })
       } catch (error) {
         failed = true
         if (!cancelled) setState((s) => ({ data: s.data, error, loading: false }))
@@ -146,11 +148,14 @@ function derive(prev, cur) {
     p.net = {}
     for (const d of cur.network.devices) {
       const before = prev?.network?.devices?.find((x) => x.name === d.name)
+      // A counter that went back (the node rebooted): no point, as for
+      // HAProxy's - not a 0 nothing measured.
+      const rate = (k) => (before && seconds > 0 && (d[k] || 0) >= (before[k] || 0) ? ((d[k] || 0) - (before[k] || 0)) / seconds : undefined)
       p.net[d.name] = {
         rxTotal: d.rx_bytes || 0,
         txTotal: d.tx_bytes || 0,
-        rx: before && seconds > 0 ? Math.max(0, ((d.rx_bytes || 0) - (before.rx_bytes || 0)) / seconds) : undefined,
-        tx: before && seconds > 0 ? Math.max(0, ((d.tx_bytes || 0) - (before.tx_bytes || 0)) / seconds) : undefined,
+        rx: rate('rx_bytes'),
+        tx: rate('tx_bytes'),
       }
     }
   }

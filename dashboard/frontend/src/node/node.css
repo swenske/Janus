@@ -280,6 +280,11 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .flow-count rect { fill: var(--surface); stroke: var(--kind); stroke-width: 1.2; }
 .flow-count text { font-size: 8.5px; font-weight: 700; fill: var(--text); font-family: var(--font); }
 .flow-count svg { color: var(--kind); }
+/* A frontend HAProxy counts only as its streams end (no option
+   contstats): an hourglass at its ring's bottom left. */
+.flow-late circle { fill: var(--surface); stroke: var(--kind); stroke-width: 1.2; }
+.flow-late svg { color: var(--kind); }
+.flow-late-icon { color: var(--muted); vertical-align: -2px; }
 .badge.flow-proto-badge { color: var(--proto-ink); border: 1px solid var(--proto); background: transparent; }
 .flow-box { fill: transparent; }
 .flow-disc { fill: var(--surface); stroke: var(--kind); stroke-width: 2.5; }
@@ -303,10 +308,19 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .flow-track { fill: none; stroke: var(--muted); stroke-opacity: 0.35; stroke-width: 1.5; }
 .flow-link.down .flow-track { stroke: var(--danger); stroke-opacity: 0.8; stroke-dasharray: 4 4; }
 .flow-link.off .flow-track { stroke-dasharray: 2 5; }
-.flow-pulse { fill: none; stroke: var(--muted); stroke-linecap: round; stroke-opacity: 0.3; }
+/* A link's light and dots fade in as traffic comes and out (FADE_MS) a
+   moment after it stops; its width follows the traffic smoothly. */
+.flow-pulse { fill: none; stroke: var(--muted); stroke-linecap: round; stroke-opacity: 0.3; opacity: 0; transition: opacity 0.3s ease-out, stroke-width 0.6s ease-in-out; }
+.flow-pulse.on, .flow-particles.on { opacity: 1; animation: flow-fade-in 0.3s ease-out; }
+.flow-particles { opacity: 0; transition: opacity 0.3s ease-out; }
+/* A set of dots giving way to another (more or fewer of them). */
+.flow-particle-set { animation: flow-fade-in 0.3s ease-out; transition: opacity 0.3s ease-out; }
+.flow-particle-set.leaving { opacity: 0; }
+@keyframes flow-fade-in { from { opacity: 0; } }
 /* Traffic moving along a link (Flow.jsx Particles): a dot in the link's
    protocol colour - the accent for an interface's - in a soft halo. */
-.flow-particle { pointer-events: none; }
+.flow-particle { pointer-events: none; transition: opacity 0.3s ease-out; }
+.flow-particle.unlit { opacity: 0; }
 .flow-particle-core { fill: var(--proto, var(--accent)); }
 .flow-particle-halo { fill: var(--proto, var(--accent)); opacity: 0.16; }
 .flow-particle-tail { fill: var(--proto, var(--accent)); opacity: 0.5; }
@@ -330,6 +344,9 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
   /* The flash without movement: its colour only. */
   .flow-flash { animation-name: flow-flash-fade; }
 }
+/* The same with the account's node charts off (Flow.jsx useNodeCharts). */
+.flow-map.still .flow-pulse { stroke-opacity: 0.75; }
+.flow-map.still .flow-flash { animation-name: flow-flash-fade; }
 @keyframes flow-flash-fade { from { opacity: 0.9; } to { opacity: 0; } }
 .flow-h { font-size: 0.9rem; margin: 1rem 0 0.4rem; }
 .flow-target { margin-bottom: 0.5rem; }
@@ -342,6 +359,7 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .flow-legend { margin-top: 0.8rem; display: grid; gap: 0.5rem; font-size: 0.85rem; }
 .flow-legend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.9rem; }
 .flow-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.flow-legend-item.wraps { white-space: normal; display: inline; }
 .flow-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--kind); display: inline-block; }
 .flow-legend-pulse { stroke: var(--muted); stroke-width: 3; stroke-linecap: round; }
 .flow-legend-pulse.proto-http, .flow-legend-pulse.proto-tcp, .flow-legend-pulse.proto-log, .flow-legend-pulse.proto-api { stroke: var(--proto); }

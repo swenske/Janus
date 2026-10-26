@@ -116,7 +116,7 @@ function splitFormat(format) {
 // held: a link that may exist is shown.
 export function parseTopology(cfg) {
   const named = new Map() // named defaults sections
-  let last = { defaultBackend: '', mode: '' } // the last defaults section: what a proxy without "from" inherits
+  let last = { defaultBackend: '', mode: '', contstats: false } // the last defaults section: what a proxy without "from" inherits
   const frontends = []
   const backends = []
   let cur = null
@@ -129,7 +129,7 @@ export function parseTopology(cfg) {
       const base = from ? named.get(from) || last : last
       if (w[0] === 'defaults') {
         // A defaults section starts over, or from the one it names.
-        cur = { kind: 'defaults', defaultBackend: from ? base.defaultBackend : '', mode: from ? base.mode : '' }
+        cur = { kind: 'defaults', defaultBackend: from ? base.defaultBackend : '', mode: from ? base.mode : '', contstats: from ? base.contstats : false }
         if (name) named.set(name, cur)
         last = cur
       } else if (w[0] === 'frontend' || w[0] === 'listen') {
@@ -142,6 +142,7 @@ export function parseTopology(cfg) {
           uses: [],
           defaultBackend: '',
           inherited: base.defaultBackend || '',
+          contstats: !!base.contstats,
           vars: {},
         }
         frontends.push(cur)
@@ -158,6 +159,10 @@ export function parseTopology(cfg) {
     const kw = w[0]
     if (kw === 'mode' && w[1]) cur.mode = w[1]
     else if (kw === 'default_backend' && w[1]) cur.defaultBackend = w[1]
+    // How often HAProxy adds a stream's bytes to its counters: along it
+    // (every 5 s) with option contstats, else when it ends.
+    else if (kw === 'option' && w[1] === 'contstats') cur.contstats = true
+    else if (kw === 'no' && w[1] === 'option' && w[2] === 'contstats') cur.contstats = false
     if (cur.kind === 'defaults') continue
 
     const answer = (a) => cur.answers.includes(a) || cur.answers.push(a)
@@ -206,7 +211,7 @@ export function parseTopology(cfg) {
     const def = f.defaultBackend || f.inherited
     if (def) rules.push({ type: 'default', backend: def, inherited: !f.defaultBackend })
     else if (f.kind === 'listen') rules.push({ type: 'self', backend: f.name })
-    return { name: f.name, kind: f.kind, mode: f.mode, binds: f.binds, answers: f.answers, rules }
+    return { name: f.name, kind: f.kind, mode: f.mode, binds: f.binds, answers: f.answers, contstats: f.contstats, rules }
   })
   return { frontends: out, backends, maps: [...maps] }
 }
@@ -284,18 +289,110 @@ function rowKey(r) {
   return `${r.type}\t${r.proxy}\t${r.name}`
 }
 
-// withRates adds inRate/outRate (bytes per second) to each row from the
-// previous sample, seconds earlier - none for a counter that went back
-// (a reload restarts them) or without a previous sample.
-export function withRates(rows, prevRows, seconds) {
-  const prev = new Map((prevRows || []).map((r) => [rowKey(r), r]))
-  return rows.map((r) => {
-    const p = prev.get(rowKey(r))
-    const rate = (k) => (p && seconds > 0 && r[k] != null && p[k] != null && r[k] >= p[k] ? (r[k] - p[k]) / seconds : undefined)
-    const inRate = rate('bin')
-    const outRate = rate('bout')
+// --- rates ---
+
+// The Traffic flow's numbers a second are averages over the last
+// RATE_WINDOW_MS: HAProxy adds a stream's bytes to its counters only
+// when it processes the stream - every 5 s along it with option
+// contstats, else when it ends -, so the difference between two answers
+// a second apart is mostly 0 and now and then seconds' worth (a big
+// download through an HTTP frontend with contstats: 0, then 5 s of it,
+// then 0...). Ten seconds hold two of contstats' updates; the
+// interfaces' counters (the kernel's, counted as packets go) are read
+// over the same window, so the two compare.
+export const RATE_WINDOW_MS = 10000
+// A sample older than this before the newest is never a rate's start: a
+// tab hidden a while, the node away - an average over minutes would say
+// nothing of now. The longest refresh interval is 30 s.
+export const RATE_MAX_GAP_MS = 35000
+
+// inWindow is the end of samples ({t: ms}, oldest first) a rate is
+// taken over: those of the last window, and the one before the newest
+// at least, unless it's older than RATE_MAX_GAP_MS.
+export function inWindow(samples, window = RATE_WINDOW_MS) {
+  const n = samples?.length || 0
+  if (n < 2) return samples || []
+  const last = samples[n - 1]
+  if (last.t - samples[n - 2].t > RATE_MAX_GAP_MS) return [last]
+  const from = last.t - window
+  let i = n - 2
+  while (i > 0 && samples[i - 1].t >= from) i--
+  return samples.slice(i)
+}
+
+const counterValue = (v) => {
+  if (v == null || v === '') return undefined
+  const n = Number(v)
+  return Number.isFinite(n) ? n : undefined
+}
+
+// counterRate is how much a counter grew a second over samples ({t: ms,
+// v}, oldest first): from the oldest sample since it last went back to
+// the newest, over the time that really passed between them - never the
+// refresh interval. A counter goes back when what keeps it starts again
+// (HAProxy reloaded or restarted, janusd restarted, the node rebooted):
+// what's older doesn't count. None on the path is 32 bits (HAProxy's and
+// janusd's are 64, so is /proc/net/dev on a 64-bit kernel), so one that
+// went back never wrapped. A sample without the value (the proxy missing
+// from that answer) is passed over. undefined when the newest has no
+// value or nothing earlier counts: never a negative rate, nor a spike.
+export function counterRate(samples) {
+  const n = samples?.length || 0
+  const last = samples?.[n - 1]
+  const end = counterValue(last?.v)
+  if (end == null) return undefined
+  let base
+  let next = end
+  for (let i = n - 2; i >= 0; i--) {
+    const v = counterValue(samples[i].v)
+    if (v == null) continue
+    if (v > next) break
+    base = { t: samples[i].t, v }
+    next = v
+  }
+  if (!base) return undefined
+  const seconds = (last.t - base.t) / 1000
+  return seconds > 0 ? (end - base.v) / seconds : undefined
+}
+
+// windowRates is the newest of a window of /api/haproxy/stats answers
+// (history: {t: ms, rows: statRows}, oldest first - inWindow's) with
+// each row's inRate/outRate (bytes a second, counterRate's over the
+// window) and traffic, their sum.
+export function windowRates(history) {
+  const n = history?.length || 0
+  if (!n) return []
+  const last = history[n - 1]
+  const older = history.slice(0, -1).map((h) => ({ t: h.t, by: new Map((h.rows || []).map((r) => [rowKey(r), r])) }))
+  return (last.rows || []).map((r) => {
+    const key = rowKey(r)
+    const series = (k) => [...older.map((h) => ({ t: h.t, v: h.by.get(key)?.[k] })), { t: last.t, v: r[k] }]
+    const inRate = counterRate(series('bin'))
+    const outRate = counterRate(series('bout'))
     return { ...r, inRate, outRate, traffic: inRate == null || outRate == null ? undefined : inRate + outRate }
   })
+}
+
+// withRates is windowRates between two answers, seconds apart - none
+// without a previous one.
+export function withRates(rows, prevRows, seconds) {
+  return windowRates(prevRows && seconds > 0 ? [{ t: 0, rows: prevRows }, { t: seconds * 1000, rows }] : [{ t: 0, rows }])
+}
+
+// interfaceRates are the interfaces' bytes a second received and sent
+// over the rate window, from the metrics' samples (MetricsProvider's
+// points: t, net[name].rxTotal/txTotal - the kernel's counters, every
+// packet's bytes as it goes): {name: {rx, tx}}, what interfaces reads.
+export function interfaceRates(points, window = RATE_WINDOW_MS) {
+  const recent = inWindow((points || []).filter((p) => p.net), window)
+  const last = recent.at(-1)
+  if (!last) return {}
+  const out = {}
+  for (const name of Object.keys(last.net)) {
+    const series = (k) => recent.map((p) => ({ t: p.t, v: p.net[name]?.[k] }))
+    out[name] = { rx: counterRate(series('rxTotal')), tx: counterRate(series('txTotal')) }
+  }
+  return out
 }
 
 // Tones: '' (the kind's own colour), ok, warn, danger, off (greyed out).
@@ -347,6 +444,9 @@ export function buildFlow(rows, topology, mapEntries, tables) {
         listen: c?.kind === 'listen',
         binds: c?.binds || [],
         answers: c?.answers || [],
+        // Whether HAProxy counts its streams' bytes along them (option
+        // contstats) or when they end: undefined without the configuration.
+        contstats: c ? !!c.contstats : undefined,
         mode: r.mode || c?.mode || '',
         tone: frontendTone(r.status),
         row: r,
@@ -1058,8 +1158,7 @@ export function pathLength(d) {
 // particles is how a link's traffic shows moving: glowing dots running
 // along it, closer together and faster the more bytes go through - as
 // many as fit its length at that spacing (one at least, eight at most),
-// each taking seconds to cross it (between 0.6 and 8 s, in tenths, so a
-// small change of traffic doesn't restart them).
+// each taking seconds to cross it (between 0.6 and 8 s).
 export function particles(bytesPerSecond, length) {
   if (!(bytesPerSecond > 0) || !(length > 0)) return null
   const l = Math.log10(Math.max(1, bytesPerSecond))
@@ -1067,8 +1166,62 @@ export function particles(bytesPerSecond, length) {
   const speed = 45 + 30 * l // px a second
   return {
     count: Math.min(8, Math.max(1, Math.round(length / spacing))),
-    seconds: Math.round(Math.min(8, Math.max(0.6, length / speed)) * 10) / 10,
+    seconds: Math.min(8, Math.max(0.6, length / speed)),
   }
+}
+
+// maxDots is how many dots a link of that length has: as many as fit at
+// the closest spacing particles gives (one at least, eight at most) -
+// made once, so more traffic shows more of them (dotsShown) rather than
+// new ones.
+export function maxDots(length) {
+  return length > 0 ? Math.min(8, Math.max(1, Math.round(length / 45))) : 0
+}
+
+// dotsShown is which of a link's total dots show for count of them: as
+// evenly spread as total allows, all of them at count = total.
+export function dotsShown(count, total) {
+  return Array.from({ length: total }, (_, i) => Math.floor(((i + 1) * count) / total) > Math.floor((i * count) / total))
+}
+
+// motionFrames are the keyframes of a dot running along a path, from
+// points evenly spaced along it (first to last): where it is and which
+// way it heads - its trail drawn behind it, on its own x axis - each
+// angle the nearest turn to the previous one's, so nothing spins between
+// two frames.
+export function motionFrames(points) {
+  const n = points.length
+  let prev = null
+  return points.map((p, i) => {
+    const a = points[Math.max(0, i - 1)]
+    const b = points[Math.min(n - 1, i + 1)]
+    let deg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI
+    if (prev != null) {
+      while (deg - prev > 180) deg -= 360
+      while (deg - prev < -180) deg += 360
+    }
+    prev = deg
+    return { transform: `translate(${+p.x.toFixed(2)}px, ${+p.y.toFixed(2)}px) rotate(${+deg.toFixed(1)}deg)` }
+  })
+}
+
+// lingerFor is how long a link's dots keep moving after its traffic
+// went to 0, by the refresh interval (ms): past the next sample, so a
+// rate touching 0 once doesn't blink - 1.5 s at least, 5 s at most.
+export function lingerFor(interval) {
+  return Math.min(5000, Math.max(1500, (interval || 0) + 500))
+}
+
+// SPEED_MS is how long a link's dots take to reach a new speed.
+export const SPEED_MS = 900
+
+// speedAt is a dot's speed elapsed ms into a change from one speed to
+// another (crossings a second), eased in and out: never a jump.
+export function speedAt(from, to, elapsed, duration = SPEED_MS) {
+  if (!(elapsed < duration)) return to
+  const p = Math.max(0, elapsed / duration)
+  const e = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2
+  return from + (to - from) * e
 }
 
 // figures are the numbers the map shows, by node or link id - a node's
