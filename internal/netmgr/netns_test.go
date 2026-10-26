@@ -187,8 +187,12 @@ func TestInNetns(t *testing.T) {
 	}
 	checkAddrs(t, "eth0", "192.0.2.10/24", "192.0.2.100/24", "203.0.113.7/32", "2001:db8::10/64", "2001:db8::100/64", "2001:db8:7::7/128")
 	// Tentative while DAD runs, so not passed before DAD would fail.
-	waitAddrFlags(t, "eth0", "2001:db8:7::7/128", unix.IFA_F_NODAD, unix.IFA_F_TENTATIVE|unix.IFA_F_DADFAILED)
-	waitAddrFlags(t, "eth0", "2001:db8::10/64", 0, unix.IFA_F_NODAD|unix.IFA_F_TENTATIVE|unix.IFA_F_DADFAILED)
+	waitAddrFlags(t, "eth0", "2001:db8:7::7/128", unix.IFA_F_NODAD|unix.IFA_F_DEPRECATED|unix.IFA_F_PERMANENT, unix.IFA_F_TENTATIVE|unix.IFA_F_DADFAILED)
+	waitAddrFlags(t, "eth0", "2001:db8::10/64", 0, unix.IFA_F_NODAD|unix.IFA_F_DEPRECATED|unix.IFA_F_TENTATIVE|unix.IFA_F_DADFAILED)
+	// The node's own connections never leave from the anycast /128 -
+	// nor, in IPv4, from the /32.
+	checkNotSource(t, "2001:db8:99::1", "2001:db8:7::7")
+	checkNotSource(t, "198.18.0.1", "203.0.113.7")
 	checkAddrs(t, "peer0", "198.51.100.99/24", "2001:db8:7::7/128")
 	if _, err := m.Confirm(netip.MustParseAddr("192.0.2.10")); err != nil {
 		t.Fatalf("confirm the anycast addresses: %v", err)
@@ -353,6 +357,20 @@ func waitAddrFlags(t *testing.T, name, prefix string, set, clear uint32) {
 		}
 	}
 	t.Errorf("%s %s: found %v, flags %#x - want %#x set, %#x clear", name, prefix, found, flags, set, clear)
+}
+
+// checkNotSource checks the kernel picks a source other than notWant to
+// reach dst.
+func checkNotSource(t *testing.T, dst, notWant string) {
+	t.Helper()
+	routes, err := netlink.RouteGet(net.ParseIP(dst))
+	if err != nil || len(routes) == 0 {
+		t.Errorf("route to %s: %v", dst, err)
+		return
+	}
+	if got := routes[0].Src.String(); got == notWant || routes[0].Src == nil {
+		t.Errorf("source towards %s = %s, want any but %s", dst, got, notWant)
+	}
 }
 
 func mustCIDR(t *testing.T, s string) *net.IPNet {

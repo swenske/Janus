@@ -77,7 +77,10 @@ interface isn't in DHCP mode): another daemon's addresses stay - the
 A single IPv6 address - a `/128`, an anycast address several nodes
 announce with [BGP](bgp.md) - is added without duplicate address
 detection: every node of the segment keeps it, none marks it as a
-duplicate and leaves it unused.
+duplicate and leaves it unused. It is also deprecated from the start:
+the node answers on it, but never picks it as the source of its own
+connections - they leave from the interface's other addresses, as an
+IPv4 `/32` never is either.
 
 ### DHCP is the kernel's, for now
 
