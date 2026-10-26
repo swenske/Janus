@@ -739,7 +739,15 @@ func (a *app) audited(next http.Handler) http.Handler {
 		if rec.status == http.StatusPreconditionRequired {
 			return // a poll still waiting (janusctl login -device): nothing happened
 		}
-		e := audit.Entry{Time: time.Now().UTC(), User: n.user, Via: n.via, Method: r.Method, Path: r.URL.Path, Status: rec.status, Client: clientAddr(r)}
+		// The query too: some say what the call did - ?machines=destroy
+		// on a cluster's deletion destroys its members' machines,
+		// ?force=true goes past a check (v2026.10.25-4's lab: both
+		// deletions read the same).
+		path := r.URL.Path
+		if r.URL.RawQuery != "" {
+			path += "?" + r.URL.RawQuery
+		}
+		e := audit.Entry{Time: time.Now().UTC(), User: n.user, Via: n.via, Method: r.Method, Path: path, Status: rec.status, Client: clientAddr(r)}
 		log.Printf("audit: %s %s %d: %s (%s) from %s", e.Method, e.Path, e.Status, or(e.User, "-"), or(e.Via, "no credential"), e.Client)
 		if a.audit == nil {
 			return
