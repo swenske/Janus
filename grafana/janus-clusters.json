@@ -1,0 +1,3695 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "enable": true,
+        "expr": "((increase(janus_vrrp_instance_became_master_total{job=\"$job\"}[2m])) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) > 0",
+        "iconColor": "orange",
+        "name": "VRRP failover",
+        "step": "1m",
+        "textFormat": "{{member}} took {{exported_instance}}",
+        "titleFormat": "VRRP failover"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "enable": true,
+        "expr": "((changes(janus_haproxy_config_last_apply_timestamp_seconds{job=\"$job\"}[2m])) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) > 0",
+        "iconColor": "green",
+        "name": "Configuration applied",
+        "step": "1m",
+        "textFormat": "{{member}}",
+        "titleFormat": "Configuration applied"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "enable": true,
+        "expr": "((changes(janus_daemon_start_time_seconds{job=\"$job\"}[2m])) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) > 0",
+        "iconColor": "blue",
+        "name": "janusd started",
+        "step": "1m",
+        "textFormat": "{{member}}",
+        "titleFormat": "janusd started"
+      }
+    ]
+  },
+  "description": "A Janus cluster's members - VRRP, peers, stick tables, traffic - and the cluster as the Controller sees it - https://janus.sw-servers.net/docs/metrics.md",
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [
+    {
+      "icon": "doc",
+      "targetBlank": true,
+      "title": "Metrics",
+      "tooltip": "What each metric means",
+      "type": "link",
+      "url": "https://janus.sw-servers.net/docs/metrics.md"
+    },
+    {
+      "icon": "doc",
+      "targetBlank": true,
+      "title": "Clusters",
+      "tooltip": "Running a cluster",
+      "type": "link",
+      "url": "https://janus.sw-servers.net/docs/guide/clusters.md"
+    },
+    {
+      "asDropdown": true,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "janus"
+      ],
+      "targetBlank": false,
+      "title": "Janus dashboards",
+      "tooltip": "",
+      "type": "dashboards"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The cluster's members whose Janus exporter answers (janus_cluster_info), those that stopped answering within the hour, and the members the Controller records - when it is scraped.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "answering",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count((janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"} or (last_over_time(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}[1h]) unless on (instance) up{job=\"$job\"} == 1)) unless on (instance) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "silent",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_members{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": true,
+          "legendFormat": "Controller",
+          "range": false,
+          "refId": "C"
+        }
+      ],
+      "title": "Members",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The member holding each VRRP instance (MASTER) - [VRRP](https://janus.sw-servers.net/docs/vrrp.md), the keepalived extension. Two names for one instance: split brain. Nothing: no member holds it, or the cluster has no VRRP.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (exported_instance, member) ((janus_vrrp_instance_state{job=\"$job\", state=\"MASTER\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"} == 1)",
+          "instant": true,
+          "legendFormat": "{{exported_instance}} · {{member}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Virtual address",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Members that are MASTER of each VRRP instance: one. None: nobody answers for the address; two or more: split brain (the JanusClusterVRRPNoMaster and JanusClusterVRRPSplitBrain alerts).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "no master"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "one master"
+                }
+              },
+              "type": "value"
+            },
+            {
+              "options": {
+                "from": 2,
+                "result": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "split brain"
+                },
+                "to": null
+              },
+              "type": "range"
+            }
+          ],
+          "noValue": "no VRRP",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (exported_instance) ((janus_vrrp_instance_state{job=\"$job\", state=\"MASTER\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"})",
+          "instant": true,
+          "legendFormat": "{{exported_instance}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "VRRP masters",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "HAProxy's connections from each member to the others (janus_cluster_peer_up): the stick tables replicate over them.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum((janus_cluster_peer_up{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "up",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count((janus_cluster_peer_up{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"} == 0) or vector(0)",
+          "instant": true,
+          "legendFormat": "down",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Peers",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each member's stick tables, per peer: synced while the peer keeps up with the member's updates (janus_cluster_peer_table_synced).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 15,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count((janus_cluster_peer_table_synced{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"} == 1) or vector(0)",
+          "instant": true,
+          "legendFormat": "synced",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count((janus_cluster_peer_table_synced{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"} == 0) or vector(0)",
+          "instant": true,
+          "legendFormat": "not synced",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Stick tables",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The Controller's view ([clusters](https://janus.sw-servers.net/docs/guide/clusters.md)): the version its members should run, the members that don't, those whose configuration changed on the node (drift), and those its last apply or check failed on.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "Controller not scraped",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_desired_version{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": true,
+          "legendFormat": "version",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count(janus_cluster_member_on_desired_version{job=\"$controller\", cluster_name=\"$cluster\"} == 0) or 0 * max(janus_cluster_desired_version{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": true,
+          "legendFormat": "other version",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count(max by (member) (janus_cluster_member_drift{job=\"$controller\", cluster_name=\"$cluster\"}) == 1) or 0 * max(janus_cluster_desired_version{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": true,
+          "legendFormat": "drifted",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count(janus_cluster_member_error{job=\"$controller\", cluster_name=\"$cluster\"} == 1) or 0 * max(janus_cluster_desired_version{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": true,
+          "legendFormat": "failing",
+          "range": false,
+          "refId": "D"
+        }
+      ],
+      "title": "Configuration",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 7,
+      "panels": [],
+      "title": "Members",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "One line per member, as its Janus exporter tells it - a member whose exporter stopped answering stays an hour, Exporter down. VRRP: MASTER when it holds one of the cluster's VRRP instances at least, else its worst state; Priority: its highest, after tracking. Stick tables: synced when every peer keeps up with every table. - : none (no VRRP, a member alone).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false,
+            "minWidth": 60
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Member"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Node"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "pattern": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*$",
+                      "result": {
+                        "index": 0,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  },
+                  {
+                    "options": {
+                      "pattern": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+$",
+                      "result": {
+                        "index": 1,
+                        "text": "$1"
+                      }
+                    },
+                    "type": "regex"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Janus"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Exporter"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "down"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "up"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "HAProxy"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "down"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "serving"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "VRRP"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "1": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "MASTER"
+                      },
+                      "2": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "FAULT"
+                      },
+                      "3": {
+                        "color": "blue",
+                        "index": 2,
+                        "text": "BACKUP"
+                      },
+                      "4": {
+                        "color": "orange",
+                        "index": 3,
+                        "text": "INIT"
+                      },
+                      "5": {
+                        "color": "text",
+                        "index": 4,
+                        "text": "STOP"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Priority"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peers up"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peers down"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stick tables"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "orange",
+                        "index": 1,
+                        "text": "not synced"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "synced"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 8,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Member"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, member) ((up{job=\"$job\"}) * on (instance) group_left (member) (janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"} or (last_over_time(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}[1h]) unless on (instance) up{job=\"$job\"} == 1)))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, member, version) ((janus_build_info{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, member) ((janus_haproxy_up{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "min by (instance, member) (sum by (instance, member, exported_instance) ((janus_vrrp_instance_state{job=\"$job\", state=\"MASTER\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) + 2 * sum by (instance, member, exported_instance) ((janus_vrrp_instance_state{job=\"$job\", state=\"FAULT\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) + 3 * sum by (instance, member, exported_instance) ((janus_vrrp_instance_state{job=\"$job\", state=\"BACKUP\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) + 4 * sum by (instance, member, exported_instance) ((janus_vrrp_instance_state{job=\"$job\", state=\"INIT\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) + 5 * sum by (instance, member, exported_instance) ((janus_vrrp_instance_state{job=\"$job\", state=\"STOP\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance, member) ((janus_vrrp_instance_effective_priority{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (instance, member) ((janus_cluster_peer_up{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (instance, member) ((1 - janus_cluster_peer_up{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "min by (instance, member) ((janus_cluster_peer_table_synced{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H"
+        }
+      ],
+      "title": "Members",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #B": true
+            },
+            "indexByName": {
+              "Value #A": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "Value #E": 6,
+              "Value #F": 7,
+              "Value #G": 8,
+              "Value #H": 9,
+              "instance": 1,
+              "member": 0,
+              "version": 2
+            },
+            "renameByName": {
+              "Value #A": "Exporter",
+              "Value #C": "HAProxy",
+              "Value #D": "VRRP",
+              "Value #E": "Priority",
+              "Value #F": "Peers up",
+              "Value #G": "Peers down",
+              "Value #H": "Stick tables",
+              "instance": "Node",
+              "member": "Member",
+              "version": "Janus"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "What the [Controller](https://janus.sw-servers.net/docs/guide/clusters.md) records of each member - every 10 minutes, every minute while one fails, and after each operation. Version: the one it last took whole; Desired: whether that is the cluster's; Drifted: managed domains changed on the node since (the next apply puts them back); Released: domains its users took back; Apply or check: the Controller's last on it (the cluster's page says why it failed); Service: drained or not; then its peers.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false,
+            "minWidth": 60
+          },
+          "mappings": [],
+          "noValue": "Controller not scraped",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Member"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Version"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Desired"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "runs another"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "runs it"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Drifted"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Released"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Apply or check"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "succeeded"
+                      },
+                      "1": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "failed"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Service"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "in service"
+                      },
+                      "1": {
+                        "color": "blue",
+                        "index": 1,
+                        "text": "drained"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peers up"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Peers"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stick tables"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "orange",
+                        "index": 1,
+                        "text": "not synced"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "synced"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Checked"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "noValue",
+                "value": "never"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 9,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Member"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_applied_version{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_on_desired_version{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (member) (janus_cluster_member_drift{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (member) (janus_cluster_member_released{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_error{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_drained{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_peers_up{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_peers{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_tables_synced{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "I"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_checked_timestamp_seconds{job=\"$controller\", cluster_name=\"$cluster\"}) * 1000",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "J"
+        }
+      ],
+      "title": "Members as the Controller sees them",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5,
+              "Value #F": 6,
+              "Value #G": 7,
+              "Value #H": 8,
+              "Value #I": 9,
+              "Value #J": 10,
+              "member": 0
+            },
+            "renameByName": {
+              "Value #A": "Version",
+              "Value #B": "Desired",
+              "Value #C": "Drifted",
+              "Value #D": "Released",
+              "Value #E": "Apply or check",
+              "Value #F": "Service",
+              "Value #G": "Peers up",
+              "Value #H": "Peers",
+              "Value #I": "Stick tables",
+              "Value #J": "Checked",
+              "member": "Member"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 10,
+      "panels": [],
+      "title": "Virtual address",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each member's state in each VRRP instance over time: the MASTER holds the virtual address.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 75,
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "transparent",
+                  "index": 5,
+                  "text": "no VRRP"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "MASTER"
+                },
+                "2": {
+                  "color": "blue",
+                  "index": 1,
+                  "text": "BACKUP"
+                },
+                "3": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "FAULT"
+                },
+                "4": {
+                  "color": "orange",
+                  "index": 3,
+                  "text": "INIT"
+                },
+                "5": {
+                  "color": "text",
+                  "index": 4,
+                  "text": "STOP"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "id": 11,
+      "maxDataPoints": 500,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (exported_instance, member) ((janus_vrrp_instance_state{job=\"$job\", state=\"MASTER\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) + 2 * sum by (exported_instance, member) ((janus_vrrp_instance_state{job=\"$job\", state=\"BACKUP\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) + 3 * sum by (exported_instance, member) ((janus_vrrp_instance_state{job=\"$job\", state=\"FAULT\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) + 4 * sum by (exported_instance, member) ((janus_vrrp_instance_state{job=\"$job\", state=\"INIT\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) + 5 * sum by (exported_instance, member) ((janus_vrrp_instance_state{job=\"$job\", state=\"STOP\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) or on (member) label_replace(max by (member) (0 * janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) - 1, \"exported_instance\", \"-\", \"\", \"\")",
+          "instant": false,
+          "legendFormat": "{{exported_instance}} · {{member}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Who holds the address",
+      "transformations": [],
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Members MASTER of each VRRP instance over time: one. None: nobody answered for the address; two or more: split brain.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 75,
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "transparent",
+                  "index": 2,
+                  "text": "no VRRP"
+                },
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "no master"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "one master"
+                }
+              },
+              "type": "value"
+            },
+            {
+              "options": {
+                "from": 2,
+                "result": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "split brain"
+                },
+                "to": null
+              },
+              "type": "range"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "id": 12,
+      "maxDataPoints": 500,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (exported_instance) ((janus_vrrp_instance_state{job=\"$job\", state=\"MASTER\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) or on () label_replace((0 * count(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) - 1), \"exported_instance\", \"-\", \"\", \"\")",
+          "instant": false,
+          "legendFormat": "{{exported_instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Masters",
+      "transformations": [],
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Times a member became MASTER of a VRRP instance (janus_vrrp_instance_became_master_total), per interval: it took the address over. Nothing drawn: no failover.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "axisSoftMax": 1,
+            "barAlignment": -1,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "Z"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "id": 13,
+      "interval": "1m",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "(sum by (exported_instance, member) ((janus_vrrp_instance_became_master_total{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) - sum by (exported_instance, member) (janus_vrrp_instance_became_master_total{job=\"$job\"} offset $__interval * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"} offset $__interval)) > 0",
+          "instant": false,
+          "legendFormat": "{{member}} took {{exported_instance}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "0 * count(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "baseline",
+          "range": true,
+          "refId": "Z"
+        }
+      ],
+      "title": "Failovers",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each member's priority in each VRRP instance after tracking: HAProxy not serving lowers it (track_file), and the highest becomes MASTER.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (exported_instance, member) ((janus_vrrp_instance_effective_priority{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "{{exported_instance}} · {{member}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "VRRP priority",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 15,
+      "panels": [],
+      "title": "Peers and stick tables",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "HAProxy's connection from each member to each of its peers over time ([clusters](https://janus.sw-servers.net/docs/cluster.md)).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 75,
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "transparent",
+                  "index": 2,
+                  "text": "no peer"
+                },
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "down"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "up"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 33
+      },
+      "id": 16,
+      "maxDataPoints": 500,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member, peer) ((janus_cluster_peer_up{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) or on (member) label_replace(max by (member) (0 * janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) - 1, \"peer\", \"-\", \"\", \"\")",
+          "instant": false,
+          "legendFormat": "{{member}} → {{peer}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Peers",
+      "transformations": [],
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each member's stick tables over time: synced while every peer keeps up with its updates - all acknowledged, or under traffic within two seconds every one made before.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 75,
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "transparent",
+                  "index": 2,
+                  "text": "no peer"
+                },
+                "0": {
+                  "color": "orange",
+                  "index": 1,
+                  "text": "not synced"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "synced"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 33
+      },
+      "id": 17,
+      "maxDataPoints": 500,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "min by (member, table) ((janus_cluster_peer_table_synced{job=\"$job\"}) * on (instance) group_left (member) janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) or on (member) label_replace(max by (member) (0 * janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) - 1, \"table\", \"-\", \"\", \"\")",
+          "instant": false,
+          "legendFormat": "{{member}} · {{table}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Stick tables",
+      "transformations": [],
+      "type": "state-timeline"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 18,
+      "panels": [],
+      "title": "Traffic and load",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Sessions each member's frontends accepted, per second. From HAProxy's own exporter (the HAProxy job; [HAProxy's own metrics](https://janus.sw-servers.net/docs/metrics.md#haproxys-own-metrics)), on the same host as the member's Janus exporter.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 41
+      },
+      "id": 19,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (member) (label_replace(sum by (instance) (rate(haproxy_frontend_sessions_total{job=\"$haproxy\"}[$__rate_interval])), \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\") * on (host) group_left (member) label_replace(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}, \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\"))",
+          "instant": false,
+          "legendFormat": "{{member}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Sessions",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "HTTP requests each member's frontends received, per second. From HAProxy's own exporter (the HAProxy job; [HAProxy's own metrics](https://janus.sw-servers.net/docs/metrics.md#haproxys-own-metrics)), on the same host as the member's Janus exporter.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 41
+      },
+      "id": 20,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (member) (label_replace(sum by (instance) (rate(haproxy_frontend_http_requests_total{job=\"$haproxy\"}[$__rate_interval])), \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\") * on (host) group_left (member) label_replace(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}, \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\"))",
+          "instant": false,
+          "legendFormat": "{{member}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "HTTP requests",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each member's HAProxy's connections now. From HAProxy's own exporter (the HAProxy job; [HAProxy's own metrics](https://janus.sw-servers.net/docs/metrics.md#haproxys-own-metrics)), on the same host as the member's Janus exporter.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 41
+      },
+      "id": 21,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (member) (label_replace(sum by (instance) (haproxy_process_current_connections{job=\"$haproxy\"}), \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\") * on (host) group_left (member) label_replace(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}, \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\"))",
+          "instant": false,
+          "legendFormat": "{{member}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Connections",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The share of time each member's HAProxy threads weren't idle. From HAProxy's own exporter (the HAProxy job; [HAProxy's own metrics](https://janus.sw-servers.net/docs/metrics.md#haproxys-own-metrics)), on the same host as the member's Janus exporter.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 48
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (label_replace(1 - avg by (instance) (haproxy_process_idle_time_percent{job=\"$haproxy\"}) / 100, \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\") * on (host) group_left (member) label_replace(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}, \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\"))",
+          "instant": false,
+          "legendFormat": "{{member}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "HAProxy busy",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The share of time each member's CPUs weren't idle. From node_exporter (the node job; [the prometheus-node-exporter extension](https://janus.sw-servers.net/docs/metrics.md#the-node-exporter)), on the same host as the member's Janus exporter.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 48
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (label_replace(1 - avg by (instance) (rate(node_cpu_seconds_total{job=\"$node\", mode=\"idle\"}[$__rate_interval])), \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\") * on (host) group_left (member) label_replace(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}, \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\"))",
+          "instant": false,
+          "legendFormat": "{{member}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "CPU busy",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The share of each member's memory not available to new processes. From node_exporter (the node job; [the prometheus-node-exporter extension](https://janus.sw-servers.net/docs/metrics.md#the-node-exporter)), on the same host as the member's Janus exporter.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 48
+      },
+      "id": 24,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (label_replace(1 - node_memory_MemAvailable_bytes{job=\"$node\"} / node_memory_MemTotal_bytes{job=\"$node\"}, \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\") * on (host) group_left (member) label_replace(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}, \"host\", \"$1\", \"instance\", \"(.+?)(?::[0-9]+)?\"))",
+          "instant": false,
+          "legendFormat": "{{member}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Memory used",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "id": 25,
+      "panels": [],
+      "title": "Controller",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The version of the cluster's configuration its members should run (desired), and the one each member last took whole. An apply moves them; a member left on another one is in the Configuration tile.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "noValue": "Controller not scraped",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "id": 26,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_desired_version{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "desired",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_applied_version{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "{{member}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Versions",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Each member as the Controller recorded it: whether its last apply or check failed, each managed domain changed on the node since it was applied (drift), drained.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 75,
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "transparent",
+                  "index": 2,
+                  "text": "no Controller data"
+                },
+                "0": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "succeeded"
+                },
+                "1": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "failed"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "Controller not scraped",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "as applied"
+                      },
+                      "1": {
+                        "color": "orange",
+                        "index": 1,
+                        "text": "drifted"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "-1": {
+                        "color": "transparent",
+                        "index": 2,
+                        "text": "no Controller data"
+                      },
+                      "0": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "in service"
+                      },
+                      "1": {
+                        "color": "blue",
+                        "index": 1,
+                        "text": "drained"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "id": 27,
+      "maxDataPoints": 500,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_error{job=\"$controller\", cluster_name=\"$cluster\"}) or on (member) (max by (member) (0 * janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) - 1)",
+          "instant": false,
+          "legendFormat": "{{member}} · apply or check",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member, domain) (janus_cluster_member_drift{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "{{member}} · {{domain}}",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max by (member) (janus_cluster_member_drained{job=\"$controller\", cluster_name=\"$cluster\"}) or on (member) (max by (member) (0 * janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) - 1)",
+          "instant": false,
+          "legendFormat": "{{member}} · service",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Members' health",
+      "transformations": [],
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "An operation running on the cluster - an apply, a member added or removed, a scale, a recycle - and whether the last one failed (until the next starts).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 75,
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "transparent",
+                  "index": 2,
+                  "text": "no Controller data"
+                },
+                "0": {
+                  "color": "transparent",
+                  "index": 0,
+                  "text": "none"
+                },
+                "1": {
+                  "color": "blue",
+                  "index": 1,
+                  "text": "running"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "Controller not scraped",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "-1": {
+                        "color": "transparent",
+                        "index": 2,
+                        "text": "no Controller data"
+                      },
+                      "0": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "succeeded"
+                      },
+                      "1": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "failed"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 0,
+        "y": 65
+      },
+      "id": 28,
+      "maxDataPoints": 500,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_operation_running{job=\"$controller\", cluster_name=\"$cluster\"}) or on () (0 * count(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) - 1)",
+          "instant": false,
+          "legendFormat": "running",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_operation_failed{job=\"$controller\", cluster_name=\"$cluster\"}) or on () (0 * count(janus_cluster_info{job=\"$job\", cluster_name=\"$cluster\"}) - 1)",
+          "instant": false,
+          "legendFormat": "last one",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Operations",
+      "transformations": [],
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The cluster's members, those that answered the Controller's last load reading (every 15 s), and the count [auto-scaling](https://janus.sw-servers.net/docs/guide/clusters.md#scaling) judges - the one it simulates while observing.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "min": 0,
+          "noValue": "Controller not scraped",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 12,
+        "y": 65
+      },
+      "id": 29,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_members{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "members",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_load_members{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "answered",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_autoscale_judged_members{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "judged",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Member count",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "The members' load as the Controller reads it every 15 s - what horizontal auto-scaling judges: HAProxy's idle time and the CPUs' busy and steal time, the means over the members, and the highest share of maxconn in use. Steal above 10 %: the hosts are saturated.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisPlacement": "auto",
+            "barAlignment": -1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "max": 1,
+          "min": 0,
+          "noValue": "Controller not scraped",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 70
+      },
+      "id": 30,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_load_haproxy_idle_ratio{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "HAProxy idle",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_load_cpu_busy_ratio{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "CPU busy",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_load_cpu_steal_ratio{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "CPU steal",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(janus_cluster_load_connections_ratio{job=\"$controller\", cluster_name=\"$cluster\"})",
+          "instant": false,
+          "legendFormat": "connections / maxconn",
+          "range": true,
+          "refId": "D"
+        }
+      ],
+      "title": "Load",
+      "transformations": [],
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 41,
+  "tags": [
+    "janus",
+    "haproxy"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Data source",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "text": "janus",
+          "value": "janus"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(janus_cluster_info, job)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Janus job",
+        "multi": false,
+        "name": "job",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(janus_cluster_info, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(janus_cluster_info{job=\"$job\"}, cluster_name)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Cluster",
+        "multi": false,
+        "name": "cluster",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(janus_cluster_info{job=\"$job\"}, cluster_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "janus-controller",
+          "value": "janus-controller"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(janus_controller_build_info, job)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Controller job",
+        "multi": false,
+        "name": "controller",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(janus_controller_build_info, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "haproxy",
+          "value": "haproxy"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(haproxy_process_nbthread, job)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "HAProxy job",
+        "multi": false,
+        "name": "haproxy",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(haproxy_process_nbthread, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "node",
+          "value": "node"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(node_uname_info, job)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "node_exporter job",
+        "multi": false,
+        "name": "node",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(node_uname_info, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Janus · Clusters",
+  "uid": "janus-clusters",
+  "version": 1
+}

@@ -46,11 +46,15 @@ scrape_configs:
   - certificates expiring, HAProxy down or crashing, SELinux denials,
   OOM kills, errors on STATE, the clock, an update waiting for its
   health confirmation, refused API calls, VRRP faults, BGP sessions
-  down, Let's Encrypt renewals failing. Every metric:
+  down, Let's Encrypt renewals failing - and a cluster's: no VRRP
+  master or split brain, peers and stick tables, drift, members on
+  another version, failed operations. Every metric:
   [metrics](../metrics.md).
-- **A Grafana dashboard** of the Janus exporter:
+- **Grafana dashboards** of the Janus exporter:
   [`grafana/janus-nodes.json`](../../grafana/janus-nodes.json)
-  ([metrics](../metrics.md#grafana-dashboard)).
+  ([metrics](../metrics.md#grafana-dashboard)), and of a cluster:
+  [`grafana/janus-clusters.json`](../../grafana/janus-clusters.json)
+  ([metrics](../metrics.md#the-clusters-dashboard)).
 - **HAProxy's exporter** is a frontend of your configuration, like
   `:8405` in [`examples/haproxy/web.cfg`](../../examples/haproxy/web.cfg).
 - None of these ports has authentication, like any Prometheus exporter:

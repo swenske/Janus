@@ -611,6 +611,13 @@ member at once. Through the API:
 - On a node: `janusctl cluster status` shows its peers as HAProxy sees
   them; its exporter has `janus_cluster_info`, `janus_cluster_peer_up`
   and `janus_cluster_peer_table_synced` ([metrics](../metrics.md)).
+- In Prometheus: the Controller's `janus_cluster_member_*` metrics
+  ([the Controller's metrics](../metrics.md#the-controllers-metrics))
+  are what the page shows of each member; the `janus-clusters` alerts
+  ([alerts](../metrics.md#alerts)) watch the virtual address, the
+  peers, drift and failed operations; the Grafana dashboard **Janus ·
+  Clusters** ([the clusters' dashboard](../metrics.md#the-clusters-dashboard))
+  shows it all, member by member.
 
 ## Without a Controller
 
