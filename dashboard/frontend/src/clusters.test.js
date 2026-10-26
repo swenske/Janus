@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { clusterNameError, domainsOf, health, memberDefaults, memberNameError, parseVars, pathError, varsText, versionChanges } from './clusters.js'
+import { clusterNameError, domainsOf, groupByCluster, health, memberDefaults, memberNameError, parseVars, pathError, varsText, versionChanges, versionOf } from './clusters.js'
 
 test('a node gives its member name and address when it can', () => {
   assert.deepEqual(memberDefaults({ name: 'LB-1', address: '192.0.2.11:9505' }), { name: 'lb-1', address: '192.0.2.11' })
@@ -60,4 +60,30 @@ test('variables', () => {
 test('a version’s file paths', () => {
   for (const ok of ['haproxy.cfg', 'bird.conf', 'files/maps/hosts.map', 'files/errors.http']) assert.equal(pathError(ok), '', ok)
   for (const bad of ['etc/passwd', 'files/../x', 'files/a/b/c', 'haproxy.conf']) assert.notEqual(pathError(bad), '', bad)
+})
+
+test('the Nodes page groups a cluster\'s members, the others after', () => {
+  const nodes = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }]
+  const edge = { id: 'e', members: [{ node_id: 'c' }, { node_id: 'a' }] }
+  const core = { id: 'k', members: [{ node_id: 'x' }] } // no member among the nodes: no group
+  const g = groupByCluster(nodes, [edge, core])
+  assert.deepEqual(
+    g.map((x) => [x.cluster?.id ?? null, x.nodes.map((n) => n.id)]),
+    [
+      ['e', ['a', 'c']],
+      [null, ['b', 'd']],
+    ],
+  )
+  // Every node in a cluster: no empty group of the others.
+  assert.deepEqual(groupByCluster([{ id: 'a' }], [edge]).map((x) => x.cluster?.id ?? null), ['e'])
+  // No cluster: one group of every node.
+  assert.deepEqual(groupByCluster(nodes, []), [{ cluster: null, nodes }])
+  assert.deepEqual(groupByCluster([], null), [{ cluster: null, nodes: [] }])
+})
+
+test("a cluster's version, against the one it wants", () => {
+  assert.deepEqual(versionOf({ desired: 2, members: [{ state: { applied: 2 } }, { state: { applied: 2 } }] }), { label: 'v2', tone: '' })
+  assert.deepEqual(versionOf({ desired: 2, members: [{ state: { applied: 1 } }, { state: { applied: 2 } }] }), { label: 'v1/v2 → v2', tone: 'warn' })
+  assert.deepEqual(versionOf({ desired: 1, members: [{}] }), { label: 'none → v1', tone: 'warn' })
+  assert.equal(versionOf({ members: [] }), '')
 })

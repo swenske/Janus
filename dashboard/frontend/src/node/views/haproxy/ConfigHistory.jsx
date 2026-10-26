@@ -6,6 +6,7 @@ import { DiffView } from '../../../shared/Editor.jsx'
 import { hunks, lineDiff } from '../../../shared/diff.js'
 import { dateTime } from '../../format.js'
 import { useMay } from '../../may.js'
+import { ClusterLockNotice } from '../../components/ClusterLock.jsx'
 
 // haproxy.cfg's history (HAProxyService.ConfigHistory): every
 // configuration the node accepted - who applied it, when, what it
@@ -99,6 +100,8 @@ export default function ConfigHistory({ running, generation, onApplied, onOpen }
     )
   }
   return (
+    <>
+    <ClusterLockNotice domain="haproxy" />
     <Card
       title="History"
       icon={HistoryIcon}
@@ -183,5 +186,6 @@ export default function ConfigHistory({ running, generation, onApplied, onOpen }
         </>
       )}
     </Card>
+    </>
   )
 }

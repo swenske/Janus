@@ -49,6 +49,7 @@ import { PrereleaseBadge } from './PrereleaseBadge.jsx'
 import { SupportBadge } from './SupportBadge.jsx'
 import { worstSeverity } from './severity.js'
 import { Badge, Card, ErrorBox, Loading, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
+import { groupByCluster, health as clusterHealth, versionOf } from './clusters.js'
 import { lazyView } from './shared/lazy.jsx'
 import { useSplash, useSplashStep } from './shared/Splash.jsx'
 import { fmtDateTime } from './shared/units.js'
@@ -269,10 +270,12 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
 // each one's state, its last five minutes, version, HAProxy, uptime and
 // trust, and Open; its card has the rest (labels edited, a machine's
 // power, kernel).
-function NodeTable({ nodes, statuses, metrics, clock, machineOf, vmOf, fleet, onRemove, machineActions }) {
+function NodeTable({ groups, statuses, metrics, clock, machineOf, vmOf, fleet, onRemove, machineActions }) {
   const can = useCan()
   const { prefs } = usePreferences()
   const trust = fleet?.state === 'ready'
+  const columns = (trust ? 10 : 9) - (prefs.node_stats ? 0 : 3)
+  const clustered = groups.some((g) => g.cluster)
   return (
     <div className="card node-table-card">
       <div className="table-wrap">
@@ -295,8 +298,14 @@ function NodeTable({ nodes, statuses, metrics, clock, machineOf, vmOf, fleet, on
               <th aria-label="Actions" />
             </tr>
           </thead>
-          <tbody>
-            {nodes.map((n) => {
+          {groups.map((g) => (
+          <tbody key={g.cluster?.id || ''} className={g.cluster ? 'cluster-rows' : ''}>
+            {clustered && (
+              <tr className="cluster-row">
+                <td colSpan={columns}>{g.cluster ? <ClusterHeading cluster={g.cluster} /> : <span className="muted small">Not in a cluster</span>}</td>
+              </tr>
+            )}
+            {g.nodes.map((n) => {
               const st = statuses[n.id]
               const m = machineOf(n)
               const vm = vmOf(m)
@@ -390,8 +399,33 @@ function NodeTable({ nodes, statuses, metrics, clock, machineOf, vmOf, fleet, on
               )
             })}
           </tbody>
+          ))}
         </table>
       </div>
+    </div>
+  )
+}
+
+// ClusterHeading heads a cluster's members on the Nodes page: the cluster
+// - a link to its page -, how many members, the version they run against
+// the one it wants, its health.
+function ClusterHeading({ cluster }) {
+  const h = clusterHealth(cluster)
+  const v = versionOf(cluster)
+  const n = cluster.members?.length || 0
+  return (
+    <div className="cluster-heading">
+      <Network size={15} />
+      <a href={`#/clusters/${encodeURIComponent(cluster.id)}`} className="cluster-heading-name">
+        {cluster.name}
+      </a>
+      <span className="muted small">
+        cluster · {n} member{n === 1 ? '' : 's'}
+      </span>
+      {v && <Badge tone={v.tone}>{v.label}</Badge>}
+      <Badge tone={h.tone} dot>
+        {h.label}
+      </Badge>
     </div>
   )
 }
@@ -1101,6 +1135,7 @@ function MainApp() {
   const [version, setVersion] = useState('')
   const [fleet, setFleet] = useState(null)
   const [backups, setBackups] = useState(null)
+  const [clusters, setClusters] = useState([])
   const [statusLoaded, setStatusLoaded] = useState(false)
   // The nodes' figures, asked only while the list is shown - and not at
   // all when the account turned them off: the Controller stops sampling
@@ -1121,10 +1156,15 @@ function MainApp() {
       setNodes(n ?? [])
       setPending(p ?? [])
       setError(null)
-      if (isReader)
+      if (isReader) {
         call('/api/fleet', bg)
           .then(setFleet)
           .catch(() => {})
+        // The clusters, to show their members together.
+        call('/api/clusters', bg)
+          .then((cs) => setClusters(cs || []))
+          .catch(() => {})
+      }
       if (isAdmin)
         call('/api/backups', bg)
           .then(setBackups)
@@ -1381,7 +1421,7 @@ function MainApp() {
             )}
             {nodesView === 'list' && nodes?.length > 0 ? (
               <NodeTable
-                nodes={nodes}
+                groups={groupByCluster(nodes, clusters)}
                 statuses={statuses}
                 metrics={metrics.byNode}
                 clock={metrics.clock}
@@ -1392,8 +1432,11 @@ function MainApp() {
                 machineActions={machineActions}
               />
             ) : (
+            groupByCluster(nodes, clusters).map((g, i, all) => (
+            <section key={g.cluster?.id || ''} className={g.cluster ? 'cluster-group' : 'node-group'}>
+              {g.cluster ? <ClusterHeading cluster={g.cluster} /> : all.length > 1 && <div className="muted small node-group-title">Not in a cluster</div>}
             <div className="node-grid">
-              {(nodes || []).map((n) => (
+              {g.nodes.map((n) => (
                 <NodeCard
                   key={n.id}
                   node={n}
@@ -1409,6 +1452,8 @@ function MainApp() {
                 />
               ))}
             </div>
+            </section>
+            ))
             )}
             <FleetCard fleet={fleet} nodes={nodes} />
             {can('admin') && <ProvisionInfo />}

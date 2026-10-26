@@ -126,20 +126,46 @@ func TestSecretsStayOnTheNode(t *testing.T) {
 func TestSyslogEncoding(t *testing.T) {
 	r := Record{Time: time.Date(2026, 10, 15, 17, 39, 9, 123456789, time.UTC), Source: SourceJanusd, Service: "janusd", Severity: SevNotice, Message: "api: SystemService/Reboot: admin\nsecond line"}
 	s := &syslogSink{cfg: SyslogTarget{Format: "rfc5424", Facility: "local0"}}
-	if got, want := string(s.encode(nil, r, "lb 1")), "<133>1 2026-10-15T17:39:09.123456Z lb1 janusd - janusd - api: SystemService/Reboot: admin second line"; got != want {
+	if got, want := string(s.encode(nil, r, "lb 1", Cluster{})), "<133>1 2026-10-15T17:39:09.123456Z lb1 janusd - janusd - api: SystemService/Reboot: admin second line"; got != want {
 		t.Errorf("rfc5424:\n got %q\nwant %q", got, want)
 	}
 	k := Record{Time: r.Time, Source: SourceKernel, Service: "kernel", Severity: SevWarning, Message: "m"}
-	if got := string(s.encode(nil, k, "")); !strings.HasPrefix(got, "<4>1 ") || !strings.Contains(got, " - kernel - kernel - m") {
+	if got := string(s.encode(nil, k, "", Cluster{})); !strings.HasPrefix(got, "<4>1 ") || !strings.Contains(got, " - kernel - kernel - m") {
 		t.Errorf("kernel: %q", got)
 	}
 	a := Record{Time: r.Time, Source: SourceAudit, Service: "janusd", Severity: SevNotice, Message: "m"}
-	if got := string(s.encode(nil, a, "h")); !strings.HasPrefix(got, "<85>1 ") {
+	if got := string(s.encode(nil, a, "h", Cluster{})); !strings.HasPrefix(got, "<85>1 ") {
 		t.Errorf("audit (authpriv): %q", got)
 	}
 	s.cfg.Format = "rfc3164"
-	if got, want := string(s.encode(nil, Record{Time: r.Time, Service: "prometheus-node-exporter", Severity: -1, Message: "x"}, "lb1")), "<134>Oct 15 17:39:09 lb1 prometheus-node-exporter: x"; got != want {
+	if got, want := string(s.encode(nil, Record{Time: r.Time, Service: "prometheus-node-exporter", Severity: -1, Message: "x"}, "lb1", Cluster{})), "<134>Oct 15 17:39:09 lb1 prometheus-node-exporter: x"; got != want {
 		t.Errorf("rfc3164: %q, want %q", got, want)
+	}
+}
+
+// A cluster member's RFC 5424 messages carry its cluster as structured
+// data - one element, the values escaped; RFC 3164 has none, the message
+// stays as it was.
+func TestSyslogCluster(t *testing.T) {
+	r := Record{Time: time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC), Source: SourceJanusd, Service: "janusd", Severity: SevInfo, Message: "cluster: joined"}
+	cl := Cluster{ID: "6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b", Name: "edge", Member: "edge-1"}
+	s := &syslogSink{cfg: SyslogTarget{Format: "rfc5424", Facility: "local0"}}
+	want := `<134>1 2026-10-26T09:00:00.000000Z lb1 janusd - janusd [janus@32473 cluster_id="6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b" cluster_name="edge" member="edge-1"] cluster: joined`
+	if got := string(s.encode(nil, r, "lb1", cl)); got != want {
+		t.Errorf("rfc5424 in a cluster:\n got %q\nwant %q", got, want)
+	}
+	if got, want := string(s.encode(nil, r, "lb1", Cluster{})), "<134>1 2026-10-26T09:00:00.000000Z lb1 janusd - janusd - cluster: joined"; got != want {
+		t.Errorf("rfc5424 in none:\n got %q\nwant %q", got, want)
+	}
+	// A quote, a backslash and ']' escaped (RFC 5424 6.3.3) - a
+	// membership never has them, its names are DNS labels; an empty
+	// value is left out.
+	if got, want := string(appendSD(nil, Cluster{ID: "x", Name: `a"b\c]d`})), `[janus@32473 cluster_id="x" cluster_name="a\"b\\c\]d"]`; got != want {
+		t.Errorf("escaped: %s, want %s", got, want)
+	}
+	s.cfg.Format = "rfc3164"
+	if got, want := string(s.encode(nil, r, "lb1", cl)), string(s.encode(nil, r, "lb1", Cluster{})); got != want {
+		t.Errorf("rfc3164 changed in a cluster: %q, was %q", got, want)
 	}
 }
 

@@ -114,3 +114,29 @@ export function pathError(path) {
 export function when(t) {
   return t && !String(t).startsWith('0001') ? fmtDateTime(t) : '-'
 }
+
+// groupByCluster lays the nodes out by cluster for the Nodes page: each
+// cluster that has members among them, in the clusters' order, its
+// members in the nodes' order; then the nodes in none (cluster null).
+// Without clusters, one group of every node.
+export function groupByCluster(nodes, clusters) {
+  const of = new Map()
+  for (const c of clusters || []) for (const m of c.members || []) if (m.node_id) of.set(m.node_id, c)
+  const groups = []
+  for (const c of clusters || []) {
+    const members = (nodes || []).filter((n) => of.get(n.id) === c)
+    if (members.length) groups.push({ cluster: c, nodes: members })
+  }
+  const rest = (nodes || []).filter((n) => !of.has(n.id))
+  if (rest.length || !groups.length) groups.push({ cluster: null, nodes: rest })
+  return groups
+}
+
+// versionOf says which version a cluster's members run against the one
+// it wants: "v2", or "v1 → v2" while some run another.
+export function versionOf(c) {
+  const applied = [...new Set((c.members || []).map((m) => m.state?.applied).filter((v) => v))]
+  if (!c.desired) return ''
+  if (applied.length === 1 && applied[0] === c.desired) return { label: `v${c.desired}`, tone: '' }
+  return { label: `${applied.length ? applied.map((v) => `v${v}`).join('/') : 'none'} → v${c.desired}`, tone: 'warn' }
+}

@@ -5,6 +5,7 @@ import DataTable from '../../components/DataTable.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm } from '../../../shared/ui.jsx'
 import { usePoll } from '../../hooks.jsx'
 import { useMay } from '../../may.js'
+import { ClusterLockNotice } from '../../components/ClusterLock.jsx'
 
 function UploadForm({ onDone }) {
   const [name, setName] = useState('')
@@ -95,6 +96,7 @@ export default function Certificates() {
   }
   return (
     <div className="stack">
+      <ClusterLockNotice domain="files" />
       <Card
         title="Certificate store"
         icon={KeyRound}

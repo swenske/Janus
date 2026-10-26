@@ -107,6 +107,9 @@ func TestStandalone(t *testing.T) {
 	if s.IsMember() || s.LocalPeer() != "lb-1" || s.ClusterID() != "" || s.CAs() != nil {
 		t.Fatal("a fresh store is a member")
 	}
+	if id, name, member := s.Identity(); id != "" || name != "" || member != "" {
+		t.Fatalf("a fresh store's identity: %q %q %q", id, name, member)
+	}
 	cfg := string(s.PeersConfig())
 	for _, want := range []string{"-L lb-1.", "set-var proc.janus_member str(lb-1)", "peers janus\n    bind 127.0.0.1:10057\n    server lb-1\n"} {
 		if !strings.Contains(cfg, want) {
@@ -170,6 +173,9 @@ func TestJoinRenewLeave(t *testing.T) {
 	}
 	if !s.IsMember() || s.LocalPeer() != "lb-1" || s.ClusterID() != testID || len(s.CAs()) != 1 || s.MemberCertificate() == nil {
 		t.Fatal("not a member after the join")
+	}
+	if id, name, member := s.Identity(); id != testID || name != membership("lb-1").Name || member != "lb-1" {
+		t.Fatalf("identity after the join: %q %q %q", id, name, member)
 	}
 	cfg := string(s.PeersConfig())
 	for _, want := range []string{
@@ -242,6 +248,9 @@ func TestJoinRenewLeave(t *testing.T) {
 	}
 	if s.IsMember() || s.LocalPeer() != "lb-1" {
 		t.Fatal("still a member after leaving")
+	}
+	if id, _, _ := s.Identity(); id != "" {
+		t.Fatalf("still in cluster %s after leaving", id)
 	}
 	for _, name := range []string{MembershipFile, MemberFile, CAFile} {
 		if _, err := os.Stat(filepath.Join(s.Dir, name)); err == nil {

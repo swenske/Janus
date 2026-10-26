@@ -154,7 +154,12 @@ provisioning. A node the Controller created on a hypervisor shows its
 virtual machine on its card (state, reset/force-off/start, console) and
 **Destroy** instead of Remove; a pending registration from a machine it
 created (an image too old to present its registration token) says so,
-and approving it links the node to the machine.
+and approving it links the node to the machine. A cluster's members
+come together (`groupByCluster` in `clusters.js`, `/api/clusters`): as
+cards, framed under the cluster's heading (`ClusterHeading`: its name -
+a link to `#/clusters/<id>` -, its members, the version they run against
+the one it wants, its health); in the list, under a heading row; the
+nodes in none after, "Not in a cluster".
 
 **Clusters** (`Clusters.jsx`, its logic in `clusters.js` - `npm test`;
 [guide/clusters.md](guide/clusters.md)): the clusters as cards (health:
@@ -455,7 +460,10 @@ confirmation repeats the warning; the Controller's `POST` needs
 
 Hash routing (`#/haproxy/config`, `#/tools/files?path=/etc`), a sidebar
 grouped by intent, and a sticky top bar with the node's identity, health
-badges, version (and available update), the refresh interval and the
+badges - and, on a cluster member, its cluster (`ClusterBadge`: the
+cluster and member name, a link to the cluster's page on the Controller
+unless it's a janusctl cluster; its VRRP role when the cluster manages
+VRRP; drained) -, version (and available update), the refresh interval and the
 appearance picker. On a wide screen with a mouse the sidebar is a rail
 of its icons (`rail.js`, `node.css`) that opens over the page - never
 pushing it - while the pointer or the keyboard's focus is in it, or
@@ -557,6 +565,17 @@ certificates, servers' state, the modules' check/apply, power actions
 one by one, updates, the CA) and keep what reads - an editor stays
 editable, to validate and download. Consul's configuration (it may hold
 secrets) isn't even fetched. The node still refuses anything else.
+
+On a cluster member, `useMay()` doesn't offer the writes to what the
+cluster manages there either (`lockedDomain`, `src/node/cluster.js` -
+the node's own `cluster_lock.go` refuses them: HAProxy's configuration,
+its files and certificates, VRRP, BGP, the firewall's ruleset), from
+`GET /api/cluster` (ClusterGet: the managed domains, the cluster, the
+member - polled every minute, `clusterContext.js`). Those pages say so
+(`ClusterLockNotice`): managed by the cluster, a link to it, and for an
+admin **Release this node's lock…** (`POST /api/cluster/release`,
+ClusterRelease: an emergency change on this node only, reported as
+drift by the cluster, taken back by its next apply).
 
 The sidebar shows the Controller's version under its name, as the main
 page does under its title (`dashboardd`'s `main.version`, stamped by the

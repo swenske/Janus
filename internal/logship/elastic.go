@@ -26,7 +26,10 @@ import (
 //
 // A record with an ID gets a document ID made of it and the node's: a
 // batch sent again (a timeout, a 429) is stored once - Elasticsearch
-// answers 409 for the copies, taken as stored.
+// answers 409 for the copies, taken as stored. Nothing else of the
+// document enters it: the same record sent again after the node joined
+// or left a cluster is still the same document (the copy stored first
+// stays).
 type elasticSink struct {
 	cfg    ElasticsearchTarget
 	env    *env
@@ -102,7 +105,7 @@ func (s *elasticSink) Send(ctx context.Context, recs []Record) (int, error) {
 	}
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
-	host, nodeID, labels := s.env.meta.hostname(), s.env.nodeID(), s.env.labels()
+	host, nodeID, labels, cl := s.env.meta.hostname(), s.env.nodeID(), s.env.labels(), s.env.membership()
 	for _, r := range recs {
 		var action esAction
 		action.Create.Index = dataStream(r.Source, s.cfg.Namespace)
@@ -112,7 +115,7 @@ func (s *elasticSink) Send(ctx context.Context, recs []Record) (int, error) {
 		if err := enc.Encode(&action); err != nil {
 			return 0, err
 		}
-		if err := enc.Encode(s.document(r, host, nodeID, labels)); err != nil {
+		if err := enc.Encode(s.document(r, host, nodeID, labels, cl)); err != nil {
 			return 0, err
 		}
 	}
@@ -248,19 +251,33 @@ type esAction struct {
 }
 
 type esDocument struct {
-	Timestamp  string            `json:"@timestamp"`
-	Agent      esAgent           `json:"agent"`
-	DataStream esDataStream      `json:"data_stream"`
-	Event      esEvent           `json:"event"`
-	HAProxy    json.RawMessage   `json:"haproxy,omitempty"`
-	Host       esHost            `json:"host"`
-	Janus      map[string]any    `json:"janus"`
-	Labels     map[string]string `json:"labels,omitempty"`
-	Log        esLog             `json:"log"`
-	Message    string            `json:"message"`
-	Service    esService         `json:"service"`
-	Source     *esSource         `json:"source,omitempty"`
-	User       *esUser           `json:"user,omitempty"`
+	Timestamp    string            `json:"@timestamp"`
+	Agent        esAgent           `json:"agent"`
+	DataStream   esDataStream      `json:"data_stream"`
+	Event        esEvent           `json:"event"`
+	HAProxy      json.RawMessage   `json:"haproxy,omitempty"`
+	Host         esHost            `json:"host"`
+	Janus        map[string]any    `json:"janus"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	Log          esLog             `json:"log"`
+	Message      string            `json:"message"`
+	Orchestrator *esOrchestrator   `json:"orchestrator,omitempty"` // a cluster member's
+	Service      esService         `json:"service"`
+	Source       *esSource         `json:"source,omitempty"`
+	User         *esUser           `json:"user,omitempty"`
+}
+
+// esOrchestrator is ECS's orchestrator: the cluster a member belongs to,
+// "janus" its type (what tells it from a Kubernetes cluster of the same
+// name in a data view over both).
+type esOrchestrator struct {
+	Cluster esCluster `json:"cluster"`
+	Type    string    `json:"type"`
+}
+
+type esCluster struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 type esAgent struct {
@@ -318,8 +335,9 @@ type esUser struct {
 	Roles any `json:"roles,omitempty"`
 }
 
-// document is r as an ECS document.
-func (s *elasticSink) document(r Record, host, nodeID string, labels map[string]string) *esDocument {
+// document is r as an ECS document; cl the node's cluster, the zero
+// value for none.
+func (s *elasticSink) document(r Record, host, nodeID string, labels map[string]string, cl Cluster) *esDocument {
 	sev := clampSeverity(r.Severity)
 	ds := dataset(r.Source)
 	doc := &esDocument{
@@ -342,6 +360,14 @@ func (s *elasticSink) document(r Record, host, nodeID string, labels map[string]
 	}
 	if s.env.meta.Schematic != "" {
 		janus["schematic"] = s.env.meta.Schematic
+	}
+	if cl != (Cluster{}) {
+		// The cluster in ECS's orchestrator.cluster - id and name -, the
+		// member name, which ECS has no field for, under janus.cluster.
+		doc.Orchestrator = &esOrchestrator{Type: "janus", Cluster: esCluster{ID: cl.ID, Name: cl.Name}}
+		if cl.Member != "" {
+			janus["cluster"] = map[string]any{"member": cl.Member}
+		}
 	}
 	doc.Janus = janus
 	if len(labels) > 0 {

@@ -44,6 +44,15 @@ type Meta struct {
 	Slot, Schematic string
 }
 
+// Cluster is the cluster the node is a member of (internal/cluster) as
+// what it sends says it: the zero value for none - nothing is added
+// then.
+type Cluster struct {
+	ID     string // the cluster's id, a UUID
+	Name   string // the cluster's name
+	Member string // this node's member name
+}
+
 // env is what a sink needs of its shipper.
 type env struct {
 	meta   *Meta
@@ -51,6 +60,18 @@ type env struct {
 	// nodeID identifies the node: its CA's SHA-256 (the console's "pki:
 	// this node's CA" line). Empty on the Controller.
 	nodeID func() string
+	// cluster is the node's membership now; nil: none (the Controller).
+	cluster func() Cluster
+}
+
+// membership is the cluster the node is a member of now, asked for each
+// batch like the hostname: what's sent after a ClusterSet or a
+// ClusterLeave says so.
+func (e *env) membership() Cluster {
+	if e.cluster == nil {
+		return Cluster{}
+	}
+	return e.cluster()
 }
 
 func (m *Meta) hostname() string {
@@ -117,6 +138,8 @@ type Shipper struct {
 	accessOnDisk atomic.Bool
 	labels       atomic.Pointer[map[string]string]
 	nodeID       atomic.Pointer[string]
+	// cluster is SetCluster's: how to know the node's membership now.
+	cluster atomic.Pointer[func() Cluster]
 	// runID and memSeq number the records offered from memory: an ID
 	// so a batch sent again is stored once (Elasticsearch).
 	runID  string
@@ -220,6 +243,12 @@ func (s *Shipper) AccessOnDisk() bool { return s.accessOnDisk.Load() }
 // SetNodeID sets what identifies the node in what's sent: its CA's
 // SHA-256, known once the PKI is loaded.
 func (s *Shipper) SetNodeID(id string) { s.nodeID.Store(&id) }
+
+// SetCluster sets how to know the cluster the node is a member of: f is
+// asked for each batch a target sends - not once - since ClusterSet and
+// ClusterLeave change it while janusd runs. It must not wait long: a
+// target's sending waits for it.
+func (s *Shipper) SetCluster(f func() Cluster) { s.cluster.Store(&f) }
 
 // onDisk says whether source's records are read from the volume rather
 // than offered from memory.
@@ -613,6 +642,11 @@ func (s *Shipper) newSink(t Target) (sink, error) {
 			return *p
 		}
 		return ""
+	}, cluster: func() Cluster {
+		if p := s.cluster.Load(); p != nil {
+			return (*p)()
+		}
+		return Cluster{}
 	}}
 	if t.Elasticsearch != nil {
 		return newElasticSink(t, e)
