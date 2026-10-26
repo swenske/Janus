@@ -7,6 +7,7 @@ import { hunks, lineDiff } from '../../shared/diff.js'
 import { useCountdown, usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
 import Module from './Module.jsx'
+import { ClusterLockNotice } from '../components/ClusterLock.jsx'
 
 // Its page on the docs site, by the file's permalink.
 const DOCS = 'https://janus.sw-servers.net/docs/firewall.md'
@@ -200,6 +201,7 @@ function RulesetEditor({ onApplied }) {
   if (!saved) return <Loading />
   return (
     <div className="stack">
+      <ClusterLockNotice domain="firewall" />
       {result && !result.confirmed && result.accepted && (
         <div className="notice">
           <strong>Not confirmed.</strong> {result.error} The node reverts at {new Date(result.revert_at_unix * 1000).toLocaleTimeString()}.

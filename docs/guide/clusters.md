@@ -259,8 +259,15 @@ makes it, unless the Controller makes it for that cluster:
 HAProxy's configuration is managed by cluster edge: change it on the cluster, or release this node's lock first (janusctl cluster release haproxy) - the cluster then reports this node as drifted
 ```
 
+A member's page on the Controller doesn't offer those writes: its top
+bar names the cluster - with the member's VRRP role when the cluster
+manages VRRP -, and the pages of what the cluster manages say so, with a
+link to the cluster. On the Nodes page, a cluster's members are shown
+together.
+
 For an emergency on one node, its administrator releases the domain
-(`janusctl -n lb-2 cluster release haproxy`) and changes it. The cluster
+(`janusctl -n lb-2 cluster release haproxy`, or **Release this node's
+lock…** on the page) and changes it. The cluster
 sees it at its next look - every 10 minutes, or `POST
 /api/clusters/{id}/check` - and reports the member as drifted, its
 configuration left as it is. The next apply puts it back and locks it

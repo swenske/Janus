@@ -213,3 +213,17 @@ a.card.cluster-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, 
 @media (max-width: 760px) {
   .cluster-config { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* A cluster's members together on the Nodes page: framed, under the
+   cluster's name (cards), or under a heading row (list). */
+.cluster-group { border: 1px solid var(--border); border-radius: var(--radius, 12px); padding: 0.8rem; background: var(--surface-2, transparent); }
+.cluster-group + .cluster-group, .cluster-group + .node-group, .node-group + .cluster-group { margin-top: 1rem; }
+/* The frame's padding narrows its grid: a slightly smaller minimum keeps
+   as many columns as the page's grid, the cards about as wide. */
+.cluster-group .node-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.cluster-heading { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
+.cluster-heading > svg { color: var(--accent-ink); flex: none; }
+.cluster-heading-name { font-weight: 600; color: var(--text); }
+.node-group-title { margin: 0 0 0.6rem; }
+.node-table .cluster-row td { background: var(--surface-2, transparent); padding-top: 0.6rem; padding-bottom: 0.6rem; }
+.node-table .cluster-row .cluster-heading { margin-bottom: 0; }

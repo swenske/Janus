@@ -6,6 +6,7 @@ import { DiffView, Editor } from '../../../shared/Editor.jsx'
 import { hunks, lineDiff } from '../../../shared/diff.js'
 import { useMay } from '../../may.js'
 import ConfigHistory from './ConfigHistory.jsx'
+import { ClusterLockNotice } from '../../components/ClusterLock.jsx'
 
 export default function Config() {
   const [original, setOriginal] = useState(null)
@@ -91,6 +92,7 @@ export default function Config() {
   if (original == null) return <Loading />
   return (
     <div className="stack">
+      <ClusterLockNotice domain="haproxy" />
       <Card
         title="haproxy.cfg"
         icon={FileCode2}

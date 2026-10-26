@@ -175,9 +175,40 @@ for (const palette of PALETTES) {
   await page.mouse.move(900, 600)
   await buttons.last().click()
   const diff = await page.waitForSelector('.diff', { timeout: 10000 }).then(() => true).catch(() => false)
+  // edge-1 is a member of cluster edge, which manages HAProxy there: no
+  // going back offered - the node would refuse it -, the lock said.
   const apply = await page.getByRole('button', { name: /Apply this version/ }).count()
-  if (versions < 2 || !diff || apply !== 1) problems.push(`config history: ${versions} versions, a diff ${diff}, Apply offered ${apply} times`)
+  const locked = await page.locator('.cluster-lock', { hasText: 'is managed by cluster edge' }).count()
+  if (versions < 2 || !diff || apply !== 0 || locked < 1)
+    problems.push(`config history: ${versions} versions, a diff ${diff}, Apply offered ${apply} times, the cluster's lock said ${locked} times`)
   await page.screenshot({ path: `${OUT}/config-history.png`, fullPage: true })
+  await ctx.close()
+}
+
+// A member of cluster edge says so: its top bar names the cluster and the
+// member - a link to the cluster's page -, the Nodes page frames the
+// cluster's members under its heading, in cards and as a list.
+{
+  const ctx = await context()
+  const page = await ctx.newPage()
+  watch(page, () => 'cluster membership')
+  await signIn(ctx)
+  await page.goto(`${CONTROLLER}/nodes/${edge1}/#/`)
+  await settle(page)
+  const badge = page.locator('.topbar .cluster-badge a', { hasText: 'edge · edge-1' })
+  const href = (await badge.count()) ? await badge.getAttribute('href') : ''
+  if (href !== `/#/clusters/${edge}`) problems.push(`edge-1's top bar: the cluster badge links to '${href}'`)
+  await page.goto(`${CONTROLLER}/`)
+  await settle(page)
+  const group = page.locator('.cluster-group', { has: page.locator('.cluster-heading-name', { hasText: /^edge$/ }) })
+  const cards = await group.locator('.node-card-name').allTextContents()
+  if (cards.sort().join(',') !== 'edge-1,edge-2') problems.push(`the Nodes page: cluster edge frames ${JSON.stringify(cards)}`)
+  await page.evaluate(() => localStorage.setItem('janus-nodes-view', 'list'))
+  await page.goto(`${CONTROLLER}/`)
+  await settle(page)
+  const rows = await page.locator('tbody.cluster-rows', { has: page.locator('.cluster-heading-name', { hasText: /^edge$/ }) }).locator('.node-card-name').allTextContents()
+  if (rows.sort().join(',') !== 'edge-1,edge-2') problems.push(`the Nodes list: cluster edge's rows ${JSON.stringify(rows)}`)
+  await page.evaluate(() => localStorage.removeItem('janus-nodes-view'))
   await ctx.close()
 }
 
