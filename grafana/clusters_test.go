@@ -360,7 +360,7 @@ func clustersDashboard() obj {
 	// Peers and stick tables.
 	b.row("Peers and stick tables", false)
 	b.add(plain(timeline("Peers",
-		"HAProxy's connection from each member to each of its peers over time ([clusters]("+docs+"cluster.md)).",
+		"HAProxy's connection from each member to each of its peers over time ([clusters]("+docs+"guide/clusters.md)).",
 		b.pos(7, 12, 0), []q{
 			{ref: "A", expr: orNone("max by (member, peer) ("+of(`janus_cluster_peer_up{`+janusJob+`}`)+")", "peer"), legend: "{{member}} → {{peer}}"},
 		}, []state{{1, "up", "green"}, {0, "down", "red"}, {-1, "no peer", "transparent"}}, false)))

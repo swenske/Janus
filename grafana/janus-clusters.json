@@ -2157,7 +2157,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "HAProxy's connection from each member to each of its peers over time ([clusters](https://janus.sw-servers.net/docs/cluster.md)).",
+      "description": "HAProxy's connection from each member to each of its peers over time ([clusters](https://janus.sw-servers.net/docs/guide/clusters.md)).",
       "fieldConfig": {
         "defaults": {
           "color": {
