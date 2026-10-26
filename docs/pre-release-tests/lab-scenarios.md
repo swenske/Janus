@@ -12,7 +12,7 @@ added.
 | Role | What |
 |---|---|
 | KVM hosts | the first: Xeon E3-1220 v3 (4 cores), 16 GB, a RAID controller with its write cache; since v2026.10.24-6 a second: the same CPU, 32 GB, two plain SATA drives without a write cache (a synchronous write about 30 times slower). Both Debian 13, QEMU q35, Debian's OVMF 2025.02. Since v2026.10.25 the machines are spread over both: node 01, a backend and the Controller's own machines on the first; the Controller, node 02, the other backend and the screen-only node on the second |
-| Router | RouterOS 7: the lab's VLANs, BGP with BFD (200 ms × 3) to the nodes, no BGP ECMP (one node carries the anycast route at a time) |
+| Router | RouterOS 7 (7.25 since 2026-10-26): the lab's VLANs, BGP with BFD (200 ms × 3) to the nodes; until v2026.10.26 no BGP ECMP (one node carried the anycast route at a time), since then BGP multipath - both nodes carry it, flows spread by addresses and ports (`l4`), the anycast address out of FastTrack ([BGP](../bgp.md#activeactive-behind-routeros-bgp-multipath)) |
 | Node 01 and node 02 | 2 vCPU (host CPU), 1 GiB, OVMF without Secure Boot; a schematic with the five extensions (BGP, VRRP, nftables, node_exporter, the QEMU agent); management, front and backend networks |
 | High availability | a VIP by VRRP (VRRPv3, 0.2 s adverts, HAProxy's health weighs -100) and an anycast /32 by BGP |
 | The auto-scaled node | since v2026.10.14: a machine the Controller creates on the same host, 2 vCPU and 1 GiB from the release's default image, room for 4 vCPU and 2 GiB |
