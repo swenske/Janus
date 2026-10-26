@@ -150,7 +150,7 @@ EOF
 done
 
 state() { ctl "$1" network vrrp status 2>/dev/null | awk '$1 == "VI_1" {print $2}'; }
-has_vip() { ctl "$1" network status 2>/dev/null | grep -q "192.168.77.100/24"; }
+has_vip() { local s; s="$(ctl "$1" network status 2>/dev/null)" || return 1; grep -q "192.168.77.100/24" <<<"$s"; }
 # keepalived reports MASTER a moment before the address is up: a node
 # that just took over gets a few seconds to show it.
 got_vip() {
