@@ -659,6 +659,9 @@ func (a *app) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 		SessionMaxHours    *int    `json:"session_max_hours"`
 		MFARequired        *string `json:"mfa_required"`
 		TrustBrowserHours  *int    `json:"trust_browser_hours"`
+		// The shortest refreshes any account may choose (Settings).
+		NodesRefreshFloorSeconds       *int `json:"nodes_refresh_floor_seconds"`
+		HypervisorsRefreshFloorSeconds *int `json:"hypervisors_refresh_floor_seconds"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -675,6 +678,12 @@ func (a *app) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TrustBrowserHours != nil {
 		next.TrustBrowserHours = req.TrustBrowserHours
+	}
+	if req.NodesRefreshFloorSeconds != nil {
+		next.NodesRefreshFloorSeconds = *req.NodesRefreshFloorSeconds
+	}
+	if req.HypervisorsRefreshFloorSeconds != nil {
+		next.HypervisorsRefreshFloorSeconds = *req.HypervisorsRefreshFloorSeconds
 	}
 	if err := a.auth.SetSettings(next); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

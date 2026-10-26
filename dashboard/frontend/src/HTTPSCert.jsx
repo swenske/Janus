@@ -2,6 +2,7 @@ import { ChevronDown, Lock, RotateCcw, Upload } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { Badge, Card, ErrorBox, useAction, useConfirm } from './shared/ui.jsx'
+import { fmtDate } from './shared/units.js'
 
 // The certificate the Controller's page is served with
 // (dashboard/backend/controller_tls.go): its own self-signed identity by
@@ -16,7 +17,7 @@ const SOURCE = {
 }
 
 function day(t) {
-  return t ? new Date(t).toLocaleDateString() : ''
+  return t ? fmtDate(t) : ''
 }
 
 function colonHex(h) {

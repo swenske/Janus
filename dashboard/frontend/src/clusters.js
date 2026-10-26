@@ -1,4 +1,5 @@
 import { hunks, lineDiff } from './shared/diff.js'
+import { fmtDateTime } from './shared/units.js'
 
 // What the Clusters page (Clusters.jsx) works out by itself - tested in
 // clusters.test.js. The clusters' API: docs/guide/clusters.md.
@@ -111,7 +112,7 @@ export function pathError(path) {
 
 // when is a time as the reader reads it, "-" for none.
 export function when(t) {
-  return t && !String(t).startsWith('0001') ? new Date(t).toLocaleString() : '-'
+  return t && !String(t).startsWith('0001') ? fmtDateTime(t) : '-'
 }
 
 // groupByCluster lays the nodes out by cluster for the Nodes page: each

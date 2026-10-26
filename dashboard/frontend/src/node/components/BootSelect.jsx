@@ -1,7 +1,8 @@
 import { usePoll } from '../hooks.jsx'
+import { fmtDateTime } from '../../shared/units.js'
 
 function started(b) {
-  return new Date(Number(b.started_unix_ns) / 1e6).toLocaleString()
+  return fmtDateTime(Number(b.started_unix_ns) / 1e6)
 }
 
 // BootSelect picks this boot (followed live) or a previous one, from the

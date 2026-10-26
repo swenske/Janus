@@ -2,6 +2,7 @@ import { CheckCircle2, Copy, Download, KeyRound, ShieldCheck, Upload } from 'luc
 import { useState } from 'react'
 import { postJSON } from './call.js'
 import { Badge, Card, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import { fmtDate } from './shared/units.js'
 
 // The fleet's setup (dashboard/backend/fleet.go): create it, store the
 // recovery kit and its passphrase, give both back - only then does the
@@ -177,7 +178,7 @@ export function FleetSetup({ fleet, onChanged }) {
   )
 }
 
-const day = (s) => (s ? new Date(s).toLocaleDateString() : '–')
+const day = (s) => (s ? fmtDate(s) : '–')
 
 // FleetCard is the fleet once ready.
 export function FleetCard({ fleet, nodes }) {
@@ -237,9 +238,13 @@ export function TrustBadge({ fleet, nodeID }) {
         </span>
       )
     case 'error':
+      // The error in full below the badge - wrapped anywhere (a URL, a
+      // certificate's chain), three lines at most, all of it in the
+      // tooltip: a badge's text doesn't wrap and ran out of the card.
       return (
-        <span title={t.error}>
-          <Badge tone="danger">fleet: {t.error?.slice(0, 40) || 'error'}</Badge>
+        <span className="trust-error" title={t.error || ''}>
+          <Badge tone="danger">fleet error</Badge>
+          {t.error && <span className="trust-error-text">{t.error}</span>}
         </span>
       )
     default:

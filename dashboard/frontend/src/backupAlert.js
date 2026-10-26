@@ -1,7 +1,9 @@
+import { fmtDateTime } from './shared/units.js'
+
 // backupAlert says what's wrong with the backups (GET /api/backups'
 // alert), or nothing.
 export function backupAlert(status) {
-  const when = (t) => (t ? new Date(t).toLocaleString() : '–')
+  const when = (t) => (t ? fmtDateTime(t) : '–')
   const last = status?.history?.[0]
   if (status?.alert === 'failed') return `The last backup failed (${when(last?.time)}): ${last?.error}. The Controller tries again every hour.`
   if (status?.alert === 'late') {

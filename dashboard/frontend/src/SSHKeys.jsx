@@ -4,6 +4,7 @@ import { call, postJSON } from './call.js'
 import { atLeast, ROLES } from './me.jsx'
 import { SecondFactorForm } from './MFA.jsx'
 import { Badge, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import { fmtDate } from './shared/units.js'
 
 // The account's SSH keys: what janusctl signs in with (janusctl login
 // -ssh-key) - dashboard/backend/cli.go. Adding one needs a sign-in that
@@ -18,7 +19,7 @@ const VALIDITY = [
 ]
 
 function when(t) {
-  return t ? new Date(t).toLocaleDateString() : 'never'
+  return t ? fmtDate(t) : 'never'
 }
 
 function colonHex(h) {

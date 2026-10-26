@@ -53,7 +53,8 @@ const KINDS = {
   },
 }
 
-export function NodeSpark({ kind, points = [], clock, head = true }) {
+// chart false: the figure alone (Settings' "Node charts" off).
+export function NodeSpark({ kind, points = [], clock, head = true, chart = true }) {
   const k = KINDS[kind]
   return (
     <div className="spark-cell">
@@ -65,17 +66,17 @@ export function NodeSpark({ kind, points = [], clock, head = true }) {
       ) : (
         <span className="spark-value">{k.value(points) ?? '–'}</span>
       )}
-      <Sparkline points={points} clock={clock} series={k.series} windowMs={WINDOW} label={k.aria} {...k.props} />
+      {chart && <Sparkline points={points} clock={clock} series={k.series} windowMs={WINDOW} label={k.aria} {...k.props} />}
     </div>
   )
 }
 
-export default function NodeSparklines({ points, clock }) {
+export default function NodeSparklines({ points, clock, charts = true }) {
   return (
-    <div className="sparks">
-      <NodeSpark kind="cpu" points={points} clock={clock} />
-      <NodeSpark kind="req" points={points} clock={clock} />
-      <NodeSpark kind="net" points={points} clock={clock} />
+    <div className={`sparks ${charts ? '' : 'sparks-figures'}`}>
+      <NodeSpark kind="cpu" points={points} clock={clock} chart={charts} />
+      <NodeSpark kind="req" points={points} clock={clock} chart={charts} />
+      <NodeSpark kind="net" points={points} clock={clock} chart={charts} />
     </div>
   )
 }

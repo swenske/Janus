@@ -9,8 +9,10 @@ import App from './App.jsx'
 import { ConfirmProvider, ToastProvider } from '../shared/ui.jsx'
 import { SplashProvider } from '../shared/Splash.jsx'
 import { MetricsProvider, NodeStatusProvider, RefreshProvider } from './hooks.jsx'
+import { loadDisplay } from './display.js'
 
-createRoot(document.getElementById('root')).render(
+// The account's time zone and rate unit first: every figure drawn follows them.
+loadDisplay().finally(() => createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ToastProvider>
       <ConfirmProvider>
@@ -27,4 +29,4 @@ createRoot(document.getElementById('root')).render(
       </ConfirmProvider>
     </ToastProvider>
   </StrictMode>,
-)
+))
