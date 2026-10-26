@@ -88,6 +88,65 @@ services` shows it `waiting`).
 routes it imported and exported per channel, and whether janusd holds it
 down.
 
+## Active/active behind RouterOS: BGP multipath
+
+Two nodes announcing the same anycast address give a router two routes
+to it. RouterOS installs only the best one by default: one node takes
+all the traffic, the other waits for it to fail - active/standby.
+RouterOS 7.22 and later install several (**multipath**), and spread the
+flows over the nodes - active/active, like an ECMP route to each.
+
+On the router - its own address `192.0.2.254`, the nodes `192.0.2.1` and
+`192.0.2.2` in one AS (65001), the anycast `192.0.2.100/32`:
+
+```text
+/routing bfd configuration add interfaces=vlan-front min-rx=200ms min-tx=200ms multiplier=3
+/routing filter rule add chain=janus-in rule="if (dst in 192.0.2.100/32 && dst-len == 32) { accept } else { reject }"
+/routing bgp instance add name=edge as=65000 router-id=192.0.2.254 multipath=2
+/routing bgp connection add name=lb-1 instance=edge local.role=ebgp remote.address=192.0.2.1 remote.as=65001 input.filter=janus-in hold-time=9s keepalive-time=3s use-bfd=yes
+/routing bgp connection add name=lb-2 instance=edge local.role=ebgp remote.address=192.0.2.2 remote.as=65001 input.filter=janus-in hold-time=9s keepalive-time=3s use-bfd=yes
+/ip settings set ipv4-multipath-hash-policy=l4
+/ip firewall filter add chain=forward action=accept dst-address=192.0.2.100 place-before=[find action=fasttrack-connection]
+/ip firewall filter add chain=forward action=accept src-address=192.0.2.100 place-before=[find action=fasttrack-connection]
+```
+
+- **`multipath` is a number** - how many routes RouterOS keeps for a
+  prefix: at least the number of nodes. RouterOS 7.25 refuses `yes`, and
+  **`0` leaves the prefix without any active route** - the anycast
+  address unreachable (measured); `1`, or leaving it out, is one path.
+  The nodes announce the same attributes - one AS, as above and in the
+  lab: the routes are equal (nodes in different ASes weren't tried).
+- **BFD** (`bfd on;` and `protocol bfd` in each node's `bird.conf`, as in
+  the configuration above): a node lost leaves the router's routes after
+  BFD's three missed packets - 0.6 s at 200 ms - not the hold time.
+- **How the flows spread**: by default RouterOS hashes on the addresses
+  only (`ipv4-multipath-hash-policy=l3`) - every connection from one
+  client, or from behind one NAT, goes to the same node. `l4` adds the
+  ports: connections from one client spread too. Then keep the anycast
+  address out of FastTrack, as above, or about one connection in four is
+  reset (RouterOS 7.25, measured: 56 of 240) - none once out of it.
+- **What a route change does to open connections**: ECMP keeps no state.
+  A route withdrawn - a node lost, its HAProxy stopped, the node drained
+  for an update - or announced again moves the connections hashed to it
+  to the other node, which resets them; new connections lose nothing.
+  With one path, every open connection moves each time.
+
+Measured in the test lab (RouterOS 7.25 on an RB4011, two nodes, BFD at
+200 ms × 3, 16 keep-alive connections under load and a new connection
+every 50 ms), one path against multipath with `l4`:
+
+| | One path (the default) | Multipath |
+|---|---|---|
+| New connections, from four clients | all on one node | each client's spread over both (20 to 40 of 60 on each) |
+| A node lost (the virtual machine killed) | 13 lost in 1,177 - all of them for 0.57 s, and 2 when the node came back and took the route again | 5 lost in 1,180 - those hashed to it during BFD's 0.6 s; none when it came back |
+| Its HAProxy stopped for 10 s | 3 lost | none |
+| Withdrawn, then announced again | 5 lost | none |
+| Open connections reset by a withdrawal / an announcement | 16 of 16 / 16 of 16 | 10 of 16 / 7 of 16 |
+| An update of both nodes through the Controller, each drained first | 3 lost in 3,471 (a pre-release's campaign) | none lost in 2,909 |
+
+A virtual IP ([VRRP](vrrp.md)) fails over in about the same time - 0.6 s
+at 0.2 s adverts - but one node serves at a time.
+
 ## Why BIRD 2
 
 BIRD 3 (multithreaded) aborted on an assertion when reconfigured with a
