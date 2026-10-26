@@ -84,14 +84,10 @@ func volumeXML(name string, capacity uint64, format string) string {
 // qemu-guest-agent channel is harmless without that extension. A
 // scalable machine's size is in size.go.
 //
-// loader is the UEFI firmware's code (statelessLoader): given, the
-// machine runs it alone, read-only and **without a variable store** -
-// Janus never uses UEFI variables, and OVMF's store fills up with the
-// console variables it writes at every boot, about 6 KB, then is
-// compacted through QEMU's emulated flash: one firmware reboot in about
-// 40 took 30-40 s more (docs/guide/updates.md). Empty: libvirt picks the
-// firmware (firmware='efi') and gives it a store, as before.
-func domainXML(spec hypervisor.MachineSpec, diskPath, ciPath, controllerID, loader string) string {
+// UEFI by libvirt's choice of firmware (firmware='efi'), with a variable
+// store; Create then makes the machine run that firmware's code alone,
+// without the store, before its first start (statelessXML).
+func domainXML(spec hypervisor.MachineSpec, diskPath, ciPath, controllerID string) string {
 	var nics strings.Builder
 	for _, n := range spec.NICs {
 		fmt.Fprintf(&nics, `    <interface type='network'>
@@ -109,13 +105,6 @@ func domainXML(spec hypervisor.MachineSpec, diskPath, ciPath, controllerID, load
     </firmware>
     <boot dev='hd'/>
   </os>`
-	if loader != "" {
-		os = fmt.Sprintf(`  <os>
-    <type arch='x86_64' machine='q35'>hvm</type>
-    <loader readonly='yes' type='pflash' stateless='yes'>%s</loader>
-    <boot dev='hd'/>
-  </os>`, esc(loader))
-	}
 	return fmt.Sprintf(`<domain type='kvm'>
   <name>%s</name>
   <metadata>
@@ -236,42 +225,49 @@ func reconfigureXML(domXML string, hw hypervisor.Hardware, nics []hypervisor.NIC
 	return out, nil
 }
 
-// statelessLoader picks, among the UEFI firmware images a host's
-// libvirt offers for q35 (its domain capabilities' loader values), the
-// plain OVMF code: no Secure Boot build (secboot, ms, snakeoil,
-// enrolled), no confidential-computing one (amdsev, inteltdx), no
-// combined code+variables image - its code alone runs without a store.
-// The 4 MiB build first. "": none - the machine gets libvirt's choice,
-// with a store.
-func statelessLoader(domCaps string) string {
-	var caps struct {
-		OS struct {
-			Loader struct {
-				Values []string `xml:"value"`
-			} `xml:"loader"`
-		} `xml:"os"`
+// statelessXML is a defined machine's inactive definition, its firmware
+// libvirt's choice (firmware='efi'), made to run that firmware's code
+// alone, read-only and **without a variable store** - Janus never uses
+// UEFI variables, and OVMF's store fills up with the console variables it
+// writes at every boot, about 6 KB, then is compacted through QEMU's
+// emulated flash: one firmware reboot in about 40 took 30-40 s more
+// (docs/guide/updates.md). Read back rather than asked for: the host's
+// domain capabilities, which list the firmware images, need the
+// connect.write the polkit rules of docs/hypervisors.md don't grant - and
+// must not, it also suspends the host (v2026.10.25-3's lab: its machines
+// kept their store). false: libvirt chose no plain code (plainCode) -
+// the definition stays as it is, with its store.
+func statelessXML(domXML string) (string, bool) {
+	m := loaderRe.FindStringSubmatch(domXML)
+	if m == nil || !plainCode(m[1]) {
+		return "", false
 	}
-	if xml.Unmarshal([]byte(domCaps), &caps) != nil {
-		return ""
+	out := strings.Replace(domXML, "<os firmware='efi'>", "<os>", 1)
+	out = osFirmwareRe.ReplaceAllString(out, "")
+	out = nvramRe.ReplaceAllString(out, "")
+	out = loaderRe.ReplaceAllString(out, "<loader readonly='yes' type='pflash' stateless='yes'>$1</loader>")
+	return out, true
+}
+
+var (
+	loaderRe     = regexp.MustCompile(`<loader[^>]*>([^<]+)</loader>`)
+	osFirmwareRe = regexp.MustCompile(`(?s)\n\s*<firmware>.*?</firmware>`)
+	nvramRe      = regexp.MustCompile(`(?s)\n\s*<nvram[^>]*(/>|>.*?</nvram>)`)
+)
+
+// plainCode is whether a UEFI firmware image is OVMF's plain code: no
+// Secure Boot build (secboot, ms, snakeoil, enrolled), no
+// confidential-computing one (amdsev, inteltdx), no combined
+// code+variables image - its code alone runs without a store.
+func plainCode(path string) bool {
+	name := strings.ToLower(path[strings.LastIndex(path, "/")+1:])
+	if !strings.Contains(name, "code") || !strings.HasSuffix(name, ".fd") {
+		return false
 	}
-	best := ""
-	for _, v := range caps.OS.Loader.Values {
-		name := strings.ToLower(v[strings.LastIndex(v, "/")+1:])
-		if !strings.Contains(name, "code") || !strings.HasSuffix(name, ".fd") {
-			continue
-		}
-		skip := false
-		for _, bad := range []string{"secboot", ".ms.", "_ms.", "snakeoil", "enrolled", "secure", "amdsev", "inteltdx", "csm"} {
-			if strings.Contains(name, bad) {
-				skip = true
-			}
-		}
-		if skip {
-			continue
-		}
-		if best == "" || (strings.Contains(name, "4m") && !strings.Contains(strings.ToLower(best), "4m")) {
-			best = v
+	for _, bad := range []string{"secboot", ".ms.", "_ms.", "snakeoil", "enrolled", "secure", "amdsev", "inteltdx", "csm"} {
+		if strings.Contains(name, bad) {
+			return false
 		}
 	}
-	return best
+	return true
 }

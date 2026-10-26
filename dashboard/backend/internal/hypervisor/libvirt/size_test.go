@@ -12,7 +12,7 @@ var scalable = hypervisor.Hardware{VCPUs: 2, MemoryMiB: 1024, MaxVCPUs: 4, MaxMe
 func TestScalableDomainXML(t *testing.T) {
 	spec := testSpec()
 	spec.Hardware = scalable
-	x := domainXML(spec, "/disk.qcow2", "/ci.iso", "ctl-1", "")
+	x := domainXML(spec, "/disk.qcow2", "/ci.iso", "ctl-1")
 	sz, err := parseSizes(x)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, x)
@@ -29,7 +29,7 @@ func TestScalableDomainXML(t *testing.T) {
 
 	// Only the vCPUs scalable: no NUMA cell, no virtio-mem.
 	spec.Hardware = hypervisor.Hardware{VCPUs: 1, MemoryMiB: 1024, MaxVCPUs: 8}
-	x = domainXML(spec, "/disk.qcow2", "/ci.iso", "ctl-1", "")
+	x = domainXML(spec, "/disk.qcow2", "/ci.iso", "ctl-1")
 	if strings.Contains(x, "numa") || strings.Contains(x, "virtio-mem") || strings.Contains(x, "maxMemory") || !strings.Contains(x, "current='1'>8</vcpu>") {
 		t.Errorf("vCPUs only:\n%s", x)
 	}

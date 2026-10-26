@@ -34,18 +34,24 @@ type Driver struct {
 	hostName string // read once (hostIdentity)
 }
 
-// loader is the UEFI firmware a new machine runs without a variable
-// store (statelessLoader), from the host's domain capabilities - "" when
-// it offers none, or its libvirt predates stateless loaders (8.6).
-func (d *Driver) loader(l *golibvirt.Libvirt) string {
+// stateless makes a machine just defined, before its first start, run
+// its firmware's code alone, without a variable store (statelessXML) -
+// left as it is when libvirt predates stateless loaders (8.6) or chose
+// no plain code.
+func (d *Driver) stateless(l *golibvirt.Libvirt, dom golibvirt.Domain) error {
 	if v, err := l.ConnectGetLibVersion(); err != nil || v < 8006000 {
-		return ""
+		return nil
 	}
-	caps, err := l.ConnectGetDomainCapabilities(nil, golibvirt.OptString{"x86_64"}, golibvirt.OptString{"q35"}, golibvirt.OptString{"kvm"}, 0)
+	domXML, err := l.DomainGetXMLDesc(dom, golibvirt.DomainXMLInactive)
 	if err != nil {
-		return ""
+		return err
 	}
-	return statelessLoader(caps)
+	next, ok := statelessXML(domXML)
+	if !ok {
+		return nil
+	}
+	_, err = l.DomainDefineXMLFlags(next, golibvirt.DomainDefineValidate)
+	return err
 }
 
 // New returns a Driver for h, a libvirt hypervisor whose host key is
@@ -413,13 +419,17 @@ func (d *Driver) CreateMachine(ctx context.Context, spec hypervisor.MachineSpec)
 			undo()
 			return fmt.Errorf("volume %s: %w", ciName, err)
 		}
-		defined, err := l.DomainDefineXMLFlags(domainXML(spec, diskPath, ciPath, d.controllerID, d.loader(l)), golibvirt.DomainDefineValidate)
+		defined, err := l.DomainDefineXMLFlags(domainXML(spec, diskPath, ciPath, d.controllerID), golibvirt.DomainDefineValidate)
 		if err != nil {
 			undo()
 			return fmt.Errorf("define the virtual machine: %w", err)
 		}
 		dom = &defined
 		ref.UUID = formatUUID(defined.UUID)
+		if err := d.stateless(l, defined); err != nil {
+			undo()
+			return fmt.Errorf("its firmware without a variable store: %w", err)
+		}
 		if err := l.DomainSetAutostart(defined, 1); err != nil {
 			undo()
 			return fmt.Errorf("enable autostart: %w", err)
