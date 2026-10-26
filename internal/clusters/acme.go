@@ -42,9 +42,23 @@ func (e *Engine) SyncACME(ctx context.Context, c *Cluster, actor string) error {
 	}
 	if ost.GetOrderedBy() != "" {
 		// The secrets' source changed, and still follows the one before:
-		// everyone told who orders now - it starts ordering, its
-		// thumbprint read at the next check.
-		return e.tellOrderer(ctx, c)
+		// told first, alone, that it orders now; its thumbprint, read
+		// again then, goes to the others below, in this check. Told all
+		// at once without it, they answered HTTP-01 with their own
+		// account until the next check, and the new orderer's challenges
+		// reaching them failed (v2026.10.25-3's lab).
+		if _, err := e.Nodes.ClusterSet(ctx, *src, e.SetRequest(c, *src, nil, nil)); err != nil {
+			return fmt.Errorf("telling %s it orders the Let's Encrypt certificates: %v", src.Name, err)
+		}
+		if err := e.waitLearnt(ctx, c, *src, actor); err != nil {
+			return fmt.Errorf("telling %s it orders the Let's Encrypt certificates: %v", src.Name, err)
+		}
+		if ost, err = e.Nodes.ACMEStatus(ctx, *src); err != nil {
+			return fmt.Errorf("%s's Let's Encrypt: %v", src.Name, err)
+		}
+		if ost.GetOrderedBy() != "" {
+			return nil // it doesn't take it: the next check
+		}
 	}
 	want := ACMEState{Orderer: src.Name, Thumbprint: ost.GetAccountThumbprint()}
 	if e.Store.State(c.ID).ACME != want {
@@ -52,7 +66,7 @@ func (e *Engine) SyncACME(ctx context.Context, c *Cluster, actor string) error {
 			return err
 		}
 		e.Journal(c.ID, actor, "letsencrypt", src.Name, 0, "the cluster's Let's Encrypt certificates are ordered by %s: the others order nothing, serve them and answer HTTP-01 with its account", src.Name)
-		if err := e.tellOrderer(ctx, c); err != nil {
+		if err := e.tellOrderer(ctx, c, actor); err != nil {
 			return err
 		}
 	}
@@ -104,12 +118,19 @@ func (e *Engine) SyncACME(ctx context.Context, c *Cluster, actor string) error {
 }
 
 // tellOrderer sends every member the membership again: who orders the
-// cluster's certificates, and the thumbprint known for it.
-func (e *Engine) tellOrderer(ctx context.Context, c *Cluster) error {
+// cluster's certificates, and the thumbprint known for it - one member at
+// a time: one whose HTTP-01 answer changes reloads HAProxy, and learns
+// its stick tables back from the others before the next one reloads
+// (waitLearnt, as an apply does: members reloading together lose them).
+func (e *Engine) tellOrderer(ctx context.Context, c *Cluster, actor string) error {
 	var failed []string
 	for _, m := range c.Members {
 		if _, err := e.Nodes.ClusterSet(ctx, m, e.SetRequest(c, m, nil, nil)); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v", m.Name, err))
+			continue
+		}
+		if err := e.waitLearnt(ctx, c, m, actor); err != nil {
+			return fmt.Errorf("telling the members who orders the Let's Encrypt certificates: %s: %v", m.Name, err)
 		}
 	}
 	if len(failed) > 0 {
