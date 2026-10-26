@@ -23,6 +23,9 @@
 #   7. system clients: the connections to the API - this janusctl,
 #      through eth0 (the route the node takes back to it) -, a reader
 #      seeing the others nameless.
+#   8. A member of a cluster (of one, its CA made here by hack/clusterca):
+#      its RFC 5424 lines carry the cluster as structured data, rsyslog
+#      parses it; its RFC 3164 lines don't change; once it left, none.
 #
 # QEMU_LOGFORWARD_WITHOUT_LOGS=1: the same on a node installed before the
 # LOGS partition existed (partition 7 taken out of the test's copy) -
@@ -265,6 +268,29 @@ grep -qE '^[0-9]+ +ci-reader \(this one\) +os:reader ' <<<"$clients" && grep -qE
 kill "$events_pid" 2>/dev/null || true
 echo "Part 1c OK: system clients - this janusctl through eth0, its bytes and calls, an admin's stream; a reader sees the others nameless"
 
+# --- a member of a cluster: its lines say which ---
+# A cluster of one; the line logged once the node joined says it in its
+# structured data (RFC 5424 - rsyslog parses it as such), the RFC 3164
+# target's lines stay as they were, and once the node left, nothing.
+CLUSTER_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+go run ./hack/clusterca new "$WORKDIR/cluster-ca" logs >/dev/null || fail "clusterca new failed"
+ctl cluster csr "$WORKDIR/member.csr" >/dev/null || fail "cluster csr failed"
+go run ./hack/clusterca sign "$WORKDIR/cluster-ca" "$WORKDIR/member.csr" "$CLUSTER_ID" lb-1 "$WORKDIR/member.crt" || fail "clusterca sign failed"
+out="$(ctl cluster set -id "$CLUSTER_ID" -name logs -member lb-1 -ca "$WORKDIR/cluster-ca/ca.crt" -cert "$WORKDIR/member.crt" lb-1=10.0.2.15 2>&1)" ||
+  fail "cluster set: $out"
+grep -qE "Cluster: +logs \($CLUSTER_ID\)" <<<"$out" || fail "the node didn't join: $out"
+SD="[janus@32473 cluster_id=\"$CLUSTER_ID\" cluster_name=\"logs\" member=\"lb-1\"]"
+ctl system metrics -port 10084 >/dev/null
+curl -s -o /dev/null "http://127.0.0.1:${P_HTTP}/logfwd-cluster-line"
+wait_received "janusd's line as a member over UDP, the cluster as structured data" "m['input'] == 'udp' and 'exporter: metrics served on :10084' in m['msg'] and m['sd'] == '$SD'"
+wait_received "janusd's line as a member over TLS, the cluster as structured data" "m['input'] == 'tls' and 'exporter: metrics served on :10084' in m['msg'] and m['sd'] == '$SD'"
+wait_received "an access line as a member over TCP, RFC 3164 as before" "m['input'] == 'tcp' and m['app'] == 'haproxy' and '/logfwd-cluster-line' in m['msg'] and m['sd'] == '-'"
+[ -z "$(received "'exporter: metrics served on :10081' in m['msg'] and m['sd'] != '-'")" ] || fail "a line sent before the node joined carries structured data"
+out="$(ctl cluster leave 2>&1)" || fail "cluster leave: $out"
+ctl system metrics -port 10085 >/dev/null
+wait_received "janusd's line once the node left, without structured data" "m['input'] == 'udp' and 'exporter: metrics served on :10085' in m['msg'] and m['sd'] == '-'"
+echo "Part 1d OK: a member's RFC 5424 lines carry its cluster as structured data (rsyslog parsed $SD), its RFC 3164 lines are as before; once it left, none"
+
 # --- 2. the server goes away ---
 docker stop -t 1 "$NAME" >/dev/null
 ctl system metrics -port 10082 >/dev/null
@@ -346,4 +372,4 @@ if grep -aq "avc:  denied" "$ALL_LOGS"; then
   fail "AVC denials: $(grep -a 'avc:  denied' "$ALL_LOGS" | head -5)"
 fi
 [ "$WITHOUT_LOGS" != 1 ] || grep -aq "no LOGS partition on this disk" "$ALL_LOGS" "$LOG" || fail "janusd didn't say the node has no LOGS partition"
-echo "Log forwarding test passed${WITHOUT_LOGS:+ without a LOGS partition}: a real rsyslog got each target's sources over UDP, TCP and TLS, the outage's lines once back, the new boot's kernel messages after a reboot, HAProxy's own UDP and TLS log lines; no secret came back, no AVC denial"
+echo "Log forwarding test passed${WITHOUT_LOGS:+ without a LOGS partition}: a real rsyslog got each target's sources over UDP, TCP and TLS, the outage's lines once back, the new boot's kernel messages after a reboot, HAProxy's own UDP and TLS log lines, a cluster member's structured data; no secret came back, no AVC denial"

@@ -81,6 +81,22 @@ message ID (RFC 5424), and the severity the line says - HAProxy's
 `[WARNING]` is a warning, Consul's `[ERROR]` an error, an `api:` line a
 notice, the rest info.
 
+A member of a [cluster](clusters.md) says which in RFC 5424's
+structured data - one element, its parameters named like the
+`janus_cluster_info` metric's labels:
+
+```text
+<134>1 2026-10-26T09:00:00.000000Z edge-1 janusd - janusd [janus@32473 cluster_id="6f1c2a9e-3b4d-4e5f-8a7b-0c1d2e3f4a5b" cluster_name="edge" member="edge-1"] cluster: ...
+```
+
+A node in no cluster sends none (`-`). rsyslog reads the element with
+`mmpstrucdata` (`$!rfc5424-sd!janus@32473!cluster_name`). `32473` is the
+enterprise number IANA keeps for examples (RFC 5612): Janus has none of
+its own yet - the ID is provisional. RFC 3164 has no structured data:
+its messages don't say the cluster - in the tag or the message it would
+change what servers filter and parse on, for members only. Use
+`rfc5424` or Elasticsearch to tell clusters apart.
+
 A **Synology** NAS receives them in Log Center › Log Receiving: a rule in
 IETF format (`rfc5424`) or BSD (`rfc3164`), over UDP, or TCP with SSL -
 `transport` `tls`, the port the rule says, and the certificate Log Center
@@ -139,6 +155,18 @@ this node's CA` line), `service.name`, `event.dataset`, an event's
 `event.outcome` and `event.duration`, `labels.*`, `janus.slot` and
 `janus.schematic`. In Kibana, a data view on `logs-janus*` shows them
 all.
+
+A member of a [cluster](clusters.md) adds ECS's fields for one,
+`orchestrator.cluster.id`, `orchestrator.cluster.name` and
+`orchestrator.type` (`janus`), and its member name as
+`janus.cluster.member` - ECS has no field for it.
+`orchestrator.cluster.name : "edge"` in Kibana shows every member's
+logs at once; a node in no cluster has none of these fields.
+
+The cluster, in a document or a syslog message, is the one the node is
+in when the record is sent - like its hostname: a line logged before it
+joined but sent after (its target was down meanwhile) says the cluster.
+A document's ID doesn't depend on it.
 
 A batch sent again - a timeout, the cluster busy (429) - is stored once:
 each document's ID is the node's and the record's, the copies answered

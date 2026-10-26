@@ -14,7 +14,11 @@
 #      event.action for an event, haproxy.* for an access log.
 #   3. The cluster paused: the target fails; once back, what was logged
 #      meanwhile is stored - once each, even sent twice.
-#   4. No AVC denial.
+#   4. A member of a Janus cluster (of one, its CA made here by
+#      hack/clusterca): its documents carry ECS's orchestrator.cluster.id
+#      and .name, orchestrator.type janus and janus.cluster.member - once
+#      it left, none of them.
+#   5. No AVC denial.
 #
 # Usage: hack/qemu-logforward-es-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -218,7 +222,36 @@ n="$(search 'haproxy.path:"/es-during-outage"' | wc -l)"
 [ "$n" = 2 ] || fail "the outage's 2 access lines were stored $n times"
 echo "Part 3 OK: with the cluster paused the target fails and says so; once back, what was logged meanwhile is stored, once each"
 
+# --- 4. a member of a Janus cluster: its documents say which ---
+CLUSTER_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+go run ./hack/clusterca new "$WORKDIR/cluster-ca" logs >/dev/null || fail "clusterca new failed"
+ctl cluster csr "$WORKDIR/member.csr" >/dev/null || fail "cluster csr failed"
+go run ./hack/clusterca sign "$WORKDIR/cluster-ca" "$WORKDIR/member.csr" "$CLUSTER_ID" lb-1 "$WORKDIR/member.crt" || fail "clusterca sign failed"
+out="$(ctl cluster set -id "$CLUSTER_ID" -name logs -member lb-1 -ca "$WORKDIR/cluster-ca/ca.crt" -cert "$WORKDIR/member.crt" lb-1=10.0.2.15 2>&1)" ||
+  fail "cluster set: $out"
+ctl system metrics -port 10093 >/dev/null
+wait_doc "janusd's line as a member, by its cluster's name" 'orchestrator.cluster.name:"logs" AND message:"exporter: metrics served on :10093/metrics"'
+doc="$(search 'message:"exporter: metrics served on :10093/metrics"' | head -1)"
+python3 -c '
+import json, sys
+d = json.loads(sys.argv[1])
+assert d["orchestrator"] == {"type": "janus", "cluster": {"id": sys.argv[2], "name": "logs"}}, d
+assert d["janus"]["cluster"] == {"member": "lb-1"}, d
+' "$doc" "$CLUSTER_ID" || fail "a member's document: $doc"
+n="$(search 'orchestrator.cluster.id:"'"$CLUSTER_ID"'" AND message:"exporter: metrics served on :10091/metrics"' | wc -l)"
+[ "$n" = 0 ] || fail "a line sent before the node joined carries the cluster"
+out="$(ctl cluster leave 2>&1)" || fail "cluster leave: $out"
+ctl system metrics -port 10094 >/dev/null
+wait_doc "janusd's line once the node left" 'message:"exporter: metrics served on :10094/metrics"'
+doc="$(search 'message:"exporter: metrics served on :10094/metrics"' | head -1)"
+python3 -c '
+import json, sys
+d = json.loads(sys.argv[1])
+assert "orchestrator" not in d and "cluster" not in d["janus"], d
+' "$doc" || fail "a document once the node left: $doc"
+echo "Part 4 OK: a member's documents carry its cluster (orchestrator.cluster.id/name, orchestrator.type janus, janus.cluster.member), searchable by name; once it left, none"
+
 if grep -aq "avc:  denied" "$LOG"; then
   fail "AVC denials: $(grep -a 'avc:  denied' "$LOG" | head -5)"
 fi
-echo "Elasticsearch log forwarding test passed: a real cluster (security on, an API key limited to logs-janus*, trusted by its CA's fingerprint) got janusd's log, the events and HAProxy's JSON access logs as ECS documents in their data streams, an outage's lines once back and once each; no AVC denial"
+echo "Elasticsearch log forwarding test passed: a real cluster (security on, an API key limited to logs-janus*, trusted by its CA's fingerprint) got janusd's log, the events and HAProxy's JSON access logs as ECS documents in their data streams, an outage's lines once back and once each, a cluster member's documents with its cluster; no AVC denial"
