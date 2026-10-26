@@ -163,11 +163,18 @@ without being touched: in the same form, **Start from** that node
   traffic over when you are ready - its address to the cluster's virtual
   IP, or your routers to the members -, then remove it.
 - The node must trust the Controller's fleet and run a version that
-  knows it (v2026.10.26 or later); its extensions are what its
+  knows it (v2026.10.25-3 or later); its extensions are what its
   configuration needs, so give the machines those - and, for a virtual
-  IP, `keepalived`. A `bind` on an address only that node has makes the
-  machines' HAProxy refuse to start: bind the cluster's virtual IP with
-  `net.ipv4.ip_nonlocal_bind` set ([VRRP](../vrrp.md)), or `*`, first.
+  IP, `keepalived`.
+- A `bind` on an address only that node has: Janus sets
+  `net.ipv4.ip_nonlocal_bind` by default, so the machines' HAProxy
+  starts and binds it too - and gets nothing there while the node holds
+  it. Once the node is gone, that address can become the cluster's
+  virtual IP ([VRRP](../vrrp.md)): the members serve it with the
+  configuration as it is. A node that saved `ip_nonlocal_bind` at 0
+  hands that over too: the first machine's HAProxy then refuses to
+  start, and the creation stops, saying so - bind `*`, or let it bind
+  addresses it doesn't have, first.
 
 ## The configuration
 
@@ -530,27 +537,54 @@ routeros` for `janusctl cluster balancer`, Terraform's `kind`).
   hand, another distance) - journaled "the router's routes put back".
   A router that doesn't answer stops a drain or a removal, the member
   serving on.
+- **Connections already open move**: ECMP has no memory of them - a
+  route removed or added hashes some of them to another member, which
+  resets them (a lab, 16 keep-alive connections: 9 reset at a drain, 8
+  when the member came back). New connections lose nothing, and the
+  drain delay doesn't help: clients connect again. Long-lived ones (a
+  WebSocket, a gRPC stream) fare better behind a balancer that keeps
+  them, or a virtual IP.
+- **How the flows spread**: by default RouterOS hashes on the addresses
+  only (`ipv4-multipath-hash-policy=l3`) - every connection from one
+  client, or from behind one NAT, goes to the same member. `l4` adds the
+  ports, and spreads them; then keep the service prefixes out of
+  FastTrack, or about one connection in five is reset (RouterOS 7.24,
+  measured):
+
+  ```text
+  /ip settings set ipv4-multipath-hash-policy=l4
+  /ip firewall filter add chain=forward action=accept dst-address=192.0.2.10/32 place-before=[find action=fasttrack-connection]
+  /ip firewall filter add chain=forward action=accept src-address=192.0.2.10/32 place-before=[find action=fasttrack-connection]
+  ```
+
 - **The members carry the service address**: each has it on an
   interface (a `/32`, as for [BGP anycast](../bgp.md)), and HAProxy
   binds it. Not for a VRRP cluster's virtual IPs: one member holds each.
 - **check-gateway** (`check_gateway`): the router pings each member and
   leaves out one that stops answering, without waiting for a drain or
   the next check - a member down, not drained, stops getting flows
-  within seconds. Its members must answer ICMP echo.
+  after 10 to 20 s (its pings every 10 s; 15 s in a lab), and the
+  connections hashed to it fail until then. Its members must answer
+  ICMP echo.
 - **Its access**: REST over HTTPS (`www-ssl`), a user of its own in a
   group with no more than it needs:
 
   ```text
   /user group add name=janus-hook policy=read,write,api,rest-api
-  /user add name=janus-hook group=janus-hook password=...
+  /user add name=janus-hook group=janus-hook password=... address=203.0.113.5/32
   /certificate add name=www common-name=router.example.net
   /certificate sign www
-  /ip service set www-ssl certificate=www disabled=no
+  /ip service set www-ssl certificate=www available-from=203.0.113.5/32 disabled=no
   /certificate print detail where name=www
   ```
 
-  The last line gives the certificate's `fingerprint`: its SHA-256, the
-  one to pin (`fingerprint`) - or give its CA. The password is the
+  `203.0.113.5` is the Controller's address (or `janusctl`'s machine,
+  without one) - `available-from` is RouterOS 7.24's name. The last
+  line gives the certificate's `fingerprint`: its SHA-256, the one to
+  pin (`fingerprint`) - or give its CA. A router whose input chain drops
+  what it doesn't list needs a rule for it too: `/ip firewall filter add
+  chain=input action=accept protocol=tcp src-address=203.0.113.5
+  dst-port=443 place-before=<its drop rule>`. The password is the
   balancer's secret, write-only. Plain HTTP only for a lab's router
   (`allow_http`): the password goes with every call.
 - **IPv6**: an IPv6 prefix gets its routes in `/ipv6/route`, to the
