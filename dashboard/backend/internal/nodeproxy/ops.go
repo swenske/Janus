@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -232,10 +233,20 @@ func handleApplyConfig(w http.ResponseWriter, r *http.Request, node *store.Node)
 
 	stream, err := janusv1alpha1.NewHAProxyServiceClient(conn).ApplyConfig(ctx, &janusv1alpha1.ApplyConfigRequest{Config: []byte(req.Config), Version: req.Version})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("ApplyConfig: %v", err), http.StatusBadGateway)
+		http.Error(w, status.Convert(err).Message(), grpcHTTPStatus(err))
 		return
 	}
+	writeApplyResult(w, stream)
+}
 
+// writeApplyResult answers with ApplyConfig's last progress message. A
+// refusal from the node is answered as the unary calls answer theirs:
+// its words, the status its gRPC code maps to - a cluster's lock is a
+// 400 saying so, as a refused file is, not a 502 "ApplyConfig stream:
+// rpc error: code = FailedPrecondition desc = ..." (v2026.10.26's lab).
+func writeApplyResult(w http.ResponseWriter, stream interface {
+	Recv() (*janusv1alpha1.ApplyConfigResponse, error)
+}) {
 	var last *janusv1alpha1.ApplyConfigResponse
 	for {
 		msg, err := stream.Recv()
@@ -243,7 +254,7 @@ func handleApplyConfig(w http.ResponseWriter, r *http.Request, node *store.Node)
 			break
 		}
 		if err != nil {
-			http.Error(w, fmt.Sprintf("ApplyConfig stream: %v", err), http.StatusBadGateway)
+			http.Error(w, status.Convert(err).Message(), grpcHTTPStatus(err))
 			return
 		}
 		last = msg
