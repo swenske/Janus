@@ -580,6 +580,35 @@ read every 2 s in a browser - the frontend's, its backend's and the
 interface's rates, the hourglass and its tooltip; the dots' animations
 tagged, then counted again after 12 s of refreshes; reduced motion.
 
+### A network change on the VRRP master
+
+Since v2026.10.26-2: under probes of the VIP and the anycast address
+(50 ms, from the fourth client), a network configuration applied on the
+node holding the VIP - an address no one announces added to its front
+interface, taken away 12 s later; keepalived's "reports IP … removed"
+lines counted on that node before and after. Measured: the lost probes,
+VRRP's transitions at the applies. The newest release first.
+
+### The same IPv6 anycast address on both nodes
+
+Since v2026.10.26-2, for the campaign only (taken off afterwards, the
+router's export compared with the one from before): a ULA `/64` on the
+front network and one on the backends', on the router; BGP over IPv6
+with both nodes (`afi=ipv6`, BFD, the lab's multipath, IPv6 hashed by
+ports), only `/128`s from the anycast prefix accepted, IPv6 BGP/BFD let
+in and the backends let through to the anycast address; on each node an
+address on the front `/64`, the same `/128`, an IPv6 gateway, an IPv6
+session exporting a `haproxy_*` static route, HAProxy on IPv6.
+
+| Step | Measured |
+|---|---|
+| The configuration in place | each node's `/128` flags (`/proc/net/if_inet6`: nodad, dadfailed, tentative); the router's routes to it, the sessions, BFD |
+| A backend VM asking the anycast address through the router every 50 ms for 30 s, node 01's HAProxy stopped 8 s in the middle | failed requests, outages, which node answered |
+| The rolling update with it in place | it survives the update (both nodes' configuration kept) |
+
+Set on the newest release first, then measured again once the rolling
+update took both nodes to the pre-release.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -669,3 +698,8 @@ ran:
   `m-members`: the Controller's metrics against the view and the
   members' pages; `node-ca`: the CA a node's API certificate is issued
   by; `tf/`: `janus_cluster` with its balancer block (v2026.10.25-2).
+- `nm-master`: a network change on the VRRP master under probes,
+  keepalived's lines counted; `v6-router`, `v6-nodes`, `v6-check`: the
+  IPv6 anycast test's router and nodes (`apply`, `revert`) and its
+  measure; `rolling` with `BGP=` a directory of `bird.conf` files, its
+  drain withdrawing every `haproxy_anycast*` route (v2026.10.26-2).
