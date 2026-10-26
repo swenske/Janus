@@ -677,8 +677,12 @@ over the map, with a close button. The choice is remembered per
 browser, like the **Servers** chip that hides the servers (past eight,
 "+N more"). `show stat`
 (`/api/haproxy/stats`, at the refresh interval) gives the proxies and
-their counters - traffic is the difference of `bin`/`bout` between two
-answers, none when a counter went back - but never which frontend sends
+their counters - traffic is a second's average over the last 10 s
+(`flow.js` `RATE_WINDOW_MS`, `windowRates`: `bin`/`bout` from the
+window's first answer to its last, over the time that really passed
+between them - see below why -, from the first answer after a counter
+went back - a reload -, none without two, nor across a gap of more than
+35 s) - but never which frontend sends
 to which backend: that's read from the configuration
 (`/api/haproxy/config`, every 30 s and again when HAProxy's uptime goes
 back - a reload): `default_backend` (a `defaults` section's too),
@@ -686,12 +690,53 @@ back - a reload): `default_backend` (a `defaults` section's too),
 `use_backend %[...]` through the maps it reads - directly or through a
 `set-var` - whose values name the backends and whose keys say for what
 (`/api/haproxy/maps/<path>`, every 30 s). A `use_backend` nothing
-resolves is said in the frontend's details. Where traffic goes, a link
-is lit and particles run along it - glowing dots with a short trail,
-closer together and faster the more bytes (`flow.js` `particles`: as
-many as fit the link's length at that spacing, at most eight), each an
-SVG `animateMotion` (no script runs a frame); under
-`prefers-reduced-motion` the link is only lit. A backend fed by several frontends has its
+resolves is said in the frontend's details.
+
+What the numbers count, and why a window: HAProxy adds a stream's
+bytes to its counters only when it handles the stream (its
+`stream_process_counters`) - every 5 s along it with `option
+contstats`, else when it ends: a request in HTTP, the whole connection
+in TCP. Measured on 3.4.7: a 160 MiB transfer at 8 MiB/s through a TCP
+and an HTTP frontend (TLS or not) counted 0 for 19 s, then all of it;
+with `option contstats`, 40 MiB every 5 s; neither
+`tune.disable-zero-copy-forwarding` nor splicing changes it. So between
+two answers a second apart a busy frontend reads 0, then five seconds'
+worth - ten seconds hold two of contstats' updates. An interface's
+traffic is the kernel's count, each packet as it goes (`interfaceRates`:
+the metrics' samples, `rx_bytes`/`tx_bytes` of `/proc/net/dev`, over the
+same window), of everything it carries both ways: what HAProxy forwards
+crosses it twice when its clients and its servers are both on it - in
+from one side, out to the other -, with the API, the logs, health
+checks, packet headers, TLS and retransmissions - about twice the
+frontends' sum on a node with one interface, never comparable with them
+answer by answer. Both say so in their tooltips, the legend and the
+details. A TCP frontend without contstats (`lateCounted`, from the
+configuration: `parseTopology`'s `contstats`, inherited from its
+`defaults` - a named one starts over without it) wears an hourglass at
+its ring's bottom left: a long connection - a tunnel, a relay, a
+database's - shows nothing until it closes. A frontend's details say
+when it's counted, an HTTP one's too.
+
+Where traffic goes, a link is lit and particles run along it - glowing
+dots with a short trail, closer together and faster the more bytes
+(`flow.js` `particles`). A link's dots are made once (`maxDots`: as
+many as fit its length at the closest spacing, at most eight), each a
+Web Animation along the path as the page drew it (`motionFrames`: the
+dot's place and heading, its trail behind it), and more traffic lights
+more of the same dots (`dotsShown`, faded): a refresh never makes them
+again nor restarts them. Their speed is their `playbackRate`, eased to a
+new one in 0.9 s (`LinkMotion`, `speedAt`; one `requestAnimationFrame`
+loop, only while a speed changes), which keeps each dot where it is.
+When a link's traffic drops to 0, its light and dots stay a moment
+(`lingerFor`: the refresh interval and half a second, 1.5 to 5 s - a
+rate touching 0 once doesn't blink), then fade out in 0.3 s and the
+dots pause; the traffic back, they fade in where they were. None under
+`prefers-reduced-motion`, nor when the account turned its **node
+charts** off in its Controller preferences (`nodeCharts.js`: `GET
+/api/me/preferences` - the Controller's own route, not the node's -,
+`node_charts`; on when absent or when the Controller doesn't have the
+route, whose 404 `hack/ui-preview.sh check` lets through): the link is
+only lit, a flash only a colour. A backend fed by several frontends has its
 traffic on each link at most the smaller side's, as HAProxy doesn't
 count the split. A link's colour is its protocol's - HTTP the accent,
 TCP `--flow-tcp`, logs `--flow-log` (tokens of `node.css`, each 3:1 on
@@ -794,8 +839,8 @@ both tests.
   shown or hidden, untouched, signed out on time. Once a 401 says the
   session ended, nothing polls again: the banner asks to sign in and
   reload. Counters are turned into rates client-side, and a
-  counter going backwards (HAProxy reload) gives no point rather than a
-  negative rate.
+  counter going backwards (HAProxy reload, a node's interfaces after a
+  reboot) gives no point rather than a negative rate.
 - **Charts** leave gaps where data is missing (e.g. during a reboot)
   and where samples are more than 2.5 intervals and 2 s apart (`isGap`:
   a tab hidden long, the node away), instead of drawing a line through
@@ -817,7 +862,7 @@ both tests.
   the backends'), and how fast each backend answers (averages over its
   last 1024 requests) in a sortable table (`DataTable`, slowest first),
   with its bytes a second in and out now - the difference between the
-  last two answers (`useStatSamples`, shared with the Traffic flow). No counter says which TLS version or cipher a connection
+  last two answers (`useStatSamples`; the Traffic flow averages over 10 s, `windowRates`). No counter says which TLS version or cipher a connection
   used: only the access log does (`%sslv`, `%sslc` - `option httpslog`
   ends its lines with them). So **TLS versions** and **Ciphers** come
   from HAProxy's last log lines (`/api/haproxy/tls-log`, every 30 s, for

@@ -34,10 +34,35 @@ a zoomed map is dragged with the mouse. Select a frontend to see the
 rules - a map's keys included - behind each of its links, or a server to
 set its state:
 
-![The Traffic flow, top to bottom: the Controller, its calls and bytes a second and a badge counting its one user, and the log target siem, its records and bytes a second, above eth0, then HAProxy, the HTTP frontends web and prometheus and the TCP frontend postgres, web linked to the app backend and its servers app1 and app2, postgres to the db backend and its servers db1 and db2, each link in its protocol's colour](assets/screenshots/node-traffic-flow-light.webp)
+![The Traffic flow, top to bottom: the Controller, its calls and bytes a second and a badge counting its one user, and the log target siem, its records and bytes a second, above eth0, then HAProxy, the HTTP frontends web and prometheus and the TCP frontend postgres - an hourglass by it: counted as its connections close -, web linked to the app backend and its servers app1 and app2, postgres to the db backend and its servers db1 and db2, each link in its protocol's colour](assets/screenshots/node-traffic-flow-light.webp)
 
 `janusctl tui` draws it in the terminal too: `f` on a node
 ([janusctl](janusctl.md#the-dashboard-janusctl-tui)).
+
+## Live traffic: option contstats
+
+The Traffic flow's figures are a second's average over the last 10
+seconds. An interface's is everything it carries, both ways: what
+HAProxy forwards crosses it twice when its clients and its servers are
+both on it - in from one side, out to the other -, with the API, the
+logs, health checks, packet headers and TLS. A frontend's, backend's or
+server's are HAProxy's own counters, and HAProxy adds a stream's bytes
+to them only when it handles the stream - by default, when it ends: a
+request in HTTP, the whole connection in TCP. A connection open for
+long - TLS passed through, a database's, a relay - shows nothing until
+it closes, then all at once; the map marks such a TCP frontend with an
+hourglass. `option contstats` makes HAProxy count along the way, every
+5 seconds:
+
+```haproxy
+defaults
+    mode http
+    option contstats
+```
+
+A named `defaults` section starts over: one for TCP proxies needs its
+own `option contstats`. It costs a wakeup every 5 seconds for each open
+connection.
 
 ## The global section
 

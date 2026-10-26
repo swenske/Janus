@@ -27,6 +27,18 @@ import {
   stickTables,
   tokenize,
   withRates,
+  RATE_MAX_GAP_MS,
+  RATE_WINDOW_MS,
+  SPEED_MS,
+  counterRate,
+  inWindow,
+  interfaceRates,
+  dotsShown,
+  lingerFor,
+  maxDots,
+  motionFrames,
+  speedAt,
+  windowRates,
 } from './flow.js'
 
 // examples/haproxy/web.cfg's proxies.
@@ -65,8 +77,8 @@ test('web.cfg: a default backend, a frontend that answers itself', () => {
   const t = parseTopology(WEB)
   assert.deepEqual(t.backends, ['app'])
   assert.deepEqual(t.frontends, [
-    { name: 'web', kind: 'frontend', mode: 'http', binds: [':80'], answers: ['return'], rules: [{ type: 'default', backend: 'app', inherited: false }] },
-    { name: 'prometheus', kind: 'frontend', mode: 'http', binds: [':8405'], answers: ['use-service prometheus-exporter'], rules: [] },
+    { name: 'web', kind: 'frontend', mode: 'http', binds: [':80'], answers: ['return'], contstats: false, rules: [{ type: 'default', backend: 'app', inherited: false }] },
+    { name: 'prometheus', kind: 'frontend', mode: 'http', binds: [':8405'], answers: ['use-service prometheus-exporter'], contstats: false, rules: [] },
   ])
   assert.deepEqual(t.maps, [])
 })
@@ -823,7 +835,216 @@ test('particles: closer and faster with more traffic, within bounds', () => {
     for (const len of [10, 100, 1000, 5000]) {
       const p = particles(b, len)
       assert.ok(p.count >= 1 && p.count <= 8 && p.seconds >= 0.6 && p.seconds <= 8, JSON.stringify({ b, len, p }))
-      assert.equal(p.seconds, Math.round(p.seconds * 10) / 10)
+    }
+  }
+})
+
+// --- rates ---
+
+const at = (pairs) => pairs.map(([t, v]) => ({ t, v }))
+
+test('a counter rate: the time that really passed, never the refresh interval', () => {
+  assert.equal(counterRate(at([[0, 0], [1000, 500], [2000, 1000]])), 500)
+  // Irregular intervals: what was counted over the time between the two
+  // ends, whatever the samples in between.
+  assert.equal(counterRate(at([[0, 0], [700, 100], [2500, 2500]])), 1000)
+  assert.equal(counterRate(at([[0, 1000], [4000, 9000]])), 2000)
+  // 64-bit counters as protojson strings.
+  assert.equal(counterRate(at([[0, '1000'], [2000, '3000']])), 1000)
+  // One sample, none, no time: nothing to say.
+  assert.equal(counterRate(at([[0, 100]])), undefined)
+  assert.equal(counterRate([]), undefined)
+  assert.equal(counterRate(undefined), undefined)
+  assert.equal(counterRate(at([[5, 100], [5, 200]])), undefined)
+})
+
+test('a counter rate: a counter that went back - a reload, a restart, a reboot', () => {
+  // Reset at the newest sample: nothing since it - no negative rate.
+  assert.equal(counterRate(at([[0, 5000], [1000, 6000], [2000, 30]])), undefined)
+  // Reset inside the window: from the first sample after it only - not
+  // the whole window's time, nor the old counts.
+  assert.equal(counterRate(at([[0, 5000], [1000, 6000], [2000, 100], [3000, 600], [4000, 1100]])), 500)
+  // Never a spike: a 32-bit counter wrapping would look like this (none
+  // on the path is 32 bits: HAProxy's, janusd's and /proc/net/dev's are
+  // 64) - read as a reset, not as 4 GiB in a second.
+  const wrapped = counterRate(at([[0, 4294967000], [1000, 4294967200], [2000, 104]]))
+  assert.equal(wrapped, undefined)
+  const after = counterRate(at([[0, 4294967000], [1000, 4294967200], [2000, 104], [3000, 504]]))
+  assert.equal(after, 400)
+})
+
+test('a counter rate: a missing value', () => {
+  // Missing in between (the proxy not in that answer): the others count.
+  assert.equal(counterRate(at([[0, 0], [1000, undefined], [2000, 2000]])), 1000)
+  assert.equal(counterRate(at([[0, 0], [1000, ''], [2000, null], [4000, 4000]])), 1000)
+  // Missing at the newest: unknown, not 0.
+  assert.equal(counterRate(at([[0, 0], [1000, 500], [2000, undefined]])), undefined)
+  // Missing everywhere before it: unknown.
+  assert.equal(counterRate(at([[0, undefined], [1000, 500]])), undefined)
+  // Not a number: unknown.
+  assert.equal(counterRate(at([[0, 'x'], [1000, 'y']])), undefined)
+})
+
+test('the rate window: the last 10 s, the previous answer at least, never across a long gap', () => {
+  const every = (step, n) => Array.from({ length: n }, (_, i) => ({ t: i * step }))
+  // Every second for 20 s: the last 10 s, its two ends included.
+  const w = inWindow(every(1000, 21))
+  assert.deepEqual([w[0].t, w.at(-1).t, w.length], [10000, 20000, 11])
+  // Every 30 s (the longest refresh interval): the previous one still.
+  assert.deepEqual(inWindow(every(30000, 4)).map((s) => s.t), [60000, 90000])
+  // A tab hidden 15 minutes: no rate from before it.
+  assert.deepEqual(inWindow([{ t: 0 }, { t: 1000 }, { t: 1000 + 15 * 60000 }]).map((s) => s.t), [1000 + 15 * 60000])
+  assert.ok(RATE_MAX_GAP_MS >= 30000 && RATE_WINDOW_MS === 10000)
+  assert.deepEqual(inWindow([]), [])
+  assert.deepEqual(inWindow([{ t: 3 }]), [{ t: 3 }])
+})
+
+// stats is /api/haproxy/stats' web frontend with its byte counters.
+function feRows(bin, bout) {
+  return statRows({ columns: COLUMNS, rows: [row('web', 'FRONTEND', 0, 'OPEN', 2, bin, bout)] })
+}
+
+test('HAProxy counts in steps: over 10 s the real rate, not 0 and 5 s of it', () => {
+  // One download at 1 MiB/s through a frontend with option contstats:
+  // HAProxy adds its bytes every 5 s (measured on 3.4.7) - its counter
+  // steps, sampled every second.
+  const R = 1 << 20
+  const history = []
+  for (let s = 0; s <= 30; s++) {
+    const counted = Math.floor(s / 5) * 5 * R
+    history.push({ t: s * 1000 + 3, rows: feRows(0, counted) })
+  }
+  // Between two answers a second apart: 0, or five seconds' worth.
+  const pairs = history.slice(1).map((h, i) => withRates(h.rows, history[i].rows, 1)[0].traffic)
+  assert.deepEqual([...new Set(pairs)].sort((a, b) => a - b), [0, 5 * R])
+  // Over the window: the download's rate, give or take a step.
+  for (let i = 12; i < history.length; i++) {
+    const r = windowRates(inWindow(history.slice(0, i + 1)))[0].traffic
+    assert.ok(r >= 0.5 * R && r <= 1.2 * R, `${i}: ${r / R}`)
+  }
+  const mean = history.slice(12).reduce((t, _, i) => t + windowRates(inWindow(history.slice(0, 13 + i)))[0].traffic, 0) / (history.length - 12)
+  assert.ok(Math.abs(mean - R) < 0.1 * R, String(mean / R))
+})
+
+test('window rates: a reload inside the window, a proxy missing from an answer', () => {
+  const h = [
+    { t: 0, rows: feRows(1000, 5000) },
+    { t: 1000, rows: feRows(2000, 9000) },
+    { t: 2000, rows: [] }, // the answer during the reload had no such frontend
+    { t: 3000, rows: feRows(100, 400) }, // HAProxy reloaded: its counters start again
+    { t: 5000, rows: feRows(300, 1400) },
+  ]
+  const [fe] = windowRates(h)
+  assert.deepEqual([fe.inRate, fe.outRate, fe.traffic], [100, 500, 600])
+  // Right after the reload: nothing yet - not a negative rate.
+  assert.equal(windowRates(h.slice(0, 4))[0].traffic, undefined)
+  // Missing from one answer, no reload: the others count.
+  const gap = windowRates([{ t: 0, rows: feRows(0, 0) }, { t: 1000, rows: [] }, { t: 2000, rows: feRows(2000, 2000) }])
+  assert.equal(gap[0].traffic, 2000)
+  assert.deepEqual(windowRates([]), [])
+})
+
+test('interface rates over the window, from the metrics samples', () => {
+  const point = (t, rx, tx) => ({ t, net: { eth0: { rxTotal: rx, txTotal: tx }, lo: { rxTotal: 0, txTotal: 0 } } })
+  const points = []
+  for (let s = 0; s <= 20; s++) points.push(point(s * 1000, s * 1000, s * 3000))
+  assert.deepEqual(interfaceRates(points).eth0, { rx: 1000, tx: 3000 })
+  // A sample whose network read failed is passed over.
+  assert.deepEqual(interfaceRates([...points.slice(0, -1), { t: 20000 }, points.at(-1)]).eth0, { rx: 1000, tx: 3000 })
+  // The node rebooted: its counters start again - no rate until two
+  // samples after, then from the reboot on only.
+  const rebooted = [...points, point(21000, 10, 20)]
+  assert.deepEqual(interfaceRates(rebooted).eth0, { rx: undefined, tx: undefined })
+  assert.deepEqual(interfaceRates([...rebooted, point(23000, 2010, 6020)]).eth0, { rx: 1000, tx: 3000 })
+  assert.deepEqual(interfaceRates([]), {})
+  assert.deepEqual(interfaceRates(undefined), {})
+})
+
+test('when HAProxy counts: option contstats, inherited, named defaults, no option', () => {
+  const t = parseTopology(`
+defaults
+    mode http
+    option contstats
+frontend fe_https
+    bind :443
+defaults tcp
+    mode tcp
+frontend fe_relay from tcp
+    bind :22067
+defaults web from unnamed
+frontend fe_off
+    no option contstats
+frontend fe_on
+    option contstats
+    bind :81
+`)
+  const by = Object.fromEntries(t.frontends.map((f) => [f.name, f.contstats]))
+  // The production case: the first defaults has contstats, "defaults tcp"
+  // starts over without it - fe_relay's bytes show only as connections end.
+  assert.deepEqual(by, { fe_https: true, fe_relay: false, fe_off: false, fe_on: true })
+  const inherits = parseTopology('defaults base\n option contstats\ndefaults web from base\nfrontend a from web\nfrontend b\n')
+  assert.deepEqual(inherits.frontends.map((f) => [f.name, f.contstats]), [['a', true], ['b', true]])
+  // On the flow's frontends; unknown without the configuration.
+  const rows = withRates(sample(3000), sample(1000), 2)
+  assert.equal(buildFlow(rows, parseTopology(WEB), {}).frontends[0].contstats, false)
+  assert.equal(buildFlow(rows, null, {}).frontends[0].contstats, undefined)
+})
+
+test('a dot along a path: where it is, which way it heads, no spin', () => {
+  const f = motionFrames([
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 20, y: 0 },
+  ])
+  assert.deepEqual(
+    f.map((k) => k.transform),
+    ['translate(0px, 0px) rotate(0deg)', 'translate(10px, 0px) rotate(0deg)', 'translate(20px, 0px) rotate(0deg)'],
+  )
+  // Going back (a log target's dots, out of the node): heading left,
+  // and a curve turning past half a turn keeps turning the same way.
+  const loop = []
+  for (let i = 0; i <= 24; i++) loop.push({ x: Math.cos(Math.PI - (i * 1.5 * Math.PI) / 24), y: -Math.sin(Math.PI - (i * 1.5 * Math.PI) / 24) })
+  const deg = motionFrames(loop).map((k) => Number(/rotate\((-?[\d.]+)deg\)/.exec(k.transform)[1]))
+  for (let i = 1; i < deg.length; i++) assert.ok(Math.abs(deg[i] - deg[i - 1]) < 30, `${i}: ${deg[i - 1]} -> ${deg[i]}`)
+  assert.ok(Math.abs(deg.at(-1) - deg[0]) > 200, String(deg.at(-1) - deg[0]))
+})
+
+test('dots: they linger past the next sample, their speed eases', () => {
+  assert.equal(lingerFor(1000), 1500)
+  assert.equal(lingerFor(2000), 2500)
+  assert.equal(lingerFor(30000), 5000)
+  assert.equal(lingerFor(0), 1500)
+  assert.equal(speedAt(1, 3, 0), 1)
+  assert.equal(speedAt(1, 3, SPEED_MS), 3)
+  assert.equal(speedAt(1, 3, SPEED_MS * 2), 3)
+  assert.equal(speedAt(1, 3, SPEED_MS / 2), 2)
+  let prev = 1
+  for (let ms = 0; ms <= SPEED_MS; ms += 50) {
+    const v = speedAt(1, 3, ms)
+    assert.ok(v >= prev && v - prev < 0.25, `${ms}: ${prev} -> ${v}`) // no jump
+    prev = v
+  }
+  assert.equal(speedAt(3, 1, SPEED_MS / 2), 2)
+})
+
+test('dots: made once by length, more of them lit with more traffic, evenly', () => {
+  assert.equal(maxDots(0), 0)
+  assert.equal(maxDots(10), 1)
+  assert.equal(maxDots(200), 4)
+  assert.equal(maxDots(5000), 8)
+  // Never more lit than there are, whatever the traffic.
+  for (const len of [10, 100, 300, 1000, 5000]) {
+    for (const b of [1, 1e3, 1e6, 1e9, 1e12]) assert.ok(particles(b, len).count <= maxDots(len), `${len} ${b}`)
+  }
+  for (let total = 1; total <= 8; total++) {
+    for (let count = 0; count <= total; count++) {
+      const shown = dotsShown(count, total)
+      assert.equal(shown.length, total)
+      assert.equal(shown.filter(Boolean).length, count, `${count} of ${total}`)
+      // Evenly: the gaps between two lit dots differ by one at most.
+      const lit = shown.map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
+      const gaps = lit.map((i, k) => (lit[(k + 1) % lit.length] - i + total) % total || total)
+      if (count > 1) assert.ok(Math.max(...gaps) - Math.min(...gaps) <= 1, `${count} of ${total}: ${shown}`)
     }
   }
 })

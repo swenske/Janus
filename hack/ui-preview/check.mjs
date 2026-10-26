@@ -35,13 +35,19 @@ async function signIn(ctx) {
   if (!r.ok()) throw new Error(`sign-in: ${r.status()}`)
 }
 
+// Answers a page expects may fail: the sign-in state, and the account's
+// preferences (a node page's src/node/nodeCharts.js) - a Controller
+// without them answers 404, the page goes on with its defaults.
+const mayFail = (url) => url.includes('/api/auth/status') || url.includes('/api/me/preferences')
+
 function watch(page, where) {
   page.on('pageerror', (e) => problems.push(`${where()}: ${e.message}`))
   page.on('console', (m) => {
+    if (m.type() === 'error' && m.text().startsWith('Failed to load resource') && mayFail(m.location().url || '')) return
     if (m.type() === 'error' || m.text().includes('[Report Only]')) problems.push(`${where()}: console ${m.type()}: ${m.text()}`)
   })
   page.on('response', (r) => {
-    if (r.status() >= 400 && !r.url().includes('/api/auth/status')) problems.push(`${where()}: ${r.status()} ${r.url()}`)
+    if (r.status() >= 400 && !mayFail(r.url())) problems.push(`${where()}: ${r.status()} ${r.url()}`)
   })
 }
 

@@ -400,6 +400,7 @@ async function newContext(browser, theme, size) {
   await ctx.clock.install({ time: T0 - 1000 })
   await ctx.clock.pauseAt(T0 - LAZY_MS)
   ctx.metricsServed = 0
+  ctx.inFlight = 0
   ctx.statsServed = 0
   ctx.logsServed = 0
   ctx.clientsServed = 0
@@ -409,24 +410,37 @@ async function newContext(browser, theme, size) {
     if ((req.headers().accept || '').includes('text/event-stream')) {
       return route.fulfill({ status: 200, contentType: 'text/event-stream', body: await sseBacklog(path + new URL(req.url()).search) })
     }
-    let resp
+    // Counted until answered: a sample waits for the page's polls to be
+    // answered before its clock moves on (the shots' loop).
+    ctx.inFlight++
     try {
-      resp = await route.fetch()
-    } catch {
-      return route.abort()
+      return await answer(ctx, route, req, path)
+    } finally {
+      ctx.inFlight--
     }
-    if (!(resp.headers()['content-type'] || '').includes('application/json')) return route.fulfill({ response: resp })
-    let body = normalize(await resp.json())
-    if (path.endsWith('/api/metrics')) body = metrics(body, ctx.metricsServed++)
-    if (path.endsWith('/api/haproxy/stats')) body = stats(body, ctx.statsServed++)
-    if (path.endsWith('/api/log-forwarding')) body = logs(body, ctx.logsServed++)
-    if (path.endsWith('/api/system/clients')) body = clients(body, ctx.clientsServed++)
-    if (path.endsWith('/api/nodes/metrics')) body = nodeMetrics(Number(new URL(req.url()).searchParams.get('since')) || 0)
-    if (path.endsWith('/api/system/mounts')) body = mounts(body)
-    if (/\/api\/(enroll-)?tokens$/.test(path)) for (const t of body || []) t.id = fakeHex(`token/${t.name}`).slice(0, t.id.length)
-    return route.fulfill({ response: resp, json: body })
   })
   return ctx
+}
+
+// answer is the Controller's answer to one of a shot's requests, its
+// numbers made the fixed series' (newContext's route).
+async function answer(ctx, route, req, path) {
+  let resp
+  try {
+    resp = await route.fetch()
+  } catch {
+    return route.abort()
+  }
+  if (!(resp.headers()['content-type'] || '').includes('application/json')) return route.fulfill({ response: resp })
+  let body = normalize(await resp.json())
+  if (path.endsWith('/api/metrics')) body = metrics(body, ctx.metricsServed++)
+  if (path.endsWith('/api/haproxy/stats')) body = stats(body, ctx.statsServed++)
+  if (path.endsWith('/api/log-forwarding')) body = logs(body, ctx.logsServed++)
+  if (path.endsWith('/api/system/clients')) body = clients(body, ctx.clientsServed++)
+  if (path.endsWith('/api/nodes/metrics')) body = nodeMetrics(Number(new URL(req.url()).searchParams.get('since')) || 0)
+  if (path.endsWith('/api/system/mounts')) body = mounts(body)
+  if (/\/api\/(enroll-)?tokens$/.test(path)) for (const t of body || []) t.id = fakeHex(`token/${t.name}`).slice(0, t.id.length)
+  return route.fulfill({ response: resp, json: body })
 }
 
 // --- the shots ---
@@ -450,7 +464,13 @@ for (const shot of spec.shots) {
     const page = await ctx.newPage()
     const problems = []
     page.on('pageerror', (e) => problems.push(e.message))
-    page.on('console', (m) => m.type() === 'error' && problems.push(m.text()))
+    page.on('console', (m) => {
+      // The account's preferences (a node page's src/node/nodeCharts.js):
+      // a Controller without them answers 404, the page goes on with its
+      // defaults.
+      if (m.text().startsWith('Failed to load resource') && (m.location().url || '').includes('/api/me/preferences')) return
+      if (m.type() === 'error') problems.push(m.text())
+    })
     if (shot.terminal) {
       await page.setContent(terminalPage(fs.readFileSync(`/terminal/${shot.terminal}`, 'utf8'), { title: shot.title }))
       await page.evaluate(() => document.fonts.ready)
@@ -468,6 +488,11 @@ for (const shot of spec.shots) {
     for (let k = 1; k <= (shot.samples || 0); k++) {
       await page.clock.runFor(5000)
       for (let i = 0; ctx.metricsServed <= k && i < 100; i++) await sleep(50)
+      // Every poll answered and read before the clock moves on: an answer
+      // read later would be dated by the next sample's time (the Traffic
+      // flow's rates are over the time between answers).
+      for (let i = 0; ctx.inFlight > 0 && i < 100; i++) await sleep(50)
+      await sleep(150)
     }
     await page.clock.runFor(100)
     await page.waitForLoadState('networkidle')
