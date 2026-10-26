@@ -78,6 +78,27 @@ vrrp_instance VI_1 {
 - keepalived is built for VRRP only: no LVS/IPVS, no iptables or nftables
   integration (the firewall ruleset is janusd's), no VRRP authentication
   (removed from VRRPv3), no scripts.
+- An IPv6 virtual IP can go with an IPv4 instance, in
+  `virtual_ipaddress_excluded`: it isn't advertised by VRRP, it moves
+  with the instance and is announced by unsolicited neighbour
+  advertisements, as the IPv4 one by gratuitous ARP. The interface then
+  needs an IPv6 address of its own and a `gateway6` - static: a Janus
+  node takes no address or route from router advertisements. Proven by
+  `make qemu-vrrp-ipv6-test` (unicast adverts, a neighbour's table
+  following a failover):
+
+  ```text
+  vrrp_instance VI_1 {
+      ...
+      virtual_ipaddress {
+          192.0.2.100/24
+      }
+      virtual_ipaddress_excluded {
+          2001:db8::100/64
+      }
+  }
+  ```
+
 - No VMAC or IPVLAN interfaces: the check refuses `use_vmac`,
   `use_ipvlan` and `disable_local_igmp` (their companion). The kernel has
   neither macvlan nor ipvlan, a VMAC needs `net.ipv4.conf.all.rp_filter`
