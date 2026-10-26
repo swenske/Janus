@@ -141,7 +141,7 @@ row, then two of three, then three of two (`.overview-six`); without
 
 ## The main page
 
-Four tabs (hash routes `#/`, `#/clusters`, `#/hypervisors`, `#/tokens`), and five more for an admin (`#/accounts`, `#/audit`, `#/log-forwarding`, `#/letsencrypt`, `#/backups`).
+Five tabs (hash routes `#/`, `#/clusters`, `#/hypervisors`, `#/tokens`, `#/settings`), and five more for an admin (`#/accounts`, `#/audit`, `#/log-forwarding`, `#/letsencrypt`, `#/backups`).
 
 **Nodes**: until the fleet is set up, **Secure your fleet**
 (`Fleet.jsx`: create it, store the recovery kit and its passphrase,
@@ -154,7 +154,12 @@ provisioning. A node the Controller created on a hypervisor shows its
 virtual machine on its card (state, reset/force-off/start, console) and
 **Destroy** instead of Remove; a pending registration from a machine it
 created (an image too old to present its registration token) says so,
-and approving it links the node to the machine.
+and approving it links the node to the machine. A cluster's members
+come together (`groupByCluster` in `clusters.js`, `/api/clusters`): as
+cards, framed under the cluster's heading (`ClusterHeading`: its name -
+a link to `#/clusters/<id>` -, its members, the version they run against
+the one it wants, its health); in the list, under a heading row; the
+nodes in none after, "Not in a cluster".
 
 **Clusters** (`Clusters.jsx`, its logic in `clusters.js` - `npm test`;
 [guide/clusters.md](guide/clusters.md)): the clusters as cards (health:
@@ -192,7 +197,10 @@ the desired version in `DiffView`), **Certificates** (upload one for
 every member, pull everything again) and **Journal**. The page polls
 every 2 s while the cluster is busy, 15 s otherwise.
 
-**Hypervisors** ([hypervisors.md](hypervisors.md)): one card per host -
+**Hypervisors** ([hypervisors.md](hypervisors.md)) - the hosts, then
+the machines, each as cards or a list (`ViewToggle`, remembered per
+browser as `janus-hypervisors-view` and `janus-machines-view`; a row's
+set-up steps, errors, notices and history on a row below it): one card per host -
 libvirt or Proxmox VE (the form's **Kind**, fixed once added; a Proxmox
 token's secret is write-only: `has_token_secret`) - added in steps (for
 libvirt the command that authorizes the Controller's key; then the SSH
@@ -271,12 +279,40 @@ shows its labels (`NodeLabels`), edited in place by an admin. Under the
 Provision panel (which takes an enrollment token into its commands),
 **Enrollment tokens** (`Enroll.jsx`, admins): made with a name, a
 number of nodes, a validity and labels, shown once with where it goes;
-listed with their uses, revoked. The API
-tokens page takes a scope - labels and domains - and lists it. Last,
-**HTTPS certificate** (`HTTPSCert.jsx`, admins, folded like the
-Provision panel): what the page is served with (self-signed, uploaded,
-or from `-tls-cert`), a bundle checked before it's served, and back to
-self-signed.
+listed with their uses, revoked. They stay with the nodes' provisioning
+- an admin's, presented once by a node when it registers, opening
+nothing of the API - linked both ways: **Add a node** and the API tokens
+page point to `#/enrollment-tokens` (the Nodes page, scrolled to the
+card). The API tokens page takes a scope - labels and domains - and
+lists it. A node's trust error (`TrustBadge`) is a short badge with the
+message below it, wrapped anywhere and three lines at most, the whole
+of it in the tooltip; a card's details and labels wrap rather than run
+out of it.
+
+**Settings** (`Settings.jsx`, `#/settings`, every account): **Your
+pages** - how often the Nodes page asks the nodes' status and the
+Hypervisors page each hypervisor's (5 s to 60 s, 10 s to 2 min; 3 s
+while a machine moves), the **Node figures** (off: no
+`/api/nodes/metrics` - the Controller stops sampling the nodes for the
+page ten minutes later) and their **Node charts** (off: the figures
+alone - and a node's Traffic flow without particles; greyed while the
+figures are off), **Times** in the browser's zone or in UTC, **Traffic**
+in bytes (KiB/s) or bits (Mbit/s) a second, **Reset to the defaults**.
+They're the account's, kept on the Controller (`GET`/`PUT
+/api/me/preferences`, a session's, `internal/auth/preferences.go`;
+`preferences.js` + `PreferencesProvider.jsx`), so they follow it to any
+browser; the node pages read the same (`node/display.js`, before the
+page renders). Every time and rate shown goes through `shared/units.js`
+(`fmtDateTime`/`fmtTime`/`fmtDate`, `fmtRate` - `node/format.js`'s
+`dateTime`/`time`/`rate` call them; a time in UTC says "UTC", a chart's
+ticks don't): no `toLocale*String` of a date anywhere else. Then, for an
+admin, **This Controller**: the **Refresh floors** (`/api/settings`'s
+`nodes_refresh_floor_seconds`, `hypervisors_refresh_floor_seconds`: the
+shortest refresh any account may choose - the choices start there, an
+account that chose faster follows it) and the **HTTPS certificate**
+(`HTTPSCert.jsx`, folded): what the page is served with (self-signed,
+uploaded, or from `-tls-cert`), a bundle checked before it's served,
+and back to self-signed.
 
 **Your account** (`AccountButton`, a dialog): second factors
 (`MFAPanel`), **Trusted browsers** (`TrustedBrowsers`: "this browser"
@@ -424,7 +460,10 @@ confirmation repeats the warning; the Controller's `POST` needs
 
 Hash routing (`#/haproxy/config`, `#/tools/files?path=/etc`), a sidebar
 grouped by intent, and a sticky top bar with the node's identity, health
-badges, version (and available update), the refresh interval and the
+badges - and, on a cluster member, its cluster (`ClusterBadge`: the
+cluster and member name, a link to the cluster's page on the Controller
+unless it's a janusctl cluster; its VRRP role when the cluster manages
+VRRP; drained) -, version (and available update), the refresh interval and the
 appearance picker. On a wide screen with a mouse the sidebar is a rail
 of its icons (`rail.js`, `node.css`) that opens over the page - never
 pushing it - while the pointer or the keyboard's focus is in it, or
@@ -526,6 +565,17 @@ certificates, servers' state, the modules' check/apply, power actions
 one by one, updates, the CA) and keep what reads - an editor stays
 editable, to validate and download. Consul's configuration (it may hold
 secrets) isn't even fetched. The node still refuses anything else.
+
+On a cluster member, `useMay()` doesn't offer the writes to what the
+cluster manages there either (`lockedDomain`, `src/node/cluster.js` -
+the node's own `cluster_lock.go` refuses them: HAProxy's configuration,
+its files and certificates, VRRP, BGP, the firewall's ruleset), from
+`GET /api/cluster` (ClusterGet: the managed domains, the cluster, the
+member - polled every minute, `clusterContext.js`). Those pages say so
+(`ClusterLockNotice`): managed by the cluster, a link to it, and for an
+admin **Release this node's lock…** (`POST /api/cluster/release`,
+ClusterRelease: an emergency change on this node only, reported as
+drift by the cluster, taken back by its next apply).
 
 The sidebar shows the Controller's version under its name, as the main
 page does under its title (`dashboardd`'s `main.version`, stamped by the

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
 // How a page shows its things - cards, or rows of a table -, remembered
-// per browser under key (the node list's janus-nodes-view, a node's
+// per browser under key (the node list's janus-nodes-view, the
+// hypervisors' janus-hypervisors-view and machines' janus-machines-view, a node's
 // backends' janus-backends-view).
 function stored(key) {
   try {

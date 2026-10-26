@@ -1,3 +1,5 @@
+import { fmtDateTime, fmtRate, fmtTime } from '../shared/units.js'
+
 export function bytes(n, digits = 1) {
   if (n == null || Number.isNaN(n)) return '–'
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
@@ -10,9 +12,10 @@ export function bytes(n, digits = 1) {
   return `${i === 0 ? Math.round(v) : v.toFixed(digits)} ${units[i]}`
 }
 
+// rate is bytes a second in the account's unit (Settings: bytes or bits,
+// shared/units.js).
 export function rate(n) {
-  if (n == null) return '–'
-  return `${bytes(n)}/s`
+  return fmtRate(n, bytes)
 }
 
 export function num(n, digits = 0) {
@@ -45,12 +48,14 @@ export function duration(seconds) {
   return `${s}s`
 }
 
+// time and dateTime are in the account's zone (Settings: the browser's
+// or UTC, shared/units.js).
 export function time(ms) {
-  return new Date(ms).toLocaleTimeString()
+  return fmtTime(ms)
 }
 
 export function dateTime(ms) {
-  return new Date(ms).toLocaleString()
+  return fmtDateTime(ms)
 }
 
 export function fileMode(mode) {

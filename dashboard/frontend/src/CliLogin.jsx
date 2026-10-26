@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { call, postJSON } from './call.js'
 import { atLeast, ROLES, useMe } from './me.jsx'
 import { Card, ErrorBox, useAction } from './shared/ui.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // Signing janusctl in through this page (dashboard/backend/
 // cli_browser.go): the account approves a certificate for the key
@@ -131,7 +132,7 @@ export function CliDevicePage({ route }) {
               <dt>Asked from</dt>
               <dd className="mono">{request.client}</dd>
               <dt>At</dt>
-              <dd>{new Date(request.created_at).toLocaleString()}</dd>
+              <dd>{fmtDateTime(request.created_at)}</dd>
               <dt>Key</dt>
               <dd className="mono key-fp">{groups(request.key_fingerprint)}</dd>
             </dl>

@@ -5,6 +5,8 @@ import { Badge, Card, ErrorBox, Loading, useAction, useConfirm, useToast } from 
 import { hunks, lineDiff } from '../../shared/diff.js'
 import { useMay } from '../may.js'
 import { DiffView, Editor } from '../../shared/Editor.jsx'
+import { LOCKED_WRITES } from '../cluster.js'
+import { ClusterLockNotice } from './ClusterLock.jsx'
 
 // ModuleConfigEditor edits an optional module daemon's configuration
 // (keepalived.conf, bird.conf): `${base}/config` loads it, `${base}/check`
@@ -22,7 +24,15 @@ export default function ModuleConfigEditor(props) {
         {props.file}: its configuration is the network domain&apos;s - your permission on this node doesn&apos;t reach it.
       </div>
     )
-  return <ModuleConfig {...props} canApply={may(props.applyMethod)} />
+  // A domain the node's cluster manages here: the cluster changes it, the
+  // page doesn't offer to (useMay), and says so.
+  const domain = LOCKED_WRITES[props.applyMethod]
+  return (
+    <>
+      {domain && <ClusterLockNotice domain={domain} />}
+      <ModuleConfig {...props} canApply={may(props.applyMethod)} />
+    </>
+  )
 }
 
 function ModuleConfig({ base, file, daemon, starter, applyNote, onApplied, extraBody, extraDirty, extraSummary, canApply }) {

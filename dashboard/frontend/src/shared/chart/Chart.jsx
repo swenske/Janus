@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useInView, useReducedMotion } from './motion.js'
 import { ServerClock, advanceEdge, area, curve, ease, gaps, nearest, niceMax, segments, snapDistance, timeStep, timeTicks } from './math.js'
 import { subscribe } from './scheduler.js'
+import { fmtTime } from '../units.js'
 
 // Chart plots series over time - points: [{t, iv, ...}] (iv: the sampling
 // interval then, 0 = sampling off), series: [{label, color, get(point) ->
@@ -34,7 +35,7 @@ function useWidth() {
 
 function tickLabel(t, step) {
   const opts = step >= 60000 ? { hour: '2-digit', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit', second: '2-digit' }
-  return new Date(t).toLocaleTimeString([], { ...opts, hour12: false })
+  return fmtTime(t, { ...opts, hour12: false, bare: true })
 }
 
 // layout is where the axes stand for an edge and a scale: what a render
@@ -338,7 +339,7 @@ export default function Chart({ points, series, format = (v) => v.toFixed(1), he
       </svg>
         {hovered && S && (
           <div className="chart-tip" ref={(el) => (els.current.tip = el)} style={{ transform: `translate(${(S.x(hovered.t) + 14).toFixed(1)}px, ${pad.top}px)` }}>
-            <div className="chart-tip-time">{new Date(hovered.t).toLocaleTimeString([], { hour12: false })}</div>
+            <div className="chart-tip-time">{fmtTime(hovered.t, { hour12: false })}</div>
             {series.map((s) => {
               const v = s.get(hovered)
               return (

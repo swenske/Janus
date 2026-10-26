@@ -7,6 +7,7 @@ import { MFABadge } from './MFA.jsx'
 import { SSOBadge } from './SSO.jsx'
 import { lazyView } from './shared/lazy.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // The single sign-on card comes in its own chunk, after the accounts.
 const SingleSignOn = lazyView(() => import('./SingleSignOn.jsx'))
@@ -15,7 +16,7 @@ const SingleSignOn = lazyView(() => import('./SingleSignOn.jsx'))
 // policy - dashboard/backend/internal/auth.
 
 function when(t) {
-  return t ? new Date(t).toLocaleString() : 'never'
+  return t ? fmtDateTime(t) : 'never'
 }
 
 // ACCOUNT_ROLES: an account's role over everything - or none, then only

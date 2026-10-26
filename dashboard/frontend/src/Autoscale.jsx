@@ -2,6 +2,7 @@ import { Activity, ScrollText } from 'lucide-react'
 import { useState } from 'react'
 import { THRESHOLDS, useAutoscale } from './autoscale.js'
 import { Badge, ErrorBox } from './shared/ui.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // A machine's auto-scaling (dashboard/backend/autoscale.go,
 // docs/guide/auto-scaling.md): its policy in the Edit dialog, what it
@@ -118,7 +119,7 @@ function Journal({ id, at }) {
         .slice()
         .reverse()
         .map((e) => {
-          const when = new Date(e.time).toLocaleString()
+          const when = fmtDateTime(e.time)
           const failed = e.error ? ` - failed: ${e.error}` : ''
           if (e.action === 'sysctl') {
             return `${when}  ${e.mode === 'on' ? 'kernel parameters' : 'would set kernel parameters'}: ${e.reason}${failed}`

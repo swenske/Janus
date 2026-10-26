@@ -1,8 +1,9 @@
 import { Copy, Ticket, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { call, postJSON } from './call.js'
 import { labelString, parseLabels } from './me.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // Enrollment tokens (admins, dashboard/backend/enroll_api.go): each admits
 // a batch of nodes - bare metal, a rack - without the approval step, and
@@ -11,7 +12,7 @@ import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared
 const DAYS = [1, 7, 30, 90, 365]
 
 function when(t) {
-  return t ? new Date(t).toLocaleString() : '–'
+  return t ? fmtDateTime(t) : '–'
 }
 
 // Created shows a new token, once, and where it goes.
@@ -54,7 +55,13 @@ function Created({ token, onClose }) {
   )
 }
 
-export default function EnrollTokens() {
+// focus: opened from a link (#/enrollment-tokens - Add a node, API
+// tokens) - the card scrolls into view.
+export default function EnrollTokens({ focus }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (focus) ref.current?.scrollIntoView({ block: 'start' })
+  }, [focus])
   const [tokens, setTokens] = useState(null)
   const [error, setError] = useState(null)
   const [name, setName] = useState('')
@@ -96,10 +103,12 @@ export default function EnrollTokens() {
     load()
   }
   return (
+    <div ref={ref} className="scroll-anchor">
     <Card title="Enrollment tokens" icon={Ticket}>
       <p className="muted small" style={{ marginTop: 0 }}>
         A batch of nodes - a rack, bare metal - admitted without the approval step: each that presents the token is admitted at once, with its labels (so the grants
-        that pick them), until it&apos;s used up or expires.
+        that pick them), until it&apos;s used up or expires. A node presents it once, when it registers: it opens nothing of the API - programs use{' '}
+        <a href="#/tokens">API tokens</a>.
       </p>
       {created && <Created token={created} onClose={() => setCreated(null)} />}
       <form className="row" onSubmit={create} style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -167,5 +176,6 @@ export default function EnrollTokens() {
         </div>
       )}
     </Card>
+    </div>
   )
 }

@@ -19,6 +19,7 @@ template(name="json" type="list" option.jsonf="on") {
   property(outname="severity" name="syslogseverity" format="jsonf")
   property(outname="facility" name="syslogfacility" format="jsonf")
   property(outname="protocol" name="protocol-version" format="jsonf")
+  property(outname="sd" name="structured-data" format="jsonf")
   property(outname="msg" name="msg" format="jsonf")
 }
 *.* action(type="omfile" file="/out/messages.jsonl" template="json")

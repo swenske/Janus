@@ -10,6 +10,7 @@ import { UpdateBadge } from './UpdateBadge.jsx'
 import { useChartWindow } from '../chartWindow.js'
 import WindowPicker from '../WindowPicker.jsx'
 import { variantNote } from '../../variants.js'
+import { fmtTime } from '../../shared/units.js'
 
 function netTotal(p, dir) {
   if (!p.net) return undefined
@@ -41,7 +42,7 @@ function RecentEvents() {
       {events.map((e) => (
         <div key={e.id} className="spread" style={{ flexWrap: 'nowrap' }}>
           <span className="event-type">{e.type}</span>
-          <span className="muted small nowrap">{new Date(e.time_ns / 1e6).toLocaleTimeString()}</span>
+          <span className="muted small nowrap">{fmtTime(e.time_ns / 1e6)}</span>
         </div>
       ))}
     </div>

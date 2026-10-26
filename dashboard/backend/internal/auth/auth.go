@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -113,6 +114,8 @@ type User struct {
 	// HasPassword is set on the store's copies (view), which have no
 	// password hash: the account signs in with a password.
 	HasPassword bool `json:"-"`
+	// Preferences are how the account's pages behave (preferences.go).
+	Preferences Preferences `json:"preferences,omitzero"`
 }
 
 // Settings is the session policy.
@@ -129,6 +132,12 @@ type Settings struct {
 	// skips the second factor (trust.go): absent = the default
 	// (DefaultTrustBrowserHours), 0 = never.
 	TrustBrowserHours *int `json:"trust_browser_hours,omitempty"`
+	// NodesRefreshFloorSeconds and HypervisorsRefreshFloorSeconds are
+	// the shortest refresh any account may choose (preferences.go) - so
+	// many pages open at 5 s don't keep every node busy: 0, the shortest
+	// offered.
+	NodesRefreshFloorSeconds       int `json:"nodes_refresh_floor_seconds,omitempty"`
+	HypervisorsRefreshFloorSeconds int `json:"hypervisors_refresh_floor_seconds,omitempty"`
 }
 
 // DefaultSettings: half an hour away ends a session, and none outlives a
@@ -154,6 +163,12 @@ func (s Settings) Check() error {
 	}
 	if h := s.TrustBrowserHours; h != nil && (*h < 0 || *h > 30*24) {
 		return errors.New("trust_browser_hours: 0 (never) to 720")
+	}
+	if f := s.NodesRefreshFloorSeconds; f != 0 && !slices.Contains(RefreshChoices["nodes"], f) {
+		return fmt.Errorf("nodes_refresh_floor_seconds: 0 or one of %v", RefreshChoices["nodes"])
+	}
+	if f := s.HypervisorsRefreshFloorSeconds; f != 0 && !slices.Contains(RefreshChoices["hypervisors"], f) {
+		return fmt.Errorf("hypervisors_refresh_floor_seconds: 0 or one of %v", RefreshChoices["hypervisors"])
 	}
 	return nil
 }
@@ -412,6 +427,7 @@ func view(u *User) User {
 	c.MFA.Passkeys = append([]Passkey{}, u.MFA.Passkeys...)
 	c.SSHKeys = append([]SSHKey{}, u.SSHKeys...)
 	c.Identities = append([]Identity{}, u.Identities...)
+	c.Preferences = u.Preferences.clone()
 	if u.SSO != nil {
 		sso := *u.SSO
 		sso.Groups = append([]string{}, u.SSO.Groups...)

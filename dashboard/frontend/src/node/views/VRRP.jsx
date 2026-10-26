@@ -3,6 +3,7 @@ import { Badge, Card, ErrorBox, Loading, PageHeader } from '../../shared/ui.jsx'
 import ModuleConfigEditor from '../components/ModuleConfigEditor.jsx'
 import { usePoll } from '../hooks.jsx'
 import Module from './Module.jsx'
+import { fmtDateTime } from '../../shared/units.js'
 
 // Its page on the docs site, by the file's permalink.
 const DOCS = 'https://janus.sw-servers.net/docs/vrrp.md'
@@ -97,7 +98,7 @@ export default function VRRP() {
                       {i.effective_priority}/{i.priority}
                     </td>
                     <td className="mono">{(i.virtual_ips || []).join(' ')}</td>
-                    <td className="small">{i.last_transition_unix ? new Date(i.last_transition_unix * 1000).toLocaleString() : '–'}</td>
+                    <td className="small">{i.last_transition_unix ? fmtDateTime(i.last_transition_unix * 1000) : '–'}</td>
                   </tr>
                 ))}
               </tbody>

@@ -509,3 +509,11 @@ mark.refused { background: var(--danger-soft); color: var(--danger); outline: 1p
 .acme-proxy-ca textarea { width: 100%; }
 .acme-needs { margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 .acme-needs ul { margin: 0.35rem 0 0; padding-left: 1.2rem; }
+
+/* The node's cluster: its badge in the topbar, and the lock notice on
+   the pages of what the cluster manages here. */
+.cluster-badge { display: inline-flex; align-items: center; gap: 0.35rem; }
+.cluster-badge .badge svg { vertical-align: -1px; }
+.notice.cluster-lock { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.notice.cluster-lock > svg { flex: none; color: var(--accent-ink); }
+.notice.cluster-lock a svg { vertical-align: -1px; }

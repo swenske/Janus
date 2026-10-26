@@ -20,6 +20,16 @@ const maxUDP = 2048
 // maxSyslog cuts a message over TCP and TLS.
 const maxSyslog = 16 << 10
 
+// SDID is the RFC 5424 structured data element a cluster member's
+// messages carry: [janus@32473 cluster_id="..." cluster_name="..."
+// member="..."], the parameters named as janus_cluster_info's labels.
+// An SD-ID of our own takes the name@<private enterprise number> form
+// (RFC 5424 section 7.2.2: names without "@" are IANA's). Janus has no
+// enterprise number yet: 32473 is the one IANA keeps for examples (RFC
+// 5612) - provisional, like the scoped certificate extension's OID
+// 2.999.1.1, until Janus has its own.
+const SDID = "janus@32473"
+
 // syslogSink sends to a syslog server, keeping its connection.
 type syslogSink struct {
 	cfg SyslogTarget
@@ -114,11 +124,11 @@ func (s *syslogSink) Send(ctx context.Context, recs []Record) (int, error) {
 // their framing.
 func (s *syslogSink) write(recs []Record) (int, error) {
 	_ = s.conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
-	host := s.env.meta.hostname()
+	host, cl := s.env.meta.hostname(), s.env.membership()
 	var buf []byte
 	n := 0
 	for _, r := range recs {
-		buf = s.encode(buf[:0], r, host)
+		buf = s.encode(buf[:0], r, host, cl)
 		if s.cfg.Transport == "udp" {
 			w, err := s.conn.Write(buf[:min(len(buf), maxUDP)])
 			if err != nil {
@@ -169,18 +179,59 @@ func (s *syslogSink) facility(r Record) int {
 	return facilities[s.cfg.Facility]
 }
 
-// encode appends r as a syslog message (no framing).
-func (s *syslogSink) encode(dst []byte, r Record, host string) []byte {
+// encode appends r as a syslog message (no framing); cl is the node's
+// cluster, the zero value for none.
+func (s *syslogSink) encode(dst []byte, r Record, host string, cl Cluster) []byte {
 	pri := s.facility(r)*8 + clampSeverity(r.Severity)
 	msg := strings.ReplaceAll(r.Message, "\n", " ")
 	if s.cfg.Format == "rfc3164" {
-		// <PRI>Mmm dd hh:mm:ss HOSTNAME TAG: MSG
+		// <PRI>Mmm dd hh:mm:ss HOSTNAME TAG: MSG. No structured data,
+		// so no cluster: in the tag or the message it would change what
+		// receivers filter and parse on - the program name, HAProxy's
+		// access lines - for members only.
 		dst = fmt.Appendf(dst, "<%d>%s %s %s: %s", pri, r.Time.Format(time.Stamp), field(host, 255), tag(r.Service), msg)
 		return dst
 	}
 	// <PRI>1 TIMESTAMP HOSTNAME APP-NAME PROCID MSGID SD MSG
-	return fmt.Appendf(dst, "<%d>1 %s %s %s - %s - %s", pri, r.Time.UTC().Format("2006-01-02T15:04:05.000000Z"),
-		field(host, 255), field(r.Service, 48), field(r.Source, 32), msg)
+	dst = fmt.Appendf(dst, "<%d>1 %s %s %s - %s ", pri, r.Time.UTC().Format("2006-01-02T15:04:05.000000Z"),
+		field(host, 255), field(r.Service, 48), field(r.Source, 32))
+	dst = appendSD(dst, cl)
+	dst = append(dst, ' ')
+	return append(dst, msg...)
+}
+
+// appendSD appends the structured data of a message: SDID's element
+// for a cluster member, "-" (none) otherwise.
+func appendSD(dst []byte, cl Cluster) []byte {
+	if cl == (Cluster{}) {
+		return append(dst, '-')
+	}
+	dst = append(dst, "["+SDID...)
+	for _, p := range [...]struct{ name, value string }{{"cluster_id", cl.ID}, {"cluster_name", cl.Name}, {"member", cl.Member}} {
+		if p.value == "" {
+			continue
+		}
+		dst = append(dst, ' ')
+		dst = append(dst, p.name...)
+		dst = append(dst, '=', '"')
+		dst = appendParamValue(dst, p.value)
+		dst = append(dst, '"')
+	}
+	return append(dst, ']')
+}
+
+// appendParamValue appends v as an SD-PARAM's value: '"', '\\' and ']'
+// escaped with a backslash (RFC 5424 section 6.3.3).
+func appendParamValue(dst []byte, v string) []byte {
+	for i := 0; i < len(v); i++ {
+		switch c := v[i]; c {
+		case '"', '\\', ']':
+			dst = append(dst, '\\', c)
+		default:
+			dst = append(dst, c)
+		}
+	}
+	return dst
 }
 
 func clampSeverity(sev int) int {

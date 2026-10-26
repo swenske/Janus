@@ -5,6 +5,7 @@ import { backgroundHeaders } from './call.js'
 import { useCan } from './me.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
 import { securityText, securityTone } from './severity.js'
+import { fmtDate, fmtDateTime } from './shared/units.js'
 
 // The Controller's own updates (dashboard/README.md, "Updating the
 // Controller"): GET /api/controller/update says whether a newer release
@@ -209,7 +210,7 @@ export default function ControllerUpdate({ checkNow = 0 }) {
       >
         {job.state !== 'done' && <p style={{ margin: 0 }}>{job.message}</p>}
         <div className="muted small">
-          {job.from_version} → {job.to_version} · {new Date(job.finished_at).toLocaleString()}
+          {job.from_version} → {job.to_version} · {fmtDateTime(job.finished_at)}
         </div>
         {job.state === 'rollback-failed' && (
           <div className="notice warn">
@@ -267,7 +268,7 @@ export default function ControllerUpdate({ checkNow = 0 }) {
           {latest.published_at && (
             <>
               {' '}
-              · {latest.version} published {new Date(latest.published_at).toLocaleDateString()}
+              · {latest.version} published {fmtDate(latest.published_at)}
             </>
           )}
         </div>
@@ -363,7 +364,7 @@ function PrereleaseOffer({ info, onInstall }) {
       </summary>
       <div className="stack" style={{ gap: '0.5rem', marginTop: '0.5rem' }}>
         <div className="small">
-          Published{pre.published_at ? ` ${new Date(pre.published_at).toLocaleDateString()}` : ''} to be tested before it becomes a release - not supported, never offered as an
+          Published{pre.published_at ? ` ${fmtDate(pre.published_at)}` : ''} to be tested before it becomes a release - not supported, never offered as an
           update.{' '}
           <a href={pre.url} target="_blank" rel="noreferrer">
             Its notes <ArrowUpRight size={12} />

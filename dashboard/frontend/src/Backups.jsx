@@ -4,6 +4,7 @@ import { call, postJSON } from './call.js'
 import { backupAlert } from './backupAlert.js'
 import { Step } from './Fleet.jsx'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // Backups (admin): everything the Controller keeps, and its nodes'
 // configurations, encrypted to the backup kit and admins' keys, signed,
@@ -16,7 +17,7 @@ function size(n) {
 }
 
 function when(t) {
-  return t ? new Date(t).toLocaleString() : '–'
+  return t ? fmtDateTime(t) : '–'
 }
 
 async function saveFile(path, fallback) {

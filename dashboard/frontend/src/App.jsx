@@ -14,6 +14,7 @@ import {
   ScrollText,
   Send,
   Server,
+  Settings,
   ShieldCheck,
   Tag,
   Trash2,
@@ -35,20 +36,23 @@ import NodeSparklines, { NodeSpark, WINDOW as SPARK_WINDOW } from './NodeSparkli
 import ViewToggle from './shared/ViewToggle.jsx'
 import { useStoredView } from './shared/storedView.js'
 import { useNodeMetrics } from './nodeMetrics.js'
+import { usePreferences } from './preferences.js'
+import PreferencesProvider from './PreferencesProvider.jsx'
 import { labelString, MeContext, parseLabels, useCan, useMe } from './me.jsx'
 import { EnrollMFA, MFAPanel, SecondFactorForm, TrustedBrowsers } from './MFA.jsx'
 import { SSHKeys } from './SSHKeys.jsx'
 import { Identities, LINK, SSO_DONE, SSOButtons, SSODone } from './SSO.jsx'
 import { backupAlert } from './backupAlert.js'
 import EnrollTokens from './Enroll.jsx'
-import HTTPSCertificate from './HTTPSCert.jsx'
 import { SecurityBadge } from './SecurityBadge.jsx'
 import { PrereleaseBadge } from './PrereleaseBadge.jsx'
 import { SupportBadge } from './SupportBadge.jsx'
 import { worstSeverity } from './severity.js'
 import { Badge, Card, ErrorBox, Loading, Tabs, stateTone, useConfirm, useToast } from './shared/ui.jsx'
+import { groupByCluster, health as clusterHealth, versionOf } from './clusters.js'
 import { lazyView } from './shared/lazy.jsx'
 import { useSplash, useSplashStep } from './shared/Splash.jsx'
+import { fmtDateTime } from './shared/units.js'
 
 // The nodes page comes with the page; the other tabs, the machines'
 // console, the CLI sign-in pages and the restore form in their own
@@ -61,6 +65,7 @@ const LogForwardingPage = lazyView(() => import('./LogForwarding.jsx'))
 const LetsEncryptPage = lazyView(() => import('./LetsEncrypt.jsx'))
 const MachineConsole = lazyView(() => import('./Console.jsx'))
 const TokensPage = lazyView(() => import('./Tokens.jsx'))
+const SettingsPage = lazyView(() => import('./Settings.jsx'))
 const UsersPage = lazyView(() => import('./Users.jsx'))
 const CliLoginPage = lazyView(() => import('./CliLogin.jsx').then((m) => ({ default: m.CliLoginPage })))
 const CliDevicePage = lazyView(() => import('./CliLogin.jsx').then((m) => ({ default: m.CliDevicePage })))
@@ -124,7 +129,7 @@ function NodeLabels({ node, onChanged }) {
   const keys = Object.keys(l).sort()
   if (!keys.length && !can('admin')) return null
   return (
-    <div className="row" style={{ gap: '0.3rem', flexWrap: 'wrap' }}>
+    <div className="row node-labels" style={{ gap: '0.3rem', flexWrap: 'wrap' }}>
       {keys.map((k) => (
         <Badge key={k}>
           <span className="mono">
@@ -142,6 +147,7 @@ function NodeLabels({ node, onChanged }) {
 }
 
 function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, onChanged, metrics, clock }) {
+  const { prefs } = usePreferences()
   const can = useCan()
   const st = status
   const reachable = st?.reachable
@@ -164,7 +170,7 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
           </Badge>
         )}
       </div>
-      {reachable && <NodeSparklines points={metrics} clock={clock} />}
+      {reachable && prefs.node_stats && <NodeSparklines points={metrics} clock={clock} charts={prefs.node_charts} />}
       {machine && (
         <div className="machine-strip small">
           <div className="row" style={{ gap: '0.4rem' }}>
@@ -264,9 +270,12 @@ function NodeCard({ node, status, onRemove, machine, vm, machineActions, fleet, 
 // each one's state, its last five minutes, version, HAProxy, uptime and
 // trust, and Open; its card has the rest (labels edited, a machine's
 // power, kernel).
-function NodeTable({ nodes, statuses, metrics, clock, machineOf, vmOf, fleet, onRemove, machineActions }) {
+function NodeTable({ groups, statuses, metrics, clock, machineOf, vmOf, fleet, onRemove, machineActions }) {
   const can = useCan()
+  const { prefs } = usePreferences()
   const trust = fleet?.state === 'ready'
+  const columns = (trust ? 10 : 9) - (prefs.node_stats ? 0 : 3)
+  const clustered = groups.some((g) => g.cluster)
   return (
     <div className="card node-table-card">
       <div className="table-wrap">
@@ -275,9 +284,13 @@ function NodeTable({ nodes, statuses, metrics, clock, machineOf, vmOf, fleet, on
             <tr>
               <th>Node</th>
               <th>State</th>
-              <th className="spark-col">CPU</th>
-              <th className="spark-col">Req/s</th>
-              <th className="spark-col">Traffic</th>
+              {prefs.node_stats && (
+                <>
+                  <th className="spark-col">CPU</th>
+                  <th className="spark-col">Req/s</th>
+                  <th className="spark-col">Traffic</th>
+                </>
+              )}
               <th>Version</th>
               <th>HAProxy</th>
               <th>Uptime</th>
@@ -285,8 +298,14 @@ function NodeTable({ nodes, statuses, metrics, clock, machineOf, vmOf, fleet, on
               <th aria-label="Actions" />
             </tr>
           </thead>
-          <tbody>
-            {nodes.map((n) => {
+          {groups.map((g) => (
+          <tbody key={g.cluster?.id || ''} className={g.cluster ? 'cluster-rows' : ''}>
+            {clustered && (
+              <tr className="cluster-row">
+                <td colSpan={columns}>{g.cluster ? <ClusterHeading cluster={g.cluster} /> : <span className="muted small">Not in a cluster</span>}</td>
+              </tr>
+            )}
+            {g.nodes.map((n) => {
               const st = statuses[n.id]
               const m = machineOf(n)
               const vm = vmOf(m)
@@ -323,11 +342,12 @@ function NodeTable({ nodes, statuses, metrics, clock, machineOf, vmOf, fleet, on
                     </div>
                     {st && !up && <div className="small" style={{ color: 'var(--danger)' }}>{st.error || 'no answer'}</div>}
                   </td>
-                  {['cpu', 'req', 'net'].map((k) => (
-                    <td key={k} className="spark-col">
-                      {up && <NodeSpark kind={k} points={metrics[n.id]} clock={clock} head={false} />}
-                    </td>
-                  ))}
+                  {prefs.node_stats &&
+                    ['cpu', 'req', 'net'].map((k) => (
+                      <td key={k} className="spark-col">
+                        {up && <NodeSpark kind={k} points={metrics[n.id]} clock={clock} head={false} chart={prefs.node_charts} />}
+                      </td>
+                    ))}
                   <td>
                     {up && (
                       <div className="row" style={{ gap: '0.3rem' }}>
@@ -379,8 +399,33 @@ function NodeTable({ nodes, statuses, metrics, clock, machineOf, vmOf, fleet, on
               )
             })}
           </tbody>
+          ))}
         </table>
       </div>
+    </div>
+  )
+}
+
+// ClusterHeading heads a cluster's members on the Nodes page: the cluster
+// - a link to its page -, how many members, the version they run against
+// the one it wants, its health.
+function ClusterHeading({ cluster }) {
+  const h = clusterHealth(cluster)
+  const v = versionOf(cluster)
+  const n = cluster.members?.length || 0
+  return (
+    <div className="cluster-heading">
+      <Network size={15} />
+      <a href={`#/clusters/${encodeURIComponent(cluster.id)}`} className="cluster-heading-name">
+        {cluster.name}
+      </a>
+      <span className="muted small">
+        cluster · {n} member{n === 1 ? '' : 's'}
+      </span>
+      {v && <Badge tone={v.tone}>{v.label}</Badge>}
+      <Badge tone={h.tone} dot>
+        {h.label}
+      </Badge>
     </div>
   )
 }
@@ -406,7 +451,7 @@ function PendingList({ pending, onApprove, onReject, busy, machines }) {
                   <Boxes size={11} /> a machine created on {waiting(p.name).hypervisor_name}
                 </Badge>
               )}
-              <div className="muted small">announced {new Date(p.announced_at).toLocaleString()}</div>
+              <div className="muted small">announced {fmtDateTime(p.announced_at)}</div>
               {p.ca_fingerprint && (
                 <div className="muted small" title="The node's CA, as its console shows it when it announces itself: compare before approving">
                   CA <span className="mono">{p.ca_fingerprint.slice(0, 16)}…</span>
@@ -489,6 +534,13 @@ function AddNodeForm({ onAdded, onClose }) {
         </button>
       }
     >
+      <p className="muted small" style={{ marginTop: 0 }}>
+        A node already running, with its admin certificate. Nodes still to install, or many at once, register by themselves instead -{' '}
+        <a href="#/enrollment-tokens" onClick={onClose}>
+          with an enrollment token
+        </a>{' '}
+        they're admitted without the approval step.
+      </p>
       <form className="stack" onSubmit={submit}>
         <div className="row">
           <label className="check">
@@ -1063,12 +1115,13 @@ function AccountButton() {
 
 // --- main ---
 
-const STATUS_EVERY = 15000
-
 function MainApp() {
   const route = useHashRoute()
   const can = useCan()
-  const tab = ['clusters', 'hypervisors', 'tokens', 'accounts', 'audit', 'log-forwarding', 'letsencrypt', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
+  const tab = ['clusters', 'hypervisors', 'tokens', 'settings', 'accounts', 'audit', 'log-forwarding', 'letsencrypt', 'backups'].find((t) => route.startsWith(`/${t}`)) || 'nodes'
+  // The account's Settings (preferences.js): how often the nodes and the
+  // hypervisors are asked, the nodes' figures and their curves.
+  const { prefs } = usePreferences()
   const [nodes, setNodes] = useState(null)
   const [pending, setPending] = useState([])
   const [statuses, setStatuses] = useState({})
@@ -1082,65 +1135,86 @@ function MainApp() {
   const [version, setVersion] = useState('')
   const [fleet, setFleet] = useState(null)
   const [backups, setBackups] = useState(null)
+  const [clusters, setClusters] = useState([])
   const [statusLoaded, setStatusLoaded] = useState(false)
-  const metrics = useNodeMetrics(tab === 'nodes' && (nodes?.length ?? 0) > 0, SPARK_WINDOW)
+  // The nodes' figures, asked only while the list is shown - and not at
+  // all when the account turned them off: the Controller stops sampling
+  // the nodes for this page (nodeMetrics.js).
+  const metrics = useNodeMetrics(tab === 'nodes' && (nodes?.length ?? 0) > 0 && prefs.node_stats, SPARK_WINDOW)
   const [nodesView, setNodesView] = useStoredView('janus-nodes-view')
   const isReader = can('reader')
   const confirm = useConfirm()
   const toast = useToast()
 
-  const refresh = useCallback(async () => {
+  const isAdmin = can('admin')
+  // The nodes - their list, the pending registrations, the fleet -, then
+  // each one's status: every nodes_refresh_seconds.
+  const refreshNodes = useCallback(async () => {
+    const bg = { background: true }
     try {
-      const bg = { background: true }
-      const [n, p, h, m] = await Promise.all([call('/api/nodes', bg), call('/api/pending', bg), call('/api/hypervisors', bg), call('/api/machines', bg)])
+      const [n, p] = await Promise.all([call('/api/nodes', bg), call('/api/pending', bg)])
       setNodes(n ?? [])
       setPending(p ?? [])
-      setHypervisors(h ?? [])
-      setMachines(m ?? [])
       setError(null)
-      if (isReader)
+      if (isReader) {
         call('/api/fleet', bg)
           .then(setFleet)
           .catch(() => {})
-      return h ?? []
+        // The clusters, to show their members together.
+        call('/api/clusters', bg)
+          .then((cs) => setClusters(cs || []))
+          .catch(() => {})
+      }
+      if (isAdmin)
+        call('/api/backups', bg)
+          .then(setBackups)
+          .catch(() => {})
     } catch (err) {
       setError(err.message)
-      return []
     }
-  }, [isReader])
-  const refreshStatus = useCallback((hvs) => {
-    const done = call('/api/nodes/status', { background: true })
+    return call('/api/nodes/status', bg)
       .then((s) => setStatuses(s || {}))
       .catch(() => {})
       .finally(() => setStatusLoaded(true))
-    for (const hv of hvs || []) {
+  }, [isReader, isAdmin])
+  // The hypervisors and the machines, then each trusted hypervisor's
+  // status: every hypervisors_refresh_seconds.
+  const refreshHypervisors = useCallback(async () => {
+    const bg = { background: true }
+    let hvs = []
+    try {
+      const [h, m] = await Promise.all([call('/api/hypervisors', bg), call('/api/machines', bg)])
+      hvs = h ?? []
+      setHypervisors(hvs)
+      setMachines(m ?? [])
+    } catch (err) {
+      setError(err.message)
+    }
+    for (const hv of hvs) {
       if (!hv.trusted) continue
-      call(`/api/hypervisors/${hv.id}/status`, { background: true })
+      call(`/api/hypervisors/${hv.id}/status`, bg)
         .then((st) => setHvStatus((all) => ({ ...all, [hv.id]: st })))
         .catch(() => {})
     }
-    return done
   }, [])
-  const isAdmin = can('admin')
   // The header's Refresh: the releases asked from GitHub again too, past
   // the Controller's cache - a release just published shows.
   const [checkNow, setCheckNow] = useState(0)
-  const reload = useCallback(async () => {
-    if (isAdmin)
-      call('/api/backups', { background: true })
-        .then(setBackups)
-        .catch(() => {})
-    return refreshStatus(await refresh())
-  }, [refresh, refreshStatus, isAdmin])
+  const reload = useCallback(() => Promise.all([refreshNodes(), refreshHypervisors()]), [refreshNodes, refreshHypervisors])
 
+  useEffect(() => {
+    refreshNodes()
+    const t = setInterval(refreshNodes, prefs.nodes_refresh_seconds * 1000)
+    return () => clearInterval(t)
+  }, [refreshNodes, prefs.nodes_refresh_seconds])
   // Faster while a machine is being created or destroyed: its phase moves
   // every few seconds.
   const working = machines.some((m) => !['ready', 'failed'].includes(m.phase))
   useEffect(() => {
-    reload()
-    const t = setInterval(reload, working ? 3000 : STATUS_EVERY)
+    refreshHypervisors()
+    const t = setInterval(refreshHypervisors, working ? 3000 : prefs.hypervisors_refresh_seconds * 1000)
     return () => clearInterval(t)
-  }, [reload, working])
+  }, [refreshHypervisors, working, prefs.hypervisors_refresh_seconds])
   const count = nodes?.length ?? 0
   useSplashStep('inventory', 'Loading the fleet…', nodes !== null || error !== null)
   useSplashStep('status', `Asking ${count} node${count === 1 ? '' : 's'} for their status…`, statusLoaded)
@@ -1260,6 +1334,7 @@ function MainApp() {
             ...(can('reader') ? [{ id: 'clusters', label: 'Clusters', icon: Network }] : []),
             ...(can('reader') ? [{ id: 'hypervisors', label: `Hypervisors${hypervisors.length ? ` (${hypervisors.length})` : ''}`, icon: Boxes }] : []),
             { id: 'tokens', label: 'API tokens', icon: KeyRound },
+            { id: 'settings', label: 'Settings', icon: Settings },
             ...(can('admin')
               ? [
                   { id: 'accounts', label: 'Accounts', icon: Users },
@@ -1285,6 +1360,8 @@ function MainApp() {
           <CliDevicePage route={route} />
         ) : tab === 'tokens' ? (
           <TokensPage />
+        ) : tab === 'settings' ? (
+          <SettingsPage />
         ) : tab === 'accounts' && can('admin') ? (
           <UsersPage />
         ) : tab === 'audit' && can('admin') ? (
@@ -1344,7 +1421,7 @@ function MainApp() {
             )}
             {nodesView === 'list' && nodes?.length > 0 ? (
               <NodeTable
-                nodes={nodes}
+                groups={groupByCluster(nodes, clusters)}
                 statuses={statuses}
                 metrics={metrics.byNode}
                 clock={metrics.clock}
@@ -1355,8 +1432,11 @@ function MainApp() {
                 machineActions={machineActions}
               />
             ) : (
+            groupByCluster(nodes, clusters).map((g, i, all) => (
+            <section key={g.cluster?.id || ''} className={g.cluster ? 'cluster-group' : 'node-group'}>
+              {g.cluster ? <ClusterHeading cluster={g.cluster} /> : all.length > 1 && <div className="muted small node-group-title">Not in a cluster</div>}
             <div className="node-grid">
-              {(nodes || []).map((n) => (
+              {g.nodes.map((n) => (
                 <NodeCard
                   key={n.id}
                   node={n}
@@ -1372,11 +1452,12 @@ function MainApp() {
                 />
               ))}
             </div>
+            </section>
+            ))
             )}
             <FleetCard fleet={fleet} nodes={nodes} />
             {can('admin') && <ProvisionInfo />}
-            {can('admin') && <EnrollTokens />}
-            {can('admin') && <HTTPSCertificate />}
+            {can('admin') && <EnrollTokens focus={route.startsWith('/enrollment-tokens')} />}
           </div>
         )}
         </Suspense>
@@ -1388,7 +1469,9 @@ function MainApp() {
 export default function App() {
   return (
     <AuthGate>
-      <MainApp />
+      <PreferencesProvider>
+        <MainApp />
+      </PreferencesProvider>
     </AuthGate>
   )
 }

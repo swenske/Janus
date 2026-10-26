@@ -14,15 +14,16 @@ import (
 )
 
 // janus-nodes.json, the Grafana dashboard of the Janus exporter
-// (docs/metrics.md), is built here, so that a change is a reviewable
-// diff of this file and the tests below hold it to what janusd exports:
+// (docs/metrics.md), is built here - and janus-clusters.json, the
+// clusters' (clusters_test.go) -, so that a change is a reviewable diff
+// of this file and the tests below hold it to what janusd exports:
 //
 //	go test ./grafana -run TestDashboard -update
 //
 // It is Grafana's classic JSON model, checked on Grafana 11.6, 12.0 and
 // 13.0. Its queries are PromQL that promtool parses (hack/examples-check.sh).
 
-var update = flag.Bool("update", false, "rewrite janus-nodes.json")
+var update = flag.Bool("update", false, "rewrite janus-nodes.json and janus-clusters.json")
 
 const dashboardFile = "janus-nodes.json"
 
@@ -68,17 +69,13 @@ const (
 var extensionColumns = []string{"bird", "consul", "keepalived", "letsencrypt", "nftables",
 	"prometheus-node-exporter", "qemu-guest-agent"}
 
-// The metrics janusd exports that no panel shows, and why.
+// The metrics janusd exports that neither dashboard shows, and why.
 var notShown = map[string]string{
 	"janus_haproxy_starts_total":                   "reloads and crashes are shown apart; the rest are boots",
-	"janus_cluster_info":                           "a cluster's panels come with the Controller's cluster page (docs/cluster.md)",
-	"janus_cluster_peer_up":                        "a cluster's panels come with the Controller's cluster page (docs/cluster.md)",
-	"janus_cluster_peer_table_synced":              "a cluster's panels come with the Controller's cluster page (docs/cluster.md)",
 	"janus_haproxy_restarts_total":                 "crashes are shown: janusd starts HAProxy again after each",
 	"janus_network_trial_revert_timestamp_seconds": "the trial itself is shown (Awaiting confirmation)",
 	"janus_firewall_configured":                    "the firewall's sets are shown",
 	"janus_time_stratum":                           "the offset and the last synchronization say more",
-	"janus_vrrp_instance_became_master_total":      "the VRRP timeline shows every change of state",
 	"janus_bgp_protocol_up":                        "the BGP sessions and the held-down protocols are shown",
 	"janus_logs_volume_size_bytes":                 "what's lost on LOGS is shown; its size is the node's own",
 	"janus_logs_volume_written_bytes_total":        "what's lost on LOGS is shown; what's written is the node's own",
@@ -298,7 +295,12 @@ func timeseries(title, desc string, pos obj, qs []q, unit string, overrides ...a
 // events is a timeseries of counter increments as stacked bars, one per
 // minute at least, on a 0-1 axis while nothing happened.
 func events(title, desc string, pos obj, qs []q, overrides ...any) obj {
-	qs = append(qs, q{ref: "Z", expr: "0 * count(" + up + ")", legend: "baseline"})
+	return eventsOver(up, title, desc, pos, qs, overrides...)
+}
+
+// eventsOver is events with a zero series as long as base has one.
+func eventsOver(base, title, desc string, pos obj, qs []q, overrides ...any) obj {
+	qs = append(qs, q{ref: "Z", expr: "0 * count(" + base + ")", legend: "baseline"})
 	overrides = append([]any{hideBaseline}, overrides...)
 	p := timeseries(title, desc, pos, qs, "none", overrides...)
 	p["interval"] = "1m"
@@ -693,7 +695,7 @@ func dashboard() obj {
 		"schemaVersion": 41,
 		"version":       1,
 		"links": []any{obj{"title": "Janus exporter metrics", "type": "link", "icon": "doc", "targetBlank": true,
-			"url": docs + "metrics.md", "tooltip": "What each metric means"}},
+			"url": docs + "metrics.md", "tooltip": "What each metric means"}, dashboardsLink},
 		"annotations": obj{"list": []any{
 			obj{"builtIn": 1, "datasource": obj{"type": "grafana", "uid": "-- Grafana --"}, "enable": true, "hide": true,
 				"iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"},
@@ -712,38 +714,57 @@ func dashboard() obj {
 	}
 }
 
-func render(t *testing.T) []byte {
+func render(t *testing.T, d obj) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false) // PromQL's < and >, as written
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(dashboard()); err != nil {
+	if err := enc.Encode(d); err != nil {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
 }
 
+// The dashboards and the files they're kept in.
+var dashboards = []struct {
+	file  string
+	build func() obj
+}{{dashboardFile, dashboard}, {clustersFile, clustersDashboard}}
+
 func TestDashboard(t *testing.T) {
-	got := render(t)
-	if *update {
-		if err := os.WriteFile(dashboardFile, got, 0o644); err != nil {
+	for _, d := range dashboards {
+		got := render(t, d.build())
+		if *update {
+			if err := os.WriteFile(d.file, got, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		want, err := os.ReadFile(d.file)
+		if err != nil {
 			t.Fatal(err)
 		}
-		return
-	}
-	want, err := os.ReadFile(dashboardFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Errorf("%s isn't what dashboard_test.go builds: go test ./grafana -run TestDashboard -update", dashboardFile)
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s isn't what the tests build: go test ./grafana -run TestDashboard -update", d.file)
+		}
 	}
 }
 
-// exprs is every query of the dashboard: panels, collapsed rows'
-// panels, annotations.
-func exprs(t *testing.T) []string {
+// variableQueries are dashboard d's variables' queries.
+func variableQueries(d obj) []string {
+	var out []string
+	for _, v := range d["templating"].(obj)["list"].([]any) {
+		if q, ok := v.(obj)["definition"].(string); ok {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// exprs is every query of dashboard d: panels, collapsed rows' panels,
+// annotations.
+func exprs(t *testing.T, dash obj) []string {
 	t.Helper()
 	var d struct {
 		Panels      []panelJSON `json:"panels"`
@@ -753,7 +774,7 @@ func exprs(t *testing.T) []string {
 			} `json:"list"`
 		} `json:"annotations"`
 	}
-	if err := json.Unmarshal(render(t), &d); err != nil {
+	if err := json.Unmarshal(render(t, dash), &d); err != nil {
 		t.Fatal(err)
 	}
 	var out []string
@@ -782,51 +803,91 @@ type panelJSON struct {
 	Panels []panelJSON `json:"panels"`
 }
 
-var metricName = regexp.MustCompile(`\bjanus_[a-z_]+\b`)
+var metricName = regexp.MustCompile(`\b(?:janus|haproxy|node)_[A-Za-z_]+\b`)
 
-// exported is every metric janusd's exporter serves (cmd/janusd/metrics.go).
-func exported(t *testing.T) []string {
+// declared is every metric src declares, pattern's first group - fewer
+// than least: the pattern no longer matches how src declares them.
+func declared(t *testing.T, src, pattern string, least int) []string {
 	t.Helper()
-	src, err := os.ReadFile("../cmd/janusd/metrics.go")
+	data, err := os.ReadFile(src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var names []string
-	for _, m := range regexp.MustCompile(`\b(?:gauge|counter)\("(janus_[a-z_]+)"`).FindAllStringSubmatch(string(src), -1) {
+	for _, m := range regexp.MustCompile(pattern).FindAllStringSubmatch(string(data), -1) {
 		names = append(names, m[1])
 	}
-	if len(names) < 30 {
-		t.Fatalf("found %d metrics in cmd/janusd/metrics.go: the pattern no longer matches how it declares them", len(names))
+	if len(names) < least {
+		t.Fatalf("found %d metrics in %s: the pattern no longer matches how it declares them", len(names), src)
 	}
 	return names
 }
 
-// Every metric the dashboard queries is one janusd exports, and every
-// metric janusd exports is shown or listed in notShown: a new metric gets
-// a panel or a reason.
+// exported is every metric janusd's exporter serves (cmd/janusd/metrics.go).
+func exported(t *testing.T) []string {
+	return declared(t, "../cmd/janusd/metrics.go", `\b(?:gauge|counter)\("(janus_[a-z_]+)"`, 30)
+}
+
+// controllerExported is every metric the Controller serves
+// (dashboard/backend/metrics.go).
+func controllerExported(t *testing.T) []string {
+	return declared(t, "../dashboard/backend/metrics.go", `\b(?:Name: |g\()"(janus_[a-z_]+)"`, 20)
+}
+
+// Every metric a dashboard queries is one janusd exports - the clusters'
+// dashboard's, one the Controller exports too, or HAProxy's own exporter
+// and node_exporter's it names -, and every metric janusd or the
+// Controller exports is shown by one or listed with the reason it isn't:
+// a new metric gets a panel or a reason.
 func TestDashboardMetrics(t *testing.T) {
-	served := exported(t)
-	used := map[string]bool{}
-	for _, e := range exprs(t) {
-		for _, m := range metricName.FindAllString(e, -1) {
-			used[m] = true
-			if !slices.Contains(served, m) {
-				t.Errorf("the dashboard queries %s, which janusd doesn't export", m)
+	served, ctl := exported(t), controllerExported(t)
+	used, asked := map[string]bool{}, map[string]bool{}
+	for _, d := range dashboards {
+		dash := d.build()
+		queries := exprs(t, dash)
+		variables := variableQueries(dash)
+		for i, e := range append(queries, variables...) {
+			for _, m := range metricName.FindAllString(e, -1) {
+				// A variable's query asks for a metric, it doesn't show it.
+				if i < len(queries) {
+					used[m] = true
+				}
+				asked[m] = true
+				_, ext := externalMetrics[m]
+				switch {
+				case slices.Contains(served, m):
+				case d.file == clustersFile && (slices.Contains(ctl, m) || ext):
+				case d.file == clustersFile:
+					t.Errorf("%s queries %s, which neither janusd nor the Controller exports, nor externalMetrics names", d.file, m)
+				default:
+					t.Errorf("%s queries %s, which janusd doesn't export", d.file, m)
+				}
 			}
 		}
 	}
-	for _, m := range served {
-		_, skipped := notShown[m]
-		switch {
-		case used[m] && skipped:
-			t.Errorf("%s is shown: remove it from notShown", m)
-		case !used[m] && !skipped:
-			t.Errorf("janusd exports %s, which no panel shows: add a panel, or a reason to notShown", m)
+	for _, x := range []struct {
+		who     string
+		served  []string
+		skipped map[string]string
+	}{{"janusd", served, notShown}, {"the Controller", ctl, controllerNotShown}} {
+		for _, m := range x.served {
+			_, skipped := x.skipped[m]
+			switch {
+			case used[m] && skipped:
+				t.Errorf("%s is shown: remove it from the list of those that aren't", m)
+			case !used[m] && !skipped:
+				t.Errorf("%s exports %s, which no panel shows: add a panel, or a reason it isn't", x.who, m)
+			}
+		}
+		for m := range x.skipped {
+			if !slices.Contains(x.served, m) {
+				t.Errorf("%s isn't one %s exports, yet listed as not shown", m, x.who)
+			}
 		}
 	}
-	for m := range notShown {
-		if !slices.Contains(served, m) {
-			t.Errorf("notShown lists %s, which janusd doesn't export", m)
+	for m := range externalMetrics {
+		if !asked[m] {
+			t.Errorf("externalMetrics names %s, which no panel or variable queries", m)
 		}
 	}
 }
@@ -835,7 +896,7 @@ func TestDashboardMetrics(t *testing.T) {
 // variables chose.
 func TestDashboardSelectsItsNodes(t *testing.T) {
 	selector := regexp.MustCompile(`\b(janus_[a-z_]+|up)\b(\{[^}]*\})?`)
-	for _, e := range exprs(t) {
+	for _, e := range exprs(t, dashboard()) {
 		for _, m := range selector.FindAllStringSubmatch(e, -1) {
 			if !strings.Contains(m[2], `job="$job"`) || !strings.Contains(m[2], `instance=~"$instance"`) {
 				t.Errorf("%s%s doesn't keep to $job and $instance: %s", m[1], m[2], e)

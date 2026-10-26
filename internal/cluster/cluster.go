@@ -419,6 +419,19 @@ func (s *Store) ClusterID() string {
 	return s.m.ID
 }
 
+// Identity is the cluster's id and name and this node's member name,
+// all empty for no member: what the node's shipped logs say
+// (internal/logship), asked for each batch - so without copying the
+// membership.
+func (s *Store) Identity() (id, name, member string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.m == nil {
+		return "", "", ""
+	}
+	return s.m.ID, s.m.Name, s.m.Member
+}
+
 // AcceptMember reports whether leaf, verified against the cluster's CA
 // through chain, is a member certificate of this node's own cluster - and
 // which member it names.

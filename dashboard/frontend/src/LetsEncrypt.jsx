@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
 import ProviderForm from './shared/ACMEProviderForm.jsx'
 import { Badge, Card, ErrorBox, Loading, useAction, useToast } from './shared/ui.jsx'
+import { fmtDate, fmtDateTime } from './shared/units.js'
 
 // Let's Encrypt (admin): the Controller's part in the nodes'
 // certificates - the relay, for the nodes that reach the CA through the
@@ -16,7 +17,7 @@ const NODE_DOCS = 'https://janus.sw-servers.net/docs/letsencrypt.md#how-the-node
 const TERMS = 'https://letsencrypt.org/repository/'
 const STATE_TONES = { valid: 'ok', pending: 'warn', due: 'info', expired: 'danger' }
 
-const when = (t) => (t && !t.startsWith('0001') ? new Date(t).toLocaleString() : '-')
+const when = (t) => (t && !t.startsWith('0001') ? fmtDateTime(t) : '-')
 
 const draftOf = (c) => ({ enabled: !!c.enabled, listen: c.listen || ':8444', address: c.address || '', allowed: (c.allowed || []).join('\n') })
 const configOf = (d) => ({
@@ -169,7 +170,7 @@ export default function LetsEncryptPage() {
               <tbody>
                 {view.recent.map((t) => (
                   <tr key={`${t.start}-${t.node_id}-${t.target}`}>
-                    <td className="nowrap">{new Date(t.start).toLocaleString()}</td>
+                    <td className="nowrap">{fmtDateTime(t.start)}</td>
                     <td>{t.node}</td>
                     <td className="mono">{t.target}</td>
                     <td className="num">{bytes(t.bytes_up)}</td>
@@ -331,7 +332,7 @@ function Ordering() {
                           <td>
                             <Badge tone={STATE_TONES[c.state]}>{c.state}</Badge> {c.asked && <Badge tone="info">renewal asked</Badge>}
                           </td>
-                          <td className="nowrap">{c.not_after_unix ? new Date(c.not_after_unix * 1000).toLocaleDateString() : '-'}</td>
+                          <td className="nowrap">{c.not_after_unix ? fmtDate(c.not_after_unix * 1000) : '-'}</td>
                           <td>{c.order.last_error ? <Badge tone="danger">{c.order.last_error}</Badge> : when(c.order.last_success)}</td>
                           <td className="nowrap">{when(c.order.next_attempt)}</td>
                         </tr>

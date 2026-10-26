@@ -36,7 +36,7 @@ import {
   Waypoints,
   Workflow,
 } from 'lucide-react'
-import { Suspense, useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { SIGNED_OUT } from '../shared/activity.js'
 import BrandMark from '../shared/BrandMark.jsx'
 import RefreshButton from '../shared/RefreshButton.jsx'
@@ -49,6 +49,9 @@ import { SecurityBadge } from '../SecurityBadge.jsx'
 import { securityText, securityTone } from '../severity.js'
 import { INTERVALS, navigate, useHashRoute, useMetrics, useNodeStatus, usePoll, useRefresh } from './hooks.jsx'
 import { MayContext } from './may.js'
+import { lockedDomain } from './cluster.js'
+import { ClusterBadge } from './components/ClusterLock.jsx'
+import { ClusterContext } from './clusterContext.js'
 import { usePinned } from './rail.js'
 import Events from './views/Events.jsx'
 import Metrics from './views/Metrics.jsx'
@@ -190,10 +193,17 @@ export default function App() {
     return () => window.removeEventListener(SIGNED_OUT, onEnded)
   }, [])
   const role = (me.data?.roles?.[0] || '').replace(/^os:/, '')
+  // The node's cluster membership: a node too old to say (no
+  // ClusterService) is in none.
+  const clusterPoll = usePoll('/api/cluster', { every: 60000 })
+  const cluster = clusterPoll.data?.member ? clusterPoll.data : null
+  const clusterValue = useMemo(() => ({ cluster, reload: clusterPoll.reload }), [cluster, clusterPoll.reload])
   // What the account may call on the node: nothing until /api/me says -
   // never a flash of what it may not do, nor a read it would be refused.
+  // Nor a write to what the node's cluster manages here: the node refuses
+  // it (ClusterLockNotice says so on those pages).
   const mayList = me.data?.may
-  const may = useCallback((method) => !!mayList && mayList.includes(method), [mayList])
+  const may = useCallback((method) => !!mayList && mayList.includes(method) && !lockedDomain(cluster, method), [mayList, cluster])
   const modules = usePoll('/api/network/modules', { every: 0 })
   const { check, overview } = useNodeStatus()
 
@@ -231,6 +241,7 @@ export default function App() {
 
   return (
     <MayContext.Provider value={may}>
+    <ClusterContext.Provider value={clusterValue}>
     <div className={`layout ${navOpen ? 'nav-open' : ''} ${pinned ? 'pinned' : ''}`}>
       <div className="rail">
       <aside className="sidebar" aria-label="Node">
@@ -303,6 +314,7 @@ export default function App() {
                 HAProxy
               </Badge>
             )}
+            <ClusterBadge />
             {version && (
               <a
                 href="#/system/update"
@@ -354,6 +366,7 @@ export default function App() {
       </div>
       {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} />}
     </div>
+    </ClusterContext.Provider>
     </MayContext.Provider>
   )
 }
