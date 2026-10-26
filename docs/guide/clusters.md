@@ -611,6 +611,10 @@ member at once. Through the API:
 - On a node: `janusctl cluster status` shows its peers as HAProxy sees
   them; its exporter has `janus_cluster_info`, `janus_cluster_peer_up`
   and `janus_cluster_peer_table_synced` ([metrics](../metrics.md)).
+- In your logs: what a member sends by [log
+  forwarding](log-forwarding.md) says its cluster and member name -
+  `orchestrator.cluster.name` in Elasticsearch, RFC 5424 structured data
+  in syslog - so one filter shows the whole cluster.
 
 ## Without a Controller
 

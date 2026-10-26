@@ -249,6 +249,20 @@ func main() {
 		log.Printf("netmgr: the stored network configuration can't apply (%v) - running on the defaults this boot", err)
 		events.Publish("network.fallback", map[string]string{"error": err.Error()})
 	}
+	// The node's cluster membership (internal/cluster), next to HAProxy's
+	// files: the peers listener's certificates are HAProxy's to read.
+	// Read before the log servers get anything: what they're sent says
+	// the cluster the node is a member of - as it is when it's sent,
+	// ClusterSet and ClusterLeave changing it at runtime.
+	clusterDir := filepath.Join(filepath.Dir(*haproxyCfg), "cluster")
+	clusterStore, err := cluster.Open(clusterDir, func() string { h, _ := os.Hostname(); return h })
+	if err != nil {
+		log.Printf("cluster: %v - the node is in no cluster this boot", err)
+	}
+	ship.SetCluster(func() logship.Cluster {
+		id, name, member := clusterStore.Identity()
+		return logship.Cluster{ID: id, Name: name, Member: member}
+	})
 	// The log servers, now that the event log is what it was - each
 	// target goes on from where it was - and the network and hostname
 	// are the node's: what was logged since janusd started (the
@@ -304,13 +318,6 @@ func main() {
 		haproxyMgr.CertStoreDir = filepath.Join(filepath.Dir(*haproxyCfg), "runtime-certs")
 	}
 	haproxyMgr.FilesDir = filepath.Join(filepath.Dir(*haproxyCfg), "files")
-	// The node's cluster membership (internal/cluster), next to HAProxy's
-	// files: the peers listener's certificates are HAProxy's to read.
-	clusterDir := filepath.Join(filepath.Dir(*haproxyCfg), "cluster")
-	clusterStore, err := cluster.Open(clusterDir, func() string { h, _ := os.Hostname(); return h })
-	if err != nil {
-		log.Printf("cluster: %v - the node is in no cluster this boot", err)
-	}
 	peersFile := ""
 	if *manageHost {
 		// On a node, a configuration keeps the privilege drop into the

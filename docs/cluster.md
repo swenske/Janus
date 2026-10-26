@@ -117,7 +117,7 @@ Where the identity shows:
 | HAProxy | `-L <member>` on its command line: the local peer name; `server <member>` lines in the generated `peers` section; `show peers` |
 | The node's STATE | `cluster/cluster.json` (the composition), `cluster/member.pem`, `cluster/ca.pem` |
 | The node's metrics | `janus_cluster_info{cluster_id, cluster_name, member} 1`, and `janus_haproxy_peer_*` (section 7) |
-| The node's events and shipped logs | `cluster.*` events; a `cluster` field (id and name) on every line sent by [log forwarding](guide/log-forwarding.md), so a target can group a cluster's members |
+| The node's events and shipped logs | `cluster.*` events; the cluster's id and name and the member name on every line sent by [log forwarding](guide/log-forwarding.md) - ECS's `orchestrator.cluster.*` and `janus.cluster.member`, an RFC 5424 structured data element -, so a target can group a cluster's members |
 | The Controller | `/api/clusters/{id}`, the cluster's page, `clusters/<id>/` in its data directory |
 | Terraform | a `janus_cluster` resource keyed by `id` |
 
