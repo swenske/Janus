@@ -2,6 +2,7 @@ import {
   ArrowRight,
   ArrowRightLeft,
   BookOpen,
+  Bot,
   Boxes,
   CirclePlay,
   Combine,
@@ -121,6 +122,11 @@ const FEATURES = [
     text: 'A Prometheus exporter on every node - HAProxy serving, reloads and crashes, certificates, VRRP, BGP, the firewall, the clock, the logs shipped -, a Grafana dashboard and alert rules ready to load; node_exporter as an extension, and HAProxy’s own exporter.',
   },
   { icon: Users, title: 'Accounts and access', text: 'Controller accounts with roles, MFA (TOTP or passkeys), single sign-on through OpenID Connect (Keycloak, a Synology, others), API tokens and access by node label; janusctl signs in with your SSH key.' },
+  {
+    icon: Bot,
+    title: 'Claude Code',
+    text: 'A Claude Code plugin teaches Claude janusctl: ask why a site answers 503 or to drain a server, and Claude reads your nodes and makes the change the way the docs do - validated on the node, on trial, one node at a time, with the role you give it. Nothing that reboots a node, moves its virtual IPs or touches its trust without your yes.',
+  },
 ]
 
 function LatestRelease() {
