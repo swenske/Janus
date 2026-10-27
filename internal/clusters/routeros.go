@@ -274,7 +274,10 @@ func (e *Engine) RouterRoles(ctx context.Context, c *Cluster) (*RouterView, erro
 		}
 		var routes []rosRoute
 		if err := r.do(ctx, http.MethodGet, "/"+family+"/route?dst-address="+url.QueryEscape(p.String()), nil, &routes); err != nil {
-			return nil, err
+			if errors.Is(err, context.DeadlineExceeded) {
+				err = errors.New("the router didn't answer in time")
+			}
+			return nil, fmt.Errorf("reading the routes to %s: %w", p, err)
 		}
 		type via struct {
 			member         string

@@ -73,7 +73,14 @@ function bgpTitle(bgp) {
 // routerTitle is the router badge's tooltip: each prefix's routes, read by
 // the cluster's RouterOS hook.
 function routerTitle(view, routes) {
-  const each = routes.roles.map((r) => `${r.prefix}: ${r.role}, ${r.active} of ${r.total} route(s) active`).join('; ')
+  const each = routes.roles
+    .map((r) => {
+      const of = `${r.active} of ${r.total} route(s) to it active`
+      if (r.role === 'absent') return `${r.prefix}: absent - no route through this member (${of})`
+      if (r.role === 'backup') return `${r.prefix}: backup - its route present, not used (${of})`
+      return `${r.prefix}: ${r.role}, ${of}`
+    })
+    .join('; ')
   const at = view?.read_at ? ` (read ${new Date(view.read_at).toLocaleTimeString()})` : ''
   return `The router's routes through this member, as the cluster's RouterOS hook reads them${at}: ${each}.`
 }

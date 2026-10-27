@@ -757,7 +757,10 @@ function Balancer({ cluster, disabled, reload }) {
                 <dt>Signs in</dt>
                 <dd>
                   as <span className="mono">{b.user}</span>
-                  {b.has_secret ? '' : ', no password'}, {trust}; the drain {b.drain_delay_seconds ? `${b.drain_delay_seconds} s after its route goes` : 'once its route is gone'}
+                  {b.has_secret ? '' : ', no password'}, {trust};{' '}
+                  {b.read_only
+                    ? 'a drained member withdraws its BGP route itself'
+                    : `the drain ${b.drain_delay_seconds ? `${b.drain_delay_seconds} s after its route goes` : 'once its route is gone'}`}
                 </dd>
               </>
             ) : (
@@ -908,7 +911,7 @@ function RouterSays({ cluster }) {
               <div key={m.name} className="row" style={{ flexWrap: 'wrap', gap: '0.4rem' }}>
                 <span className="mono">{m.name}</span>
                 {(view.members?.[m.name] || []).map((r) => (
-                  <span key={r.prefix} title={`${r.prefix}: ${r.active} of ${r.total} route(s) active`}>
+                  <span key={r.prefix} title={`${r.prefix}: ${r.active} of ${r.total} route(s) to it active`}>
                     <Badge tone={tone(r.role)}>
                       {r.role} <span className="mono">{r.prefix}</span>
                     </Badge>
