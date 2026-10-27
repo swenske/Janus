@@ -87,6 +87,7 @@ type clusterBalancerModel struct {
 	RoutingTable      types.String `tfsdk:"routing_table"`
 	AllowHTTP         types.Bool   `tfsdk:"allow_http"`
 	CheckGateway      types.Bool   `tfsdk:"check_gateway"`
+	ReadOnly          types.Bool   `tfsdk:"read_only"`
 	DrainDelaySeconds types.Int64  `tfsdk:"drain_delay_seconds"`
 	Secret            types.String `tfsdk:"secret"`
 }
@@ -114,7 +115,7 @@ func (b *clusterBalancerModel) request(secret *string) client.ClusterBalancer {
 	return client.ClusterBalancer{
 		Kind: b.kind(), URL: b.URL.ValueString(), CACert: b.CACert.ValueString(), Fingerprint: b.Fingerprint.ValueString(),
 		User: b.RouterUser.ValueString(), Prefixes: b.prefixes(), Distance: int(b.Distance.ValueInt64()), RoutingTable: b.RoutingTable.ValueString(),
-		AllowHTTP: b.AllowHTTP.ValueBool(), CheckGateway: b.CheckGateway.ValueBool(), DrainDelaySeconds: int(b.DrainDelaySeconds.ValueInt64()), Secret: secret,
+		AllowHTTP: b.AllowHTTP.ValueBool(), CheckGateway: b.CheckGateway.ValueBool(), ReadOnly: b.ReadOnly.ValueBool(), DrainDelaySeconds: int(b.DrainDelaySeconds.ValueInt64()), Secret: secret,
 	}
 }
 
@@ -127,7 +128,7 @@ func sameBalancer(a, b *clusterBalancerModel) bool {
 	x, y := a.request(nil), b.request(nil)
 	return x.Kind == y.Kind && x.URL == y.URL && x.CACert == y.CACert && strings.EqualFold(x.Fingerprint, y.Fingerprint) && x.User == y.User &&
 		slices.Equal(x.Prefixes, y.Prefixes) && x.Distance == y.Distance && x.RoutingTable == y.RoutingTable && x.AllowHTTP == y.AllowHTTP && x.CheckGateway == y.CheckGateway &&
-		x.DrainDelaySeconds == y.DrainDelaySeconds
+		x.ReadOnly == y.ReadOnly && x.DrainDelaySeconds == y.DrainDelaySeconds
 }
 
 // optString is v as a model value: null when empty and prior left it
@@ -149,13 +150,13 @@ func clusterBalancerFrom(ctx context.Context, b *client.ClusterBalancer, prior *
 	if prior == nil {
 		prior = &clusterBalancerModel{Kind: types.StringNull(), CACert: types.StringNull(), Fingerprint: types.StringNull(), RouterUser: types.StringNull(),
 			Prefixes: types.ListNull(types.StringType), Distance: types.Int64Null(), RoutingTable: types.StringNull(), AllowHTTP: types.BoolNull(),
-			CheckGateway: types.BoolNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringNull()}
+			CheckGateway: types.BoolNull(), ReadOnly: types.BoolNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringNull()}
 	}
 	m := &clusterBalancerModel{
 		Kind: optString(b.Kind, prior.Kind), URL: types.StringValue(b.URL), CACert: optString(b.CACert, prior.CACert),
 		Fingerprint: optString(b.Fingerprint, prior.Fingerprint), RouterUser: optString(b.User, prior.RouterUser),
 		RoutingTable: optString(b.RoutingTable, prior.RoutingTable), Prefixes: prior.Prefixes, Distance: prior.Distance,
-		AllowHTTP: prior.AllowHTTP, CheckGateway: prior.CheckGateway, DrainDelaySeconds: prior.DrainDelaySeconds, Secret: types.StringNull(),
+		AllowHTTP: prior.AllowHTTP, CheckGateway: prior.CheckGateway, ReadOnly: prior.ReadOnly, DrainDelaySeconds: prior.DrainDelaySeconds, Secret: types.StringNull(),
 	}
 	if b.Kind == "" && prior.Kind.ValueString() == "webhook" {
 		m.Kind = prior.Kind
@@ -176,6 +177,9 @@ func clusterBalancerFrom(ctx context.Context, b *client.ClusterBalancer, prior *
 	}
 	if b.CheckGateway || !prior.CheckGateway.IsNull() {
 		m.CheckGateway = types.BoolValue(b.CheckGateway)
+	}
+	if b.ReadOnly || !prior.ReadOnly.IsNull() {
+		m.ReadOnly = types.BoolValue(b.ReadOnly)
 	}
 	if b.DrainDelaySeconds != 0 || !prior.DrainDelaySeconds.IsNull() {
 		m.DrainDelaySeconds = types.Int64Value(int64(b.DrainDelaySeconds))
@@ -371,6 +375,7 @@ func (r *clusterResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 					"routing_table":       schema.StringAttribute{Optional: true, Description: "routeros: the routes' routing table (main)."},
 					"allow_http":          schema.BoolAttribute{Optional: true, Description: "routeros: a lab's router over plain HTTP - its password goes with each call."},
 					"check_gateway":       schema.BoolAttribute{Optional: true, Description: "routeros: the router pings each member (check-gateway=ping) and leaves out one that doesn't answer, before any drain or check."},
+					"read_only":           schema.BoolAttribute{Optional: true, Description: "routeros: the members announce the prefixes over BGP - the cluster reads the router's routes (each member's role, on its page) and writes none."},
 					"drain_delay_seconds": schema.Int64Attribute{Optional: true, Description: "How long a member serves on once the balancer was told it goes (0 to 3600)."},
 					"secret":              schema.StringAttribute{Optional: true, Sensitive: true, Description: "Signs each call (X-Janus-Signature-256: HMAC-SHA256 of the body); routeros: the router user's password. Write-only: never read back."},
 				},

@@ -252,6 +252,9 @@ func main() {
 		return ""
 	}
 	nodeproxy.NodeChanged = app.runner.syncNode
+	// A member's page: its roles on its cluster's router, when the
+	// cluster's RouterOS hook reads it.
+	nodeproxy.ClusterRouter = app.memberRouterView
 
 	spaFiles, err := fs.Sub(staticFiles, "static")
 	if err != nil {
@@ -402,6 +405,9 @@ type app struct {
 	runner *machineRunner
 	// clusters: the clusters of the Controller's nodes (cluster*.go).
 	clusters *clusterEngine
+	// routers: each cluster's router as its RouterOS hook last read it
+	// (cluster_router.go).
+	routers routerViews
 	// autoscaler resizes machines with an auto-scaling policy
 	autoscaler *autoscaler
 	// clusterScaler: clusters' horizontal auto-scaling (cluster_scale.go).

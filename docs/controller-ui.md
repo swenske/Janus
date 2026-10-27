@@ -463,7 +463,12 @@ grouped by intent, and a sticky top bar with the node's identity, health
 badges - and, on a cluster member, its cluster (`ClusterBadge`: the
 cluster and member name, a link to the cluster's page on the Controller
 unless it's a janusctl cluster; its VRRP role when the cluster manages
-VRRP; drained) -, version (and available update), the refresh interval and the
+VRRP; when it manages BGP, what the node announces - "BGP announcing",
+"withdrawn" (its `haproxy_*` routes held down), "down" (`bgpState`,
+`cluster.js`) - and, when the cluster's RouterOS hook reads the router,
+the router's choice - "router: multipath", "master", "backup", "absent"
+(`GET /api/cluster/router`, the Controller's `nodeproxy.ClusterRouter`);
+drained) -, version (and available update), the refresh interval and the
 appearance picker. On a wide screen with a mouse the sidebar is a rail
 of its icons (`rail.js`, `node.css`) that opens over the page - never
 pushing it - while the pointer or the keyboard's focus is in it, or

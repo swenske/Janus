@@ -48,3 +48,42 @@ export function vrrpRole(status) {
   if (states.includes('FAULT')) return 'FAULT'
   return states.every((s) => s === states[0]) ? states[0] : states.join('/')
 }
+
+// bgpState sums up what the node itself knows of its BGP announcements
+// (/api/network/bgp, BGPStatus): "announcing" when an established session
+// exports a route, "withdrawn" when the sessions are up but export
+// nothing - its haproxy_* routes held down (HAProxy not answering, the
+// member drained) -, "down" when no session is established; "" when
+// BIRD doesn't run a BGP session here. Whether the router uses the
+// routes is the router's to say (routerRoles). partial: a session isn't
+// established (one family's, say).
+export function bgpState(status) {
+  if (!status || status.state !== 'running') return { state: '', sessions: [] }
+  const sessions = (status.protocols || [])
+    .filter((p) => (p.protocol || '').toUpperCase() === 'BGP')
+    .map((p) => ({
+      name: p.name,
+      established: (p.bgp_state || '').toLowerCase() === 'established',
+      exported: (p.channels || []).reduce((n, c) => n + (c.exported || 0), 0),
+    }))
+  if (!sessions.length) return { state: '', sessions }
+  const up = sessions.filter((s) => s.established)
+  const partial = up.length > 0 && up.length < sessions.length
+  if (!up.length) return { state: 'down', sessions, partial: false }
+  const held = (status.protocols || []).some((p) => p.held_down)
+  if (up.every((s) => s.exported === 0)) return { state: 'withdrawn', sessions, partial, held }
+  return { state: 'announcing', sessions, partial, held }
+}
+
+// routerRoles is this member's routes on the router in front, as the
+// cluster's read-only RouterOS hook reads them (/api/cluster/router): one
+// role per service prefix - "multipath" (active, one of several equal
+// routes), "master" (the only active one), "backup" (present, not
+// active), "absent" (no route through it). label sums them up: one role,
+// or each prefix's when they differ.
+export function routerRoles(view) {
+  const roles = view?.available ? view.roles || [] : []
+  const distinct = [...new Set(roles.map((r) => r.role))]
+  return { roles, label: distinct.length === 1 ? distinct[0] : roles.map((r) => `${r.role} (${r.prefix})`).join(', ') }
+}
+

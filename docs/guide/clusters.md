@@ -261,7 +261,11 @@ HAProxy's configuration is managed by cluster edge: change it on the cluster, or
 
 A member's page on the Controller doesn't offer those writes: its top
 bar names the cluster - with the member's VRRP role when the cluster
-manages VRRP -, and the pages of what the cluster manages say so, with a
+manages VRRP, and its BGP state when it manages BGP: what the node
+announces ("BGP announcing", "BGP withdrawn" when its `haproxy_*` routes
+are held down, "BGP down" without a session), and the router's choice
+when a [read-only RouterOS hook](#routeros) reads it ("router:
+multipath", "master", "backup", "absent") -, and the pages of what the cluster manages say so, with a
 link to the cluster. On the Nodes page, a cluster's members are shown
 together.
 
@@ -537,6 +541,21 @@ routeros` for `janusctl cluster balancer`, Terraform's `kind`).
   to one prefix at one distance are equal for RouterOS 7: it spreads
   the flows over them (ECMP). A route without that comment is never
   touched.
+- **Read only** (`read_only`, the card's **Read only** box, `-read-only
+  yes`, Terraform's `read_only`) for a cluster whose members announce the
+  prefixes over [BGP](../bgp.md#activeactive-behind-routeros-bgp-multipath):
+  the routes are theirs, the cluster writes none - it removes those it
+  wrote before - and reads them, each member's role per prefix:
+  **multipath** (its route active, one of several equal ones),
+  **master** (the only active one), **backup** (present, not active),
+  **absent** (no route through it). The card shows them ("Router says"),
+  each member's page too, next to what the node itself announces, and
+  `janusctl cluster balancer NAME`. An IPv6 route's next hop is the
+  member's link-local address: matched with the addresses on its
+  interfaces. The router user needs no write right
+  (`policy=read,api,rest-api`); `distance` and `check_gateway` are for the
+  routes it writes. A router the Controller can't reach: the pages show
+  the node's side alone.
 - **When**: as for a hook. A member's route goes **before** it is
   drained - the operation waits for the router's answer, then the drain
   delay -, comes back once it serves again; every check reads the
@@ -704,7 +723,7 @@ Readers see clusters, administrators change them.
 | `POST .../members/{name}/drain`, `.../undrain` | out of service, back |
 | `POST /api/clusters/{id}/scale` | bring a cluster made on hypervisors to `{members}`, one step at a time |
 | `PUT /api/clusters/{id}/autoscale` | its auto-scaling: `{mode, min_members, max_members, max_vcpus, max_memory_mib, ...thresholds}` |
-| `PUT /api/clusters/{id}/balancer` | its [balancer hook](#a-balancer-in-front): `{kind, url, ca_cert, fingerprint, drain_delay_seconds, secret}` - a [RouterOS](#routeros) router's also `{user, prefixes, distance, routing_table, check_gateway, allow_http}`; the secret write-only (a router's: its user's password), left out to keep it, `""` to remove it; the hook is called at once |
+| `PUT /api/clusters/{id}/balancer` | its [balancer hook](#a-balancer-in-front): `{kind, url, ca_cert, fingerprint, drain_delay_seconds, secret}` - a [RouterOS](#routeros) router's also `{user, prefixes, distance, routing_table, check_gateway, allow_http, read_only}`; the secret write-only (a router's: its user's password), left out to keep it, `""` to remove it; the hook is called at once |
 | `DELETE /api/clusters/{id}/balancer` | no hook any more |
 | `POST /api/clusters/{id}/balancer/sync` | call the hook with the members now (502 with its failure) |
 | `POST /api/clusters/{id}/recycle` | replace members one at a time (`{members, with: {member: {node_id, name, address}}, version, new_image}`; a member without `with` gets a new machine like its own) |
@@ -714,6 +733,7 @@ Readers see clusters, administrators change them.
 | `POST /api/clusters/{id}/pull` | the members pull the secrets again |
 | `POST /api/clusters/{id}/check` | look at every member now |
 | `GET /api/clusters/{id}/journal` | what was done (`?n=`) |
+| `GET /api/clusters/{id}/router` | its [RouterOS](#routeros) router's routes as read: `{available, read_only, read_at, members: {name: [{prefix, role, active, total}]}, error}` - `available` false without such a hook |
 
 What takes a while answers `202` and runs in the background, `409` while
 another operation runs on the same cluster.

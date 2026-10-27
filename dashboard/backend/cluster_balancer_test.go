@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	"github.com/swenske/Janus/internal/clusters"
 )
 
@@ -244,9 +246,9 @@ func TestClusterBalancer(t *testing.T) {
 	}
 }
 
-// fakeRouterOS is a RouterOS router's REST API for IPv4 routes: the
-// routes it holds, and every call it got with the node calls made by
-// then.
+// fakeRouterOS is a RouterOS router's REST API for its routes - IPv4,
+// and IPv6 for a route whose "_family" is "ipv6": the routes it holds,
+// and every call it got with the node calls made by then.
 type fakeRouterOS struct {
 	mu     sync.Mutex
 	routes map[string]map[string]string // .id: the route
@@ -272,11 +274,19 @@ func (r *fakeRouterOS) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		_, _ = w.Write([]byte(`{"error":503,"message":"Service Unavailable","detail":"busy"}`))
 		return
 	}
+	family := func(rt map[string]string) string {
+		if rt["_family"] == "ipv6" {
+			return "ipv6"
+		}
+		return "ip"
+	}
 	switch {
-	case req.Method == "GET" && req.URL.Path == "/rest/ip/route":
+	case req.Method == "GET" && (req.URL.Path == "/rest/ip/route" || req.URL.Path == "/rest/ipv6/route"):
 		out := []map[string]string{}
 		for _, rt := range r.routes {
-			if c := req.URL.Query().Get("comment"); c == "" || rt["comment"] == c {
+			q := req.URL.Query()
+			if "/rest/"+family(rt)+"/route" == req.URL.Path && (q.Get("comment") == "" || rt["comment"] == q.Get("comment")) &&
+				(q.Get("dst-address") == "" || rt["dst-address"] == q.Get("dst-address")) {
 				out = append(out, rt)
 			}
 		}
@@ -291,8 +301,8 @@ func (r *fakeRouterOS) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		rt[".id"] = fmt.Sprintf("*%X", r.next)
 		r.routes[rt[".id"]] = rt
 		_ = json.NewEncoder(w).Encode(rt)
-	case req.Method == "DELETE" && strings.HasPrefix(req.URL.Path, "/rest/ip/route/"):
-		id := strings.TrimPrefix(req.URL.Path, "/rest/ip/route/")
+	case req.Method == "DELETE" && (strings.HasPrefix(req.URL.Path, "/rest/ip/route/") || strings.HasPrefix(req.URL.Path, "/rest/ipv6/route/")):
+		id := req.URL.Path[strings.LastIndex(req.URL.Path, "/")+1:]
 		if _, ok := r.routes[id]; !ok {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":404,"message":"Not Found"}`))
@@ -676,4 +686,123 @@ func TestRouterOSLive(t *testing.T) {
 		t.Errorf("check_gateway: %d routes", len(raw))
 	}
 	t.Logf("check_gateway: the routes made again with check-gateway=ping")
+}
+
+// A read-only RouterOS hook - a cluster whose members announce the
+// service prefixes over BGP: it writes no route and removes those it
+// wrote before; it reads the routes BGP brought - each member's role per
+// prefix, an IPv6 route's link-local gateway matched with the member's
+// addresses -, on the cluster's page and on each member's.
+func TestClusterRouterReadOnly(t *testing.T) {
+	a, f, nodes := clusterApp(t, "lb-1", "lb-2", "lb-3")
+	c := newCluster(t, a, nodes, "lb-1", "lb-2", "lb-3")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	prevRetries := clusters.BalancerRetries
+	clusters.BalancerRetries = []time.Duration{time.Millisecond, time.Millisecond}
+	t.Cleanup(func() { clusters.BalancerRetries = prevRetries })
+	f.mu.Lock()
+	f.nodes["lb-1"].addrs = []netip.Addr{netip.MustParseAddr("fe80::1")}
+	f.nodes["lb-2"].addrs = []netip.Addr{netip.MustParseAddr("fe80::2")}
+	f.mu.Unlock()
+	comment := clusters.RouterOSComment(c.ID)
+	route := func(id, family, dst, gw, active, ecmp, comment string) map[string]string {
+		return map[string]string{".id": id, "_family": family, "dst-address": dst, "gateway": gw, "immediate-gw": gw, "routing-table": "main",
+			"distance": "20", "active": active, "ecmp": ecmp, "comment": comment}
+	}
+	router := &fakeRouterOS{f: f, routes: map[string]map[string]string{
+		// The hook's own, from before it was read-only.
+		"*1": route("*1", "ip", "203.0.113.10/32", "10.0.0.3", "false", "", comment),
+		// BGP's: lb-1 and lb-2 share the IPv4 prefix, lb-1 alone carries
+		// the IPv6 one (lb-2's route there inactive), lb-3 announces none.
+		"*2": route("*2", "ip", "203.0.113.10/32", "10.0.0.1", "true", "true", ""),
+		"*3": route("*3", "ip", "203.0.113.10/32", "10.0.0.2%ether1", "true", "true", ""),
+		"*4": route("*4", "ipv6", "2001:db8::10/128", "fe80::1%ether1", "true", "", ""),
+		"*5": route("*5", "ipv6", "2001:db8::10/128", "fe80::2%ether1", "false", "", ""),
+		"*6": route("*6", "ip", "198.51.100.0/24", "10.0.0.9", "true", "", ""),
+	}}
+	srv := httptest.NewTLSServer(router)
+	t.Cleanup(srv.Close)
+	sum := sha256.Sum256(srv.Certificate().Raw)
+	fp := strings.ToUpper(hex.EncodeToString(sum[:]))
+	put := func(body map[string]any) *httpResult {
+		rec := call(t, a.handleClusterBalancer, "PUT", "/api/clusters/"+c.ID+"/balancer", "PUT /api/clusters/{id}/balancer", body)
+		return &httpResult{rec.Code, rec.Body.String()}
+	}
+	ros := func(extra map[string]any) map[string]any {
+		b := map[string]any{"kind": "routeros", "url": srv.URL, "fingerprint": fp, "user": "janus-hook", "secret": "router-pw",
+			"prefixes": []string{"203.0.113.10/32", "2001:db8::10/128"}, "read_only": true}
+		for k, v := range extra {
+			b[k] = v
+		}
+		return b
+	}
+	for _, tc := range []struct {
+		body map[string]any
+		want string
+	}{
+		{ros(map[string]any{"distance": 5}), "read_only reads the routes BGP brings"},
+		{ros(map[string]any{"check_gateway": true}), "read_only reads the routes BGP brings"},
+		{map[string]any{"url": "https://hook.example.net", "read_only": true}, "for a routeros balancer"},
+	} {
+		if r := put(tc.body); r.code == http.StatusOK || !strings.Contains(r.body, tc.want) {
+			t.Errorf("%v: %d %s", tc.body, r.code, r.body)
+		}
+	}
+	if r := put(ros(nil)); r.code != http.StatusOK || !strings.Contains(r.body, `"read_only":true`) {
+		t.Fatalf("set: %d %s", r.code, r.body)
+	}
+	router.mu.Lock()
+	_, kept := router.routes["*1"]
+	left := len(router.routes)
+	router.mu.Unlock()
+	if kept || left != 5 {
+		t.Errorf("read-only: the hook's former route removed, BGP's untouched - %d routes, *1 kept %v", left, kept)
+	}
+
+	rec := call(t, a.handleClusterRouter, "GET", "/api/clusters/"+c.ID+"/router", "GET /api/clusters/{id}/router", nil)
+	var view struct {
+		Available bool                             `json:"available"`
+		ReadOnly  bool                             `json:"read_only"`
+		Members   map[string][]clusters.RouterRole `json:"members"`
+		Unknown   int                              `json:"unknown"`
+		Error     string                           `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil || !view.Available || !view.ReadOnly || view.Error != "" {
+		t.Fatalf("the router's view: %d %s", rec.Code, rec.Body.String())
+	}
+	want := map[string][]clusters.RouterRole{
+		"lb-1": {{Prefix: "203.0.113.10/32", Role: "multipath", Active: 2, Total: 2}, {Prefix: "2001:db8::10/128", Role: "master", Active: 1, Total: 2}},
+		"lb-2": {{Prefix: "203.0.113.10/32", Role: "multipath", Active: 2, Total: 2}, {Prefix: "2001:db8::10/128", Role: "backup", Active: 1, Total: 2}},
+		"lb-3": {{Prefix: "203.0.113.10/32", Role: "absent", Active: 2, Total: 2}, {Prefix: "2001:db8::10/128", Role: "absent", Active: 1, Total: 2}},
+	}
+	for name, roles := range want {
+		if !slices.Equal(view.Members[name], roles) {
+			t.Errorf("%s: %+v, want %+v", name, view.Members[name], roles)
+		}
+	}
+
+	// lb-2's page: its own roles, read from the cache.
+	n := router.count()
+	got := a.memberRouterView(ctx, nodes["lb-2"])
+	if !got.Available || got.ReadAt == nil || !slices.Equal(got.Roles, want["lb-2"]) || router.count() != n {
+		t.Errorf("lb-2's page: %+v (router calls %d -> %d)", got, n, router.count())
+	}
+	// A node in no cluster: nothing.
+	if got := a.memberRouterView(ctx, &store.Node{ID: "elsewhere"}); got.Available {
+		t.Errorf("a node in no cluster: %+v", got)
+	}
+
+	// A drain writes nothing either.
+	n = router.count()
+	if err := a.clusters.Drain(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range router.since(n) {
+		if !strings.HasPrefix(s, "GET ") {
+			t.Errorf("a read-only hook wrote at a drain: %s", s)
+		}
+	}
 }

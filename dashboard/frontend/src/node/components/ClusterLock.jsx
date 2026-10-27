@@ -1,6 +1,6 @@
 import { ExternalLink, Lock, Network, Unlock } from 'lucide-react'
 import { postJSON } from '../api.js'
-import { DOMAIN_WORDS, clusterLink, vrrpRole } from '../cluster.js'
+import { DOMAIN_WORDS, bgpState, clusterLink, routerRoles, vrrpRole } from '../cluster.js'
 import { useCluster } from '../clusterContext.js'
 import { usePoll } from '../hooks.jsx'
 import { useMay } from '../may.js'
@@ -8,12 +8,19 @@ import { Badge, useAction, useConfirm } from '../../shared/ui.jsx'
 
 // ClusterBadge, in the topbar: the cluster this node is a member of - a
 // link to its page on the Controller -, its VRRP role when the cluster
-// manages VRRP, and drained when it is out of service.
+// manages VRRP, its BGP state when it manages BGP - what the node knows,
+// always; the router's choice too when the cluster's RouterOS hook reads
+// it -, and drained when it is out of service.
 export function ClusterBadge() {
   const { cluster } = useCluster()
   const vrrp = usePoll('/api/network/vrrp', { every: 15000, enabled: !!cluster?.managed?.includes('vrrp') })
+  const managesBGP = !!cluster?.managed?.includes('bgp')
+  const bgpStatus = usePoll('/api/network/bgp', { every: 15000, enabled: managesBGP })
+  const router = usePoll('/api/cluster/router', { every: 15000, enabled: managesBGP })
   if (!cluster) return null
   const role = vrrpRole(vrrp.data)
+  const bgp = managesBGP ? bgpState(bgpStatus.data) : { state: '' }
+  const routes = managesBGP ? routerRoles(router.data) : { label: '' }
   const link = clusterLink(cluster)
   const title = `Member ${cluster.member_name} of cluster ${cluster.name}${cluster.managed?.length ? ` - it manages ${cluster.managed.join(', ')} here` : ''}${link ? ' - open the cluster' : ' (janusctl cluster)'}`
   const badge = (
@@ -35,9 +42,47 @@ export function ClusterBadge() {
           {role === 'MASTER' ? 'VRRP master' : `VRRP ${role.toLowerCase()}`}
         </Badge>
       )}
+      {bgp.state && (
+        <span title={bgpTitle(bgp)}>
+          <Badge tone={bgp.state === 'announcing' ? (bgp.partial ? 'warn' : 'ok') : bgp.state === 'withdrawn' ? 'warn' : 'danger'} dot>
+            BGP {bgp.state}
+          </Badge>
+        </span>
+      )}
+      {routes.label && (
+        <span title={routerTitle(router.data, routes)}>
+          <Badge tone={routes.roles.every((r) => r.role === 'multipath' || r.role === 'master') ? 'ok' : routes.roles.some((r) => r.role === 'absent') ? 'danger' : ''}>
+            router: {routes.label}
+          </Badge>
+        </span>
+      )}
       {cluster.drained && <Badge tone="warn">drained</Badge>}
     </span>
   )
+}
+
+// bgpTitle is the BGP badge's tooltip: each session, and why nothing is
+// announced.
+function bgpTitle(bgp) {
+  const sessions = bgp.sessions.map((s) => `${s.name}: ${s.established ? `established, ${s.exported} route(s) announced` : 'not established'}`).join('; ')
+  const why =
+    bgp.state === 'withdrawn' ? ' - its haproxy_* routes are held down: HAProxy not answering, or the member drained' : bgp.state === 'down' ? ' - no session with the router' : ''
+  return `What this node announces over BGP: ${sessions}${why}. Whether the router uses it is the router's to say.`
+}
+
+// routerTitle is the router badge's tooltip: each prefix's routes, read by
+// the cluster's RouterOS hook.
+function routerTitle(view, routes) {
+  const each = routes.roles
+    .map((r) => {
+      const of = `${r.active} of ${r.total} route(s) to it active`
+      if (r.role === 'absent') return `${r.prefix}: absent - no route through this member (${of})`
+      if (r.role === 'backup') return `${r.prefix}: backup - its route present, not used (${of})`
+      return `${r.prefix}: ${r.role}, ${of}`
+    })
+    .join('; ')
+  const at = view?.read_at ? ` (read ${new Date(view.read_at).toLocaleTimeString()})` : ''
+  return `The router's routes through this member, as the cluster's RouterOS hook reads them${at}: ${each}.`
 }
 
 // ClusterLockNotice says, on a page that changes a domain, that the

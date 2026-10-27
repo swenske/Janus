@@ -407,6 +407,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("routing-table", "TABLE", "routeros: the routes' routing table (main)", argNone),
 			boolFlag("allow-http", "routeros: a lab's router over plain HTTP"),
 			valFlag("check-gateway", "ping|none", "routeros: the router pings each member and leaves one out that doesn't answer (check-gateway=ping)", argNone),
+			valFlag("read-only", "yes|no", "routeros: the members announce the prefixes over BGP - the cluster reads the router's routes (each member's role), writes none", argNone),
 			boolFlag("no-secret", "calls unsigned from now on"),
 			valFlag("drain-delay", "SECONDS", "how long a member serves on once the balancer was told it goes (0)", argNone),
 			boolFlag("off", "no hook any more"),

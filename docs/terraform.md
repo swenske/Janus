@@ -383,7 +383,10 @@ resource "janus_cluster" "edge" {
   a [RouterOS router](guide/clusters.md#routeros) whose ECMP routes the
   Controller keeps: `url` the router's, `router_user` and its password
   as `secret`, `prefixes` (the service addresses the members carry),
-  `distance`, `routing_table`, `check_gateway`, `allow_http` (a lab's):
+  `distance`, `routing_table`, `check_gateway`, `allow_http` (a lab's);
+  `read_only = true` when the members announce the prefixes over
+  [BGP](bgp.md): the Controller reads the router's routes - each
+  member's role, on its page - and writes none:
 
   ```hcl
   balancer = {

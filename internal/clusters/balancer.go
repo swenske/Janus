@@ -68,6 +68,11 @@ type Balancer struct {
 	// (check-gateway=ping) - one that stops answering is left out by
 	// the router itself, before any drain or check.
 	CheckGateway bool `json:"check_gateway,omitempty"`
+	// ReadOnly (RouterOS): the routes to the prefixes come from elsewhere
+	// - the members' BGP announcements -, the engine writes none: it reads
+	// them, each member's role on the router (RouterRoles), shown on the
+	// members' pages. Distance and check_gateway are for routes it writes.
+	ReadOnly bool `json:"read_only,omitempty"`
 	// DrainDelaySeconds: how long a member stays in service after the
 	// balancer was told it goes - its connections finishing - before it
 	// is drained or removed.
@@ -107,8 +112,8 @@ func (b *Balancer) Validate() error {
 	}
 	switch b.Kind {
 	case "", BalancerWebhook:
-		if b.User != "" || len(b.Prefixes) > 0 || b.Distance != 0 || b.RoutingTable != "" || b.AllowHTTP || b.CheckGateway {
-			return errors.New("balancer user, prefixes, distance, routing_table, allow_http, check_gateway: for a routeros balancer")
+		if b.User != "" || len(b.Prefixes) > 0 || b.Distance != 0 || b.RoutingTable != "" || b.AllowHTTP || b.CheckGateway || b.ReadOnly {
+			return errors.New("balancer user, prefixes, distance, routing_table, allow_http, check_gateway, read_only: for a routeros balancer")
 		}
 	case BalancerRouterOS:
 		if err := b.validateRouterOS(u); err != nil {

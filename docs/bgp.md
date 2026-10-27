@@ -133,6 +133,11 @@ On the router - its own address `192.0.2.254`, the nodes `192.0.2.1` and
   for an update - or announced again moves the connections hashed to it
   to the other node, which resets them; new connections lose nothing.
   With one path, every open connection moves each time.
+- **Which node the router uses**: a cluster member's page says what
+  the node announces ("BGP announcing", "withdrawn", "down"); the
+  router's choice - multipath, master, backup - only the router knows:
+  a [read-only RouterOS hook](guide/clusters.md#routeros) reads it for
+  the members' pages.
 
 Measured in the test lab (RouterOS 7.25 on an RB4011, two nodes, BFD at
 200 ms × 3, 16 keep-alive connections under load and a new connection
