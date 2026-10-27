@@ -66,6 +66,7 @@ after a release.
 edge-1 answers 503 for shop.example.com - what's wrong?
 What changed in edge-1's haproxy.cfg this week?
 Add 10.0.0.7:8080 as app3 to the app backend on edge-1.
+Drain app2 on edge-1 while I patch it, then put it back.
 Which nodes have a certificate expiring within 30 days?
 Upgrade edge-2 to the latest release.
 ```
@@ -87,7 +88,7 @@ Each command is marked in the skill with what it does to the node:
 | | Commands | Claude runs them |
 |---|---|---|
 | reads | `system info`, `system logs`, `haproxy backends`, `haproxy get-config`, `network status`... | when they help answer |
-| changes | `haproxy apply-config`, `haproxy map-set`, `network apply`, `system sysctl set`, `cluster apply`... | when you asked for that change - shown first, checked after |
+| changes | `haproxy apply-config`, `haproxy server-state`, `haproxy map-set`, `network apply`, `system sysctl set`, `cluster apply`... | when you asked for that change - shown first, checked after |
 | critical | `system reboot`, `system reset`, `lifecycle upgrade`, `cluster drain`, `access trust-reset`, `fleet adopt`... | when you asked for exactly that, after a yes |
 
 The full list is the skill's

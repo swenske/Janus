@@ -88,6 +88,7 @@ var effects = map[string]effectOf{
 	"haproxy show-info":      {effectReads, ""},
 	"haproxy stats":          {effectReads, ""},
 	"haproxy backends":       {effectReads, ""},
+	"haproxy server-state":   {effectChanges, "drain and maint take the server out of the traffic; HAProxy's next reload (apply-config, file-put -reload...) takes haproxy.cfg's state again"},
 	"haproxy get-config":     {effectReads, ""},
 	"haproxy apply-config":   {effectChanges, "validated on the node first, reloaded without dropping connections"},
 	"haproxy config-history": {effectReads, ""},

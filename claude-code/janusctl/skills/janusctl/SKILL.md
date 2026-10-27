@@ -136,6 +136,13 @@ janusctl -n edge-1 haproxy backends            # check it took
 - `haproxy map-set`, `map-delete`, `acl-add` and `acl-delete` change
   the running HAProxy only: the next reload reads the file again. To
   keep a change, also write the file (`file-get`, edit, `file-put`).
+- A server out of the traffic: `janusctl -n edge-1 haproxy server-state app app1 drain`
+  (new clients go to the other servers, the current ones finish;
+  `maint` takes it out altogether), `ready` puts it back,
+  `haproxy backends` shows it. It holds until HAProxy's next reload -
+  an `apply-config` brings the server back as haproxy.cfg says: tell
+  the user before applying a configuration while a server is drained;
+  `disabled` on its line keeps it out for good.
 - Certificates: `haproxy cert-list`; `haproxy cert-upload NAME FILE`
   takes a PEM with its key - pass the path, never print the file.
 

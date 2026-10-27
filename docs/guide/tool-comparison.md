@@ -88,7 +88,7 @@ and no META partition.
 | `Stats` - `show stat` | `haproxy stats` | ✅ | HAProxy › Status | - |
 | `ShowInfo` - version, uptime, connections | `haproxy show-info` | ✅ | HAProxy › Status | - |
 | `BackendList` - backends, servers, states | `haproxy backends` | - | HAProxy › Backends | - |
-| `ServerSetState` - ready, drain, maintenance | - | ✅ | HAProxy › Backends | - |
+| `ServerSetState` - ready, drain, maintenance | `haproxy server-state` | ✅ | HAProxy › Backends | - |
 | `MapList`, `MapGet` - the maps and their entries | `haproxy map-list`, `map-get` | ⚙️ | HAProxy › Maps & ACLs | - |
 | `MapUpdate` - set or delete an entry, live | `haproxy map-set`, `map-delete` | - | HAProxy › Maps & ACLs | - |
 | `ACLUpdate` - add or delete a pattern, live | `haproxy acl-add`, `acl-delete` | - | HAProxy › Maps & ACLs | - |
@@ -211,6 +211,6 @@ follows the machine.
 
 Only `janusctl` installs onto a blank disk (`lifecycle install`), rolls
 back (`lifecycle rollback`) and forgets a fleet (`access trust-reset`).
-It has no command to drain a server or to reload HAProxy alone: the TUI
-and the Controller do. Only the Controller checks a haproxy.cfg without
+It has no command to reload HAProxy alone: the TUI and the Controller
+do. Only the Controller checks a haproxy.cfg without
 applying it.

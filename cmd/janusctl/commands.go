@@ -49,6 +49,9 @@ const (
 	argTheme                 // a janusctl tui colour theme
 	argStickTable            // a stick table of the running config
 	argProbeKind             // dns, tcp, tls, http, ping, traceroute
+	argBackend               // a backend of the running config
+	argServer                // a server of the backend given before it
+	argServerState           // ready, drain, maint
 )
 
 // fixedValues are the kinds whose values are known here.
@@ -62,6 +65,7 @@ var fixedValues = map[argKind][]candidate{
 	argTheme:         themeCandidates(),
 	argProbeKind: {{"dns", "a lookup"}, {"tcp", "a connection to host:port"}, {"tls", "a handshake: the certificate presented"}, {"http", "a request to a URL"},
 		{"ping", "ICMP echo requests"}, {"traceroute", "the routers on the way"}},
+	argServerState: {{"ready", "back in service"}, {"drain", "new clients go elsewhere, the current ones finish"}, {"maint", "no traffic, no health checks"}},
 }
 
 // themeCandidates are the dashboard's themes, then list.
@@ -255,6 +259,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "show-info", help: "version, uptime, connections"},
 		{name: "stats", help: "raw 'show stat' CSV"},
 		{name: "backends", help: "backends, their servers and states"},
+		{name: "server-state", args: "BACKEND SERVER ready|drain|maint", help: "set a server ready, drain or maint - until HAProxy's next reload", pos: []argKind{argBackend, argServer, argServerState}, required: 3},
 		{name: "get-config", help: "the running haproxy.cfg, or a version of its history", flags: []flagDef{valFlag("version", "ID", "this version of config-history instead", argNone)}},
 		{name: "apply-config", args: "FILE", help: "validate, apply and reload seamlessly", pos: []argKind{argFile}, required: 1},
 		{name: "config-history", help: "the configurations applied: who, when, lines changed", flags: []flagDef{valFlag("limit", "N", "the newest N only", argNone)}},
