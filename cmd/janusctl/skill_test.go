@@ -225,8 +225,8 @@ func isPlaceholder(w string) bool {
 }
 
 // The plugin's manifests agree: the marketplace at the repository's
-// root offers the plugin under its own name, and the skill has what
-// Claude Code needs to list it.
+// root offers the plugin under its own name, with the brand's icon, and
+// the skill has what Claude Code needs to list it.
 func TestSkillPluginManifests(t *testing.T) {
 	var market struct {
 		Name    string
@@ -241,6 +241,15 @@ func TestSkillPluginManifests(t *testing.T) {
 	}
 	if p := market.Plugins[0]; p.Name != plugin.Name || p.Source != "./claude-code/janusctl" || p.Description == "" {
 		t.Errorf("marketplace.json's plugin %+v isn't plugin.json's %q at ./claude-code/janusctl", p, plugin.Name)
+	}
+	// The icon Claude Code shows is the brand's tile: a copy, since a
+	// plugin can't name a file outside its folder.
+	icon, err := os.ReadFile("../../claude-code/janusctl/.claude-plugin/icon.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tile, err := os.ReadFile("../../brand/png/janus-tuile-1024.png"); err != nil || !bytes.Equal(icon, tile) {
+		t.Errorf("claude-code/janusctl/.claude-plugin/icon.png isn't brand/png/janus-tuile-1024.png (%v): copy it again", err)
 	}
 	if plugin.Name != "janusctl" || plugin.Description == "" {
 		t.Errorf("plugin.json: want the plugin janusctl, with a description: %+v", plugin)
