@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -38,6 +39,9 @@ type fakeMember struct {
 	acme *janusv1alpha1.ACMEStatusResponse
 	// set: what the last ClusterSet said.
 	set *janusv1alpha1.ClusterSetRequest
+	// addrs: the addresses on its interfaces besides its member address
+	// (a link-local one, as a router's IPv6 route names).
+	addrs []netip.Addr
 }
 
 // clusterFake answers the cluster engine for every node, and keeps what
@@ -1067,4 +1071,15 @@ func TestClusterLetsEncrypt(t *testing.T) {
 	}) {
 		t.Errorf("told the others while lb-1 hadn't its tables: %v", calls)
 	}
+}
+
+func (f *clusterFake) Addresses(_ context.Context, m clusters.Member) ([]netip.Addr, error) {
+	if err := f.call(m, "Addresses", ""); err != nil {
+		return nil, err
+	}
+	out := slices.Clone(f.node(m).addrs)
+	if a, err := netip.ParseAddr(m.Address); err == nil {
+		out = append(out, a)
+	}
+	return out, nil
 }

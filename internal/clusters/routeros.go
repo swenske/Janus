@@ -27,7 +27,10 @@ import (
 // member is drained; Reconcile reads them again and puts back a change
 // made on the router. Over its REST API (/rest), as a user of its own,
 // its password the balancer's secret. A member's route goes to its
-// address, or to its balancer_gateway variable when it has one.
+// address, or to its balancer_gateway variable when it has one. A
+// read_only hook writes none - the members announce the prefixes over
+// BGP - and removes those it wrote before; RouterRoles reads the routes
+// whatever brought them, each member's role.
 
 // RouterOSComment is the comment on the routes the engine keeps for
 // cluster id.
@@ -52,6 +55,8 @@ func (b *Balancer) validateRouterOS(u *url.URL) error {
 		return errors.New("balancer distance: 1 to 255")
 	case b.RoutingTable != "" && !routingTableName.MatchString(b.RoutingTable):
 		return errors.New("balancer routing_table: a RouterOS routing table's name (main)")
+	case b.ReadOnly && (b.Distance != 0 || b.CheckGateway):
+		return errors.New("balancer distance, check_gateway: for the routes the engine writes - read_only reads the routes BGP brings")
 	}
 	for _, s := range b.Prefixes {
 		p, err := netip.ParsePrefix(s)
@@ -87,6 +92,10 @@ type rosRoute struct {
 	Comment  string `json:"comment"`
 	// Check is check-gateway: "ping", or absent.
 	Check string `json:"check-gateway,omitempty"`
+	// Read, never written: "true"/"false", the interface's gateway.
+	Active      string `json:"active,omitempty"`
+	ECMP        string `json:"ecmp,omitempty"`
+	ImmediateGW string `json:"immediate-gw,omitempty"`
 }
 
 type rosKey struct{ dst, gateway string }
@@ -155,8 +164,8 @@ func (e *Engine) routerOSApply(ctx context.Context, c *Cluster, list []BalancerM
 			}
 			for _, m := range list {
 				gw, err := netip.ParseAddr(rosGateway(m))
-				if !m.InService || err != nil || gw.Is4() != p.Addr().Is4() {
-					continue
+				if b.ReadOnly || !m.InService || err != nil || gw.Is4() != p.Addr().Is4() {
+					continue // read_only: none of the cluster's, BGP's
 				}
 				want[rosKey{p.String(), gw.String()}] = true
 			}
@@ -195,6 +204,125 @@ func (e *Engine) routerOSApply(ctx context.Context, c *Cluster, list []BalancerM
 		}
 	}
 	return added, removed, nil
+}
+
+// RouterRole is a member's place on the router for one service prefix:
+// Role "multipath" (its route active, one of several equal ones),
+// "master" (the only active one), "backup" (present, not active),
+// "absent" (no route through it); Active and Total count the prefix's
+// routes.
+type RouterRole struct {
+	Prefix string `json:"prefix"`
+	Role   string `json:"role"`
+	Active int    `json:"active"`
+	Total  int    `json:"total"`
+}
+
+// RouterView is a reading of a cluster's router: each member's roles,
+// one per service prefix in the balancer's order; Unknown counts the
+// routes through a gateway that is no member's.
+type RouterView struct {
+	ReadAt  time.Time               `json:"read_at"`
+	Members map[string][]RouterRole `json:"members"`
+	Unknown int                     `json:"unknown,omitempty"`
+}
+
+// RouterRoles reads cluster c's service prefixes' routes on its RouterOS
+// router - whatever brought them: the members' BGP for a read_only hook,
+// the engine's own otherwise - and says each member's role. A route's
+// gateway is matched with the member's address, its balancer_gateway
+// variable and the addresses on its interfaces: BIRD gives the router
+// its link-local address as an IPv6 route's next hop.
+func (e *Engine) RouterRoles(ctx context.Context, c *Cluster) (*RouterView, error) {
+	b := c.Balancer
+	if !b.IsRouterOS() {
+		return nil, errors.New("the cluster has no RouterOS hook")
+	}
+	password, err := e.Store.BalancerSecret(c.ID)
+	if err != nil {
+		return nil, err
+	}
+	client, err := BalancerClient(b)
+	if err != nil {
+		return nil, err
+	}
+	r := rosClient{client: client, base: strings.TrimSuffix(b.URL, "/") + "/rest", user: b.User, password: string(password)}
+	owner := map[netip.Addr]string{}
+	for _, m := range c.Members {
+		for _, s := range []string{m.Address, m.Vars["balancer_gateway"]} {
+			if a, err := netip.ParseAddr(s); err == nil {
+				owner[a.Unmap()] = m.Name
+			}
+		}
+		// A member that doesn't answer: its address and gateway only.
+		if addrs, err := e.Nodes.Addresses(ctx, m); err == nil {
+			for _, a := range addrs {
+				owner[a.Unmap()] = m.Name
+			}
+		}
+	}
+	view := &RouterView{ReadAt: time.Now().UTC(), Members: map[string][]RouterRole{}}
+	table := b.routingTable()
+	for _, s := range b.Prefixes {
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			continue
+		}
+		family := "ip"
+		if p.Addr().Is6() {
+			family = "ipv6"
+		}
+		var routes []rosRoute
+		if err := r.do(ctx, http.MethodGet, "/"+family+"/route?dst-address="+url.QueryEscape(p.String()), nil, &routes); err != nil {
+			return nil, err
+		}
+		type via struct {
+			member         string
+			active, shared bool
+		}
+		var vias []via
+		active, total := 0, 0
+		for _, rt := range routes {
+			if normalPrefix(rt.Dst) != p.String() || (rt.Table != "" && rt.Table != table) {
+				continue
+			}
+			total++
+			on := rt.Active == "true"
+			if on {
+				active++
+			}
+			name := ""
+			for _, g := range []string{rt.Gateway, rt.ImmediateGW} {
+				if a, err := netip.ParseAddr(normalAddr(g)); err == nil && owner[a.Unmap()] != "" {
+					name = owner[a.Unmap()]
+					break
+				}
+			}
+			if name == "" {
+				view.Unknown++
+				continue
+			}
+			vias = append(vias, via{name, on, rt.ECMP == "true"})
+		}
+		for _, m := range c.Members {
+			role := "absent"
+			for _, v := range vias {
+				if v.member != m.Name {
+					continue
+				}
+				switch {
+				case v.active && (v.shared || active > 1):
+					role = "multipath"
+				case v.active && role != "multipath":
+					role = "master"
+				case !v.active && role == "absent":
+					role = "backup"
+				}
+			}
+			view.Members[m.Name] = append(view.Members[m.Name], RouterRole{Prefix: p.String(), Role: role, Active: active, Total: total})
+		}
+	}
+	return view, nil
 }
 
 func normalPrefix(s string) string {

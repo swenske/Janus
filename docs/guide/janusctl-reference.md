@@ -1439,7 +1439,7 @@ janusctl cluster tickets [-renew] NAME
 The hook telling a balancer in front which members take the traffic - told before a member is drained or removed, after one comes into service -, or a RouterOS router whose ECMP routes the cluster keeps itself; shown without a flag.
 
 ```text
-janusctl cluster balancer [-kind KIND] [-url URL] [-ca FILE] [-fingerprint SHA256] [-secret-file FILE] [-router-user USER] [-password-file FILE] [-prefix PREFIX] [-distance N] [-routing-table TABLE] [-allow-http] [-check-gateway ping|none] [-no-secret] [-drain-delay SECONDS] [-off] [-sync] NAME
+janusctl cluster balancer [-kind KIND] [-url URL] [-ca FILE] [-fingerprint SHA256] [-secret-file FILE] [-router-user USER] [-password-file FILE] [-prefix PREFIX] [-distance N] [-routing-table TABLE] [-allow-http] [-check-gateway ping|none] [-read-only yes|no] [-no-secret] [-drain-delay SECONDS] [-off] [-sync] NAME
 ```
 
 | Flag | |
@@ -1456,6 +1456,7 @@ janusctl cluster balancer [-kind KIND] [-url URL] [-ca FILE] [-fingerprint SHA25
 | `-routing-table TABLE` | routeros: the routes' routing table (main) |
 | `-allow-http` | routeros: a lab's router over plain HTTP |
 | `-check-gateway ping\|none` | routeros: the router pings each member and leaves one out that doesn't answer (check-gateway=ping) |
+| `-read-only yes\|no` | routeros: the members announce the prefixes over BGP - the cluster reads the router's routes (each member's role), writes none |
 | `-no-secret` | calls unsigned from now on |
 | `-drain-delay SECONDS` | how long a member serves on once the balancer was told it goes (0) |
 | `-off` | no hook any more |

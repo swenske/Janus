@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -55,6 +56,9 @@ type Nodes interface {
 	// on trial, confirmed.
 	ModuleConfig(ctx context.Context, m Member, domain string) ([]byte, error)
 	ModuleApply(ctx context.Context, m Member, domain string, cfg []byte, validateOnly bool) error
+	// Addresses: every address on m's interfaces, link-local ones too -
+	// a router's route through m names one of them (RouterRoles).
+	Addresses(ctx context.Context, m Member) ([]netip.Addr, error)
 }
 
 // GRPC is Nodes over each member's gRPC connection.
@@ -479,4 +483,24 @@ func (g GRPC) ModuleApply(ctx context.Context, m Member, domain string, cfg []by
 		return nil
 	}
 	return fmt.Errorf("unknown module %q", domain)
+}
+
+func (g GRPC) Addresses(ctx context.Context, m Member) ([]netip.Addr, error) {
+	c, err := g.network(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	st, err := c.NetworkStatus(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, nodeError(err)
+	}
+	var out []netip.Addr
+	for _, i := range st.GetInterfaces() {
+		for _, a := range i.GetAddresses() {
+			if p, err := netip.ParsePrefix(a); err == nil {
+				out = append(out, p.Addr())
+			}
+		}
+	}
+	return out, nil
 }

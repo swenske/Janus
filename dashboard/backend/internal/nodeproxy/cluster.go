@@ -11,6 +11,7 @@ import (
 
 	"github.com/swenske/Janus/dashboard/backend/internal/store"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
+	"github.com/swenske/Janus/internal/clusters"
 	"github.com/swenske/Janus/internal/pki"
 )
 
@@ -32,6 +33,19 @@ func ForCluster(ctx context.Context, id string) context.Context {
 func ConfirmFirewall(node *store.Node, revertAt time.Time) (bool, string) {
 	return confirmFirewall(node, revertAt)
 }
+
+// RouterRoles is a member's routes on its cluster's router, its page's
+// "router:" badge: one role per service prefix (internal/clusters
+// RouterRoles), when the cluster's RouterOS hook reads the router.
+type RouterRoles struct {
+	Available bool                  `json:"available"`
+	ReadAt    *time.Time            `json:"read_at,omitempty"`
+	Roles     []clusters.RouterRole `json:"roles,omitempty"`
+	Error     string                `json:"error,omitempty"`
+}
+
+// ClusterRouter is node's RouterRoles. Set by the Controller.
+var ClusterRouter func(ctx context.Context, node *store.Node) RouterRoles
 
 // clusterMembership is what a node's page shows of its cluster
 // membership (ClusterGet): the cluster, this member, the domains it
@@ -73,6 +87,14 @@ func registerClusterRoutes(mux *http.ServeMux, node *store.Node) {
 			})
 		}
 	}
+	// The router's view of this member, the Controller's to give.
+	mux.HandleFunc("GET /api/cluster/router", func(w http.ResponseWriter, r *http.Request) {
+		out := RouterRoles{}
+		if ClusterRouter != nil {
+			out = ClusterRouter(r.Context(), node)
+		}
+		writeJSONBody(w, http.StatusOK, out)
+	})
 	mux.HandleFunc("GET /api/cluster", cl(func(ctx context.Context, c janusv1alpha1.ClusterServiceClient) (any, error) {
 		in, err := c.ClusterGet(ctx, &emptypb.Empty{})
 		if err != nil {

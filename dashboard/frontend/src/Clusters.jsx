@@ -648,7 +648,8 @@ function Members({ cluster, nodes, act, busy, reload }) {
 
 // Balancer: the hook telling a balancer in front which members take the
 // traffic - before one is drained or removed, once one is in service -,
-// or a RouterOS router whose ECMP routes the Controller keeps itself
+// or a RouterOS router whose ECMP routes the Controller keeps itself - or
+// only reads, the members announcing them over BGP (read only)
 // (docs/guide/clusters.md "A balancer in front", "RouterOS").
 function Balancer({ cluster, disabled, reload }) {
   const can = useCan()
@@ -671,6 +672,7 @@ function Balancer({ cluster, disabled, reload }) {
     distance: b?.distance || 1,
     table: b?.routing_table || 'main',
     check: !!b?.check_gateway,
+    readOnly: !!b?.read_only,
   })
   const [error, setError] = useState(null)
   const formROS = form.kind === 'routeros'
@@ -695,19 +697,26 @@ function Balancer({ cluster, disabled, reload }) {
           Object.assign(body, {
             user: form.user.trim(),
             prefixes: form.prefixes.split(/[\s,]+/).filter(Boolean),
-            distance: Number(form.distance) || 0,
+            distance: form.readOnly ? 0 : Number(form.distance) || 0,
             routing_table: form.table.trim() === 'main' ? '' : form.table.trim(),
-            check_gateway: form.check,
+            check_gateway: !form.readOnly && form.check,
+            read_only: form.readOnly,
           })
         }
         if (form.secret !== '') body.secret = form.secret
         return postJSON(`/api/clusters/${cluster.id}/balancer`, body, 'PUT')
       },
-      formROS ? 'RouterOS settings saved, and its routes made to match the members.' : 'Balancer hook saved, and called with the members.',
+      formROS
+        ? form.readOnly
+          ? 'RouterOS settings saved: its routes are read, none written.'
+          : 'RouterOS settings saved, and its routes made to match the members.'
+        : 'Balancer hook saved, and called with the members.',
     )
   const sync = () => send(() => postJSON(`/api/clusters/${cluster.id}/balancer/sync`), ros ? 'The router’s routes match the members.' : 'The balancer was told the members.')
   const remove = async () => {
-    const body = ros ? (
+    const body = b?.read_only ? (
+      <p>The router&apos;s routes are no longer read: the members&apos; pages show their own BGP state alone.</p>
+    ) : ros ? (
       <p>
         The router&apos;s routes are no longer kept. Those it has stay - remove them on the router (comment <span className="mono">janus-cluster:{cluster.id}</span>).
       </p>
@@ -731,9 +740,20 @@ function Balancer({ cluster, disabled, reload }) {
               <>
                 <dt>Routes</dt>
                 <dd>
-                  to <span className="mono">{(b.prefixes || []).join(', ')}</span>, one per member in service (ECMP) - distance {b.distance || 1}, table {b.routing_table || 'main'}
-                  {b.check_gateway ? ', each member pinged by the router' : ''}
+                  {b.read_only ? (
+                    <>
+                      to <span className="mono">{(b.prefixes || []).join(', ')}</span>, read - never written: the members&apos; BGP brings them (table{' '}
+                      {b.routing_table || 'main'})
+                    </>
+                  ) : (
+                    <>
+                      to <span className="mono">{(b.prefixes || []).join(', ')}</span>, one per member in service (ECMP) - distance {b.distance || 1}, table{' '}
+                      {b.routing_table || 'main'}
+                      {b.check_gateway ? ', each member pinged by the router' : ''}
+                    </>
+                  )}
                 </dd>
+                <RouterSays cluster={cluster} />
                 <dt>Signs in</dt>
                 <dd>
                   as <span className="mono">{b.user}</span>
@@ -801,17 +821,25 @@ function Balancer({ cluster, disabled, reload }) {
                     <span>Service prefixes</span>
                     <input className="mono" value={form.prefixes} placeholder="203.0.113.10/32" onChange={set('prefixes')} />
                   </label>
-                  <label className="field">
-                    <span>Distance</span>
-                    <input type="number" min="1" max="255" value={form.distance} onChange={set('distance')} />
-                  </label>
+                  {!form.readOnly && (
+                    <label className="field">
+                      <span>Distance</span>
+                      <input type="number" min="1" max="255" value={form.distance} onChange={set('distance')} />
+                    </label>
+                  )}
                   <label className="field">
                     <span>Routing table</span>
                     <input value={form.table} onChange={set('table')} />
                   </label>
+                  {!form.readOnly && (
+                    <label className="row small">
+                      <input type="checkbox" checked={form.check} onChange={(e) => setForm({ ...form, check: e.target.checked })} />
+                      The router pings each member (check-gateway=ping)
+                    </label>
+                  )}
                   <label className="row small">
-                    <input type="checkbox" checked={form.check} onChange={(e) => setForm({ ...form, check: e.target.checked })} />
-                    The router pings each member (check-gateway=ping)
+                    <input type="checkbox" checked={form.readOnly} onChange={(e) => setForm({ ...form, readOnly: e.target.checked })} />
+                    Read only - the members announce the prefixes over BGP: read the routes, write none
                   </label>
                 </div>
               )}
@@ -858,6 +886,41 @@ function Balancer({ cluster, disabled, reload }) {
         <ErrorBox error={error} />
       </div>
     </Card>
+  )
+}
+
+// RouterSays: each member's role on the router for each service prefix,
+// as the cluster's RouterOS hook reads it - multipath, master, backup,
+// absent; the same reading as the members' pages.
+function RouterSays({ cluster }) {
+  const [view] = usePolled(`/api/clusters/${cluster.id}/router`, () => false)
+  if (!view?.available) return null
+  const tone = (role) => (role === 'multipath' || role === 'master' ? 'ok' : role === 'absent' ? 'danger' : '')
+  return (
+    <>
+      <dt>Router says</dt>
+      <dd>
+        {view.error ? (
+          <span className="small">can&apos;t be read: {view.error}</span>
+        ) : (
+          <div className="stack" style={{ gap: '0.25rem' }}>
+            {cluster.members.map((m) => (
+              <div key={m.name} className="row" style={{ flexWrap: 'wrap', gap: '0.4rem' }}>
+                <span className="mono">{m.name}</span>
+                {(view.members?.[m.name] || []).map((r) => (
+                  <span key={r.prefix} title={`${r.prefix}: ${r.active} of ${r.total} route(s) active`}>
+                    <Badge tone={tone(r.role)}>
+                      {r.role} <span className="mono">{r.prefix}</span>
+                    </Badge>
+                  </span>
+                ))}
+              </div>
+            ))}
+            <span className="small muted">read {when(view.read_at)}</span>
+          </div>
+        )}
+      </dd>
+    </>
   )
 }
 

@@ -500,6 +500,7 @@ type ClusterBalancer struct {
 	RoutingTable      string   `json:"routing_table,omitempty"`
 	AllowHTTP         bool     `json:"allow_http,omitempty"`
 	CheckGateway      bool     `json:"check_gateway,omitempty"`
+	ReadOnly          bool     `json:"read_only,omitempty"`
 	DrainDelaySeconds int      `json:"drain_delay_seconds,omitempty"`
 	HasSecret         bool     `json:"has_secret,omitempty"`
 	Secret            *string  `json:"secret,omitempty"` // sent only: nil keeps it, "" removes it

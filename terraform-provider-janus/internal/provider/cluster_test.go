@@ -85,7 +85,7 @@ func TestClusterBalancerFrom(t *testing.T) {
 	null := func() *clusterBalancerModel {
 		return &clusterBalancerModel{Kind: types.StringNull(), URL: types.StringValue("https://lb/h"), CACert: types.StringNull(), Fingerprint: types.StringNull(),
 			RouterUser: types.StringNull(), Prefixes: types.ListNull(types.StringType), Distance: types.Int64Null(), RoutingTable: types.StringNull(),
-			AllowHTTP: types.BoolNull(), CheckGateway: types.BoolNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringNull()}
+			AllowHTTP: types.BoolNull(), CheckGateway: types.BoolNull(), ReadOnly: types.BoolNull(), DrainDelaySeconds: types.Int64Null(), Secret: types.StringNull()}
 	}
 	prior := null()
 	prior.Secret = types.StringValue("s3")

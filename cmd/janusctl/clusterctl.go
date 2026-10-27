@@ -705,6 +705,7 @@ func runClusterCtl(globalCtx string, args []string) {
 		routingTable := fs.String("routing-table", "", "routeros: the routes' routing table (main)")
 		allowHTTP := fs.Bool("allow-http", false, "routeros: a lab's router over plain HTTP")
 		checkGateway := fs.String("check-gateway", "", "routeros: ping (the router checks each member) or none")
+		readOnly := fs.String("read-only", "", "routeros: yes (the members' BGP brings the routes: read them, write none) or no")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() != 1 {
 			clusterCtlUsage("balancer")
@@ -726,7 +727,7 @@ func runClusterCtl(globalCtx string, args []string) {
 			defer o.exclusive(c.ID)()
 			check("cluster balancer", o.SetBalancer(ctx, c.ID, nil, nil, actor(o)))
 		case *hook != "" || *caFile != "" || *secretFile != "" || *noSecret || *delay >= 0 || *kind != "" || *fingerprint != "" ||
-			*user != "" || len(prefixes) > 0 || *distance >= 0 || *routingTable != "" || *allowHTTP || *checkGateway != "":
+			*user != "" || len(prefixes) > 0 || *distance >= 0 || *routingTable != "" || *allowHTTP || *checkGateway != "" || *readOnly != "":
 			defer o.exclusive(c.ID)()
 			b := clusters.Balancer{}
 			if c.Balancer != nil {
@@ -763,6 +764,13 @@ func runClusterCtl(globalCtx string, args []string) {
 			default:
 				log.Fatal("janusctl cluster balancer: -check-gateway ping or none")
 			}
+			switch *readOnly {
+			case "":
+			case "yes", "no":
+				b.ReadOnly = *readOnly == "yes"
+			default:
+				log.Fatal("janusctl cluster balancer: -read-only yes or no")
+			}
 			if *caFile != "" {
 				pemBytes, err := os.ReadFile(*caFile)
 				check("cluster balancer", err)
@@ -797,8 +805,23 @@ func runClusterCtl(globalCtx string, args []string) {
 		st := o.Store.State(c.ID).Balancer
 		if b := c.Balancer; b.IsRouterOS() {
 			fmt.Printf("Router:       %s, as %s%s\n", b.URL, b.User, map[bool]string{true: "", false: " (no password)"}[b.HasSecret])
-			fmt.Printf("Routes:       to %s - one per member in service, distance %d, table %s, comment %s%s\n", strings.Join(b.Prefixes, ", "),
-				max(b.Distance, 1), cmp.Or(b.RoutingTable, "main"), clusters.RouterOSComment(c.ID), map[bool]string{true: ", check-gateway=ping", false: ""}[b.CheckGateway])
+			if b.ReadOnly {
+				fmt.Printf("Routes:       to %s - read, never written: the members' BGP brings them (table %s)\n", strings.Join(b.Prefixes, ", "), cmp.Or(b.RoutingTable, "main"))
+			} else {
+				fmt.Printf("Routes:       to %s - one per member in service, distance %d, table %s, comment %s%s\n", strings.Join(b.Prefixes, ", "),
+					max(b.Distance, 1), cmp.Or(b.RoutingTable, "main"), clusters.RouterOSComment(c.ID), map[bool]string{true: ", check-gateway=ping", false: ""}[b.CheckGateway])
+			}
+			if view, err := o.RouterRoles(ctx, c); err != nil {
+				fmt.Printf("Router says:  can't be read: %v\n", err)
+			} else {
+				for _, m := range c.Members {
+					var each []string
+					for _, r := range view.Members[m.Name] {
+						each = append(each, fmt.Sprintf("%s %s (%d of %d active)", r.Prefix, r.Role, r.Active, r.Total))
+					}
+					fmt.Printf("  %-12s %s\n", m.Name, strings.Join(each, ", "))
+				}
+			}
 		} else {
 			fmt.Printf("Hook:         %s\n", b.URL)
 			fmt.Printf("Signed:       %s\n", map[bool]string{true: "yes", false: "no"}[b.HasSecret])
