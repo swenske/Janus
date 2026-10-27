@@ -260,6 +260,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 		{name: "stats", help: "raw 'show stat' CSV"},
 		{name: "backends", help: "backends, their servers and states"},
 		{name: "server-state", args: "BACKEND SERVER ready|drain|maint", help: "set a server ready, drain or maint - until HAProxy's next reload", pos: []argKind{argBackend, argServer, argServerState}, required: 3},
+		{name: "reload", help: "reload HAProxy seamlessly: haproxy.cfg and its files read again, the runtime changes (server-state, map-set, acl-add) gone"},
 		{name: "get-config", help: "the running haproxy.cfg, or a version of its history", flags: []flagDef{valFlag("version", "ID", "this version of config-history instead", argNone)}},
 		{name: "apply-config", args: "FILE", help: "validate, apply and reload seamlessly", pos: []argKind{argFile}, required: 1},
 		{name: "config-history", help: "the configurations applied: who, when, lines changed", flags: []flagDef{valFlag("limit", "N", "the newest N only", argNone)}},

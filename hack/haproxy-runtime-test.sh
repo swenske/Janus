@@ -274,8 +274,8 @@ ctl haproxy backends > /dev/null || fail "show stat doesn't parse"
 
 # A server out of the traffic and back (ServerSetState, janusctl haproxy
 # server-state): what haproxy backends shows, a reader refused, a server
-# or a state that isn't one refused - and left in maint for the history's
-# reload below, which takes haproxy.cfg's state again.
+# or a state that isn't one refused - and in maint, a reload (Reload,
+# janusctl haproxy reload) takes haproxy.cfg's state again.
 # HAProxy's status, lowercased - "no check", "drain", "maint"...
 srv_state() { ctl haproxy backends | awk '$1 == "silent" && $2 == "never" {$1 = $2 = $3 = ""; sub(/^ +/, ""); print}'; }
 configured="$(srv_state)"
@@ -286,6 +286,9 @@ if reader haproxy server-state silent never maint 2>/dev/null; then fail "a read
 if ctl haproxy server-state silent nobody maint 2>/dev/null; then fail "a server that doesn't exist took a state"; fi
 if ctl haproxy server-state silent never up 2>/dev/null; then fail "server-state took a state that isn't one"; fi
 ctl haproxy server-state silent never maint | grep -q '^silent/never: maint - ' || fail "server-state maint didn't answer maint: $(srv_state)"
+if reader haproxy reload 2>/dev/null; then fail "a reader reloaded HAProxy"; fi
+ctl haproxy reload | grep -q '^HAProxy reloaded' || fail "haproxy reload didn't say it reloaded"
+[ "$(srv_state)" = "$configured" ] || fail "after haproxy reload, the server in maint reads $(srv_state), not haproxy.cfg's $configured"
 
 # --- the configuration's history ---
 # The one apply-config above, of the file janusd started with: version 1.
@@ -296,7 +299,6 @@ hist() { ctl haproxy config-history | awk 'NR > 1 && $1 ~ /^[0-9]+$/'; }
 [ "$(hist | wc -l)" = 1 ] || fail "after one apply, the history isn't one version: $(ctl haproxy config-history)"
 sed 's/^global$/global\n    # a change for the history/' "$WORKDIR/first.cfg" > "$WORKDIR/changed.cfg"
 ctl haproxy apply-config "$WORKDIR/changed.cfg" > /dev/null || fail "the changed configuration was refused"
-[ "$(srv_state)" = "$configured" ] || fail "after a reload, the server in maint reads $(srv_state), not haproxy.cfg's $configured"
 hist | head -1 | grep -qE '^2 .* \+1 -0 .*running' || fail "version 2 isn't the newest, +1 -0, running: $(ctl haproxy config-history)"
 ctl haproxy get-config -version 1 | cmp -s - "$WORKDIR/first.cfg" || fail "get-config -version 1 isn't the first configuration"
 ctl haproxy config-revert 1 > /dev/null || fail "config-revert 1 failed"

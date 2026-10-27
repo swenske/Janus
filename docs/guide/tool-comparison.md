@@ -84,7 +84,7 @@ and no META partition.
 | `ApplyConfig` - check, write, reload without dropping connections | `haproxy apply-config` | - | HAProxy › Configuration | ✅ |
 | `ConfigHistory`, `ConfigVersion` - the configurations applied before; `ApplyConfig` of one, going back | `haproxy config-history`, `get-config -version`, `config-revert` | - | HAProxy › Configuration › History | - |
 | `ValidateConfig` - check only | - | - | HAProxy › Configuration | - |
-| `Reload` - a seamless reload | - | ✅ | HAProxy | - |
+| `Reload` - a seamless reload | `haproxy reload` | ✅ | HAProxy | - |
 | `Stats` - `show stat` | `haproxy stats` | ✅ | HAProxy › Status | - |
 | `ShowInfo` - version, uptime, connections | `haproxy show-info` | ✅ | HAProxy › Status | - |
 | `BackendList` - backends, servers, states | `haproxy backends` | - | HAProxy › Backends | - |
@@ -211,6 +211,4 @@ follows the machine.
 
 Only `janusctl` installs onto a blank disk (`lifecycle install`), rolls
 back (`lifecycle rollback`) and forgets a fleet (`access trust-reset`).
-It has no command to reload HAProxy alone: the TUI and the Controller
-do. Only the Controller checks a haproxy.cfg without
-applying it.
+Only the Controller checks a haproxy.cfg without applying it.

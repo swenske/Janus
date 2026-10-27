@@ -38,7 +38,8 @@ A subdirectory can serve as a `crt` directory (`crt
   removed, but its content never leaves the node.
 - Writing a file doesn't change the running HAProxy by itself: ask for a
   reload with it (`-reload`, or the checkbox in the Controller), or reload
-  later.
+  later (`janusctl haproxy reload`, **Reload** on the Controller's
+  HAProxy page).
 
 ## janusctl
 

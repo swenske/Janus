@@ -641,6 +641,14 @@ Set a server ready, drain or maint - until HAProxy's next reload.
 janusctl haproxy server-state BACKEND SERVER ready|drain|maint
 ```
 
+#### janusctl haproxy reload
+
+Reload HAProxy seamlessly: haproxy.cfg and its files read again, the runtime changes (server-state, map-set, acl-add) gone.
+
+```text
+janusctl haproxy reload
+```
+
 #### janusctl haproxy get-config
 
 The running haproxy.cfg, or a version of its history.

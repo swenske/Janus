@@ -136,6 +136,11 @@ janusctl -n edge-1 haproxy backends            # check it took
 - `haproxy map-set`, `map-delete`, `acl-add` and `acl-delete` change
   the running HAProxy only: the next reload reads the file again. To
   keep a change, also write the file (`file-get`, edit, `file-put`).
+- `haproxy reload` reloads HAProxy seamlessly with haproxy.cfg and its
+  files as saved - after a `file-put` without `-reload`, say. It undoes
+  what `server-state`, `map-set` and `acl-add` changed: look at
+  `haproxy backends` first, and tell the user if a server they drained
+  would take traffic again.
 - A server out of the traffic: `janusctl -n edge-1 haproxy server-state app app1 drain`
   (new clients go to the other servers, the current ones finish;
   `maint` takes it out altogether), `ready` puts it back,

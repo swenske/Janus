@@ -77,6 +77,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl haproxy stats` - reads - raw 'show stat' CSV
 - `janusctl haproxy backends` - reads - backends, their servers and states
 - `janusctl haproxy server-state BACKEND SERVER ready|drain|maint` - **changes** - set a server ready, drain or maint - until HAProxy's next reload. Drain and maint take the server out of the traffic; HAProxy's next reload (apply-config, file-put -reload...) takes haproxy.cfg's state again
+- `janusctl haproxy reload` - **changes** - reload HAProxy seamlessly: haproxy.cfg and its files read again, the runtime changes (server-state, map-set, acl-add) gone. Seamless, but what server-state, map-set and acl-add changed is gone: a drained server takes traffic again - check haproxy backends first
 - `janusctl haproxy get-config [-version ID]` - reads - the running haproxy.cfg, or a version of its history
 - `janusctl haproxy apply-config FILE` - **changes** - validate, apply and reload seamlessly. Validated on the node first, reloaded without dropping connections
 - `janusctl haproxy config-history [-limit N]` - reads - the configurations applied: who, when, lines changed

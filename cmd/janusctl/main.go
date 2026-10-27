@@ -1019,6 +1019,20 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 		}
 		fmt.Printf("%s/%s: %s - until HAProxy's next reload, which takes haproxy.cfg's state again\n", args[1], args[2], now)
 
+	case "reload":
+		if len(args) != 1 {
+			fmt.Fprintln(os.Stderr, "usage: janusctl haproxy reload")
+			os.Exit(2)
+		}
+		c, cancel := ctx()
+		defer cancel()
+		resp, err := client.Reload(c, &emptypb.Empty{})
+		check("Reload", err)
+		if !resp.GetSuccess() {
+			log.Fatalf("HAProxy didn't reload: %s", firstOr(resp.GetMessage(), "no reason given"))
+		}
+		fmt.Println("HAProxy reloaded: a new process serves haproxy.cfg and its files as saved - server-state, map-set and acl-add changes are gone")
+
 	case "get-config":
 		fs := flag.NewFlagSet("haproxy get-config", flag.ExitOnError)
 		version := fs.Uint64("version", 0, "this version of config-history instead")
