@@ -605,6 +605,7 @@ session exporting a `haproxy_*` static route, HAProxy on IPv6.
 | The configuration in place | each node's `/128` flags (`/proc/net/if_inet6`: nodad, dadfailed, tentative); the router's routes to it, the sessions, BFD |
 | A backend VM asking the anycast address through the router every 50 ms for 30 s, node 01's HAProxy stopped 8 s in the middle | failed requests, outages, which node answered |
 | The rolling update with it in place | it survives the update (both nodes' configuration kept) |
+| Since v2026.10.26-3: each node's own TCP connections to a backend address the source rule ties on (as few leading bits shared with the nodes' `/64` as with the anycast prefix), routed by the router | the connecting socket's local address; failed connections |
 
 Set on the newest release first, then measured again once the rolling
 update took both nodes to the pre-release.
@@ -703,3 +704,5 @@ ran:
   IPv6 anycast test's router and nodes (`apply`, `revert`) and its
   measure; `rolling` with `BGP=` a directory of `bird.conf` files, its
   drain withdrawing every `haproxy_anycast*` route (v2026.10.26-2).
+- `v6-check` also probes the nodes' own IPv6 connections and reads
+  their local address (v2026.10.26-3).
