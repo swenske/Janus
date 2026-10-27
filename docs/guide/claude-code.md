@@ -97,9 +97,9 @@ The full list is the skill's
 ## What Claude may do
 
 Claude Code asks before each janusctl command you haven't allowed, and
-the skill tells Claude what to leave to you - but the guard that holds
-is the certificate's role: every node checks it on every call and logs
-who acted.
+the skill tells Claude what to leave to you. What a node lets Claude do
+is its certificate's role: every node checks it on every call and logs
+who acted - as long as Claude can reach no other certificate.
 
 ### The role it needs
 
@@ -128,10 +128,34 @@ to investigate, an operator to run HAProxy:
    }
    ```
 
-janusctl run by Claude then sees that context only, and each node
-refuses what its role doesn't allow, whatever Claude tries. A
+Claude's janusctl commands then use that context - `janusctl context list`
+shows it alone - and each node refuses what its role doesn't allow. A
 certificate approved on the Controller's page can carry a lower role
 too ([janusctl on the Controller](../../dashboard/README.md#janusctl)).
+
+### Your other credentials out of reach
+
+A configuration of its own isn't a lock: your other contexts are still
+on the disk, readable by anything that runs as you - Claude's commands
+too: `JANUSCONFIG=~/.config/janus/janusctl.json janusctl ...` would use
+them. Claude Code asks you before such a command - an allow rule doesn't
+match past the assignment of a variable it doesn't know, and
+`~/.config/janus` is outside the working directory - and the skill tells
+Claude never to work around a refusal. Those are safeguards. For a
+boundary, run Claude Code where your other credentials aren't:
+
+- **An account of its own** on the machine, holding the context with the
+  lower role only - signed in from that account, its SSH key in that
+  account's ssh-agent - and Claude Code started as that account.
+  `JANUSCONFIG` isn't needed there.
+- **A container or a virtual machine** with Claude Code, janusctl and that
+  configuration only - a dev container, say.
+
+Claude Code's own [sandbox](https://code.claude.com/docs/en/sandboxing.md)
+can hide a directory from its commands, but janusctl doesn't work in it
+yet: the sandbox lets commands out through its proxy only, and
+janusctl's connections to the Controller - the certificate's renewal,
+the list of nodes - don't use it.
 
 ### The critical commands, always asked
 
@@ -177,8 +201,8 @@ repository's `.claude/settings.json`:
 }
 ```
 
-A rule matches the command as written: it's a safety net, the role is
-the boundary.
+A rule matches the command as written: it's a safety net. The boundary
+is the role, with your other credentials out of reach.
 
 ## Keeping it current
 
