@@ -78,7 +78,7 @@ if readelf -l /out/usr/local/sbin/nft | grep -q INTERP; then echo "nft isn't sta
 if readelf -rW /out/usr/local/sbin/nft | grep -Eq 'R_X86_64_TPOFF|R_AARCH64_TLS_TPREL'; then echo "nft has TLS relocations a static PIE doesn't apply" >&2; exit 1; fi
 SCRIPT
 
-FROM --platform=linux/amd64 alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS build
+FROM --platform=linux/amd64 alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS build
 RUN apk add --no-cache build-base linux-headers pkgconf bison flex
 COPY --from=fetch /src /src
 RUN STRIP=strip /src/build.sh
