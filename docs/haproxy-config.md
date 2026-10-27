@@ -16,6 +16,15 @@ backend, however many there are:
 
 ![The Backends tab: the app backend's two servers, app1 and app2, up, each with Ready - marked, the state they have -, Drain and Maint](assets/screenshots/node-haproxy-backends-light.webp)
 
+The same from a terminal: `janusctl -n lb1 haproxy backends`, then
+`janusctl -n lb1 haproxy server-state app app1 drain` - `ready` puts it
+back. Drain sends new clients to the other servers and lets the current
+ones finish; maint takes the server out altogether, its health checks
+stopped. Either holds until HAProxy's next reload (a configuration
+applied, a file put with `-reload`, `janusctl haproxy reload`), which
+takes haproxy.cfg's state again: a server to keep out has `disabled` on
+its line.
+
 **Monitoring › Traffic flow** draws what the configuration does, live:
 the node's interfaces, HAProxy, each frontend linked to the backends its
 `default_backend` and `use_backend` rules send to - a map's values too,

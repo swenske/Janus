@@ -31,6 +31,7 @@ Install, configure and operate Janus nodes and the Controller.
 
 - [Using janusctl](janusctl.md)
 - [janusctl reference](guide/janusctl-reference.md)
+- [With Claude Code](guide/claude-code.md)
 - [A fleet without a Controller](fleet-without-controller.md)
 
 ### HAProxy

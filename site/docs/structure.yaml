@@ -44,6 +44,7 @@ topics:
             pages:
               - { file: docs/janusctl.md, title: Using janusctl, label: Using janusctl }
               - { file: docs/guide/janusctl-reference.md, label: janusctl reference }
+              - { file: docs/guide/claude-code.md, label: With Claude Code }
               - { file: docs/fleet-without-controller.md, label: A fleet without a Controller }
           - label: HAProxy
             pages:

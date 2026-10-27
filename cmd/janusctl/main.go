@@ -992,6 +992,47 @@ func runHAProxy(conn *grpc.ClientConn, args []string) {
 		}
 		tw.Flush()
 
+	case "server-state":
+		var state janusv1alpha1.ServerSetStateRequest_State
+		ok := len(args) == 4
+		if ok {
+			state, ok = serverStateNames[args[3]]
+		}
+		if !ok {
+			fmt.Fprintln(os.Stderr, "usage: janusctl haproxy server-state BACKEND SERVER ready|drain|maint")
+			os.Exit(2)
+		}
+		c, cancel := ctx()
+		defer cancel()
+		_, err := client.ServerSetState(c, &janusv1alpha1.ServerSetStateRequest{Backend: args[1], Server: args[2], State: state})
+		check("ServerSetState", err)
+		// What HAProxy reports now, as haproxy backends shows it.
+		now := args[3]
+		if resp, err := client.BackendList(c, &emptypb.Empty{}); err == nil {
+			for _, b := range resp.GetBackends() {
+				for _, sv := range b.GetServers() {
+					if b.GetName() == args[1] && sv.GetName() == args[2] {
+						now = sv.GetState()
+					}
+				}
+			}
+		}
+		fmt.Printf("%s/%s: %s - until HAProxy's next reload, which takes haproxy.cfg's state again\n", args[1], args[2], now)
+
+	case "reload":
+		if len(args) != 1 {
+			fmt.Fprintln(os.Stderr, "usage: janusctl haproxy reload")
+			os.Exit(2)
+		}
+		c, cancel := ctx()
+		defer cancel()
+		resp, err := client.Reload(c, &emptypb.Empty{})
+		check("Reload", err)
+		if !resp.GetSuccess() {
+			log.Fatalf("HAProxy didn't reload: %s", firstOr(resp.GetMessage(), "no reason given"))
+		}
+		fmt.Println("HAProxy reloaded: a new process serves haproxy.cfg and its files as saved - server-state, map-set and acl-add changes are gone")
+
 	case "get-config":
 		fs := flag.NewFlagSet("haproxy get-config", flag.ExitOnError)
 		version := fs.Uint64("version", 0, "this version of config-history instead")

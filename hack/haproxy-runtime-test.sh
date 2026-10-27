@@ -7,9 +7,9 @@
 # runtime diagnostics (runtime_tables.go, runtime_sessions.go,
 # runtime_errors.go): a stick table filled by real requests and cleared,
 # a stream held by a server that never answers and shut down, an invalid
-# request carrying credentials, map/ACL lookups; and the configuration's
-# history (history.go): versions, a reload that isn't one, going back, a
-# reader's masked versions. Run once per HAProxy
+# request carrying credentials, map/ACL lookups, a server's state; and
+# the configuration's history (history.go): versions, a reload that isn't
+# one, going back, a reader's masked versions. Run once per HAProxy
 # branch an image can carry (variants.mk): the runtime API's answers
 # changed between branches before.
 #
@@ -271,6 +271,24 @@ if reader haproxy table-clear diag -all 2>/dev/null; then fail "a reader cleared
 # parse on this branch.
 ctl haproxy show-info | grep -q "$("$HAPROXY" -v | head -1 | awk '{print $3}')" || fail "show-info doesn't report this HAProxy's version"
 ctl haproxy backends > /dev/null || fail "show stat doesn't parse"
+
+# A server out of the traffic and back (ServerSetState, janusctl haproxy
+# server-state): what haproxy backends shows, a reader refused, a server
+# or a state that isn't one refused - and in maint, a reload (Reload,
+# janusctl haproxy reload) takes haproxy.cfg's state again.
+# HAProxy's status, lowercased - "no check", "drain", "maint"...
+srv_state() { ctl haproxy backends | awk '$1 == "silent" && $2 == "never" {$1 = $2 = $3 = ""; sub(/^ +/, ""); print}'; }
+configured="$(srv_state)"
+ctl haproxy server-state silent never drain | grep -q '^silent/never: drain - ' || fail "server-state drain didn't answer drain: $(srv_state)"
+ctl haproxy server-state silent never ready > /dev/null || fail "server-state ready was refused"
+[ "$(srv_state)" = "$configured" ] || fail "ready, the server reads $(srv_state), not $configured"
+if reader haproxy server-state silent never maint 2>/dev/null; then fail "a reader set a server's state"; fi
+if ctl haproxy server-state silent nobody maint 2>/dev/null; then fail "a server that doesn't exist took a state"; fi
+if ctl haproxy server-state silent never up 2>/dev/null; then fail "server-state took a state that isn't one"; fi
+ctl haproxy server-state silent never maint | grep -q '^silent/never: maint - ' || fail "server-state maint didn't answer maint: $(srv_state)"
+if reader haproxy reload 2>/dev/null; then fail "a reader reloaded HAProxy"; fi
+ctl haproxy reload | grep -q '^HAProxy reloaded' || fail "haproxy reload didn't say it reloaded"
+[ "$(srv_state)" = "$configured" ] || fail "after haproxy reload, the server in maint reads $(srv_state), not haproxy.cfg's $configured"
 
 # --- the configuration's history ---
 # The one apply-config above, of the file janusd started with: version 1.

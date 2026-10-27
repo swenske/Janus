@@ -92,6 +92,17 @@ Sign in to your Janus Controller once (`janusctl login`); janusctl then
 reaches its nodes directly - or keeps a fleet itself, without a
 Controller: [docs/janusctl.md](docs/janusctl.md#using-janusctl).
 
+### With Claude Code
+
+This repository is a Claude Code plugin marketplace: its janusctl skill
+has Claude drive your nodes with janusctl - reading freely, changing
+what you ask the safe way, nothing critical without your word
+([docs/guide/claude-code.md](docs/guide/claude-code.md)):
+
+```text
+/plugin install janusctl --marketplace swenske/Janus
+```
+
 ## Repository layout
 
 - `api/proto/janus/v1alpha1/` - the gRPC contract (source of truth).
@@ -102,6 +113,8 @@ Controller: [docs/janusctl.md](docs/janusctl.md#using-janusctl).
 - `dashboard/` - **Janus Controller**, the management dashboard (web UI
   for one or more nodes). See [`dashboard/README.md`](dashboard/README.md)
   to build and run it locally.
+- `claude-code/` - the Claude Code plugin (the janusctl skill), offered by
+  `.claude-plugin/marketplace.json`.
 - `hack/` - local dev tooling (QEMU test harness).
 
 ## Building the control plane

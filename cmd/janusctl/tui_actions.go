@@ -155,6 +155,13 @@ func (m *modal) render(f *termui.Frame) {
 
 var serverStates = []janusv1alpha1.ServerSetStateRequest_State{janusv1alpha1.ServerSetStateRequest_STATE_READY, janusv1alpha1.ServerSetStateRequest_STATE_DRAIN, janusv1alpha1.ServerSetStateRequest_STATE_MAINT}
 
+// serverStateNames are haproxy server-state's words for them.
+var serverStateNames = map[string]janusv1alpha1.ServerSetStateRequest_State{
+	"ready": janusv1alpha1.ServerSetStateRequest_STATE_READY,
+	"drain": janusv1alpha1.ServerSetStateRequest_STATE_DRAIN,
+	"maint": janusv1alpha1.ServerSetStateRequest_STATE_MAINT,
+}
+
 func serverAction(sv serverRow) action {
 	name := sv.backend + "/" + sv.server
 	return action{

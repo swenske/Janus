@@ -443,6 +443,30 @@ func onlineCandidates(c context.Context, conn *grpc.ClientConn, kind argKind, pr
 		for _, x := range resp.GetCertificates() {
 			out = append(out, candidate{x.GetName(), "until " + x.GetNotAfter()})
 		}
+	case argBackend:
+		resp, err := hap.BackendList(c, &emptypb.Empty{})
+		if err != nil {
+			return nil, nil
+		}
+		for _, b := range resp.GetBackends() {
+			out = append(out, candidate{b.GetName(), fmt.Sprintf("%d servers", len(b.GetServers()))})
+		}
+	case argServer:
+		if len(prior) == 0 {
+			return nil, nil
+		}
+		resp, err := hap.BackendList(c, &emptypb.Empty{})
+		if err != nil {
+			return nil, nil
+		}
+		for _, b := range resp.GetBackends() {
+			if b.GetName() != prior[len(prior)-1] {
+				continue
+			}
+			for _, sv := range b.GetServers() {
+				out = append(out, candidate{sv.GetName(), sv.GetState() + ", " + sv.GetAddress()})
+			}
+		}
 	case argStickTable:
 		resp, err := hap.TableList(c, &emptypb.Empty{})
 		if err != nil {
