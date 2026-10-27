@@ -1,0 +1,17 @@
+{
+  "name": "janus",
+  "description": "Claude Code plugins for Janus, the immutable HAProxy appliance",
+  "owner": {
+    "name": "Sebastien WENSKE",
+    "url": "https://github.com/swenske"
+  },
+  "plugins": [
+    {
+      "name": "janusctl",
+      "source": "./claude-code/janusctl",
+      "description": "Drive Janus nodes with janusctl: read their state, logs, HAProxy and network, and change them the safe way",
+      "category": "devops",
+      "tags": ["haproxy", "janus", "load-balancer", "networking"]
+    }
+  ]
+}

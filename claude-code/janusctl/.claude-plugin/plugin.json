@@ -1,0 +1,12 @@
+{
+  "name": "janusctl",
+  "description": "Drive Janus nodes with janusctl: read their state, logs, HAProxy and network, and change them the safe way",
+  "author": {
+    "name": "Sebastien WENSKE",
+    "url": "https://github.com/swenske"
+  },
+  "homepage": "https://janus.sw-servers.net/docs/guide/claude-code/",
+  "repository": "https://github.com/swenske/Janus",
+  "license": "MIT",
+  "keywords": ["haproxy", "janus", "janusctl", "load-balancer"]
+}
