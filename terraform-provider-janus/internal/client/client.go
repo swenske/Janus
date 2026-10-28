@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -580,3 +581,74 @@ func (c *Client) WaitCluster(ctx context.Context, id string, done func(*Cluster)
 
 // Idle reports whether no operation runs on the cluster.
 func (cl *Cluster) Idle() bool { return !cl.Busy && cl.Phase == "" }
+
+// --- the image factory's catalog ---
+
+// CatalogEntry is one extension the Controller's image factory builds.
+type CatalogEntry struct {
+	Name     string   `json:"name"`
+	Replaces []string `json:"replaces,omitempty"`
+	// Requires lists the extensions this one only works with.
+	Requires []string `json:"requires,omitempty"`
+}
+
+// Catalog is what the Controller's "create a node" form offers (GET
+// /api/catalog): the image factory's extensions, from its release
+// CatalogVersion.
+type Catalog struct {
+	CatalogVersion string         `json:"catalog_version"`
+	Extensions     []CatalogEntry `json:"extensions"`
+	CatalogError   string         `json:"catalog_error"`
+}
+
+// Catalog asks the Controller what its image factory builds.
+func (c *Client) Catalog(ctx context.Context) (*Catalog, error) {
+	var out Catalog
+	if err := c.do(ctx, http.MethodGet, "/api/catalog", nil, &out); err != nil {
+		return nil, err
+	}
+	if out.CatalogError != "" {
+		return nil, errors.New(out.CatalogError)
+	}
+	return &out, nil
+}
+
+// CheckRequirements says whether exts names every extension each of them
+// requires - by its name, or one it had before - with the message the
+// image factory and the Controller give (internal/schematic's
+// RequirementError: this module doesn't import the Controller's).
+func (c *Catalog) CheckRequirements(exts []string) error {
+	lookup := func(name string, former bool) (CatalogEntry, bool) {
+		for _, e := range c.Extensions {
+			if e.Name == name || (former && slices.Contains(e.Replaces, name)) {
+				return e, true
+			}
+		}
+		return CatalogEntry{}, false
+	}
+	names := slices.Clone(exts)
+	slices.Sort(names)
+	for _, name := range slices.Compact(names) {
+		e, ok := lookup(name, false)
+		if !ok {
+			continue
+		}
+		for _, req := range e.Requires {
+			want, ok := lookup(req, false)
+			if !ok {
+				want, ok = lookup(req, true)
+			}
+			if !ok {
+				release := "this build (variants.mk)"
+				if c.CatalogVersion != "" {
+					release = "Janus " + c.CatalogVersion
+				}
+				return fmt.Errorf("extension %q requires the %q extension, which %s doesn't offer", name, req, release)
+			}
+			if !slices.ContainsFunc(names, func(x string) bool { return x == want.Name || slices.Contains(want.Replaces, x) }) {
+				return fmt.Errorf("extension %q requires the %q extension: choose it too", name, want.Name)
+			}
+		}
+	}
+	return nil
+}

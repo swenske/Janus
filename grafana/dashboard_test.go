@@ -71,21 +71,24 @@ var extensionColumns = []string{"bird", "consul", "keepalived", "letsencrypt", "
 
 // The metrics janusd exports that neither dashboard shows, and why.
 var notShown = map[string]string{
-	"janus_haproxy_starts_total":                   "reloads and crashes are shown apart; the rest are boots",
-	"janus_haproxy_restarts_total":                 "crashes are shown: janusd starts HAProxy again after each",
-	"janus_network_trial_revert_timestamp_seconds": "the trial itself is shown (Awaiting confirmation)",
-	"janus_firewall_configured":                    "the firewall's sets are shown",
-	"janus_time_stratum":                           "the offset and the last synchronization say more",
-	"janus_bgp_protocol_up":                        "the BGP sessions and the held-down protocols are shown",
-	"janus_logs_volume_size_bytes":                 "what's lost on LOGS is shown; its size is the node's own",
-	"janus_logs_volume_written_bytes_total":        "what's lost on LOGS is shown; what's written is the node's own",
-	"janus_logship_records_sent_total":             "what log targets lose is shown; what they get is in the target",
-	"janus_logship_bytes_sent_total":               "what log targets lose is shown; what they get is in the target",
-	"janus_logship_send_errors_total":              "the targets failing are shown; each error is retried",
-	"janus_console_budget_bytes_per_second":        "a node's own setting (the Console card), not a signal",
-	"janus_console_budget_burst_bytes":             "a node's own setting, not a signal",
-	"janus_console_lines_left_out_total":           "by design under load: the lines are in the service's log, the LOGS partition and the targets",
-	"janus_logship_queued_records":                 "what log targets lose is shown; their queue is the node's own",
+	"janus_haproxy_starts_total":                       "reloads and crashes are shown apart; the rest are boots",
+	"janus_haproxy_restarts_total":                     "crashes are shown: janusd starts HAProxy again after each",
+	"janus_network_trial_revert_timestamp_seconds":     "the trial itself is shown (Awaiting confirmation)",
+	"janus_firewall_configured":                        "the firewall's sets are shown",
+	"janus_time_stratum":                               "the offset and the last synchronization say more",
+	"janus_bgp_protocol_up":                            "the BGP sessions and the held-down protocols are shown",
+	"janus_logs_volume_size_bytes":                     "what's lost on LOGS is shown; its size is the node's own",
+	"janus_logs_volume_written_bytes_total":            "what's lost on LOGS is shown; what's written is the node's own",
+	"janus_logship_records_sent_total":                 "what log targets lose is shown; what they get is in the target",
+	"janus_logship_bytes_sent_total":                   "what log targets lose is shown; what they get is in the target",
+	"janus_logship_send_errors_total":                  "the targets failing are shown; each error is retried",
+	"janus_console_budget_bytes_per_second":            "a node's own setting (the Console card), not a signal",
+	"janus_console_budget_burst_bytes":                 "a node's own setting, not a signal",
+	"janus_console_lines_left_out_total":               "by design under load: the lines are in the service's log, the LOGS partition and the targets",
+	"janus_logship_queued_records":                     "what log targets lose is shown; their queue is the node's own",
+	"janus_vrrp_instance_left_master_total":            "each change of state is on the VRRP instances timeline",
+	"janus_vrrp_instance_priority_zero_sent_total":     "a master giving its addresses up: on the VRRP instances timeline",
+	"janus_vrrp_instance_priority_zero_received_total": "a master giving its addresses up: on the VRRP instances timeline",
 }
 
 // q is one query. Range queries draw over time, instant ones are the
@@ -638,6 +641,28 @@ func dashboard() obj {
 				legend: "{{instance}} · {{exported_instance}}"},
 		}, "none"))
 	defaults(prio)["decimals"] = 0
+	b.y += 6
+	adverts := b.add(timeseries("VRRP advertisements",
+		"Advertisements each VRRP instance sends and receives per second (keepalived's own counters): a master "+
+			"sends one every advert_int, its backups receive them. Received flat on every node of a pair: they "+
+			"don't hear each other (split brain).",
+		b.pos(6, 12, 0), []q{
+			{ref: "A", expr: "sum by (instance, exported_instance) (rate(janus_vrrp_instance_adverts_sent_total{" + sel + "}[$__rate_interval]))",
+				legend: "{{instance}} · {{exported_instance}} sent"},
+			{ref: "B", expr: "sum by (instance, exported_instance) (rate(janus_vrrp_instance_adverts_received_total{" + sel + "}[$__rate_interval]))",
+				legend: "{{instance}} · {{exported_instance}} received"},
+		}, "pps"))
+	defaults(adverts)["min"] = 0
+	advertErrs := b.add(timeseries("VRRP advert errors",
+		"VRRP packets with an error each instance received, by error: packet_length, ttl (not 255: routed), "+
+			"packet_type, authentication_type - dropped -, address_list (other virtual addresses than its "+
+			"own). Nothing drawn: no error.",
+		b.pos(6, 12, 12), []q{
+			{ref: "A", expr: "sum by (instance, exported_instance, error) (increase(janus_vrrp_instance_advert_errors_total{" + sel + "}[$__rate_interval])) > 0",
+				legend: "{{instance}} · {{exported_instance}} {{error}}"},
+			{ref: "Z", expr: "0 * count(" + up + ")", legend: "baseline"},
+		}, "none", hideBaseline))
+	defaults(advertErrs)["min"] = 0
 	b.y += 6
 	b.add(timeline("BGP sessions",
 		"Each BGP session ([BGP]("+docs+"bgp.md), the bird extension), and each haproxy_* protocol janusd "+

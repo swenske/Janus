@@ -3477,6 +3477,241 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
+          "description": "Advertisements each VRRP instance sends and receives per second (keepalived's own counters): a master sends one every advert_int, its backups receive them. Received flat on every node of a pair: they don't hear each other (split brain).",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisPlacement": "auto",
+                "barAlignment": -1,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "pps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 0,
+            "y": 78
+          },
+          "id": 29,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (instance, exported_instance) (rate(janus_vrrp_instance_adverts_sent_total{job=\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{exported_instance}} sent",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (instance, exported_instance) (rate(janus_vrrp_instance_adverts_received_total{job=\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{exported_instance}} received",
+              "range": true,
+              "refId": "B"
+            }
+          ],
+          "title": "VRRP advertisements",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "VRRP packets with an error each instance received, by error: packet_length, ttl (not 255: routed), packet_type, authentication_type - dropped -, address_list (other virtual addresses than its own). Nothing drawn: no error.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisPlacement": "auto",
+                "barAlignment": -1,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "Z"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": true,
+                      "viz": false
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 12,
+            "y": 78
+          },
+          "id": 30,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (instance, exported_instance, error) (increase(janus_vrrp_instance_advert_errors_total{job=\"$job\", instance=~\"$instance\"}[$__rate_interval])) > 0",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{exported_instance}} {{error}}",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "0 * count(up{job=\"$job\", instance=~\"$instance\"})",
+              "instant": false,
+              "legendFormat": "baseline",
+              "range": true,
+              "refId": "Z"
+            }
+          ],
+          "title": "VRRP advert errors",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
           "description": "Each BGP session ([BGP](https://janus.sw-servers.net/docs/bgp.md), the bird extension), and each haproxy_* protocol janusd holds down while HAProxy doesn't answer.",
           "fieldConfig": {
             "defaults": {
@@ -3552,9 +3787,9 @@
             "h": 6,
             "w": 12,
             "x": 0,
-            "y": 78
+            "y": 84
           },
-          "id": 29,
+          "id": 31,
           "maxDataPoints": 500,
           "options": {
             "alignValue": "left",
@@ -3666,9 +3901,9 @@
             "h": 6,
             "w": 12,
             "x": 12,
-            "y": 78
+            "y": 84
           },
-          "id": 30,
+          "id": 32,
           "options": {
             "legend": {
               "calcs": [],
@@ -3764,9 +3999,9 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 84
+            "y": 90
           },
-          "id": 31,
+          "id": 33,
           "options": {
             "legend": {
               "calcs": [],

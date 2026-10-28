@@ -37,6 +37,105 @@ func TestParseJSON(t *testing.T) {
 	}
 }
 
+// keepalived 2.4.3's own dumps (the extension's build), from two
+// enforcing nodes of hack/qemu-vrrp-test.sh (VRRP_DUMP_DIR) after a
+// failover and a failback: A master, B backup.
+func TestParseJSONKeepalived243(t *testing.T) {
+	read := func(name string) Instance {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		in, err := ParseJSON(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(in) != 1 || in[0].Name != "VI_1" || in[0].Interface != "eth1" || in[0].VRID != 51 {
+			t.Fatalf("%s: %+v", name, in)
+		}
+		return in[0]
+	}
+	val := func(p *uint64) uint64 {
+		t.Helper()
+		if p == nil {
+			t.Fatal("a counter keepalived 2.4.3 reports is missing")
+		}
+		return *p
+	}
+	errs := func(in Instance) {
+		t.Helper()
+		// Every error the build counts, nothing it doesn't: no
+		// advert_interval_err (never counted), no authentication counter
+		// (--disable-vrrp-auth).
+		if len(in.Counters.AdvertErrors) != len(AdvertErrorNames) {
+			t.Fatalf("advert errors %v", in.Counters.AdvertErrors)
+		}
+		for _, e := range AdvertErrorNames {
+			if v, ok := in.Counters.AdvertErrors[e.Name]; !ok || v != 0 {
+				t.Fatalf("advert error %s: %d, %v", e.Name, v, ok)
+			}
+		}
+	}
+
+	// A, priority 150: master, then FAULT (its HAProxy stopped - B
+	// took over and A heard B's adverts), then master again.
+	a := read("keepalived-2.4.3-master.json")
+	if a.State != "MASTER" || a.EffectivePriority != 150 || len(a.VirtualIPs) != 1 || a.VirtualIPs[0] != "192.168.77.100/24" {
+		t.Fatalf("master %+v", a)
+	}
+	c := a.Counters
+	if a.BecameMaster != 2 || val(c.LeftMaster) != 1 || val(c.AdvertsSent) != 8 || val(c.AdvertsReceived) != 4 ||
+		val(c.PriorityZeroSent) != 1 || val(c.PriorityZeroReceived) != 0 {
+		t.Fatalf("master: became %d, left %d, sent %d, received %d, priority 0 sent %d, received %d", a.BecameMaster,
+			val(c.LeftMaster), val(c.AdvertsSent), val(c.AdvertsReceived), val(c.PriorityZeroSent), val(c.PriorityZeroReceived))
+	}
+	errs(a)
+
+	// B, priority 100: backup, master while A was in FAULT, backup again.
+	// A gave the addresses up with two priority 0 adverts and counted one
+	// (keepalived counts the one sent when it restores the interface, not
+	// the one sent entering FAULT).
+	b := read("keepalived-2.4.3-backup.json")
+	if b.State != "BACKUP" || b.EffectivePriority != 100 {
+		t.Fatalf("backup %+v", b)
+	}
+	c = b.Counters
+	if b.BecameMaster != 1 || val(c.LeftMaster) != 1 || val(c.AdvertsSent) != 9 || val(c.AdvertsReceived) != 8 ||
+		val(c.PriorityZeroSent) != 0 || val(c.PriorityZeroReceived) != 2 {
+		t.Fatalf("backup: became %d, left %d, sent %d, received %d, priority 0 sent %d, received %d", b.BecameMaster,
+			val(c.LeftMaster), val(c.AdvertsSent), val(c.AdvertsReceived), val(c.PriorityZeroSent), val(c.PriorityZeroReceived))
+	}
+	errs(b)
+}
+
+// A counter the dump doesn't carry is nil - never a 0 -, and a value of
+// another kind costs that counter only.
+func TestParseJSONCounters(t *testing.T) {
+	in, err := ParseJSON([]byte(`[{"data":{"iname":"VI_1","state":1},"stats":{"advert_rcvd":7,"advert_sent":"x","become_master":2,"ip_ttl_err":3,"auth_failure":9}}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := in[0].Counters
+	if c.AdvertsReceived == nil || *c.AdvertsReceived != 7 || in[0].BecameMaster != 2 {
+		t.Fatalf("%+v", in[0])
+	}
+	if c.AdvertsSent != nil || c.LeftMaster != nil || c.PriorityZeroSent != nil || c.PriorityZeroReceived != nil {
+		t.Fatalf("absent or malformed counters read: %+v", c)
+	}
+	if len(c.AdvertErrors) != 1 || c.AdvertErrors["ttl"] != 3 {
+		t.Fatalf("advert errors %v", c.AdvertErrors)
+	}
+	// An older dump without "stats" at all.
+	in, err = ParseJSON([]byte(`[{"data":{"iname":"VI_1","state":2}}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := in[0].Counters; c.AdvertsSent != nil || c.AdvertErrors != nil || in[0].BecameMaster != 0 {
+		t.Fatalf("%+v", in[0])
+	}
+}
+
 func TestKeepHealth(t *testing.T) {
 	RunDir = t.TempDir()
 	var healthy atomic.Bool

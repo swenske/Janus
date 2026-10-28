@@ -41,7 +41,11 @@ type Manifest struct {
 	Arches []string `json:"arches,omitempty"`
 	// Replaces lists the names the extension had before, for the
 	// catalog: a node built with one is offered this one instead.
-	Replaces []string  `json:"replaces,omitempty"`
+	Replaces []string `json:"replaces,omitempty"`
+	// Requires lists the extensions this one only works with, for the
+	// catalog and the build: a schematic naming it without them is
+	// refused (schematic.RequirementError), never completed.
+	Requires []string  `json:"requires,omitempty"`
 	Services []Service `json:"services,omitempty"`
 	// Labels gives the SELinux type of files the extension installs, by
 	// path in the rootfs ("usr/local/sbin/node_exporter":
@@ -85,6 +89,11 @@ func (m *Manifest) Validate() error {
 	for _, old := range m.Replaces {
 		if !schematic.ValidName(old) || old == m.Name {
 			return fmt.Errorf("extension %s: former name %q is invalid", m.Name, old)
+		}
+	}
+	for _, req := range m.Requires {
+		if !schematic.ValidName(req) || req == m.Name {
+			return fmt.Errorf("extension %s: requirement %q is invalid", m.Name, req)
 		}
 	}
 	seen := map[string]bool{}

@@ -8,14 +8,19 @@
 # the IP up (the health file janusd keeps, tracked by keepalived) and B
 # takes it; when it answers again, A takes it back; when A is gone, B
 # takes it again. A broken keepalived.conf is refused, so is use_vmac,
-# the exporter reports the instance, and no AVC denial appears on either
-# node - keepalived writes no kernel parameter. A janusd restart and a
-# shutdown by the hypervisor (guest agent) hand the IP over first.
+# the exporter reports the instance and keepalived's own counters - the
+# master's adverts sent and the backup's received grow, a failover moves
+# became/left MASTER and the priority 0 adverts -, and no AVC denial
+# appears on either node - keepalived writes no kernel parameter. A
+# janusd restart and a shutdown by the hypervisor (guest agent) hand the
+# IP over first.
 #
 # Usage: hack/qemu-vrrp-test.sh <disk.img> <janusctl-bin>
 #   VRRP_DISCOVERY=1: don't fail on AVC denials - list them (for writing
 #   the keepalived_t rules, with a UKI built UKI_SELINUX_ENFORCING=0 and
 #   UKI_EXTRA_CMDLINE=sysctl.kernel.printk_ratelimit=0).
+#   VRRP_DUMP_DIR=DIR: keep each node's keepalived JSON dump there
+#   (internal/vrrp's testdata, after a keepalived bump).
 set -euo pipefail
 
 export PATH="$PATH:/usr/sbin:/sbin"
@@ -183,16 +188,71 @@ for pid in $pids; do
 done
 echo "  ok: keepalived's processes at oom_score_adj -300"
 
+# keepalived's own counters, from the dump janusd reads (janus_vrrp_*,
+# each node's exporter on its own address - never the virtual IP).
+scrape() { curl -fsS -m 5 "http://127.0.0.1:$((BASE + 10 * $([ "$1" = a ] && echo 1 || echo 2) + 2))/metrics"; }
+# metric NODE NAME: VI_1's value, "" when absent (or no answer).
+metric() { { scrape "$1" || true; } | awk -v m="$2{instance=\"VI_1\"}" '$1 == m {print $2}'; }
+# grows NODE NAME BEFORE: wait until the value is above BEFORE (janusd
+# reads keepalived's dump at most every 3 s).
+grows() {
+  local deadline=$((SECONDS + 20)) v
+  while :; do
+    v="$(metric "$1" "$2")"
+    if [ -n "$v" ] && [ "$v" -gt "$3" ]; then echo "$v"; return; fi
+    [ "$SECONDS" -lt "$deadline" ] || fail "$2 on $1 stayed at '${v}' (was $3): $(scrape "$1" | grep janus_vrrp)"
+    sleep 1
+  done
+}
+sent_a="$(metric a janus_vrrp_instance_adverts_sent_total)"
+rcvd_b="$(metric b janus_vrrp_instance_adverts_received_total)"
+{ [ -n "$sent_a" ] && [ -n "$rcvd_b" ]; } || fail "no advert counters: A $(scrape a | grep janus_vrrp), B $(scrape b | grep janus_vrrp)"
+sent_a2="$(grows a janus_vrrp_instance_adverts_sent_total "$sent_a")"
+rcvd_b2="$(grows b janus_vrrp_instance_adverts_received_total "$rcvd_b")"
+# Every error keepalived counts, at 0 here; nothing it doesn't count
+# (advert_interval_err, never counted by 2.4.3) nor what the extension's
+# keepalived is built without (authentication).
+for n in a b; do
+  errs="$(scrape $n | grep '^janus_vrrp_instance_advert_errors_total{' || true)"
+  for e in packet_length ttl packet_type address_list authentication_type; do
+    grep -qx "janus_vrrp_instance_advert_errors_total{instance=\"VI_1\",error=\"$e\"} 0" <<<"$errs" || fail "advert error $e on $n: $errs"
+  done
+  [ "$(wc -l <<<"$errs")" = 5 ] || fail "other advert errors on $n: $errs"
+done
+echo "  ok: keepalived's counters - A sent $sent_a then $sent_a2 adverts, B received $rcvd_b then $rcvd_b2, no advert error"
+
 # A's HAProxy stops answering: A gives the IP up, B takes it.
+left_a="$(metric a janus_vrrp_instance_left_master_total)"
+zero_a="$(metric a janus_vrrp_instance_priority_zero_sent_total)"
+became_b="$(metric b janus_vrrp_instance_became_master_total)"
+zero_b="$(metric b janus_vrrp_instance_priority_zero_received_total)"
+for v in "$left_a" "$zero_a" "$became_b" "$zero_b"; do [ -n "$v" ] || fail "counters missing: A $(scrape a | grep janus_vrrp), B $(scrape b | grep janus_vrrp)"; done
 ctl a system service stop haproxy >/dev/null || fail "stopping HAProxy on A"
 wait_state a FAULT
 wait_state b MASTER
 got_vip b || fail "B is MASTER without the virtual IP"
 echo "  ok: A's HAProxy down - A in FAULT, B took the virtual IP"
+grows a janus_vrrp_instance_left_master_total "$left_a" >/dev/null
+grows a janus_vrrp_instance_priority_zero_sent_total "$zero_a" >/dev/null
+grows b janus_vrrp_instance_became_master_total "$became_b" >/dev/null
+grows b janus_vrrp_instance_priority_zero_received_total "$zero_b" >/dev/null
+echo "  ok: the failover in the counters - A left MASTER with a priority 0 advert, B heard it and became MASTER"
+became_a="$(metric a janus_vrrp_instance_became_master_total)"
+left_b="$(metric b janus_vrrp_instance_left_master_total)"
+{ [ -n "$became_a" ] && [ -n "$left_b" ]; } || fail "counters missing: A $(scrape a | grep janus_vrrp), B $(scrape b | grep janus_vrrp)"
 ctl a system service start haproxy >/dev/null || fail "starting HAProxy on A"
 wait_state a MASTER
 wait_state b BACKUP
 echo "  ok: A's HAProxy back - A took the virtual IP back"
+grows a janus_vrrp_instance_became_master_total "$became_a" >/dev/null
+grows b janus_vrrp_instance_left_master_total "$left_b" >/dev/null
+echo "  ok: the failback in the counters - A became MASTER again, B left it"
+# keepalived's dump as janusd reads it, a failover and a failback in its
+# counters - internal/vrrp's testdata (VRRP_DUMP_DIR, to refresh it after
+# a keepalived bump).
+if [ -n "${VRRP_DUMP_DIR:-}" ]; then
+  for n in a b; do ctl $n system cat /tmp/keepalived.json >"$VRRP_DUMP_DIR/keepalived-$n.json"; done
+fi
 
 # A's janusd restarted: the virtual IP goes to B first - A leaves MASTER
 # while its janusd still answers (the node drained for the HAProxy drain

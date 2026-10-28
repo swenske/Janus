@@ -62,7 +62,9 @@ type ClusterServiceClient interface {
 	// ClusterLeave forgets the membership: the peers section goes back to
 	// the local peer alone (HAProxy reloads), the member certificate and
 	// the cluster's CA are deleted, the managed domains unlocked. It
-	// doesn't drain: ClusterDrain first, when the node serves.
+	// doesn't drain: ClusterDrain first, when the node serves. A drained
+	// node stays drained until it is undrained or reboots: the drain kept
+	// on STATE goes with the membership.
 	ClusterLeave(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ClusterInfo, error)
 	// ClusterRelease lets this member's own configuration be changed again,
 	// by domain - haproxy, files, vrrp, bgp, firewall; none named: all -,
@@ -80,11 +82,12 @@ type ClusterServiceClient interface {
 	// IPs move to a peer, the haproxy_* routes are withdrawn - while it
 	// keeps serving what still arrives. The stream reports each step and
 	// ends once VRRP shows BACKUP and BGP shows the routes gone, or the
-	// timeout. The drain holds until ClusterUndrain, across HAProxy
-	// reloads, not across a reboot.
+	// timeout. The drain holds until ClusterUndrain or ClusterLeave, across
+	// HAProxy reloads and reboots: it is kept on STATE, and janusd puts it
+	// back before keepalived or BIRD can announce anything.
 	ClusterDrain(ctx context.Context, in *ClusterDrainRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ClusterDrainProgress], error)
 	// ClusterUndrain puts the member back: HAProxy's health is its own
-	// again.
+	// again, and the drain kept on STATE is gone.
 	ClusterUndrain(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ClusterInfo, error)
 	// ClusterPull makes this node fetch secrets from another member, over
 	// mTLS with its member certificate: HAProxy's uploaded certificates,
@@ -268,7 +271,9 @@ type ClusterServiceServer interface {
 	// ClusterLeave forgets the membership: the peers section goes back to
 	// the local peer alone (HAProxy reloads), the member certificate and
 	// the cluster's CA are deleted, the managed domains unlocked. It
-	// doesn't drain: ClusterDrain first, when the node serves.
+	// doesn't drain: ClusterDrain first, when the node serves. A drained
+	// node stays drained until it is undrained or reboots: the drain kept
+	// on STATE goes with the membership.
 	ClusterLeave(context.Context, *emptypb.Empty) (*ClusterInfo, error)
 	// ClusterRelease lets this member's own configuration be changed again,
 	// by domain - haproxy, files, vrrp, bgp, firewall; none named: all -,
@@ -286,11 +291,12 @@ type ClusterServiceServer interface {
 	// IPs move to a peer, the haproxy_* routes are withdrawn - while it
 	// keeps serving what still arrives. The stream reports each step and
 	// ends once VRRP shows BACKUP and BGP shows the routes gone, or the
-	// timeout. The drain holds until ClusterUndrain, across HAProxy
-	// reloads, not across a reboot.
+	// timeout. The drain holds until ClusterUndrain or ClusterLeave, across
+	// HAProxy reloads and reboots: it is kept on STATE, and janusd puts it
+	// back before keepalived or BIRD can announce anything.
 	ClusterDrain(*ClusterDrainRequest, grpc.ServerStreamingServer[ClusterDrainProgress]) error
 	// ClusterUndrain puts the member back: HAProxy's health is its own
-	// again.
+	// again, and the drain kept on STATE is gone.
 	ClusterUndrain(context.Context, *emptypb.Empty) (*ClusterInfo, error)
 	// ClusterPull makes this node fetch secrets from another member, over
 	// mTLS with its member certificate: HAProxy's uploaded certificates,

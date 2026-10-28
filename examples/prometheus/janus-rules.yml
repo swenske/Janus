@@ -72,6 +72,12 @@ groups:
         annotations:
           summary: 'Janus VRRP instance in FAULT (instance {{ $labels.instance }})'
           description: 'VRRP instance {{ $labels.exported_instance }} on {{ $labels.instance }} ({{ $labels.interface }}) has been in FAULT for a minute.'
+      - alert: JanusVRRPAdvertErrors
+        expr: sum by (instance, exported_instance, error) (increase(janus_vrrp_instance_advert_errors_total[15m])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus VRRP advertisements with errors (instance {{ $labels.instance }})'
+          description: 'VRRP instance {{ $labels.exported_instance }} on {{ $labels.instance }} received {{ $value | humanize }} advertisements with a {{ $labels.error }} error in 15 minutes: a router on its LAN speaks VRRP for it differently. A dropped advertisement can leave two masters.'
       - alert: JanusBGPSessionDown
         expr: janus_bgp_session_established == 0
         for: 2m

@@ -186,6 +186,35 @@ type Instance struct {
 	VirtualIPs        []string
 	LastTransition    time.Time
 	BecameMaster      uint64
+	Counters          Counters
+}
+
+// Counters are keepalived's own per-instance counters, since it started
+// (a reload keeps them). Each is nil when the dump doesn't carry it: a
+// counter keepalived wasn't built with is absent, never a 0.
+type Counters struct {
+	LeftMaster           *uint64 // release_master: times it left MASTER
+	AdvertsReceived      *uint64 // advert_rcvd: valid adverts heard from the other routers
+	AdvertsSent          *uint64 // advert_sent
+	PriorityZeroReceived *uint64 // pri_zero_rcvd: a master giving the addresses up at once
+	PriorityZeroSent     *uint64 // pri_zero_sent: this one doing it
+	// AdvertErrors are received adverts with an error, by AdvertErrorNames'
+	// names - only the errors the dump carries.
+	AdvertErrors map[string]uint64
+}
+
+// AdvertErrorNames maps keepalived's error counters to the names
+// janusd's exporter gives them, in the order it lists them. Left out:
+// advert_interval_err, which keepalived 2.4.3 never counts (an
+// advertisement interval mismatch is logged and dropped, not counted -
+// it would always read 0), and the authentication counters, which a
+// keepalived built --disable-vrrp-auth (the extension's) doesn't have.
+var AdvertErrorNames = []struct{ Key, Name string }{
+	{"packet_len_err", "packet_length"},         // shorter or longer than its header says: dropped
+	{"ip_ttl_err", "ttl"},                       // TTL/hop limit not 255 (a routed packet): dropped
+	{"invalid_type_rcvd", "packet_type"},        // a VRRP packet that isn't an advertisement: dropped
+	{"addr_list_err", "address_list"},           // virtual addresses other than this instance's, or unicast/multicast mismatch
+	{"invalid_authtype", "authentication_type"}, // an authentication type the extension's keepalived doesn't take: dropped
 }
 
 // stateNames maps keepalived's numeric states (vrrp.h).
@@ -274,9 +303,9 @@ func ParseJSON(data []byte) ([]Instance, error) {
 			LastTransition    float64  `json:"last_transition"`
 			Vips              []string `json:"vips"`
 		} `json:"data"`
-		Stats struct {
-			BecomeMaster uint64 `json:"become_master"`
-		} `json:"stats"`
+		// Read field by field: a value of another kind in a later
+		// keepalived costs that counter, not the whole dump.
+		Stats map[string]json.RawMessage `json:"stats"`
 	}
 	if err := json.Unmarshal(data, &dump); err != nil {
 		return nil, fmt.Errorf("keepalived's JSON: %w", err)
@@ -290,7 +319,7 @@ func ParseJSON(data []byte) ([]Instance, error) {
 		in := Instance{
 			Name: d.Data.Iname, State: state, Interface: d.Data.IfpIfname, VRID: d.Data.Vrid,
 			Priority: d.Data.BasePriority, EffectivePriority: d.Data.EffectivePriority,
-			BecameMaster: d.Stats.BecomeMaster,
+			Counters: counters(d.Stats),
 		}
 		if d.Data.LastTransition > 0 {
 			sec := int64(d.Data.LastTransition)
@@ -302,10 +331,45 @@ func ParseJSON(data []byte) ([]Instance, error) {
 				in.VirtualIPs = append(in.VirtualIPs, f[0])
 			}
 		}
+		if v := stat(d.Stats, "become_master"); v != nil {
+			in.BecameMaster = *v
+		}
 		out = append(out, in)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// stat is one of an instance's "stats" counters, nil when the dump
+// doesn't carry it (or carries something else under its name).
+func stat(stats map[string]json.RawMessage, key string) *uint64 {
+	raw, ok := stats[key]
+	if !ok {
+		return nil
+	}
+	v, err := strconv.ParseUint(string(raw), 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
+// counters picks Counters out of an instance's "stats".
+func counters(stats map[string]json.RawMessage) Counters {
+	c := Counters{
+		LeftMaster: stat(stats, "release_master"), AdvertsReceived: stat(stats, "advert_rcvd"),
+		AdvertsSent: stat(stats, "advert_sent"), PriorityZeroReceived: stat(stats, "pri_zero_rcvd"),
+		PriorityZeroSent: stat(stats, "pri_zero_sent"),
+	}
+	for _, e := range AdvertErrorNames {
+		if v := stat(stats, e.Key); v != nil {
+			if c.AdvertErrors == nil {
+				c.AdvertErrors = map[string]uint64{}
+			}
+			c.AdvertErrors[e.Name] = *v
+		}
+	}
+	return c
 }
 
 // KeepHealth keeps HealthFile current - checked every interval with

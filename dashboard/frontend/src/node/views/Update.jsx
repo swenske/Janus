@@ -2,6 +2,7 @@ import { Archive, CircleCheck, ExternalLink, FlaskConical, Layers, Loader2, Puzz
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, postJSON } from '../api.js'
 import { apiURL } from '../../shared/base.js'
+import { requirementError, toggleExtension } from '../../shared/requires.js'
 import { Badge, Card, ErrorBox, Loading, PageHeader, Tabs, useAction, useConfirm, useToast } from '../../shared/ui.jsx'
 import { bytes, dateTime } from '../format.js'
 import { useNodeStatus, usePoll } from '../hooks.jsx'
@@ -719,15 +720,16 @@ function ChangeExtensions({ uc, onReady, onClose }) {
   const trackChanged = kernel !== (uc.kernel || '')
   const changed = added.length + removed.length > 0 || branchChanged || trackChanged
 
+  // Ticking an extension ticks what it requires, unticking one unticks
+  // what requires it - said under the list.
+  const [extNote, setExtNote] = useState('')
   const toggle = (name, on) => {
     setPrep(null)
-    setSelected((s) => {
-      const n = new Set(s || current)
-      if (on) n.add(name)
-      else n.delete(name)
-      return n
-    })
+    const r = toggleExtension([...sel], name, on, offered)
+    setSelected(new Set(r.extensions))
+    setExtNote(r.note)
   }
+  const extProblem = requirementError([...sel], offered, catalog.data?.version)
   const ready = (r) => onReady({ ...r, renamed: { ...renamed, ...(r.renamed || {}) }, node_haproxy: uc.haproxy || '', node_kernel: uc.kernel || '' })
   // The build follower calls the latest ready (a new one every render).
   const readyRef = useRef(ready)
@@ -832,11 +834,19 @@ function ChangeExtensions({ uc, onReady, onClose }) {
                     {current.has(e.name) && <Badge tone="info">{formerName(e.name) ? `installed as ${formerName(e.name)}` : 'installed'}</Badge>}
                     {unsupported && <Badge tone="warn">not for {uc.arch}</Badge>}
                     {e.missing && <Badge tone="warn">not in {catalog.data.version}</Badge>}
+                    {e.requires?.length > 0 && <span className="muted small">requires {e.requires.join(', ')}</span>}
                     {e.description && <span className="ext-desc muted small">{e.description}</span>}
                   </label>
                 )
               })}
             </div>
+            {extProblem ? (
+              <div className="notice warn small" role="alert">
+                {extProblem}
+              </div>
+            ) : (
+              extNote && <div className="muted small">{extNote}</div>
+            )}
             <div className="small">
               {changed ? (
                 <>
@@ -851,7 +861,7 @@ function ChangeExtensions({ uc, onReady, onClose }) {
             </div>
             <Preparation prep={prep} />
             <div className="row">
-              <button className="primary" disabled={!changed || busy || prep?.state === 'building'} onClick={prepare}>
+              <button className="primary" disabled={!changed || !!extProblem || busy || prep?.state === 'building'} onClick={prepare}>
                 {prep?.state === 'failed' ? <RefreshCcw size={15} /> : <Rocket size={15} />}{' '}
                 {busy ? 'Asking the image factory…' : prep?.state === 'failed' ? 'Try again' : 'Prepare the update'}
               </button>

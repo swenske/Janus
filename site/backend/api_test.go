@@ -490,3 +490,30 @@ func TestUpdateVariants(t *testing.T) {
 		t.Fatalf("update = %+v", up)
 	}
 }
+
+// An extension without the one it requires: the schematic is stored (the
+// list as written), its images are refused with the requirement's
+// message - the builder's, the Controller's, Terraform's.
+func TestImageRefusesMissingRequirement(t *testing.T) {
+	_, gh, srv := newTestApp(t)
+	gh.catalog = `{"version":"v2026.10.02","extensions":[
+	{"name":"bird","version":"2.19.2","description":"BGP","arches":["amd64","arm64"]},
+	{"name":"prometheus-bird-exporter","version":"1.4.3","description":"metrics","arches":["amd64","arm64"],"requires":["bird"]}]}`
+	var alone, both schematicView
+	if code := call(t, "POST", srv.URL+"/api/v1/schematics", `{"customization":{"extensions":["prometheus-bird-exporter"]}}`, &alone); code != 201 {
+		t.Fatalf("create: %d", code)
+	}
+	if len(alone.Extensions) != 1 {
+		t.Errorf("the schematic changed: %+v", alone)
+	}
+	var st imageStatus
+	call(t, "GET", srv.URL+"/api/v1/images/"+alone.ID+"/v2026.10.02/amd64", "", &st)
+	if st.State != "unavailable" || st.Message != `extension "prometheus-bird-exporter" requires the "bird" extension: choose it too` {
+		t.Errorf("alone: %+v", st)
+	}
+	call(t, "POST", srv.URL+"/api/v1/schematics", `{"customization":{"extensions":["prometheus-bird-exporter","bird"]}}`, &both)
+	call(t, "GET", srv.URL+"/api/v1/images/"+both.ID+"/v2026.10.02/amd64", "", &st)
+	if st.State != "none" {
+		t.Errorf("with bird: %+v", st)
+	}
+}

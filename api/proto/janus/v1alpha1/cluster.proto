@@ -35,7 +35,9 @@ service ClusterService {
   // ClusterLeave forgets the membership: the peers section goes back to
   // the local peer alone (HAProxy reloads), the member certificate and
   // the cluster's CA are deleted, the managed domains unlocked. It
-  // doesn't drain: ClusterDrain first, when the node serves.
+  // doesn't drain: ClusterDrain first, when the node serves. A drained
+  // node stays drained until it is undrained or reboots: the drain kept
+  // on STATE goes with the membership.
   rpc ClusterLeave(google.protobuf.Empty) returns (ClusterInfo);
 
   // ClusterRelease lets this member's own configuration be changed again,
@@ -56,12 +58,13 @@ service ClusterService {
   // IPs move to a peer, the haproxy_* routes are withdrawn - while it
   // keeps serving what still arrives. The stream reports each step and
   // ends once VRRP shows BACKUP and BGP shows the routes gone, or the
-  // timeout. The drain holds until ClusterUndrain, across HAProxy
-  // reloads, not across a reboot.
+  // timeout. The drain holds until ClusterUndrain or ClusterLeave, across
+  // HAProxy reloads and reboots: it is kept on STATE, and janusd puts it
+  // back before keepalived or BIRD can announce anything.
   rpc ClusterDrain(ClusterDrainRequest) returns (stream ClusterDrainProgress);
 
   // ClusterUndrain puts the member back: HAProxy's health is its own
-  // again.
+  // again, and the drain kept on STATE is gone.
   rpc ClusterUndrain(google.protobuf.Empty) returns (ClusterInfo);
 
   // ClusterPull makes this node fetch secrets from another member, over
@@ -127,6 +130,12 @@ message ClusterInfo {
   // certificates, and the thumbprint the others answer HTTP-01 with.
   string acme_orderer = 16;
   string acme_thumbprint = 17;
+  // When ClusterUndrain last put the member back in service since janusd
+  // started; 0: not since. An orchestrator that drained the member and
+  // finds it in service tells an undrain on the node itself (this set)
+  // from a drain a reboot ended - a release that kept no drain across one
+  // (0).
+  int64 undrained_unix = 18;
 }
 
 message ClusterSetRequest {

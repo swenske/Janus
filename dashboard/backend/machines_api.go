@@ -330,6 +330,9 @@ func (a *app) handleCatalog(w http.ResponseWriter, r *http.Request) {
 		HAProxy      any    `json:"haproxy"`
 		Kernel       any    `json:"kernel"`
 		CatalogError string `json:"catalog_error,omitempty"`
+		// CatalogVersion is the release the extensions come from (their
+		// requirements' messages name it).
+		CatalogVersion string `json:"catalog_version,omitempty"`
 	}{Extensions: []any{}, HAProxy: []any{}, Kernel: []any{}}
 	if rel, err := nodeproxy.LatestRelease(r.Context()); err != nil {
 		out.LatestError = err.Error()
@@ -342,7 +345,7 @@ func (a *app) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	if c, err := nodeproxy.FactoryCatalog(r.Context()); err != nil {
 		out.CatalogError = err.Error()
 	} else {
-		out.Extensions, out.HAProxy, out.Kernel = c.Extensions, c.HAProxy, c.Kernel
+		out.Extensions, out.HAProxy, out.Kernel, out.CatalogVersion = c.Extensions, c.HAProxy, c.Kernel, c.Version
 	}
 	writeJSON(w, http.StatusOK, out)
 }
