@@ -333,7 +333,7 @@ func vrrpFamilies(instances []vrrp.Instance) []exporter.Family {
 		counter("janus_vrrp_instance_became_master_total", "Times each VRRP instance became master since keepalived started.", masters...),
 		counter("janus_vrrp_instance_left_master_total", "Times each VRRP instance left MASTER since keepalived started.", left...),
 		counter("janus_vrrp_instance_adverts_sent_total", "VRRP advertisements each instance sent since keepalived started: a master sends one every advert_int.", sent...),
-		counter("janus_vrrp_instance_adverts_received_total", "Valid VRRP advertisements each instance received since keepalived started: a backup hears its master's. Flat on every node of a pair: they don't hear each other.", rcvd...),
+		counter("janus_vrrp_instance_adverts_received_total", "Valid VRRP advertisements each instance received since keepalived started: a backup hears its master's. Flat on the backup: it doesn't hear the master.", rcvd...),
 		counter("janus_vrrp_instance_priority_zero_sent_total", "Priority 0 advertisements each VRRP instance sent since keepalived started: leaving MASTER, so that a backup takes over at once.", zeroSent...),
 		counter("janus_vrrp_instance_priority_zero_received_total", "Priority 0 advertisements each VRRP instance received since keepalived started: a master giving the virtual addresses up.", zeroRcvd...),
 		counter("janus_vrrp_instance_advert_errors_total", "VRRP packets with an error each instance received since keepalived started, by error: packet_length, ttl, packet_type, authentication_type (dropped), address_list (other virtual addresses than its own).", errs...),
