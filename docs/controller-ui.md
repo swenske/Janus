@@ -1004,7 +1004,9 @@ turn, and the step waited for is written under it.
   the page to say why. These times are CSS animations
   (`.splash-clock`), not timers: a test that holds the page's clock
   (`hack/browser/shots.mjs`) doesn't hold the splash - it waits for
-  `.splash` to be detached.
+  the page's first render (`#root` not empty: the splash is in it),
+  then for `.splash` to be detached. Detached alone passes at once
+  before React mounted it.
 - **`finish()`** ends it as soon as its second is up: the main page for
   a form (sign-in, setup, a second factor), a node's page when the node
   doesn't answer (its banner says so). **`reset()`** shows it again:

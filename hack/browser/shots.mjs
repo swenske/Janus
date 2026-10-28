@@ -479,6 +479,13 @@ for (const shot of spec.shots) {
       await page.goto(CONTROLLER + base + (shot.cluster ? `#/clusters/${clusters[shot.cluster]}` : shot.page))
       // The splash (dashboard/frontend/src/shared/Splash.jsx) leaves on
       // the browser's own time - the page's clock stays where it is.
+      // React mounts it with the page's first render, which may come
+      // after goto returned (a node's page renders once the account's
+      // display settings came, src/node/main.jsx): waited for detached
+      // before it was there, the splash got in the shot, or the clock
+      // moved on before the lazy view's chunk was in and its text never
+      // showed (#369). So the first render first, the splash in it.
+      await page.locator('#root > *').first().waitFor({ state: 'attached', timeout: 15000 })
       await page.locator('.splash').waitFor({ state: 'detached', timeout: 15000 })
       // To T0: the lazy view's chunk is in by now, Suspense's timer fires.
       await page.clock.runFor(LAZY_MS)
