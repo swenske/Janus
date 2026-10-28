@@ -90,7 +90,31 @@ DHCP is done once, at boot, by the kernel itself (`ip=dhcp`). That means:
   `ADDRESSING_MODE_DHCP` is only accepted on that interface - use static
   addressing on the others;
 - the lease is **never renewed**: a DHCP server must hand the node a
-  stable (reserved) address, or the node keeps using an expired lease.
+  stable (reserved) address, or the node keeps using an expired lease;
+- on a network with **no DHCP server at all**, every boot waits about
+  165 s for one before going on. `ip=dhcp` is part of the signed kernel
+  command line and the kernel's retries are built in: a static
+  configuration doesn't skip the wait. The node works - it only comes
+  up late, after every reboot: an update, its host's restart.
+
+A DHCP server on that network that hands the node a **reserved**
+address - its static one - ends the wait: the kernel gets its lease at
+once, then the node applies its static configuration (measured: the
+interface configured within 2 s of boot instead of 166 s). On a
+libvirt network, a host entry and no range, with libvirt's DNS off if
+the network shouldn't have one:
+
+```xml
+<network>
+  ...
+  <dns enable='no'/>
+  <ip address='172.16.42.1' prefix='24'>
+    <dhcp>
+      <host mac='52:54:00:4a:4e:01' ip='172.16.42.2'/>
+    </dhcp>
+  </ip>
+</network>
+```
 
 A userspace DHCP client, with renewal and DHCP on any interface, is a
 planned improvement.
