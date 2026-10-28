@@ -21,7 +21,8 @@ Terragrunt) drive it with the Janus provider: [terraform.md](terraform.md).
 ## What a libvirt host needs
 
 - libvirt with QEMU/KVM and OVMF. Tested with Debian 13: libvirt 11.3,
-  QEMU 10.0.
+  QEMU 10.0. Ubuntu 26.04 (libvirt 12.0, QEMU 10.2) once its
+  confidential-computing firmware is hidden ([step 5](#5-the-uefi-firmware)).
 - A storage pool of type `dir`, for the base images and the machines'
   disks: a dedicated one, `janus` below.
 - The libvirt networks the machines may be attached to.
@@ -59,7 +60,7 @@ A dedicated account with no password and no shell:
 - the `libvirt` group lets it connect to libvirt's socket (Debian's
   polkit rule `60-libvirt.rules`);
 - `janus-controllers` is the group of every Janus Controller's account
-  on the host (step 5).
+  on the host (step 6).
 
 ```sh
 getent group libvirt >/dev/null || { echo "There's no libvirt group: is libvirt installed?" >&2; exit 1; }
@@ -163,9 +164,52 @@ for net in lan dmz; do
 done
 ```
 
-### 5. polkit: libvirt enforces the boundary
+### 5. The UEFI firmware
 
-Steps 1 to 4 are enough to work. But a member of the `libvirt` group can
+libvirt picks a machine's UEFI firmware among QEMU's firmware
+descriptors (`/usr/share/qemu/firmware/*.json`) - the Controller only
+asks for one without Secure Boot. A build loaded into memory
+(`"device": "memory"`) - AMD SEV's, Intel TDX's: no flash, no variable
+store - can't run a Janus node, yet it may win that choice:
+- Ubuntu's `ovmf` package installs both. The SEV descriptor,
+  `60-edk2-x86_64-amdsev.json`, sorts before OVMF's own
+  `60-edk2-x86_64.json`, so libvirt picks the SEV build. AppArmor's
+  `virt-aa-helper` refuses it, and the machine fails to start: `cannot
+  load AppArmor profile`.
+- An empty file of the same name in `/etc/qemu/firmware/` hides a
+  descriptor. The step hides those builds - unless this host's KVM runs
+  SEV or TDX guests (`/sys/module/kvm_amd/parameters/sev`,
+  `/sys/module/kvm_intel/parameters/tdx`): then they stay, with a
+  warning.
+
+Removing the empty file brings a descriptor back.
+
+```sh
+sev=$(cat /sys/module/kvm_amd/parameters/sev 2>/dev/null || true)
+tdx=$(cat /sys/module/kvm_intel/parameters/tdx 2>/dev/null || true)
+hidden=
+for f in /usr/share/qemu/firmware/*.json; do
+    [ -f "$f" ] || continue
+    name=${f##*/}
+    grep -Eq '"device"[[:space:]]*:[[:space:]]*"memory"' "$f" || continue
+    if [ -e "/etc/qemu/firmware/$name" ]; then continue; fi
+    case "$sev$tdx" in
+    *Y* | *y* | *1*) echo "warning: $name stays - this host runs confidential guests, and libvirt may give its firmware to a Janus machine" >&2; continue ;;
+    esac
+    install -d -m 755 /etc/qemu/firmware
+    : > "/etc/qemu/firmware/$name"
+    echo "hid $name"
+    hidden=1
+done
+if [ -n "$hidden" ]; then
+    systemctl try-restart libvirtd.service 2>/dev/null || true
+    systemctl try-restart virtqemud.service 2>/dev/null || true
+fi
+```
+
+### 6. polkit: libvirt enforces the boundary
+
+Steps 1 to 5 are enough to work. But a member of the `libvirt` group can
 do anything libvirt can, which is effectively root on the host.
 
 With libvirt's polkit access driver, every API call is checked:
@@ -267,7 +311,7 @@ How to read a refusal:
 - The rule logs each one with `polkit.log`. Whether polkitd shows those
   lines depends on its log level: it didn't at Debian's `notice`.
 
-### 6. Check
+### 7. Check
 
 The account sees its own machines only, and the host key's fingerprint
 is the one to compare with what the Controller reads when it's trusted.
@@ -736,7 +780,7 @@ privileged container (`hack/libvirt-host`), with the Controller inside it:
 - destroying it.
 
 The polkit policy can't run in a container: it's checked on a real host
-as shown in step 5.
+as shown in step 6.
 
 Proxmox VE can't run in CI either. Its driver has unit tests, and a test
 against a real node, skipped unless its environment is set - a token
