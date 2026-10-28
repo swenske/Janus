@@ -71,6 +71,10 @@ func main() {
 		runComplete(args[1:])
 		return
 	}
+	if len(args) > 0 && args[0] == "__effect" { // Claude Code's hook: never a picker, never a node
+		runEffect(args[1:])
+		return
+	}
 	if len(args) == 0 {
 		if !canPick() {
 			usage()
@@ -115,6 +119,9 @@ func main() {
 		return
 	case "__complete":
 		runComplete(args[1:])
+		return
+	case "__effect":
+		runEffect(args[1:])
 		return
 	case "image":
 		echo()
