@@ -40,6 +40,7 @@ var version = "dev"
 var actingFor metadata.MD
 
 func main() {
+	applyNoProxy()
 	endpoint := flag.String("endpoint", "127.0.0.1:9505", "janusd gRPC endpoint")
 	// Defaults match janusd's own default -pki-dir - convenient when
 	// janusctl runs on the same filesystem as the daemon (local/dev
