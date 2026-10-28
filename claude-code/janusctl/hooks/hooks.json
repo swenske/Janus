@@ -1,0 +1,17 @@
+{
+  "description": "Asks janusctl what each janusctl command does: Claude Code asks before a critical one, and lets reads through when allow_reads is on",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v janusctl >/dev/null 2>&1 || exit 0; janusctl __effect hook 2>/dev/null; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

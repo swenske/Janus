@@ -245,6 +245,12 @@ A node's own certificate still works, and comes first: `janusctl
 -endpoint NODE:9505 -ca ca.crt -cert admin.crt -key admin.key ...` - the
 first-boot admin certificate, the way in when nothing else does.
 
+Behind a proxy, janusctl reaches the Controller and the nodes through
+`HTTPS_PROXY` (a CONNECT tunnel), the hosts in `NO_PROXY` directly.
+`JANUS_NO_PROXY`, when set, takes `NO_PROXY`'s place for janusctl
+alone: Claude Code's sandbox needs it
+([Claude Code and janusctl](guide/claude-code.md#claude-codes-sandbox)).
+
 ### Without a Controller
 
 janusctl can keep a fleet itself - its root's key in a recovery kit,

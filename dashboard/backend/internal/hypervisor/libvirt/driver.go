@@ -565,7 +565,10 @@ func (d *Driver) Power(ctx context.Context, ref hypervisor.MachineRef, action hy
 // CheckHardware says why a libvirt machine can't be made of hw, or nil.
 func CheckHardware(hw hypervisor.Hardware) error { return checkHardware(hw) }
 
-func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, hw hypervisor.Hardware, nics []hypervisor.NIC) error {
+// Reconfigure changes a stopped machine's size, maxima and interfaces.
+// Its settings stay as they are: the guest agent's channel is always
+// there (domainXML), and the CPU is the host's (cpuXML).
+func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, hw hypervisor.Hardware, nics []hypervisor.NIC, _ hypervisor.Settings) error {
 	if err := checkHardware(hw); err != nil {
 		return err
 	}

@@ -590,10 +590,17 @@ What happens then, followed on the machine's card:
      Proxmox VE, `x86-64-v2-AES` - what Proxmox's own form gives a new
      machine, and it still migrates between hosts. Its API alone would
      give `kvm64`: no AES-NI, no SSE4 or AVX, and HAProxy's TLS falls
-     back to slower code (ChaCha20 instead of AES-GCM). A machine an
-     earlier Controller created keeps `kvm64`: `qm set <vmid> --cpu
-     x86-64-v2-AES` on the host, then stop and start it - a reboot from
-     inside keeps the same QEMU process. Drain a cluster member first.
+     back to slower code (ChaCha20 instead of AES-GCM). A machine a
+     Controller before v2026.10.28-2 created keeps `kvm64` until its
+     [settings are applied](#settings-an-earlier-controller-didnt-give).
+   - **QEMU guest agent:** libvirt machines always have its channel
+     (`org.qemu.guest_agent.0`), harmless without the agent. On Proxmox
+     VE, the VM's **QEMU Guest Agent** option (`agent:
+     enabled=1,type=virtio`) only when the image has the
+     `qemu-guest-agent` extension: on without an agent, Proxmox's
+     shutdowns and backups wait for one and time out. A machine created
+     from an image URL gets it once its node says it runs the extension,
+     [applied on demand](#settings-an-earlier-controller-didnt-give).
    - **Console:** a serial console on a pty. Never a log file on the
      host: a node's first boot prints its admin credential there.
    - **Autostart.**
@@ -675,6 +682,7 @@ it:
 | What | Where it's changed |
 |---|---|
 | Hardware: vCPUs, memory, network interfaces (added, removed, moved to another network) | **Edit** on the machine's card, the API, or Terraform. The node shuts down cleanly, its virtual machine is reconfigured and started again. |
+| The hypervisor's settings: CPU model, the guest agent's option | Set when it's created. One that differs - an earlier Controller's machine, a change on the hypervisor - is shown on the card, and **Apply settings** applies it ([below](#settings-an-earlier-controller-didnt-give)). |
 | Its size while it runs, with the load | Its [auto-scaling](guide/auto-scaling.md) policy, set in **Edit** or the API: vCPUs and memory plugged in and taken back without a restart. |
 | The node's own settings: interfaces' addresses, DNS, NTP, VLANs, its version and extensions, HAProxy... | Its own page (**Open**): System › Network, System › Update... - or the API, or Terraform. |
 | Its name, hypervisor, image | Nowhere: that's a new machine. |
@@ -707,6 +715,47 @@ The name isn't read back: a hostname changed on the node's page is shown
 beside it. A network change through the API or Terraform is merged into
 the node's own configuration: what only its page manages - VLANs, MTUs,
 search domains, route metrics - stays.
+
+**Adding or removing `qemu-guest-agent` on Proxmox VE** turns the VM's
+guest agent option on or off too. Proxmox applies it only at a stop and
+a start of the VM, so the update stops the node cleanly, sets the
+option, starts it, then updates it: one more restart than on libvirt.
+A hardware change gives the VM today's settings in its own restart.
+
+### Settings an earlier Controller didn't give
+
+A machine keeps the hypervisor settings it was created with, and some
+change with the Controller:
+
+| Setting | What an older machine has |
+|---|---|
+| Proxmox VE CPU model `x86-64-v2-AES` (Controllers since v2026.10.28-2) | no `cpu` line: Proxmox's `kvm64`, without AES-NI |
+| Proxmox VE QEMU Guest Agent option, with the `qemu-guest-agent` extension | no `agent` line: the extension's service stays `waiting`, Proxmox shows no addresses and shuts the VM down through ACPI only |
+
+The record reads them with the rest (every minute) and shows what
+differs on the machine's card (`hardware_drift` in the API), with a line
+in its history. The Controller never applies them by itself: that takes
+a stop and a start of the virtual machine, and an update of the
+Controller would otherwise restart every machine it made before.
+
+**Apply settings**, on the card (`POST /api/machines/{id}/apply-settings`),
+does it: the node shuts down cleanly, the virtual machine gets the
+settings and starts again at its size. A CPU model someone chose on the
+hypervisor (`host`, `x86-64-v3`...) is left as it is; a guest agent
+option turned on or off by hand follows the extension again.
+
+**A cluster member** is refused while it's in service: drain it on its
+cluster's page, apply its settings, wait for it to come back, undrain it,
+then the next member.
+
+By hand, on the Proxmox VE host - then a stop and a start, since a
+reboot from inside keeps the same QEMU process:
+
+```sh
+qm set <vmid> --cpu x86-64-v2-AES
+qm set <vmid> --agent enabled=1,type=virtio   # with the qemu-guest-agent extension only
+qm shutdown <vmid> && qm start <vmid>
+```
 
 ### Managed as code, and locked
 
@@ -766,10 +815,11 @@ the one a Terraform provider needs, for the planned one:
 | `POST /api/hypervisors/{id}/trust` | `{fingerprint}`: pins the host key or certificate, if the host presents that one |
 | `GET /api/hypervisors/{id}/status` | the host, CPU use, and each of its machines' state |
 | `GET`, `POST /api/machines` | list; create (`{name, hypervisor_id, vcpus, memory_mib, version, extensions, haproxy, kernel, image: {url, sha256}, nics: [{network, name, mac, mode, addresses, gateway}], dns, ntp, update_reboot_mode}`) - `update_reboot_mode`: how the node reboots into an update of its version or image, `kexec` (straight into the new kernel, without the firmware) or `firmware`, the default (left out of the answers) |
-| `GET`, `DELETE /api/machines/{id}` | one (`?refresh=true`: read from its node and hypervisor first): `phase` is `pending`, `preparing-image`, `creating`, `waiting-registration`, `ready`, `updating`, `failed` or `destroying`; destroy (`?forget=true`: records only) |
+| `GET`, `DELETE /api/machines/{id}` | one (`?refresh=true`: read from its node and hypervisor first): `phase` is `pending`, `preparing-image`, `creating`, `waiting-registration`, `ready`, `updating`, `failed` or `destroying`; `hardware_drift` (`[{setting, have, want}]`): its hypervisor settings that aren't today's; destroy (`?forget=true`: records only) |
 | `PATCH /api/machines/{id}` | change it in place (`{vcpus, memory_mib, version, extensions, haproxy, kernel, nics, dns, ntp, managed_by, locked, update_reboot_mode}`, those given; `nics` is the whole new set, by MAC; `update_reboot_mode` alone only changes the record, given with a version that update already reboots its way). A locked machine refuses its pages (`423`) except `{"locked": false}` |
 | `POST /api/machines/{id}/power` | `{action: "start" \| "force-off" \| "reset"}` |
 | `POST /api/machines/{id}/retry` | a failed creation, again |
+| `POST /api/machines/{id}/apply-settings` | gives it the hypervisor settings in its `hardware_drift`: a clean shutdown, then a start (`202`, phase `updating`); `200` when there's nothing to apply, `409` for a cluster member that isn't drained |
 | `GET /api/machines/{id}/console` | Server-Sent Events, one JSON string per chunk; `failure` when it closes |
 | `GET /api/catalog` | the newest release and the image factory's extensions |
 | `GET`, `POST /api/tokens`, `DELETE /api/tokens/{id}` | API tokens (`{name, expires_in_days, role}`; the token is in the answer, once) - each account's own, from its session only, never a token; an admin sees everyone's |

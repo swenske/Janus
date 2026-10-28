@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -20,6 +22,8 @@ import (
 // (JANUS_PVE_FOREIGN_VMID) to check the token can't see it. The machine
 // is made scalable and resized while it runs: JANUS_PVE_IMAGE must be
 // an image whose kernel takes hot-plugged memory (2026-10-14 or later).
+// It's created with the guest agent's option (#373), its CPU model
+// checked (#372), and the option goes with a Reconfigure.
 //
 //	JANUS_PVE_URL=https://pve:8006 JANUS_PVE_NODE=pve JANUS_PVE_TOKEN_ID=janus-ctl@pve!controller
 //	JANUS_PVE_TOKEN_SECRET=... JANUS_PVE_FINGERPRINT=AA:BB:... JANUS_PVE_POOL=janus
@@ -71,8 +75,9 @@ func TestLive(t *testing.T) {
 
 	spec := hypervisor.MachineSpec{
 		MachineID: "live" + time.Now().Format("150405"), Name: "janus-live-test", Hardware: hypervisor.Hardware{VCPUs: 1, MemoryMiB: 512}, Image: img,
-		CIData: bytes.Repeat([]byte{0}, 64<<10),
-		NICs:   []hypervisor.NIC{{Network: env("NETWORK"), MAC: "52:54:00:4a:4e:01"}},
+		CIData:   bytes.Repeat([]byte{0}, 64<<10),
+		NICs:     []hypervisor.NIC{{Network: env("NETWORK"), MAC: "52:54:00:4a:4e:01"}},
+		Settings: hypervisor.Settings{GuestAgent: true},
 	}
 	ref, err := d.CreateMachine(ctx, spec)
 	if err != nil {
@@ -85,8 +90,8 @@ func TestLive(t *testing.T) {
 		}
 	}()
 	t.Logf("created VM %s", ref.UUID)
-	if _, c, err := d.owned(ctx, *ref); err != nil || c.CPU != cpuModel {
-		t.Errorf("CPU model: %+v %v", c, err)
+	if _, c, err := d.owned(ctx, *ref); err != nil || c.CPU != cpuModel || !agentOn(c.raw) {
+		t.Errorf("CPU model and guest agent: %+v %v", c, err)
 	}
 
 	// Its console shows the boot.
@@ -106,31 +111,39 @@ func TestLive(t *testing.T) {
 	}
 
 	st, err := d.MachineStatus(ctx, *ref)
-	if err != nil || st.Power != hypervisor.PowerRunning || st.VCPUs != 1 || st.MemoryMiB != 512 {
+	if err != nil || st.Power != hypervisor.PowerRunning || st.VCPUs != 1 || st.MemoryMiB != 512 || len(st.Drift) != 0 || st.GuestAgent == nil || !*st.GuestAgent {
 		t.Fatalf("status: %+v %v", st, err)
 	}
 	if err := d.Power(ctx, *ref, hypervisor.PowerForceOff); err != nil {
 		t.Fatal(err)
 	}
 	nics := append(spec.NICs, hypervisor.NIC{Network: env("NETWORK"), MAC: "52:54:00:4a:4e:02"})
-	if err := d.Reconfigure(ctx, *ref, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 768}, nics); err != nil {
+	if err := d.Reconfigure(ctx, *ref, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 768}, nics, hypervisor.Settings{}); err != nil {
 		t.Fatal(err)
 	}
 	vmid, c, err := d.owned(ctx, *ref)
-	if err != nil || c.Cores != 2 || c.memoryMiB() != 768 || c.raw["net1"] == nil {
+	if err != nil || c.Cores != 2 || c.memoryMiB() != 768 || c.raw["net1"] == nil || c.raw["agent"] != nil || c.CPU != cpuModel {
 		t.Fatalf("after Reconfigure: %d %+v %v", vmid, c, err)
 	}
-	if err := d.Reconfigure(ctx, *ref, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 768}, spec.NICs); err != nil {
+	// An older Controller's machine: no CPU model - reported, and set
+	// again by the next Reconfigure.
+	if err := d.api.do(ctx, http.MethodPut, d.nodePath("/qemu/%d/config", vmid), url.Values{"delete": {"cpu"}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, c, _ = d.owned(ctx, *ref); c.raw["net1"] != nil {
-		t.Errorf("net1 still there: %v", c.raw["net1"])
+	if st, err := d.MachineStatus(ctx, *ref); err != nil || len(st.Drift) != 1 || st.Drift[0].Setting != "cpu" || st.GuestAgent == nil || *st.GuestAgent {
+		t.Fatalf("status without a CPU model: %+v %v", st, err)
+	}
+	if err := d.Reconfigure(ctx, *ref, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 768}, spec.NICs, spec.Settings); err != nil {
+		t.Fatal(err)
+	}
+	if _, c, _ = d.owned(ctx, *ref); c.raw["net1"] != nil || c.CPU != cpuModel || !agentOn(c.raw) {
+		t.Errorf("net1 still there, or no CPU model or agent: %v", c.raw)
 	}
 
 	// Scalable: started at its nominal size, resized while it runs - up,
 	// then back - and fixed again.
 	scalable := hypervisor.Hardware{VCPUs: 1, MemoryMiB: 1024, MaxVCPUs: 4, MaxMemoryMiB: 2048}
-	if err := d.Reconfigure(ctx, *ref, scalable, spec.NICs); err != nil {
+	if err := d.Reconfigure(ctx, *ref, scalable, spec.NICs, spec.Settings); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.Power(ctx, *ref, hypervisor.PowerStart); err != nil {
@@ -159,7 +172,7 @@ func TestLive(t *testing.T) {
 	if err := d.Power(ctx, *ref, hypervisor.PowerForceOff); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.Reconfigure(ctx, *ref, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 768}, spec.NICs); err != nil {
+	if err := d.Reconfigure(ctx, *ref, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 768}, spec.NICs, spec.Settings); err != nil {
 		t.Fatal(err)
 	}
 	if _, c, _ = d.owned(ctx, *ref); c.raw["vcpus"] != nil || c.raw["hotplug"] != nil || c.Cores != 2 {
