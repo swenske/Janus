@@ -48,7 +48,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-lifecycle-upgrade-from-release-test release-bundle qemu-orchestrator-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-controller-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
 	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test routeros-hook-test local-dev-image ca-certificates seed-controller-test \
@@ -1357,6 +1357,15 @@ qemu-clusterctl-test: build extension-keepalived-amd64
 # to a third release whose HAProxy can't start (a stand-in binary): the
 # first member reverts by itself, the update stops there.
 CLUSTER_UPGRADE_VERSION ?= v2099.01.01
+# The Controller updates a cluster in place: two nodes of the published
+# CLUSTER_UPGRADE_FROM release (GitHub's janus-kvm.qcow2) moved to
+# CLUSTER_UPGRADE_TO through POST /api/clusters/{id}/upgrade, each
+# fetching the release's signed bundle itself. Needs the internet.
+CLUSTER_UPGRADE_FROM ?= v2026.10.27-3
+CLUSTER_UPGRADE_TO ?= $(shell go run ./hack/releases newest 2>/dev/null)
+qemu-controller-cluster-upgrade-test: build dashboard-bin
+	./hack/qemu-controller-cluster-upgrade-test.sh $(CLUSTER_UPGRADE_FROM) $(CLUSTER_UPGRADE_TO) $(BIN_DIR)/dashboardd $(BIN_DIR)/janusctl
+
 qemu-cluster-upgrade-test: SCHEMATIC = hack/testdata/schematic-vrrp.json
 qemu-cluster-upgrade-test: build extension-keepalived-amd64
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
