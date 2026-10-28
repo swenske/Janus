@@ -293,7 +293,8 @@ func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts U
 // the target release on its other slot, or reverted to its previous one
 // (the version it returns says which). A member back undrained - the
 // release it was drained on kept no drain across a reboot - is drained
-// again at once, until its tables are learnt.
+// again at once, until its tables are learnt - after each boot: a revert
+// is two.
 func (e *Engine) waitBack(ctx context.Context, c *Cluster, m Member, opts UpgradeOptions, v0 *janusv1alpha1.VersionResponse, boot0 time.Time, actor string) (*janusv1alpha1.VersionResponse, error) {
 	timeout, poll := opts.BackTimeout, opts.Poll
 	if timeout <= 0 {
@@ -304,7 +305,11 @@ func (e *Engine) waitBack(ctx context.Context, c *Cluster, m Member, opts Upgrad
 	}
 	deadline := time.Now().Add(timeout)
 	last := errors.New("it hasn't rebooted")
-	redrained := false
+	// checked: the boot whose drain was checked; down: it didn't answer
+	// once at least - it went through a reboot, its boot time didn't
+	// just move with its clock.
+	var checked time.Time
+	down := false
 	for {
 		if time.Now().After(deadline) {
 			return nil, &NotBackError{Member: m.Name, Timeout: timeout, Err: last}
@@ -320,6 +325,7 @@ func (e *Engine) waitBack(ctx context.Context, c *Cluster, m Member, opts Upgrad
 		switch {
 		case err != nil:
 			last = fmt.Errorf("it doesn't answer: %v", err)
+			down = true
 			continue
 		case !bt.After(boot0.Add(2 * time.Second)):
 			// The boot time moves a second or so with the clock: a reboot
@@ -327,7 +333,7 @@ func (e *Engine) waitBack(ctx context.Context, c *Cluster, m Member, opts Upgrad
 			last = errors.New("it hasn't rebooted yet")
 			continue
 		}
-		if !redrained {
+		if !bt.Equal(checked) {
 			if info, err := e.Nodes.ClusterGet(ctx, m); err == nil && !info.GetDrained() {
 				dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 				msg, err := e.Nodes.ClusterDrain(dctx, m, time.Minute)
@@ -338,7 +344,7 @@ func (e *Engine) waitBack(ctx context.Context, c *Cluster, m Member, opts Upgrad
 				}
 				e.Journal(c.ID, actor, "drain", m.Name, 0, "%s came back in service on its own - the release it was drained on kept no drain across a reboot: drained again until its tables are learnt (%s)", m.Name, msg)
 			}
-			redrained = true
+			checked = bt
 		}
 		v, err := e.back(ctx, c, m)
 		if err != nil {
@@ -350,6 +356,8 @@ func (e *Engine) waitBack(ctx context.Context, c *Cluster, m Member, opts Upgrad
 			return v, nil
 		case opts.OnTarget(v):
 			last = fmt.Errorf("it runs Janus %s on slot %s, the slot it updated from", v.GetVersion(), v.GetActiveSlot())
+		case v.GetVersion() == v0.GetVersion() && v.GetActiveSlot() == v0.GetActiveSlot() && !down:
+			last = errors.New("it runs what it ran, and was never seen rebooting")
 		case v.GetVersion() == v0.GetVersion() && v.GetActiveSlot() == v0.GetActiveSlot():
 			// Rebooted on the slot it left: the new one didn't confirm
 			// healthy, the node went back.

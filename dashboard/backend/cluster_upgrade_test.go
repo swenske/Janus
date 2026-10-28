@@ -201,7 +201,8 @@ func TestClusterUpgradeRevert(t *testing.T) {
 	opts.Update = func(_ context.Context, m clusters.Member) (string, error) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		f.nodes[m.Name].boot = time.Now() // rebooted twice, back on slot A
+		// Rebooted twice - not answering meanwhile -, back on slot A.
+		f.nodes[m.Name].boot, f.nodes[m.Name].downFor = time.Now(), 2
 		return "rebooting", nil
 	}
 	err := a.clusters.Upgrade(context.Background(), c.ID, *opts, "admin")
@@ -326,5 +327,24 @@ func TestClusterUpgradeWaitsForTheAnnouncement(t *testing.T) {
 	opts.Members = []string{"lb-2"}
 	if err := a.clusters.Upgrade(context.Background(), c.ID, *opts, "admin"); err == nil || !strings.Contains(err.Error(), "lb-1 announces nothing to its BGP peers yet") {
 		t.Errorf("refused: %v", err)
+	}
+}
+
+// A boot time that moved without the node ever going away - its clock
+// stepped - isn't a revert: the update waits for the reboot, and stops
+// when it doesn't come.
+func TestClusterUpgradeClockStepIsNoRevert(t *testing.T) {
+	a, f, c, opts, _ := upgradeApp(t)
+	opts.Members = []string{"lb-2"}
+	opts.Update = func(_ context.Context, m clusters.Member) (string, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.nodes[m.Name].boot = time.Now()
+		return "rebooting", nil
+	}
+	err := a.clusters.Upgrade(context.Background(), c.ID, *opts, "admin")
+	var nb *clusters.NotBackError
+	if !errors.As(err, &nb) || !strings.Contains(err.Error(), "never seen rebooting") {
+		t.Fatalf("a clock step: %v", err)
 	}
 }
