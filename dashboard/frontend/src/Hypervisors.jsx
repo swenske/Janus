@@ -23,7 +23,7 @@ import { useCan } from './me.jsx'
 import { AutoscaleFields, AutoscaleSummary } from './Autoscale.jsx'
 import { autoscalePolicy, initialAutoscale, samePolicy, sizeText, useAutoscale } from './autoscale.js'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
-import { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './machines.jsx'
+import { DriftNotice, LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './machines.jsx'
 import Gauge from './shared/Gauge.jsx'
 import { requirementError, toggleExtension } from './shared/requires.js'
 import ViewToggle from './shared/ViewToggle.jsx'
@@ -1303,6 +1303,7 @@ function MachineCard({ m, vm, vmError, actions, onEdit }) {
       {m.node_hostname && m.node_hostname !== m.spec.name && (
         <div className="notice warn small">The node calls itself {m.node_hostname}: its hostname was changed on its page.</div>
       )}
+      <DriftNotice m={m} actions={actions} />
       <dl className="kv small">
         <dt>Size</dt>
         <dd>{sizeText(m)}</dd>
@@ -1538,7 +1539,14 @@ function MachineRow({ m, vm, vmError, actions, onEdit }) {
   const last = m.events[m.events.length - 1]
   const synced = ago(m.synced_at)
   const notices =
-    m.error || vmError || (m.warning && !m.node_id) || (m.node_hostname && m.node_hostname !== m.spec.name) || m.spec.managed_by || history || m.spec.autoscale
+    m.error ||
+    vmError ||
+    (m.warning && !m.node_id) ||
+    (m.node_hostname && m.node_hostname !== m.spec.name) ||
+    m.spec.managed_by ||
+    history ||
+    m.spec.autoscale ||
+    m.hardware_drift?.length > 0
   return (
     <>
       <tr>
@@ -1626,6 +1634,7 @@ function MachineRow({ m, vm, vmError, actions, onEdit }) {
             {m.node_hostname && m.node_hostname !== m.spec.name && (
               <div className="notice warn small">The node calls itself {m.node_hostname}: its hostname was changed on its page.</div>
             )}
+            <DriftNotice m={m} actions={actions} />
             <AutoscaleSummary m={m} />
             {history && <pre className="logview machine-events">{m.events.map((e) => `${fmtTime(e.time)}  ${e.message}`).join('\n')}</pre>}
           </td>

@@ -60,8 +60,11 @@ type Driver interface {
 	// it may grow to while it runs (hw.MaxVCPUs, hw.MaxMemoryMiB), and
 	// its network interfaces: nics is the whole new set - an interface
 	// whose MAC isn't in it is removed, one that's new is added, one
-	// whose network changed is moved - from its next start.
-	Reconfigure(ctx context.Context, ref MachineRef, hw Hardware, nics []NIC) error
+	// whose network changed is moved - from its next start. It also
+	// sets the settings MachineStatus reports as Drift: s's (the guest
+	// agent), and what CreateMachine gives every machine today (the CPU
+	// model, where an older Controller left the hypervisor's default).
+	Reconfigure(ctx context.Context, ref MachineRef, hw Hardware, nics []NIC, s Settings) error
 	// Resize changes a running scalable machine's vCPUs and memory, within
 	// the maxima it was started with, without stopping it (hot-plug: the
 	// Controller's auto-scaling). It returns once the hypervisor took the
@@ -156,6 +159,20 @@ func (h Hardware) ScalableMemory() bool { return h.MaxMemoryMiB > h.MemoryMiB }
 // Scalable reports whether either may grow.
 func (h Hardware) Scalable() bool { return h.ScalableCPUs() || h.ScalableMemory() }
 
+// Settings are what a machine's image asks of its hypervisor beyond its
+// size and interfaces.
+type Settings struct {
+	// GuestAgent: the image runs the QEMU guest agent (the
+	// qemu-guest-agent extension). A hypervisor with an option for it
+	// turns it on (Proxmox VE's "Use QEMU Guest Agent"): on without an
+	// agent in the guest, its shutdowns and backups wait for one and time
+	// out. libvirt's channel is always there, harmless without one.
+	GuestAgent bool
+}
+
+// GuestAgentExtension is the extension that runs the QEMU guest agent.
+const GuestAgentExtension = "qemu-guest-agent"
+
 // MachineSpec is everything CreateMachine needs.
 type MachineSpec struct {
 	// MachineID is the Controller's own ID for the machine, recorded in
@@ -170,6 +187,7 @@ type MachineSpec struct {
 	// CIData is the NoCloud volume's content (internal/cidata).
 	CIData []byte
 	NICs   []NIC
+	Settings
 }
 
 // NIC attaches the machine to one of the hypervisor's networks.
@@ -224,6 +242,31 @@ type MachineStatus struct {
 	// Proxmox HA migration moves it without asking (HostInfo.HostID).
 	HostID   string `json:"host_id,omitempty"`
 	HostName string `json:"host_name,omitempty"`
+	// Drift: the settings CreateMachine gives every machine today that
+	// this one hasn't got, whatever its image - one an older Controller
+	// created, or changed on the hypervisor (Proxmox: a CPU model without
+	// AES-NI, #372). Reconfigure sets them.
+	Drift []Drift `json:"drift,omitempty"`
+	// GuestAgent, for a hypervisor with an option for the guest agent
+	// (Proxmox VE), is whether the machine runs with it - its
+	// virtio-serial port there; nil when there's no such option (libvirt:
+	// the channel is always there). The Controller compares it with the
+	// image's Settings.GuestAgent.
+	GuestAgent *bool `json:"guest_agent,omitempty"`
+}
+
+// Drift is one of a machine's hypervisor settings that isn't what the
+// Controller gives it today: what it has, what it would get.
+type Drift struct {
+	// Setting names it: "cpu", "guest-agent".
+	Setting string `json:"setting"`
+	Have    string `json:"have"`
+	Want    string `json:"want"`
+}
+
+// String is the drift as a machine's history says it.
+func (d Drift) String() string {
+	return d.Setting + " " + d.Have + " → " + d.Want
 }
 
 // PowerAction is what Power does - the hypervisor-level actions, for

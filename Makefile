@@ -1083,6 +1083,9 @@ examples-test: haproxy-build
 # refusing domains it didn't create - see hack/controller-libvirt-test.sh
 # and docs/hypervisors.md. dashboardd runs inside that container: built
 # static.
+# GUEST_AGENT_IMAGE=<a janus-kvm.qcow2 built with SCHEMATIC= one with
+# qemu-guest-agent> adds its part: the extension's service running on a
+# machine made from it (#373).
 controller-libvirt-test: kvm-image
 	mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/dashboardd-static ./dashboard/backend

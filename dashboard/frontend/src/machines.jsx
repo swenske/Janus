@@ -2,7 +2,7 @@
 // page and the node cards (a node that is a Controller machine shows its
 // VM's power and phase): in their own module so the nodes page, the
 // first one painted, doesn't carry the Hypervisors page with them.
-import { Code, Loader2, Lock, LockOpen, Play, PowerOff, RotateCcw, SquareTerminal } from 'lucide-react'
+import { Code, Cpu, Loader2, Lock, LockOpen, Play, PowerOff, RotateCcw, SquareTerminal, Wrench } from 'lucide-react'
 import { call, postJSON } from './call.js'
 import { nodeCan, useCan, useMe } from './me.jsx'
 import { Badge, stateTone, useAction, useConfirm } from './shared/ui.jsx'
@@ -98,7 +98,61 @@ export function useMachineActions({ onChanged, onConsole }) {
     await run(() => postJSON(`/api/machines/${m.id}`, { locked: false }, 'PATCH'), `${m.spec.name} released`)
     onChanged()
   }
-  return { busy, power, destroy, retry, release, console: onConsole }
+  const applySettings = async (m) => {
+    const ok = await confirm({
+      title: `Apply ${m.spec.name}’s hypervisor settings?`,
+      body: (
+        <>
+          <p>
+            The node shuts down cleanly, its virtual machine gets its settings - {driftList(m.hardware_drift)} - then starts again: whatever it serves is cut off until it is
+            back.
+          </p>
+          <p>A cluster member is refused while it is in service: drain it on its cluster’s page first, and undrain it once it is back.</p>
+        </>
+      ),
+      action: 'Apply and restart',
+      danger: true,
+    })
+    if (!ok) return
+    await run(() => postJSON(`/api/machines/${m.id}/apply-settings`), `${m.spec.name}: applying its settings`)
+    onChanged()
+  }
+  return { busy, power, destroy, retry, release, applySettings, console: onConsole }
+}
+
+const SETTING_LABEL = { cpu: 'CPU model', 'guest-agent': 'QEMU guest agent' }
+
+// driftList says a machine's hardware_drift in words.
+function driftList(drift) {
+  return (drift || []).map((d) => `${SETTING_LABEL[d.setting] || d.setting} ${d.have} → ${d.want}`).join(', ')
+}
+
+// DriftNotice: the machine's hypervisor settings that aren't the ones the
+// Controller gives machines today - reported by its sync, applied only
+// when an admin asks (a cold restart).
+export function DriftNotice({ m, actions }) {
+  const can = useCan()
+  if (!m.hardware_drift?.length) return null
+  return (
+    <div className="notice warn small lock-notice drift-notice">
+      <Cpu size={14} />
+      <span className="grow">
+        Its hypervisor settings aren’t the ones the Controller gives machines today:{' '}
+        {m.hardware_drift.map((d, i) => (
+          <span key={d.setting}>
+            {i > 0 && ' · '}
+            {SETTING_LABEL[d.setting] || d.setting} <span className="mono">{d.have}</span> → <span className="mono">{d.want}</span>
+          </span>
+        ))}
+        . Applying them restarts it.
+      </span>
+      {can('admin') && m.phase === 'ready' && m.node_id && (
+        <button className="small" onClick={() => actions.applySettings(m)} disabled={actions.busy} title="Shut the node down cleanly, apply the settings, start it again">
+          <Wrench size={14} /> Apply settings
+        </button>
+      )}
+    </div>
+  )
 }
 
 // ManagedBadge: what manages the machine as code, and its lock.

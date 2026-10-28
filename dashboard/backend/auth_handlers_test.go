@@ -123,6 +123,7 @@ func TestRoutesNeedTheirRole(t *testing.T) {
 		{"PATCH", "/api/machines/m1", auth.Admin},
 		{"DELETE", "/api/machines/m1", auth.Admin},
 		{"POST", "/api/machines/m1/retry", auth.Admin},
+		{"POST", "/api/machines/m1/apply-settings", auth.Admin},
 		{"POST", "/api/hypervisors", auth.Admin},
 		{"PATCH", "/api/hypervisors/h1", auth.Admin},
 		{"DELETE", "/api/hypervisors/h1", auth.Admin},
