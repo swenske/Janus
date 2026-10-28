@@ -172,20 +172,34 @@ THUMB="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["orderi
 echo "  ok: the Controller's account and DNS provider set; a node page gets the account's thumbprint"
 
 # --- the node ordered by the Controller -------------------------------------
-python3 - "$WORKDIR" "$P_ACME" "$THUMB" > "$WORKDIR/apply.json" <<'PY'
+# Saving a node's configuration on its page makes the Controller order at
+# once (nodeproxy.ACMEChanged), and switching the node to the Controller's
+# account reloads HAProxy (the thumbprint is in its environment): ordered
+# right then, Pebble's HTTP-01 fetch could land before port 80 answered,
+# or in a reload - "connection reset by peer", and the next attempt five
+# minutes later (#368). So the path and the account first, with only the
+# certificate that never gets as far as the CA (its DNS provider isn't
+# the Controller's) - its stand-in gives the certificates' directory a
+# file -, then HAProxy's port 80, then the certificates: ordered with
+# nothing reloading.
+python3 - "$WORKDIR" "$P_ACME" "$THUMB" <<'PY'
 import json, sys
 w, acme, thumb = sys.argv[1:4]
-print(json.dumps({"config": {
-  "account": {"directory": "https://127.0.0.1:%s/dir" % acme, "directory_ca": open(w + "/test-ca.pem").read()},
-  "certificates": [
-    {"name": "site", "domains": ["site.test", "www.site.test"]},
-    {"name": "wild", "domains": ["*.wild.test", "wild.test"], "challenge": "dns-01", "dns_provider": "lab", "key_type": "ec384"},
-    {"name": "orphan", "domains": ["orphan.test"], "challenge": "dns-01", "dns_provider": "nope"},
-  ],
-  "path": {"mode": "ACME_PATH_MODE_CONTROLLER_ORDERED", "account_thumbprint": thumb},
-}}))
+certs = [
+  {"name": "site", "domains": ["site.test", "www.site.test"]},
+  {"name": "wild", "domains": ["*.wild.test", "wild.test"], "challenge": "dns-01", "dns_provider": "lab", "key_type": "ec384"},
+  {"name": "orphan", "domains": ["orphan.test"], "challenge": "dns-01", "dns_provider": "nope"},
+]
+def config(certificates):
+  return {"config": {
+    "account": {"directory": "https://127.0.0.1:%s/dir" % acme, "directory_ca": open(w + "/test-ca.pem").read()},
+    "certificates": certificates,
+    "path": {"mode": "ACME_PATH_MODE_CONTROLLER_ORDERED", "account_thumbprint": thumb},
+  }}
+json.dump(config(certs[2:]), open(w + "/apply-path.json", "w"))
+json.dump(config(certs), open(w + "/apply.json", "w"))
 PY
-out="$(api -X POST "$NODE/haproxy/acme/apply" -d @"$WORKDIR/apply.json")"
+out="$(api -X POST "$NODE/haproxy/acme/apply" -d @"$WORKDIR/apply-path.json")"
 check "applied through the node's page" '"accepted": ?true' "$out"
 check "janusctl names the path" "by the Controller, which orders the certificates" "$(ctl haproxy acme path)"
 ctl haproxy get-config > "$WORKDIR/haproxy.cfg"
@@ -209,6 +223,8 @@ until [ "$(curl -s -m 3 "http://127.0.0.1:$P_80/.well-known/acme-challenge/tok")
 done
 echo "  ok: HAProxy answers HTTP-01 for the Controller's account"
 
+out="$(api -X POST "$NODE/haproxy/acme/apply" -d @"$WORKDIR/apply.json")"
+check "the certificates applied through the node's page" '"accepted": ?true' "$out"
 api -X POST "$API/api/acme/run" -o /dev/null
 deadline=$((SECONDS + 180))
 until out="$(ctl haproxy acme status)" && grep -Eq "^site +valid" <<<"$out" && grep -Eq "^wild +valid" <<<"$out"; do

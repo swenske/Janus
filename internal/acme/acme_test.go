@@ -436,6 +436,62 @@ func TestFailureBacksOff(t *testing.T) {
 	}
 }
 
+// An HTTP-01 attempt during which HAProxy's configuration changed - the
+// CA's fetch landed in its reload, or before the frontend answering it -
+// is tried again at once rather than after its backoff, as one that had
+// failed before the change is (#368). One that failed with HAProxy left
+// alone still waits.
+func TestHTTP01RetriedWhenHAProxyChangedMeanwhile(t *testing.T) {
+	m, _ := setup(t)
+	dir := t.TempDir()
+	gate := filepath.Join(dir, "go")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The order stays in flight until the test opens the gate.
+	script := filepath.Join(dir, "janus-acme")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nwhile [ ! -e "+gate+" ]; do sleep 0.01; done\nJANUS_ACME_FAKE=1 exec "+exe+" -test.run=^$\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	Binary = script // setup's cleanup puts the package's back
+	cfg := testConfig()
+	cfg.Certificates = cfg.Certificates[:1]
+	cfg.Account.Email = "fail@example.com"
+	if errs, err := m.Apply(cfg, "", false); err != nil {
+		t.Fatal(errs, err)
+	}
+	m.mu.Lock() // the account known: the pass goes straight to the order
+	m.st.Accounts = map[string]*accountState{m.accountKey(ResolveDirectory(cfg.Account.Directory), m.thumb): {URI: "https://ca.test/acct/1", Checked: time.Now()}}
+	m.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() { m.pass(); close(done) }()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		m.mu.Lock()
+		ordering := m.inProgress == "site"
+		m.mu.Unlock()
+		if ordering {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the order never started")
+		}
+	}
+	m.HAProxyConfigChanged()
+	if err := os.WriteFile(gate, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if c := m.Status().Certificates[0]; c.Failures != 1 || c.NextAttemptUnix > time.Now().Unix() {
+		t.Fatalf("failed while HAProxy's configuration changed, not tried again at once: %+v", c)
+	}
+	m.pass()
+	if c := m.Status().Certificates[0]; c.Failures != 2 || c.NextAttemptUnix < time.Now().Add(4*time.Minute).Unix() {
+		t.Errorf("failed with HAProxy left alone, not in its backoff: %+v", c)
+	}
+}
+
 func TestHTTP01WaitsForHAProxy(t *testing.T) {
 	m, _ := setup(t)
 	healthy := false

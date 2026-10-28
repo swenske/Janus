@@ -126,6 +126,9 @@ type Manager struct {
 	inProgress string
 	forced     map[string]bool
 	waiting    bool // logged that HTTP-01 waits for HAProxy
+	// haproxyChanges counts HAProxyConfigChanged: an HTTP-01 attempt
+	// that saw it change while it ran is tried again at once.
+	haproxyChanges uint64
 	// relayIdentity makes the certificate the Controller's relay knows
 	// the node by (SetRelayIdentity); nil until the node's CA is loaded.
 	relayIdentity func() (certPEM, keyPEM []byte, err error)
@@ -592,6 +595,7 @@ func (m *Manager) Renew(names []string) ([]string, error) {
 func (m *Manager) HAProxyConfigChanged() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.haproxyChanges++
 	if m.cfg == nil {
 		return
 	}
@@ -868,6 +872,7 @@ func (m *Manager) obtain(cfg *janusv1alpha1.ACMEConfig, c *janusv1alpha1.ACMECer
 		}
 	}
 	m.inProgress = c.Name
+	changes := m.haproxyChanges
 	delete(m.forced, c.Name)
 	m.mu.Unlock()
 
@@ -898,6 +903,13 @@ func (m *Manager) obtain(cfg *janusv1alpha1.ACMEConfig, c *janusv1alpha1.ACMECer
 		if !proto.Equal(cfg.Path, m.cfg.GetPath()) {
 			// Ordered the way the CA was reached before the path changed:
 			// tried again at once the new way.
+			cs.NextAttempt = time.Time{}
+			m.wake()
+		} else if c.Challenge == acmewire.ChallengeHTTP01 && m.haproxyChanges != changes {
+			// HAProxy's configuration changed while the CA validated: what
+			// answers the challenges came with it, or its reload reset the
+			// CA's fetch - tried again at once, as one that had failed
+			// before the change would be (HAProxyConfigChanged).
 			cs.NextAttempt = time.Time{}
 			m.wake()
 		}
