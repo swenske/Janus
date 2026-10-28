@@ -296,18 +296,47 @@ func (m *metricsSources) vrrpMetrics() []exporter.Family {
 	if err != nil {
 		return nil
 	}
-	var states, prio, masters []exporter.Sample
+	return vrrpFamilies(instances)
+}
+
+// vrrpFamilies: the instances' state, and keepalived's own counters
+// from the same dump - each only when keepalived reports it (a family
+// without samples isn't written: no 0 for what it doesn't count).
+func vrrpFamilies(instances []vrrp.Instance) []exporter.Family {
+	var states, prio, masters, left, rcvd, sent, zeroRcvd, zeroSent, errs []exporter.Sample
+	add := func(to *[]exporter.Sample, v *uint64, name string) {
+		if v != nil {
+			*to = append(*to, sample(float64(*v), "instance", name))
+		}
+	}
 	for _, in := range instances {
 		for _, s := range vrrpStates {
 			states = append(states, sample(exporter.Bool(in.State == s), "instance", in.Name, "interface", in.Interface, "state", s))
 		}
 		prio = append(prio, sample(float64(in.EffectivePriority), "instance", in.Name))
 		masters = append(masters, sample(float64(in.BecameMaster), "instance", in.Name))
+		c := in.Counters
+		add(&left, c.LeftMaster, in.Name)
+		add(&rcvd, c.AdvertsReceived, in.Name)
+		add(&sent, c.AdvertsSent, in.Name)
+		add(&zeroRcvd, c.PriorityZeroReceived, in.Name)
+		add(&zeroSent, c.PriorityZeroSent, in.Name)
+		for _, e := range vrrp.AdvertErrorNames {
+			if v, ok := c.AdvertErrors[e.Name]; ok {
+				errs = append(errs, sample(float64(v), "instance", in.Name, "error", e.Name))
+			}
+		}
 	}
 	return []exporter.Family{
 		gauge("janus_vrrp_instance_state", "Each VRRP instance's state (the keepalived extension): 1 for its current one.", states...),
 		gauge("janus_vrrp_instance_effective_priority", "Each VRRP instance's priority, after tracking.", prio...),
 		counter("janus_vrrp_instance_became_master_total", "Times each VRRP instance became master since keepalived started.", masters...),
+		counter("janus_vrrp_instance_left_master_total", "Times each VRRP instance left MASTER since keepalived started.", left...),
+		counter("janus_vrrp_instance_adverts_sent_total", "VRRP advertisements each instance sent since keepalived started: a master sends one every advert_int.", sent...),
+		counter("janus_vrrp_instance_adverts_received_total", "Valid VRRP advertisements each instance received since keepalived started: a backup hears its master's. Flat on every node of a pair: they don't hear each other.", rcvd...),
+		counter("janus_vrrp_instance_priority_zero_sent_total", "Priority 0 advertisements each VRRP instance sent since keepalived started: leaving MASTER, so that a backup takes over at once.", zeroSent...),
+		counter("janus_vrrp_instance_priority_zero_received_total", "Priority 0 advertisements each VRRP instance received since keepalived started: a master giving the virtual addresses up.", zeroRcvd...),
+		counter("janus_vrrp_instance_advert_errors_total", "VRRP packets with an error each instance received since keepalived started, by error: packet_length, ttl, packet_type, authentication_type (dropped), address_list (other virtual addresses than its own).", errs...),
 	}
 }
 

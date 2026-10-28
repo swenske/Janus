@@ -141,6 +141,12 @@ authentication: restrict who reaches the port.
 | `janus_vrrp_instance_state` | gauge | `instance`, `interface`, `state` | 1 for each VRRP instance's current state (`MASTER`, `BACKUP`, `FAULT`, `INIT`, `STOP`) - [VRRP](vrrp.md), the keepalived extension |
 | `janus_vrrp_instance_effective_priority` | gauge | `instance` | Its priority after tracking |
 | `janus_vrrp_instance_became_master_total` | counter | `instance` | Times it became master since keepalived started |
+| `janus_vrrp_instance_left_master_total` | counter | `instance` | Times it left MASTER since keepalived started |
+| `janus_vrrp_instance_adverts_sent_total` | counter | `instance` | VRRP advertisements it sent: a master sends one every `advert_int` |
+| `janus_vrrp_instance_adverts_received_total` | counter | `instance` | Valid advertisements it received: a backup hears its master's |
+| `janus_vrrp_instance_priority_zero_sent_total` | counter | `instance` | Priority 0 advertisements it sent: leaving MASTER, so that a backup takes over at once |
+| `janus_vrrp_instance_priority_zero_received_total` | counter | `instance` | Priority 0 advertisements it received: a master giving the virtual IPs up |
+| `janus_vrrp_instance_advert_errors_total` | counter | `instance`, `error` | VRRP packets with an error it received ([which errors](vrrp.md#metrics)) |
 | `janus_bgp_protocol_up` | gauge | `protocol`, `proto` | 1 if each BIRD protocol is up - [BGP](bgp.md), the bird extension |
 | `janus_bgp_session_established` | gauge | `protocol`, `neighbor` | 1 if each BGP session is established |
 | `janus_bgp_routes` | gauge | `protocol`, `channel`, `direction` (`imported`, `exported`) | Routes each protocol imported and exported |
@@ -270,6 +276,12 @@ groups:
         annotations:
           summary: 'Janus VRRP instance in FAULT (instance {{ $labels.instance }})'
           description: 'VRRP instance {{ $labels.exported_instance }} on {{ $labels.instance }} ({{ $labels.interface }}) has been in FAULT for a minute.'
+      - alert: JanusVRRPAdvertErrors
+        expr: sum by (instance, exported_instance, error) (increase(janus_vrrp_instance_advert_errors_total[15m])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: 'Janus VRRP advertisements with errors (instance {{ $labels.instance }})'
+          description: 'VRRP instance {{ $labels.exported_instance }} on {{ $labels.instance }} received {{ $value | humanize }} advertisements with a {{ $labels.error }} error in 15 minutes: a router on its LAN speaks VRRP for it differently. A dropped advertisement can leave two masters.'
       - alert: JanusBGPSessionDown
         expr: janus_bgp_session_established == 0
         for: 2m
@@ -381,8 +393,9 @@ metrics in Grafana (11.6 or later):
 - **HAProxy** serving over time, its reloads, crashes and
   configurations; **certificates** by expiry, and Let's Encrypt's;
   **extension services** and their versions; trials, the clock, API
-  calls and errors; **VRRP, BGP and the firewall's sets** in a row that
-  starts collapsed.
+  calls and errors; **VRRP** (states, priorities, advertisements and
+  their errors), **BGP** and the firewall's sets in a row that starts
+  collapsed.
 - janusd starting, configurations applied and HAProxy crashing mark
   every graph.
 
