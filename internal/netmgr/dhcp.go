@@ -2,6 +2,7 @@ package netmgr
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
@@ -250,7 +252,20 @@ var dhcpFilter = func() []bpf.RawInstruction {
 	return prog
 }()
 
+// waitForEntropy makes sure the kernel's random pool is ready. The DHCP
+// messages' transaction IDs come from u-root's rand, which polls
+// getrandom without blocking until it is - spinning, and never making
+// the kernel gather entropy, which a blocking getrandom does (jitter
+// entropy). Early in a boot, under a hypervisor without RDRAND or
+// virtio-rng, the pool isn't: janusd -boot-dhcp spun for minutes before
+// sending anything.
+var waitForEntropy = sync.OnceFunc(func() {
+	var b [1]byte
+	_, _ = cryptorand.Read(b[:]) // blocks until the pool is ready
+})
+
 func (t *packetTransport) client() (*nclient4.Client, string, error) {
+	waitForEntropy()
 	ifc, err := net.InterfaceByIndex(t.index)
 	if err != nil {
 		return nil, "", err
@@ -582,6 +597,7 @@ func BootDHCP(ctx context.Context, resolvConf string) (*Lease, error) {
 			log.Printf("netmgr: %s: set up: %v", l.name, err)
 			continue
 		}
+		log.Printf("netmgr: %s: asking DHCP for a lease", l.name)
 		go func(l linkInfo) {
 			t := newTransport(l.index, l.mac)
 			for retry := time.Second; ctx.Err() == nil; retry = min(retry*2, dhcpRetryMax) {
@@ -589,6 +605,9 @@ func BootDHCP(ctx context.Context, resolvConf string) (*Lease, error) {
 				if err == nil {
 					got <- lease
 					return
+				}
+				if ctx.Err() == nil {
+					log.Printf("netmgr: %s: no DHCP lease yet: %v", l.name, err)
 				}
 				if !sleepCtx(ctx, retry) {
 					return
