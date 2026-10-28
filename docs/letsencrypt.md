@@ -281,7 +281,9 @@ stand-in for the same names, so a configuration that references it loads
 from the start. The usual order is: save the letsencrypt configuration,
 then the HAProxy configuration that uses the files and answers the
 challenges. Applying a HAProxy configuration makes the node retry at once
-the HTTP-01 certificates it couldn't obtain yet.
+the HTTP-01 certificates it couldn't obtain yet - one being ordered as
+it's applied too, if that order fails: the CA may have checked the
+challenge before the new configuration answered it.
 
 Reference a file (`crt /etc/haproxy/acme/example.com.pem`), or the whole
 directory (`crt /etc/haproxy/acme/`), possibly after a default
