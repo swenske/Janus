@@ -51,8 +51,9 @@ certificate as `controller-ca.crt`.
 
 The Controller writes the host's preparation with your values - a
 dedicated `janus-ctl` account that can only open libvirt's socket, the
-`janus` pool, the networks, a polkit policy that limits it to its own
-machines. In the Controller: **Hypervisors › Add hypervisor**, fill in
+`janus` pool, the networks, the UEFI firmware a node can boot, a polkit
+policy that limits it to its own machines. In the Controller:
+**Hypervisors › Add hypervisor**, fill in
 the host, `janus-ctl`, `janus`, your network, then **Show host
 preparation** - and cancel: Terraform adds the hypervisor itself. Run
 the preparation as root on the host. What each step does:

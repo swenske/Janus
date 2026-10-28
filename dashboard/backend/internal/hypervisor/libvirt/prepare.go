@@ -75,7 +75,7 @@ var prepSteps = []struct{ title, about, script string }{
 	{
 		title: "The Controller's account",
 		about: "A dedicated account with no password and no shell. The libvirt group gives it libvirt's socket; " +
-			"{{.Group}} is the group of every Janus Controller's account on this host (step 5).",
+			"{{.Group}} is the group of every Janus Controller's account on this host (step 6).",
 		script: `getent group libvirt >/dev/null || { echo "There's no libvirt group: is libvirt installed?" >&2; exit 1; }
 getent group {{.Group}} >/dev/null || groupadd --system {{.Group}}
 id -u {{.User}} >/dev/null 2>&1 || useradd --create-home --shell /usr/sbin/nologin {{.User}}
@@ -166,8 +166,35 @@ done
 `,
 	},
 	{
+		title: "The UEFI firmware",
+		about: "libvirt picks a machine's UEFI among QEMU's firmware descriptors. A build loaded into memory - AMD SEV's, Intel TDX's: " +
+			"no flash, no variable store - can't run a Janus node, yet it may win that choice: Ubuntu installs them with OVMF, and the SEV one sorts first. " +
+			"An empty file of the same name in /etc/qemu/firmware/ hides a descriptor; on a host whose KVM runs SEV or TDX guests they stay, with a warning.",
+		script: `sev=$(cat /sys/module/kvm_amd/parameters/sev 2>/dev/null || true)
+tdx=$(cat /sys/module/kvm_intel/parameters/tdx 2>/dev/null || true)
+hidden=
+for f in /usr/share/qemu/firmware/*.json; do
+    [ -f "$f" ] || continue
+    name=${f##*/}
+    grep -Eq '"device"[[:space:]]*:[[:space:]]*"memory"' "$f" || continue
+    if [ -e "/etc/qemu/firmware/$name" ]; then continue; fi
+    case "$sev$tdx" in
+    *Y* | *y* | *1*) echo "warning: $name stays - this host runs confidential guests, and libvirt may give its firmware to a Janus machine" >&2; continue ;;
+    esac
+    install -d -m 755 /etc/qemu/firmware
+    : > "/etc/qemu/firmware/$name"
+    echo "hid $name"
+    hidden=1
+done
+if [ -n "$hidden" ]; then
+    systemctl try-restart libvirtd.service 2>/dev/null || true
+    systemctl try-restart virtqemud.service 2>/dev/null || true
+fi
+`,
+	},
+	{
 		title: "polkit: libvirt enforces the boundary",
-		about: "Steps 1 to 4 are enough to work, but the libvirt group can do anything libvirt can - root on this host, in effect. " +
+		about: "Steps 1 to 5 are enough to work, but the libvirt group can do anything libvirt can - root on this host, in effect. " +
 			"With libvirt's polkit access driver, every API call is checked: {{.User}} only sees and acts on domains named {{.Prefix}}*, pool {{.Pool}} " +
 			"and networks {{words .Networks}}. Root and the rest of the libvirt group keep every right they had; another Controller's account " +
 			"({{.Group}}) is left to its own rule. Turning the driver on restarts libvirtd once - running machines aren't affected.",

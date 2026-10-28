@@ -14,7 +14,7 @@ func TestHostPreparation(t *testing.T) {
 	const key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOKd8n6l0Xc1Vf2B0Yw3fN5mJ8vVvYb6ehgZK1vE0pQ7 janus-controller-0123abcd"
 	for _, tc := range []struct{ name, key string }{{"before it's added", ""}, {"added", key}} {
 		steps := HostPreparation("kvm!01\n`$(reboot)`", c, tc.key)
-		if len(steps) != 6 {
+		if len(steps) != 7 {
 			t.Fatalf("%s: %d steps", tc.name, len(steps))
 		}
 		script := hypervisor.PreparationScript("kvm!01\n`$(reboot)`", steps)
@@ -38,7 +38,8 @@ func TestHostPreparation(t *testing.T) {
 			t.Errorf("%s: script: sh -n: %v %s", tc.name, err, out)
 		}
 		for _, want := range []string{
-			"#!/bin/sh\n", "set -eu\n", "# --- 5. polkit: libvirt enforces the boundary ---\n",
+			"#!/bin/sh\n", "set -eu\n", "# --- 5. The UEFI firmware ---\n", "# --- 6. polkit: libvirt enforces the boundary ---\n",
+			`: > "/etc/qemu/firmware/$name"`,
 			"useradd --create-home --shell /usr/sbin/nologin janus-ctl2\n",
 			"usermod --append --groups libvirt,janus-controllers janus-ctl2\n",
 			"/etc/ssh/sshd_config.d/50-janus-ctl2.conf", "Match User janus-ctl2\n",
