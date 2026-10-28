@@ -36,7 +36,12 @@ func TestParseEstablishedSession(t *testing.T) {
 	want := []Protocol{{
 		Name: "peer_b", Proto: "BGP", Table: "---", State: "up", Since: "01:41:34.348", Info: "Established",
 		BGPState: "Established", NeighborAddress: "172.17.0.3", NeighborAS: 65002, LocalAS: 65001,
-		Channels: []Channel{{Name: "ipv4", State: "UP", Imported: 0, Exported: 1, Preferred: 0}},
+		Channels: []Channel{{Name: "ipv4", State: "UP", Imported: 0, Exported: 1, Preferred: 0, Counted: true, Changes: []RouteChange{
+			{"import", "updates", "received", 0}, {"import", "updates", "rejected", 0}, {"import", "updates", "filtered", 0}, {"import", "updates", "ignored", 0}, {"import", "updates", "accepted", 0},
+			{"import", "withdraws", "received", 0}, {"import", "withdraws", "rejected", 0}, {"import", "withdraws", "ignored", 0}, {"import", "withdraws", "accepted", 0},
+			{"export", "updates", "received", 3}, {"export", "updates", "rejected", 0}, {"export", "updates", "filtered", 0}, {"export", "updates", "accepted", 3},
+			{"export", "withdraws", "received", 2}, {"export", "withdraws", "accepted", 2},
+		}}},
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got  %+v\nwant %+v", got, want)
@@ -56,6 +61,117 @@ func TestParseStaticAndSummary(t *testing.T) {
 	}
 	if want := []string{"device1/up/", "haproxy_anycast/up/", "peer_b/up/Established"}; !reflect.DeepEqual(names, want) {
 		t.Errorf("summary: %v, want %v", names, want)
+	}
+}
+
+// BIRD 2.20.0's own replies (the bird extension's static binary, the one
+// nodes run): two instances peering over a veth pair with qemu-bgp-test's
+// protocols - B imports with "import keep filtered on" and filters one
+// route; then A's haproxy_anycast disabled (janusd's gate), then back.
+// janusd's "timeformat protocol iso long". Captured on a host whose local
+// time was CET.
+func TestParseBIRD220(t *testing.T) {
+	cet := time.FixedZone("CET", 3600)
+	find := func(ps []Protocol, name string) Protocol {
+		t.Helper()
+		for _, p := range ps {
+			if p.Name == name {
+				return p
+			}
+		}
+		t.Fatalf("no %s in %+v", name, ps)
+		return Protocol{}
+	}
+	changes := func(c Channel) map[string]uint64 {
+		m := map[string]uint64{}
+		for _, rc := range c.Changes {
+			m[rc.Direction+" "+rc.Kind+" "+rc.Outcome] = rc.Count
+		}
+		return m
+	}
+
+	b := find(ParseProtocols(fixture(t, "bird-2.20.0-b-established.txt")), "peer_a")
+	if b.State != "up" || b.Since != "2026-10-28 23:53:40" || b.BGPState != "Established" || len(b.Channels) != 1 {
+		t.Fatalf("peer_a: %+v", b)
+	}
+	if at, ok := b.SinceTime(time.Date(2026, 10, 28, 23, 0, 0, 0, cet)); !ok || !at.Equal(time.Date(2026, 10, 28, 23, 53, 40, 0, cet)) {
+		t.Errorf("since: %v %v", at, ok)
+	}
+	c := b.Channels[0]
+	if !c.Counted || c.Imported != 2 || c.Exported != 0 || c.Preferred != 2 || c.Filtered == nil || *c.Filtered != 1 {
+		t.Errorf("routes: %+v", c)
+	}
+	got := changes(c)
+	want := map[string]uint64{
+		"import updates received": 3, "import updates rejected": 0, "import updates filtered": 1, "import updates ignored": 0, "import updates accepted": 2,
+		"import withdraws received": 0, "import withdraws rejected": 0, "import withdraws ignored": 1, "import withdraws accepted": 0,
+		"export updates received": 2, "export updates rejected": 2, "export updates filtered": 0, "export updates accepted": 0,
+		"export withdraws received": 0, "export withdraws accepted": 0,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("peer_a's changes:\n got  %v\n want %v", got, want)
+	}
+
+	// The anycast route withdrawn: B counts the withdraw, A its export.
+	if got := changes(find(ParseProtocols(fixture(t, "bird-2.20.0-b-withdrawn.txt")), "peer_a").Channels[0]); got["import withdraws received"] != 1 || got["import withdraws accepted"] != 1 {
+		t.Errorf("B after the withdraw: %v", got)
+	}
+	back := find(ParseProtocols(fixture(t, "bird-2.20.0-b-back.txt")), "peer_a").Channels[0]
+	if got := changes(back); back.Imported != 2 || got["import updates accepted"] != 3 {
+		t.Errorf("B with the route back: %+v %v", back, got)
+	}
+	a := ParseProtocols(fixture(t, "bird-2.20.0-a-withdrawn.txt"))
+	if got := changes(find(a, "peer_b").Channels[0]); got["export withdraws accepted"] != 1 || find(a, "peer_b").Channels[0].Exported != 2 {
+		t.Errorf("A after the withdraw: %v", got)
+	}
+	// A channel that's down: BIRD prints no counts - nothing counted,
+	// no table, no filtered.
+	held := find(a, "haproxy_anycast")
+	if held.State != "down" || len(held.Channels) != 1 || held.Channels[0].State != "DOWN" || held.Channels[0].Counted ||
+		held.Channels[0].Changes != nil || held.Channels[0].Filtered != nil {
+		t.Errorf("held down: %+v", held)
+	}
+	// No "filtered" without "import keep filtered on"; protocols without
+	// a channel have none.
+	if p := find(a, "peer_b"); p.Channels[0].Filtered != nil {
+		t.Errorf("peer_b: %+v", p.Channels[0])
+	}
+	if p := find(a, "device1"); len(p.Channels) != 0 || p.Since != "2026-10-28 23:53:36" {
+		t.Errorf("device1: %+v", p)
+	}
+}
+
+// BIRD's default time format: a time of day within 20 hours (today's,
+// or yesterday's when later than now), a date alone after - no moment.
+func TestSinceTime(t *testing.T) {
+	now := time.Date(2026, 10, 29, 1, 0, 0, 0, time.UTC)
+	for since, want := range map[string]time.Time{
+		"00:41:34.348":        time.Date(2026, 10, 29, 0, 41, 34, 348e6, time.UTC),
+		"23:10:00.000":        time.Date(2026, 10, 28, 23, 10, 0, 0, time.UTC),
+		"2026-10-20 10:00:01": time.Date(2026, 10, 20, 10, 0, 1, 0, time.UTC),
+		"2026-10-20":          {},
+		"":                    {},
+		"Established":         {},
+	} {
+		got, ok := Protocol{Since: since}.SinceTime(now)
+		if ok != !want.IsZero() || !got.Equal(want) {
+			t.Errorf("%q: %v %v, want %v", since, got, ok, want)
+		}
+	}
+}
+
+func TestWithTimeFormat(t *testing.T) {
+	for in, added := range map[string]bool{
+		"router id 192.0.2.1;\n":                                true,
+		"timeformat protocol iso long;\nrouter id 192.0.2.1;\n": false,
+		"  timeformat protocol \"%T\";\n":                       false,
+		"# timeformat protocol iso short;\n":                    true,
+		"timeformat route iso long;\nrouter id 192.0.2.1;\n":    true,
+	} {
+		out := WithTimeFormat(in)
+		if got := strings.Contains(out, "timeformat protocol iso long; # added by janusd"); got != added || !strings.HasPrefix(out, in) {
+			t.Errorf("%q: %q", in, out)
+		}
 	}
 }
 
@@ -291,7 +407,8 @@ func TestApply(t *testing.T) {
 	}
 	saved, _, _ := m.Saved()
 	run, _ := os.ReadFile(filepath.Join(RunDir, "bird.conf"))
-	if saved != "router id 192.0.2.1;\n" || !strings.HasPrefix(string(run), saved) || !strings.Contains(string(run), "log stderr all;") {
+	if saved != "router id 192.0.2.1;\n" || !strings.HasPrefix(string(run), saved) || !strings.Contains(string(run), "log stderr all;") ||
+		!strings.Contains(string(run), "timeformat protocol iso long;") {
 		t.Errorf("saved %q, BIRD reads %q", saved, run)
 	}
 

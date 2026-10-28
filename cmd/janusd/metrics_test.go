@@ -3,7 +3,9 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/swenske/Janus/internal/bgp"
 	"github.com/swenske/Janus/internal/exporter"
 	"github.com/swenske/Janus/internal/vrrp"
 )
@@ -56,5 +58,59 @@ func TestVRRPFamilies(t *testing.T) {
 	}
 	if strings.Contains(b.String(), "adverts_sent") || strings.Contains(b.String(), "advert_errors") {
 		t.Errorf("families without samples written:\n%s", b.String())
+	}
+}
+
+// BIRD's protocols: their state and since when, routes per channel and
+// the route change stats - only what BIRD printed (bgp.ParseProtocols
+// on BIRD 2.20.0's replies is internal/bgp's TestParseBIRD220).
+func TestBGPFamilies(t *testing.T) {
+	cet := time.FixedZone("CET", 3600)
+	filtered := uint32(1)
+	protocols := []bgp.Protocol{
+		{Name: "peer_a", Proto: "BGP", State: "up", Since: "2026-10-28 23:53:40", BGPState: "Established", NeighborAddress: "192.168.78.1",
+			Channels: []bgp.Channel{{Name: "ipv4", State: "UP", Imported: 2, Preferred: 2, Counted: true, Filtered: &filtered, Changes: []bgp.RouteChange{
+				{Direction: "import", Kind: "updates", Outcome: "received", Count: 3},
+				{Direction: "import", Kind: "updates", Outcome: "filtered", Count: 1},
+				{Direction: "import", Kind: "withdraws", Outcome: "accepted", Count: 1},
+			}}}},
+		// Held down: its channel is down, BIRD printed no counts.
+		{Name: "haproxy_anycast", Proto: "Static", State: "down", Since: "2026-10-28 23:53:43", HeldDown: true,
+			Channels: []bgp.Channel{{Name: "ipv4", State: "DOWN"}}},
+		// BIRD's default format past 20 hours: a date, no moment.
+		{Name: "device1", Proto: "Device", State: "up", Since: "2026-10-20"},
+	}
+	var b strings.Builder
+	if err := exporter.Write(&b, bgpFamilies(protocols, time.Date(2026, 10, 29, 0, 0, 0, 0, cet))); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	for _, want := range []string{
+		`janus_bgp_protocol_state{protocol="peer_a",proto="BGP",state="up"} 1`,
+		`janus_bgp_protocol_state{protocol="peer_a",proto="BGP",state="start"} 0`,
+		`janus_bgp_protocol_state{protocol="haproxy_anycast",proto="Static",state="down"} 1`,
+		`janus_bgp_protocol_state_since_timestamp_seconds{protocol="peer_a",proto="BGP"} 1.79322802e+09`,
+		`janus_bgp_protocol_state_since_timestamp_seconds{protocol="haproxy_anycast",proto="Static"} 1.793228023e+09`,
+		`janus_bgp_routes{protocol="peer_a",channel="ipv4",direction="imported"} 2`,
+		`janus_bgp_routes{protocol="peer_a",channel="ipv4",direction="preferred"} 2`,
+		`janus_bgp_routes{protocol="peer_a",channel="ipv4",direction="filtered"} 1`,
+		`janus_bgp_route_changes_total{protocol="peer_a",channel="ipv4",direction="import",kind="updates",outcome="received"} 3`,
+		`janus_bgp_route_changes_total{protocol="peer_a",channel="ipv4",direction="import",kind="withdraws",outcome="accepted"} 1`,
+		"# TYPE janus_bgp_route_changes_total counter",
+		`janus_bgp_protocol_held_down{protocol="haproxy_anycast"} 1`,
+	} {
+		if !strings.Contains(out, want+"\n") {
+			t.Errorf("missing %s in:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{
+		`janus_bgp_routes{protocol="haproxy_anycast",channel="ipv4",direction="preferred"}`,
+		`janus_bgp_routes{protocol="haproxy_anycast",channel="ipv4",direction="filtered"}`,
+		`janus_bgp_route_changes_total{protocol="haproxy_anycast"`,
+		`janus_bgp_protocol_state_since_timestamp_seconds{protocol="device1"`,
+	} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("made up: %s in:\n%s", unwanted, out)
+		}
 	}
 }
