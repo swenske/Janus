@@ -191,7 +191,7 @@ func (a *app) prebuild(ctx context.Context) {
 		if err != nil || st.State != "none" {
 			continue
 		}
-		if err := a.startBuild(ctx, sc, latest.Version, "amd64", "prebuild", false); err != nil {
+		if err := a.startBuild(ctx, sc, latest.Version, "amd64", prebuildClient, false); err != nil {
 			log.Printf("prebuild %s %s: %v", id, latest.Version, err)
 		}
 	}
