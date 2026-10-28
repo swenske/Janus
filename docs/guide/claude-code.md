@@ -163,8 +163,19 @@ Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing.md)
 runs Claude's commands with the folders you name unreadable, and lets
 them out only through its proxy, to the hosts you list. janusctl goes
 through that proxy (this release on). On Linux and WSL2 the sandbox
-needs `bubblewrap` and `socat`. With Claude's context of its own as
-above, in `~/.claude/settings.json`:
+needs `bubblewrap` and `socat`.
+
+Sign Claude's context in with a code rather than an SSH key, and pick
+the lower role when you approve it on the Controller's page:
+
+```sh
+JANUSCONFIG=~/.config/janus-claude/janusctl.json \
+  janusctl login -controller janus-controller.example.com -device
+```
+
+Its key is a file in the context's folder; the certificate lasts 12
+hours, then you sign it in again the same way. Then, in
+`~/.claude/settings.json`:
 
 ```json
 {
@@ -180,8 +191,7 @@ above, in `~/.claude/settings.json`:
     "allowUnsandboxedCommands": false,
     "failIfUnavailable": true,
     "filesystem": {
-      "denyRead": ["~/.config/janus"],
-      "allowWrite": ["~/.config/janus-claude"]
+      "denyRead": ["~/.config/janus"]
     },
     "network": {
       "allowedDomains": ["10.0.0.11:9505", "10.0.0.12:9505"]
@@ -195,8 +205,6 @@ above, in `~/.claude/settings.json`:
   tools.
 - `allowUnsandboxedCommands: false` takes away the retry outside the
   sandbox, `failIfUnavailable` the session without one.
-- `allowWrite`: janusctl renews Claude's certificate in its context's
-  folder.
 - `allowedDomains` lists the nodes, each `ADDRESS:PORT` as `janusctl
   nodes` shows it.
 - `JANUS_NO_PROXY`: the sandbox puts the private ranges (`10.0.0.0/8`,
@@ -205,15 +213,24 @@ above, in `~/.claude/settings.json`:
   janusctl reads `JANUS_NO_PROXY` in `NO_PROXY`'s place, so the nodes
   go through the proxy.
 
+A context with an SSH key signs each connection with ssh-agent, through
+a Unix socket: the sandbox refuses it on Linux and WSL2 (`socket:
+operation not permitted`) unless `"allowAllUnixSockets": true` under
+`network` - every Unix socket then, Docker's among them: a way out of
+the sandbox for an account that may use Docker. With it, the Controller
+goes in `allowedDomains` too (`janus-controller.example.com:443`), and
+the context's folder in `filesystem.allowWrite`: janusctl renews the
+certificate there.
+
 In the sandbox, Claude's commands run without a prompt; the plugin's
 [hook](#janusctl-says-what-each-command-does) still asks before a
-critical one. Tested with a reader's context of a fleet without a
-Controller, a node on a private address, the node's first-boot admin
-credentials on the same disk under `denyRead`: `tui -once` and a
-streaming `system events` ran, the certificate was renewed in its
-folder (refused there without `allowWrite`), `cat` and janusctl's
-`-cert` couldn't open the admin credentials, and `access rotate-ca` was
-asked.
+critical one. Tested with a reader's context signed in with
+`-device`, nodes on a private address, admin credentials on the same
+disk under `denyRead`: `tui -once` and a streaming `system events` ran,
+`cat` and janusctl's `-cert` couldn't open the admin credentials,
+`cluster drain` was asked; with an SSH key, the renewal through the
+Controller worked with the settings above and failed without each of
+them.
 
 ### janusctl says what each command does
 
