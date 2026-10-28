@@ -41,6 +41,7 @@ import (
 	"github.com/swenske/Janus/internal/acme"
 	"github.com/swenske/Janus/internal/api"
 	"github.com/swenske/Janus/internal/bgp"
+	"github.com/swenske/Janus/internal/birdexporter"
 	"github.com/swenske/Janus/internal/bootcommit"
 	"github.com/swenske/Janus/internal/bootrevert"
 	"github.com/swenske/Janus/internal/boottime"
@@ -97,6 +98,7 @@ func main() {
 	started := time.Now()
 	exporter.Dir = *configDir
 	nodeexporter.Dir = *configDir
+	birdexporter.Dir = *configDir
 	consolelimit.Dir = *configDir
 
 	if *showVersion {
@@ -476,6 +478,9 @@ func main() {
 	// down while HAProxy doesn't answer - checked every second: a BGP
 	// session takes longer than that to come up.
 	bgpMgr := bgp.New(extMgr)
+	// prometheus-bird-exporter reads BIRD over a restricted socket of its
+	// own, declared in the bird.conf BIRD reads.
+	bgp.ReadOnlySocket = extMgr.Has(birdexporter.ServiceID)
 	if *manageHost && bgpMgr.Available() {
 		if err := bgpMgr.Boot(); err != nil {
 			log.Printf("bgp: %v", err)
@@ -512,6 +517,12 @@ func main() {
 		}
 		if err := extMgr.Configure(nodeexporter.ServiceID, nodeexporter.Args(cfg, netMgr.MainAddresses()), cfg.Enabled); err != nil {
 			log.Printf("node-exporter: %v", err)
+		}
+	}
+	// prometheus-bird-exporter runs as its saved settings say.
+	if extMgr.Has(birdexporter.ServiceID) {
+		if err := birdexporter.Boot(extMgr, netMgr.MainAddresses()); err != nil {
+			log.Printf("bird-exporter: %v", err)
 		}
 	}
 	extMgr.Start()
@@ -691,6 +702,11 @@ func main() {
 		if extMgr.Has(nodeexporter.ServiceID) {
 			if err := nodeexporter.Follow(extMgr, netMgr.MainAddresses()); err != nil {
 				log.Printf("node-exporter: %v", err)
+			}
+		}
+		if extMgr.Has(birdexporter.ServiceID) {
+			if err := birdexporter.Follow(extMgr, netMgr.MainAddresses()); err != nil {
+				log.Printf("bird-exporter: %v", err)
 			}
 		}
 	}

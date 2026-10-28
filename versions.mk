@@ -67,6 +67,12 @@ AWSLC_SHA256  := 52c7f98ffd296d267cc015ad4653d1ffae399db65b14421da4f5f7efc44becd
 # for 1.12.1), the build checks it again the same way.
 NODE_EXPORTER_VERSION := 1.12.1
 NODE_EXPORTER_SHA256  := 9d85e5f99be3ff58bb117d0762343c58b902529f76d72e5fd54a82f3ab3469af
+# bird_exporter (prometheus-bird-exporter extension): built from source
+# the same way - the module's zip on proxy.golang.org, sha256 pinned after
+# go mod download checked it against Go's checksum database
+# (h1:wrr7ASDdO90kXUdjSawiWQ0Fn59+zeymG66SJ7HTpOA= for 1.7.1).
+BIRD_EXPORTER_VERSION := 1.7.1
+BIRD_EXPORTER_SHA256  := 84b9532a08b8671c8dcc6708cec314afd941b96461ae25c388562f062d171530
 # nftables for the firewall extension: netfilter.org release tarballs,
 # sha256 pinned after checking their GPG signatures - libnftnl and
 # nftables by the Netfilter Core Team key

@@ -1,1 +1,1 @@
-{"customization":{"extensions":["bird"]}}
+{"customization":{"extensions":["bird","prometheus-bird-exporter"]}}

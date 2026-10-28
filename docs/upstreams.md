@@ -46,6 +46,7 @@ no component follows.
 | `musl-cross-make` | by hand (a commit) | - | - |
 | `docker/dockerfile` (the BuildKit frontend every Dockerfile's `# syntax` line names - resolved on Docker Hub at each build until pinned) | its 1.x line, by hand: Dependabot reads `FROM`, not `# syntax` - bump the digest in the 14 Dockerfiles together (`docker buildx imagetools inspect docker/dockerfile:1`) | Docker Hub's digest | - |
 | `node-exporter` | its major - built from source with this tree's Go, not upstream's binary | Go's checksum database (`go mod download`) on the module's zip | govulncheck on its source, with this tree's Go |
+| `bird-exporter` | its major - built from source with this tree's Go, like node_exporter | Go's checksum database (`go mod download`) on the module's zip | govulncheck on its source, with this tree's Go |
 | `libmnl`, `libnftnl`, `nftables` | every release | the Netfilter Core Team's signature | - (none published) |
 | `jansson` | every release | Petri Lehtinen's signature | osv.dev |
 | `keepalived` | its major | Alpine's sha512, or its files compared with the git tag's (autotools' outputs regenerated) - keepalived signs nothing | osv.dev |

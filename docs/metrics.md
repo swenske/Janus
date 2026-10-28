@@ -106,6 +106,10 @@ In the Controller: **Apps › Node exporter**. A change restarts
 node_exporter with it. Like a stock node_exporter, it has no
 authentication: restrict who reaches the port.
 
+A node built with `prometheus-bird-exporter` (it requires `bird`) runs
+bird_exporter on the main interface, port 9324: BIRD's protocols with
+upstream's metric names - see [bgp.md](bgp.md#bird_exporter).
+
 ## Metrics
 
 | Metric | Type | Labels | Meaning |

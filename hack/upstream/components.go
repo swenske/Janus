@@ -247,6 +247,18 @@ var components = []*component{
 		extension: "prometheus-node-exporter", shipped: "usr/local/sbin/node_exporter",
 	},
 	{
+		// Built from source with this tree's Go, like node_exporter
+		// (extensions/prometheus-bird-exporter/Dockerfile).
+		name: "bird-exporter", title: "Prometheus bird_exporter", kind: kindExtension,
+		versionVar: "BIRD_EXPORTER_VERSION", sumVars: map[string]string{"": "BIRD_EXPORTER_SHA256"},
+		feed: githubReleases{repo: "czerwonk/bird_exporter"}, track: trackMajor,
+		url:       goModuleZip("github.com/czerwonk/bird_exporter"),
+		checks:    []check{goSumDB{module: "github.com/czerwonk/bird_exporter"}},
+		vulns:     []vulnSource{govulnSource{module: "github.com/czerwonk/bird_exporter"}},
+		purl:      func(v string) string { return "pkg:golang/github.com/czerwonk/bird_exporter@v" + plain(v) },
+		extension: "prometheus-bird-exporter", shipped: "usr/local/sbin/bird_exporter",
+	},
+	{
 		name: "libmnl", title: "libmnl (nftables extension)", kind: kindExtension,
 		extension:  "nftables",
 		versionVar: "LIBMNL_VERSION", sumVars: map[string]string{"": "LIBMNL_SHA256"},

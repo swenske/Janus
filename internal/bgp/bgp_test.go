@@ -81,6 +81,39 @@ func TestReadReplyErrors(t *testing.T) {
 	}
 }
 
+// The exporter's restricted socket: appended when the configuration
+// doesn't declare it, and only when the exporter is in the image.
+func TestWithReadOnlySocket(t *testing.T) {
+	const line = `cli "/run/janus/bird/bird-ro.ctl" { restrict; };`
+	for _, c := range []struct {
+		in    string
+		added bool
+	}{
+		{"router id 192.0.2.1;\nprotocol device {}", true},
+		{"router id 192.0.2.1;\ncli \"/run/janus/bird/bird-ro.ctl\" { restrict; };\n", false},
+		{"# cli \"/run/janus/bird/bird-ro.ctl\";\nrouter id 192.0.2.1;\n", true},
+		{"cli \"/run/janus/bird/other.ctl\";\n", true},
+	} {
+		out := WithReadOnlySocket(c.in)
+		if added := strings.Contains(out, line+" # added by janusd"); added != c.added {
+			t.Errorf("%q: added=%v, want %v:\n%s", c.in, added, c.added, out)
+		}
+		if !strings.HasPrefix(out, c.in) {
+			t.Errorf("%q: the operator's text changed", c.in)
+		}
+	}
+	prev := ReadOnlySocket
+	t.Cleanup(func() { ReadOnlySocket = prev })
+	ReadOnlySocket = false
+	if strings.Contains(runtimeConfig("router id 192.0.2.1;\n"), "cli ") {
+		t.Error("the socket was added without the exporter")
+	}
+	ReadOnlySocket = true
+	if out := runtimeConfig("router id 192.0.2.1;\n"); !strings.Contains(out, line) || !strings.Contains(out, "log stderr all;") {
+		t.Errorf("with the exporter: %s", out)
+	}
+}
+
 func TestWithLog(t *testing.T) {
 	for _, c := range []struct {
 		in    string

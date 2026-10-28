@@ -67,7 +67,7 @@ const (
 // The extensions' columns, in this order (TestDashboardExtensions keeps
 // it equal to extensions/).
 var extensionColumns = []string{"bird", "consul", "keepalived", "letsencrypt", "nftables",
-	"prometheus-node-exporter", "qemu-guest-agent"}
+	"prometheus-bird-exporter", "prometheus-node-exporter", "qemu-guest-agent"}
 
 // The metrics janusd exports that neither dashboard shows, and why.
 var notShown = map[string]string{
