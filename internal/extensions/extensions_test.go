@@ -197,6 +197,19 @@ func TestWaitForMustBeAbsolute(t *testing.T) {
 	}
 }
 
+func TestRequiresMustNameAnotherExtension(t *testing.T) {
+	for _, req := range []string{"ext", "Bird", ""} {
+		m := Manifest{Name: "ext", Version: "1", Requires: []string{req}}
+		if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "requirement") {
+			t.Errorf("requires %q: Validate = %v", req, err)
+		}
+	}
+	m := Manifest{Name: "ext", Version: "1", Requires: []string{"bird"}}
+	if err := m.Validate(); err != nil {
+		t.Errorf("requires bird: %v", err)
+	}
+}
+
 func TestConfigure(t *testing.T) {
 	logs := &syncBuf{}
 	m := NewManagerWithTiming([]Manifest{

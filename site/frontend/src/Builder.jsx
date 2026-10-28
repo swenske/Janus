@@ -1,5 +1,6 @@
 import { AlertTriangle, Check, Copy, Cpu, Download, ExternalLink, Hammer, Layers, Loader2, Package, RefreshCcw, Rocket, Terminal } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { requirementError, toggleExtension } from '@shared/requires.js'
 import { Badge, Card, ErrorBox, Loading, useToast } from '@shared/ui.jsx'
 import { DOCS, REPO, bytes, getJSON, postJSON } from './api.js'
 
@@ -102,6 +103,9 @@ export default function Builder() {
   const [image, setImage] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  // What ticking or unticking an extension did to the others it requires
+  // or that require it.
+  const [extNote, setExtNote] = useState('')
   const toast = useToast()
 
   useEffect(() => {
@@ -136,6 +140,9 @@ export default function Builder() {
 
   const available = useMemo(() => (catalog?.extensions || []).filter((e) => !arch || e.arches.includes(arch)), [catalog, arch])
   const chosen = choice.extensions.filter((e) => available.some((a) => a.name === e))
+  // An extension without one it requires (a shared link, say): the image
+  // factory's own refusal, before asking it.
+  const missing = requirementError(chosen, catalog?.extensions, version?.version)
   // A branch or track this release offers for this architecture, else the
   // default.
   const offered = (list, name) => (list || []).some((v) => v.name === name && (!arch || v.arches.includes(arch)))
@@ -355,7 +362,11 @@ export default function Builder() {
                         type="checkbox"
                         disabled={!ok}
                         checked={on}
-                        onChange={() => update({ extensions: on ? chosen.filter((x) => x !== e.name) : [...chosen, e.name] })}
+                        onChange={() => {
+                          const r = toggleExtension(chosen, e.name, !on, catalog.extensions)
+                          setExtNote(r.note)
+                          update({ extensions: r.extensions })
+                        }}
                       />
                       <span className="choice-title">
                         <Package size={14} /> {e.name}
@@ -363,6 +374,7 @@ export default function Builder() {
                       <span className="muted small mono">{e.version}</span>
                     </span>
                     <span className="muted small">{e.description}</span>
+                    {e.requires?.length > 0 && <span className="small">Requires {e.requires.join(', ')}</span>}
                     {!ok && <span className="small warn-text">Not available for {arch}</span>}
                     {e.homepage && (
                       <a className="small" href={e.homepage} onClick={(ev) => ev.stopPropagation()}>
@@ -373,6 +385,16 @@ export default function Builder() {
                 )
               })}
             </div>
+          )}
+          {catalog && missing && (
+            <p className="small warn-text" role="alert">
+              <AlertTriangle size={13} /> {missing}
+            </p>
+          )}
+          {catalog && !missing && extNote && (
+            <p className="small muted" role="status">
+              {extNote}
+            </p>
           )}
         </Step>
       )}

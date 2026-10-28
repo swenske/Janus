@@ -131,6 +131,17 @@ customization:
   track by its name (`"longterm"`). Left out, each is the release's
   default; named, it stays what it is even when it happens to be today's
   default - the default moves, an ID never does.
+- An extension that only works with another one - an exporter reading a
+  daemon another extension brings - lists it under `requires` in the
+  catalog. A schematic naming it must name the other too: without it,
+  the image factory refuses the schematic with
+  `extension "<name>" requires the "<other>" extension: choose it too`,
+  and so do the site's builder, the Controller (a new node, a new
+  cluster, a node's **Change the image…**) and Terraform's `janus_node`
+  and `janus_cluster` (at plan time). Nothing is added behind your back:
+  the schematic stays the list you wrote, and its ID with it. The
+  builder and the Controller's forms tick the requirement with the
+  extension, and untick the extension with its requirement, saying so.
 - The **ID** is the sha256 of the schematic's canonical JSON form. The
   default schematic - no extension, what the official releases are built
   from - is

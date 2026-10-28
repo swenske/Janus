@@ -352,3 +352,86 @@ func TestConsoleChoice(t *testing.T) {
 		t.Fatalf("default on an old release: %v", err)
 	}
 }
+
+// An extension that requires another: refused without it, by its name -
+// also when the requirement was renamed or isn't offered any more - and
+// never completed behind the user's back.
+func TestCatalogRequires(t *testing.T) {
+	c, err := ParseCatalog([]byte(`{"version":"v2026.10.29","extensions":[
+		{"name":"bird","version":"2.19.2","arches":["amd64","arm64"],"replaces":["bird2"]},
+		{"name":"prometheus-bird-exporter","version":"1.4.3","arches":["amd64"],"requires":["bird"]},
+		{"name":"old-style","version":"1","arches":["amd64"],"requires":["bird2"]},
+		{"name":"orphan","version":"1","arches":["amd64"],"requires":["gone"]},
+		{"name":"nftables","version":"1.1.5","arches":["amd64"]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(exts ...string) *Schematic {
+		s := &Schematic{Customization: Customization{Extensions: exts}}
+		if err := s.Normalize(); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	for _, tc := range []struct {
+		exts []string
+		want string // "" = accepted
+	}{
+		{[]string{"prometheus-bird-exporter", "bird"}, ""},
+		{[]string{"bird"}, ""},
+		{[]string{"prometheus-bird-exporter"}, `extension "prometheus-bird-exporter" requires the "bird" extension: choose it too`},
+		{[]string{"prometheus-bird-exporter", "nftables"}, `extension "prometheus-bird-exporter" requires the "bird" extension: choose it too`},
+		// A manifest naming its requirement by a former name: the
+		// requirement is the extension offered now, under its new name.
+		{[]string{"old-style", "bird"}, ""},
+		{[]string{"old-style"}, `extension "old-style" requires the "bird" extension: choose it too`},
+		// A requirement the release doesn't offer (retired, unknown).
+		{[]string{"orphan"}, `extension "orphan" requires the "gone" extension, which Janus v2026.10.29 doesn't offer`},
+	} {
+		err := c.Check(mk(tc.exts...), "amd64")
+		if tc.want == "" {
+			if err != nil {
+				t.Errorf("%v: %v", tc.exts, err)
+			}
+			continue
+		}
+		var re *RequirementError
+		if !errors.As(err, &re) || err.Error() != tc.want {
+			t.Errorf("%v: got %v, want %q", tc.exts, err, tc.want)
+		}
+		if err := c.CheckRequirements(mk(tc.exts...).Extensions()); err == nil || err.Error() != tc.want {
+			t.Errorf("CheckRequirements(%v) = %v", tc.exts, err)
+		}
+	}
+
+	// A schematic naming the requirement by its former name: Resolve
+	// refuses the old name itself; Migrate renames it, and the result
+	// passes. The exporter alone stays alone through Migrate.
+	old := mk("bird2", "prometheus-bird-exporter")
+	if err := c.CheckRequirements(old.Extensions()); err != nil {
+		t.Errorf("a former name satisfies the requirement: %v", err)
+	}
+	if err := c.Check(old, "amd64"); err == nil || !strings.Contains(err.Error(), `"bird2" isn't available`) {
+		t.Errorf("former name: %v", err)
+	}
+	if m, renamed := c.Migrate(old); renamed["bird2"] != "bird" || c.Check(m, "amd64") != nil {
+		t.Errorf("migrated: %v %v %v", m.Extensions(), renamed, c.Check(m, "amd64"))
+	}
+	alone := mk("prometheus-bird-exporter")
+	if m, _ := c.Migrate(alone); len(m.Extensions()) != 1 || m.ID() != alone.ID() {
+		t.Errorf("Migrate added something: %v", m.Extensions())
+	}
+	// The ID is the list as written: requiring doesn't add.
+	if got := string(alone.Canonical()); got != `{"customization":{"extensions":["prometheus-bird-exporter"]}}` {
+		t.Errorf("canonical form: %s", got)
+	}
+}
+
+func TestParseCatalogRefusesRequirements(t *testing.T) {
+	for _, req := range []string{`"Bird"`, `"x"`, `""`} {
+		data := `{"version":"v1","extensions":[{"name":"x","version":"1","arches":["amd64"],"requires":[` + req + `]}]}`
+		if _, err := ParseCatalog([]byte(data)); err == nil || !strings.Contains(err.Error(), "invalid requirement") {
+			t.Errorf("requires %s: %v", req, err)
+		}
+	}
+}

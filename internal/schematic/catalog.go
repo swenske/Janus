@@ -106,6 +106,31 @@ type CatalogEntry struct {
 	// Replaces lists the names the extension had before: a schematic
 	// naming one gets this extension instead (Migrate).
 	Replaces []string `json:"replaces,omitempty"`
+	// Requires lists the extensions this one only works with (BIRD's
+	// exporter needs "bird"): a schematic naming it must name them too.
+	// Nothing adds them behind the user's back - a schematic is what was
+	// written, its ID too - Resolve refuses it instead (RequirementError).
+	Requires []string `json:"requires,omitempty"`
+}
+
+// RequirementError says a schematic names an extension without another
+// one it requires. Its message is the one every place that chooses a
+// schematic shows (the site's builder, the Controller, Terraform).
+type RequirementError struct {
+	// Extension requires Requires (the name the catalog offers it under).
+	Extension string
+	Requires  string
+	// Unavailable names the release when its catalog doesn't offer the
+	// requirement at all - a retired or unknown extension; empty when
+	// the schematic only has to name it.
+	Unavailable string
+}
+
+func (e *RequirementError) Error() string {
+	if e.Unavailable != "" {
+		return fmt.Sprintf("extension %q requires the %q extension, which %s doesn't offer", e.Extension, e.Requires, e.Unavailable)
+	}
+	return fmt.Sprintf("extension %q requires the %q extension: choose it too", e.Extension, e.Requires)
 }
 
 // ParseCatalog reads a catalog.
@@ -151,8 +176,49 @@ func (c *Catalog) Validate() error {
 				return fmt.Errorf("catalog: %s: invalid former name %q", e.Name, old)
 			}
 		}
+		for _, req := range e.Requires {
+			if !ValidName(req) || req == e.Name {
+				return fmt.Errorf("catalog: %s: invalid requirement %q", e.Name, req)
+			}
+		}
 	}
 	return nil
+}
+
+// CheckRequirements checks that exts (a schematic's extensions) names
+// every extension each of them requires - by the name the catalog offers
+// it under, or by one it had before. The first one missing is a
+// *RequirementError. An extension the catalog doesn't know is left to
+// Resolve.
+func (c *Catalog) CheckRequirements(exts []string) error {
+	for _, name := range exts {
+		e, ok := c.Lookup(name)
+		if !ok {
+			continue
+		}
+		for _, req := range e.Requires {
+			want, offered := c.lookupAny(req)
+			if !offered {
+				return &RequirementError{Extension: name, Requires: req, Unavailable: c.release()}
+			}
+			if !slices.ContainsFunc(exts, func(x string) bool { return x == want.Name || slices.Contains(want.Replaces, x) }) {
+				return &RequirementError{Extension: name, Requires: want.Name}
+			}
+		}
+	}
+	return nil
+}
+
+// lookupAny returns the entry offered under name, or that had it before.
+func (c *Catalog) lookupAny(name string) (CatalogEntry, bool) {
+	if e, ok := c.Lookup(name); ok {
+		return e, true
+	}
+	i := slices.IndexFunc(c.Extensions, func(e CatalogEntry) bool { return slices.Contains(e.Replaces, name) })
+	if i < 0 {
+		return CatalogEntry{}, false
+	}
+	return c.Extensions[i], true
 }
 
 // Lookup returns the entry for name.
@@ -204,6 +270,9 @@ func (c *Catalog) Resolve(s *Schematic, arch string) (*Resolved, error) {
 		if !slices.Contains(e.Arches, arch) {
 			return nil, fmt.Errorf("extension %q isn't available for %s (only %v)", name, arch, e.Arches)
 		}
+	}
+	if err := c.CheckRequirements(s.Extensions()); err != nil {
+		return nil, err
 	}
 	if choice := s.Customization.Console; choice != "" && !slices.Contains(c.Console, choice) {
 		if len(c.Console) == 0 {
