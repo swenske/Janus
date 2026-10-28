@@ -220,7 +220,9 @@ func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts U
 		e.Journal(c.ID, actor, "upgrade", m.Name, 0, "%s runs Janus %s already: skipped", m.Name, opts.Release)
 		return false, nil
 	}
-	if err := e.UpgradeCheck(ctx, c, m); err != nil {
+	// Healthy first - given a moment: the member updated before may
+	// still be acknowledging its tables' last updates.
+	if err := e.waitHealthy(ctx, c, m, opts); err != nil {
 		return false, fmt.Errorf("not updating %s: %v", m.Name, err)
 	}
 	boot0, err := e.Nodes.BootTime(ctx, m)
@@ -369,6 +371,30 @@ func (e *Engine) back(ctx context.Context, c *Cluster, m Member) (*janusv1alpha1
 		}
 	}
 	return v, nil
+}
+
+// waitHealthy waits until UpgradeCheck passes for member m, LearnTimeout
+// at most.
+func (e *Engine) waitHealthy(ctx context.Context, c *Cluster, m Member, opts UpgradeOptions) error {
+	timeout, poll := e.LearnTimeout, opts.Poll
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	if poll <= 0 {
+		poll = 2 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		err := e.UpgradeCheck(ctx, c, m)
+		if err == nil || time.Now().After(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(poll):
+		}
+	}
 }
 
 // setStage records where member name's update is, "" once it's over.
