@@ -265,3 +265,66 @@ func TestClusterUpgradeDrainsAgain(t *testing.T) {
 		t.Error("not journaled")
 	}
 }
+
+// A BGP member back in service announces its routes again only once its
+// sessions are re-established: the next member is drained only then -
+// else the routers would have no member to send to (seen on real BGP
+// members).
+func TestClusterUpgradeWaitsForTheAnnouncement(t *testing.T) {
+	a, f, c, opts, _ := upgradeApp(t)
+	opts.Members = []string{"lb-1", "lb-2"}
+	update := opts.Update
+	opts.Update = func(ctx context.Context, m clusters.Member) (string, error) {
+		said, err := update(ctx, m)
+		f.mu.Lock()
+		f.nodes[m.Name].announceAfter = 3
+		f.mu.Unlock()
+		return said, err
+	}
+	mark := f.mark()
+	if err := a.clusters.Upgrade(context.Background(), c.ID, *opts, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	calls := f.callsSince(mark)
+	last := -1
+	for i, call := range calls {
+		if call == "lb-1 Announcing" {
+			last = i
+		}
+	}
+	drain2 := slices.Index(calls, "lb-2 ClusterDrain")
+	if last < 0 || drain2 < last || !inOrder(calls, "lb-1 ClusterUndrain", "lb-1 Announcing", "lb-1 Announcing", "lb-1 Announcing", "lb-1 Announcing", "lb-2 ClusterDrain") {
+		t.Errorf("lb-2 drained before lb-1 announced again: %v", calls)
+	}
+	if !upgradeJournal(a, c.ID, "lb-1 announces its routes to its BGP peers again") {
+		t.Error("not journaled")
+	}
+	// One that never announces again stops the update, the next left alone.
+	prev := clusters.AnnounceTimeout
+	clusters.AnnounceTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { clusters.AnnounceTimeout = prev })
+	for _, fm := range f.nodes {
+		fm.version, fm.slot, fm.boot = "v1", "A", time.Now().Add(-time.Hour)
+	}
+	opts.Update = func(ctx context.Context, m clusters.Member) (string, error) {
+		said, err := update(ctx, m)
+		f.mu.Lock()
+		f.nodes[m.Name].announceAfter = 1 << 20
+		f.mu.Unlock()
+		return said, err
+	}
+	mark = f.mark()
+	err := a.clusters.Upgrade(context.Background(), c.ID, *opts, "admin")
+	if err == nil || !strings.Contains(err.Error(), "lb-1 is back in service but announces nothing to its BGP peers") {
+		t.Fatalf("never announcing: %v", err)
+	}
+	if slices.Contains(f.callsSince(mark), "lb-2 ClusterDrain") {
+		t.Error("lb-2 drained anyway")
+	}
+	// And a cluster whose other member announces nothing is refused.
+	f.nodes["lb-1"].announceAfter = 1 << 20
+	opts.Members = []string{"lb-2"}
+	if err := a.clusters.Upgrade(context.Background(), c.ID, *opts, "admin"); err == nil || !strings.Contains(err.Error(), "lb-1 announces nothing to its BGP peers yet") {
+		t.Errorf("refused: %v", err)
+	}
+}

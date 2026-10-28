@@ -45,6 +45,8 @@ type fakeMember struct {
 	down          bool
 	masters       []string
 	learnAfter    int
+	// announceAfter: Announcing calls before it announces its routes.
+	announceAfter int
 	// acme: its letsencrypt extension; nil: not in its image.
 	acme *janusv1alpha1.ACMEStatusResponse
 	// set: what the last ClusterSet said.
@@ -107,6 +109,20 @@ func (f *clusterFake) BootTime(_ context.Context, m clusters.Member) (time.Time,
 		return time.Time{}, errors.New("connection refused")
 	}
 	return fm.boot, nil
+}
+
+func (f *clusterFake) Announcing(_ context.Context, m clusters.Member) (string, error) {
+	if err := f.call(m, "Announcing", ""); err != nil {
+		return "", err
+	}
+	fm := f.node(m)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if fm.announceAfter > 0 {
+		fm.announceAfter--
+		return "no BGP session established exports its routes yet", nil
+	}
+	return "", nil
 }
 
 func (f *clusterFake) VRRPMasters(_ context.Context, m clusters.Member) ([]string, error) {

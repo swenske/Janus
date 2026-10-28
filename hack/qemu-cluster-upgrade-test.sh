@@ -21,6 +21,11 @@
 # on slot B, the virtual IP moved back to lb-1, the journal says every
 # step, a second run skips both members - and no AVC denial.
 #
+# QEMU_CLUSTER_UPGRADE_KIND=bgp: the same with BIRD instead of
+# keepalived (the bird image) - the members announce the anycast address
+# 192.0.2.100 to lb-3 over eBGP, lb-3 routes to both (ECMP, its kernel
+# table) and asks it; the members keep their order, lb-1 first.
+#
 # With a bundle C whose HAProxy can't start: the update to C stops at its
 # first member, lb-2, which reverts to B on its own (the new slot never
 # confirms healthy) and is back in service; lb-1 is left alone - no
@@ -44,6 +49,15 @@ OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
 NODES="1 2 3"
 MEMBERS="1 2" # lb-3 is the client
+KIND="${QEMU_CLUSTER_UPGRADE_KIND:-vrrp}"
+case "$KIND" in
+vrrp) VIP=192.168.87.100 ORDER="2 1" ;;
+bgp) VIP=192.0.2.100 ORDER="1 2" ;;
+*)
+  echo "QEMU_CLUSTER_UPGRADE_KIND: vrrp or bgp" >&2
+  exit 2
+  ;;
+esac
 
 WORKDIR="$(mktemp -d)"
 declare -A PID
@@ -121,10 +135,13 @@ own() { # own INDEX args... - the node's own first-boot admin
   "$CTL_BIN" -endpoint "127.0.0.1:$((BASE + 10 * i + 1))" -ca "$WORKDIR/$i-ca.crt" -cert "$WORKDIR/$i-admin.crt" -key "$WORKDIR/$i-admin.key" "$@"
 }
 for i in $NODES; do
+  extra=""
+  # BGP: each member holds the anycast address it announces.
+  if [ "$KIND" = bgp ] && [ "$i" != 3 ]; then extra=', "192.0.2.100/32"'; fi
   cat > "$WORKDIR/$i-net.json" <<EOF
 {"hostname": "lb-$i", "interfaces": [
   {"name": "eth0", "mac": "52:54:00:aa:02:0$i", "mode": "ADDRESSING_MODE_DHCP"},
-  {"name": "eth1", "mac": "52:54:00:bb:02:0$i", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.168.87.$i/24"]}
+  {"name": "eth1", "mac": "52:54:00:bb:02:0$i", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.168.87.$i/24"$extra]}
 ]}
 EOF
   out="$(own "$i" network apply "$WORKDIR/$i-net.json" 2>&1)" || fail "network apply on $i: $out"
@@ -162,6 +179,7 @@ EOF
 out="$(alice -n lb-1 haproxy apply-config "$WORKDIR/v1.cfg" 2>&1)" || fail "apply-config on lb-1: $out"
 DIR="$WORKDIR/edge"
 out="$(alice cluster create edge -source lb-1 -address lb-1=192.168.87.1 -address lb-2=192.168.87.2 -dir "$DIR" lb-1 lb-2 2>&1)" || fail "cluster create: $out"
+if [ "$KIND" = vrrp ]; then
 for i in $MEMBERS; do
   alice cluster vars edge "lb-$i" "priority=$((200 - 50 * i))" >/dev/null || fail "lb-$i's variables"
 done
@@ -195,22 +213,52 @@ vrrp_instance front {
 }
 EOF
 out="$(alice cluster apply edge "$DIR" -manage haproxy,files,vrrp -m VRRP 2>&1)" || fail "apply version 2: $out"
+else
+  # Each member announces the anycast address to lb-3 while its HAProxy
+  # answers (haproxy_*: janusd's gate); lb-3 routes to both.
+  cat > "$DIR/bird.conf" <<'EOF'
+router id {{ .Member.Address }};
+protocol device {}
+protocol static haproxy_anycast { ipv4; route 192.0.2.100/32 blackhole; }
+protocol bgp router {
+  local {{ .Member.Address }} as 65001;
+  neighbor 192.168.87.3 as 65000;
+  ipv4 { import none; export where source = RTS_STATIC; };
+}
+EOF
+  out="$(alice cluster apply edge "$DIR" -manage haproxy,files,bgp -m BGP 2>&1)" || fail "apply version 2: $out"
+  cat > "$WORKDIR/router.conf" <<'EOF'
+router id 192.168.87.3;
+protocol device {}
+protocol kernel { ipv4 { export all; }; merge paths on; }
+protocol bgp m1 { local 192.168.87.3 as 65000; neighbor 192.168.87.1 as 65001; ipv4 { import all; export none; }; }
+protocol bgp m2 { local 192.168.87.3 as 65000; neighbor 192.168.87.2 as 65001; ipv4 { import all; export none; }; }
+EOF
+  out="$(alice -n lb-3 network bgp apply "$WORKDIR/router.conf" 2>&1)" || fail "lb-3's bird.conf: $out"
+fi
 master() { grep -Eq '^front +MASTER ' <<<"$(alice -n "lb-$1" network vrrp status 2>/dev/null)"; }
+# routed: lb-3 learnt the anycast route from both members (BGP).
+routed() {
+  local st
+  st="$(alice -n lb-3 network bgp status 2>/dev/null)"
+  for p in m1 m2; do grep -Eq "^$p .*Established.*ipv4 1/0" <<<"$st" || return 1; done
+}
+in_front() { if [ "$KIND" = vrrp ]; then master 1; else routed; fi; }
 peers_up() { [ "$(alice -n "lb-$1" cluster status 2>/dev/null | grep -cE '^lb-[0-9]+ +192\.168\.87\.[0-9]+:10057 +up ')" = "$2" ]; }
-wait_for 30 "lb-1 holding the virtual IP" master 1
+wait_for 60 "lb-1 holding the virtual IP, or lb-3 routing to both" in_front
 for i in $MEMBERS; do wait_for 60 "lb-$i's peers up" peers_up "$i" 1; done
 curl -s --max-time 5 "http://127.0.0.1:$((BASE + 10))/" >/dev/null
 has_entry() { grep -Eq '10\.0\.2\.2' <<<"$(alice -n "lb-$1" haproxy table fe 2>/dev/null)"; }
 wait_for 20 "lb-2 learnt lb-1's entry" has_entry 2
 synced() { alice cluster check edge >/dev/null 2>&1; }
 wait_for 30 "the cluster clean" synced
-echo "  ok: cluster edge of lb-1 (MASTER of 192.168.87.100) and lb-2, a stick table replicated"
+echo "  ok: cluster edge of lb-1 and lb-2 ($KIND: $VIP), a stick table replicated"
 
 # The client: lb-3 asks the virtual IP over HTTP in a loop, each answer
 # the member that served it.
-via_vip() { alice -n lb-3 system probe -v http http://192.168.87.100:8080/ 2>&1; }
+via_vip() { alice -n lb-3 system probe -v http "http://$VIP:8080/" 2>&1; }
 out="$(via_vip)" || fail "lb-3 doesn't reach the virtual IP: $out"
-check "lb-1 serves the virtual IP" "lb-1" "$out"
+check "a member serves $VIP" "$([ "$KIND" = vrrp ] && echo lb-1 || echo "lb-[12]")" "$out"
 load() { # load LOG: lb-3 asks the virtual IP until killed
   while :; do
     if out="$(via_vip)"; then
@@ -240,13 +288,14 @@ failed="$(grep -c '^FAILED' "$WORKDIR/load.log" || true)"
 served2="$(grep -c '^ok .* lb-2$' "$WORKDIR/load.log" || true)"
 [ "$failed" = 0 ] || fail "$failed of $total requests through the virtual IP failed during the update: $(grep '^FAILED' "$WORKDIR/load.log" | head -5)"
 [ "$total" -gt 20 ] || fail "only $total requests through the virtual IP during the update"
-[ "$served2" -gt 0 ] || fail "lb-2 never served the virtual IP while lb-1 was updated"
+[ "$served2" -gt 0 ] || fail "lb-2 never served $VIP"
 echo "  ok: $total requests through the virtual IP during the update, none failed ($served2 served by lb-2 while lb-1 was out)"
 
 # Order, steps, the result.
 journal="$(alice cluster journal edge -n 200)"
-check "the order: lb-2 first, the master last" "updating edge to Janus $VERSION_B, one at a time: lb-2, lb-1" "$out"
-for i in 2 1; do
+want="lb-${ORDER% *}, lb-${ORDER#* }"
+check "the order" "updating edge to Janus $VERSION_B, one at a time: $want" "$out"
+for i in $ORDER; do
   check "lb-$i drained" "lb-$i drained" "$journal"
   check "lb-$i updated" "lb-$i updating from Janus $VERSION_A \(slot A\) to $VERSION_B" "$journal"
   check "lb-$i back on slot B" "lb-$i runs Janus $VERSION_B on slot B, in service" "$journal"
@@ -258,9 +307,9 @@ for i in 2 1; do
 done
 check "the update's end" "edge runs Janus $VERSION_B: 2 member\(s\) updated, 0 already on it" "$journal"
 for i in $MEMBERS; do has_entry "$i" || fail "lb-$i lost the stick table entry: $(alice -n "lb-$i" haproxy table fe)"; done
-wait_for 30 "lb-1 holding the virtual IP again" master 1
+wait_for 60 "lb-1 holding the virtual IP again, or lb-3 routing to both" in_front
 for i in $MEMBERS; do wait_for 60 "lb-$i's peers up after the update" peers_up "$i" 1; done
-echo "  ok: lb-2 then lb-1 updated - each drained, on Janus $VERSION_B on slot B, its tables learnt, back in service; the stick table entry kept; lb-1 holds the virtual IP again"
+echo "  ok: $want updated in this order - each drained, on Janus $VERSION_B on slot B, its tables learnt, back in service; the stick table entry kept; $VIP served as before"
 
 # Again: both on B, nothing touched.
 boots() { grep -ac "listening on .* (mTLS required)" "$WORKDIR/$1.log" || true; }
@@ -307,4 +356,4 @@ fi
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on node $i"; fi
 done
-echo "Cluster upgrade test PASSED: a two-member VRRP cluster updated in place from $VERSION_A to $VERSION_B by janusctl cluster upgrade - the BACKUP first, the MASTER last, each drained, updated on its other slot, its tables learnt, undrained; $total requests through the virtual IP, none failed; the stick table kept; a second run skipped both${BUNDLE_C:+; an update to a release that cannot serve stopped at its first member, reverted by itself}; no AVC denial"
+echo "Cluster upgrade test PASSED: a two-member $KIND cluster updated in place from $VERSION_A to $VERSION_B by janusctl cluster upgrade - $want in this order, each drained, updated on its other slot, its tables learnt, undrained; $total requests through the virtual IP, none failed; the stick table kept; a second run skipped both${BUNDLE_C:+; an update to a release that cannot serve stopped at its first member, reverted by itself}; no AVC denial"

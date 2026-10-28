@@ -65,6 +65,12 @@ type Nodes interface {
 	// VRRPMasters: the VRRP instances m is MASTER of; none without
 	// keepalived (Upgrade's order).
 	VRRPMasters(ctx context.Context, m Member) ([]string, error)
+	// Announcing: why m announces nothing to its BGP peers although it is
+	// in service - its haproxy_* protocols down, no session established
+	// exporting a route -; "" when it does, or has no BGP to announce
+	// with. A member just back from a reboot announces again only once
+	// its sessions are re-established.
+	Announcing(ctx context.Context, m Member) (string, error)
 }
 
 // GRPC is Nodes over each member's gRPC connection.
@@ -542,4 +548,52 @@ func (g GRPC) VRRPMasters(ctx context.Context, m Member) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+func (g GRPC) Announcing(ctx context.Context, m Member) (string, error) {
+	c, err := g.network(ctx, m)
+	if err != nil {
+		return "", err
+	}
+	st, err := c.BGPStatus(ctx, &emptypb.Empty{})
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() == codes.FailedPrecondition {
+			return "", nil // no BIRD in its image
+		}
+		return "", nodeError(err)
+	}
+	return announcing(st), nil
+}
+
+// announcing is why a node whose BGP status is st announces nothing,
+// "" when it does or has nothing to announce (Nodes.Announcing).
+func announcing(st *janusv1alpha1.BGPStatusResponse) string {
+	if st.GetState() != janusv1alpha1.ModuleState_MODULE_STATE_RUNNING {
+		return ""
+	}
+	gated, sessions, exporting := false, 0, false
+	for _, p := range st.GetProtocols() {
+		if strings.HasPrefix(p.GetName(), "haproxy_") {
+			gated = true
+			if p.GetHeldDown() || p.GetState() != "up" {
+				return fmt.Sprintf("its protocol %s is %s", p.GetName(), map[bool]string{true: "held down", false: p.GetState()}[p.GetHeldDown()])
+			}
+		}
+		if p.GetProtocol() != "BGP" {
+			continue
+		}
+		sessions++
+		if p.GetBgpState() != "Established" && !strings.Contains(p.GetInfo(), "Established") {
+			continue
+		}
+		for _, ch := range p.GetChannels() {
+			if ch.GetExported() > 0 {
+				exporting = true
+			}
+		}
+	}
+	if gated && sessions > 0 && !exporting {
+		return "no BGP session established exports its routes yet"
+	}
+	return ""
 }

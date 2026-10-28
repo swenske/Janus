@@ -138,6 +138,15 @@ func (e *Engine) UpgradeCheck(ctx context.Context, c *Cluster, m Member) error {
 		if err := e.Nodes.Healthy(ctx, o); err != nil {
 			return fmt.Errorf("%s's HAProxy doesn't answer: %v", o.Name, err)
 		}
+		// In service for its routers too: a member back from a reboot
+		// announces again only once its BGP sessions are re-established.
+		why, err := e.Nodes.Announcing(ctx, o)
+		if err != nil {
+			return fmt.Errorf("%s's BGP: %v", o.Name, err)
+		}
+		if why != "" {
+			return fmt.Errorf("%s announces nothing to its BGP peers yet: %s", o.Name, why)
+		}
 		st, err := e.Nodes.ClusterStatus(ctx, o)
 		if err != nil {
 			return fmt.Errorf("%s's peers: %v", o.Name, err)
@@ -262,6 +271,11 @@ func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts U
 	if err := e.Undrain(ctx, c.ID, m.Name, actor); err != nil {
 		return false, fmt.Errorf("%s back in service: %v", m.Name, err)
 	}
+	// Its routers hear of it once its BGP sessions are back: the next
+	// member goes out of service only then.
+	if err := e.waitAnnouncing(ctx, c, m, opts, actor); err != nil {
+		return false, err
+	}
 	if !opts.OnTarget(v) {
 		return false, &RevertedError{Member: m.Name, Release: opts.Release, Running: v.GetVersion()}
 	}
@@ -371,6 +385,44 @@ func (e *Engine) back(ctx context.Context, c *Cluster, m Member) (*janusv1alpha1
 		}
 	}
 	return v, nil
+}
+
+// AnnounceTimeout bounds the wait for a member back in service to
+// announce its routes to its BGP peers again: their sessions are
+// re-established, a collision with the session its previous boot left
+// resolved.
+var AnnounceTimeout = 2 * time.Minute
+
+// waitAnnouncing waits until member m, undrained, announces its routes
+// to its BGP peers again - at once without BGP.
+func (e *Engine) waitAnnouncing(ctx context.Context, c *Cluster, m Member, opts UpgradeOptions, actor string) error {
+	poll := opts.Poll
+	if poll <= 0 {
+		poll = 2 * time.Second
+	}
+	deadline := time.Now().Add(AnnounceTimeout)
+	waited := false
+	for {
+		why, err := e.Nodes.Announcing(ctx, m)
+		if err == nil && why == "" {
+			if waited {
+				e.Journal(c.ID, actor, "upgrade", m.Name, 0, "%s announces its routes to its BGP peers again", m.Name)
+			}
+			return nil
+		}
+		if err != nil {
+			why = err.Error()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s is back in service but announces nothing to its BGP peers after %s: %s - the next members left alone: look at its sessions (janusctl network bgp status)", m.Name, AnnounceTimeout, why)
+		}
+		waited = true
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(poll):
+		}
+	}
 }
 
 // waitHealthy waits until UpgradeCheck passes for member m, LearnTimeout

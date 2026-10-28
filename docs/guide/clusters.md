@@ -364,8 +364,9 @@ and the member the secrets come from. Through the API:
 time: the same machines, addresses, MACs and names. Each member gets its
 own [A/B update](updates.md):
 
-1. The cluster is **healthy first**: every other member in service, its
-   HAProxy answering, its peers connected and its stick tables in sync.
+1. The cluster is **healthy first**: every other member in service -
+   announcing its routes, with BGP -, its HAProxy answering, its peers
+   connected and its stick tables in sync.
    Otherwise nothing is touched, and the answer names the member.
 2. The member is **drained**: the [balancer](#a-balancer-in-front) told
    first and its drain delay waited, then its virtual IPs and routes
@@ -379,8 +380,11 @@ own [A/B update](updates.md):
    within 20 minutes. A drain holds across the reboot, so it comes back
    out of service.
 5. Its stick tables are **learnt** from its peers, then it is
-   **undrained**, the balancer told it serves again. Then the next
-   member.
+   **undrained**, the balancer told it serves again. With BGP, the next
+   member waits until this one announces its routes again: its sessions
+   are re-established after its reboot, which takes a few seconds -
+   draining the next one earlier would leave the routers no member to
+   send to.
 
 The members go in the order you give. By default a VRRP cluster's
 BACKUP members go first and its MASTER last, so each virtual IP moves
