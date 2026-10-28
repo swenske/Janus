@@ -291,6 +291,7 @@ repository's `.claude/settings.json`:
       "Bash(janusctl *cluster create *)",
       "Bash(janusctl *cluster remove *)",
       "Bash(janusctl *cluster replace *)",
+      "Bash(janusctl *cluster upgrade *)",
       "Bash(janusctl *cluster delete *)",
       "Bash(janusctl *cluster set *)",
       "Bash(janusctl *cluster leave*)",

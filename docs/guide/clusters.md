@@ -358,6 +358,79 @@ and the member the secrets come from. Through the API:
 - A node that is a member can't be removed from the Controller: it
   leaves its cluster first.
 
+## Updating a cluster
+
+**Update** moves the members to a new release **in place**, one at a
+time: the same machines, addresses, MACs and names. Each member gets its
+own [A/B update](updates.md):
+
+1. The cluster is **healthy first**: every other member in service -
+   announcing its routes, with BGP -, its HAProxy answering, its peers
+   connected and its stick tables in sync.
+   Otherwise nothing is touched, and the answer names the member.
+2. The member is **drained**: the [balancer](#a-balancer-in-front) told
+   first and its drain delay waited, then its virtual IPs and routes
+   move to the others. Its established connections finish.
+3. Its node **updates itself**: the release's bundle - the image
+   factory's for the member's image -, checked by the node, confirmed
+   only once HAProxy is healthy on the new slot, reverted otherwise. It
+   reboots through the firmware, or kexec.
+4. The member is **back** when it runs the release on its other slot,
+   janusd answers, HAProxy is healthy and its peers are connected -
+   within 20 minutes. A drain holds across the reboot, so it comes back
+   out of service.
+5. Its stick tables are **learnt** from its peers, then it is
+   **undrained**, the balancer told it serves again. With BGP, the next
+   member waits until this one announces its routes again: its sessions
+   are re-established after its reboot, which takes a few seconds -
+   draining the next one earlier would leave the routers no member to
+   send to.
+
+The members go in the order you give. By default a VRRP cluster's
+BACKUP members go first and its MASTER last, so each virtual IP moves
+once; a BGP or ECMP cluster keeps its members' order. A member already
+on the release is skipped: run the update again to resume one that
+stopped. The first failure stops it, the members after it left alone:
+
+- a member whose update didn't start - a bundle refused, say - is back
+  in service as it was;
+- a member that **reverted** - its new release didn't confirm healthy -
+  is back in service on its previous release, and the journal and the
+  cluster's problems say so;
+- a member **not back** within the 20 minutes stays drained, with a
+  problem on the cluster: look at its console, undrain it once it
+  serves.
+
+**Another image** changes the members' extensions, HAProxy branch or
+kernel track as they update - a member's image then differs from the
+others' until the update ends. Each step goes in the cluster's journal
+(`upgrade`).
+
+Update in place or [recycle](#recycling-a-member)? Update in place keeps
+whatever points at a member - firewall rules, NAT, DHCP reservations,
+monitoring, inventories - and needs no room for one more machine.
+Recycle for what an update can't do: fresh disks, another hypervisor or
+size, a member created from an image URL, a node that isn't one of the
+Controller's machines and has no spare to take its place... A member
+with a static address keeps it either way, recycled into a node you
+name, or updated in place.
+
+Through the API: `POST /api/clusters/{id}/upgrade` `{"version":
+"v2026.10.29"}` - `members`, `new_image` with `extensions`, `haproxy`,
+`kernel`, and `reboot_mode` (`kexec`) when you need them. A member that
+is one of the Controller's machines goes through the machine's own
+update, so its record - and a Terraform plan - follow. `PATCH
+/api/machines/{id}` with a new version or image on a cluster's member
+goes through the same sequence, for that member alone.
+
+Without a Controller:
+
+```sh
+janusctl cluster upgrade edge v2026.10.29     # the release's own image
+janusctl cluster upgrade edge https://bundles.example.net/janus/ \
+  -members lb-2,lb-1 -kexec                   # a bundle of your own
+```
+
 ## Recycling a member
 
 **Recycle** replaces a member by a new one - a newer release, another
@@ -702,6 +775,7 @@ janusctl cluster delete edge
 | `certificate NAME FILE` | A certificate and its key for every member (`-crt-list`, `-sni`) |
 | `add`, `remove NAME NODE` | A member in, out (drained first; `-force` for a node gone) |
 | `replace NAME OLD NEW` | NEW, a node of the context, takes OLD's place: joins drained, learns the tables, comes into service as OLD is drained and leaves (`-var`, `-new-image`) |
+| `upgrade NAME VERSION\|URL` | The members [updated in place](#updating-a-cluster), one at a time, from the release's assets or a bundle's URL (`-members`, `-kexec`, `-allow-schematic-change`, `-version` for a URL's bundle) |
 | `tickets NAME` | A new TLS ticket key, pulled by the members (`-renew`: every key replaced - what a member's departure does) |
 | `list`, `journal NAME`, `delete NAME` | The clusters; what was done; every member leaves |
 
@@ -734,6 +808,7 @@ Readers see clusters, administrators change them.
 | `PUT /api/clusters/{id}/balancer` | its [balancer hook](#a-balancer-in-front): `{kind, url, ca_cert, fingerprint, drain_delay_seconds, secret}` - a [RouterOS](#routeros) router's also `{user, prefixes, distance, routing_table, check_gateway, allow_http, read_only}`; the secret write-only (a router's: its user's password), left out to keep it, `""` to remove it; the hook is called at once |
 | `DELETE /api/clusters/{id}/balancer` | no hook any more |
 | `POST /api/clusters/{id}/balancer/sync` | call the hook with the members now (502 with its failure) |
+| `POST /api/clusters/{id}/upgrade` | [update the members in place](#updating-a-cluster), one at a time (`{members, version, new_image, extensions, haproxy, kernel, reboot_mode}`) |
 | `POST /api/clusters/{id}/recycle` | replace members one at a time (`{members, with: {member: {node_id, name, address}}, version, new_image}`; a member without `with` gets a new machine like its own) |
 | `GET`, `POST /api/clusters/{id}/versions`, `GET .../versions/{n}` | the versions; a new one (`{base, files, delete, note}`); one, with its files |
 | `POST /api/clusters/{id}/apply` | apply a version (`{version, managed}`) |

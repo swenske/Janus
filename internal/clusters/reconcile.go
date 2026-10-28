@@ -99,6 +99,9 @@ func (e *Engine) observe(ctx context.Context, c *Cluster, m Member, prev MemberS
 		}
 	}
 	ms.Drained = info.GetDrained()
+	if v, err := e.Nodes.Version(ctx, m); err == nil {
+		ms.Release, ms.Schematic, ms.Slot = v.GetVersion(), v.GetSchematicId(), v.GetActiveSlot()
+	}
 	ms.CertNotAfter = time.Unix(info.GetMemberCertNotAfterUnix(), 0).UTC()
 	if status, err := e.Nodes.ClusterStatus(ctx, m); err == nil {
 		ms.PeersUp, ms.PeersTotal, ms.TablesSynced = 0, 0, true

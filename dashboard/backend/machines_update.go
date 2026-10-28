@@ -595,6 +595,11 @@ func (a *app) handleMachineUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A cluster's member: its version or image goes through the
+	// cluster's update, which drains it first (cluster_upgrade.go).
+	if p.upgrade && a.memberMachineUpgrade(w, r, m, p) {
+		return
+	}
 	if m.Phase != machines.PhaseReady || m.NodeID == "" || m.Ref == nil || m.Ref.UUID == "" {
 		writeError(w, http.StatusConflict, fmt.Sprintf("the machine is %s: only a ready machine with its node can be changed", m.Phase))
 		return
