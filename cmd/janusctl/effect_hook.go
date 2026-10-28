@@ -209,8 +209,9 @@ func findIn(line string, depth int, out *[]invocation) {
 		}
 		return
 	}
+	named := mentionsJanusctl(line, parsed)
 	for i := range parsed.cmds {
-		findInCommand(&parsed.cmds[i], depth, out)
+		findInCommand(&parsed.cmds[i], named, depth, out)
 	}
 }
 
@@ -257,7 +258,7 @@ var runners = map[string]bool{
 	"taskset": true, "chrt": true, "systemd-run": true, "unbuffer": true, "caffeinate": true, "chpst": true,
 }
 
-func findInCommand(c *shCommand, depth int, out *[]invocation) {
+func findInCommand(c *shCommand, named bool, depth int, out *[]invocation) {
 	words := c.words
 	i := 0
 	assigned := false
@@ -328,12 +329,17 @@ func findInCommand(c *shCommand, depth int, out *[]invocation) {
 		}
 		*out = append(*out, inv)
 	case shellNames[path.Base(head.text)]:
-		// Its -c string was read above; sh script.sh isn't janusctl.
+		shellInput(c, words, i, named, depth, out)
 	default:
 		// janusctl behind another program: env, sudo, xargs, watch,
 		// find -exec, ssh HOST, go run ./cmd/janusctl...
 		runner := runners[path.Base(head.text)] && !head.dynamic
 		stdinArgs := runner && (path.Base(head.text) == "xargs" || path.Base(head.text) == "parallel")
+		if runner {
+			if k := slices.IndexFunc(words[i+1:], func(w shWord) bool { return !w.dynamic && shellNames[path.Base(w.text)] }); k >= 0 {
+				shellInput(c, words, i+1+k, named, depth, out)
+			}
+		}
 		for j := i + 1; j < len(words); j++ {
 			if !isJanusctl(words[j]) {
 				continue
@@ -350,6 +356,47 @@ func findInCommand(c *shCommand, depth int, out *[]invocation) {
 			}
 			break
 		}
+	}
+}
+
+// shellInput reads what the shell at words[i] runs besides its -c
+// string (read as a string above): the commands of a heredoc or a
+// here-string; from a pipe or a file, they can't be read here - asked
+// when janusctl is named.
+func shellInput(c *shCommand, words []shWord, i int, named bool, depth int, out *[]invocation) {
+	head := words[i]
+	dashC, dashS, script := false, false, false
+	for k := i + 1; k < len(words) && !script; k++ {
+		w := words[k].text
+		switch {
+		case w == "-o" || w == "+o" || w == "-O" || w == "+O":
+			k++ // an option's name
+		case strings.HasPrefix(w, "-") && !strings.HasPrefix(w, "--") || strings.HasPrefix(w, "+"):
+			dashC = dashC || strings.Contains(w, "c")
+			dashS = dashS || strings.Contains(w, "s")
+		case !strings.HasPrefix(w, "-"):
+			script = true // a script file, then its arguments
+		}
+	}
+	if dashC || depth >= 4 {
+		return
+	}
+	fromStdin := !script || dashS
+	for _, r := range c.redirs {
+		switch op := strings.TrimLeft(r.op, "0123456789"); {
+		case r.body != nil && fromStdin:
+			findIn(*r.body, depth+1, out)
+			fromStdin = false
+		case op == "<<<" && fromStdin:
+			findIn(r.target, depth+1, out)
+			fromStdin = false
+		case op == "<" && fromStdin && named:
+			*out = append(*out, invocation{words: []string{head.text, "<", r.target}, doubt: "a shell runs the commands of " + r.target + ", not read here", cmd: c})
+			fromStdin = false
+		}
+	}
+	if fromStdin && c.piped && named {
+		*out = append(*out, invocation{words: []string{head.text}, doubt: "a shell runs the commands it reads from the pipe, not read here", cmd: c})
 	}
 }
 

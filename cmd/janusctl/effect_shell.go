@@ -25,8 +25,12 @@ type shWord struct {
 	dynamic, split bool
 }
 
-// shRedir is a redirection: its operator and target.
-type shRedir struct{ op, target string }
+// shRedir is a redirection: its operator and target - and a heredoc's
+// body, once read.
+type shRedir struct {
+	op, target string
+	body       *string
+}
 
 // shCommand is a simple command: its words, its redirections.
 type shCommand struct {
@@ -55,6 +59,7 @@ type heredoc struct {
 	delim       string
 	stripTabs   bool
 	expandsBody bool
+	body        *string
 }
 
 const maxShellDepth = 16
@@ -224,8 +229,9 @@ func (p *shParser) redirect(cur *shCommand) {
 			return
 		}
 		raw := p.s[rawStart:p.i]
-		p.heredocs = append(p.heredocs, heredoc{delim: w.text, stripTabs: op == "<<-", expandsBody: !strings.ContainsAny(raw, `'"\`)})
-		cur.redirs = append(cur.redirs, shRedir{op: full, target: w.text})
+		body := new(string)
+		p.heredocs = append(p.heredocs, heredoc{delim: w.text, stripTabs: op == "<<-", expandsBody: !strings.ContainsAny(raw, `'"\`), body: body})
+		cur.redirs = append(cur.redirs, shRedir{op: full, target: w.text, body: body})
 		return
 	}
 	w, ok := p.word()
@@ -261,6 +267,7 @@ func (p *shParser) readHeredocs() {
 			body.WriteString(line)
 			body.WriteByte('\n')
 		}
+		*h.body = body.String()
 		if h.expandsBody {
 			p.expansions(body.String())
 		}

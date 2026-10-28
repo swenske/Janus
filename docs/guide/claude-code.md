@@ -238,14 +238,14 @@ The plugin brings a hook: before each command Claude runs, Claude Code
 asks the janusctl on its `PATH` what the command does
 (`janusctl __effect hook`) - from the same list as the skill's, that
 janusctl's own. It finds every janusctl command in the line however
-it's written - after a pipe or `&&`, inside `$(...)` or `sh -c '...'`,
-behind `env`, `sudo`, `timeout`, `xargs` or `ssh HOST`, by its full
-path, quoted word by word - and answers:
+it's written - after a pipe or `&&`, inside `$(...)`, `sh -c '...'` or
+a heredoc given to a shell, behind `env`, `sudo`, `timeout`, `xargs` or
+`ssh HOST`, by its full path, quoted word by word - and answers:
 
 | The command | The hook | Claude Code |
 |---|---|---|
 | critical | asks, naming the command, the node and what it does | asks you, in auto mode too |
-| one it can't tell: a variable where the command goes, an unknown command, a quote left open | asks, saying why | asks you |
+| one it can't tell: a variable where the command goes, an unknown command, commands piped into a shell, a quote left open | asks, saying why | asks you |
 | changes | nothing | follows your rules |
 | reads | nothing - or allows it, with the plugin's option on | follows your rules - or runs it |
 

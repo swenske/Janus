@@ -94,7 +94,21 @@ func TestEffectDecisions(t *testing.T) {
 		{"janusctl -n edge-1 system \\\n  reboot", ask, ask, "system reboot"},
 		{"janusctl -n edge-1 pki generate-client-config -role os:admin -o x", ask, ask, "pki generate-client-config"},
 
+		{"bash <<'EOF'\njanusctl -n edge-1 system reboot\nEOF", ask, ask, "system reboot on edge-1"},
+		{"sh -s <<EOF\necho \"it's\"\njanusctl -n $N system shutdown\nEOF", ask, ask, "system shutdown"},
+		{"bash <<< 'janusctl system reboot'", ask, ask, "system reboot"},
+		{"sudo -u ops bash <<'EOF'\njanusctl -n edge-1 lifecycle rollback\nEOF", ask, ask, "lifecycle rollback"},
+		{"sh <<EOF\njanusctl system info\nEOF", none, none, ""},
+		{"cat <<'EOF' | grep reboot\njanusctl system reboot\nEOF", none, none, ""},
+
 		// Can't tell: asked.
+		{"echo 'janusctl system reboot' | sh", ask, ask, "from the pipe"},
+		{"janusctl -n edge-1 haproxy get-config | bash", ask, ask, "from the pipe"},
+		{"bash < reboot-all.sh # janusctl", ask, ask, "reboot-all.sh"},
+		{"echo hi | bash -c cat", none, none, ""},
+		{"echo ls | sh", none, none, ""},
+		{"echo 'janusctl system reboot' | bash -o pipefail -e", ask, ask, "from the pipe"},
+		{"bash ./check.sh janusctl", none, none, ""},
 		{"J=janusctl; $J system reboot", ask, ask, "not known before it runs"},
 		{"$JANUSCTL -n edge-1 system info", ask, ask, "not known before it runs"},
 		{"$NODE_CMD -n edge-1 system info", none, none, ""},
