@@ -175,6 +175,12 @@ type updatePlan struct {
 	version string
 	image   *schematic.Schematic
 	meta    bool
+	// settings: the virtual machine's hypervisor settings to apply
+	// (machines_settings.go) - the hardware step's stop and start, its
+	// size unchanged. Set by the explicit action, or by the update job
+	// when the image gains or loses the guest agent on a hypervisor with
+	// an option for it.
+	settings bool
 }
 
 func (p *updatePlan) changes() bool {
@@ -647,7 +653,7 @@ func (r *machineRunner) update(ctx context.Context, id string, p *updatePlan) er
 			if p.autoscale {
 				logAutoscaleChange(m, p.next.Autoscale)
 			}
-			if p.hardware {
+			if p.hardware || p.settings {
 				// Started again at its nominal size: auto-scaling starts
 				// over - what followed the memory went back before the
 				// restart (updateSteps), or goes back now.
@@ -717,11 +723,25 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 		networkDone = len(p.added) == 0
 	}
 
-	if p.hardware {
+	// The image gains or loses the guest agent: a hypervisor with an
+	// option for it (Proxmox VE) takes it at a stop and a start only -
+	// the hardware step's, before the update (#373).
+	if p.upgrade && !p.hardware && !p.settings && p.next.GuestAgent() != m.Spec.GuestAgent() {
+		if st, err := drv.MachineStatus(ctx, *m.Ref); err == nil && st.GuestAgent != nil && *st.GuestAgent != p.next.GuestAgent() {
+			p.settings = true
+		}
+	}
+
+	if p.hardware || p.settings {
 		hw := p.next.Hardware()
 		room := ""
 		if hw.Scalable() {
 			room = fmt.Sprintf(" (room for %d vCPU, %d MiB)", max(hw.MaxVCPUs, hw.VCPUs), max(hw.MaxMemoryMiB, hw.MemoryMiB))
+		}
+		// Reconfigure brings its settings to today's too: said here.
+		settings := ""
+		if st, err := drv.MachineStatus(ctx, *m.Ref); err == nil {
+			settings = driftText(machineDrift(st, p.next))
 		}
 		// It restarts at its size: what auto-scaling made follow the
 		// memory goes back first, while the node answers - a policy
@@ -731,7 +751,14 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 				r.logEvent(id, "auto-scaling: %s", msg)
 			}
 		}
-		r.logEvent(id, "shutting the node down to change its hardware: %d vCPU, %d MiB%s, %d interfaces", p.next.VCPUs, p.next.MemoryMiB, room, len(p.next.NICs))
+		switch {
+		case !p.hardware:
+			r.logEvent(id, "shutting the node down to apply its hypervisor settings: %s", or(settings, "as they are"))
+		case settings != "":
+			r.logEvent(id, "shutting the node down to change its hardware: %d vCPU, %d MiB%s, %d interfaces - and its hypervisor settings: %s", p.next.VCPUs, p.next.MemoryMiB, room, len(p.next.NICs), settings)
+		default:
+			r.logEvent(id, "shutting the node down to change its hardware: %d vCPU, %d MiB%s, %d interfaces", p.next.VCPUs, p.next.MemoryMiB, room, len(p.next.NICs))
+		}
 		if err := stopMachine(ctx, drv, node, *m.Ref); err != nil {
 			return err
 		}
@@ -739,7 +766,7 @@ func (r *machineRunner) updateSteps(ctx context.Context, id string, p *updatePla
 		for _, n := range p.next.NICs {
 			nics = append(nics, hypervisor.NIC{Network: n.Network, MAC: n.MAC})
 		}
-		if err := drv.Reconfigure(ctx, *m.Ref, hw, nics); err != nil {
+		if err := drv.Reconfigure(ctx, *m.Ref, hw, nics, p.next.Settings()); err != nil {
 			_ = drv.Power(ctx, *m.Ref, hypervisor.PowerStart)
 			return fmt.Errorf("reconfigure: %w", err)
 		}

@@ -37,10 +37,12 @@ observe the node and shut it down: ping and info, OS, host name, time,
 network interfaces, filesystems and CPUs, filesystem freeze and thaw,
 shutdown. The commands that would run programs or read and write files on
 the node (`guest-exec`, `guest-file-*`, `guest-set-user-password`,
-`guest-ssh-*`) are disabled - they would be a shell by another name. In
-Proxmox, enable the agent in the VM's options (**QEMU Guest Agent**);
-until the VM has the agent's channel, the service shows as `waiting`
-rather than failing.
+`guest-ssh-*`) are disabled - they would be a shell by another name. A
+Proxmox VM the Controller creates gets the agent's option with the
+extension ([hypervisors.md](hypervisors.md#creating-a-node)). In a VM
+made by hand, enable the agent in its options (**QEMU Guest Agent**),
+then stop and start it; until the VM has the agent's channel, the
+service shows as `waiting` rather than failing.
 
 **prometheus-node-exporter** listens on the node's main interface
 ([metrics.md](metrics.md#where-it-listens)), port 9100, without

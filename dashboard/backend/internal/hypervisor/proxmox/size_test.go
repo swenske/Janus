@@ -63,7 +63,7 @@ func TestHardwareParams(t *testing.T) {
 	}
 
 	// Through reconfigureParams, with an interface removed: one delete.
-	p, err := reconfigureParams(map[string]any{"vcpus": 2, "net1": "virtio=52:54:00:AA:BB:02,bridge=vmbr0"}, hypervisor.Hardware{VCPUs: 1, MemoryMiB: 1024}, nil)
+	p, err := reconfigureParams(map[string]any{"vcpus": 2, "net1": "virtio=52:54:00:AA:BB:02,bridge=vmbr0"}, hypervisor.Hardware{VCPUs: 1, MemoryMiB: 1024}, nil, hypervisor.Settings{})
 	if err != nil || p.Get("delete") != "net1,vcpus" {
 		t.Errorf("reconfigureParams deletes %q (%v)", p.Get("delete"), err)
 	}

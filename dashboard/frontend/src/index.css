@@ -112,6 +112,11 @@
   .nic-row { grid-template-columns: 1fr 1fr; }
 }
 .lock-notice { display: flex; align-items: center; gap: 0.5rem; }
+/* A machine's hypervisor settings that aren't today's (machines.jsx): on a
+   narrow card, Apply settings goes under the text. */
+.drift-notice { flex-wrap: wrap; }
+.drift-notice > .grow { flex: 1 1 12rem; }
+.drift-notice > button { margin-left: auto; }
 .modal.edit-machine { width: min(980px, 100%); }
 .nic-current { align-self: center; grid-column: span 3; }
 .edit-notes { margin: 0.2rem 0 0; padding-left: 1.1rem; }
