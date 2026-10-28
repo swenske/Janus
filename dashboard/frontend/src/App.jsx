@@ -726,7 +726,7 @@ function ProvisionInfo() {
           <div className="field">
             <div className="spread">
               <label htmlFor="provision-network" className="field-label">
-                Network configuration (optional - without one, the node takes the kernel&apos;s DHCP lease at boot, and NTP from DHCP or pool.ntp.org)
+                Network configuration (optional - without one, the node takes DHCP, and NTP from DHCP or pool.ntp.org)
               </label>
               <button className="small ghost" type="button" onClick={() => setNetwork(NETWORK_EXAMPLE)}>
                 Example
