@@ -319,6 +319,13 @@ example:
   keys) and the machines' views; the clusters' anti-affinity on the
   lab's two KVM hosts, a VRRP version under auto-scaling, below; the
   slow reboot chased with the serial console timestamped on the host.
+- v2026.10.28-2: the campaign after two pre-releases without one, against
+  the release; HAProxy's throughput with node 01 alternating between
+  both versions and its CPU time by mode per request (`cpuab`); Consul
+  joining a Consul server of the same version run next to the
+  Controller for the test; the libvirt preparation's UEFI firmware step
+  on the lab's hosts; the longterm and Let's Encrypt machines updated
+  through the Controller.
 
 ### HAProxy killed by the kernel
 
@@ -743,3 +750,7 @@ ran:
   `haproxy reload` on each node (both under `runder-load`);
   `claude-runs/`: the headless Claude Code runs' streams and their tool
   calls (v2026.10.27-2).
+- `cpuab`: node 01's CPU time by mode (its exporter) around a `wrk` run
+  of new connections and one of 256 keep-alive connections, per request;
+  `consul54`, a Consul server in a container next to the Controller
+  (v2026.10.28-2).
