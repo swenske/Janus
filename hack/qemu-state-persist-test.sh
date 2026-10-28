@@ -94,7 +94,7 @@ boot_and_wait_http() {
 
   qemu-system-x86_64 -accel kvm -accel tcg \
     -kernel "$KERNEL" \
-    -append "console=ttyS0 panic=-1 dm-mod.create=\"$(dm_table)\" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp" \
+    -append "console=ttyS0 panic=-1 dm-mod.create=\"$(dm_table)\" root=/dev/dm-0 rootfstype=squashfs ro" \
     -nographic -no-reboot -display none -m 256M \
     -drive file="$SQUASHFS",format=raw,if=virtio,readonly=on \
     -drive file="$VERITY",format=raw,if=virtio,readonly=on \

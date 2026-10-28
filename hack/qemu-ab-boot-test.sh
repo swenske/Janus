@@ -63,7 +63,7 @@ boot_slot() {
   local data_dev="$1" hash_dev="$2" log="$3"
   qemu-system-x86_64 -accel kvm -accel tcg \
     -kernel "$KERNEL" \
-    -append "console=ttyS0 panic=-1 dm-mod.create=\"$(dm_table "$data_dev" "$hash_dev")\" root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp" \
+    -append "console=ttyS0 panic=-1 dm-mod.create=\"$(dm_table "$data_dev" "$hash_dev")\" root=/dev/dm-0 rootfstype=squashfs ro" \
     -nographic -no-reboot -display none -m 256M \
     -drive file="$DISK",format=raw,if=virtio \
     -netdev "user,id=net0,hostfwd=tcp::${HOST_PORT}-:8080" \

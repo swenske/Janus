@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Boots a kernel+initramfs under QEMU with virtio-net + DHCP (kernel
-# ip=dhcp, no userspace network tooling) and a host port forwarded to the
+# Boots a kernel+initramfs under QEMU with virtio-net + DHCP (janusd's
+# own client, no other network tooling) and a host port forwarded to the
 # guest's HAProxy health frontend (see rootfs/base/etc/haproxy/
 # haproxy.cfg), then polls it over real TCP/IP until it answers or a
 # timeout is hit. This is the Phase 2 network-integration boot test: it
@@ -23,7 +23,7 @@ trap 'rm -f "$LOG"; [ -n "${QEMU_PID:-}" ] && kill "$QEMU_PID" 2>/dev/null || tr
 qemu-system-x86_64 -accel kvm -accel tcg \
   -kernel "$KERNEL" \
   -initrd "$INITRD" \
-  -append "console=ttyS0 panic=-1 ip=dhcp" \
+  -append "console=ttyS0 panic=-1" \
   -nographic -no-reboot -display none -m 256M \
   -netdev "user,id=net0,hostfwd=tcp::${HOST_PORT}-:8080" \
   -device virtio-net-pci,netdev=net0 \

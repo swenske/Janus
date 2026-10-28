@@ -1,6 +1,8 @@
 package netmgr
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -9,6 +11,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,6 +53,12 @@ func TestInNetns(t *testing.T) {
 	RunDir = t.TempDir()
 	resolv := filepath.Join(t.TempDir(), "resolv.conf")
 	pnpPath = filepath.Join(t.TempDir(), "absent") // no boot DHCP here
+	// No DHCP server here: janusd's client gets its leases from a fake
+	// one, which only answers the MACs it's given.
+	server := &fakeDHCPServer{leases: map[string]*Lease{}}
+	defer func(f func(int, string) dhcpTransport, w time.Duration) { newTransport, DHCPBootWait = f, w }(newTransport, DHCPBootWait)
+	newTransport = func(_ int, mac string) dhcpTransport { return &fakeTransport{s: server, mac: mac} }
+	DHCPBootWait = 300 * time.Millisecond
 
 	lo, _ := netlink.LinkByName("lo")
 	must(t, netlink.LinkSetUp(lo))
@@ -57,8 +67,8 @@ func TestInNetns(t *testing.T) {
 		must(t, netlink.LinkAdd(&netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: "eth" + string(rune('0'+i)), HardwareAddr: hw}, PeerName: "peer" + string(rune('0'+i))}))
 	}
 
-	changes := 0
-	m := New(Options{Manage: true, ResolvConfPath: resolv, OnChange: func() { changes++ }})
+	var changes atomic.Int32 // OnChange also runs from the DHCP clients
+	m := New(Options{Manage: true, ResolvConfPath: resolv, OnChange: func() { changes.Add(1) }})
 	if err := m.Start(); err != nil {
 		t.Fatalf("start with the default configuration: %v", err)
 	}
@@ -211,7 +221,9 @@ func TestInNetns(t *testing.T) {
 
 	// The kernel's boot DHCP address isn't netmgr's either, but it goes
 	// once the interface isn't in DHCP mode.
-	m.lease = &BootLease{Interface: "eth1", MAC: "52:54:00:00:00:02", Address: "10.200.0.9/24"}
+	m.mu.Lock()
+	m.kernelLease = &Lease{Interface: "eth1", MAC: "52:54:00:00:00:02", Address: "10.200.0.9/24"}
+	m.mu.Unlock()
 	eth1, _ := netlink.LinkByName("eth1")
 	must(t, netlink.AddrAdd(eth1, &netlink.Addr{IPNet: mustCIDR(t, "10.200.0.9/24")}))
 	dhcp := strings.Replace(mustMarshal(t, cfg), `"interfaces": [`, `"interfaces": [
@@ -230,7 +242,49 @@ func TestInNetns(t *testing.T) {
 	if _, err := m.Confirm(netip.MustParseAddr("192.0.2.10")); err != nil {
 		t.Fatalf("confirm eth1 out of DHCP mode: %v", err)
 	}
-	m.lease = nil
+	m.mu.Lock()
+	m.kernelLease = nil
+	m.mu.Unlock()
+
+	// janusd's own client: DHCP on eth1 again, a server answering now.
+	// The lease's address, route and DNS arrive with it, its renewal
+	// with new values is applied, and its loss takes them away.
+	server.set("52:54:00:00:00:02", &Lease{Address: "10.201.0.9/24", Router: "10.201.0.1", DNS: []string{"10.201.0.53"}})
+	changes.Store(0)
+	if _, _, err := m.ApplyTrial(mustParse(t, dhcp), 5*time.Second); err != nil {
+		t.Fatalf("eth1 in DHCP mode, with a server: %v", err)
+	}
+	waitFor(t, "eth1's lease", func() bool { return hasAddr("eth1", "10.201.0.9/24") })
+	checkDefaultRoutes(t, "eth1", "10.201.0.1@1024")
+	if data, _ := os.ReadFile(resolv); !strings.Contains(string(data), "nameserver 192.0.2.53") {
+		t.Errorf("the configured DNS wins over the lease's:\n%s", data)
+	}
+	if st, err := m.Status(); err != nil || !leaseShown(st, "eth1", "10.201.0.9/24") {
+		t.Errorf("status doesn't show eth1's lease: %v", err)
+	}
+	if _, err := os.Stat(leaseFile("52:54:00:00:00:02")); err != nil {
+		t.Errorf("the lease isn't recorded for a restarted janusd: %v", err)
+	}
+	// Renewals that change nothing but its times: Status follows them.
+	first := leaseEnd(t, m, "eth1")
+	waitFor(t, "a renewal's new end in the status", func() bool { return leaseEnd(t, m, "eth1") > first })
+	server.set("52:54:00:00:00:02", &Lease{Address: "10.201.0.10/24", Router: "10.201.0.1"})
+	waitFor(t, "the renewal's new address", func() bool { return hasAddr("eth1", "10.201.0.10/24") && !hasAddr("eth1", "10.201.0.9/24") })
+	server.set("52:54:00:00:00:02", nil) // refuses
+	waitFor(t, "the lease gone", func() bool { return !hasAddr("eth1", "10.201.0.10/24") })
+	checkDefaultRoutes(t, "eth1")
+	if _, err := m.Confirm(netip.MustParseAddr("192.0.2.10")); err != nil {
+		t.Fatalf("confirm DHCP on eth1 with a server: %v", err)
+	}
+	if changes.Load() == 0 {
+		t.Error("a lease change must call OnChange")
+	}
+	if _, _, err := m.ApplyTrial(cfg, 5*time.Second); err != nil {
+		t.Fatalf("eth1 out of DHCP mode again: %v", err)
+	}
+	if _, err := m.Confirm(netip.MustParseAddr("192.0.2.10")); err != nil {
+		t.Fatalf("confirm eth1 out of DHCP mode again: %v", err)
+	}
 
 	// A new trial that renames eth1 by MAC, drops the VLAN and moves eth0:
 	// not confirmed, so it must revert by itself.
@@ -274,7 +328,7 @@ func TestInNetns(t *testing.T) {
 	if strings.Join(before, ",") != strings.Join(after, ",") {
 		t.Errorf("a refused configuration changed addresses: %v -> %v", before, after)
 	}
-	if changes == 0 {
+	if changes.Load() == 0 {
 		t.Error("OnChange never called")
 	}
 }
@@ -392,7 +446,7 @@ func checkDefaultRoutes(t *testing.T, name string, want ...string) {
 	routes, _ := managedRoutes(l)
 	var got []string
 	for _, r := range routes {
-		if r.Protocol != unix.RTPROT_STATIC {
+		if r.Protocol != unix.RTPROT_STATIC && r.Protocol != unix.RTPROT_BOOT { // boot: a DHCP lease's
 			t.Errorf("%s: route via %s has protocol %d", name, r.Gw, r.Protocol)
 		}
 		got = append(got, r.Gw.String()+"@"+strconv.Itoa(r.Priority))
@@ -400,4 +454,111 @@ func checkDefaultRoutes(t *testing.T, name string, want ...string) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("%s default routes = %v, want %v", name, got, want)
 	}
+}
+
+// waitFor polls ok for up to 10 s.
+func waitFor(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+func hasAddr(name, prefix string) bool {
+	l, err := netlink.LinkByName(name)
+	if err != nil {
+		return false
+	}
+	addrs, err := listAddrs(l.Attrs().Index)
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		if a.prefix.String() == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+func leaseEnd(t *testing.T, m *Manager, name string) int64 {
+	t.Helper()
+	st, err := m.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range st.GetInterfaces() {
+		if i.GetName() == name {
+			return i.GetDhcp().GetExpiresUnix()
+		}
+	}
+	return 0
+}
+
+func leaseShown(st *janusv1alpha1.NetworkStatusResponse, name, addr string) bool {
+	for _, i := range st.GetInterfaces() {
+		if i.GetName() == name && i.GetDhcp().GetAddress() == addr && i.GetDhcp().GetExpiresUnix() > time.Now().Unix() {
+			return true
+		}
+	}
+	return false
+}
+
+// fakeDHCPServer hands out the leases it's given, by MAC: unknown, no
+// answer; nil, a refusal. Its leases are renewed every 200 ms.
+type fakeDHCPServer struct {
+	mu     sync.Mutex
+	leases map[string]*Lease
+}
+
+func (s *fakeDHCPServer) set(mac string, l *Lease) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.leases[mac] = l
+}
+
+type fakeTransport struct {
+	s   *fakeDHCPServer
+	mac string
+}
+
+func (f *fakeTransport) lease() (*Lease, bool) {
+	f.s.mu.Lock()
+	defer f.s.mu.Unlock()
+	l, ok := f.s.leases[f.mac]
+	if !ok || l == nil {
+		return nil, ok
+	}
+	cp := *l
+	cp.MAC, cp.Interface = f.mac, "eth?"
+	now := sinceBoot()
+	cp.Obtained, cp.Renew, cp.Rebind, cp.Expires = now, now+200*time.Millisecond, now+2*time.Hour, now+3*time.Hour
+	return &cp, true
+}
+
+func (f *fakeTransport) acquire(ctx context.Context, _ netip.Addr) (*Lease, error) {
+	for {
+		if l, _ := f.lease(); l != nil {
+			return l, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+func (f *fakeTransport) renew(_ context.Context, _ *Lease) (*Lease, error) {
+	l, known := f.lease()
+	if l == nil && known {
+		return nil, errNAK
+	}
+	if l == nil {
+		return nil, errors.New("no answer")
+	}
+	return l, nil
 }

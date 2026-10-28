@@ -234,11 +234,11 @@ func Validate(cfg *janusv1alpha1.NetworkConfig) error {
 
 		if ifc.GetMode() == janusv1alpha1.AddressingMode_ADDRESSING_MODE_DHCP {
 			if dhcp != "" {
-				fail("%s: only one interface can use DHCP (the kernel's boot-time DHCP configures a single interface), %s already does", where, dhcp)
+				fail("%s: only one interface can use DHCP, %s already does", where, dhcp)
 			}
 			dhcp = name
 			if ifc.GetVlan() != nil {
-				fail("%s: DHCP isn't available on a VLAN (only the kernel's boot-time DHCP exists for now)", where)
+				fail("%s: DHCP isn't available on a VLAN - configure it statically", where)
 			}
 		}
 

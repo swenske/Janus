@@ -10,26 +10,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
 
-// BootLease is what the kernel's own DHCP client (ip=dhcp, IP_PNP)
-// obtained at boot. The kernel configures that one interface, installs
-// the default route through an ioctl (so with protocol "boot"), and
-// exposes the rest in /proc: the resolvers and domain in /proc/net/pnp,
-// the NTP servers (option 42) in /proc/net/ipconfig/ntp_servers.
+// Lease is a DHCP lease on one interface: what janusd's own DHCP client
+// (dhcp.go) obtained, or - on a kernel booted with ip=dhcp, which the
+// UKI no longer is - what the kernel's client did at boot.
 //
-// It's captured the first time janusd starts in a boot - before anything
-// reconfigures that interface - and kept under RunDir, which is tmpfs: a
-// restarted janusd (Restart RPC, crash) finds it again, a reboot starts
-// over with a fresh lease. That's what lets ADDRESSING_MODE_DHCP restore
-// the lease after a static configuration was tried and reverted.
-//
-// The kernel never renews the lease; a userspace DHCP client with
-// renewal is a planned improvement (docs/architecture.md).
-type BootLease struct {
+// Leases are kept under RunDir, which is tmpfs: a restarted janusd
+// (Restart RPC, crash) takes its leases back and renews them when due, a
+// reboot starts over.
+type Lease struct {
 	Interface string   `json:"interface"`
 	MAC       string   `json:"mac"` // follows the interface through a rename
 	Address   string   `json:"address"`
@@ -38,13 +32,68 @@ type BootLease struct {
 	DNS       []string `json:"dns,omitempty"`
 	Domain    string   `json:"domain,omitempty"`
 	NTP       []string `json:"ntp,omitempty"`
-	// Hostname DHCP provided (option 12). Empty when it gave none - the
-	// kernel then names the host after its IP address, which isn't kept.
+	// Hostname DHCP provided (option 12). Empty when it gave none.
 	Hostname string `json:"hostname,omitempty"`
+	// MTU DHCP provided (option 26), applied when the configuration
+	// sets none - as the kernel's client did. 0: none.
+	MTU int `json:"mtu,omitempty"`
+
+	// When it was obtained, and when it's to be renewed (T1), rebound
+	// (T2) and when it expires: time since the boot (CLOCK_BOOTTIME) -
+	// a wall clock stepped by NTP after the lease was taken (a node
+	// without a battery-backed clock boots in the past) doesn't move
+	// them, and the files live under /run, for this boot only. All zero
+	// for the kernel's boot lease: the kernel never renewed it, and
+	// didn't say.
+	Obtained time.Duration `json:"obtained,omitempty"`
+	Renew    time.Duration `json:"renew,omitempty"`
+	Rebind   time.Duration `json:"rebind,omitempty"`
+	Expires  time.Duration `json:"expires,omitempty"`
+	// The server's offer and acknowledgement, as received: a renewal is
+	// built from them (also after janusd restarted).
+	Offer []byte `json:"offer,omitempty"`
+	ACK   []byte `json:"ack,omitempty"`
 }
 
-// RunDir holds the captured boot lease; a var so tests can point it
-// elsewhere.
+// sinceBoot is CLOCK_BOOTTIME: the time since the boot, suspend
+// included, whatever the wall clock says. A var for tests.
+var sinceBoot = func() time.Duration {
+	var ts unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &ts); err != nil {
+		return 0
+	}
+	return time.Duration(ts.Nano())
+}
+
+// kernel reports whether l is the kernel's boot lease (ip=dhcp).
+func (l *Lease) kernel() bool { return l.Expires == 0 }
+
+// expired reports whether a lease of janusd's client has run out at now
+// (since the boot).
+func (l *Lease) expired(now time.Duration) bool {
+	return !l.kernel() && now >= l.Expires
+}
+
+// wall is t (since the boot) on the wall clock, in Unix seconds.
+func wall(t time.Duration) int64 {
+	if t == 0 {
+		return 0
+	}
+	return time.Now().Add(t - sinceBoot()).Unix()
+}
+
+// same reports whether l and o configure the node alike - a renewal
+// that changed nothing but the lease's times needs no re-apply.
+func (l *Lease) same(o *Lease) bool {
+	if l == nil || o == nil {
+		return l == o
+	}
+	return l.Address == o.Address && l.Router == o.Router && l.Server == o.Server &&
+		strings.Join(l.DNS, ",") == strings.Join(o.DNS, ",") && l.Domain == o.Domain &&
+		strings.Join(l.NTP, ",") == strings.Join(o.NTP, ",") && l.Hostname == o.Hostname && l.MTU == o.MTU
+}
+
+// RunDir holds the leases; a var so tests can point it elsewhere.
 var RunDir = "/run/janus"
 
 // Paths the capture reads - vars for the same reason.
@@ -55,13 +104,16 @@ var (
 
 const bootLeaseFile = "boot-lease.json"
 
-// loadOrCaptureBootLease returns the lease captured earlier in this boot,
-// or captures it now. nil, nil: the kernel didn't configure anything by
-// DHCP (no ip=dhcp, or no server answered).
-func loadOrCaptureBootLease() (*BootLease, error) {
+// loadOrCaptureBootLease returns the kernel's boot lease captured
+// earlier in this boot, or captures it now. nil, nil: the kernel didn't
+// configure anything by DHCP (no ip=dhcp - the UKI's command line has
+// none -, or no server answered). Kept for a kernel booted with ip=dhcp
+// all the same: janusd's client then takes that interface over,
+// asking for the same address.
+func loadOrCaptureBootLease() (*Lease, error) {
 	path := filepath.Join(RunDir, bootLeaseFile)
 	if data, err := os.ReadFile(path); err == nil {
-		var l BootLease
+		var l Lease
 		if err := json.Unmarshal(data, &l); err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
@@ -77,7 +129,7 @@ func loadOrCaptureBootLease() (*BootLease, error) {
 	}
 	record := l
 	if record == nil {
-		record = &BootLease{}
+		record = &Lease{}
 	}
 	data, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
@@ -92,7 +144,7 @@ func loadOrCaptureBootLease() (*BootLease, error) {
 	return l, nil
 }
 
-func captureBootLease() (*BootLease, error) {
+func captureBootLease() (*Lease, error) {
 	pnp, err := os.ReadFile(pnpPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil // no IP_PNP in this kernel
@@ -145,7 +197,7 @@ func captureBootLease() (*BootLease, error) {
 		return nil, nil
 	}
 
-	l := &BootLease{
+	l := &Lease{
 		Interface: link.Attrs().Name,
 		MAC:       link.Attrs().HardwareAddr.String(),
 		Address:   addr.String(),

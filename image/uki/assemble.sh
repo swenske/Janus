@@ -114,17 +114,22 @@ trap 'rm -f "$CMDLINE_FILE"' EXIT
   # last so it's /dev/console - rootfs/init copies its output to the
   # screen as well.
   #
+  # No ip=dhcp: janusd's own DHCP client does it (internal/netmgr), on
+  # the interface configured for it - a node configured statically
+  # doesn't wait for a DHCP server that isn't there (the kernel's client
+  # retried for ~165 s, #162).
+  #
   # ipv6.disable_ipv6=1: IPv6 stays off until init has written the CIS
   # benchmark's values on every interface, then init turns it on
-  # (internal/sysctl). The interface ip=dhcp brings up before init would
-  # otherwise take a router advertisement or a redirect in the first
-  # seconds of a boot - and keep the address and route it gave.
+  # (internal/sysctl). An interface up before that would otherwise take a
+  # router advertisement or a redirect in the first seconds of a boot -
+  # and keep the address and route it gave.
   case "${UKI_CONSOLE_CHOICE:-serial}" in
   serial) console_args="console=tty0 console=${UKI_CONSOLE:-ttyS0}" ;;
   screen) console_args="console=tty0" ;;
   *) echo "UKI_CONSOLE_CHOICE=$UKI_CONSOLE_CHOICE: serial or screen" >&2; exit 1 ;;
   esac
-  printf '%s panic=-1 dm-mod.create="%s" dm-mod.waitfor=%s,%s root=/dev/dm-0 rootfstype=squashfs ro ip=dhcp ipv6.disable_ipv6=1%s%s%s' \
+  printf '%s panic=-1 dm-mod.create="%s" dm-mod.waitfor=%s,%s root=/dev/dm-0 rootfstype=squashfs ro ipv6.disable_ipv6=1%s%s%s' \
     "$console_args" "$("$DM_TABLE" "$ROOTFS_DIR" "$DATA_DEV" "$HASH_DEV")" "$DATA_DEV" "$HASH_DEV" "$enforcing_arg" "$schematic_arg" \
     "${UKI_EXTRA_CMDLINE:+ $UKI_EXTRA_CMDLINE}"
 } > "$CMDLINE_FILE"

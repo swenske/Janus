@@ -19,9 +19,10 @@
 #   - persistence: after a reboot the confirmed configuration is back,
 #     the reverted ones aren't, and the clock is set again by NTP.
 #
-# The kernel's boot DHCP is pinned to the first NIC (ip=:::::eth0:dhcp):
-# the second one is slirp too, and would race it with its own DHCP
-# server. That's the reason for -kernel/-append rather than the UKI.
+# DHCP is janusd's own client, on the interface the seeded configuration
+# puts in DHCP mode (wan) - the second NIC is slirp too, with its own
+# DHCP server, and must get nothing from it. -kernel/-append rather than
+# the UKI: the 2020 clock (-rtc) needs no kvmclock.
 #
 # Usage: hack/qemu-network-config-test.sh <bzImage> <rootfs-dir> <disk.img> <janusctl>
 set -euo pipefail
@@ -88,7 +89,7 @@ for _ in $(seq 50); do grep -q listening "$RLOG" 2>/dev/null && break; sleep 0.1
 
 qemu-system-x86_64 -accel kvm -accel tcg \
   -kernel "$KERNEL" \
-  -append "console=ttyS0 panic=-1 dm-mod.create=\"$("$HERE/dm-verity-cmdline.sh" "$ROOTFS_DIR" /dev/vda2 /dev/vda3)\" root=/dev/dm-0 rootfstype=squashfs ro ip=:::::eth0:dhcp enforcing=1" \
+  -append "console=ttyS0 panic=-1 dm-mod.create=\"$("$HERE/dm-verity-cmdline.sh" "$ROOTFS_DIR" /dev/vda2 /dev/vda3)\" root=/dev/dm-0 rootfstype=squashfs ro enforcing=1" \
   -nographic -display none -m 512M \
   -rtc base=2020-01-01T00:00:00 \
   -cpu qemu64,-kvmclock \
@@ -163,8 +164,17 @@ echo "  ok: certificates dated after the NTP sync ($year)"
 st="$(ctl network status)"
 check "hostname from the configuration" '^hostname: lb-test$' "$st"
 check "DHCP interface renamed by MAC" '^  wan +physical +52:54:00:12:34:01 .*\(up\) dhcp' "$st"
-check "boot lease kept on it" '10\.0\.2\.15/24' "$st"
-check "boot lease reported" 'dhcp \(boot, not renewed\): 10\.0\.2\.15/24 from 10\.0\.2\.2, router 10\.0\.2\.2' "$st"
+check "DHCP lease on it" '10\.0\.2\.15/24' "$st"
+check "DHCP lease reported" 'dhcp \(until [0-9-]+ [0-9:]+\): 10\.0\.2\.15/24 from 10\.0\.2\.2, router 10\.0\.2\.2' "$st"
+# Taken in 2020, before NTP stepped the clock: still valid, slirp's
+# 24 hours from now - its times run on the time since the boot, not on
+# the wall clock.
+until="$(grep -oE 'dhcp \(until [0-9-]+ [0-9:]+' <<<"$st" | sed 's/dhcp (until //')"
+left=$(( $(date -d "$until" +%s) - $(date +%s) ))
+[ "$left" -gt $((23 * 3600)) ] && [ "$left" -le $((24 * 3600)) ] || fail "the DHCP lease ends at $until, ${left}s from now - not slirp's 24 hours"
+echo "  ok: the lease taken before the clock step ends in ${left}s"
+check_not "nothing from eth1's DHCP server" '192\.168\.77\.15' "$st"
+check "the lease logged" 'netmgr: wan: DHCP lease 10\.0\.2\.15/24 from 10\.0\.2\.2 \(router 10\.0\.2\.2\)' "$(cat "$LOG")"
 check "static address on eth1" '192\.168\.77\.10/24' "$st"
 check "VLAN created" '^  eth2\.100 +vlan 100 on eth2 ' "$st"
 check "VLAN address" '10\.100\.0\.5/24' "$st"
@@ -245,7 +255,7 @@ sleep 3
 wait_grpc "$P_GRPC"
 st="$(ctl network status)"
 check "the node came back on its own" '^  wan +physical .*\(up\) dhcp' "$st"
-check "with its boot lease" '10\.0\.2\.15/24' "$st"
+check "with its DHCP lease" '10\.0\.2\.15/24' "$st"
 check "and the default route" 'default via 10\.0\.2\.2 dev wan' "$st"
 [ "$(http_code)" = "200" ] || fail "HAProxy unreachable after the revert"
 echo "  ok: HAProxy reachable again"

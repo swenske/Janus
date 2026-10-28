@@ -109,8 +109,10 @@ message NetworkConfig {
   // Empty: the hostname DHCP provides, else "janus-" followed by the
   // last three bytes of the first Ethernet interface's MAC address.
   string hostname = 1;
-  // Empty: the interfaces stay as the kernel's boot-time DHCP left them
-  // (see ADDRESSING_MODE_DHCP). Otherwise exactly what's listed is
+  // Empty: DHCP - every physical interface asks, the first to get a
+  // lease keeps it, the others go down (see ADDRESSING_MODE_DHCP); nodes
+  // before janusd's own client kept the kernel's boot-time lease, on the
+  // interface it configured. Otherwise exactly what's listed is
   // configured; a physical interface not listed is left down, unless it's
   // the parent of a listed VLAN (then up, no address).
   repeated NetworkInterface interfaces = 2;
@@ -119,12 +121,11 @@ message NetworkConfig {
 }
 
 enum AddressingMode {
-  // What the kernel's DHCP client (ip=dhcp) obtained at boot: IPv4
-  // address, gateway, DNS, domain, NTP servers and hostname. The default
-  // when unset. The kernel configures a single interface - the first to
-  // get an answer - so this mode applies to that interface only, and the
-  // lease is never renewed (a userspace DHCP client with renewal, and
-  // DHCP on any interface, are a planned improvement).
+  // A DHCPv4 lease, from janusd's own client: IPv4 address, gateway,
+  // DNS, domain, NTP servers, hostname and MTU, renewed for as long as
+  // the node runs. The default when unset. One physical interface at
+  // most (not a VLAN). Nodes before the client existed took the kernel's
+  // lease at boot instead, on its interface only, never renewed.
   ADDRESSING_MODE_DHCP = 0;
   // Only the addresses and gateways given.
   ADDRESSING_MODE_STATIC = 1;
@@ -235,7 +236,7 @@ message NetworkInterfaceStatus {
   bool carrier = 6; // link detected
   repeated string addresses = 7; // CIDR
   AddressingMode mode = 8;
-  DHCPLease dhcp = 9; // the boot-time lease, on the interface that holds it
+  DHCPLease dhcp = 9; // the DHCP lease, on the interface that holds it
   string vlan_parent = 10;
   uint32 vlan_id = 11;
 }
@@ -248,7 +249,8 @@ message DHCPLease {
   repeated string ntp_servers = 5;
   string domain = 6;
   string hostname = 7;
-  // Not reported by the kernel's boot-time client: 0.
+  // When it was obtained and when it ends - 0 for a kernel's boot-time
+  // lease (nodes before janusd's own client), which never ended.
   int64 obtained_unix = 8;
   int64 expires_unix = 9;
 }

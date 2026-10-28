@@ -15,6 +15,8 @@ require (
 	github.com/go-acme/lego/v4 v4.35.2
 	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/go-webauthn/webauthn v0.18.2
+	github.com/insomniacslk/dhcp v0.0.0-20261014062924-c6bb46ad3f3a
+	github.com/mdlayher/packet v1.1.2
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.61.0
@@ -71,7 +73,9 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
+	github.com/josharian/native v1.1.0 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/mdlayher/socket v0.5.0 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/nrdcg/desec v0.11.1 // indirect
 	github.com/openshift/gssapi v0.0.0-20161010215902-5fb4217df13b // indirect
@@ -85,6 +89,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
+	github.com/u-root/uio v0.0.0-20230305220412-3e8cd9d6bf63 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect

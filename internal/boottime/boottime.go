@@ -28,9 +28,9 @@ const File = "/run/janus/boot-times.json"
 // Times are the seconds after the kernel started at which each stage
 // completed.
 type Times struct {
-	// Kernel is when init started: the kernel's own boot, drivers and
-	// ip=dhcp included. (Not PID 1's start time in /proc: the kernel
-	// creates that task long before it runs init.)
+	// Kernel is when init started: the kernel's own boot, drivers
+	// included. (Not PID 1's start time in /proc: the kernel creates that
+	// task long before it runs init.)
 	Kernel float64 `json:"kernel"`
 	// Init is when init started janusd: its mounts, SELinux policy and
 	// sysctls.
