@@ -94,6 +94,30 @@ func TestCheckUpdateFromFactory(t *testing.T) {
 	}
 }
 
+// TestCheckUpdateAsksFactoryForANewRelease: a ready answer is cached, but
+// not past a release the Controller learns of - the factory is asked
+// again at once (and builds it), so the update offered and the security
+// update, read from the release list, name the same release.
+func TestCheckUpdateAsksFactoryForANewRelease(t *testing.T) {
+	var calls atomic.Int32
+	node := nodeWith("node-exporter")
+	body := `{"schematic":"` + node.SchematicId + `","version":"v1","release_url":"https://example.invalid/r/v1","bundle_url":"https://factory.invalid/image/x/v1/amd64","sha256":"abc","state":"ready","up_to_date":true}`
+	srv := fakeFactory(t, &calls, http.StatusOK, body)
+	resetFactory(t, srv.URL)
+
+	seedRelease(t, &ReleaseInfo{TagName: "v1"})
+	checkUpdate(context.Background(), node)
+	checkUpdate(context.Background(), node)
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the factory was asked %d times for the same release, want 1", n)
+	}
+	seedRelease(t, &ReleaseInfo{TagName: "v2"})
+	checkUpdate(context.Background(), node)
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("the factory was asked %d times after a new release, want 2", n)
+	}
+}
+
 func TestCheckUpdateFactoryError(t *testing.T) {
 	var calls atomic.Int32
 	srv := fakeFactory(t, &calls, http.StatusNotFound, `{"error":"no release offers this schematic's extensions"}`)

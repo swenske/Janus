@@ -435,7 +435,14 @@ shows, a security update shows instead: `SecurityBadge.jsx` (a shield,
 `danger` for critical/high, `warn` below; `severity.js` for the tone and
 the sentence), on the node card, the header's count, the node page's top
 bar, its Update view (with a notice linking the release's notes), the
-Controller's update card, and the node page's Update dot.
+Controller's update card, and the node page's Update dot. The top bar's
+badge points at the update to install, never at the version the node
+runs: while no update built for the node's image has the fixes, it names
+`security_release`, and the Update view's badge says `Fixed in
+<release>`. A node with extensions gets its updates from the image
+factory, whose answer `factoryUpdate` caches under the newest release
+the Controller knows. A release it learns of asks the factory again at
+once, which starts the build, so that gap lasts only as long as the build.
 
 **Pre-releases** (GitHub's prerelease flag, [releasing](contributing/releasing.md#pre-releases))
 are never an update. `fetchLatestRelease` takes the newest release that

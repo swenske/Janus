@@ -235,6 +235,10 @@ export default function App() {
   const latestTag = check.data?.latest
   const updateAvailable = check.data?.state === 'ready' && check.data?.update_available
   const securityUpdate = check.data?.security_update
+  // What the security badge points at: the update to install - or, while
+  // none is built for this image, the release with the fixes. Never the
+  // version the node runs.
+  const securityTarget = check.data?.update_available ? latestTag : check.data?.security_release
   const hap = latest?.hap
   const View = current.view
   const allowed = !current.needs || may(current.needs)
@@ -324,7 +328,7 @@ export default function App() {
                 <Badge tone={updateAvailable ? 'accent' : ''}>{version}</Badge>
                 {check.data?.running_prerelease && <PrereleaseBadge />}
                 {securityUpdate ? (
-                  <SecurityBadge severity={securityUpdate}>security update → {latestTag}</SecurityBadge>
+                  <SecurityBadge severity={securityUpdate}>security update → {securityTarget}</SecurityBadge>
                 ) : (
                   updateAvailable && <Badge tone="accent">update → {latestTag}</Badge>
                 )}

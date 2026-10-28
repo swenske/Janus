@@ -1,4 +1,4 @@
-import{C as e,c as t,f as n,h as r,l as i,p as a}from"./api-DGbpmHlm.js";import{C as o,Mt as s,h as c,zt as l}from"./index-BnyWkrbX.js";import{t as u}from"./ModuleConfigEditor-CXYlo1eB.js";import{t as d}from"./Module-Z25zxTpa.js";var f=e(),p=`https://janus.sw-servers.net/docs/vrrp.md`,m=`# keepalived.conf - see docs/vrrp.md.
+import{C as e,c as t,f as n,h as r,l as i,p as a}from"./api-DGbpmHlm.js";import{C as o,Mt as s,h as c,zt as l}from"./index-DP7g7QD_.js";import{t as u}from"./ModuleConfigEditor-Cj4oQG94.js";import{t as d}from"./Module-BBhMHoXg.js";var f=e(),p=`https://janus.sw-servers.net/docs/vrrp.md`,m=`# keepalived.conf - see docs/vrrp.md.
 # Every node of the group gets the same file, but for its priority.
 
 track_file haproxy {
