@@ -272,10 +272,9 @@ func findInCommand(c *shCommand, named bool, depth int, out *[]invocation) {
 	if i < len(words) && words[i].text == "command" && !words[i].dynamic && (i+1 >= len(words) || !strings.HasPrefix(words[i+1].text, "-")) {
 		i++
 	}
-	wrapper := ""
 	if i < len(words) && words[i].text == "timeout" && !words[i].dynamic {
 		if j, ok := skipTimeout(words, i+1); ok {
-			i, wrapper = j, "timeout"
+			i = j // still run directly: allow_reads takes it
 		}
 	}
 	if i >= len(words) {
@@ -312,7 +311,7 @@ func findInCommand(c *shCommand, named bool, depth int, out *[]invocation) {
 	switch {
 	case isJanusctl(head):
 		inv := resolveInvocation(words[i:], false)
-		inv.direct = depth == 0 && !assigned && (wrapper == "" || wrapper == "timeout")
+		inv.direct = depth == 0 && !assigned
 		inv.cmd = c
 		*out = append(*out, inv)
 	case head.dynamic:
