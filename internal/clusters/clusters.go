@@ -180,6 +180,11 @@ type MemberState struct {
 	TablesSynced bool      `json:"tables_synced"`
 	CertNotAfter time.Time `json:"cert_not_after,omitzero"`
 	Drained      bool      `json:"drained"`
+	// Release, Schematic and Slot: the Janus release and image its node
+	// runs, and the A/B slot it booted.
+	Release   string `json:"release,omitempty"`
+	Schematic string `json:"schematic,omitempty"`
+	Slot      string `json:"slot,omitempty"`
 	// Stage: where its in-place update is (Upgrade), "" outside one.
 	Stage   string    `json:"stage,omitempty"`
 	Error   string    `json:"error,omitempty"`

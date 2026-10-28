@@ -48,7 +48,7 @@ GEN_DIR := gen
 	disk-image qemu-ab-boot-test uki-image qemu-uefi-boot-test \
 	qemu-uefi-ab-boot-test qemu-lifecycle-rollback-test qemu-secureboot-test \
 	qemu-lifecycle-upgrade-test qemu-lifecycle-upgrade-health-test qemu-lifecycle-upgrade-variant-test qemu-lifecycle-upgrade-from-release-test release-bundle qemu-orchestrator-test \
-	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
+	qemu-lifecycle-upgrade-url-test qemu-lifecycle-upgrade-relay-test qemu-lifecycle-upgrade-https-test qemu-probe-test qemu-packet-capture-test qemu-system-api-test qemu-fleet-trust-test qemu-fleetctl-test qemu-cluster-test qemu-state-migrate-test qemu-controller-cluster-test qemu-clusterctl-test qemu-cluster-upgrade-test qemu-self-register-fleet-test qemu-self-register-enroll-test qemu-network-config-test \
 	lifecycle-install-test qemu-hardening-test selinux-policy qemu-selinux-test \
 	proxmox-image qemu-system-info-test dashboard-frontend-build dashboard-build dashboard-bin \
 	qemu-dashboard-test dashboard-image controller-self-update-test controller-libvirt-test controller-sso-test terraform-provider-build terraform-provider-dist terraform-provider-dist-test terraform-provider-test routeros-hook-test local-dev-image ca-certificates seed-controller-test \
@@ -1348,6 +1348,26 @@ qemu-clusterctl-test: SCHEMATIC = hack/testdata/schematic-vrrp.json
 qemu-clusterctl-test: build extension-keepalived-amd64
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
 	./hack/qemu-clusterctl-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# A cluster updated in place (docs/guide/clusters.md "Updating a
+# cluster"): two keepalived members of a janusctl fleet's cluster moved
+# from this build to the same build as another release
+# (CLUSTER_UPGRADE_VERSION), one at a time, under traffic through the
+# virtual IP from a third node - no request lost, the tables kept; then
+# to a third release whose HAProxy can't start (a stand-in binary): the
+# first member reverts by itself, the update stops there.
+CLUSTER_UPGRADE_VERSION ?= v2099.01.01
+qemu-cluster-upgrade-test: SCHEMATIC = hack/testdata/schematic-vrrp.json
+qemu-cluster-upgrade-test: build extension-keepalived-amd64
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	cp --sparse=always $(BUILD_DIR)/rootfs/disk.img $(BUILD_DIR)/cluster-upgrade-from.img
+	cp $(BUILD_DIR)/haproxy $(BUILD_DIR)/haproxy.good && printf '#!/bin/sh\nexit 1\n' > $(BUILD_DIR)/haproxy && chmod 755 $(BUILD_DIR)/haproxy
+	$(MAKE) -o haproxy-build release-bundle SCHEMATIC=$(SCHEMATIC) VERSION=$(CLUSTER_UPGRADE_VERSION)-1 || { cp $(BUILD_DIR)/haproxy.good $(BUILD_DIR)/haproxy; exit 1; }
+	cp $(BUILD_DIR)/haproxy.good $(BUILD_DIR)/haproxy
+	rm -rf $(BUILD_DIR)/release-broken && mv $(BUILD_DIR)/release $(BUILD_DIR)/release-broken
+	$(MAKE) release-bundle SCHEMATIC=$(SCHEMATIC) VERSION=$(CLUSTER_UPGRADE_VERSION)
+	./hack/qemu-cluster-upgrade-test.sh $(BUILD_DIR)/cluster-upgrade-from.img $(BUILD_DIR)/release $(BIN_DIR)/janusctl $(CLUSTER_UPGRADE_VERSION) \
+		$(BUILD_DIR)/release-broken $(CLUSTER_UPGRADE_VERSION)-1
 
 # SystemService.PacketCapture on a real enforcing node: a filtered capture
 # of real HAProxy traffic over mTLS, the pcap parsed independently.

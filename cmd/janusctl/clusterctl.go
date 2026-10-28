@@ -41,7 +41,7 @@ import (
 // clusterCtlVerbs are the cluster commands that orchestrate - no node to
 // reach first; the others are one node's primitives (runCluster).
 var clusterCtlVerbs = map[string]bool{
-	"create": true, "apply": true, "check": true, "add": true, "remove": true, "replace": true, "delete": true,
+	"create": true, "apply": true, "check": true, "add": true, "remove": true, "replace": true, "upgrade": true, "delete": true,
 	"vars": true, "certificate": true, "tickets": true, "list": true, "journal": true, "checkout": true,
 	"balancer": true,
 }
@@ -569,6 +569,8 @@ func runClusterCtl(globalCtx string, args []string) {
 		o.report(c.ID, since)
 		check("cluster replace", err)
 		fmt.Printf("%s replaced %s. %s is on its own, still drained until it reboots (janusctl -n %s cluster undrain to use it again)\n", node, old, old, old)
+	case "upgrade":
+		runClusterUpgrade(globalCtx, args)
 	case "delete":
 		fs := flag.NewFlagSet("cluster delete", flag.ExitOnError)
 		force := fs.Bool("force", false, "even if a member doesn't answer")

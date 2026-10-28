@@ -165,6 +165,7 @@ var effects = map[string]effectOf{
 	"cluster add":            {effectChanges, ""},
 	"cluster remove":         {effectCritical, "the member is drained, then leaves"},
 	"cluster replace":        {effectCritical, "the traffic moves from OLD to NEW"},
+	"cluster upgrade":        {effectCritical, "each member is drained, updated and rebooted in turn"},
 	"cluster delete":         {effectCritical, ""},
 	"cluster vars":           {effectChanges, "shows them without KEY=VALUE"},
 	"cluster certificate":    {effectChanges, "pass the PEM by path, never print it"},

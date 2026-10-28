@@ -174,6 +174,9 @@ func (e *Engine) Upgrade(ctx context.Context, id string, opts UpgradeOptions, ac
 	if opts.Release == "" || opts.Update == nil {
 		return errors.New("an update needs a release and a way to update a node")
 	}
+	if len(c.Members) < 2 {
+		return fmt.Errorf("cluster %s has one member: its traffic would have nowhere to go while it updates - update its node on its own, or add a member first", c.Name)
+	}
 	order, err := e.UpgradeOrder(ctx, c, opts.Members)
 	if err != nil {
 		return err
@@ -260,6 +263,11 @@ func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts U
 	if !opts.OnTarget(v) {
 		return false, &RevertedError{Member: m.Name, Release: opts.Release, Running: v.GetVersion()}
 	}
+	_ = e.Store.UpdateState(c.ID, func(s *State) {
+		ms := s.Members[m.Name]
+		ms.Release, ms.Schematic, ms.Slot = v.GetVersion(), v.GetSchematicId(), v.GetActiveSlot()
+		s.Members[m.Name] = ms
+	})
 	e.Journal(c.ID, actor, "upgrade", m.Name, 0, "%s runs Janus %s on slot %s, in service", m.Name, v.GetVersion(), v.GetActiveSlot())
 	return true, nil
 }

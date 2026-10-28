@@ -1404,6 +1404,24 @@ janusctl cluster replace [-address IP] [-var KEY=VALUE] [-new-image] NAME OLD NE
 | `-var KEY=VALUE` | a variable the cluster's templates use for NEW, repeatable (default: OLD's) |
 | `-new-image` | NEW may run another image - the cluster changing image member by member |
 
+#### janusctl cluster upgrade
+
+The members updated in place to a release, one at a time: each drained, its own A/B update (reverted unless healthy), back on its other slot, its stick tables learnt, undrained; a member already on it is skipped, so running it again resumes.
+
+```text
+janusctl cluster upgrade [-members MEMBER,...] [-kexec] [-allow-schematic-change] [-insecure-skip-signature-check] [-sha256 HEX] [-version VERSION] [-timeout DURATION] NAME VERSION|URL
+```
+
+| Flag | |
+|---|---|
+| `-members MEMBER,...` | these members, in this order (default: every member, a VRRP cluster's MASTERs last) |
+| `-kexec` | each member reboots into its new slot through kexec, not the firmware |
+| `-allow-schematic-change` | the bundle may be another image than the members' - other extensions, HAProxy branch or kernel track |
+| `-insecure-skip-signature-check` | accept UKIs not signed by a Janus release key - development bundles only |
+| `-sha256 HEX` | rootfs.squashfs's SHA-256 (default: the bundle's rootfs.squashfs.sha256) |
+| `-version VERSION` | the release a URL's bundle holds, as the nodes report it (default: read from the bundle's image) |
+| `-timeout DURATION` | how long each member has to come back on the new release (20m) |
+
 #### janusctl cluster delete
 
 Every member leaves; the cluster and its CA are gone.
