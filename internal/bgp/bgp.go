@@ -65,7 +65,7 @@ func New(svc Services) *Manager {
 	return &Manager{svc: svc, held: map[string]bool{}, healthy: true, mod: &modcfg.Module{
 		Name: "bird", Binary: Binary, File: "bird.conf", RunDir: RunDir,
 		CheckArgs: func(path string) []string { return []string{"-p", "-c", path} },
-		Runtime:   WithLog,
+		Runtime:   func(config string) string { return WithTimeFormat(WithLog(config)) },
 	}}
 }
 
@@ -86,6 +86,23 @@ func WithLog(config string) string {
 		config += "\n"
 	}
 	return config + "log stderr all; # added by janusd: bird.conf has no log statement\n"
+}
+
+var timeFormatStatement = regexp.MustCompile(`(?m)^\s*timeformat\s+protocol\b`)
+
+// WithTimeFormat appends "timeformat protocol iso long;" to a
+// configuration that doesn't choose the protocols' time format: BIRD's
+// default prints a time of day, then a date alone after 20 hours, and
+// janus_bgp_protocol_state_since_timestamp_seconds wants the moment
+// itself ("2026-10-29 01:41:34"). Appended like WithLog's statement.
+func WithTimeFormat(config string) string {
+	if timeFormatStatement.MatchString(comments.ReplaceAllString(config, "")) {
+		return config
+	}
+	if !strings.HasSuffix(config, "\n") {
+		config += "\n"
+	}
+	return config + "timeformat protocol iso long; # added by janusd: exact times in show protocols\n"
 }
 
 // Available reports whether BIRD is in the image.
@@ -259,6 +276,25 @@ type Channel struct {
 	Imported  uint32
 	Exported  uint32
 	Preferred uint32
+	// Counted: BIRD printed the channel's routes - not for a channel
+	// that's down, whose counts above are then 0 by default.
+	Counted bool
+	// Filtered is set only when BIRD counts it: a channel with "import
+	// keep filtered on".
+	Filtered *uint32
+	// Changes is BIRD's "Route change stats" table, one cell each - only
+	// the cells it counts ("---" is left out).
+	Changes []RouteChange
+}
+
+// RouteChange is one cell of a channel's "Route change stats": the
+// updates or withdraws BIRD received, rejected, filtered, ignored or
+// accepted, on import or export, since the channel came up.
+type RouteChange struct {
+	Direction string // "import", "export"
+	Kind      string // "updates", "withdraws"
+	Outcome   string // "received", "rejected", "filtered", "ignored", "accepted"
+	Count     uint64
 }
 
 // Status reads BIRD's state over its control socket.
@@ -289,13 +325,45 @@ func (m *Manager) Status() (*Status, error) {
 	return st, nil
 }
 
-var dateField = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+var (
+	dateField = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	changeRow = regexp.MustCompile(`^(Import|Export) (updates|withdraws)$`)
+)
+
+// SinceTime is when the protocol last changed state, from Since: exact
+// with janusd's "timeformat protocol iso long" (a date and a time of
+// day), or a time of day alone (BIRD's default within 20 hours: today's,
+// else yesterday's); ok is false for a date alone (BIRD's default past
+// 20 hours - a day isn't a time) or anything else. BIRD prints its local
+// time, which janusd shares (now's location).
+func (p Protocol) SinceTime(now time.Time) (time.Time, bool) {
+	loc := now.Location()
+	for _, layout := range []string{"2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+		if t, err := time.ParseInLocation(layout, p.Since, loc); err == nil {
+			return t, true
+		}
+	}
+	for _, layout := range []string{"15:04:05.999999999", "15:04:05"} {
+		clock, err := time.ParseInLocation(layout, p.Since, loc)
+		if err != nil {
+			continue
+		}
+		y, m, d := now.Date()
+		t := time.Date(y, m, d, clock.Hour(), clock.Minute(), clock.Second(), clock.Nanosecond(), loc)
+		if t.After(now.Add(time.Minute)) {
+			t = t.AddDate(0, 0, -1)
+		}
+		return t, true
+	}
+	return time.Time{}, false
+}
 
 // ParseProtocols reads "show protocols" or "show protocols all".
 func ParseProtocols(lines []Line) []Protocol {
 	var out []Protocol
 	var p *Protocol
 	var ch *Channel
+	var outcomes []string // the current channel's "Route change stats" columns
 	for _, l := range lines {
 		switch l.Code {
 		case 1002: // Name Proto Table State Since Info
@@ -304,7 +372,7 @@ func ParseProtocols(lines []Line) []Protocol {
 				continue
 			}
 			out = append(out, Protocol{Name: f[0], Proto: f[1], Table: f[2], State: f[3]})
-			p, ch = &out[len(out)-1], nil
+			p, ch, outcomes = &out[len(out)-1], nil, nil
 			rest := f[4:]
 			if len(rest) > 0 {
 				p.Since = rest[0]
@@ -325,7 +393,7 @@ func ParseProtocols(lines []Line) []Protocol {
 			switch {
 			case strings.HasPrefix(key, "Channel "):
 				p.Channels = append(p.Channels, Channel{Name: strings.TrimPrefix(key, "Channel ")})
-				ch = &p.Channels[len(p.Channels)-1]
+				ch, outcomes = &p.Channels[len(p.Channels)-1], nil
 			case key == "BGP state":
 				p.BGPState = value
 			case key == "Neighbor address":
@@ -339,7 +407,9 @@ func ParseProtocols(lines []Line) []Protocol {
 			case key == "State" && ch != nil:
 				ch.State = value
 			case key == "Routes" && ch != nil:
-				// "1 imported, 0 exported, 1 preferred" (and "filtered" when some are)
+				// "2 imported, 0 exported, 2 preferred" - and "1 filtered"
+				// after imported with "import keep filtered on".
+				ch.Counted = true
 				for _, part := range strings.Split(value, ",") {
 					n, what, _ := strings.Cut(strings.TrimSpace(part), " ")
 					switch what {
@@ -349,7 +419,24 @@ func ParseProtocols(lines []Line) []Protocol {
 						ch.Exported = parseUint32(n)
 					case "preferred":
 						ch.Preferred = parseUint32(n)
+					case "filtered":
+						f := parseUint32(n)
+						ch.Filtered = &f
 					}
+				}
+			case key == "Route change stats" && ch != nil:
+				// The table's header: "received rejected filtered ignored accepted".
+				outcomes = strings.Fields(value)
+			case ch != nil && outcomes != nil && changeRow.MatchString(key):
+				// "Import updates:  3  0  1  0  2" - "---" where BIRD
+				// doesn't count.
+				dir, kind, _ := strings.Cut(strings.ToLower(key), " ")
+				for i, v := range strings.Fields(value) {
+					n, err := strconv.ParseUint(v, 10, 64)
+					if err != nil || i >= len(outcomes) {
+						continue
+					}
+					ch.Changes = append(ch.Changes, RouteChange{Direction: dir, Kind: kind, Outcome: outcomes[i], Count: n})
 				}
 			}
 		}

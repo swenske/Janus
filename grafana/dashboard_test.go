@@ -674,12 +674,52 @@ func dashboard() obj {
 				legend: "{{instance}} · {{protocol}}"},
 		}, []state{{1, "established", "green"}, {0, "not established", "red"}}, true,
 		byRef("B", prop("mappings", []any{mapping(state{0, "announced", "green"}, state{1, "held down", "orange"})}))))
-	routes := b.add(timeseries("BGP routes", "Routes each BIRD protocol imported and exported.",
+	routes := b.add(timeseries("BGP routes",
+		"Routes each BIRD protocol imported and exported, the best ones it brought (preferred) and, with "+
+			"import keep filtered on, those its import filter kept out (filtered).",
 		b.pos(6, 12, 12), []q{
 			{ref: "A", expr: "sum by (instance, protocol, direction) (janus_bgp_routes{" + sel + "})",
 				legend: "{{instance}} · {{protocol}} {{direction}}"},
 		}, "none"))
 	defaults(routes)["decimals"], defaults(routes)["min"] = 0, 0
+	b.y += 6
+	// One value per protocol from its state's sample: up 3, start 2, stop 1, down 0.
+	stateOf := func(st string, n int) string {
+		return fmt.Sprintf("%d * max by (instance, protocol) (janus_bgp_protocol_state{state=%q, %s})", n, st, sel)
+	}
+	b.add(timeline("BGP protocols",
+		"Each BIRD protocol's state: up, start (a BGP session connecting), stop, down - disabled, or held "+
+			"down by janusd while HAProxy doesn't answer.",
+		b.pos(6, 12, 0), []q{
+			{ref: "A", expr: stateOf("up", 3) + " + " + stateOf("start", 2) + " + " + stateOf("stop", 1),
+				legend: "{{instance}} · {{protocol}}"},
+		}, []state{{3, "up", "green"}, {2, "start", "yellow"}, {1, "stop", "orange"}, {0, "down", "red"}}, true))
+	inState := b.add(timeseries("BGP time in state",
+		"How long each BIRD protocol has been in its state - up, or not: a session that keeps restarting "+
+			"never gets far from 0.",
+		b.pos(6, 12, 12), []q{
+			{ref: "A", expr: "time() - max by (instance, protocol) (janus_bgp_protocol_state_since_timestamp_seconds{" + sel + "})",
+				legend: "{{instance}} · {{protocol}}"},
+		}, "s"))
+	defaults(inState)["min"] = 0
+	b.y += 6
+	changes := b.add(timeseries("BGP route changes",
+		"Route updates and withdraws each BIRD protocol accepted per second, on import (from its neighbor) "+
+			"and export (to it) - BIRD's route change stats.",
+		b.pos(6, 12, 0), []q{
+			{ref: "A", expr: "sum by (instance, protocol, direction, kind) (rate(janus_bgp_route_changes_total{outcome=\"accepted\", " + sel + "}[$__rate_interval]))",
+				legend: "{{instance}} · {{protocol}} {{direction}} {{kind}}"},
+		}, "ops"))
+	defaults(changes)["min"] = 0
+	refused := b.add(timeseries("BGP updates refused",
+		"Route updates each BIRD protocol refused: rejected (invalid) or filtered (by its import or export "+
+			"filter). Nothing drawn: nothing refused.",
+		b.pos(6, 12, 12), []q{
+			{ref: "A", expr: "sum by (instance, protocol, direction, outcome) (increase(janus_bgp_route_changes_total{kind=\"updates\", outcome=~\"rejected|filtered\", " + sel + "}[$__rate_interval])) > 0",
+				legend: "{{instance}} · {{protocol}} {{direction}} {{outcome}}"},
+			{ref: "Z", expr: "0 * count(" + up + ")", legend: "baseline"},
+		}, "none", hideBaseline))
+	defaults(refused)["min"] = 0
 	b.y += 6
 	sets := b.add(timeseries("Firewall sets",
 		"Elements in each named set of the live nftables ruleset ([firewall]("+docs+"firewall.md), the "+

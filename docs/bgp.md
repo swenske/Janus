@@ -58,6 +58,9 @@ protocol bgp upstream {
 - Without a `log` statement, janusd adds `log stderr all;` to the file
   BIRD reads (not to the one it saves), so BIRD's messages are its
   service's log: `janusctl system logs bird`.
+- Without a `timeformat protocol` statement, janusd adds
+  `timeformat protocol iso long;` the same way: each protocol's since is
+  a date and a time, for the [metrics](#metrics).
 - With the [firewall](firewall.md), accept BGP (`tcp dport 179 accept`
   from your peers), and BFD (`udp dport { 3784, 3785 }`) or OSPF (`ip
   protocol 89`) if you use them.
@@ -173,8 +176,45 @@ configuration takes `os:operator`: it may hold session passwords
 
 The [Janus exporter](metrics.md) reports `janus_bgp_protocol_up`,
 `janus_bgp_session_established` (per neighbor), `janus_bgp_routes`
-(imported and exported, per protocol and channel) and
-`janus_bgp_protocol_held_down`. An alert on a session down:
+(per protocol and channel) and `janus_bgp_protocol_held_down`, and
+BIRD's own counters for each protocol: its state and since when, its
+routes and its route change stats. janusd reads them from the same
+`show protocols all` as `status`: nothing else on the node talks to
+BIRD. Each is there only when BIRD prints it - a channel that's down
+has no counts, `filtered` routes exist with `import keep filtered on`,
+and a cell of the route change stats BIRD marks `---` isn't exported:
+no 0 that means nothing. The change stats count since the channel came
+up; a session that restarts starts them again.
+
+The last column is
+[bird_exporter](https://github.com/czerwonk/bird_exporter)'s name for
+the same value (`-format.new`), for dashboards made for it: its labels
+are `name` and `ip_version`, Janus's `protocol` and `channel`
+(`ipv4`, `ipv6`).
+
+| Metric | BIRD's `show protocols all` | bird_exporter's |
+| --- | --- | --- |
+| `janus_bgp_protocol_up` | State `up` | `bird_protocol_up` |
+| `janus_bgp_protocol_state{state}` | State: `up`, `start`, `stop`, `down` | - |
+| `time() - janus_bgp_protocol_state_since_timestamp_seconds` | Since | `bird_protocol_uptime` |
+| `janus_bgp_routes{direction="imported"}` | Routes: imported | `bird_protocol_prefix_import_count` |
+| `janus_bgp_routes{direction="exported"}` | Routes: exported | `bird_protocol_prefix_export_count` |
+| `janus_bgp_routes{direction="preferred"}` | Routes: preferred | `bird_protocol_prefix_preferred_count` |
+| `janus_bgp_routes{direction="filtered"}` | Routes: filtered | `bird_protocol_prefix_filter_count` |
+| `janus_bgp_route_changes_total{direction="import", kind="updates", outcome="received"}` | Import updates: received | `bird_protocol_changes_update_import_receive_count` |
+| the same for each direction, kind and outcome | Import and Export updates and withdraws: received, rejected, filtered, ignored, accepted | `bird_protocol_changes_{update,withdraw}_{import,export}_{receive,reject,filter,ignore,accept}_count` |
+
+For the exact moment of each change, janusd adds
+`timeformat protocol iso long;` to the bird.conf BIRD reads (after your
+text, like `log stderr all;`) unless yours chooses a format:
+`status`'s since column then reads `2026-10-29 01:41:34`. With BIRD's
+default format, past 20 hours a protocol's since is a date alone, and
+no timestamp is exported for it. Not covered here: BFD sessions, OSPF
+areas and neighbors - `status` and BIRD's own log say what they do.
+
+Received updates that end rejected or filtered mean a neighbor
+announces what this node won't take - expected with a filter, worth a
+look without one. An alert on a session down:
 
 ```yaml
 - alert: JanusBGPSessionDown
