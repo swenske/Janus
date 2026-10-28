@@ -401,8 +401,9 @@ resource "janus_cluster" "edge" {
   ```
 
 - **`name`, `hypervisors`, `anti_affinity` and `machine`** make a new
-  cluster. To move one to a new release member by member, recycle its
-  members from the Controller instead.
+  cluster. To move one to a new release, [update it in
+  place](guide/clusters.md#updating-a-cluster) from the Controller - its
+  members one at a time -, or recycle its members.
 - **Destroying** it ends the cluster - its members leave - and destroys
   its machines, those auto-scaling made too.
 - The cluster's configuration - its versions, VRRP or BGP templates,

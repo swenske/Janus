@@ -44,7 +44,10 @@ On the node's page, **System › Update**:
 
 Update the nodes of a pair one at a time: before rebooting, a node gives
 its virtual IP or its BGP route up, so the other one serves alone for
-the minute it takes.
+the minute it takes. The members of a [cluster](clusters.md) are
+[updated in place](clusters.md#updating-a-cluster) by the cluster
+itself, in one action: each drained, updated, its stick tables learnt
+back, then the next.
 
 **Changing the image** - its extensions, its HAProxy branch, its kernel
 track - is an update too: **Change the image…** on the same page asks
