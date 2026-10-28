@@ -536,6 +536,14 @@ What happens then, followed on the machine's card:
      ([updates](guide/updates.md#with-janusctl)). When libvirt's choice
      isn't the plain code (a host with Secure Boot builds only), it stays
      as chosen, with a store.
+   - **CPU model:** the host's own on libvirt (`host-passthrough`). On
+     Proxmox VE, `x86-64-v2-AES` - what Proxmox's own form gives a new
+     machine, and it still migrates between hosts. Its API alone would
+     give `kvm64`: no AES-NI, no SSE4 or AVX, and HAProxy's TLS falls
+     back to slower code (ChaCha20 instead of AES-GCM). A machine an
+     earlier Controller created keeps `kvm64`: `qm set <vmid> --cpu
+     x86-64-v2-AES` on the host, then stop and start it - a reboot from
+     inside keeps the same QEMU process. Drain a cluster member first.
    - **Console:** a serial console on a pty. Never a log file on the
      host: a node's first boot prints its admin credential there.
    - **Autostart.**

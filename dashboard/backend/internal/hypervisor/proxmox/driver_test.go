@@ -109,3 +109,22 @@ func TestImageStorageProblem(t *testing.T) {
 		}
 	}
 }
+
+// A new machine's configuration: UEFI on q35, and a CPU model with
+// AES-NI - left out, Proxmox's API gives kvm64, which has none (#372).
+func TestCreateParams(t *testing.T) {
+	d := &Driver{cfg: &hypervisor.ProxmoxConfig{Pool: "janus", Storage: "local-lvm", ImageStorage: "local"}, controllerID: "ctl1"}
+	spec := hypervisor.MachineSpec{Name: "janus-node1", MachineID: "m1", Image: hypervisor.Image{Name: "janus.qcow2"}, Hardware: hypervisor.Hardware{VCPUs: 2, MemoryMiB: 1024}}
+	p := d.createParams(spec, "janus-cidata-m1.iso")
+	for k, want := range map[string]string{
+		"cpu": "x86-64-v2-AES", "machine": "q35", "bios": "ovmf", "pool": "janus", "cores": "2", "memory": "1024",
+		"virtio0": "local-lvm:0,import-from=local:import/janus.qcow2", "ide2": "local:iso/janus-cidata-m1.iso,media=cdrom",
+	} {
+		if got := p.Get(k); got != want {
+			t.Errorf("%s = %q, want %q", k, got, want)
+		}
+	}
+	if !tagRe.MatchString(p.Get("description")) {
+		t.Errorf("no tag in the description %q", p.Get("description"))
+	}
+}
