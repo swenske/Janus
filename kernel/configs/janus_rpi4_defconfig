@@ -291,7 +291,7 @@
 #
 # Automatically generated file; DO NOT EDIT (by hand - regenerate it with
 # make kernel-menuconfig or make kernel-config-refresh, KERNEL_TRACK=<track>).
-# Linux/arm64 7.2.12 Kernel Configuration
+# Linux/arm64 7.2.13 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="aarch64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0"
 CONFIG_CC_IS_GCC=y
