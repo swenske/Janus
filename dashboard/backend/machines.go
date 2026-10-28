@@ -723,6 +723,11 @@ func networkConfig(spec machines.Spec) (*janusv1alpha1.NetworkConfig, error) {
 	return cfg, nil
 }
 
+// checkRequirements refuses extensions naming one without another it
+// requires, by the image factory's catalog (a var for tests: they don't
+// ask the real factory).
+var checkRequirements = nodeproxy.CheckRequirements
+
 var versionRe = regexp.MustCompile(`^v\d{4}\.\d{2}\.\d{2}(-\d+)?$`)
 var sha256Re = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
@@ -774,6 +779,11 @@ func (a *app) checkSpec(spec *machines.Spec) error {
 	}
 	if err := spec.Schematic().Normalize(); err != nil {
 		return err
+	}
+	if spec.Image == nil {
+		if err := checkRequirements(context.Background(), spec.Schematic().Extensions()); err != nil {
+			return err
+		}
 	}
 	if src := spec.Image; src != nil {
 		src.SHA256 = strings.ToLower(strings.TrimSpace(src.SHA256))

@@ -25,6 +25,7 @@ import { autoscalePolicy, initialAutoscale, samePolicy, sizeText, useAutoscale }
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
 import { LockNotice, ManagedBadge, PhaseBadge, PowerBadge, PowerButtons, useMachineActions } from './machines.jsx'
 import Gauge from './shared/Gauge.jsx'
+import { requirementError, toggleExtension } from './shared/requires.js'
 import ViewToggle from './shared/ViewToggle.jsx'
 import { useStoredView } from './shared/storedView.js'
 import { fmtDateTime, fmtTime } from './shared/units.js'
@@ -841,7 +842,14 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
   }, [])
 
   const setNIC = (i, patch) => setNics(nics.map((n, j) => (j === i ? { ...n, ...patch } : n)))
-  const toggleExt = (e) => setExts(exts.includes(e) ? exts.filter((x) => x !== e) : [...exts, e])
+  // Ticking an extension ticks what it requires, unticking one unticks
+  // what requires it - said under the list.
+  const [extNote, setExtNote] = useState('')
+  const toggleExt = (e) => {
+    const r = toggleExtension(exts, e, !exts.includes(e), catalog?.extensions)
+    setExts(r.extensions)
+    setExtNote(r.note)
+  }
   const pickHV = (id) => {
     setHvId(id)
     const next = usable.find((h) => h.id === id)
@@ -1012,11 +1020,18 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
             ) : (
               <div className="ext-list">
                 {extensions.map((e) => (
-                  <label key={e.name} className="check" title={e.description}>
+                  <label key={e.name} className="check" title={e.description + (e.requires?.length ? ` Requires ${e.requires.join(', ')}.` : '')}>
                     <input type="checkbox" checked={exts.includes(e.name)} onChange={() => toggleExt(e.name)} disabled={!!imageURL.trim()} /> {e.name}
                   </label>
                 ))}
               </div>
+            )}
+            {!imageURL.trim() && requirementError(exts, extensions, catalog?.catalog_version) ? (
+              <div className="notice warn small" role="alert">
+                {requirementError(exts, extensions, catalog?.catalog_version)}
+              </div>
+            ) : (
+              extNote && <span className="muted small">{extNote}</span>
             )}
           </div>
         </div>

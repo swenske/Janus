@@ -678,3 +678,42 @@ func TestMachineSync(t *testing.T) {
 		t.Errorf("a move not journaled:\n%s", ev)
 	}
 }
+
+// An extension without the one it requires: refused when a machine is
+// created or updated, with the image factory's message, and the
+// machine's record stays as it was.
+func TestMachineExtensionRequirements(t *testing.T) {
+	cat := &schematic.Catalog{Version: "v2026.10.29", Extensions: []schematic.CatalogEntry{
+		{Name: "bird", Arches: []string{"amd64"}},
+		{Name: "prometheus-bird-exporter", Arches: []string{"amd64"}, Requires: []string{"bird"}},
+	}}
+	prev := checkRequirements
+	checkRequirements = func(_ context.Context, exts []string) error { return cat.CheckRequirements(exts) }
+	t.Cleanup(func() { checkRequirements = prev })
+	want := `extension "prometheus-bird-exporter" requires the "bird" extension: choose it too`
+	refused := func(body string) bool {
+		var e struct{ Error string }
+		return json.Unmarshal([]byte(body), &e) == nil && e.Error == want
+	}
+
+	a, fake := newTestApp(t)
+	hv := addTrustedHypervisor(t, a)
+	rec := call(t, a.handleMachineCreate, "POST", "/api/machines", "POST /api/machines", machines.Spec{
+		Name: "lb9", HypervisorID: hv.ID, NICs: []machines.NIC{{Network: "lab-mgmt"}}, Extensions: []string{"prometheus-bird-exporter"},
+	})
+	if rec.Code != http.StatusBadRequest || !refused(rec.Body.String()) {
+		t.Errorf("create: %d %s", rec.Code, rec.Body)
+	}
+
+	m, _ := readyMachine(t, a, hv, fake)
+	if code, out := patch(t, a, m.ID, map[string]any{"extensions": []string{"prometheus-bird-exporter"}}); code != http.StatusBadRequest || !refused(out) {
+		t.Errorf("update: %d %s", code, out)
+	}
+	if got, _ := a.machines.Get(m.ID); len(got.Spec.Extensions) != 0 || got.Phase != machines.PhaseReady {
+		t.Errorf("the refused update changed the machine: %+v", got.Spec.Extensions)
+	}
+	if code, out := patch(t, a, m.ID, map[string]any{"extensions": []string{"bird", "prometheus-bird-exporter"}}); code != http.StatusAccepted {
+		t.Errorf("with bird: %d %s", code, out)
+	}
+	waitReady(t, a, m.ID)
+}
