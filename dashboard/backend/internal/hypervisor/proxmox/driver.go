@@ -348,26 +348,7 @@ func (d *Driver) CreateMachine(ctx context.Context, spec hypervisor.MachineSpec)
 	if err := checkHardware(spec.Hardware); err != nil {
 		return nil, err
 	}
-	params := url.Values{
-		"name":        {spec.Name},
-		"pool":        {d.cfg.Pool},
-		"machine":     {"q35"},
-		"bios":        {"ovmf"},
-		"efidisk0":    {d.cfg.Storage + ":1,efitype=4m,pre-enrolled-keys=0"},
-		"scsihw":      {"virtio-scsi-single"},
-		"virtio0":     {d.cfg.Storage + ":0,import-from=" + d.volume("import", spec.Image.Name)},
-		"ide2":        {d.volume("iso", ci) + ",media=cdrom"},
-		"serial0":     {"socket"},
-		"vga":         {"std"},
-		"boot":        {"order=virtio0"},
-		"onboot":      {"1"},
-		"ostype":      {"l26"},
-		"description": {d.description(spec)},
-	}
-	hw, _ := hardwareParams(nil, spec.Hardware)
-	for k, v := range hw {
-		params[k] = v
-	}
+	params := d.createParams(spec, ci)
 	for i, n := range spec.NICs {
 		p, err := nicParam(n)
 		if err != nil {
@@ -393,6 +374,41 @@ func (d *Driver) CreateMachine(ctx context.Context, spec hypervisor.MachineSpec)
 		return nil, fmt.Errorf("start the virtual machine: %w", err)
 	}
 	return &ref, nil
+}
+
+// cpuModel is the CPU model a machine gets: the one Proxmox VE's own
+// form fills in for a new machine, while its API leaves kvm64 when it's
+// not given - no AES-NI, no SSE4 or AVX: HAProxy's AWS-LC fell back to
+// ChaCha20 and generic code for every curve and hash (#372). x86-64-v2-AES
+// runs on any x86-64-v2 host with AES, so a machine still migrates
+// between a cluster's hosts.
+const cpuModel = "x86-64-v2-AES"
+
+// createParams is the new machine's configuration but its network
+// interfaces.
+func (d *Driver) createParams(spec hypervisor.MachineSpec, ci string) url.Values {
+	params := url.Values{
+		"name":        {spec.Name},
+		"pool":        {d.cfg.Pool},
+		"machine":     {"q35"},
+		"bios":        {"ovmf"},
+		"cpu":         {cpuModel},
+		"efidisk0":    {d.cfg.Storage + ":1,efitype=4m,pre-enrolled-keys=0"},
+		"scsihw":      {"virtio-scsi-single"},
+		"virtio0":     {d.cfg.Storage + ":0,import-from=" + d.volume("import", spec.Image.Name)},
+		"ide2":        {d.volume("iso", ci) + ",media=cdrom"},
+		"serial0":     {"socket"},
+		"vga":         {"std"},
+		"boot":        {"order=virtio0"},
+		"onboot":      {"1"},
+		"ostype":      {"l26"},
+		"description": {d.description(spec)},
+	}
+	hw, _ := hardwareParams(nil, spec.Hardware)
+	for k, v := range hw {
+		params[k] = v
+	}
+	return params
 }
 
 // createVM creates the machine under the first free ID - of the
@@ -457,6 +473,7 @@ func (d *Driver) freeVMID(ctx context.Context, first, last int) (int, error) {
 type vmConfig struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	CPU         string `json:"cpu"`
 	Cores       int    `json:"cores"`
 	Sockets     int    `json:"sockets"`
 	Vcpus       int    `json:"vcpus"`

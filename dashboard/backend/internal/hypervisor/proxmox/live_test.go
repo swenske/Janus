@@ -85,6 +85,9 @@ func TestLive(t *testing.T) {
 		}
 	}()
 	t.Logf("created VM %s", ref.UUID)
+	if _, c, err := d.owned(ctx, *ref); err != nil || c.CPU != cpuModel {
+		t.Errorf("CPU model: %+v %v", c, err)
+	}
 
 	// Its console shows the boot.
 	var out lockedBuffer
