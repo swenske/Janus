@@ -1,7 +1,7 @@
-import { ChevronLeft, ExternalLink, FileText, History, KeyRound, Loader2, Network, Pencil, Plus, RefreshCw, ScrollText, Send, Split, Trash2, Upload, Users } from 'lucide-react'
+import { ChevronLeft, ExternalLink, FileText, History, KeyRound, Loader2, Network, Pencil, Plus, RefreshCw, Rocket, ScrollText, Send, Split, Trash2, Upload, Users } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { call, postJSON } from './call.js'
-import { DOMAINS, clusterNameError, domainsOf, health, memberDefaults, memberNameError, parseVars, pathError, varsText, versionChanges, when } from './clusters.js'
+import { DOMAINS, STAGES, behindLatest, clusterNameError, domainsOf, health, memberDefaults, memberNameError, parseVars, pathError, releaseError, upgradeRows, varsText, versionChanges, when } from './clusters.js'
 import { useCan } from './me.jsx'
 import { DiffView, Editor } from './shared/Editor.jsx'
 import { requirementError, toggleExtension } from './shared/requires.js'
@@ -76,6 +76,7 @@ function ClusterList({ nodes }) {
   const can = useCan()
   const [clusters, error, load] = usePolled('/api/clusters', (cs) => cs.some((c) => c.busy))
   const [creating, setCreating] = useState(false)
+  const latest = useLatestRelease()
   if (!clusters) return error ? <ErrorBox error={error} /> : <Loading />
   const taken = new Set(clusters.flatMap((c) => c.members.map((m) => m.node_id)))
   return (
@@ -125,6 +126,14 @@ function ClusterList({ nodes }) {
               <dt>Manages</dt>
               <dd>{c.managed.join(', ')}</dd>
             </dl>
+            {behindLatest(c, latest).length > 0 && (
+              <div className="small">
+                <Badge tone="accent">
+                  <Rocket size={11} /> {latest}
+                </Badge>{' '}
+                <span className="muted">for {behindLatest(c, latest).join(', ')}</span>
+              </div>
+            )}
             {c.problems.length > 0 && <div className="small muted cluster-problem">{c.problems[0]}</div>}
           </a>
         ))}
@@ -404,6 +413,8 @@ function ClusterPage({ id, nodes }) {
   const [busyAction, run] = useAction()
   const [cluster, error, load] = usePolled(`/api/clusters/${id}`, (c) => c.busy)
   const [tab, setTab] = useState('members')
+  const [updating, setUpdating] = useState(false)
+  const latest = useLatestRelease()
   if (!cluster) {
     return (
       <div className="stack">
@@ -460,6 +471,9 @@ function ClusterPage({ id, nodes }) {
               <button className="small" disabled={busyAction || cluster.busy} onClick={() => run(() => postJSON(`/api/clusters/${id}/check`, {}).then(() => load(false)), 'Every member looked at.')}>
                 <RefreshCw size={14} /> Check now
               </button>
+              <button className="small" disabled={busyAction || cluster.busy || cluster.members.length < 2} onClick={() => setUpdating(!updating)} title="Update the members in place, one at a time">
+                <Rocket size={14} /> Update
+              </button>
               <button className="small danger" disabled={busyAction || cluster.busy} onClick={remove}>
                 <Trash2 size={14} /> Delete
               </button>
@@ -474,6 +488,18 @@ function ClusterPage({ id, nodes }) {
         <dd>{cluster.desired ? `v${cluster.desired}` : '-'}</dd>
         <dt>Manages</dt>
         <dd>{cluster.managed.join(', ')}</dd>
+        <dt>Janus</dt>
+        <dd>
+          <span className="mono">{[...new Set(cluster.members.map((m) => m.state.release).filter(Boolean))].join(', ') || '-'}</span>
+          {behindLatest(cluster, latest).length > 0 && (
+            <>
+              {' '}
+              <Badge tone="accent">
+                <Rocket size={11} /> {latest}
+              </Badge>
+            </>
+          )}
+        </dd>
         <dt>Secrets from</dt>
         <dd>{cluster.secrets_from}</dd>
         {cluster.placement && (
@@ -504,6 +530,7 @@ function ClusterPage({ id, nodes }) {
           </ul>
         </div>
       )}
+      {updating && <UpdateCluster cluster={cluster} latest={latest} onDone={() => setUpdating(false)} reload={() => load(false)} />}
       <Tabs
         tabs={[
           { id: 'members', label: 'Members', icon: Users },
@@ -611,6 +638,11 @@ function Members({ cluster, nodes, act, busy, reload }) {
                   <td className="small">{when(s.cert_not_after)}</td>
                   <td>
                     <div className="row" style={{ flexWrap: 'wrap', gap: '0.3rem' }}>
+                      {s.stage && (
+                        <Badge tone="info">
+                          <Loader2 size={12} className="spin" /> {STAGES[s.stage] || s.stage}
+                        </Badge>
+                      )}
                       {s.drained && <Badge tone="warn">drained</Badge>}
                       {s.drift?.length > 0 && <Badge tone="danger">drifted: {s.drift.join(', ')}</Badge>}
                       {s.released?.length > 0 && <Badge tone="warn">released: {s.released.join(', ')}</Badge>}
@@ -1181,6 +1213,191 @@ function AddMember({ cluster, nodes, onDone, reload }) {
         gets the cluster’s version.
       </p>
       <ErrorBox error={error} />
+    </Card>
+  )
+}
+
+// useLatestRelease is the newest release, as the image factory's catalog
+// says ("" until known, or when it can't be had).
+function useLatestRelease() {
+  const [latest, setLatest] = useState('')
+  useEffect(() => {
+    call('/api/catalog', { background: true }).then(
+      (c) => setLatest(c?.latest || ''),
+      () => {},
+    )
+  }, [])
+  return latest
+}
+
+// UpdateCluster updates the members in place (docs/guide/clusters.md
+// "Updating a cluster"): one at a time, each drained, its own A/B update,
+// back on its other slot, its stick tables learnt, undrained - a VRRP
+// cluster's MASTER last. A member already on the release is skipped.
+function UpdateCluster({ cluster, latest, onDone, reload }) {
+  const confirm = useConfirm()
+  const [catalog, setCatalog] = useState(null)
+  const [version, setVersion] = useState('')
+  const [skip, setSkip] = useState([]) // members left out
+  const [kexec, setKexec] = useState(false)
+  const [newImage, setNewImage] = useState(false)
+  const [exts, setExts] = useState([])
+  const [haproxy, setHAProxy] = useState('')
+  const [kernel, setKernel] = useState('')
+  const [error, setError] = useState(null)
+  const [busy, run] = useAction()
+  useEffect(() => {
+    call('/api/catalog').then(setCatalog, () => setCatalog({}))
+  }, [])
+  const target = version.trim() || latest
+  const rows = upgradeRows(cluster, target)
+  const chosen = rows.filter((r) => !skip.includes(r.name))
+  const toUpdate = chosen.filter((r) => !r.onTarget)
+  const problem = (target ? releaseError(target) : 'a release') || (toUpdate.length === 0 ? 'a member not on it already' : '')
+  const toggle = (name) => setSkip(skip.includes(name) ? skip.filter((n) => n !== name) : [...skip, name])
+  const toggleExt = (x) => setExts(exts.includes(x) ? exts.filter((y) => y !== x) : [...exts, x])
+  const submit = async (e) => {
+    e.preventDefault()
+    setError(null)
+    if (
+      !(await confirm({
+        title: `Update ${cluster.name} to Janus ${target}?`,
+        body: (
+          <>
+            <p>
+              {toUpdate.map((r) => r.name).join(', ')}, one at a time - a VRRP cluster’s MASTER last: each is drained, its traffic moving to the others, updates itself and
+              reboots{kexec ? ' through kexec' : ''}, then comes back into service once it runs {target} on its other slot and has learnt its stick tables.
+            </p>
+            <p>A member whose new release doesn’t confirm healthy goes back to its previous one by itself, and the update stops there.</p>
+          </>
+        ),
+        action: `Update to ${target}`,
+        danger: true,
+      }))
+    )
+      return
+    const body = { version: target }
+    if (skip.length) body.members = chosen.map((r) => r.name)
+    if (kexec) body.reboot_mode = 'kexec'
+    if (newImage) {
+      body.new_image = true
+      body.extensions = exts
+      if (haproxy) body.haproxy = haproxy
+      if (kernel) body.kernel = kernel
+    }
+    run(async () => {
+      try {
+        await postJSON(`/api/clusters/${cluster.id}/upgrade`, body)
+        reload()
+        onDone()
+      } catch (err) {
+        setError(err)
+      }
+    })
+  }
+  return (
+    <Card title={`Update ${cluster.name}`} icon={Rocket} className="data-title">
+      <form className="stack" onSubmit={submit}>
+        <label className="field">
+          <span>Release {latest && <span className="muted">· the newest is {latest}</span>}</span>
+          <input className="mono" value={version} placeholder={latest || 'v2026.10.29'} onChange={(e) => setVersion(e.target.value)} />
+        </label>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th />
+                <th>Member</th>
+                <th>Runs</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.name} className={r.onTarget ? 'muted' : undefined}>
+                  <td>
+                    <input type="checkbox" aria-label={`Update ${r.name}`} checked={!skip.includes(r.name)} disabled={r.onTarget} onChange={() => toggle(r.name)} />
+                  </td>
+                  <td>
+                    <strong>{r.name}</strong>
+                  </td>
+                  <td className="mono small">{r.release || '-'}</td>
+                  <td className="small">{r.onTarget ? 'on it already: skipped' : skip.includes(r.name) ? 'left as it is' : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <label className="check small">
+          <input type="checkbox" checked={kexec} onChange={(e) => setKexec(e.target.checked)} /> Reboot through kexec - seconds instead of the firmware
+        </label>
+        <label className="check small">
+          <input type="checkbox" checked={newImage} onChange={(e) => setNewImage(e.target.checked)} /> Another image - other extensions, HAProxy branch or kernel track
+        </label>
+        {newImage && (
+          <div className="stack">
+            <div>
+              <span className="field-label">Extensions</span>
+              {catalog === null ? (
+                <span className="muted small">
+                  <Loader2 size={13} className="spin" /> loading the catalog…
+                </span>
+              ) : !catalog.extensions?.length ? (
+                <span className="muted small">{catalog.catalog_error || 'none offered'}</span>
+              ) : (
+                <div className="ext-list">
+                  {catalog.extensions.map((x) => (
+                    <label key={x.name} className="check" title={x.description}>
+                      <input type="checkbox" checked={exts.includes(x.name)} onChange={() => toggleExt(x.name)} /> {x.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            {catalog?.haproxy?.length > 0 && (
+              <div className="grid grid-2">
+                <label className="field">
+                  <span>HAProxy branch</span>
+                  <select value={haproxy} onChange={(e) => setHAProxy(e.target.value)}>
+                    <option value="">The newest LTS branch, following it</option>
+                    {catalog.haproxy.map((v) => (
+                      <option key={v.name} value={v.name}>
+                        HAProxy {v.name} - {v.version}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Kernel track</span>
+                  <select value={kernel} onChange={(e) => setKernel(e.target.value)}>
+                    <option value="">The release’s default</option>
+                    {catalog.kernel.map((v) => (
+                      <option key={v.name} value={v.name}>
+                        {v.name} - {v.version}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+        <p className="small muted">
+          One member at a time, a VRRP cluster’s MASTER last: drained - the balancer in front told first -, its node’s own update, back on its other slot within 20 minutes,
+          its stick tables learnt, back in service. The first failure stops the update: a member that reverted serves on its previous release, one not back stays drained.
+          The Controller’s machines keep their record: release and extensions follow.
+        </p>
+        <ErrorBox error={error} />
+        <div className="row">
+          <button className="primary" type="submit" disabled={busy || !!problem} title={problem ? `Missing: ${problem}` : undefined}>
+            <Rocket size={15} /> Update {toUpdate.length > 0 ? toUpdate.map((r) => r.name).join(', ') : ''}
+          </button>
+          <button type="button" onClick={onDone}>
+            Cancel
+          </button>
+          {problem && <span className="small muted">Still needed: {problem}</span>}
+        </div>
+      </form>
     </Card>
   )
 }

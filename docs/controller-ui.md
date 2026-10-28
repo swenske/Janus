@@ -182,11 +182,18 @@ it now or remove it; readers see it only once set). Its **Kind**
 selects a webhook or a RouterOS router (ECMP routes): the router's
 user, service prefixes, distance, routing table and check-gateway, its
 password in the secret's field.
-`#/clusters/<id>` is one cluster: its problems in a notice, **Check
-now**, **Delete** (type the name; a box to destroy the members' virtual
+`#/clusters/<id>` is one cluster: its problems in a notice, the Janus
+releases its members run (a newer release's badge when there is one -
+the cluster's card on the list says it too: `behindLatest` against
+`/api/catalog`'s newest), **Check now**, **Update** (`UpdateCluster`:
+the release - the newest suggested -, the members with each one's
+release, those on it greyed and skipped, kexec, another image from the
+catalog, a confirmation naming the release, then `POST
+/api/clusters/{id}/upgrade`; each member's stage shows in the Members
+tab while it runs), **Delete** (type the name; a box to destroy the members' virtual
 machines too, when some are the Controller's), and four tabs - **Members** (version
 run, peers up, stick tables in sync, member certificate's end, drained /
-drifted / released; Drain/Undrain, the variables its templates use,
+drifted / released, an update's stage; Drain/Undrain, the variables its templates use,
 **Recycle** - a new machine like it when it is one of the Controller's
 (`machine_id` in the member's view), else a node picked, its release,
 "another image" -, remove - drained first, or forced; add a member;
