@@ -507,7 +507,10 @@ The card then shows the host:
 - the image factory's extensions.
 
 Prefer static addresses: the kernel's DHCP lease is taken once at boot
-and never renewed.
+and never renewed. On a network without any DHCP server, though, each
+boot first waits about 165 s for one - a DHCP reservation of the
+node's static address avoids it
+([DHCP is the kernel's](network-configuration.md#dhcp-is-the-kernels-for-now)).
 
 What happens then, followed on the machine's card:
 
