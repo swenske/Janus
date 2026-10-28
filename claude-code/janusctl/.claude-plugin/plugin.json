@@ -8,5 +8,13 @@
   "homepage": "https://janus.sw-servers.net/docs/guide/claude-code/",
   "repository": "https://github.com/swenske/Janus",
   "license": "MIT",
-  "keywords": ["haproxy", "janus", "janusctl", "load-balancer"]
+  "keywords": ["haproxy", "janus", "janusctl", "load-balancer"],
+  "userConfig": {
+    "allow_reads": {
+      "type": "boolean",
+      "title": "Allow janusctl's reads",
+      "description": "Run the janusctl commands that only read - system info, haproxy backends, network status... - without asking. Critical commands are asked whatever this says.",
+      "default": false
+    }
+  }
 }

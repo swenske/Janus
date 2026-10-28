@@ -40,6 +40,7 @@ var version = "dev"
 var actingFor metadata.MD
 
 func main() {
+	applyNoProxy()
 	endpoint := flag.String("endpoint", "127.0.0.1:9505", "janusd gRPC endpoint")
 	// Defaults match janusd's own default -pki-dir - convenient when
 	// janusctl runs on the same filesystem as the daemon (local/dev
@@ -69,6 +70,10 @@ func main() {
 	picked := false
 	if len(args) > 0 && args[0] == "__complete" {
 		runComplete(args[1:])
+		return
+	}
+	if len(args) > 0 && args[0] == "__effect" { // Claude Code's hook: never a picker, never a node
+		runEffect(args[1:])
 		return
 	}
 	if len(args) == 0 {
@@ -115,6 +120,9 @@ func main() {
 		return
 	case "__complete":
 		runComplete(args[1:])
+		return
+	case "__effect":
+		runEffect(args[1:])
 		return
 	case "image":
 		echo()

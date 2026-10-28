@@ -520,6 +520,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 	{name: "completion", group: "✨ Shell", offline: true, args: "bash|zsh|fish", help: "the shell's completion script (README: Shell completion)", pos: []argKind{argShell}, required: 1},
 	{name: "help", offline: true, args: "[COMMAND...]", help: "this help, or a command's", hidden: false},
 	{name: "__complete", offline: true, hidden: true},
+	{name: "__effect", offline: true, hidden: true},
 }}
 
 // find walks path down the tree: the deepest command it names, and the
