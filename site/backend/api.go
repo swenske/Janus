@@ -39,13 +39,22 @@ type buildLimiter struct {
 	all       []time.Time
 	perIP     int
 	global    int
+	prebuilds int // per window, for prebuildClient - apart from the visitors'
 	window    time.Duration
 	retryWait time.Duration // a requested build isn't requested again before this
 }
 
+// prebuildClient is who requests the builds a new release makes for the
+// schematics in use (app.prebuild). It isn't a visitor: held to a
+// visitor's 5 an hour, the last of ~16 schematics got their update 3
+// hours after v2026.10.27-3, and their nodes were told of the release's
+// security fixes with nothing to install. Its own budget, which the
+// visitors' doesn't count.
+const prebuildClient = "prebuild"
+
 func newBuildLimiter() *buildLimiter {
 	return &buildLimiter{requested: map[string]time.Time{}, byIP: map[string][]time.Time{},
-		perIP: 5, global: 30, window: time.Hour, retryWait: 90 * time.Minute}
+		perIP: 5, global: 30, prebuilds: 30, window: time.Hour, retryWait: 90 * time.Minute}
 }
 
 func recent(ts []time.Time, window time.Duration) []time.Time {
@@ -61,16 +70,22 @@ func (b *buildLimiter) allow(key, ip string, retry bool) (start bool, err error)
 	if t, ok := b.requested[key]; ok && time.Since(t) < b.retryWait && !retry {
 		return false, nil
 	}
-	b.all = recent(b.all, b.window)
 	b.byIP[ip] = recent(b.byIP[ip], b.window)
-	if len(b.all) >= b.global {
-		return false, errors.New("too many builds were requested in the last hour - try again later")
-	}
-	if len(b.byIP[ip]) >= b.perIP {
-		return false, errors.New("you requested too many builds in the last hour - try again later")
-	}
 	now := time.Now()
-	b.all = append(b.all, now)
+	if ip == prebuildClient {
+		if len(b.byIP[ip]) >= b.prebuilds {
+			return false, errors.New("the release's builds took this hour's budget - the rest follow")
+		}
+	} else {
+		b.all = recent(b.all, b.window)
+		if len(b.all) >= b.global {
+			return false, errors.New("too many builds were requested in the last hour - try again later")
+		}
+		if len(b.byIP[ip]) >= b.perIP {
+			return false, errors.New("you requested too many builds in the last hour - try again later")
+		}
+		b.all = append(b.all, now)
+	}
 	b.byIP[ip] = append(b.byIP[ip], now)
 	b.requested[key] = now
 	return true, nil

@@ -317,6 +317,40 @@ func TestBuildLimits(t *testing.T) {
 	if _, err := b.allow("ky", "3.3.3.3", false); err == nil {
 		t.Error("the global limit didn't apply")
 	}
+	b.prebuilds = 4
+	for i := range 4 {
+		if start, err := b.allow("p"+string(rune('a'+i)), prebuildClient, false); !start || err != nil {
+			t.Errorf("prebuild %d, past the visitors' limits: %v %v", i, start, err)
+		}
+	}
+	if _, err := b.allow("pz", prebuildClient, false); err == nil {
+		t.Error("prebuild's own budget didn't apply")
+	}
+}
+
+// TestPrebuildBudget: a release's builds for the schematics in use
+// aren't held to a visitor's limits, nor take the visitors' budget -
+// they have their own.
+func TestPrebuildBudget(t *testing.T) {
+	a, gh, _ := newTestApp(t)
+	a.builds.perIP, a.builds.global, a.builds.prebuilds = 1, 1, 2
+	for _, doc := range []string{`["node-exporter"]`, `["qemu-guest-agent"]`, `["node-exporter","qemu-guest-agent"]`} {
+		sc, err := schematic.Parse([]byte(`{"customization":{"extensions":` + doc + `}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := a.store.PutSchematic(sc)
+		if err := os.MkdirAll(filepath.Join(a.store.dir, "images", id, "v2026.10.01"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.prebuild(t.Context())
+	if len(gh.dispatches) != 2 {
+		t.Fatalf("prebuild dispatched %d builds, want its budget's 2", len(gh.dispatches))
+	}
+	if start, err := a.builds.allow("visitor", "1.1.1.1", false); !start || err != nil {
+		t.Errorf("a visitor after the prebuilds: %v %v", start, err)
+	}
 }
 
 func TestCompareVersions(t *testing.T) {
