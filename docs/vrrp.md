@@ -141,10 +141,51 @@ reader doesn't get.
 
 The [Janus exporter](metrics.md) reports `janus_vrrp_instance_state`
 (1 for each instance's current state), `janus_vrrp_instance_effective_priority`
-and `janus_vrrp_instance_became_master_total`. Alerts on a node that
-can't hold its virtual IPs - with a negative track weight, a node whose
-HAProxy is down is BACKUP, not FAULT, so `janus_haproxy_up` is the one
-that says so:
+and keepalived's own counters for each instance. janusd reads them from
+the same state dump as `status`: nothing else on the node signals
+keepalived. They count since keepalived started - a reload keeps them.
+The last column is [keepalived-exporter](https://github.com/mehdy/keepalived-exporter)'s
+name for the same counter, for dashboards made for it: its labels are
+`iname`, `intf` and `vrid`, Janus's the instance's name in `instance`
+(`exported_instance` once Prometheus has scraped it).
+
+| Metric | keepalived's counter | keepalived-exporter's |
+| --- | --- | --- |
+| `janus_vrrp_instance_became_master_total` | `become_master` | `keepalived_become_master_total` |
+| `janus_vrrp_instance_left_master_total` | `release_master` | `keepalived_release_master_total` |
+| `janus_vrrp_instance_adverts_sent_total` | `advert_sent` | `keepalived_advertisements_sent_total` |
+| `janus_vrrp_instance_adverts_received_total` | `advert_rcvd` | `keepalived_advertisements_received_total` |
+| `janus_vrrp_instance_priority_zero_sent_total` | `pri_zero_sent` | `keepalived_priority_zero_sent_total` |
+| `janus_vrrp_instance_priority_zero_received_total` | `pri_zero_rcvd` | `keepalived_priority_zero_received_total` |
+| `janus_vrrp_instance_advert_errors_total{error="packet_length"}` | `packet_len_err` | `keepalived_packet_length_errors_total` |
+| `janus_vrrp_instance_advert_errors_total{error="ttl"}` | `ip_ttl_err` | `keepalived_ip_ttl_errors_total` |
+| `janus_vrrp_instance_advert_errors_total{error="packet_type"}` | `invalid_type_rcvd` | `keepalived_invalid_type_received_total` |
+| `janus_vrrp_instance_advert_errors_total{error="address_list"}` | `addr_list_err` | `keepalived_address_list_errors_total` |
+| `janus_vrrp_instance_advert_errors_total{error="authentication_type"}` | `invalid_authtype` | `keepalived_authentication_invalid_total` |
+
+A master's advertisements sent grow by one every `advert_int`, its
+backups' received with them. Received flat on every node of a pair:
+they don't hear each other - each is MASTER (split brain). A master
+whose tracking fails gives the virtual IPs up with two priority 0
+advertisements, and keepalived counts one in its priority 0 sent - the
+backups count both. The errors
+are packets keepalived drops - shorter or longer than they say
+(`packet_length`), a TTL other than 255: routed (`ttl`), not an
+advertisement (`packet_type`), with an authentication type
+(`authentication_type`: the extension's keepalived is built without
+VRRP authentication and takes only adverts without) - and
+advertisements for other virtual IPs than the instance's own
+(`address_list`). Some counters are left out rather than shown as a 0
+that means nothing: keepalived 2.4.3 never counts an advertisement
+interval mismatch (it logs `advertisement interval mismatch` and drops
+the packet), and the authentication counters don't exist without VRRP
+authentication.
+
+Alerts on a node that can't hold its virtual IPs - with a negative
+track weight, a node whose HAProxy is down is BACKUP, not FAULT, so
+`janus_haproxy_up` is the one that says so -, and on advertisements
+with errors: a router on the LAN speaks VRRP for the instance
+differently, and a dropped advertisement can leave two masters:
 
 ```yaml
 - alert: JanusHAProxyDown
@@ -153,4 +194,6 @@ that says so:
 - alert: JanusVRRPFault
   expr: janus_vrrp_instance_state{state="FAULT"} == 1
   for: 1m
+- alert: JanusVRRPAdvertErrors
+  expr: sum by (instance, exported_instance, error) (increase(janus_vrrp_instance_advert_errors_total[15m])) > 0
 ```
