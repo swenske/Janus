@@ -585,6 +585,9 @@ func BootDHCP(ctx context.Context, resolvConf string) (*Lease, error) {
 	if len(physical) == 0 {
 		return nil, errors.New("no physical Ethernet interface")
 	}
+	if err := loopbackUp(); err != nil {
+		log.Printf("netmgr: %v", err)
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	got := make(chan *Lease, len(physical))

@@ -138,6 +138,9 @@ func (m *Manager) Start() error {
 	if !m.opts.Manage {
 		return nil
 	}
+	if err := loopbackUp(); err != nil {
+		log.Printf("netmgr: %v", err)
+	}
 	m.mu.Lock()
 	err := m.applyLocked(m.cfg)
 	if err != nil {
@@ -164,6 +167,24 @@ func (m *Manager) Start() error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return err
+}
+
+// loopbackUp brings lo up. The kernel's ip=dhcp did it at boot, before
+// init - every node had 127.0.0.1 and ::1 without asking: HAProxy's
+// local peer (the stick tables a reload hands over, 127.0.0.1:10057),
+// the extensions' local listeners. Nothing else does now.
+func loopbackUp() error {
+	lo, err := netlink.LinkByName("lo")
+	if err != nil {
+		return fmt.Errorf("loopback: %w", err)
+	}
+	if lo.Attrs().Flags&net.FlagUp != 0 {
+		return nil
+	}
+	if err := netlink.LinkSetUp(lo); err != nil {
+		return fmt.Errorf("set lo up: %w", err)
+	}
+	return nil
 }
 
 // leaseSetLocked is what buildPlan knows of DHCP now. Called with mu

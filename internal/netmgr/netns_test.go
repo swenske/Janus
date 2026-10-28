@@ -60,8 +60,6 @@ func TestInNetns(t *testing.T) {
 	newTransport = func(_ int, mac string) dhcpTransport { return &fakeTransport{s: server, mac: mac} }
 	DHCPBootWait = 300 * time.Millisecond
 
-	lo, _ := netlink.LinkByName("lo")
-	must(t, netlink.LinkSetUp(lo))
 	for i, mac := range []string{"52:54:00:00:00:01", "52:54:00:00:00:02"} {
 		hw, _ := net.ParseMAC(mac)
 		must(t, netlink.LinkAdd(&netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: "eth" + string(rune('0'+i)), HardwareAddr: hw}, PeerName: "peer" + string(rune('0'+i))}))
@@ -71,6 +69,10 @@ func TestInNetns(t *testing.T) {
 	m := New(Options{Manage: true, ResolvConfPath: resolv, OnChange: func() { changes.Add(1) }})
 	if err := m.Start(); err != nil {
 		t.Fatalf("start with the default configuration: %v", err)
+	}
+	// lo was down, as in a node's boot without the kernel's ip=dhcp.
+	if lo, _ := netlink.LinkByName("lo"); lo == nil || lo.Attrs().Flags&net.FlagUp == 0 {
+		t.Fatal("Start left lo down")
 	}
 	// The first physical interface by index names the host (veth peers
 	// count as physical here, so compute it rather than assume eth0).
