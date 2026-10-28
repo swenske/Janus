@@ -1,4 +1,4 @@
-import{C as e,c as t,f as n,h as r,l as i,p as a}from"./api-DGbpmHlm.js";import{C as o,Mt as s,rt as c}from"./index-BnyWkrbX.js";import{t as l}from"./ModuleConfigEditor-CXYlo1eB.js";import{t as u}from"./Module-Z25zxTpa.js";var d=e(),f=`https://janus.sw-servers.net/docs/bgp.md`,p=`# bird.conf - see docs/bgp.md.
+import{C as e,c as t,f as n,h as r,l as i,p as a}from"./api-DGbpmHlm.js";import{C as o,Mt as s,rt as c}from"./index-DP7g7QD_.js";import{t as l}from"./ModuleConfigEditor-Cj4oQG94.js";import{t as u}from"./Module-BBhMHoXg.js";var d=e(),f=`https://janus.sw-servers.net/docs/bgp.md`,p=`# bird.conf - see docs/bgp.md.
 # Protocols named haproxy_* are kept down while this node's HAProxy
 # doesn't answer: put the routes HAProxy serves (an anycast address) there.
 

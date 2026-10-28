@@ -291,7 +291,11 @@ func resolveUpdate(ctx context.Context, uc *updateCheck) {
 		uc.State, uc.Message = "unavailable", "an image with extensions gets its updates from an image factory, and none is configured (dashboardd -image-factory)"
 		return
 	}
-	up, err := factoryUpdate(ctx, base, uc)
+	newest := ""
+	if rel, err := getLatestRelease(ctx); err == nil {
+		newest = rel.TagName
+	}
+	up, err := factoryUpdate(ctx, base, uc, newest)
 	if err != nil {
 		uc.State, uc.Message = "unavailable", err.Error()
 		return
@@ -476,8 +480,16 @@ type factoryCacheEntry struct {
 // factory learns a schematic whose image was built elsewhere) and asks
 // for its newest update. The factory starts building one that doesn't
 // exist yet; its answer is cached briefly, less briefly once ready.
-func factoryUpdate(ctx context.Context, base string, uc *updateCheck) (*factoryUpdateResponse, error) {
-	key := uc.SchematicID + " " + uc.Arch + " " + uc.Version
+//
+// newest, the newest release the Controller knows (getLatestRelease), is
+// part of the cache key: a release it learns of asks the factory again at
+// once, which starts that release's build. Without it, a ready answer
+// kept offering the previous release for up to releaseCacheTTL while
+// SecurityUpdate, read from the new list, already named the new release's
+// fixes - "security update → v2026.10.27-3" on a node running it, right
+// after v2026.10.28-2's promotion.
+func factoryUpdate(ctx context.Context, base string, uc *updateCheck, newest string) (*factoryUpdateResponse, error) {
+	key := uc.SchematicID + " " + uc.Arch + " " + uc.Version + " " + newest
 	factoryCache.mu.Lock()
 	defer factoryCache.mu.Unlock()
 	if e, ok := factoryCache.entries[key]; ok && time.Now().Before(e.expires) {
