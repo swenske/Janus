@@ -170,19 +170,18 @@ libvirt picks a machine's UEFI firmware among QEMU's firmware
 descriptors (`/usr/share/qemu/firmware/*.json`) - the Controller only
 asks for one without Secure Boot. A build loaded into memory
 (`"device": "memory"`) - AMD SEV's, Intel TDX's: no flash, no variable
-store - can't run a Janus node, yet it may win that choice:
-- Ubuntu's `ovmf` package installs both. The SEV descriptor,
-  `60-edk2-x86_64-amdsev.json`, sorts before OVMF's own
-  `60-edk2-x86_64.json`, so libvirt picks the SEV build. AppArmor's
-  `virt-aa-helper` refuses it, and the machine fails to start: `cannot
-  load AppArmor profile`.
-- An empty file of the same name in `/etc/qemu/firmware/` hides a
-  descriptor. The step hides those builds - unless this host's KVM runs
-  SEV or TDX guests (`/sys/module/kvm_amd/parameters/sev`,
-  `/sys/module/kvm_intel/parameters/tdx`): then they stay, with a
-  warning.
+store - can't run a Janus node, yet it may win that choice. Ubuntu's
+`ovmf` package installs both, and the SEV descriptor,
+`60-edk2-x86_64-amdsev.json`, sorts before OVMF's own
+`60-edk2-x86_64.json`: libvirt picks the SEV build, AppArmor's
+`virt-aa-helper` refuses it, and the machine fails to start with
+`cannot load AppArmor profile`.
 
-Removing the empty file brings a descriptor back.
+An empty file of the same name in `/etc/qemu/firmware/` hides a
+descriptor. The step hides those builds - unless this host's KVM runs
+SEV or TDX guests (`/sys/module/kvm_amd/parameters/sev`,
+`/sys/module/kvm_intel/parameters/tdx`): then they stay, with a
+warning. Removing the empty file brings a descriptor back.
 
 ```sh
 sev=$(cat /sys/module/kvm_amd/parameters/sev 2>/dev/null || true)
@@ -207,7 +206,11 @@ if [ -n "$hidden" ]; then
 fi
 ```
 
-### 6. polkit: libvirt enforces the boundary
+<!-- Steps 6 and 7 were 5 and 6 until the UEFI firmware step came
+(v2026.10.28-2): their old anchors stay, for the links already
+published. -->
+
+### <a id="5-polkit-libvirt-enforces-the-boundary"></a>6. polkit: libvirt enforces the boundary
 
 Steps 1 to 5 are enough to work. But a member of the `libvirt` group can
 do anything libvirt can, which is effectively root on the host.
@@ -311,7 +314,7 @@ How to read a refusal:
 - The rule logs each one with `polkit.log`. Whether polkitd shows those
   lines depends on its log level: it didn't at Debian's `notice`.
 
-### 7. Check
+### <a id="6-check"></a>7. Check
 
 The account sees its own machines only, and the host key's fingerprint
 is the one to compare with what the Controller reads when it's trusted.
