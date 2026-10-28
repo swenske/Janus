@@ -13,15 +13,15 @@
 #      approval - and answers through the Controller's relay;
 #   3. the serial console streams its boot, never a private key; a
 #      hypervisor reset brings the node back;
-#   3a. with GUEST_AGENT_IMAGE (a janus-kvm.qcow2 built with the
+#   3b. a node that can't register says why on its console: the machine
+#      shows it as a warning (while a page reads the same console), and
+#      the node registers on its own once it can - no reboot;
+#   3b2. with GUEST_AGENT_IMAGE (a janus-kvm.qcow2 built with the
 #      qemu-guest-agent extension): a machine made from it gets the
 #      guest agent's channel, the extension's service runs (not
 #      waiting) and answers libvirt (guest-ping); its record knows the
 #      extension from its node and reports no hardware drift - nothing
 #      for apply-settings to do - (#373);
-#   3b. a node that can't register says why on its console: the machine
-#      shows it as a warning (while a page reads the same console), and
-#      the node registers on its own once it can - no reboot;
 #   3c. auto-scaling, observing: a policy restarts the machine once with
 #      room to grow (vCPUs to hot-plug, a virtio-mem device), the node's
 #      real load is read and the step it would take is journaled and
@@ -711,7 +711,7 @@ api -o /dev/null -X DELETE "$API/api/hypervisors/$HV2" || fail "remove the secon
 
 guest_agent_cycle() {
 # =========================================================================
-# 3a. The guest agent: libvirt's channel, the extension's service running.
+# 3b2. The guest agent: libvirt's channel, the extension's service running.
 # =========================================================================
 ASUM="$(sha256sum "$GUEST_AGENT_IMAGE" | cut -d' ' -f1)"
 api -X POST "$API/api/machines" -H 'Content-Type: application/json' -d "{
@@ -760,7 +760,7 @@ for _ in $(seq 1 90); do
 done
 [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$AID")" = 404 ] || fail "agent1 was never destroyed: $(api "$API/api/machines/$AID")"
 in_host virsh -q vol-delete --pool janus "janus-base-sha256-${ASUM:0:16}.qcow2" >/dev/null
-echo "Part 4a OK: agent1 (qemu-guest-agent) has libvirt's guest agent channel, its service runs and answers guest-ping, its record knows the extension and has no hardware drift (apply-settings: nothing to do)"
+echo "Part 4b2 OK: agent1 (qemu-guest-agent) has libvirt's guest agent channel, its service runs and answers guest-ping, its record knows the extension and has no hardware drift (apply-settings: nothing to do)"
 }
 
 destroy_cycle() {
