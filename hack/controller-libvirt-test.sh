@@ -13,6 +13,12 @@
 #      approval - and answers through the Controller's relay;
 #   3. the serial console streams its boot, never a private key; a
 #      hypervisor reset brings the node back;
+#   3a. with GUEST_AGENT_IMAGE (a janus-kvm.qcow2 built with the
+#      qemu-guest-agent extension): a machine made from it gets the
+#      guest agent's channel, the extension's service runs (not
+#      waiting) and answers libvirt (guest-ping); its record knows the
+#      extension from its node and reports no hardware drift - nothing
+#      for apply-settings to do - (#373);
 #   3b. a node that can't register says why on its console: the machine
 #      shows it as a warning (while a page reads the same console), and
 #      the node registers on its own once it can - no reboot;
@@ -48,7 +54,8 @@
 # can't run in a container (no polkitd); it's checked on the lab's host
 # (docs/hypervisors.md says how).
 #
-# Usage: hack/controller-libvirt-test.sh <janus-kvm.qcow2> <dashboardd-bin>
+# Usage: [GUEST_AGENT_IMAGE=<janus-kvm.qcow2 with qemu-guest-agent>] \
+#   hack/controller-libvirt-test.sh <janus-kvm.qcow2> <dashboardd-bin>
 set -euo pipefail
 
 IMAGE_REL="${1:?usage: $0 <janus-kvm.qcow2> <dashboardd-bin>}"
@@ -59,6 +66,10 @@ DASHBOARDD="$(cd "$(dirname "$DASHBOARDD_REL")" && pwd)/$(basename "$DASHBOARDD_
 
 HOST_PORT="${CONTROLLER_LIBVIRT_TEST_PORT:-$((18270 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 TEST_NAME=controller-libvirt
+if [ -n "${GUEST_AGENT_IMAGE:-}" ]; then
+  GUEST_AGENT_IMAGE="$(cd "$(dirname "$GUEST_AGENT_IMAGE")" && pwd)/$(basename "$GUEST_AGENT_IMAGE")"
+  EXTRA_DOCKER_ARGS="${EXTRA_DOCKER_ARGS:-} -v $GUEST_AGENT_IMAGE:/images/janus-kvm-agent.qcow2:ro"
+fi
 # shellcheck source=libvirt-host/lib.sh
 . "$(dirname "$0")/libvirt-host/lib.sh"
 
@@ -698,6 +709,60 @@ echo "Part 4g OK: the seed cluster deleted with its machines (?machines=destroy)
 api -o /dev/null -X DELETE "$API/api/hypervisors/$HV2" || fail "remove the second record"
 }
 
+guest_agent_cycle() {
+# =========================================================================
+# 3a. The guest agent: libvirt's channel, the extension's service running.
+# =========================================================================
+ASUM="$(sha256sum "$GUEST_AGENT_IMAGE" | cut -d' ' -f1)"
+api -X POST "$API/api/machines" -H 'Content-Type: application/json' -d "{
+  \"name\": \"agent1\", \"hypervisor_id\": \"$HV\", \"vcpus\": 1, \"memory_mib\": 512,
+  \"image\": {\"url\": \"http://127.0.0.1:8000/janus-kvm-agent.qcow2\", \"sha256\": \"$ASUM\"},
+  \"nics\": [{\"network\": \"janus-test\", \"name\": \"lan\", \"mode\": \"dhcp\"}]}" >"$WORKDIR/ma.json"
+AID="$(json "d['id']" <"$WORKDIR/ma.json")" || fail "create agent1: $(cat "$WORKDIR/ma.json")"
+for _ in $(seq 1 120); do
+  phase="$(api "$API/api/machines/$AID" | json "d['phase']")"
+  case "$phase" in ready | failed) break ;; esac
+  sleep 2
+done
+[ "$phase" = ready ] || fail "agent1 ended $phase: $(api "$API/api/machines/$AID")"
+ANODE="$(api "$API/api/machines/$AID" | json "d['node_id']")"
+grep -q "<target type='virtio' name='org.qemu.guest_agent.0'" <<<"$(in_host virsh dumpxml janus-agent1)" || fail "agent1 has no guest agent channel"
+svc=""
+for _ in $(seq 1 60); do
+  svc="$(api "$API/nodes/$ANODE/api/system/services" | json "' '.join(s['id'] + '=' + s.get('state', '') for s in d.get('services', []) if s['id'] == 'qemu-guest-agent')" 2>/dev/null || true)"
+  [ "$svc" = qemu-guest-agent=running ] && break
+  sleep 2
+done
+[ "$svc" = qemu-guest-agent=running ] || fail "agent1's guest agent service: '$svc' - $(api "$API/nodes/$ANODE/api/system/services")"
+pong=""
+for _ in $(seq 1 30); do
+  pong="$(in_host virsh qemu-agent-command janus-agent1 '{"execute":"guest-ping"}' 2>&1 || true)"
+  grep -q '"return":{}' <<<"$pong" && break
+  sleep 2
+done
+grep -q '"return":{}' <<<"$pong" || fail "the guest agent doesn't answer libvirt: $pong"
+# The record learns the extension from its node (an image URL says
+# nothing), and libvirt's channel being always there, nothing differs.
+for _ in $(seq 1 30); do
+  api "$API/api/machines/$AID?refresh=true" >"$WORKDIR/ma.json"
+  [ "$(json "' '.join(d['spec'].get('extensions') or [])" <"$WORKDIR/ma.json")" = qemu-guest-agent ] && break
+  sleep 2
+done
+[ "$(json "' '.join(d['spec'].get('extensions') or [])" <"$WORKDIR/ma.json")" = qemu-guest-agent ] || fail "agent1's record doesn't know its extension: $(cat "$WORKDIR/ma.json")"
+[ "$(json "d.get('hardware_drift')" <"$WORKDIR/ma.json")" = None ] || fail "agent1 has hardware drift on libvirt: $(cat "$WORKDIR/ma.json")"
+code="$(api -o /dev/null -w '%{http_code}' -X POST "$API/api/machines/$AID/apply-settings")"
+[ "$code" = 200 ] || fail "apply-settings with nothing to apply returned $code, want 200"
+code="$(api -o /dev/null -w '%{http_code}' -X DELETE "$API/api/machines/$AID")"
+[ "$code" = 202 ] || fail "destroy agent1 returned $code"
+for _ in $(seq 1 90); do
+  [ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$AID")" = 404 ] && break
+  sleep 1
+done
+[ "$(api -o /dev/null -w '%{http_code}' "$API/api/machines/$AID")" = 404 ] || fail "agent1 was never destroyed: $(api "$API/api/machines/$AID")"
+in_host virsh -q vol-delete --pool janus "janus-base-sha256-${ASUM:0:16}.qcow2" >/dev/null
+echo "Part 4a OK: agent1 (qemu-guest-agent) has libvirt's guest agent channel, its service runs and answers guest-ping, its record knows the extension and has no hardware drift (apply-settings: nothing to do)"
+}
+
 destroy_cycle() {
 # =========================================================================
 # 5. Destroy: nothing left but the base image.
@@ -720,6 +785,9 @@ echo "Part 6 OK: destroyed - node, virtual machine, NVRAM and volumes gone, the 
 
 if [ -c /dev/net/tun ]; then
   boot_cycle
+  if [ -n "${GUEST_AGENT_IMAGE:-}" ]; then
+    guest_agent_cycle
+  fi
   autoscale_cycle
   recycle_cycle
   placement_cycle
