@@ -370,6 +370,13 @@ provided (see `internal/nocloud` for the details):
 | nothing else | `https://` | verified against the system trust store (standard HTTPS behavior) |
 | nothing else | `http://` | no verification, in the clear (PXE-style, like `talos.config=`) |
 
+The node has no network yet when it reads the volume - janusd, which
+configures it, isn't running. So it asks DHCP first, as with no
+configuration at all (every Ethernet interface, the first lease wins):
+a `seedfrom` needs a DHCP server on the node's network. janusd then
+takes that lease over, or applies the network configuration the
+`user-data` gives.
+
 ### Terraform (conceptual example)
 
 ```hcl

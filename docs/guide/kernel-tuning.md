@@ -95,7 +95,7 @@ saved; no call changes them, every change is refused while one doesn't
 hold, and the values a change writes are checked against them before it
 stays. The kernel uses each interface's own value of a few keys, and
 IPv6 doesn't copy `all` or `default` onto the interfaces that already
-exist - the boot DHCP's comes up before Janus's init runs - so those are
+exist - they all do before Janus's init runs - so those are
 written, and checked, on every interface too. And a node boots with IPv6
 off (`ipv6.disable_ipv6=1`, in its signed kernel command line): init
 turns it on once every interface has these values, so none takes a

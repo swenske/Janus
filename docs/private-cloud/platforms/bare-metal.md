@@ -43,7 +43,7 @@ From the same panel: the Controller's address and certificate
 ## 2. The machine's network
 
 What the installed node configures from its first boot - a static
-address, since the kernel's DHCP lease is never renewed
+address here, or DHCP, its lease renewed
 ([network configuration](../../network-configuration.md)):
 
 ```json title="examples/network/two-interfaces.json"

@@ -79,9 +79,9 @@ CA's fingerprint with the one on its console, or make a new token.
   confirms. Apply with `-no-confirm`, then `janusctl -endpoint <a new
   address>:9505 network confirm` from where it is reachable; or a longer
   `-timeout`.
-- **DHCP on a second interface** is refused: the kernel's DHCP
-  configures one interface, once, at boot. Give the others static
-  addresses ([network configuration](../network-configuration.md)).
+- **DHCP on a second interface** is refused: one interface at most
+  takes DHCP. Give the others static addresses
+  ([network configuration](../network-configuration.md)).
 - **The clock**: `janusctl network status` shows the NTP servers in use,
   where they come from, and the last offset. A node whose clock reads
   before 2026 on its first boot waits up to two minutes for NTP before
