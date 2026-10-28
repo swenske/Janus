@@ -25,6 +25,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -331,6 +332,22 @@ func seedPersistentHaproxyCfg(dir string) {
 // tolerant pattern as everything else in this file: the overwhelming
 // majority of boots have no such volume attached at all, and that's not
 // an error.
+// bootNetwork brings the network up by DHCP for a NoCloud seedfrom
+// fetch - janusd, whose network it is, doesn't run yet: a janusd of its
+// own does it (-boot-dhcp, in janusd's domain, which may open the packet
+// socket DHCP takes) and exits. The janusd started next takes the lease
+// over (internal/netmgr), or its configuration replaces it.
+func bootNetwork() error {
+	fmt.Println("init: nocloud: user-data to fetch (seedfrom) - asking DHCP for an address")
+	cmd := exec.Command(daemonPath, "-boot-dhcp", "90s")
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stdout
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("init: nocloud: no network for seedfrom: %v\n", err)
+		return err
+	}
+	return nil
+}
+
 func seedFromNoCloud() {
 	const addressPath = "/etc/janus/controller/address"
 	_, err := os.Stat(addressPath)
@@ -361,7 +378,7 @@ func seedFromNoCloud() {
 		}
 		return
 	}
-	cfg, err := nocloud.Read(volume)
+	cfg, err := nocloud.ReadOnline(volume, bootNetwork)
 	if err != nil {
 		fmt.Printf("init: nocloud: read %s: %v\n", volume, err)
 		return
@@ -608,7 +625,7 @@ func main() {
 	mount("proc", "/proc", "proc")
 	mount("sysfs", "/sys", "sysfs")
 	mountEFIVars()
-	// The kernel's part of the boot (drivers, ip=dhcp): the first of the
+	// The kernel's part of the boot (drivers): the first of the
 	// moments internal/boottime measures - written for janusd once
 	// /run exists (startDaemon), printed now for a boot that never gets
 	// that far.
@@ -626,7 +643,7 @@ func main() {
 	raiseFileLimit()
 	mountEphemeral()
 	// /etc/resolv.conf, like the rest of the network, is janusd's
-	// (internal/netmgr): the kernel's boot DHCP resolvers by default.
+	// (internal/netmgr): its DHCP lease's resolvers by default.
 	mountState()
 	tuneSysctls()
 	mountReleaseBundle()

@@ -245,7 +245,7 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 					"name":    schema.StringAttribute{Required: true, Description: "The interface's name on the node (mgmt, front...)."},
 					"mode": schema.StringAttribute{
 						Optional: true, Computed: true, Default: stringdefault.StaticString("dhcp"),
-						Description: "static, dhcp or none (up, no address). Prefer static: the kernel's DHCP lease is never renewed.",
+						Description: "static, dhcp or none (up, no address). A node renews its DHCP lease; one on an older image keeps the lease its kernel took at boot, never renewed.",
 					},
 					"addresses": schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "Static mode: addresses in CIDR form."},
 					"gateway":   schema.StringAttribute{Optional: true, Description: "Static mode: the default gateway through this interface."},

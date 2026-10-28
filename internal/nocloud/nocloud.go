@@ -164,6 +164,13 @@ func FindVolume(candidates []string) (string, error) {
 // from a local user-data file, or fetched from meta-data's own seedfrom
 // URL if one is given.
 func Read(devicePath string) (*Config, error) {
+	return ReadOnline(devicePath, nil)
+}
+
+// ReadOnline is Read, bringing the network up with networkUp first when
+// meta-data says to fetch user-data from a seedfrom URL - the node has
+// no network before janusd configures it.
+func ReadOnline(devicePath string, networkUp func() error) (*Config, error) {
 	d, err := diskfs.Open(devicePath, diskfs.WithOpenMode(diskfs.ReadOnly))
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", devicePath, err)
@@ -176,7 +183,14 @@ func Read(devicePath string) (*Config, error) {
 	var raw []byte
 	md, mdErr := readMetaData(fs)
 	if mdErr == nil && md.SeedFrom != "" {
+		var netErr error
+		if networkUp != nil {
+			netErr = networkUp()
+		}
 		raw, err = fetchUserData(md.SeedFrom, md.SeedFromCACert)
+		if err != nil && netErr != nil {
+			return nil, fmt.Errorf("fetch seedfrom %s: %w (the network: %v)", md.SeedFrom, err, netErr)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("fetch seedfrom %s: %w", md.SeedFrom, err)
 		}

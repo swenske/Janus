@@ -972,7 +972,7 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
               <Plus size={14} /> Interface
             </button>
             <span className="muted small">
-              Interfaces are matched by their MAC address and renamed. Prefer static addresses: the kernel&apos;s DHCP lease is taken once at boot and never renewed.
+              Interfaces are matched by their MAC address and renamed. Static or DHCP: a node renews its DHCP lease, and a static node doesn&apos;t wait for a DHCP server.
             </span>
           </div>
         </div>

@@ -13,12 +13,12 @@ import { Badge, Card, Empty, ErrorBox, Loading, PageHeader, Tabs, useAction, use
 // the new configuration keeps, before the timeout.
 
 const MODES = [
-  { id: 'ADDRESSING_MODE_DHCP', label: 'DHCP (boot lease)' },
+  { id: 'ADDRESSING_MODE_DHCP', label: 'DHCP' },
   { id: 'ADDRESSING_MODE_STATIC', label: 'Static' },
   { id: 'ADDRESSING_MODE_NONE', label: 'Up, no address' },
   { id: 'ADDRESSING_MODE_DISABLED', label: 'Disabled' },
 ]
-const modeLabel = (m) => (MODES.find((x) => x.id === m) || MODES[0]).label.replace(' (boot lease)', '')
+const modeLabel = (m) => (MODES.find((x) => x.id === m) || MODES[0]).label
 
 const list = (s) =>
   String(s || '')
@@ -296,9 +296,10 @@ function StatusPanel({ status }) {
                       <div key={a}>{a}</div>
                     ))}
                     {i.dhcp && (
-                      <div className="muted" title="Obtained by the kernel at boot, never renewed">
+                      <div className="muted" title={Number(i.dhcp.expires_unix) > 0 ? 'Renewed by the node' : 'Obtained by the kernel at boot, never renewed'}>
                         DHCP from {i.dhcp.server}, router {i.dhcp.router}
                         {i.dhcp.ntp_servers?.length > 0 && `, NTP ${i.dhcp.ntp_servers.join(' ')}`}
+                        {Number(i.dhcp.expires_unix) > 0 && `, until ${dateTime(Number(i.dhcp.expires_unix) * 1000)}`}
                       </div>
                     )}
                   </td>
@@ -513,7 +514,7 @@ function Editor({ loaded, status, onApplied, onResult }) {
       icon={Save}
       actions={
         loaded.is_default ? (
-          <Badge tone="info">defaults: kernel boot DHCP</Badge>
+          <Badge tone="info">defaults: DHCP</Badge>
         ) : (
           <button className="small" disabled={busy || !status.managed} onClick={() => apply({}, 'Go back to the defaults?')}>
             <Undo2 size={14} /> Back to defaults…
@@ -572,8 +573,8 @@ function Editor({ loaded, status, onApplied, onResult }) {
           </div>
           {draft.interfaces.length === 0 ? (
             <p className="muted small" style={{ margin: 0 }}>
-              None listed: the interfaces stay as the kernel's DHCP left them at boot. Once any is listed, exactly those are configured and other physical interfaces are left down (unless they carry a
-              listed VLAN).
+              None listed: DHCP - the first interface to get a lease keeps it. Once any is listed, exactly those are configured and other physical interfaces are left down (unless they carry a listed
+              VLAN).
             </p>
           ) : (
             draft.interfaces.map((iface, i) => (
@@ -587,7 +588,7 @@ function Editor({ loaded, status, onApplied, onResult }) {
             ))
           )}
           <p className="muted small" style={{ margin: 0 }}>
-            DHCP is the kernel&apos;s own, done once at boot on one interface and never renewed: it&apos;s only available on the interface that got the boot lease. Use static addressing elsewhere.
+            One interface at most takes DHCP, its lease renewed by the node - an older node only has the lease its kernel took at boot, on that interface. Use static addressing elsewhere.
           </p>
         </div>
       )}

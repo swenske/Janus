@@ -10,12 +10,13 @@
 # first boot, no Install-time provisioning and no janusctl seed-
 # controller call at all.
 #
-# Only exercises the local user-data path (no seedfrom URL fetch) - the
-# three seedfrom trust modes (plain HTTP, system-trust-store HTTPS,
-# pinned-CA HTTPS) are pure networking/TLS logic already proven for
-# real against genuine TLS servers and handshake failures in
-# internal/nocloud's own unit tests; nothing about them depends on a
-# real kernel boot, so this script doesn't duplicate that coverage.
+# Then the same from a seedfrom URL (plain HTTP, served by the host):
+# the node has no network before janusd configures it - the kernel does
+# no DHCP any more (#162) - so init has a janusd of its own bring it up
+# by DHCP first (janusd -boot-dhcp), and the janusd it starts next takes
+# that lease over. The three seedfrom trust modes (plain HTTP,
+# system-trust-store HTTPS, pinned-CA HTTPS) are pure networking/TLS
+# logic proven in internal/nocloud's own unit tests.
 #
 # Reuses hack/janusctl-seed-controller-test.sh's own native-dashboardd/
 # native-janusd-for-Install/OVMF-boot pattern - see that script's header
@@ -43,6 +44,7 @@ HOST_GRPC_PORT="${NOCLOUD_TEST_HOST_GRPC_PORT:-$((18161 + ${JANUS_TEST_PORT_OFFS
 NATIVE_GRPC_PORT="${NOCLOUD_TEST_NATIVE_GRPC_PORT:-$((19530 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 DASHBOARD_ADDR_PORT="${NOCLOUD_TEST_DASHBOARD_ADDR_PORT:-$((18162 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 DASHBOARD_REGISTER_PORT="${NOCLOUD_TEST_DASHBOARD_REGISTER_PORT:-$((18163 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
+SEED_HTTP_PORT="${NOCLOUD_TEST_SEED_HTTP_PORT:-$((18164 + ${JANUS_TEST_PORT_OFFSET:-0}))}"
 QEMU_HOST_GATEWAY="10.0.2.2"
 
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
@@ -55,6 +57,7 @@ WORKDIR="$(mktemp -d)"
 JANUSD_PID=""
 DASHBOARD_PID=""
 QEMU_PID=""
+SEED_PID=""
 kill_native_haproxy() {
   sudo pkill -x haproxy 2>/dev/null || true
   for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -65,6 +68,7 @@ kill_native_haproxy() {
 }
 cleanup() {
   [ -n "$QEMU_PID" ] && kill "$QEMU_PID" 2>/dev/null || true
+  [ -n "$SEED_PID" ] && kill "$SEED_PID" 2>/dev/null || true
   [ -n "$JANUSD_PID" ] && sudo kill "$JANUSD_PID" 2>/dev/null || true
   kill_native_haproxy
   [ -n "$DASHBOARD_PID" ] && kill "$DASHBOARD_PID" 2>/dev/null || true
@@ -130,6 +134,7 @@ if ! echo "$INSTALL_OUT" | grep -qi '\[done '; then
   exit 1
 fi
 sudo chown "$(id -u):$(id -g)" "$DISK"
+cp "$DISK" "$WORKDIR/generic-disk2.img" # for the seedfrom boot, below
 
 sudo kill "$JANUSD_PID" 2>/dev/null || true
 wait "$JANUSD_PID" 2>/dev/null || true
@@ -214,4 +219,55 @@ PENDING_NAME="$(echo "$PENDING_JSON" | python3 -c 'import json,sys; print(json.l
 [ -n "$PENDING_ID" ] && [ -n "$PENDING_NAME" ] || { echo "nocloud test FAILED: pending entry missing id/name: $PENDING_JSON" >&2; exit 1; }
 echo "Part 6 OK: the node, seeded entirely from the attached cidata volume, self-registered on its own - id=$PENDING_ID name=$PENDING_NAME"
 
-echo "nocloud test OK: a generic image with NO provisioning at all, booted alongside a separate NoCloud (cidata) volume, picked up controller config from it on first boot and genuinely self-registered with a real Controller"
+# =========================================================================
+# Part 7: the same generic disk, its cidata volume holding only
+# meta-data's seedfrom - the user-data served over plain HTTP by the
+# host. init brings the network up by DHCP first (janusd -boot-dhcp);
+# the node registers.
+# =========================================================================
+kill "$QEMU_PID" 2>/dev/null || true
+wait "$QEMU_PID" 2>/dev/null || true
+QEMU_PID=""
+SEED_DIR="$WORKDIR/seed"
+mkdir -p "$SEED_DIR"
+cp "$USER_DATA" "$SEED_DIR/user-data"
+python3 -m http.server "$SEED_HTTP_PORT" --bind 127.0.0.1 --directory "$SEED_DIR" > "$WORKDIR/seed-http.log" 2>&1 &
+SEED_PID=$!
+CIDATA2_IMG="$WORKDIR/cidata2.img"
+truncate -s 1M "$CIDATA2_IMG"
+mkfs.vfat -F 12 -n cidata "$CIDATA2_IMG" >/dev/null
+printf '{"seedfrom":"http://%s:%s/user-data"}' "$QEMU_HOST_GATEWAY" "$SEED_HTTP_PORT" > "$WORKDIR/meta-data"
+mcopy -i "$CIDATA2_IMG" "$WORKDIR/meta-data" ::meta-data
+LOG="$WORKDIR/console2.log"
+cp "$OVMF_VARS_TEMPLATE" "$OVMF_VARS"
+qemu-system-x86_64 -accel kvm -accel tcg \
+  -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+  -drive if=pflash,format=raw,file="$OVMF_VARS" \
+  -drive file="$WORKDIR/generic-disk2.img",format=raw,if=virtio \
+  -drive file="$CIDATA2_IMG",format=raw,if=virtio \
+  -nographic -no-reboot -display none -m 512M \
+  -netdev "user,id=net0,hostfwd=tcp::${HOST_HTTP_PORT}-:8080,hostfwd=tcp::${HOST_GRPC_PORT}-:9505" \
+  -device virtio-net-pci,netdev=net0 \
+  -serial file:"$LOG" \
+  &
+QEMU_PID=$!
+seed_fail() {
+  echo "nocloud test FAILED: $*" >&2
+  echo "--- console output ---" >&2; cat "$LOG" >&2
+  echo "--- seedfrom server ---" >&2; cat "$WORKDIR/seed-http.log" >&2
+  exit 1
+}
+DEADLINE=$((SECONDS + REGISTER_TIMEOUT_SECS + HTTP_TIMEOUT_SECS))
+until grep -q "selfregister: successfully announced" "$LOG"; do
+  [ "$SECONDS" -lt "$DEADLINE" ] || seed_fail "the seedfrom node never registered"
+  sleep 1
+done
+grep -q 'GET /user-data HTTP/1.1" 200' "$WORKDIR/seed-http.log" || seed_fail "the seedfrom URL was never fetched"
+grep -q "init: nocloud: user-data to fetch (seedfrom) - asking DHCP for an address" "$LOG" || seed_fail "init didn't bring the network up for seedfrom"
+grep -Eq "netmgr: eth0: DHCP lease 10\.0\.2\.15/24 from 10\.0\.2\.2" "$LOG" || seed_fail "janusd -boot-dhcp got no lease"
+grep -q "init: nocloud: seeded controller config from" "$LOG" || seed_fail "init didn't seed the controller config from the fetched user-data"
+grep -q "netmgr: eth0: DHCP lease 10.0.2.15/24 in hand" "$LOG" || seed_fail "janusd didn't take over the lease init's janusd -boot-dhcp got"
+if grep -q "avc:  denied" "$LOG"; then seed_fail "AVC denials on the seedfrom boot"; fi
+echo "Part 7 OK: user-data fetched from seedfrom over HTTP - init brought the network up by DHCP, janusd took its lease over, the node registered (zero AVC denials)"
+
+echo "nocloud test OK: a generic image with NO provisioning at all, booted alongside a separate NoCloud (cidata) volume, picked up controller config from it on first boot - from the volume itself, then from a seedfrom URL - and genuinely self-registered with a real Controller"

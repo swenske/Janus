@@ -6,9 +6,9 @@ resolvers and NTP servers are one JSON document, managed through the API
 Controller's **System › Network** page. The same document can be given
 when the node is created, so it boots straight into it.
 
-With no configuration at all, a node behaves as before: the kernel's DHCP
-client configures one interface at boot, and NTP comes from DHCP, else
-`pool.ntp.org`.
+With no configuration at all, a node takes DHCP: every Ethernet
+interface asks, the first to get a lease keeps it, and NTP comes from
+DHCP, else `pool.ntp.org`.
 
 ## The document
 
@@ -34,10 +34,10 @@ in this exact format.
 | Field | Meaning | When absent |
 |---|---|---|
 | `hostname` | RFC 1123 name, at most 64 characters | The DHCP hostname, else `janus-` and the last three bytes of the first Ethernet MAC |
-| `interfaces` | What to configure, exactly | Interfaces stay as the kernel's boot DHCP left them |
-| `dns.servers` | Up to 3 resolver IPs, written to `/etc/resolv.conf` | The resolvers from the boot DHCP lease |
+| `interfaces` | What to configure, exactly | DHCP: the first interface to get a lease keeps it, the others go down |
+| `dns.servers` | Up to 3 resolver IPs, written to `/etc/resolv.conf` | The resolvers from the DHCP lease |
 | `dns.search` | Up to 6 search domains | The DHCP domain, if any |
-| `ntp.servers` | Up to 2 servers, `host` or `host:port` | The NTP servers from the boot DHCP lease, else `pool.ntp.org` |
+| `ntp.servers` | Up to 2 servers, `host` or `host:port` | The NTP servers from the DHCP lease, else `pool.ntp.org` |
 
 ### Interfaces
 
@@ -49,8 +49,8 @@ in this exact format.
   interface on `parent` (IDs 1-4094). A parent that isn't itself listed is
   brought up without an address.
 - **`mode`**:
-  - `ADDRESSING_MODE_DHCP` (the default) - the lease the kernel obtained
-    at boot. See the limitation below.
+  - `ADDRESSING_MODE_DHCP` (the default) - an address from a DHCP
+    server, renewed for as long as the node runs ([DHCP](#dhcp-is-the-kernels-for-now)).
   - `ADDRESSING_MODE_STATIC` - `addresses` (CIDR, IPv4 and/or IPv6, at
     least one), optional `gateway` (IPv4, on one of the interface's
     subnets) and `gateway6` (link-local, or on one of its subnets).
@@ -71,8 +71,8 @@ SLAAC address and no route from a router - give its `addresses` and its
 `gateway6`.
 
 Applying a configuration adds and removes only the addresses Janus
-itself put on the interfaces (and the boot DHCP lease's, once its
-interface isn't in DHCP mode): another daemon's addresses stay - the
+itself put on the interfaces, its DHCP leases' included: another
+daemon's addresses stay - the
 [VRRP](vrrp.md) virtual IPs keepalived holds, on the node holding them.
 A single IPv6 address - a `/128`, an anycast address several nodes
 announce with [BGP](bgp.md) - is added without duplicate address
@@ -82,42 +82,38 @@ the node answers on it, but never picks it as the source of its own
 connections - they leave from the interface's other addresses, as an
 IPv4 `/32` never is either.
 
-### DHCP is the kernel's, for now
+### <a id="dhcp-is-the-kernels-for-now"></a>DHCP
 
-DHCP is done once, at boot, by the kernel itself (`ip=dhcp`). That means:
+DHCP is janusd's own client, on the interface in DHCP mode:
 
-- it configures a **single interface**, the first to get an answer, so
-  `ADDRESSING_MODE_DHCP` is only accepted on that interface - use static
-  addressing on the others;
-- the lease is **never renewed**: a DHCP server must hand the node a
-  stable (reserved) address, or the node keeps using an expired lease;
-- on a network with **no DHCP server at all**, every boot waits about
-  165 s for one before going on. `ip=dhcp` is part of the signed kernel
-  command line and the kernel's retries are built in: a static
-  configuration doesn't skip the wait. The node works - it only comes
-  up late, after every reboot: an update, its host's restart.
+- **any one physical interface** can use it - one at most, and not a
+  VLAN. Its lease gives the interface its address and default route
+  (when the server names a router), and the node its resolvers, search
+  domain, NTP servers and hostname, unless the configuration sets them,
+  and the interface's MTU, unless its `mtu` does;
+- with **no interface configured**, every physical interface asks: the
+  first to get a lease keeps it, the others go down;
+- the lease is **renewed** from half its time on, until it expires.
+  Refused or expired, its address goes, and the node asks again, by
+  itself, until a server answers;
+- a node configured **statically** asks nothing: on a network without
+  any DHCP server, it is up within seconds. (Until the kernel's own DHCP
+  left the signed kernel command line, such a boot first waited about
+  165 s for a server.)
 
-A DHCP server on that network that hands the node a **reserved**
-address - its static one - ends the wait: the kernel gets its lease at
-once, then the node applies its static configuration (measured: the
-interface configured within 2 s of boot instead of 166 s). On a
-libvirt network, a host entry and no range, with libvirt's DNS off if
-the network shouldn't have one:
+At boot, a node with an interface in DHCP mode waits up to 30 s for
+its lease before going on - its first certificates, its log servers and
+the console's banner see its address - and keeps asking afterwards.
+The client identifies itself by the interface's MAC address alone, as
+the kernel's DHCP did before it: a reservation keeps giving the node the
+same address, across the update that brought this client too. Its
+messages go through a packet socket on the interface, which the
+[firewall](firewall.md) doesn't filter: no ruleset can cut a node off
+its own lease.
 
-```xml
-<network>
-  ...
-  <dns enable='no'/>
-  <ip address='172.16.42.1' prefix='24'>
-    <dhcp>
-      <host mac='52:54:00:4a:4e:01' ip='172.16.42.2'/>
-    </dhcp>
-  </ip>
-</network>
-```
-
-A userspace DHCP client, with renewal and DHCP on any interface, is a
-planned improvement.
+`janusctl network status` shows the lease and when it ends. A node on
+an older version shows its kernel's lease, taken once at boot and
+never renewed.
 
 ## Applying a change: trial, confirm or revert
 

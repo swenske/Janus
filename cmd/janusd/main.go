@@ -93,7 +93,18 @@ func main() {
 	manageHost := flag.Bool("manage-host", false, "this janusd runs a Janus node: it configures the node's network, hostname and clock (internal/netmgr, internal/timesync). Off, they're only reported - never set this on a machine whose network janusd mustn't touch")
 	configDir := flag.String("config-dir", exporter.Dir, "directory for janusd's persistent settings (the exporter's, the optional modules'); a node's is on STATE")
 	eventsDir := flag.String("events-dir", "", "directory keeping the event log across restarts, reboots and updates (internal/events); empty: in memory only - with -manage-host, "+nodeEventsDir+" on STATE")
+	bootDHCP := flag.Duration("boot-dhcp", 0, "on a node, before janusd runs: bring the network up by DHCP within this time, then exit - init does it to fetch a NoCloud seed (seedfrom); the janusd it starts next takes the lease over (internal/netmgr)")
 	flag.Parse()
+	if *bootDHCP > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), *bootDHCP)
+		l, err := netmgr.BootDHCP(ctx, "/etc/resolv.conf")
+		cancel()
+		if err != nil {
+			log.Fatalf("netmgr: %v", err)
+		}
+		log.Printf("netmgr: %s: DHCP lease %s from %s (router %s)", l.Interface, l.Address, l.Server, l.Router)
+		return
+	}
 	started := time.Now()
 	exporter.Dir = *configDir
 	nodeexporter.Dir = *configDir

@@ -4,14 +4,16 @@
 // hostname and /etc/resolv.conf, and runs a new configuration on trial:
 // in effect at once, kept only if confirmed in time, reverted otherwise.
 //
-// DHCP is the kernel's own, done at boot (ip=dhcp - see BootLease): this
-// package keeps or restores what it obtained on the one interface it
-// configured, and never renews it. A userspace DHCP client with renewal,
-// on any interface, is a planned improvement.
+// DHCP is janusd's own client (dhcp.go), on the interface in DHCP mode -
+// or, with nothing configured, on every physical interface until one
+// gets a lease: it renews the lease and starts over when it's lost. The
+// kernel does no DHCP at boot any more (the UKI's command line has no
+// ip=dhcp): a node configured statically comes up at once.
 package netmgr
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -57,8 +59,7 @@ var (
 )
 
 // ConflictError is a valid configuration that doesn't fit this node - an
-// interface it names doesn't exist, DHCP asked on an interface the
-// kernel didn't configure at boot.
+// interface it names doesn't exist.
 type ConflictError struct{ Err error }
 
 func (e *ConflictError) Error() string { return e.Err.Error() }
@@ -77,11 +78,24 @@ type Manager struct {
 	mu        sync.Mutex
 	cfg       *janusv1alpha1.NetworkConfig // in effect: persisted, or on trial
 	isDefault bool                         // nothing was ever persisted
-	lease     *BootLease
-	modes     map[string]janusv1alpha1.AddressingMode // by interface, from the last applied plan
-	dhcp      string                                  // interface holding the boot lease, when in DHCP mode
-	main      []netip.Addr                            // the main interface's addresses (mainAddresses), from the last applied plan
-	trial     *trial
+	// kernelLease is the kernel's boot lease, on a kernel booted with
+	// ip=dhcp (the UKI isn't any more): used until janusd's client has
+	// its own on that interface.
+	kernelLease *Lease
+	leases      map[string]*Lease                       // janusd's client's, by MAC
+	clients     map[string]*dhcpRun                     // running, by MAC
+	modes       map[string]janusv1alpha1.AddressingMode // by interface, from the last applied plan
+	dhcp        string                                  // the DHCP interface (plan.dhcp), from the last applied plan
+	dhcpLease   *Lease                                  // its lease, if it has one
+	waiting     bool                                    // an interface in DHCP mode has no lease yet
+	main        []netip.Addr                            // the main interface's addresses (mainAddresses), from the last applied plan
+	trial       *trial
+}
+
+// dhcpRun is one interface's running client.
+type dhcpRun struct {
+	mac    string
+	cancel context.CancelFunc
 }
 
 type trial struct {
@@ -99,7 +113,7 @@ func New(opts Options) *Manager {
 	if opts.ResolvConfPath == "" {
 		opts.ResolvConfPath = "/etc/resolv.conf"
 	}
-	m := &Manager{opts: opts, modes: map[string]janusv1alpha1.AddressingMode{}}
+	m := &Manager{opts: opts, modes: map[string]janusv1alpha1.AddressingMode{}, leases: map[string]*Lease{}, clients: map[string]*dhcpRun{}}
 	cfg, isDefault, err := netconfig.Load()
 	if err != nil {
 		log.Printf("netmgr: %v - using the default configuration this boot", err)
@@ -107,20 +121,25 @@ func New(opts Options) *Manager {
 	}
 	m.cfg, m.isDefault = cfg, isDefault
 	if opts.Manage {
-		if m.lease, err = loadOrCaptureBootLease(); err != nil {
-			log.Printf("netmgr: boot DHCP lease: %v", err)
+		if m.kernelLease, err = loadOrCaptureBootLease(); err != nil {
+			log.Printf("netmgr: the kernel's boot DHCP lease: %v", err)
 		}
+		m.leases = loadLeases(sinceBoot())
 	}
 	return m
 }
 
 // Start applies the configuration in effect. If it can't be (an
-// interface it names is gone), the defaults are applied instead and the
-// error is returned for logging: the node stays reachable through what
-// the kernel configured at boot.
+// interface it names is gone), the defaults are applied instead - DHCP -
+// and the error is returned for logging. When an interface is in DHCP
+// mode, Start waits for its lease (DHCPBootWait at most): what follows
+// at boot sees the node's address.
 func (m *Manager) Start() error {
 	if !m.opts.Manage {
 		return nil
+	}
+	if err := loopbackUp(); err != nil {
+		log.Printf("netmgr: %v", err)
 	}
 	m.mu.Lock()
 	err := m.applyLocked(m.cfg)
@@ -132,7 +151,59 @@ func (m *Manager) Start() error {
 	}
 	m.mu.Unlock()
 	m.changed()
+
+	start := time.Now()
+	for {
+		m.mu.Lock()
+		waiting := m.waiting
+		m.mu.Unlock()
+		if !waiting {
+			break
+		}
+		if time.Since(start) >= DHCPBootWait {
+			log.Printf("netmgr: no DHCP lease within %s - going on, the client keeps asking", DHCPBootWait)
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	return err
+}
+
+// loopbackUp brings lo up. The kernel's ip=dhcp did it at boot, before
+// init - every node had 127.0.0.1 and ::1 without asking: HAProxy's
+// local peer (the stick tables a reload hands over, 127.0.0.1:10057),
+// the extensions' local listeners. Nothing else does now.
+func loopbackUp() error {
+	lo, err := netlink.LinkByName("lo")
+	if err != nil {
+		return fmt.Errorf("loopback: %w", err)
+	}
+	if lo.Attrs().Flags&net.FlagUp != 0 {
+		return nil
+	}
+	if err := netlink.LinkSetUp(lo); err != nil {
+		return fmt.Errorf("set lo up: %w", err)
+	}
+	return nil
+}
+
+// leaseSetLocked is what buildPlan knows of DHCP now. Called with mu
+// held.
+func (m *Manager) leaseSetLocked() leaseSet {
+	ls := leaseSet{byMAC: map[string]*Lease{}}
+	now := sinceBoot()
+	for mac, l := range m.leases {
+		if !l.expired(now) {
+			ls.byMAC[mac] = l
+		}
+	}
+	if k := m.kernelLease; k != nil {
+		ls.kernel, _ = netip.ParsePrefix(k.Address)
+		if ls.byMAC[k.MAC] == nil {
+			ls.byMAC[k.MAC] = k
+		}
+	}
+	return ls
 }
 
 // Managed reports whether this Manager changes the system.
@@ -146,15 +217,15 @@ func (m *Manager) Config() (*janusv1alpha1.NetworkConfig, bool) {
 	return m.cfg, m.isDefault && m.trial == nil
 }
 
-// DHCPNTPServers returns the NTP servers the boot lease provided, when
-// the interface holding it is in DHCP mode.
+// DHCPNTPServers returns the NTP servers the DHCP interface's lease
+// provided.
 func (m *Manager) DHCPNTPServers() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.dhcp == "" || m.lease == nil {
+	if m.dhcpLease == nil {
 		return nil
 	}
-	return append([]string(nil), m.lease.NTP...)
+	return append([]string(nil), m.dhcpLease.NTP...)
 }
 
 // ApplyTrial puts cfg in effect on trial: it reverts to the previous
@@ -187,7 +258,7 @@ func (m *Manager) ApplyTrial(cfg *janusv1alpha1.NetworkConfig, timeout time.Dura
 		m.mu.Unlock()
 		return nil, time.Time{}, err
 	}
-	if _, err := buildPlan(cfg, links, m.lease); err != nil {
+	if _, err := buildPlan(cfg, links, m.leaseSetLocked()); err != nil {
 		m.mu.Unlock()
 		return nil, time.Time{}, &ConflictError{err}
 	}
@@ -323,13 +394,15 @@ func (m *Manager) applyLocked(cfg *janusv1alpha1.NetworkConfig) error {
 	if err != nil {
 		return err
 	}
-	p, err := buildPlan(cfg, links, m.lease)
+	ls := m.leaseSetLocked()
+	p, err := buildPlan(cfg, links, ls)
 	if err != nil {
 		return err
 	}
 	if err := execute(p); err != nil {
 		return err
 	}
+	m.syncClientsLocked(p, ls)
 	m.modes = map[string]janusv1alpha1.AddressingMode{}
 	for _, ip := range p.ifaces {
 		m.modes[ip.name] = ip.mode
@@ -337,7 +410,19 @@ func (m *Manager) applyLocked(cfg *janusv1alpha1.NetworkConfig) error {
 	for _, l := range p.down {
 		m.modes[l.name] = janusv1alpha1.AddressingMode_ADDRESSING_MODE_DISABLED
 	}
-	m.dhcp = p.dhcp
+	m.dhcp, m.dhcpLease, m.waiting = p.dhcp, nil, false
+	for _, ip := range p.ifaces {
+		if ip.mode != janusv1alpha1.AddressingMode_ADDRESSING_MODE_DHCP || ip.existing == nil {
+			continue
+		}
+		lease := ls.byMAC[ip.existing.mac]
+		if ip.name == p.dhcp {
+			m.dhcpLease = lease
+		}
+		if lease == nil && (p.dhcp == "" || ip.name == p.dhcp) {
+			m.waiting = true
+		}
+	}
 	m.main = mainAddresses(p)
 	return m.applyHostAndDNSLocked(cfg, links)
 }
@@ -352,13 +437,9 @@ func (m *Manager) MainAddresses() []netip.Addr {
 }
 
 // applyHostAndDNSLocked sets the hostname and writes resolv.conf: the
-// configured values, else the boot lease's (when its interface is in
-// DHCP mode), else defaults.
+// configured values, else the DHCP interface's lease's, else defaults.
 func (m *Manager) applyHostAndDNSLocked(cfg *janusv1alpha1.NetworkConfig, links []linkInfo) error {
-	var lease *BootLease
-	if m.dhcp != "" {
-		lease = m.lease
-	}
+	lease := m.dhcpLease
 	host := cfg.GetHostname()
 	if host == "" && lease != nil {
 		host = lease.Hostname
@@ -501,7 +582,7 @@ func executeIface(ip ifPlan, lease netip.Prefix) error {
 	}
 	proto := netlink.RouteProtocol(unix.RTPROT_STATIC)
 	if ip.mode == janusv1alpha1.AddressingMode_ADDRESSING_MODE_DHCP {
-		proto = unix.RTPROT_BOOT // what the kernel's own DHCP uses
+		proto = unix.RTPROT_BOOT // what the kernel's boot DHCP used
 	}
 	var want []netlink.Route
 	for _, gw := range []netip.Addr{ip.gw4, ip.gw6} {
@@ -712,9 +793,9 @@ func listAddrs(index int) ([]addr, error) {
 	return out, nil
 }
 
-// managedRoutes are a link's default routes installed by janusd or the
-// kernel's boot DHCP (protocols static and boot); router-advertised and
-// other routes are left alone.
+// managedRoutes are a link's default routes installed by janusd (static,
+// and boot for a DHCP lease's, as the kernel's boot DHCP installed
+// them); router-advertised and other routes are left alone.
 func managedRoutes(link netlink.Link) ([]netlink.Route, error) {
 	var out []netlink.Route
 	for _, family := range []int{netlink.FAMILY_V4, netlink.FAMILY_V6} {
@@ -824,7 +905,7 @@ func (m *Manager) Status() (*janusv1alpha1.NetworkStatusResponse, error) {
 	}
 	m.mu.Lock()
 	modes := m.modes
-	dhcp, lease := m.dhcp, m.lease
+	dhcp, lease := m.dhcp, m.dhcpLease
 	trialPending, revertAt := m.trial != nil, time.Time{}
 	if m.trial != nil {
 		revertAt = m.trial.revertAt
@@ -864,7 +945,7 @@ func (m *Manager) Status() (*janusv1alpha1.NetworkStatusResponse, error) {
 			}
 		}
 		if dhcp == a.Name && lease != nil {
-			s.Dhcp = &janusv1alpha1.DHCPLease{Address: lease.Address, Server: lease.Server, Router: lease.Router, DnsServers: lease.DNS, NtpServers: lease.NTP, Domain: lease.Domain, Hostname: lease.Hostname}
+			s.Dhcp = &janusv1alpha1.DHCPLease{Address: lease.Address, Server: lease.Server, Router: lease.Router, DnsServers: lease.DNS, NtpServers: lease.NTP, Domain: lease.Domain, Hostname: lease.Hostname, ObtainedUnix: wall(lease.Obtained), ExpiresUnix: wall(lease.Expires)}
 		}
 		resp.Interfaces = append(resp.Interfaces, s)
 	}

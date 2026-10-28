@@ -19,7 +19,18 @@ func testLinks() []linkInfo {
 	}
 }
 
-var testLease = &BootLease{Interface: "eth0", MAC: "52:54:00:00:00:01", Address: "10.0.2.15/24", Router: "10.0.2.2", DNS: []string{"10.0.2.3"}}
+var testLease = &Lease{Interface: "eth0", MAC: "52:54:00:00:00:01", Address: "10.0.2.15/24", Router: "10.0.2.2", DNS: []string{"10.0.2.3"}}
+
+// leasesOf is a lease set holding these leases.
+func leasesOf(leases ...*Lease) leaseSet {
+	ls := leaseSet{byMAC: map[string]*Lease{}}
+	for _, l := range leases {
+		if l != nil {
+			ls.byMAC[l.MAC] = l
+		}
+	}
+	return ls
+}
 
 func mustCfg(t *testing.T, doc string) *janusv1alpha1.NetworkConfig {
 	t.Helper()
@@ -40,11 +51,13 @@ func names(ifs []ifPlan) string {
 
 func TestPlanDefault(t *testing.T) {
 	links := append(testLinks(), linkInfo{name: "old.10", index: 9, kind: kindVLAN, parent: 2, vlanID: 10})
-	p, err := buildPlan(&janusv1alpha1.NetworkConfig{}, links, testLease)
+	p, err := buildPlan(&janusv1alpha1.NetworkConfig{}, links, leasesOf(testLease))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if names(p.ifaces) != "eth0:DHCP" || p.dhcp != "eth0" || len(p.down) != 0 || len(p.renames) != 0 {
+	// The interface with a lease keeps it, the others go down - as the
+	// kernel's ip=dhcp left them.
+	if names(p.ifaces) != "eth0:DHCP" || p.dhcp != "eth0" || len(p.down) != 2 || len(p.renames) != 0 {
 		t.Fatalf("plan: %s dhcp=%s down=%v renames=%v", names(p.ifaces), p.dhcp, p.down, p.renames)
 	}
 	eth0 := p.ifaces[0]
@@ -55,9 +68,44 @@ func TestPlanDefault(t *testing.T) {
 		t.Errorf("VLANs left from a trial should go: %v", p.deleteVLANs)
 	}
 
-	p, err = buildPlan(&janusv1alpha1.NetworkConfig{}, testLinks(), nil)
-	if err != nil || len(p.ifaces) != 0 || len(p.down) != 0 {
+	// No lease yet: every physical interface asks.
+	p, err = buildPlan(&janusv1alpha1.NetworkConfig{}, testLinks(), leasesOf())
+	if err != nil || names(p.ifaces) != "eth0:DHCP,eth1:DHCP,eth2:DHCP" || p.dhcp != "" || len(p.down) != 0 {
 		t.Fatalf("no lease: %v %v", p, err)
+	}
+	for _, ip := range p.ifaces {
+		if len(ip.addrs) != 0 || ip.gw4.IsValid() {
+			t.Errorf("%s has no lease: %+v", ip.name, ip)
+		}
+	}
+
+	// The first to get one wins, whichever it is.
+	eth2 := &Lease{Interface: "eth2", MAC: "52:54:00:00:00:03", Address: "10.9.0.5/24", MTU: 1400}
+	p, err = buildPlan(&janusv1alpha1.NetworkConfig{}, testLinks(), leasesOf(eth2))
+	if err != nil || names(p.ifaces) != "eth2:DHCP" || p.dhcp != "eth2" || len(p.down) != 2 || p.ifaces[0].mtu != 1400 {
+		t.Fatalf("eth2's lease: %v %v", p, err)
+	}
+}
+
+func TestPlanDHCPAnywhere(t *testing.T) {
+	// DHCP on an interface without a lease yet: up, no address, until
+	// the client has one.
+	cfg := mustCfg(t, `{"interfaces": [{"name": "eth1", "mtu": 9000}, {"name": "eth0", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.0.2.10/24"]}]}`)
+	p, err := buildPlan(cfg, testLinks(), leasesOf(testLease))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names(p.ifaces) != "eth1:DHCP,eth0:STATIC" || p.dhcp != "eth1" || len(p.ifaces[0].addrs) != 0 || p.ifaces[0].mtu != 9000 {
+		t.Fatalf("plan: %s dhcp=%s %+v", names(p.ifaces), p.dhcp, p.ifaces[0])
+	}
+	// Then with its lease; the configured MTU wins over the lease's.
+	eth1 := &Lease{Interface: "eth1", MAC: "52:54:00:00:00:02", Address: "10.1.0.7/16", Router: "10.1.0.1", MTU: 1500}
+	p, err = buildPlan(cfg, testLinks(), leasesOf(testLease, eth1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ip := p.ifaces[0]; ip.addrs[0].String() != "10.1.0.7/16" || ip.gw4.String() != "10.1.0.1" || ip.mtu != 9000 || ip.metric != 1024 {
+		t.Fatalf("eth1 with its lease: %+v", ip)
 	}
 }
 
@@ -69,7 +117,7 @@ func TestPlanStaticAndVLAN(t *testing.T) {
 	links := append(testLinks(),
 		linkInfo{name: "eth1.100", index: 10, kind: kindVLAN, parent: 3, vlanID: 100},
 		linkInfo{name: "eth1.200", index: 11, kind: kindVLAN, parent: 3, vlanID: 200})
-	p, err := buildPlan(cfg, links, testLease)
+	p, err := buildPlan(cfg, links, leasesOf(testLease))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +146,7 @@ func TestPlanStaticAndVLAN(t *testing.T) {
 func TestPlanRecreatesChangedVLAN(t *testing.T) {
 	cfg := mustCfg(t, `{"interfaces": [{"name": "v", "vlan": {"parent": "eth0", "id": 30}, "mode": "ADDRESSING_MODE_NONE"}]}`)
 	links := append(testLinks(), linkInfo{name: "v", index: 12, kind: kindVLAN, parent: 2, vlanID: 20})
-	p, err := buildPlan(cfg, links, nil)
+	p, err := buildPlan(cfg, links, leasesOf())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +161,7 @@ func TestPlanRenameByMAC(t *testing.T) {
 		{"name": "wan", "mac": "52:54:00:00:00:01"},
 		{"name": "eth0", "mac": "52:54:00:00:00:02", "mode": "ADDRESSING_MODE_STATIC", "addresses": ["192.0.2.10/24"]}
 	]}`)
-	p, err := buildPlan(cfg, testLinks(), testLease)
+	p, err := buildPlan(cfg, testLinks(), leasesOf(testLease))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,11 +177,9 @@ func TestPlanRenameByMAC(t *testing.T) {
 func TestPlanRefuses(t *testing.T) {
 	cases := map[string]struct {
 		doc   string
-		lease *BootLease
+		lease *Lease
 		want  string
 	}{
-		"DHCP elsewhere":  {`{"interfaces": [{"name": "eth1"}]}`, testLease, "only available on the interface the kernel configured at boot (eth0"},
-		"DHCP no lease":   {`{"interfaces": [{"name": "eth0"}]}`, nil, "none was obtained this boot"},
 		"missing":         {`{"interfaces": [{"name": "eth9", "mode": "ADDRESSING_MODE_NONE"}]}`, testLease, "no such physical interface (physical interfaces: eth0 52:54:00:00:00:01"},
 		"unknown MAC":     {`{"interfaces": [{"name": "x", "mac": "52:54:00:00:00:99", "mode": "ADDRESSING_MODE_NONE"}]}`, testLease, "no physical interface has MAC"},
 		"name collision":  {`{"interfaces": [{"name": "eth2", "mac": "52:54:00:00:00:02", "mode": "ADDRESSING_MODE_NONE"}]}`, testLease, "taken by eth2, which the configuration doesn't list"},
@@ -146,7 +192,7 @@ func TestPlanRefuses(t *testing.T) {
 		if err := protojsonUnmarshal(c.doc, cfg); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		_, err := buildPlan(cfg, testLinks(), c.lease)
+		_, err := buildPlan(cfg, testLinks(), leasesOf(c.lease))
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want it to contain %q", name, err, c.want)
 		}
@@ -160,9 +206,9 @@ func protojsonUnmarshal(doc string, cfg *janusv1alpha1.NetworkConfig) error {
 }
 
 func TestMainAddresses(t *testing.T) {
-	main := func(cfg *janusv1alpha1.NetworkConfig, lease *BootLease) string {
+	main := func(cfg *janusv1alpha1.NetworkConfig, lease *Lease) string {
 		t.Helper()
-		p, err := buildPlan(cfg, testLinks(), lease)
+		p, err := buildPlan(cfg, testLinks(), leasesOf(lease))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -175,12 +221,12 @@ func TestMainAddresses(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		cfg   string
-		lease *BootLease
+		lease *Lease
 		want  string
 	}{
 		{"the boot lease", `{}`, testLease, "10.0.2.15"},
-		{"a lease without a router", `{}`, &BootLease{Interface: "eth0", MAC: "52:54:00:00:00:01", Address: "10.0.2.15/24"}, "10.0.2.15"},
-		{"an on-link /32 lease", `{}`, &BootLease{Interface: "eth0", MAC: "52:54:00:00:00:01", Address: "10.0.0.5/32", Router: "10.0.0.1"}, "10.0.0.5"},
+		{"a lease without a router", `{}`, &Lease{Interface: "eth0", MAC: "52:54:00:00:00:01", Address: "10.0.2.15/24"}, "10.0.2.15"},
+		{"an on-link /32 lease", `{}`, &Lease{Interface: "eth0", MAC: "52:54:00:00:00:01", Address: "10.0.0.5/32", Router: "10.0.0.1"}, "10.0.0.5"},
 		{"nothing", `{}`, nil, ""},
 		// The gateway's prefix decides; an anycast /32 and a service /128
 		// aren't the node's address; a link-local IPv6 gateway holds none.

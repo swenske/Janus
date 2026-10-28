@@ -95,9 +95,10 @@ Under KVM (OVMF, 2 vCPUs) the kernel hands over at about 0.8 s, HAProxy
 serves at about 1 s and the API listens at about 1.4 s after the kernel
 started; the firmware adds about 2 s. The kernel's own second is shared
 between clearing memory at boot (`init_on_free`, a hardening choice that
-scales with RAM), ACPI and device probing, and `ip=dhcp`, which blocks
-until the first interface has a lease - the one wait that grows on a
-real network.
+scales with RAM), and ACPI and device probing. The kernel does no DHCP:
+janusd's own client does, for an interface in DHCP mode, before HAProxy
+starts - the one wait that grows on a real network, none for a node
+configured statically.
 
 The image is built for that: the kernel and the squashfs are compressed
 with zstd (`CONFIG_KERNEL_ZSTD`, `mksquashfs -comp zstd`, decompressed
@@ -360,8 +361,8 @@ own `machine.proto`/`lifecycle.proto` (verified against
 
 ## Network configuration and time
 
-A node's hostname, interfaces (physical and 802.1Q VLANs, static or the
-kernel's boot DHCP lease), resolvers and NTP servers are one declarative
+A node's hostname, interfaces (physical and 802.1Q VLANs, static or
+DHCP), resolvers and NTP servers are one declarative
 document (`internal/netconfig`), applied by `janusd` itself over rtnetlink
 (`internal/netmgr`) - no `ip`, no network daemon. A change is applied **on
 trial** and reverted automatically unless confirmed over an address it
@@ -372,10 +373,11 @@ NTP client (`internal/timesync`, SNTP + `adjtimex`), and a first boot
 whose clock is obviously wrong (no RTC) waits for NTP before generating
 its certificates. See [network-configuration.md](network-configuration.md).
 
-Known limitation, planned improvement: DHCP is the kernel's own
-(`ip=dhcp`), done once at boot on a single interface and never renewed.
-A userspace DHCP client with lease renewal, and DHCP on any interface,
-would lift both limits.
+DHCP is janusd's own client too (in `internal/netmgr`, on
+`insomniacslk/dhcp`'s DHCPv4 messages and packet socket): any one
+physical interface, its lease renewed. The kernel's `ip=dhcp` left the
+signed command line - a node configured statically no longer waits for
+a DHCP server that isn't there.
 
 ## Optional extensions and image schematics
 

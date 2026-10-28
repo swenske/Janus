@@ -25,12 +25,11 @@ const (
 type AddressingMode int32
 
 const (
-	// What the kernel's DHCP client (ip=dhcp) obtained at boot: IPv4
-	// address, gateway, DNS, domain, NTP servers and hostname. The default
-	// when unset. The kernel configures a single interface - the first to
-	// get an answer - so this mode applies to that interface only, and the
-	// lease is never renewed (a userspace DHCP client with renewal, and
-	// DHCP on any interface, are a planned improvement).
+	// A DHCPv4 lease, from janusd's own client: IPv4 address, gateway,
+	// DNS, domain, NTP servers, hostname and MTU, renewed for as long as
+	// the node runs. The default when unset. One physical interface at
+	// most (not a VLAN). Nodes before the client existed took the kernel's
+	// lease at boot instead, on its interface only, never renewed.
 	AddressingMode_ADDRESSING_MODE_DHCP AddressingMode = 0
 	// Only the addresses and gateways given.
 	AddressingMode_ADDRESSING_MODE_STATIC AddressingMode = 1
@@ -273,8 +272,10 @@ type NetworkConfig struct {
 	// Empty: the hostname DHCP provides, else "janus-" followed by the
 	// last three bytes of the first Ethernet interface's MAC address.
 	Hostname string `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	// Empty: the interfaces stay as the kernel's boot-time DHCP left them
-	// (see ADDRESSING_MODE_DHCP). Otherwise exactly what's listed is
+	// Empty: DHCP - every physical interface asks, the first to get a
+	// lease keeps it, the others go down (see ADDRESSING_MODE_DHCP); nodes
+	// before janusd's own client kept the kernel's boot-time lease, on the
+	// interface it configured. Otherwise exactly what's listed is
 	// configured; a physical interface not listed is left down, unless it's
 	// the parent of a listed VLAN (then up, no address).
 	Interfaces    []*NetworkInterface `protobuf:"bytes,2,rep,name=interfaces,proto3" json:"interfaces,omitempty"`
@@ -965,7 +966,7 @@ type NetworkInterfaceStatus struct {
 	Carrier       bool                   `protobuf:"varint,6,opt,name=carrier,proto3" json:"carrier,omitempty"`    // link detected
 	Addresses     []string               `protobuf:"bytes,7,rep,name=addresses,proto3" json:"addresses,omitempty"` // CIDR
 	Mode          AddressingMode         `protobuf:"varint,8,opt,name=mode,proto3,enum=janus.v1alpha1.AddressingMode" json:"mode,omitempty"`
-	Dhcp          *DHCPLease             `protobuf:"bytes,9,opt,name=dhcp,proto3" json:"dhcp,omitempty"` // the boot-time lease, on the interface that holds it
+	Dhcp          *DHCPLease             `protobuf:"bytes,9,opt,name=dhcp,proto3" json:"dhcp,omitempty"` // the DHCP lease, on the interface that holds it
 	VlanParent    string                 `protobuf:"bytes,10,opt,name=vlan_parent,json=vlanParent,proto3" json:"vlan_parent,omitempty"`
 	VlanId        uint32                 `protobuf:"varint,11,opt,name=vlan_id,json=vlanId,proto3" json:"vlan_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1088,7 +1089,8 @@ type DHCPLease struct {
 	NtpServers []string               `protobuf:"bytes,5,rep,name=ntp_servers,json=ntpServers,proto3" json:"ntp_servers,omitempty"`
 	Domain     string                 `protobuf:"bytes,6,opt,name=domain,proto3" json:"domain,omitempty"`
 	Hostname   string                 `protobuf:"bytes,7,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	// Not reported by the kernel's boot-time client: 0.
+	// When it was obtained and when it ends - 0 for a kernel's boot-time
+	// lease (nodes before janusd's own client), which never ended.
 	ObtainedUnix  int64 `protobuf:"varint,8,opt,name=obtained_unix,json=obtainedUnix,proto3" json:"obtained_unix,omitempty"`
 	ExpiresUnix   int64 `protobuf:"varint,9,opt,name=expires_unix,json=expiresUnix,proto3" json:"expires_unix,omitempty"`
 	unknownFields protoimpl.UnknownFields

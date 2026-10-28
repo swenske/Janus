@@ -90,7 +90,7 @@ trap 'rm -f "$LOG"; [ -n "${QEMU_PID:-}" ] && kill "$QEMU_PID" 2>/dev/null || tr
 qemu-system-x86_64 -accel kvm -accel tcg \
   -kernel "$KERNEL" \
   -initrd "$INITRD" \
-  -append "console=ttyS0 panic=-1 ip=dhcp ipv6.disable_ipv6=1" \
+  -append "console=ttyS0 panic=-1 ipv6.disable_ipv6=1" \
   -nographic -no-reboot -display none -m 256M \
   -netdev "user,id=net0,hostfwd=tcp::${HOST_PORT}-:8080" \
   -device virtio-net-pci,netdev=net0 \

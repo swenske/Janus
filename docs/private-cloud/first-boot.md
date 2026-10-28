@@ -49,8 +49,7 @@ sequenceDiagram
    works: keep them somewhere safe, or let them go, since the fleet's
    certificates replace them for everyday use.
 2. **The network comes first**: a static configuration from the
-   volume, or the kernel's DHCP lease. Prefer static addresses: the
-   lease is taken once at boot and never renewed
+   volume, or DHCP - its lease renewed
    ([network configuration](../network-configuration.md)).
 3. **Registration**: the node announces itself to the Controller's
    registration port (8443), checking the Controller's certificate

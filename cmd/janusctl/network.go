@@ -236,7 +236,12 @@ func printNetworkStatus(st *janusv1alpha1.NetworkStatusResponse) {
 			fmt.Printf("  %-12s   %s\n", "", a)
 		}
 		if l := i.GetDhcp(); l != nil {
-			fmt.Printf("  %-12s   dhcp (boot, not renewed): %s from %s, router %s, dns %s, ntp %s\n", "", l.GetAddress(), l.GetServer(), l.GetRouter(), strings.Join(l.GetDnsServers(), " "), strings.Join(l.GetNtpServers(), " "))
+			// No expiry: an older node's lease, the kernel's at boot.
+			how := "boot, not renewed"
+			if e := l.GetExpiresUnix(); e > 0 {
+				how = "until " + time.Unix(e, 0).Format("2006-01-02 15:04:05")
+			}
+			fmt.Printf("  %-12s   dhcp (%s): %s from %s, router %s, dns %s, ntp %s\n", "", how, l.GetAddress(), l.GetServer(), l.GetRouter(), strings.Join(l.GetDnsServers(), " "), strings.Join(l.GetNtpServers(), " "))
 		}
 	}
 	fmt.Println("\nroutes:")

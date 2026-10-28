@@ -52,19 +52,28 @@ type plan struct {
 	deleteVLANs []linkInfo
 	down        []linkInfo
 	ifaces      []ifPlan // physical interfaces first, then VLANs
-	// dhcp is the interface holding the boot lease, when a DHCP-mode
-	// interface is in effect: DNS, domain, NTP and hostname from the
-	// lease apply only then.
+	// dhcp is the interface in DHCP mode whose lease, once there, gives
+	// the node its DNS, domain, NTP and hostname. Empty with the default
+	// configuration until an interface got a lease.
 	dhcp string
-	// lease is the boot lease's address, whatever the mode: the kernel
-	// added it, and it goes like netmgr's own once no longer wanted.
+	// lease is the kernel's boot DHCP address (ip=dhcp), whatever the
+	// mode: the kernel added it, and it goes like netmgr's own once no
+	// longer wanted.
 	lease netip.Prefix
+}
+
+// leaseSet is what planning knows of DHCP: the lease in hand on each
+// interface, by MAC - janusd's client's, else the kernel's boot lease -
+// and the kernel's boot address.
+type leaseSet struct {
+	byMAC  map[string]*Lease
+	kernel netip.Prefix
 }
 
 // autoMetric is the default-route metric of the interface at position i.
 func autoMetric(i int) int { return 1024 + i }
 
-func buildPlan(cfg *janusv1alpha1.NetworkConfig, links []linkInfo, lease *BootLease) (*plan, error) {
+func buildPlan(cfg *janusv1alpha1.NetworkConfig, links []linkInfo, leases leaseSet) (*plan, error) {
 	if err := netconfig.Validate(cfg); err != nil {
 		return nil, err
 	}
@@ -85,32 +94,41 @@ func buildPlan(cfg *janusv1alpha1.NetworkConfig, links []linkInfo, lease *BootLe
 	}
 	sort.Slice(physical, func(i, j int) bool { return physical[i].index < physical[j].index })
 
-	p := &plan{}
-	var leaseLink *linkInfo
-	if lease != nil {
-		p.lease, _ = netip.ParsePrefix(lease.Address)
-		leaseLink = byMAC[lease.MAC]
-		if leaseLink == nil {
-			leaseLink = byName[lease.Interface]
-		}
-	}
+	p := &plan{lease: leases.kernel}
 
-	// Nothing configured: the kernel's boot-time DHCP result stays, and
-	// nothing else is touched but VLANs (none exist unless a trial made
-	// them).
+	// Nothing configured: DHCP, as the kernel's ip=dhcp did it - every
+	// physical interface asks, the first to get a lease keeps it, and
+	// the others go down. Nothing else is touched but VLANs (none exist
+	// unless a trial made them).
 	if len(cfg.GetInterfaces()) == 0 {
 		for _, l := range links {
 			if l.kind == kindVLAN {
 				p.deleteVLANs = append(p.deleteVLANs, l)
 			}
 		}
-		if leaseLink != nil {
-			ip, err := leasePlan(lease, leaseLink, leaseLink.name, autoMetric(0), 0)
-			if err != nil {
-				return nil, err
+		var winner *linkInfo
+		for _, l := range physical {
+			if leases.byMAC[l.mac] != nil {
+				winner = l
+				break
 			}
-			p.ifaces = append(p.ifaces, ip)
-			p.dhcp = leaseLink.name
+		}
+		if winner == nil {
+			for i, l := range physical {
+				p.ifaces = append(p.ifaces, ifPlan{name: l.name, mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_DHCP, existing: l, metric: autoMetric(i)})
+			}
+			return p, nil
+		}
+		ip, err := leasePlan(leases.byMAC[winner.mac], winner, winner.name, autoMetric(0), 0)
+		if err != nil {
+			return nil, err
+		}
+		p.ifaces = append(p.ifaces, ip)
+		p.dhcp = winner.name
+		for _, l := range physical {
+			if l != winner {
+				p.down = append(p.down, *l)
+			}
 		}
 		return p, nil
 	}
@@ -149,17 +167,15 @@ func buildPlan(cfg *janusv1alpha1.NetworkConfig, links []linkInfo, lease *BootLe
 		}
 		switch ifc.GetMode() {
 		case janusv1alpha1.AddressingMode_ADDRESSING_MODE_DHCP:
-			if lease == nil {
-				return nil, fmt.Errorf("interface %s: DHCP mode needs the lease the kernel obtains at boot, and none was obtained this boot - configure it statically", ifc.GetName())
+			// Up at once; its address, gateway and options come with its
+			// lease - now if one is in hand, else when the client gets it.
+			ip := ifPlan{name: ifc.GetName(), mode: ifc.GetMode(), existing: l, metric: metric, mtu: int(ifc.GetMtu())}
+			if lease := leases.byMAC[l.mac]; lease != nil {
+				var err error
+				if ip, err = leasePlan(lease, l, ifc.GetName(), metric, int(ifc.GetMtu())); err != nil {
+					return nil, err
+				}
 			}
-			if leaseLink == nil || leaseLink.index != l.index {
-				return nil, fmt.Errorf("interface %s: DHCP is only available on the interface the kernel configured at boot (%s, %s) - configure %s statically", ifc.GetName(), lease.Interface, lease.MAC, ifc.GetName())
-			}
-			ip, err := leasePlan(lease, l, ifc.GetName(), metric, int(ifc.GetMtu()))
-			if err != nil {
-				return nil, err
-			}
-			ip.existing = l
 			p.ifaces = append(p.ifaces, ip)
 			p.dhcp = ifc.GetName()
 		default:
@@ -248,7 +264,7 @@ func buildPlan(cfg *janusv1alpha1.NetworkConfig, links []linkInfo, lease *BootLe
 
 // mainAddresses picks the node's main interface in p - the one its IPv4
 // default route leaves by (the lowest metric among those with a
-// gateway), else the boot lease's, else the one with an IPv6 gateway -
+// gateway), else the DHCP lease's, else the one with an IPv6 gateway -
 // and its addresses, one per family (primary). They come from the plan,
 // not the live interface: keepalived's virtual addresses are never in
 // it. None: the exporters listen on every address.
@@ -311,15 +327,20 @@ func primary(addrs []netip.Prefix, gw netip.Addr, v6 bool) (netip.Addr, bool) {
 	return family[0].Addr(), true
 }
 
-func leasePlan(lease *BootLease, l *linkInfo, name string, metric, mtu int) (ifPlan, error) {
+// leasePlan is interface l in DHCP mode under lease. The lease's MTU
+// applies when the configuration sets none (mtu 0).
+func leasePlan(lease *Lease, l *linkInfo, name string, metric, mtu int) (ifPlan, error) {
 	addr, err := netip.ParsePrefix(lease.Address)
 	if err != nil {
-		return ifPlan{}, fmt.Errorf("boot lease: address %q: %w", lease.Address, err)
+		return ifPlan{}, fmt.Errorf("DHCP lease: address %q: %w", lease.Address, err)
+	}
+	if mtu == 0 {
+		mtu = lease.MTU
 	}
 	ip := ifPlan{name: name, mode: janusv1alpha1.AddressingMode_ADDRESSING_MODE_DHCP, existing: l, addrs: []netip.Prefix{addr}, metric: metric, mtu: mtu}
 	if lease.Router != "" {
 		if ip.gw4, err = netip.ParseAddr(lease.Router); err != nil {
-			return ifPlan{}, fmt.Errorf("boot lease: router %q: %w", lease.Router, err)
+			return ifPlan{}, fmt.Errorf("DHCP lease: router %q: %w", lease.Router, err)
 		}
 	}
 	return ip, nil
