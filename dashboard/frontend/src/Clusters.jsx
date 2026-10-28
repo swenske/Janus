@@ -4,6 +4,7 @@ import { call, postJSON } from './call.js'
 import { DOMAINS, clusterNameError, domainsOf, health, memberDefaults, memberNameError, parseVars, pathError, varsText, versionChanges, when } from './clusters.js'
 import { useCan } from './me.jsx'
 import { DiffView, Editor } from './shared/Editor.jsx'
+import { requirementError, toggleExtension } from './shared/requires.js'
 import { navigate } from './shared/route.js'
 import { Badge, Card, ErrorBox, Loading, Tabs, useAction, useConfirm, useToast } from './shared/ui.jsx'
 
@@ -170,7 +171,15 @@ function CreateCluster({ nodes, onCancel, onCreated }) {
   }, [])
   const usable = (hypervisors || []).filter((h) => h.trusted)
   const toggleHv = (id) => setHvs(hvs.includes(id) ? hvs.filter((x) => x !== id) : [...hvs, id])
-  const toggleExt = (x) => setExts(exts.includes(x) ? exts.filter((y) => y !== x) : [...exts, x])
+  // Ticking an extension ticks what it requires, unticking one unticks
+  // what requires it - said under the list.
+  const [extNote, setExtNote] = useState('')
+  const toggleExt = (x) => {
+    const r = toggleExtension(exts, x, !exts.includes(x), catalog?.extensions)
+    setExts(r.extensions)
+    setExtNote(r.note)
+  }
+  const extProblem = requirementError(exts, catalog?.extensions, catalog?.catalog_version)
   // The networks every hypervisor picked offers.
   const networks = hvs.length ? hvNetworks(usable.find((h) => h.id === hvs[0])).filter((n) => hvs.every((id) => hvNetworks(usable.find((h) => h.id === id)).includes(n))) : []
   const problem =
@@ -287,11 +296,18 @@ function CreateCluster({ nodes, onCancel, onCreated }) {
                 <div className="small muted">Extensions</div>
                 <div className="row" style={{ flexWrap: 'wrap' }}>
                   {catalog.extensions.map((x) => (
-                    <label key={x.name} className="check small">
+                    <label key={x.name} className="check small" title={x.requires?.length ? `Requires ${x.requires.join(', ')}` : undefined}>
                       <input type="checkbox" checked={exts.includes(x.name)} onChange={() => toggleExt(x.name)} /> {x.name}
                     </label>
                   ))}
                 </div>
+                {extProblem ? (
+                  <div className="notice warn small" role="alert">
+                    {extProblem}
+                  </div>
+                ) : (
+                  extNote && <div className="small muted">{extNote}</div>
+                )}
               </div>
             )}
             {nodes.length > 0 && (

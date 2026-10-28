@@ -259,6 +259,12 @@ func main() {
 	if err != nil {
 		log.Printf("cluster: %v - the node is in no cluster this boot", err)
 	}
+	// A drain outlives a reboot: read before the health gates below exist,
+	// keepalived and BIRD never see this member in service until it is
+	// undrained.
+	if clusterStore.Drained() {
+		log.Printf("cluster: drained before this start, still drained - HAProxy reads as unhealthy to keepalived and BIRD until undrained")
+	}
 	ship.SetCluster(func() logship.Cluster {
 		id, name, member := clusterStore.Identity()
 		return logship.Cluster{ID: id, Name: name, Member: member}
@@ -373,7 +379,7 @@ func main() {
 	// A drained cluster member (ClusterService.ClusterDrain) reads as
 	// unhealthy to keepalived and BIRD - the traffic moves to a peer while
 	// HAProxy keeps answering - never to the HTTP-01 challenges.
-	gateHealthy := func() bool { return !clusterStore.Drained() && haproxyHealthy() }
+	gateHealthy := func() bool { return !clusterStore.OutOfService() && haproxyHealthy() }
 	gateChanged := cluster.Either(haproxyMgr.Changed, clusterStore.DrainChanged)
 
 	// The letsencrypt extension (internal/acme) before HAProxy starts: its

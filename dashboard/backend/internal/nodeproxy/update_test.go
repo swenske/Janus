@@ -321,6 +321,45 @@ func TestFactoryRoutes(t *testing.T) {
 	}
 }
 
+// An extension without the one it requires: refused with the factory's
+// message before the node or the factory's build is asked; nothing is
+// refused when the factory can't be reached (it refuses the build).
+func TestFactoryUpdateRequirements(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/versions":
+			_, _ = io.WriteString(w, `[{"version":"v2","schematics":true}]`)
+		case "/api/v1/versions/v2/extensions":
+			_, _ = io.WriteString(w, `{"version":"v2","extensions":[{"name":"bird","version":"2.19.2","description":"BGP","arches":["amd64"]},{"name":"prometheus-bird-exporter","version":"1.4.3","description":"metrics","arches":["amd64"],"requires":["bird"]}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	resetFactory(t, srv.URL)
+	resetCatalog(t)
+	mux := http.NewServeMux()
+	registerUpdateRoutes(mux, &store.Node{})
+
+	want := `extension "prometheus-bird-exporter" requires the "bird" extension: choose it too`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/factory/update", strings.NewReader(`{"extensions":["prometheus-bird-exporter"]}`)))
+	if rec.Code != http.StatusBadRequest || strings.TrimSpace(rec.Body.String()) != want {
+		t.Fatalf("exporter alone: %d %s", rec.Code, rec.Body)
+	}
+	if err := CheckRequirements(context.Background(), []string{"bird", "prometheus-bird-exporter"}); err != nil {
+		t.Errorf("with bird: %v", err)
+	}
+	if err := CheckRequirements(context.Background(), []string{"prometheus-bird-exporter"}); err == nil || err.Error() != want {
+		t.Errorf("alone: %v", err)
+	}
+	resetFactory(t, "")
+	resetCatalog(t)
+	if err := CheckRequirements(context.Background(), []string{"prometheus-bird-exporter"}); err != nil {
+		t.Errorf("no factory: %v", err)
+	}
+}
+
 // canceled is the context of a request whose browser already went away.
 func canceled() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())

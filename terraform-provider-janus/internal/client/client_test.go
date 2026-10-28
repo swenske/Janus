@@ -237,3 +237,50 @@ func TestClusters(t *testing.T) {
 		t.Errorf("gone: %+v %v", cl, err)
 	}
 }
+
+// The catalog's requirements, with the image factory's messages - the
+// same words internal/schematic's RequirementError gives (its tests hold
+// the same strings).
+func TestCatalogRequirements(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"latest":"v2026.10.29","catalog_version":"v2026.10.29","extensions":[
+			{"name":"bird","version":"2.19.2","arches":["amd64"],"replaces":["bird2"]},
+			{"name":"prometheus-bird-exporter","version":"1.4.3","arches":["amd64"],"requires":["bird"]},
+			{"name":"old-style","version":"1","arches":["amd64"],"requires":["bird2"]},
+			{"name":"orphan","version":"1","arches":["amd64"],"requires":["gone"]}],"haproxy":[],"kernel":[]}`))
+	}))
+	defer srv.Close()
+	c, err := New(srv.URL, "tok", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cat, err := c.Catalog(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		exts []string
+		want string
+	}{
+		{[]string{"bird", "prometheus-bird-exporter"}, ""},
+		{[]string{"bird2", "prometheus-bird-exporter"}, ""},
+		{[]string{"old-style", "bird"}, ""},
+		{[]string{"prometheus-bird-exporter"}, `extension "prometheus-bird-exporter" requires the "bird" extension: choose it too`},
+		{[]string{"old-style"}, `extension "old-style" requires the "bird" extension: choose it too`},
+		{[]string{"orphan"}, `extension "orphan" requires the "gone" extension, which Janus v2026.10.29 doesn't offer`},
+	} {
+		err := cat.CheckRequirements(tc.exts)
+		if (tc.want == "" && err != nil) || (tc.want != "" && (err == nil || err.Error() != tc.want)) {
+			t.Errorf("%v: %v, want %q", tc.exts, err, tc.want)
+		}
+	}
+
+	failing := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"extensions":[],"catalog_error":"no image factory is configured"}`))
+	}))
+	defer failing.Close()
+	c, _ = New(failing.URL, "tok", "", true)
+	if _, err := c.Catalog(context.Background()); err == nil {
+		t.Error("a catalog error wasn't reported")
+	}
+}

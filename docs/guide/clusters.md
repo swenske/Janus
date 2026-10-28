@@ -346,7 +346,15 @@ and the member the secrets come from. Through the API:
   `janusctl -n NODE cluster undrain` puts it back in service on its own;
   added to a cluster again, it is back in service by itself.
 - `POST /api/clusters/{id}/members/{name}/drain` and `/undrain`: out of
-  service and back, without leaving.
+  service and back, without leaving. **A drain holds across reboots**:
+  the node keeps it on its STATE partition and puts it back as janusd
+  starts, before keepalived or BIRD can announce anything - an update,
+  a crash or a hypervisor restart brings the member back drained, until
+  it is undrained. A member that comes back in service anyway - a node
+  on a release that kept no drain across a reboot - is drained again by
+  the next check (within a minute once it answers), and the journal
+  says why. One undrained on the node itself (`janusctl -n NODE cluster
+  undrain`) stays in service: the cluster follows it.
 - A node that is a member can't be removed from the Controller: it
   leaves its cluster first.
 

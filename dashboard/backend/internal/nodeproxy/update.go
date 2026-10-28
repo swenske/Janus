@@ -145,6 +145,10 @@ func registerUpdateRoutes(mux *http.ServeMux, node *store.Node) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if err := CheckRequirements(r.Context(), probe.Customization.Extensions); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		unary(w, r, node, unaryTimeout, func(ctx context.Context, c *grpc.ClientConn) (any, error) {
 			v, err := janusv1alpha1.NewSystemServiceClient(c).Version(ctx, &emptypb.Empty{})
 			if err != nil {
@@ -369,6 +373,20 @@ func updateFor(ctx context.Context, v *janusv1alpha1.VersionResponse, sc *schema
 	resolveUpdate(ctx, &eu.updateCheck)
 	eu.SchematicChange = cmp.Or(eu.TargetSchematicID, eu.SchematicID) != node.SchematicID
 	return eu
+}
+
+// CheckRequirements refuses extensions naming one without another it
+// requires (schematic.RequirementError), by the image factory's newest
+// catalog: the message the factory gives for such a schematic, before
+// a node or a machine is touched. Nothing is refused when the factory
+// can't be asked - it refuses the build itself, with the same message.
+func CheckRequirements(ctx context.Context, exts []string) error {
+	view, err := factoryCatalog(ctx)
+	if err != nil {
+		return nil
+	}
+	c := &schematic.Catalog{Version: view.Version, Extensions: view.Extensions}
+	return c.CheckRequirements(exts)
 }
 
 // factoryCatalogView is GET /api/factory/catalog: the extensions an image

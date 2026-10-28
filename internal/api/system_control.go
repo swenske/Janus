@@ -87,13 +87,15 @@ func (s *System) Restart(_ context.Context, _ *emptypb.Empty) (*janusv1alpha1.Re
 // lets the routers converge. Stopped at once instead, keepalived gave its
 // virtual IP up before a peer had it (3 requests lost under load, and ~5 s
 // without one on a node alone while Consul left - v2026.10.24-4's lab).
-// The next janusd starts undrained: the drain lives in memory only.
-// Nothing to wait for without keepalived or BIRD (no drain delay then).
+// Not a drain: the next janusd starts as STATE says - drained only if
+// it was before (cluster.Store.Drain) -, and the member doesn't say it is
+// drained meanwhile. Nothing to wait for without keepalived or BIRD (no
+// drain delay then).
 func (s *System) leave() {
 	if s.Cluster == nil || s.HAProxy == nil || s.HAProxy.DrainDelay <= 0 {
 		return
 	}
-	s.Cluster.SetDrained(true)
+	s.Cluster.Stopping()
 	time.Sleep(s.HAProxy.DrainDelay)
 }
 

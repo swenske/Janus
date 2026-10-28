@@ -240,14 +240,18 @@ type Store struct {
 	memberTLS *tls.Certificate
 
 	// The drain (drain.go).
-	drainMu sync.Mutex
-	drained bool
-	drainCh chan struct{}
+	drainMu     sync.Mutex
+	drained     bool
+	stopping    bool
+	drainCh     chan struct{}
+	undrainedAt time.Time
 }
 
-// Open reads the membership kept under dir, if any.
+// Open reads the membership kept under dir, if any, and the drain kept
+// there - whatever the membership: a node drained stays drained.
 func Open(dir string, hostname func() string) (*Store, error) {
 	s := &Store{Dir: dir, Hostname: hostname}
+	s.drained = keptDrained(dir)
 	data, err := os.ReadFile(filepath.Join(dir, MembershipFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -600,11 +604,17 @@ func (s *Store) memberKeyLocked() (*ecdsa.PrivateKey, error) {
 }
 
 // Leave forgets the membership: the files go, the node is a cluster of
-// one again.
+// one again. A drained node stays drained until undrained or rebooted:
+// the drain kept on STATE goes with the membership.
 func (s *Store) Leave() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.leaveLocked()
+	if err := s.leaveLocked(); err != nil {
+		return err
+	}
+	s.drainMu.Lock()
+	defer s.drainMu.Unlock()
+	return s.keepDrainLocked(false)
 }
 
 func (s *Store) leaveLocked() error {

@@ -19,7 +19,8 @@
 # others, its own made anew -; the ticket ring rotated. A fourth node
 # replaces the VRRP master (janusctl cluster replace): it joins drained,
 # learns the table, and the virtual IP moves once, to it. The cluster
-# deleted - and no AVC denial.
+# deleted - and no AVC denial. A drained member rebooted comes back
+# drained (#356).
 #
 # Usage: hack/qemu-clusterctl-test.sh <disk.img> <janusctl-bin>
 set -euo pipefail
@@ -262,9 +263,31 @@ echo "  ok: a certificate reached every member"
 alice -n lb-1 cluster drain >/dev/null || fail "drain lb-1"
 wait_for 20 "lb-2 holding the virtual IP" master 2
 has_entry 2 || fail "lb-2 lost the table after the failover"
-alice -n lb-1 cluster undrain >/dev/null || fail "undrain lb-1"
-wait_for 30 "lb-1 holding the virtual IP again" master 1
 echo "  ok: a drain moved the virtual IP to lb-2, which had the table"
+
+# The drain outlives a reboot (#356): lb-1, the higher priority, comes
+# back drained from janusd's first instant - its keepalived reads HAProxy
+# as unhealthy, never MASTER, lb-2 keeps the virtual IP. Undrained, lb-1
+# takes it back.
+boots() { grep -ac "listening on .* (mTLS required)" "$WORKDIR/1.log" || true; }
+booted="$(boots)"
+rebooted() { [ "$(boots)" -gt "$booted" ]; }
+alice -n lb-1 system reboot >/dev/null || fail "reboot lb-1"
+wait_for "$TIMEOUT" "lb-1 back from its reboot" rebooted
+grep -aq "cluster: drained before this start, still drained" "$WORKDIR/1.log" || fail "lb-1's janusd didn't say it found the drain"
+check "lb-1 says it is drained after its reboot" "Drained: +yes" "$(alice -n lb-1 cluster get)"
+check "lb-1's status says it is drained" "Drained: +yes" "$(alice -n lb-1 cluster status)"
+backup1() { grep -Eq '^front +BACKUP .* 50/150 ' <<<"$(alice -n lb-1 network vrrp status 2>/dev/null)"; }
+wait_for 60 "lb-1's keepalived up, BACKUP at priority 50" backup1
+check "lb-1's VRRP reads HAProxy as out of service" "HAProxy: not answering" "$(alice -n lb-1 network vrrp status)"
+sleep 5 # advert_int 0.2: a priority of 150 would have taken it back long ago
+master 2 || fail "lb-2 lost the virtual IP to a drained lb-1 after its reboot: $(alice -n lb-1 network vrrp status)"
+[ "$(alice -n lb-1 system logs keepalived 2>/dev/null | grep -c "Entering MASTER STATE" || true)" = 0 ] || fail "lb-1 was MASTER after its reboot, drained: $(alice -n lb-1 system logs keepalived)"
+alice -n lb-1 cluster undrain >/dev/null || fail "undrain lb-1"
+if alice -n lb-1 cluster get | grep -q "Drained"; then fail "lb-1 still drained after its undrain"; fi
+wait_for 30 "lb-1 holding the virtual IP again" master 1
+for i in $MEMBERS; do wait_for 60 "lb-$i's peers up after lb-1's reboot" peers_up "$i" 2; done
+echo "  ok: drained, lb-1 rebooted and came back drained - BACKUP at priority 50, never MASTER, lb-2 kept the virtual IP; undrained, lb-1 took it back"
 
 # lb-3 leaves, joins again; the ticket ring rotates. The ring lb-3 knew
 # is renewed on lb-1 and lb-2, and lb-3 makes its own: no node reads or
@@ -331,4 +354,4 @@ echo "  ok: the cluster deleted - the nodes on their own and unlocked"
 for i in $NODES; do
   if grep -a "avc:.*denied" "$WORKDIR/$i.log"; then fail "AVC denials on node $i"; fi
 done
-echo "Clusterctl test PASSED: a fleet's cluster made by janusctl - advisory locks, VRRP from a directory, a dry run, drift reported and put back, a certificate, a drain, a member out and back with the ticket ring renewed, tickets, the master replaced with the virtual IP moving once, deleted"
+echo "Clusterctl test PASSED: a fleet's cluster made by janusctl - advisory locks, VRRP from a directory, a dry run, drift reported and put back, a certificate, a drain kept across a reboot, a member out and back with the ticket ring renewed, tickets, the master replaced with the virtual IP moving once, deleted"

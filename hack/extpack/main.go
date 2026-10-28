@@ -18,8 +18,10 @@
 //
 // id prints a schematic's ID (the default schematic's without -schematic);
 // layers prints the extension tars (in DIR) a schematic needs for ARCH,
-// checking each exists and is built for ARCH - with -catalog, the HAProxy
-// layer of the branch the schematic gets first (a release's inputs).
+// checking each exists and is built for ARCH, and that the schematic
+// names every extension one of them requires (no extension is layered
+// alone) - with -catalog, the HAProxy layer of the branch the schematic
+// gets first (a release's inputs).
 //
 //	extpack inputs -schematic FILE -catalog FILE -arch ARCH [-only base|haproxy|kernel|extensions]
 //
@@ -91,20 +93,72 @@ func main() {
 }
 
 func readManifest(name string) *extensions.Manifest {
-	data, err := os.ReadFile(filepath.Join("extensions", name, "manifest.json"))
+	m, err := readManifestIn("extensions", name)
 	if err != nil {
 		log.Fatal(err)
+	}
+	return m
+}
+
+// readManifestIn reads dir/<name>/manifest.json, strictly.
+func readManifestIn(dir, name string) (*extensions.Manifest, error) {
+	data, err := os.ReadFile(filepath.Join(dir, name, "manifest.json"))
+	if err != nil {
+		return nil, err
 	}
 	var m extensions.Manifest
 	dec := json.NewDecoder(strings.NewReader(string(data)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&m); err != nil {
-		log.Fatalf("extensions/%s/manifest.json: %v", name, err)
+		return nil, fmt.Errorf("extensions/%s/manifest.json: %w", name, err)
 	}
 	if m.Name != name {
-		log.Fatalf("extensions/%s/manifest.json names itself %q", name, m.Name)
+		return nil, fmt.Errorf("extensions/%s/manifest.json names itself %q", name, m.Name)
 	}
-	return &m
+	return &m, nil
+}
+
+// entry is m's catalog entry.
+func entry(m *extensions.Manifest) schematic.CatalogEntry {
+	return schematic.CatalogEntry{Name: m.Name, Version: m.Version, Description: m.Description, Arches: m.Arches,
+		Homepage: m.Homepage, Replaces: m.Replaces, Requires: m.Requires}
+}
+
+// treeCatalog is the catalog of every extension dir holds
+// (extensions/*/manifest.json): what layers checks a schematic's
+// requirements against, as the image factory checks them against a
+// release's.
+func treeCatalog(dir string) (*schematic.Catalog, error) {
+	dirs, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	c := &schematic.Catalog{}
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		m, err := readManifestIn(dir, d.Name())
+		if err != nil {
+			return nil, err
+		}
+		c.Extensions = append(c.Extensions, entry(m))
+	}
+	return c, nil
+}
+
+// catalogRequirements refuses a catalog with an extension requiring one
+// the catalog doesn't carry, by its name: the release would offer an
+// extension no schematic can have.
+func catalogRequirements(c *schematic.Catalog) error {
+	for _, e := range c.Extensions {
+		for _, req := range e.Requires {
+			if _, ok := c.Lookup(req); !ok {
+				return fmt.Errorf("extension %s requires %s, which the catalog doesn't carry", e.Name, req)
+			}
+		}
+	}
+	return nil
 }
 
 func pack(args []string) {
@@ -264,10 +318,13 @@ func catalog(args []string) {
 		if err := m.Validate(); err != nil {
 			log.Fatal(err)
 		}
-		c.Extensions = append(c.Extensions, schematic.CatalogEntry{Name: m.Name, Version: m.Version, Description: m.Description, Arches: m.Arches, Homepage: m.Homepage, Replaces: m.Replaces})
+		c.Extensions = append(c.Extensions, entry(m))
 	}
 	if len(c.Extensions) == 0 {
 		log.Fatal(errors.New("no extension given"))
+	}
+	if err := catalogRequirements(c); err != nil {
+		log.Fatal(err)
 	}
 	slices.SortFunc(c.Extensions, func(a, b schematic.CatalogEntry) int { return strings.Compare(a.Name, b.Name) })
 	data, _ := json.MarshalIndent(c, "", "  ")
@@ -311,6 +368,15 @@ func layers(args []string) {
 		os.Exit(2)
 	}
 	sc := loadSchematic(*file)
+	// An extension layered without one it requires: refused with the
+	// image factory's message (it would start and wait forever).
+	tree, err := treeCatalog("extensions")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := tree.CheckRequirements(sc.Extensions()); err != nil {
+		log.Fatal(err)
+	}
 	var out []string
 	if *catalogFile != "" {
 		name := releaseInputs(sc, loadCatalog(*catalogFile), *arch).haproxy

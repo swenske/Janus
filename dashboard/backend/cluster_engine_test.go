@@ -35,6 +35,8 @@ type fakeMember struct {
 	// learning: its HAProxy hasn't learnt its stick tables; alone: no
 	// peer up; drained: the node's own, member or not.
 	learning, alone, drained bool
+	// undrained: when ClusterUndrain last ran (ClusterInfo.undrained_unix).
+	undrained int64
 	// acme: its letsencrypt extension; nil: not in its image.
 	acme *janusv1alpha1.ACMEStatusResponse
 	// set: what the last ClusterSet said.
@@ -155,11 +157,11 @@ func (f *clusterFake) ClusterGet(_ context.Context, m clusters.Member) (*janusv1
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if fm.info == nil {
-		return &janusv1alpha1.ClusterInfo{Drained: fm.drained}, nil
+		return &janusv1alpha1.ClusterInfo{Drained: fm.drained, UndrainedUnix: fm.undrained}, nil
 	}
 	info := proto.Clone(fm.info).(*janusv1alpha1.ClusterInfo)
 	info.MemberCertNotAfterUnix = f.notAfter.Unix()
-	info.Drained = fm.drained
+	info.Drained, info.UndrainedUnix = fm.drained, fm.undrained
 	return info, nil
 }
 
@@ -222,6 +224,7 @@ func (f *clusterFake) ClusterUndrain(_ context.Context, m clusters.Member) error
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nodes[m.Name].drained = false
+	f.nodes[m.Name].undrained = time.Now().Unix()
 	return nil
 }
 
@@ -951,6 +954,90 @@ func TestClusterRejoinsInService(t *testing.T) {
 	// A node that wasn't drained isn't undrained.
 	if slices.Contains(f.callsOf("lb-1", 0), "ClusterUndrain") {
 		t.Errorf("lb-1 undrained: %v", f.callsOf("lb-1", 0))
+	}
+}
+
+// A member the cluster drained that comes back in service after a
+// reboot - its release kept no drain across one - is drained again by
+// the next check, and the journal says why; one undrained on the node
+// itself is in service, the record following it (#356).
+func TestClusterKeepsTheDrain(t *testing.T) {
+	a, f, nodes := clusterApp(t, "lb-1", "lb-2")
+	c := newCluster(t, a, nodes, "lb-1", "lb-2")
+	ctx := context.Background()
+	if err := a.clusters.Create(ctx, c.ID, "lb-1", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	c, _ = a.clusters.Store.Get(c.ID)
+	if err := a.clusters.Drain(ctx, c.ID, "lb-2", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	said := func(words string) bool {
+		return slices.ContainsFunc(a.clusters.Store.Entries(c.ID, 100), func(e clusters.Entry) bool { return strings.Contains(e.Message, words) })
+	}
+	// Rebooting: it doesn't answer - still drained as the cluster knows it.
+	f.fail["lb-2 ClusterGet"] = errors.New("connection refused")
+	if again := a.clusters.reconcile(ctx, c); !again {
+		t.Error("a member that doesn't answer isn't checked again soon")
+	}
+	if st := a.clusters.Store.State(c.ID).Members["lb-2"]; !st.Drained {
+		t.Fatalf("lb-2 while it reboots: %+v", st)
+	}
+	// Back, in service: its release kept no drain.
+	delete(f.fail, "lb-2 ClusterGet")
+	f.nodes["lb-2"].drained = false
+	mark := f.mark()
+	if again := a.clusters.reconcile(ctx, c); again {
+		t.Errorf("an error: %+v", a.clusters.Store.State(c.ID).Members["lb-2"])
+	}
+	if !slices.Contains(f.callsOf("lb-2", mark), "ClusterDrain") || !f.nodes["lb-2"].drained {
+		t.Fatalf("lb-2 not drained again: %v", f.callsOf("lb-2", mark))
+	}
+	if st := a.clusters.Store.State(c.ID).Members["lb-2"]; !st.Drained || st.Error != "" {
+		t.Errorf("lb-2 drained again: %+v", st)
+	}
+	if !said("lb-2 came back undrained after a reboot") {
+		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 5))
+	}
+	// Drained it stays: nothing more.
+	mark = f.mark()
+	a.clusters.reconcile(ctx, c)
+	if slices.Contains(f.callsOf("lb-2", mark), "ClusterDrain") {
+		t.Error("drained twice")
+	}
+	// The drain again failing: a problem, tried at the next check.
+	f.nodes["lb-2"].drained = false
+	f.fail["lb-2 ClusterDrain"] = errors.New("deadline exceeded")
+	if again := a.clusters.reconcile(ctx, c); !again {
+		t.Error("a failed drain isn't tried again soon")
+	}
+	if st := a.clusters.Store.State(c.ID).Members["lb-2"]; !st.Drained || !strings.Contains(st.Error, "draining it again failed") {
+		t.Errorf("lb-2 after a failed drain: %+v", st)
+	}
+	view := a.clusterView(c)
+	if !slices.ContainsFunc(view.Problems, func(p string) bool { return strings.Contains(p, "draining it again failed") }) {
+		t.Errorf("problems: %v", view.Problems)
+	}
+	delete(f.fail, "lb-2 ClusterDrain")
+	a.clusters.reconcile(ctx, c)
+	if !f.nodes["lb-2"].drained {
+		t.Fatal("not drained at the next check")
+	}
+	// Undrained on the node itself (janusctl cluster undrain): in
+	// service, the cluster follows - never drained again.
+	if err := f.ClusterUndrain(ctx, *c.Member("lb-2")); err != nil {
+		t.Fatal(err)
+	}
+	mark = f.mark()
+	a.clusters.reconcile(ctx, c)
+	if slices.Contains(f.callsOf("lb-2", mark), "ClusterDrain") || f.nodes["lb-2"].drained {
+		t.Fatal("an undrain on the node was fought")
+	}
+	if st := a.clusters.Store.State(c.ID).Members["lb-2"]; st.Drained {
+		t.Errorf("the record didn't follow the node: %+v", st)
+	}
+	if !said("lb-2 was undrained on the node itself") {
+		t.Errorf("the journal: %+v", a.clusters.Store.Entries(c.ID, 5))
 	}
 }
 

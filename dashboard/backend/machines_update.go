@@ -556,6 +556,9 @@ func (a *app) handleMachineUpdate(w http.ResponseWriter, r *http.Request) {
 	if err == nil && p.hardware {
 		err = checkHardware(h, p.next.Hardware())
 	}
+	if err == nil && u.Extensions != nil {
+		err = checkRequirements(r.Context(), p.next.Extensions)
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
