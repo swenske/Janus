@@ -37,6 +37,14 @@ type fakeMember struct {
 	learning, alone, drained bool
 	// undrained: when ClusterUndrain last ran (ClusterInfo.undrained_unix).
 	undrained int64
+	// version and slot: what it runs; boot: when it booted; down: it
+	// doesn't answer (rebooting); masters: its VRRP MASTER instances;
+	// learnAfter: ClusterStatus calls before learning is over.
+	version, slot string
+	boot          time.Time
+	down          bool
+	masters       []string
+	learnAfter    int
 	// acme: its letsencrypt extension; nil: not in its image.
 	acme *janusv1alpha1.ACMEStatusResponse
 	// set: what the last ClusterSet said.
@@ -79,7 +87,36 @@ func (f *clusterFake) Version(_ context.Context, m clusters.Member) (*janusv1alp
 	if err := f.call(m, "Version", ""); err != nil {
 		return nil, err
 	}
-	return &janusv1alpha1.VersionResponse{SchematicId: f.node(m).schematic}, nil
+	fm := f.node(m)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if fm.down {
+		return nil, errors.New("connection refused")
+	}
+	return &janusv1alpha1.VersionResponse{SchematicId: fm.schematic, Version: fm.version, ActiveSlot: fm.slot}, nil
+}
+
+func (f *clusterFake) BootTime(_ context.Context, m clusters.Member) (time.Time, error) {
+	if err := f.call(m, "BootTime", ""); err != nil {
+		return time.Time{}, err
+	}
+	fm := f.node(m)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if fm.down {
+		return time.Time{}, errors.New("connection refused")
+	}
+	return fm.boot, nil
+}
+
+func (f *clusterFake) VRRPMasters(_ context.Context, m clusters.Member) ([]string, error) {
+	if err := f.call(m, "VRRPMasters", ""); err != nil {
+		return nil, err
+	}
+	fm := f.node(m)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(fm.masters), nil
 }
 
 func (f *clusterFake) Healthy(_ context.Context, m clusters.Member) error {
@@ -203,6 +240,11 @@ func (f *clusterFake) ClusterStatus(_ context.Context, m clusters.Member) (*janu
 	fm := f.node(m)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if fm.learnAfter > 0 {
+		if fm.learnAfter--; fm.learnAfter == 0 {
+			fm.learning = false
+		}
+	}
 	return &janusv1alpha1.ClusterStatusResponse{TablesLearnt: !fm.learning,
 		Peers: []*janusv1alpha1.ClusterPeer{{Name: "x", Up: !fm.alone, Tables: []*janusv1alpha1.ClusterPeerTable{{Synced: true}}}}}, nil
 }

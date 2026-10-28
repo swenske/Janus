@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
@@ -59,6 +60,11 @@ type Nodes interface {
 	// Addresses: every address on m's interfaces, link-local ones too -
 	// a router's route through m names one of them (RouterRoles).
 	Addresses(ctx context.Context, m Member) ([]netip.Addr, error)
+	// BootTime: when m's kernel booted - a reboot moves it (Upgrade).
+	BootTime(ctx context.Context, m Member) (time.Time, error)
+	// VRRPMasters: the VRRP instances m is MASTER of; none without
+	// keepalived (Upgrade's order).
+	VRRPMasters(ctx context.Context, m Member) ([]string, error)
 }
 
 // GRPC is Nodes over each member's gRPC connection.
@@ -500,6 +506,39 @@ func (g GRPC) Addresses(ctx context.Context, m Member) ([]netip.Addr, error) {
 			if p, err := netip.ParsePrefix(a); err == nil {
 				out = append(out, p.Addr())
 			}
+		}
+	}
+	return out, nil
+}
+
+func (g GRPC) BootTime(ctx context.Context, m Member) (time.Time, error) {
+	c, err := g.system(ctx, m)
+	if err != nil {
+		return time.Time{}, err
+	}
+	st, err := c.SystemStat(ctx, &emptypb.Empty{})
+	if err != nil {
+		return time.Time{}, nodeError(err)
+	}
+	return time.Unix(int64(st.GetBootTimeUnix()), 0), nil //nolint:gosec // G115: a boot time in seconds fits
+}
+
+func (g GRPC) VRRPMasters(ctx context.Context, m Member) ([]string, error) {
+	c, err := g.network(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	st, err := c.VRRPStatus(ctx, &emptypb.Empty{})
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() == codes.FailedPrecondition {
+			return nil, nil // no keepalived in its image
+		}
+		return nil, nodeError(err)
+	}
+	var out []string
+	for _, in := range st.GetInstances() {
+		if in.GetRole() == "MASTER" {
+			out = append(out, in.GetName())
 		}
 	}
 	return out, nil

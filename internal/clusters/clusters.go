@@ -180,8 +180,10 @@ type MemberState struct {
 	TablesSynced bool      `json:"tables_synced"`
 	CertNotAfter time.Time `json:"cert_not_after,omitzero"`
 	Drained      bool      `json:"drained"`
-	Error        string    `json:"error,omitempty"`
-	Checked      time.Time `json:"checked,omitzero"`
+	// Stage: where its in-place update is (Upgrade), "" outside one.
+	Stage   string    `json:"stage,omitempty"`
+	Error   string    `json:"error,omitempty"`
+	Checked time.Time `json:"checked,omitzero"`
 }
 
 // State is what the members have.
