@@ -58,7 +58,10 @@ cp -r janus-src/claude-code/janusctl/skills/janusctl ~/.claude/skills/
 ```
 
 It is then `/janusctl`. A copy doesn't update itself: copy it again
-after a release.
+after a release. It brings the skill alone, without the plugin's
+[hook](#janusctl-says-what-each-command-does): the
+[ask rules](#the-critical-commands-always-asked) are then the safety
+net.
 
 ## Using it
 
@@ -150,18 +153,108 @@ boundary, run Claude Code where your other credentials aren't:
   `JANUSCONFIG` isn't needed there.
 - **A container or a virtual machine** with Claude Code, janusctl and that
   configuration only - a dev container, say.
+- **Claude Code's sandbox**, on the same account: your contexts hidden
+  from Claude's commands, the nodes the only hosts they reach -
+  [below](#claude-codes-sandbox).
 
-Claude Code's own [sandbox](https://code.claude.com/docs/en/sandboxing.md)
-can hide a directory from its commands, but janusctl doesn't work in it
-yet: the sandbox lets commands out through its proxy only, and
-janusctl's connections to the Controller - the certificate's renewal,
-the list of nodes - don't use it.
+### Claude Code's sandbox
+
+Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing.md)
+runs Claude's commands with the folders you name unreadable, and lets
+them out only through its proxy, to the hosts you list. janusctl goes
+through that proxy (this release on). On Linux and WSL2 the sandbox
+needs `bubblewrap` and `socat`. With Claude's context of its own as
+above, in `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "JANUSCONFIG": "/home/sam/.config/janus-claude/janusctl.json",
+    "JANUS_NO_PROXY": "localhost"
+  },
+  "permissions": {
+    "deny": ["Read(~/.config/janus/**)"]
+  },
+  "sandbox": {
+    "enabled": true,
+    "allowUnsandboxedCommands": false,
+    "failIfUnavailable": true,
+    "filesystem": {
+      "denyRead": ["~/.config/janus"],
+      "allowWrite": ["~/.config/janus-claude"]
+    },
+    "network": {
+      "allowedDomains": ["10.0.0.11:9505", "10.0.0.12:9505"]
+    }
+  }
+}
+```
+
+- `denyRead` hides your contexts from Claude's commands - `cat` and
+  janusctl alike - and the `Read` rule from Claude Code's own file
+  tools.
+- `allowUnsandboxedCommands: false` takes away the retry outside the
+  sandbox, `failIfUnavailable` the session without one.
+- `allowWrite`: janusctl renews Claude's certificate in its context's
+  folder.
+- `allowedDomains` lists the nodes, each `ADDRESS:PORT` as `janusctl
+  nodes` shows it.
+- `JANUS_NO_PROXY`: the sandbox puts the private ranges (`10.0.0.0/8`,
+  `172.16.0.0/12`, `192.168.0.0/16`) in `NO_PROXY` - connect directly -
+  where its commands have no route; settings can't change that.
+  janusctl reads `JANUS_NO_PROXY` in `NO_PROXY`'s place, so the nodes
+  go through the proxy.
+
+In the sandbox, Claude's commands run without a prompt; the plugin's
+[hook](#janusctl-says-what-each-command-does) still asks before a
+critical one. Tested with a reader's context of a fleet without a
+Controller, a node on a private address, the node's first-boot admin
+credentials on the same disk under `denyRead`: `tui -once` and a
+streaming `system events` ran, the certificate was renewed in its
+folder (refused there without `allowWrite`), `cat` and janusctl's
+`-cert` couldn't open the admin credentials, and `access rotate-ca` was
+asked.
+
+### janusctl says what each command does
+
+The plugin brings a hook: before each command Claude runs, Claude Code
+asks the janusctl on its `PATH` what the command does
+(`janusctl __effect hook`) - from the same list as the skill's, that
+janusctl's own. It finds every janusctl command in the line however
+it's written - after a pipe or `&&`, inside `$(...)` or `sh -c '...'`,
+behind `env`, `sudo`, `timeout`, `xargs` or `ssh HOST`, by its full
+path, quoted word by word - and answers:
+
+| The command | The hook | Claude Code |
+|---|---|---|
+| critical | asks, naming the command, the node and what it does | asks you, in auto mode too |
+| one it can't tell: a variable where the command goes, an unknown command, a quote left open | asks, saying why | asks you |
+| changes | nothing | follows your rules |
+| reads | nothing - or allows it, with the plugin's option on | follows your rules - or runs it |
+
+Claude Code's prompt then reads `janusctl system reboot on edge-1 is
+critical - soft-stop HAProxy, then reboot`.
+
+The option, **Allow janusctl's reads** among the plugin's in `/config`,
+is off by default. It allows a line made of janusctl reads alone: not
+one piped into another program, redirected to a file, run after a
+variable's assignment (`JANUSCONFIG=...`) or naming a file of this
+machine (`-o`, `-ca`) - those are left to your rules.
+
+Your rules apply over the hook: a deny rule refuses and an ask rule
+asks, whatever it answered. The hook refuses nothing itself, and when it
+can't run - no janusctl on Claude Code's `PATH`, or one older than the
+hook - it decides nothing: your rules alone do. The `.deb` puts janusctl
+in `/usr/bin`; one only your shell's profile adds to `PATH` may not be
+on Claude Code's. It knows janusctl by its name: an alias goes unseen -
+the boundary remains the role.
 
 ### The critical commands, always asked
 
 These [settings](https://code.claude.com/docs/en/permissions.md) make
 Claude Code ask before every critical command, whatever was allowed
-before - in auto mode too. The `*` after `janusctl` stands for the
+before - in auto mode too: the net without the plugin's hook, a second
+one with it. The `*` after `janusctl` stands for the
 global flags (`-n edge-1`). Add them to `~/.claude/settings.json` or a
 repository's `.claude/settings.json`:
 
@@ -219,7 +312,7 @@ next one.
 ## How the skill is made
 
 The plugin is `claude-code/janusctl/` (`.claude-plugin/plugin.json`,
-`skills/janusctl/`); the marketplace that offers it is
+`skills/janusctl/`, `hooks/hooks.json`); the marketplace that offers it is
 `.claude-plugin/marketplace.json` at the repository's root.
 `SKILL.md` is written by hand; `references/commands.md` is generated
 from janusctl's command tree and `cmd/janusctl/effects.go` - what each
@@ -227,6 +320,10 @@ command does to a node - with `go test ./cmd/janusctl -run
 TestSkillCommands -update`. A new command without an entry in
 `effects.go` fails `go test`, every janusctl command line `SKILL.md` and
 this page show must be one janusctl has, flags included, and the ask
-rules above are `effects.go`'s critical commands. `claude plugin
+rules above are `effects.go`'s critical commands. The hook runs
+`janusctl __effect hook`, which reads the command line as a shell splits
+it and finds each janusctl command's place in the same tree
+(`cmd/janusctl/effect_hook.go`); its tests run every command of the
+tree through it. `claude plugin
 validate .` checks the manifests - its one warning, no `version`, is on
 purpose: without one, an update is a new commit of the plugin's folder.
