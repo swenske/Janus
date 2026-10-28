@@ -167,7 +167,8 @@ service ClusterService {
   rpc ClusterStatus(ClusterStatusRequest) returns (ClusterStatusResponse);    // readers
   // ClusterDrain takes this member out of service without stopping it:
   // marks HAProxy unhealthy for keepalived and BIRD (the virtual IPs
-  // move, the routes are withdrawn) and reports when they have.
+  // move, the routes are withdrawn) and reports when they have. Kept on
+  // STATE: the member stays drained across reboots.
   rpc ClusterDrain(ClusterDrainRequest) returns (stream ClusterDrainProgress); // admin
   // ClusterUndrain puts it back.
   rpc ClusterUndrain(ClusterUndrainRequest) returns (ClusterUndrainResponse); // admin

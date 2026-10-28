@@ -55,14 +55,22 @@ func (c *Cluster) ClusterDrain(req *janusv1alpha1.ClusterDrainRequest, stream ja
 	if timeout == 0 {
 		timeout = time.Minute
 	}
-	if c.Store.SetDrained(true) {
-		log.Printf("cluster: drained - HAProxy reads as unhealthy to keepalived and BIRD until undrained - by %s", caller)
+	// Kept on STATE: a reboot finds the member drained again. One that
+	// can't be kept still holds until then - said.
+	changed, keepErr := c.Store.Drain()
+	if changed {
+		log.Printf("cluster: drained - HAProxy reads as unhealthy to keepalived and BIRD until undrained, across reboots - by %s", caller)
 		events.Publish("cluster.drained", map[string]any{"by": caller.String()})
+	}
+	marked := "HAProxy marked unhealthy for keepalived and BIRD, until undrained - across reboots"
+	if keepErr != nil {
+		log.Printf("cluster: %v", keepErr)
+		marked = "HAProxy marked unhealthy for keepalived and BIRD - " + keepErr.Error()
 	}
 	send := func(stage, msg string, vrrpOK, bgpOK, done bool) error {
 		return stream.Send(&janusv1alpha1.ClusterDrainProgress{Stage: stage, Message: msg, VrrpReleased: vrrpOK, BgpWithdrawn: bgpOK, Done: done})
 	}
-	if err := send("marked", "HAProxy marked unhealthy for keepalived and BIRD", false, false, false); err != nil {
+	if err := send("marked", marked, false, false, false); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(timeout)
@@ -154,7 +162,11 @@ func (c *Cluster) bgpWithdrawn() (bool, string) {
 // ClusterUndrain puts the member back in service.
 func (c *Cluster) ClusterUndrain(ctx context.Context, _ *emptypb.Empty) (*janusv1alpha1.ClusterInfo, error) {
 	caller, _ := CallerFrom(ctx)
-	if c.Store.SetDrained(false) {
+	changed, err := c.Store.Undrain()
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if changed {
 		log.Printf("cluster: undrained - HAProxy's health is its own again - by %s", caller)
 		events.Publish("cluster.undrained", map[string]any{"by": caller.String()})
 	}
@@ -329,6 +341,9 @@ func (c *Cluster) info() *janusv1alpha1.ClusterInfo {
 	// A node removed from its cluster stays drained, out of service on
 	// its own: it says so, member or not.
 	info.Drained = c.Store.Drained()
+	if t := c.Store.UndrainedAt(); !t.IsZero() {
+		info.UndrainedUnix = t.Unix()
+	}
 	m := c.Store.Membership()
 	if m == nil {
 		info.Members = []*janusv1alpha1.ClusterMember{{Name: info.MemberName}}
