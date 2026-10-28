@@ -30,6 +30,7 @@ func (a *app) registerMachineRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/machines/{id}", a.gate(auth.Reader, auth.Admin, a.handleMachineUpdate))
 	mux.HandleFunc("DELETE /api/machines/{id}", a.gate(auth.Reader, auth.Admin, a.handleMachineDelete))
 	mux.HandleFunc("POST /api/machines/{id}/retry", a.gate(auth.Reader, auth.Admin, a.handleMachineRetry))
+	mux.HandleFunc("POST /api/machines/{id}/apply-settings", a.gate(auth.Reader, auth.Admin, a.handleMachineApplySettings))
 	mux.HandleFunc("POST /api/machines/{id}/power", a.gate(anyone, anyone, a.handleMachinePower))
 	mux.HandleFunc("GET /api/machines/{id}/console", a.gate(anyone, anyone, a.handleMachineConsole))
 	mux.HandleFunc("GET /api/machines/{id}/autoscale", a.gate(anyone, auth.Admin, a.handleMachineAutoscale))
@@ -60,9 +61,12 @@ type machineView struct {
 	// auto-scaling remembers and says.
 	Size           *machines.Size           `json:"size,omitempty"`
 	AutoscaleState *machines.AutoscaleState `json:"autoscale_state,omitempty"`
-	Events         []machines.Event         `json:"events"`
-	CreatedAt      time.Time                `json:"created_at"`
-	UpdatedAt      time.Time                `json:"updated_at"`
+	// HardwareDrift: its hypervisor settings that aren't the ones the
+	// Controller gives machines today - POST .../apply-settings.
+	HardwareDrift []hypervisor.Drift `json:"hardware_drift,omitempty"`
+	Events        []machines.Event   `json:"events"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
 }
 
 func (a *app) machineView(m *machines.Machine) machineView {
@@ -70,7 +74,7 @@ func (a *app) machineView(m *machines.Machine) machineView {
 		ID: m.ID, Spec: m.Spec, Phase: m.Phase, Error: m.Error, Version: m.Version, Schematic: m.Schematic,
 		NodeID: m.NodeID, Events: m.Events, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
 		NodeHostname: m.NodeHostname, SyncedAt: m.SyncedAt, SyncError: m.SyncError, Warning: m.Warning, HostID: m.HostID, HostName: m.HostName,
-		Size: m.Size, AutoscaleState: m.AutoscaleState,
+		Size: m.Size, AutoscaleState: m.AutoscaleState, HardwareDrift: m.HardwareDrift,
 	}
 	if h, ok := a.hypervisors.Get(m.Spec.HypervisorID); ok {
 		v.HypervisorName = h.Name

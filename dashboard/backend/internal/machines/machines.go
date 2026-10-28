@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -107,6 +108,20 @@ func (s Spec) Schematic() *schematic.Schematic {
 		Extensions: append([]string(nil), s.Extensions...), HAProxy: s.HAProxy, Kernel: s.Kernel}}
 }
 
+// GuestAgent reports whether the spec's image runs the QEMU guest
+// agent - what its hypervisor is told (hypervisor.Settings). A machine
+// created from an image URL has no extensions in its spec until its node
+// says which it runs (the sync).
+func (s Spec) GuestAgent() bool {
+	return slices.Contains(s.Extensions, hypervisor.GuestAgentExtension)
+}
+
+// Settings is what the spec asks of its hypervisor beyond its size and
+// interfaces.
+func (s Spec) Settings() hypervisor.Settings {
+	return hypervisor.Settings{GuestAgent: s.GuestAgent()}
+}
+
 type ImageSource struct {
 	URL    string `json:"url"`
 	SHA256 string `json:"sha256"`
@@ -167,6 +182,12 @@ type Machine struct {
 	// Size is what the virtual machine has now, read from its hypervisor
 	// - its nominal size, or what auto-scaling resized it to.
 	Size *Size `json:"size,omitempty"`
+	// HardwareDrift: its hypervisor settings that aren't what the
+	// Controller gives it today (an older Controller's machine, or one
+	// changed on the hypervisor), as its sync last read them - reported,
+	// never adopted, applied only when asked (a cold restart:
+	// POST /api/machines/{id}/apply-settings).
+	HardwareDrift []hypervisor.Drift `json:"hardware_drift,omitempty"`
 	// AutoscaleState is auto-scaling's memory of the machine.
 	AutoscaleState *AutoscaleState `json:"autoscale_state,omitempty"`
 

@@ -231,7 +231,12 @@ A machine's card shows:
 - what manages it as code (`ManagedBadge`), and its lock (`LockNotice`,
   with **Release**, confirmed);
 - when its record was last read from its node and hypervisor;
-- the node's hostname when its page changed it.
+- the node's hostname when its page changed it;
+- its hypervisor settings that aren't the ones the Controller gives
+  machines today (`DriftNotice`, the machine's `hardware_drift`: a
+  Proxmox CPU model without AES-NI, the guest agent's option), with
+  **Apply settings** for an admin - confirmed, since it restarts the
+  machine (`POST /api/machines/{id}/apply-settings`).
 
 **Edit** (`EditMachine`) is the hardware only: vCPUs, memory, interfaces
 added, removed or moved - and the machine's auto-scaling

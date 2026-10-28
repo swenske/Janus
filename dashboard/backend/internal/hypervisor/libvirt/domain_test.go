@@ -44,6 +44,16 @@ func TestDomainXML(t *testing.T) {
 			Type string    `xml:"type,attr"`
 			Log  *struct{} `xml:"log"`
 		} `xml:"devices>serial"`
+		Channels []struct {
+			Type   string `xml:"type,attr"`
+			Target struct {
+				Type string `xml:"type,attr"`
+				Name string `xml:"name,attr"`
+			} `xml:"target"`
+		} `xml:"devices>channel"`
+		CPU struct {
+			Mode string `xml:"mode,attr"`
+		} `xml:"cpu"`
 	}
 	if err := xml.Unmarshal([]byte(x), &d); err != nil {
 		t.Fatalf("domain XML doesn't parse: %v\n%s", err, x)
@@ -61,6 +71,25 @@ func TestDomainXML(t *testing.T) {
 	}
 	if !strings.Contains(x, "name='secure-boot'") || !strings.Contains(x, "machine='q35'") {
 		t.Error("expected q35 with UEFI firmware features")
+	}
+	// The guest agent's channel, with or without the extension: the
+	// qemu-guest-agent extension waits for its port
+	// (/dev/virtio-ports/org.qemu.guest_agent.0) - unlike Proxmox's
+	// option, harmless without an agent (#373).
+	for _, agent := range []bool{false, true} {
+		spec := testSpec()
+		spec.GuestAgent = agent
+		d.Channels = nil
+		if err := xml.Unmarshal([]byte(domainXML(spec, "/d.qcow2", "/ci.iso", "ctl-1")), &d); err != nil {
+			t.Fatal(err)
+		}
+		if len(d.Channels) != 1 || d.Channels[0].Type != "unix" || d.Channels[0].Target.Type != "virtio" || d.Channels[0].Target.Name != "org.qemu.guest_agent.0" {
+			t.Errorf("guest agent %v: channels %+v", agent, d.Channels)
+		}
+		// The host's CPU, AES-NI and all (#372).
+		if d.CPU.Mode != "host-passthrough" {
+			t.Errorf("CPU mode %q", d.CPU.Mode)
+		}
 	}
 
 	// The ownership tag, as DomainGetMetadata would return the element.

@@ -384,6 +384,11 @@ func (d *Driver) CreateMachine(ctx context.Context, spec hypervisor.MachineSpec)
 // between a cluster's hosts.
 const cpuModel = "x86-64-v2-AES"
 
+// agentParam turns the guest agent on, on its virtio-serial port - the
+// one the qemu-guest-agent extension listens on
+// (/dev/virtio-ports/org.qemu.guest_agent.0).
+const agentParam = "enabled=1,type=virtio"
+
 // createParams is the new machine's configuration but its network
 // interfaces.
 func (d *Driver) createParams(spec hypervisor.MachineSpec, ci string) url.Values {
@@ -404,11 +409,84 @@ func (d *Driver) createParams(spec hypervisor.MachineSpec, ci string) url.Values
 		"ostype":      {"l26"},
 		"description": {d.description(spec)},
 	}
+	// Only with an agent in the image: on without one, Proxmox's
+	// shutdowns and backups wait for it and time out (#373).
+	if spec.GuestAgent {
+		params.Set("agent", agentParam)
+	}
 	hw, _ := hardwareParams(nil, spec.Hardware)
 	for k, v := range hw {
 		params[k] = v
 	}
 	return params
+}
+
+// option reads a property string option ("x86-64-v2-AES",
+// "cputype=host,flags=+aes", "1,fstrim_cloned_disks=1"): its value for
+// key - a first part without a name is the value of the option's
+// default key, def.
+func option(raw any, def, key string) string {
+	if raw == nil {
+		return ""
+	}
+	for i, part := range strings.Split(fmt.Sprint(raw), ",") {
+		k, v, named := strings.Cut(strings.TrimSpace(part), "=")
+		if !named && i == 0 {
+			k, v = def, k
+		}
+		if k == key {
+			return v
+		}
+	}
+	return ""
+}
+
+// cpuDrift is a machine's CPU model when it's one Proxmox VE gives a
+// machine created without any - kvm64 (qemu64 beside it): no AES-NI,
+// SSE4, AVX, BMI2 or ADX (#372) - an older Controller's machines. A model
+// someone chose (host, x86-64-v3...) is theirs, left alone.
+func cpuDrift(cfg map[string]any) *hypervisor.Drift {
+	have := option(cfg["cpu"], "cputype", "cputype")
+	switch have {
+	case "", "kvm64", "qemu64":
+		return &hypervisor.Drift{Setting: "cpu", Have: or(have, "kvm64 (Proxmox's default)"), Want: cpuModel}
+	}
+	return nil
+}
+
+// agentOn reports whether a machine's agent option has the guest agent
+// on, on its virtio-serial port.
+func agentOn(cfg map[string]any) bool {
+	v, ok := cfg["agent"]
+	if !ok || v == nil {
+		return false
+	}
+	typ := option(v, "enabled", "type")
+	return option(v, "enabled", "enabled") == "1" && (typ == "" || typ == "virtio")
+}
+
+// settingsParams is what Reconfigure changes so the machine has s and
+// today's CPU model - only what differs -, and the keys to delete.
+func settingsParams(cfg map[string]any, s hypervisor.Settings) (url.Values, []string) {
+	p := url.Values{}
+	var deletes []string
+	if cpuDrift(cfg) != nil {
+		p.Set("cpu", cpuModel)
+	}
+	switch on := agentOn(cfg); {
+	case s.GuestAgent && !on:
+		p.Set("agent", agentParam)
+	case !s.GuestAgent && cfg["agent"] != nil:
+		deletes = append(deletes, "agent")
+	}
+	return p, deletes
+}
+
+func or(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
 }
 
 // createVM creates the machine under the first free ID - of the
@@ -609,8 +687,12 @@ func (d *Driver) MachineStatus(ctx context.Context, ref hypervisor.MachineRef) (
 		}
 		return nil, err
 	}
-	out := &hypervisor.MachineStatus{Power: powerState(st.Status, st.QMPStatus), HostID: hostID(node), HostName: node}
+	agent := agentOn(c.raw)
+	out := &hypervisor.MachineStatus{Power: powerState(st.Status, st.QMPStatus), HostID: hostID(node), HostName: node, GuestAgent: &agent}
 	out.VCPUs, out.MaxVCPUs, out.MemoryMiB, out.MaxMemoryMiB, out.MemoryStepMiB = statusOf(c)
+	if d := cpuDrift(c.raw); d != nil {
+		out.Drift = append(out.Drift, *d)
+	}
 	return out, nil
 }
 
@@ -642,8 +724,11 @@ func (d *Driver) Power(ctx context.Context, ref hypervisor.MachineRef, action hy
 // memory modules above all -, or nil.
 func CheckHardware(hw hypervisor.Hardware) error { return checkHardware(hw) }
 
-// Reconfigure changes a stopped machine's size, maxima and interfaces.
-func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, hw hypervisor.Hardware, nics []hypervisor.NIC) error {
+// Reconfigure changes a stopped machine's size, maxima, interfaces and
+// settings: what it read with current=1 is what it runs with, nothing
+// pending - stopped, the change applies at once, and its next start
+// runs with it.
+func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, hw hypervisor.Hardware, nics []hypervisor.NIC, s hypervisor.Settings) error {
 	if err := checkHardware(hw); err != nil {
 		return err
 	}
@@ -665,7 +750,7 @@ func (d *Driver) Reconfigure(ctx context.Context, ref hypervisor.MachineRef, hw 
 			return fmt.Errorf("network %s isn't one this hypervisor allows", n.Network)
 		}
 	}
-	params, err := reconfigureParams(c.raw, hw, nics)
+	params, err := reconfigureParams(c.raw, hw, nics, s)
 	if err != nil {
 		return err
 	}
@@ -741,12 +826,17 @@ func (d *Driver) Resize(ctx context.Context, ref hypervisor.MachineRef, vcpus, m
 var netKeyRe = regexp.MustCompile(`^net([0-9]+)$`)
 var macRe = regexp.MustCompile(`(?i)(?:virtio|e1000e?|vmxnet3|rtl8139)=([0-9a-f:]{17})`)
 
-// reconfigureParams is the config change for vCPUs, memory and the
-// whole new set of interfaces, matched by MAC: one gone is deleted, one
-// whose network changed is rewritten (same slot, same MAC), one new
-// takes the first free slot.
-func reconfigureParams(cfg map[string]any, hw hypervisor.Hardware, nics []hypervisor.NIC) (url.Values, error) {
+// reconfigureParams is the config change for vCPUs, memory, the
+// settings (settingsParams) and the whole new set of interfaces, matched
+// by MAC: one gone is deleted, one whose network changed is rewritten
+// (same slot, same MAC), one new takes the first free slot.
+func reconfigureParams(cfg map[string]any, hw hypervisor.Hardware, nics []hypervisor.NIC, s hypervisor.Settings) (url.Values, error) {
 	p, hwDeletes := hardwareParams(cfg, hw)
+	sp, settingsDeletes := settingsParams(cfg, s)
+	for k, v := range sp {
+		p[k] = v
+	}
+	hwDeletes = append(hwDeletes, settingsDeletes...)
 	slots := map[string]int{} // MAC -> slot
 	used := map[int]bool{}
 	for k, v := range cfg {

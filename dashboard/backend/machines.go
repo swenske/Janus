@@ -387,6 +387,10 @@ func (r *machineRunner) create(ctx context.Context, id string) error {
 		Hardware:  m.Spec.Hardware(),
 		Image:     img,
 		CIData:    ci,
+		// From the schematic asked for; an image URL's extensions are
+		// unknown until its node registers - the sync reports the guest
+		// agent's then (machineDrift).
+		Settings: m.Spec.Settings(),
 	}
 	for _, n := range m.Spec.NICs {
 		spec.NICs = append(spec.NICs, hypervisor.NIC{Network: n.Network, MAC: n.MAC})

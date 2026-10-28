@@ -39,7 +39,7 @@ func TestReconfigureParams(t *testing.T) {
 		{Network: "vmbr0.10", MAC: "52:54:00:aa:bb:01"}, // kept
 		{Network: "vmbr0.30", MAC: "52:54:00:aa:bb:02"}, // moved
 		{Network: "vmbr0.10", MAC: "52:54:00:aa:bb:05"}, // new: slot 2
-	})
+	}, hypervisor.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +49,8 @@ func TestReconfigureParams(t *testing.T) {
 		"net1":   "virtio=52:54:00:AA:BB:02,bridge=vmbr0,tag=30",
 		"net2":   "virtio=52:54:00:AA:BB:05,bridge=vmbr0,tag=10",
 		"delete": "net3",
+		// No CPU model: an older Controller's machine gets today's.
+		"cpu": "x86-64-v2-AES",
 	}
 	for k, v := range want {
 		if p.Get(k) != v {
@@ -112,10 +114,18 @@ func TestImageStorageProblem(t *testing.T) {
 
 // A new machine's configuration: UEFI on q35, and a CPU model with
 // AES-NI - left out, Proxmox's API gives kvm64, which has none (#372).
+// The guest agent only with the extension (#373).
 func TestCreateParams(t *testing.T) {
 	d := &Driver{cfg: &hypervisor.ProxmoxConfig{Pool: "janus", Storage: "local-lvm", ImageStorage: "local"}, controllerID: "ctl1"}
 	spec := hypervisor.MachineSpec{Name: "janus-node1", MachineID: "m1", Image: hypervisor.Image{Name: "janus.qcow2"}, Hardware: hypervisor.Hardware{VCPUs: 2, MemoryMiB: 1024}}
+	if p := d.createParams(spec, "janus-cidata-m1.iso"); p.Has("agent") {
+		t.Errorf("an agent without the extension: %q", p.Get("agent"))
+	}
+	spec.GuestAgent = true
 	p := d.createParams(spec, "janus-cidata-m1.iso")
+	if got := p.Get("agent"); got != "enabled=1,type=virtio" || !agentOn(map[string]any{"agent": got}) {
+		t.Errorf("agent = %q", got)
+	}
 	for k, want := range map[string]string{
 		"cpu": "x86-64-v2-AES", "machine": "q35", "bios": "ovmf", "pool": "janus", "cores": "2", "memory": "1024",
 		"virtio0": "local-lvm:0,import-from=local:import/janus.qcow2", "ide2": "local:iso/janus-cidata-m1.iso,media=cdrom",
@@ -126,5 +136,65 @@ func TestCreateParams(t *testing.T) {
 	}
 	if !tagRe.MatchString(p.Get("description")) {
 		t.Errorf("no tag in the description %q", p.Get("description"))
+	}
+}
+
+// What a machine's configuration says about its settings, as Proxmox
+// writes it: the CPU model a machine created without one has (kvm64 -
+// reported, set by Reconfigure), one someone chose (theirs), and the
+// guest agent's option in its forms.
+func TestSettings(t *testing.T) {
+	for _, tc := range []struct {
+		cpu   any
+		drift bool
+	}{
+		{nil, true}, {"kvm64", true}, {"qemu64", true}, {"cputype=kvm64,flags=+pcid", true},
+		{"x86-64-v2-AES", false}, {"host", false}, {"x86-64-v3", false}, {"cputype=host,hidden=1", false},
+	} {
+		cfg := map[string]any{}
+		if tc.cpu != nil {
+			cfg["cpu"] = tc.cpu
+		}
+		d := cpuDrift(cfg)
+		if (d != nil) != tc.drift {
+			t.Errorf("cpu %v: drift %+v", tc.cpu, d)
+		}
+		p, _ := settingsParams(cfg, hypervisor.Settings{})
+		if got := p.Get("cpu"); (got == cpuModel) != tc.drift || (!tc.drift && got != "") {
+			t.Errorf("cpu %v: Reconfigure sets %q", tc.cpu, got)
+		}
+	}
+	if d := cpuDrift(map[string]any{}); d.Setting != "cpu" || d.Have != "kvm64 (Proxmox's default)" || d.Want != "x86-64-v2-AES" {
+		t.Errorf("drift %+v", d)
+	}
+
+	for agent, on := range map[any]bool{
+		nil: false, "0": false, "1": true, float64(1): true, "enabled=1": true, "enabled=1,type=virtio": true,
+		"1,fstrim_cloned_disks=1": true, "type=virtio,enabled=1": true, "enabled=0,type=virtio": false,
+		"1,type=isa": false, // a port the extension doesn't listen on
+	} {
+		cfg := map[string]any{"cpu": "host"}
+		if agent != nil {
+			cfg["agent"] = agent
+		}
+		if got := agentOn(cfg); got != on {
+			t.Errorf("agent %v: on %v", agent, got)
+		}
+		// Wanted on: set when it isn't, left as it is (its other
+		// options too) when it is. Wanted off: deleted when there.
+		p, del := settingsParams(cfg, hypervisor.Settings{GuestAgent: true})
+		if (p.Get("agent") == agentParam) == on || len(del) != 0 {
+			t.Errorf("agent %v, wanted on: %v, deletes %v", agent, p, del)
+		}
+		p, del = settingsParams(cfg, hypervisor.Settings{})
+		if len(p) != 0 || (len(del) == 1) != (agent != nil) {
+			t.Errorf("agent %v, wanted off: %v, deletes %v", agent, p, del)
+		}
+	}
+
+	// Through reconfigureParams: one delete list.
+	p, err := reconfigureParams(map[string]any{"cpu": "x86-64-v2-AES", "agent": "1", "vcpus": 2}, hypervisor.Hardware{VCPUs: 1, MemoryMiB: 1024}, nil, hypervisor.Settings{})
+	if err != nil || p.Get("delete") != "agent,vcpus" || p.Has("cpu") {
+		t.Errorf("reconfigureParams: %v %v", p, err)
 	}
 }

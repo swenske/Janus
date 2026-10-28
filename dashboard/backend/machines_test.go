@@ -66,6 +66,12 @@ type fakeDriver struct {
 	consoles int
 	// hostID, when set, is the physical host it says it reaches.
 	hostID string
+	// agent, when set, is the guest agent's option MachineStatus reports
+	// (Proxmox's); drift the settings it reports as not today's -
+	// Reconfigure sets both, and records each Settings it was given.
+	agent    *bool
+	drift    []hypervisor.Drift
+	settings []hypervisor.Settings
 }
 
 func newFakeDriver() *fakeDriver {
@@ -123,18 +129,24 @@ func (f *fakeDriver) CreateMachine(_ context.Context, spec hypervisor.MachineSpe
 func (f *fakeDriver) MachineStatus(_ context.Context, ref hypervisor.MachineRef) (*hypervisor.MachineStatus, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	var agent *bool
+	if f.agent != nil {
+		on := *f.agent
+		agent = &on
+	}
 	if f.hw != nil {
 		c := *f.hw
 		if f.lagLeft > 0 {
 			f.lagLeft--
 			c = f.beforeHW
 		}
+		c.GuestAgent, c.Drift = agent, append([]hypervisor.Drift(nil), f.drift...)
 		return &c, nil
 	}
 	if _, ok := f.vms[ref.UUID]; !ok {
 		return &hypervisor.MachineStatus{Power: hypervisor.PowerOff}, nil
 	}
-	return &hypervisor.MachineStatus{Power: hypervisor.PowerRunning, HostID: f.hostID}, nil
+	return &hypervisor.MachineStatus{Power: hypervisor.PowerRunning, HostID: f.hostID, GuestAgent: agent, Drift: append([]hypervisor.Drift(nil), f.drift...)}, nil
 }
 
 func (f *fakeDriver) Power(_ context.Context, _ hypervisor.MachineRef, action hypervisor.PowerAction) error {
@@ -152,9 +164,14 @@ func (f *fakeDriver) Power(_ context.Context, _ hypervisor.MachineRef, action hy
 	return nil
 }
 
-func (f *fakeDriver) Reconfigure(_ context.Context, ref hypervisor.MachineRef, hw hypervisor.Hardware, nics []hypervisor.NIC) error {
+func (f *fakeDriver) Reconfigure(_ context.Context, ref hypervisor.MachineRef, hw hypervisor.Hardware, nics []hypervisor.NIC, s hypervisor.Settings) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.settings = append(f.settings, s)
+	if f.agent != nil {
+		f.agent = &s.GuestAgent
+	}
+	f.drift = nil
 	f.resized = append(f.resized, [2]int{hw.VCPUs, hw.MemoryMiB})
 	f.hardware = append(f.hardware, hw)
 	f.nics = append([]hypervisor.NIC(nil), nics...)
