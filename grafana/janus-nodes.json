@@ -2410,8 +2410,9 @@
               "keepalived": 3,
               "letsencrypt": 4,
               "nftables": 5,
-              "prometheus-node-exporter": 6,
-              "qemu-guest-agent": 7
+              "prometheus-bird-exporter": 6,
+              "prometheus-node-exporter": 7,
+              "qemu-guest-agent": 8
             },
             "renameByName": {
               "instance\\extension": "Node"

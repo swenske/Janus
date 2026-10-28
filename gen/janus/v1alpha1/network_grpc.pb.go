@@ -23,6 +23,8 @@ const (
 	NetworkService_BGPStatus_FullMethodName            = "/janus.v1alpha1.NetworkService/BGPStatus"
 	NetworkService_BGPGetConfig_FullMethodName         = "/janus.v1alpha1.NetworkService/BGPGetConfig"
 	NetworkService_BGPApplyConfig_FullMethodName       = "/janus.v1alpha1.NetworkService/BGPApplyConfig"
+	NetworkService_BGPExporterConfigGet_FullMethodName = "/janus.v1alpha1.NetworkService/BGPExporterConfigGet"
+	NetworkService_BGPExporterConfigSet_FullMethodName = "/janus.v1alpha1.NetworkService/BGPExporterConfigSet"
 	NetworkService_VRRPStatus_FullMethodName           = "/janus.v1alpha1.NetworkService/VRRPStatus"
 	NetworkService_VRRPGetConfig_FullMethodName        = "/janus.v1alpha1.NetworkService/VRRPGetConfig"
 	NetworkService_VRRPApplyConfig_FullMethodName      = "/janus.v1alpha1.NetworkService/VRRPApplyConfig"
@@ -60,6 +62,12 @@ type NetworkServiceClient interface {
 	// BGPApplyConfig has BIRD check a bird.conf, saves it, and BIRD
 	// reconfigures.
 	BGPApplyConfig(ctx context.Context, in *BGPApplyConfigRequest, opts ...grpc.CallOption) (*BGPApplyConfigResponse, error)
+	// BGPExporterConfigGet reports bird_exporter's settings (the
+	// prometheus-bird-exporter extension).
+	BGPExporterConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*BGPExporterConfigResponse, error)
+	// BGPExporterConfigSet changes bird_exporter's settings: it restarts
+	// with them.
+	BGPExporterConfigSet(ctx context.Context, in *BGPExporterConfig, opts ...grpc.CallOption) (*BGPExporterConfigResponse, error)
 	// VRRPStatus reads keepalived's own state of each instance.
 	VRRPStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*VRRPStatusResponse, error)
 	// VRRPGetConfig returns the saved keepalived.conf.
@@ -152,6 +160,26 @@ func (c *networkServiceClient) BGPApplyConfig(ctx context.Context, in *BGPApplyC
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BGPApplyConfigResponse)
 	err := c.cc.Invoke(ctx, NetworkService_BGPApplyConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) BGPExporterConfigGet(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*BGPExporterConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BGPExporterConfigResponse)
+	err := c.cc.Invoke(ctx, NetworkService_BGPExporterConfigGet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *networkServiceClient) BGPExporterConfigSet(ctx context.Context, in *BGPExporterConfig, opts ...grpc.CallOption) (*BGPExporterConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BGPExporterConfigResponse)
+	err := c.cc.Invoke(ctx, NetworkService_BGPExporterConfigSet_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -355,6 +383,12 @@ type NetworkServiceServer interface {
 	// BGPApplyConfig has BIRD check a bird.conf, saves it, and BIRD
 	// reconfigures.
 	BGPApplyConfig(context.Context, *BGPApplyConfigRequest) (*BGPApplyConfigResponse, error)
+	// BGPExporterConfigGet reports bird_exporter's settings (the
+	// prometheus-bird-exporter extension).
+	BGPExporterConfigGet(context.Context, *emptypb.Empty) (*BGPExporterConfigResponse, error)
+	// BGPExporterConfigSet changes bird_exporter's settings: it restarts
+	// with them.
+	BGPExporterConfigSet(context.Context, *BGPExporterConfig) (*BGPExporterConfigResponse, error)
 	// VRRPStatus reads keepalived's own state of each instance.
 	VRRPStatus(context.Context, *emptypb.Empty) (*VRRPStatusResponse, error)
 	// VRRPGetConfig returns the saved keepalived.conf.
@@ -431,6 +465,12 @@ func (UnimplementedNetworkServiceServer) BGPGetConfig(context.Context, *emptypb.
 }
 func (UnimplementedNetworkServiceServer) BGPApplyConfig(context.Context, *BGPApplyConfigRequest) (*BGPApplyConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method BGPApplyConfig not implemented")
+}
+func (UnimplementedNetworkServiceServer) BGPExporterConfigGet(context.Context, *emptypb.Empty) (*BGPExporterConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BGPExporterConfigGet not implemented")
+}
+func (UnimplementedNetworkServiceServer) BGPExporterConfigSet(context.Context, *BGPExporterConfig) (*BGPExporterConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BGPExporterConfigSet not implemented")
 }
 func (UnimplementedNetworkServiceServer) VRRPStatus(context.Context, *emptypb.Empty) (*VRRPStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method VRRPStatus not implemented")
@@ -554,6 +594,42 @@ func _NetworkService_BGPApplyConfig_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(NetworkServiceServer).BGPApplyConfig(ctx, req.(*BGPApplyConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_BGPExporterConfigGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).BGPExporterConfigGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_BGPExporterConfigGet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).BGPExporterConfigGet(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NetworkService_BGPExporterConfigSet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BGPExporterConfig)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NetworkServiceServer).BGPExporterConfigSet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NetworkService_BGPExporterConfigSet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NetworkServiceServer).BGPExporterConfigSet(ctx, req.(*BGPExporterConfig))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -875,6 +951,14 @@ var NetworkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BGPApplyConfig",
 			Handler:    _NetworkService_BGPApplyConfig_Handler,
+		},
+		{
+			MethodName: "BGPExporterConfigGet",
+			Handler:    _NetworkService_BGPExporterConfigGet_Handler,
+		},
+		{
+			MethodName: "BGPExporterConfigSet",
+			Handler:    _NetworkService_BGPExporterConfigSet_Handler,
 		},
 		{
 			MethodName: "VRRPStatus",

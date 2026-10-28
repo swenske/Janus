@@ -345,6 +345,11 @@ var commands = &command{name: "janusctl", subs: []*command{
 			{name: "get", help: "the saved bird.conf"},
 			{name: "check", args: "FILE", help: "have BIRD check it", pos: []argKind{argFile}, required: 1},
 			{name: "apply", args: "FILE", help: "check, save and reconfigure", pos: []argKind{argFile}, required: 1},
+			{name: "exporter", help: "prometheus-bird-exporter: show or change", flags: []flagDef{
+				boolFlag("enable", "run it"), boolFlag("disable", "stop it, and keep it stopped"),
+				valFlag("address", "IP|auto|*", "listen on this address only (auto: the main interface's, *: all)", argNone),
+				valFlag("port", "PORT", "listen on this port", argNone),
+			}},
 		}},
 		{name: "consul", help: "Consul agent (consul extension)", subs: []*command{
 			{name: "status", help: "the service, the node, its cluster"},

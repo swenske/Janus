@@ -181,3 +181,51 @@ The [Janus exporter](metrics.md) reports `janus_bgp_protocol_up`,
   expr: janus_bgp_session_established == 0
   for: 2m
 ```
+
+### bird_exporter
+
+For the label set your other routers' dashboards and alerts already use,
+build the image with the `prometheus-bird-exporter` extension too
+([image-factory.md](image-factory.md)) - it requires `bird`, and a
+schematic naming it alone is refused. It runs
+[bird_exporter](https://github.com/czerwonk/bird_exporter) on port
+**9324**, on the node's [main interface](metrics.md#where-it-listens)
+only - never on every address, so never on an anycast address BIRD
+announces. Over `janus_bgp_*` it adds each protocol's uptime and state,
+`bird_protocol_prefix_*_count` (routes imported, exported, filtered,
+preferred) and the update and withdraw counters (received, rejected,
+filtered, ignored, accepted), per protocol and channel, and BFD
+sessions.
+
+```yaml
+scrape_configs:
+  - job_name: bird
+    static_configs:
+      - targets: ['192.0.2.10:9324']
+```
+
+Its settings are kept on the node, like node_exporter's
+([metrics.md](metrics.md#the-node-exporter)): whether it runs, its
+address and its port.
+
+```sh
+janusctl network bgp exporter                                  # show
+janusctl network bgp exporter -address 192.0.2.10 -port 9325   # listen elsewhere
+janusctl network bgp exporter -address auto                    # the main interface (the default)
+janusctl network bgp exporter -disable                         # stop it, and keep it stopped
+```
+
+It reads BIRD over a control socket of its own that can't change
+routing: janusd adds
+`cli "/run/janus/bird/bird-ro.ctl" { restrict; };` to the bird.conf
+BIRD reads (after your text, like `log stderr all;` - what you apply and
+read back stays yours), and BIRD answers only `show` commands there:
+`disable`, `restart`, `reload`, `configure`, `down`... get "Access
+denied". The exporter waits for that socket: with no bird.conf applied,
+it shows as `waiting`.
+
+OSPF is left out: bird_exporter 1.7.1 fails the whole scrape on BIRD
+2.20's OSPF reply. Like node_exporter, it has no authentication:
+restrict who reaches the port. For a dashboard, upstream's
+[Grafana dashboards](https://github.com/czerwonk/bird_exporter/tree/main/grafana)
+read these metrics as they are.

@@ -147,6 +147,7 @@ var effects = map[string]effectOf{
 	"network bgp get":          {effectReads, ""},
 	"network bgp check":        {effectReads, ""},
 	"network bgp apply":        {effectChanges, "no trial: routes change at once"},
+	"network bgp exporter":     {effectChanges, "shows the settings without flags"},
 	"network consul status":    {effectReads, ""},
 	"network consul get":       {effectReads, ""},
 	"network consul check":     {effectReads, ""},

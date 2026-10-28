@@ -16,6 +16,7 @@ schematic keeps it through its updates.
 | `nftables` | amd64, arm64 | A firewall: the node's nftables ruleset managed through the API and the Controller, applied on trial with an automatic revert, named sets editable live - see [firewall.md](firewall.md) |
 | `keepalived` | amd64, arm64 | VRRP: virtual IPs shared by several nodes, moved when one fails or its HAProxy stops answering - see [vrrp.md](vrrp.md) |
 | `bird` | amd64, arm64 | BGP, OSPF, BFD with BIRD 2: announce the node's addresses - an anycast address withdrawn while HAProxy doesn't answer - see [bgp.md](bgp.md) |
+| `prometheus-bird-exporter` | amd64, arm64 | Prometheus [bird_exporter](https://github.com/czerwonk/bird_exporter): BIRD's protocols with upstream's metric names on `:9324/metrics`, read over a control socket that can't change routing - **requires `bird`** - see [bgp.md](bgp.md#bird_exporter) |
 | `letsencrypt` | amd64, arm64 | Let's Encrypt (or any ACME CA): the node obtains and renews its HAProxy certificates itself - HTTP-01 answered by HAProxy, DNS-01 through a DNS provider's API for wildcards - swapped in without a reload - see [letsencrypt.md](letsencrypt.md) |
 | `consul` | amd64, arm64 | The [Consul](https://developer.hashicorp.com/consul) agent with your configuration: HAProxy's servers from Consul's catalog, the node's services in it - see [consul.md](consul.md). Business Source License 1.1 |
 
@@ -132,8 +133,8 @@ customization:
   default; named, it stays what it is even when it happens to be today's
   default - the default moves, an ID never does.
 - An extension that only works with another one - an exporter reading a
-  daemon another extension brings - lists it under `requires` in the
-  catalog. A schematic naming it must name the other too: without it,
+  daemon another extension brings, `prometheus-bird-exporter` needing
+  `bird` - lists it under `requires` in the catalog. A schematic naming it must name the other too: without it,
   the image factory refuses the schematic with
   `extension "<name>" requires the "<other>" extension: choose it too`,
   and so do the site's builder, the Controller (a new node, a new

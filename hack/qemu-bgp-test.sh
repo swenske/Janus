@@ -11,6 +11,10 @@
 # back. A broken bird.conf is refused with BIRD's message, the exporter
 # reports the session, BIRD's log is the service's, an empty bird.conf
 # stops BIRD, and no AVC denial appears on either node.
+# The image also has prometheus-bird-exporter (docs/bgp.md "Metrics"):
+# bird_exporter reads BIRD over its restricted socket and serves :9324 on
+# the main interface only - its protocols up and its route counts the
+# same as janus_bgp_routes, scraped over the node's address.
 #
 # Usage: hack/qemu-bgp-test.sh <disk.img> <janusctl-bin>
 #   BGP_DISCOVERY=1: don't fail on AVC denials - list them (for writing
@@ -54,7 +58,7 @@ node() {
     -drive if=pflash,format=raw,file="$WORKDIR/$n.vars" \
     -drive file="$WORKDIR/$n.img",format=raw,if=virtio \
     -nographic -display none -m 512M \
-    -netdev "user,id=net0,hostfwd=tcp::$((BASE + 10 * i))-:8080,hostfwd=tcp::$((BASE + 10 * i + 1))-:9505,hostfwd=tcp::$((BASE + 10 * i + 2))-:10056" \
+    -netdev "user,id=net0,hostfwd=tcp::$((BASE + 10 * i))-:8080,hostfwd=tcp::$((BASE + 10 * i + 1))-:9505,hostfwd=tcp::$((BASE + 10 * i + 2))-:10056,hostfwd=tcp::$((BASE + 10 * i + 3))-:9324" \
     -device "virtio-net-pci,netdev=net0,mac=52:54:00:aa:00:0$i" \
     -netdev "socket,id=lan,mcast=$MCAST,localaddr=127.0.0.1" \
     -device "virtio-net-pci,netdev=lan,mac=52:54:00:bb:00:0$i" \
@@ -211,6 +215,44 @@ grep -q '^janus_bgp_session_established{protocol="peer_b",neighbor="192.168.78.2
 grep -q '^janus_bgp_protocol_held_down{protocol="haproxy_anycast"} 0$' <<<"$m" || fail "janus_bgp_protocol_held_down: $(grep bgp <<<"$m")"
 grep -q '^janus_bgp_routes{protocol="peer_b",channel="ipv4",direction="exported"} 2$' <<<"$m" || fail "janus_bgp_routes: $(grep bgp <<<"$m")"
 echo "  ok: the exporter reports the session, the gate and the routes"
+
+# bird_exporter (prometheus-bird-exporter), scraped over each node's main
+# address: the sessions up, and the routes BIRD counts the same as
+# janus_bgp_routes - A exports 2, B imports 2.
+birdexp() { curl -fsS -m 5 "http://127.0.0.1:$((BASE + 10 * $1 + 3))/metrics"; }
+bm_a="$(birdexp 1)" || fail "no bird_exporter metrics on A"
+bm_b="$(birdexp 2)" || fail "no bird_exporter metrics on B"
+m_b="$(curl -fsS -m 5 "http://127.0.0.1:$((BASE + 22))/metrics")" || fail "no metrics on B"
+# metric NAME PROTOCOL TEXT: the value of NAME for protocol PROTOCOL.
+metric() { awk -v n="$1" -v p="name=\"$2\"" 'index($0, n "{") == 1 && index($0, p) {print $NF; exit}' <<<"$3"; }
+[ "$(metric bird_protocol_up peer_b "$bm_a")" = 1 ] || fail "bird_exporter: peer_b isn't up on A: $(grep peer_b <<<"$bm_a" | head -5)"
+[ "$(metric bird_protocol_up peer_a "$bm_b")" = 1 ] || fail "bird_exporter: peer_a isn't up on B: $(grep peer_a <<<"$bm_b" | head -5)"
+# OSPF is left out (-proto.ospf=false, internal/birdexporter): with it,
+# bird_exporter 1.7.1 failed the whole scrape on BIRD 2.20's OSPF reply.
+grep -q '^bird_bfd_session_.*ip="192.168.78.2"' <<<"$bm_a" || fail "bird_exporter: no BFD session with B on A: $(grep bfd <<<"$bm_a" | head -3)"
+exp_a="$(metric bird_protocol_prefix_export_count peer_b "$bm_a")"
+imp_b="$(metric bird_protocol_prefix_import_count peer_a "$bm_b")"
+janus_exp_a="$(awk '/^janus_bgp_routes\{protocol="peer_b",channel="ipv4",direction="exported"\}/ {print $NF}' <<<"$m")"
+janus_imp_b="$(awk '/^janus_bgp_routes\{protocol="peer_a",channel="ipv4",direction="imported"\}/ {print $NF}' <<<"$m_b")"
+[ -n "$exp_a" ] && [ "$exp_a" = "$janus_exp_a" ] || fail "A's exported routes: bird_exporter '$exp_a', janus_bgp_routes '$janus_exp_a'"
+[ -n "$imp_b" ] && [ "$imp_b" = "$janus_imp_b" ] && [ "$imp_b" = 2 ] || fail "B's imported routes: bird_exporter '$imp_b', janus_bgp_routes '$janus_imp_b'"
+# Its listener is the main interface's address, not every address (not
+# the LAN's 192.168.78.x where an anycast route goes).
+listen="$(ctl a system netstat 2>/dev/null | awk '/:9324/ && /LISTEN/' | head -3)"
+grep -q '10\.0\.2\.15:9324' <<<"$listen" || fail "bird_exporter doesn't listen on the main address only: '$listen'"
+echo "  ok: bird_exporter scraped over each node's address: sessions up, routes the same as janus_bgp_routes (A exports $exp_a, B imports $imp_b), listening on 10.0.2.15 only"
+# Its settings (NetworkService.BGPExporterConfig*): shown with the
+# address it listens on; turned off, it stops answering; on again, back.
+out="$(ctl a network bgp exporter)"
+grep -q 'http://10.0.2.15:9324/metrics (main interface) (running)' <<<"$out" || fail "network bgp exporter: $out"
+out="$(ctl a network bgp exporter -disable)"
+grep -q 'bird_exporter: disabled' <<<"$out" || fail "network bgp exporter -disable: $out"
+stopped() { ! birdexp 1 >/dev/null 2>&1; }
+wait_for "bird_exporter still answers once disabled" stopped
+ctl a network bgp exporter -enable >/dev/null || fail "network bgp exporter -enable"
+answers() { birdexp 1 >/dev/null 2>&1; }
+wait_for "bird_exporter didn't come back once enabled" answers
+echo "  ok: bird_exporter's settings: shown with its address, off and on again"
 
 out="$(ctl a system logs bird 2>&1)"
 grep -q "peer_b: BGP session established\|peer_b: Connected\|Started" <<<"$out" || fail "BIRD's log isn't the service's: $(tail -5 <<<"$out")"

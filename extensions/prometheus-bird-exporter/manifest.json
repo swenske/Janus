@@ -1,0 +1,25 @@
+{
+  "name": "prometheus-bird-exporter",
+  "requires": ["bird"],
+  "description": "Prometheus bird_exporter: BIRD's protocols - state, uptime, routes imported, exported and filtered, update and withdraw counters, BFD sessions - on :9324/metrics, read over a restricted control socket that can't change routing. Requires the bird extension.",
+  "homepage": "https://github.com/czerwonk/bird_exporter",
+  "arches": ["amd64", "arm64"],
+  "services": [
+    {
+      "id": "prometheus-bird-exporter",
+      "description": "BIRD's protocols as Prometheus metrics on :9324/metrics",
+      "path": "/usr/local/sbin/bird_exporter",
+      "args": [
+        "-web.listen-address=:9324",
+        "-bird.socket=/run/janus/bird/bird-ro.ctl",
+        "-bird.v2",
+        "-format.new",
+        "-proto.ospf=false"
+      ],
+      "wait_for": ["/run/janus/bird/bird-ro.ctl"]
+    }
+  ],
+  "selinux_labels": {
+    "usr/local/sbin/bird_exporter": "bird_exporter_exec_t"
+  }
+}

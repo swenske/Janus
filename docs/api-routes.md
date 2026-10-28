@@ -174,6 +174,8 @@ Optional modules:
 | `BGPStatus` | | ✅ | The bird extension: every BIRD protocol's state, BGP sessions (neighbor, AS, last error), routes per channel, and the `haproxy_*` protocols janusd holds down while HAProxy doesn't answer ([bgp.md](bgp.md)) |
 | `BGPGetConfig` | | ✅ | The saved bird.conf |
 | `BGPApplyConfig` | | ✅ | Check (`validate_only`, by BIRD itself) or apply bird.conf - saved, BIRD reconfigures; empty stops BIRD |
+| `BGPExporterConfigGet` | | ✅ | The prometheus-bird-exporter extension: bird_exporter's settings - on or off, address (`auto` = the main interface), port - its state and where it listens ([bgp.md](bgp.md#bird_exporter)) |
+| `BGPExporterConfigSet` | | ✅ | Change them: bird_exporter restarts with them (or stops), persisted |
 | `VRRPStatus` | | ✅ | The keepalived extension: each VRRP instance's state, interface, priority, virtual IPs, and HAProxy's health as tracked ([vrrp.md](vrrp.md)) |
 | `VRRPGetConfig` | | ✅ | The saved keepalived.conf |
 | `VRRPApplyConfig` | | ✅ | Check (`validate_only`, by keepalived itself) or apply keepalived.conf - saved, reloaded; empty stops keepalived |

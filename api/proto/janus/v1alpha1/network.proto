@@ -25,6 +25,12 @@ service NetworkService {
   // BGPApplyConfig has BIRD check a bird.conf, saves it, and BIRD
   // reconfigures.
   rpc BGPApplyConfig(BGPApplyConfigRequest) returns (BGPApplyConfigResponse);
+  // BGPExporterConfigGet reports bird_exporter's settings (the
+  // prometheus-bird-exporter extension).
+  rpc BGPExporterConfigGet(google.protobuf.Empty) returns (BGPExporterConfigResponse);
+  // BGPExporterConfigSet changes bird_exporter's settings: it restarts
+  // with them.
+  rpc BGPExporterConfigSet(BGPExporterConfig) returns (BGPExporterConfigResponse);
 
   // VRRP: the keepalived extension (docs/vrrp.md).
 
@@ -397,6 +403,24 @@ message BGPApplyConfigRequest {
 message BGPApplyConfigResponse {
   bool accepted = 1;
   repeated string errors = 2;
+}
+
+message BGPExporterConfig {
+  bool enabled = 1;
+  // To listen on: "auto" (the default) for the main interface's
+  // address, empty for every address, else one IP.
+  string address = 2;
+  uint32 port = 3; // 0 = the default, 9324
+}
+
+message BGPExporterConfigResponse {
+  BGPExporterConfig config = 1;
+  bool is_default = 2; // nothing was ever set
+  string state = 3; // the service's: "running", "waiting", "disabled"...
+  string error = 4; // its last error, when it isn't running as set
+  // The address it listens on, "auto"'s resolved; empty for every
+  // address (or when it doesn't run).
+  string effective_address = 5;
 }
 
 message VRRPStatusResponse {

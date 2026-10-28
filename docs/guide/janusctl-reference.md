@@ -1210,6 +1210,21 @@ Check, save and reconfigure.
 janusctl network bgp apply FILE
 ```
 
+##### janusctl network bgp exporter
+
+Prometheus-bird-exporter: show or change.
+
+```text
+janusctl network bgp exporter [-enable] [-disable] [-address IP|auto|*] [-port PORT]
+```
+
+| Flag | |
+|---|---|
+| `-enable` | run it |
+| `-disable` | stop it, and keep it stopped |
+| `-address IP\|auto\|*` | listen on this address only (auto: the main interface's, *: all) |
+| `-port PORT` | listen on this port |
+
 #### janusctl network consul
 
 Consul agent (consul extension).

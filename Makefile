@@ -60,7 +60,7 @@ GEN_DIR := gen
 	systemd-stub rpi4-uki-image qemu-arm64-uefi-boot-test \
 	pi4-firmware pi5-firmware pi4-sdcard-image pi5-sdcard-image \
 	pi4-sdcard-image-test pi5-sdcard-image-test kernel-built-files \
-	upstream-check upstream-bump upstream-security-notes upstream-sbom
+	upstream-check upstream-bump upstream-security-notes upstream-sbom bird-ro-socket-test
 
 all: build
 
@@ -233,6 +233,15 @@ extension-prometheus-node-exporter-%:
 	go run ./hack/extpack pack -name prometheus-node-exporter -arch $* -version $(NODE_EXPORTER_VERSION) \
 		-tree $(EXT_DIR)/tree-prometheus-node-exporter-$* -out $(EXT_DIR)/extension-prometheus-node-exporter-$*.tar
 
+extension-prometheus-bird-exporter-%:
+	rm -rf $(EXT_DIR)/tree-prometheus-bird-exporter-$*
+	docker build --target export --build-arg ARCH=$* \
+		--build-arg BIRD_EXPORTER_VERSION=$(BIRD_EXPORTER_VERSION) \
+		--build-arg BIRD_EXPORTER_SHA256=$(BIRD_EXPORTER_SHA256) \
+		-o $(EXT_DIR)/tree-prometheus-bird-exporter-$* extensions/prometheus-bird-exporter
+	go run ./hack/extpack pack -name prometheus-bird-exporter -arch $* -version $(BIRD_EXPORTER_VERSION) \
+		-tree $(EXT_DIR)/tree-prometheus-bird-exporter-$* -out $(EXT_DIR)/extension-prometheus-bird-exporter-$*.tar
+
 extension-qemu-guest-agent-amd64:
 	rm -rf $(EXT_DIR)/tree-qemu-guest-agent-amd64
 	docker build --target export --build-arg QEMU_VERSION=$(QEMU_VERSION) \
@@ -311,14 +320,14 @@ extension-letsencrypt-%:
 	go run ./hack/extpack pack -name letsencrypt -arch $* -version $(VERSION) \
 		-tree $(EXT_DIR)/tree-letsencrypt-$* -out $(EXT_DIR)/extension-letsencrypt-$*.tar
 
-extensions-amd64: extension-prometheus-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-keepalived-amd64 extension-bird-amd64 extension-letsencrypt-amd64 extension-consul-amd64
-extensions-arm64: extension-prometheus-node-exporter-arm64 extension-nftables-arm64 extension-keepalived-arm64 extension-bird-arm64 extension-letsencrypt-arm64 extension-consul-arm64
+extensions-amd64: extension-prometheus-node-exporter-amd64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-keepalived-amd64 extension-bird-amd64 extension-prometheus-bird-exporter-amd64 extension-letsencrypt-amd64 extension-consul-amd64
+extensions-arm64: extension-prometheus-node-exporter-arm64 extension-nftables-arm64 extension-keepalived-arm64 extension-bird-arm64 extension-prometheus-bird-exporter-arm64 extension-letsencrypt-arm64 extension-consul-arm64
 
 # The extensions a release can build a schematic with.
 schematic-catalog:
 	mkdir -p $(EXT_DIR)
 	go run ./hack/extpack catalog -release $(VERSION) -out $(EXT_DIR)/schematic-catalog.json \
-		prometheus-node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION) keepalived=$(KEEPALIVED_VERSION) bird=$(BIRD_VERSION) letsencrypt=$(VERSION) consul=$(CONSUL_VERSION)
+		prometheus-node-exporter=$(NODE_EXPORTER_VERSION) qemu-guest-agent=$(QEMU_VERSION) nftables=$(NFTABLES_VERSION) keepalived=$(KEEPALIVED_VERSION) bird=$(BIRD_VERSION) prometheus-bird-exporter=$(BIRD_EXPORTER_VERSION) letsencrypt=$(VERSION) consul=$(CONSUL_VERSION)
 
 # What a release publishes so custom schematics can be built from it
 # without rebuilding anything (image/schematic/build.sh): per
@@ -1210,9 +1219,14 @@ qemu-vrrp-ipv6-test: build extension-keepalived-amd64 extension-qemu-guest-agent
 # BGP (bird extension) between two real enforcing nodes: sessions, an
 # anycast route withdrawn while HAProxy doesn't answer - see the script.
 qemu-bgp-test: SCHEMATIC = hack/testdata/schematic-bgp.json
-qemu-bgp-test: build extension-bird-amd64
+qemu-bgp-test: build extension-bird-amd64 extension-prometheus-bird-exporter-amd64
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
 	./hack/qemu-bgp-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl
+
+# The restricted control socket prometheus-bird-exporter reads BIRD over:
+# writes refused, with the bird extension's own BIRD - see the script.
+bird-ro-socket-test: extension-bird-amd64
+	./hack/bird-ro-socket-test.sh $(EXT_DIR)/extension-bird-amd64.tar
 
 # Let's Encrypt (letsencrypt extension) against Pebble, the ACME test CA,
 # on a real enforcing node: HTTP-01 answered by HAProxy, a wildcard over

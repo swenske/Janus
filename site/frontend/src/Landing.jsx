@@ -97,7 +97,7 @@ const FEATURES = [
   {
     icon: Boxes,
     title: 'Extensions',
-    text: 'A firewall (nftables), VRRP (keepalived), BGP (BIRD), Let’s Encrypt certificates - even for a node without the internet, through a proxy or your Controller -, Consul, Prometheus node_exporter and the QEMU guest agent. Pick them in the builder: they are part of the signed image.',
+    text: 'A firewall (nftables), VRRP (keepalived), BGP (BIRD), Let’s Encrypt certificates - even for a node without the internet, through a proxy or your Controller -, Consul, Prometheus node_exporter and bird_exporter, and the QEMU guest agent. Pick them in the builder: they are part of the signed image.',
   },
   {
     icon: SlidersHorizontal,
@@ -119,7 +119,7 @@ const FEATURES = [
   {
     icon: Gauge,
     title: 'Metrics',
-    text: 'A Prometheus exporter on every node - HAProxy serving, reloads and crashes, certificates, VRRP, BGP, the firewall, the clock, the logs shipped -, a Grafana dashboard and alert rules ready to load; node_exporter as an extension, and HAProxy’s own exporter.',
+    text: 'A Prometheus exporter on every node - HAProxy serving, reloads and crashes, certificates, VRRP, BGP, the firewall, the clock, the logs shipped -, a Grafana dashboard and alert rules ready to load; node_exporter and BIRD’s exporter as extensions, and HAProxy’s own exporter.',
   },
   { icon: Users, title: 'Accounts and access', text: 'Controller accounts with roles, MFA (TOTP or passkeys), single sign-on through OpenID Connect (Keycloak, a Synology, others), API tokens and access by node label; janusctl signs in with your SSH key.' },
   {

@@ -43,6 +43,17 @@ const GatePrefix = "haproxy_"
 // SocketPath is BIRD's control socket.
 func SocketPath() string { return filepath.Join(RunDir, "bird.ctl") }
 
+// ReadOnlySocketPath is the restricted control socket janusd gives BIRD
+// for the prometheus-bird-exporter extension: show commands only (BIRD's
+// `restrict`) - whatever the exporter is made to send over it can't
+// change routing. The extension's manifest names this path.
+func ReadOnlySocketPath() string { return filepath.Join(RunDir, "bird-ro.ctl") }
+
+// ReadOnlySocket says whether BIRD gets the restricted socket: janusd
+// sets it when the exporter is in the image, before BIRD's configuration
+// is first written.
+var ReadOnlySocket bool
+
 // Services is what Manager needs of janusd's extension supervisor.
 type Services interface {
 	StartService(id string) error
@@ -65,14 +76,39 @@ func New(svc Services) *Manager {
 	return &Manager{svc: svc, held: map[string]bool{}, healthy: true, mod: &modcfg.Module{
 		Name: "bird", Binary: Binary, File: "bird.conf", RunDir: RunDir,
 		CheckArgs: func(path string) []string { return []string{"-p", "-c", path} },
-		Runtime:   WithLog,
+		Runtime:   runtimeConfig,
 	}}
+}
+
+// runtimeConfig is the bird.conf BIRD reads: the operator's, with a log
+// statement, and the exporter's restricted socket when it's in the image.
+func runtimeConfig(config string) string {
+	config = WithLog(config)
+	if ReadOnlySocket {
+		config = WithReadOnlySocket(config)
+	}
+	return config
 }
 
 var (
 	comments     = regexp.MustCompile(`(?s)/\*.*?\*/|#[^\n]*`)
 	logStatement = regexp.MustCompile(`(?m)^\s*log\s`)
 )
+
+// WithReadOnlySocket appends the restricted control socket's declaration
+// (`cli "/run/janus/bird/bird-ro.ctl" { restrict; };`) to a configuration
+// that doesn't declare that socket itself - appended, like WithLog's
+// statement, so line numbers stay the operator's.
+func WithReadOnlySocket(config string) string {
+	declared := regexp.MustCompile(`(?m)^\s*cli\s+"` + regexp.QuoteMeta(ReadOnlySocketPath()) + `"`)
+	if declared.MatchString(comments.ReplaceAllString(config, "")) {
+		return config
+	}
+	if !strings.HasSuffix(config, "\n") {
+		config += "\n"
+	}
+	return config + `cli "` + ReadOnlySocketPath() + `" { restrict; }; # added by janusd: prometheus-bird-exporter's read-only socket` + "\n"
+}
 
 // WithLog appends "log stderr all;" to a configuration that has no log
 // statement: BIRD would log to syslog, which a node doesn't have - on
@@ -164,11 +200,14 @@ func (e *ErrBIRD) Error() string {
 
 // Query sends one command over BIRD's control socket and returns its
 // reply. A refused command is an *ErrBIRD.
-func Query(cmd string) ([]Line, error) {
+func Query(cmd string) ([]Line, error) { return queryAt(SocketPath(), cmd) }
+
+// queryAt is Query over the control socket at path.
+func queryAt(path, cmd string) ([]Line, error) {
 	if strings.ContainsAny(cmd, "\r\n") {
 		return nil, errors.New("a BIRD command is one line")
 	}
-	conn, err := net.DialTimeout("unix", SocketPath(), 2*time.Second)
+	conn, err := net.DialTimeout("unix", path, 2*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("%w (%v)", extensions.ErrNotRunning, err)
 	}

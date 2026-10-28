@@ -90,6 +90,8 @@ BGP: the bird extension ([docs/bgp.md](../bgp.md)). The protocols named haproxy_
 | `BGPStatus` | `Empty` → `BGPStatusResponse` | `os:reader` | observe | BGPStatus reads every protocol's state over BIRD's control socket. |
 | `BGPGetConfig` | `Empty` → `BGPGetConfigResponse` | `os:operator` | network | BGPGetConfig returns the saved bird.conf. |
 | `BGPApplyConfig` | `BGPApplyConfigRequest` → `BGPApplyConfigResponse` | `os:admin` | network | BGPApplyConfig has BIRD check a bird.conf, saves it, and BIRD reconfigures. |
+| `BGPExporterConfigGet` | `Empty` → `BGPExporterConfigResponse` | `os:reader` | observe | BGPExporterConfigGet reports bird_exporter's settings (the prometheus-bird-exporter extension). |
+| `BGPExporterConfigSet` | `BGPExporterConfig` → `BGPExporterConfigResponse` | `os:admin` | network | BGPExporterConfigSet changes bird_exporter's settings: it restarts with them. |
 
 VRRP: the keepalived extension ([docs/vrrp.md](../vrrp.md)).
 
