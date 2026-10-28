@@ -9,6 +9,7 @@ import (
 	"github.com/swenske/Janus/internal/netmgr"
 	"github.com/swenske/Janus/internal/timesync"
 	"github.com/swenske/Janus/internal/vrrp"
+	"net/netip"
 )
 
 // Network implements janusv1alpha1.NetworkServiceServer for the optional
@@ -37,4 +38,9 @@ type Network struct {
 	Services interface {
 		State(id string) (extensions.ServiceState, error)
 	}
+	// Exporters runs the prometheus-bird-exporter extension's service
+	// (bgp_exporter.go), Main returns the main interface's addresses it
+	// listens on by default.
+	Exporters *extensions.Manager
+	Main      func() []netip.Addr
 }

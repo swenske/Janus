@@ -142,6 +142,8 @@ var Required = map[string][]string{
 	"/janus.v1alpha1.NetworkService/BGPStatus":            readers,
 	"/janus.v1alpha1.NetworkService/BGPApplyConfig":       adminOnly,
 	"/janus.v1alpha1.NetworkService/BGPGetConfig":         operators, // the configuration may hold session passwords (TCP MD5)
+	"/janus.v1alpha1.NetworkService/BGPExporterConfigGet": readers,
+	"/janus.v1alpha1.NetworkService/BGPExporterConfigSet": adminOnly,
 	"/janus.v1alpha1.NetworkService/VRRPStatus":           readers,
 	"/janus.v1alpha1.NetworkService/VRRPApplyConfig":      adminOnly,
 	"/janus.v1alpha1.NetworkService/VRRPGetConfig":        operators, // the configuration may hold auth_pass

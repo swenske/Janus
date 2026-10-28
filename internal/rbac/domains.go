@@ -135,6 +135,8 @@ var Domain = map[string]string{
 	"NetworkService/FirewallList":         DomainObserve,
 	"NetworkService/BGPApplyConfig":       DomainNetwork,
 	"NetworkService/BGPGetConfig":         DomainNetwork,
+	"NetworkService/BGPExporterConfigGet": DomainObserve,
+	"NetworkService/BGPExporterConfigSet": DomainNetwork,
 	"NetworkService/VRRPApplyConfig":      DomainNetwork,
 	"NetworkService/VRRPGetConfig":        DomainNetwork,
 	"NetworkService/ConsulApplyConfig":    DomainNetwork,

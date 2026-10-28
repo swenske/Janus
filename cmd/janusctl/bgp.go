@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -82,9 +83,62 @@ func runBGP(conn *grpc.ClientConn, args []string) {
 		} else {
 			fmt.Println("applied - BIRD reconfigures")
 		}
+	case "exporter":
+		runBGPExporter(client, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "janusctl network bgp: unknown subcommand %q\n", args[0])
 		usage()
 		os.Exit(2)
+	}
+}
+
+// runBGPExporter shows or changes bird_exporter's settings (the
+// prometheus-bird-exporter extension), like system node-exporter.
+func runBGPExporter(client janusv1alpha1.NetworkServiceClient, args []string) {
+	fs := flag.NewFlagSet("network bgp exporter", flag.ExitOnError)
+	enable := fs.Bool("enable", false, "run bird_exporter")
+	disable := fs.Bool("disable", false, "stop bird_exporter, and keep it stopped")
+	address := fs.String("address", "", "listen on this address only (\"auto\" for the main interface's, \"*\" for every address)")
+	port := fs.Uint("port", 0, "listen on this port (default 9324)")
+	_ = fs.Parse(args)
+	c, cancel := ctx()
+	defer cancel()
+	resp, err := client.BGPExporterConfigGet(c, &emptypb.Empty{})
+	check("BGPExporterConfigGet", err)
+	if *enable || *disable || *address != "" || *port != 0 {
+		if *enable && *disable {
+			fmt.Fprintln(os.Stderr, "-enable and -disable together")
+			os.Exit(2)
+		}
+		cfg := resp.GetConfig()
+		req := &janusv1alpha1.BGPExporterConfig{Enabled: cfg.GetEnabled(), Address: cfg.GetAddress(), Port: cfg.GetPort()}
+		if *enable || *disable {
+			req.Enabled = *enable
+		}
+		switch *address {
+		case "":
+		case "*":
+			req.Address = ""
+		default:
+			req.Address = *address
+		}
+		if *port != 0 {
+			req.Port = uint32(*port)
+		}
+		resp, err = client.BGPExporterConfigSet(c, req)
+		check("BGPExporterConfigSet", err)
+	}
+	cfg := resp.GetConfig()
+	var effective []string
+	if resp.GetEffectiveAddress() != "" {
+		effective = []string{resp.GetEffectiveAddress()}
+	}
+	if cfg.GetEnabled() {
+		fmt.Printf("bird_exporter: %s (%s)\n", listenURLs(cfg.GetAddress(), effective, cfg.GetPort()), resp.GetState())
+	} else {
+		fmt.Printf("bird_exporter: disabled (%s)\n", resp.GetState())
+	}
+	if resp.GetError() != "" {
+		fmt.Println("Error:", resp.GetError())
 	}
 }

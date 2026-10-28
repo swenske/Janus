@@ -241,6 +241,18 @@ janus_imp_b="$(awk '/^janus_bgp_routes\{protocol="peer_a",channel="ipv4",directi
 listen="$(ctl a system netstat 2>/dev/null | awk '/:9324/ && /LISTEN/' | head -3)"
 grep -q '10\.0\.2\.15:9324' <<<"$listen" || fail "bird_exporter doesn't listen on the main address only: '$listen'"
 echo "  ok: bird_exporter scraped over each node's address: sessions up, routes the same as janus_bgp_routes (A exports $exp_a, B imports $imp_b), listening on 10.0.2.15 only"
+# Its settings (NetworkService.BGPExporterConfig*): shown with the
+# address it listens on; turned off, it stops answering; on again, back.
+out="$(ctl a network bgp exporter)"
+grep -q 'http://10.0.2.15:9324/metrics (main interface) (running)' <<<"$out" || fail "network bgp exporter: $out"
+out="$(ctl a network bgp exporter -disable)"
+grep -q 'bird_exporter: disabled' <<<"$out" || fail "network bgp exporter -disable: $out"
+stopped() { ! birdexp 1 >/dev/null 2>&1; }
+wait_for "bird_exporter still answers once disabled" stopped
+ctl a network bgp exporter -enable >/dev/null || fail "network bgp exporter -enable"
+answers() { birdexp 1 >/dev/null 2>&1; }
+wait_for "bird_exporter didn't come back once enabled" answers
+echo "  ok: bird_exporter's settings: shown with its address, off and on again"
 
 out="$(ctl a system logs bird 2>&1)"
 grep -q "peer_b: BGP session established\|peer_b: Connected\|Started" <<<"$out" || fail "BIRD's log isn't the service's: $(tail -5 <<<"$out")"

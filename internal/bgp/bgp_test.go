@@ -84,6 +84,9 @@ func TestReadReplyErrors(t *testing.T) {
 // The exporter's restricted socket: appended when the configuration
 // doesn't declare it, and only when the exporter is in the image.
 func TestWithReadOnlySocket(t *testing.T) {
+	prevDir := RunDir
+	RunDir = "/run/janus/bird" // the manifest's path; other tests move it
+	t.Cleanup(func() { RunDir = prevDir })
 	const line = `cli "/run/janus/bird/bird-ro.ctl" { restrict; };`
 	for _, c := range []struct {
 		in    string

@@ -137,6 +137,7 @@ janusctl -endpoint HOST:PORT -ca FILE -cert FILE -key FILE COMMAND ...
 - `janusctl network bgp get` - reads - the saved bird.conf
 - `janusctl network bgp check FILE` - reads - have BIRD check it
 - `janusctl network bgp apply FILE` - **changes** - check, save and reconfigure. No trial: routes change at once
+- `janusctl network bgp exporter [-enable] [-disable] [-address IP|auto|*] [-port PORT]` - **changes** - prometheus-bird-exporter: show or change. Shows the settings without flags
 - `janusctl network consul status` - reads - the service, the node, its cluster
 - `janusctl network consul get` - reads - the saved configuration
 - `janusctl network consul check [-file NAME=PATH] [-only-files] FILE` - reads - have consul validate it

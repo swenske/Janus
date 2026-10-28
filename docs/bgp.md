@@ -204,6 +204,17 @@ scrape_configs:
       - targets: ['192.0.2.10:9324']
 ```
 
+Its settings are kept on the node, like node_exporter's
+([metrics.md](metrics.md#the-node-exporter)): whether it runs, its
+address and its port.
+
+```sh
+janusctl network bgp exporter                                  # show
+janusctl network bgp exporter -address 192.0.2.10 -port 9325   # listen elsewhere
+janusctl network bgp exporter -address auto                    # the main interface (the default)
+janusctl network bgp exporter -disable                         # stop it, and keep it stopped
+```
+
 It reads BIRD over a control socket of its own that can't change
 routing: janusd adds
 `cli "/run/janus/bird/bird-ro.ctl" { restrict; };` to the bird.conf
