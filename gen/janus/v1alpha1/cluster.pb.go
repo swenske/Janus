@@ -188,8 +188,14 @@ type ClusterInfo struct {
 	// certificates, and the thumbprint the others answer HTTP-01 with.
 	AcmeOrderer    string `protobuf:"bytes,16,opt,name=acme_orderer,json=acmeOrderer,proto3" json:"acme_orderer,omitempty"`
 	AcmeThumbprint string `protobuf:"bytes,17,opt,name=acme_thumbprint,json=acmeThumbprint,proto3" json:"acme_thumbprint,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// When ClusterUndrain last put the member back in service since janusd
+	// started; 0: not since. An orchestrator that drained the member and
+	// finds it in service tells an undrain on the node itself (this set)
+	// from a drain a reboot ended - a release that kept no drain across one
+	// (0).
+	UndrainedUnix int64 `protobuf:"varint,18,opt,name=undrained_unix,json=undrainedUnix,proto3" json:"undrained_unix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ClusterInfo) Reset() {
@@ -339,6 +345,13 @@ func (x *ClusterInfo) GetAcmeThumbprint() string {
 		return x.AcmeThumbprint
 	}
 	return ""
+}
+
+func (x *ClusterInfo) GetUndrainedUnix() int64 {
+	if x != nil {
+		return x.UndrainedUnix
+	}
+	return 0
 }
 
 type ClusterSetRequest struct {
@@ -1272,7 +1285,7 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
 	"\vapi_address\x18\x03 \x01(\tR\n" +
-	"apiAddress\"\xe4\x04\n" +
+	"apiAddress\"\x8b\x05\n" +
 	"\vClusterInfo\x12\x16\n" +
 	"\x06member\x18\x01 \x01(\bR\x06member\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
@@ -1294,7 +1307,8 @@ const file_janus_v1alpha1_cluster_proto_rawDesc = "" +
 	"\x0ftls_ticket_keys\x18\x0e \x01(\v2\".janus.v1alpha1.TLSTicketKeysStateR\rtlsTicketKeys\x12\x1a\n" +
 	"\badvisory\x18\x0f \x01(\bR\badvisory\x12!\n" +
 	"\facme_orderer\x18\x10 \x01(\tR\vacmeOrderer\x12'\n" +
-	"\x0facme_thumbprint\x18\x11 \x01(\tR\x0eacmeThumbprint\"\x8b\x03\n" +
+	"\x0facme_thumbprint\x18\x11 \x01(\tR\x0eacmeThumbprint\x12%\n" +
+	"\x0eundrained_unix\x18\x12 \x01(\x03R\rundrainedUnix\"\x8b\x03\n" +
 	"\x11ClusterSetRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +

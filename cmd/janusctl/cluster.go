@@ -213,7 +213,10 @@ func printCluster(info *janusv1alpha1.ClusterInfo) {
 			}
 		}
 	}
-	if info.GetDrained() {
+	switch {
+	case info.GetDrained() && info.GetMember():
+		fmt.Println("Drained:     yes - out of service (VRRP priority lowered, BGP routes withdrawn) until cluster undrain, across reboots")
+	case info.GetDrained():
 		fmt.Println("Drained:     yes - out of service (VRRP priority lowered, BGP routes withdrawn) until cluster undrain or a reboot")
 	}
 	fmt.Printf("Peers port:  %d\n", info.GetPeersPort())

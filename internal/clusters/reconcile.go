@@ -14,7 +14,9 @@ import (
 // Reconciling (docs/cluster.md "Locks and drift"): each member is asked
 // what it knows of its cluster, how its peers are, and whether what it
 // runs is what the cluster applied. A difference is drift: reported,
-// never overwritten - the next apply does that. Member certificates are
+// never overwritten - the next apply does that. A member the cluster
+// drained that came back in service - a reboot on a release that keeps no
+// drain across one - is drained again (keepDrained). Member certificates are
 // renewed past two thirds of their life, the TLS ticket key ring rotated
 // every TicketsEvery - renewed while a member that left still knows it.
 // The Controller does it in a loop; janusctl cluster check, when asked.
@@ -26,8 +28,11 @@ func (e *Engine) Reconcile(ctx context.Context, c *Cluster) (again bool) {
 	for _, m := range c.Members {
 		prev := st.Members[m.Name]
 		mctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		ms := e.observe(mctx, c, m, prev)
+		ms, info := e.observe(mctx, c, m, prev)
 		cancel()
+		if info != nil && prev.Drained && !info.GetDrained() {
+			ms = e.keepDrained(ctx, c, m, ms, info)
+		}
 		if ms.Error != "" {
 			again = true
 		}
@@ -72,18 +77,20 @@ func (e *Engine) Reconcile(ctx context.Context, c *Cluster) (again bool) {
 	return again
 }
 
-// observe is member m as it is now; prev, as it was.
-func (e *Engine) observe(ctx context.Context, c *Cluster, m Member, prev MemberState) MemberState {
+// observe is member m as it is now, and what its node says of its
+// cluster - nil when it didn't answer, or isn't a member any more; prev,
+// as it was.
+func (e *Engine) observe(ctx context.Context, c *Cluster, m Member, prev MemberState) (MemberState, *janusv1alpha1.ClusterInfo) {
 	ms := prev
 	ms.Checked, ms.Error, ms.Drift = time.Now().UTC(), "", nil
 	info, err := e.Nodes.ClusterGet(ctx, m)
 	if err != nil {
 		ms.Error = err.Error()
-		return ms
+		return ms, nil
 	}
 	if !info.GetMember() || info.GetId() != c.ID {
 		ms.Error = "the node is no longer a member of the cluster"
-		return ms
+		return ms, nil
 	}
 	ms.Released = nil
 	for _, d := range c.Managed {
@@ -120,7 +127,7 @@ func (e *Engine) observe(ctx context.Context, c *Cluster, m Member, prev MemberS
 		ms.Drift = drift
 	}
 	if info.GetMemberCertNotAfterUnix() == 0 {
-		return ms
+		return ms, info
 	}
 	if left := time.Until(ms.CertNotAfter); left < MemberValidity/3 {
 		if err := e.Renew(ctx, c, m); err != nil {
@@ -129,6 +136,31 @@ func (e *Engine) observe(ctx context.Context, c *Cluster, m Member, prev MemberS
 			e.Journal(c.ID, Actor, "renew", m.Name, 0, "%s's member certificate renewed (%s left)", m.Name, left.Round(time.Hour))
 		}
 	}
+	return ms, info
+}
+
+// keepDrained is member m, drained when the cluster last looked or
+// acted, found in service (#356). Undrained on the node itself - it says
+// when -: in service, the record follows. Otherwise the drain was lost
+// - the node rebooted on a release that keeps no drain across a reboot
+// (its STATE keeps it since) -: drained again, at once, the balancer
+// never told otherwise. A drain that fails leaves the member in error,
+// tried again by the next check.
+func (e *Engine) keepDrained(ctx context.Context, c *Cluster, m Member, ms MemberState, info *janusv1alpha1.ClusterInfo) MemberState {
+	if at := info.GetUndrainedUnix(); at > 0 {
+		e.Journal(c.ID, Actor, "undrain", m.Name, 0, "%s was undrained on the node itself (%s), not through the cluster: in service", m.Name, time.Unix(at, 0).UTC().Format(time.RFC3339))
+		return ms
+	}
+	dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	msg, err := e.Nodes.ClusterDrain(dctx, m, time.Minute)
+	cancel()
+	ms.Drained = true
+	if err != nil {
+		ms.Error = "drained by the cluster, but in service on its node since it came back - draining it again failed: " + err.Error()
+		e.Journal(c.ID, Actor, "drain", m.Name, 0, "%s came back undrained, and draining it again failed: %v - the next check tries again", m.Name, err)
+		return ms
+	}
+	e.Journal(c.ID, Actor, "drain", m.Name, 0, "%s came back undrained after a reboot - its release kept no drain across one: drained again (%s); undrain it through the cluster to put it back in service", m.Name, msg)
 	return ms
 }
 
