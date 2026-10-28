@@ -1,3 +1,4 @@
+import { compareRelease } from './releases.js'
 import { hunks, lineDiff } from './shared/diff.js'
 import { fmtDateTime } from './shared/units.js'
 
@@ -140,3 +141,33 @@ export function versionOf(c) {
   if (applied.length === 1 && applied[0] === c.desired) return { label: `v${c.desired}`, tone: '' }
   return { label: `${applied.length ? applied.map((v) => `v${v}`).join('/') : 'none'} → v${c.desired}`, tone: 'warn' }
 }
+
+// RELEASE_RE is a Janus release's version: what an update goes to.
+const RELEASE_RE = /^v\d{4}\.\d{2}\.\d{2}(-\d+)?$/
+
+// releaseError says what's wrong with a release typed for an update.
+export function releaseError(v) {
+  return RELEASE_RE.test(v || '') ? '' : 'a release: vYYYY.MM.DD or vYYYY.MM.DD-N'
+}
+
+// upgradeRows are cluster c's members as an update to release target
+// shows them: each one's release, whether it runs target already (it is
+// skipped), and its update's stage while one runs.
+export function upgradeRows(c, target) {
+  return c.members.map((m) => ({
+    name: m.name,
+    release: m.state?.release || '',
+    onTarget: !!target && m.state?.release === target,
+    stage: m.state?.stage || '',
+  }))
+}
+
+// behindLatest are the members of cluster c on a release older than
+// latest - an update to offer.
+export function behindLatest(c, latest) {
+  if (!latest) return []
+  return c.members.filter((m) => compareRelease(latest, m.state?.release) === 1).map((m) => m.name)
+}
+
+// STAGES says a member's update's stage (internal/clusters Stage*).
+export const STAGES = { draining: 'draining', updating: 'updating', rebooting: 'rebooting', 'learning tables': 'learning its tables' }

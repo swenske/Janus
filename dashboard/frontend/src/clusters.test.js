@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { clusterNameError, domainsOf, groupByCluster, health, memberDefaults, memberNameError, parseVars, pathError, varsText, versionChanges, versionOf } from './clusters.js'
+import { behindLatest, clusterNameError, domainsOf, groupByCluster, health, memberDefaults, memberNameError, parseVars, pathError, releaseError, upgradeRows, varsText, versionChanges, versionOf } from './clusters.js'
 
 test('a node gives its member name and address when it can', () => {
   assert.deepEqual(memberDefaults({ name: 'LB-1', address: '192.0.2.11:9505' }), { name: 'lb-1', address: '192.0.2.11' })
@@ -86,4 +86,25 @@ test("a cluster's version, against the one it wants", () => {
   assert.deepEqual(versionOf({ desired: 2, members: [{ state: { applied: 1 } }, { state: { applied: 2 } }] }), { label: 'v1/v2 → v2', tone: 'warn' })
   assert.deepEqual(versionOf({ desired: 1, members: [{}] }), { label: 'none → v1', tone: 'warn' })
   assert.equal(versionOf({ members: [] }), '')
+})
+
+test('an update in place: the release typed, the members on it, those behind', () => {
+  assert.equal(releaseError('v2026.10.29'), '')
+  assert.equal(releaseError('v2026.10.29-3'), '')
+  assert.notEqual(releaseError('2026.10.29'), '')
+  assert.notEqual(releaseError('v2026.10.29-3-g1234abc'), '')
+  const c = {
+    members: [
+      { name: 'lb-1', state: { release: 'v2026.10.28-2' } },
+      { name: 'lb-2', state: { release: 'v2026.10.29', stage: 'rebooting' } },
+      { name: 'lb-3', state: {} },
+    ],
+  }
+  assert.deepEqual(upgradeRows(c, 'v2026.10.29'), [
+    { name: 'lb-1', release: 'v2026.10.28-2', onTarget: false, stage: '' },
+    { name: 'lb-2', release: 'v2026.10.29', onTarget: true, stage: 'rebooting' },
+    { name: 'lb-3', release: '', onTarget: false, stage: '' },
+  ])
+  assert.deepEqual(behindLatest(c, 'v2026.10.29'), ['lb-1'])
+  assert.deepEqual(behindLatest(c, ''), [])
 })

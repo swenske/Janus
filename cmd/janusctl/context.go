@@ -301,7 +301,7 @@ func colonHex(h string) string {
 // its fingerprint or compare it with one given; nothing is sent.
 func fetchLeaf(addr string) (*x509.Certificate, error) {
 	host, _, _ := net.SplitHostPort(addr)
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, &tls.Config{ServerName: host, InsecureSkipVerify: true}) //nolint:gosec // only to read the certificate, then compared with what the user gave
+	conn, err := tlsToController(addr, &tls.Config{ServerName: host, InsecureSkipVerify: true}) //nolint:gosec // only to read the certificate, then compared with what the user gave
 	if err != nil {
 		return nil, fmt.Errorf("reach the Controller at %s: %w", addr, err)
 	}
@@ -321,7 +321,7 @@ var systemRoots *x509.CertPool
 // certificate this system trusts for its name.
 func verifySystemTrust(addr string) error {
 	host, _, _ := net.SplitHostPort(addr)
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, &tls.Config{ServerName: host, RootCAs: systemRoots, MinVersion: tls.VersionTLS12})
+	conn, err := tlsToController(addr, &tls.Config{ServerName: host, RootCAs: systemRoots, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		var cv *tls.CertificateVerificationError
 		if errors.As(err, &cv) {
@@ -418,7 +418,8 @@ func (c *cliContext) call(method, path, token string, body, out any) error {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig}}
+	// Through the proxy the environment names (proxy.go).
+	client := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig, Proxy: http.ProxyFromEnvironment}}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

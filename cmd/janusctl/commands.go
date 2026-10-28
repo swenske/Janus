@@ -388,6 +388,15 @@ var commands = &command{name: "janusctl", subs: []*command{
 			valFlag("var", "KEY=VALUE", "a variable the cluster's templates use for NEW, repeatable (default: OLD's)", argNone),
 			boolFlag("new-image", "NEW may run another image - the cluster changing image member by member"),
 		}, pos: []argKind{argNone, argFleetNode, argFleetNode}, required: 3},
+		{name: "upgrade", args: "NAME VERSION|URL", help: "the members updated in place to a release, one at a time: each drained, its own A/B update (reverted unless healthy), back on its other slot, its stick tables learnt, undrained; a member already on it is skipped, so running it again resumes", flags: []flagDef{
+			valFlag("members", "MEMBER,...", "these members, in this order (default: every member, a VRRP cluster's MASTERs last)", argNone),
+			boolFlag("kexec", "each member reboots into its new slot through kexec, not the firmware"),
+			boolFlag("allow-schematic-change", "the bundle may be another image than the members' - other extensions, HAProxy branch or kernel track"),
+			boolFlag("insecure-skip-signature-check", "accept UKIs not signed by a Janus release key - development bundles only"),
+			valFlag("sha256", "HEX", "rootfs.squashfs's SHA-256 (default: the bundle's rootfs.squashfs.sha256)", argNone),
+			valFlag("version", "VERSION", "the release a URL's bundle holds, as the nodes report it (default: read from the bundle's image)", argNone),
+			valFlag("timeout", "DURATION", "how long each member has to come back on the new release (20m)", argNone),
+		}, pos: []argKind{argNone, argNone}, required: 2},
 		{name: "delete", args: "NAME", help: "every member leaves; the cluster and its CA are gone", flags: []flagDef{
 			boolFlag("force", "even if a member doesn't answer"),
 		}, pos: []argKind{argNone}, required: 1},
@@ -520,6 +529,7 @@ var commands = &command{name: "janusctl", subs: []*command{
 	{name: "completion", group: "✨ Shell", offline: true, args: "bash|zsh|fish", help: "the shell's completion script (README: Shell completion)", pos: []argKind{argShell}, required: 1},
 	{name: "help", offline: true, args: "[COMMAND...]", help: "this help, or a command's", hidden: false},
 	{name: "__complete", offline: true, hidden: true},
+	{name: "__effect", offline: true, hidden: true},
 }}
 
 // find walks path down the tree: the deepest command it names, and the

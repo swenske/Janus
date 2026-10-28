@@ -9,8 +9,13 @@
 # down and B loses that route - and only that one; a bird.conf applied
 # meanwhile doesn't bring it back; when HAProxy answers again, it comes
 # back. A broken bird.conf is refused with BIRD's message, the exporter
-# reports the session, BIRD's log is the service's, an empty bird.conf
-# stops BIRD, and no AVC denial appears on either node.
+# reports the session - and BIRD's own counters (each protocol's state
+# and since when, routes imported/exported/preferred/filtered, the route
+# change stats) on both nodes, matching `network bgp status` and moving
+# with the withdraw and the return -, BIRD's log is the service's, an
+# empty bird.conf stops BIRD, and no AVC denial appears on either node.
+# A announces a third route that B's import filter keeps out (import
+# keep filtered on): B counts it filtered.
 #
 # Usage: hack/qemu-bgp-test.sh <disk.img> <janusctl-bin>
 #   BGP_DISCOVERY=1: don't fail on AVC denials - list them (for writing
@@ -121,7 +126,7 @@ protocol bfd {}
 protocol ospf v2 ospf1 { ipv4 { import none; export none; }; area 0 { interface "eth1" { hello 1; }; }; }
 # Announced only while this node's HAProxy answers.
 protocol static haproxy_anycast { ipv4; route 192.0.2.10/32 blackhole; }
-protocol static plain { ipv4; route 198.51.100.1/32 blackhole; }
+protocol static plain { ipv4; route 198.51.100.1/32 blackhole; route 203.0.113.1/32 blackhole; }
 protocol bgp peer_b {
   local 192.168.78.1 as 65001;
   neighbor 192.168.78.2 as 65002;
@@ -141,7 +146,8 @@ protocol bgp peer_a {
   neighbor 192.168.78.1 as 65001;
   password "janus-test";
   bfd on;
-  ipv4 { import all; export none; };
+  # 203.0.113.1/32 kept out, and counted: filtered.
+  ipv4 { import keep filtered on; import where net != 203.0.113.1/32; export none; };
 }
 EOF
 for n in a b; do
@@ -185,6 +191,39 @@ got="$(ctl a system cat "/proc/$pid/oom_score_adj" | tr -d '[:space:]')"
 [ "$got" = -300 ] || fail "bird (pid $pid): oom_score_adj $got, want -300"
 echo "  ok: bird at oom_score_adj -300"
 
+# BIRD's counters in each node's Janus exporter (from the "show protocols
+# all" janusd reads anyway): the same routes as `network bgp status`, B's
+# filtered one, the route change stats, the state and since when.
+jm() { curl -fsS -m 5 "http://127.0.0.1:$((BASE + 10 * $1 + 2))/metrics"; }
+# val TEXT SERIES: the value of SERIES (name and labels as janusd writes them).
+val() { awk -v k="$2" 'index($0, k " ") == 1 {print $NF; exit}' <<<"$1"; }
+chg() { echo "janus_bgp_route_changes_total{protocol=\"$1\",channel=\"ipv4\",direction=\"$2\",kind=\"$3\",outcome=\"$4\"}"; }
+rts() { echo "janus_bgp_routes{protocol=\"$1\",channel=\"ipv4\",direction=\"$2\"}"; }
+status_routes() { proto_line "$1" "$2" | grep -oE 'ipv4 [0-9]+/[0-9]+' | head -1; }
+ma="$(jm 1)" || fail "no metrics on A"
+mb="$(jm 2)" || fail "no metrics on B"
+[ "ipv4 $(val "$mb" "$(rts peer_a imported)")/$(val "$mb" "$(rts peer_a exported)")" = "$(status_routes b peer_a)" ] ||
+  fail "B: janus_bgp_routes $(val "$mb" "$(rts peer_a imported)")/$(val "$mb" "$(rts peer_a exported)") vs network bgp status '$(status_routes b peer_a)'"
+[ "ipv4 $(val "$ma" "$(rts peer_b imported)")/$(val "$ma" "$(rts peer_b exported)")" = "$(status_routes a peer_b)" ] ||
+  fail "A: janus_bgp_routes vs network bgp status '$(status_routes a peer_b)'"
+[ "$(val "$ma" "$(rts peer_b exported)")" = 3 ] || fail "A doesn't export 3 routes: $(grep janus_bgp_routes <<<"$ma")"
+[ "$(val "$mb" "$(rts peer_a filtered)")" = 1 ] && [ "$(val "$mb" "$(rts peer_a preferred)")" = 2 ] ||
+  fail "B's filtered/preferred: $(grep 'janus_bgp_routes{protocol="peer_a"' <<<"$mb")"
+[ -z "$(val "$ma" "$(rts peer_b filtered)")" ] || fail "A counts filtered routes without import keep filtered"
+[ "$(val "$mb" "$(chg peer_a import updates filtered)")" = 1 ] || fail "B's filtered import update: $(grep 'route_changes_total{protocol="peer_a"' <<<"$mb")"
+[ "$(val "$mb" "$(chg peer_a import updates accepted)")" -ge 2 ] || fail "B's accepted import updates: $(grep 'route_changes_total{protocol="peer_a"' <<<"$mb")"
+if grep -q '^janus_bgp_route_changes_total{protocol="peer_a",channel="ipv4",direction="import",kind="withdraws",outcome="filtered"}' <<<"$mb"; then
+  fail "a cell BIRD doesn't count (---) was exported"
+fi
+[ "$(val "$mb" 'janus_bgp_protocol_state{protocol="peer_a",proto="BGP",state="up"}')" = 1 ] || fail "B: peer_a's state: $(grep protocol_state <<<"$mb")"
+since="$(val "$mb" 'janus_bgp_protocol_state_since_timestamp_seconds{protocol="peer_a",proto="BGP"}')"
+awk -v s="$since" -v now="$(date +%s)" 'BEGIN { exit !(s > now - 900 && s <= now + 5) }' || fail "B: peer_a up since '$since', now $(date +%s)"
+u0="$(val "$mb" "$(chg peer_a import updates accepted)")"
+w0="$(val "$mb" "$(chg peer_a import withdraws accepted)")"
+e0="$(val "$ma" "$(chg peer_b export withdraws accepted)")"
+t0="$(val "$ma" 'janus_bgp_protocol_state_since_timestamp_seconds{protocol="haproxy_anycast",proto="Static"}')"
+echo "  ok: BIRD's counters in both exporters: routes as network bgp status shows them (A exports 3, B imports 2, filters 1), route change stats, peer_a up since $since"
+
 # A's HAProxy stops answering: haproxy_anycast is held down, B loses
 # that route and keeps the other.
 ctl a system service stop haproxy >/dev/null || fail "stopping HAProxy on A"
@@ -192,6 +231,19 @@ plain="198.51.100.1/32 via 192.168.78.1 "
 wait_for "B kept the anycast route" routes_are "$plain"
 grep -q "held down" <<<"$(proto_line a haproxy_anycast)" || fail "A doesn't show haproxy_anycast held: $(proto_line a haproxy_anycast)"
 echo "  ok: A's HAProxy down - haproxy_anycast held down, B lost only that route"
+# The withdraw in BIRD's counters: B accepted one withdraw and imports 1
+# (as status says), A exported one; haproxy_anycast down since then, its
+# channel uncounted.
+ma="$(jm 1)" && mb="$(jm 2)" || fail "no metrics"
+[ "$(val "$mb" "$(chg peer_a import withdraws accepted)")" = $((w0 + 1)) ] || fail "B's accepted withdraws: $w0 -> $(val "$mb" "$(chg peer_a import withdraws accepted)")"
+[ "$(val "$ma" "$(chg peer_b export withdraws accepted)")" = $((e0 + 1)) ] || fail "A's exported withdraws: $e0 -> $(val "$ma" "$(chg peer_b export withdraws accepted)")"
+[ "ipv4 $(val "$mb" "$(rts peer_a imported)")/0" = "$(status_routes b peer_a)" ] && [ "$(val "$mb" "$(rts peer_a imported)")" = 1 ] ||
+  fail "B after the withdraw: janus_bgp_routes $(val "$mb" "$(rts peer_a imported)"), status '$(status_routes b peer_a)'"
+[ "$(val "$ma" 'janus_bgp_protocol_state{protocol="haproxy_anycast",proto="Static",state="down"}')" = 1 ] || fail "A: haproxy_anycast's state: $(grep 'protocol_state{protocol="haproxy_anycast"' <<<"$ma")"
+t1="$(val "$ma" 'janus_bgp_protocol_state_since_timestamp_seconds{protocol="haproxy_anycast",proto="Static"}')"
+awk -v a="$t0" -v b="$t1" 'BEGIN { exit !(b > a) }' || fail "haproxy_anycast's since didn't move: $t0 -> $t1"
+if grep -q "^$(rts haproxy_anycast preferred)" <<<"$ma"; then fail "a down channel's preferred routes were exported"; fi
+echo "  ok: the withdraw counted - B accepted 1 withdraw and imports 1, A exported 1, haproxy_anycast down since $t1"
 
 # A bird.conf applied meanwhile brings the protocol back in BIRD - janusd
 # puts it down again at once.
@@ -205,11 +257,15 @@ echo "  ok: a bird.conf applied while HAProxy is down keeps it held"
 ctl a system service start haproxy >/dev/null || fail "starting HAProxy on A"
 wait_for "B didn't get the anycast route back" routes_are "$both"
 echo "  ok: A's HAProxy back - the anycast route is back"
+mb="$(jm 2)" || fail "no metrics on B"
+u1="$(val "$mb" "$(chg peer_a import updates accepted)")"
+[ "$u1" -gt "$u0" ] && [ "$(val "$mb" "$(rts peer_a imported)")" = 2 ] || fail "B with the route back: accepted updates $u0 -> $u1, $(grep "$(rts peer_a imported)" <<<"$mb")"
+echo "  ok: the return counted - B accepted updates $u0 -> $u1, imports 2 again"
 
 m="$(curl -fsS -m 5 "http://127.0.0.1:$((BASE + 12))/metrics")" || fail "no metrics on A"
 grep -q '^janus_bgp_session_established{protocol="peer_b",neighbor="192.168.78.2"} 1$' <<<"$m" || fail "janus_bgp_session_established: $(grep bgp <<<"$m")"
 grep -q '^janus_bgp_protocol_held_down{protocol="haproxy_anycast"} 0$' <<<"$m" || fail "janus_bgp_protocol_held_down: $(grep bgp <<<"$m")"
-grep -q '^janus_bgp_routes{protocol="peer_b",channel="ipv4",direction="exported"} 2$' <<<"$m" || fail "janus_bgp_routes: $(grep bgp <<<"$m")"
+grep -q '^janus_bgp_routes{protocol="peer_b",channel="ipv4",direction="exported"} 3$' <<<"$m" || fail "janus_bgp_routes: $(grep bgp <<<"$m")"
 echo "  ok: the exporter reports the session, the gate and the routes"
 
 out="$(ctl a system logs bird 2>&1)"

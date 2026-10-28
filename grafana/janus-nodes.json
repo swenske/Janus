@@ -3856,7 +3856,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "Routes each BIRD protocol imported and exported.",
+          "description": "Routes each BIRD protocol imported and exported, the best ones it brought (preferred) and, with import keep filtered on, those its import filter kept out (filtered).",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -3954,6 +3954,439 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
+          "description": "Each BIRD protocol's state: up, start (a BGP session connecting), stop, down - disabled, or held down by janusd while HAProxy doesn't answer.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "fixedColor": "text",
+                "mode": "fixed"
+              },
+              "custom": {
+                "fillOpacity": 75,
+                "insertNulls": false,
+                "lineWidth": 0,
+                "spanNulls": false
+              },
+              "mappings": [
+                {
+                  "options": {
+                    "0": {
+                      "color": "red",
+                      "index": 3,
+                      "text": "down"
+                    },
+                    "1": {
+                      "color": "orange",
+                      "index": 2,
+                      "text": "stop"
+                    },
+                    "2": {
+                      "color": "yellow",
+                      "index": 1,
+                      "text": "start"
+                    },
+                    "3": {
+                      "color": "green",
+                      "index": 0,
+                      "text": "up"
+                    }
+                  },
+                  "type": "value"
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 0,
+            "y": 90
+          },
+          "id": 33,
+          "maxDataPoints": 500,
+          "options": {
+            "alignValue": "left",
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "mergeValues": true,
+            "rowHeight": 0.8,
+            "showValue": "auto",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "3 * max by (instance, protocol) (janus_bgp_protocol_state{state=\"up\", job=\"$job\", instance=~\"$instance\"}) + 2 * max by (instance, protocol) (janus_bgp_protocol_state{state=\"start\", job=\"$job\", instance=~\"$instance\"}) + 1 * max by (instance, protocol) (janus_bgp_protocol_state{state=\"stop\", job=\"$job\", instance=~\"$instance\"})",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{protocol}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "BGP protocols",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "state-timeline"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "How long each BIRD protocol has been in its state - up, or not: a session that keeps restarting never gets far from 0.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisPlacement": "auto",
+                "barAlignment": -1,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 12,
+            "y": 90
+          },
+          "id": 34,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "time() - max by (instance, protocol) (janus_bgp_protocol_state_since_timestamp_seconds{job=\"$job\", instance=~\"$instance\"})",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{protocol}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "BGP time in state",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Route updates and withdraws each BIRD protocol accepted per second, on import (from its neighbor) and export (to it) - BIRD's route change stats.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisPlacement": "auto",
+                "barAlignment": -1,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "ops"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 0,
+            "y": 96
+          },
+          "id": 35,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (instance, protocol, direction, kind) (rate(janus_bgp_route_changes_total{outcome=\"accepted\", job=\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{protocol}} {{direction}} {{kind}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "BGP route changes",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Route updates each BIRD protocol refused: rejected (invalid) or filtered (by its import or export filter). Nothing drawn: nothing refused.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisPlacement": "auto",
+                "barAlignment": -1,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "Z"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": true,
+                      "viz": false
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 12,
+            "y": 96
+          },
+          "id": 36,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (instance, protocol, direction, outcome) (increase(janus_bgp_route_changes_total{kind=\"updates\", outcome=~\"rejected|filtered\", job=\"$job\", instance=~\"$instance\"}[$__rate_interval])) > 0",
+              "instant": false,
+              "legendFormat": "{{instance}} · {{protocol}} {{direction}} {{outcome}}",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "0 * count(up{job=\"$job\", instance=~\"$instance\"})",
+              "instant": false,
+              "legendFormat": "baseline",
+              "range": true,
+              "refId": "Z"
+            }
+          ],
+          "title": "BGP updates refused",
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([A-Za-z][A-Za-z0-9-]*)[.:][^ ]*( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            },
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^([0-9.]+|\\[[0-9a-fA-F:]+\\]):[0-9]+( · .*)?$",
+                "renamePattern": "$1$2"
+              }
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
           "description": "Elements in each named set of the live nftables ruleset ([firewall](https://janus.sw-servers.net/docs/firewall.md), the nftables extension).",
           "fieldConfig": {
             "defaults": {
@@ -3999,9 +4432,9 @@
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 90
+            "y": 102
           },
-          "id": 33,
+          "id": 37,
           "options": {
             "legend": {
               "calcs": [],

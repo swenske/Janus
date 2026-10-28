@@ -148,8 +148,11 @@ authentication: restrict who reaches the port.
 | `janus_vrrp_instance_priority_zero_received_total` | counter | `instance` | Priority 0 advertisements it received: a master giving the virtual IPs up |
 | `janus_vrrp_instance_advert_errors_total` | counter | `instance`, `error` | VRRP packets with an error it received ([which errors](vrrp.md#metrics)) |
 | `janus_bgp_protocol_up` | gauge | `protocol`, `proto` | 1 if each BIRD protocol is up - [BGP](bgp.md), the bird extension |
+| `janus_bgp_protocol_state` | gauge | `protocol`, `proto`, `state` | 1 for each protocol's current state (`up`, `start`, `stop`, `down`) |
+| `janus_bgp_protocol_state_since_timestamp_seconds` | gauge | `protocol`, `proto` | When it last changed state, as a Unix timestamp: `time()` minus it is how long it has been up (or not) |
 | `janus_bgp_session_established` | gauge | `protocol`, `neighbor` | 1 if each BGP session is established |
-| `janus_bgp_routes` | gauge | `protocol`, `channel`, `direction` (`imported`, `exported`) | Routes each protocol imported and exported |
+| `janus_bgp_routes` | gauge | `protocol`, `channel`, `direction` (`imported`, `exported`, `preferred`, `filtered`) | Routes of each protocol: imported, exported, the best ones it brought, and those its import filter kept out (with `import keep filtered on`) |
+| `janus_bgp_route_changes_total` | counter | `protocol`, `channel`, `direction` (`import`, `export`), `kind` (`updates`, `withdraws`), `outcome` (`received`, `rejected`, `filtered`, `ignored`, `accepted`) | BIRD's route change stats since the channel came up ([which, and bird_exporter's names](bgp.md#metrics)) |
 | `janus_bgp_protocol_held_down` | gauge | `protocol` | 1 while janusd keeps a `haproxy_*` protocol down: HAProxy doesn't answer |
 | `janus_acme_account_registered` | gauge | | 1 once the ACME CA knows the account - [Let's Encrypt](letsencrypt.md), the letsencrypt extension |
 | `janus_acme_certificate_state` | gauge | `name`, `state` | 1 for each certificate's current state (`pending`: not obtained yet, `valid`, `due`, `expired`) |

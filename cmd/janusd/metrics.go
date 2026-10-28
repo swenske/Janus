@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -374,9 +375,32 @@ func (m *metricsSources) bgpMetrics() []exporter.Family {
 	if err != nil {
 		return nil
 	}
-	var up, established, held, routes []exporter.Sample
-	for _, p := range st.Protocols {
+	return bgpFamilies(st.Protocols, time.Now())
+}
+
+// bgpStates are BIRD's protocol states.
+var bgpStates = []string{"up", "down", "start", "stop"}
+
+// bgpFamilies: each protocol's state and since when, its routes and
+// BIRD's route change stats, all from the "show protocols all" janusd
+// already reads - each only when BIRD prints it (a channel that's down
+// has no counts, "filtered" exists with "import keep filtered on", "---"
+// cells aren't counted): no 0 made up. A family without samples isn't
+// written.
+func bgpFamilies(protocols []bgp.Protocol, now time.Time) []exporter.Family {
+	var up, state, since, established, held, routes, changes []exporter.Sample
+	for _, p := range protocols {
 		up = append(up, sample(exporter.Bool(p.State == "up"), "protocol", p.Name, "proto", p.Proto))
+		states := bgpStates
+		if !slices.Contains(states, p.State) {
+			states = append(slices.Clone(states), p.State)
+		}
+		for _, s := range states {
+			state = append(state, sample(exporter.Bool(p.State == s), "protocol", p.Name, "proto", p.Proto, "state", s))
+		}
+		if t, ok := p.SinceTime(now); ok {
+			since = append(since, sample(float64(t.UnixMilli())/1000, "protocol", p.Name, "proto", p.Proto))
+		}
 		if p.Proto == "BGP" {
 			established = append(established, sample(exporter.Bool(p.BGPState == "Established"), "protocol", p.Name, "neighbor", p.NeighborAddress))
 		}
@@ -384,15 +408,29 @@ func (m *metricsSources) bgpMetrics() []exporter.Family {
 			held = append(held, sample(exporter.Bool(p.HeldDown), "protocol", p.Name))
 		}
 		for _, c := range p.Channels {
-			routes = append(routes,
-				sample(float64(c.Imported), "protocol", p.Name, "channel", c.Name, "direction", "imported"),
-				sample(float64(c.Exported), "protocol", p.Name, "channel", c.Name, "direction", "exported"))
+			route := func(v uint32, direction string) exporter.Sample {
+				return sample(float64(v), "protocol", p.Name, "channel", c.Name, "direction", direction)
+			}
+			routes = append(routes, route(c.Imported, "imported"), route(c.Exported, "exported"))
+			if c.Counted {
+				routes = append(routes, route(c.Preferred, "preferred"))
+			}
+			if c.Filtered != nil {
+				routes = append(routes, route(*c.Filtered, "filtered"))
+			}
+			for _, rc := range c.Changes {
+				changes = append(changes, sample(float64(rc.Count), "protocol", p.Name, "channel", c.Name,
+					"direction", rc.Direction, "kind", rc.Kind, "outcome", rc.Outcome))
+			}
 		}
 	}
 	return []exporter.Family{
 		gauge("janus_bgp_protocol_up", "1 if each BIRD protocol is up (the bird extension).", up...),
+		gauge("janus_bgp_protocol_state", "Each BIRD protocol's state: 1 for its current one (up, down, start: connecting, stop).", state...),
+		gauge("janus_bgp_protocol_state_since_timestamp_seconds", "When each BIRD protocol last changed state, as a Unix timestamp: time() minus it is how long it has been up (or down).", since...),
 		gauge("janus_bgp_session_established", "1 if each BGP session is established.", established...),
-		gauge("janus_bgp_routes", "Routes each BIRD protocol imported and exported, per channel.", routes...),
+		gauge("janus_bgp_routes", "Routes of each BIRD protocol, per channel: imported, exported, preferred (the best ones it brought) and filtered (kept, with import keep filtered on).", routes...),
+		counter("janus_bgp_route_changes_total", "BIRD's route change stats of each protocol and channel since it came up: updates and withdraws on import and export, by outcome (received, rejected, filtered, ignored, accepted).", changes...),
 		gauge("janus_bgp_protocol_held_down", "1 while janusd keeps a haproxy_* protocol down: HAProxy doesn't answer.", held...),
 	}
 }

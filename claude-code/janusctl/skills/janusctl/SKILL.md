@@ -57,6 +57,11 @@ janusctl's own help wins when they differ: `janusctl help COMMAND`.
   allow the call: say so. Never work around it with another context,
   a node's first-boot admin certificate, `-as-user`/`-as-roles` or
   `-endpoint`, unless the user tells you to.
+- Write each janusctl command plainly - `janusctl`, its global flags,
+  the command - not inside `sh -c`, a variable or `eval`: the plugin's
+  hook reads what each one does, and asks the user before a critical
+  one or one it can't read. A command asked and refused is the user's
+  answer: don't rewrite it to get past the question.
 
 ## What you may run
 
