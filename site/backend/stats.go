@@ -16,7 +16,8 @@ import (
 	"github.com/swenske/Janus/internal/schematic"
 )
 
-// downloadStats counts the images and updates the site serves, by day,
+// downloadStats counts the images and updates the site (or its mirror)
+// serves, by day,
 // for the builder's cards (GET /api/v1/stats/downloads). What, never
 // who: a day, a schematic, a release and what was fetched - no address,
 // no user agent, nothing about the client.
@@ -47,6 +48,9 @@ type statsFile struct {
 	// GitHub: a release's rootfs.squashfs download count when last
 	// sampled, by version.
 	GitHub map[string]int64 `json:"github"`
+	// Mirror: the image factory's mirror's own counts, as Days - each of
+	// its pushes replaces them (mirror.go).
+	Mirror map[string]map[string]int64 `json:"mirror,omitempty"`
 }
 
 const (
@@ -120,6 +124,28 @@ func (s *downloadStats) add(day, key string, n int64) {
 	s.dirty = true
 }
 
+// setMirror keeps the mirror's counts, as it sent them.
+func (s *downloadStats) setMirror(days map[string]map[string]int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.Mirror = days
+	s.dirty = true
+}
+
+// days is a copy of the counts by day - what a mirror sends its site.
+func (s *downloadStats) days() map[string]map[string]int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]map[string]int64, len(s.data.Days))
+	for day, keys := range s.data.Days {
+		out[day] = make(map[string]int64, len(keys))
+		for k, n := range keys {
+			out[day][k] = n
+		}
+	}
+	return out
+}
+
 // count records one download of kind (downloadKind) for a schematic's
 // release.
 func (s *downloadStats) count(id, version, kind string) {
@@ -178,6 +204,11 @@ func (s *downloadStats) flush() error {
 			delete(s.data.Days, day)
 		}
 	}
+	for day := range s.data.Mirror {
+		if day < cut {
+			delete(s.data.Mirror, day)
+		}
+	}
 	data, err := json.Marshal(s.data)
 	if err != nil {
 		return err
@@ -224,23 +255,25 @@ func (s *downloadStats) run(ctx context.Context) {
 	}
 }
 
-// window sums the last days days' counts by key, and says the first day
-// counted at all.
+// window sums the last days days' counts by key - the site's and its
+// mirror's - and says the first day counted at all.
 func (s *downloadStats) window(days int) (map[string]int64, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	start := s.now().UTC().AddDate(0, 0, -(days - 1)).Format(dayLayout)
 	sums := map[string]int64{}
 	first := ""
-	for day, keys := range s.data.Days {
-		if first == "" || day < first {
-			first = day
-		}
-		if day < start {
-			continue
-		}
-		for k, n := range keys {
-			sums[k] += n
+	for _, set := range []map[string]map[string]int64{s.data.Days, s.data.Mirror} {
+		for day, keys := range set {
+			if first == "" || day < first {
+				first = day
+			}
+			if day < start {
+				continue
+			}
+			for k, n := range keys {
+				sums[k] += n
+			}
 		}
 	}
 	if first < start {

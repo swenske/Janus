@@ -30,6 +30,13 @@ type app struct {
 
 	builds *buildLimiter
 	stats  *downloadStats
+	// mirrorToken lets the image factory's mirror read the index of what
+	// to copy and send its counts (mirror.go); "" refuses both.
+	mirrorToken string
+	// priority orders the builds a release makes ahead of time: the
+	// schematics nodes run, the most run first (prebuild.go); nil keeps
+	// the store's order.
+	priority *priority
 }
 
 // buildLimiter bounds how many builds visitors can start: every build
@@ -117,6 +124,8 @@ func (a *app) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/updates/{id}", a.handleUpdates)
 	mux.HandleFunc("GET /image/{id}/{version}/{arch}/{file}", a.handleDownload)
 	mux.HandleFunc("GET /api/v1/stats/downloads", a.handleDownloadStats)
+	mux.HandleFunc("GET /api/v1/mirror/index", a.handleMirrorIndex)
+	mux.HandleFunc("POST /api/v1/mirror/stats", a.handleMirrorStats)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
 }
 
@@ -645,7 +654,7 @@ func (a *app) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := ""
-	if countable(r) {
+	if countable(r) && !bearer(r, a.mirrorToken) { // the mirror copying isn't a download
 		kind = downloadKind(arch, file)
 	}
 	if id == schematic.DefaultID() {

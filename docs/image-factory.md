@@ -225,7 +225,10 @@ a user agent or anything else about the client.
   its Controller. The default schematic's never reach the site - nodes
   fetch them from the GitHub Release - so they come from GitHub's own
   count of each release's `rootfs.squashfs`, sampled every 15 minutes
-  (a pre-release's downloads are tests, not updates: left out).
+  (a pre-release's downloads are tests, not updates: left out). The
+  updates the image factory's mirror (`janus-mirror.sw-servers.net`)
+  serves count too: it sends its own counts to the site every 15
+  minutes - and its copying from the site isn't a download.
 
 `GET /api/v1/stats/downloads?days=N` (1 to 365, 30 by default) gives the
 totals by platform, release, HAProxy branch and kernel track (the ones
