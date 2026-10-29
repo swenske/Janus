@@ -24,7 +24,10 @@
 # QEMU_CLUSTER_UPGRADE_KIND=bgp: the same with BIRD instead of
 # keepalived (the bird image) - the members announce the anycast address
 # 192.0.2.100 to lb-3 over eBGP, lb-3 routes to both (ECMP, its kernel
-# table) and asks it; the members keep their order, lb-1 first.
+# table) and asks it; the members keep their order, lb-1 first. Before
+# the update, lb-1 drained and rebooted: lb-3, which retries its sessions
+# every second, hears nothing of the anycast address from it - not even
+# for a moment after its BIRD starts - until it is undrained.
 #
 # With a bundle C whose HAProxy can't start: the update to C stops at its
 # first member, lb-2, which reverts to B on its own (the new slot never
@@ -63,6 +66,7 @@ WORKDIR="$(mktemp -d)"
 declare -A PID
 cleanup() {
   [ -n "${LOAD_PID:-}" ] && kill "$LOAD_PID" 2>/dev/null || true
+  [ -n "${SAMPLE_PID:-}" ] && kill "$SAMPLE_PID" 2>/dev/null || true
   [ -n "${HTTP_PID:-}" ] && kill "$HTTP_PID" 2>/dev/null || true
   [ -n "${HTTP_C_PID:-}" ] && kill "$HTTP_C_PID" 2>/dev/null || true
   for n in "${!PID[@]}"; do kill "${PID[$n]}" 2>/dev/null || true; done
@@ -93,6 +97,8 @@ check() { # check DESCRIPTION PATTERN TEXT
   grep -Eq -- "$2" <<<"$3" || fail "$1 (no match for $2 in: $3)"
 }
 
+boots() { grep -ac "listening on .* (mTLS required)" "$WORKDIR/$1.log" || true; }
+
 [ -f "$BUNDLE/rootfs.squashfs" ] && [ -f "$BUNDLE/uki-b.efi" ] || fail "no bundle in $BUNDLE"
 
 node() { # node INDEX: http on BASE+10*i, API on +1
@@ -104,7 +110,7 @@ node() { # node INDEX: http on BASE+10*i, API on +1
     -drive if=pflash,format=raw,file="$WORKDIR/$i.vars" \
     -drive file="$WORKDIR/$i.img",format=raw,if=virtio \
     -nographic -display none -monitor none -m 512M \
-    -netdev "user,id=net0,hostfwd=tcp::$((BASE + 10 * i))-:8080,hostfwd=tcp::$((BASE + 10 * i + 1))-:9505" \
+    -netdev "user,id=net0,hostfwd=tcp::$((BASE + 10 * i))-:8080,hostfwd=tcp::$((BASE + 10 * i + 1))-:9505,hostfwd=tcp::$((BASE + 10 * i + 2))-:10056" \
     -device "virtio-net-pci,netdev=net0,mac=52:54:00:aa:02:0$i" \
     -netdev "socket,id=lan,mcast=$MCAST,localaddr=127.0.0.1" \
     -device "virtio-net-pci,netdev=lan,mac=52:54:00:bb:02:0$i" \
@@ -231,8 +237,8 @@ EOF
 router id 192.168.87.3;
 protocol device {}
 protocol kernel { ipv4 { export all; }; merge paths on; }
-protocol bgp m1 { local 192.168.87.3 as 65000; neighbor 192.168.87.1 as 65001; ipv4 { import all; export none; }; }
-protocol bgp m2 { local 192.168.87.3 as 65000; neighbor 192.168.87.2 as 65001; ipv4 { import all; export none; }; }
+protocol bgp m1 { local 192.168.87.3 as 65000; neighbor 192.168.87.1 as 65001; connect retry time 1; error wait time 1, 2; ipv4 { import all; export none; }; }
+protocol bgp m2 { local 192.168.87.3 as 65000; neighbor 192.168.87.2 as 65001; connect retry time 1; error wait time 1, 2; ipv4 { import all; export none; }; }
 EOF
   out="$(alice -n lb-3 network bgp apply "$WORKDIR/router.conf" 2>&1)" || fail "lb-3's bird.conf: $out"
 fi
@@ -253,6 +259,64 @@ wait_for 20 "lb-2 learnt lb-1's entry" has_entry 2
 synced() { alice cluster check edge >/dev/null 2>&1; }
 wait_for 30 "the cluster clean" synced
 echo "  ok: cluster edge of lb-1 and lb-2 ($KIND: $VIP), a stick table replicated"
+
+if [ "$KIND" = bgp ]; then
+  # A drained member's route isn't announced after its reboot, not even
+  # for a moment: its BIRD starts with the haproxy_* protocols disabled
+  # while the persisted drain holds (internal/bgp HoldDown), not enabled
+  # until janusd's gate takes them down a second later. lb-3 retries its
+  # sessions every second, so it is established with lb-1 as soon as
+  # lb-1's BIRD listens; its exporter's BIRD counters for that session -
+  # every update it received - are sampled from before lb-1's reboot until
+  # well after the session is back.
+  m1_view() { # established imported updates-received withdraws-received ("-": not shown, "x": no answer)
+    local m
+    m="$(curl -fsS -m 2 "http://127.0.0.1:$((BASE + 32))/metrics" 2>/dev/null)" || { echo "x x x x"; return; }
+    awk '
+      function v(k) { return (k in s) ? s[k] : "-" }
+      { s[$1] = $2 }
+      index($0, "janus_bgp_session_established{protocol=\"m1\",") == 1 { e = $2 }
+      END {
+        p = "janus_bgp_route_changes_total{protocol=\"m1\",channel=\"ipv4\",direction=\"import\","
+        print (e == "" ? "-" : e), v("janus_bgp_routes{protocol=\"m1\",channel=\"ipv4\",direction=\"imported\"}"),
+          v(p "kind=\"updates\",outcome=\"received\"}"), v(p "kind=\"withdraws\",outcome=\"received\"}")
+      }' <<<"$m"
+  }
+  m1_is() { [ "$(m1_view | cut -d' ' -f1,2)" = "$1" ]; }
+  alice -n lb-1 cluster drain >/dev/null || fail "drain lb-1"
+  wait_for 30 "lb-3 kept lb-1's route after its drain: $(m1_view)" m1_is "1 0"
+  ( while :; do echo "$(date +%s.%N) $(m1_view)"; sleep 0.2; done >"$WORKDIR/m1.log" 2>&1 ) &
+  SAMPLE_PID=$!
+  b1="$(boots 1)"
+  rebooted1() { [ "$(boots 1)" -gt "$b1" ]; }
+  # The session lb-1's reboot ended, then the one after it (x: lb-3's
+  # exporter didn't answer that time).
+  went_down() { awk '$2 == "0" { d = 1 } END { exit !d }' "$WORKDIR/m1.log"; }
+  back_up() { awk '$2 == "0" { d = 1 } d && $2 == "1" { u = 1 } END { exit !u }' "$WORKDIR/m1.log"; }
+  alice -n lb-1 system reboot >/dev/null || fail "reboot lb-1"
+  wait_for "$TIMEOUT" "lb-1 back from its reboot" rebooted1
+  wait_for 60 "lb-3's session with lb-1 never went down" went_down
+  wait_for 90 "lb-3's session with lb-1 never came back: $(m1_view)" back_up
+  sleep 10
+  kill "$SAMPLE_PID" 2>/dev/null || true
+  wait "$SAMPLE_PID" 2>/dev/null || true
+  SAMPLE_PID=
+  grep -aq "bgp: BIRD starts with haproxy_anycast down" "$WORKDIR/1.log" || fail "lb-1's BIRD didn't start with haproxy_anycast down after its drained reboot"
+  # From the session's return on: nothing imported, no update received.
+  read -r n heard first last <<<"$(awk '$2 == "0" { d = 1; next }
+    d && $2 == "1" { n++; if (!f) f = $1; l = $1; if (($3 != "-" && $3 != "0") || ($4 != "-" && $4 != "0")) h++ }
+    END { printf "%d %d %s %s\n", n, h, f, l }' "$WORKDIR/m1.log")"
+  [ "$heard" = 0 ] || fail "lb-3 heard lb-1's anycast route after its drained reboot: $(awk '$2 == "1" && $3 != "0"' "$WORKDIR/m1.log" | head -5)"
+  [ "$n" -ge 20 ] || fail "only $n samples of lb-3's session with lb-1 after its reboot"
+  span="$(awk -v a="$first" -v b="$last" 'BEGIN { printf "%.1f", b - a }')"
+  alice -n lb-1 cluster undrain >/dev/null || fail "undrain lb-1"
+  wait_for 30 "lb-3 didn't get lb-1's route after its undrain: $(m1_view)" m1_is "1 1"
+  read -r _ _ upd wd <<<"$(m1_view)"
+  [ "$upd" = 1 ] && [ "$wd" = 0 ] || fail "lb-3 counted $upd updates and $wd withdraws from lb-1 since its reboot, want 1 and 0"
+  for i in $MEMBERS; do wait_for 60 "lb-$i's peers up after lb-1's reboot" peers_up "$i" 1; done
+  wait_for 60 "lb-1 announcing again, the cluster clean" synced
+  echo "  ok: lb-1 drained and rebooted - its BIRD started with haproxy_anycast down; lb-3, its session back, heard nothing of $VIP from it over $n samples ($span s) until the undrain, then one update"
+fi
 
 # The client: lb-3 asks the virtual IP over HTTP in a loop, each answer
 # the member that served it.
@@ -312,7 +376,6 @@ for i in $MEMBERS; do wait_for 60 "lb-$i's peers up after the update" peers_up "
 echo "  ok: $want updated in this order - each drained, on Janus $VERSION_B on slot B, its tables learnt, back in service; the stick table entry kept; $VIP served as before"
 
 # Again: both on B, nothing touched.
-boots() { grep -ac "listening on .* (mTLS required)" "$WORKDIR/$1.log" || true; }
 b1="$(boots 1)" b2="$(boots 2)"
 out="$(alice cluster upgrade edge "http://10.0.2.2:$P_BUNDLE" -version "$VERSION_B" -sha256 "$SUM" -insecure-skip-signature-check 2>&1)" || fail "cluster upgrade again: $out"
 check "lb-2 skipped" "lb-2 runs Janus $VERSION_B already: skipped" "$out"
