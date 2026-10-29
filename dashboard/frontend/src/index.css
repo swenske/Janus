@@ -193,6 +193,18 @@
 .acme-relay-card > p { margin: 0; }
 .relay-form { display: grid; gap: 0.75rem; }
 .relay-form .field input, .relay-form .field textarea { width: 100%; }
+/* Consul (Consul.jsx): the settings' fields fill their row, the test's
+   checks one a line with their mark, a node's error wraps. */
+.consul-card { display: grid; gap: 0.85rem; }
+.consul-card .field input, .consul-card .field textarea { width: 100%; }
+.consul-card .field.grow { flex: 1 1 18rem; }
+.consul-card .field.consul-token { flex: 0 1 20rem; }
+.consul-services { display: grid; gap: 0.35rem; justify-items: start; }
+.consul-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.consul-checks svg { vertical-align: -2px; }
+.consul-checks .ok-ink { color: var(--ok); }
+.consul-checks .danger-ink { color: var(--danger); }
+.consul-error { max-width: 28rem; overflow-wrap: anywhere; }
 .relay-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 0.75rem; }
 @media (max-width: 760px) { .relay-fields { grid-template-columns: minmax(0, 1fr); } }
 .relay-builtin ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }

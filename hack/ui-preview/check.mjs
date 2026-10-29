@@ -1,7 +1,7 @@
 // hack/ui-preview's pages walked in a browser (hack/ui-preview.sh
 // check): every palette in both modes - the sign-in screen, the node
 // list (cards and rows), the hypervisors tab, the clusters and cluster
-// edge, and pages of edge-1 - with no page or
+// edge, the Consul tab, and pages of edge-1 - with no page or
 // console error, no failed request, no CSP report, and nothing serious
 // for axe (WCAG 2 A/AA); a screenshot of each in $OUT. Then what the
 // appearance and the sidebar do: a palette chosen in one tab followed by
@@ -85,6 +85,7 @@ for (const palette of PALETTES) {
       ['hypervisors', '/#/hypervisors'],
       ['clusters', '/#/clusters'],
       ['cluster', `/#/clusters/${edge}`],
+      ['consul', '/#/consul'],
       ...NODE_PAGES.map((p) => [`node${p.replace(/\//g, '-') || '-'}`, `/nodes/${edge1}/#${p}`]),
     ]) {
       at = name
