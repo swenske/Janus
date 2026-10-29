@@ -311,3 +311,21 @@ func TestConsulAPI(t *testing.T) {
 		t.Fatalf("a bad PUT: %d", code)
 	}
 }
+
+// A machine's node: its hypervisor's labels under its own, picked by
+// the selector and in its node metadata.
+func TestConsulInheritedLabels(t *testing.T) {
+	a, nodes, srv := consulTestApp(t)
+	kvm := labelledHypervisor(t, a.hypervisors, "kvm01", map[string]string{"dc": "lgs", "room": "a"})
+	edge := machineNode(t, a.store, a.machines, "edge-1", kvm.ID, map[string]string{"room": "b"})
+	other := machineNode(t, a.store, a.machines, "other", "", map[string]string{"room": "b"})
+	enableConsul(t, a, srv, map[string]string{"dc": "lgs"})
+	a.consulPass(context.Background())
+	m, _ := nodes.get(edge.ID)
+	if meta := m.GetNodeMeta(); meta["dc"] != "lgs" || meta["room"] != "b" {
+		t.Fatalf("node meta %v", meta)
+	}
+	if st := a.consul.state[other.ID]; st.State != "not picked" {
+		t.Fatalf("a node without dc=lgs: %+v", st)
+	}
+}

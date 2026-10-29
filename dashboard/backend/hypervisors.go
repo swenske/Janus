@@ -259,6 +259,7 @@ func (a *app) handleHypervisorUpdate(w http.ResponseWriter, r *http.Request) {
 	a.hvStatus.forget(h.ID)
 	if !maps.Equal(h.Labels, next.Labels) {
 		a.logfwd.Poke() // its machines' nodes have other labels: another profile may pick them
+		a.consul.Poke() // the Consul selector too, their node metadata
 	}
 	h, _ = a.hypervisors.Get(h.ID)
 	writeJSON(w, http.StatusOK, a.hypervisorView(h))

@@ -147,11 +147,6 @@ func (a *app) consulLoop(ctx context.Context) {
 	}
 }
 
-// consulNodeLabels is the node's labels as the Consul integration reads
-// them - its own for now: switch to a.nodeLabels once #401 merges (its
-// hypervisor's labels, its own on top).
-func consulNodeLabels(n *store.Node) map[string]string { return n.LabelSet() }
-
 // consulName is a node's name in Consul: the Controller's, with what a
 // node name can't hold as '-'.
 func consulName(name string) string {
@@ -178,7 +173,7 @@ var metaKeyCleaner = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 func (a *app) consulMeta(n *store.Node, set consulctl.Settings) map[string]string {
 	meta := map[string]string{"janus_node_id": n.ID}
 	if set.NodeMetaFromLabels {
-		for k, v := range consulNodeLabels(n) {
+		for k, v := range a.nodeLabels(n) {
 			k = metaKeyCleaner.ReplaceAllString(k, "_")
 			if strings.HasPrefix(k, "consul-") || strings.HasPrefix(k, "janus_") {
 				continue
@@ -402,7 +397,7 @@ func (a *app) consulNode(ctx context.Context, n *store.Node, set consulctl.Setti
 	if have != "" && !mine {
 		return consulNodeState{State: "another controller", Error: "its layer is " + have}
 	}
-	wanted := set.Enabled && st.State != "no extension" && set.Picks(consulNodeLabels(n))
+	wanted := set.Enabled && st.State != "no extension" && set.Picks(a.nodeLabels(n))
 
 	if !wanted {
 		if mine {
@@ -680,7 +675,7 @@ func (a *app) handleConsulNodes(w http.ResponseWriter, _ *http.Request) {
 		if !ok {
 			st = consulNodeState{State: "waiting"}
 		}
-		out = append(out, consulNodeView{ID: n.ID, Name: n.Name, Labels: consulNodeLabels(n), consulNodeState: st})
+		out = append(out, consulNodeView{ID: n.ID, Name: n.Name, Labels: a.nodeLabels(n), consulNodeState: st})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	writeJSON(w, http.StatusOK, out)
