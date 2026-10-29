@@ -178,3 +178,23 @@ frontend stats
 		t.Errorf("use-service rules: %+v", got)
 	}
 }
+
+// Backends' and listen sections' servers, by address as written.
+func TestServers(t *testing.T) {
+	top := Parse(`
+backend be_tls
+    mode tcp
+    server fe_https abns@lb-https send-proxy-v2 no-check
+    server other 10.0.0.2:443 check
+listen stats
+    bind :8404
+    server local 127.0.0.1:8405
+frontend fe
+    bind :80
+    server nope 10.0.0.9:80
+`)
+	want := map[string][]string{"be_tls": {"abns@lb-https", "10.0.0.2:443"}, "stats": {"127.0.0.1:8405"}}
+	if !reflect.DeepEqual(top.Servers, want) {
+		t.Errorf("servers: %v", top.Servers)
+	}
+}

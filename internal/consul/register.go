@@ -1,6 +1,7 @@
 package consul
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,12 +9,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/swenske/Janus/internal/haproxystat"
 )
 
 // Registrar keeps the node's own services registered in its agent, as
@@ -27,7 +31,8 @@ import (
 // It syncs when the agent starts, when HAProxy runs another
 // configuration or a map changes, when the node is drained or
 // undrained, when the layer changes - and every minute, the anti-entropy
-// that puts back what someone took off.
+// that puts back what someone took off. The frontends' TTL checks are
+// fed from HAProxy's show stat after each sync and every TTLEvery.
 type Registrar struct {
 	Manager *Manager
 	// Sources reads what the services come from, now.
@@ -38,8 +43,13 @@ type Registrar struct {
 	// Wake returns channels closed when it's worth syncing again (taken
 	// before each sync).
 	Wake func() []<-chan struct{}
-	// Every is the anti-entropy's period, Retry the wait after a failure.
-	Every, Retry time.Duration
+	// ShowStat reads HAProxy's show stat (its CSV): the frontends' TTL
+	// checks are fed from their FRONTEND rows.
+	ShowStat func() ([]byte, error)
+	// Every is the anti-entropy's period, Retry the wait after a failure,
+	// TTLEvery the TTL checks' (FrontendTTL lets one expire after a few
+	// missed).
+	Every, Retry, TTLEvery time.Duration
 
 	// addr is the agent's HTTP API, HTTPAddr if empty (tests).
 	addr string
@@ -48,8 +58,10 @@ type Registrar struct {
 
 	mu        sync.Mutex
 	defs      map[string]string // what was registered under each ID, hashed
+	ttl       map[string]string // each TTL check: the proxy whose state feeds it
 	token     string            // the token they were registered with
-	down      string            // going down: why
+	feedErr   string
+	down      string // going down: why
 	status    SyncStatus
 	pokeOnce  sync.Once
 	lastWarns string
@@ -99,6 +111,7 @@ func (r *Registrar) Run(ctx context.Context) {
 	if retry == 0 {
 		retry = 5 * time.Second
 	}
+	go r.feedLoop(ctx, cmp.Or(r.TTLEvery, 15*time.Second))
 	for {
 		var wake []<-chan struct{}
 		if r.Wake != nil {
@@ -181,7 +194,7 @@ func (r *Registrar) sync(ctx context.Context) error {
 	}
 	if managed == nil {
 		r.mu.Lock()
-		r.defs, r.status = nil, SyncStatus{}
+		r.defs, r.ttl, r.status = nil, nil, SyncStatus{}
 		r.mu.Unlock()
 		return nil
 	}
@@ -217,11 +230,92 @@ func (r *Registrar) sync(ctx context.Context) error {
 	}
 	r.lastWarns = warn
 	r.mu.Unlock()
-	n, err := r.reconcile(ctx, c, desired, maint)
+	state := r.frontendStates()
+	n, err := r.reconcile(ctx, c, desired, maint, state)
 	r.mu.Lock()
 	r.status.Registered, r.status.Maintenance = n, maint != ""
 	r.mu.Unlock()
+	if ferr := r.feed(ctx, state); err == nil {
+		err = ferr
+	}
 	return err
+}
+
+// frontendStates reads HAProxy's show stat once: each frontend's TTL
+// check status and output (frontendState) - critical, saying why, when
+// it can't be read.
+func (r *Registrar) frontendStates() func(proxy string) (string, string) {
+	var raw []byte
+	err := errors.New("no statistics to read")
+	if r.ShowStat != nil {
+		raw, err = r.ShowStat()
+	}
+	var t *haproxystat.Table
+	if err == nil {
+		t, err = haproxystat.Parse(raw)
+	}
+	if err != nil {
+		out := "HAProxy's statistics: " + err.Error()
+		return func(string) (string, string) { return "critical", out }
+	}
+	return func(proxy string) (string, string) { return frontendState(t, proxy) }
+}
+
+// feed gives each TTL check registered its frontend's state (state,
+// read now when nil) - which keeps it from expiring.
+func (r *Registrar) feed(ctx context.Context, state func(string) (string, string)) error {
+	r.mu.Lock()
+	ttl, token := maps.Clone(r.ttl), r.token
+	r.mu.Unlock()
+	if len(ttl) == 0 {
+		return nil
+	}
+	if state == nil {
+		state = r.frontendStates()
+	}
+	c := &agentClient{token: token, addr: r.addr}
+	var errs []string
+	for _, id := range slices.Sorted(maps.Keys(ttl)) {
+		status, out := state(ttl[id])
+		body := map[string]string{"Status": status, "Output": out}
+		if err := c.do(ctx, http.MethodPut, "/v1/agent/check/update/"+url.PathEscape(id), body, nil); err != nil {
+			errs = append(errs, fmt.Sprintf("check %s: %v", id, err))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// feedLoop feeds the TTL checks every period until ctx ends.
+func (r *Registrar) feedLoop(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		fctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := r.feed(fctx, nil)
+		cancel()
+		msg := ""
+		if err != nil {
+			msg = err.Error()
+		}
+		r.mu.Lock()
+		if msg != r.feedErr {
+			if msg != "" {
+				log.Printf("consul: the frontends' checks: %s - trying again", msg)
+			} else {
+				log.Printf("consul: the frontends' checks are fed again")
+			}
+		}
+		r.feedErr = msg
+		r.mu.Unlock()
+	}
 }
 
 func (r *Registrar) maintenance() string {
@@ -245,7 +339,7 @@ func hashOf(s Service, token string) string {
 
 // reconcile makes the agent's janus:* services desired, in maintenance
 // (maint, the reason) or not; it returns how many are registered.
-func (r *Registrar) reconcile(ctx context.Context, c *agentClient, desired []Service, maint string) (int, error) {
+func (r *Registrar) reconcile(ctx context.Context, c *agentClient, desired []Service, maint string, state func(string) (string, string)) (int, error) {
 	have, err := c.services(ctx)
 	if err != nil {
 		return 0, err
@@ -258,22 +352,37 @@ func (r *Registrar) reconcile(ctx context.Context, c *agentClient, desired []Ser
 	defs := r.defs
 	r.mu.Unlock()
 	want := map[string]bool{}
+	ttl := map[string]string{}
 	var errs []string
 	registered := 0
 	changed := false
 	for _, d := range desired {
 		want[d.ID] = true
+		if d.Check != nil && d.Check.TTL != "" {
+			ttl[d.Check.CheckID] = d.Check.proxy
+		}
 		h := hashOf(d, c.token)
 		cur, ok := have[d.ID]
 		if ok && defs[d.ID] == h && sameService(cur, d) {
 			registered++
 			continue
 		}
-		if err := c.do(ctx, http.MethodPut, "/v1/agent/service/register?replace-existing-checks=true", d, nil); err != nil {
+		reg := d
+		if d.Check != nil && d.Check.TTL != "" {
+			// Registered with its frontend's state: never critical for
+			// the moment until it's fed.
+			ck := *d.Check
+			ck.Status, _ = state(ck.proxy)
+			reg.Check = &ck
+		}
+		if err := c.do(ctx, http.MethodPut, "/v1/agent/service/register?replace-existing-checks=true", reg, nil); err != nil {
 			errs = append(errs, fmt.Sprintf("register %s: %v", d.ID, err))
 			r.mu.Lock()
 			delete(defs, d.ID)
 			r.mu.Unlock()
+			if d.Check != nil && !ok {
+				delete(ttl, d.Check.CheckID) // nothing to feed
+			}
 			continue
 		}
 		r.mu.Lock()
@@ -294,6 +403,9 @@ func (r *Registrar) reconcile(ctx context.Context, c *agentClient, desired []Ser
 		delete(defs, id)
 		r.mu.Unlock()
 	}
+	r.mu.Lock()
+	r.ttl = ttl
+	r.mu.Unlock()
 	if changed && len(errs) == 0 {
 		log.Printf("consul: %d services registered", registered)
 	}
@@ -425,7 +537,7 @@ func (r *Registrar) Forget(ctx context.Context) error {
 		}
 	}
 	r.mu.Lock()
-	r.defs = nil
+	r.defs, r.ttl = nil, nil
 	r.mu.Unlock()
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))

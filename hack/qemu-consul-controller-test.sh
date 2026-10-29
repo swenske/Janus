@@ -17,13 +17,17 @@
 #     Consul. Each node gets its own token (node identity + janus-nodes),
 #     its agent joins (alive), its node metadata carries its labels and
 #     its ID, it registers janus, one haproxy-<frontend> per frontend and
-#     one haproxy-url per host its hosts.map and its Host ACL route - and
-#     its exporters where they really listen, while they run, tag
+#     one haproxy-url per host its hosts.map and its Host ACLs route (a
+#     frontend behind an abstract socket's at the bind relaying to it) -
+#     and its exporters where they really listen, while they run, tag
 #     prometheus with metrics_path and scheme: janus-exporter (its main
 #     address, then the one it's moved to, absent while off),
 #     node-exporter (absent while stopped), haproxy-exporter (a frontend
 #     serving HAProxy's prometheus-exporter);
 #   - a map entry added at runtime is a URL in the catalog within 60 s;
+#   - the frontends' checks are TTL ones janusd feeds from show stat: a
+#     frontend refusing every source but one passes (a TCP check would be
+#     refused);
 #   - drained, the node's services are in maintenance; undrained, passing;
 #   - HAProxy stopped (its configuration reads a map): in maintenance;
 #     started, back;
@@ -269,6 +273,32 @@ frontend fe_sites
     use_backend %[req.hdr(host),lower,map(/etc/haproxy/files/hosts.map,be_default)]
     default_backend be_default
 
+# A frontend only on an abstract socket, behind a TCP one (PROXY v2) -
+# as a TCP :443 splitting TLS by server name passes it on.
+frontend fe_in
+    mode tcp
+    bind :8444
+    default_backend be_to_inner
+
+backend be_to_inner
+    mode tcp
+    server inner abns@consul-test-inner send-proxy-v2
+
+frontend fe_inner
+    mode http
+    bind abns@consul-test-inner accept-proxy
+    acl host_inner hdr(host) -i inner.example.test
+    use_backend be_www if host_inner
+    default_backend be_default
+
+# One source only: the agent's TCP connection would be refused at once -
+# a frontend's check is HAProxy's state of it, not a connection.
+frontend fe_guarded
+    mode tcp
+    bind :8446
+    tcp-request connection reject unless { src 192.0.2.99 }
+    default_backend be_to_inner
+
 frontend fe_stats
     mode http
     bind :8405
@@ -284,7 +314,10 @@ backend be_default
     http-request return status 404 content-type text/plain string "unknown\n"
 EOF
 out="$(ctl a haproxy apply-config "$WORKDIR/a-haproxy.cfg" 2>&1)" || fail "A's haproxy.cfg: $out"
-echo "  ok: A serves sites from a hosts.map and a Host ACL"
+out="$(curl -s -m 5 -H 'Host: inner.example.test' "http://$NET.11:8444/")"
+[ "$out" = www ] || fail "A's fe_in -> abns@ -> fe_inner: $out"
+if curl -s -m 5 -o /dev/null "http://$NET.11:8446/"; then fail "A's fe_guarded let this host in"; fi
+echo "  ok: A serves sites from a hosts.map and a Host ACL, and through a frontend behind an abstract socket"
 
 # --- the Controller ---------------------------------------------------------------
 "$DASHBOARDD" -addr "127.0.0.1:$P_DASH" -register-addr "127.0.0.1:$P_REG" -data-dir "$WORKDIR/data" > "$WORKDIR/dash.log" 2>&1 &
@@ -372,7 +405,8 @@ done
 for want in "janus:janus janus" "janus:janus-exporter janus-exporter" "janus:node-exporter node-exporter" \
   "janus:haproxy-exporter:fe_stats haproxy-exporter" "janus:haproxy:fe_sites haproxy-fe-sites" \
   "janus:url:fe_sites:www.example.test haproxy-url" "janus:url:fe_sites:shop.example.test haproxy-url" \
-  "janus:url:fe_sites:status.example.test haproxy-url"; do
+  "janus:url:fe_sites:status.example.test haproxy-url" "janus:haproxy:fe_in haproxy-fe-in" \
+  "janus:url:fe_inner:inner.example.test haproxy-url"; do
   grep -qx "$want" <<<"$out" || fail "A's catalog has no $want: $out"
 done
 if grep -q "wild\|10.0.0.1" <<<"$out"; then fail "a wildcard or an IP became a URL: $out"; fi
@@ -381,11 +415,26 @@ python3 - "$WORKDIR/urls.json" "$NET.11" <<'PY' || fail "the URLs' metadata: $(c
 import json, sys
 urls = {s["ServiceID"]: s for s in json.load(open(sys.argv[1]))}
 www = urls["janus:url:fe_sites:www.example.test"]
-assert www["ServiceMeta"] == {"url": "http://www.example.test:8081", "frontend": "fe_sites", "backend": "be_www",
-                              "source": "map:/etc/haproxy/files/hosts.map"}, www["ServiceMeta"]
+assert www["ServiceMeta"] == {"url": "http://www.example.test:8081", "host": "www.example.test", "scheme": "http", "proto": "http",
+                              "frontend": "fe_sites", "backend": "be_www", "source": "map:/etc/haproxy/files/hosts.map"}, www["ServiceMeta"]
 assert www["ServiceAddress"] == sys.argv[2] and www["ServicePort"] == 8081, www
+# Tags a Prometheus job filters on: key=value besides the bare scheme.
+assert www["ServiceTags"] == ["haproxy", "url", "http", "scheme=http", "proto=http"], www["ServiceTags"]
 assert urls["janus:url:fe_sites:status.example.test"]["ServiceMeta"]["source"] == "acl"
+# Behind the abstract socket: at fe_in's bind, which relays to it.
+inner = urls["janus:url:fe_inner:inner.example.test"]
+assert inner["ServiceMeta"] == {"url": "http://inner.example.test:8444", "host": "inner.example.test", "scheme": "http", "proto": "http",
+                                "frontend": "fe_inner", "backend": "be_www", "source": "acl", "via": "fe_in"}, inner["ServiceMeta"]
+assert inner["ServiceAddress"] == sys.argv[2] and inner["ServicePort"] == 8444, inner
 PY
+if grep -q "^janus:haproxy:fe_inner " <<<"$out"; then fail "fe_inner, only on a socket, has a service of its own: $out"; fi
+# What a Prometheus job filters on: the tag proto=http (consul_sd_configs
+# tags), the meta (filter) - A's four URLs.
+count() { python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
+n="$(consul_api GET '/v1/catalog/service/haproxy-url?tag=proto%3Dhttp' | count)"
+[ "$n" = 4 ] || fail "the URLs tagged proto=http: $n"
+n="$(consul_api GET '/v1/catalog/service/haproxy-url?filter=ServiceMeta.proto%20%3D%3D%20%22http%22' | count)"
+[ "$n" = 4 ] || fail "the URLs whose meta proto is http: $n"
 # The exporters: where they really listen - the Janus and node exporters
 # on the main interface (eth0 here, the default route's), HAProxy's on
 # fe_stats's bind (every address: the node's) -, for one Prometheus job.
@@ -398,9 +447,9 @@ for s in json.load(sys.stdin):
 }
 MAIN_A="$(ctl a system metrics | sed -n 's|^Exporter: http://\([0-9.]*\):10056/metrics.*|\1|p')"
 [ -n "$MAIN_A" ] || fail "A's exporter address: $(ctl a system metrics)"
-check "janus-exporter where it listens" "^$MAIN_A:10056 /metrics http janus,prometheus$" "$(exporter janus-exporter)"
-check "node-exporter where it listens" "^$MAIN_A:9100 /metrics http janus,prometheus$" "$(exporter node-exporter)"
-check "haproxy-exporter on fe_stats" "^$NET.11:8405 /metrics http haproxy,prometheus$" "$(exporter haproxy-exporter)"
+check "janus-exporter where it listens" "^$MAIN_A:10056 /metrics http janus,prometheus,scheme=http$" "$(exporter janus-exporter)"
+check "node-exporter where it listens" "^$MAIN_A:9100 /metrics http janus,prometheus,scheme=http$" "$(exporter node-exporter)"
+check "haproxy-exporter on fe_stats" "^$NET.11:8405 /metrics http haproxy,prometheus,scheme=http$" "$(exporter haproxy-exporter)"
 health() { # health NODE SERVICE-ID: its checks' worst status
   consul_api GET "/v1/health/node/$1" | python3 -c '
 import json, sys
@@ -417,6 +466,25 @@ until [ "$(health node-a janus:janus)" = passing ] && [ "$(health node-a janus:h
   [ "$SECONDS" -lt "$deadline" ] || fail "A's checks never passed: janus $(health node-a janus:janus), fe_sites $(health node-a janus:haproxy:fe_sites)"
   sleep 2
 done
+# The frontends' checks: TTL, fed by janusd from show stat - fe_guarded,
+# which refuses every source but one, passes, and still does past its
+# TTL (a minute): fed every 15 s. (Their output - "OPEN, 0 sessions of
+# ..." - reaches the servers only every check_update_interval, 5 min:
+# not read here.)
+for _ in 1 2 3 4 5; do
+  [ "$(health node-a janus:haproxy:fe_guarded)" = passing ] || fail "fe_guarded's check: $(health node-a janus:haproxy:fe_guarded)"
+  sleep 15
+done
+consul_api GET /v1/health/node/node-a > "$WORKDIR/health-a.json"
+python3 - "$WORKDIR/health-a.json" <<'PY' || fail "the frontends' checks: $(cat "$WORKDIR/health-a.json")"
+import json, sys
+cs = {c["CheckID"]: c for c in json.load(open(sys.argv[1]))}
+for sid in ("janus:haproxy:fe_guarded", "janus:haproxy:fe_sites", "janus:haproxy-exporter:fe_stats"):
+    c = cs["service:" + sid]
+    assert c["Status"] == "passing" and c["Type"] == "ttl", c
+assert cs["service:janus:janus"]["Type"] == "tcp", cs["service:janus:janus"]
+PY
+echo "  ok: the frontends' checks are TTL ones janusd feeds from show stat: fe_guarded, refusing every source but one, passes past its TTL"
 services node-b | grep -qx "janus:janus janus" || fail "B registered no janus: $(services node-b)"
 out="$(ctl a network consul status)"
 check "A's status, with its token, lists the server" "^consul-test +$SERVER_IP:8301 +alive +server" "$out"
@@ -425,7 +493,7 @@ check "janusctl shows the managed layer" "^Managed by: janus-controller " "$out"
 check "the token never comes back" "^ACL token: +set" "$out"
 check "the services registered" "^Services: +[0-9]+ registered" "$out"
 out="$(ctl a network consul services)"
-check "janusctl lists the agent's services" "^haproxy-url +janus:url:fe_sites:www.example.test +$NET.11:8081 +haproxy,url,http +http://www.example.test:8081 +- +Janus$" "$out"
+check "janusctl lists the agent's services" "^haproxy-url +janus:url:fe_sites:www.example.test +$NET.11:8081 +haproxy,url,http,scheme=http,proto=http +http://www.example.test:8081 +- +Janus$" "$out"
 check "janusctl shows an exporter's path" "^haproxy-exporter +janus:haproxy-exporter:fe_stats .* http /metrics, frontend fe_stats +[a-z]+ +Janus$" "$out"
 api -X POST "$API/api/consul/run" >/dev/null
 deadline=$((SECONDS + 30))
