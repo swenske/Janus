@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	"github.com/swenske/Janus/dashboard/backend/internal/enroll"
 )
@@ -66,6 +67,7 @@ func (a *app) handleEnrollCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	noteAuditSubject(r, audit.KindEnrollment, t.ID, t.Name)
 	writeJSON(w, http.StatusCreated, struct {
 		enrollView
 		// Token is shown this once.

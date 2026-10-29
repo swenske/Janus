@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/swenske/Janus/dashboard/backend/internal/audit"
 	"github.com/swenske/Janus/dashboard/backend/internal/auth"
 	janusv1alpha1 "github.com/swenske/Janus/gen/janus/v1alpha1"
 	"github.com/swenske/Janus/internal/clusters"
@@ -335,6 +336,7 @@ func (a *app) handleClusterCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	noteAuditSubject(r, audit.KindCluster, c.ID, c.Name)
 	actor := requestPrincipal(r).User
 	a.clusters.Journal(c.ID, actor, "create", "", 0, "cluster %s created with %d members, from %s", c.Name, len(members), source)
 	a.runCluster(w, c, "creating", actor, func(ctx context.Context) error { return a.clusters.Create(ctx, c.ID, source, actor) })

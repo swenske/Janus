@@ -4,7 +4,10 @@
 // <data-dir>/audit.jsonl, the previous file kept as audit.jsonl.1 once it
 // reaches MaxSize - a bounded history, newest first when read. Each
 // entry has an ID, one more than the previous, for a reader that keeps
-// its place (the log shipper: Since, Changed).
+// its place (the log shipper: Since, Changed), and names what it's
+// about (Subject) as it was named then - a node removed since keeps its
+// name in the audit. Query reads it a page at a time, filtered
+// (query.go).
 package audit
 
 import (
@@ -38,7 +41,40 @@ type Entry struct {
 	Status int    `json:"status"`
 	// Client is the address the request came from.
 	Client string `json:"client,omitempty"`
+	// Subject is what the request was about, when its path names
+	// something (a node, a machine...) or its handler said so (what it
+	// created); nil otherwise - and in the entries written before
+	// subjects existed, where Query derives it from the path.
+	Subject *Subject `json:"subject,omitempty"`
 }
+
+// The kinds of Subject.
+const (
+	KindNode       = "node"
+	KindPending    = "pending" // a node waiting for approval
+	KindMachine    = "machine"
+	KindCluster    = "cluster"
+	KindHypervisor = "hypervisor"
+	KindAccount    = "account"
+	KindToken      = "token"            // an API token
+	KindEnrollment = "enrollment-token" // a node enrollment token
+	KindSSO        = "sso-provider"
+)
+
+// Subject is what an entry is about.
+type Subject struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	// Name is its name when the entry was written (empty: unknown - an
+	// entry from before subjects, or something already gone then).
+	Name string `json:"name,omitempty"`
+	// Gone: it doesn't exist any more - set by the reader that checked
+	// (GET /api/audit), never written.
+	Gone bool `json:"gone,omitempty"`
+}
+
+// Key is the subject as a filter names it: "kind:id".
+func (s Subject) Key() string { return s.Kind + ":" + s.ID }
 
 // Log appends entries to a file.
 type Log struct {
@@ -76,6 +112,11 @@ func (l *Log) Append(e Entry) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	e.ID = l.next
+	if e.Subject != nil && e.Subject.Gone {
+		s := *e.Subject
+		s.Gone = false
+		e.Subject = &s
+	}
 	line, err := json.Marshal(e)
 	if err != nil {
 		return err
@@ -163,7 +204,7 @@ func (l *Log) all() ([]Entry, error) {
 }
 
 // Recent returns up to limit entries, newest first, matching keep (nil:
-// all).
+// all) - as they were written (Query reads a page of them, filtered).
 func (l *Log) Recent(limit int, keep func(Entry) bool) ([]Entry, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

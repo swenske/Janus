@@ -554,6 +554,7 @@ func (a *app) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	noteAuditSubject(r, audit.KindAccount, u.Name, u.Name)
 	v := a.viewUser(u)
 	if made {
 		v.Password = req.Password
@@ -700,27 +701,12 @@ func (a *app) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, settingsView(a.auth.Settings()))
 }
 
-func (a *app) handleAudit(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 || limit > 5000 {
-		limit = 500
-	}
-	user := r.URL.Query().Get("user")
-	var keep func(audit.Entry) bool
-	if user != "" {
-		keep = func(e audit.Entry) bool { return e.User == user }
-	}
-	out, err := a.audit.Recent(limit, keep)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, nonNil(out))
-}
-
 // --- the audit: every request that changes something ---
 
-type auditNote struct{ user, via string }
+type auditNote struct {
+	user, via string
+	subject   *audit.Subject
+}
 
 type auditNoteKey struct{}
 
@@ -750,7 +736,9 @@ func (a *app) audited(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		n := &auditNote{}
+		// What it's about, named before the handler runs: a deletion
+		// still names what it removed (audit_subjects.go).
+		n := &auditNote{subject: a.auditSubjectOf(r.URL.Path)}
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), auditNoteKey{}, n)))
 		if rec.status == http.StatusPreconditionRequired {
@@ -764,8 +752,8 @@ func (a *app) audited(next http.Handler) http.Handler {
 		if r.URL.RawQuery != "" {
 			path += "?" + r.URL.RawQuery
 		}
-		e := audit.Entry{Time: time.Now().UTC(), User: n.user, Via: n.via, Method: r.Method, Path: path, Status: rec.status, Client: clientAddr(r)}
-		log.Printf("audit: %s %s %d: %s (%s) from %s", e.Method, e.Path, e.Status, or(e.User, "-"), or(e.Via, "no credential"), e.Client)
+		e := audit.Entry{Time: time.Now().UTC(), User: n.user, Via: n.via, Method: r.Method, Path: path, Status: rec.status, Client: clientAddr(r), Subject: n.subject}
+		log.Printf("audit: %s %s %d: %s (%s) from %s%s", e.Method, e.Path, e.Status, or(e.User, "-"), or(e.Via, "no credential"), e.Client, aboutSubject(e.Subject))
 		if a.audit == nil {
 			return
 		}
