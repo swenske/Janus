@@ -698,6 +698,7 @@ a frontend) given `consul` and node_exporter by `PATCH /api/machines`
 | A node out of the selector and back; a machine destroyed; the integration off | the layer, the token, the catalog entry, the agent |
 | The Consul tab, a node's **Apps › Consul** | in headless Chromium, light and dark |
 | The cost | janusd's and the agent's CPU and memory, idle, with and without the extension; the boot stages; the images' sizes |
+| Since v2026.10.29-3: the Controller's Consul pass with nodes on an earlier release, picked or not | its `last_pass` read every 5 s: how often it comes back |
 
 ### Prometheus finding them
 
@@ -835,3 +836,7 @@ ran:
   processes' CPU and memory over two minutes; `k3`: the Prometheus and
   the blackbox exporter; `u-check56` (+ `.mjs`): pages in headless
   Chromium, light and dark (v2026.10.29-2).
+- `hstop NODE SECONDS`: HAProxy stopped and started through janusctl,
+  each of the node's `janus:*` services watched in Consul;
+  `bbtargets`: the Prometheus's URL targets, the node each one was
+  taken from and its health (v2026.10.29-3).
