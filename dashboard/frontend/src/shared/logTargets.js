@@ -78,6 +78,17 @@ export function sameTarget(a, b) {
   return stable(cleanTarget(a)) === stable(cleanTarget(b))
 }
 
+// withPaused is t paused (disabled: the shipper stops it and keeps its
+// place) or sending again - resumed without a "disabled: false" left
+// behind, so a target paused then resumed before a save is the same as
+// it was.
+export function withPaused(t, paused) {
+  const out = { ...t }
+  if (paused) out.disabled = true
+  else delete out.disabled
+  return out
+}
+
 // targetWhere is where a target sends, in a few words.
 export function targetWhere(t) {
   if (t.elasticsearch) return t.elasticsearch.url || '-'
