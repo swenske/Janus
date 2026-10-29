@@ -138,6 +138,10 @@ type ProxmoxConfig struct {
 	NamePrefix   string   `json:"name_prefix,omitempty"`
 	VMIDs        string   `json:"vmids,omitempty"`
 	CACert       string   `json:"ca_cert,omitempty"`
+	// CPUModel is the CPU model its machines get; empty: the
+	// Controller's default (x86-64-v2-AES) on a new hypervisor, the
+	// current one on a change. Always in the Controller's answers.
+	CPUModel string `json:"cpu_model,omitempty"`
 }
 
 type HypervisorRequest struct {
