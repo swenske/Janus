@@ -382,7 +382,8 @@ own [A/B update](updates.md):
 4. The member is **back** when it runs the release on its other slot,
    janusd answers, HAProxy is healthy and its peers are connected -
    within 20 minutes. A drain holds across the reboot, so it comes back
-   out of service.
+   out of service: keepalived BACKUP, BIRD started with its `haproxy_*`
+   protocols down - no route announced, not even for a moment.
 5. Its stick tables are **learnt** from its peers, then it is
    **undrained**, the balancer told it serves again. With BGP, the next
    member waits until this one announces its routes again: its sessions
