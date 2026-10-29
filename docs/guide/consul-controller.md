@@ -193,8 +193,11 @@ header in an HTTP frontend (behind a socket too), `tcp` by the TLS
 server name in a TCP frontend that passes TLS through to a backend of
 its own (HAProxy never sees the request) -, `scheme` what a client
 speaks. A `haproxy-url`'s meta holds the same, and its `host` is the
-name alone, without a port: `filter: 'ServiceMeta.proto == "http"'`
-does what `tags: [proto=http]` does.
+name alone, without a port. In Prometheus, pick URLs with `tags:
+[url, proto=http]`: its `filter` (`ServiceMeta.proto == "http"`) picks
+services from the catalog, not their instances - every `haproxy-url`
+stays. To pick by meta, keep the targets whose
+`__meta_consul_service_metadata_proto` matches (`action: keep`).
 Turned off, stopped, moved: the node registers it again, or takes it off,
 within seconds. No other extension declares an exporter yet.
 
