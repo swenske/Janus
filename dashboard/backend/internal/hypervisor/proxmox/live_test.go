@@ -23,12 +23,15 @@ import (
 // is made scalable and resized while it runs: JANUS_PVE_IMAGE must be
 // an image whose kernel takes hot-plugged memory (2026-10-14 or later).
 // It's created with the guest agent's option (#373), its CPU model
-// checked (#372), and the option goes with a Reconfigure.
+// checked (#372) - the hypervisor's, JANUS_PVE_CPU_MODEL (x86-64-v3,
+// host...; unset: the default) -, and the option goes with a
+// Reconfigure. Another model the Controller gives is reported and set
+// back; one with options added by hand is left alone.
 //
 //	JANUS_PVE_URL=https://pve:8006 JANUS_PVE_NODE=pve JANUS_PVE_TOKEN_ID=janus-ctl@pve!controller
 //	JANUS_PVE_TOKEN_SECRET=... JANUS_PVE_FINGERPRINT=AA:BB:... JANUS_PVE_POOL=janus
 //	JANUS_PVE_STORAGE=local-lvm JANUS_PVE_IMAGE_STORAGE=janus-images JANUS_PVE_NETWORK=vmbr0.10
-//	JANUS_PVE_VMIDS=9100-9189 JANUS_PVE_IMAGE=janus.qcow2 JANUS_PVE_FOREIGN_VMID=100
+//	JANUS_PVE_VMIDS=9100-9189 JANUS_PVE_IMAGE=janus.qcow2 JANUS_PVE_FOREIGN_VMID=100 [JANUS_PVE_CPU_MODEL=x86-64-v3]
 func TestLive(t *testing.T) {
 	env := func(k string) string { return os.Getenv("JANUS_PVE_" + k) }
 	if env("URL") == "" {
@@ -37,7 +40,9 @@ func TestLive(t *testing.T) {
 	h := &hypervisor.Hypervisor{Kind: hypervisor.KindProxmox, Name: "live", TokenSecret: env("TOKEN_SECRET"), Proxmox: &hypervisor.ProxmoxConfig{
 		URL: env("URL"), Node: env("NODE"), TokenID: env("TOKEN_ID"), Fingerprint: env("FINGERPRINT"), Pool: env("POOL"),
 		Storage: env("STORAGE"), ImageStorage: env("IMAGE_STORAGE"), Networks: []string{env("NETWORK")}, VMIDs: env("VMIDS"),
+		CPUModel: env("CPU_MODEL"),
 	}}
+	cpuModel := h.Proxmox.CPU()
 	if err := h.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +60,7 @@ func TestLive(t *testing.T) {
 	}
 	t.Logf("host: %s, %s, %d CPUs, %d running machines it may see, pool storage %s %v, networks %+v",
 		host.Hostname, host.HypervisorVersion, host.CPUs, host.RunningMachines, host.Storage.Name, host.Storage.Active, host.Networks)
-	if host.Storage.Error != "" || !host.Storage.Active || len(host.Networks) != 1 || host.Networks[0].Error != "" {
+	if host.Storage.Error != "" || !host.Storage.Active || len(host.Networks) != 1 || host.Networks[0].Error != "" || host.MachineCPUError != "" {
 		t.Fatalf("host: %+v", host)
 	}
 
@@ -138,6 +143,32 @@ func TestLive(t *testing.T) {
 	}
 	if _, c, _ = d.owned(ctx, *ref); c.raw["net1"] != nil || c.CPU != cpuModel || !agentOn(c.raw) {
 		t.Errorf("net1 still there, or no CPU model or agent: %v", c.raw)
+	}
+	// An earlier setting's model: reported, and set back.
+	earlier := "x86-64-v2-AES"
+	if cpuModel == earlier {
+		earlier = "x86-64-v3"
+	}
+	for model, drift := range map[string]bool{earlier: true, earlier + ",flags=+pcid": false} {
+		if err := d.api.do(ctx, http.MethodPut, d.nodePath("/qemu/%d/config", vmid), url.Values{"cpu": {model}}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if st, err := d.MachineStatus(ctx, *ref); err != nil || (len(st.Drift) == 1) != drift || (drift && st.Drift[0] != hypervisor.Drift{Setting: "cpu", Have: earlier, Want: cpuModel}) {
+			t.Fatalf("status with the model %s: %+v %v", model, st, err)
+		}
+		if err := d.Reconfigure(ctx, *ref, hypervisor.Hardware{VCPUs: 2, MemoryMiB: 768}, spec.NICs, spec.Settings); err != nil {
+			t.Fatal(err)
+		}
+		want := cpuModel
+		if !drift {
+			want = model // someone's choice: left alone
+		}
+		if _, c, _ = d.owned(ctx, *ref); c.CPU != want {
+			t.Errorf("model %s after Reconfigure: %s, want %s", model, c.CPU, want)
+		}
+	}
+	if err := d.api.do(ctx, http.MethodPut, d.nodePath("/qemu/%d/config", vmid), url.Values{"cpu": {cpuModel}}, nil); err != nil {
+		t.Fatal(err)
 	}
 
 	// Scalable: started at its nominal size, resized while it runs - up,
