@@ -215,13 +215,13 @@ services it no longer has. `janusctl network consul services` lists the
 agent's services, its own and yours, with their checks:
 
 ```text
-NAME              ID                                  ADDRESS          TAGS                  META                      HEALTH   BY
-haproxy-exporter  janus:haproxy-exporter:fe_stats     192.0.2.11:8405  haproxy,prometheus    http /metrics, frontend fe_stats  passing  Janus
-haproxy-fe-https  janus:haproxy:fe_https              192.0.2.151:443  haproxy,http,tls      frontend fe_https         passing  Janus
-janus             janus:janus                         192.0.2.11:9505  janus,grpc            -                         passing  Janus
-janus-exporter    janus:janus-exporter                192.0.2.11:10056 janus,prometheus      http /metrics             passing  Janus
-haproxy-url       janus:url:fe_https:www.example.com  192.0.2.151:443  haproxy,url,https     https://www.example.com   -        Janus
-web               web                                 192.0.2.11:8080  -                     -                         passing  configuration
+NAME              ID                                  ADDRESS          TAGS                META                              HEALTH   BY
+haproxy-exporter  janus:haproxy-exporter:fe_stats     192.0.2.11:8405  haproxy,prometheus  http /metrics, frontend fe_stats  passing  Janus
+haproxy-fe-https  janus:haproxy:fe_https              192.0.2.151:443  haproxy,http,tls    frontend fe_https                 passing  Janus
+janus             janus:janus                         192.0.2.11:9505  janus,grpc          -                                 passing  Janus
+janus-exporter    janus:janus-exporter                192.0.2.11:10056 janus,prometheus    http /metrics                     passing  Janus
+haproxy-url       janus:url:fe_https:www.example.com  192.0.2.151:443  haproxy,url,https   https://www.example.com           -        Janus
+web               web                                 192.0.2.11:8080  -                   -                                 passing  configuration
 ```
 
 ## Drained, stopped, going down
