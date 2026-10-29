@@ -98,6 +98,9 @@ Controller makes and keeps:
 agent_prefix "" {
   policy = "read"
 }
+node_prefix "" {
+  policy = "read"
+}
 service "janus" {
   policy = "write"
 }

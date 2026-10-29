@@ -20,7 +20,8 @@ import (
 
 // PolicyName is the policy every node's token has, besides its node
 // identity (node "<name>" write, service_prefix "" read): the agent's
-// own reads, and writing the services a node registers.
+// own reads, the other members (the node's status lists them), and
+// writing the services a node registers.
 const PolicyName = "janus-nodes"
 
 // PolicyRules are janus-nodes's rules.
@@ -28,6 +29,9 @@ const PolicyRules = `# Made by the Janus Controller: what a Janus node's agent t
 # besides its node identity - the agent's own reads, and the services
 # the node registers (docs/consul.md "The node's services").
 agent_prefix "" {
+  policy = "read"
+}
+node_prefix "" {
   policy = "read"
 }
 service "janus" {

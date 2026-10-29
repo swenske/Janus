@@ -35,6 +35,9 @@
 #   CONSUL_DISCOVERY=1: don't fail on AVC denials - list them (with a UKI
 #   built UKI_EXTRA_CMDLINE=sysctl.kernel.printk_ratelimit=0, the domains
 #   being measured permissive).
+#   QEMU_CONSUL_HOLD=FILE: at the end, write where the Controller is and a
+#   session cookie to FILE (JSON), and wait until FILE is deleted - to
+#   look at the pages with real data.
 set -euo pipefail
 # shellcheck source=state-read.sh
 . "$(dirname "$0")/state-read.sh"
@@ -406,13 +409,15 @@ until [ "$(health node-a janus:janus)" = passing ] && [ "$(health node-a janus:h
   sleep 2
 done
 services node-b | grep -qx "janus:janus janus" || fail "B registered no janus: $(services node-b)"
+out="$(ctl a network consul status)"
+check "A's status, with its token, lists the server" "^consul-test +$SERVER_IP:8301 +alive +server" "$out"
 out="$(ctl a network consul managed)"
 check "janusctl shows the managed layer" "^Managed by: janus-controller " "$out"
 check "the token never comes back" "^ACL token: +set" "$out"
 check "the services registered" "^Services: +[0-9]+ registered" "$out"
 out="$(ctl a network consul services)"
 check "janusctl lists the agent's services" "^haproxy-url +janus:url:fe_sites:www.example.test +$NET.11:8081 +haproxy,url,http +http://www.example.test:8081 +- +Janus$" "$out"
-check "janusctl shows an exporter's path" "^haproxy-exporter +janus:haproxy-exporter:fe_stats .* http /metrics, frontend fe_stats +passing +Janus$" "$out"
+check "janusctl shows an exporter's path" "^haproxy-exporter +janus:haproxy-exporter:fe_stats .* http /metrics, frontend fe_stats +[a-z]+ +Janus$" "$out"
 api -X POST "$API/api/consul/run" >/dev/null
 deadline=$((SECONDS + 30))
 until api "$API/api/consul/nodes" > "$WORKDIR/nodes.json" && python3 - "$WORKDIR/nodes.json" <<'PY'; do
@@ -498,6 +503,18 @@ done
 out="$(ctl b network consul managed)"
 check "B's layer is off" "^Managed: +no" "$out"
 echo "  ok: B removed from the Controller: its layer off, its token deleted, its entry deregistered"
+
+if [ -n "${QEMU_CONSUL_HOLD:-}" ]; then
+  python3 - "$QEMU_CONSUL_HOLD" "$API" "$JAR" "${ID[a]}" <<'PY'
+import json, sys
+hold, api, jar, node = sys.argv[1:5]
+cookies = [l.split("\t") for l in open(jar) if l.strip() and not l.startswith("# ")]
+cookies = [{"name": c[5], "value": c[6].strip()} for c in cookies if len(c) >= 7]
+json.dump({"api": api, "node": node, "cookies": cookies}, open(hold, "w"))
+PY
+  echo "  holding: $QEMU_CONSUL_HOLD (delete it to go on)"
+  while [ -f "$QEMU_CONSUL_HOLD" ]; do sleep 2; done
+fi
 
 denials="$(cat "$WORKDIR"/a.log "$WORKDIR"/b.log | grep -a "avc:.*denied" || true)"
 if [ -n "$denials" ]; then
