@@ -701,6 +701,7 @@ a frontend) given `consul` and node_exporter by `PATCH /api/machines`
 | Since v2026.10.29-3: the Controller's Consul pass with nodes on an earlier release, picked or not | its `last_pass` read every 5 s: how often it comes back |
 | Since v2026.10.29-4: the cluster's configuration in production's shape - a TCP `:443` splitting TLS by server name (one host passed through, the rest over `abns@` to an HTTP frontend reading a hosts map through a variable, a Host ACL), a TCP frontend refusing other sources -, on the release then the pre-release | the URLs registered, their tags and meta (`via`, `scheme=`, `proto=`); each frontend's check over minutes (the agent's output read through the node's page); a frontend disabled by a version; HAProxy stopped; janusd restarted |
 | Since v2026.10.29-4: the cluster updated on another image (one more extension), a machine updated by Terraform | when the image factory's build happens against the member's drain and its machine's phase; `apply` and the next `plan` |
+| Since v2026.10.29-5: a machine with BIRD (a minimal configuration), Consul, node_exporter and the guest agent, updated by the Controller (`wait_for_health`), janusd restarted minutes after the update's confirmation, three times - and on the release, the same restart for comparison | janusd back or not, its console (init's lines), its extensions running again, the Controller's view of the node |
 
 ### Prometheus finding them
 
@@ -849,3 +850,7 @@ ran:
   printed as they change; `agentcheck NODE [ID]`: the node's agent's own
   checks and their output, through its page; `tf/`: a machine made and
   updated by OpenTofu (v2026.10.29-4).
+- `restart-check NAME OUT`: `janusctl system restart` on a Controller
+  machine with its console streamed through the Controller - when the
+  old janusd goes and a new one answers, init's lines, the services
+  (v2026.10.29-5).
