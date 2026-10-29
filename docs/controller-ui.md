@@ -665,8 +665,8 @@ track, from what the node's image reports (`VersionResponse`'s
 extensions alone for a node from before images said), and installing a
 bundle from another schematic takes an explicit checkbox
 (`allow_schematic_change`). **Change the image…** opens a panel with the
-factory's catalog for the version it builds - the newest release, or a
-node's pre-release (`imageCatalog`, above) - (`GET /api/factory/catalog`:
+factory's catalog for the version it builds, the newest release or the
+node's pre-release (`imageCatalog`, above; `GET /api/factory/catalog`:
 extensions, HAProxy branches with their end of upstream support, kernel
 tracks); **Prepare the update** sends the choices to `POST
 /api/factory/update` (`extensions`, and `haproxy`/`kernel` - left out,
