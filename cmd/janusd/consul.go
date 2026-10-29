@@ -1,11 +1,13 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"net"
 	"net/netip"
 	"os"
 
+	"github.com/swenske/Janus/internal/api"
 	"github.com/swenske/Janus/internal/cluster"
 	"github.com/swenske/Janus/internal/consul"
 	"github.com/swenske/Janus/internal/exporter"
@@ -31,19 +33,23 @@ func mainIPv4(main []netip.Addr) string {
 	return ""
 }
 
-// endpointOf is where an exporter listening on address:port is reached:
-// address "auto" or empty is the node's.
-func endpointOf(address string, port uint32) *consul.Endpoint {
+// endpointOf is where an exporter set to listen on address:port really
+// listens: "auto" its main IPv4 address (as the exporters resolve it),
+// an IP that one, "" (every address) the node's - Host "".
+func endpointOf(address string, port, defaultPort uint32, main string) *consul.Endpoint {
 	host := ""
-	if net.ParseIP(address) != nil {
+	switch {
+	case address == exporter.Auto:
+		host = main
+	case net.ParseIP(address) != nil:
 		host = address
 	}
-	return &consul.Endpoint{Host: host, Port: int(port)}
+	return &consul.Endpoint{Host: host, Port: int(cmp.Or(port, defaultPort))}
 }
 
 // startConsulRegistrar starts registering the node's services; it
 // returns what puts them in maintenance at once, before janusd stops.
-func startConsulRegistrar(mgr *consul.Manager, haproxyMgr *haproxy.Manager, haproxyCfg string, ext *extensions.Manager, clusterStore *cluster.Store) *consul.Registrar {
+func startConsulRegistrar(mgr *consul.Manager, haproxyMgr *haproxy.Manager, haproxyCfg string, ext *extensions.Manager, clusterStore *cluster.Store, main func() []netip.Addr) *consul.Registrar {
 	r := &consul.Registrar{
 		Manager: mgr,
 		Sources: func() (consul.Sources, error) {
@@ -53,13 +59,14 @@ func startConsulRegistrar(mgr *consul.Manager, haproxyMgr *haproxy.Manager, hapr
 			}
 			src := consul.Sources{Address: mgr.Address(), Version: version, APIPort: 9505,
 				HAProxyConfig: string(cfg), Map: haproxyMgr.MapGet}
+			// The exporters while they run, where they really listen.
 			if c, _, err := exporter.Load(); err == nil && c.Enabled {
-				src.Exporter = endpointOf(c.Address, c.Port)
+				src.Exporter = endpointOf(c.Address, c.Port, exporter.DefaultPort, mainIPv4(main()))
 			}
 			if ext.Has(nodeexporter.ServiceID) {
 				if st, err := ext.State(nodeexporter.ServiceID); err == nil && st.State == "running" {
 					if c, _, err := nodeexporter.Load(); err == nil && c.Enabled {
-						src.NodeExporter = endpointOf(c.Address, c.Port)
+						src.NodeExporter = endpointOf(c.Address, c.Port, nodeexporter.DefaultPort, mainIPv4(main()))
 					}
 				}
 			}
@@ -81,6 +88,7 @@ func startConsulRegistrar(mgr *consul.Manager, haproxyMgr *haproxy.Manager, hapr
 		},
 	}
 	shutdown.Before(func() { r.GoingDown("the node is going down") })
+	api.ServicesChanged = r.Poke // a service started or stopped, an exporter moved
 	go r.Run(context.Background())
 	return r
 }

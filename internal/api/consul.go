@@ -59,8 +59,12 @@ func (n *Network) ConsulStatus(ctx context.Context, _ *emptypb.Empty) (*janusv1a
 			Name: m.Name, Address: m.Address, Status: m.Status, Role: m.Role, Datacenter: m.Datacenter})
 	}
 	for _, s := range a.Services {
-		resp.Services = append(resp.Services, &janusv1alpha1.ConsulService{Id: s.ID, Name: s.Name, Address: s.Address,
-			Port: uint32(max(s.Port, 0)), Tags: s.Tags, Meta: s.Meta, Status: s.Status, Managed: s.Managed()}) //nolint:gosec // G115: a port, 0-65535
+		svc := &janusv1alpha1.ConsulService{Id: s.ID, Name: s.Name, Address: s.Address,
+			Port: uint32(max(s.Port, 0)), Tags: s.Tags, Meta: s.Meta, Status: s.Status, Managed: s.Managed()} //nolint:gosec // G115: a port, 0-65535
+		for _, c := range s.Checks {
+			svc.Checks = append(svc.Checks, &janusv1alpha1.ConsulCheck{Id: c.ID, Name: c.Name, Status: c.Status, Output: c.Output})
+		}
+		resp.Services = append(resp.Services, svc)
 	}
 	if a.ServicesError != "" && resp.Error == "" {
 		resp.Error = a.ServicesError

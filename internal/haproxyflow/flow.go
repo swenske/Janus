@@ -44,7 +44,10 @@ type Frontend struct {
 	// Answers are what it answers itself with: return, redirect,
 	// use-service <name>, stats page.
 	Answers []string
-	Rules   []Rule
+	// UseServices are its use-service rules - HAProxy's own services,
+	// prometheus-exporter among them - with their conditions.
+	UseServices []UseService
+	Rules       []Rule
 }
 
 // Rule is one way a frontend picks a backend.
@@ -64,6 +67,10 @@ type Rule struct {
 	// set-var gives the variables it reads.
 	Exprs []string
 }
+
+// UseService is an http-request (or tcp-request) use-service rule: the
+// service and its condition, "if ..." or "unless ...", "" without.
+type UseService struct{ Name, Cond string }
 
 // MapCall is a map converter: the file it reads and the value it gives
 // when no key matches - and the converter, "map", "map_dom", "map_reg"
@@ -278,6 +285,7 @@ type proxy struct {
 	tlsBinds       []string
 	acls           map[string][][]string
 	answers        []string
+	useServices    []UseService
 	uses           [][2]string // target, condition
 	vars           map[string][]string
 }
@@ -384,6 +392,13 @@ func Parse(cfg string) Topology {
 				at = 3
 			}
 			cur.answer(strings.TrimSpace("use-service " + arg(at)))
+			if arg(at) != "" {
+				cond := ""
+				if arg(at+1) == "if" || arg(at+1) == "unless" {
+					cond = strings.Join(w[at+1:], " ")
+				}
+				cur.useServices = append(cur.useServices, UseService{Name: arg(at), Cond: cond})
+			}
 		case kw == "stats" && (arg(1) == "enable" || arg(1) == "uri"):
 			cur.answer("stats page")
 		}
@@ -399,7 +414,7 @@ func Parse(cfg string) Topology {
 
 	seenMap := map[string]bool{}
 	for _, f := range fronts {
-		fe := Frontend{Name: f.name, Kind: f.kind, Mode: f.mode, Binds: f.binds, TLSBinds: f.tlsBinds, ACLs: f.acls, Answers: f.answers}
+		fe := Frontend{Name: f.name, Kind: f.kind, Mode: f.mode, Binds: f.binds, TLSBinds: f.tlsBinds, ACLs: f.acls, Answers: f.answers, UseServices: f.useServices}
 		for _, u := range f.uses {
 			target, cond := u[0], u[1]
 			if !strings.Contains(target, "%[") {

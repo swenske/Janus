@@ -504,7 +504,7 @@ func main() {
 		if err := consulMgr.Boot(); err != nil {
 			log.Printf("consul: %v", err)
 		}
-		consulReg = startConsulRegistrar(consulMgr, haproxyMgr, *haproxyCfg, extMgr, clusterStore)
+		consulReg = startConsulRegistrar(consulMgr, haproxyMgr, *haproxyCfg, extMgr, clusterStore, netMgr.MainAddresses)
 	}
 	// A deliberate stop of HAProxy gives the virtual IPs up and withdraws
 	// the anycast routes at once (Changed wakes both checks), then waits

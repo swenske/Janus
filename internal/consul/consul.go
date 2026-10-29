@@ -650,7 +650,16 @@ type AgentService struct {
 	// Status: "passing", "warning", "critical", "maintenance"; "" without
 	// a check.
 	Status string
+	Checks []AgentCheck
 }
+
+// AgentCheck is a check of a service's.
+type AgentCheck struct {
+	ID, Name, Status, Output string
+}
+
+// maxCheckOutput bounds what a check said, as the status reports it.
+const maxCheckOutput = 512
 
 // Managed reports whether janusd registered it.
 func (s AgentService) Managed() bool { return strings.HasPrefix(s.ID, IDPrefix) }
@@ -705,8 +714,23 @@ func (m *Manager) Agent(ctx context.Context) (*Agent, error) {
 		a.ServicesError = err.Error()
 	}
 	for _, s := range services {
+		var cs []AgentCheck
+		for _, c := range checks {
+			if c.ServiceID != s.ID {
+				continue
+			}
+			out := c.Output
+			if c.CheckID == maintenanceCheck(s.ID) && c.Notes != "" {
+				out = c.Notes
+			}
+			if len(out) > maxCheckOutput {
+				out = strings.ToValidUTF8(out[:maxCheckOutput], "") + "…"
+			}
+			cs = append(cs, AgentCheck{ID: c.CheckID, Name: c.Name, Status: c.Status, Output: out})
+		}
+		slices.SortFunc(cs, func(x, y AgentCheck) int { return strings.Compare(x.ID, y.ID) })
 		a.Services = append(a.Services, AgentService{ID: s.ID, Name: s.Service, Address: s.Address, Port: s.Port,
-			Tags: s.Tags, Meta: s.Meta, Status: worstStatus(checks, s.ID)})
+			Tags: s.Tags, Meta: s.Meta, Status: worstStatus(checks, s.ID), Checks: cs})
 	}
 	slices.SortFunc(a.Services, func(x, y AgentService) int { return strings.Compare(x.ID, y.ID) })
 	return a, nil
@@ -800,8 +824,11 @@ type agentService struct {
 
 type agentCheck struct {
 	CheckID   string
+	Name      string
 	ServiceID string
 	Status    string
+	Output    string
+	Notes     string
 }
 
 func (c *agentClient) services(ctx context.Context) (map[string]agentService, error) {

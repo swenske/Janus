@@ -20,6 +20,7 @@ func (s *System) NodeExporterConfigGet(_ context.Context, _ *emptypb.Empty) (*ja
 }
 
 func (s *System) NodeExporterConfigSet(_ context.Context, req *janusv1alpha1.NodeExporterConfig) (*janusv1alpha1.NodeExporterConfigResponse, error) {
+	defer servicesChanged()
 	if err := s.nodeExporterPresent(); err != nil {
 		return nil, err
 	}

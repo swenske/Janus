@@ -171,18 +171,19 @@ func runConsul(conn *grpc.ClientConn, args []string) {
 		if resp.GetError() != "" {
 			fmt.Fprintln(os.Stderr, "Agent:", resp.GetError())
 		}
-		tw := table("ID", "NAME", "ADDRESS", "STATUS", "BY", "META")
+		if len(resp.GetServices()) == 0 && resp.GetError() == "" {
+			fmt.Println("No service registered.")
+			return
+		}
+		tw := table("NAME", "ID", "ADDRESS", "TAGS", "META", "HEALTH", "BY")
 		for _, s := range resp.GetServices() {
-			by := map[bool]string{true: "janusd", false: "config"}[s.GetManaged()]
+			by := map[bool]string{true: "Janus", false: "configuration"}[s.GetManaged()]
 			addr := s.GetAddress()
 			if s.GetPort() > 0 {
 				addr = net.JoinHostPort(addr, fmt.Sprint(s.GetPort()))
 			}
-			meta := s.GetMeta()["url"]
-			if meta == "" {
-				meta = s.GetMeta()["frontend"]
-			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", s.GetId(), s.GetName(), addr, or(s.GetStatus(), "-"), by, or(meta, "-"))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.GetName(), s.GetId(), or(addr, "-"), or(strings.Join(s.GetTags(), ","), "-"),
+				or(serviceMeta(s.GetMeta()), "-"), or(s.GetStatus(), "-"), by)
 		}
 		tw.Flush()
 	default:
@@ -190,4 +191,20 @@ func runConsul(conn *grpc.ClientConn, args []string) {
 		usage()
 		os.Exit(2)
 	}
+}
+
+// serviceMeta is what says most of a service: a URL's url, an
+// exporter's scheme and path, a frontend's name.
+func serviceMeta(m map[string]string) string {
+	var parts []string
+	if u := m["url"]; u != "" {
+		parts = append(parts, u)
+	}
+	if p := m["metrics_path"]; p != "" {
+		parts = append(parts, or(m["scheme"], "http")+" "+p)
+	}
+	if f := m["frontend"]; f != "" && m["url"] == "" {
+		parts = append(parts, "frontend "+f)
+	}
+	return strings.Join(parts, ", ")
 }

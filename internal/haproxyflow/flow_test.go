@@ -164,3 +164,17 @@ frontend plain
 		t.Errorf("ACLs: %v", web.ACLs)
 	}
 }
+
+// use-service rules, with their conditions.
+func TestUseServices(t *testing.T) {
+	top := Parse(`
+frontend stats
+    bind :8405
+    http-request use-service prometheus-exporter if { path /metrics }
+    http-request use-service lua.hello
+`)
+	want := []UseService{{Name: "prometheus-exporter", Cond: "if { path /metrics }"}, {Name: "lua.hello"}}
+	if got := top.Frontends[0].UseServices; !reflect.DeepEqual(got, want) {
+		t.Errorf("use-service rules: %+v", got)
+	}
+}

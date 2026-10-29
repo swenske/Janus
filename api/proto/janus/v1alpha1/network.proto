@@ -570,6 +570,18 @@ message ConsulService {
   // Registered by janusd (IDs janus:*), not by the operator's
   // configuration.
   bool managed = 8;
+  // Its checks, the maintenance one included.
+  repeated ConsulCheck checks = 9;
+}
+
+// ConsulCheck is a check of a service, as the agent runs it.
+message ConsulCheck {
+  string id = 1;
+  string name = 2;
+  string status = 3; // "passing", "warning", "critical"
+  // What it last said (cut to 512 characters); for a service in
+  // maintenance, the reason.
+  string output = 4;
 }
 
 message ConsulGetConfigResponse {

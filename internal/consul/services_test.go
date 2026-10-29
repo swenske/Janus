@@ -3,6 +3,7 @@ package consul
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,6 +50,15 @@ frontend fe_paths
 listen stats
     bind 127.0.0.1:8404
     stats enable
+frontend fe_stats
+    bind :8405
+    bind :8406 ssl crt /etc/haproxy/files/stats.pem
+    acl metrics path /metrics
+    http-request use-service prometheus-exporter if metrics
+    http-request return status 404
+frontend fe_prom_tls
+    bind 192.0.2.7:9443 ssl crt /etc/haproxy/files/stats.pem
+    http-request use-service prometheus-exporter if { path_beg /prom }
 listen raw
     mode tcp
     bind ipv4@:5432
@@ -107,6 +117,8 @@ func TestDesiredServices(t *testing.T) {
 		"janus:haproxy:fe_vars", "janus:url:fe_vars:app.example.com",
 		"janus:haproxy:fe_sni", "janus:url:fe_sni:db.example.com",
 		"janus:haproxy:fe_paths",
+		"janus:haproxy-exporter:fe_stats", "janus:haproxy:fe_stats",
+		"janus:haproxy-exporter:fe_prom_tls", "janus:haproxy:fe_prom_tls",
 		"janus:haproxy:raw",
 	}
 	if !reflect.DeepEqual(ids, want) {
@@ -117,8 +129,23 @@ func TestDesiredServices(t *testing.T) {
 	if j.Name != "janus" || j.Address != "192.0.2.5" || j.Port != 9505 || j.Check.TCP != "192.0.2.5:9505" || j.Meta["version"] != "v2026.10.29" {
 		t.Errorf("janus: %+v %+v", j, j.Check)
 	}
-	if ne := byID["janus:node-exporter"]; ne.Address != "192.0.2.6" || ne.Port != 9100 || ne.Meta["metrics_path"] != "/metrics" || ne.Check.TCP != "192.0.2.6:9100" {
-		t.Errorf("node-exporter: %+v", ne)
+	// The exporters: where they listen, tag prometheus, metrics_path and
+	// scheme, an HTTP check on their metrics.
+	if ne := byID["janus:node-exporter"]; ne.Address != "192.0.2.6" || ne.Port != 9100 || !reflect.DeepEqual(ne.Meta, map[string]string{"metrics_path": "/metrics", "scheme": "http"}) ||
+		ne.Check.HTTP != "http://192.0.2.6:9100/metrics" || ne.Check.TCP != "" || !reflect.DeepEqual(ne.Tags, []string{"janus", "prometheus"}) {
+		t.Errorf("node-exporter: %+v %+v", ne, ne.Check)
+	}
+	if je := byID["janus:janus-exporter"]; je.Address != "192.0.2.5" || je.Port != 10056 || je.Check.HTTP != "http://192.0.2.5:10056/metrics" {
+		t.Errorf("janus-exporter: %+v %+v", je, je.Check)
+	}
+	he := byID["janus:haproxy-exporter:fe_stats"]
+	if he.Name != "haproxy-exporter" || he.Address != "192.0.2.5" || he.Port != 8405 || !reflect.DeepEqual(he.Tags, []string{"haproxy", "prometheus"}) ||
+		!reflect.DeepEqual(he.Meta, map[string]string{"metrics_path": "/metrics", "scheme": "http", "frontend": "fe_stats"}) || he.Check.TCP != "192.0.2.5:8405" {
+		t.Errorf("haproxy-exporter: %+v %+v", he, he.Check)
+	}
+	if he := byID["janus:haproxy-exporter:fe_prom_tls"]; he.Address != "192.0.2.7" || he.Port != 9443 || he.Meta["scheme"] != "https" || he.Meta["metrics_path"] != "/prom" ||
+		!slices.Contains(he.Tags, "tls") {
+		t.Errorf("haproxy-exporter over TLS: %+v", he)
 	}
 	fe := byID["janus:haproxy:fe_https"]
 	if fe.Name != "haproxy-fe-https" || fe.Address != "172.16.10.151" || fe.Port != 443 || !reflect.DeepEqual(fe.Tags, []string{"haproxy", "http", "tls"}) ||
@@ -155,6 +182,22 @@ func TestDesiredServices(t *testing.T) {
 	for _, s := range only {
 		if !strings.HasPrefix(s.ID, "janus:haproxy:") {
 			t.Errorf("frontends only: %s", s.ID)
+		}
+	}
+	// An exporter that doesn't run: absent; the exporters off: none of
+	// them, HAProxy's included.
+	src0 := sitesSources()
+	src0.NodeExporter = nil
+	got0, _, _ := Desired(all, src0)
+	for _, s := range got0 {
+		if s.Name == "node-exporter" {
+			t.Error("a node exporter that doesn't run is registered")
+		}
+	}
+	noExp, _, _ := Desired(Toggles{Janus: true, Frontends: true}, sitesSources())
+	for _, s := range noExp {
+		if slices.Contains(s.Tags, PrometheusTag) {
+			t.Errorf("exporters off: %s", s.ID)
 		}
 	}
 	none, _, err := Desired(Toggles{}, Sources{Address: "192.0.2.5"})

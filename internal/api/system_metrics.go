@@ -19,6 +19,7 @@ func (s *System) MetricsConfigGet(_ context.Context, _ *emptypb.Empty) (*janusv1
 }
 
 func (s *System) MetricsConfigSet(_ context.Context, req *janusv1alpha1.MetricsConfig) (*janusv1alpha1.MetricsConfigResponse, error) {
+	defer servicesChanged()
 	if s.Exporter == nil {
 		return nil, status.Error(codes.Unavailable, "the exporter isn't running in this janusd")
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,8 +17,11 @@ import (
 // with IDs starting IDPrefix, the only ones janusd ever touches:
 //
 //   - janus: janusd's API, a TCP check;
-//   - janus-exporter, node-exporter (when that extension runs): their
-//     port, meta metrics_path;
+//   - the exporters, each where it really listens, while it runs:
+//     janus-exporter, node-exporter (the extension's), haproxy-exporter
+//     (each frontend that has HAProxy's own prometheus-exporter serve
+//     a request) - tag prometheus, meta metrics_path and scheme, for one
+//     Prometheus job to find them all;
 //   - haproxy-<name>: each frontend and listen section, on the port of
 //     its first bind (its address when it names one - an anycast VIP -,
 //     else the node's), tags haproxy, its mode and tls, a TCP check;
@@ -45,10 +49,11 @@ type Service struct {
 	Check   *Check            `json:"Check,omitempty"`
 }
 
-// Check is a service's TCP check.
+// Check is a service's check: TCP or HTTP.
 type Check struct {
 	Name     string `json:"Name,omitempty"`
-	TCP      string `json:"TCP"`
+	TCP      string `json:"TCP,omitempty"`
+	HTTP     string `json:"HTTP,omitempty"`
 	Interval string `json:"Interval"`
 	Timeout  string `json:"Timeout"`
 }
@@ -58,6 +63,12 @@ type Endpoint struct {
 	Host string
 	Port int
 }
+
+// The exporters' services: the tag a Prometheus job finds them by.
+const (
+	PrometheusTag      = "prometheus"
+	defaultMetricsPath = "/metrics"
+)
 
 // Sources are what the node's services are read from.
 type Sources struct {
@@ -106,11 +117,12 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 				continue
 			}
 			host := cmpOr(e.ep.Host, src.Address)
-			services = append(services, Service{ID: IDPrefix + e.name, Name: e.name, Tags: []string{"janus", "prometheus"},
-				Address: host, Port: e.ep.Port, Meta: map[string]string{"metrics_path": "/metrics"}, Check: check(e.name, host, e.ep.Port)})
+			services = append(services, Service{ID: IDPrefix + e.name, Name: e.name, Tags: []string{"janus", PrometheusTag},
+				Address: host, Port: e.ep.Port, Meta: map[string]string{"metrics_path": defaultMetricsPath, "scheme": "http"},
+				Check: &Check{Name: e.name, HTTP: "http://" + net.JoinHostPort(host, strconv.Itoa(e.ep.Port)) + defaultMetricsPath, Interval: "30s", Timeout: "5s"}})
 		}
 	}
-	if !t.Frontends && !t.URLs {
+	if !t.Frontends && !t.URLs && !t.Exporters {
 		return services, false, nil
 	}
 	top := haproxyflow.Parse(src.HAProxyConfig)
@@ -131,11 +143,22 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 	}
 	urls := 0
 	for _, f := range top.Frontends {
-		addr, port, ok := firstBind(f.Binds)
+		raw, addr, port, ok := firstBind(f.Binds)
 		if !ok {
 			continue
 		}
 		host := cmpOr(addr, src.Address)
+		if t.Exporters {
+			if path, ok := prometheusExporter(f); ok {
+				scheme, tags := "http", []string{"haproxy", PrometheusTag}
+				if slices.Contains(f.TLSBinds, raw) {
+					scheme, tags = "https", append(tags, "tls")
+				}
+				services = append(services, Service{ID: IDPrefix + "haproxy-exporter:" + f.Name, Name: "haproxy-exporter", Tags: tags,
+					Address: host, Port: port, Meta: map[string]string{"metrics_path": path, "scheme": scheme, "frontend": f.Name},
+					Check: check("haproxy-exporter "+f.Name, host, port)})
+			}
+		}
 		if t.Frontends {
 			tags := []string{"haproxy", cmpOr(f.Mode, "tcp")}
 			if len(f.TLSBinds) > 0 {
@@ -159,7 +182,7 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 			continue
 		}
 		scheme, uaddr, uport := "http", addr, port
-		if a, p, ok := firstBind(f.TLSBinds); ok {
+		if _, a, p, ok := firstBind(f.TLSBinds); ok {
 			scheme, uaddr, uport = "https", a, p
 		}
 		uhost := cmpOr(uaddr, src.Address)
@@ -227,16 +250,64 @@ func frontendMaps(f haproxyflow.Frontend) string {
 	return s
 }
 
-// firstBind is the first of binds a TCP check can reach: its address
-// ("" for every address) and port. Sockets, file descriptors, QUIC and
-// the loopback are left out.
-func firstBind(binds []string) (addr string, port int, ok bool) {
+// firstBind is the first of binds a TCP check can reach: as written,
+// its address ("" for every address) and port. Sockets, file
+// descriptors, QUIC and the loopback are left out.
+func firstBind(binds []string) (raw, addr string, port int, ok bool) {
 	for _, b := range binds {
 		if a, p, ok := parseBind(b); ok {
-			return a, p, true
+			return b, a, p, true
 		}
 	}
-	return "", 0, false
+	return "", "", 0, false
+}
+
+// prometheusExporter says whether f has HAProxy's own exporter serve a
+// request (http-request use-service prometheus-exporter), and on which
+// path: its condition's, when it names one - path /metrics, path_beg
+// /metrics -, else /metrics.
+func prometheusExporter(f haproxyflow.Frontend) (path string, ok bool) {
+	for _, u := range f.UseServices {
+		if u.Name != "prometheus-exporter" {
+			continue
+		}
+		for _, line := range condLines(f.ACLs, u.Cond) {
+			if p := aclPath(line); p != "" {
+				return p, true
+			}
+		}
+		return defaultMetricsPath, true
+	}
+	return "", false
+}
+
+// aclPath is the path an ACL's line matches exactly or as a prefix,
+// "" if none.
+func aclPath(line []string) string {
+	if len(line) == 0 {
+		return ""
+	}
+	fetch, method := fetchOf(line[0]), ""
+	switch fetch {
+	case "path":
+	case "path_beg":
+		method = "beg"
+	default:
+		return ""
+	}
+	values, m := aclValues(line)
+	if m != "" {
+		method = m
+	}
+	if method != "" && method != "str" && method != "beg" {
+		return ""
+	}
+	for _, v := range values {
+		if strings.HasPrefix(v, "/") && !strings.ContainsAny(v, " *?") {
+			return v
+		}
+	}
+	return ""
 }
 
 func parseBind(b string) (addr string, port int, ok bool) {
@@ -435,6 +506,32 @@ func hostname(h string) string {
 	return h
 }
 
+// aclValues are an ACL line's values, after its fetch and flags, and
+// its -m method ("" without).
+func aclValues(line []string) (values []string, method string) {
+	flags := true
+	for i := 1; i < len(line); i++ {
+		w := line[i]
+		if flags && strings.HasPrefix(w, "-") {
+			switch w {
+			case "--":
+				flags = false
+			case "-m":
+				if i+1 < len(line) {
+					method = line[i+1]
+					i++
+				}
+			case "-f", "-u":
+				i++ // a file, an ID: no value of its own
+			}
+			continue
+		}
+		flags = false
+		values = append(values, w)
+	}
+	return values, method
+}
+
 type condHost struct {
 	host string
 	sni  bool
@@ -445,11 +542,22 @@ type condHost struct {
 // matched exactly or as a domain, never a pattern. "unless" requires
 // none.
 func condHosts(acls map[string][][]string, cond string) []condHost {
+	var out []condHost
+	for _, line := range condLines(acls, cond) {
+		out = append(out, aclHosts(line)...)
+	}
+	return out
+}
+
+// condLines are the ACL lines an "if" condition requires: those of the
+// named ACLs it doesn't negate, and those it holds between braces.
+// "unless" requires none.
+func condLines(acls map[string][][]string, cond string) [][]string {
 	words := strings.Fields(cond)
 	if len(words) == 0 || words[0] != "if" {
 		return nil
 	}
-	var out []condHost
+	var out [][]string
 	for i := 1; i < len(words); i++ {
 		w := words[i]
 		switch {
@@ -458,13 +566,11 @@ func condHosts(acls map[string][][]string, cond string) []condHost {
 			for end < len(words) && words[end] != "}" {
 				end++
 			}
-			out = append(out, aclHosts(words[i+1:end])...)
+			out = append(out, words[i+1:end])
 			i = end
 		case w == "||" || w == "or" || strings.HasPrefix(w, "!"):
 		default:
-			for _, line := range acls[w] {
-				out = append(out, aclHosts(line)...)
-			}
+			out = append(out, acls[w]...)
 		}
 	}
 	return out
@@ -484,26 +590,9 @@ func aclHosts(line []string) []condHost {
 	if kind != "host" && kind != "sni" {
 		return nil
 	}
-	var values []string
-	flags := true
-	for i := 1; i < len(line); i++ {
-		w := line[i]
-		if flags && strings.HasPrefix(w, "-") {
-			switch w {
-			case "--":
-				flags = false
-			case "-m":
-				if i+1 < len(line) {
-					method = line[i+1]
-					i++
-				}
-			case "-f", "-u":
-				i++ // a file, an ID: no host of its own
-			}
-			continue
-		}
-		flags = false
-		values = append(values, w)
+	values, m := aclValues(line)
+	if m != "" {
+		method = m
 	}
 	if method != "" && method != "str" && method != "dom" {
 		return nil
