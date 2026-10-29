@@ -659,6 +659,56 @@ a reader's and an operator's, deleted after):
 Measured: each run's tool calls (Claude Code's stream), the node's audit
 (who called what, the refusals), the probes.
 
+### Hypervisors' labels
+
+Since v2026.10.29-2: the Controller's two hypervisors labelled (`dc`,
+`room`) through `PATCH /api/hypervisors/{id}` with their whole record;
+then:
+
+| Step | Measured |
+|---|---|
+| `/api/nodes` | `inherited_labels` and `inherited_from` on the machines' nodes, none on the nodes made by hand |
+| A machine's own label on a key it inherits | its own kept apart; the card's inherited badge struck through |
+| A reader API token scoped to `dc=lab` | the nodes `/api/nodes` lists, each node page's answer (200 or 403), its `janusctl login` context and what a write gets |
+| The hypervisor relabelled, a node given the label itself, back | the same, after each change |
+| The Hypervisors and Nodes pages | in headless Chromium, light and dark: console errors, failed requests, axe |
+
+### Consul through the Controller
+
+Since v2026.10.29-2, for the campaign only: a Consul server (the
+extension's version, pinned by digest) in a container on the
+Controller's machine, set up as the guide's "Before you start" asks -
+ACLs denying by default, gossip encryption, RPC TLS verified both ways,
+`auto_encrypt`, the HTTP API on HTTPS only with its own CA - with the
+Controller's token (the guide's policy) and a read-only token. Three
+machines the Controller makes: two of them a cluster (a configuration
+routing by a hosts map and a Host ACL, HAProxy's Prometheus exporter on
+a frontend) given `consul` and node_exporter by `PATCH /api/machines`
+- through the cluster's update -, the third made with them.
+
+| Step | Measured |
+|---|---|
+| **Test** with the right token, a read-only one, no CA | what it says |
+| The settings saved, a selector on an inherited label | when each node gets its token and layer; the Nodes table |
+| Each node, in Consul and with `janusctl network consul managed\|services\|status` | its token (node identity, `janus-nodes`), its agent, `node_meta`, each service's address, port, tags, meta and checks |
+| A map entry set and deleted at runtime; an exporter off, on, moved | the seconds until Consul follows (the catalog read every 0.2 s) |
+| Drain, undrain; HAProxy stopped (with and without a map); a firmware reboot | maintenance on and off, the seconds; the services after (no duplicate) |
+| A hypervisor's label changed | the node's `node_meta` |
+| A node token deleted in Consul, **Run now** | the new token, the catalog |
+| A node out of the selector and back; a machine destroyed; the integration off | the layer, the token, the catalog entry, the agent |
+| The Consul tab, a node's **Apps › Consul** | in headless Chromium, light and dark |
+| The cost | janusd's and the agent's CPU and memory, idle, with and without the extension; the boot stages; the images' sizes |
+
+### Prometheus finding them
+
+Since v2026.10.29-2, with the Consul scenario's nodes: a Prometheus and
+a blackbox exporter in containers on the fourth machine, with
+`examples/prometheus/consul.yml` adapted to the lab's Consul (its
+address, its CA, the read-only token). Measured: the targets found and
+`up`, their labels, the URL targets (one per URL, a cluster's members
+merged) and their probes, which targets a drained member leaves -
+both members drained - and a node out of the selector.
+
 ## The scripts
 
 The scripts and the raw logs stay in the lab's own repository: they
@@ -773,3 +823,15 @@ ran:
   both nodes' configurations, to compare with the campaign before;
   `abrun N`: `cpuab` on node 01, alternating versions by rollbacks
   (v2026.10.29).
+- `k1`: hypervisors' labels, a node's own, what `/api/nodes` says and
+  what a scoped token reaches; `consul56`: the throwaway Consul server
+  (`up`, `bootstrap`, `down`); `consul-settings`: the Controller's
+  Consul settings tested, saved, turned off; `kc`: the scenario's
+  cluster (its versions: the map, then the configuration); `mpatch`: a
+  machine changed through the API, its phase and its cluster's members
+  followed; `k2`: Consul's view - members, nodes, a node's services and
+  checks, the URLs, the tokens, the Controller's table, and `watch` (a
+  service's presence and health every 0.2 s); `cost`: a node's
+  processes' CPU and memory over two minutes; `k3`: the Prometheus and
+  the blackbox exporter; `u-check56` (+ `.mjs`): pages in headless
+  Chromium, light and dark (v2026.10.29-2).
