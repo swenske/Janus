@@ -461,6 +461,30 @@ pages or with an API token - and every sign-in, failed or not, with who
 made it (`<data-dir>/audit.jsonl`, and the container's log). What the
 Controller does on a node, the node logs too, with the same name.
 
+Each entry names what it was about - a node (its page's calls too), a
+pending node, a machine, a cluster, a hypervisor, an account, a token -
+as it was named then: a node removed since keeps its name in the audit.
+The tab reads it a hundred entries at a time, filtered by account, how
+it came, what it's about, kind of action, result, method, time, client
+address and text, the filters in its address to share a view. The same
+from a script, as an admin (`GET /api/audit`):
+
+```sh
+curl -H "Authorization: Bearer $JANUS_TOKEN" \
+  "https://controller:8080/api/audit?subject=node:<id>&result=refused&limit=100"
+```
+
+Its parameters: `user`, `via` (`session`, `token` or `token <id>`,
+`none`), `subject` (`node:<id>`, `machine:<id>`, `cluster:<id>`...),
+`result` (`ok`, `refused` for a 4xx, `failed` for a 5xx), `kind`
+(`signin`, `nodes`, `clusters`, `fleet`, `accounts`, `machines`,
+`settings`), `method`, `from` and `to` (RFC 3339), `client` (an address
+or its start), `q` (text in the path or the subject's name), `limit`
+(500 by default, 5000 at most) and `before`: the next page, older, is
+the `X-Next-Before` header's value; `X-Total-Count` is how many entries
+match. `?facets=1` lists the accounts, ways, subjects and methods the
+audit names.
+
 **Locked out of every admin account?** On the Controller's host:
 
 ```sh

@@ -291,7 +291,21 @@ claims, how its certificate is trusted, the rules (`RuleRows`: group,
 role, labels, domains), a default role, the accounts' life, the second
 factor's mode, the switches a provider may need, and **Test**
 (`/api/sso/test`: discovery, keys, warnings); the
-audit's newest 500 entries, filtered by account on submit. A node card
+audit, a hundred entries at a time, newest first - **Load older** for
+the next hundred, the count matching above the table. Each entry names
+what it was about, as it was named then (*Node* **edge-1**: a link to
+its page while it exists, "(removed)" once it's gone), its path under
+it, and a button that keeps only the entries about it. The filters
+(`audit.js`, `npm test`) are the server's, combined: the account and
+how it came (a session, an API token or one of them, no credential),
+what it's about (every node, machine, cluster... the audit names, the
+removed ones too - `?facets=1`), the kind of action (sign-ins, nodes,
+clusters, fleet and PKI, accounts and tokens, machines and hypervisors,
+settings), the result (succeeded, refused, failed), the method, a time
+range, the client's address or its start, text in the path or the
+name. They're kept in the hash (`#/audit?user=rita&result=refused`): a
+filtered view can be shared or bookmarked. The pickers apply at once,
+the fields typed in on Enter or when left. A node card
 shows its labels (`NodeLabels`): its own, edited in place by an admin,
 then those it inherits from its machine's hypervisor (`InheritedLabels`:
 "from kvm01", dashed badges, one its own label overrides struck
