@@ -33,6 +33,26 @@ function writeQuery(s) {
   window.history.replaceState(null, '', url)
 }
 
+const compact = new Intl.NumberFormat('en', { notation: 'compact' })
+
+// Downloads is how often images with a choice were fetched in the last
+// days: platforms' images (from this page, or a Controller creating a
+// machine) and nodes' updates. The site counts what, never who
+// (docs/image-factory.md).
+function Downloads({ images = 0, updates = 0, days }) {
+  const n = images + updates
+  if (!n) return null
+  const what = [images && `${images} image${images === 1 ? '' : 's'}`, updates && `${updates} update${updates === 1 ? '' : 's'}`].filter(Boolean).join(' and ')
+  const said = `${what} downloaded in the last ${days} days`
+  return (
+    <span className="downloads" title={said}>
+      <Download size={11} aria-hidden="true" />
+      <span aria-hidden="true">{compact.format(n)}</span>
+      <span className="sr-only">{said}</span>
+    </span>
+  )
+}
+
 function Step({ n, title, done, children }) {
   return (
     <section className={`step-card ${done ? 'done' : ''}`}>
@@ -48,7 +68,7 @@ function Step({ n, title, done, children }) {
 // VariantChoice picks a HAProxy branch or kernel track: the release's
 // default (unset - the image follows it from release to release), or
 // one of those it offers, pinned.
-function VariantChoice({ variants, value, arch, onChange, follows, name, until }) {
+function VariantChoice({ variants, value, arch, onChange, follows, name, until, counts, days }) {
   const def = variants.find((v) => v.default)
   return (
     <div className="choice-grid">
@@ -65,7 +85,9 @@ function VariantChoice({ variants, value, arch, onChange, follows, name, until }
           <button key={v.name} disabled={!ok} className={`choice ${value === v.name ? 'selected' : ''} ${ok ? '' : 'disabled'}`} onClick={() => onChange(v.name)}>
             <span className="choice-title">{name(v)}</span>
             <span className="muted small">{until(v)}</span>
-            <span className="choice-meta">{v.version}</span>
+            <span className="choice-meta">
+              {v.version} <Downloads {...counts?.[v.name]} days={days} />
+            </span>
             {!ok && <span className="small warn-text">amd64 only</span>}
           </button>
         )
@@ -106,7 +128,17 @@ export default function Builder() {
   // What ticking or unticking an extension did to the others it requires
   // or that require it.
   const [extNote, setExtNote] = useState('')
+  // How often each choice was downloaded (GET /api/v1/stats/downloads):
+  // nothing shown without it.
+  const [stats, setStats] = useState(null)
   const toast = useToast()
+
+  useEffect(() => {
+    getJSON('/api/v1/stats/downloads?days=30')
+      .then(setStats)
+      .catch(() => setStats(null))
+  }, [])
+  const days = stats?.days
 
   useEffect(() => {
     Promise.all([getJSON('/api/v1/platforms'), getJSON('/api/v1/versions')])
@@ -224,6 +256,11 @@ export default function Builder() {
           Pick where Janus runs, which release, its HAProxy branch and kernel track, and the optional extensions you want. Your choices form a <strong>schematic</strong>: the same choices
           always give the same ID, and nodes built from it get updates built from it - extensions, branch and track included.
         </p>
+        {stats?.total && stats.total.images + stats.total.updates > 0 && (
+          <p className="muted small">
+            In the last {days} days: {stats.total.images.toLocaleString('en')} images and {stats.total.updates.toLocaleString('en')} updates downloaded.
+          </p>
+        )}
       </div>
       <ErrorBox error={error} />
 
@@ -241,7 +278,7 @@ export default function Builder() {
                     </span>
                     <span className="muted small">{p.description}</span>
                     <span className="choice-meta">
-                      <Cpu size={12} /> {p.arch}
+                      <Cpu size={12} /> {p.arch} <Downloads images={stats?.platforms?.[p.id]} days={days} />
                     </span>
                   </button>
                 ))}
@@ -298,6 +335,8 @@ export default function Builder() {
                   follows="The newest LTS branch - the image moves to the next one with the release that makes it the default"
                   name={(v) => `HAProxy ${v.name}`}
                   until={(v) => `Stays on ${v.name}${v.eol ? ` - supported upstream until ${v.eol.slice(0, 7)}` : ''}`}
+                  counts={stats?.haproxy}
+                  days={days}
                 />
               </div>
               <div>
@@ -312,6 +351,8 @@ export default function Builder() {
                   follows="The release's default track"
                   name={(v) => `${v.name.charAt(0).toUpperCase()}${v.name.slice(1)}`}
                   until={(v) => `kernel.org's newest ${v.name} release, from branch to branch`}
+                  counts={stats?.kernel}
+                  days={days}
                 />
               </div>
               <p className="muted small" style={{ margin: 0 }}>
@@ -326,7 +367,9 @@ export default function Builder() {
                     <button className={`choice ${consoleChoice === '' ? 'selected' : ''}`} onClick={() => update({ console: '' })}>
                       <span className="choice-title">Serial and screen</span>
                       <span className="muted small">The default: what a hypervisor's serial console shows, what the Controller reads of its machines</span>
-                      <span className="choice-meta">console=tty0 console=ttyS0</span>
+                      <span className="choice-meta">
+                        console=tty0 console=ttyS0 <Downloads {...stats?.console?.serial} days={days} />
+                      </span>
                     </button>
                     <button className={`choice ${consoleChoice === 'screen' ? 'selected' : ''}`} onClick={() => update({ console: 'screen' })}>
                       <span className="choice-title">Screen only</span>
@@ -334,7 +377,9 @@ export default function Builder() {
                         No serial console: an emulated serial port costs CPU for every byte written to it. The first boot's credentials show on the screen alone - for a node you install by hand and watch
                         another way.
                       </span>
-                      <span className="choice-meta">console=tty0</span>
+                      <span className="choice-meta">
+                        console=tty0 <Downloads {...stats?.console?.screen} days={days} />
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -371,7 +416,10 @@ export default function Builder() {
                       <span className="choice-title">
                         <Package size={14} /> {e.name}
                       </span>
-                      <span className="muted small mono">{e.version}</span>
+                      <span className="muted small mono nowrap">
+                        {e.version}
+                        <Downloads {...stats?.extensions?.[e.name]} days={days} />
+                      </span>
                     </span>
                     <span className="muted small">{e.description}</span>
                     {e.requires?.length > 0 && <span className="small">Requires {e.requires.join(', ')}</span>}

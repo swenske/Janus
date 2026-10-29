@@ -149,7 +149,7 @@ func TestSupervisorGiveUpAfterStopsRestarting(t *testing.T) {
 		MaxBackoff:  10 * time.Millisecond,
 		StableAfter: time.Hour,
 		GiveUpAfter: 50 * time.Millisecond,
-		OnGiveUp:    func() { atomic.AddInt32(&fired, 1) },
+		OnGiveUp:    func() bool { atomic.AddInt32(&fired, 1); return true },
 	}
 
 	done := make(chan struct{})
@@ -166,6 +166,56 @@ func TestSupervisorGiveUpAfterStopsRestarting(t *testing.T) {
 
 	if atomic.LoadInt32(&fired) != 1 {
 		t.Fatalf("OnGiveUp fired %d times, want exactly 1", fired)
+	}
+}
+
+// TestSupervisorNothingToGiveUpRestartsForever: past GiveUpAfter, an
+// OnGiveUp with nothing left to give up on - the boot was confirmed
+// meanwhile - sends Run back to restarting forever: janusd exiting long
+// after an update's confirmation (a Restart, a crash) must come back,
+// not leave the node without its API until the next reboot.
+func TestSupervisorNothingToGiveUpRestartsForever(t *testing.T) {
+	truePath := lookPath(t, "true")
+
+	var fired int32
+	s := &Supervisor{
+		Path:        truePath,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+		MinBackoff:  5 * time.Millisecond,
+		MaxBackoff:  10 * time.Millisecond,
+		StableAfter: time.Hour,
+		GiveUpAfter: 50 * time.Millisecond,
+		OnGiveUp:    func() bool { atomic.AddInt32(&fired, 1); return false },
+	}
+
+	done := make(chan struct{})
+	go func() {
+		s.Run()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("Run returned although OnGiveUp had nothing to give up on")
+	case <-time.After(300 * time.Millisecond):
+	}
+	if n := atomic.LoadInt32(&fired); n != 1 {
+		t.Errorf("OnGiveUp fired %d times, want once: the deadline goes with it", n)
+	}
+	// Still restarting it: a child shows up again.
+	deadline := time.Now().Add(5 * time.Second)
+	for s.pid.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("no child after the deadline passed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	s.Stop(syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run didn't return after Stop")
 	}
 }
 

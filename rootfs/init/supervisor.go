@@ -51,8 +51,13 @@ type Supervisor struct {
 	// previously-known-good one. Zero (the default) preserves the
 	// unconditional "restart forever" behavior every other caller
 	// relies on.
+	//
+	// OnGiveUp says whether it gave up: false - nothing left to give up
+	// on, the boot was confirmed meanwhile - and Run drops the deadline
+	// and restarts forever again. A janusd exiting long after its
+	// update's confirmation (a Restart, a crash) must come back.
 	GiveUpAfter time.Duration
-	OnGiveUp    func()
+	OnGiveUp    func() bool
 
 	// stopping makes Run return once the child exits instead of
 	// restarting it (Stop), and pid is the current child's.
@@ -87,10 +92,10 @@ func (s *Supervisor) Run() {
 			return
 		}
 		if !giveUpDeadline.IsZero() && !time.Now().Before(giveUpDeadline) {
-			if s.OnGiveUp != nil {
-				s.OnGiveUp()
+			if s.OnGiveUp == nil || s.OnGiveUp() {
+				return
 			}
-			return
+			giveUpDeadline = time.Time{}
 		}
 		time.Sleep(backoff)
 	}
