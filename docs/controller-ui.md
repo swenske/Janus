@@ -641,7 +641,9 @@ newest GitHub release; a node with extensions gets the newest release
 the image factory has built from its schematic (`dashboardd
 -image-factory`, janus.sw-servers.net by default), shown as "building"
 until it's ready - never a plain release, which would drop its
-extensions. The Update page shows the node's schematic and extensions,
+extensions. When the factory can't be reached, its mirror answers
+(`-image-factory-mirror`, `nodeproxy/mirror.go`: `via: "mirror"`, the
+Update page's "Source" line says so). The Update page shows the node's schematic and extensions,
 its HAProxy (version, branch, pinned or the default) and its kernel
 track, from what the node's image reports (`VersionResponse`'s
 `schematic`, `haproxy`, `kernel` - `nodeproxy.NodeSchematic`, the

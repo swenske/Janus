@@ -207,6 +207,32 @@ release comes out, the site builds the update bundle of every schematic
 it has already served, so a node with extensions finds its update ready
 like one without.
 
+### When the factory can't be reached: its mirror
+
+A node with the default schematic updates from the GitHub Release
+whatever happens to this site. One with extensions needs the factory's
+build - so a second server, `https://janus-mirror.sw-servers.net`, keeps
+a read-only copy of the update bundles the factory built for its **two
+newest releases** (not the pre-releases, nor the disk images): it
+builds nothing, and only has what the factory had built.
+
+When the factory can't be reached - no connection, no answer within 10
+seconds, a 5xx - the Controller asks the mirror for the update instead
+(`GET /api/v1/updates/<id>`, the same answer), for a node's **Update**
+page, a machine's version change and a cluster's upgrade alike; the
+Update page then says the update comes from the mirror, and the node
+(or the Controller's relay) downloads the bundle from it. A refusal from
+the factory itself is its answer: the mirror isn't asked. Nothing else
+changes - the node checks the bundle's SHA-256 and the signature of its
+UKIs, wherever they come from, so the mirror needs no more trust than
+the factory.
+
+`dashboardd -image-factory-mirror` (`JANUS_CONTROLLER_IMAGE_FACTORY_MIRROR`)
+names it: `auto`, the default, is this mirror with the default
+`-image-factory` and none with another; empty, none. A network that only
+lets nodes reach chosen hosts needs `janus-mirror.sw-servers.net` beside
+`janus.sw-servers.net` and `github.com`.
+
 ### How a custom image is built
 
 Every release publishes, for each architecture, what a schematic's image

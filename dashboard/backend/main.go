@@ -107,10 +107,12 @@ func main() {
 	tlsKeyFile := flag.String("tls-key", envOr("JANUS_CONTROLLER_TLS_KEY", ""), "path to the PEM private key matching -tls-cert; also settable via JANUS_CONTROLLER_TLS_KEY")
 	acmeClient := flag.String("acme-client", envOr("JANUS_CONTROLLER_ACME_CLIENT", ""), "the ACME client the Controller orders its nodes' certificates with (cmd/janus-acme, docs/guide/letsencrypt-controller.md) - default: janus-acme next to dashboardd, as in the image; also settable via JANUS_CONTROLLER_ACME_CLIENT")
 	imageFactory := flag.String("image-factory", envOr("JANUS_CONTROLLER_IMAGE_FACTORY", nodeproxy.ImageFactoryURL), "image factory that builds and serves the updates of nodes whose image has optional extensions (docs/image-factory.md) - empty to disable, in which case such nodes have no update source; nodes with the default schematic update from GitHub Releases either way; also settable via JANUS_CONTROLLER_IMAGE_FACTORY")
+	imageFactoryMirror := flag.String("image-factory-mirror", envOr("JANUS_CONTROLLER_IMAGE_FACTORY_MIRROR", "auto"), "where nodes with optional extensions get their updates when the image factory can't be reached (no connection, no answer within 10 s, a 5xx): a read-only copy of the update bundles it built for its two newest releases (docs/image-factory.md) - \"auto\": "+nodeproxy.DefaultImageFactoryMirror+" with the default -image-factory, none with another; empty: none; also settable via JANUS_CONTROLLER_IMAGE_FACTORY_MIRROR")
 	updaterSocket := flag.String("updater-socket", envOr("JANUS_CONTROLLER_UPDATER_SOCKET", updaterapi.DefaultSocket), "Unix socket of janus-controller-updater, which updates this Controller when asked from its page (dashboard/README.md, Updating the Controller) - nothing happens when it isn't there; empty to never use one; also settable via JANUS_CONTROLLER_UPDATER_SOCKET")
 	releasesURL := flag.String("releases-url", envOr("JANUS_CONTROLLER_RELEASES_URL", nodeproxy.ReleasesURL), "GitHub API URL listing Janus releases, newest first - where the Controller learns about new releases for itself and its nodes (a mirror, or a test's fake); also settable via JANUS_CONTROLLER_RELEASES_URL")
 	flag.Parse()
 	nodeproxy.ImageFactoryURL = *imageFactory
+	nodeproxy.ImageFactoryMirrorURL = nodeproxy.MirrorFor(*imageFactory, *imageFactoryMirror)
 	nodeproxy.ReleasesURL = *releasesURL
 	nodeproxy.ControllerVersion = version
 
