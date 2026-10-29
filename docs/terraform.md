@@ -93,6 +93,8 @@ resource "janus_hypervisor" "kvm01" {
   networks = ["lan", "dmz"]
   # Read on the host: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
   host_key_fingerprint = "SHA256:KASpY7hkwHVkvQBhNXcmojERkTMna6SV+uxg8rRr52E"
+  # Its nodes inherit them (inherited_labels), under their own.
+  labels = { dc = "lgs", room = "a", rack = "12" }
 }
 
 output "authorized_key" { value = janus_hypervisor.kvm01.authorized_key }
@@ -108,7 +110,14 @@ output "authorized_key" { value = janus_hypervisor.kvm01.authorized_key }
 Optional:
 - `name_prefix` (default `janus-`);
 - `socket`;
-- `controller_address`: where its nodes reach the Controller.
+- `controller_address`: where its nodes reach the Controller;
+- `labels`: where it is (`dc`, `room`, `rack`...). Every node the
+  Controller creates on it inherits them, under its own labels - a
+  node's own wins on the same key - so the grants, scoped tokens and log
+  forwarding profiles that pick nodes by label pick those nodes by them
+  too ([hypervisors.md](hypervisors.md#labels-where-a-hypervisor-is)).
+  Unset, Terraform leaves them alone; set, it owns them, and `{}`
+  clears them.
 
 ### `janus_proxmox_hypervisor`
 
@@ -149,7 +158,7 @@ resource "janus_proxmox_hypervisor" "pve01" {
 
 Optional: `name_prefix` (default `janus-`), `vmids` (a range,
 `9000-9099`; default: the cluster's next free ID), `controller_address`,
-`ca_cert`.
+`ca_cert`, `labels` (inherited by its nodes, as `janus_hypervisor`'s).
 
 `janus_node` takes either kind's `id` as its `hypervisor_id`; its
 interfaces' `network` is then a bridge (`vmbr0`) or a VLAN on one
@@ -159,7 +168,7 @@ interfaces' `network` is then a bridge (`vmbr0`) or a VLAN on one
 A hypervisor that already exists on the Controller - either kind - can
 be read instead: `data "janus_hypervisor" "kvm01" { name = "kvm01" }`.
 It gives its `kind` (`libvirt` or `proxmox`), `host` (the SSH host, or
-the API URL), `pool`, `networks` and whether it's `trusted`.
+the API URL), `pool`, `networks`, `labels` and whether it's `trusted`.
 
 ### `janus_node`
 
@@ -244,11 +253,16 @@ by Janus) reboots through the firmware, and the machine's history on the
 Controller says which way each update went. What to know before
 choosing kexec: [updating nodes](guide/updates.md#with-janusctl).
 
-**`labels`** (`labels = { team = "web" }`) are the node's labels on the
-Controller: the grants and scoped tokens of its accounts pick nodes by
+**`labels`** (`labels = { team = "web" }`) are the node's own labels on
+the Controller: the grants and scoped tokens of its accounts pick nodes by
 them ([dashboard/README.md](../dashboard/README.md#accounts-and-roles)).
 Unset, Terraform leaves them alone; set, it owns them - a change made on
-the Controller shows in the next plan, and `{}` clears them.
+the Controller shows in the next plan, and `{}` clears them. The node
+also inherits its hypervisor's labels, read back as
+**`inherited_labels`** (computed): grants and tokens match both, the
+node's own winning on the same key. `labels` never holds them, so
+setting `labels` doesn't fight the hypervisor's, and a change to the
+hypervisor's shows on the node at the next refresh.
 
 **`autoscaling`** grows the node while it runs - vCPUs and memory plugged
 in without a restart - and brings it back to `vcpus` and `memory_mib`
@@ -284,6 +298,7 @@ development build. Its version and extensions can't change in place.
 **Computed:**
 - `id`, the machine's ID on the Controller;
 - `node_id`, `node_address`, `vm_name`, `schematic`;
+- `inherited_labels`, its hypervisor's labels;
 - `current_vcpus`, `current_memory_mib`: what it has now;
 - each interface's `mac`, unless you set it.
 
@@ -432,7 +447,8 @@ container of [hypervisors.md](hypervisors.md)'s test. It checks:
 - memory, then a static address, changed in place;
 - a new name planning a replacement;
 - an imported node;
-- labels on the node; a user operator on `team=web` over HAProxy only
+- labels on the hypervisor, inherited by the node (`inherited_labels`),
+  and on the node; a user operator on `team=web` over HAProxy only
   terraforming its `haproxy.cfg` with a token narrowed the same way - a
   configuration HAProxy refuses failing, nothing changed - and refused
   a resize, a service restart, the hypervisors;

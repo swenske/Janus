@@ -148,6 +148,9 @@ type HypervisorRequest struct {
 	Proxmox           *ProxmoxConfig `json:"proxmox,omitempty"`
 	// TokenSecret is a Proxmox token's secret: written, never read back.
 	TokenSecret string `json:"token_secret,omitempty"`
+	// Labels, given, replace the hypervisor's ({} clears them); nil
+	// leaves them as they are.
+	Labels *map[string]string `json:"labels,omitempty"`
 }
 
 type Hypervisor struct {
@@ -164,6 +167,8 @@ type Hypervisor struct {
 	HostKeyFingerprint string `json:"host_key_fingerprint"`
 	HasTokenSecret     bool   `json:"has_token_secret"`
 	Machines           int    `json:"machines"`
+	// Labels are inherited by the nodes of its machines.
+	Labels map[string]string `json:"labels"`
 }
 
 func (c *Client) Hypervisors(ctx context.Context) ([]Hypervisor, error) {
@@ -363,11 +368,23 @@ func (m *Machine) LastEvent() string {
 
 // Node is a node of the Controller, as the token reaches it.
 type Node struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	Address   string            `json:"address"`
-	MachineID string            `json:"machine_id"`
-	Labels    map[string]string `json:"labels"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Address   string `json:"address"`
+	MachineID string `json:"machine_id"`
+	// Labels are its own; InheritedLabels its hypervisor's
+	// (InheritedFrom), under its own - a Controller from before them
+	// gives none.
+	Labels          map[string]string `json:"labels"`
+	InheritedLabels map[string]string `json:"inherited_labels"`
+	InheritedFrom   *LabelSource      `json:"inherited_from"`
+}
+
+// LabelSource is where a node's inherited labels come from.
+type LabelSource struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // Nodes are the nodes the token reaches.

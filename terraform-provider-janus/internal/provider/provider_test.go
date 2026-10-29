@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -47,6 +48,84 @@ func TestSchemas(t *testing.T) {
 	}
 	if _, ok := resp.DataSourceSchemas["janus_hypervisor"]; !ok {
 		t.Error("no janus_hypervisor data source")
+	}
+	// Labels: a hypervisor's, set or not; a node's own, and those it
+	// inherits - computed only.
+	attr := func(s *tfprotov6.Schema, name string) *tfprotov6.SchemaAttribute {
+		if s == nil {
+			return nil
+		}
+		for _, a := range s.Block.Attributes {
+			if a.Name == name {
+				return a
+			}
+		}
+		return nil
+	}
+	for _, name := range []string{"janus_hypervisor", "janus_proxmox_hypervisor"} {
+		if a := attr(resp.ResourceSchemas[name], "labels"); a == nil || !a.Optional || a.Computed {
+			t.Errorf("%s's labels: %+v", name, a)
+		}
+	}
+	if a := attr(resp.DataSourceSchemas["janus_hypervisor"], "labels"); a == nil || !a.Computed {
+		t.Errorf("the data source's labels: %+v", a)
+	}
+	if a := attr(resp.ResourceSchemas["janus_node"], "inherited_labels"); a == nil || !a.Computed || a.Optional {
+		t.Errorf("janus_node's inherited_labels: %+v", a)
+	}
+}
+
+// A hypervisor's labels: sent when set ({} too: it clears them), left
+// out when unset - the Controller keeps them -, read back only when set.
+func TestHypervisorLabels(t *testing.T) {
+	ctx := context.Background()
+	nets, _ := types.ListValueFrom(ctx, types.StringType, []string{"lan"})
+	m := hypervisorModel{
+		Name: types.StringValue("kvm01"), Host: types.StringValue("kvm01"), User: types.StringValue("janus-ctl"), Pool: types.StringValue("janus"),
+		Networks: nets, Labels: types.MapNull(types.StringType),
+	}
+	var diags diag.Diagnostics
+	if req := hypervisorRequest(ctx, &m, &diags); req.Labels != nil {
+		t.Errorf("unset labels sent: %v", *req.Labels)
+	}
+	raw, _ := json.Marshal(hypervisorRequest(ctx, &m, &diags))
+	if strings.Contains(string(raw), "labels") {
+		t.Errorf("unset labels in the request: %s", raw)
+	}
+	h := &client.Hypervisor{ID: "h1", Name: "kvm01", Kind: "libvirt", Labels: map[string]string{"dc": "lgs"},
+		Libvirt: &client.LibvirtConfig{Host: "kvm01", User: "janus-ctl", Pool: "janus", Networks: []string{"lan"}}}
+	fromHypervisor(h, &m)
+	if !m.Labels.IsNull() {
+		t.Errorf("unset labels read back: %v", m.Labels)
+	}
+
+	m.Labels = mapOf(map[string]string{"dc": "lgs", "rack": "12"})
+	req := hypervisorRequest(ctx, &m, &diags)
+	if diags.HasError() || req.Labels == nil || len(*req.Labels) != 2 || (*req.Labels)["rack"] != "12" {
+		t.Fatalf("labels sent: %v %v", req.Labels, diags)
+	}
+	m.Labels = mapOf(nil)
+	raw, _ = json.Marshal(hypervisorRequest(ctx, &m, &diags))
+	if !strings.Contains(string(raw), `"labels":{}`) {
+		t.Errorf("an empty map doesn't clear them: %s", raw)
+	}
+	fromHypervisor(h, &m)
+	if got := m.Labels.Elements(); len(got) != 1 || got["dc"].(types.String).ValueString() != "lgs" {
+		t.Errorf("labels read back: %v", m.Labels)
+	}
+	h.Labels = nil
+	fromHypervisor(h, &m)
+	if m.Labels.IsNull() || len(m.Labels.Elements()) != 0 {
+		t.Errorf("none read back: %v", m.Labels)
+	}
+
+	pm := proxmoxHypervisorModel{Labels: mapOf(map[string]string{"dc": "scw"})}
+	if req := proxmoxRequest(ctx, &pm, &diags); req.Labels == nil || (*req.Labels)["dc"] != "scw" {
+		t.Errorf("Proxmox labels sent: %v", req.Labels)
+	}
+	fromProxmox(&client.Hypervisor{Kind: "proxmox", Labels: map[string]string{"dc": "lgs"}, Proxmox: &client.ProxmoxConfig{}}, &pm)
+	if got := pm.Labels.Elements(); len(got) != 1 || got["dc"].(types.String).ValueString() != "lgs" {
+		t.Errorf("Proxmox labels read back: %v", pm.Labels)
 	}
 }
 

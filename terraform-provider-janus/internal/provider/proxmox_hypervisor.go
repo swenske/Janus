@@ -43,6 +43,7 @@ type proxmoxHypervisorModel struct {
 	CACert                 types.String `tfsdk:"ca_cert"`
 	CertificateFingerprint types.String `tfsdk:"certificate_fingerprint"`
 	Trusted                types.Bool   `tfsdk:"trusted"`
+	Labels                 types.Map    `tfsdk:"labels"`
 }
 
 func (r *proxmoxHypervisorResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -79,6 +80,7 @@ func (r *proxmoxHypervisorResource) Schema(_ context.Context, _ resource.SchemaR
 					"the Controller trusts the API only if it presents that certificate. Unset, with no ca_cert: not trusted - no node can be created on it.",
 			},
 			"trusted": schema.BoolAttribute{Computed: true, Description: "Whether the API is trusted (a pinned certificate, or a CA)."},
+			"labels":  labelsAttribute(),
 		},
 	}
 }
@@ -98,6 +100,7 @@ func (r *proxmoxHypervisorResource) ImportState(ctx context.Context, req resourc
 func proxmoxRequest(ctx context.Context, m *proxmoxHypervisorModel, diags *diag.Diagnostics) client.HypervisorRequest {
 	return client.HypervisorRequest{
 		Name: m.Name.ValueString(), Kind: "proxmox", ControllerAddress: strOrEmpty(m.ControllerAddress), TokenSecret: strOrEmpty(m.TokenSecret),
+		Labels: labelsOf(ctx, m.Labels, diags),
 		Proxmox: &client.ProxmoxConfig{
 			URL: m.URL.ValueString(), Node: m.Node.ValueString(), TokenID: m.TokenID.ValueString(),
 			Pool: m.Pool.ValueString(), Storage: m.Storage.ValueString(), ImageStorage: m.ImageStorage.ValueString(),
@@ -125,6 +128,7 @@ func fromProxmox(h *client.Hypervisor, m *proxmoxHypervisorModel) {
 		}
 	}
 	m.Trusted = types.BoolValue(h.Trusted)
+	m.Labels = ownedMapOf(h.Labels, m.Labels)
 	if !strings.EqualFold(m.CertificateFingerprint.ValueString(), h.HostKeyFingerprint) {
 		// Pinned another one (the API moved), or none: a change to trust.
 		m.CertificateFingerprint = strOrNull(h.HostKeyFingerprint, m.CertificateFingerprint)
