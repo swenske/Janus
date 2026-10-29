@@ -516,7 +516,7 @@ func (a *app) handleNodes(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		out := []nodeView{}
 		for _, n := range a.visibleNodes(requestPrincipal(r)) {
-			out = append(out, viewNode(n))
+			out = append(out, a.viewNode(n))
 		}
 		writeJSON(w, http.StatusOK, out)
 
@@ -586,19 +586,28 @@ func (a *app) handleAddNode(w http.ResponseWriter, r *http.Request) {
 }
 
 type nodeView struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	Address   string            `json:"address"`
-	MachineID string            `json:"machine_id,omitempty"`
-	Labels    map[string]string `json:"labels"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Address   string `json:"address"`
+	MachineID string `json:"machine_id,omitempty"`
+	// Labels are the node's own - what PATCH sets.
+	Labels map[string]string `json:"labels"`
+	// InheritedLabels are its hypervisor's (InheritedFrom), under its
+	// own: its effective labels are both, its own winning on a key.
+	InheritedLabels map[string]string `json:"inherited_labels"`
+	InheritedFrom   *labelSource      `json:"inherited_from,omitempty"`
 }
 
-func viewNode(n *store.Node) nodeView {
+func (a *app) viewNode(n *store.Node) nodeView {
 	l := n.LabelSet()
 	if l == nil {
 		l = map[string]string{}
 	}
-	return nodeView{ID: n.ID, Name: n.Name, Address: n.Addr(), MachineID: n.MachineID, Labels: l}
+	inherited, from := a.inheritedLabels(n)
+	if inherited == nil {
+		inherited = map[string]string{}
+	}
+	return nodeView{ID: n.ID, Name: n.Name, Address: n.Addr(), MachineID: n.MachineID, Labels: l, InheritedLabels: inherited, InheritedFrom: from}
 }
 
 func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
@@ -608,7 +617,8 @@ func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPatch {
-		// PATCH {"labels": {...}}: the node's labels, replaced.
+		// PATCH {"labels": {...}}: the node's own labels, replaced - those
+		// it inherits are its hypervisor's (PATCH /api/hypervisors/{id}).
 		var req struct {
 			Labels map[string]string `json:"labels"`
 		}
@@ -630,7 +640,7 @@ func (a *app) handleNode(w http.ResponseWriter, r *http.Request) {
 		}
 		a.logfwd.Poke() // another log forwarding profile may pick it
 		a.consul.Poke() // the Consul selector too, its node metadata
-		writeJSON(w, http.StatusOK, viewNode(n))
+		writeJSON(w, http.StatusOK, a.viewNode(n))
 		return
 	}
 	if r.Method != http.MethodDelete {

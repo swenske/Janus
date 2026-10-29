@@ -73,7 +73,9 @@ api "$JANUS/nodes/<node-id>/api/haproxy/config" -X POST -H 'Content-Type: applic
   /nodes/<node-id>/api/haproxy/config` (`{"config": "..."}`, answered
   with `{"accepted": ..., "message": ...}` - HAProxy's own message for a
   configuration it refuses).
-- Labels: `PATCH /api/nodes/<id>` with `{"labels": {...}}`.
+- Labels: `PATCH /api/nodes/<id>` with `{"labels": {...}}` - a node's
+  own; those its nodes inherit, on the hypervisor (`labels` in `PATCH
+  /api/hypervisors/<id>`).
 - Enrollment tokens are made by an admin on the Controller's page, not
   with an API token: a token can't mint the admission of new machines.
 

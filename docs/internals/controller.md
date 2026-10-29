@@ -52,7 +52,7 @@ sequenceDiagram
 | Sessions | memory | idle 30 minutes, 12 hours at most; ended by a password change; a provider's ID token, for signing out of it |
 | Single sign-ons under way | memory | ten minutes, each taken once |
 | The fleet's issuing CA | `<data-dir>`, sealed with the master key | the root's key leaves with the recovery kit |
-| Hypervisors, machines | `<data-dir>/hypervisors`, `<data-dir>/machines` | ownership tags on every machine it created |
+| Hypervisors (their labels too), machines | `<data-dir>/hypervisors`, `<data-dir>/machines` | ownership tags on every machine it created; a machine's node inherits its hypervisor's labels when they're read, never copied |
 | The audit log | `audit.jsonl` | every change made through the API |
 
 The master key (`JANUS_CONTROLLER_MASTER_KEY_FILE`) lives outside the

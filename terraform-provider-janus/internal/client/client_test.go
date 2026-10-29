@@ -121,7 +121,7 @@ func TestNodesAndHAProxy(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/api/nodes":
-			_, _ = w.Write([]byte(`[{"id":"n1","name":"edge-1","labels":{}},{"id":"n2","name":"dup"},{"id":"n3","name":"dup"}]`))
+			_, _ = w.Write([]byte(`[{"id":"n1","name":"edge-1","labels":{},"inherited_labels":{"dc":"lgs"},"inherited_from":{"kind":"hypervisor","id":"h1","name":"kvm01"}},{"id":"n2","name":"dup"},{"id":"n3","name":"dup"}]`))
 		case r.Method == "PATCH" && r.URL.Path == "/api/nodes/n1":
 			var b map[string]map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&b)
@@ -148,8 +148,8 @@ func TestNodesAndHAProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if n, err := c.FindNode(ctx, "edge-1"); err != nil || n.ID != "n1" {
-		t.Errorf("by name: %v %v", n, err)
+	if n, err := c.FindNode(ctx, "edge-1"); err != nil || n.ID != "n1" || n.InheritedLabels["dc"] != "lgs" || n.InheritedFrom == nil || n.InheritedFrom.Name != "kvm01" {
+		t.Errorf("by name: %+v %v", n, err)
 	}
 	if n, err := c.FindNode(ctx, "n1"); err != nil || n.Name != "edge-1" {
 		t.Errorf("by ID: %v %v", n, err)

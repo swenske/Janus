@@ -19,7 +19,8 @@ import {
 } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { call, gib, postJSON } from './call.js'
-import { useCan } from './me.jsx'
+import { labelString, parseLabels, useCan } from './me.jsx'
+import { PLACE_EXAMPLE, PLACE_KEYS } from './labels.js'
 import { AutoscaleFields, AutoscaleSummary } from './Autoscale.jsx'
 import { autoscalePolicy, initialAutoscale, samePolicy, sizeText, useAutoscale } from './autoscale.js'
 import { Badge, Card, ErrorBox, useAction, useConfirm, useToast } from './shared/ui.jsx'
@@ -72,6 +73,7 @@ const emptyHV = {
   kind: 'libvirt',
   name: '',
   controller_address: '',
+  labels: '',
   networks: '',
   name_prefix: '',
   // libvirt
@@ -100,6 +102,7 @@ function toForm(hv) {
     kind: hv.kind,
     name: hv.name,
     controller_address: hv.controller_address || '',
+    labels: labelString(hv.labels),
     networks: (l.networks || p.networks || []).join(', '),
     name_prefix: l.name_prefix || p.name_prefix || '',
     host: l.host || '',
@@ -214,6 +217,8 @@ function NetworkPicker({ hv, value, onChange }) {
   )
 }
 
+// hvBody is the form's settings - its labels aside (saveBody): the host's
+// preparation, asked again on every change, doesn't name them.
 function hvBody(f) {
   const common = { name: f.name, kind: f.kind, controller_address: f.controller_address.trim() }
   if (f.kind === 'proxmox') {
@@ -247,6 +252,13 @@ function hvBody(f) {
   }
 }
 
+// saveBody is what Add/Save sends: the settings and the labels its
+// machines' nodes inherit - an empty field clears them. Throws on labels
+// that aren't key=value.
+function saveBody(f) {
+  return { ...hvBody(f), labels: parseLabels(f.labels) }
+}
+
 // What a host's preparation names, per kind: changed, the host needs
 // preparing again. And what the preparation needs.
 const PREPARED = { libvirt: ['user', 'pool', 'networks', 'name_prefix'], proxmox: ['token_id', 'pve_pool', 'storage', 'image_storage', 'networks', 'node'] }
@@ -274,11 +286,10 @@ function HypervisorForm({ hv, onSaved, onClose }) {
   const submit = async (e) => {
     e.preventDefault()
     setError(null)
-    const body = hvBody(f)
     const saved = await run(
       async () => {
         try {
-          return await postJSON(hv ? `/api/hypervisors/${hv.id}` : '/api/hypervisors', body, hv ? 'PATCH' : 'POST')
+          return await postJSON(hv ? `/api/hypervisors/${hv.id}` : '/api/hypervisors', saveBody(f), hv ? 'PATCH' : 'POST')
         } catch (err) {
           setError(err)
           throw err
@@ -400,6 +411,9 @@ function HypervisorForm({ hv, onSaved, onClose }) {
             </>
           )}
         </div>
+        <Field label={`Labels its nodes inherit (key=value, comma-separated; ${PLACE_KEYS.join(', ')}... - a node's own label wins on the same key)`}>
+          <input className="mono" value={f.labels} onChange={set('labels')} placeholder={PLACE_EXAMPLE} />
+        </Field>
         {pve && (
           <Field label="CA certificate of the API (optional, PEM) - a certificate renewed now and then stays trusted; without it, you confirm the certificate's fingerprint once added">
             <textarea rows={3} className="mono" value={f.ca_cert} onChange={set('ca_cert')} placeholder="-----BEGIN CERTIFICATE-----" />
@@ -680,6 +694,23 @@ function HVError({ hv, error }) {
   )
 }
 
+// HVLabels are a hypervisor's labels - its machines' nodes inherit them.
+function HVLabels({ hv, className = 'row node-labels' }) {
+  const keys = Object.keys(hv.labels || {}).sort()
+  if (!keys.length) return null
+  return (
+    <div className={className} style={{ gap: '0.3rem', flexWrap: 'wrap' }} title="Its labels: the nodes of its machines inherit them">
+      {keys.map((k) => (
+        <Badge key={k}>
+          <span className="mono">
+            {k}={hv.labels[k]}
+          </span>
+        </Badge>
+      ))}
+    </div>
+  )
+}
+
 function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
   const can = useCan()
   const host = status?.host
@@ -693,6 +724,7 @@ function HypervisorCard({ hv, status, onEdit, onRemove, onTrusted }) {
         </div>
         {badge}
       </div>
+      <HVLabels hv={hv} />
       {!hv.trusted && (can('admin') ? <TrustSteps hv={hv} onTrusted={onTrusted} /> : <div className="notice warn small">Not trusted yet: an admin checks its key.</div>)}
       {hv.trusted && status?.error && <HVError hv={hv} error={status.error} />}
       {host && (
@@ -931,6 +963,11 @@ function CreateMachineForm({ hypervisors, onCreated, onClose }) {
             <input type="number" min={512} step={256} value={memory} onChange={(e) => setMemory(e.target.value)} required />
           </label>
         </div>
+        {Object.keys(hv?.labels || {}).length > 0 && (
+          <div className="muted small">
+            Its node inherits {hv.name}&apos;s labels: <span className="mono">{labelString(hv.labels)}</span>
+          </div>
+        )}
 
         <div className="field">
           <span className="field-label">Network interfaces</span>
@@ -1396,6 +1433,7 @@ function HypervisorTable({ hypervisors, hvStatus, onEdit, onRemove, onTrusted })
                     <td>
                       <div className="node-card-name">{hv.name}</div>
                       <div className="muted small mono">{hvWhere(hv)}</div>
+                      <HVLabels hv={hv} className="row node-table-labels" />
                     </td>
                     <td>{hvBadge(hv, status)}</td>
                     <td className="small">

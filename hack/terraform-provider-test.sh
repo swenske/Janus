@@ -16,7 +16,8 @@
 #      locks it again;
 #   6. an interface added, then removed - in place;
 #   7. a new name plans a replacement; an imported node plans nothing;
-#   8. labels on the node; a user without a role over everything,
+#   8. labels on the hypervisor, inherited by the node (inherited_labels,
+#      the node's own apart), and on the node; a user without a role over everything,
 #      operator on team=web over HAProxy only, terraforms the node's
 #      haproxy.cfg with a token narrowed the same way - HAProxy refusing
 #      a bad one -, and may change nothing else;
@@ -96,6 +97,10 @@ variable "labels" {
   type    = map(string)
   default = null
 }
+variable "hv_labels" {
+  type    = map(string)
+  default = null
+}
 variable "cluster" { default = 0 }
 variable "cluster_autoscale" { default = false }
 variable "cluster_balancer" { default = false }
@@ -107,6 +112,7 @@ resource "janus_hypervisor" "host" {
   pool                 = "janus"
   networks             = ["janus-test", "janus-test2"]
   host_key_fingerprint = var.fingerprint
+  labels               = var.hv_labels
 }
 
 resource "janus_node" "n" {
@@ -174,6 +180,7 @@ output "node_address" { value = try(janus_node.n[0].node_address, "") }
 output "node_id" { value = try(janus_node.n[0].id, "") }
 output "janus_node_id" { value = try(janus_node.n[0].node_id, "") }
 output "current_vcpus" { value = try(janus_node.n[0].current_vcpus, 0) }
+output "inherited_labels" { value = try(janus_node.n[0].inherited_labels, {}) }
 EOF
 tofu() { (cd "$WORKDIR/tf" && "$TOFU" "$@" -no-color -var "fingerprint=$FINGERPRINT" -var "image_sha256=$SUM" 2>&1); }
 tofu_bare() { (cd "$WORKDIR/tf" && "$TOFU" "$@" 2>&1); }
@@ -325,12 +332,28 @@ echo "Part 8 OK: a new name plans a replacement; the node imported by its ID pla
 # 8. Labels; a user who may only terraform HAProxy on team=web.
 # =========================================================================
 V="-var nodes=1 -var memory=1536 -var address=192.168.123.50/24"
+# The hypervisor labelled from now on, in every plan: its node inherits
+# them, apart from its own.
+export TF_VAR_hv_labels='{dc="lgs", team="db"}'
 # shellcheck disable=SC2086
 apply $V -var 'labels={team="web"}'
 JNODE="$(tofu_out janus_node_id)"
 [ "$(api "$API/api/nodes" | json "[n for n in d if n['id']=='$JNODE'][0]['labels']")" = "{'team': 'web'}" ] || fail "the node's labels: $(api "$API/api/nodes")"
+[ "$(api "$API/api/nodes" | json "sorted([n for n in d if n['id']=='$JNODE'][0]['inherited_labels'].items())")" = "[('dc', 'lgs'), ('team', 'db')]" ] || fail "the node's inherited labels: $(api "$API/api/nodes")"
+[ "$(api "$API/api/hypervisors" | json "sorted(d[0]['labels'].items())")" = "[('dc', 'lgs'), ('team', 'db')]" ] || fail "the hypervisor's labels: $(api "$API/api/hypervisors")"
+[ "$(tofu_bare output -json inherited_labels | json "sorted(d.items())")" = "[('dc', 'lgs'), ('team', 'db')]" ] || fail "janus_node's inherited_labels: $(tofu_bare output -json inherited_labels)"
 # shellcheck disable=SC2086
-no_changes "labelling the node" $V -var 'labels={team="web"}'
+no_changes "labelling the hypervisor and the node" $V -var 'labels={team="web"}'
+# The hypervisor's alone changed: the node shows it at the next refresh,
+# and plans nothing.
+export TF_VAR_hv_labels='{dc="lgs", team="db", rack="12"}'
+# shellcheck disable=SC2086
+apply $V -var 'labels={team="web"}'
+# shellcheck disable=SC2086
+tofu apply -refresh-only -auto-approve $V -var 'labels={team="web"}' >"$WORKDIR/refresh.log" || fail "refresh: $(tail -20 "$WORKDIR/refresh.log")"
+[ "$(tofu_bare output -json inherited_labels | json "d.get('rack')")" = 12 ] || fail "janus_node's inherited_labels after the hypervisor's change: $(tofu_bare output -json inherited_labels)"
+# shellcheck disable=SC2086
+no_changes "relabelling the hypervisor" $V -var 'labels={team="web"}'
 
 # Scoped access is through the fleet: a node the Controller still reaches
 # with its own service credential opens for admins only.
@@ -390,7 +413,7 @@ code="$(curl -sk -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $WEB_T
 [ "$(curl -sk -H "Authorization: Bearer $WEB_TOKEN" "$API/api/hypervisors")" = "[]" ] || fail "web-dev's token sees the hypervisors"
 tofu_web destroy -auto-approve >"$WORKDIR/destroy-web.log" || fail "web-dev's destroy: $(tail -10 "$WORKDIR/destroy-web.log")"
 api "$API/nodes/$JNODE/api/haproxy/config" | json "d['config']" | grep -q '# terraformed by web-dev' || fail "destroying janus_haproxy_config changed the node's configuration"
-echo "Part 9 OK: labels on janus_node; web-dev - operator on team=web over HAProxy only - terraformed its haproxy.cfg with a token narrowed the same way (a bad one refused by HAProxy, nothing changed), and may resize nothing, restart nothing, see no hypervisor"
+echo "Part 9 OK: labels on janus_hypervisor inherited by janus_node (inherited_labels, its own apart, a change to the hypervisor's read at the refresh), labels on janus_node; web-dev - operator on team=web over HAProxy only - terraformed its haproxy.cfg with a token narrowed the same way (a bad one refused by HAProxy, nothing changed), and may resize nothing, restart nothing, see no hypervisor"
 
 # =========================================================================
 # 8b. janus_cluster: made of new machines (anti-affinity preferred: one
@@ -473,6 +496,7 @@ tofu destroy -auto-approve -var nodes=1 -var memory=1536 -var address=192.168.12
 [ "$(api "$API/api/hypervisors" | json "len(d)")" = 0 ] || fail "the hypervisor wasn't removed"
 if in_host virsh list --all --name | grep -q janus-tf; then fail "a virtual machine is left"; fi
 echo "Part 10 OK: destroyed - the node, the cluster and its machines, their virtual machines and the hypervisor"
+unset TF_VAR_hv_labels
 
 # =========================================================================
 # 10. The docs' end-to-end example, examples/terraform/libvirt, applied as

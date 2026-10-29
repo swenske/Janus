@@ -36,6 +36,12 @@ func TestStoreRoundTrip(t *testing.T) {
 	if again, _ := s2.Get(m.ID); again.Spec.Name != "lb1" {
 		t.Error("Get returned shared state")
 	}
+	if hv, ok := s2.HypervisorOf(m.ID); !ok || hv != "h1" {
+		t.Errorf("HypervisorOf = %q, %v", hv, ok)
+	}
+	if _, ok := s2.HypervisorOf("nope"); ok {
+		t.Error("HypervisorOf found an unknown machine")
+	}
 	if err := s2.Remove(m.ID); err != nil {
 		t.Fatal(err)
 	}

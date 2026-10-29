@@ -66,6 +66,7 @@ type nodeModel struct {
 	LockUI           types.Bool       `tfsdk:"lock_ui"`
 	UpdateRebootMode types.String     `tfsdk:"update_reboot_mode"`
 	Labels           types.Map        `tfsdk:"labels"`
+	InheritedLabels  types.Map        `tfsdk:"inherited_labels"`
 	Autoscaling      *autoscaleModel  `tfsdk:"autoscaling"`
 	CurrentVCPUs     types.Int64      `tfsdk:"current_vcpus"`
 	CurrentMemoryMiB types.Int64      `tfsdk:"current_memory_mib"`
@@ -264,7 +265,11 @@ func (r *nodeResource) Schema(ctx context.Context, _ resource.SchemaRequest, res
 			},
 			"labels": schema.MapAttribute{
 				ElementType: types.StringType, Optional: true,
-				Description: "The node's labels (team = \"web\"): the Controller's grants and scoped tokens pick nodes by them. Unset, Terraform leaves them alone; set, it owns them - an empty map clears them.",
+				Description: "The node's own labels (team = \"web\"): the Controller's grants and scoped tokens pick nodes by them, and by inherited_labels. Unset, Terraform leaves them alone; set, it owns them - an empty map clears them.",
+			},
+			"inherited_labels": schema.MapAttribute{
+				ElementType: types.StringType, Computed: true,
+				Description: "The labels the node inherits from its hypervisor (janus_hypervisor.labels), under its own: its labels win on the same key. Never owned here - change them on the hypervisor.",
 			},
 			"node_id": schema.StringAttribute{
 				Computed: true, Description: "The node's ID on the Controller once it registered.",
@@ -468,6 +473,36 @@ func setOf(values []string, prior types.Set) types.Set {
 	return s
 }
 
+// labelsOf are a set attribute's labels, for the Controller: nil when
+// unset (or unknown) - left as they are -, else the map, {} to clear.
+func labelsOf(ctx context.Context, v types.Map, diags *diag.Diagnostics) *map[string]string {
+	if v.IsNull() || v.IsUnknown() {
+		return nil
+	}
+	l := map[string]string{}
+	diags.Append(v.ElementsAs(ctx, &l, false)...)
+	return &l
+}
+
+// mapOf is labels as a map attribute - an empty one for none.
+func mapOf(l map[string]string) types.Map {
+	elems := make(map[string]attr.Value, len(l))
+	for k, v := range l {
+		elems[k] = types.StringValue(v)
+	}
+	m, _ := types.MapValue(types.StringType, elems)
+	return m
+}
+
+// ownedMapOf is mapOf when Terraform owns the attribute (prior set),
+// null when it doesn't.
+func ownedMapOf(l map[string]string, prior types.Map) types.Map {
+	if prior.IsNull() {
+		return types.MapNull(types.StringType)
+	}
+	return mapOf(l)
+}
+
 func strOrNull(v string, prior types.String) types.String {
 	if v == "" && (prior.IsNull() || prior.IsUnknown()) {
 		return types.StringNull()
@@ -652,6 +687,7 @@ func (r *nodeResource) Create(ctx context.Context, req resource.CreateRequest, r
 	if m.Phase != "failed" {
 		r.putLabels(ctx, plan.NodeID.ValueString(), plan.Labels, &resp.Diagnostics)
 	}
+	r.readLabels(ctx, &plan, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	if m.Phase == "failed" {
 		resp.Diagnostics.AddError("Creating the node", fmt.Sprintf("%s (its console on the Controller may say why)", m.Error))
@@ -674,18 +710,28 @@ func (r *nodeResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 		return
 	}
 	fromMachine(m, &state)
-	if !state.Labels.IsNull() && state.NodeID.ValueString() != "" {
-		n, err := r.c.FindNode(ctx, state.NodeID.ValueString())
-		switch {
-		case err == nil:
-			l, d := types.MapValueFrom(ctx, types.StringType, n.Labels)
-			resp.Diagnostics.Append(d...)
-			state.Labels = l
-		case !client.IsNotFound(err):
-			resp.Diagnostics.AddError("Reading the node's labels", err.Error())
-		}
-	}
+	r.readLabels(ctx, &state, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+// readLabels reads the node's labels: its own when Terraform owns them,
+// and those it inherits - none before it registered, or from a
+// Controller from before inherited labels.
+func (r *nodeResource) readLabels(ctx context.Context, m *nodeModel, diags *diag.Diagnostics) {
+	m.InheritedLabels = mapOf(nil)
+	if m.NodeID.ValueString() == "" {
+		return
+	}
+	n, err := r.c.FindNode(ctx, m.NodeID.ValueString())
+	if client.IsNotFound(err) {
+		return
+	}
+	if err != nil {
+		diags.AddError("Reading the node's labels", err.Error())
+		return
+	}
+	m.Labels = ownedMapOf(n.Labels, m.Labels)
+	m.InheritedLabels = mapOf(n.InheritedLabels)
 }
 
 // putLabels gives the node labels - when Terraform owns them (set).
@@ -739,6 +785,7 @@ func (r *nodeResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	if !plan.Labels.IsNull() && !plan.Labels.Equal(state.Labels) {
 		r.putLabels(ctx, plan.NodeID.ValueString(), plan.Labels, &resp.Diagnostics)
 	}
+	r.readLabels(ctx, &plan, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	if m.Error != "" {
 		resp.Diagnostics.AddError("Changing the node", m.Error)

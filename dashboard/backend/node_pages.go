@@ -41,11 +41,12 @@ func (a *app) handleNodePage(w http.ResponseWriter, r *http.Request) {
 	}
 	a.gate(anyone, anyone, func(w http.ResponseWriter, r *http.Request) {
 		p, _ := principalOf(r)
-		if !p.sees(n) {
+		l := a.nodeLabels(n) // its hypervisor's too
+		if !p.sees(l) {
 			writeError(w, http.StatusForbidden, p.User+" reaches no permission on this node")
 			return
 		}
-		if !safeMethod(r.Method) && !p.mayOn(n, auth.Operator, "") {
+		if !safeMethod(r.Method) && !p.mayOn(l, auth.Operator, "") {
 			writeError(w, http.StatusForbidden, "changing this node needs the operator role on it: "+p.User+" may only read")
 			return
 		}
@@ -55,7 +56,7 @@ func (a *app) handleNodePage(w http.ResponseWriter, r *http.Request) {
 		}
 		// Each call it relays goes with the permission that allows it, or
 		// is refused (nodeproxy.User) - and the node checks it again.
-		ctx := nodeproxy.WithUser(r.Context(), p.nodeUser(n))
+		ctx := nodeproxy.WithUser(r.Context(), p.nodeUser(l))
 		page.ServeHTTP(w, r.WithContext(ctx))
 	})(w, r)
 }

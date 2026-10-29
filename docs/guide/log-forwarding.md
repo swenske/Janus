@@ -390,8 +390,10 @@ The Controller's **Log forwarding** page (admins) sets two things:
   where it stopped after a restart.
 - **Fleet profiles**: each a label selector (`team=web,env=prod`; empty:
   every node) and the log targets of the nodes it picks. A node takes the
-  first profile whose labels it has, and the Controller keeps it applied:
-  at once when a profile or a node's labels change, every ten minutes
+  first profile whose labels it has - its own, and those it inherits from
+  its hypervisor ([hypervisors.md](../hypervisors.md#labels-where-a-hypervisor-is)) -,
+  and the Controller keeps it applied: at once when a profile, a node's
+  labels or its hypervisor's change, every ten minutes
   otherwise - every minute while a node can't take it yet (an older
   release being updated, a node away) - a change made on the node is
   undone, a profile that no longer picks a node is taken off it. A node no profile picks keeps its

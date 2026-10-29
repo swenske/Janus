@@ -223,7 +223,7 @@ func (a *app) ensureLogProfile(ctx context.Context, n *store.Node, set logforwar
 		return nodeLogState{State: "error", Error: status.Convert(err).Message()}
 	}
 	mine := strings.HasPrefix(cur.GetConfig().GetManagedBy(), logforward.ManagedByPrefix(a.controllerID))
-	p, ok := set.ProfileFor(n.LabelSet())
+	p, ok := set.ProfileFor(a.nodeLabels(n)) // its hypervisor's too
 	if !ok {
 		if !mine {
 			return nodeLogState{State: "unmanaged"}
@@ -281,8 +281,10 @@ type logForwardingView struct {
 }
 
 type nodeLogView struct {
-	ID     string            `json:"id"`
-	Name   string            `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Labels are the node's effective labels - its hypervisor's too:
+	// what its profile is picked by.
 	Labels map[string]string `json:"labels,omitempty"`
 	nodeLogState
 }
@@ -314,7 +316,7 @@ func (a *app) logForwardingView() logForwardingView {
 		if !ok {
 			st = nodeLogState{State: "waiting"}
 		}
-		v.Nodes = append(v.Nodes, nodeLogView{ID: n.ID, Name: n.Name, Labels: n.LabelSet(), nodeLogState: st})
+		v.Nodes = append(v.Nodes, nodeLogView{ID: n.ID, Name: n.Name, Labels: a.nodeLabels(n), nodeLogState: st})
 	}
 	return v
 }

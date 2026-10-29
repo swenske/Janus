@@ -15,7 +15,10 @@ import (
 // What a request may do on a node: its account's role over everything -
 // none for a scoped token -, and each of its grants whose selector the
 // node's labels match, narrowed to the grant's domains; a token caps them
-// at its role, and narrows them to its own selector and domains.
+// at its role, and narrows them to its own selector and domains. The
+// node's labels are its effective ones (labels.go): a machine's node has
+// its hypervisor's too, so a grant on dc=lgs reaches every node made on
+// a hypervisor labelled dc=lgs.
 
 // anyone is a gate's role for a route every signed-in account may call:
 // the handler shows only what the account reaches.
@@ -77,15 +80,16 @@ func intersect(a, b []string) []string {
 	return out
 }
 
-// sees reports whether p reaches the node at all.
-func (p principal) sees(n *store.Node) bool {
-	return len(p.nodePerms(n.LabelSet())) > 0
+// sees reports whether p reaches a node with labels l at all - its
+// effective labels, app.nodeLabels.
+func (p principal) sees(l map[string]string) bool {
+	return len(p.nodePerms(l)) > 0
 }
 
-// mayOn reports whether p may act on the node with role at least need,
-// in domain (empty: whatever the domain).
-func (p principal) mayOn(n *store.Node, need auth.Role, domain string) bool {
-	for _, pm := range p.nodePerms(n.LabelSet()) {
+// mayOn reports whether p may act on a node with labels l with role at
+// least need, in domain (empty: whatever the domain).
+func (p principal) mayOn(l map[string]string, need auth.Role, domain string) bool {
+	for _, pm := range p.nodePerms(l) {
 		if pm.role.AtLeast(need) && (domain == "" || pm.domains == nil || slices.Contains(pm.domains, domain)) {
 			return true
 		}
@@ -93,12 +97,12 @@ func (p principal) mayOn(n *store.Node, need auth.Role, domain string) bool {
 	return false
 }
 
-// nodeUser is whom the Controller's calls to the node are made for: p's
-// permissions there, as node roles and the node's domains - a permission
-// over the machines domain alone only observes the node.
-func (p principal) nodeUser(n *store.Node) nodeproxy.User {
+// nodeUser is whom the Controller's calls to a node with labels l are
+// made for: p's permissions there, as node roles and the node's domains
+// - a permission over the machines domain alone only observes the node.
+func (p principal) nodeUser(l map[string]string) nodeproxy.User {
 	u := nodeproxy.User{Name: p.User}
-	for _, pm := range p.nodePerms(n.LabelSet()) {
+	for _, pm := range p.nodePerms(l) {
 		np := nodeproxy.Perm{Role: nodeRole(pm.role)}
 		if pm.domains != nil {
 			np.Domains = intersect(pm.domains, rbac.NodeDomains)
@@ -115,7 +119,7 @@ func (p principal) nodeUser(n *store.Node) nodeproxy.User {
 func (a *app) visibleNodes(p principal) []*store.Node {
 	var out []*store.Node
 	for _, n := range a.store.List() {
-		if p.sees(n) {
+		if p.sees(a.nodeLabels(n)) {
 			out = append(out, n)
 		}
 	}
@@ -130,7 +134,7 @@ func (a *app) mayMachine(p principal, m *machines.Machine, need auth.Role) bool 
 		return true
 	}
 	n, ok := a.store.Get(m.NodeID)
-	return m.NodeID != "" && ok && p.mayOn(n, need, auth.DomainMachines)
+	return m.NodeID != "" && ok && p.mayOn(a.nodeLabels(n), need, auth.DomainMachines)
 }
 
 // seesMachine reports whether p sees machine m: a reader over
@@ -140,7 +144,7 @@ func (a *app) seesMachine(p principal, m *machines.Machine) bool {
 		return true
 	}
 	n, ok := a.store.Get(m.NodeID)
-	return m.NodeID != "" && ok && p.sees(n)
+	return m.NodeID != "" && ok && p.sees(a.nodeLabels(n))
 }
 
 // requestPrincipal is r's principal - set by the gates.
