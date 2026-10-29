@@ -36,6 +36,7 @@ done
 
 docker build -q -t janus-promtool hack/promtool >/dev/null
 docker run --rm -v "$PWD/examples/prometheus:/prometheus:ro" janus-promtool check config /prometheus/prometheus.yml
+docker run --rm -v "$PWD/examples/prometheus:/prometheus:ro" janus-promtool check config /prometheus/consul.yml
 docker run --rm -v "$PWD/examples/prometheus:/prometheus:ro" -v "$PWD/hack/promtool:/tests:ro" \
   janus-promtool test rules /tests/janus-rules.test.yml
 # promtool runs as nobody: a directory it can read.

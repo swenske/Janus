@@ -50,6 +50,7 @@ Install, configure and operate Janus nodes and the Controller.
 - [VRRP (keepalived)](vrrp.md)
 - [BGP (BIRD)](bgp.md)
 - [Consul](consul.md)
+- [Consul through the Controller](guide/consul-controller.md)
 
 ### Operate
 

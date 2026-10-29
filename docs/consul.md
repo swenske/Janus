@@ -8,6 +8,10 @@ node can register its own services. The configuration is Consul's own
 Controller's **Apps › Consul** page. Without the extension, the image has
 no Consul at all.
 
+The Controller can also manage the agent for you - [From the
+Controller](#from-the-controller): your configuration stays yours, its
+own part is a layer loaded after it.
+
 The agent is HashiCorp's own release binary (checked against the
 release's signed checksums when it's pinned in `versions.mk`), stripped
 of its debug information. Consul is under the **Business Source License
@@ -85,8 +89,11 @@ healthy instances - their addresses and ports.
 
 ## The node's services
 
-Register what the node serves in your configuration, with checks HAProxy
-answers:
+Managed by the Controller, the node registers its own services itself -
+janusd, its exporters, its frontends, the URLs its maps route
+([the guide](guide/consul-controller.md#the-nodes-services)). Otherwise,
+or besides, register what the node serves in your configuration, with
+checks HAProxy answers:
 
 ```hcl
 services {
@@ -119,9 +126,38 @@ janusctl network consul get                                  # the saved configu
 janusctl network consul apply /dev/null                      # remove it all: the agent stops
 ```
 
-The status asks the agent's HTTP API on `127.0.0.1:8500` without a token:
-with ACLs denying anonymous reads, it shows the service's state only. The
-agent's log is the `consul` service log (`janusctl system logs consul`).
+The status asks the agent's HTTP API on `127.0.0.1:8500` - with the
+managed layer's token when the Controller manages the agent, without one
+otherwise: with ACLs denying anonymous reads, it then shows the service's
+state only. The agent's log is the `consul` service log (`janusctl system
+logs consul`).
+
+## From the Controller
+
+The Controller's **Settings › Consul** points it at your Consul cluster
+with a token of its own ([the guide](guide/consul-controller.md)). For
+every node with this extension its selector picks, it makes a token -
+the node's own, its node identity and the policy `janus-nodes` - and
+sets the **managed layer**: the datacenter, the servers and the gossip
+key read from Consul, the servers' RPC CA (TLS, `auto_encrypt`), the
+token, the node's name, address and labels as `node_meta`. The node then
+registers its services with that token.
+
+The layer is apart from your configuration: saved on STATE as
+`config/consul-managed.json` (0600), rendered into janusd's part of the
+agent's configuration (`janus.json`), which the agent loads after
+`consul.hcl` - the layer's keys win, its `retry_join` is added to yours.
+`consul validate` checks both together. Without a configuration of yours,
+the agent runs on the layer alone; `apply /dev/null` then leaves it
+running on it.
+
+```sh
+janusctl network consul managed    # the layer (its token and key: set or not), the services' registration
+janusctl network consul services   # the agent's services, janusd's (janus:*) and yours, with their checks
+```
+
+The node keeps its services in maintenance while it's drained, its
+HAProxy stopped, or it's going down.
 
 ## Network
 

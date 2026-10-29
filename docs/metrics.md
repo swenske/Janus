@@ -450,6 +450,16 @@ configuration](private-cloud/observability.md#metrics). An exporter not
 scraped leaves its panels empty; the Controller's say so. Import it like
 the nodes' dashboard; each links to the other (**Janus dashboards**).
 
+## Discovery through Consul
+
+With the Controller [managing the nodes' Consul agents](guide/consul-controller.md),
+every node registers its exporter as the service `janus-exporter` (and
+`node-exporter` where that extension runs), meta `metrics_path`: Prometheus
+finds them with `consul_sd_configs` instead of a static list - and the
+URLs the nodes route, `haproxy-url`, for the blackbox exporter to probe.
+The example: [examples/prometheus/consul.yml](../examples/prometheus/consul.yml),
+shown and explained in [the guide](guide/consul-controller.md#prometheus-the-urls-probed).
+
 ## HAProxy's own metrics
 
 Janus's HAProxy is built with its Prometheus exporter. Serve it from any
