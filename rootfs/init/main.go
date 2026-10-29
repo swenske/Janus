@@ -736,7 +736,7 @@ func startDaemon(pendingMarker *bootcommit.Marker, kernelDone float64) {
 			giveUpAfter = time.Duration(pendingMarker.HealthTimeoutSeconds) * time.Second
 		}
 		sv.GiveUpAfter = giveUpAfter
-		sv.OnGiveUp = func() { giveUpBootCommit(pendingMarker) }
+		sv.OnGiveUp = func() bool { return giveUpBootCommit(pendingMarker) }
 	}
 
 	done := make(chan struct{})
@@ -754,14 +754,22 @@ func startDaemon(pendingMarker *bootcommit.Marker, kernelDone float64) {
 // to run its own HAProxy-level health check (see cmd/janusd/
 // main.go). Re-reads the marker rather than trusting the one it closed
 // over, since it could have been cleared by something else in the
-// meantime - in which case this is a deliberate no-op.
-func giveUpBootCommit(marker *bootcommit.Marker) {
+// meantime - janusd confirmed the boot and cleared it: nothing to give
+// up on, and false sends the Supervisor back to restarting janusd
+// forever (a janusd Restart long after an update, a crash).
+func giveUpBootCommit(marker *bootcommit.Marker) bool {
 	cur, err := bootcommit.Read()
-	if err != nil || cur == nil || cur.Slot != marker.Slot {
-		return
+	if err != nil {
+		fmt.Printf("init: read boot-commit marker: %v - janusd is restarted\n", err)
+		return false
+	}
+	if cur == nil || cur.Slot != marker.Slot {
+		fmt.Println("init: this boot is confirmed - janusd is restarted as on any boot")
+		return false
 	}
 	fmt.Printf("init: janusd never stayed up for slot %s - giving up and reverting to slot %s\n", cur.Slot, cur.RevertTo)
 	revertAndReboot(cur)
+	return true
 }
 
 // checkBootCommit runs after mountState (needs bootcommit.Dir already
