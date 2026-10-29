@@ -132,32 +132,33 @@ func TestDesiredServices(t *testing.T) {
 	// The exporters: where they listen, tag prometheus, metrics_path and
 	// scheme, an HTTP check on their metrics.
 	if ne := byID["janus:node-exporter"]; ne.Address != "192.0.2.6" || ne.Port != 9100 || !reflect.DeepEqual(ne.Meta, map[string]string{"metrics_path": "/metrics", "scheme": "http"}) ||
-		ne.Check.HTTP != "http://192.0.2.6:9100/metrics" || ne.Check.TCP != "" || !reflect.DeepEqual(ne.Tags, []string{"janus", "prometheus"}) {
+		ne.Check.HTTP != "http://192.0.2.6:9100/metrics" || ne.Check.TCP != "" || !reflect.DeepEqual(ne.Tags, []string{"janus", "prometheus", "scheme=http"}) {
 		t.Errorf("node-exporter: %+v %+v", ne, ne.Check)
 	}
 	if je := byID["janus:janus-exporter"]; je.Address != "192.0.2.5" || je.Port != 10056 || je.Check.HTTP != "http://192.0.2.5:10056/metrics" {
 		t.Errorf("janus-exporter: %+v %+v", je, je.Check)
 	}
 	he := byID["janus:haproxy-exporter:fe_stats"]
-	if he.Name != "haproxy-exporter" || he.Address != "192.0.2.5" || he.Port != 8405 || !reflect.DeepEqual(he.Tags, []string{"haproxy", "prometheus"}) ||
+	if he.Name != "haproxy-exporter" || he.Address != "192.0.2.5" || he.Port != 8405 || !reflect.DeepEqual(he.Tags, []string{"haproxy", "prometheus", "scheme=http"}) ||
 		!reflect.DeepEqual(he.Meta, map[string]string{"metrics_path": "/metrics", "scheme": "http", "frontend": "fe_stats"}) || he.Check.TCP != "192.0.2.5:8405" {
 		t.Errorf("haproxy-exporter: %+v %+v", he, he.Check)
 	}
 	if he := byID["janus:haproxy-exporter:fe_prom_tls"]; he.Address != "192.0.2.7" || he.Port != 9443 || he.Meta["scheme"] != "https" || he.Meta["metrics_path"] != "/prom" ||
-		!slices.Contains(he.Tags, "tls") {
+		!slices.Contains(he.Tags, "tls") || !slices.Contains(he.Tags, "scheme=https") {
 		t.Errorf("haproxy-exporter over TLS: %+v", he)
 	}
 	fe := byID["janus:haproxy:fe_https"]
-	if fe.Name != "haproxy-fe-https" || fe.Address != "172.16.10.151" || fe.Port != 443 || !reflect.DeepEqual(fe.Tags, []string{"haproxy", "http", "tls"}) ||
+	if fe.Name != "haproxy-fe-https" || fe.Address != "172.16.10.151" || fe.Port != 443 || !reflect.DeepEqual(fe.Tags, []string{"haproxy", "http", "tls", "proto=http", "scheme=https"}) ||
 		fe.Meta["maps"] != "/etc/haproxy/files/hosts.map" || fe.Check.TCP != "172.16.10.151:443" {
 		t.Errorf("fe_https: %+v %+v", fe, fe.Check)
 	}
-	if raw := byID["janus:haproxy:raw"]; raw.Name != "haproxy-raw" || raw.Port != 5432 || raw.Address != "192.0.2.5" || raw.Tags[1] != "tcp" {
+	if raw := byID["janus:haproxy:raw"]; raw.Name != "haproxy-raw" || raw.Port != 5432 || raw.Address != "192.0.2.5" || !reflect.DeepEqual(raw.Tags, []string{"haproxy", "tcp", "proto=tcp"}) {
 		t.Errorf("raw: %+v", raw)
 	}
 	url := func(id string) map[string]string { return byID[id].Meta }
 	if m := url("janus:url:fe_https:www.example.com"); !reflect.DeepEqual(m, map[string]string{
-		"url": "https://www.example.com", "frontend": "fe_https", "backend": "be_www", "source": "map:/etc/haproxy/files/hosts.map"}) {
+		"url": "https://www.example.com", "host": "www.example.com", "scheme": "https", "proto": "http",
+		"frontend": "fe_https", "backend": "be_www", "source": "map:/etc/haproxy/files/hosts.map"}) {
 		t.Errorf("www: %v", m)
 	}
 	if m := url("janus:url:fe_https:status.example.com"); m["backend"] != "be_status" || m["source"] != "acl" {
@@ -173,7 +174,7 @@ func TestDesiredServices(t *testing.T) {
 	if m := url("janus:url:fe_vars:app.example.com"); m["url"] != "http://app.example.com:8080" || m["backend"] != "be_app" {
 		t.Errorf("through a variable: %v", m)
 	}
-	if m := url("janus:url:fe_sni:db.example.com"); m["url"] != "https://db.example.com:8443" || m["source"] != "map:/etc/haproxy/files/sni.map" {
+	if m := url("janus:url:fe_sni:db.example.com"); m["url"] != "https://db.example.com:8443" || m["source"] != "map:/etc/haproxy/files/sni.map" || m["proto"] != "tcp" {
 		t.Errorf("by the server name: %v", m)
 	}
 
@@ -212,6 +213,19 @@ func TestDesiredServices(t *testing.T) {
 	}
 	if _, _, err := Desired(all, Sources{}); err == nil {
 		t.Error("no address accepted")
+	}
+}
+
+// A map's key with its port: the meta host is the name alone.
+func TestDesiredHostWithPort(t *testing.T) {
+	src := Sources{Address: "192.0.2.5", HAProxyConfig: "frontend f\n    mode http\n    bind :80\n    use_backend %[req.hdr(host),map(/m)]\n",
+		Map: func(string) (map[string]string, error) { return map[string]string{"www.example.com:8443": "be"}, nil }}
+	got, _, err := Desired(Toggles{URLs: true}, src)
+	if err != nil || len(got) != 1 {
+		t.Fatal(got, err)
+	}
+	if m := got[0].Meta; m["host"] != "www.example.com" || m["url"] != "http://www.example.com:8443" || m["proto"] != "http" || m["scheme"] != "http" {
+		t.Errorf("a host with its port: %v", m)
 	}
 }
 
@@ -392,8 +406,29 @@ func TestDesiredThroughSockets(t *testing.T) {
 		}
 	}
 	if s := byID["janus:url:fe_https:www.example.net"]; s.Meta["source"] != "map:/etc/haproxy/files/maps/hosts.map" || s.Meta["frontend"] != "fe_https" ||
-		!reflect.DeepEqual(s.Tags, []string{"haproxy", "url", "https"}) {
+		!reflect.DeepEqual(s.Tags, []string{"haproxy", "url", "https", "scheme=https", "proto=http"}) {
 		t.Errorf("through a map: %+v", s)
+	}
+	// The tags a Prometheus job filters on (key=value), and the same in
+	// the meta: by the Host header behind the socket, by the server name
+	// passed through on the TCP frontend.
+	for id, want := range map[string][]string{
+		"janus:url:fe_tunnel:static.example.net": {"haproxy", "url", "https", "scheme=https", "proto=http"},
+		"janus:url:fe_deep:app.example.net":      {"haproxy", "url", "http", "scheme=http", "proto=http"},
+		"janus:url:fe_tls:media.example.net":     {"haproxy", "url", "https", "scheme=https", "proto=tcp"},
+		"janus:haproxy:fe_tls":                   {"haproxy", "tcp", "proto=tcp"},
+		"janus:haproxy:fe_plain":                 {"haproxy", "http", "proto=http", "scheme=http"},
+		"janus:haproxy:fe_front":                 {"haproxy", "http", "tls", "proto=http", "scheme=https"},
+	} {
+		if got := byID[id].Tags; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s's tags: %q, want %q", id, got, want)
+		}
+	}
+	if m := byID["janus:url:fe_tls:media.example.net"].Meta; m["proto"] != "tcp" || m["scheme"] != "https" || m["host"] != "media.example.net" {
+		t.Errorf("by the server name: %v", m)
+	}
+	if m := byID["janus:url:fe_deep:app.example.net"].Meta; m["proto"] != "http" || m["scheme"] != "http" || m["host"] != "app.example.net" {
+		t.Errorf("two hops behind sockets: %v", m)
 	}
 
 	// The relay only through a map's value: found the same way.

@@ -403,17 +403,26 @@ python3 - "$WORKDIR/urls.json" "$NET.11" <<'PY' || fail "the URLs' metadata: $(c
 import json, sys
 urls = {s["ServiceID"]: s for s in json.load(open(sys.argv[1]))}
 www = urls["janus:url:fe_sites:www.example.test"]
-assert www["ServiceMeta"] == {"url": "http://www.example.test:8081", "frontend": "fe_sites", "backend": "be_www",
-                              "source": "map:/etc/haproxy/files/hosts.map"}, www["ServiceMeta"]
+assert www["ServiceMeta"] == {"url": "http://www.example.test:8081", "host": "www.example.test", "scheme": "http", "proto": "http",
+                              "frontend": "fe_sites", "backend": "be_www", "source": "map:/etc/haproxy/files/hosts.map"}, www["ServiceMeta"]
 assert www["ServiceAddress"] == sys.argv[2] and www["ServicePort"] == 8081, www
+# Tags a Prometheus job filters on: key=value besides the bare scheme.
+assert www["ServiceTags"] == ["haproxy", "url", "http", "scheme=http", "proto=http"], www["ServiceTags"]
 assert urls["janus:url:fe_sites:status.example.test"]["ServiceMeta"]["source"] == "acl"
 # Behind the abstract socket: at fe_in's bind, which relays to it.
 inner = urls["janus:url:fe_inner:inner.example.test"]
-assert inner["ServiceMeta"] == {"url": "http://inner.example.test:8444", "frontend": "fe_inner", "backend": "be_www",
-                                "source": "acl", "via": "fe_in"}, inner["ServiceMeta"]
+assert inner["ServiceMeta"] == {"url": "http://inner.example.test:8444", "host": "inner.example.test", "scheme": "http", "proto": "http",
+                                "frontend": "fe_inner", "backend": "be_www", "source": "acl", "via": "fe_in"}, inner["ServiceMeta"]
 assert inner["ServiceAddress"] == sys.argv[2] and inner["ServicePort"] == 8444, inner
 PY
 if grep -q "^janus:haproxy:fe_inner " <<<"$out"; then fail "fe_inner, only on a socket, has a service of its own: $out"; fi
+# What a Prometheus job filters on: the tag proto=http (consul_sd_configs
+# tags), the meta (filter) - A's four URLs.
+count() { python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
+n="$(consul_api GET '/v1/catalog/service/haproxy-url?tag=proto%3Dhttp' | count)"
+[ "$n" = 4 ] || fail "the URLs tagged proto=http: $n"
+n="$(consul_api GET '/v1/catalog/service/haproxy-url?filter=ServiceMeta.proto%20%3D%3D%20%22http%22' | count)"
+[ "$n" = 4 ] || fail "the URLs whose meta proto is http: $n"
 # The exporters: where they really listen - the Janus and node exporters
 # on the main interface (eth0 here, the default route's), HAProxy's on
 # fe_stats's bind (every address: the node's) -, for one Prometheus job.
@@ -426,9 +435,9 @@ for s in json.load(sys.stdin):
 }
 MAIN_A="$(ctl a system metrics | sed -n 's|^Exporter: http://\([0-9.]*\):10056/metrics.*|\1|p')"
 [ -n "$MAIN_A" ] || fail "A's exporter address: $(ctl a system metrics)"
-check "janus-exporter where it listens" "^$MAIN_A:10056 /metrics http janus,prometheus$" "$(exporter janus-exporter)"
-check "node-exporter where it listens" "^$MAIN_A:9100 /metrics http janus,prometheus$" "$(exporter node-exporter)"
-check "haproxy-exporter on fe_stats" "^$NET.11:8405 /metrics http haproxy,prometheus$" "$(exporter haproxy-exporter)"
+check "janus-exporter where it listens" "^$MAIN_A:10056 /metrics http janus,prometheus,scheme=http$" "$(exporter janus-exporter)"
+check "node-exporter where it listens" "^$MAIN_A:9100 /metrics http janus,prometheus,scheme=http$" "$(exporter node-exporter)"
+check "haproxy-exporter on fe_stats" "^$NET.11:8405 /metrics http haproxy,prometheus,scheme=http$" "$(exporter haproxy-exporter)"
 health() { # health NODE SERVICE-ID: its checks' worst status
   consul_api GET "/v1/health/node/$1" | python3 -c '
 import json, sys
@@ -453,7 +462,7 @@ check "janusctl shows the managed layer" "^Managed by: janus-controller " "$out"
 check "the token never comes back" "^ACL token: +set" "$out"
 check "the services registered" "^Services: +[0-9]+ registered" "$out"
 out="$(ctl a network consul services)"
-check "janusctl lists the agent's services" "^haproxy-url +janus:url:fe_sites:www.example.test +$NET.11:8081 +haproxy,url,http +http://www.example.test:8081 +- +Janus$" "$out"
+check "janusctl lists the agent's services" "^haproxy-url +janus:url:fe_sites:www.example.test +$NET.11:8081 +haproxy,url,http,scheme=http,proto=http +http://www.example.test:8081 +- +Janus$" "$out"
 check "janusctl shows an exporter's path" "^haproxy-exporter +janus:haproxy-exporter:fe_stats .* http /metrics, frontend fe_stats +[a-z]+ +Janus$" "$out"
 api -X POST "$API/api/consul/run" >/dev/null
 deadline=$((SECONDS + 30))

@@ -20,17 +20,20 @@ import (
 //   - the exporters, each where it really listens, while it runs:
 //     janus-exporter, node-exporter (the extension's), haproxy-exporter
 //     (each frontend that has HAProxy's own prometheus-exporter serve
-//     a request) - tag prometheus, meta metrics_path and scheme, for one
-//     Prometheus job to find them all;
+//     a request) - tags prometheus and scheme=<it>, meta metrics_path and
+//     scheme, for one Prometheus job to find them all;
 //   - haproxy-<name>: each frontend and listen section, on the port of
 //     its first bind (its address when it names one - an anycast VIP -,
-//     else the node's), tags haproxy, its mode and tls, a TCP check;
+//     else the node's), tags haproxy, its mode and tls, proto=<mode> and
+//     scheme=<https|http> (none for TCP without ssl), a TCP check;
 //   - haproxy-url: one instance per URL the configuration routes, for a
 //     probe (Prometheus's blackbox exporter) to find - the hosts in the
 //     maps a use_backend reads by the Host header (or the TLS server
 //     name, in TCP mode), and the literal hosts of the Host ACLs a
-//     use_backend's condition names; meta url, frontend, backend,
-//     source. No check: what answers is the probe's to say. A frontend
+//     use_backend's condition names; tags haproxy, url, its scheme,
+//     scheme=<it> and proto=<http|tcp> (by the Host header, or by the TLS
+//     server name passed through), meta url, host, scheme, proto,
+//     frontend, backend, source. No check: what answers is the probe's to say. A frontend
 //     only on a socket (abns@...) has its URLs at the bind of the one
 //     relaying to it - meta via.
 
@@ -119,7 +122,7 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 				continue
 			}
 			host := cmpOr(e.ep.Host, src.Address)
-			services = append(services, Service{ID: IDPrefix + e.name, Name: e.name, Tags: []string{"janus", PrometheusTag},
+			services = append(services, Service{ID: IDPrefix + e.name, Name: e.name, Tags: []string{"janus", PrometheusTag, "scheme=http"},
 				Address: host, Port: e.ep.Port, Meta: map[string]string{"metrics_path": defaultMetricsPath, "scheme": "http"},
 				Check: &Check{Name: e.name, HTTP: "http://" + net.JoinHostPort(host, strconv.Itoa(e.ep.Port)) + defaultMetricsPath, Interval: "30s", Timeout: "5s"}})
 		}
@@ -172,6 +175,9 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 			return err
 		}
 		uhost := cmpOr(uaddr, src.Address)
+		// How HAProxy routes the host: by the Host header (an HTTP
+		// frontend), or by the TLS server name, passed through (TCP).
+		proto := cmpOr(f.Mode, "tcp")
 	next:
 		for _, r := range refs {
 			if urls >= MaxURLs {
@@ -184,12 +190,13 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 					continue next
 				}
 			}
-			meta := map[string]string{"url": u, "frontend": f.Name, "backend": r.backend, "source": r.source}
+			host, _, _ := strings.Cut(r.host, ":")
+			meta := map[string]string{"url": u, "host": host, "scheme": sch, "proto": proto, "frontend": f.Name, "backend": r.backend, "source": r.source}
 			if entry != "" {
 				meta["via"] = entry
 			}
 			services = append(services, Service{ID: IDPrefix + "url:" + f.Name + ":" + r.host, Name: "haproxy-url",
-				Tags: []string{"haproxy", "url", sch}, Address: uhost, Port: uport, Meta: meta})
+				Tags: []string{"haproxy", "url", sch, "scheme=" + sch, "proto=" + proto}, Address: uhost, Port: uport, Meta: meta})
 			urls++
 		}
 		return nil
@@ -213,15 +220,24 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 				if slices.Contains(f.TLSBinds, raw) {
 					scheme, tags = "https", append(tags, "tls")
 				}
+				tags = append(tags, "scheme="+scheme)
 				services = append(services, Service{ID: IDPrefix + "haproxy-exporter:" + f.Name, Name: "haproxy-exporter", Tags: tags,
 					Address: host, Port: port, Meta: map[string]string{"metrics_path": path, "scheme": scheme, "frontend": f.Name},
 					Check: check("haproxy-exporter "+f.Name, host, port)})
 			}
 		}
 		if t.Frontends {
-			tags := []string{"haproxy", cmpOr(f.Mode, "tcp")}
+			mode := cmpOr(f.Mode, "tcp")
+			tags := []string{"haproxy", mode}
 			if len(f.TLSBinds) > 0 {
 				tags = append(tags, "tls")
+			}
+			tags = append(tags, "proto="+mode)
+			switch {
+			case len(f.TLSBinds) > 0:
+				tags = append(tags, "scheme=https")
+			case mode == "http":
+				tags = append(tags, "scheme=http")
 			}
 			meta := map[string]string{"frontend": f.Name}
 			if m := frontendMaps(f); m != "" {

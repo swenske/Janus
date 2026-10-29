@@ -168,11 +168,21 @@ starting `janus:`: your own `services {}` are never touched.
 | `janus-exporter` | the [Janus exporter](../metrics.md) while it's on, where it listens: its main address (`auto`), the address it's set to, else the node's; an HTTP check on its metrics |
 | `node-exporter` | the [node exporter](../metrics.md#the-node-exporter) while its service runs, where it listens, the same way |
 | `haproxy-exporter` | each frontend or listen section that has HAProxy's own exporter answer (`http-request use-service prometheus-exporter`): its first bind's address and port, `metrics_path` from the rule's condition (`path /metrics`, `path_beg /prom`) - else `/metrics` -, `scheme` `https` when that bind has `ssl`; a TCP check |
-| `haproxy-<name>` | each frontend and listen section: the port of its first bind, the bind's address when it names one (an anycast address) - else the node's -, tags `haproxy`, its mode, `tls`; a TCP check; meta `frontend`, `maps` |
-| `haproxy-url` | one instance per URL the configuration routes, ID `janus:url:<frontend>:<host>`, no check; meta `url`, `frontend`, `backend`, `source` - and `via` for a frontend behind a socket (below) |
+| `haproxy-<name>` | each frontend and listen section: the port of its first bind, the bind's address when it names one (an anycast address) - else the node's -, tags `haproxy`, its mode, `tls`, `proto=<its mode>`, `scheme=https` with a bind with `ssl` (else `scheme=http` in HTTP mode, none in TCP); a TCP check; meta `frontend`, `maps` |
+| `haproxy-url` | one instance per URL the configuration routes, ID `janus:url:<frontend>:<host>`, no check; tags `haproxy`, `url`, its scheme, `scheme=<https\|http>`, `proto=<http\|tcp>`; meta `url`, `host`, `scheme`, `proto`, `frontend`, `backend`, `source` - and `via` for a frontend behind a socket (below) |
 
-Every exporter's instance has the tag `prometheus` and meta
-`metrics_path` and `scheme`: one Prometheus job finds them all (below).
+Every exporter's instance has the tags `prometheus` and `scheme=<its
+scheme>`, and meta `metrics_path` and `scheme`: one Prometheus job finds
+them all (below).
+
+The `key=value` tags are for a Prometheus job (or any Consul client) to
+pick by: `proto` is how HAProxy routes a URL's host - `http` by the Host
+header in an HTTP frontend (behind a socket too), `tcp` by the TLS
+server name in a TCP frontend that passes TLS through to a backend of
+its own (HAProxy never sees the request) -, `scheme` what a client
+speaks. A `haproxy-url`'s meta holds the same, and its `host` is the
+name alone, without a port: `filter: 'ServiceMeta.proto == "http"'`
+does what `tags: [proto=http]` does.
 Turned off, stopped, moved: the node registers it again, or takes it off,
 within seconds. No other extension declares an exporter yet.
 
@@ -215,7 +225,9 @@ frontend fe_https
 ```
 
 the node registers `haproxy-fe-https` on `192.0.2.151:443` (tags
-`haproxy`, `http`, `tls`), and two `haproxy-url` instances:
+`haproxy`, `http`, `tls`, `proto=http`, `scheme=https`), and two
+`haproxy-url` instances (tags `haproxy`, `url`, `https`, `scheme=https`,
+`proto=http`):
 `https://status.example.com` (backend `be_status`, source `acl`) and
 `https://www.example.com` (`be_www`, `map:/etc/haproxy/files/hosts.map`).
 
@@ -226,13 +238,13 @@ services it no longer has. `janusctl network consul services` lists the
 agent's services, its own and yours, with their checks:
 
 ```text
-NAME              ID                                  ADDRESS          TAGS                META                              HEALTH   BY
-haproxy-exporter  janus:haproxy-exporter:fe_stats     192.0.2.11:8405  haproxy,prometheus  http /metrics, frontend fe_stats  passing  Janus
-haproxy-fe-https  janus:haproxy:fe_https              192.0.2.151:443  haproxy,http,tls    frontend fe_https                 passing  Janus
-janus             janus:janus                         192.0.2.11:9505  janus,grpc          -                                 passing  Janus
-janus-exporter    janus:janus-exporter                192.0.2.11:10056 janus,prometheus    http /metrics                     passing  Janus
-haproxy-url       janus:url:fe_https:www.example.com  192.0.2.151:443  haproxy,url,https   https://www.example.com           -        Janus
-web               web                                 192.0.2.11:8080  -                   -                                 passing  configuration
+NAME              ID                                  ADDRESS           TAGS                                       META                              HEALTH   BY
+haproxy-exporter  janus:haproxy-exporter:fe_stats     192.0.2.11:8405   haproxy,prometheus,scheme=http             http /metrics, frontend fe_stats  passing  Janus
+haproxy-fe-https  janus:haproxy:fe_https              192.0.2.151:443   haproxy,http,tls,proto=http,scheme=https   frontend fe_https                 passing  Janus
+janus             janus:janus                         192.0.2.11:9505   janus,grpc                                 -                                 passing  Janus
+janus-exporter    janus:janus-exporter                192.0.2.11:10056  janus,prometheus,scheme=http               http /metrics                     passing  Janus
+haproxy-url       janus:url:fe_https:www.example.com  192.0.2.151:443   haproxy,url,https,scheme=https,proto=http  https://www.example.com           -        Janus
+web               web                                 192.0.2.11:8080   -                                          -                                 passing  configuration
 ```
 
 ## Drained, stopped, going down
@@ -310,6 +322,9 @@ scrape_configs:
         scheme: https
         datacenter: lgs
         services: [haproxy-url]
+        # Routed by the Host header only; proto=tcp: by the TLS server
+        # name, passed through to a backend of its own (SNI passthrough).
+        tags: [url, proto=http]
         authorization:
           credentials_file: /etc/prometheus/consul-token
     relabel_configs:
