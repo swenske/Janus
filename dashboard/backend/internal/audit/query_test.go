@@ -237,6 +237,9 @@ func TestQueryPages(t *testing.T) {
 	if p, _ := l.Query(Filter{}, "1", 5); len(p.Entries) != 0 || p.Next != "" {
 		t.Fatalf("cursor rotated away: %+v", p)
 	}
+	if p, _ := l.Query(Filter{}, "", 0); len(p.Entries) != 1 || p.Next == "" {
+		t.Fatalf("a limit below 1 is 1: %+v", p)
+	}
 	for _, bad := range []string{"x", "0", "0~0", "3~x", "3~-1", "-1", "3+1"} {
 		if _, err := l.Query(Filter{}, bad, 5); err == nil {
 			t.Errorf("cursor %q accepted", bad)

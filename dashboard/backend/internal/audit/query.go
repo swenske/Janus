@@ -240,10 +240,11 @@ type Page struct {
 // without one (written before IDs existed), "<ID>~<n>": the n entries
 // below the entry with that ID - the nearest above it that has one -
 // skipped ("0~<n>": the n newest skipped). Nothing in it needs escaping
-// in a URL. They stay valid as entries
-// are appended and the files rotate, until the entry itself is rotated
-// away - then the page goes on from the newest entry older than it.
+// in a URL. They stay valid as entries are appended and the files
+// rotate, until the entry itself is rotated away - then the page goes on
+// from the newest entry older than it.
 func (l *Log) Query(f Filter, before string, limit int) (Page, error) {
+	limit = max(limit, 1)
 	anchor, skip, err := parseCursor(before)
 	if err != nil {
 		return Page{}, err
