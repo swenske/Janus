@@ -193,8 +193,12 @@ func (s *store) Manifest(id, version, arch string) (*manifest, error) {
 	return &m, nil
 }
 
-// Prune keeps the keep newest versions of each schematic's builds.
-func (s *store) Prune(keep int, newer func(a, b string) int) error {
+// Prune keeps, for each schematic, the builds of its keep newest
+// releases and of its pre-releases newer than them all: a pre-release
+// under test doesn't push a release's build out (two in a row used to
+// drop the release before the newest), and one a release has since
+// superseded goes. prerelease says which versions are pre-releases.
+func (s *store) Prune(keep int, newer func(a, b string) int, prerelease func(version string) bool) error {
 	ids, err := os.ReadDir(filepath.Join(s.dir, "images"))
 	if err != nil {
 		return err
@@ -212,8 +216,19 @@ func (s *store) Prune(keep int, newer func(a, b string) int) error {
 			}
 		}
 		slices.SortFunc(names, func(a, b string) int { return newer(b, a) })
-		for _, old := range names[min(keep, len(names)):] {
-			if err := os.RemoveAll(filepath.Join(base, old)); err != nil {
+		releases := 0
+		for _, v := range names {
+			var kept bool
+			if prerelease(v) {
+				kept = releases == 0 // newer than every release built
+			} else {
+				releases++
+				kept = releases <= keep
+			}
+			if kept {
+				continue
+			}
+			if err := os.RemoveAll(filepath.Join(base, v)); err != nil {
 				return err
 			}
 		}

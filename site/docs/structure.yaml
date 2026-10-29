@@ -40,6 +40,7 @@ topics:
               - { file: docs/hypervisors.md, label: Hypervisors }
               - { file: docs/guide/auto-scaling.md, label: Auto-scaling }
               - { file: docs/guide/clusters.md, label: Clusters }
+              - { file: docs/guide/telemetry.md, label: Usage report }
           - label: janusctl
             pages:
               - { file: docs/janusctl.md, title: Using janusctl, label: Using janusctl }

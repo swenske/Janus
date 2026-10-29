@@ -47,6 +47,9 @@ scrape_configs:
         scheme: https
         datacenter: lgs
         services: [haproxy-url]
+        # Routed by the Host header only; proto=tcp: by the TLS server
+        # name, passed through to a backend of its own (SNI passthrough).
+        tags: [url, proto=http]
         authorization:
           credentials_file: /etc/prometheus/consul-token
     relabel_configs:

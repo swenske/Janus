@@ -299,6 +299,40 @@ fi
 echo "Part 1 OK: healthy upgrade confirmed, no revert, still live on slot B"
 
 # =========================================================================
+# Part 1b: janusd exiting after the confirmation comes back. Supervisor's
+# GiveUpAfter (HEALTH_TIMEOUT_SECS) is long past: init must find nothing
+# to give up on - the marker is gone - and restart janusd as on any boot
+# (v2026.10.29-4's lab: janusd never came back after a Restart on a node
+# booted from an update, until a power reset).
+# The deadline runs from init's start of janusd, and janusd can confirm
+# the boot before it passes (v2026.10.29-5's first build: the restart's
+# exit came ~5 s after boot, at the deadline - the ordinary restart path,
+# not the one under test): wait past it first.
+# =========================================================================
+sleep $((HEALTH_TIMEOUT_SECS + 10))
+if ! "$CTL" "${CTL_ARGS[@]}" system restart; then
+  echo "Upgrade health test FAILED: janusctl system restart refused" >&2
+  exit 1
+fi
+if ! wait_log "$LOG" "init: this boot is confirmed - janusd is restarted as on any boot" 30; then
+  echo "Upgrade health test FAILED: init didn't restart janusd after its exit on a confirmed update boot" >&2
+  echo "--- console output ---" >&2; cat "$LOG" >&2
+  exit 1
+fi
+DEADLINE=$((SECONDS + 60))
+until "$CTL" "${CTL_ARGS[@]}" version >/dev/null 2>&1 || [ "$SECONDS" -ge "$DEADLINE" ]; do sleep 1; done
+if ! "$CTL" "${CTL_ARGS[@]}" version >/dev/null 2>&1; then
+  echo "Upgrade health test FAILED: janusd's API never came back after its restart" >&2
+  echo "--- console output ---" >&2; cat "$LOG" >&2
+  exit 1
+fi
+if [ "$(marker_count "$LOG")" -ne 2 ] || grep -qi "reverting" "$LOG"; then
+  echo "Upgrade health test FAILED: janusd's restart rebooted or reverted the node" >&2
+  exit 1
+fi
+echo "Part 1b OK: janusd restarted after its exit, long after the update's confirmation - no reboot, no revert"
+
+# =========================================================================
 # Part 2: an unhealthy upgrade reverts and reboots back automatically.
 # =========================================================================
 BROKEN_SHA256="$(cat "$BROKEN_BUNDLE/rootfs.squashfs.sha256")"

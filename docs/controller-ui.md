@@ -333,7 +333,13 @@ shortest refresh any account may choose - the choices start there, an
 account that chose faster follows it) and the **HTTPS certificate**
 (`HTTPSCert.jsx`, folded): what the page is served with (self-signed,
 uploaded, or from `-tls-cert`), a bundle checked before it's served,
-and back to self-signed.
+and back to self-signed; and the **Usage report** (`Telemetry.jsx`,
+`/api/telemetry`, sessions only, docs/guide/telemetry.md): on or off -
+locked off by `JANUS_CONTROLLER_TELEMETRY=off` -, its ID with **New
+ID**, when it was last sent and goes next, **Exactly what is sent**
+(the report as `telemetryReport` builds it now) and **Send now**. The
+setup screen offers it too, unticked (`SetupForm`; its text is
+`telemetry.js`'s).
 
 **Your account** (`AccountButton`, a dialog): second factors
 (`MFAPanel`), **Trusted browsers** (`TrustedBrowsers`: "this browser"
@@ -641,7 +647,9 @@ newest GitHub release; a node with extensions gets the newest release
 the image factory has built from its schematic (`dashboardd
 -image-factory`, janus.sw-servers.net by default), shown as "building"
 until it's ready - never a plain release, which would drop its
-extensions. The Update page shows the node's schematic and extensions,
+extensions. When the factory can't be reached, its mirror answers
+(`-image-factory-mirror`, `nodeproxy/mirror.go`: `via: "mirror"`, the
+Update page's "Source" line says so). The Update page shows the node's schematic and extensions,
 its HAProxy (version, branch, pinned or the default) and its kernel
 track, from what the node's image reports (`VersionResponse`'s
 `schematic`, `haproxy`, `kernel` - `nodeproxy.NodeSchematic`, the

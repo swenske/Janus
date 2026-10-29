@@ -8,8 +8,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/swenske/Janus/internal/haproxyflow"
+	"github.com/swenske/Janus/internal/haproxystat"
 )
 
 // The services a node registers in its agent (docs/consul.md "The
@@ -20,17 +22,23 @@ import (
 //   - the exporters, each where it really listens, while it runs:
 //     janus-exporter, node-exporter (the extension's), haproxy-exporter
 //     (each frontend that has HAProxy's own prometheus-exporter serve
-//     a request) - tag prometheus, meta metrics_path and scheme, for one
-//     Prometheus job to find them all;
+//     a request) - tags prometheus and scheme=<it>, meta metrics_path and
+//     scheme, for one Prometheus job to find them all;
 //   - haproxy-<name>: each frontend and listen section, on the port of
 //     its first bind (its address when it names one - an anycast VIP -,
-//     else the node's), tags haproxy, its mode and tls, a TCP check;
+//     else the node's), tags haproxy, its mode and tls, proto=<mode> and
+//     scheme=<https|http> (none for TCP without ssl), a TTL check janusd
+//     feeds from HAProxy's own state of the frontend (register.go);
 //   - haproxy-url: one instance per URL the configuration routes, for a
 //     probe (Prometheus's blackbox exporter) to find - the hosts in the
 //     maps a use_backend reads by the Host header (or the TLS server
 //     name, in TCP mode), and the literal hosts of the Host ACLs a
-//     use_backend's condition names; meta url, frontend, backend,
-//     source. No check: what answers is the probe's to say.
+//     use_backend's condition names; tags haproxy, url, its scheme,
+//     scheme=<it> and proto=<http|tcp> (by the Host header, or by the TLS
+//     server name passed through), meta url, host, scheme, proto,
+//     frontend, backend, source. No check: what answers is the probe's to say. A frontend
+//     only on a socket (abns@...) has its URLs at the bind of the one
+//     relaying to it - meta via.
 
 // IDPrefix starts the IDs of the services janusd registers.
 const IDPrefix = "janus:"
@@ -49,13 +57,64 @@ type Service struct {
 	Check   *Check            `json:"Check,omitempty"`
 }
 
-// Check is a service's check: TCP or HTTP.
+// Check is a service's check: TCP, HTTP, or TTL - janusd says how it
+// stands.
 type Check struct {
+	CheckID  string `json:"CheckID,omitempty"`
 	Name     string `json:"Name,omitempty"`
 	TCP      string `json:"TCP,omitempty"`
 	HTTP     string `json:"HTTP,omitempty"`
-	Interval string `json:"Interval"`
-	Timeout  string `json:"Timeout"`
+	TTL      string `json:"TTL,omitempty"`
+	Notes    string `json:"Notes,omitempty"`
+	Interval string `json:"Interval,omitempty"`
+	Timeout  string `json:"Timeout,omitempty"`
+	// Status is a TTL check's first, as it's registered (never in
+	// Desired's: a status isn't a definition).
+	Status string `json:"Status,omitempty"`
+	// proxy is the frontend (or listen section) whose FRONTEND row in
+	// HAProxy's show stat feeds a TTL check.
+	proxy string
+}
+
+// FrontendTTL is how long a frontend's check keeps the status janusd
+// gave it - fed every 15 s (Registrar.TTLEvery); janusd stopped, it
+// expires critical.
+var FrontendTTL = time.Minute
+
+// frontendCheck is the TTL check of a service on frontend proxy: HAProxy's
+// own state of it, not a connection - a frontend that refuses some
+// sources (tcp-request connection reject) would refuse the agent's, and
+// each connection would count in its statistics.
+func frontendCheck(name, serviceID, proxy string) *Check {
+	return &Check{CheckID: "service:" + serviceID, Name: name, TTL: FrontendTTL.String(), proxy: proxy,
+		Notes: "HAProxy's state of frontend " + proxy + " (show stat), fed by janusd: OPEN passing, FULL warning, STOP or gone critical"}
+}
+
+// frontendState is a TTL check's status and output from the FRONTEND row
+// of proxy in t: OPEN passing, FULL (at its maxconn) warning, STOP or no
+// row critical.
+func frontendState(t *haproxystat.Table, proxy string) (status, output string) {
+	for _, row := range t.Rows {
+		if t.Get(row, "pxname") != proxy || t.Kind(row) != haproxystat.KindFrontend {
+			continue
+		}
+		st := t.Get(row, "status")
+		out := st
+		if cur, ok := t.Uint(row, "scur"); ok {
+			out = fmt.Sprintf("%s, %d sessions", st, cur)
+			if lim, ok := t.Uint(row, "slim"); ok && lim > 0 {
+				out = fmt.Sprintf("%s, %d sessions of %d", st, cur, lim)
+			}
+		}
+		switch st {
+		case "OPEN":
+			return "passing", out
+		case "FULL":
+			return "warning", out
+		}
+		return "critical", out
+	}
+	return "critical", "HAProxy has no frontend " + proxy
 }
 
 // Endpoint is where an exporter listens: Host "" is the node's address.
@@ -117,7 +176,7 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 				continue
 			}
 			host := cmpOr(e.ep.Host, src.Address)
-			services = append(services, Service{ID: IDPrefix + e.name, Name: e.name, Tags: []string{"janus", PrometheusTag},
+			services = append(services, Service{ID: IDPrefix + e.name, Name: e.name, Tags: []string{"janus", PrometheusTag, "scheme=http"},
 				Address: host, Port: e.ep.Port, Meta: map[string]string{"metrics_path": defaultMetricsPath, "scheme": "http"},
 				Check: &Check{Name: e.name, HTTP: "http://" + net.JoinHostPort(host, strconv.Itoa(e.ep.Port)) + defaultMetricsPath, Interval: "30s", Timeout: "5s"}})
 		}
@@ -141,10 +200,71 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 		maps[path] = m
 		return m, nil
 	}
+	// A frontend only on a socket is reached through the one relaying to
+	// it (fe_tls :443 -> server abns@x -> fe_https): its URLs are at that
+	// one's bind, and the relay's own for the same URL is left out.
+	entries, relayTo := relays(top, readMap)
+	inner := map[string]map[string]bool{} // socket-only frontend: its URLs
+	if t.URLs {
+		for _, f := range top.Frontends {
+			r, ok := entries[f.Name]
+			if !ok {
+				continue
+			}
+			refs, err := hostsOf(f, readMap)
+			if err != nil {
+				return nil, false, err
+			}
+			inner[f.Name] = map[string]bool{}
+			for _, ref := range refs {
+				_, u := urlOf(ref, r.scheme(), r.port)
+				inner[f.Name][u] = true
+			}
+		}
+	}
 	urls := 0
+	addURLs := func(f haproxyflow.Frontend, scheme, uaddr string, uport int, entry string) error {
+		refs, err := hostsOf(f, readMap)
+		if err != nil {
+			return err
+		}
+		uhost := cmpOr(uaddr, src.Address)
+		// How HAProxy routes the host: by the Host header (an HTTP
+		// frontend), or by the TLS server name, passed through (TCP).
+		proto := cmpOr(f.Mode, "tcp")
+	next:
+		for _, r := range refs {
+			if urls >= MaxURLs {
+				truncated = true
+				break
+			}
+			sch, u := urlOf(r, scheme, uport)
+			for _, s := range relayTo[r.backend] {
+				if inner[s][u] {
+					continue next
+				}
+			}
+			host, _, _ := strings.Cut(r.host, ":")
+			meta := map[string]string{"url": u, "host": host, "scheme": sch, "proto": proto, "frontend": f.Name, "backend": r.backend, "source": r.source}
+			if entry != "" {
+				meta["via"] = entry
+			}
+			services = append(services, Service{ID: IDPrefix + "url:" + f.Name + ":" + r.host, Name: "haproxy-url",
+				Tags: []string{"haproxy", "url", sch, "scheme=" + sch, "proto=" + proto}, Address: uhost, Port: uport, Meta: meta})
+			urls++
+		}
+		return nil
+	}
 	for _, f := range top.Frontends {
 		raw, addr, port, ok := firstBind(f.Binds)
 		if !ok {
+			// Its own service has nothing a check reaches - the entry's
+			// is registered, at the same address and port.
+			if r, found := entries[f.Name]; found && t.URLs {
+				if err := addURLs(f, r.scheme(), r.addr, r.port, r.entry); err != nil {
+					return nil, false, err
+				}
+			}
 			continue
 		}
 		host := cmpOr(addr, src.Address)
@@ -154,58 +274,227 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 				if slices.Contains(f.TLSBinds, raw) {
 					scheme, tags = "https", append(tags, "tls")
 				}
-				services = append(services, Service{ID: IDPrefix + "haproxy-exporter:" + f.Name, Name: "haproxy-exporter", Tags: tags,
+				tags = append(tags, "scheme="+scheme)
+				id := IDPrefix + "haproxy-exporter:" + f.Name
+				services = append(services, Service{ID: id, Name: "haproxy-exporter", Tags: tags,
 					Address: host, Port: port, Meta: map[string]string{"metrics_path": path, "scheme": scheme, "frontend": f.Name},
-					Check: check("haproxy-exporter "+f.Name, host, port)})
+					Check: frontendCheck("haproxy-exporter "+f.Name, id, f.Name)})
 			}
 		}
 		if t.Frontends {
-			tags := []string{"haproxy", cmpOr(f.Mode, "tcp")}
+			mode := cmpOr(f.Mode, "tcp")
+			tags := []string{"haproxy", mode}
 			if len(f.TLSBinds) > 0 {
 				tags = append(tags, "tls")
+			}
+			tags = append(tags, "proto="+mode)
+			switch {
+			case len(f.TLSBinds) > 0:
+				tags = append(tags, "scheme=https")
+			case mode == "http":
+				tags = append(tags, "scheme=http")
 			}
 			meta := map[string]string{"frontend": f.Name}
 			if m := frontendMaps(f); m != "" {
 				meta["maps"] = m
 			}
-			services = append(services, Service{ID: IDPrefix + "haproxy:" + f.Name, Name: ServiceName(f.Name), Tags: tags,
-				Address: host, Port: port, Meta: meta, Check: check("haproxy "+f.Name, host, port)})
+			id := IDPrefix + "haproxy:" + f.Name
+			services = append(services, Service{ID: id, Name: ServiceName(f.Name), Tags: tags,
+				Address: host, Port: port, Meta: meta, Check: frontendCheck("haproxy "+f.Name, id, f.Name)})
 		}
 		if !t.URLs {
-			continue
-		}
-		refs, err := hostsOf(f, readMap)
-		if err != nil {
-			return nil, false, err
-		}
-		if len(refs) == 0 {
 			continue
 		}
 		scheme, uaddr, uport := "http", addr, port
 		if _, a, p, ok := firstBind(f.TLSBinds); ok {
 			scheme, uaddr, uport = "https", a, p
 		}
-		uhost := cmpOr(uaddr, src.Address)
-		for _, r := range refs {
-			if urls >= MaxURLs {
-				truncated = true
-				break
-			}
-			sch := scheme
-			if r.sni {
-				sch = "https"
-			}
-			u := sch + "://" + r.host
-			if !strings.Contains(r.host, ":") && uport != defaultPort(sch) {
-				u += ":" + strconv.Itoa(uport)
-			}
-			services = append(services, Service{ID: IDPrefix + "url:" + f.Name + ":" + r.host, Name: "haproxy-url",
-				Tags: []string{"haproxy", "url", sch}, Address: uhost, Port: uport,
-				Meta: map[string]string{"url": u, "frontend": f.Name, "backend": r.backend, "source": r.source}})
-			urls++
+		if err := addURLs(f, scheme, uaddr, uport, ""); err != nil {
+			return nil, false, err
 		}
 	}
 	return services, truncated, nil
+}
+
+// urlOf is the URL of a host a frontend routes, its scheme (https by a
+// TLS server name too) and the port when it isn't the scheme's own.
+func urlOf(r hostRef, scheme string, port int) (sch, u string) {
+	if r.sni {
+		scheme = "https"
+	}
+	u = scheme + "://" + r.host
+	if !strings.Contains(r.host, ":") && port != defaultPort(scheme) {
+		u += ":" + strconv.Itoa(port)
+	}
+	return scheme, u
+}
+
+// relay is how clients reach a frontend that listens only on a socket:
+// through entry, at its bind's address ("" every address) and port,
+// with TLS on the way (the entry's bind, or the socket's) or not.
+type relay struct {
+	entry string
+	addr  string
+	port  int
+	tls   bool
+}
+
+func (r relay) scheme() string {
+	if r.tls {
+		return "https"
+	}
+	return "http"
+}
+
+// maxRelayHops bounds a chain of frontends behind sockets.
+const maxRelayHops = 4
+
+// relays finds, for each frontend listening only on sockets (abns@,
+// unix@, the loopback), the frontend clients reach it through: one with
+// a bind a check reaches whose backend - use_backend, default_backend,
+// a listen's own, a dynamic one's literals, map values and default - has
+// a server on one of its sockets, followed through other socket-only
+// frontends a few hops; the first in the configuration's order. relayTo
+// is, for each backend sending to such a frontend, the frontends it
+// reaches.
+func relays(top haproxyflow.Topology, readMap func(string) (map[string]string, error)) (entries map[string]relay, relayTo map[string][]string) {
+	type hop struct {
+		front string
+		tls   bool // the socket's bind has ssl
+	}
+	byName := map[string]haproxyflow.Frontend{}
+	sockets := map[string]hop{}
+	for _, f := range top.Frontends {
+		byName[f.Name] = f
+		if _, _, _, ok := firstBind(f.Binds); ok {
+			continue
+		}
+		for _, b := range f.Binds {
+			if k := socketKey(b); k != "" {
+				sockets[k] = hop{f.Name, slices.Contains(f.TLSBinds, b)}
+			}
+		}
+	}
+	if len(sockets) == 0 {
+		return nil, nil
+	}
+	to := map[string][]hop{}
+	for be, servers := range top.Servers {
+		for _, s := range servers {
+			if h, ok := sockets[socketKey(s)]; ok && !slices.Contains(to[be], h) {
+				to[be] = append(to[be], h)
+			}
+		}
+	}
+	from := map[string][]hop{} // socket-only frontend: who sends to it
+	for _, f := range top.Frontends {
+		for _, be := range backendsOf(f, readMap) {
+			for _, h := range to[be] {
+				from[h.front] = append(from[h.front], hop{f.Name, h.tls})
+			}
+		}
+	}
+	var resolve func(name string, seen map[string]bool) (relay, bool)
+	resolve = func(name string, seen map[string]bool) (relay, bool) {
+		if seen[name] || len(seen) >= maxRelayHops {
+			return relay{}, false
+		}
+		seen[name] = true
+		defer delete(seen, name)
+		for _, h := range from[name] {
+			f := byName[h.front]
+			if _, a, p, ok := firstBind(f.TLSBinds); ok {
+				return relay{entry: f.Name, addr: a, port: p, tls: true}, true
+			}
+			if _, a, p, ok := firstBind(f.Binds); ok {
+				return relay{entry: f.Name, addr: a, port: p, tls: h.tls}, true
+			}
+			if r, ok := resolve(h.front, seen); ok {
+				r.tls = r.tls || h.tls
+				return r, true
+			}
+		}
+		return relay{}, false
+	}
+	entries = map[string]relay{}
+	for name := range from {
+		if r, ok := resolve(name, map[string]bool{}); ok {
+			entries[name] = r
+		}
+	}
+	relayTo = map[string][]string{}
+	for be, hs := range to {
+		for _, h := range hs {
+			if _, ok := entries[h.front]; ok {
+				relayTo[be] = append(relayTo[be], h.front)
+			}
+		}
+	}
+	return entries, relayTo
+}
+
+// backendsOf are the backends f may send to. A map it can't read adds
+// none: hostsOf says so, when its keys are hosts.
+func backendsOf(f haproxyflow.Frontend, readMap func(string) (map[string]string, error)) []string {
+	var out []string
+	for _, r := range f.Rules {
+		switch r.Type {
+		case "use", "default", "self":
+			out = append(out, r.Backend)
+		case "dynamic":
+			for _, l := range r.Literals {
+				out = append(out, r.Prefix+l+r.Suffix)
+			}
+			for _, mc := range r.MapCalls {
+				if mc.Default != "" {
+					out = append(out, r.Prefix+mc.Default+r.Suffix)
+				}
+				m, err := readMap(mc.Path)
+				if err != nil {
+					continue
+				}
+				for _, v := range m {
+					out = append(out, r.Prefix+v+r.Suffix)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// socketKey is a bind's or a server's address when it is a socket on
+// the node itself - abns@name, unix@path (a bare path too), a loopback
+// port - written the same way for both; "" otherwise.
+func socketKey(a string) string {
+	a, _, _ = strings.Cut(a, ",")
+	if fam, rest, found := strings.Cut(a, "@"); found {
+		switch fam {
+		case "abns", "abnsz":
+			return a
+		case "unix":
+			return "unix@" + rest
+		case "ipv4", "ipv6", "tcp", "tcp4", "tcp6":
+			a = rest
+		default:
+			return ""
+		}
+	}
+	if strings.HasPrefix(a, "/") {
+		return "unix@" + a
+	}
+	i := strings.LastIndex(a, ":")
+	if i < 0 {
+		return ""
+	}
+	host := strings.Trim(a[:i], "[]")
+	p, err := strconv.Atoi(a[i+1:])
+	if err != nil || p <= 0 || p > 65535 {
+		return ""
+	}
+	if ip := net.ParseIP(host); (ip != nil && ip.IsLoopback()) || host == "localhost" {
+		return "lo:" + strconv.Itoa(p)
+	}
+	return ""
 }
 
 func defaultPort(scheme string) int {

@@ -698,6 +698,10 @@ a frontend) given `consul` and node_exporter by `PATCH /api/machines`
 | A node out of the selector and back; a machine destroyed; the integration off | the layer, the token, the catalog entry, the agent |
 | The Consul tab, a node's **Apps › Consul** | in headless Chromium, light and dark |
 | The cost | janusd's and the agent's CPU and memory, idle, with and without the extension; the boot stages; the images' sizes |
+| Since v2026.10.29-3: the Controller's Consul pass with nodes on an earlier release, picked or not | its `last_pass` read every 5 s: how often it comes back |
+| Since v2026.10.29-4: the cluster's configuration in production's shape - a TCP `:443` splitting TLS by server name (one host passed through, the rest over `abns@` to an HTTP frontend reading a hosts map through a variable, a Host ACL), a TCP frontend refusing other sources -, on the release then the pre-release | the URLs registered, their tags and meta (`via`, `scheme=`, `proto=`); each frontend's check over minutes (the agent's output read through the node's page); a frontend disabled by a version; HAProxy stopped; janusd restarted |
+| Since v2026.10.29-4: the cluster updated on another image (one more extension), a machine updated by Terraform | when the image factory's build happens against the member's drain and its machine's phase; `apply` and the next `plan` |
+| Since v2026.10.29-5: a machine with BIRD (a minimal configuration), Consul, node_exporter and the guest agent, updated by the Controller (`wait_for_health`), janusd restarted minutes after the update's confirmation, three times - and on the release, the same restart for comparison | janusd back or not, its console (init's lines), its extensions running again, the Controller's view of the node |
 
 ### Prometheus finding them
 
@@ -708,6 +712,29 @@ address, its CA, the read-only token). Measured: the targets found and
 `up`, their labels, the URL targets (one per URL, a cluster's members
 merged) and their probes, which targets a drained member leaves -
 both members drained - and a node out of the selector.
+Since v2026.10.29-4, the example's `tags: [url, proto=http]`
+against `tags: [url, proto=tcp]` and the `filter` the notes suggest.
+
+### The image factory's mirror
+
+Since v2026.10.29-6: a machine the Controller makes on the release
+before the newest, with a schematic the production mirror holds for the
+newest; then the Controller's image factory set to a closed port and the
+mirror named (`JANUS_CONTROLLER_IMAGE_FACTORY`,
+`JANUS_CONTROLLER_IMAGE_FACTORY_MIRROR`), the Controller's settings
+restored after. Measured: the node page's update check (its `source`,
+`via`, the time it takes), the machine's update to the newest release -
+the Controller's and the node's requests in the mirror's access log, the
+time from the change to the node running it, the node's health - and the
+mirror's download count.
+
+### The usage report
+
+Since v2026.10.29-6, on the lab's Controller: the report's state after
+its update (off, what **Exactly what is sent** holds), turned on and
+sent at once to the production receiver - checked there, nothing of the
+lab's addresses in it -, **New ID** (the receiver forgets the previous
+one), turned off (nothing due, **Send now** refused).
 
 ## The scripts
 
@@ -835,3 +862,16 @@ ran:
   processes' CPU and memory over two minutes; `k3`: the Prometheus and
   the blackbox exporter; `u-check56` (+ `.mjs`): pages in headless
   Chromium, light and dark (v2026.10.29-2).
+- `hstop NODE SECONDS`: HAProxy stopped and started through janusctl,
+  each of the node's `janus:*` services watched in Consul;
+  `bbtargets`: the Prometheus's URL targets, the node each one was
+  taken from and its health (v2026.10.29-3).
+- `kc-upgrade VERSION EXTENSIONS`: a cluster updated on another image,
+  its members' stage and drain, their machines' phase and the journal
+  printed as they change; `agentcheck NODE [ID]`: the node's agent's own
+  checks and their output, through its page; `tf/`: a machine made and
+  updated by OpenTofu (v2026.10.29-4).
+- `restart-check NAME OUT`: `janusctl system restart` on a Controller
+  machine with its console streamed through the Controller - when the
+  old janusd goes and a new one answers, init's lines, the services
+  (v2026.10.29-5).

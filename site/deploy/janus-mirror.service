@@ -1,0 +1,42 @@
+# janus-mirror.sw-servers.net - the image factory's mirror (site/backend
+# run with -mirror-of): the update bundles janus.sw-servers.net built for
+# its two newest releases, answered when that site can't be reached.
+# Installed by site/deploy/setup-mirror.sh; behind a TLS front end.
+[Unit]
+Description=Janus image factory mirror (janus-mirror.sw-servers.net)
+After=network.target
+
+[Service]
+User=janus-mirror
+Group=janus-mirror
+# This host's flags: JANUS_MIRROR_FLAGS="-addr <listen> -mirror-of <the site's address>"
+EnvironmentFile=/etc/janus-mirror/flags
+ExecStart=/usr/local/bin/janus-mirror -data-dir /srv/janus-mirror -public-url https://janus-mirror.sw-servers.net -mirror-token-file /etc/janus-mirror/token $JANUS_MIRROR_FLAGS
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+ReadWritePaths=/srv/janus-mirror
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target
