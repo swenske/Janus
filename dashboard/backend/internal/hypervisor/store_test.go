@@ -101,6 +101,8 @@ func TestValidate(t *testing.T) {
 		"bad host key": func(h *Hypervisor) { h.Libvirt.HostKey = "nope" },
 		"rel socket":   func(h *Hypervisor) { h.Libvirt.Socket = "libvirt-sock" },
 		"no settings":  func(h *Hypervisor) { h.Libvirt = nil },
+		"bad label":    func(h *Hypervisor) { h.Labels = map[string]string{"DC": "lgs"} },
+		"bad value":    func(h *Hypervisor) { h.Labels = map[string]string{"dc": "a b"} },
 	} {
 		h := validLibvirt()
 		mutate(h)
@@ -113,5 +115,54 @@ func TestValidate(t *testing.T) {
 	}
 	if got := validLibvirt().Libvirt.SSHAddress(); got != "10.200.10.2:22" {
 		t.Errorf("SSHAddress = %s", got)
+	}
+}
+
+// A hypervisor's labels: saved with it, given back by a reload, replaced
+// by an Update, never shared with what Get returns.
+func TestLabels(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := validLibvirt()
+	h.Labels = map[string]string{"dc": "lgs", "rack": "12"}
+	if err := s.Add(h); err != nil {
+		t.Fatal(err)
+	}
+	h.Labels["dc"] = "changed" // the caller's map: not the store's
+	got, _ := s.Get(h.ID)
+	if got.Labels["dc"] != "lgs" {
+		t.Errorf("Add kept the caller's map: %v", got.Labels)
+	}
+	got.Labels["dc"] = "changed"
+	if again, _ := s.Get(h.ID); again.Labels["dc"] != "lgs" {
+		t.Error("Get returned the store's labels")
+	}
+	s2, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _ := s2.Get(h.ID)
+	if len(reloaded.Labels) != 2 || reloaded.Labels["dc"] != "lgs" || reloaded.Labels["rack"] != "12" {
+		t.Fatalf("reloaded labels: %v", reloaded.Labels)
+	}
+	reloaded.Labels = map[string]string{"dc": "scw"}
+	if err := s2.Update(reloaded); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := s2.Get(h.ID); len(again.Labels) != 1 || again.Labels["dc"] != "scw" {
+		t.Errorf("updated labels: %v", again.Labels)
+	}
+	reloaded.Labels = map[string]string{"Bad": "x"}
+	if err := s2.Update(reloaded); err == nil {
+		t.Error("Update took a bad label")
+	}
+	if err := s2.SetHost(h.ID, "libvirt:x", "kvm01"); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := s2.Get(h.ID); again.Labels["dc"] != "scw" {
+		t.Errorf("SetHost lost the labels: %v", again.Labels)
 	}
 }

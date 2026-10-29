@@ -274,6 +274,18 @@ func (s *Store) Get(id string) (*Machine, bool) {
 	return m.clone(), true
 }
 
+// HypervisorOf is the hypervisor machine id is on - without copying the
+// whole record, for what asks it of every node (their labels).
+func (s *Store) HypervisorOf(id string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.machines[id]
+	if !ok {
+		return "", false
+	}
+	return m.Spec.HypervisorID, true
+}
+
 // Add saves a new machine, giving it an ID.
 func (s *Store) Add(m *Machine) error {
 	id, err := randomHex(8)

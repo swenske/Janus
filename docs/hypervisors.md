@@ -538,6 +538,37 @@ The card then shows the host:
 - the pool's space and the networks' state;
 - the machines.
 
+## Labels: where a hypervisor is
+
+A hypervisor can carry **labels**, set in its form (either kind) or
+with the API: where it is - `dc=lgs`, `room=a`, `rack=12` are the keys
+the form suggests - or anything else, with the rules of a node's labels
+(lowercase keys, 63 characters at most, 32 labels). Every node the
+Controller creates on it **inherits** them:
+- under its own labels: on the same key, the node's own label wins;
+- put together each time they're read, never copied: change a
+  hypervisor's labels and its nodes have the new ones at once, while a
+  node's own stay the only ones it has - what its card, the API and
+  Terraform's `janus_node.labels` change;
+- wherever labels decide something: the accounts' grants, scoped API
+  tokens, single sign-on rules and janusctl's scoped certificates
+  ([accounts and roles](../dashboard/README.md#accounts-and-roles)),
+  and the log forwarding profiles
+  ([log forwarding](guide/log-forwarding.md)).
+
+> [!WARNING]
+> Inheriting widens a grant. A grant, a token or a rule on `dc=lgs`
+> reaches every node made on a hypervisor labelled `dc=lgs`, as if each
+> node carried the label itself - those already there included, the
+> moment the hypervisor gets it. Label a hypervisor the way you would
+> label every node on it.
+
+A node's card shows the labels it inherits apart from its own, read-only:
+"from kvm01", dashed, struck through where its own label overrides one.
+`GET /api/nodes` gives them apart too: `labels` (its own), and
+`inherited_labels` with `inherited_from` (`{kind: "hypervisor", id,
+name}`). A node the Controller didn't create inherits nothing.
+
 ## Creating a node
 
 **Create node** asks for:
@@ -806,8 +837,8 @@ the one a Terraform provider needs, for the planned one:
 
 | Method and path | |
 |---|---|
-| `GET`, `POST /api/hypervisors` | list, add (`{name, kind: "libvirt", controller_address, libvirt: {host, user, socket, pool, networks, name_prefix}}`, or `{name, kind: "proxmox", controller_address, token_secret, proxmox: {url, node, token_id, pool, storage, image_storage, networks, name_prefix, vmids, ca_cert}}` - Proxmox networks: `vmbr0`, `vmbr0.20`, `vmbr0.100-199`, `vmbr0.*`; a machine's interface names one bridge or VLAN, `vmbr0.150`) - the token secret is never in an answer (`has_token_secret`) |
-| `GET`, `PATCH`, `DELETE /api/hypervisors/{id}` | one; change (another host or API address must be trusted again; a Proxmox token secret is kept unless one is given); remove (refused while it has machines) |
+| `GET`, `POST /api/hypervisors` | list, add (`{name, kind: "libvirt", controller_address, labels, libvirt: {host, user, socket, pool, networks, name_prefix}}`, or `{name, kind: "proxmox", controller_address, labels, token_secret, proxmox: {url, node, token_id, pool, storage, image_storage, networks, name_prefix, vmids, ca_cert}}` - Proxmox networks: `vmbr0`, `vmbr0.20`, `vmbr0.100-199`, `vmbr0.*`; a machine's interface names one bridge or VLAN, `vmbr0.150`; `labels`: `{"dc": "lgs"}`, [inherited by its nodes](#labels-where-a-hypervisor-is)) - the token secret is never in an answer (`has_token_secret`) |
+| `GET`, `PATCH`, `DELETE /api/hypervisors/{id}` | one; change (another host or API address must be trusted again; a Proxmox token secret is kept unless one is given; `labels` given replace them - `{}` clears them -, left out keep them); remove (refused while it has machines) |
 | `POST /api/hypervisors/preparation` | what to run on the host for these settings (the add form's body, plus `id` for one already added: its key goes in): `{steps: [{title, about, script}], script, has_key}` |
 | `POST /api/hypervisors/{id}/probe` | what the host presents: `{host_key, fingerprint}` (libvirt), `{fingerprint, subject, issuer}` (the API's certificate, Proxmox) |
 | `POST /api/hypervisors/{id}/trust` | `{fingerprint}`: pins the host key or certificate, if the host presents that one |
@@ -828,7 +859,11 @@ the one a Terraform provider needs, for the planned one:
 by `image-build.yml`) runs the whole cycle against a real libvirt in a
 privileged container (`hack/libvirt-host`), with the Controller inside it:
 - adding the hypervisor;
-- creating a node from the image under test, admitted on its token;
+- creating a node from the image under test, admitted on its token -
+  with the hypervisor's labels inherited, its own winning on a key, a
+  token scoped to an inherited label reaching it, a change to the
+  hypervisor's labels followed at once and one that leaves them out
+  keeping them;
 - the console of its first boot, with no key getting through;
 - a reset;
 - a node that can't reach the Controller: the machine says why, while a

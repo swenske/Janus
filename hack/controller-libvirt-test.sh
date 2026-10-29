@@ -10,7 +10,10 @@
 #      fingerprint, then trusted; the host's state reads back;
 #   2. a node is created from the image under test, boots with its
 #      NoCloud volume and is admitted on its registration token - no
-#      approval - and answers through the Controller's relay;
+#      approval - and answers through the Controller's relay; it inherits
+#      the hypervisor's labels under its own (its own winning on a key),
+#      a token scoped to them reaches it, a change to the hypervisor's
+#      follows at once and one that leaves them out keeps them;
 #   3. the serial console streams its boot, never a private key; a
 #      hypervisor reset brings the node back;
 #   3b. a node that can't register says why on its console: the machine
@@ -83,8 +86,9 @@ echo "Part 1 OK: libvirt host and Controller running"
 # 1. Adding the hypervisor: authorize, check the host key, trust.
 # =========================================================================
 api -X POST "$API/api/hypervisors" -H 'Content-Type: application/json' \
-  -d '{"name":"testhost","kind":"libvirt","libvirt":{"host":"127.0.0.1","user":"janus-ctl","pool":"janus","networks":["janus-test"]}}' >"$WORKDIR/hv.json"
+  -d '{"name":"testhost","kind":"libvirt","labels":{"dc":"lgs","room":"lab"},"libvirt":{"host":"127.0.0.1","user":"janus-ctl","pool":"janus","networks":["janus-test"]}}' >"$WORKDIR/hv.json"
 HV="$(json "d['id']" <"$WORKDIR/hv.json")"
+[ "$(json "sorted(d['labels'].items())" <"$WORKDIR/hv.json")" = "[('dc', 'lgs'), ('room', 'lab')]" ] || fail "the hypervisor's labels: $(cat "$WORKDIR/hv.json")"
 [ "$(json "d['trusted']" <"$WORKDIR/hv.json")" = False ] || fail "a new hypervisor is trusted before its host key was confirmed"
 status="$(api "$API/api/hypervisors/$HV/status")"
 echo "$status" | grep -q "host key hasn't been confirmed" || fail "an untrusted hypervisor was connected to: $status"
@@ -191,6 +195,46 @@ if grep -q '<nvram' <<<"$xml" || in_host sh -c 'ls /var/lib/libvirt/qemu/nvram/ 
 echo "Part 3 OK: node1 created - the OVMF code alone, no variable store -, admitted on its registration token (no approval), reachable through the relay as $host"
 
 # =========================================================================
+# 2b. node1 inherits the hypervisor's labels, under its own.
+# =========================================================================
+node1_view() { api "$API/api/nodes" | json "[n for n in d if n['id']=='$NODE'][0]"; }
+labels_of() { api "$API/api/nodes" | json "sorted([n for n in d if n['id']=='$NODE'][0]['$1'].items())"; }
+[ "$(labels_of labels)" = "[]" ] || fail "node1 has labels of its own: $(node1_view)"
+[ "$(labels_of inherited_labels)" = "[('dc', 'lgs'), ('room', 'lab')]" ] || fail "node1 doesn't inherit the hypervisor's labels: $(node1_view)"
+[ "$(api "$API/api/nodes" | json "[n for n in d if n['id']=='$NODE'][0]['inherited_from']['name']")" = testhost ] || fail "node1's labels come from: $(node1_view)"
+api -o /dev/null -X PATCH "$API/api/nodes/$NODE" -H 'Content-Type: application/json' -d '{"labels":{"room":"r2"}}'
+[ "$(labels_of labels)" = "[('room', 'r2')]" ] && [ "$(labels_of inherited_labels)" = "[('dc', 'lgs'), ('room', 'lab')]" ] || fail "node1's own label: $(node1_view)"
+# A token scoped to dc=lgs (inherited) and room=r2 (its own) reaches it;
+# one on room=lab - the hypervisor's, its own overrides it - doesn't.
+token_for() {
+  api -X POST "$API/api/tokens" -H 'Content-Type: application/json' -d "{\"name\":\"$1\",\"expires_in_days\":1,\"role\":\"reader\",\"scope\":{\"selector\":$2}}" | json "d['token']"
+}
+sees() { curl -sk -H "Authorization: Bearer $1" "$API/api/nodes" | json "' '.join(sorted(n['name'] for n in d))"; }
+LGS_TOKEN="$(token_for lgs-r2 '{"dc":"lgs","room":"r2"}')"
+LAB_TOKEN="$(token_for lab '{"room":"lab"}')"
+[ "$(sees "$LGS_TOKEN")" = node1 ] || fail "a token on dc=lgs,room=r2 sees '$(sees "$LGS_TOKEN")'"
+[ -z "$(sees "$LAB_TOKEN")" ] || fail "a token on room=lab - node1's own room overrides it - sees '$(sees "$LAB_TOKEN")'"
+# Its machine too (the node doesn't trust a fleet here: its page is an
+# admin's until then).
+machines_seen() { curl -sk -H "Authorization: Bearer $1" "$API/api/machines" | json "' '.join(sorted(m['id'] for m in d))"; }
+[ "$(machines_seen "$LGS_TOKEN")" = "$MID" ] || fail "the dc=lgs token's machines: '$(machines_seen "$LGS_TOKEN")'"
+# The hypervisor relabelled: node1 follows at once.
+set_hv_labels() {
+  api "$API/api/hypervisors/$HV" | python3 -c '
+import json, sys
+h = json.load(sys.stdin)
+print(json.dumps({"name": h["name"], "controller_address": h.get("controller_address", ""), "labels": json.loads(sys.argv[1]), "libvirt": h["libvirt"]}))' "$1" >"$WORKDIR/hv-labels.json"
+  api -o /dev/null -X PATCH "$API/api/hypervisors/$HV" -H 'Content-Type: application/json' -d @"$WORKDIR/hv-labels.json"
+}
+set_hv_labels '{"dc":"par","room":"lab"}'
+[ "$(labels_of inherited_labels)" = "[('dc', 'par'), ('room', 'lab')]" ] || fail "node1 after the hypervisor's change: $(node1_view)"
+[ -z "$(sees "$LGS_TOKEN")" ] || fail "the dc=lgs token still sees '$(sees "$LGS_TOKEN")' once the hypervisor is dc=par"
+[ -z "$(machines_seen "$LGS_TOKEN")" ] || fail "the dc=lgs token still sees machines once the hypervisor is dc=par: '$(machines_seen "$LGS_TOKEN")'"
+set_hv_labels '{"dc":"lgs","room":"lab"}'
+[ "$(sees "$LGS_TOKEN")" = node1 ] || fail "the dc=lgs token after the hypervisor's labels came back: '$(sees "$LGS_TOKEN")'"
+echo "Part 3a OK: node1 inherits testhost's labels (dc=lgs, room=lab) under its own (room=r2 wins): a token on dc=lgs,room=r2 reaches it and its machine, one on room=lab doesn't; the hypervisor relabelled dc=par, the token lost both at once, and got them back"
+
+# =========================================================================
 # 3. Console and hypervisor reset.
 # =========================================================================
 sleep 3
@@ -237,6 +281,9 @@ print(json.dumps({"name": h["name"], "controller_address": sys.argv[1], "libvirt
 }
 # Nothing listens on 18444 yet.
 set_controller_address 192.168.123.1:18444
+# A change that leaves the labels out keeps them (a client from before
+# labels).
+[ "$(api "$API/api/hypervisors/$HV" | json "sorted(d['labels'].items())")" = "[('dc', 'lgs'), ('room', 'lab')]" ] || fail "a change without labels lost them: $(api "$API/api/hypervisors/$HV")"
 api -X POST "$API/api/machines" -H 'Content-Type: application/json' -d "{
   \"name\": \"node2\", \"hypervisor_id\": \"$HV\", \"vcpus\": 1, \"memory_mib\": 512,
   \"image\": {\"url\": \"http://127.0.0.1:8000/janus-kvm.qcow2\", \"sha256\": \"$SUM\"},

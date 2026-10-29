@@ -388,7 +388,12 @@ its API tokens are admin's.
 **Scopes**: nodes carry **labels** (`team=web`, `env=prod` - an admin
 sets them on the node's card), and an account can have **grants** - a
 role on the nodes whose labels match, narrowed to some **domains** if
-you like:
+you like. A node the Controller created on a hypervisor also inherits
+that hypervisor's labels (`dc=lgs`, `rack=12`), under its own - its own
+win on the same key ([hypervisors.md](../docs/hypervisors.md#labels-where-a-hypervisor-is)):
+grants, tokens and single sign-on rules match both, so a grant on
+`dc=lgs` reaches every node made on a hypervisor labelled `dc=lgs`, as
+soon as it's labelled.
 
 | Domain | What it is |
 |---|---|
@@ -410,7 +415,7 @@ account's role over everything, never a grant: an account with none
 gets none yet.
 
 An **API token** can be narrowed further: a role at most, a selector
-(only the nodes with those labels), domains. Such a scoped token reaches
+(only the nodes with those labels, inherited ones included), domains. Such a scoped token reaches
 its nodes and nothing of the Controller's own - a Terraform user's
 token that may only change HAProxy on `team=web`: role operator, labels
 `team=web`, domain `haproxy`.

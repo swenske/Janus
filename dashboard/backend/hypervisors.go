@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -83,16 +84,21 @@ type hypervisorView struct {
 	HasTokenSecret bool `json:"has_token_secret,omitempty"`
 	// HostID and HostName: the physical host it reached last - two
 	// records with the same count as one host for anti-affinity.
-	HostID    string    `json:"host_id,omitempty"`
-	HostName  string    `json:"host_name,omitempty"`
-	Machines  int       `json:"machines"`
-	CreatedAt time.Time `json:"created_at"`
+	HostID   string `json:"host_id,omitempty"`
+	HostName string `json:"host_name,omitempty"`
+	// Labels are inherited by the nodes of its machines (labels.go).
+	Labels    map[string]string `json:"labels"`
+	Machines  int               `json:"machines"`
+	CreatedAt time.Time         `json:"created_at"`
 }
 
 func (a *app) hypervisorView(h *hypervisor.Hypervisor) hypervisorView {
 	v := hypervisorView{
 		ID: h.ID, Name: h.Name, Kind: h.Kind, ControllerAddress: h.ControllerAddress, Libvirt: h.Libvirt, Proxmox: h.Proxmox,
-		CreatedAt: h.CreatedAt, Trusted: h.Trusted(), HostID: h.HostID, HostName: h.HostName,
+		CreatedAt: h.CreatedAt, Trusted: h.Trusted(), HostID: h.HostID, HostName: h.HostName, Labels: h.Labels,
+	}
+	if v.Labels == nil {
+		v.Labels = map[string]string{}
 	}
 	if h.Libvirt != nil {
 		v.AuthorizedKey = h.AuthorizedKey()
@@ -136,6 +142,9 @@ type hypervisorRequest struct {
 	Libvirt           *hypervisor.LibvirtConfig `json:"libvirt"`
 	Proxmox           *hypervisor.ProxmoxConfig `json:"proxmox"`
 	TokenSecret       string                    `json:"token_secret,omitempty"`
+	// Labels, given, replace its labels ({} clears them); left out, a
+	// change keeps them - a client from before labels changes the rest.
+	Labels map[string]string `json:"labels"`
 }
 
 // hypervisor is the request's hypervisor: its kind (from its settings
@@ -147,7 +156,7 @@ func (req *hypervisorRequest) hypervisor() *hypervisor.Hypervisor {
 			req.Kind = hypervisor.KindProxmox
 		}
 	}
-	h := &hypervisor.Hypervisor{Name: strings.TrimSpace(req.Name), Kind: req.Kind, ControllerAddress: req.ControllerAddress, TokenSecret: req.TokenSecret}
+	h := &hypervisor.Hypervisor{Name: strings.TrimSpace(req.Name), Kind: req.Kind, ControllerAddress: req.ControllerAddress, TokenSecret: req.TokenSecret, Labels: maps.Clone(req.Labels)}
 	if req.Libvirt != nil {
 		l := *req.Libvirt
 		l.HostKey = ""
@@ -220,6 +229,9 @@ func (a *app) handleHypervisorUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	next := *h
 	next.Name, next.ControllerAddress, next.TokenSecret = strings.TrimSpace(req.Name), req.ControllerAddress, req.TokenSecret
+	if req.Labels != nil {
+		next.Labels = maps.Clone(req.Labels)
+	}
 	if req.Proxmox != nil && h.Proxmox != nil {
 		p := *req.Proxmox
 		// The pinned certificate belongs to the API's address: another
@@ -245,6 +257,9 @@ func (a *app) handleHypervisorUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.hvStatus.forget(h.ID)
+	if !maps.Equal(h.Labels, next.Labels) {
+		a.logfwd.Poke() // its machines' nodes have other labels: another profile may pick them
+	}
 	h, _ = a.hypervisors.Get(h.ID)
 	writeJSON(w, http.StatusOK, a.hypervisorView(h))
 }

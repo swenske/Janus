@@ -45,7 +45,7 @@ func TestNodePerms(t *testing.T) {
 	}
 	// Machines alone: the node is only observed.
 	m := principal{User: "m", Grants: []auth.Grant{{Role: auth.Operator, Domains: []string{"machines"}}}}
-	u := m.nodeUser(&store.Node{Labels: web})
+	u := m.nodeUser(web)
 	if len(u.Perms) != 1 || !slices.Equal(u.Perms[0].Domains, []string{"observe"}) {
 		t.Errorf("machines alone: %+v", u.Perms)
 	}
