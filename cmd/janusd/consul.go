@@ -83,6 +83,7 @@ func startConsulRegistrar(mgr *consul.Manager, haproxyMgr *haproxy.Manager, hapr
 			}
 			return ""
 		},
+		ShowStat: haproxyMgr.ShowStat,
 		Wake: func() []<-chan struct{} {
 			return []<-chan struct{}{haproxyMgr.Updated(), haproxyMgr.Changed(), clusterStore.DrainChanged()}
 		},

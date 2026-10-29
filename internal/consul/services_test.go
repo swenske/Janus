@@ -140,7 +140,8 @@ func TestDesiredServices(t *testing.T) {
 	}
 	he := byID["janus:haproxy-exporter:fe_stats"]
 	if he.Name != "haproxy-exporter" || he.Address != "192.0.2.5" || he.Port != 8405 || !reflect.DeepEqual(he.Tags, []string{"haproxy", "prometheus", "scheme=http"}) ||
-		!reflect.DeepEqual(he.Meta, map[string]string{"metrics_path": "/metrics", "scheme": "http", "frontend": "fe_stats"}) || he.Check.TCP != "192.0.2.5:8405" {
+		!reflect.DeepEqual(he.Meta, map[string]string{"metrics_path": "/metrics", "scheme": "http", "frontend": "fe_stats"}) ||
+		he.Check.TCP != "" || he.Check.TTL != "1m0s" || he.Check.CheckID != "service:janus:haproxy-exporter:fe_stats" || he.Check.proxy != "fe_stats" {
 		t.Errorf("haproxy-exporter: %+v %+v", he, he.Check)
 	}
 	if he := byID["janus:haproxy-exporter:fe_prom_tls"]; he.Address != "192.0.2.7" || he.Port != 9443 || he.Meta["scheme"] != "https" || he.Meta["metrics_path"] != "/prom" ||
@@ -149,7 +150,8 @@ func TestDesiredServices(t *testing.T) {
 	}
 	fe := byID["janus:haproxy:fe_https"]
 	if fe.Name != "haproxy-fe-https" || fe.Address != "172.16.10.151" || fe.Port != 443 || !reflect.DeepEqual(fe.Tags, []string{"haproxy", "http", "tls", "proto=http", "scheme=https"}) ||
-		fe.Meta["maps"] != "/etc/haproxy/files/hosts.map" || fe.Check.TCP != "172.16.10.151:443" {
+		fe.Meta["maps"] != "/etc/haproxy/files/hosts.map" || fe.Check.TCP != "" || fe.Check.TTL != "1m0s" || fe.Check.proxy != "fe_https" ||
+		fe.Check.CheckID != "service:janus:haproxy:fe_https" || fe.Check.Interval != "" || fe.Check.Status != "" {
 		t.Errorf("fe_https: %+v %+v", fe, fe.Check)
 	}
 	if raw := byID["janus:haproxy:raw"]; raw.Name != "haproxy-raw" || raw.Port != 5432 || raw.Address != "192.0.2.5" || !reflect.DeepEqual(raw.Tags, []string{"haproxy", "tcp", "proto=tcp"}) {

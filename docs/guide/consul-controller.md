@@ -167,13 +167,25 @@ starting `janus:`: your own `services {}` are never touched.
 | `janus` | janusd's API, `:9505`, a TCP check |
 | `janus-exporter` | the [Janus exporter](../metrics.md) while it's on, where it listens: its main address (`auto`), the address it's set to, else the node's; an HTTP check on its metrics |
 | `node-exporter` | the [node exporter](../metrics.md#the-node-exporter) while its service runs, where it listens, the same way |
-| `haproxy-exporter` | each frontend or listen section that has HAProxy's own exporter answer (`http-request use-service prometheus-exporter`): its first bind's address and port, `metrics_path` from the rule's condition (`path /metrics`, `path_beg /prom`) - else `/metrics` -, `scheme` `https` when that bind has `ssl`; a TCP check |
-| `haproxy-<name>` | each frontend and listen section: the port of its first bind, the bind's address when it names one (an anycast address) - else the node's -, tags `haproxy`, its mode, `tls`, `proto=<its mode>`, `scheme=https` with a bind with `ssl` (else `scheme=http` in HTTP mode, none in TCP); a TCP check; meta `frontend`, `maps` |
+| `haproxy-exporter` | each frontend or listen section that has HAProxy's own exporter answer (`http-request use-service prometheus-exporter`): its first bind's address and port, `metrics_path` from the rule's condition (`path /metrics`, `path_beg /prom`) - else `/metrics` -, `scheme` `https` when that bind has `ssl`; its frontend's check (below) |
+| `haproxy-<name>` | each frontend and listen section: the port of its first bind, the bind's address when it names one (an anycast address) - else the node's -, tags `haproxy`, its mode, `tls`, `proto=<its mode>`, `scheme=https` with a bind with `ssl` (else `scheme=http` in HTTP mode, none in TCP); a TTL check janusd feeds with HAProxy's state of the frontend (below); meta `frontend`, `maps` |
 | `haproxy-url` | one instance per URL the configuration routes, ID `janus:url:<frontend>:<host>`, no check; tags `haproxy`, `url`, its scheme, `scheme=<https\|http>`, `proto=<http\|tcp>`; meta `url`, `host`, `scheme`, `proto`, `frontend`, `backend`, `source` - and `via` for a frontend behind a socket (below) |
 
 Every exporter's instance has the tags `prometheus` and `scheme=<its
 scheme>`, and meta `metrics_path` and `scheme`: one Prometheus job finds
 them all (below).
+
+A frontend's check (`haproxy-<name>`, `haproxy-exporter`) never
+connects: a frontend that refuses some sources (`tcp-request connection
+reject`, an `src` ACL) would refuse the agent's - which dials from the
+node, from the frontend's own address - and every connection would count
+in its statistics. It's a TTL check janusd feeds from the frontend's row
+in HAProxy's `show stat`, after each sync and every 15 s: `OPEN` passing,
+`FULL` (at its `maxconn`) warning, `STOP` or no such frontend critical,
+with its state and sessions as output (`OPEN, 12 sessions of 4000` - the
+agent's at once, the servers' when the status changes or every
+`check_update_interval`, 5 minutes). janusd stopped, nothing feeds it:
+it turns critical after a minute.
 
 The `key=value` tags are for a Prometheus job (or any Consul client) to
 pick by: `proto` is how HAProxy routes a URL's host - `http` by the Host

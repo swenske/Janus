@@ -8,8 +8,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/swenske/Janus/internal/haproxyflow"
+	"github.com/swenske/Janus/internal/haproxystat"
 )
 
 // The services a node registers in its agent (docs/consul.md "The
@@ -25,7 +27,8 @@ import (
 //   - haproxy-<name>: each frontend and listen section, on the port of
 //     its first bind (its address when it names one - an anycast VIP -,
 //     else the node's), tags haproxy, its mode and tls, proto=<mode> and
-//     scheme=<https|http> (none for TCP without ssl), a TCP check;
+//     scheme=<https|http> (none for TCP without ssl), a TTL check janusd
+//     feeds from HAProxy's own state of the frontend (register.go);
 //   - haproxy-url: one instance per URL the configuration routes, for a
 //     probe (Prometheus's blackbox exporter) to find - the hosts in the
 //     maps a use_backend reads by the Host header (or the TLS server
@@ -54,13 +57,64 @@ type Service struct {
 	Check   *Check            `json:"Check,omitempty"`
 }
 
-// Check is a service's check: TCP or HTTP.
+// Check is a service's check: TCP, HTTP, or TTL - janusd says how it
+// stands.
 type Check struct {
+	CheckID  string `json:"CheckID,omitempty"`
 	Name     string `json:"Name,omitempty"`
 	TCP      string `json:"TCP,omitempty"`
 	HTTP     string `json:"HTTP,omitempty"`
-	Interval string `json:"Interval"`
-	Timeout  string `json:"Timeout"`
+	TTL      string `json:"TTL,omitempty"`
+	Notes    string `json:"Notes,omitempty"`
+	Interval string `json:"Interval,omitempty"`
+	Timeout  string `json:"Timeout,omitempty"`
+	// Status is a TTL check's first, as it's registered (never in
+	// Desired's: a status isn't a definition).
+	Status string `json:"Status,omitempty"`
+	// proxy is the frontend (or listen section) whose FRONTEND row in
+	// HAProxy's show stat feeds a TTL check.
+	proxy string
+}
+
+// FrontendTTL is how long a frontend's check keeps the status janusd
+// gave it - fed every 15 s (Registrar.TTLEvery); janusd stopped, it
+// expires critical.
+var FrontendTTL = time.Minute
+
+// frontendCheck is the TTL check of a service on frontend proxy: HAProxy's
+// own state of it, not a connection - a frontend that refuses some
+// sources (tcp-request connection reject) would refuse the agent's, and
+// each connection would count in its statistics.
+func frontendCheck(name, serviceID, proxy string) *Check {
+	return &Check{CheckID: "service:" + serviceID, Name: name, TTL: FrontendTTL.String(), proxy: proxy,
+		Notes: "HAProxy's state of frontend " + proxy + " (show stat), fed by janusd: OPEN passing, FULL warning, STOP or gone critical"}
+}
+
+// frontendState is a TTL check's status and output from the FRONTEND row
+// of proxy in t: OPEN passing, FULL (at its maxconn) warning, STOP or no
+// row critical.
+func frontendState(t *haproxystat.Table, proxy string) (status, output string) {
+	for _, row := range t.Rows {
+		if t.Get(row, "pxname") != proxy || t.Kind(row) != haproxystat.KindFrontend {
+			continue
+		}
+		st := t.Get(row, "status")
+		out := st
+		if cur, ok := t.Uint(row, "scur"); ok {
+			out = fmt.Sprintf("%s, %d sessions", st, cur)
+			if lim, ok := t.Uint(row, "slim"); ok && lim > 0 {
+				out = fmt.Sprintf("%s, %d sessions of %d", st, cur, lim)
+			}
+		}
+		switch st {
+		case "OPEN":
+			return "passing", out
+		case "FULL":
+			return "warning", out
+		}
+		return "critical", out
+	}
+	return "critical", "HAProxy has no frontend " + proxy
 }
 
 // Endpoint is where an exporter listens: Host "" is the node's address.
@@ -221,9 +275,10 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 					scheme, tags = "https", append(tags, "tls")
 				}
 				tags = append(tags, "scheme="+scheme)
-				services = append(services, Service{ID: IDPrefix + "haproxy-exporter:" + f.Name, Name: "haproxy-exporter", Tags: tags,
+				id := IDPrefix + "haproxy-exporter:" + f.Name
+				services = append(services, Service{ID: id, Name: "haproxy-exporter", Tags: tags,
 					Address: host, Port: port, Meta: map[string]string{"metrics_path": path, "scheme": scheme, "frontend": f.Name},
-					Check: check("haproxy-exporter "+f.Name, host, port)})
+					Check: frontendCheck("haproxy-exporter "+f.Name, id, f.Name)})
 			}
 		}
 		if t.Frontends {
@@ -243,8 +298,9 @@ func Desired(t Toggles, src Sources) (services []Service, truncated bool, err er
 			if m := frontendMaps(f); m != "" {
 				meta["maps"] = m
 			}
-			services = append(services, Service{ID: IDPrefix + "haproxy:" + f.Name, Name: ServiceName(f.Name), Tags: tags,
-				Address: host, Port: port, Meta: meta, Check: check("haproxy "+f.Name, host, port)})
+			id := IDPrefix + "haproxy:" + f.Name
+			services = append(services, Service{ID: id, Name: ServiceName(f.Name), Tags: tags,
+				Address: host, Port: port, Meta: meta, Check: frontendCheck("haproxy "+f.Name, id, f.Name)})
 		}
 		if !t.URLs {
 			continue

@@ -25,6 +25,9 @@
 #     node-exporter (absent while stopped), haproxy-exporter (a frontend
 #     serving HAProxy's prometheus-exporter);
 #   - a map entry added at runtime is a URL in the catalog within 60 s;
+#   - the frontends' checks are TTL ones janusd feeds from show stat: a
+#     frontend refusing every source but one passes (a TCP check would be
+#     refused);
 #   - drained, the node's services are in maintenance; undrained, passing;
 #   - HAProxy stopped (its configuration reads a map): in maintenance;
 #     started, back;
@@ -288,6 +291,14 @@ frontend fe_inner
     use_backend be_www if host_inner
     default_backend be_default
 
+# One source only: the agent's TCP connection would be refused at once -
+# a frontend's check is HAProxy's state of it, not a connection.
+frontend fe_guarded
+    mode tcp
+    bind :8446
+    tcp-request connection reject unless { src 192.0.2.99 }
+    default_backend be_to_inner
+
 frontend fe_stats
     mode http
     bind :8405
@@ -305,6 +316,7 @@ EOF
 out="$(ctl a haproxy apply-config "$WORKDIR/a-haproxy.cfg" 2>&1)" || fail "A's haproxy.cfg: $out"
 out="$(curl -s -m 5 -H 'Host: inner.example.test' "http://$NET.11:8444/")"
 [ "$out" = www ] || fail "A's fe_in -> abns@ -> fe_inner: $out"
+if curl -s -m 5 -o /dev/null "http://$NET.11:8446/"; then fail "A's fe_guarded let this host in"; fi
 echo "  ok: A serves sites from a hosts.map and a Host ACL, and through a frontend behind an abstract socket"
 
 # --- the Controller ---------------------------------------------------------------
@@ -454,6 +466,25 @@ until [ "$(health node-a janus:janus)" = passing ] && [ "$(health node-a janus:h
   [ "$SECONDS" -lt "$deadline" ] || fail "A's checks never passed: janus $(health node-a janus:janus), fe_sites $(health node-a janus:haproxy:fe_sites)"
   sleep 2
 done
+# The frontends' checks: TTL, fed by janusd from show stat - fe_guarded,
+# which refuses every source but one, passes, and still does past its
+# TTL (a minute): fed every 15 s. (Their output - "OPEN, 0 sessions of
+# ..." - reaches the servers only every check_update_interval, 5 min:
+# not read here.)
+for _ in 1 2 3 4 5; do
+  [ "$(health node-a janus:haproxy:fe_guarded)" = passing ] || fail "fe_guarded's check: $(health node-a janus:haproxy:fe_guarded)"
+  sleep 15
+done
+consul_api GET /v1/health/node/node-a > "$WORKDIR/health-a.json"
+python3 - "$WORKDIR/health-a.json" <<'PY' || fail "the frontends' checks: $(cat "$WORKDIR/health-a.json")"
+import json, sys
+cs = {c["CheckID"]: c for c in json.load(open(sys.argv[1]))}
+for sid in ("janus:haproxy:fe_guarded", "janus:haproxy:fe_sites", "janus:haproxy-exporter:fe_stats"):
+    c = cs["service:" + sid]
+    assert c["Status"] == "passing" and c["Type"] == "ttl", c
+assert cs["service:janus:janus"]["Type"] == "tcp", cs["service:janus:janus"]
+PY
+echo "  ok: the frontends' checks are TTL ones janusd feeds from show stat: fe_guarded, refusing every source but one, passes past its TTL"
 services node-b | grep -qx "janus:janus janus" || fail "B registered no janus: $(services node-b)"
 out="$(ctl a network consul status)"
 check "A's status, with its token, lists the server" "^consul-test +$SERVER_IP:8301 +alive +server" "$out"
