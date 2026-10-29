@@ -192,6 +192,12 @@ func TestHypervisorLabelsAPI(t *testing.T) {
 	if poked() {
 		t.Error("a change without labels poked the log forwarding")
 	}
+	// The labels alone: the rest kept (v2026.10.29-2's lab got "a name
+	// is required").
+	if got := patch(map[string]any{"labels": map[string]string{"dc": "lgs", "rack": "12"}}); got.Name != "kvm01" || got.ControllerAddress != "192.0.2.1:8443" ||
+		got.Libvirt == nil || got.Libvirt.Host != "192.0.2.2" || !maps.Equal(got.Labels, map[string]string{"dc": "lgs", "rack": "12"}) {
+		t.Errorf("the labels alone: %+v", got)
+	}
 
 	n := machineNode(t, a.store, a.machines, "edge-1", v.ID, map[string]string{"rack": "7"})
 	nodesView := func() nodeView {

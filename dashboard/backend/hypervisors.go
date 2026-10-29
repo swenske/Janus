@@ -219,7 +219,9 @@ func (a *app) handleHypervisorUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var req hypervisorRequest
+	// A field left out keeps its value: the request starts from the
+	// record ({"labels": ...} alone changes the labels alone).
+	req := hypervisorRequest{Name: h.Name, ControllerAddress: h.ControllerAddress}
 	if !decodeBody(w, r, &req) {
 		return
 	}

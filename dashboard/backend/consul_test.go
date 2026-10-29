@@ -329,3 +329,37 @@ func TestConsulInheritedLabels(t *testing.T) {
 		t.Fatalf("a node without dc=lgs: %+v", st)
 	}
 }
+
+// A release without the managed layer is "unsupported" only when the
+// selector picks it - else it's off or not picked, and no retry soon
+// for it (v2026.10.29-2's lab: every old node read "unsupported").
+func TestConsulOldNodeNotPicked(t *testing.T) {
+	a, nodes, srv := consulTestApp(t)
+	ctx := context.Background()
+	elsewhere := addConsulNode(t, a, "elsewhere", "192.0.2.21:9505", map[string]string{"dc": "scw"})
+	nodes.node(elsewhere).old = true
+	a.consulPass(ctx)
+	if st := a.consul.state[elsewhere.ID]; st.State != "off" {
+		t.Fatalf("off: %+v", st)
+	}
+
+	enableConsul(t, a, srv, map[string]string{"dc": "lgs"})
+	if again := a.consulPass(ctx); again {
+		t.Error("an old node the selector doesn't pick, and a retry soon")
+	}
+	if st := a.consul.state[elsewhere.ID]; st.State != "not picked" || st.Error != "" {
+		t.Fatalf("an old node the selector doesn't pick: %+v", st)
+	}
+
+	here := addConsulNode(t, a, "here", "192.0.2.22:9505", map[string]string{"dc": "lgs"})
+	nodes.node(here).old = true
+	if again := a.consulPass(ctx); !again {
+		t.Error("an old node picked, and no retry soon")
+	}
+	if st := a.consul.state[here.ID]; st.State != "unsupported" {
+		t.Fatalf("an old node picked: %+v", st)
+	}
+	if srv.TokenCount() != 0 {
+		t.Fatal("a token for a node without the layer")
+	}
+}
