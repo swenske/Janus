@@ -955,6 +955,14 @@ jobs:
       - name: Consul - a server, a client, HAProxy service discovery
         run: make qemu-consul-test
 
+      # The Controller managing the nodes' agents: a Consul server set up
+      # as in production (ACLs deny, gossip encrypted, RPC over TLS), a
+      # native Controller making each node's token and layer, the nodes
+      # registering their services and the URLs their maps route, drain
+      # meaning maintenance. See hack/qemu-consul-controller-test.sh.
+      - name: Consul - managed by the Controller
+        run: make qemu-consul-controller-test
+
   # Images built with each HAProxy branch and kernel track other than the
   # defaults (variants.mk): the HAProxy runtime API is tested against
   # every branch in test-api; here, a real enforcing boot of each, HAProxy

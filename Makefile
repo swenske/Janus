@@ -41,7 +41,7 @@ BUILD_DIR := build
 GEN_DIR := gen
 
 .PHONY: all build test vet lint proto clean rootfs-fit-test kernel-menuconfig janusctl-deb janusctl-deb-test apt-publish-test \
-	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check ui-preview qemu-metrics-test qemu-console-flood-test qemu-logvol-test qemu-logforward-test qemu-logforward-nologs-test qemu-logforward-es-test qemu-logforward-fleet-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-vrrp-ipv6-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-cluster-acme-test qemu-acme-proxy-test qemu-acme-relay-test qemu-acme-ordered-test qemu-consul-test \
+	shutdown-bin extensions-amd64 extensions-arm64 extension-qemu-guest-agent-amd64 extension-nftables-amd64 extension-nftables-arm64 extension-keepalived-amd64 extension-keepalived-arm64 extension-bird-amd64 extension-bird-arm64 schematic-catalog schematic-inputs site-frontend-build site-build docs-build docs-site docs-dev docs-index docs-examples examples-check examples-test browser-image docs-smoke docs-og docs-screenshots docs-screenshots-check ui-preview qemu-metrics-test qemu-console-flood-test qemu-logvol-test qemu-logforward-test qemu-logforward-nologs-test qemu-logforward-es-test qemu-logforward-fleet-test qemu-sysctl-test qemu-hotplug-test qemu-firewall-test qemu-vrrp-test qemu-vrrp-ipv6-test qemu-bgp-test qemu-baremetal-test qemu-extensions-test pebble versitygw qemu-acme-test qemu-cluster-acme-test qemu-acme-proxy-test qemu-acme-relay-test qemu-acme-ordered-test qemu-consul-test qemu-consul-controller-test \
 	kernel-build kernel-builds kernel-config-refresh rpi4-kernel-config-refresh selinux-classes init initramfs qemu-boot-test haproxy-build haproxy-builds \
 	daemon-static initramfs-full qemu-network-test rootfs-build \
 	qemu-verity-boot-test state-image qemu-state-persist-test \
@@ -1265,6 +1265,14 @@ qemu-consul-test: SCHEMATIC = hack/testdata/schematic-consul.json
 qemu-consul-test: build extension-consul-amd64
 	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
 	./hack/qemu-consul-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl $(EXT_DIR)/tree-consul-amd64/usr/local/sbin/consul
+
+# The Controller managing the nodes' Consul agents: a Consul server in a
+# container (hack/consul-server), a native dashboardd, two enforcing
+# nodes on a bridge with it - see the script. Needs sudo and Docker.
+qemu-consul-controller-test: SCHEMATIC = hack/testdata/schematic-consul.json
+qemu-consul-controller-test: build dashboard-bin extension-consul-amd64
+	$(MAKE) disk-image SCHEMATIC=$(SCHEMATIC)
+	./hack/qemu-consul-controller-test.sh $(BUILD_DIR)/rootfs/disk.img $(BIN_DIR)/janusctl $(BIN_DIR)/dashboardd
 
 # Bare metal: the same images on NVMe/SATA/pvscsi/USB/virtio-scsi disks
 # and e1000e/igb/vmxnet3/e1000 NICs, 4 CPUs, a cloud-init CD-ROM, the ISO
