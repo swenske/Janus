@@ -37,6 +37,12 @@ type UpgradeOptions struct {
 	// otherwise - and returns once the node is rebooting, with what it
 	// said. A failure means the node didn't switch slots.
 	Update func(ctx context.Context, m Member) (string, error)
+	// Prepare readies member m's update while it still serves - its
+	// bundle found, the image factory's build waited for: what fails
+	// there leaves it in service, and what it fetches doesn't go through
+	// the traffic its drain moves (a Controller reaching the factory
+	// through this very cluster's address). Nil: nothing to ready.
+	Prepare func(ctx context.Context, m Member) error
 	// Done is told how member m's update ended: nil once it serves the
 	// target, the error otherwise. Nil: nobody is told.
 	Done func(m Member, err error)
@@ -237,6 +243,11 @@ func (e *Engine) upgradeMember(ctx context.Context, c *Cluster, m Member, opts U
 	boot0, err := e.Nodes.BootTime(ctx, m)
 	if err != nil {
 		return false, fmt.Errorf("%s's boot time: %v", m.Name, err)
+	}
+	if opts.Prepare != nil {
+		if err := opts.Prepare(ctx, m); err != nil {
+			return false, fmt.Errorf("not updating %s: %v - still in service on Janus %s", m.Name, err, v0.GetVersion())
+		}
 	}
 	// Out of service first: the balancer told, then its virtual IPs and
 	// routes moved; its connections finish.

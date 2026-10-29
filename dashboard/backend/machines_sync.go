@@ -77,8 +77,11 @@ func (r *machineRunner) syncNode(node *store.Node) {
 // sync reads a ready machine's version, extensions, network and hardware
 // from its node and its hypervisor into its record.
 func (r *machineRunner) sync(ctx context.Context, id string) error {
-	return r.syncAs(ctx, id, "changed outside the Controller")
+	return r.syncAs(ctx, id, outsideChange)
 }
+
+// outsideChange is how a sync labels what it finds changed.
+const outsideChange = "changed outside the Controller"
 
 // syncAs is sync, its findings logged as label.
 func (r *machineRunner) syncAs(ctx context.Context, id, label string) error {
@@ -116,12 +119,20 @@ func (r *machineRunner) syncAs(ctx context.Context, id, label string) error {
 		var seen []string
 		note := func(format string, args ...any) { seen = append(seen, fmt.Sprintf(format, args...)) }
 		if info != nil {
+			updated := m.Version != info.Version || m.Schematic != info.Schematic
 			if m.Version != info.Version {
 				note("version %s → %s", or(m.Version, "?"), info.Version)
 				m.Version = info.Version
 			}
 			if m.Schematic != info.Schematic {
 				m.Schematic = info.Schematic
+			}
+			// A failed update is behind it once the node was updated
+			// another way - from its page, a bundle the Controller pushed:
+			// its error no longer says what the machine runs.
+			if updated && label == outsideChange && strings.HasPrefix(m.Error, "update failed: ") {
+				note("the update that failed before is superseded")
+				m.Error = ""
 			}
 			sc := &schematic.Schematic{Customization: schematic.Customization{Extensions: append([]string(nil), info.Extensions...)}}
 			if sc.Normalize() == nil && !slices.Equal(sc.Customization.Extensions, m.Spec.Extensions) {

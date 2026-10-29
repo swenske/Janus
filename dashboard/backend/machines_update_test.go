@@ -383,6 +383,92 @@ func TestMachineUpdateVersionAndExtensions(t *testing.T) {
 	}
 }
 
+// heldReadBack is fakeNodes whose node, once it answers with the version
+// an update waits for, holds the next question - the read-back after the
+// update - until released.
+type heldReadBack struct {
+	*fakeNodes
+	target           string
+	served, held     bool
+	reading, release chan struct{}
+}
+
+func (h *heldReadBack) Info(ctx context.Context, n *store.Node) (*nodeproxy.NodeInfo, error) {
+	info, err := h.fakeNodes.Info(ctx, n)
+	h.mu.Lock()
+	hold := h.served && !h.held
+	if hold {
+		h.held = true
+	}
+	if info != nil && info.Version == h.target {
+		h.served = true
+	}
+	h.mu.Unlock()
+	if hold {
+		close(h.reading)
+		<-h.release
+	}
+	return info, err
+}
+
+// Ready says what the machine runs at once - a Terraform apply reads its
+// version then -, not only once the read-back after its update has run.
+func TestMachineUpdateReadyWithWhatItRuns(t *testing.T) {
+	a, fake := newTestApp(t)
+	m, f := readyMachine(t, a, addTrustedHypervisor(t, a), fake)
+	h := &heldReadBack{fakeNodes: f, target: "v2026.10.05", reading: make(chan struct{}), release: make(chan struct{})}
+	prev := nodes
+	nodes = h
+	t.Cleanup(func() { nodes = prev })
+	if code, body := patch(t, a, m.ID, map[string]any{"version": "v2026.10.05", "extensions": []string{"keepalived"}}); code != http.StatusAccepted {
+		t.Fatalf("PATCH: %d %s", code, body)
+	}
+	select {
+	case <-h.reading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("never read back")
+	}
+	got, _ := a.machines.Get(m.ID)
+	close(h.release)
+	want := &schematic.Schematic{Customization: schematic.Customization{Extensions: []string{"keepalived"}}}
+	if got.Phase != machines.PhaseReady || got.Version != "v2026.10.05" || got.Schematic != want.ID() || got.Spec.Version != "v2026.10.05" {
+		t.Errorf("ready before the read-back: %s, runs %s (%.8s), spec %s", got.Phase, got.Version, got.Schematic, got.Spec.Version)
+	}
+	waitReady(t, a, m.ID)
+}
+
+// A failed update is behind the machine once its node was updated another
+// way: the error goes, the history says why. A sync that finds nothing
+// new keeps it.
+func TestMachineSyncSupersedesAFailedUpdate(t *testing.T) {
+	a, fake := newTestApp(t)
+	m, f := readyMachine(t, a, addTrustedHypervisor(t, a), fake)
+	fail := func() {
+		_, _ = a.machines.Update(m.ID, func(m *machines.Machine) error {
+			m.Error = "update failed: update: uki-a.efi: connection refused"
+			return nil
+		})
+	}
+	fail()
+	ctx := context.Background()
+	if err := a.runner.sync(ctx, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := a.machines.Get(m.ID); got.Error == "" {
+		t.Fatal("nothing changed on the node, the error went")
+	}
+	f.mu.Lock()
+	f.version = "v2026.10.05"
+	f.mu.Unlock()
+	if err := a.runner.sync(ctx, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := a.machines.Get(m.ID)
+	if got.Error != "" || got.Version != "v2026.10.05" || !strings.Contains(eventsOf(got), "changed outside the Controller: version v2026.10.02-4 → v2026.10.05; the update that failed before is superseded") {
+		t.Errorf("after the outside update: %q runs %s, history %s", got.Error, got.Version, eventsOf(got))
+	}
+}
+
 // How a machine's updates reboot: kept in its record - changed alone, the
 // node isn't touched - and the next update reboots that way: through
 // kexec, or the firmware.
