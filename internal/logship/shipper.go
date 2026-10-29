@@ -181,7 +181,8 @@ func New(opt Options) *Shipper {
 
 // Apply makes cfg (validated) the configuration: targets added start
 // from now, targets removed stop, a target changed starts again where
-// it was.
+// it was. A target paused (Disabled) stops and keeps its cursors:
+// resumed, it goes on from them.
 func (s *Shipper) Apply(cfg Config) {
 	// Said once s.mu is released: janusd's log comes back through Offer.
 	var left int
@@ -196,13 +197,22 @@ func (s *Shipper) Apply(cfg Config) {
 		return
 	}
 	defer func() { left = s.giveEarly() }()
+	keep := map[string]bool{}
+	for _, t := range cfg.Targets {
+		keep[t.Name] = true
+	}
+	// A paused target removed forgets its cursors like a running one
+	// (below): added again under the same name, it starts from now.
+	for _, t := range s.cfg.Targets {
+		if _, running := s.targets[t.Name]; !running && !keep[t.Name] {
+			s.forget(t.Name)
+		}
+	}
 	s.cfg = cfg
 	labels := cfg.Labels
 	s.labels.Store(&labels)
 	s.accessOnDisk.Store(cfg.AccessLogsOnDisk == "always")
-	keep := map[string]bool{}
 	for _, t := range cfg.Targets {
-		keep[t.Name] = true
 		var prev *target
 		if old, ok := s.targets[t.Name]; ok {
 			if reflect.DeepEqual(old.cfg, t) {
@@ -411,7 +421,12 @@ func (s *Shipper) start(cfg Target, prev *target) *target {
 		if b := v.LoadCursor(); b != nil {
 			_ = json.Unmarshal(b, &vc)
 		}
-		if seq, ok := vc.Targets[cfg.Name]; ok && seq <= v.LastSeq() {
+		// A target removed, then added again before the slot was saved
+		// without it: from now, not from the place it had.
+		s.cursorsMu.Lock()
+		forgotten := s.volForgotten[cfg.Name]
+		s.cursorsMu.Unlock()
+		if seq, ok := vc.Targets[cfg.Name]; ok && !forgotten && seq <= v.LastSeq() {
 			t.volCursor = seq
 		} else {
 			t.volCursor = v.LastSeq()
