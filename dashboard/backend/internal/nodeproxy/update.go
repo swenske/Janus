@@ -33,7 +33,7 @@ import (
 // ImageFactoryURL is the image factory nodes with extensions get their
 // updates from; empty disables it (those nodes then have no update
 // source). Set once at startup (dashboardd's -image-factory).
-var ImageFactoryURL = "https://janus.sw-servers.net"
+var ImageFactoryURL = DefaultImageFactory
 
 // ControllerVersion is dashboardd's, shown on the node pages - set at
 // startup.
@@ -54,10 +54,12 @@ type updateCheck struct {
 	// schematic is the node's whole schematic (NodeSchematic).
 	schematic *schematic.Schematic
 
-	// Its newest update. Source is "github" or "image-factory"; State is
-	// "ready" (BundleURL and SHA256 set), "building", "failed" or
-	// "unavailable" (Message says why).
+	// Its newest update. Source is "github" or "image-factory" - Via
+	// "mirror" when the factory couldn't be reached and its mirror
+	// answered (mirror.go); State is "ready" (BundleURL and SHA256 set),
+	// "building", "failed" or "unavailable" (Message says why).
 	Source          string `json:"source"`
+	Via             string `json:"via,omitempty"`
 	Latest          string `json:"latest,omitempty"`
 	ReleaseURL      string `json:"release_url,omitempty"`
 	PublishedAt     string `json:"published_at,omitempty"`
@@ -304,7 +306,7 @@ func resolveUpdate(ctx context.Context, uc *updateCheck) {
 		uc.State, uc.Message = "unavailable", err.Error()
 		return
 	}
-	uc.Latest, uc.ReleaseURL = up.Version, up.ReleaseURL
+	uc.Latest, uc.ReleaseURL, uc.Via = up.Version, up.ReleaseURL, up.Via
 	uc.BundleURL, uc.SHA256 = up.BundleURL, up.SHA256
 	uc.State, uc.Message = up.State, up.Message
 	uc.UpdateAvailable = updateAvailable(up.Version, uc.Version)
@@ -480,6 +482,8 @@ type factoryUpdateResponse struct {
 	// Renamed: the update is built from another schematic, Schematic,
 	// with these extensions renamed (old -> new).
 	Renamed map[string]string `json:"renamed"`
+	// Via is "mirror" when the factory's mirror answered.
+	Via string `json:"-"`
 }
 
 var factoryCache struct {
@@ -537,24 +541,52 @@ func fetchFactoryUpdate(ctx context.Context, base string, uc *updateCheck) (*fac
 	if sc == nil || sc.ID() != uc.SchematicID {
 		return nil, fmt.Errorf("the node's extensions (%s) don't make up its schematic %s, and its image doesn't say what it is", strings.Join(uc.Extensions, ", "), short(uc.SchematicID))
 	}
-	var created struct {
-		ID string `json:"id"`
-	}
-	if err := factoryCall(ctx, http.MethodPost, base+"/api/v1/schematics", sc.Canonical(), &created); err != nil {
-		return nil, err
-	}
-	if created.ID != uc.SchematicID {
-		return nil, fmt.Errorf("the image factory gives the node's schematic the ID %s, not %s", short(created.ID), short(uc.SchematicID))
-	}
-	q := url.Values{"arch": {uc.Arch}, "from": {uc.Version}}
 	var up factoryUpdateResponse
-	if err := factoryCall(ctx, http.MethodGet, base+"/api/v1/updates/"+uc.SchematicID+"?"+q.Encode(), nil, &up); err != nil {
+	via, err := withMirror(ctx, base, func(ctx context.Context, base string, mirror bool) error {
+		up = factoryUpdateResponse{}
+		return askFactoryUpdate(ctx, base, mirror, uc, &up)
+	})
+	if err != nil {
 		return nil, err
 	}
+	up.Via = via
 	return &up, nil
 }
 
+// askFactoryUpdate asks the image factory at base for uc's update - its
+// mirror (read only) gets no schematic to register.
+func askFactoryUpdate(ctx context.Context, base string, mirror bool, uc *updateCheck, up *factoryUpdateResponse) error {
+	who := factoryName(mirror)
+	if !mirror {
+		var created struct {
+			ID string `json:"id"`
+		}
+		if err := factoryCallAs(ctx, who, http.MethodPost, base+"/api/v1/schematics", uc.schematic.Canonical(), &created); err != nil {
+			return err
+		}
+		if created.ID != uc.SchematicID {
+			return fmt.Errorf("the image factory gives the node's schematic the ID %s, not %s", short(created.ID), short(uc.SchematicID))
+		}
+	}
+	q := url.Values{"arch": {uc.Arch}, "from": {uc.Version}}
+	return factoryCallAs(ctx, who, http.MethodGet, base+"/api/v1/updates/"+uc.SchematicID+"?"+q.Encode(), nil, up)
+}
+
+func factoryName(mirror bool) string {
+	if mirror {
+		return "the image factory's mirror"
+	}
+	return "image factory"
+}
+
 func factoryCall(ctx context.Context, method, u string, body []byte, out any) error {
+	return factoryCallAs(ctx, "image factory", method, u, body, out)
+}
+
+// factoryCallAs calls the image factory (or its mirror: who, in errors).
+// An error that isn't the factory's answer - no connection, a timeout, a
+// 5xx - is an *unreachableError.
+func factoryCallAs(ctx context.Context, who, method, u string, body []byte, out any) error {
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
@@ -568,24 +600,29 @@ func factoryCall(ctx context.Context, method, u string, body []byte, out any) er
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("image factory: %w", err)
+		return &unreachableError{fmt.Errorf("%s: %w", who, err)}
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
-		return fmt.Errorf("image factory: %w", err)
+		return &unreachableError{fmt.Errorf("%s: %w", who, err)}
 	}
 	if resp.StatusCode/100 != 2 {
 		var e struct {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(data, &e) == nil && e.Error != "" {
-			return fmt.Errorf("image factory: %s", e.Error)
+			err = fmt.Errorf("%s: %s", who, e.Error)
+		} else {
+			err = fmt.Errorf("%s: %s", who, resp.Status)
 		}
-		return fmt.Errorf("image factory: %s", resp.Status)
+		if resp.StatusCode >= 500 {
+			return &unreachableError{err}
+		}
+		return err
 	}
 	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("image factory: %w", err)
+		return fmt.Errorf("%s: %w", who, err)
 	}
 	return nil
 }

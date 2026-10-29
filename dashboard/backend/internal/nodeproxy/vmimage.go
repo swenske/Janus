@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/swenske/Janus/internal/schematic"
@@ -102,14 +103,36 @@ func factoryImage(ctx context.Context, img *VMImage, sc *schematic.Schematic, fi
 	if base == "" {
 		return fmt.Errorf("extensions, a HAProxy branch or a kernel track need an image factory, and none is configured (dashboardd -image-factory)")
 	}
-	var created struct {
-		ID string `json:"id"`
+	ask := func(ctx context.Context, base string, mirror bool) error {
+		return askFactoryImage(ctx, base, mirror, img, sc, file)
 	}
-	if err := factoryCall(ctx, http.MethodPost, base+"/api/v1/schematics", sc.Canonical(), &created); err != nil {
-		return err
+	if !slices.Contains(bundleFiles, file) {
+		// The mirror has update bundles, no disk images.
+		return ask(ctx, base, false)
 	}
-	if created.ID != img.Schematic {
-		return fmt.Errorf("the image factory gives the schematic the ID %s, not %s", short(created.ID), short(img.Schematic))
+	_, err := withMirror(ctx, base, ask)
+	return err
+}
+
+// bundleFiles are an update bundle's files: what the image factory's
+// mirror serves.
+var bundleFiles = []string{"rootfs.squashfs", "rootfs.squashfs.sha256", "rootfs.verity", "uki-a.efi", "uki-b.efi"}
+
+// askFactoryImage asks the image factory at base for img's file, and to
+// build it when it isn't yet - not its mirror (read only), which only
+// has what was built.
+func askFactoryImage(ctx context.Context, base string, mirror bool, img *VMImage, sc *schematic.Schematic, file string) error {
+	who := factoryName(mirror)
+	if !mirror {
+		var created struct {
+			ID string `json:"id"`
+		}
+		if err := factoryCallAs(ctx, who, http.MethodPost, base+"/api/v1/schematics", sc.Canonical(), &created); err != nil {
+			return err
+		}
+		if created.ID != img.Schematic {
+			return fmt.Errorf("the image factory gives the schematic the ID %s, not %s", short(created.ID), short(img.Schematic))
+		}
 	}
 	statusURL := base + "/api/v1/images/" + img.Schematic + "/" + url.PathEscape(img.Version) + "/amd64"
 	var st struct {
@@ -122,11 +145,11 @@ func factoryImage(ctx context.Context, img *VMImage, sc *schematic.Schematic, fi
 			SHA256 string `json:"sha256"`
 		} `json:"files"`
 	}
-	if err := factoryCall(ctx, http.MethodGet, statusURL, nil, &st); err != nil {
+	if err := factoryCallAs(ctx, who, http.MethodGet, statusURL, nil, &st); err != nil {
 		return err
 	}
-	if st.State == "none" {
-		if err := factoryCall(ctx, http.MethodPost, statusURL, []byte("{}"), &st); err != nil {
+	if st.State == "none" && !mirror {
+		if err := factoryCallAs(ctx, who, http.MethodPost, statusURL, []byte("{}"), &st); err != nil {
 			return err
 		}
 	}
